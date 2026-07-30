@@ -63,6 +63,14 @@ pub struct YaoRoleCompletion<RoleCompletion, TransportCompletion> {
     pub transport: TransportCompletion,
 }
 
+/// Successful fixed-role execution before transport teardown.
+pub struct YaoOpenRoleCompletion<RoleCompletion, Transport> {
+    /// Cryptographic role completion.
+    pub role: RoleCompletion,
+    /// Live transport after both authenticated protocol directions closed.
+    pub transport: Transport,
+}
+
 /// Failure from the fixed role driver.
 #[derive(Debug)]
 pub enum YaoRoleDriverError<TransportError> {
@@ -76,7 +84,10 @@ impl<TransportError: fmt::Display> fmt::Display for YaoRoleDriverError<Transport
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Protocol(stage) => {
-                write!(formatter, "fixed Ed25519 Yao role protocol failed at {stage}")
+                write!(
+                    formatter,
+                    "fixed Ed25519 Yao role protocol failed at {stage}"
+                )
             }
             Self::Transport(error) => {
                 write!(formatter, "Ed25519 Yao duplex transport failed: {error}")
@@ -157,6 +168,17 @@ pub async fn run_activation_deriver_b<T: YaoDuplexTransport>(
     run_role(role, transport).await
 }
 
+/// Runs activation Deriver B while leaving the completed transport open.
+///
+/// This permits a role adapter to durably seal its result before delivering
+/// that opaque result over the already-authenticated connection.
+pub async fn run_activation_deriver_b_open<T: YaoDuplexTransport>(
+    role: ActivationDeriverB,
+    transport: T,
+) -> Result<YaoOpenRoleCompletion<ActivationDeriverBCompletion, T>, YaoRoleDriverError<T::Error>> {
+    run_role_open(role, transport).await
+}
+
 /// Runs the fixed export Deriver B role over one selected duplex transport.
 pub async fn run_export_deriver_b<T: YaoDuplexTransport>(
     role: ExportDeriverB,
@@ -166,10 +188,38 @@ pub async fn run_export_deriver_b<T: YaoDuplexTransport>(
     run_role(role, transport).await
 }
 
+/// Runs export Deriver B while leaving the completed transport open.
+pub async fn run_export_deriver_b_open<T: YaoDuplexTransport>(
+    role: ExportDeriverB,
+    transport: T,
+) -> Result<YaoOpenRoleCompletion<ExportDeriverBCompletion, T>, YaoRoleDriverError<T::Error>> {
+    run_role_open(role, transport).await
+}
+
 async fn run_role<R, T>(
+    role: R,
+    transport: T,
+) -> Result<YaoRoleCompletion<R::Completion, T::Completion>, YaoRoleDriverError<T::Error>>
+where
+    R: FixedYaoRole,
+    T: YaoDuplexTransport,
+{
+    let open = run_role_open(role, transport).await?;
+    let transport = open
+        .transport
+        .finish()
+        .await
+        .map_err(YaoRoleDriverError::Transport)?;
+    Ok(YaoRoleCompletion {
+        role: open.role,
+        transport,
+    })
+}
+
+async fn run_role_open<R, T>(
     mut role: R,
     mut transport: T,
-) -> Result<YaoRoleCompletion<R::Completion, T::Completion>, YaoRoleDriverError<T::Error>>
+) -> Result<YaoOpenRoleCompletion<R::Completion, T>, YaoRoleDriverError<T::Error>>
 where
     R: FixedYaoRole,
     T: YaoDuplexTransport,
@@ -248,11 +298,7 @@ where
                 {
                     RelayStep::Continue(next) => role = next,
                     RelayStep::Complete(completion) => {
-                        let transport = transport
-                            .finish()
-                            .await
-                            .map_err(YaoRoleDriverError::Transport)?;
-                        return Ok(YaoRoleCompletion {
+                        return Ok(YaoOpenRoleCompletion {
                             role: completion,
                             transport,
                         });
@@ -273,11 +319,7 @@ where
                 {
                     RelayStep::Continue(next) => role = next,
                     RelayStep::Complete(completion) => {
-                        let transport = transport
-                            .finish()
-                            .await
-                            .map_err(YaoRoleDriverError::Transport)?;
-                        return Ok(YaoRoleCompletion {
+                        return Ok(YaoOpenRoleCompletion {
                             role: completion,
                             transport,
                         });

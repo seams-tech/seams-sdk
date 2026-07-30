@@ -366,11 +366,19 @@ export class EmailRecoveryAuthOperations {
         relayerParticipantId: existingThresholdEd25519Binding.relayerParticipantId,
         participantIds: existingThresholdEd25519Binding.participantIds,
       };
+      // A binding with no Ed25519 identity belongs to a wallet whose Yao
+      // ceremony has not settled. Ed25519 recovery has nothing to recover, so
+      // it joins the existing incomplete-binding guard rather than proceeding.
+      const walletBinding = resolvedEd25519WalletBindingFromCredentialBinding({
+        binding: existingThresholdEd25519Binding,
+        signerSlot,
+      });
       if (
         !keygen.relayerKeyId ||
         !keygen.publicKey ||
         !keygen.keyVersion ||
-        keygen.recoveryExportCapable !== true
+        keygen.recoveryExportCapable !== true ||
+        !walletBinding
       ) {
         return {
           ok: false,
@@ -378,10 +386,6 @@ export class EmailRecoveryAuthOperations {
           message: 'Existing threshold-ed25519 binding is incomplete',
         };
       }
-      const walletBinding = resolvedEd25519WalletBindingFromCredentialBinding({
-        binding: existingThresholdEd25519Binding,
-        signerSlot,
-      });
       const walletBindingAuthorityScope = passkeyThresholdEd25519AuthorityScope(
         requireWebAuthnRpId(walletBinding.rpId, 'email recovery registration rpId'),
       );

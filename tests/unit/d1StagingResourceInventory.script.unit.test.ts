@@ -23,6 +23,7 @@ type ResourceInventoryPlan = {
       readonly name: string;
       readonly d1Databases: readonly unknown[];
       readonly durableObjects: readonly unknown[];
+      readonly durableObjectMigrations: readonly unknown[];
       readonly secretsStoreSecrets: readonly unknown[];
     };
   };
@@ -95,21 +96,34 @@ test('D1 staging resource inventory records config-derived resource IDs', async 
   expect(plan.resources.consoleWorker.d1Databases).toEqual([
     {
       binding: 'CONSOLE_DB',
-      databaseName: 'seams-console-staging',
+      databaseName: 'seams-console-staging-nrt',
       databaseId: '11111111-1111-4111-8111-111111111111',
       migrationsDir: 'migrations/d1-console',
     },
   ]);
   expect(plan.resources.consoleWorker.durableObjects).toEqual([]);
   expect(plan.resources.gatewayWorker.d1Databases).toHaveLength(2);
-  expect(plan.resources.gatewayWorker.durableObjects).toEqual([
+  expect(plan.resources.gatewayWorker.durableObjects).toEqual([]);
+  expect(plan.resources.gatewayWorker.durableObjectMigrations).toEqual([
     {
-      name: 'THRESHOLD_STORE',
-      className: 'ThresholdStoreDurableObject',
+      tag: 'threshold-store-sqlite-v1',
+      newSqliteClasses: ['ThresholdStoreDurableObject'],
+      deletedClasses: [],
     },
     {
-      name: 'ROUTER_API_RUNTIME',
-      className: 'RouterApiRuntimeDurableObject',
+      tag: 'router-api-runtime-sqlite-v1',
+      newSqliteClasses: ['RouterApiRuntimeDurableObject'],
+      deletedClasses: [],
+    },
+    {
+      tag: 'router-api-runtime-delete-v1',
+      newSqliteClasses: [],
+      deletedClasses: ['RouterApiRuntimeDurableObject'],
+    },
+    {
+      tag: 'threshold-store-delete-v1',
+      newSqliteClasses: [],
+      deletedClasses: ['ThresholdStoreDurableObject'],
     },
   ]);
   expect(plan.resources.gatewayWorker.secretsStoreSecrets).toEqual([

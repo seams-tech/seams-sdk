@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
+  buildRouterAbEcdsaDerivationActiveStateIdV1,
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
   parseRouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
@@ -55,8 +56,14 @@ const ECDSA_THRESHOLD_KEY_ID = 'ecdsa-threshold-key-1';
 const RELAYER_KEY_ID = 'relayer-key-1';
 const SIGNING_ROOT_ID = 'project-registration:local';
 const SIGNING_ROOT_VERSION = 'signing-root-v1';
-const THRESHOLD_SESSION_ID = 'threshold-ecdsa-session-1';
+const REGISTRATION_THRESHOLD_SESSION_ID = 'threshold-ecdsa-session-1';
 const ACTIVATION_EPOCH = 'root-share-epoch-1';
+const ACTIVE_THRESHOLD_SESSION_ID = buildRouterAbEcdsaDerivationActiveStateIdV1({
+  ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+  signingRootId: SIGNING_ROOT_ID,
+  signingRootVersion: SIGNING_ROOT_VERSION,
+  activationEpoch: ACTIVATION_EPOCH,
+});
 const WALLET_SIGNING_SESSION_ID = 'signing-grant-1';
 const EXPIRES_AT_MS = 1_900_000_000_000;
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
@@ -204,7 +211,7 @@ function walletSessionJwt(
     sub: WALLET_ID,
     walletId: WALLET_ID,
     evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-    thresholdSessionId: THRESHOLD_SESSION_ID,
+    thresholdSessionId: ACTIVE_THRESHOLD_SESSION_ID,
     signingGrantId: WALLET_SIGNING_SESSION_ID,
     keyScope: 'evm-family',
     keyHandle: KEY_HANDLE,
@@ -252,7 +259,7 @@ function clientBootstrap(): WalletRegistrationEcdsaClientBootstrap {
     keyScope: 'evm-family',
     relayerKeyId: RELAYER_KEY_ID,
     requestId: 'registration-request-1',
-    thresholdSessionId: THRESHOLD_SESSION_ID,
+    thresholdSessionId: REGISTRATION_THRESHOLD_SESSION_ID,
     signingGrantId: WALLET_SIGNING_SESSION_ID,
     ttlMs: 300_000,
     remainingUses: 3,
@@ -293,7 +300,7 @@ function serverBootstrap(
     ethereumAddress: OWNER_ADDRESS,
     relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_33_B64U,
     participantIds: [1, 2],
-    thresholdSessionId: THRESHOLD_SESSION_ID,
+    thresholdSessionId: ACTIVE_THRESHOLD_SESSION_ID,
     activationEpoch: ACTIVATION_EPOCH,
     signingGrantId: WALLET_SIGNING_SESSION_ID,
     expiresAtMs: EXPIRES_AT_MS,

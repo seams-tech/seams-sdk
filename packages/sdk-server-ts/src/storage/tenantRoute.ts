@@ -1,4 +1,3 @@
-import type { CloudflareDurableObjectNamespaceLike } from '../core/types';
 import type { SigningRootKekProvider } from '../core/ThresholdService/signingRootKekProvider';
 import type { OrgId } from '@shared/utils/domainIds';
 
@@ -16,7 +15,6 @@ export type NamespaceId = string;
 export type RouteVersion = number;
 export type D1BindingName = string;
 export type D1DatabaseName = string;
-export type DurableObjectBindingName = string;
 export type HyperdriveBindingName = string;
 export type PostgresSchemaName = string;
 
@@ -48,33 +46,11 @@ export interface HyperdriveBindingLike {
   readonly connectionString: string;
 }
 
-export type ConsoleD1StorageTarget = {
-  readonly kind: 'd1';
-  readonly bindingName: D1BindingName;
-  readonly databaseName: D1DatabaseName;
-  readonly database: D1DatabaseLike;
-  readonly hyperdriveBindingName?: never;
-  readonly hyperdrive?: never;
-  readonly postgresSchema?: never;
-};
-
-export type ConsolePostgresStorageTarget = {
-  readonly kind: 'postgres';
-  readonly hyperdriveBindingName: HyperdriveBindingName;
-  readonly hyperdrive: HyperdriveBindingLike;
-  readonly postgresSchema: PostgresSchemaName;
-  readonly bindingName?: never;
-  readonly databaseName?: never;
-  readonly database?: never;
-};
-
 export type SignerD1DoStorageTarget = {
   readonly kind: 'cloudflare_d1_do';
   readonly metadataBindingName: D1BindingName;
   readonly metadataDatabaseName: D1DatabaseName;
   readonly metadataDatabase: D1DatabaseLike;
-  readonly thresholdStoreBindingName: DurableObjectBindingName;
-  readonly thresholdStore: CloudflareDurableObjectNamespaceLike;
   readonly kekProvider: SigningRootKekProvider;
   readonly hyperdriveBindingName?: never;
   readonly hyperdrive?: never;
@@ -90,11 +66,8 @@ export type SignerPostgresStorageTarget = {
   readonly metadataBindingName?: never;
   readonly metadataDatabaseName?: never;
   readonly metadataDatabase?: never;
-  readonly thresholdStoreBindingName?: never;
-  readonly thresholdStore?: never;
 };
 
-export type ConsoleStorageTarget = ConsoleD1StorageTarget | ConsolePostgresStorageTarget;
 export type SignerStorageTarget = SignerD1DoStorageTarget | SignerPostgresStorageTarget;
 
 export type CloudflareTenantStorageRoute = {
@@ -104,7 +77,6 @@ export type CloudflareTenantStorageRoute = {
   readonly routeVersion: RouteVersion;
   readonly topology: CloudflareTenantTopology;
   readonly jurisdiction: TenantDataJurisdiction;
-  readonly console: ConsoleD1StorageTarget;
   readonly signer: SignerD1DoStorageTarget;
   readonly migrationReason?: never;
   readonly postgresRegion?: never;
@@ -119,7 +91,6 @@ export type PostgresTenantStorageRoute = {
   readonly migrationReason: PostgresMigrationReason;
   readonly postgresRegion: string;
   readonly postgresBackupRegion: string;
-  readonly console: ConsolePostgresStorageTarget;
   readonly signer: SignerPostgresStorageTarget;
   readonly topology?: never;
   readonly jurisdiction?: never;
@@ -140,7 +111,6 @@ export interface StaticCloudflareTenantStorageRouteResolverInput {
   readonly routeVersion: RouteVersion;
   readonly topology: CloudflareTenantTopology;
   readonly jurisdiction: TenantDataJurisdiction;
-  readonly console: ConsoleD1StorageTarget;
   readonly signer: SignerD1DoStorageTarget;
 }
 
@@ -148,14 +118,9 @@ export interface StaticCloudflareTenantStorageRouteResolverBindingInput {
   readonly routeVersion: RouteVersion;
   readonly topology: CloudflareTenantTopology;
   readonly jurisdiction: TenantDataJurisdiction;
-  readonly consoleBindingName: D1BindingName;
-  readonly consoleDatabaseName: D1DatabaseName;
-  readonly consoleDatabase: D1DatabaseLike;
   readonly signerMetadataBindingName: D1BindingName;
   readonly signerMetadataDatabaseName: D1DatabaseName;
   readonly signerMetadataDatabase: D1DatabaseLike;
-  readonly thresholdStoreBindingName: DurableObjectBindingName;
-  readonly thresholdStore: CloudflareDurableObjectNamespaceLike;
   readonly kekProvider: SigningRootKekProvider;
 }
 
@@ -194,25 +159,10 @@ function normalizeRouteVersion(value: RouteVersion): RouteVersion {
   return value;
 }
 
-export function createConsoleD1StorageTarget(input: {
-  readonly bindingName: D1BindingName;
-  readonly databaseName: D1DatabaseName;
-  readonly database: D1DatabaseLike;
-}): ConsoleD1StorageTarget {
-  return {
-    kind: 'd1',
-    bindingName: normalizeRequiredString(input.bindingName, 'console D1 bindingName'),
-    databaseName: normalizeRequiredString(input.databaseName, 'console D1 databaseName'),
-    database: input.database,
-  };
-}
-
 export function createSignerD1DoStorageTarget(input: {
   readonly metadataBindingName: D1BindingName;
   readonly metadataDatabaseName: D1DatabaseName;
   readonly metadataDatabase: D1DatabaseLike;
-  readonly thresholdStoreBindingName: DurableObjectBindingName;
-  readonly thresholdStore: CloudflareDurableObjectNamespaceLike;
   readonly kekProvider: SigningRootKekProvider;
 }): SignerD1DoStorageTarget {
   return {
@@ -226,11 +176,6 @@ export function createSignerD1DoStorageTarget(input: {
       'signer D1 metadataDatabaseName',
     ),
     metadataDatabase: input.metadataDatabase,
-    thresholdStoreBindingName: normalizeRequiredString(
-      input.thresholdStoreBindingName,
-      'signer thresholdStoreBindingName',
-    ),
-    thresholdStore: input.thresholdStore,
     kekProvider: input.kekProvider,
   };
 }
@@ -241,7 +186,6 @@ export function createCloudflareTenantStorageRoute(input: {
   readonly routeVersion: RouteVersion;
   readonly topology: CloudflareTenantTopology;
   readonly jurisdiction: TenantDataJurisdiction;
-  readonly console: ConsoleD1StorageTarget;
   readonly signer: SignerD1DoStorageTarget;
 }): CloudflareTenantStorageRoute {
   return {
@@ -251,7 +195,6 @@ export function createCloudflareTenantStorageRoute(input: {
     routeVersion: normalizeRouteVersion(input.routeVersion),
     topology: input.topology,
     jurisdiction: input.jurisdiction,
-    console: input.console,
     signer: input.signer,
   };
 }
@@ -260,14 +203,12 @@ export class StaticCloudflareTenantStorageRouteResolver implements TenantStorage
   private readonly routeVersion: RouteVersion;
   private readonly topology: CloudflareTenantTopology;
   private readonly jurisdiction: TenantDataJurisdiction;
-  private readonly consoleTarget: ConsoleD1StorageTarget;
   private readonly signerTarget: SignerD1DoStorageTarget;
 
   constructor(input: StaticCloudflareTenantStorageRouteResolverInput) {
     this.routeVersion = normalizeRouteVersion(input.routeVersion);
     this.topology = input.topology;
     this.jurisdiction = input.jurisdiction;
-    this.consoleTarget = input.console;
     this.signerTarget = input.signer;
   }
 
@@ -278,7 +219,6 @@ export class StaticCloudflareTenantStorageRouteResolver implements TenantStorage
       routeVersion: this.routeVersion,
       topology: this.topology,
       jurisdiction: this.jurisdiction,
-      console: this.consoleTarget,
       signer: this.signerTarget,
     });
   }
@@ -293,24 +233,16 @@ export function createStaticCloudflareTenantStorageRouteResolver(
 export function createStaticCloudflareTenantStorageRouteResolverFromBindings(
   input: StaticCloudflareTenantStorageRouteResolverBindingInput,
 ): StaticCloudflareTenantStorageRouteResolver {
-  const consoleTarget = createConsoleD1StorageTarget({
-    bindingName: input.consoleBindingName,
-    databaseName: input.consoleDatabaseName,
-    database: input.consoleDatabase,
-  });
   const signerTarget = createSignerD1DoStorageTarget({
     metadataBindingName: input.signerMetadataBindingName,
     metadataDatabaseName: input.signerMetadataDatabaseName,
     metadataDatabase: input.signerMetadataDatabase,
-    thresholdStoreBindingName: input.thresholdStoreBindingName,
-    thresholdStore: input.thresholdStore,
     kekProvider: input.kekProvider,
   });
   return createStaticCloudflareTenantStorageRouteResolver({
     routeVersion: input.routeVersion,
     topology: input.topology,
     jurisdiction: input.jurisdiction,
-    console: consoleTarget,
     signer: signerTarget,
   });
 }

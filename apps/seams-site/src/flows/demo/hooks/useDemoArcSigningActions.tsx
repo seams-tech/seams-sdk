@@ -112,7 +112,7 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     void (async (): Promise<ArcPreflightOutcome> => {
       const thresholdOwnerAddress = await resolveThresholdOwnerAddressForEvmFamily();
       const balanceWei = await readEvmNativeBalance({
-        rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
+        rpcUrl: FRONTEND_CONFIG.arcRpcRequestUrl,
         address: thresholdOwnerAddress,
         blockTag: 'pending',
       });

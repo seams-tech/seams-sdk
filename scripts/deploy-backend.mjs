@@ -15,7 +15,6 @@ import { formatFailedCheck, isFailedCheck, runReadinessChecks } from './deployme
 import {
   GATEWAY_WORKER_COMPATIBILITY_DATE,
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
-  parseGatewayCutoverWorkerVars,
 } from '../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
@@ -57,6 +56,35 @@ const PREFLIGHT_VARIABLE_ALIASES = Object.freeze({
   ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: 'DERIVER_B_PEER_VERIFYING_KEY_HEX',
   ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:
     'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
+  ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID: 'SIGNING_WORKER_PRIVATE_D1_ID',
+  ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY: 'SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY',
+  ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION: 'SIGNING_WORKER_PRIVATE_D1_KEK_VERSION',
+  ROUTER_AB_DERIVER_A_PRIVATE_D1_ID: 'DERIVER_A_PRIVATE_D1_ID',
+  ROUTER_AB_DERIVER_B_PRIVATE_D1_ID: 'DERIVER_B_PRIVATE_D1_ID',
+  ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY: 'DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
+  ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION: 'DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION',
+  ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY: 'DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
+  ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION: 'DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION',
+});
+const PRIVATE_D1_DEPLOYMENTS = Object.freeze({
+  'signing-worker': Object.freeze({
+    binding: 'SIGNING_WORKER_PRIVATE_DB',
+    databaseIdEnvironment: 'SIGNING_WORKER_PRIVATE_D1_ID',
+    productionPlaceholder: '00000000-0000-0000-0000-0000000094c1',
+    stagingPlaceholder: '00000000-0000-0000-0000-0000000094c2',
+  }),
+  'deriver-a': Object.freeze({
+    binding: 'DERIVER_ROLE_PRIVATE_DB',
+    databaseIdEnvironment: 'DERIVER_A_PRIVATE_D1_ID',
+    productionPlaceholder: '00000000-0000-0000-0000-0000000094a1',
+    stagingPlaceholder: '00000000-0000-0000-0000-0000000094a2',
+  }),
+  'deriver-b': Object.freeze({
+    binding: 'DERIVER_ROLE_PRIVATE_DB',
+    databaseIdEnvironment: 'DERIVER_B_PRIVATE_D1_ID',
+    productionPlaceholder: '00000000-0000-0000-0000-0000000094b1',
+    stagingPlaceholder: '00000000-0000-0000-0000-0000000094b2',
+  }),
 });
 
 main(process.argv.slice(2)).catch(handleFailure);
@@ -146,7 +174,7 @@ function printPlan(targetName, target) {
     '  2. preflight all five backend custody components',
     `  3. migrate ${target.resources.gateway.consoleD1Name} (console D1)`,
     `  4. migrate ${target.resources.gateway.signerD1Name} (signer D1)`,
-    '  5. deploy signing-worker, deriver-a, and deriver-b concurrently',
+    '  5. migrate and deploy signing-worker, deriver-a, and deriver-b concurrently',
     '  6. deploy router after all three workers complete',
     '  7. bootstrap Gateway tenant and publishable key',
     '  8. upsert Gateway signing-root KEK',
@@ -175,10 +203,17 @@ function buildBackend() {
     });
   }
   runCommand('bash', ['packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh']);
-  runCommand('pnpm', ['-C', 'packages/console-server-ts', 'run', 'd1:local:ensure-wasm'], {
-    env: buildEnvironment({ WASM_SDK_BUILD_TARGET: 'gateway' }),
+  const gatewayWasmEnvironment = buildEnvironment({
+    WASM_SDK_BUILD_MODE: 'prod',
+    WASM_SDK_BUILD_TARGET: 'gateway',
+  });
+  runCommand('pnpm', ['-C', 'packages/sdk-web', 'run', 'build:wasm'], {
+    env: gatewayWasmEnvironment,
   });
   runCommand('pnpm', ['-C', 'packages/sdk-server-ts', 'build']);
+  runCommand('pnpm', ['-C', 'packages/console-server-ts', 'run', 'd1:local:ensure-wasm'], {
+    env: gatewayWasmEnvironment,
+  });
   writeGatewayBuildConfig();
   fs.mkdirSync(path.dirname(GATEWAY_BUNDLE), { recursive: true });
   runCommand(
@@ -221,12 +256,23 @@ function preflightBackend(targetName, target, component, environment = process.e
   }
   if (component === 'gateway') {
     requiredNames.push('SIGNING_ROOT_KEK_VALUE');
-    parseGatewayCutoverWorkerVars(environment);
     const config = target.gatewayDeploymentConfig;
     if (config.optional.nearRelayer) requiredNames.push('RELAYER_PRIVATE_KEY');
   }
   requireEnvironmentValues(unique(requiredNames), environment);
+  if (component === 'gateway') warnDisabledGatewayIntegrations(environment);
   process.stdout.write(`Preflight passed: ${targetName}/${component}\n`);
+}
+
+function warnDisabledGatewayIntegrations(environment) {
+  if (!String(environment.STRIPE_WEBHOOK_SECRET || '').trim()) {
+    process.stderr.write(
+      'Warning: Stripe webhook processing is disabled because STRIPE_WEBHOOK_SECRET is not configured.\n',
+    );
+  }
+  process.stderr.write(
+    'Warning: Console email delivery is disabled because no email provider is configured.\n',
+  );
 }
 
 function readPreflightEnvironment() {
@@ -265,21 +311,33 @@ function parseEnvironmentInventory(name) {
 function componentRuntimeRequirements(targetName, target, component) {
   switch (component) {
     case 'signing-worker':
-      return ['SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY'];
+      return [
+        'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
+        'SIGNING_WORKER_PRIVATE_D1_ID',
+        'SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY',
+        'SIGNING_WORKER_PRIVATE_D1_KEK_VERSION',
+      ];
     case 'deriver-a':
       return [
+        'DERIVER_A_PRIVATE_D1_ID',
+        'DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
+        'DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION',
         'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
       ];
     case 'deriver-b':
       return [
+        'DERIVER_B_PRIVATE_D1_ID',
+        'DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
+        'DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION',
         'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
       ];
     case 'router':
       return [
+        'ROUTER_AB_JWT_JWKS_JSON',
         'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
         'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
         'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
@@ -325,13 +383,13 @@ function deployBackend(targetName, target, component) {
   preflightBackend(targetName, target, component);
   switch (component) {
     case 'signing-worker':
-      deploySigningWorker(target);
+      deploySigningWorker(targetName, target);
       return;
     case 'deriver-a':
-      deployDeriver(target, 'a');
+      deployDeriver(targetName, target, 'a');
       return;
     case 'deriver-b':
-      deployDeriver(target, 'b');
+      deployDeriver(targetName, target, 'b');
       return;
     case 'router':
       deployMpcRouter(targetName, target);
@@ -344,26 +402,39 @@ function deployBackend(targetName, target, component) {
   }
 }
 
-function deploySigningWorker(target) {
+function deploySigningWorker(targetName, target) {
   const resource = target.resources.signingWorker;
   putWorkerSecret(resource, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
   putWorkerSecret(resource, 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY');
-  const args = workerDeployArguments(resource);
+  putWorkerSecret(resource, 'SIGNING_WORKER_PRIVATE_D1_KEK');
+  const configPath = renderPrivateD1WorkerConfig(targetName, resource, 'signing-worker');
+  migratePrivateD1(resource, configPath, 'signing-worker');
+  const args = workerDeployArguments(resource, configPath);
   args.push(
     '--var',
     `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:${requireEnvironmentValue('SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY')}`,
+    '--var',
+    `SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY:${requireEnvironmentValue('SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY')}`,
+    '--var',
+    `SIGNING_WORKER_PRIVATE_D1_KEK_VERSION:${requireEnvironmentValue('SIGNING_WORKER_PRIVATE_D1_KEK_VERSION')}`,
+    '--var',
+    `SIGNING_WORKER_PRIVATE_D1_ENVIRONMENT:${targetName}`,
   );
   runRouterCommand(args);
 }
 
-function deployDeriver(target, role) {
+function deployDeriver(targetName, target, role) {
   const resource = role === 'a' ? target.resources.deriverA : target.resources.deriverB;
   const prefix = role === 'a' ? 'DERIVER_A' : 'DERIVER_B';
   putWorkerSecret(resource, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
   putWorkerSecret(resource, `${prefix}_ROOT_SHARE_WIRE_SECRET`);
   putWorkerSecret(resource, `${prefix}_ENVELOPE_HPKE_PRIVATE_KEY`);
   putWorkerSecret(resource, `${prefix}_PEER_SIGNING_KEY`);
-  const args = workerDeployArguments(resource);
+  putWorkerSecret(resource, `${prefix}_ROLE_PRIVATE_D1_KEK`);
+  const component = `deriver-${role}`;
+  const configPath = renderPrivateD1WorkerConfig(targetName, resource, component);
+  migratePrivateD1(resource, configPath, component);
+  const args = workerDeployArguments(resource, configPath);
   args.push(
     '--var',
     `${prefix}_ENVELOPE_HPKE_PUBLIC_KEY:${requireEnvironmentValue(`${prefix}_ENVELOPE_HPKE_PUBLIC_KEY`)}`,
@@ -371,6 +442,12 @@ function deployDeriver(target, role) {
     `DERIVER_A_PEER_VERIFYING_KEY_HEX:${requireEnvironmentValue('DERIVER_A_PEER_VERIFYING_KEY_HEX')}`,
     '--var',
     `DERIVER_B_PEER_VERIFYING_KEY_HEX:${requireEnvironmentValue('DERIVER_B_PEER_VERIFYING_KEY_HEX')}`,
+    '--var',
+    `DERIVER_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY:${requireEnvironmentValue(`${prefix}_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY`)}`,
+    '--var',
+    `DERIVER_ROLE_PRIVATE_D1_KEK_VERSION:${requireEnvironmentValue(`${prefix}_ROLE_PRIVATE_D1_KEK_VERSION`)}`,
+    '--var',
+    `DERIVER_ROLE_PRIVATE_D1_ENVIRONMENT:${targetName}`,
   );
   runRouterCommand(args);
 }
@@ -385,7 +462,7 @@ function deployMpcRouter(targetName, target) {
     '--var',
     'ROUTER_JWT_AUDIENCE:router-ab',
     '--var',
-    `ROUTER_JWT_JWKS_URL:${target.origins.gateway}/.well-known/router-ab-ceremony-jwks.json`,
+    `ROUTER_JWT_JWKS_JSON:${requireEnvironmentValue('ROUTER_AB_JWT_JWKS_JSON')}`,
     '--var',
     `DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:${requireEnvironmentValue('DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY')}`,
     '--var',
@@ -446,14 +523,57 @@ function deployGateway(targetName) {
   );
 }
 
-function workerDeployArguments(resource) {
-  const configPath = path.resolve(REPOSITORY_ROOT, resource.configPath);
+function workerDeployArguments(resource, renderedConfigPath) {
+  const configPath = renderedConfigPath || path.resolve(REPOSITORY_ROOT, resource.configPath);
   assertFile(configPath, `Wrangler config for ${resource.workerName}`);
   const args = ['exec', 'wrangler', 'deploy', '--config', configPath];
   if (resource.deploymentEnvironment.kind === 'named') {
     args.push('--env', resource.deploymentEnvironment.name);
   }
   return args;
+}
+
+function renderPrivateD1WorkerConfig(targetName, resource, component) {
+  const deployment = PRIVATE_D1_DEPLOYMENTS[component];
+  if (!deployment) throw new Error(`Private D1 deployment is missing for ${component}`);
+  const sourcePath = path.resolve(REPOSITORY_ROOT, resource.configPath);
+  assertFile(sourcePath, `Wrangler config for ${resource.workerName}`);
+  const placeholder =
+    targetName === 'staging' ? deployment.stagingPlaceholder : deployment.productionPlaceholder;
+  const databaseId = requireEnvironmentValue(deployment.databaseIdEnvironment);
+  const source = fs.readFileSync(sourcePath, 'utf8');
+  if (!source.includes(`database_id = "${placeholder}"`)) {
+    throw new Error(`${sourcePath} is missing the ${targetName} private D1 placeholder`);
+  }
+  const rendered = source.replace(
+    `database_id = "${placeholder}"`,
+    `database_id = "${databaseId}"`,
+  );
+  const outputPath = path.join(
+    path.dirname(sourcePath),
+    `.wrangler.generated.${component}.${targetName}.toml`,
+  );
+  fs.writeFileSync(outputPath, rendered, { mode: 0o600 });
+  return outputPath;
+}
+
+function migratePrivateD1(resource, configPath, component) {
+  const deployment = PRIVATE_D1_DEPLOYMENTS[component];
+  const args = [
+    'exec',
+    'wrangler',
+    'd1',
+    'migrations',
+    'apply',
+    deployment.binding,
+    '--remote',
+    '--config',
+    configPath,
+  ];
+  if (resource.deploymentEnvironment.kind === 'named') {
+    args.push('--env', resource.deploymentEnvironment.name);
+  }
+  runRouterCommand(args);
 }
 
 function putWorkerSecret(resource, name) {
@@ -484,12 +604,32 @@ async function smokeBackend(target) {
       url: new URL(requestPath, target.origins.gateway).toString(),
     });
   }
+  checks.push({
+    name: '/console/session CORS preflight',
+    url: new URL('/console/session', target.origins.gateway).toString(),
+    request: {
+      method: 'OPTIONS',
+      headers: {
+        Origin: target.origins.site,
+        'Access-Control-Request-Method': 'GET',
+      },
+    },
+    isReady: isDashboardConsoleCorsPreflight.bind(null, target.origins.site),
+  });
   const results = await runReadinessChecks(checks);
   const failed = results.filter(isFailedCheck);
   process.stdout.write(`${JSON.stringify({ results })}\n`);
   if (failed.length > 0) {
     throw new Error(`backend smoke failed: ${failed.map(formatFailedCheck).join(', ')}`);
   }
+}
+
+function isDashboardConsoleCorsPreflight(dashboardOrigin, response) {
+  return (
+    response.status === 204 &&
+    response.headers.get('Access-Control-Allow-Origin') === dashboardOrigin &&
+    response.headers.get('Access-Control-Allow-Credentials') === 'true'
+  );
 }
 
 function renderGatewayConfig(targetName) {

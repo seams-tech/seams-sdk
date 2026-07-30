@@ -8,8 +8,8 @@ Rules:
 
 - Delete an entry in the same change that replaces its behavior
   (no third implementation, no compatibility alias).
-- When an entry is deleted, strike it here and record the commit in the
-  [journal](./refactor-90-journal.md).
+- When an entry is deleted, strike it here and append the commit SHA to the
+  entry. Git history is the progress record; there is no separate journal.
 - Phases add newly discovered targets here instead of growing prose in the
   [plan](./refactor-90-modular-auth-capabilities-plan.md).
 
@@ -313,6 +313,75 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   verified evidence satisfying two exact requirements)
 - replaced worker entrypoints, loaders, asset-manifest rows,
   `UiConfirmManager` factor branches, and adapter wrappers
+
+## Discovered July 28, 2026 — unit tests pinned to the legacy ECDSA record family
+
+These were invisible until now. The unit suite had been aborting during
+Playwright's collection phase (three files stopped loading), so it exited
+non-zero having run **zero** of its ~2.1k tests. With collection restored — and
+`tests/reporters/failOnCollectionErrors.ts` wired into `playwright.unit.config.ts`
+so a load failure can never again read as a warning — the suite runs and surfaces
+298 failures across 70 files.
+
+These are **not** repaired. They assert the record family this ledger retires, so
+they are deletion targets for the phase that deletes their subject, not
+fixture-repair work. Repairing them would also grow fixture surface on fields the
+plan's Verification Budget is trying to shed.
+
+### Foundation B / Phase 18 — `ThresholdEcdsaSessionRecord` and friends
+
+54 failures / 15 files. Signatures: `Invalid threshold ECDSA canonical session
+record: …`, `expected transaction_signing purpose`, `Email OTP wallet auth
+authority requires walletId` (authority inference from `source`), `invalid ECDSA
+sealed session fixture`.
+
+Still failing: `ecdsaRoleLocalRecords`, `emailOtpEcdsaSigningSessionAuth`,
+`emailOtpWalletSessionCoordinator`.
+
+Resolved ahead of Phase 18 by migrating the shared bootstrap fixture, not by
+patching tests — `createThresholdEcdsaBootstrapFixture` now emits
+`role_local_worker_handle` for passkey instead of an inline ready-state blob,
+matching the production activation path and the ledger's opaque-material
+direction: the `warmSessionStore.*` cluster, `warmSessionReadModel`,
+`warmSessionEcdsaProvisioning`, `evmFamily.requestBoundary`,
+`evmSigning.thresholdReconnectEvents`, `sealedSessionStore`. That migration also
+retired `toWorkerOwnedPasskeyEcdsaBootstrapFixture`, a duplicate shim left in
+`warmSessionTestServices.fixtures.ts` pending exactly this change.
+
+### Phase 5 — `EcdsaRoleLocalPublicFacts` identity fields
+
+66 failures / 10 files: `ecdsaRoleLocalRecords`, `ecdsaMaterialState`,
+`ecdsaSelection.restorable`, `phase5UseCaseServices`, `platformAdapter.conformance`,
+`sealedRecovery.methodAdapters`, `signingCapabilityStrictRecords`,
+`signingPostSignPolicy`, `thresholdEcdsaEmailOtpConsumption`,
+`thresholdEcdsaSessionAuthMaterial`.
+
+Signature: `ecdsaPublicCapability must be an object` — inline fixtures predate
+`publicCapability` becoming required. **Deliberately left failing.** Back-filling
+it grows fixture surface on `evmFamilySigningKeySlotId`, `chainTarget`, and
+`clientVerifyingShareB64u`, all of which Phase 5 removes from these facts.
+
+`tests/unit/signingFlow.readySigner.unit.test.ts` was **deleted** rather than left
+failing: its fixture threw at module scope, which aborts collection for the entire
+suite.
+
+### Not Refactor 90 — triage separately
+
+- **Stale inline normal-signing literals** (15 / 2 files): test-local
+  `makeRouterAbEcdsaDerivationNormalSigningState` helpers using invalid
+  `recipient_encryption_key` values (`scope.signing_worker.recipient_encryption_key
+must use x25519:<64 lowercase hex chars>`).
+- **Service-interface drift** (21 / 5 files): `service.getIdentityStore`,
+  `getEmailOtpChallengeStore`, `getEmailOtpRegistrationAttemptStore`,
+  `thresholdRuntime.*`, `warmSessionReader.getEd25519CapabilityForNearAccount` —
+  test doubles missing methods production now requires.
+- **Environment** (22 / 8 files): `SEAMS_LOCAL_CONSOLE_ORG_ID`, CONSOLE_DB
+  migration, `_test-sdk` dynamic imports and `ERR_CONNECTION_REFUSED` (need
+  `build:sdk-full` plus a live dev server, which `pnpm test:unit` does and a bare
+  `playwright test` does not).
+- **Unclassified assertion failures** (120 / 51 files): `toMatchObject`,
+  `toEqual`, `toThrow` mismatches needing per-test triage against current domain
+  types.
 
 ## Phase 27 — final sweep
 

@@ -279,20 +279,10 @@ ROUTER_API_KEY_AUTH_ENABLED=1
 
 # Console storage in this Node runner is memory-only. Use the Cloudflare D1 local
 # worker for persistent Refactor 82 development.
-# Optional shared secret required by POST /console/billing/stripe/webhook
-# CONSOLE_BILLING_STRIPE_WEBHOOK_SECRET=replace-with-strong-random-secret
-# Optional live Stripe API credentials for /console/billing/stripe/* provider flows.
-# When STRIPE_API_SK is unset, Router API uses deterministic mock Stripe providers.
-# STRIPE_API_SK=sk_test_...
-# Optional frontend usage; Router API only logs presence.
-# STRIPE_API_PK=pk_test_...
-# Optional default Stripe checkout Price ID.
-# If unset, Router API checkout provider uses inline dynamic price_data for demo mode.
-# STRIPE_CHECKOUT_PRICE_ID=price_...
-# Optional Stripe API base URL override.
-# STRIPE_API_BASE_URL=https://api.stripe.com
-# Optional Stripe API request timeout in milliseconds (default 15000).
-# STRIPE_API_TIMEOUT_MS=15000
+# Stripe endpoint signing secret for raw Stripe-Signature verification.
+# STRIPE_WEBHOOK_SECRET=whsec_...
+# This memory-backed Node runner rejects STRIPE_API_SK. Use the durable D1 worker
+# for live Stripe checkout and refund operations.
 
 # Strict read-query max window (default 7 days)
 # CONSOLE_OBSERVABILITY_QUERY_MAX_WINDOW_MS=604800000
@@ -344,8 +334,8 @@ ROUTER_API_KEY_AUTH_ENABLED=1
 
 ### Persistence
 
-Staging-required local development uses the Cloudflare D1/DO Worker in
-`packages/sdk-server-ts`:
+Staging-required local development uses the Cloudflare D1/DO Worker from the
+installed `@seams/sdk-server` package:
 
 ```bash
 pnpm -C packages/console-server-ts run d1:local:prepare
@@ -388,28 +378,25 @@ This example server also mounts console/admin routes at `/console/*`.
 - Demo org/member seed:
   - Enabled by default with `CONSOLE_DEMO_SEED_ENABLED=1`.
   - Seeded identities include:
-    - `console-owner` (`owner`)
-    - `console-admin` (`admin`)
-    - `console-operator` (`overview_read`, `wallet_operations_read`, `integrations_read`)
+    - `console-seed-owner` (`OWNER`)
+    - `console-backup-owner` (`OWNER`)
+    - `console-admin` (`ADMIN` with all four administrator permissions)
+    - `console-operator` (`MEMBER` with editor access to the demo project)
   - Seed controls:
     - `CONSOLE_DEMO_ORG_ID` (optional explicit org override; otherwise Router API resolves the only persisted org from storage)
     - `CONSOLE_DEMO_PROJECT_ID`
     - `CONSOLE_DEMO_ENVIRONMENT_ID`
-    - `CONSOLE_SSO_DEFAULT_ROLES` (optional additional bootstrap roles)
-    - `CONSOLE_DEMO_ROLES` (fallback additional bootstrap roles)
-    - `CONSOLE_PLATFORM_ADMIN_EMAILS` (optional CSV allowlist for additive `platform_admin` claims)
+    - `CONSOLE_PLATFORM_SUPPORT_EMAILS` (optional CSV allowlist for internal support access)
   - First-login SSO provisioning behavior:
     - ensures org context exists,
-    - bootstraps missing active membership with `owner` + `admin` + configured additional roles,
+    - creates the first organization membership as `OWNER`,
     - appends audit event `member.owner.bootstrap`.
 - Console storage in this Node runner is in-memory. Durable Refactor 82 local
   development runs through the Cloudflare D1/DO worker.
-- Stripe provider mode:
-  - set `STRIPE_API_SK` to use live Stripe API for prepaid checkout-session creation.
-  - leave `STRIPE_API_SK` unset to use deterministic mock provider outputs for local/offline testing.
-  - optional `STRIPE_CHECKOUT_PRICE_ID` pins checkout sessions to a pre-created Stripe Price ID.
-- Stripe webhook auth for billing is configured with `CONSOLE_BILLING_STRIPE_WEBHOOK_SECRET`:
-  - when set, `/console/billing/stripe/webhook` requires header `x-console-stripe-webhook-secret` with an exact secret match.
+- This Node runner uses deterministic mock Stripe provider outputs and rejects
+  `STRIPE_API_SK`; live Stripe requires the durable D1 console worker.
+- Stripe webhook verification is configured with `STRIPE_WEBHOOK_SECRET`:
+  - `/console/billing/stripe/webhook` verifies Stripe's `Stripe-Signature` against the exact raw request body.
   - when unset, webhook route returns `stripe_webhook_not_configured`.
 - Webhooks and observability use the same console backend family as billing.
 

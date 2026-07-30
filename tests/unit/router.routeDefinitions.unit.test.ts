@@ -1,21 +1,16 @@
 import { expect, test } from '@playwright/test';
 import { applyRouteMetering } from '../../packages/sdk-server-ts/src/router/applyRouteMetering';
-import { createConsoleRouterApiRouteExtensions } from '../../packages/console-server-ts/src/router/routeExtensions';
-import { authorizeConsoleRouteRequest } from '../../packages/console-server-ts/src/router/consoleRoutePolicy';
 import { registerCloudflareRoute } from '../../packages/sdk-server-ts/src/router/cloudflare/registerCloudflareRoute';
 import { enforceRoutePolicy } from '../../packages/sdk-server-ts/src/router/enforceRoutePolicy';
 import { API_CREDENTIAL_ROUTE_SCOPES } from '../../packages/sdk-server-ts/src/router/routeAuthPolicy';
 import { ROUTE_SERVICE_KEYS } from '../../packages/sdk-server-ts/src/router/routeExecutionContext';
 import {
-  createConsoleRouteDefinitions,
   createRouterApiRouteDefinitions,
   defineRoute,
-  findRouteDefinitionForRequest,
   type RouteDefinition,
 } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import {
-  ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH,
-  ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { WALLET_SESSION_SEAL_BASE_PATH } from '@shared/utils/signingSessionSeal';
@@ -40,22 +35,18 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'sync_account_options',
   'sync_account_verify',
   'email_recovery_prepare',
-  'email_recovery_ed25519_respond',
-  'email_recovery_ed25519_finalize',
   'router_ab_ed25519_healthz',
   'router_ab_ed25519_wallet_session',
   'router_ab_ecdsa_derivation_healthz',
   'session_exchange',
   'wallet_unlock_challenge',
   'wallet_unlock_verify',
-  'wallet_registration_intent_cancel',
-  'wallet_registration_prepare',
-  'wallet_registration_start',
-  'wallet_registration_derivation_respond',
-  'wallet_registration_derivation_advance_state',
-  'wallet_registration_finalize',
+  'wallet_registration_respond',
+  'wallet_registration_activate',
+  'wallet_registration_near_provisioning',
   'wallet_add_signer_start',
-  'wallet_add_signer_derivation_respond',
+  'wallet_add_signer_ecdsa_derivation_respond',
+  'wallet_add_signer_ecdsa_activation',
   'wallet_add_signer_finalize',
   'wallet_add_auth_method_start',
   'wallet_add_auth_method_finalize',
@@ -90,26 +81,16 @@ test.describe('route definition scaffolding', () => {
     expect(new Set(ids).size).toBe(ids.length);
 
     expect(routes.find((route) => route.id === 'registration_bootstrap')).toBeUndefined();
-    const walletRegistrationIntent = routes.find(
-      (route) => route.id === 'wallet_registration_intent',
+    const walletRegistrationSetup = routes.find(
+      (route) => route.id === 'wallet_registration_setup',
     );
-    expect(walletRegistrationIntent).toBeTruthy();
-    expect(walletRegistrationIntent?.auth).toMatchObject({
+    expect(walletRegistrationSetup).toBeTruthy();
+    expect(walletRegistrationSetup?.auth).toMatchObject({
       plane: 'api_credentials',
-      credentials: ['secret_key', 'bootstrap_token'],
+      credentials: ['publishable_key'],
       scopes: ['accounts.create'],
     });
-    expect(walletRegistrationIntent?.metering).toEqual({ kind: 'none' });
-
-    const walletRegistrationIntentCancel = routes.find(
-      (route) => route.id === 'wallet_registration_intent_cancel',
-    );
-    expect(walletRegistrationIntentCancel).toBeTruthy();
-    expect(walletRegistrationIntentCancel?.auth).toMatchObject({
-      plane: 'public',
-      proof: 'intent_grant',
-    });
-    expect(walletRegistrationIntentCancel?.metering).toEqual({ kind: 'none' });
+    expect(walletRegistrationSetup?.metering).toEqual({ kind: 'none' });
 
     const walletAddAuthMethodIntent = routes.find(
       (route) => route.id === 'wallet_add_auth_method_intent',
@@ -117,7 +98,7 @@ test.describe('route definition scaffolding', () => {
     expect(walletAddAuthMethodIntent).toBeTruthy();
     expect(walletAddAuthMethodIntent?.auth).toMatchObject({
       plane: 'api_credentials',
-      credentials: ['secret_key', 'bootstrap_token'],
+      credentials: ['publishable_key'],
       scopes: ['wallets.auth_methods.create'],
     });
     expect(walletAddAuthMethodIntent?.metering).toEqual({ kind: 'none' });
@@ -134,35 +115,6 @@ test.describe('route definition scaffolding', () => {
     expect(signedDelegate).toBeUndefined();
     expect(routes.find((route) => route.id === 'sponsored_evm_call')).toBeUndefined();
 
-    const consoleRouterApiExtensionRoutes = createConsoleRouterApiRouteExtensions({
-      apiKeyAuth: {} as any,
-      bootstrapGrantBroker: {} as any,
-      signedDelegate: {
-        route: '/signed-delegate',
-        authService: {} as any,
-        billing: {} as any,
-        ledger: {} as any,
-        runtimeSnapshots: {} as any,
-        publishableKeyAuth: {} as any,
-        observabilityIngestion: null,
-        prepaidReservations: null,
-        pricing: null,
-        spendCaps: null,
-        webhooks: null,
-      },
-      wallets: {} as any,
-    }).flatMap((extension) => [...extension.routes]);
-
-    const extensionSignedDelegate = consoleRouterApiExtensionRoutes.find(
-      (route) => route.id === 'signed_delegate',
-    );
-    expect(extensionSignedDelegate).toBeTruthy();
-    expect(extensionSignedDelegate?.auth).toMatchObject({
-      plane: 'api_credentials',
-      credentials: ['publishable_key'],
-    });
-    expect(extensionSignedDelegate?.metering).toEqual({ kind: 'gas', ledger: 'near_delegate' });
-
     expect(routes.find((route) => route.id === 'threshold_ecdsa_sign_init')).toBeUndefined();
 
     const sessionState = routes.find((route) => route.id === 'session_state');
@@ -171,8 +123,7 @@ test.describe('route definition scaffolding', () => {
     expect(sessionState?.aliases).toBeUndefined();
 
     const routePaths = routes.map((route) => route.path);
-    expect(routePaths).toContain(ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH);
-    expect(routePaths).toContain(ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH);
+    expect(routePaths).toContain(ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH);
     expect(routePaths).toContain(ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH);
     expect(routePaths).not.toContain('/threshold-ed25519/session');
     expect(routePaths).not.toContain('/threshold-ed25519/internal/cosign/init');
@@ -191,9 +142,7 @@ test.describe('route definition scaffolding', () => {
     const prfApply = routes.find((route) => route.id === 'signing_session_seal_apply_server_seal');
     expect(prfApply?.path).toBe(`${WALLET_SESSION_SEAL_BASE_PATH}/apply-server-seal`);
 
-    const apiCredentialRoutes = [...routes, ...consoleRouterApiExtensionRoutes].filter(
-      (route) => route.auth.plane === 'api_credentials',
-    );
+    const apiCredentialRoutes = routes.filter((route) => route.auth.plane === 'api_credentials');
     expect(apiCredentialRoutes.length).toBeGreaterThan(0);
     for (const route of apiCredentialRoutes) {
       const auth = route.auth as Extract<RouteDefinition['auth'], { plane: 'api_credentials' }>;
@@ -202,15 +151,6 @@ test.describe('route definition scaffolding', () => {
       for (const scope of auth.scopes || []) {
         expect(API_CREDENTIAL_ROUTE_SCOPES).toContain(scope);
       }
-    }
-
-    const usedApiCredentialScopes = new Set(
-      apiCredentialRoutes.flatMap((route) =>
-        route.auth.plane === 'api_credentials' ? route.auth.scopes || [] : [],
-      ),
-    );
-    for (const scope of API_CREDENTIAL_ROUTE_SCOPES) {
-      expect(usedApiCredentialScopes.has(scope)).toBe(true);
     }
 
     const publicRoutes = routes.filter((route) => route.auth.plane === 'public');
@@ -319,299 +259,6 @@ test.describe('route definition scaffolding', () => {
         summary: 'broken services',
       }),
     ).toThrow(/unknown service/);
-  });
-
-  test('console route definitions encode targeted RBAC and path matching', async () => {
-    const routes = createConsoleRouteDefinitions();
-    const ids = routes.map((route) => route.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(routes.every((route) => route.auth.plane === 'console')).toBe(true);
-    expect(routes.every((route) => route.metering.kind === 'none')).toBe(true);
-
-    const onboardingOrganizationCreate = routes.find(
-      (route) => route.id === 'console_onboarding_organization_create',
-    );
-    expect(onboardingOrganizationCreate?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin'],
-    });
-
-    const onboardingTelemetry = routes.find(
-      (route) => route.id === 'console_onboarding_telemetry_get',
-    );
-    expect(onboardingTelemetry?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['admin', 'ops'],
-    });
-
-    const accountSwitchContext = routes.find(
-      (route) => route.id === 'console_account_organizations_switch_context',
-    );
-    expect(accountSwitchContext?.auth).toMatchObject({
-      plane: 'console',
-    });
-
-    const opsCockpitSummary = routes.find(
-      (route) => route.id === 'console_ops_cockpit_summary_get',
-    );
-    expect(opsCockpitSummary?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin', 'security_admin', 'ops'],
-    });
-
-    const auditEvents = routes.find((route) => route.id === 'console_audit_events_list');
-    expect(auditEvents?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin', 'security_admin', 'ops'],
-    });
-
-    const walletsList = routes.find((route) => route.id === 'console_wallets_list');
-    expect(walletsList?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin', 'security_admin', 'ops', 'support'],
-    });
-
-    const projectArchive = routes.find((route) => route.id === 'console_projects_archive');
-    expect(projectArchive?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin'],
-    });
-
-    const teamMemberInvite = routes.find((route) => route.id === 'console_members_invite');
-    expect(teamMemberInvite?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin'],
-    });
-
-    const approvalReject = routes.find((route) => route.id === 'console_approvals_reject');
-    expect(approvalReject?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin', 'security_admin'],
-    });
-
-    const auditExportCreate = routes.find((route) => route.id === 'console_audit_exports_create');
-    expect(auditExportCreate?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin'],
-    });
-
-    const policyPublish = routes.find((route) => route.id === 'console_policies_publish');
-    expect(policyPublish?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin', 'security_admin'],
-    });
-
-    const observabilitySummary = routes.find(
-      (route) => route.id === 'console_observability_summary_get',
-    );
-    expect(observabilitySummary?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin', 'security_admin', 'ops', 'support'],
-    });
-
-    const invoiceGenerate = routes.find(
-      (route) => route.id === 'console_billing_invoices_generate',
-    );
-    expect(invoiceGenerate?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['admin', 'ops'],
-    });
-
-    const billingOverview = routes.find((route) => route.id === 'console_billing_overview_get');
-    expect(billingOverview?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin', 'billing_admin', 'ops'],
-    });
-
-    const supportCredit = routes.find(
-      (route) => route.id === 'console_billing_adjustments_support_credit',
-    );
-    expect(supportCredit?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['platform_admin'],
-    });
-
-    const webhookCreate = routes.find((route) => route.id === 'console_webhooks_create');
-    expect(webhookCreate?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin', 'security_admin'],
-    });
-    expect(webhookCreate?.metering).toEqual({ kind: 'none' });
-
-    const billingUsageEvents = routes.find(
-      (route) => route.id === 'console_billing_usage_events_record',
-    );
-    expect(billingUsageEvents?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['admin', 'ops'],
-    });
-
-    const keyExportCreate = routes.find((route) => route.id === 'console_key_exports_create');
-    expect(keyExportCreate?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin', 'security_admin'],
-    });
-
-    const keyExportApprove = routes.find((route) => route.id === 'console_key_exports_approve');
-    expect(keyExportApprove?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['admin'],
-    });
-
-    const apiKeyRotate = routes.find((route) => route.id === 'console_api_keys_rotate');
-    expect(apiKeyRotate?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin', 'security_admin'],
-    });
-
-    const publishCurrentSnapshot = routes.find(
-      (route) => route.id === 'console_runtime_snapshots_publish_current',
-    );
-    expect(publishCurrentSnapshot?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin', 'security_admin'],
-    });
-
-    const replayRoute = findRouteDefinitionForRequest(
-      routes,
-      'POST',
-      '/console/webhooks/wh_123/replay',
-    );
-    expect(replayRoute?.id).toBe('console_webhooks_replay');
-
-    const keyExportApproveRoute = findRouteDefinitionForRequest(
-      routes,
-      'POST',
-      '/console/key-exports/ke_123/approve',
-    );
-    expect(keyExportApproveRoute?.id).toBe('console_key_exports_approve');
-
-    const apiKeyRotateRoute = findRouteDefinitionForRequest(
-      routes,
-      'POST',
-      '/console/api-keys/ak_123/rotate',
-    );
-    expect(apiKeyRotateRoute?.id).toBe('console_api_keys_rotate');
-
-    const environmentArchiveRoute = findRouteDefinitionForRequest(
-      routes,
-      'POST',
-      '/console/environments/env_123/archive',
-    );
-    expect(environmentArchiveRoute?.id).toBe('console_environments_archive');
-
-    const teamMemberRolesRoute = findRouteDefinitionForRequest(
-      routes,
-      'PATCH',
-      '/console/members/mbr_123/roles',
-    );
-    expect(teamMemberRolesRoute?.id).toBe('console_members_update_roles');
-
-    const approvalApproveRoute = findRouteDefinitionForRequest(
-      routes,
-      'POST',
-      '/console/approvals/apr_123/approve',
-    );
-    expect(approvalApproveRoute?.id).toBe('console_approvals_approve');
-
-    const auditExportCreateRoute = findRouteDefinitionForRequest(
-      routes,
-      'POST',
-      '/console/audit/exports',
-    );
-    expect(auditExportCreateRoute?.id).toBe('console_audit_exports_create');
-
-    const policyAssignmentDeleteRoute = findRouteDefinitionForRequest(
-      routes,
-      'DELETE',
-      '/console/policies/assignments/asg_123',
-    );
-    expect(policyAssignmentDeleteRoute?.id).toBe('console_policy_assignments_delete');
-
-    const policyPublishRoute = findRouteDefinitionForRequest(
-      routes,
-      'POST',
-      '/console/policies/pol_123/publish',
-    );
-    expect(policyPublishRoute?.id).toBe('console_policies_publish');
-
-    const sessionRoute = findRouteDefinitionForRequest(routes, 'GET', '/console/session');
-    expect(sessionRoute?.id).toBe('console_session_get');
-
-    const accountProfileRoute = findRouteDefinitionForRequest(
-      routes,
-      'PATCH',
-      '/console/account/profile',
-    );
-    expect(accountProfileRoute?.id).toBe('console_account_profile_patch');
-
-    const switchContextRoute = findRouteDefinitionForRequest(
-      routes,
-      'POST',
-      '/console/account/organizations/org_123/switch-context',
-    );
-    expect(switchContextRoute?.id).toBe('console_account_organizations_switch_context');
-
-    const observabilityServicesRoute = findRouteDefinitionForRequest(
-      routes,
-      'GET',
-      '/console/observability/services',
-    );
-    expect(observabilityServicesRoute?.id).toBe('console_observability_services_list');
-
-    const walletRoute = findRouteDefinitionForRequest(routes, 'GET', '/console/wallets/wlt_123');
-    expect(walletRoute?.id).toBe('console_wallets_get');
-
-    const invoicePdfRoute = findRouteDefinitionForRequest(
-      routes,
-      'GET',
-      '/console/billing/invoices/inv_123/pdf',
-    );
-    expect(invoicePdfRoute?.id).toBe('console_billing_invoices_pdf_get');
-
-    const policySimulateRoute = findRouteDefinitionForRequest(
-      routes,
-      'POST',
-      '/console/policies/pol_123/simulate',
-    );
-    expect(policySimulateRoute?.id).toBe('console_policies_simulate');
-
-    const checkoutSessionRoute = findRouteDefinitionForRequest(
-      routes,
-      'POST',
-      '/console/billing/stripe/checkout-session',
-    );
-    expect(checkoutSessionRoute?.id).toBe('console_billing_stripe_checkout_session_create');
-
-    const checkoutReconcileRoute = findRouteDefinitionForRequest(
-      routes,
-      'POST',
-      '/console/billing/stripe/checkout-session/reconcile',
-    );
-    expect(checkoutReconcileRoute?.id).toBe('console_billing_stripe_checkout_session_reconcile');
-
-    const supportCreditRoute = findRouteDefinitionForRequest(
-      routes,
-      'POST',
-      '/console/billing/adjustments/support-credit',
-    );
-    expect(supportCreditRoute?.id).toBe('console_billing_adjustments_support_credit');
-
-    const denied = authorizeConsoleRouteRequest({
-      claims: {
-        userId: 'user_console_route_definitions',
-        orgId: 'org_console_route_definitions',
-        roles: ['developer'],
-      },
-      definitions: routes,
-      method: 'POST',
-      pathname: '/console/webhooks',
-    });
-    expect(denied.ok).toBe(false);
-    if (!denied.ok) {
-      expect(denied.status).toBe(403);
-      expect(denied.body).toMatchObject({ code: 'forbidden' });
-    }
   });
 
   test('enforceRoutePolicy allows public routes and blocks unresolved api credential routes', async () => {

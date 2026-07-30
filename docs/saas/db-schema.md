@@ -1,6 +1,6 @@
 # SaaS DB Schema Plan
 
-Date updated: March 10, 2026
+Date updated: July 26, 2026
 
 Related implementation plan:
 
@@ -106,9 +106,10 @@ Tables:
 - `user_backup_emails`
 - `organizations`
 - `organization_memberships`
-- `organization_invites`
-- `roles`
-- `role_permissions`
+- `organization_admin_permissions`
+- `organization_invitations`
+- `project_member_access`
+- `organization_owner_events`
 - `service_accounts`
 - `sessions` (optional; if needed for dashboard auth)
 
@@ -118,14 +119,16 @@ Notes:
 - Account settings needs user-owned profile/contact state that is separate from org membership:
   - `user_profiles` stores display name and primary email.
   - `user_backup_emails` stores additional recovery addresses plus verification status.
-  - `organizations.created_by_user_id` supports “organizations created by me” without inferring authorship from current membership.
-- Hybrid role scope model:
-  - org-scoped roles: `owner`, `admin`, `security_admin`, `billing_admin`
-  - project-scoped roles: `developer`, `support`, `ops`
-- Support account states: invited, active, suspended, removed.
+- Organization membership uses the closed `OWNER`, `ADMIN`, and `MEMBER` role set.
+- An organization has one or more equal owners. `owner_anchor_membership_id` preserves the database invariant that at least one active owner exists.
+- Owners have full access. Administrators receive only `members.manage`, `projects.manage`, `billing.view`, and `billing.manage`.
+- Members receive `viewer` or `editor` access through explicit project assignments.
+- Invitations are separate records and create membership only after acceptance.
+- Membership states are active, suspended, or removed. Owners must change role before suspension or removal.
 - Billing permissions include explicit internal adjustment actions and keep customer-facing billing mutations limited to prepaid checkout.
 - Current D1 implementation materializes these as `user_profiles`,
-  `user_backup_emails`, and `created_by_user_id` on `organizations`.
+  `user_backup_emails`, `organization_memberships`, `organization_admin_permissions`,
+  `organization_invitations`, `project_member_access`, and `organization_owner_events`.
 
 ### 2) Projects and Environments
 
@@ -191,6 +194,7 @@ Tables:
 - `invoices`
 - `invoice_line_items`
 - `stripe_webhook_events`
+- `billing_stripe_post_processing_outbox`
 
 Billing support:
 
@@ -201,6 +205,7 @@ Billing support:
 - Prepaid top-ups via Stripe Checkout:
   - map organization billing account to Stripe customer reference as needed for checkout,
   - persist checkout settlement webhook events for idempotency and auditability,
+  - atomically enqueue settlement audit and customer-webhook post-processing,
   - create prepaid credit purchase entries and purchase receipts from verified checkout settlement.
 - Ledger-first accounting:
   - customer balance is derived from ledger postings, not edited state,
@@ -285,11 +290,11 @@ Notes:
 D1 databases and Durable Object namespaces:
 
 - `CONSOLE_DB`:
-  - control: organizations, projects, environments, team members, account settings,
-    policy configs, approvals, API keys, and bootstrap tokens.
+  - control: organizations, memberships, invitations, project access, account
+    settings, policy configs, approvals, and API keys.
   - billing: accounts, ledger entries/postings, prepaid reservations, credit
-    purchases, invoices, invoice line items, Stripe webhook records, sponsored
-    calls, and spend caps.
+    purchases, invoices, invoice line items, Stripe webhook records and
+    post-processing outbox, sponsored calls, and spend caps.
   - integrations: webhook endpoints, deliveries, attempts, dead letters, key
     exports, runtime snapshots, runtime snapshot outbox, and compact
     observability state.
@@ -311,7 +316,8 @@ Optional at scale:
 ### Phase 0: Foundation
 
 - Create core tenancy tables: `organizations`, `projects`, `environments`,
-  `team_members`.
+  `organization_memberships`, `organization_admin_permissions`,
+  `organization_invitations`, and `project_member_access`.
 - Add account-settings identity tables: `user_profiles`, `user_backup_emails`, and `organizations.created_by_user_id`.
 - Implement D1 tenant predicates and route-policy middleware.
 - Add `audit_log` and `event_outbox`.

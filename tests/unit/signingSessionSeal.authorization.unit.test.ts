@@ -8,10 +8,7 @@ import {
   type SessionClaims,
 } from '../../packages/sdk-server-ts/src/router/routerApi';
 import { createSigningSessionSealRoutesOptions } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/routesOptions';
-import type {
-  SigningSessionSealCipherAdapter,
-  SigningSessionSealThresholdSessionPolicy,
-} from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/signingSessionSeal.types';
+import type { SigningSessionSealCipherAdapter } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/signingSessionSeal.types';
 
 const NOW_MS = 2_000_000_000_000;
 const WALLET_ID = 'seal-authorization.testnet';
@@ -45,23 +42,13 @@ class WalletSessionClaimsFixture implements SessionAdapter {
   }
 }
 
-function missingThresholdSessionPolicy(
-  unavailable: boolean,
-): SigningSessionSealThresholdSessionPolicy {
+function successfulCipher(): SigningSessionSealCipherAdapter {
   return {
-    getThresholdSession: async () => null,
-    getThresholdSessionStatuses: async () => {
-      if (unavailable) throw new Error('threshold session store unavailable');
-      return [];
-    },
-  };
-}
-
-function unusedCipher(): SigningSessionSealCipherAdapter {
-  return {
-    run: async () => {
-      throw new Error('cipher is outside the authorization test boundary');
-    },
+    run: async (input) => ({
+      ok: true,
+      ciphertext: `sealed:${input.ciphertext}`,
+      keyVersion: 'seal-key-v1',
+    }),
   };
 }
 
@@ -107,45 +94,54 @@ async function walletSessionFixture(
   return session;
 }
 
-async function authorizeMissingThresholdSession(input: {
+async function authorize(input: {
   thresholdExpiresAtMs: number;
-  unavailable: boolean;
+  thresholdSessionId?: string;
 }) {
   const session = await walletSessionFixture(input.thresholdExpiresAtMs);
   const options = createSigningSessionSealRoutesOptions({
-    sessionPolicy: missingThresholdSessionPolicy(input.unavailable),
-    cipher: unusedCipher(),
+    cipher: successfulCipher(),
     nowMs: () => NOW_MS,
   });
   if (!options.authorize) throw new Error('default signing-session authorization is required');
-  return await options.authorize({
-    headers: {},
-    session,
-    thresholdSessionId: THRESHOLD_SESSION_ID,
-  });
+  return {
+    authorization: await options.authorize({
+      headers: {},
+      session,
+      thresholdSessionId: input.thresholdSessionId || THRESHOLD_SESSION_ID,
+    }),
+    service: options.service,
+  };
 }
 
-test('signing-session seal authorization preserves a missing Wallet Session failure', async () => {
+test('authorizes and seals directly from authoritative Wallet Session JWT claims', async () => {
+  const { authorization, service } = await authorize({
+    thresholdExpiresAtMs: NOW_MS + 60_000,
+  });
+  expect(authorization.ok).toBe(true);
+  if (!authorization.ok) throw new Error(authorization.message);
+
   await expect(
-    authorizeMissingThresholdSession({
-      thresholdExpiresAtMs: NOW_MS + 60_000,
-      unavailable: false,
-    }),
+    service.applyServerSeal(
+      {
+        thresholdSessionId: THRESHOLD_SESSION_ID,
+        ciphertext: 'ciphertext',
+      },
+      authorization.auth,
+    ),
   ).resolves.toEqual({
-    ok: false,
-    code: 'wallet_session_missing',
-    message: 'Wallet Session is missing',
-    status: 401,
+    ok: true,
+    ciphertext: 'sealed:ciphertext',
+    keyVersion: 'seal-key-v1',
+    expiresAtMs: NOW_MS + 60_000,
   });
 });
 
-test('signing-session seal authorization distinguishes expiry from missing state', async () => {
-  await expect(
-    authorizeMissingThresholdSession({
-      thresholdExpiresAtMs: NOW_MS - 1,
-      unavailable: false,
-    }),
-  ).resolves.toEqual({
+test('rejects an expired threshold session from the signed claims', async () => {
+  const { authorization } = await authorize({
+    thresholdExpiresAtMs: NOW_MS - 1,
+  });
+  expect(authorization).toEqual({
     ok: false,
     code: 'wallet_session_expired',
     message: 'Wallet Session expired',
@@ -153,16 +149,15 @@ test('signing-session seal authorization distinguishes expiry from missing state
   });
 });
 
-test('signing-session seal authorization preserves store unavailability', async () => {
-  await expect(
-    authorizeMissingThresholdSession({
-      thresholdExpiresAtMs: NOW_MS + 60_000,
-      unavailable: true,
-    }),
-  ).resolves.toEqual({
+test('rejects a threshold-session scope mismatch from the signed claims', async () => {
+  const { authorization } = await authorize({
+    thresholdExpiresAtMs: NOW_MS + 60_000,
+    thresholdSessionId: 'different-threshold-session',
+  });
+  expect(authorization).toEqual({
     ok: false,
-    code: 'wallet_session_unavailable',
-    message: 'Wallet Session status is unavailable',
-    status: 503,
+    code: 'wallet_session_scope_mismatch',
+    message: 'Wallet Session scope does not match the request',
+    status: 403,
   });
 });

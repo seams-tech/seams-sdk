@@ -92,6 +92,19 @@ function createRuntimeFixture(): RuntimeFixture {
   return { root, outputConfigPath, deriverA, deriverB, signingWorker };
 }
 
+function prepareStrictRuntime(fixture: RuntimeFixture) {
+  const d1Runtime = prepareRouterAbD1LocalRuntimeConfig({
+    repoRoot: repoRoot(),
+    localEnvRoot: fixture.root,
+    outputConfigPath: fixture.outputConfigPath,
+  });
+  return prepareRouterAbStrictLocalRuntimeConfigs({
+    repoRoot: repoRoot(),
+    localEnvRoot: fixture.root,
+    ceremonyJwksJson: d1Runtime.ceremonyJwksJson,
+  });
+}
+
 test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler', () => {
   const fixture = createRuntimeFixture();
 
@@ -120,10 +133,8 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
   );
   expect(config).toContain('binding = "MPC_ROUTER"');
   expect(config).toContain('service = "router-ab-mpc-router"');
-  expect(config).toContain('binding = "DERIVER_A"');
-  expect(config).toContain('service = "router-ab-deriver-a"');
-  expect(config).toContain('binding = "DERIVER_B"');
-  expect(config).toContain('service = "router-ab-deriver-b"');
+  expect(config).not.toContain('binding = "DERIVER_A"');
+  expect(config).not.toContain('binding = "DERIVER_B"');
   expect(config).toContain('binding = "SIGNING_WORKER"');
   expect(config).toContain('service = "router-ab-signing-worker"');
   expect(config).not.toContain('DERIVER_A_URL =');
@@ -204,10 +215,7 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
 
 test('local Gateway startup renders the production-shaped MPC Worker topology', () => {
   const fixture = createRuntimeFixture();
-  const runtime = prepareRouterAbStrictLocalRuntimeConfigs({
-    repoRoot: repoRoot(),
-    localEnvRoot: fixture.root,
-  });
+  const runtime = prepareStrictRuntime(fixture);
 
   expect(runtime.mpcRouterUrl).toBe('http://127.0.0.1:9100');
   expect(runtime.workerUrls).toEqual({
@@ -225,21 +233,15 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
 
   const routerConfig = readFileSync(runtime.configs[0].configPath, 'utf8');
   expect(routerConfig).toContain('ROUTER_JWT_ISSUER = "http://127.0.0.1:9190"');
-  expect(routerConfig).toContain(
-    'ROUTER_JWT_JWKS_URL = "http://127.0.0.1:9190/.well-known/router-ab-ceremony-jwks.json"',
-  );
+  const routerJwks = parseTomlJsonAssignment(routerConfig, 'ROUTER_JWT_JWKS_JSON');
+  expect(routerJwks).toMatchObject({
+    keys: [{ alg: 'EdDSA', crv: 'Ed25519', kid: 'local-router-ab-r1', kty: 'OKP', use: 'sig' }],
+  });
   expect(routerConfig).toContain('binding = "DERIVER_A"');
   expect(routerConfig).toContain('service = "router-ab-deriver-a"');
   expect(routerConfig).not.toContain('[build]');
   const localConsoleOrganizationId = runtime.localConsoleOrganizationId;
   expect(localConsoleOrganizationId).toMatch(/^org_[a-z0-9]{12}$/);
-  expect(
-    parseTomlJsonAssignment(routerConfig, 'ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON'),
-  ).toMatchObject({
-    org_id: localConsoleOrganizationId,
-    project_id: 'local-smoke-project',
-    environment: 'local',
-  });
 
   const deriverASecretFile = readFileSync(runtime.configs[1].secretPath, 'utf8');
   expect(deriverASecretFile).toContain(
@@ -248,11 +250,42 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   expect(deriverASecretFile).not.toContain('DERIVER_B_ROOT_SHARE_WIRE_SECRET');
   expect(deriverASecretFile).not.toContain('SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY');
   expect(deriverASecretFile).not.toContain('dev-only-generated');
+  expect(deriverASecretFile).toContain(
+    'DERIVER_A_ROLE_PRIVATE_D1_KEK=hpke-x25519-role-private-d1-private-v1:',
+  );
+  const deriverAConfig = readFileSync(runtime.configs[1].configPath, 'utf8');
+  expect(deriverAConfig).toContain('DERIVER_ROLE_PRIVATE_D1_KEK_VERSION = "local-epoch-1"');
+  expect(deriverAConfig).toContain('DERIVER_ROLE_PRIVATE_D1_ENVIRONMENT = "local"');
+  expect(deriverAConfig).toMatch(/DERIVER_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY = "x25519:[0-9a-f]{64}"/u);
   const signingWorkerSecretFile = readFileSync(runtime.configs[3].secretPath, 'utf8');
   expect(signingWorkerSecretFile).toContain(
     'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY=hpke-x25519-server-output-private-v1:',
   );
   expect(signingWorkerSecretFile).not.toContain('DERIVER_A_ROOT_SHARE_WIRE_SECRET');
+  expect(signingWorkerSecretFile).toContain(
+    'SIGNING_WORKER_PRIVATE_D1_KEK=hpke-x25519-server-output-private-v1:',
+  );
+  const signingWorkerConfig = readFileSync(runtime.configs[3].configPath, 'utf8');
+  expect(signingWorkerConfig).toContain('SIGNING_WORKER_PRIVATE_D1_KEK_VERSION = "local-epoch-1"');
+  expect(signingWorkerConfig).toContain('SIGNING_WORKER_PRIVATE_D1_ENVIRONMENT = "local"');
+  expect(signingWorkerConfig).toMatch(
+    /SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY = "x25519:[0-9a-f]{64}"/u,
+  );
+  expect(runtime.configs[3].privateD1).toEqual({
+    databaseName: 'router-ab-signing-worker-private',
+    migrationsDirectory: 'signing-worker',
+  });
+  expect(signingWorkerConfig).toContain(
+    `migrations_dir = ${JSON.stringify(
+      path.join(
+        repoRoot(),
+        'crates',
+        'router-ab-cloudflare',
+        'migrations',
+        'signing-worker',
+      ),
+    )}`,
+  );
   for (const config of runtime.configs) {
     expect(statSync(config.secretPath).mode & 0o777).toBe(0o600);
   }
@@ -260,10 +293,7 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
 
 test('strict local mode serves pair commands through production Wrangler shims', () => {
   const fixture = createRuntimeFixture();
-  const runtime = prepareRouterAbStrictLocalRuntimeConfigs({
-    repoRoot: repoRoot(),
-    localEnvRoot: fixture.root,
-  });
+  const runtime = prepareStrictRuntime(fixture);
 
   for (const config of runtime.configs) {
     const generated = readFileSync(config.configPath, 'utf8');
@@ -288,7 +318,6 @@ test('strict local mode serves pair commands through production Wrangler shims',
     'CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH',
     'CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH',
     'CLOUDFLARE_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH',
-    'CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH',
     'CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH',
     'CLOUDFLARE_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH',
   ]) {

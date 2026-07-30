@@ -112,6 +112,13 @@ export class SignerWorkerManager {
     await this.workerTransport.prewarmWorkers();
   }
 
+  async prewarmEcdsaRegistrationCrypto(): Promise<{
+    kind: 'succeeded' | 'failed';
+    wasmInitMs: number;
+  }> {
+    return await this.workerTransport.prewarmEcdsaRegistrationCrypto();
+  }
+
   async prewarmEmailOtpYao(
     request?: EmailOtpYaoPrewarmRequest,
   ): Promise<EmailOtpYaoPrewarmOutcome> {

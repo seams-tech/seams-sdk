@@ -5,7 +5,7 @@ import {
   parseListConsoleObservabilityServicesRequest,
 } from '@seams-internal/console-server/observability/requests';
 import type { ConsoleObservabilityService } from '@seams-internal/console-server/observability/service';
-import type { ConsoleAuthClaims } from '@seams/sdk-server/internal/router/consoleAuth';
+import type { ConsoleAuthClaims } from '../consoleAuth';
 
 export interface CloudflareConsoleObservabilityRouteContext {
   method: string;

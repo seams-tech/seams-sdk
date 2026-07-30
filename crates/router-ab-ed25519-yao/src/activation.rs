@@ -165,7 +165,9 @@ pub struct Ed25519YaoSigningWorkerActivationCandidateV1 {
 
 impl Ed25519YaoSigningWorkerActivationCandidateV1 {
     /// Moves secret material into durable lifecycle state without cloning it.
-    pub fn into_parts(mut self) -> (
+    pub fn into_parts(
+        mut self,
+    ) -> (
         Ed25519YaoActiveSigningMaterialV1,
         Ed25519YaoSigningWorkerActivationReceiptV1,
     ) {

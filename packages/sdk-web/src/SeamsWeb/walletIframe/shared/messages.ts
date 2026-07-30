@@ -69,6 +69,7 @@ export type ParentToChildType =
   | 'PM_LOCK_MISSING_WALLET_SESSION'
   | 'PM_GET_WALLET_SESSION'
   | 'PM_GET_EXACT_WALLET_SESSION_STATE'
+  | 'PM_GET_NEAR_PROVISIONING_STATE'
   | 'PM_REQUEST_EMAIL_OTP_CHALLENGE'
   | 'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE'
   | 'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE'
@@ -186,6 +187,7 @@ export type PMGoogleEmailOtpWalletAuthStartPayload = {
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   diagnostics: {
     emailOtpUnlockTimings: boolean;
+    registrationBenchmarkTimings: boolean;
   };
 };
 
@@ -545,6 +547,10 @@ export interface PMResultPayload {
   error?: string;
 }
 
+export type PMGetNearProvisioningStatePayload = {
+  walletId: string;
+};
+
 export interface ErrorPayload {
   code: string;
   message: string;
@@ -564,6 +570,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_LOCK_MISSING_WALLET_SESSION', PMLockMissingWalletSessionPayload>
   | RpcEnvelope<'PM_GET_WALLET_SESSION', PMGetWalletSessionPayload>
   | RpcEnvelope<'PM_GET_EXACT_WALLET_SESSION_STATE'>
+  | RpcEnvelope<'PM_GET_NEAR_PROVISIONING_STATE', PMGetNearProvisioningStatePayload>
   | RpcEnvelope<'PM_REQUEST_EMAIL_OTP_CHALLENGE', PMEmailOtpChallengePayload>
   | RpcEnvelope<'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE', PMEmailOtpChallengePayload>
   | RpcEnvelope<

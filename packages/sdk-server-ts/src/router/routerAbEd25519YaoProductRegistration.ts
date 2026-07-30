@@ -7,9 +7,11 @@ import {
   type RegistrationAuthority,
   type RegistrationNearEd25519SignerPlan,
   type WalletId,
+  type RegistrationEd25519AuthorityScope,
 } from '@shared/utils/registrationIntent';
 import {
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type {
@@ -17,17 +19,16 @@ import type {
   RouterAbEd25519YaoActivationConsumptionRequestV1,
   RouterAbEd25519YaoActivationConsumptionResultV1,
   RouterAbEd25519YaoRegistrationAdmissionClaimV1,
+  RouterAbEd25519YaoRegistrationServiceResult,
 } from './routerAbEd25519YaoRegistration';
 import {
   createRouterAbEd25519YaoRegistrationModule,
-  InMemoryRouterAbEd25519YaoRegistrationService,
   InMemoryRouterAbEd25519YaoRegistrationStateV1,
   type RouterAbEd25519YaoRegistrationBackend,
   type RouterAbEd25519YaoRegistrationAuthorizationAdapter,
   type RouterAbEd25519YaoRegistrationService,
 } from './routerAbEd25519YaoRegistration';
 import {
-  InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter,
   InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationStateV1,
   type RouterAbEd25519YaoVerifiedActivationIntentV1,
   type RouterAbEd25519YaoRegistrationIntentBindingResult,
@@ -45,13 +46,11 @@ import type { WalletRegistrationEd25519YaoBootstrapSession } from '../core/regis
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../core/ThresholdService/validation';
 import {
   createRouterAbEd25519YaoRecoveryModule,
-  InMemoryRouterAbEd25519YaoRecoveryService,
   InMemoryRouterAbEd25519YaoRecoveryStateV1,
   type RouterAbEd25519YaoActiveCapabilityLookupResultV1,
   type RouterAbEd25519YaoActiveCapabilityLookupV1,
   type RouterAbEd25519YaoActiveCapabilityResolverV1,
   type RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1,
-  type RouterAbEd25519YaoCapabilityPersistenceV1,
   type RouterAbEd25519YaoRecoveryBackend,
   type RouterAbEd25519YaoRecoveryAuthorizationAdapter,
   type RouterAbEd25519YaoRecoveryService,
@@ -60,17 +59,13 @@ import {
   type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1,
 } from './routerAbEd25519YaoRecovery';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../core/WalletStore';
-import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from './routerAbEd25519YaoRecoveryWalletSessionAuthorization';
 import {
   createRouterAbEd25519YaoExportModule,
-  InMemoryRouterAbEd25519YaoExportService,
   InMemoryRouterAbEd25519YaoExportStateV1,
-  RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter,
   type RouterAbEd25519YaoExportBackend,
   type RouterAbEd25519YaoExportAuthorizationAdapter,
   type RouterAbEd25519YaoExportService,
 } from './routerAbEd25519YaoExport';
-import type { RouterApiWebAuthnService } from './authServicePort';
 import { isPlainObject } from '@shared/utils/validation';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -121,8 +116,8 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'same_identity_budget_refresh_v1';
-      readonly signingGrantId: string;
-      readonly expiresAtMs: number;
+      readonly signingGrantId?: never;
+      readonly expiresAtMs?: never;
       readonly remainingUses: number;
     });
 
@@ -132,6 +127,9 @@ export type RouterAbEd25519YaoProductRegistrationRuntimeV1 =
     RouterAbEd25519YaoActiveCapabilityResolverV1 & {
       readonly kind: 'router_ab_ed25519_yao_product_registration_runtime_v1';
       readonly signingWorkerId: string;
+      bindAndAdmitVerifiedRegistration(
+        input: RouterAbEd25519YaoVerifiedActivationIntentV1,
+      ): Promise<RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1>;
       bindVerifiedIntent(
         input: RouterAbEd25519YaoVerifiedActivationIntentV1,
       ): Promise<RouterAbEd25519YaoRegistrationIntentBindingResult>;
@@ -142,6 +140,12 @@ export type RouterAbEd25519YaoProductRegistrationRuntimeV1 =
         input: RouterAbEd25519YaoWalletSessionMintInputV1,
       ): Promise<RouterAbEd25519YaoWalletSessionMintResultV1>;
     };
+
+export type RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1 =
+  | Extract<RouterAbEd25519YaoRegistrationIntentBindingResult, { readonly ok: false }>
+  | RouterAbEd25519YaoRegistrationServiceResult<
+      RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>
+    >;
 
 export type RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1 = (
   input: RouterAbEd25519YaoActiveCapabilityLookupV1,
@@ -332,60 +336,6 @@ export function parseRouterAbEd25519YaoProductRegistrationStateV1(
   };
 }
 
-export function createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1(input: {
-  readonly signingWorkerId: string;
-  readonly backend: RouterAbEd25519YaoRegistrationBackend &
-    RouterAbEd25519YaoRecoveryBackend &
-    RouterAbEd25519YaoExportBackend;
-  readonly session: SessionAdapter;
-  readonly webAuthn: Pick<RouterApiWebAuthnService, 'verifyWebAuthnAuthenticationLite'>;
-  readonly state: RouterAbEd25519YaoProductRegistrationStateV1;
-  readonly capabilityPersistence: RouterAbEd25519YaoCapabilityPersistenceV1;
-  readonly loadPersistedActiveCapability?: RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1;
-}): RouterAbEd25519YaoProductRegistrationCompositionV1 {
-  const registrationService = new InMemoryRouterAbEd25519YaoRegistrationService(
-    input.backend,
-    input.state.registration,
-  );
-  const authorization = new InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter(
-    input.state.authorization,
-  );
-  const recoveryService = new InMemoryRouterAbEd25519YaoRecoveryService(
-    input.backend,
-    input.state.recovery,
-    input.capabilityPersistence,
-  );
-  const recoveryAuthorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
-    input.session,
-  );
-  const capabilities = input.loadPersistedActiveCapability
-    ? createRouterAbEd25519YaoPersistedCapabilityFallbackResolverV1({
-        capabilityInstaller: recoveryService,
-        loadPersistedActiveCapability: input.loadPersistedActiveCapability,
-      })
-    : recoveryService;
-  const exportService = new InMemoryRouterAbEd25519YaoExportService(
-    input.backend,
-    capabilities,
-    input.state.export,
-  );
-  const exportAuthorization = new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(
-    input.session,
-    input.webAuthn,
-  );
-  return createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1({
-    signingWorkerId: input.signingWorkerId,
-    registrationService,
-    authorization,
-    recoveryService,
-    capabilities,
-    recoveryAuthorization,
-    exportService,
-    exportAuthorization,
-    session: input.session,
-  });
-}
-
 export function createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1(
   input: RouterAbEd25519YaoProductRegistrationPortsV1,
 ): RouterAbEd25519YaoProductRegistrationCompositionV1 {
@@ -506,6 +456,7 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
         nowMs,
       });
     case 'shared_email_otp_recovery_wallet_session_v1':
+    case 'same_identity_budget_refresh_v1':
       return {
         signingGrantId: `wss_${secureRandomBase64Url(24)}`,
         expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
@@ -515,7 +466,6 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
         ),
       };
     case 'shared_registration_wallet_session_v1':
-    case 'same_identity_budget_refresh_v1':
       return requireInheritedWalletSessionTerms({
         signingGrantId: input.signingGrantId,
         expiresAtMs: input.expiresAtMs,
@@ -550,6 +500,14 @@ class RouterAbEd25519YaoProductRegistrationRuntime implements RouterAbEd25519Yao
     input: RouterAbEd25519YaoVerifiedActivationIntentV1,
   ): Promise<RouterAbEd25519YaoRegistrationIntentBindingResult> {
     return await this.input.authorization.bindVerifiedIntent(input);
+  }
+
+  async bindAndAdmitVerifiedRegistration(
+    input: RouterAbEd25519YaoVerifiedActivationIntentV1,
+  ): Promise<RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1> {
+    const bound = await this.input.authorization.bindVerifiedIntent(input);
+    if (!bound.ok) return bound;
+    return await this.input.registrationService.admit(input.admissionRequest);
   }
 
   async consumeActivated(
@@ -711,12 +669,19 @@ class RouterAbEd25519YaoPersistedCapabilityFallbackResolver implements RouterAbE
   }
 }
 
+/**
+ * Takes the authority *scope* rather than the authority because setup admits
+ * before the proof exists (Refactor 94C). Callers holding a verified authority
+ * pass `registrationEd25519AuthorityScopeFromAuthority(authority)`; setup
+ * passes the scope derived from the requested auth method, and only when that
+ * derivation is complete without a proof.
+ */
 export async function buildRouterAbEd25519YaoProductAdmissionRequestV1(input: {
   readonly registrationCeremonyId: string;
   readonly walletId: WalletId;
   readonly signingRootId: string;
   readonly signingRootVersion: string;
-  readonly authority: RegistrationAuthority;
+  readonly authorityScope: RegistrationEd25519AuthorityScope;
   readonly branch: RegistrationNearEd25519SignerPlan;
   readonly signingWorkerId: string;
 }): Promise<RouterAbEd25519YaoRegistrationAdmissionRequestV1> {
@@ -730,7 +695,7 @@ export async function buildRouterAbEd25519YaoProductAdmissionRequestV1(input: {
   }
   const nearEd25519SigningKeyId = await computeRegistrationNearEd25519SigningKeyId({
     walletId: input.walletId,
-    authorityScope: registrationEd25519AuthorityScopeFromAuthority(input.authority),
+    authorityScope: input.authorityScope,
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
     ed25519: {

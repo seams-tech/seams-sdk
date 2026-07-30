@@ -471,7 +471,15 @@ test.describe('ECDSA export material', () => {
         emailOtp: {
           requestExportChallenge: async (request) => {
             challengeRequests.push(request);
-            return { challengeId: 'export-challenge-1' };
+            return {
+              challengeId: 'export-challenge-1',
+              emailHint: 'a***@example.test',
+              delivery: {
+                kind: 'provider',
+                status: 'sent',
+                emailHint: 'a***@example.test',
+              },
+            };
           },
           requestPublicReauthExportChallenge: async () => {
             throw new Error('unexpected public-reauth export challenge');

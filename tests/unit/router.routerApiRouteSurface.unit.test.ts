@@ -1,23 +1,20 @@
 import { expect, test } from '@playwright/test';
-import { createInMemoryConsoleApiKeyService } from '../../packages/console-server-ts/src/apiKeys';
-import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/console-server-ts/src/runtimeSnapshots';
-import { createInMemoryConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls';
 import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import { createRouterApiRouter } from '../../packages/sdk-server-ts/src/router/express-adaptor';
 import { createRouterApiModule } from '../../packages/sdk-server-ts/src/router/modules';
-import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/console-server-ts/src/router/routerApiKeyAuth';
-import { createConsoleRouterApiRouteExtensions } from '../../packages/console-server-ts/src/router/routeExtensions';
-import type { RouterApiRouteExtension } from '../../packages/sdk-server-ts/src/router/routeExtensions';
+import type {
+  RouterApiCloudflareRouteExtensionInput,
+  RouterApiRouteExtension,
+} from '../../packages/sdk-server-ts/src/router/routeExtensions';
 import { defineRoute } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import { getRouterApiRouteSurface } from '../../packages/sdk-server-ts/src/router/routerApiRouteSurface';
 import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
 } from '@shared/utils/routerAbPublicKeyset';
+import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
 import { callCf } from '../relayer/helpers';
-
-type CloudflareRouterApiHandler = ReturnType<typeof createCloudflareRouter>;
 
 function makeUnexpectedRouterApiServiceValue(path: string): unknown {
   const target = function unexpectedRouterApiServiceCall(): never {
@@ -89,82 +86,41 @@ const ROUTER_AB_PUBLIC_KEYSET = parseRouterAbPublicKeysetV2({
   },
 });
 
-function makeSponsoredEvmExecutorConfig() {
-  return {
-    executorsByChain: new Map([
-      [
-        42_431,
-        {
-          chainId: 42_431,
-          rpcUrl: 'https://rpc.example.test',
-          sponsorAddress: '0x2222222222222222222222222222222222222222' as const,
-          sponsorPrivateKeyHex:
-            '0x1111111111111111111111111111111111111111111111111111111111111111' as const,
-          maxPriorityFeePerGasFloor: 2_000_000_000n,
-          maxFeePerGasFloor: 40_000_000_000n,
-        },
-      ],
-    ]),
-  };
-}
-
-function makeTestPublishableKeyAuth() {
-  return createRouterApiPublishableKeyAuthAdapter(createInMemoryConsoleApiKeyService());
-}
-
-function makeSponsoredEvmRouteExtensions(route: string): readonly RouterApiRouteExtension[] {
-  return createConsoleRouterApiRouteExtensions({
-    sponsoredEvmCall: {
-      route,
-      publishableKeyAuth: makeTestPublishableKeyAuth(),
-      billing: {} as any,
-      ledger: createInMemoryConsoleSponsoredCallService(),
-      runtimeSnapshots: createInMemoryConsoleRuntimeSnapshotService(),
-      config: makeSponsoredEvmExecutorConfig(),
-      observabilityIngestion: null,
-      prepaidReservations: null,
-      pricing: null,
-      spendCaps: null,
-    },
+function handleHostedRouteExtension(input: RouterApiCloudflareRouteExtensionInput): Response {
+  return new Response(JSON.stringify({ routeId: input.route.id }), {
+    headers: { 'Content-Type': 'application/json' },
   });
 }
 
-function makeSignedDelegateRouteOptions(route: string, authService: unknown) {
+function makeHostedRouteExtension(
+  extensionId: string,
+  routeId: string,
+  path: string,
+): RouterApiRouteExtension {
   return {
-    route,
-    authService: authService as any,
-    billing: {} as any,
-    ledger: createInMemoryConsoleSponsoredCallService(),
-    runtimeSnapshots: createInMemoryConsoleRuntimeSnapshotService(),
-    publishableKeyAuth: makeTestPublishableKeyAuth(),
-    observabilityIngestion: null,
-    prepaidReservations: null,
-    pricing: null,
-    spendCaps: null,
-    webhooks: null,
+    kind: 'cloudflare_route_extension',
+    id: extensionId,
+    routes: [testExtensionRoute(routeId, 'POST', path)],
+    handleCloudflareRoute: handleHostedRouteExtension,
   };
 }
 
-function makeManagedSponsorshipRouteExtensions(input: {
+function makeHostedRouteExtensions(input: {
   readonly signedDelegateRoute: string;
   readonly sponsoredEvmRoute: string;
-  readonly authService: unknown;
 }): readonly RouterApiRouteExtension[] {
-  return createConsoleRouterApiRouteExtensions({
-    signedDelegate: makeSignedDelegateRouteOptions(input.signedDelegateRoute, input.authService),
-    sponsoredEvmCall: {
-      route: input.sponsoredEvmRoute,
-      publishableKeyAuth: makeTestPublishableKeyAuth(),
-      billing: {} as any,
-      ledger: createInMemoryConsoleSponsoredCallService(),
-      runtimeSnapshots: createInMemoryConsoleRuntimeSnapshotService(),
-      config: makeSponsoredEvmExecutorConfig(),
-      observabilityIngestion: null,
-      prepaidReservations: null,
-      pricing: null,
-      spendCaps: null,
-    },
-  });
+  return [
+    makeHostedRouteExtension(
+      'hosted-signed-delegate',
+      'signed_delegate',
+      input.signedDelegateRoute,
+    ),
+    makeHostedRouteExtension(
+      'hosted-sponsored-evm-call',
+      'sponsored_evm_call',
+      input.sponsoredEvmRoute,
+    ),
+  ];
 }
 
 function canonicalRouteKeys(
@@ -211,7 +167,6 @@ const EMAIL_RECOVERY_EXECUTION_SERVICE = {
   },
 };
 
-
 test.describe('Router API route surface wiring', () => {
   test('Express adapter route surface matches canonical fetch router surface', async () => {
     const service = makeRouterApiServiceBagFixture();
@@ -223,10 +178,9 @@ test.describe('Router API route surface wiring', () => {
         service: {} as any,
       },
       sessionRoutes: { state: '/session/me' },
-      routeExtensions: makeManagedSponsorshipRouteExtensions({
+      routeExtensions: makeHostedRouteExtensions({
         signedDelegateRoute: '/delegate/submit',
         sponsoredEvmRoute: '/gas/relay',
-        authService: service,
       }),
     };
 
@@ -302,10 +256,9 @@ test.describe('Router API route surface wiring', () => {
       },
       readyz: true,
       sessionRoutes: { state: '/session/me' },
-      routeExtensions: makeManagedSponsorshipRouteExtensions({
+      routeExtensions: makeHostedRouteExtensions({
         signedDelegateRoute: '/delegate/submit',
         sponsoredEvmRoute: '/gas/relay',
-        authService: service,
       }),
     };
 
@@ -327,10 +280,9 @@ test.describe('Router API route surface wiring', () => {
         service: {} as any,
       },
       sessionRoutes: { state: '/session/me' },
-      routeExtensions: makeManagedSponsorshipRouteExtensions({
+      routeExtensions: makeHostedRouteExtensions({
         signedDelegateRoute: '/delegate/submit',
         sponsoredEvmRoute: '/gas/relay',
-        authService: service,
       }),
     });
     const surface = getRouterApiRouteSurface(handler);
@@ -345,6 +297,32 @@ test.describe('Router API route surface wiring', () => {
       });
       expect(response.status, `${route.method} ${route.path}`).not.toBe(404);
     }
+  });
+
+  test('cloudflare registration preflight allows the trace correlation header', async () => {
+    const origin = 'https://sign.seams.sh';
+    const handler = createCloudflareRouter(makeRouterApiServiceBagFixture(), {
+      corsOrigins: [origin],
+    });
+
+    const response = await callCf(handler, {
+      method: 'OPTIONS',
+      path: '/wallets/register/setup',
+      origin,
+      headers: {
+        'Access-Control-Request-Headers': `content-type,${ROUTER_AB_TRACE_ID_HEADER_V1}`,
+        'Access-Control-Request-Method': 'POST',
+      },
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe(origin);
+    const allowedHeaders = new Set(
+      (response.headers.get('Access-Control-Allow-Headers') || '')
+        .split(',')
+        .map((header) => header.trim().toLowerCase()),
+    );
+    expect(allowedHeaders.has(ROUTER_AB_TRACE_ID_HEADER_V1)).toBe(true);
   });
 
   test('route extensions are surfaced and mounted by supported transport', async () => {
@@ -400,38 +378,6 @@ test.describe('Router API route surface wiring', () => {
     const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
     expect(expressIds.has('test_evidence_cloudflare')).toBe(true);
     expect(expressIds.has('test_capabilities')).toBe(true);
-  });
-
-  test('console Router API route extensions own managed registration and wallet API routes', async () => {
-    const service = makeRouterApiServiceBagFixture();
-    const extensions = createConsoleRouterApiRouteExtensions({
-      apiKeyAuth: {} as any,
-      bootstrapGrantBroker: {} as any,
-      wallets: {} as any,
-    });
-    const cloudflareSurface = getRouterApiRouteSurface(
-      createCloudflareRouter(service, { routeExtensions: extensions }),
-    );
-    const routes = cloudflareSurface?.routeDefinitions || [];
-
-    const bootstrapGrant = routes.find((route) => route.id === 'registration_bootstrap_grants');
-    expect(bootstrapGrant).toBeTruthy();
-    expect(bootstrapGrant?.auth).toMatchObject({
-      plane: 'api_credentials',
-      credentials: ['publishable_key'],
-    });
-
-    const apiWalletList = routes.find((route) => route.id === 'api_wallets_list');
-    expect(apiWalletList).toBeTruthy();
-    expect(apiWalletList?.auth).toMatchObject({
-      plane: 'api_credentials',
-      credentials: ['secret_key'],
-      scopes: ['wallets.read'],
-    });
-    expect(apiWalletList?.metering).toEqual({ kind: 'none' });
-
-    const apiWalletRoute = routes.find((route) => route.id === 'api_wallets_get');
-    expect(apiWalletRoute?.path).toBe('/v1/wallets/:id');
   });
 
   test('route extensions cannot shadow existing Router API routes', async () => {

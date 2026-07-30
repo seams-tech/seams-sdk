@@ -38,6 +38,12 @@ export type D1RegistrationCeremonyRecordMutation = {
   readonly expiresAtMs: number;
 };
 
+export type D1RegistrationCeremonyAtomicBranchClaim = {
+  readonly value: Record<string, unknown>;
+  readonly version: number;
+  readonly expiresAtMs: number;
+};
+
 type StoredRow = {
   readonly version?: unknown;
   readonly record_json?: unknown;
@@ -145,6 +151,133 @@ export class D1RegistrationCeremonyRecordStore {
     }
   }
 
+  async claimEcdsaRegistrationBranch(input: {
+    readonly scope: string;
+    readonly id: string;
+    readonly expectedKind:
+      | 'evm_family_ecdsa_prepared'
+      | 'evm_family_ecdsa_pending_activation';
+    readonly binding:
+      | {
+          readonly kind: 'strict_registration';
+          readonly strictRegistrationBindingJson: string;
+        }
+      | { readonly kind: 'pending_activation' };
+    readonly patch: Record<string, unknown>;
+  }): Promise<D1RegistrationCeremonyAtomicBranchClaim | null> {
+    const key = this.normalizeKey(input.scope, input.id);
+    const strictRegistrationBindingJson =
+      input.binding.kind === 'strict_registration'
+        ? normalizeKeyPart(
+            input.binding.strictRegistrationBindingJson,
+            'strictRegistrationBindingJson',
+            16_384,
+          )
+        : '';
+    const patchJson = stableJson(input.patch);
+    const nowMs = Date.now();
+    const row = await this.database
+      .prepare(
+        `WITH target(branch_index) AS (
+           SELECT CAST(branch.key AS INTEGER)
+             FROM ${TABLE_NAME} AS ceremony,
+                  json_each(ceremony.record_json, '$.signerState.branches') AS branch
+            WHERE ceremony.namespace = ?1
+              AND ceremony.org_id = ?2
+              AND ceremony.project_id = ?3
+              AND ceremony.env_id = ?4
+              AND ceremony.record_scope = ?5
+              AND ceremony.record_id = ?6
+              AND ceremony.expires_at_ms > ?11
+              AND json_extract(branch.value, '$.kind') = ?7
+              AND (
+                ?8 = 'pending_activation'
+                OR json_extract(branch.value, '$.strictRegistrationBindingJson') = ?9
+              )
+            LIMIT 1
+         )
+         UPDATE ${TABLE_NAME}
+            SET version = version + 1,
+                record_json = json_set(
+                  record_json,
+                  '$.signerState.branches[' || (SELECT branch_index FROM target) || ']',
+                  json_patch(
+                    json_extract(
+                      record_json,
+                      '$.signerState.branches[' || (SELECT branch_index FROM target) || ']'
+                    ),
+                    json(?10)
+                  )
+                ),
+                updated_at_ms = ?11
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND record_scope = ?5
+            AND record_id = ?6
+            AND EXISTS (SELECT 1 FROM target)
+        RETURNING version, record_json, expires_at_ms`,
+      )
+      .bind(
+        ...this.bindKey(key),
+        input.expectedKind,
+        input.binding.kind,
+        strictRegistrationBindingJson,
+        patchJson,
+        nowMs,
+      )
+      .first<StoredRow>();
+    if (!row) return null;
+    const parsed = parseStoredRow(row);
+    return {
+      value: parsed.value,
+      version: parsed.version,
+      expiresAtMs: parsed.expiresAtMs,
+    };
+  }
+
+  async updateExpectedVersion(input: {
+    readonly scope: string;
+    readonly id: string;
+    readonly expectedVersion: number;
+    readonly next: Record<string, unknown>;
+    readonly expiresAtMs: number;
+  }): Promise<number> {
+    const key = this.normalizeKey(input.scope, input.id);
+    if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1) {
+      throw new Error('Registration ceremony expected version is invalid');
+    }
+    const next = prepareValue(input.next, input.expiresAtMs);
+    const result = await this.database
+      .prepare(
+        `UPDATE ${TABLE_NAME}
+            SET version = version + 1,
+                record_json = ?7,
+                expires_at_ms = ?8,
+                updated_at_ms = ?9
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND record_scope = ?5
+            AND record_id = ?6
+            AND version = ?10`,
+      )
+      .bind(
+        ...this.bindKey(key),
+        next.recordJson,
+        next.expiresAtMs,
+        Date.now(),
+        input.expectedVersion,
+      )
+      .run();
+    if (changes(result) !== 1) {
+      throw conflict('Registration ceremony record changed during versioned update');
+    }
+    return input.expectedVersion + 1;
+  }
+
   async take(scope: string, id: string): Promise<Record<string, unknown> | null> {
     const key = this.normalizeKey(scope, id);
     const current = await this.get(scope, id);
@@ -189,50 +322,6 @@ export class D1RegistrationCeremonyRecordStore {
       const allStored = await this.allRecordsMatch(mutations);
       if (allStored) return;
       throw conflict(error instanceof Error ? error.message : 'Registration ceremony batch failed');
-    }
-  }
-
-  async deleteCeremonyAndReservation(input: {
-    readonly ceremonyScope: string;
-    readonly ceremonyId: string;
-    readonly expectedCeremony: Record<string, unknown>;
-    readonly reservation:
-      | { readonly kind: 'none' }
-      | {
-          readonly kind: 'server_allocated_wallet';
-          readonly scope: string;
-          readonly id: string;
-          readonly expected: Record<string, unknown>;
-        };
-  }): Promise<{ readonly ceremonyDeleted: boolean; readonly reservationDeleted: boolean }> {
-    const ceremonyKey = this.normalizeKey(input.ceremonyScope, input.ceremonyId);
-    const ceremony = await this.get(input.ceremonyScope, input.ceremonyId);
-    if (!ceremony) return { ceremonyDeleted: false, reservationDeleted: false };
-    if (stableJson(ceremony.value) !== stableJson(input.expectedCeremony)) {
-      throw conflict('Terminal registration cancellation found a changed ceremony');
-    }
-    const statements: D1PreparedStatementLike[] = [
-      this.prepareDelete(ceremonyKey, ceremony.version),
-      this.database.prepare(CAS_GUARD_SQL),
-    ];
-    let reservationDeleted = false;
-    if (input.reservation.kind === 'server_allocated_wallet') {
-      const reservationKey = this.normalizeKey(input.reservation.scope, input.reservation.id);
-      const reservation = await this.get(input.reservation.scope, input.reservation.id);
-      if (reservation) {
-        if (stableJson(reservation.value) !== stableJson(input.reservation.expected)) {
-          throw conflict('Terminal registration cancellation found a mismatched reservation');
-        }
-        statements.push(this.prepareDelete(reservationKey, reservation.version));
-        statements.push(this.database.prepare(CAS_GUARD_SQL));
-        reservationDeleted = true;
-      }
-    }
-    try {
-      assertBatchSucceeded(await this.database.batch<D1ResultLike>(statements), statements.length);
-      return { ceremonyDeleted: true, reservationDeleted };
-    } catch (error: unknown) {
-      throw conflict(error instanceof Error ? error.message : 'Terminal cancellation failed');
     }
   }
 

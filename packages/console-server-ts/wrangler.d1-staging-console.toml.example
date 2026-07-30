@@ -5,17 +5,29 @@ compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "CONSOLE_DB"
-database_name = "seams-console-staging"
+database_name = "seams-console-staging-nrt"
 database_id = "<remote-console-d1-database-id>"
 migrations_dir = "migrations/d1-console"
 
 [vars]
 SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
-CONSOLE_SESSION_ISSUER = "seams-console-staging"
+CONSOLE_BASE_URL = "https://example.com"
+CONSOLE_SESSION_ISSUER = "seams-console-staging-nrt"
 CONSOLE_SESSION_AUDIENCE = "seams-console-dashboard"
+CONSOLE_EMAIL_RUNTIME_PROFILE = "PRODUCTION"
+CONSOLE_EMAIL_PROVIDER = "RESEND"
+CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID = "console-email-staging-r1"
+CONSOLE_EMAIL_FROM = "Seams <console@example.com>"
+CONSOLE_EMAIL_CRON_EXPRESSIONS = "*/5 * * * *"
+
+[triggers]
+crons = ["*/5 * * * *"]
 
 [secrets]
 required = [
   "CONSOLE_SESSION_HMAC_SECRET",
+  "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U",
+  "RESEND_API_KEY",
   "STRIPE_API_SK",
+  "STRIPE_WEBHOOK_SECRET",
 ]

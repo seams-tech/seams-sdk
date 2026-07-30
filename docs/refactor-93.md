@@ -1,8 +1,19 @@
-# Refactor 93: MPC Router-Owned Ed25519 Yao Ceremony Coordination
+# Refactor 93: Stateless MPC Router And Role-Isolated Signing Coordination
 
 Date created: July 24, 2026
 
-Status: in progress
+Status: in progress — Router cutover complete; Durable Object removal pending
+
+Architecture amendment (July 28, 2026):
+[`refactor-94C-regression-fixes.md`](./refactor-94C-regression-fixes.md) is the
+authoritative plan for removing Router, Deriver, and SigningWorker Durable
+Objects. Completed DO-backed phases below remain implementation history until
+94C replaces and deletes those adapters. Any statement below that preserves a
+role-local Durable Object as the final topology is superseded by 94C. Refactor
+94C is also authoritative for current NEAR registration semantics: registration
+provisions an Ed25519 keypair and implicit account projection only. Historical
+named-account transaction preparation, broadcast, gas, and reconciliation
+steps below are no longer supported registration behavior.
 
 ## Objective
 
@@ -12,11 +23,17 @@ into the Rust MPC Router. Replace the serial Gateway-driven
 sequence with one authenticated Gateway-to-Router execution request and one
 connected Router-owned execution path.
 
+Finish the refactor by removing Durable Objects from registration and ordinary
+signing. The Router and role Workers become stateless request processors around
+role-private, transactionally updated databases. Service Bindings retain the
+deployment and custody boundaries without multiplying stateful object
+transitions.
+
 The refactor must reduce production passkey registration latency while
 preserving:
 
 - independent Deriver A and Deriver B secret custody;
-- role-local one-use state and replay protection;
+- role-local one-use state and replay protection through transactional claims;
 - exact A/B input-pair binding;
 - forward-only output commitment;
 - atomic SigningWorker package delivery;
@@ -27,12 +44,12 @@ The target product latency after the platform passkey prompt completes is
 
 ## Decision Summary
 
-1. The MPC Router Worker is the execution coordinator.
-2. Role-local one-use Durable Objects are the sole coordination authority.
-   Deriver A's `Prepared -> Running` transition is the execution lock. No
-   ceremony-wide Router ledger exists.
-3. Deriver A and Deriver B retain separate role-local Durable Objects and
-   separate secret bindings.
+1. The MPC Router Worker is a stateless execution coordinator.
+2. The Gateway database is the sole product-operation authority for admission,
+   exact replay, and terminal product results.
+3. Deriver A and Deriver B retain separate secret bindings and separate private
+   databases. Each role database is the sole authority for that role's one-use
+   lifecycle.
 4. The Router dispatches A and B preparation concurrently, awaits both signed
    readiness receipts, then dispatches execution and owns the connected
    request chain through terminal output.
@@ -46,10 +63,16 @@ The target product latency after the platform passkey prompt completes is
    internal transport retries. A client-initiated attempt allocates a new
    ceremony identity.
 9. The Gateway does not call Deriver A, Deriver B, or SigningWorker directly.
-10. The current direct Stage, Start, Result, and SigningWorker orchestration
-    paths are retained only for the request-boundary drain, then deleted.
-11. No feature flag, legacy orchestration mode, or compatibility branch
-    remains after deployment.
+10. The direct Stage, Start, Result, and SigningWorker orchestration paths are
+    deleted.
+11. Registration and ordinary signing execute without Durable Object calls.
+12. Each lifecycle participant performs at most one transactional claim and
+    one transactional terminal update. Multi-record state changes use one
+    database batch.
+13. A role Worker may cache immutable epoch metadata in its isolate. Cache
+    state never participates in correctness or authorization.
+14. No feature flag, legacy orchestration mode, selector, or compatibility
+    branch exists.
 
 ## Review Resolutions
 
@@ -65,16 +88,26 @@ Cloudflare may schedule preparation and execution on different isolates.
 Correctness depends on durable prepared records and signed receipts. It never
 depends on isolate reuse or an in-memory cache.
 
-### No Ceremony-Wide Ledger In V1
+### One Authority Per Lifecycle
 
-Role-local A/B Durable Objects are sufficient for mutual exclusion, pair
-conflict detection, expiry, terminal redelivery, and reconciliation. Adding a
-third lifecycle ledger would duplicate authority and add storage transitions
-to the latency-sensitive path.
+The Gateway database owns the product operation. Each role-private database
+owns that role's one-use cryptographic lifecycle. The SigningWorker database
+owns activation, signing material, presign reservations, and signing budgets.
+The Router owns no mutable lifecycle state.
 
-A ceremony-wide ledger may be reconsidered only when a demonstrated
-correctness requirement cannot be represented by the role-local lifecycle.
-It cannot be added as a convenience cache.
+Adding another ledger or Durable Object would duplicate authority and add a
+stateful transition to the latency-sensitive path. A new coordinator is
+permitted only when a demonstrated ordering requirement cannot be represented
+with a conditional database transition. It cannot be added as a cache,
+admission proxy, policy holder, quota holder, or replay layer.
+
+### Stateless Worker Semantics
+
+Router, Deriver, and SigningWorker isolates may reuse parsed public metadata,
+verified immutable policy, compiled WebAssembly, and public-key material.
+Every request remains correct after isolate eviction. Mutable lifecycle,
+authorization, replay, budget, activation, and output-delivery facts are read
+or updated through the owning private database.
 
 ### Disconnect Policy
 
@@ -89,10 +122,11 @@ tests before Refactor 93 may adopt it.
 
 ### Cutover Recovery
 
-Deployment recovery uses the previous Cloudflare Worker version. Refactor 93
-does not add a runtime backend-selection switch. Temporary request-boundary
-compatibility exists only during the ordered deployment and drain window, then
-the direct orchestration path is deleted.
+Deployment recovery uses a previously validated Worker revision that implements
+the partitioned-D1/MPC-Router architecture. Refactor 93 has no runtime
+backend-selection switch. Revisions that require the deleted tenant runtime,
+selectors, direct role bindings, or serial role routes are invalid rollback
+targets.
 
 ## Authoritative Dependencies
 
@@ -109,6 +143,9 @@ construction.
   authoritative for capability and authorization lifecycle.
 - [Refactor 92](./refactor-92-session-expiry-handling.md) remains authoritative
   for Wallet Session expiry and step-up behavior.
+- [Refactor 94C](./refactor-94C-regression-fixes.md) is authoritative for the
+  stateless Router and role-Worker topology, role-private transactional
+  databases, and Durable Object deletion.
 
 If this plan conflicts with a cryptographic or role-isolation invariant in the
 Yao implementation plan, the Yao plan wins and Refactor 93 must be revised.
@@ -161,6 +198,11 @@ This refactor owns:
 - Gateway cutover to one `MPC_ROUTER` request;
 - deletion of direct Gateway-to-Deriver and Gateway-to-SigningWorker Yao
   orchestration;
+- deletion of Router, Deriver, and SigningWorker Durable Object authorities;
+- separate role-private transactional databases and binding isolation;
+- transactional one-use claims, terminal redelivery, activation, session, and
+  budget updates;
+- zero Durable Object calls on registration and ordinary signing;
 - lifecycle timing spans for focused diagnosis;
 - local Router A/B dev parity.
 
@@ -171,12 +213,10 @@ This refactor does not:
 - merge A and B into one administrative or secret-custody domain;
 - move either role root share into the Router;
 - allow the Router to decrypt either role input or recipient output;
-- remove role-local one-use Durable Objects;
 - store the binary garbled stream in a Durable Object;
 - hold a Durable Object active across the network stream;
 - change normal Ed25519 signing after activation;
 - change Wallet Session budget or expiry policy;
-- use D1 as a ceremony coordinator;
 - introduce preprocessing or reusable garbled material.
 
 ## Required Invariants
@@ -204,18 +244,17 @@ This refactor does not:
    pair digest, session, circuit, operation, and peer identity.
 9. A missing or mismatched B preparation fails closed and identifies a Router
    coordinator defect. The execution path contains no coordination retry loop.
-10. A and B independently enforce one-use execution in their own Durable
-    Object namespaces.
+10. A and B independently enforce one-use execution through conditional
+    transactions in separate role-private databases.
 11. `Running` never returns to `Prepared`.
 12. Ambiguity after either role enters `Running` burns that execution identity.
 13. `Completed` permits exact encrypted-result redelivery only.
 14. A retry never reruns cryptography for a completed or ambiguous execution.
-15. Role-local Durable Objects remain the owners of exact encrypted package
-    redelivery state required by the Yao plan.
+15. Role-private databases own exact encrypted package redelivery state
+    required by the Yao plan.
 16. Role lifecycle records store the pair digest and role-local digest. They
     do not duplicate the full pair-binding structure.
-17. `blockConcurrencyWhile` cannot enclose a fetch, WebSocket, Yao execution,
-    SigningWorker call, timer, or polling loop.
+17. Registration and ordinary signing perform no Durable Object calls.
 18. The connected Router Worker request owns network wall time.
 19. A caller disconnect after either role enters `Running` burns the activated
     execution as required by the Yao implementation plan. If both roles had
@@ -236,25 +275,40 @@ This refactor does not:
     and receipt signature verification rejects a configured peer-key identity
     mismatch. Secret-binding-name rotation is not represented in this digest
     and remains a deployment-contract gate.
+27. The Router has no mutable persistence binding and performs no database
+    reads or writes.
+28. Gateway, Deriver A, Deriver B, and SigningWorker databases are separate
+    bindings. A component cannot read another role's private state.
+29. Each lifecycle participant performs at most one claim transaction and one
+    terminal transaction per logical operation. Exact replay returns the
+    stored terminal result without rerunning cryptography or network effects.
+30. Root-share records are application-encrypted with role-owned custody
+    material. Plaintext shares exist only inside the owning role Worker.
+31. Database placement and schema configuration are fixed deployment inputs,
+    not request-time routing decisions.
 
 ## Target Architecture
 
 ```mermaid
 flowchart LR
     C["Client / wallet iframe"] --> G["D1 Gateway"]
-    G -->|"one admitted execution request"| R["MPC Router Worker"]
-    R -->|"A prepare, then execute"| A["Deriver A Worker"]
-    R -->|"B prepare, then completed read"| B["Deriver B Worker"]
-    A --> AD["A role-local session DO"]
-    B --> BD["B role-local session DO"]
+    G -->|"claim and terminal commit"| GD["Gateway private D1"]
+    G -->|"one admitted execution request"| R["Stateless MPC Router Worker"]
+    R -->|"Service Binding"| A["Stateless Deriver A Worker"]
+    R -->|"Service Binding"| B["Stateless Deriver B Worker"]
+    A --> AD["Deriver A private D1"]
+    B --> BD["Deriver B private D1"]
     A <-->|"authenticated Yao WebSocket"| B
-    R -->|"atomic encrypted package pair"| SW["SigningWorker"]
+    R -->|"atomic encrypted package pair"| SW["Stateless SigningWorker"]
+    SW --> SD["SigningWorker private D1"]
     R -->|"canonical public/encrypted result"| G
     G --> C
 ```
 
-The Router Worker coordinates execution. The independent role-local Durable
-Objects serialize one-use state and support exact status recovery.
+The Router coordinates one connected execution without mutable persistence.
+Independent role-private databases enforce one-use state and exact status
+recovery with conditional transactions. The diagram contains no Durable
+Object because registration and ordinary signing cannot invoke one.
 
 ## Component Responsibilities
 
@@ -267,6 +321,10 @@ The Gateway continues to own:
 - D1 wallet and account records;
 - product admission facts passed to the channel-authenticated Router request;
 - persistence of the final verified product result.
+
+Its private database is the sole authority for the product operation. One
+claim transaction precedes remote effects, and one terminal transaction stores
+the canonical result. Exact retry reads that result through the same boundary.
 
 The Gateway sends one typed request through its existing `MPC_ROUTER` Service
 Binding. It receives one typed result and performs no role scheduling.
@@ -287,7 +345,8 @@ The Router owns:
 - canonical response composition.
 
 The Router keeps the original request chain connected until terminal output.
-It does not persist secrets.
+It has no database or Durable Object binding and does not persist secrets,
+policy, replay, lifecycle, quota, budget, or terminal output.
 
 ### Deriver A And Deriver B
 
@@ -302,6 +361,12 @@ Each Deriver:
 - persists exact encrypted output before release;
 - returns its signed public receipt and opaque recipient packages.
 
+Each Deriver receives only its own private database binding. The database
+stores application-encrypted root-share records and role lifecycle rows. A
+conditional claim moves the exact pair from `Prepared` to `Running`; a
+conditional terminal update stores `Completed` or `Burned`. The Worker holds no
+mutable state between requests.
+
 The selected transport and separate deployment identities remain unchanged.
 
 ### SigningWorker
@@ -313,6 +378,11 @@ The SigningWorker continues to:
 - activate registration output or stage recovery output;
 - return the canonical activation or staging receipt;
 - support exact idempotent redelivery.
+
+Its private database stores activation, encrypted signing material, presign
+reservations, session budgets, and exact delivery results. Related changes
+commit in one transaction. No separate output, session, or budget coordinator
+exists.
 
 ## Domain Model
 
@@ -468,8 +538,7 @@ hands a precise branch to core orchestration.
 The response is an operation-specific `Result`-style union. Recoverable
 service failures, terminal burned executions, authorization rejection, and
 successful operation results remain distinct at the core contract boundary.
-Pair-bound role routes carry sanitized failure classes across the HTTP boundary;
-legacy role routes retain protocol-error responses until the drain cleanup.
+Pair-bound role routes carry sanitized failure classes across the HTTP boundary.
 
 ### Private Role Commands
 
@@ -504,8 +573,7 @@ Their ownership and semantics are fixed:
 - every command requires the exact pair binding;
 - execution requires both exact signed readiness receipts;
 - the final B read performs no polling and no execution;
-- the old Gateway-addressable Stage, Start, and Result contracts are removed
-  after the request-boundary drain.
+- the old Gateway-addressable Stage, Start, and Result contracts are removed.
 
 The target critical path is:
 
@@ -607,25 +675,23 @@ or production acceptance.
       and SigningWorker delivery is operation-typed and idempotent.
 - [x] Review Phase 4 as an orchestration cutover. Registration, recovery, and
       export use the MPC Router backend and the Gateway backend type has no
-      direct Yao role-route origin. The separate tenant-runtime persistence
-      cutover remains Phase 5 work.
+      direct Yao role-route origin.
 - [x] Review the checked Phase 5 substeps. Registration admission/execution,
       recovery claims and activation replacement, export phase claims and exact
       result redelivery, cross-key role claims, and split role execution all
       have focused behavioral coverage.
 - [x] Complete the remaining Phase 5 request-scoped composition and cutover
       plumbing. Registration, recovery, export, finalize, replay, capability,
-      session, and local-dev paths all have partitioned implementations behind
-      the independent family selectors.
-- [ ] Complete the staged family cutovers and drains, then remove the
-      tenant-runtime binding and remaining legacy routes, serializers,
-      fixtures, and compatibility boundaries.
+      session, and local-dev paths all use the partitioned implementation.
+- [x] Delete the tenant runtime, family selector, admission-drain response,
+      direct Gateway Deriver bindings, and legacy role routes. Partitioned D1
+      and the MPC Router are the only supported path.
 - [ ] Deploy one coherent staging revision and complete manual registration,
       recovery, and export acceptance.
 
-Audit validation: all `router-ab-core`, `router-ab-cloudflare`, and
-`router-ab-dev` tests pass; 72 focused Gateway contract, persistence, recovery,
-export, trace, and selector tests pass; and the integration checkpoint passes
+Pre-deletion audit validation: all `router-ab-core`, `router-ab-cloudflare`, and
+`router-ab-dev` tests passed; focused Gateway contract, persistence, recovery,
+export, and trace tests passed; and the integration checkpoint passed
 `pnpm check`. The native Router executable installs its coordinator and serves
 the authenticated execute and recovery-promotion boundaries. Direct calls to
 the lower-level Router boundary helper without a dispatcher intentionally
@@ -704,7 +770,9 @@ the plan does not claim cryptographic D1 admission attestation.
 - [x] Add `Prepared`, pair digest, and role-local input digest to A and B
       role-local state.
 - [x] Add idempotent A and B `prepare-pair` commands and signed readiness
-      receipts.
+      receipts. Core lifetime validation remains strict; Cloudflare role and
+      coordinator boundaries allow at most 1,000 ms of future-only skew from
+      the platform's I/O-refreshed clock.
 - [x] Bind the pair digest into the peer handshake and WebSocket request.
 - [x] Make execute-before-prepare a typed fail-closed defect result.
 - [x] Require both exact readiness receipts before A execution.
@@ -775,46 +843,98 @@ the plan does not claim cryptographic D1 admission attestation.
       body and trace ID plus the Router replay marker; HTTP responses are not
       retried.
 
-The Cloudflare Gateway cutover code is implemented behind the explicit drain
-selector described below. The strict local Wrangler runtime
+The Cloudflare Gateway routes directly through request-scoped partitioned D1
+handlers and the MPC Router. The strict local Wrangler runtime
 (`crates/router-ab-dev/scripts/dev-local-workers.mjs`) includes the Router
 coordinator on port 9100. The `router_ab_local_up` Rust harness starts an
 explicit Router process with its own persistence scopes and serves the native
-pair and recovery boundaries; the two harnesses still require separate
-cryptographic and deployment evidence.
+pair and recovery boundaries.
 
 ### Phase 5: Hard Cutover And Deletion
 
-The Phase 5 deletion audit is recorded in
+#### Historical Cutover Reliability Corrections (July 26, 2026)
+
+This subsection records corrections made while the staged selector still
+existed. References to family windows, the tenant snapshot, and legacy CAS are
+historical evidence only. The immediate hard cutover subsequently deleted
+those paths, so none of the selector procedures below are operational steps.
+
+- [x] **Email OTP failure cleanup — preserve the actionable failure and release
+      the registration intent.** Disposal treats an already-absent one-use
+      factor as an idempotent success. Yao factor disposal and registration
+      intent cancellation run independently, so a disposal failure cannot skip
+      cancellation and leave `walletId` reserved. The original registration
+      failure remains visible when cleanup succeeds or finds the factor already
+      absent.
+- [x] **C1 / H1 — classify every ceremony-store route.** Registration intent,
+      cancellation, start, derivation response/activation, finalize,
+      add-signer intent/start/derivation/finalize, and add-auth-method
+      intent/start/finalize now follow the registration family window. The
+      intent routes are the admission boundaries; later phases remain on the
+      legacy store during the drain. The remaining catch-all routes do not read
+      or write registration ceremony intent state. Worker-boundary tests cover
+      every classified route before cutoff, during drain, and after drain.
+- [x] **C2 / H6 — route capability consumers by recovery ownership.** Warm
+      recovery bootstrap, wallet-session minting, unlock, and sync-account all
+      follow the recovery family window. A registration cutover can no longer
+      move those consumers to partitioned D1 while recovery still writes the
+      legacy snapshot. Configuration rejects registration unless recovery is
+      configured to finish draining first. Export has the same constraint
+      because it authorizes against the active capability. The deployment
+      preflight and Worker boundary enforce both rules, so removing the legacy
+      fallback cannot make newly partitioned operations read stale capability
+      state during rollout.
+- [x] **H2 — prevent legacy capability-state resurrection.** The stateful
+      tenant-runtime composition no longer accepts or invokes the canonical D1
+      capability fallback. Existing-wallet rehydration remains exclusively in
+      the request-scoped partitioned runtime, where installation uses shared
+      CAS. An empty legacy snapshot now stays empty on a capability miss.
+- [x] **H3 — tolerate only bounded Cloudflare clock skew.** Core readiness
+      validation remains strict. Cloudflare readiness checks share one
+      future-only 1,000 ms allowance for the platform's I/O-refreshed clock;
+      receipt expiry, pair/root binding, and strict signature verification are
+      unchanged. Boundary tests accept +1,000 ms, reject +1,001 ms, reject
+      expiry, and prove the default validator still rejects any future issue
+      time.
+- [x] **H4 — enforce legacy ceremony CAS.** Registration and add-signer legacy
+      updates use one transactional Durable Object compare-and-swap operation
+      over canonical JSON. Missing or stale expected records return the same
+      typed conflict used by partitioned D1, and the winning record is left
+      unchanged. The actual Durable Object test proves the transaction and
+      stale-writer behavior.
+- [x] **H5 — keep transient start/finalize failures resumable.** Registration
+      and add-signer start/finalize callbacks share one typed retryable-failure
+      classifier. `not_configured`, internal/in-progress/uncertain/timeout and
+      temporarily unavailable results, plus responses carrying `retryAfterMs`,
+      throw before terminal persistence. The durable prepared claim remains
+      available for exact stale-claim reconciliation after service recovery;
+      deterministic domain rejections remain terminal.
+
+Validation for this correction set: `pnpm build:sdk-full`, `pnpm check`, the SDK
+server build, the focused cutover/state/CAS/side-effect suites, 27 deployment
+and cutover-order tests, 10 registration and wallet-auth-method lifecycle
+tests, and the Rust core and Cloudflare bounded-skew tests all pass.
+
+The July 26 live-variable audit found the production cutover variables absent
+and the staging values empty. The immediate hard-cutover change then removed
+all six variables from repository configuration and workflows. Any values
+still stored in GitHub Environments are retired configuration and should be
+deleted.
+
+The current deletion state is recorded in
 [`refactor-93-phase5-deletion-audit.md`](./refactor-93-phase5-deletion-audit.md).
-It confirms that the Gateway serial Yao owner is deleted, while Deriver A/B
-service bindings, legacy role routes/parsers, and compatibility tests remain
-drain targets. `SIGNING_WORKER` is still owned by the Router A/B ECDSA
-threshold transport and is not an obsolete Yao direct-origin binding. No
-destructive deletion is authorized until the audit's deployment and drain
-receipts are recorded.
-
-The tenant-runtime cleanup is deliberately ordered after the three family
-drains. An unset window still selects the tenant runtime for product lifecycle
-state, while cryptographic execution already uses the MPC Router. Active
-admission, authorization, recovery, export, and finalization claims exist only
-in that runtime's snapshot; there is no snapshot-to-partitioned-D1 migration
-bridge. Removing or bypassing the snapshot first would strand an in-flight
-ceremony after the user completes authentication. The safe sequence is:
-
-1. deploy and exercise one frozen revision with every family window unset;
-2. quiesce and drain registration, recovery, and export independently;
-3. remove all Yao traffic and state from the tenant runtime;
-4. retain the runtime only for non-Yao routes until its separate follow-up
-   deletion.
+The Gateway tenant runtime, selector, direct Deriver bindings, and legacy role
+routes have no supported owner. `SIGNING_WORKER` remains because Router A/B
+ECDSA threshold transport owns it; `MPC_ROUTER` remains the Ed25519 Yao origin.
 
 - [x] Delete the Gateway Stage, Start, Result, and package-delivery
       orchestration.
-- [ ] Delete obsolete Yao direct-origin environment keys where no other
+- [x] Delete obsolete Yao direct-origin environment keys where no other
       protocol owns them.
-- [ ] Replace the tenant-scoped Gateway runtime Durable Object with a
-      request-safe per-ceremony persistence/CAS boundary, then remove its
-      binding and SQLite migration so no tenant-wide object coordinates Yao.
+- [x] Replace the tenant-scoped Gateway runtime Durable Object with a
+      request-safe per-ceremony persistence/CAS boundary, remove its binding,
+      and add the class deletion migration so no tenant-wide object coordinates
+      Yao.
   - [x] Route registration admission and execution through typed request-scoped
         CAS behind the disabled two-boundary drain selector.
   - [x] Move registration start, bind, finalize, add-signer, and shared
@@ -845,7 +965,9 @@ ceremony after the user completes authentication. The safe sequence is:
           runtime and lifecycle records are request-scoped. Real-SQLite tests
           cover atomic multi-record writes, one-time take/delete behavior,
           contention, restart recovery, terminal cancellation, and canonical
-          exact replay; the legacy factory remains only for drain coverage.
+          exact replay. The legacy factory remains only for drain coverage and
+          now enforces the same expected-record CAS contract for ceremony
+          updates.
     - [x] Split sponsored NEAR account creation into a prepare step that builds,
           signs, and hashes the transaction without broadcasting and a broadcast
           step that replays those exact bytes. Rebuilding would take a fresh
@@ -906,8 +1028,9 @@ ceremony after the user completes authentication. The safe sequence is:
           resumed after its 30-second live-owner window; a contender inside
           that window receives the matching retry delay instead of executing
           the effect concurrently. Deterministic failures are terminal exact
-          receipts, while internal or retryable failures leave the claim open
-          for stale-claim reconciliation.
+          receipts. Internal, unavailable, unconfigured, in-progress,
+          uncertain, timeout, and retry-after failures leave start and finalize
+          claims open for stale-claim reconciliation.
     - [x] Drive the convergence check through the finalize entry point rather
           than the commit store and side-effect boundary separately. The same
           suite also races two identical finalize requests and verifies an
@@ -936,8 +1059,8 @@ ceremony after the user completes authentication. The safe sequence is:
           it after the registration drain; every public, session, sync-account,
           and non-Yao route leaves the tenant runtime after all three family
           drains.
-    - [ ] Enable the registration selector in staging with a measured cutoff
-          and drain window.
+    - [x] Enable the registration selector in staging and production with an
+          immediate boundary (`0`).
   - [x] Add typed request-scoped recovery admission and execution
         prepare/claim/commit boundaries with a shared backend-session uniqueness
         index, durable uncertainty, and no backend retry.
@@ -998,11 +1121,10 @@ ceremony after the user completes authentication. The safe sequence is:
   - [x] Provide partitioned D1 ownership for remaining replay, authorization,
         and session state, and route the complete outer Gateway to it after all
         family drains.
-  - [ ] Delete the tenant runtime binding, readiness path, serializer, and
-        Durable Object class after the drain.
-    - [ ] Preserve the historical `router-api-runtime-sqlite-v1` migration and,
-          only after the drain receipt, add a new unique Cloudflare legacy
-          migration with
+  - [x] Delete the tenant runtime binding, readiness path, serializer, and
+        Durable Object class.
+    - [x] Preserve the historical `router-api-runtime-sqlite-v1` migration and
+          add a new unique Cloudflare migration with
           `deleted_classes = ["RouterApiRuntimeDurableObject"]`. Removing the
           old migration entry does not delete the deployed class namespace.
   - [x] Give the local dev worker the same request-scoped path. Its Yao
@@ -1018,35 +1140,79 @@ ceremony after the user completes authentication. The safe sequence is:
         Router effect. The native Router executable installs its coordinator
         dispatcher for execute and recovery-promotion; only the deliberately
         dispatcher-free lower helper retains the explicit 501 response.
-- [ ] Delete obsolete Deriver Stage and Result route contracts after the
-      maximum in-flight ceremony lifetime has elapsed.
-- [ ] Before deleting legacy role routes, complete the cross-key exclusion
-      drain:
-  - [x] Make legacy admission and pair preparation claim both role-record keys
-        through the same Durable Object storage transaction.
-  - [ ] Deploy that version, then observe the maximum in-flight lifetime with
-        no object containing both records.
-- [ ] Delete lower-authority tests, fixtures, mocks, and source guards that
+- [x] Delete obsolete Deriver Stage and Result route contracts.
+- [x] Make legacy admission and pair preparation claim both role-record keys
+      through the same Durable Object storage transaction. This protected the
+      transition and does not remain as a deletion gate.
+- [x] Delete lower-authority tests, fixtures, mocks, and source guards that
       encode the serial flow.
-- [ ] Delete compatibility request parsers after the boundary drain.
+- [x] Delete compatibility request parsers.
 - [x] Split A's claim, network execution, and completion into separate Worker
       and role-DO commands so no role Durable Object remains active across the
       Yao WebSocket stream.
 - [x] Keep role-local Durable Object classes and their current secret
       boundaries.
-- [ ] After the boundary drain, verify the repository and deployment contain
-      one reachable production Yao orchestration owner.
+- [x] Verify the repository and deployment contain one reachable production
+      Yao orchestration owner.
 
-The Gateway backend no longer contains the serial Stage/Start/Result or direct
-Yao package-delivery flow. The remaining Deriver Stage/Result handlers and
-direct-origin bindings are retained until the deployed cutover has survived the
-maximum in-flight ceremony lifetime; they are role-boundary drain targets, not
-second Gateway orchestration owners. Request-safe lifecycle storage replaces
-the tenant-scoped `ROUTER_API_RUNTIME` after the per-family drains. Its
-pre-cutover fallback, binding, and class remain until the deployed drain receipt
-authorizes deletion.
+The Gateway backend contains no serial Stage/Start/Result flow, direct Yao
+package-delivery flow, tenant-scoped runtime, or selector. The legacy role
+handlers and compatibility parsers are deleted.
+
+### Legacy Routing Deletion Checklist
+
+The immediate cutover makes partitioned D1 and the MPC Router the only selected
+production path. Refactor 93 is not complete while any replaced routing system
+remains reachable or configurable.
+
+- [x] Delete the Gateway cutover selector module
+      (`routerAbEd25519YaoGatewayCutover.ts`) and route every Gateway request
+      directly through the request-scoped partitioned-D1 handler.
+- [x] Delete the six
+      `ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_{ADMISSION_CUTOFF_MS,DRAIN_UNTIL_MS}`
+      variables from Worker environment types, deployment config generation,
+      GitHub workflows, examples, and readiness checks. GitHub Environment
+      values are removed after the deletion revision is deployed.
+- [x] Delete `legacy_runtime`, `legacy_stateful`, and `admission_blocked`
+      branches, including the tenant-runtime request forwarder and the 503
+      deployment-drain response.
+- [x] Delete `RouterApiRuntimeDurableObject`, its state key and state codec,
+      its readiness probe, `ROUTER_API_RUNTIME` binding, and its tenant-wide
+      instance-name derivation.
+- [x] Add the Cloudflare Durable Object deletion migration for
+      `RouterApiRuntimeDurableObject`; retain the historical creation migration
+      as immutable deployment history.
+- [x] Delete the legacy stateful Gateway composition and auth/capability bridge
+      factories. Keep only the environment-built request-scoped D1 adapters.
+- [x] Remove Gateway-to-Deriver A and Gateway-to-Deriver B service bindings and
+      direct-origin dispatch. Preserve only bindings proven to serve a current
+      non-legacy protocol.
+- [x] Delete Deriver B activation/export Stage and Result paths, handlers,
+      commands, polling constants, parsers, and exports. The pair-bound
+      Prepared/Running/Completed protocol remains.
+- [x] Delete obsolete serial lifecycle records and request parsers from the
+      Deriver role Durable Objects while preserving current pair-bound state.
+- [x] Delete legacy Gateway package-delivery adapters. SigningWorker delivery
+      remains owned by the MPC Router coordinator.
+- [x] Delete tests, fixtures, inventory assertions, and source guards whose sole
+      purpose is the tenant runtime, selector windows, admission drain, serial
+      Stage/Result flow, or direct Gateway-to-role routing.
+- [x] Add structural tests proving the production Gateway has no tenant-runtime
+      binding, no cutover variables, and no direct Ed25519 Yao role routes.
+- [x] Deploy the deletion revision to staging and production, then remove any
+      retired family cutoff/drain values from GitHub Environments. Staging run
+      `30198990646` succeeded on attempt 2 after a transient CI download reset;
+      production run `30198991356` succeeded. Both GitHub Environments now
+      contain no `ROUTER_AB_YAO_GATEWAY_*` values.
+- [ ] Confirm registration, recovery, export, retry/redelivery, and terminal
+      failure behavior on the sole remaining route.
 
 ### Phase 6: Staging Deployment And Manual Acceptance
+
+The deployment runs and selector experiments recorded in this section are
+historical evidence from before the immediate hard cutover. They do not define
+the current release procedure. Unchecked staging and manual acceptance items
+still apply to the sole partitioned-D1/MPC-Router route.
 
 The staging product validation uses a local-only Playwright runner rather than a
 deployed test surface. `pnpm -C tests test:refactor93:staging:check` validates
@@ -1157,17 +1323,17 @@ route-deletion cleanup.
       request boundary. The branch already contains the Gateway cutover, so this
       ordering cannot be replayed. The coherent staging rollout below replaces
       it as the first external validation.
-- [ ] Deploy each Gateway family cutover with its corresponding
-      `ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_ADMISSION_CUTOFF_MS`
-      set at admission quiescence and its corresponding
-      `ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_DRAIN_UNTIL_MS`
-      set to that cutoff plus the measured maximum in-flight lifetime.
+- [x] Superseded and removed: the temporary zero-valued family cutoff/drain
+      configuration performed the immediate hard cutover before the selector
+      and all six variables were deleted.
 - [ ] Exercise staging registration, recovery, export, exact replay, conflict,
       disconnect, terminal redelivery, and rollback on the coherent versions.
 - [ ] Confirm manual staging registration completes successfully after Touch
       ID, with the post-prompt wait returned to the expected 2–3 second range.
-- [ ] Complete the staging family drains and validate route-deletion cleanup in
-      staging.
+- [x] Validate route-deletion cleanup in staging. Run `30198990646` applied the
+      Durable Object deletion migration and deployed all five Workers from
+      revision `73cb8c0c28aaea5f158bf3637b686ec699ef22af`; the Gateway smoke test
+      passed.
 - [x] Replace the failed stack workflow's hard-coded Gateway secret plumbing
       with target-capability-derived backend deployment. Billing is enabled in
       both hosted environments, and both Gateway jobs require
@@ -1176,7 +1342,12 @@ route-deletion cleanup.
       a coherent staging run completed, while data-plane acceptance remains
       open on the role startup-metadata mismatch recorded above.
 
-## Mid-Implementation Review Dispositions (2026-07-24)
+## Historical Mid-Implementation Review Dispositions (2026-07-24)
+
+This section preserves review evidence from the staged implementation. Present
+tense in the recorded dispositions describes that revision. The tenant runtime,
+selector windows, serial role routes, and drain gates mentioned here were later
+deleted and have no operational role.
 
 The Fable review identified several claims that needed either implementation or
 an explicit scope decision:
@@ -1192,13 +1363,11 @@ an explicit scope decision:
   The two record keys cannot coordinate requests served by different Worker
   versions: an in-flight legacy binary can still perform its plain
   `SESSION_RECORD_STORAGE_KEY` write after a newer pair binary has checked that
-  key. Before deleting the legacy routes, deploy a version whose first legacy
-  admission writes and pair preparation write are both transactions that
-  re-read `SESSION_RECORD_STORAGE_KEY` and `PAIR_SESSION_RECORD_STORAGE_KEY`
-  together (or use an equivalent persistent lifecycle-claim marker), then wait
-  the maximum in-flight lifetime. Any Durable Object that contains both keys
-  must fail closed and be investigated; it is not safe to infer ownership from
-  either key alone.
+  key. The staged plan therefore required transactional re-reads of
+  `SESSION_RECORD_STORAGE_KEY` and `PAIR_SESSION_RECORD_STORAGE_KEY` plus a
+  maximum-lifetime wait before route deletion. The hard cutover later removed
+  the legacy record and route. A Durable Object containing both keys remains an
+  invalid historical state that must fail closed.
 - The unused contract-only coordinator was removed. `router_coordinator.rs` is
   the sole production Router orchestration owner.
 - The current v1 handshake uses signed readiness plus a signed, pair-bound
@@ -1239,13 +1408,13 @@ an explicit scope decision:
   guarantee a post-disconnect callback, so dropped-caller burn is covered by
   the fault-test boundary.
 
-The `router-ab-dev` pair lifecycle has route and ownership parity checks, and
-the Rust harness serves the native Router coordinator through authenticated
-role-worker HTTP boundaries, including recovery promotion. Tenant-runtime
-binding/class removal, drain verification, and staging validation remain open.
+The `router-ab-dev` pair lifecycle had route and ownership parity checks, and
+the Rust harness served the native Router coordinator through authenticated
+role-worker HTTP boundaries, including recovery promotion. At this checkpoint,
+tenant-runtime removal and staging validation were still open.
 
-The current staging Gateway still has one tenant-scoped runtime Durable Object
-(`ROUTER_API_RUNTIME`). It serializes only runtime initialization with
+At that checkpoint, the staging Gateway had one tenant-scoped runtime Durable
+Object (`ROUTER_API_RUNTIME`). It serialized only runtime initialization with
 `blockConcurrencyWhile`, then permits request overlap, so it does not wrap the
 Yao network stream. It does, however, hold the mutable product admission,
 recovery, export, and authorization maps and writes the complete snapshot back
@@ -1285,8 +1454,8 @@ receipt. A lost D1 response or terminal product-state CAS conflict is
 reconciled from that receipt without repeating the wallet write. Registration
 finalization has its own D1 claim and terminal CAS around the complete entry
 point, including exact response replay after concurrent execution or response
-loss. Acceptance criterion 3 remains open for the external drain and eventual
-deletion of the binding, class, serializer, readiness probe, and migration.
+loss. At that checkpoint, acceptance criterion 3 was open for removal of the
+binding, class, serializer, and readiness probe.
 This is separate from the role-local Router coordination already implemented
 here.
 The follow-up review also confirms that the object name is keyed by
@@ -1298,27 +1467,25 @@ The replacement is tracked in the
 and gates this criterion rather than expanding the Router coordinator scope.
 The shared Cloudflare adapter now provides a per-record Durable Object resolver,
 opaque versioned JSON envelopes, and transaction-backed compare-and-swap writes.
-The Gateway package also has a request-boundary ceremony-key parser, a lossless
+The Gateway package also had a request-boundary ceremony-key parser, a lossless
 codec for the registration, authorization, recovery, and export Map/Set graphs,
 and a shared-plus-ceremony state store that reads both records from one D1
 batch snapshot and commits them with one typed CAS batch. The registration
-request-scoped adapter, drain selector, and contract tests are complete. The
-generated deployment config accepts six explicit per-family values,
+request-scoped adapter, drain selector, and contract tests. The generated
+deployment config accepted six explicit per-family values,
 `ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_ADMISSION_CUTOFF_MS` and
-`ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_DRAIN_UNTIL_MS`; leave a
-family's pair empty during its legacy window, then set its cutoff at quiescence
-and its final boundary after the measured maximum in-flight lifetime. The
-staging and production workflows project those exact values into migration and
+`ROUTER_AB_YAO_GATEWAY_{REGISTRATION,RECOVERY,EXPORT}_DRAIN_UNTIL_MS`. The
+staged procedure left each pair empty, then set both boundaries together. The
+staging and production workflows projected those values into migration and
 Gateway deployment jobs. Shared preflight and static readiness validation
-reject incomplete, invalid, reversed, or obsolete tenant-wide windows while
-preserving explicit empty pairs before cutover. The
-tenant runtime remains reachable only as the pre-cutover and in-flight drain
-authority. Its binding and historical migration cannot be deleted until the
-coherent staging cutover and maximum-lifetime drain are recorded. The
+rejected incomplete, invalid, reversed, or obsolete tenant-wide windows. The
+tenant runtime was reachable as the pre-cutover and in-flight drain authority.
+Its historical creation migration remains immutable, while the class now has a
+deletion migration. The
 dedicated request-scoped registration, recovery, export, and outer Gateway
-handlers are wired behind the drain-gated staging selector. During an
-intermediate family drain, admission returns a typed 503 with `Retry-After`,
-while continuations remain on the legacy runtime.
+handlers were wired behind the staging selector. During its intermediate
+state, admission returned a typed 503 with `Retry-After` while continuations
+used the legacy runtime.
 
 The first bounded Gateway migration is implemented and tested for registration
 admission and execution, with new admission quiesced first and both operations
@@ -1339,11 +1506,10 @@ batch, capability installation, replay persistence, and ceremony deletion.
 Each step is idempotent, and the outer D1 claim/terminal receipt makes
 concurrent attempts and response loss converge on one exact response.
 
-The request-boundary parser and partitioned state store cover registration,
-capabilities, recovery, and export state. The staging Worker keeps each family
-on the tenant runtime during its configured drain, switches that family
-together at its final boundary, and moves the complete outer Gateway only
-after all three families have drained.
+The request-boundary parser and partitioned state store covered registration,
+capabilities, recovery, and export state. The staged selector kept each family
+on the tenant runtime during its configured interval and later moved the outer
+Gateway to request-scoped D1.
 
 The native serving path is now wired through `router_ab_local_worker`.
 The Router has its own process and five SQLite-backed Router persistence
@@ -1562,25 +1728,19 @@ correlated boundary spans for that ceremony.
 3. Confirm all five active Worker versions came from the same revision.
 4. Exercise registration, recovery, export, exact replay, conflict,
    disconnect, terminal redelivery, rollback, restart, and concurrency in
-   staging with every family window unset.
-5. Quiesce and drain registration, recovery, and export independently. Existing
-   continuations stay on the tenant snapshot until their family drain expires;
-   new admissions resume against partitioned D1 after that boundary.
-6. Remove Yao snapshot hydration, persistence, serialization, and routing from
-   the tenant runtime after all three drain receipts. Keep the runtime reachable
-   only for non-Yao routes until its separate follow-up deletion.
-7. Deploy route cleanup to staging and repeat the lifecycle and rollback
-   checks.
+   staging on the sole partitioned-D1/MPC-Router route.
+5. Deploy the deletion revision to production and repeat lifecycle, smoke, and
+   rollback checks.
+6. Remove any retired family cutoff/drain values from GitHub Environments.
 
-Compatibility exists at the tenant lifecycle persistence boundary through step
-5 and at the role/request boundary through step 7. The Gateway has one current
-Router cryptographic path throughout; legacy role-boundary handlers remain
-available during the drain window and are removed by the cleanup step.
+No compatibility routing or selector configuration is part of the supported
+architecture.
 
-The cutover uses no backend-selection feature flag. Before hard deletion,
-rollback redeploys the previous Gateway Worker version. Rollback after any
-role enters `Running` follows forward-only reconciliation and burn rules. A
-code rollback cannot revive an old execution identity or pair digest.
+The cutover uses no backend-selection feature flag. Rollback deploys a
+previously validated revision that uses the current partitioned-D1/MPC-Router
+architecture. After any role enters `Running`, recovery follows forward-only
+reconciliation and burn rules. A code rollback cannot revive an old execution
+identity or pair digest.
 
 ## Acceptance Criteria
 

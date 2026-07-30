@@ -43,8 +43,6 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
-    fmt, fs,
-    path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -206,17 +204,6 @@ pub const LOCAL_DERIVER_A_URL_ENV_V1: &str = "DERIVER_A_URL";
 pub const LOCAL_DERIVER_B_URL_ENV_V1: &str = "DERIVER_B_URL";
 /// SigningWorker private URL env key.
 pub const LOCAL_SIGNING_WORKER_URL_ENV_V1: &str = "SIGNING_WORKER_URL";
-/// Router replay storage path env key.
-pub const LOCAL_ROUTER_REPLAY_STORAGE_PATH_ENV_V1: &str = "ROUTER_REPLAY_STORAGE_PATH";
-/// Router lifecycle storage path env key.
-pub const LOCAL_ROUTER_LIFECYCLE_STORAGE_PATH_ENV_V1: &str = "ROUTER_LIFECYCLE_STORAGE_PATH";
-/// Router project-policy storage path env key.
-pub const LOCAL_ROUTER_PROJECT_POLICY_STORAGE_PATH_ENV_V1: &str =
-    "ROUTER_PROJECT_POLICY_STORAGE_PATH";
-/// Router quota storage path env key.
-pub const LOCAL_ROUTER_QUOTA_STORAGE_PATH_ENV_V1: &str = "ROUTER_QUOTA_STORAGE_PATH";
-/// Router abuse storage path env key.
-pub const LOCAL_ROUTER_ABUSE_STORAGE_PATH_ENV_V1: &str = "ROUTER_ABUSE_STORAGE_PATH";
 /// Deriver A envelope HPKE private-key env key.
 pub const LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1: &str =
     "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY";
@@ -247,12 +234,12 @@ pub const LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1: &str = "DERIVER_B_PEER_SIGNIN
 pub const LOCAL_DERIVER_A_PEER_VERIFYING_KEY_ENV_V1: &str = "DERIVER_A_PEER_VERIFYING_KEY";
 /// Deriver B peer verifying key env key.
 pub const LOCAL_DERIVER_B_PEER_VERIFYING_KEY_ENV_V1: &str = "DERIVER_B_PEER_VERIFYING_KEY";
-/// Deriver A root-share metadata storage path env key.
-pub const LOCAL_DERIVER_A_ROOT_SHARE_STORAGE_PATH_ENV_V1: &str =
-    "DERIVER_A_ROOT_SHARE_STORAGE_PATH";
-/// Deriver B root-share metadata storage path env key.
-pub const LOCAL_DERIVER_B_ROOT_SHARE_STORAGE_PATH_ENV_V1: &str =
-    "DERIVER_B_ROOT_SHARE_STORAGE_PATH";
+/// Deriver A role-private SQLite path env key.
+pub const LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1: &str =
+    "DERIVER_A_ROLE_PRIVATE_STORAGE_PATH";
+/// Deriver B role-private SQLite path env key.
+pub const LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1: &str =
+    "DERIVER_B_ROLE_PRIVATE_STORAGE_PATH";
 /// Deriver A sealed root-share storage path env key.
 pub const LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1: &str =
     "DERIVER_A_SEALED_ROOT_SHARES_PATH";
@@ -262,9 +249,9 @@ pub const LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1: &str =
 /// SigningWorker server-output HPKE private-key env key.
 pub const LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1: &str =
     "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY";
-/// SigningWorker server-output storage path env key.
-pub const LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1: &str =
-    "SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH";
+/// SigningWorker role-private SQLite path env key.
+pub const LOCAL_SIGNING_WORKER_PRIVATE_STORAGE_PATH_ENV_V1: &str =
+    "SIGNING_WORKER_PRIVATE_STORAGE_PATH";
 /// SigningWorker public identity env key.
 pub const LOCAL_SIGNING_WORKER_ID_ENV_V1: &str = "SIGNING_WORKER_ID";
 /// SigningWorker key epoch env key.
@@ -280,8 +267,6 @@ pub const LOCAL_DERIVER_A_ENV_FILE_V1: &str = ".env.router-ab.deriver-a.local";
 pub const LOCAL_DERIVER_B_ENV_FILE_V1: &str = ".env.router-ab.deriver-b.local";
 /// Generated SigningWorker env file path for local development.
 pub const LOCAL_SIGNING_WORKER_ENV_FILE_V1: &str = ".env.router-ab.signing-worker.local";
-/// Local Router state directory.
-pub const LOCAL_ROUTER_STATE_DIR_V1: &str = ".router-ab-local/router";
 /// Local Deriver A state directory.
 pub const LOCAL_DERIVER_A_STATE_DIR_V1: &str = ".router-ab-local/deriver-a";
 /// Local Deriver B state directory.
@@ -296,9 +281,6 @@ pub const LOCAL_WORKER_HEALTH_PATH: &str = "/healthz";
 pub const LOCAL_WORKER_READY_PATH: &str = "/readyz";
 /// Deriver B full-duplex Ed25519 Yao peer-stream path.
 pub const LOCAL_DERIVER_B_ED25519_YAO_PEER_PATH: &str = "/router-ab/deriver-b/ed25519-yao/peer";
-/// Deriver A local Ed25519 Yao activation start path.
-pub const LOCAL_DERIVER_A_ED25519_YAO_ACTIVATION_START_PATH: &str =
-    "/router-ab/deriver-a/ed25519-yao/activation/start";
 /// Deriver A pair-bound preparation path mirrored from the strict Cloudflare worker.
 pub const LOCAL_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/prepare-pair";
@@ -311,15 +293,9 @@ pub const LOCAL_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH: &str =
 /// Deriver A pair-bound burn path mirrored from the strict Cloudflare worker.
 pub const LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/burn-pair";
-/// Deriver B local Ed25519 Yao activation staging path.
-pub const LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_STAGE_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/activation/stage";
 /// Deriver B pair-bound preparation path mirrored from the strict Cloudflare worker.
 pub const LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/prepare-pair";
-/// Deriver B pair-bound completed-result path mirrored from the strict Cloudflare worker.
-pub const LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/read-completed-pair";
 /// Deriver B pair-bound status path mirrored from the strict Cloudflare worker.
 pub const LOCAL_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/read-pair-status";
@@ -341,24 +317,12 @@ pub const LOCAL_DERIVER_A_ED25519_YAO_REFRESH_PROMOTE_PATH: &str =
 /// Deriver B prepared refresh promotion path.
 pub const LOCAL_DERIVER_B_ED25519_YAO_REFRESH_PROMOTE_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/refresh/promote";
-/// Deriver A local Ed25519 Yao export start path.
-pub const LOCAL_DERIVER_A_ED25519_YAO_EXPORT_START_PATH: &str =
-    "/router-ab/deriver-a/ed25519-yao/export/start";
 /// Deriver A encrypted refresh package for the Client.
 pub const LOCAL_DERIVER_A_ED25519_YAO_REFRESH_CLIENT_PACKAGE_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/refresh/client-package";
 /// Deriver A encrypted refresh package for the SigningWorker.
 pub const LOCAL_DERIVER_A_ED25519_YAO_REFRESH_SIGNING_WORKER_PACKAGE_PATH: &str =
     "/router-ab/deriver-a/ed25519-yao/refresh/signing-worker-package";
-/// Deriver B local Ed25519 Yao export staging path.
-pub const LOCAL_DERIVER_B_ED25519_YAO_EXPORT_STAGE_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/export/stage";
-/// Deriver B completed activation execution path.
-pub const LOCAL_DERIVER_B_ED25519_YAO_ACTIVATION_RESULT_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/activation/result";
-/// Deriver B completed export execution path.
-pub const LOCAL_DERIVER_B_ED25519_YAO_EXPORT_RESULT_PATH: &str =
-    "/router-ab/deriver-b/ed25519-yao/export/result";
 /// Deriver B completed refresh result path.
 pub const LOCAL_DERIVER_B_ED25519_YAO_REFRESH_RESULT_PATH: &str =
     "/router-ab/deriver-b/ed25519-yao/refresh/result";
@@ -496,52 +460,37 @@ const LOCAL_ROUTER_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_B_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
-    LOCAL_DERIVER_A_ROOT_SHARE_STORAGE_PATH_ENV_V1,
-    LOCAL_DERIVER_B_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
     LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
-    LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1,
+    LOCAL_SIGNING_WORKER_PRIVATE_STORAGE_PATH_ENV_V1,
 ];
 
 const LOCAL_DERIVER_A_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
-    LOCAL_ROUTER_REPLAY_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_LIFECYCLE_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_PROJECT_POLICY_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_QUOTA_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_ABUSE_STORAGE_PATH_ENV_V1,
     LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1,
     LOCAL_DERIVER_B_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
-    LOCAL_DERIVER_B_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
     LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
-    LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1,
+    LOCAL_SIGNING_WORKER_PRIVATE_STORAGE_PATH_ENV_V1,
 ];
 
 const LOCAL_DERIVER_B_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
-    LOCAL_ROUTER_REPLAY_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_LIFECYCLE_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_PROJECT_POLICY_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_QUOTA_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_ABUSE_STORAGE_PATH_ENV_V1,
     LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
     LOCAL_DERIVER_A_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
-    LOCAL_DERIVER_A_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
     LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
-    LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1,
+    LOCAL_SIGNING_WORKER_PRIVATE_STORAGE_PATH_ENV_V1,
 ];
 
 const LOCAL_SIGNING_WORKER_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
-    LOCAL_ROUTER_REPLAY_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_LIFECYCLE_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_PROJECT_POLICY_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_QUOTA_STORAGE_PATH_ENV_V1,
-    LOCAL_ROUTER_ABUSE_STORAGE_PATH_ENV_V1,
     LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
@@ -550,8 +499,8 @@ const LOCAL_SIGNING_WORKER_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_B_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
-    LOCAL_DERIVER_A_ROOT_SHARE_STORAGE_PATH_ENV_V1,
-    LOCAL_DERIVER_B_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
     LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
 ];
@@ -577,16 +526,6 @@ pub struct LocalRouterWorkerConfigV1 {
     pub signing_worker_id: String,
     /// Local private service authentication value.
     pub internal_service_auth: String,
-    /// Router replay storage path.
-    pub replay_storage_path: String,
-    /// Router lifecycle storage path.
-    pub lifecycle_storage_path: String,
-    /// Router project-policy storage path.
-    pub project_policy_storage_path: String,
-    /// Router quota storage path.
-    pub quota_storage_path: String,
-    /// Router abuse storage path.
-    pub abuse_storage_path: String,
 }
 
 /// Deriver A local worker config after raw env parsing.
@@ -608,8 +547,8 @@ pub struct LocalDeriverAWorkerConfigV1 {
     pub deriver_a_peer_verifying_key: String,
     /// Deriver B peer verifying key.
     pub deriver_b_peer_verifying_key: String,
-    /// Deriver A root-share metadata storage path.
-    pub root_share_storage_path: String,
+    /// Deriver A role-private SQLite path.
+    pub role_private_storage_path: String,
     /// Deriver A sealed root-share storage path.
     pub sealed_root_shares_path: String,
 }
@@ -633,8 +572,8 @@ pub struct LocalDeriverBWorkerConfigV1 {
     pub deriver_a_peer_verifying_key: String,
     /// Deriver B peer verifying key.
     pub deriver_b_peer_verifying_key: String,
-    /// Deriver B root-share metadata storage path.
-    pub root_share_storage_path: String,
+    /// Deriver B role-private SQLite path.
+    pub role_private_storage_path: String,
     /// Deriver B sealed root-share storage path.
     pub sealed_root_shares_path: String,
 }
@@ -652,8 +591,8 @@ pub struct LocalSigningWorkerConfigV1 {
     pub server_output_hpke_public_key: String,
     /// SigningWorker server-output HPKE private key.
     pub server_output_hpke_private_key: String,
-    /// SigningWorker server-output storage path.
-    pub server_output_storage_path: String,
+    /// SigningWorker role-private SQLite path.
+    pub role_private_storage_path: String,
 }
 
 /// Role-specific local worker config.
@@ -692,451 +631,53 @@ impl LocalWorkerRoleConfigV1 {
     }
 }
 
-/// Local Durable Object storage scope for the private-worker harness.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LocalDurableObjectScopeV1 {
-    /// Router replay and idempotency state.
-    RouterReplay,
-    /// Router public lifecycle state.
-    RouterLifecycle,
-    /// Router project-policy state.
-    RouterProjectPolicy,
-    /// Router quota and request-budget state.
-    RouterQuota,
-    /// Router abuse-control state.
-    RouterAbuse,
-    /// Deriver A root-share metadata and sealed-share state.
-    DeriverARootShare,
-    /// Deriver B root-share metadata and sealed-share state.
-    DeriverBRootShare,
-    /// SigningWorker activation and active server-output state.
-    SigningWorkerServerOutput,
-}
-
-/// Receipt returned when local Router-owned persistence is initialized.
-///
-/// This startup receipt records that each Router-owned storage boundary has
-/// been opened and its schema initialized before private workers start.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LocalRouterPersistenceStartupReceiptV1 {
-    /// Router-owned scopes initialized by the startup boundary.
-    pub scopes: Vec<LocalDurableObjectScopeV1>,
-}
-
-/// Initializes the five Router-owned SQLite boundaries used by local startup.
-///
-/// The native Router executable installs its coordinator separately. This
-/// helper performs no protocol execution.
-pub fn initialize_local_router_persistence_v1(
-    config: &LocalRouterWorkerConfigV1,
-) -> RouterAbProtocolResult<LocalRouterPersistenceStartupReceiptV1> {
-    let boundaries = [
-        (
-            LocalDurableObjectScopeV1::RouterReplay,
-            config.replay_storage_path.as_str(),
-        ),
-        (
-            LocalDurableObjectScopeV1::RouterLifecycle,
-            config.lifecycle_storage_path.as_str(),
-        ),
-        (
-            LocalDurableObjectScopeV1::RouterProjectPolicy,
-            config.project_policy_storage_path.as_str(),
-        ),
-        (
-            LocalDurableObjectScopeV1::RouterQuota,
-            config.quota_storage_path.as_str(),
-        ),
-        (
-            LocalDurableObjectScopeV1::RouterAbuse,
-            config.abuse_storage_path.as_str(),
-        ),
-    ];
-    for &(scope, path) in &boundaries {
-        let path = Path::new(path);
-        if let Some(parent) = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent).map_err(|error| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                    format!(
-                        "local Router {} storage directory initialization failed: {error}",
-                        scope.as_str()
-                    ),
-                )
-            })?;
-        }
-        let connection = Connection::open(path).map_err(map_sqlite_error)?;
-        LocalDurableObjectSqliteStorageV1::new(&connection, scope)?;
-    }
-    Ok(LocalRouterPersistenceStartupReceiptV1 {
-        scopes: boundaries.iter().map(|(scope, _)| *scope).collect(),
-    })
-}
-
-impl LocalDurableObjectScopeV1 {
-    /// Returns the stable local storage scope label.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::RouterReplay => "router_replay",
-            Self::RouterLifecycle => "router_lifecycle",
-            Self::RouterProjectPolicy => "router_project_policy",
-            Self::RouterQuota => "router_quota",
-            Self::RouterAbuse => "router_abuse",
-            Self::DeriverARootShare => "deriver_a_root_share",
-            Self::DeriverBRootShare => "deriver_b_root_share",
-            Self::SigningWorkerServerOutput => "signing_worker_server_output",
-        }
-    }
-
-    /// Returns the worker role that owns this local storage scope.
-    pub fn owner(self) -> LocalServiceRoleV1 {
-        match self {
-            Self::RouterReplay
-            | Self::RouterLifecycle
-            | Self::RouterProjectPolicy
-            | Self::RouterQuota
-            | Self::RouterAbuse => LocalServiceRoleV1::Router,
-            Self::DeriverARootShare => LocalServiceRoleV1::DeriverA,
-            Self::DeriverBRootShare => LocalServiceRoleV1::DeriverB,
-            Self::SigningWorkerServerOutput => LocalServiceRoleV1::SigningWorker,
-        }
-    }
-}
-
-/// SQLite-backed local Durable Object key/value storage.
+/// SQLite-backed state owned by one local custody worker.
 #[derive(Debug)]
-pub struct LocalDurableObjectSqliteStorageV1<'connection> {
+pub struct LocalRolePrivateSqliteStorageV1<'connection> {
     connection: &'connection Connection,
-    scope: LocalDurableObjectScopeV1,
 }
 
-impl<'connection> LocalDurableObjectSqliteStorageV1<'connection> {
-    /// Creates a role-scoped local Durable Object store.
-    pub fn new(
-        connection: &'connection Connection,
-        scope: LocalDurableObjectScopeV1,
-    ) -> RouterAbProtocolResult<Self> {
-        ensure_local_durable_object_sqlite_schema_v1(connection)?;
-        Ok(Self { connection, scope })
+impl<'connection> LocalRolePrivateSqliteStorageV1<'connection> {
+    /// Opens the schema inside a worker-specific SQLite database.
+    pub fn new(connection: &'connection Connection) -> RouterAbProtocolResult<Self> {
+        ensure_local_role_private_sqlite_schema_v1(connection)?;
+        Ok(Self { connection })
     }
 
-    /// Returns this store's local Durable Object scope.
-    pub fn scope(&self) -> LocalDurableObjectScopeV1 {
-        self.scope
-    }
-
-    /// Returns the worker role that owns this store.
-    pub fn owner(&self) -> LocalServiceRoleV1 {
-        self.scope.owner()
-    }
-
-    /// Stores non-empty bytes under a role-local key.
+    /// Stores non-empty bytes under a worker-private key.
     pub fn put_bytes(&self, key: &str, value: &[u8]) -> RouterAbProtocolResult<()> {
-        require_non_empty("local durable object key", key)?;
+        require_non_empty("local role-private state key", key)?;
         if value.is_empty() {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::EmptyField,
-                "local durable object value must not be empty",
+                "local role-private state value must not be empty",
             ));
         }
         self.connection
             .execute(
                 "
-                INSERT INTO local_durable_object_kv (scope, key, value)
-                VALUES (?1, ?2, ?3)
-                ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value
+                INSERT INTO local_role_private_state (key, value)
+                VALUES (?1, ?2)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
                 ",
-                params![self.scope.as_str(), key, value],
+                params![key, value],
             )
             .map_err(map_sqlite_error)?;
         Ok(())
     }
 
-    /// Atomically replaces a role-local value when it still equals `expected`.
-    /// Passing `None` performs an insert-if-absent.
-    pub fn compare_and_swap_bytes(
-        &self,
-        key: &str,
-        expected: Option<&[u8]>,
-        value: &[u8],
-    ) -> RouterAbProtocolResult<bool> {
-        require_non_empty("local durable object key", key)?;
-        if value.is_empty() {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::EmptyField,
-                "local durable object value must not be empty",
-            ));
-        }
-        let rows = match expected {
-            Some(expected) => self
-                .connection
-                .execute(
-                    "UPDATE local_durable_object_kv
-                        SET value = ?3
-                      WHERE scope = ?1 AND key = ?2 AND value = ?4",
-                    params![self.scope.as_str(), key, value, expected],
-                )
-                .map_err(map_sqlite_error)?,
-            None => self
-                .connection
-                .execute(
-                    "INSERT INTO local_durable_object_kv (scope, key, value)
-                     SELECT ?1, ?2, ?3
-                      WHERE NOT EXISTS (
-                        SELECT 1 FROM local_durable_object_kv
-                         WHERE scope = ?1 AND key = ?2
-                      )",
-                    params![self.scope.as_str(), key, value],
-                )
-                .map_err(map_sqlite_error)?,
-        };
-        Ok(rows == 1)
-    }
-
-    /// Reads bytes from a role-local key.
+    /// Reads bytes from a worker-private key.
     pub fn get_bytes(&self, key: &str) -> RouterAbProtocolResult<Option<Vec<u8>>> {
-        require_non_empty("local durable object key", key)?;
+        require_non_empty("local role-private state key", key)?;
         self.connection
             .query_row(
-                "SELECT value FROM local_durable_object_kv WHERE scope = ?1 AND key = ?2",
-                params![self.scope.as_str(), key],
+                "SELECT value FROM local_role_private_state WHERE key = ?1",
+                params![key],
                 |row| row.get::<_, Vec<u8>>(0),
             )
             .optional()
             .map_err(map_sqlite_error)
     }
-
-    /// Deletes one role-local key and returns whether a row was removed.
-    pub fn delete_key(&self, key: &str) -> RouterAbProtocolResult<bool> {
-        require_non_empty("local durable object key", key)?;
-        let rows = self
-            .connection
-            .execute(
-                "DELETE FROM local_durable_object_kv WHERE scope = ?1 AND key = ?2",
-                params![self.scope.as_str(), key],
-            )
-            .map_err(map_sqlite_error)?;
-        Ok(rows > 0)
-    }
-
-    /// Lists keys in this role-local store.
-    pub fn list_keys(&self) -> RouterAbProtocolResult<Vec<String>> {
-        let mut statement = self
-            .connection
-            .prepare("SELECT key FROM local_durable_object_kv WHERE scope = ?1 ORDER BY key")
-            .map_err(map_sqlite_error)?;
-        let rows = statement
-            .query_map(params![self.scope.as_str()], |row| row.get::<_, String>(0))
-            .map_err(map_sqlite_error)?;
-        let mut keys = Vec::new();
-        for row in rows {
-            keys.push(row.map_err(map_sqlite_error)?);
-        }
-        Ok(keys)
-    }
-}
-
-/// One deterministic local Durable Object seed entry.
-#[derive(Clone, PartialEq, Eq)]
-pub struct LocalDurableObjectSeedEntryV1 {
-    /// Scope that owns the seed entry.
-    pub scope: LocalDurableObjectScopeV1,
-    /// Role-local key.
-    pub key: String,
-    value: Vec<u8>,
-}
-
-impl LocalDurableObjectSeedEntryV1 {
-    /// Creates a validated local Durable Object seed entry.
-    pub fn new(
-        scope: LocalDurableObjectScopeV1,
-        key: impl Into<String>,
-        value: impl Into<Vec<u8>>,
-    ) -> RouterAbProtocolResult<Self> {
-        let entry = Self {
-            scope,
-            key: key.into(),
-            value: value.into(),
-        };
-        entry.validate()?;
-        Ok(entry)
-    }
-
-    /// Returns the seed value bytes.
-    pub fn value(&self) -> &[u8] {
-        &self.value
-    }
-
-    /// Validates required seed fields.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("local durable object seed key", &self.key)?;
-        if self.value.is_empty() {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::EmptyField,
-                "local durable object seed value must not be empty",
-            ));
-        }
-        Ok(())
-    }
-}
-
-impl fmt::Debug for LocalDurableObjectSeedEntryV1 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LocalDurableObjectSeedEntryV1")
-            .field("scope", &self.scope)
-            .field("key", &self.key)
-            .field("value_len", &self.value.len())
-            .field("value", &"[redacted]")
-            .finish()
-    }
-}
-
-/// Deterministic local Durable Object seed plan.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalDurableObjectSeedPlanV1 {
-    /// Entries to write.
-    pub entries: Vec<LocalDurableObjectSeedEntryV1>,
-}
-
-impl LocalDurableObjectSeedPlanV1 {
-    /// Creates a validated local Durable Object seed plan.
-    pub fn new(entries: Vec<LocalDurableObjectSeedEntryV1>) -> RouterAbProtocolResult<Self> {
-        if entries.is_empty() {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::EmptyField,
-                "local durable object seed plan requires at least one entry",
-            ));
-        }
-        for entry in &entries {
-            entry.validate()?;
-        }
-        Ok(Self { entries })
-    }
-}
-
-/// Redacted receipt from a local Durable Object seed operation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LocalDurableObjectSeedReceiptV1 {
-    /// Number of entries written.
-    pub written_entry_count: u32,
-    /// Scope labels touched by the seed operation.
-    pub scope_labels: Vec<String>,
-}
-
-/// Redacted receipt from seeding all local storage parity state.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LocalStorageParitySeedReceiptV1 {
-    /// SQL seed receipt for signing-root metadata.
-    pub signing_root_metadata: LocalPersistenceSqlExecutionReceiptV1,
-    /// Durable Object seed receipt.
-    pub durable_objects: LocalDurableObjectSeedReceiptV1,
-}
-
-/// Returns the deterministic local Durable Object seed plan used by smoke tests.
-pub fn example_local_durable_object_seed_plan_v1(
-) -> RouterAbProtocolResult<LocalDurableObjectSeedPlanV1> {
-    LocalDurableObjectSeedPlanV1::new(vec![
-        LocalDurableObjectSeedEntryV1::new(
-            LocalDurableObjectScopeV1::RouterReplay,
-            "replay/request/dev",
-            br#"{"state":"available"}"#.to_vec(),
-        )?,
-        LocalDurableObjectSeedEntryV1::new(
-            LocalDurableObjectScopeV1::RouterLifecycle,
-            "lifecycle/dev",
-            br#"{"state":"initialized"}"#.to_vec(),
-        )?,
-        LocalDurableObjectSeedEntryV1::new(
-            LocalDurableObjectScopeV1::RouterProjectPolicy,
-            "project/default",
-            br#"{"admission":"allow"}"#.to_vec(),
-        )?,
-        LocalDurableObjectSeedEntryV1::new(
-            LocalDurableObjectScopeV1::RouterQuota,
-            "quota/default",
-            br#"{"remaining":1}"#.to_vec(),
-        )?,
-        LocalDurableObjectSeedEntryV1::new(
-            LocalDurableObjectScopeV1::RouterAbuse,
-            "abuse/default",
-            br#"{"decision":"allow"}"#.to_vec(),
-        )?,
-        LocalDurableObjectSeedEntryV1::new(
-            LocalDurableObjectScopeV1::DeriverARootShare,
-            "sealed/share/a",
-            b"local-dev-sealed-root-share-a".to_vec(),
-        )?,
-        LocalDurableObjectSeedEntryV1::new(
-            LocalDurableObjectScopeV1::DeriverBRootShare,
-            "sealed/share/b",
-            b"local-dev-sealed-root-share-b".to_vec(),
-        )?,
-        LocalDurableObjectSeedEntryV1::new(
-            LocalDurableObjectScopeV1::SigningWorkerServerOutput,
-            "activation/dev",
-            br#"{"state":"activated"}"#.to_vec(),
-        )?,
-        LocalDurableObjectSeedEntryV1::new(
-            LocalDurableObjectScopeV1::SigningWorkerServerOutput,
-            "active-state/dev",
-            br#"{"state":"active"}"#.to_vec(),
-        )?,
-    ])
-}
-
-/// Seeds local Durable Object SQLite storage with deterministic smoke state.
-pub fn seed_example_local_durable_object_sqlite_v1(
-    connection: &Connection,
-) -> RouterAbProtocolResult<LocalDurableObjectSeedReceiptV1> {
-    let plan = example_local_durable_object_seed_plan_v1()?;
-    seed_local_durable_object_sqlite_v1(connection, &plan)
-}
-
-/// Seeds local Durable Object SQLite storage from a validated plan.
-pub fn seed_local_durable_object_sqlite_v1(
-    connection: &Connection,
-    plan: &LocalDurableObjectSeedPlanV1,
-) -> RouterAbProtocolResult<LocalDurableObjectSeedReceiptV1> {
-    if plan.entries.is_empty() {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::EmptyField,
-            "local durable object seed plan requires at least one entry",
-        ));
-    }
-    let mut scope_labels = Vec::<String>::new();
-    for entry in &plan.entries {
-        entry.validate()?;
-        let store = LocalDurableObjectSqliteStorageV1::new(connection, entry.scope)?;
-        store.put_bytes(&entry.key, entry.value())?;
-        let scope_label = entry.scope.as_str().to_owned();
-        if !scope_labels.contains(&scope_label) {
-            scope_labels.push(scope_label);
-        }
-    }
-    let written_entry_count = u32::try_from(plan.entries.len()).map_err(|_| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "local durable object seed entry count did not fit u32",
-        )
-    })?;
-    Ok(LocalDurableObjectSeedReceiptV1 {
-        written_entry_count,
-        scope_labels,
-    })
-}
-
-/// Seeds deterministic signing-root metadata and local Durable Object state.
-pub fn seed_example_local_storage_parity_v1(
-    connection: &Connection,
-) -> RouterAbProtocolResult<LocalStorageParitySeedReceiptV1> {
-    Ok(LocalStorageParitySeedReceiptV1 {
-        signing_root_metadata: seed_example_local_sqlite_v1(connection)?,
-        durable_objects: seed_example_local_durable_object_sqlite_v1(connection)?,
-    })
 }
 
 /// One generated local env file.
@@ -1165,7 +706,7 @@ impl LocalEnvMaterializationPlanV1 {
         require_exact_len_v1(
             "local env materialization directories",
             self.directories.len(),
-            4,
+            3,
         )?;
         require_exact_len_v1("local env materialization files", self.files.len(), 4)?;
         for directory in &self.directories {
@@ -1197,7 +738,6 @@ pub fn local_env_materialization_plan_v1(
     let root_shares = local_ecdsa_root_share_package_v1(seed)?;
     let plan = LocalEnvMaterializationPlanV1 {
         directories: vec![
-            LOCAL_ROUTER_STATE_DIR_V1.to_owned(),
             LOCAL_DERIVER_A_STATE_DIR_V1.to_owned(),
             LOCAL_DERIVER_B_STATE_DIR_V1.to_owned(),
             LOCAL_SIGNING_WORKER_STATE_DIR_V1.to_owned(),
@@ -1335,20 +875,6 @@ pub fn parse_local_worker_role_config_for_role_v1(
                     &env,
                     LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_ENV_V1,
                 )?,
-                replay_storage_path: required_env_v1(
-                    &env,
-                    LOCAL_ROUTER_REPLAY_STORAGE_PATH_ENV_V1,
-                )?,
-                lifecycle_storage_path: required_env_v1(
-                    &env,
-                    LOCAL_ROUTER_LIFECYCLE_STORAGE_PATH_ENV_V1,
-                )?,
-                project_policy_storage_path: required_env_v1(
-                    &env,
-                    LOCAL_ROUTER_PROJECT_POLICY_STORAGE_PATH_ENV_V1,
-                )?,
-                quota_storage_path: required_env_v1(&env, LOCAL_ROUTER_QUOTA_STORAGE_PATH_ENV_V1)?,
-                abuse_storage_path: required_env_v1(&env, LOCAL_ROUTER_ABUSE_STORAGE_PATH_ENV_V1)?,
             }))
         }
         LocalServiceRoleV1::DeriverA => {
@@ -1381,9 +907,9 @@ pub fn parse_local_worker_role_config_for_role_v1(
                         &env,
                         LOCAL_DERIVER_B_PEER_VERIFYING_KEY_ENV_V1,
                     )?,
-                    root_share_storage_path: required_env_v1(
+                    role_private_storage_path: required_env_v1(
                         &env,
-                        LOCAL_DERIVER_A_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+                        LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
                     )?,
                     sealed_root_shares_path: required_env_v1(
                         &env,
@@ -1422,9 +948,9 @@ pub fn parse_local_worker_role_config_for_role_v1(
                         &env,
                         LOCAL_DERIVER_B_PEER_VERIFYING_KEY_ENV_V1,
                     )?,
-                    root_share_storage_path: required_env_v1(
+                    role_private_storage_path: required_env_v1(
                         &env,
-                        LOCAL_DERIVER_B_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+                        LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
                     )?,
                     sealed_root_shares_path: required_env_v1(
                         &env,
@@ -1451,9 +977,9 @@ pub fn parse_local_worker_role_config_for_role_v1(
                         &env,
                         LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
                     )?,
-                    server_output_storage_path: required_env_v1(
+                    role_private_storage_path: required_env_v1(
                         &env,
-                        LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1,
+                        LOCAL_SIGNING_WORKER_PRIVATE_STORAGE_PATH_ENV_V1,
                     )?,
                 },
             ))
@@ -2399,8 +1925,8 @@ pub fn run_example_local_router_ab_dev_http_ceremony_v1(
     })
 }
 
-/// Ensures local SQLite tables used by file-backed Durable Object storage exist.
-pub fn ensure_local_durable_object_sqlite_schema_v1(
+/// Ensures the local role-private state table exists.
+pub fn ensure_local_role_private_sqlite_schema_v1(
     connection: &Connection,
 ) -> RouterAbProtocolResult<()> {
     connection
@@ -2408,11 +1934,10 @@ pub fn ensure_local_durable_object_sqlite_schema_v1(
             "
             PRAGMA foreign_keys = ON;
 
-            CREATE TABLE IF NOT EXISTS local_durable_object_kv (
-                scope TEXT NOT NULL,
+            CREATE TABLE IF NOT EXISTS local_role_private_state (
                 key TEXT NOT NULL,
                 value BLOB NOT NULL CHECK (length(value) > 0),
-                PRIMARY KEY (scope, key)
+                PRIMARY KEY (key)
             );
             ",
         )

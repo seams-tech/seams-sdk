@@ -6,6 +6,7 @@ export type BootWalletRequestType = 'PING' | 'PM_SET_CONFIG' | 'PM_CANCEL';
 export type NearWalletRequestType =
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
+  | 'PM_GET_NEAR_PROVISIONING_STATE'
   | 'PM_PREFETCH_BLOCKHEIGHT'
   | 'PM_SIGN_TX_WITH_ACTIONS'
   | 'PM_SIGN_AND_SEND_TX'
@@ -129,6 +130,7 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
 
     case 'PM_REGISTER_WALLET':
     case 'PM_ADD_WALLET_SIGNER':
+    case 'PM_GET_NEAR_PROVISIONING_STATE':
     case 'PM_PREFETCH_BLOCKHEIGHT':
     case 'PM_SIGN_TX_WITH_ACTIONS':
     case 'PM_SIGN_AND_SEND_TX':

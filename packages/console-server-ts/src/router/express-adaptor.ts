@@ -5,7 +5,6 @@ export * from '../audit';
 export * from '../auditExports';
 export * from '../billing';
 export * from '../billingPrepaidReservations';
-export * from '../bootstrapTokens';
 export * from '../enterpriseIsolation';
 export * from '../keyExports';
 export * from '../observability';
@@ -22,48 +21,29 @@ export * from '../webhooks';
 export type {
   ConsoleAuthAdapter,
   ConsoleAuthClaims,
-  ConsoleRole,
-} from '@seams/sdk-server/internal/router/consoleAuth';
-export {
-  authenticateConsoleRequest,
-  hasConsoleRole,
-} from '@seams/sdk-server/internal/router/consoleAuth';
+} from './consoleAuth';
+export { authenticateConsoleRequest } from './consoleAuth';
 export type {
   RouterApiRuntimeSnapshotPublishedUpdate,
   InMemoryRouterApiRuntimeSnapshotConsumer,
-} from '@seams/sdk-server/internal/router/runtimeSnapshotConsumer';
+} from '@seams/sdk-server/cloud-host';
 export {
   createInMemoryRouterApiRuntimeSnapshotConsumer,
   validateRuntimeSnapshotExpectation,
-} from '@seams/sdk-server/internal/router/runtimeSnapshotConsumer';
+} from '@seams/sdk-server/cloud-host';
 export {
   extractBearerCredential,
   extractRouterApiEnvironmentId,
   resolveSourceIpFromExpressRequest,
   resolveSourceIpFromFetchHeaders,
-} from '@seams/sdk-server/internal/router/routerApiKeyAuth';
-export {
-  RouterApiBootstrapGrantError,
-  parseRouterApiBootstrapGrantIssueBody,
-} from '@seams/sdk-server/internal/router/bootstrapGrantBroker';
+} from '@seams/sdk-server/cloud-host';
 
 export type { ConsoleRouterOptions } from './console';
 export type {
   AppSessionConsoleAuthAdapterOptions,
   ConsoleSsoProvisioningOptions,
 } from './consoleAppSessionAuth';
-export {
-  createAppSessionConsoleAuthAdapter,
-  mergeConsoleOrgScopedRoleLists,
-  normalizeConsoleOrgScopedRoleList,
-} from './consoleAppSessionAuth';
-export type {
-  RouterApiBootstrapGrantBrokerOptions,
-  RouterApiBootstrapGrantQuotaPolicy,
-  RouterApiBootstrapGrantRateLimitPolicy,
-} from './bootstrapGrantBroker';
-export { createRouterApiBootstrapGrantBroker } from './bootstrapGrantBroker';
-export { createRouterApiBootstrapTokenVerifier } from './bootstrapTokenVerifier';
+export { createAppSessionConsoleAuthAdapter } from './consoleAppSessionAuth';
 export {
   createRouterApiBillingUsageMeterAdapter,
   createRouterApiKeyAuthAdapter,

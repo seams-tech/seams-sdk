@@ -45,14 +45,15 @@ import {
   emailOtpFailureAuditPayload,
   emailOtpAppSessionClaimsForSubject,
   hashEmailOtpAppSessionClaims,
+  hashEmailOtpSigningSessionClaims,
 } from '../../emailOtpSessionRouteHelpers';
 import { parseSessionExchangeRouteCommand } from '../../sessionExchangeRequestValidation';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
-  parseWalletSigningBudgetStatusExpectations,
-  parseWalletSigningBudgetStatusRequest,
-  type ParseWalletSigningBudgetStatusResult,
-} from '../../signingBudgetStatus';
+  parseRouterAbEcdsaDerivationWalletSessionClaims,
+  parseRouterAbEd25519WalletSessionClaims,
+} from '../../../core/ThresholdService/validation';
+import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
 import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/utils/domainIds';
 import { parseWalletUnlockEd25519YaoRequest } from '../../walletUnlockEd25519YaoRequestValidation';
 import {
@@ -61,11 +62,6 @@ import {
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { isPlainObject } from '@shared/utils/validation';
-
-type VerifiedSigningBudgetStatus = Extract<
-  ParseWalletSigningBudgetStatusResult,
-  { ok: true }
->['walletBudgetStatus'];
 
 function walletUnlockContextWithoutEd25519Intent(
   body: unknown,
@@ -294,31 +290,82 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRouterApiCon
       sessionHash: string;
       thresholdSessionId: string;
       signingGrantId: string;
-      walletBudgetStatus: VerifiedSigningBudgetStatus;
     }
   | { ok: false; response: Response }
 > {
-  const validated = await parseWalletSigningBudgetStatusRequest({
-    headers: headersToRecord(ctx.request.headers),
-    session: ctx.opts.session,
-    sessionPolicy: ctx.opts.signingSessionSeal?.sessionPolicy,
-  });
-  if (!validated.ok) {
+  const session = ctx.opts.session;
+  if (!session) {
     return {
       ok: false,
-      response: json(validated.body, { status: validated.status }),
+      response: json(
+        { authenticated: false, code: 'sessions_disabled', message: 'Sessions are not configured' },
+        { status: 501 },
+      ),
     };
   }
-  const { request } = validated;
+  let parsed: Awaited<ReturnType<typeof session.parse>>;
+  try {
+    parsed = await session.parse(headersToRecord(ctx.request.headers));
+  } catch {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'wallet_session_unavailable',
+          message: 'Wallet Session status is unavailable',
+        },
+        { status: 503 },
+      ),
+    };
+  }
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      response: json(
+        { authenticated: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+        { status: 401 },
+      ),
+    };
+  }
+  const claims = parsed.claims;
+  const walletSession =
+    parseRouterAbEcdsaDerivationWalletSessionClaims(claims) ||
+    parseRouterAbEd25519WalletSessionClaims(claims);
+  if (!walletSession) {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'wallet_session_claims_invalid',
+          message: 'Wallet Session claims are invalid',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+  if (walletSession.thresholdExpiresAtMs <= Date.now()) {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'wallet_session_expired',
+          message: 'Wallet Session expired',
+        },
+        { status: 401 },
+      ),
+    };
+  }
   return {
     ok: true,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    sessionHash: validated.sessionHash,
-    thresholdSessionId: request.thresholdSessionId,
-    signingGrantId: request.signingGrantId,
-    walletBudgetStatus: validated.walletBudgetStatus,
+    claims,
+    userId: walletSession.walletId,
+    appSessionVersion: `signing-session:${walletSession.kind}:${walletSession.signingGrantId}:${walletSession.thresholdSessionId}`,
+    sessionHash: await hashEmailOtpSigningSessionClaims(claims),
+    thresholdSessionId: walletSession.thresholdSessionId,
+    signingGrantId: walletSession.signingGrantId,
   };
 }
 
@@ -436,6 +483,8 @@ export async function handleSessionExchange(
     let oidcSub: string | undefined;
     let oidcAud: string[] | undefined;
     let oidcEmail: string | undefined;
+    let oidcEmailVerified: boolean | undefined;
+    let oidcHostedDomain: string | undefined;
     let oidcName: string | undefined;
     let oidcGivenName: string | undefined;
     let oidcFamilyName: string | undefined;
@@ -581,6 +630,15 @@ export async function handleSessionExchange(
         typeof verified.email === 'string' && verified.email.trim()
           ? verified.email.trim().toLowerCase()
           : undefined;
+      if (oidcProvider === 'google') {
+        oidcEmailVerified = 'emailVerified' in verified && verified.emailVerified === true;
+        oidcHostedDomain =
+          'hostedDomain' in verified &&
+          typeof verified.hostedDomain === 'string' &&
+          verified.hostedDomain.trim()
+            ? verified.hostedDomain.trim().toLowerCase()
+            : undefined;
+      }
       oidcName =
         typeof (verified as any).name === 'string' && (verified as any).name.trim()
           ? (verified as any).name.trim()
@@ -596,7 +654,7 @@ export async function handleSessionExchange(
       if (
         isGoogleEmailOtpExchange &&
         oidcAccountMode === 'register' &&
-        (!oidcEmail || (verified as { emailVerified?: boolean }).emailVerified !== true)
+        (!oidcEmail || oidcEmailVerified !== true)
       ) {
         await emitSessionExchangeFailed(ctx, {
           status: 400,
@@ -866,6 +924,8 @@ export async function handleSessionExchange(
       ...(oidcSub ? { oidcSub } : {}),
       ...(oidcAud?.length ? { oidcAud } : {}),
       ...(oidcEmail ? { email: oidcEmail } : {}),
+      ...(typeof oidcEmailVerified === 'boolean' ? { oidcEmailVerified } : {}),
+      ...(oidcHostedDomain ? { oidcHostedDomain } : {}),
       ...(oidcName ? { name: oidcName } : {}),
       ...(oidcGivenName ? { given_name: oidcGivenName } : {}),
       ...(oidcFamilyName ? { family_name: oidcFamilyName } : {}),
@@ -1156,88 +1216,10 @@ export async function handleSigningBudgetStatus(
   ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/router-ab/wallet-budget/status') return null;
-  try {
-    const { signingGrantId: expectedSigningGrantId, thresholdSessionId } =
-      parseWalletSigningBudgetStatusExpectations(await readJson(ctx.request));
-    const expectedThresholdSessionId = thresholdSessionId || '';
-    const validated = await readAndValidateEmailOtpSigningSession(ctx);
-    if (!validated.ok) {
-      if (expectedSigningGrantId && validated.response.status === 401) {
-        return json(
-          {
-            ok: true,
-            signingGrantId: expectedSigningGrantId,
-            ...(expectedThresholdSessionId
-              ? { thresholdSessionId: expectedThresholdSessionId }
-              : {}),
-            status: 'not_found',
-            statusCode: 'unauthorized',
-          },
-          { status: 200 },
-        );
-      }
-      return validated.response;
-    }
-    if (expectedSigningGrantId && expectedSigningGrantId !== validated.signingGrantId) {
-      return json(
-        {
-          ok: false,
-          code: 'wallet_signing_session_mismatch',
-          message: 'Signing grant status token does not match requested wallet session',
-        },
-        { status: 403 },
-      );
-    }
-    if (expectedThresholdSessionId && expectedThresholdSessionId !== validated.thresholdSessionId) {
-      return json(
-        {
-          ok: false,
-          code: 'threshold_session_mismatch',
-          message: 'Signing grant status token does not match requested threshold session',
-        },
-        { status: 403 },
-      );
-    }
-    const committedRemainingUses = Math.max(
-      0,
-      Math.floor(Number(validated.walletBudgetStatus.committedRemainingUses) || 0),
-    );
-    const reservedUses = Math.max(
-      0,
-      Math.floor(Number(validated.walletBudgetStatus.reservedUses) || 0),
-    );
-    const availableUses = Math.max(
-      0,
-      Math.floor(Number(validated.walletBudgetStatus.availableUses) || 0),
-    );
-    return json(
-      {
-        ok: true,
-        signingGrantId: validated.signingGrantId,
-        thresholdSessionId: validated.thresholdSessionId,
-        status: availableUses > 0 ? 'active' : 'exhausted',
-        committedRemainingUses,
-        reservedUses,
-        availableUses,
-        remainingUses: availableUses,
-        expiresAtMs: validated.walletBudgetStatus.expiresAtMs,
-        projectionVersion: [
-          'wallet-budget',
-          validated.signingGrantId,
-          validated.walletBudgetStatus.expiresAtMs,
-          committedRemainingUses,
-          reservedUses,
-          availableUses,
-        ].join(':'),
-      },
-      { status: 200 },
-    );
-  } catch (e: any) {
-    return json(
-      { ok: false, code: 'internal', message: e?.message || 'Internal error' },
-      { status: 500 },
-    );
-  }
+  return await proxyNormalSigningRequestToMpcRouter({
+    request: ctx.request,
+    proxy: ctx.opts.routerAbNormalSigningRouterProxy,
+  });
 }
 
 export async function handleWalletUnlockChallenge(

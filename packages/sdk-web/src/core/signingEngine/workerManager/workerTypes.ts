@@ -83,6 +83,7 @@ import type {
 import {
   ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
   type RouterAbEd25519YaoApplicationBindingFactsV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoBytes32V1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRecoveryActivationReceiptV1,
@@ -483,9 +484,7 @@ export type EmailOtpEcdsaBootstrapStrictPayload = EmailOtpEcdsaBootstrapBasePayl
 
 export type EmailOtpYaoPrewarmFailureStage = 'worker_ready' | 'yao_wasm_init';
 
-export type EmailOtpYaoPrewarmRequest =
-  | { kind: 'not_requested' }
-  | { kind: 'requested' };
+export type EmailOtpYaoPrewarmRequest = { kind: 'not_requested' } | { kind: 'requested' };
 
 export type EmailOtpYaoPrewarmWorkerResult =
   | {
@@ -618,6 +617,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       rootHandle: EmailOtpEd25519YaoRootHandle;
       admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+      admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
       walletId: string;
       providerSubject: string;
       registrationAuthorityId: string;
@@ -632,6 +632,13 @@ export interface EmailOtpWorkerOperationMap {
         lifecycle_id: string;
         session_id: readonly number[];
       };
+      /**
+       * Yao timing breakdown observed inside the worker. Email OTP runs its
+       * ceremony here, so this is how the Router's `Server-Timing` reaches the
+       * main thread. Diagnostics only, and always optional.
+       */
+      routerServerTiming?: string;
+      clientTimings?: { admissionMs: number; sessionCreateMs: number };
     };
   };
   commitEmailOtpEd25519YaoRegistration: {
@@ -1187,6 +1194,10 @@ export const EcdsaDerivationClientCustomRequestType = {
   VerifyRouterAbEcdsaRefreshClientProofs: 70_014,
   StoreThresholdEcdsaRoleLocalSigningMaterial: 70_004,
   RehydrateEcdsaRoleLocalSigningMaterial: 70_015,
+  /* Refactor 94C. Initializes the derivation and registration WASM modules
+     without performing an operation, so the cost lands during the
+     authentication prompt instead of on the first ceremony call. */
+  PrewarmEcdsaRegistrationCrypto: 70_016,
 } as const;
 
 export type EcdsaDerivationClientCustomRequestType =
@@ -1206,6 +1217,7 @@ export const EcdsaDerivationClientCustomResponseType = {
   VerifyRouterAbEcdsaRefreshClientProofsSuccess: 70_114,
   StoreThresholdEcdsaRoleLocalSigningMaterialSuccess: 70_104,
   RehydrateEcdsaRoleLocalSigningMaterialSuccess: 70_115,
+  PrewarmEcdsaRegistrationCryptoSuccess: 70_116,
 } as const;
 
 export type EcdsaDerivationClientCustomResponseType =
@@ -1499,6 +1511,14 @@ type EcdsaDerivationClientCustomOperationMap = {
     result: {
       type: typeof EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess;
       payload: RehydrateEcdsaRoleLocalSigningMaterialResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
+  [EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto]: {
+    payload: Record<string, never>;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.PrewarmEcdsaRegistrationCryptoSuccess;
+      payload: { kind: 'ecdsa_registration_crypto_prewarm_result_v1'; wasmInitMs: number };
       diagnostics?: WorkerResponseDiagnostics;
     };
   };

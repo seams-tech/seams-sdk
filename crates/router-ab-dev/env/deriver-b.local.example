@@ -7,5 +7,5 @@ DERIVER_B_ED25519_YAO_DERIVATION_ROOT=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 DERIVER_B_PEER_SIGNING_KEY=dev-only-deriver-b-peer-signing-key
 DERIVER_A_PEER_VERIFYING_KEY=dev-only-deriver-a-peer-verifying-key
 DERIVER_B_PEER_VERIFYING_KEY=dev-only-deriver-b-peer-verifying-key
-DERIVER_B_ROOT_SHARE_STORAGE_PATH=.router-ab-local/deriver-b/root-share.sqlite
+DERIVER_B_ROLE_PRIVATE_STORAGE_PATH=.router-ab-local/deriver-b/role-private.sqlite
 DERIVER_B_SEALED_ROOT_SHARES_PATH=.router-ab-local/deriver-b/sealed-root-shares.sqlite

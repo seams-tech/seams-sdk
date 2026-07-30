@@ -18,11 +18,9 @@ import type {
   SigningSessionSealAuthorizeInput,
   SigningSessionSealAuthorizeResult,
   SigningSessionSealCipherAdapter,
-  SigningSessionSealConsumePolicy,
   SigningSessionSealGuard,
   SigningSessionSealRoutesOptions,
   SigningSessionSealServiceIdempotencyOptions,
-  SigningSessionSealThresholdSessionPolicy,
   SigningSessionSealStartupCapabilities,
 } from './signingSessionSeal.types';
 import type { CreateSigningSessionSealAuditLoggerOptions } from './observability/audit';
@@ -30,9 +28,7 @@ import type { CreateSigningSessionSealRateLimitGuardOptions } from './guards';
 
 export interface CreateSigningSessionSealRoutesOptionsInput {
   basePath?: string;
-  sessionPolicy: SigningSessionSealThresholdSessionPolicy;
   cipher: SigningSessionSealCipherAdapter;
-  consumePolicy?: SigningSessionSealConsumePolicy;
   idempotency?: SigningSessionSealServiceIdempotencyOptions;
   guard?: SigningSessionSealGuard | null;
   guards?: Array<SigningSessionSealGuard | null | undefined>;
@@ -135,12 +131,8 @@ export function createSigningSessionSealRoutesOptions(
   const guard = buildGuard(input);
   const audit = buildAuditSink(input);
   const serviceOptions: CreateSigningSessionSealServiceOptions = {
-    sessionPolicy: input.sessionPolicy,
     cipher: input.cipher,
   };
-  if (input.consumePolicy) {
-    serviceOptions.consumePolicy = input.consumePolicy;
-  }
   if (input.idempotency) {
     serviceOptions.idempotency = input.idempotency;
   }
@@ -159,7 +151,6 @@ export function createSigningSessionSealRoutesOptions(
 
   const options: SigningSessionSealRoutesOptions = {
     service: createSigningSessionSealService(serviceOptions),
-    sessionPolicy: input.sessionPolicy,
   };
   if (input.basePath) {
     options.basePath = input.basePath;
@@ -200,35 +191,14 @@ export function createSigningSessionSealRoutesOptions(
         return signingSessionSealAuthorizationFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
       }
 
-      let thresholdStatuses: Awaited<
-        ReturnType<SigningSessionSealThresholdSessionPolicy['getThresholdSessionStatuses']>
-      >;
-      try {
-        thresholdStatuses = await input.sessionPolicy.getThresholdSessionStatuses(thresholdLookup);
-      } catch {
-        return signingSessionSealAuthorizationFailure(WALLET_SESSION_FAILURE_CODES.unavailable);
-      }
-
-      const thresholdSession = thresholdStatuses[0];
-      if (!thresholdSession) {
-        const code =
-          thresholdLookup.thresholdExpiresAtMs <= (input.nowMs || Date.now)()
-            ? WALLET_SESSION_FAILURE_CODES.expired
-            : WALLET_SESSION_FAILURE_CODES.missing;
-        return signingSessionSealAuthorizationFailure(code);
-      }
-
-      if (thresholdSession.userId !== userId) {
-        return signingSessionSealAuthorizationFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
+      if (thresholdLookup.thresholdExpiresAtMs <= (input.nowMs || Date.now)()) {
+        return signingSessionSealAuthorizationFailure(WALLET_SESSION_FAILURE_CODES.expired);
       }
       return {
         ok: true,
         auth: {
           userId,
-          claims: {
-            ...claims,
-            thresholdSessionId: thresholdSession.thresholdSessionId,
-          },
+          claims,
         },
       };
     };

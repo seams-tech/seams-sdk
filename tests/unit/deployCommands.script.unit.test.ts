@@ -23,15 +23,6 @@ const deploymentSecretNames = [
   'SIGNING_SESSION_SEAL_E_S_B64U',
   'SIGNING_SESSION_SEAL_D_S_B64U',
 ];
-const gatewayCutoverWorkerVarNames = [
-  'ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS',
-  'ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS',
-  'ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS',
-  'ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS',
-  'ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS',
-  'ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS',
-] as const;
-
 function runCommand(
   script: string,
   args: readonly string[],
@@ -140,9 +131,13 @@ test('backend preflight validates one custody environment from JSON inventories'
         CLOUDFLARE_ACCOUNT_ID: secretValue,
         ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: secretValue,
         SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: secretValue,
+        SIGNING_WORKER_PRIVATE_D1_KEK: secretValue,
       }),
       DEPLOYMENT_VARS_JSON: JSON.stringify({
         ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: 'inventory-public-value',
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID: 'inventory-database-id',
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY: 'inventory-kek-public-key',
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION: 'inventory-kek-version',
       }),
     },
   );
@@ -172,38 +167,6 @@ test('backend preflight rejects a missing required secret without printing value
 
   expectFailure(result, /SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY is required/u);
   expect(`${result.stdout}${result.stderr}`).not.toContain(secretValue);
-});
-
-test('Gateway preflight rejects an incomplete family cutover window', () => {
-  const result = runCommand(
-    backendScript,
-    ['preflight', '--target', 'staging', '--component', 'gateway'],
-    {
-      ...environmentWithoutDeploymentSecrets(),
-      DEPLOYMENT_SECRETS_JSON: '{}',
-      DEPLOYMENT_VARS_JSON: JSON.stringify({
-        ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS: '1000',
-      }),
-    },
-  );
-
-  expectFailure(result, /must be set together/u);
-});
-
-test('Gateway preflight rejects an obsolete tenant-wide cutover window', () => {
-  const result = runCommand(
-    backendScript,
-    ['preflight', '--target', 'production', '--component', 'gateway'],
-    {
-      ...environmentWithoutDeploymentSecrets(),
-      DEPLOYMENT_SECRETS_JSON: '{}',
-      DEPLOYMENT_VARS_JSON: JSON.stringify({
-        ROUTER_AB_YAO_GATEWAY_ADMISSION_CUTOFF_MS: '',
-      }),
-    },
-  );
-
-  expectFailure(result, /is obsolete/u);
 });
 
 test('frontend commands reject backend-only operations and extra component arguments', () => {
@@ -275,13 +238,6 @@ test('backend workflows deploy independent workers concurrently before router', 
       'deploy_deriver_b',
     ]);
     expect(needsOf('deploy_gateway')).toEqual(['deploy_router']);
-    for (const jobName of ['migrate', 'deploy_gateway']) {
-      const environment = workflow.jobs[jobName]?.env;
-      expect(environment, `${target}/${jobName} is missing its environment`).toBeTruthy();
-      for (const name of gatewayCutoverWorkerVarNames) {
-        expect(environment?.[name]).toBe(`\${{ vars.${name} }}`);
-      }
-    }
   }
 });
 

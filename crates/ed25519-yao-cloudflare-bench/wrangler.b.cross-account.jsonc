@@ -1,5 +1,5 @@
 {
-  "$schema": "../../packages/console-server-ts/node_modules/wrangler/config-schema.json",
+  "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "ed25519-yao-ab-benchmark-b-cross-account",
   "main": "build/deriver-b-cross-account/index.js",
   "compatibility_date": "2026-07-02",

@@ -6,43 +6,19 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const manifestPath = 'crates/router-ab-dev/Cargo.toml';
 const samplePrefix = 'YAOS_AB_LOCAL_SAMPLE ';
-const sampleSchema = 'seams-ed25519-yao-local-latency-sample-v1';
-const reportSchema = 'seams-ed25519-yao-local-latency-report-v1';
-const activationWireBytes = Object.freeze({
-  deriver_a_to_b: 2_185_420,
-  deriver_b_to_a: 37_164,
-  total: 2_222_584,
-});
-const exportWireBytes = Object.freeze({
-  deriver_a_to_b: 82_636,
-  deriver_b_to_a: 20_780,
-  total: 103_416,
-});
+const sampleSchema = 'seams-ed25519-yao-local-latency-sample-v2';
+const reportSchema = 'seams-ed25519-yao-local-latency-report-v2';
 const profiles = Object.freeze([
   Object.freeze({
-    label: 'ed25519-yao-one-account',
-    selector: 'one-account',
-    test: 'one_account_profile_completes_the_local_ed25519_yao_lifecycle',
+    label: 'ed25519-yao-product-topology',
+    test: 'product_topology_completes_local_ed25519_yao_registration',
   }),
-  Object.freeze({
-    label: 'ed25519-yao-two-administrator',
-    selector: 'two-administrator',
-    test: 'two_administrator_profile_completes_the_local_ed25519_yao_lifecycle',
-  }),
-]);
-const operationFields = Object.freeze([
-  'registration_microseconds',
-  'recovery_microseconds',
-  'refresh_microseconds',
-  'export_microseconds',
-  'ordinary_signing_microseconds',
 ]);
 
 const options = parseOptions(process.argv.slice(2));
-const selectedProfiles = selectProfiles(options.profile);
 const reportProfiles = [];
 
-for (const profile of selectedProfiles) {
+for (const profile of profiles) {
   process.stderr.write(`warming ${profile.label}: ${options.warmups} run(s)\n`);
   for (let warmup = 0; warmup < options.warmups; warmup += 1) {
     runSample(profile, options.buildProfile);
@@ -85,7 +61,6 @@ if (options.output === undefined) {
 function parseOptions(args) {
   let samples = 100;
   let warmups = 1;
-  let profile = 'both';
   let buildProfile = 'release';
   let output;
 
@@ -97,13 +72,6 @@ function parseOptions(args) {
     }
     if (arg === '--warmups') {
       warmups = nonnegativeInteger(requiredValue(args, ++index, arg), arg);
-      continue;
-    }
-    if (arg === '--profile') {
-      profile = requiredValue(args, ++index, arg);
-      if (!['both', 'one-account', 'two-administrator'].includes(profile)) {
-        fail(`invalid --profile value: ${profile}`);
-      }
       continue;
     }
     if (arg === '--build-profile') {
@@ -124,7 +92,7 @@ function parseOptions(args) {
     fail(`unknown argument: ${arg}`);
   }
 
-  return Object.freeze({ samples, warmups, profile, buildProfile, output });
+  return Object.freeze({ samples, warmups, buildProfile, output });
 }
 
 function requiredValue(args, index, flag) {
@@ -151,18 +119,6 @@ function nonnegativeInteger(value, flag) {
   return parsed;
 }
 
-function selectProfiles(selector) {
-  if (selector === 'both') {
-    return profiles;
-  }
-  for (const profile of profiles) {
-    if (profile.selector === selector) {
-      return [profile];
-    }
-  }
-  fail(`unknown profile selector: ${selector}`);
-}
-
 function runSample(profile, buildProfile) {
   const cargoArgs = [
     'test',
@@ -185,7 +141,7 @@ function runSample(profile, buildProfile) {
     {
       cwd: repoRoot,
       encoding: 'utf8',
-      env: { ...process.env, SEAMS_YAOS_AB_LOCAL_MEASUREMENT: '1' },
+      env: process.env,
       maxBuffer: 16 * 1024 * 1024,
     },
   );
@@ -221,39 +177,22 @@ function validateSample(sample, expectedProfile) {
   if (
     sample.schema !== sampleSchema ||
     sample.profile !== expectedProfile ||
-    sample.activation_deriver_a_to_b_bytes !== activationWireBytes.deriver_a_to_b ||
-    sample.activation_deriver_b_to_a_bytes !== activationWireBytes.deriver_b_to_a ||
-    sample.activation_total_ab_bytes !== activationWireBytes.total ||
-    sample.export_deriver_a_to_b_bytes !== exportWireBytes.deriver_a_to_b ||
-    sample.export_deriver_b_to_a_bytes !== exportWireBytes.deriver_b_to_a ||
-    sample.export_total_ab_bytes !== exportWireBytes.total ||
-    sample.ordinary_signing_total_ab_bytes !== 0
+    !Number.isSafeInteger(sample.registration_microseconds) ||
+    sample.registration_microseconds < 1
   ) {
     fail(`sample contract mismatch for ${expectedProfile}`);
-  }
-  for (const field of operationFields) {
-    if (!Number.isSafeInteger(sample[field]) || sample[field] < 1) {
-      fail(`invalid ${field} for ${expectedProfile}`);
-    }
   }
 }
 
 function summarizeProfile(profile, samples) {
-  const operations = {};
-  for (const field of operationFields) {
-    const values = [];
-    for (const sample of samples) {
-      values.push(sample[field]);
-    }
-    operations[field.replace('_microseconds', '')] = summarizeMicroseconds(values);
+  const registrationValues = [];
+  for (const sample of samples) {
+    registrationValues.push(sample.registration_microseconds);
   }
   return {
     profile,
-    operations,
-    wire_bytes: {
-      activation: activationWireBytes,
-      export: exportWireBytes,
-      ordinary_signing: { deriver_a_to_b: 0, deriver_b_to_a: 0, total: 0 },
+    operations: {
+      registration: summarizeMicroseconds(registrationValues),
     },
   };
 }
@@ -288,7 +227,7 @@ function workspaceOutputPath(value) {
 }
 
 function printUsage() {
-  process.stdout.write(`usage: node measure-ed25519-yao-local.mjs [options]\n\nOptions:\n  --samples N            measured samples per profile (default: 100)\n  --warmups N            discarded warmups per profile (default: 1)\n  --profile NAME         both, one-account, or two-administrator\n  --build-profile NAME   release or dev (default: release)\n  --output PATH          write the JSON report inside the repository\n`);
+  process.stdout.write(`usage: node measure-ed25519-yao-local.mjs [options]\n\nOptions:\n  --samples N            measured registration samples (default: 100)\n  --warmups N            discarded warmups (default: 1)\n  --build-profile NAME   release or dev (default: release)\n  --output PATH          write the JSON report inside the repository\n`);
 }
 
 function fail(message) {

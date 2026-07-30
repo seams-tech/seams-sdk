@@ -3,10 +3,7 @@ import {
   D1WalletStore,
   parseWalletEd25519SignerRecord,
 } from '../../packages/sdk-server-ts/src/core/d1WalletStore';
-import {
-  createCloudflareD1RouterApiAuthService as createPartitionedCloudflareD1RouterApiAuthService,
-  createLegacyCloudflareD1RouterApiAuthService as createCloudflareD1RouterApiAuthService,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import type {
   RouterAbEd25519YaoProductRegistrationRuntimeV1,
   RouterAbEd25519YaoWalletSessionMintInputV1,
@@ -36,8 +33,6 @@ import {
   sha256,
   hexBytes,
   applySignerMigrations,
-  expireD1VersionedJsonClaims,
-  countD1VersionedJsonRecords,
   insertSignerWallet,
   insertWalletAuthMethod,
   readWalletAuthMethodRecord,
@@ -205,23 +200,18 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
   installCalls = 0;
   mintCalls = 0;
   readonly mintInputs: TestAddSignerWalletSessionMintInput[] = [];
-  private loseCeremonyWriteAfterMint: {
-    readonly stub: { rejectNextSet(key: string): void };
-    readonly key: string;
-  } | null = null;
-
-  armCeremonyWriteResponseLossAfterNextMint(input: {
-    readonly stub: { rejectNextSet(key: string): void };
-    readonly key: string;
-  }): void {
-    this.loseCeremonyWriteAfterMint = input;
-  }
 
   async bindVerifiedIntent(
     input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['bindVerifiedIntent']>[0],
   ): ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['bindVerifiedIntent']> {
     this.admissionRequest = input.admissionRequest;
     return { ok: true };
+  }
+
+  bindAndAdmitVerifiedRegistration(): ReturnType<
+    RouterAbEd25519YaoProductRegistrationRuntimeV1['bindAndAdmitVerifiedRegistration']
+  > {
+    throw new Error('wallet registration is outside the add-signer runtime fixture');
   }
 
   consumeActivated(
@@ -327,10 +317,6 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
   ): ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['mintWalletSession']> {
     this.mintCalls += 1;
     if (input.kind === 'add_signer_wallet_session_v1') this.mintInputs.push(input);
-    if (this.loseCeremonyWriteAfterMint) {
-      this.loseCeremonyWriteAfterMint.stub.rejectNextSet(this.loseCeremonyWriteAfterMint.key);
-      this.loseCeremonyWriteAfterMint = null;
-    }
     const budget = testEd25519WalletSessionBudget(input);
     return {
       ok: true,
@@ -498,7 +484,7 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
   }
 });
 
-test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods through D1 and Durable Objects', async () => {
+test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods through partitioned D1', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -614,26 +600,6 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
     if (!started.ok) throw new Error(started.message);
     expect(started.intent).toEqual(intent.intent);
 
-    const prefix = 'intent-test:wallet-registration:';
-    expect(
-      durableObjects.stub.values.get(
-        `${prefix}add-auth-method-intent:${intent.addAuthMethodIntentGrant}`,
-      ),
-    ).toBeUndefined();
-    expect(
-      durableObjects.stub.values.get(`${prefix}add-auth-method:${started.addAuthMethodCeremonyId}`),
-    ).toMatchObject({
-      digestB64u: intent.addAuthMethodIntentDigestB64u,
-      orgId: scope.orgId,
-      intent: intent.intent,
-      auth: { kind: 'app_session' },
-      authority: {
-        kind: 'email_otp',
-        walletId,
-        email,
-      },
-    });
-
     const emailHashHex = hexBytes(await sha256(utf8Bytes(email)));
     const finalized = await service.walletAuthMethods.finalizeWalletAddAuthMethod({
       addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
@@ -659,10 +625,6 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
         status: 'active',
       },
     });
-    expect(
-      durableObjects.stub.values.get(`${prefix}add-auth-method:${started.addAuthMethodCeremonyId}`),
-    ).toBeUndefined();
-
     await expect(
       readWalletAuthMethodRecord({
         database,
@@ -690,204 +652,6 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
   }
 });
 
-test('Cloudflare D1 Router API auth service starts ECDSA add-signer ceremonies through Durable Objects', async () => {
-  const { database, tempDir } = createTemporaryD1Database();
-  try {
-    await applySignerMigrations(database);
-    const scope = {
-      namespace: 'seams-local-test',
-      orgId: 'org-a',
-      projectId: 'project-a',
-      envId: 'env-a',
-    };
-    const walletId = walletIdFromString('add-signer-wallet.testnet');
-    const durableObjects = new RecordingDurableObjectNamespace();
-    const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
-      config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker' },
-    });
-    await insertSignerWallet({ database, ...scope, walletId });
-    const service = createCloudflareD1RouterApiAuthService({
-      database,
-      namespace: scope.namespace,
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      envId: scope.envId,
-      routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
-      ecdsaStrictRegistration: new FixtureRouterAbEcdsaStrictRegistrationPort(),
-      thresholdStore: {
-        kind: 'cloudflare-do',
-        namespace: durableObjects,
-        THRESHOLD_PREFIX: 'intent-test',
-        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
-      },
-    });
-
-    const intent = await service.walletAuthMethods.createAddSignerIntent({
-      orgId: scope.orgId,
-      signingRootId: `${scope.projectId}:${scope.envId}`,
-      signingRootVersion: 'root-v1',
-      expectedOrigin: 'https://app.example',
-      request: {
-        walletId,
-        signerSelection: {
-          mode: 'ecdsa',
-          ecdsa: {
-            participantIds: [1, 2],
-            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
-          },
-        },
-      },
-    });
-    expect(intent.ok).toBe(true);
-    if (!intent.ok) throw new Error(intent.message);
-    expect(Object.prototype.hasOwnProperty.call(intent.intent, 'rpId')).toBe(false);
-    const runtimePolicyScope = normalizeRuntimePolicyScope(intent.intent.runtimePolicyScope);
-
-    await expect(
-      service.walletAuthMethods.startWalletAddSigner({
-        walletId,
-        addSignerIntentGrant: intent.addSignerIntentGrant,
-        addSignerIntentDigestB64u: intent.addSignerIntentDigestB64u,
-        intent: intent.intent,
-        auth: {
-          kind: 'app_session',
-          policy: {
-            permission: 'wallet_signer_provision',
-            walletId,
-            signerSelection: intent.intent.signerSelection,
-            runtimePolicyScope,
-            expiresAtMs: Date.now() - 1,
-          },
-        },
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'invalid_body' });
-    await expect(
-      countD1VersionedJsonRecords({
-        database,
-        ...scope,
-        recordKeyPrefix: 'wallet-add-signer-start:',
-      }),
-    ).resolves.toBe(0);
-    expect(
-      durableObjects.stub.values.get(
-        `intent-test:wallet-registration:add-signer-intent:${intent.addSignerIntentGrant}`,
-      ),
-    ).toBeDefined();
-
-    const addSignerAuthorizationExpiresAtMs = Date.now() + 60_000;
-    const prefix = 'intent-test:wallet-registration:';
-    durableObjects.stub.loseNextSetResponseForPrefix(`${prefix}add-signer:`);
-    const lostStartResponse = await service.walletAuthMethods.startWalletAddSigner({
-      walletId,
-      addSignerIntentGrant: intent.addSignerIntentGrant,
-      addSignerIntentDigestB64u: intent.addSignerIntentDigestB64u,
-      intent: intent.intent,
-      auth: {
-        kind: 'app_session',
-        policy: {
-          permission: 'wallet_signer_provision',
-          walletId,
-          signerSelection: intent.intent.signerSelection,
-          runtimePolicyScope,
-          expiresAtMs: addSignerAuthorizationExpiresAtMs,
-        },
-      },
-    });
-    expect(lostStartResponse).toMatchObject({ ok: false, code: 'internal' });
-    await expireD1VersionedJsonClaims({
-      database,
-      ...scope,
-      recordKeyPrefix: 'wallet-add-signer-start:',
-    });
-    const started = await service.walletAuthMethods.startWalletAddSigner({
-      walletId,
-      addSignerIntentGrant: intent.addSignerIntentGrant,
-      addSignerIntentDigestB64u: intent.addSignerIntentDigestB64u,
-      intent: intent.intent,
-      auth: {
-        kind: 'app_session',
-        policy: {
-          permission: 'wallet_signer_provision',
-          walletId,
-          signerSelection: intent.intent.signerSelection,
-          runtimePolicyScope,
-          expiresAtMs: addSignerAuthorizationExpiresAtMs,
-        },
-      },
-    });
-    if (!started.ok) throw new Error(started.message);
-    expect(started.ok).toBe(true);
-    expect(started.intent).toEqual(intent.intent);
-    expect(started.ecdsa).toMatchObject({
-      kind: 'evm_family_ecdsa_keygen',
-      chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
-      prepare: {
-        formatVersion: 'ecdsa-derivation-role-local',
-        walletId,
-        signingRootId: `${scope.projectId}:${scope.envId}`,
-        signingRootVersion: 'root-v1',
-        keyScope: 'evm-family',
-        remainingUses: 3,
-        participantIds: [1, 2],
-        runtimePolicyScope: {
-          orgId: scope.orgId,
-          projectId: scope.projectId,
-          envId: scope.envId,
-          signingRootVersion: 'root-v1',
-        },
-      },
-    });
-    if (!started.ecdsa) throw new Error('Expected ECDSA add-signer start payload');
-    const ecdsaPrepare = requireSingleEcdsaPrepare(started.ecdsa);
-    expect(ecdsaPrepare.evmFamilySigningKeySlotId).toContain(
-      encodeURIComponent(`${scope.projectId}:${scope.envId}`),
-    );
-    expect(ecdsaPrepare.ecdsaThresholdKeyId).toMatch(/^ederivation-/);
-    expect(ecdsaPrepare.relayerKeyId).toMatch(/^ederivation-relayer-/);
-
-    expect(
-      durableObjects.stub.values.get(`${prefix}add-signer-intent:${intent.addSignerIntentGrant}`),
-    ).toBeUndefined();
-    expect(
-      durableObjects.stub.values.get(`${prefix}add-signer:${started.addSignerCeremonyId}`),
-    ).toMatchObject({
-      intent: intent.intent,
-      digestB64u: intent.addSignerIntentDigestB64u,
-      orgId: scope.orgId,
-      signingRootId: `${scope.projectId}:${scope.envId}`,
-      signingRootVersion: 'root-v1',
-      auth: { kind: 'app_session' },
-      signerState: {
-        kind: 'ecdsa_add_signer_prepared',
-        derivationKind: 'evm_family_ecdsa_keygen',
-        chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 8453 }],
-        prepare: ecdsaPrepare,
-      },
-    });
-
-    await expect(
-      service.walletAuthMethods.startWalletAddSigner({
-        walletId,
-        addSignerIntentGrant: intent.addSignerIntentGrant,
-        addSignerIntentDigestB64u: intent.addSignerIntentDigestB64u,
-        intent: intent.intent,
-        auth: {
-          kind: 'app_session',
-          policy: {
-            permission: 'wallet_signer_provision',
-            walletId,
-            signerSelection: intent.intent.signerSelection,
-            runtimePolicyScope,
-            expiresAtMs: addSignerAuthorizationExpiresAtMs,
-          },
-        },
-      }),
-    ).resolves.toEqual(started);
-  } finally {
-    cleanupTemporaryD1Database(tempDir);
-  }
-});
-
 test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
@@ -905,7 +669,7 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
     });
     const strictRegistration = new SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort();
     await insertSignerWallet({ database, ...scope, walletId });
-    const service = createPartitionedCloudflareD1RouterApiAuthService({
+    const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
       orgId: scope.orgId,
@@ -1047,7 +811,7 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
   }
 });
 
-test('Cloudflare D1 Router API auth service finalizes and replays Ed25519 Yao add-signer without request substitution', async () => {
+test('partitioned D1 finalizes and replays Ed25519 Yao add-signer without request substitution', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -1152,7 +916,6 @@ test('Cloudflare D1 Router API auth service finalizes and replays Ed25519 Yao ad
       },
     });
 
-    const ceremonyKey = `intent-test:wallet-registration:add-signer:${started.addSignerCeremonyId}`;
     const exactFinalize = {
       kind: 'near_ed25519' as const,
       addSignerCeremonyId: started.addSignerCeremonyId,
@@ -1165,29 +928,6 @@ test('Cloudflare D1 Router API auth service finalizes and replays Ed25519 Yao ad
         },
       },
     };
-    yaoRuntime.armCeremonyWriteResponseLossAfterNextMint({
-      stub: durableObjects.stub,
-      key: ceremonyKey,
-    });
-    await expect(
-      service.walletAuthMethods.finalizeWalletAddSigner(exactFinalize),
-    ).resolves.toMatchObject({ ok: false, code: 'internal' });
-    expect(yaoRuntime.consumeCalls).toBe(1);
-    expect(yaoRuntime.freshConsumptions).toBe(1);
-    expect(yaoRuntime.mintCalls).toBe(1);
-    await expect(
-      service.walletAuthMethods.finalizeWalletAddSigner({
-        ...exactFinalize,
-        idempotencyKey: 'ed25519-yao-add-signer-post-consume-takeover',
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'idempotency_conflict' });
-
-    await expireD1VersionedJsonClaims({
-      database,
-      ...scope,
-      recordKeyPrefix: 'wallet-add-signer-finalize:',
-    });
-    durableObjects.stub.rejectNextGetDel(ceremonyKey);
     const finalized = await service.walletAuthMethods.finalizeWalletAddSigner(exactFinalize);
     if (!finalized.ok) throw new Error(finalized.message);
     expect(finalized).toMatchObject({
@@ -1207,15 +947,9 @@ test('Cloudflare D1 Router API auth service finalizes and replays Ed25519 Yao ad
     });
     expect(yaoRuntime.consumeCalls).toBe(1);
     expect(yaoRuntime.freshConsumptions).toBe(1);
-    expect(yaoRuntime.mintCalls).toBe(2);
-    expect(yaoRuntime.mintInputs).toHaveLength(2);
-    expect(yaoRuntime.mintInputs[1]).toMatchObject({
-      signingGrantId: yaoRuntime.mintInputs[0]?.signingGrantId,
-      expiresAtMs: yaoRuntime.mintInputs[0]?.expiresAtMs,
-      remainingUses: yaoRuntime.mintInputs[0]?.remainingUses,
-    });
+    expect(yaoRuntime.mintCalls).toBe(1);
+    expect(yaoRuntime.mintInputs).toHaveLength(1);
     expect(yaoRuntime.installCalls).toBe(1);
-    expect(durableObjects.stub.values.get(ceremonyKey)).toBeDefined();
 
     await expect(
       service.walletAuthMethods.finalizeWalletAddSigner({
@@ -1244,7 +978,6 @@ test('Cloudflare D1 Router API auth service finalizes and replays Ed25519 Yao ad
     );
     expect(yaoRuntime.consumeCalls).toBe(1);
     expect(yaoRuntime.freshConsumptions).toBe(1);
-    expect(durableObjects.stub.values.get(ceremonyKey)).toBeUndefined();
 
     const conflictingIntent = await service.walletAuthMethods.createAddSignerIntent({
       orgId: scope.orgId,

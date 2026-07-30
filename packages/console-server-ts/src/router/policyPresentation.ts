@@ -32,7 +32,7 @@ function normalizePolicyKind(value: unknown): ConsolePolicyKind | null {
 
 export async function listConsolePolicyPresentationLookup(
   policies: ConsolePolicyService | null | undefined,
-  ctx: { orgId: string; actorUserId: string; roles: string[] },
+  ctx: { orgId: string; actorUserId: string },
 ): Promise<ConsolePolicyPresentationLookup> {
   if (!policies) return {};
   const rows = await policies.listPolicies(ctx);
@@ -50,7 +50,7 @@ export async function listConsolePolicyPresentationLookup(
 
 export async function resolveConsolePolicyPresentation(
   policies: ConsolePolicyService | null | undefined,
-  ctx: { orgId: string; actorUserId: string; roles: string[] },
+  ctx: { orgId: string; actorUserId: string },
   policyIdRaw: unknown,
 ): Promise<ConsolePolicyPresentation> {
   const policyId = normalizeString(policyIdRaw);

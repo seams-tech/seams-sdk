@@ -7,7 +7,6 @@ import {
   THRESHOLD_SESSION_EXHAUSTED_ERROR,
   THRESHOLD_SESSION_MISSING_ERROR,
 } from '@/core/signingEngine/session/warmCapabilities/thresholdSigningSessionReadiness';
-import { isSigningSessionAuthUnavailableError } from '@/core/signingEngine/threshold/sessionPolicy';
 
 const EVM_CHAIN_TARGET = {
   kind: 'evm',
@@ -65,40 +64,6 @@ test.describe('threshold signing session readiness', () => {
         },
       }),
     ).rejects.toThrow(THRESHOLD_SESSION_EXHAUSTED_ERROR);
-  });
-
-  test('classifies canonical signingSession expiry and exhaustion as reauth candidates', () => {
-    expect(
-      isSigningSessionAuthUnavailableError(
-        new Error(
-          '[chains] threshold signingSession is not_found; reconnect threshold session before signing',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isSigningSessionAuthUnavailableError(
-        new Error(
-          '[chains] threshold signingSession is expired; reconnect threshold session before signing',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isSigningSessionAuthUnavailableError(new Error(THRESHOLD_SESSION_EXHAUSTED_ERROR)),
-    ).toBe(true);
-    expect(
-      isSigningSessionAuthUnavailableError(
-        new Error(
-          '[chains] signingSession auth is unavailable; reconnect signing session before signing',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isSigningSessionAuthUnavailableError(
-        new Error(
-          '[evm-family-ecdsa] Wallet Session auth is unavailable; reconnect signing session before signing',
-        ),
-      ),
-    ).toBe(true);
   });
 
   test('normalizes cache miss errors to canonical reconnect message', async () => {

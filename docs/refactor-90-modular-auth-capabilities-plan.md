@@ -6,7 +6,7 @@ Slimmed: July 22, 2026
 ## Status
 
 Phases 1-3 are complete. Phases 4-5 and Foundations A-B are in progress.
-[Refactor 91](./refactor-91.md) is implemented, with intended-behaviour E2E
+[Refactor 91B](./refactor-91B.md) is implemented, with intended-behaviour E2E
 acceptance pending a working local site. The
 [Email OTP local-rehydration patch](./refactor-patch-2-email-otp-local-rehydration.md)
 remains current-stack groundwork that Refactor 90 must absorb without creating a
@@ -18,7 +18,7 @@ its expiry, exhaustion, refresh, step-up, invalidation, secure-origin, event,
 and demo-lock semantics. Staging and production confirmation of the effective
 24-hour default remain Refactor 92 deployment acceptance.
 
-The progress log lives in [refactor-90-journal.md](./refactor-90-journal.md).
+Git history is the progress log; there is no separate journal doc.
 Implementation details and normative invariants live in the
 [companion SPEC](./refactor-90-modular-auth-capabilities-SPEC.md). This document
 owns execution order, dependencies, deletion points, and acceptance checks. It
@@ -40,6 +40,31 @@ This revision applies four constraints:
    tests for untrusted data, and guards for dependency or artifact boundaries.
 4. Refactor 90 ships the smallest verticals needed to prove the authorization
    layer and migrate the two MPC capabilities.
+
+## Verification Budget
+
+This section is binding on every phase and overrides any verification obligation
+implied elsewhere in this plan or the SPEC.
+
+- One enforcement per failure mode. If the compiler rejects it, do not also
+  write a unit test, a source guard, or an E2E case for it.
+- Do not add new `check-*.mjs` source guards. Guards are permitted only for
+  worker-secret, generated-WASM, and workspace-package boundaries, and only when
+  an existing guard cannot be extended. The repository already carries ~19k
+  lines of source guards against 2 type fixtures; that ratio inverts the
+  enforcement policy in `AGENTS.md`.
+- Prefer type fixtures in `tests/typecheck/`. They are the cheapest layer, they
+  cannot go stale silently, and this refactor should grow them.
+- Intended-behaviour E2E is capped at the eight scenarios in the
+  [E2E budget](#intended-behaviour-e2e-budget). Behavior owned by Refactor 92 is
+  verified by running Refactor 92's existing contracts, not by new cases.
+- No phase produces a document as its deliverable. Inventory findings become
+  rows in the [deletion ledger](./refactor-90-deletion-ledger.md), discovered
+  during implementation rather than ahead of it.
+- Do not update more than one status surface per change. This plan owns task
+  status; the SPEC checklist owns invariant conformance evidence.
+- Removing scope from this plan requires no ledger entry, justification
+  document, or replacement check.
 
 ## Goal
 
@@ -340,13 +365,14 @@ boundaries make the prohibited path impossible.
 | target-specific revocation outbox union | eventual revocation | one exact idempotent command; server claims remain server-owned | offline/retry integration test |
 | synthetic third-factor adapter | factor-neutral coordination | factor-free interfaces and literal/import guard | generic-module source guard plus Passkey/OTP tests |
 | recursive evidence expression in the critical path | composed authorization | named policies or flat `all \| any` requirements used by current operations | policy table tests |
-| repository-wide Phase 6 gate | migration coverage | phase-local inventory and delete ledger | scoped search and diff review per phase |
+| repository-wide and phase-local inventory gates | migration coverage | the standing deletion ledger, appended during implementation | scoped search and diff review per phase |
 | triple enforcement artifacts | regression resistance | one enforcement layer matched to the failure mode | check named in each phase |
 | broad vault feature set | proof of the authorization architecture | minimal proxy/reveal vertical | one end-to-end slice test |
 | predeclared future capability kinds | future extensibility | extend closed unions when a capability lands | exhaustive build failure on extension |
 
-Every future removal from this plan must add a row naming the protected property,
-its replacement, and the check that demonstrates the replacement.
+This table is frozen history from the July 22 slimming. It is not a live
+process: removing scope from this plan does not require a new row, and no phase
+should spend time authoring ledger prose in place of code.
 
 ## Execution Order
 
@@ -361,7 +387,6 @@ journal. Their scope is reduced below.
 | Foundation B | canonical required-field ECDSA state | In progress |
 | Phases 1-3 | registration cut, subjects, mechanical AuthService split | Complete |
 | Phases 4-5 | exact subjects and ECDSA role-local cache slimming | In progress |
-| Phase 6 | scoped inventory and deletion ledger | Planning |
 | Phases 7-9 | current vocabulary, SDK surface, narrow route ports/static assembly | Planning |
 | Phases 10-16 | minimal session/authorization/vault proving slice | Planning |
 | Phases 17-20 | authority/persistence migration, MPC modules and claims | Planning |
@@ -370,10 +395,9 @@ journal. Their scope is reduced below.
 | Phases 25-26 | Better Auth and IdP | Moved to follow-on plans |
 | Phase 27 | final deletion and hardening | Planning |
 
-Foundations A-B and Phases 4-5 may proceed alongside the scoped Phase 6
-inventory. No repository-wide inventory gates Phase 7. Each phase performs its
-own scoped search before changing shared types and records its deletions before
-exit.
+Foundations A-B and Phases 4-5 may proceed in parallel. No inventory phase gates
+Phase 7. Each phase performs its own scoped search as part of changing shared
+types, and records its deletions in the ledger before exit.
 
 The minimal Slice A vertical must pass before Phase 17 starts migrating live MPC
 signing. Phases 19-20 form one no-release cutover: a supported build cannot expose
@@ -383,7 +407,7 @@ both the old signing authorization flow and the new capability-grant flow.
 
 This is the progress checklist. The phase sections below define scope and exit
 conditions. Check a task only after its named implementation and validation are
-complete; record supporting commands, commits, and exceptions in the journal.
+complete; cite the implementing commit SHA beside the checked item.
 Granular open-item lists for in-flight work live in the Foundation A/B and
 Phase 4/5 sections; symbol-level deletion targets live in the
 [deletion ledger](./refactor-90-deletion-ledger.md).
@@ -417,7 +441,6 @@ Phase 4/5 sections; symbol-level deletion targets live in the
 
 ### Slice A — authorization proving vertical
 
-- [ ] Phase 6 — scoped Slice A inventory and deletion ledger are complete.
 - [ ] Phase 7 — current closed capability/evidence vocabulary and exhaustive
   operation mappings compile.
 - [ ] Phase 8 — narrow SDK runtime/capability selection fails early for disabled
@@ -489,18 +512,13 @@ Phase 4/5 sections; symbol-level deletion targets live in the
 
 ### Completion checkpoint
 
-- [ ] Registration, wallet unlock, and page refresh resolve equivalent canonical
-  state through the same hydration and exact-lane foundations.
-- [ ] A fresh authorization session can use the same exact material activation,
-  reactivation creates a new activation ID, and no authorization session ID is
-  used as a material locator.
-- [ ] Page refresh preserves the valid Wallet Session's remaining allowance and
-  rehydrates the same exact material activation for Passkey and Email OTP.
-- [ ] Expiry, exhaustion, and missing-session tests preserve Refactor 92
-  behavior across NEAR, Tempo, EVM, delegate signing, and key export.
-- [ ] No supported build exposes both old and new MPC authorization flows.
-- [ ] All open reduction-ledger replacements have implementation evidence.
-- [ ] The intended-behaviour E2E matrix and `git diff --check` pass.
+The per-invariant completion criteria are the SPEC's
+[Final conformance](./refactor-90-modular-auth-capabilities-SPEC.md#final-conformance)
+section; the behavioural criteria are the [Goal](#goal). Neither is restated
+here. This plan's exit gate is:
+
+- [ ] every phase above is checked;
+- [ ] the eight-scenario E2E budget and `git diff --check` pass.
 
 ## In-Flight Foundations And Completed Work
 
@@ -536,9 +554,11 @@ only):
       activation, live branch without runtime proof);
 - [ ] Near and ECDSA observation unions parsed from canonical persistence, never
       from entry-point state;
-- [ ] table-driven entry-point equivalence tests (registration/unlock/refresh
-      against live, sealed-active, capability-retired, missing, corrupt,
-      conflicting, unavailable) for both capabilities;
+- [ ] one type fixture proving entry-point provenance is absent from the
+      resolver input type; this makes registration/unlock/refresh equivalence
+      structural rather than a 42-case behavioural matrix;
+- [ ] seven canonical-state resolver tests per capability (live, sealed-active,
+      capability-retired, missing, corrupt, conflicting, unavailable);
 - [ ] post-registration -> refresh and post-unlock -> refresh transition tests
       proving only volatile runtime state disappears;
 - [ ] routine local rehydration (Passkey and Email OTP) resolves with zero
@@ -658,23 +678,11 @@ Open items:
 
 ## Slice A: Prove The Shared Authorization Path
 
-### Phase 6: Scoped inventory and deletion ledger
-
-For the files touched by Phases 7-16:
-
-- locate current auth/session/grant/vault route and persistence owners;
-- classify current shared types and public exports that the slice changes;
-- identify duplicate AuthService/facade/helper paths to delete;
-- identify obsolete tests and fixtures;
-- record target owner, action, and one validation check.
-
-Generate the inventory through `rg`, type errors, and route/export maps. Do not
-enumerate unrelated apps, docs, schemas, workers, or future capabilities. Repeat
-a scoped inventory at the start of Slice B.
-
-Seed each scoped inventory from the standing
-[deletion ledger](./refactor-90-deletion-ledger.md), which carries the
-symbol-level deletion targets reconstituted from the pre-slim plan.
+The standing [deletion ledger](./refactor-90-deletion-ledger.md) carries the
+symbol-level deletion targets. Phases consult it as they go and add newly
+discovered targets as rows. There is no separate inventory phase: an inventory
+whose deliverable is a document goes stale before the code that replaces it
+lands, and the ledger already holds what such a phase would produce.
 
 ### Phase 7: Current capability vocabulary
 
@@ -794,9 +802,8 @@ Invariants: `R90-INV-001`, `R90-INV-013`, `R90-INV-014`.
 
 ### Phase 18: Wallet vocabulary and persistence migration
 
-Run a scoped inventory for wallet, session, grant, quota, recovery, and material
-records. Delete obsolete wallet-first tests and records. Preserve Refactor 91's
-stable auth-method leaf domains.
+Delete obsolete wallet-first tests and records as the replacements land.
+Preserve Refactor 91's stable auth-method leaf domains.
 
 Implement:
 
@@ -1010,78 +1017,52 @@ tests, intended-behaviour E2E tests, and `git diff --check`.
 
 ## Validation Strategy
 
-### Static and unit checks
+Per-invariant conformance evidence lives in the SPEC's
+[Phased Invariant Verification Checklist](./refactor-90-modular-auth-capabilities-SPEC.md#phased-invariant-verification-checklist),
+and each phase names its own checks. This section is not a second copy of
+either. It owns only the two budgets that bound total verification work, under
+the [Verification Budget](#verification-budget) rules.
 
-Covers `R90-INV-001`, `R90-INV-009`, `R90-INV-010`, `R90-INV-012`,
-`R90-INV-013`, `R90-INV-014`.
+Static and type-level properties — invalid lifecycle combinations, required
+fields per branch, exhaustive conversions, non-substitutable branded IDs,
+fingerprint inputs excluding rotating IDs, `superseded` not collapsing into
+ready/pending/retry — are enforced by the types and fixtures named in each
+phase. They get no additional unit test, source guard, or E2E case.
 
-- Invalid lifecycle combinations fail type checking.
-- Core identity, authority, material, session, signing, recovery, export, and
-  quota fields are required in their valid branch.
-- Raw DB, request, token, worker, and IndexedDB data is parsed once.
-- Auth-method conversions remain exhaustive and unsupported protocols fail
-  closed.
-- Generic preparation/coordination modules contain no factor-kind lane branches.
-- Operation fingerprints exclude rotating grant/quota/session/runtime IDs.
-- `superseded` cannot be treated as ready, pending, or generic retry.
-- `SeamsSessionId`, `WalletSessionId`, `CapabilityGrantId`,
-  `MpcWalletSigningQuotaId`, and `MpcMaterialActivationId` cannot substitute
-  for one another.
-- Expired, exhausted, missing, unavailable, and invalid Wallet Session branches
-  remain exhaustive and cannot construct ready lanes directly.
+### Fault-injection and concurrency budget
 
-### Persistence and crash tests
+These are load-bearing and are not trimmed:
 
-Covers `R90-INV-004`, `R90-INV-005`, `R90-INV-006`, `R90-INV-007`,
-`R90-INV-011`.
+- crash fault injection at each irreversible Near boundary — admission,
+  acquisition, promotion, finalization;
+- crash/reload from `prepared` queries server state before any other effect;
+- `cancel_requested` never silently resumes the abandoned parent operation;
+- ECDSA activation idempotency by journal correlation;
+- local finalization atomically persists replacement/retirement/lifecycle facts
+  and deletes the journal; transaction abort leaves the old source and journal
+  reconcilable;
+- recovery, signing, refresh, and export serialize per exact material owner, and
+  a stale generation/fence cannot commit after replacement or revocation;
+- existing operation claims consume no renewed grant or quota;
+- a server-side expiry race performs at most one step-up retry.
 
-- ECDSA activation is idempotent by journal correlation.
-- Near admission, acquisition, and promotion are independently idempotent and
-  queryable by `recoveryId`.
-- Crash/reload from `prepared` queries server state before doing anything else.
-- `cancel_requested` never silently resumes the abandoned parent operation.
-- Crash after promotion resumes from the exact receipt without repeating
-  acquisition or promotion.
-- Local finalization atomically persists the replacement/retirement/lifecycle
-  facts and deletes the journal.
-- Transaction abort leaves the old source and journal eligible for
-  reconciliation.
-- Optional post-commit canonical reads create no persisted readback state.
+### Intended-behaviour E2E budget
 
-### Concurrency tests
+Capped at eight scenarios:
 
-Covers `R90-INV-008`, `R90-INV-009`, `R90-INV-014`.
+1. registration immediately followed by signing;
+2. wallet unlock immediately followed by signing;
+3. page refresh followed by concurrent signing;
+4. exact local rehydration without Yao recovery;
+5. missing-material recovery followed by signing;
+6. corrupt or mismatched material failing closed;
+7. stale lane returning `superseded` and resolving the replacement;
+8. one minimal vault session/evidence/grant/operation/audit vertical.
 
-- Recovery, signing, refresh, and export serialize per exact material owner.
-- A stale generation/fence cannot commit after replacement or revocation.
-- Different material owners progress independently.
-- User interaction occurs outside the material-owner queue.
-- Existing operation claims do not consume renewed grants or quotas.
-- Concurrent expiry observations invalidate and emit once for the exact Wallet
-  Session, and a server-side expiry race performs at most one step-up retry.
-
-### Intended-behaviour E2E
-
-Covers `R90-INV-003`, `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
-`R90-INV-014`.
-
-Keep a small matrix:
-
-- registration immediately followed by signing;
-- wallet unlock immediately followed by signing;
-- page refresh followed by concurrent signing;
-- exact local rehydration without Yao recovery;
-- missing-material recovery followed by signing;
-- corrupt or mismatched material failing closed;
-- stale lane returning `superseded` and resolving the replacement;
-- remaining warm allowance surviving page refresh;
-- authoritative expiry locking the demo while preserving app identity;
-- exhaustion requesting step-up without locking;
-- expiry and missing-session step-up granting one operation without minting a
-  reusable Wallet Session;
-- expiry never invoking Yao recovery or device linking;
-- one structured server-expiry retry followed by typed terminal failure;
-- one minimal vault session/evidence/grant/operation/audit vertical.
+Refactor 92 expiry, exhaustion, step-up, invalidation, demo-lock, and
+app-identity behavior is verified by running Refactor 92's existing contracts
+unchanged. Refactor 90 adds no E2E cases for it; a Refactor 92 contract failure
+is the signal that Refactor 90 broke that behavior.
 
 Passkey and Email OTP cover the real factor paths across signing and export. No
 synthetic third-factor E2E suite is required.
@@ -1112,9 +1093,9 @@ IdP, service-account, full-vault, route-framework, or bundle-optimization work.
 ## Related Plans
 
 - [Refactor 90 deletion ledger](./refactor-90-deletion-ledger.md)
-- [Refactor 90A patches](./refactor-90A-patches.md)
+- [Refactor 91A patches](./refactor-91A-patches.md)
 - [Email OTP local rehydration](./refactor-patch-2-email-otp-local-rehydration.md)
-- [Refactor 91 auth-method domains](./refactor-91.md)
+- [Refactor 91B auth-method domains](./refactor-91B.md)
 - [Refactor 92 signing-session expiry handling](./refactor-92-session-expiry-handling.md)
 - [Refactor 82B authority typing](./refactor-82B.md)
 - [Refactor 85 IndexedDB minimization](./refactor-85-indexedDB.md)

@@ -166,6 +166,7 @@ function readDurableObjectMigrations(source) {
     migrations.push({
       tag: readString(block, 'tag'),
       newSqliteClasses: readArray(block, 'new_sqlite_classes'),
+      deletedClasses: readArray(block, 'deleted_classes'),
     });
   }
   return migrations;
@@ -201,7 +202,7 @@ function inventoryCommands(input) {
       id: 'console_d1_info',
       target: 'console_d1',
       command: wranglerCommand(
-        'd1 info seams-console-staging --json',
+        'd1 info seams-console-staging-nrt --json',
         input.consoleConfigPath,
       ),
     }),
@@ -209,7 +210,7 @@ function inventoryCommands(input) {
       id: 'signer_d1_info',
       target: 'signer_d1',
       command: wranglerCommand(
-        'd1 info seams-signer-staging --json',
+        'd1 info seams-signer-staging-nrt --json',
         input.gatewayConfigPath,
       ),
     }),

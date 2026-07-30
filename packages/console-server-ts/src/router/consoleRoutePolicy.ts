@@ -1,36 +1,95 @@
-import { hasConsoleRole, type ConsoleAuthClaims } from '@seams/sdk-server/internal/router/consoleAuth';
-import type { RoutePolicyFailureCode } from '@seams/sdk-server/internal/router/routeAuthPolicy';
+import type { ConsoleAuthClaims } from './consoleAuth';
 import {
-  findRouteDefinitionForRequest,
-  type RouteDefinition,
-} from '@seams/sdk-server/internal/router/routeDefinitions';
+  findConsoleRouteDefinitionForRequest,
+  type ConsoleRouteDefinition,
+  type ConsoleRouteRequirement,
+} from './consoleRouteDefinitions';
 
 export type ConsoleRouteAuthorizationResult =
-  | { ok: true; route: RouteDefinition }
+  | { readonly ok: true; readonly route: ConsoleRouteDefinition }
   | {
-      ok: false;
-      status: 403 | 500;
-      body: {
-        ok: false;
-        code: RoutePolicyFailureCode;
-        message: string;
+      readonly ok: false;
+      readonly status: 403 | 500;
+      readonly body: {
+        readonly ok: false;
+        readonly code: 'forbidden' | 'route_auth_not_configured';
+        readonly message: string;
       };
     };
 
-function formatRoleList(roles: readonly string[]): string {
-  if (roles.length === 0) return 'authorized team members';
-  if (roles.length === 1) return roles[0] || 'authorized team members';
-  if (roles.length === 2) return `${roles[0]} or ${roles[1]}`;
-  return `${roles.slice(0, -1).join(', ')}, or ${roles[roles.length - 1]}`;
+function hasAdminPermission(
+  claims: ConsoleAuthClaims,
+  permission: 'members.manage' | 'projects.manage' | 'billing.view' | 'billing.manage',
+): boolean {
+  return claims.role === 'ADMIN' && claims.adminPermissions.includes(permission);
+}
+
+export function hasConsoleProjectAccess(
+  claims: ConsoleAuthClaims,
+  projectId: string,
+  level: 'viewer' | 'editor',
+): boolean {
+  if (claims.role !== 'MEMBER') return true;
+  const assignments = claims.projectAccess.assignments;
+  if (!projectId) return false;
+  return assignments.some(
+    (assignment) =>
+      assignment.projectId === projectId &&
+      (level === 'viewer' || assignment.accessLevel === 'editor'),
+  );
+}
+
+function meetsRequirement(
+  claims: ConsoleAuthClaims,
+  requirement: ConsoleRouteRequirement,
+  projectId: string,
+): boolean {
+  switch (requirement) {
+    case 'authenticated':
+      return true;
+    case 'owner':
+      return claims.role === 'OWNER';
+    case 'members.read':
+      return (
+        claims.role === 'OWNER' ||
+        hasAdminPermission(claims, 'members.manage') ||
+        hasAdminPermission(claims, 'projects.manage')
+      );
+    case 'members.manage':
+      return claims.role === 'OWNER' || hasAdminPermission(claims, 'members.manage');
+    case 'projects.manage':
+      return claims.role === 'OWNER' || hasAdminPermission(claims, 'projects.manage');
+    case 'projects.list':
+      return claims.role !== 'MEMBER' || claims.projectAccess.assignments.length > 0;
+    case 'project.view':
+      return hasConsoleProjectAccess(claims, projectId, 'viewer');
+    case 'project.edit':
+      return hasConsoleProjectAccess(claims, projectId, 'editor');
+    case 'billing.view':
+      return (
+        claims.role === 'OWNER' ||
+        hasAdminPermission(claims, 'billing.view') ||
+        hasAdminPermission(claims, 'billing.manage')
+      );
+    case 'billing.manage':
+      return claims.role === 'OWNER' || hasAdminPermission(claims, 'billing.manage');
+    case 'platform.support':
+      return claims.platformSupport;
+  }
 }
 
 export function authorizeConsoleRouteRequest(input: {
-  claims: ConsoleAuthClaims;
-  definitions: readonly RouteDefinition[];
-  method: string;
-  pathname: string;
+  readonly claims: ConsoleAuthClaims;
+  readonly definitions: readonly ConsoleRouteDefinition[];
+  readonly method: string;
+  readonly pathname: string;
+  readonly projectId?: string;
 }): ConsoleRouteAuthorizationResult {
-  const route = findRouteDefinitionForRequest(input.definitions, input.method, input.pathname);
+  const route = findConsoleRouteDefinitionForRequest(
+    input.definitions,
+    input.method,
+    input.pathname,
+  );
   if (!route) {
     return {
       ok: false,
@@ -42,20 +101,9 @@ export function authorizeConsoleRouteRequest(input: {
       },
     };
   }
-  if (route.auth.plane !== 'console') {
-    return {
-      ok: false,
-      status: 500,
-      body: {
-        ok: false,
-        code: 'route_auth_not_configured',
-        message: `Route ${route.id} is not configured for console auth`,
-      },
-    };
-  }
 
-  const roles = route.auth.roles || [];
-  if (roles.length === 0 || roles.some((role) => hasConsoleRole(input.claims, role))) {
+  const projectId = String(input.projectId ?? input.claims.projectId ?? '').trim();
+  if (meetsRequirement(input.claims, route.auth.requirement, projectId)) {
     return { ok: true, route };
   }
 
@@ -65,9 +113,7 @@ export function authorizeConsoleRouteRequest(input: {
     body: {
       ok: false,
       code: 'forbidden',
-      message:
-        route.auth.forbiddenMessage ||
-        `Only ${formatRoleList(roles)} can access ${route.summary.toLowerCase()}`,
+      message: `This action requires ${route.auth.requirement} access`,
     },
   };
 }

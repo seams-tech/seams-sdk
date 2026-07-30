@@ -14,7 +14,6 @@ use router_ab_dev::{
     LOCAL_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH, LOCAL_DERIVER_A_PEER_PATH,
     LOCAL_DERIVER_A_PRIVATE_PATH, LOCAL_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
-    LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
     LOCAL_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH, LOCAL_DERIVER_B_PEER_PATH,
     LOCAL_DERIVER_B_PRIVATE_PATH, LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_DEFAULT_SECRET_V1,
     LOCAL_ROUTER_ED25519_YAO_EXECUTE_PATH, LOCAL_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
@@ -54,7 +53,7 @@ fn local_pair_lifecycle_routes_match_strict_worker_paths_and_are_owned_by_role_w
     let role_routes = [
         (
             router_ab_core::LocalServiceRoleV1::DeriverA,
-            [
+            &[
                 (
                     LOCAL_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
                     "/router-ab/deriver-a/ed25519-yao/prepare-pair",
@@ -71,18 +70,14 @@ fn local_pair_lifecycle_routes_match_strict_worker_paths_and_are_owned_by_role_w
                     LOCAL_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
                     "/router-ab/deriver-a/ed25519-yao/burn-pair",
                 ),
-            ],
+            ] as &[(&str, &str)],
         ),
         (
             router_ab_core::LocalServiceRoleV1::DeriverB,
-            [
+            &[
                 (
                     LOCAL_DERIVER_B_ED25519_YAO_PREPARE_PAIR_PATH,
                     "/router-ab/deriver-b/ed25519-yao/prepare-pair",
-                ),
-                (
-                    LOCAL_DERIVER_B_ED25519_YAO_READ_COMPLETED_PAIR_PATH,
-                    "/router-ab/deriver-b/ed25519-yao/read-completed-pair",
                 ),
                 (
                     LOCAL_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH,
@@ -92,11 +87,11 @@ fn local_pair_lifecycle_routes_match_strict_worker_paths_and_are_owned_by_role_w
                     LOCAL_DERIVER_B_ED25519_YAO_BURN_PAIR_PATH,
                     "/router-ab/deriver-b/ed25519-yao/burn-pair",
                 ),
-            ],
+            ] as &[(&str, &str)],
         ),
     ];
     for (role, routes) in role_routes {
-        for (local, strict_worker_path) in routes {
+        for &(local, strict_worker_path) in routes {
             assert_eq!(local, strict_worker_path);
             assert!(local_worker_owned_paths_v1(role).contains(&local));
         }
@@ -223,21 +218,12 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     router.assert_wrangler("binding = \"DERIVER_A\"");
     router.assert_wrangler("binding = \"DERIVER_B\"");
     router.assert_wrangler("binding = \"SIGNING_WORKER\"");
-    router.assert_wrangler("ROUTER_REPLAY_DO_BINDING = \"ROUTER_REPLAY_DO\"");
-    router.assert_wrangler("ROUTER_LIFECYCLE_DO_BINDING = \"ROUTER_LIFECYCLE_DO\"");
-    router.assert_wrangler("ROUTER_PROJECT_POLICY_DO_BINDING = \"ROUTER_PROJECT_POLICY_DO\"");
-    router.assert_wrangler("ROUTER_QUOTA_DO_BINDING = \"ROUTER_QUOTA_DO\"");
-    router.assert_wrangler("ROUTER_ABUSE_DO_BINDING = \"ROUTER_ABUSE_DO\"");
+    router.assert_wrangler_absent("[durable_objects]");
+    router.assert_wrangler_absent("[[d1_databases]]");
     router.assert_local("DERIVER_A_URL=http://127.0.0.1:9101");
     router.assert_local("DERIVER_B_URL=http://127.0.0.1:9102");
     router.assert_local("SIGNING_WORKER_URL=http://127.0.0.1:9103");
-    router.assert_local("ROUTER_REPLAY_STORAGE_PATH=.router-ab-local/router/replay.sqlite");
-    router.assert_local("ROUTER_LIFECYCLE_STORAGE_PATH=.router-ab-local/router/lifecycle.sqlite");
-    router.assert_local(
-        "ROUTER_PROJECT_POLICY_STORAGE_PATH=.router-ab-local/router/project-policy.sqlite",
-    );
-    router.assert_local("ROUTER_QUOTA_STORAGE_PATH=.router-ab-local/router/quota.sqlite");
-    router.assert_local("ROUTER_ABUSE_STORAGE_PATH=.router-ab-local/router/abuse.sqlite");
+    router.assert_local_absent("STORAGE_PATH");
 
     let deriver_a = ManifestPair {
         local: include_str!("../env/deriver-a.local.example"),
@@ -251,7 +237,8 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     deriver_a.assert_wrangler_absent("ROUTER_AB_WORKER_ROLE");
     deriver_a.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
     deriver_a.assert_wrangler("binding = \"DERIVER_B\"");
-    deriver_a.assert_wrangler("DERIVER_A_ROOT_SHARE_DO_BINDING = \"DERIVER_A_ROOT_SHARE_DO\"");
+    deriver_a.assert_wrangler("binding = \"DERIVER_ROLE_PRIVATE_DB\"");
+    deriver_a.assert_wrangler_absent("DERIVER_A_ROOT_SHARE_DO_BINDING");
     deriver_a.assert_wrangler(
         "DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING = \"DERIVER_A_ROOT_SHARE_WIRE_SECRET\"",
     );
@@ -265,7 +252,7 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     deriver_a.assert_local("DERIVER_A_ROOT_SHARE_WIRE_SECRET=");
     deriver_a.assert_local("DERIVER_A_PEER_SIGNING_KEY=");
     deriver_a.assert_local(
-        "DERIVER_A_ROOT_SHARE_STORAGE_PATH=.router-ab-local/deriver-a/root-share.sqlite",
+        "DERIVER_A_ROLE_PRIVATE_STORAGE_PATH=.router-ab-local/deriver-a/role-private.sqlite",
     );
     deriver_a.assert_local(
         "DERIVER_A_SEALED_ROOT_SHARES_PATH=.router-ab-local/deriver-a/sealed-root-shares.sqlite",
@@ -283,7 +270,8 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     deriver_b.assert_wrangler_absent("ROUTER_AB_WORKER_ROLE");
     deriver_b.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
     deriver_b.assert_wrangler("binding = \"DERIVER_A\"");
-    deriver_b.assert_wrangler("DERIVER_B_ROOT_SHARE_DO_BINDING = \"DERIVER_B_ROOT_SHARE_DO\"");
+    deriver_b.assert_wrangler("binding = \"DERIVER_ROLE_PRIVATE_DB\"");
+    deriver_b.assert_wrangler_absent("DERIVER_B_ROOT_SHARE_DO_BINDING");
     deriver_b.assert_wrangler(
         "DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING = \"DERIVER_B_ROOT_SHARE_WIRE_SECRET\"",
     );
@@ -297,7 +285,7 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     deriver_b.assert_local("DERIVER_B_ROOT_SHARE_WIRE_SECRET=");
     deriver_b.assert_local("DERIVER_B_PEER_SIGNING_KEY=");
     deriver_b.assert_local(
-        "DERIVER_B_ROOT_SHARE_STORAGE_PATH=.router-ab-local/deriver-b/root-share.sqlite",
+        "DERIVER_B_ROLE_PRIVATE_STORAGE_PATH=.router-ab-local/deriver-b/role-private.sqlite",
     );
     deriver_b.assert_local(
         "DERIVER_B_SEALED_ROOT_SHARES_PATH=.router-ab-local/deriver-b/sealed-root-shares.sqlite",
@@ -314,8 +302,9 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     signing_worker.assert_wrangler_absent("ROUTER_AB_WORKER_ROLE");
     signing_worker.assert_wrangler_absent("ROUTER_AB_ROUTE_PROFILE");
     signing_worker.assert_wrangler(
-        "SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING = \"SIGNING_WORKER_SERVER_OUTPUT_DO\"",
+        "SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING = \"SIGNING_WORKER_PRESIGN_SESSION_DO\"",
     );
+    signing_worker.assert_wrangler("binding = \"SIGNING_WORKER_PRIVATE_DB\"");
     signing_worker.assert_wrangler(
         "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING = \"SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY\"",
     );
@@ -330,7 +319,7 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     );
     signing_worker.assert_local("SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY=");
     signing_worker.assert_local(
-        "SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH=.router-ab-local/signing-worker/server-output.sqlite",
+        "SIGNING_WORKER_PRIVATE_STORAGE_PATH=.router-ab-local/signing-worker/role-private.sqlite",
     );
 }
 
@@ -351,6 +340,13 @@ impl ManifestPair {
         assert!(
             self.wrangler.contains(expected),
             "wrangler manifest missing {expected}"
+        );
+    }
+
+    fn assert_local_absent(&self, forbidden: &str) {
+        assert!(
+            !self.local.contains(forbidden),
+            "local env template still contains {forbidden}"
         );
     }
 

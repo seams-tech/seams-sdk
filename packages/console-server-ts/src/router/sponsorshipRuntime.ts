@@ -11,14 +11,14 @@ import type {
 import type {
   EnforceRoutePolicyResult,
   RoutePolicyResolutionFailure,
-} from '@seams/sdk-server/internal/router/enforceRoutePolicy';
-import type { RoutePrincipal } from '@seams/sdk-server/internal/router/routeAuthPolicy';
+} from '@seams/sdk-server/cloud-host';
+import type { RoutePrincipal } from '@seams/sdk-server/cloud-host';
 import type {
   RouteExecutionContext,
   RouteResponse,
   RouteServices,
-} from '@seams/sdk-server/internal/router/routeExecutionContext';
-import { routeJson } from '@seams/sdk-server/internal/router/routeResponses';
+} from '@seams/sdk-server/cloud-host';
+import { routeJson } from '@seams/sdk-server/cloud-host';
 
 type PublishableKeyRoutePrincipal = Extract<RoutePrincipal, { kind: 'api_credentials' }> & {
   credentialType: 'publishable_key';
@@ -26,7 +26,7 @@ type PublishableKeyRoutePrincipal = Extract<RoutePrincipal, { kind: 'api_credent
 
 type SponsorshipRouteFailureResponse = RouteResponse<Record<string, unknown>>;
 
-export type SponsorshipRuntimeResolution<TServices extends RouteServices = RouteServices> =
+export type SponsorshipRuntimeResolution<TServices extends object = RouteServices> =
   | {
       ok: true;
       context: RouteExecutionContext<TServices>;
@@ -105,13 +105,12 @@ export function buildSponsorshipRoutePolicyFailureResponse(
 }
 
 export async function resolveSponsorshipRuntimeForPublishableKeyRoute<
-  TServices extends RouteServices = RouteServices,
+  TServices extends object = RouteServices,
 >(input: {
   resolved: Extract<EnforceRoutePolicyResult<TServices>, { ok: true }>;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null | undefined;
   environmentId: string;
   actorUserId: string;
-  roles?: string[];
   runtimeSnapshotsUnavailableMessage: string;
   runtimeSnapshotNotFoundMessage: string;
   unexpectedPrincipalMessage: string;
@@ -142,7 +141,6 @@ export async function resolveSponsorshipRuntimeForPublishableKeyRoute<
   const sponsorshipCtx: ConsoleRuntimeSnapshotContext = {
     orgId: principal.principal.orgId,
     actorUserId: input.actorUserId,
-    roles: [...(input.roles || ['system'])],
   };
   const latestSnapshot = await input.runtimeSnapshots.getLatestSnapshot(sponsorshipCtx, {
     environmentId: input.environmentId,

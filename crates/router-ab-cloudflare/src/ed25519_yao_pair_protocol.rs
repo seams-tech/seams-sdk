@@ -1,10 +1,9 @@
 //! Feature-independent wire types shared by the Cloudflare and native local adapters.
 
 use router_ab_core::{
-    Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedInputV1, Ed25519YaoExecutionIdV1,
-    Ed25519YaoInputPairBindingV1, Ed25519YaoRoleReadinessReceiptV1,
-    Ed25519YaoRoleStartAcceptanceV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
-    RouterAbProtocolResult, RouterEd25519YaoBurnReasonV1, RouterEd25519YaoExecuteFailureCodeV1,
+    Ed25519YaoEncryptedInputV1, Ed25519YaoExecutionIdV1, Ed25519YaoInputPairBindingV1,
+    Ed25519YaoRoleReadinessReceiptV1, Ed25519YaoRoleStartAcceptanceV1, RouterAbProtocolError,
+    RouterAbProtocolErrorCode, RouterEd25519YaoBurnReasonV1, RouterEd25519YaoExecuteFailureCodeV1,
 };
 use router_ab_ed25519_yao::Ed25519YaoRoleExecutionV1;
 use serde::{Deserialize, Serialize};
@@ -17,12 +16,23 @@ pub struct CloudflareEd25519YaoPairPrepareRequestV1 {
     pub input: Ed25519YaoEncryptedInputV1,
 }
 
-/// Exact pair and peer receipt sent to the A execute-pair route.
+/// Exact pair, encrypted A input, and both readiness receipts sent to the A
+/// execute-pair route.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CloudflareEd25519YaoPairExecuteRequestV1 {
     pub pair_binding: Ed25519YaoInputPairBindingV1,
+    pub input: Ed25519YaoEncryptedInputV1,
+    pub local_receipt: Ed25519YaoRoleReadinessReceiptV1,
     pub peer_receipt: Ed25519YaoRoleReadinessReceiptV1,
+}
+
+/// A's sealed execution plus B's opaque, already-persisted sealed execution.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareEd25519YaoPairExecuteResponseV1 {
+    pub deriver_a_execution: Ed25519YaoRoleExecutionV1,
+    pub deriver_b_sealed_execution_json: String,
 }
 
 /// Pair start confirmation sent after Deriver B accepted the exact execution.
@@ -34,52 +44,12 @@ pub struct CloudflareEd25519YaoPairStartRequestV1 {
     pub acceptance: Ed25519YaoRoleStartAcceptanceV1,
 }
 
-/// Exact pair lookup sent to a role status or completed-result route.
+/// Exact pair lookup sent to a role status or burn route.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CloudflareEd25519YaoReadCompletedPairRequestV1 {
+pub struct CloudflareEd25519YaoPairLookupRequestV1 {
     pub session: [u8; 32],
     pub pair_digest: [u8; 32],
-}
-
-/// The B role's completed-result read is an explicit acknowledgement that its
-/// pair state committed the exact role execution before the Router consumes it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
-pub enum CloudflareEd25519YaoPairCompletionAcknowledgementV1 {
-    Completed {
-        session: [u8; 32],
-        pair_digest: [u8; 32],
-        execution: Box<Ed25519YaoRoleExecutionV1>,
-    },
-}
-
-impl CloudflareEd25519YaoPairCompletionAcknowledgementV1 {
-    /// Validates and returns the exact completed execution requested by the Router.
-    pub fn validate_for_request(
-        &self,
-        request: &CloudflareEd25519YaoReadCompletedPairRequestV1,
-    ) -> RouterAbProtocolResult<Ed25519YaoRoleExecutionV1> {
-        let Self::Completed {
-            session,
-            pair_digest,
-            execution,
-        } = self;
-        if *session != request.session || *pair_digest != request.pair_digest {
-            return Err(pair_protocol_error(
-                "Deriver B completion acknowledgement identity is invalid",
-            ));
-        }
-        execution.validate()?;
-        if execution.deriver() != Ed25519YaoDeriverRoleV1::DeriverB
-            || execution.session() != request.session
-        {
-            return Err(pair_protocol_error(
-                "Deriver B completion acknowledgement execution is invalid",
-            ));
-        }
-        Ok((**execution).clone())
-    }
 }
 
 /// Sanitized role-local state returned only to the MPC Router for exact replay.
@@ -167,8 +137,4 @@ impl CloudflareEd25519YaoRoleFailureResponseV1 {
             code: RouterEd25519YaoExecuteFailureCodeV1::TerminalRoleFailure,
         }
     }
-}
-
-fn pair_protocol_error(message: &'static str) -> RouterAbProtocolError {
-    RouterAbProtocolError::new(RouterAbProtocolErrorCode::InvalidLifecycleState, message)
 }

@@ -40,6 +40,7 @@ import type {
   WalletSigningBudgetReservation,
   WalletSigningBudgetSessionRecord,
   WalletSigningBudgetSessionStore,
+  EcdsaNormalSigningSessionProvisioner,
   EcdsaWalletSessionRecord,
   EcdsaWalletSessionStore,
   Ed25519WalletSessionRecord,
@@ -49,6 +50,7 @@ import type {
   WalletSessionStore,
   WalletSessionStatusLookupResult,
 } from './WalletSessionStore';
+import { walletSigningBudgetSessionId } from '../walletSigningBudget';
 import type {
   ThresholdEcdsaIntegratedKeyStore,
   ThresholdEd25519ReadyKeyRecord,
@@ -157,6 +159,15 @@ type DoAuthReserveReplayGuardRequest = {
   key: string;
   expiresAtMs: number;
 };
+type DoEcdsaNormalSigningSessionProvisionRequest = {
+  op: 'ecdsaNormalSigningSessionProvision';
+  sessionKey: string;
+  budgetKey: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  session: EcdsaWalletSessionRecord;
+  remainingUses: number;
+};
 type DoRouterAbEcdsaDerivationPoolFillSessionCreateRequest = {
   op: 'routerAbEcdsaDerivationPoolFillSessionCreate';
   key: string;
@@ -201,11 +212,12 @@ type DoRequest =
   | DoAuthReleaseReservedBudgetUseCountRequest
   | DoAuthReleaseReservedBudgetUseCountForIdentityRequest
   | DoAuthReserveReplayGuardRequest
+  | DoEcdsaNormalSigningSessionProvisionRequest
   | DoRouterAbEcdsaDerivationPoolFillSessionCreateRequest
   | DoRouterAbEcdsaDerivationPoolFillSessionAdvanceCasRequest
   | DoRouterAbEcdsaDerivationPoolFillLiveSessionCreateRequest
   | DoRouterAbEcdsaDerivationPoolFillLiveSessionStepRequest
-  | DoRouterAbEcdsaDerivationPoolFillLiveSessionDeleteRequest
+  | DoRouterAbEcdsaDerivationPoolFillLiveSessionDeleteRequest;
 
 type DoAuthEntry<TRecord extends WalletSessionRecord> = {
   record: TRecord;
@@ -498,14 +510,17 @@ export class CloudflareDurableObjectWalletSessionStore<
       return { ok: false, code: 'wallet_session_unavailable' };
     }
     if (expiresAtMs <= Date.now()) return { ok: false, code: 'wallet_session_expired' };
-    return { ok: true, status: {
-      record,
-      expiresAtMs,
-      committedRemainingUses,
-      reservedUses: activeReservedUses,
-      availableUses: activeAvailableUses,
-      remainingUses: activeAvailableUses,
-    } };
+    return {
+      ok: true,
+      status: {
+        record,
+        expiresAtMs,
+        committedRemainingUses,
+        reservedUses: activeReservedUses,
+        availableUses: activeAvailableUses,
+        remainingUses: activeAvailableUses,
+      },
+    };
   }
 
   async consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult> {
@@ -651,6 +666,46 @@ export class CloudflareDurableObjectWalletSessionStore<
   }
 }
 
+class CloudflareDurableObjectEcdsaNormalSigningSessionProvisioner implements EcdsaNormalSigningSessionProvisioner {
+  private readonly stub: DurableObjectStubLike;
+  private readonly sessionKeyPrefix: string;
+  private readonly budgetKeyPrefix: string;
+
+  constructor(input: {
+    namespace: CloudflareDurableObjectNamespaceLike;
+    objectName: string;
+    sessionKeyPrefix: string;
+    budgetKeyPrefix: string;
+  }) {
+    this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
+    this.sessionKeyPrefix = input.sessionKeyPrefix;
+    this.budgetKeyPrefix = input.budgetKeyPrefix;
+  }
+
+  async provisionSessionWithBudget(input: {
+    readonly thresholdSessionId: string;
+    readonly signingGrantId: string;
+    readonly session: EcdsaWalletSessionRecord;
+    readonly remainingUses: number;
+  }): Promise<
+    | { readonly ok: true; readonly expiresAtMs: number; readonly remainingUses: number }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    const response = await callDo<{ expiresAtMs: number; remainingUses: number }>(this.stub, {
+      op: 'ecdsaNormalSigningSessionProvision',
+      sessionKey: `${this.sessionKeyPrefix}${input.thresholdSessionId}`,
+      budgetKey: `${this.budgetKeyPrefix}${walletSigningBudgetSessionId({
+        signingGrantId: input.signingGrantId,
+      })}`,
+      thresholdSessionId: input.thresholdSessionId,
+      signingGrantId: input.signingGrantId,
+      session: input.session,
+      remainingUses: input.remainingUses,
+    });
+    return response.ok ? { ok: true, ...response.value } : response;
+  }
+}
+
 type CloudflareDoMpcSessionRecordParser<TRecord extends ThresholdMpcSessionRecord> = (
   raw: unknown,
 ) => TRecord | null;
@@ -684,7 +739,6 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore<
   private coordKey(id: string): string {
     return `${this.coordinatorPrefix}${id}`;
   }
-
 
   async putMpcSession(id: string, record: TMpcRecord, ttlMs: number): Promise<void> {
     const resp = await callDo<void>(this.stub, {
@@ -774,7 +828,6 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore<
     if (!resp.ok) return null;
     return parseThresholdEd25519CoordinatorSigningSessionRecord(resp.value);
   }
-
 }
 
 export class CloudflareDurableObjectThresholdEd25519KeyStore implements ThresholdEd25519KeyStore {
@@ -834,7 +887,9 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
     return `${this.keyPrefix}${keyHandle}`;
   }
 
-  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaDerivationRoleLocalKeyRecord | null> {
+  async getRoleLocalByKeyHandle(
+    keyHandle: string,
+  ): Promise<EcdsaDerivationRoleLocalKeyRecord | null> {
     const handle = toOptionalTrimmedString(keyHandle);
     if (!handle) return null;
     const directResp = await callDo<unknown | null>(this.stub, {
@@ -1035,16 +1090,11 @@ export class CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillSessionStore 
   }
 }
 
-export class CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOwner
-  implements RouterAbEcdsaDerivationPoolFillLiveSessionOwner
-{
+export class CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOwner implements RouterAbEcdsaDerivationPoolFillLiveSessionOwner {
   private readonly namespace: CloudflareDurableObjectNamespaceLike;
   private readonly objectNamePrefix: string;
 
-  constructor(input: {
-    namespace: CloudflareDurableObjectNamespaceLike;
-    objectName: string;
-  }) {
+  constructor(input: { namespace: CloudflareDurableObjectNamespaceLike; objectName: string }) {
     this.namespace = input.namespace;
     this.objectNamePrefix = input.objectName;
   }
@@ -1086,7 +1136,9 @@ export class CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOw
 
   async stepSession(
     input: RouterAbEcdsaDerivationPoolFillLiveSessionStepInput,
-  ): Promise<RouterAbEcdsaDerivationPoolFillParseResult<RouterAbEcdsaDerivationPoolFillPreparedStep>> {
+  ): Promise<
+    RouterAbEcdsaDerivationPoolFillParseResult<RouterAbEcdsaDerivationPoolFillPreparedStep>
+  > {
     const parsedRecord = parseRouterAbEcdsaDerivationPoolFillSessionRecord(input.record);
     if (!parsedRecord) {
       return {
@@ -1217,6 +1269,7 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   keyStore: ThresholdEcdsaIntegratedKeyStore;
   sessionStore: ThresholdEcdsaSessionStore;
   walletSessionStore: EcdsaWalletSessionStore;
+  normalSigningProvisioner: EcdsaNormalSigningSessionProvisioner;
   poolFillSessionStore: RouterAbEcdsaDerivationPoolFillSessionStore;
   poolFillLiveSessionOwner: RouterAbEcdsaDerivationPoolFillLiveSessionOwner;
 } | null {
@@ -1231,12 +1284,14 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
     );
   }
 
-  const objectName =
+  const configuredObjectName =
     toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
-    toOptionalTrimmedString((config as { name?: unknown }).name) ||
-    'threshold-ecdsa-store';
+    toOptionalTrimmedString((config as { name?: unknown }).name);
+  const ecdsaObjectName = configuredObjectName || 'threshold-ecdsa-store';
+  const walletSessionObjectName = configuredObjectName || THRESHOLD_DO_OBJECT_NAME_DEFAULT;
 
   const walletSessionPrefix = computeWalletSessionPrefixEcdsa(config);
+  const walletBudgetSessionPrefix = computeWalletSigningBudgetSessionPrefix(config);
   const sessionPrefix = computeSessionPrefixEcdsa(config);
   const keyPrefix = computeKeyPrefixEcdsa(config);
   const presignPrefix = computePresignPrefixEcdsa(config);
@@ -1248,30 +1303,37 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   return {
     keyStore: new CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore({
       namespace,
-      objectName,
+      objectName: ecdsaObjectName,
       keyPrefix,
     }),
     sessionStore:
       new CloudflareDurableObjectThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
         namespace,
-        objectName,
+        objectName: ecdsaObjectName,
         keyPrefix: sessionPrefix,
         parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
       }),
     walletSessionStore: new CloudflareDurableObjectWalletSessionStore<EcdsaWalletSessionRecord>({
       namespace,
-      objectName,
+      objectName: walletSessionObjectName,
       keyPrefix: walletSessionPrefix,
       parseRecord: parseEcdsaWalletSessionRecord,
     }),
+    normalSigningProvisioner: new CloudflareDurableObjectEcdsaNormalSigningSessionProvisioner({
+      namespace,
+      objectName: walletSessionObjectName,
+      sessionKeyPrefix: walletSessionPrefix,
+      budgetKeyPrefix: walletBudgetSessionPrefix,
+    }),
     poolFillSessionStore: new CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillSessionStore({
       namespace,
-      objectName,
+      objectName: ecdsaObjectName,
       keyPrefix: presignPrefix,
     }),
-    poolFillLiveSessionOwner: new CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOwner({
-      namespace,
-      objectName,
-    }),
+    poolFillLiveSessionOwner:
+      new CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOwner({
+        namespace,
+        objectName: ecdsaObjectName,
+      }),
   };
 }

@@ -32,7 +32,11 @@ const WALLET_CORE_CLOUDFLARE_ENVIRONMENT_SUFFIXES = Object.freeze([
 const GATEWAY_SECRET_INPUTS = Object.freeze([
   ['SPONSORED_EVM_EXECUTORS_JSON', 'SPONSORED_EVM_EXECUTORS_JSON'],
   ['STRIPE_API_SK', 'STRIPE_API_SK'],
+  ['STRIPE_WEBHOOK_SECRET', 'STRIPE_WEBHOOK_SECRET'],
+  ['RESEND_API_KEY', 'RESEND_API_KEY'],
+  ['CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U', 'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U'],
 ]);
+const GATEWAY_VARIABLE_INPUTS = Object.freeze([['CONSOLE_EMAIL_FROM', 'CONSOLE_EMAIL_FROM']]);
 const NEAR_PUBLIC_CONFIG_BY_NETWORK = Object.freeze({
   testnet: Object.freeze({
     rpcUrl: 'https://test.rpc.fastnear.com',
@@ -148,6 +152,14 @@ function validateExternalValues(values, component) {
   if (stripeSecretKey) {
     requireStripeSecretKey(stripeSecretKey);
   }
+  const resendApiKey = readValue(values, 'RESEND_API_KEY');
+  if (resendApiKey && !resendApiKey.startsWith('re_')) {
+    throw new Error('RESEND_API_KEY must start with re_');
+  }
+  const invitationSecretKey = readValue(values, 'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U');
+  if (invitationSecretKey) {
+    requireConsoleEmailInvitationSecretKey(invitationSecretKey);
+  }
 }
 
 function validatePair(values, leftName, rightName, label) {
@@ -167,6 +179,13 @@ function requireStripeSecretKey(value) {
   return value;
 }
 
+function requireConsoleEmailInvitationSecretKey(value) {
+  if (!/^[A-Za-z0-9_-]+$/.test(value) || Buffer.from(value, 'base64url').byteLength !== 32) {
+    throw new Error('CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U must encode exactly 32 bytes');
+  }
+  return value;
+}
+
 function buildBasePlan(options, repository, values) {
   const plan = {
     target: options.target,
@@ -182,6 +201,12 @@ function buildBasePlan(options, repository, values) {
     appendMappedUpdates(plan.secrets, options.target, values, CLOUDFLARE_SECRET_INPUTS);
   } else {
     appendWalletCoreCloudflareDeploymentUpdates(plan, options.target, values);
+    appendMappedUpdates(
+      plan.variables,
+      `${options.target}-gateway`,
+      values,
+      GATEWAY_VARIABLE_INPUTS,
+    );
     appendMappedUpdates(plan.secrets, `${options.target}-gateway`, values, GATEWAY_SECRET_INPUTS);
   }
   return plan;

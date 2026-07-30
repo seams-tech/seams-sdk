@@ -2,22 +2,12 @@ import type {
   ThresholdEcdsaSessionClaims,
   ThresholdEd25519SessionClaims,
 } from '../core/ThresholdService/validation';
-import type { ConsoleAuthClaims, ConsoleRole } from './consoleAuth';
 import type { RouterApiKeyPrincipal, SessionClaims } from './routerApi';
 import { ROUTER_API_CREDENTIAL_SCOPES } from './apiCredentialPorts';
 
-export type RouteAuthPlane =
-  | 'console'
-  | 'api_credentials'
-  | 'user_session'
-  | 'threshold_session'
-  | 'public';
+export type RouteAuthPlane = 'api_credentials' | 'user_session' | 'threshold_session' | 'public';
 
-export const API_CREDENTIAL_TYPES = [
-  'publishable_key',
-  'secret_key',
-  'bootstrap_token',
-] as const;
+export const API_CREDENTIAL_TYPES = ['publishable_key', 'secret_key'] as const;
 export type ApiCredentialType = (typeof API_CREDENTIAL_TYPES)[number];
 
 export const API_CREDENTIAL_ROUTE_SCOPES = ROUTER_API_CREDENTIAL_SCOPES;
@@ -35,14 +25,8 @@ export type PublicProofType = (typeof PUBLIC_PROOF_TYPES)[number];
 
 export const THRESHOLD_SESSION_SCHEMES = ['any', 'ecdsa', 'ed25519'] as const;
 export type ThresholdSessionScheme = (typeof THRESHOLD_SESSION_SCHEMES)[number];
-export type ConsoleRouteRole = ConsoleRole;
 
 export type RouteAuthPolicy =
-  | {
-      plane: 'console';
-      roles?: ConsoleRouteRole[];
-      forbiddenMessage?: string;
-    }
   | {
       plane: 'api_credentials';
       credentials: ApiCredentialType[];
@@ -65,10 +49,6 @@ export type RouteAuthPolicy =
     };
 
 export type RoutePrincipal =
-  | {
-      kind: 'console';
-      claims: ConsoleAuthClaims;
-    }
   | {
       kind: 'api_credentials';
       principal: RouterApiKeyPrincipal;

@@ -1,9 +1,16 @@
 import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
 import type { RouterApiOptions } from '../routerApi';
+import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
 
 const CORS_ALLOW_METHODS = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';
-const CORS_ALLOW_HEADERS =
-  'Content-Type,Authorization,X-Seams-Benchmark-Diagnostics,X-Seams-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret';
+const CORS_ALLOW_HEADERS = [
+  'Content-Type',
+  'Authorization',
+  'X-Seams-Benchmark-Diagnostics',
+  ROUTER_AB_TRACE_ID_HEADER_V1,
+  'X-Seams-Environment-Id',
+  'X-Environment-Id',
+].join(',');
 
 export function json(
   body: unknown,
@@ -59,6 +66,9 @@ export function withCors(headers: Headers, opts?: RouterApiOptions, request?: Re
   }
   headers.set('Access-Control-Allow-Methods', CORS_ALLOW_METHODS);
   headers.set('Access-Control-Allow-Headers', CORS_ALLOW_HEADERS);
+  if (headers.has('Server-Timing')) {
+    headers.set('Access-Control-Expose-Headers', 'Server-Timing');
+  }
   // Only advertise credentials when we echo back a specific origin (not '*')
   if (allowedOrigin && allowedOrigin !== '*') {
     headers.set('Access-Control-Allow-Credentials', 'true');

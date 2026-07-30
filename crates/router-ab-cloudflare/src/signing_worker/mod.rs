@@ -12,6 +12,11 @@ use signer_core::near_threshold_ed25519::{
     verifying_share_from_b64u,
 };
 
+#[cfg(feature = "workers-rs")]
+mod private_d1;
+#[cfg(feature = "workers-rs")]
+pub use private_d1::*;
+
 /// Platform-neutral signer logic behind the Cloudflare transport wrapper.
 pub trait CloudflareSignerWireHandlerV1 {
     /// Handles one validated Router-to-signer wire message.
@@ -55,6 +60,208 @@ pub trait CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandler
         &self,
         request: CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1,
     ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvmDigestSigningResponseV1>;
+}
+
+/// Private SigningWorker endpoint for Wallet Session budget authority operations.
+pub const CLOUDFLARE_SIGNING_WORKER_WALLET_BUDGET_PATH_V1: &str =
+    "/router-ab/signing-worker/wallet-budget";
+
+/// SigningWorker-private Wallet Session budget operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareSigningWorkerWalletBudgetRequestV1 {
+    PutGrant {
+        request: CloudflareRouterWalletBudgetPutGrantRequestV1,
+    },
+    Reserve {
+        request: CloudflareRouterWalletBudgetReserveRequestV1,
+    },
+    Validate {
+        identity: CloudflareRouterWalletBudgetReservationIdentityV1,
+    },
+    Commit {
+        identity: CloudflareRouterWalletBudgetReservationIdentityV1,
+    },
+    Release {
+        request: CloudflareRouterWalletBudgetReleaseRequestV1,
+    },
+    Status {
+        request: CloudflareRouterWalletBudgetStatusRequestV1,
+    },
+}
+
+impl CloudflareSigningWorkerWalletBudgetRequestV1 {
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        match self {
+            Self::PutGrant { request } => request.validate(),
+            Self::Reserve { request } => request.validate(),
+            Self::Validate { identity } | Self::Commit { identity } => identity.validate(),
+            Self::Release { request } => request.validate(),
+            Self::Status { request } => request.validate(),
+        }
+    }
+
+    pub fn signing_grant_id(&self) -> &str {
+        match self {
+            Self::PutGrant { request } => &request.signing_grant_id,
+            Self::Reserve { request } => &request.signing_grant_id,
+            Self::Validate { identity } | Self::Commit { identity } => &identity.signing_grant_id,
+            Self::Release { request } => &request.signing_grant_id,
+            Self::Status { request } => &request.signing_grant_id,
+        }
+    }
+}
+
+fn cloudflare_signing_worker_wallet_budget_digest_hex_v1(digest: PublicDigest32) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(64);
+    for byte in digest.as_bytes() {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    encoded
+}
+
+pub(crate) fn cloudflare_signing_worker_wallet_budget_operation_key_v1(
+    signing_worker_id: &str,
+    operation_id: &str,
+    request_digest: PublicDigest32,
+) -> String {
+    format!(
+        "{}/{}/{}",
+        signing_worker_id,
+        operation_id,
+        cloudflare_signing_worker_wallet_budget_digest_hex_v1(request_digest)
+    )
+}
+
+pub(crate) fn cloudflare_signing_worker_wallet_budget_reservation_id_unchecked_v1(
+    request: &CloudflareRouterWalletBudgetReserveRequestV1,
+) -> String {
+    format!(
+        "wbudg-res/{}",
+        cloudflare_signing_worker_wallet_budget_operation_key_v1(
+            &request.signing_worker_id,
+            &request.operation_id,
+            request.request_digest,
+        )
+    )
+}
+
+/// Derives the stable reservation identity used by prepare and finalize.
+pub fn cloudflare_signing_worker_wallet_budget_reservation_id_v1(
+    request: &CloudflareRouterWalletBudgetReserveRequestV1,
+) -> RouterAbProtocolResult<String> {
+    request.validate()?;
+    Ok(cloudflare_signing_worker_wallet_budget_reservation_id_unchecked_v1(request))
+}
+
+/// Result of one SigningWorker-private Wallet Session budget operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareSigningWorkerWalletBudgetResponseV1 {
+    GrantPut {
+        status: CloudflareRouterWalletBudgetStatusV1,
+    },
+    Reserved {
+        reservation_id: String,
+        status: CloudflareRouterWalletBudgetStatusV1,
+    },
+    Validated {
+        reservation_id: String,
+        status: CloudflareRouterWalletBudgetStatusV1,
+    },
+    Committed {
+        reservation_id: String,
+        status: CloudflareRouterWalletBudgetStatusV1,
+    },
+    Released {
+        reservation_id: String,
+        status: CloudflareRouterWalletBudgetStatusV1,
+    },
+    Status {
+        status: CloudflareRouterWalletBudgetStatusV1,
+    },
+}
+
+impl CloudflareSigningWorkerWalletBudgetResponseV1 {
+    pub fn validate_for_request(
+        &self,
+        request: &CloudflareSigningWorkerWalletBudgetRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        let (response_grant_id, response_reservation_id) = match self {
+            Self::GrantPut { status } | Self::Status { status } => {
+                status.validate()?;
+                (&status.signing_grant_id, None)
+            }
+            Self::Reserved {
+                reservation_id,
+                status,
+            }
+            | Self::Validated {
+                reservation_id,
+                status,
+            }
+            | Self::Committed {
+                reservation_id,
+                status,
+            }
+            | Self::Released {
+                reservation_id,
+                status,
+            } => {
+                require_non_empty("wallet budget reservation_id", reservation_id)?;
+                status.validate()?;
+                (&status.signing_grant_id, Some(reservation_id.as_str()))
+            }
+        };
+        if response_grant_id != request.signing_grant_id() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "SigningWorker wallet-budget response grant does not match request",
+            ));
+        }
+        match (request, self, response_reservation_id) {
+            (
+                CloudflareSigningWorkerWalletBudgetRequestV1::PutGrant { .. },
+                Self::GrantPut { .. },
+                None,
+            )
+            | (
+                CloudflareSigningWorkerWalletBudgetRequestV1::Status { .. },
+                Self::Status { .. },
+                None,
+            ) => Ok(()),
+            (
+                CloudflareSigningWorkerWalletBudgetRequestV1::Reserve { request },
+                Self::Reserved { reservation_id, .. },
+                Some(_),
+            ) if reservation_id
+                == &cloudflare_signing_worker_wallet_budget_reservation_id_v1(request)? =>
+            {
+                Ok(())
+            }
+            (
+                CloudflareSigningWorkerWalletBudgetRequestV1::Validate { identity },
+                Self::Validated { reservation_id, .. },
+                Some(_),
+            ) if reservation_id == &identity.reservation_id => Ok(()),
+            (
+                CloudflareSigningWorkerWalletBudgetRequestV1::Commit { identity },
+                Self::Committed { reservation_id, .. },
+                Some(_),
+            ) if reservation_id == &identity.reservation_id => Ok(()),
+            (
+                CloudflareSigningWorkerWalletBudgetRequestV1::Release { request },
+                Self::Released { reservation_id, .. },
+                Some(_),
+            ) if reservation_id == &request.reservation_id => Ok(()),
+            _ => Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "SigningWorker wallet-budget response branch does not match request",
+            )),
+        }
+    }
 }
 
 /// Client-requested phase for one SigningWorker-owned ECDSA presign session.
@@ -753,7 +960,7 @@ where
 pub struct CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1 {
     /// Public response returned to the client through Router.
     pub response: RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
-    /// Private presignature record persisted by the SigningWorker Durable Object.
+    /// Private presignature record persisted by SigningWorker-private D1.
     pub record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
 }
 
@@ -810,7 +1017,7 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1 {
 pub struct CloudflareSigningWorkerNormalSigningRound1PreparedV1 {
     /// Public response returned to the client through Router.
     pub response: NormalSigningRound1PrepareResponseV1,
-    /// Private nonce record persisted by the SigningWorker Durable Object.
+    /// Private nonce record persisted by SigningWorker-private D1.
     pub record: CloudflareSigningWorkerRound1RecordV1,
 }
 

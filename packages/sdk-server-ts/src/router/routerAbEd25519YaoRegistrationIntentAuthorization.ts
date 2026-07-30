@@ -21,7 +21,9 @@ import type {
 } from './routerAbEd25519YaoRegistration';
 
 const SHA256_BYTES = 32;
-const STRICT_BEARER_VALUE = /^Bearer ([A-Za-z0-9._~-]{1,1024})$/;
+// Signed setup JWTs carry the setup policy snapshot and remain bounded at the request edge.
+const STRICT_BEARER_VALUE = /^Bearer ([A-Za-z0-9._~-]{1,8192})$/;
+const VERIFIED_INTENT_CREDENTIAL = /^[A-Za-z0-9._~-]{1,8192}$/;
 const UTF8 = new TextEncoder();
 
 type RouterAbEd25519YaoRegistrationBindingV1 =
@@ -85,13 +87,29 @@ export type RouterAbEd25519YaoRegistrationIntentBindingResult =
 
 type BearerExtractionResult =
   | { readonly ok: true; readonly credential: string }
-  | { readonly ok: false; readonly result: RouterAbEd25519YaoRegistrationAuthorizationResult };
+  | {
+      readonly ok: false;
+      readonly result: Extract<
+        RouterAbEd25519YaoRegistrationAuthorizationResult,
+        { readonly ok: false }
+      >;
+    };
+
+export type RouterAbEd25519YaoBearerCredentialDigestResultV1 =
+  | { readonly ok: true; readonly digestSha256Hex: string }
+  | {
+      readonly ok: false;
+      readonly result: Extract<
+        RouterAbEd25519YaoRegistrationAuthorizationResult,
+        { readonly ok: false }
+      >;
+    };
 
 function authorizationFailure(input: {
   status: 401 | 403 | 409;
   code: string;
   message: string;
-}): RouterAbEd25519YaoRegistrationAuthorizationResult {
+}): Extract<RouterAbEd25519YaoRegistrationAuthorizationResult, { readonly ok: false }> {
   return {
     ok: false,
     status: input.status,
@@ -134,6 +152,29 @@ async function credentialDigestSha256(credential: string): Promise<Uint8Array> {
   } finally {
     encoded.fill(0);
   }
+}
+
+export async function routerAbEd25519YaoBearerCredentialDigestV1(
+  request: Request,
+): Promise<RouterAbEd25519YaoBearerCredentialDigestResultV1> {
+  const bearer = extractStrictBearerCredential(request);
+  if (!bearer.ok) return bearer;
+  const digest = await credentialDigestSha256(bearer.credential);
+  try {
+    return { ok: true, digestSha256Hex: bytesToHex(digest) };
+  } finally {
+    digest.fill(0);
+  }
+}
+
+export function routerAbEd25519YaoCredentialDigestHexV1(digest: Uint8Array): string {
+  return bytesToHex(digest);
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  let encoded = '';
+  for (const byte of bytes) encoded += byte.toString(16).padStart(2, '0');
+  return encoded;
 }
 
 function credentialDigestsEqual(left: Uint8Array, right: Uint8Array): boolean {
@@ -212,10 +253,7 @@ async function addSignerIntentMatchesAdmission(
   const selection = input.intent.signerSelection.ed25519;
   const admission = input.admissionRequest;
   const runtimePolicyScope = input.intent.runtimePolicyScope;
-  if (
-    !runtimePolicyScope?.signingRootVersion ||
-    selection.participantIds.length !== 2
-  ) {
+  if (!runtimePolicyScope?.signingRootVersion || selection.participantIds.length !== 2) {
     return false;
   }
   const signingRootId = deriveSigningRootId(runtimePolicyScope);
@@ -241,8 +279,7 @@ async function addSignerIntentMatchesAdmission(
       admission.scope.signer_set_id &&
     runtimePolicyScope.signingRootVersion === admission.scope.root_share_epoch &&
     signingRootId === admission.application_binding.signing_root_id &&
-    String(nearEd25519SigningKeyId) ===
-      admission.application_binding.near_ed25519_signing_key_id
+    String(nearEd25519SigningKeyId) === admission.application_binding.near_ed25519_signing_key_id
   );
 }
 
@@ -356,8 +393,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter im
   private readonly authorities: IntentAuthority[];
 
   constructor(
-    state: InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationStateV1 =
-      new InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationStateV1(),
+    state: InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationStateV1 = new InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationStateV1(),
   ) {
     this.authorities = state.authorities;
   }
@@ -366,7 +402,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter im
     verified: RouterAbEd25519YaoVerifiedActivationIntentV1,
   ): Promise<RouterAbEd25519YaoRegistrationIntentBindingResult> {
     const credential = activationIntentCredential(verified);
-    if (!STRICT_BEARER_VALUE.test(`Bearer ${credential}`)) {
+    if (!VERIFIED_INTENT_CREDENTIAL.test(credential)) {
       return {
         ok: false,
         code: 'invalid_registration_intent',

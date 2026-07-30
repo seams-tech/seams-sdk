@@ -1,9 +1,9 @@
-import { base64UrlDecode, base64UrlEncode } from '@seams-internal/shared-ts/utils/encoders';
+import { base64UrlDecode, base64UrlEncode } from '@seams/sdk-server/cloud-host';
 import {
   normalizeConsoleWebhookEventCategory,
   type ConsoleWebhookEventCategory,
 } from '@seams-internal/console-shared/webhookEventCategories';
-import type { NormalizedLogger } from '@seams/sdk-server/internal/core/logger';
+import type { NormalizedLogger } from '@seams/sdk-server/cloud-host';
 import {
   d1Integer as toNumber,
   d1ChangedRows,
@@ -11,8 +11,8 @@ import {
   queryD1All as queryRows,
   queryD1One as queryFirstRow,
   type D1Row,
-} from '@seams/sdk-server/internal/storage/d1Sql';
-import type { D1DatabaseLike } from '@seams/sdk-server/internal/storage/tenantRoute';
+} from '@seams/sdk-server/cloud-host';
+import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
 import { ConsoleWebhookError } from './errors';
 import {
   appendConsoleWebhookObservabilitySignals,
@@ -329,6 +329,10 @@ export const CONSOLE_WEBHOOKS_D1_SCHEMA_SQL = Object.freeze([
   `
     CREATE INDEX IF NOT EXISTS webhook_deliveries_event_idx
       ON webhook_deliveries (namespace, org_id, event_id)
+  `,
+  `
+    CREATE UNIQUE INDEX IF NOT EXISTS webhook_deliveries_event_endpoint_uidx
+      ON webhook_deliveries (namespace, org_id, endpoint_id, event_id)
   `,
   `
     CREATE INDEX IF NOT EXISTS webhook_deliveries_retry_claim_idx
@@ -1500,7 +1504,6 @@ export async function runD1ConsoleWebhookRetryDispatch(
           {
             orgId,
             actorUserId: 'system-webhook-retry-dispatch',
-            roles: ['ops'],
           },
           signals,
         );
@@ -2081,9 +2084,9 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
         createdAtMs,
         payload: { ...request.payload },
       };
-      await this.state.database
+      const insertResult = await this.state.database
         .prepare(
-          `INSERT INTO webhook_deliveries
+          `INSERT OR IGNORE INTO webhook_deliveries
             (namespace, org_id, id, endpoint_id, event_id, event_type, status,
              attempt_count, replay_count, response_status, response_body, error_message,
              payload_json, delivered_at_ms, last_attempt_at_ms, created_at_ms, updated_at_ms)
@@ -2102,6 +2105,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
           createdAtMs,
         )
         .run();
+      if (d1ChangedRows(insertResult) === 0) continue;
       const attemptNow = this.state.now();
       const attemptResult = await dispatchDelivery({
         endpoint,

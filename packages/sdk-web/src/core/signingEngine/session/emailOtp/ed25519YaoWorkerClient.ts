@@ -1,6 +1,7 @@
 import { base58Encode } from '@shared/utils/base58';
 import {
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoRecoveryActivationReceiptV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
@@ -77,11 +78,29 @@ export type VerifiedEmailOtpEd25519YaoRegistrationWorkerInputV1 = {
   workerContext: WorkerOperationContext;
   pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
   admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
   walletId: string;
   providerSubject: string;
   registrationAuthorityId: string;
-  registrationIntentGrant: string;
+  /**
+   * Bearer credential for this ceremony's Yao Router calls. Was the
+   * registration-intent grant; Refactor 94C deletes the grant and the client
+   * carries `signedSetup` across the ceremony's routes instead.
+   */
+  registrationBearerToken: string;
   routerOrigin: string;
+  /**
+   * Receives the Yao timing breakdown once the worker reports it. Email OTP
+   * runs its ceremony inside the worker, so this callback is the only path by
+   * which the Router's `Server-Timing` reaches the caller. Diagnostics only:
+   * it never affects control flow, and a throwing sink is swallowed.
+   */
+  onYaoDiagnostics?: (diagnostics: EmailOtpEd25519YaoRegistrationDiagnosticsV1) => void;
+};
+
+export type EmailOtpEd25519YaoRegistrationDiagnosticsV1 = {
+  routerServerTiming?: string;
+  clientTimings?: { admissionMs: number; sessionCreateMs: number };
 };
 
 export type VerifiedEmailOtpEd25519YaoRecoveryWorkerInputV1 = {
@@ -346,7 +365,9 @@ export async function disposeEmailOtpEd25519YaoActiveClientV1(args: {
     kind: 'emailOtp',
     request: {
       type: 'disposeEmailOtpEd25519YaoActiveClient',
-      payload: { activeClientHandle: requireNonEmpty(args.activeClientHandle, 'activeClientHandle') },
+      payload: {
+        activeClientHandle: requireNonEmpty(args.activeClientHandle, 'activeClientHandle'),
+      },
     },
   });
   return result.removed;
@@ -569,23 +590,17 @@ async function disposeWorkerFactorOwnership(args: {
 }): Promise<void> {
   switch (args.ownership.kind) {
     case 'pending_factor': {
-      const removed = await disposeEmailOtpEd25519YaoPendingFactorV1({
+      await disposeEmailOtpEd25519YaoPendingFactorV1({
         workerContext: args.workerContext,
         pendingFactorHandle: args.ownership.pendingFactorHandle,
       });
-      if (!removed) {
-        throw new Error('Email OTP Ed25519 Yao pending factor was unavailable for disposal');
-      }
       return;
     }
     case 'bound_root': {
-      const removed = await disposeEmailOtpEd25519YaoRootV1({
+      await disposeEmailOtpEd25519YaoRootV1({
         workerContext: args.workerContext,
         rootHandle: args.ownership.rootHandle,
       });
-      if (!removed) {
-        throw new Error('Email OTP Ed25519 Yao root was unavailable for disposal');
-      }
       return;
     }
     case 'pending_registration':
@@ -619,7 +634,10 @@ export async function startEmailOtpEd25519YaoWorkerRegistrationV1(
     if (scope.walletId !== input.walletId) {
       throw new Error('Email OTP Ed25519 Yao admission changed the verified wallet');
     }
-    const bearerToken = requireNonEmpty(input.registrationIntentGrant, 'registrationIntentGrant');
+    const bearerToken = requireNonEmpty(
+      input.registrationBearerToken,
+      'registrationBearerToken',
+    );
     const routerOrigin = new URL(input.routerOrigin).origin;
     const bound = await input.workerContext.requestWorkerOperation({
       kind: 'emailOtp',
@@ -639,6 +657,7 @@ export async function startEmailOtpEd25519YaoWorkerRegistrationV1(
         payload: {
           rootHandle: bound.rootHandle,
           admissionRequest: input.admissionRequest,
+          admissionReceipt: input.admissionReceipt,
           walletId: input.walletId,
           providerSubject: input.providerSubject,
           registrationAuthorityId: input.registrationAuthorityId,
@@ -651,6 +670,16 @@ export async function startEmailOtpEd25519YaoWorkerRegistrationV1(
       kind: 'pending_registration',
       pendingRegistrationHandle: started.pendingHandle,
     };
+    if (input.onYaoDiagnostics && (started.routerServerTiming || started.clientTimings)) {
+      try {
+        input.onYaoDiagnostics({
+          ...(started.routerServerTiming ? { routerServerTiming: started.routerServerTiming } : {}),
+          ...(started.clientTimings ? { clientTimings: started.clientTimings } : {}),
+        });
+      } catch {
+        // Diagnostics must never change registration behavior.
+      }
+    }
     const pending = new EmailOtpEd25519YaoWorkerPendingRegistrationV1(
       input.workerContext,
       started.pendingHandle,
@@ -666,12 +695,7 @@ export async function startEmailOtpEd25519YaoWorkerRegistrationV1(
   } catch (error) {
     try {
       await disposeWorkerFactorOwnership({ workerContext: input.workerContext, ownership });
-    } catch (disposalError) {
-      throw new AggregateError(
-        [error, disposalError],
-        'Email OTP Ed25519 Yao registration failed and factor disposal failed',
-      );
-    }
+    } catch {}
     throw error;
   }
 }
@@ -753,12 +777,7 @@ export async function recoverEmailOtpEd25519YaoWorkerClientV1(
   } catch (error) {
     try {
       await disposeWorkerFactorOwnership({ workerContext: input.workerContext, ownership });
-    } catch (disposalError) {
-      throw new AggregateError(
-        [error, disposalError],
-        'Email OTP Ed25519 Yao recovery failed and factor disposal failed',
-      );
-    }
+    } catch {}
     throw error;
   }
 }

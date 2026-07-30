@@ -1,4 +1,5 @@
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { awaitEcdsaWarmSessionSeal } from '../passkey/ecdsaWarmSessionSealRegistry';
 import {
   buildRestoreWorkItemLookupResult,
   buildRestoreWorkItemLookupResultsForListedRecord,
@@ -146,6 +147,17 @@ export async function restorePersistedSessionForSigningCommand(
     ...input,
     walletId,
   };
+
+  if (normalizedInput.authMethod === 'passkey') {
+    /* Refactor 94C. Registration defers the warm-session seal off its blocking
+       path, so a signing operation arriving inside that window would list zero
+       sealed records and fall back to re-auth spuriously. Awaiting the typed
+       pending state settles immediately when no seal was ever scheduled
+       (returns null), waits out an in-flight seal when one was, and a
+       seal_failed_reauth_required outcome falls through to the existing
+       re-auth fallback below — exactly what a genuinely absent record does. */
+    await awaitEcdsaWarmSessionSeal(walletId);
+  }
 
   let records;
   try {

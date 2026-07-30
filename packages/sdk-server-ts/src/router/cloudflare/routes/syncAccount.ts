@@ -7,6 +7,20 @@ import {
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 
+function syncAccountResponseStatus(result: { ok: boolean; verified?: boolean; code?: string }) {
+  if (result.ok && result.verified) return 200;
+  switch (result.code) {
+    case 'internal':
+      return 500;
+    // The credential is valid and the request is well formed; the wallet's
+    // Ed25519 signer just does not exist yet. Retryable, not a client error.
+    case 'ed25519_not_provisioned':
+      return 409;
+    default:
+      return 400;
+  }
+}
+
 export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST') return null;
 
@@ -121,31 +135,33 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
           { status: 500 },
         );
       }
-      const normalSigningRuntime = ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime();
-      if (!normalSigningRuntime) {
+      const budgetProvisioner =
+        ctx.service.thresholdRuntime.getWalletBudgetGrantProvisioner?.() || null;
+      if (!budgetProvisioner) {
         return json(
           {
             ok: false,
             code: 'internal',
-            message: 'Ed25519 Yao normal-signing runtime is not configured',
+            message: 'Router A/B private-D1 wallet-budget provisioning is not configured',
           },
           { status: 500 },
         );
       }
-      const provisioned =
-        await normalSigningRuntime.provisionRouterAbEd25519YaoNormalSigningSession({
-          kind: 'router_ab_ed25519_yao_normal_signing_session_v1',
-          walletId,
-          nearAccountId,
-          nearEd25519SigningKeyId,
-          authorityScope: walletSession.session.authorityScope,
-          thresholdSessionId: walletSession.session.thresholdSessionId,
-          signingGrantId: walletSession.session.signingGrantId,
-          signingWorkerId,
-          expiresAtMs: walletSession.session.expiresAtMs,
-          participantIds: [firstParticipantId, secondParticipantId],
-          remainingUses: walletSession.session.remainingUses,
-        });
+      const provisioned = await budgetProvisioner.provisionGrant({
+        walletId,
+        signingGrantId: walletSession.session.signingGrantId,
+        relyingPartyId: walletBinding.rpId,
+        authorizedSigners: [
+          {
+            curve: 'ed25519',
+            threshold_session_id: walletSession.session.thresholdSessionId,
+            signing_worker_id: signingWorkerId,
+          },
+        ],
+        initialSignatureUses: walletSession.session.remainingUses,
+        expiresAtMs: walletSession.session.expiresAtMs,
+        issuerIdempotencyKey: `sync-account:${walletSession.session.signingGrantId}`,
+      });
       if (!provisioned.ok) {
         return json(
           { ok: false, code: provisioned.code, message: provisioned.message },
@@ -164,9 +180,7 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
         },
       };
     }
-    return json(responseBody, {
-      status: result.ok && result.verified ? 200 : result.code === 'internal' ? 500 : 400,
-    });
+    return json(responseBody, { status: syncAccountResponseStatus(result) });
   }
 
   return null;

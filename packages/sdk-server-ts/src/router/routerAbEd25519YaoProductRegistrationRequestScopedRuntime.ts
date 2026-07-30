@@ -4,6 +4,7 @@ import {
   type RouterAbEd25519YaoActivationConsumptionRequestV1,
   type RouterAbEd25519YaoActivationConsumptionResultV1,
   type RouterAbEd25519YaoRegistrationBackend,
+  type RouterAbEd25519YaoRegistrationBackendResult,
 } from './routerAbEd25519YaoRegistration';
 import { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from './routerAbEd25519YaoRegistrationIntentAuthorization';
 import type {
@@ -23,6 +24,7 @@ import {
   routerAbEd25519YaoPersistedCapabilityMatchesLookupV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
   type RouterAbEd25519YaoProductRegistrationStateV1,
+  type RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1,
   type RouterAbEd25519YaoWalletSessionMintInputV1,
   type RouterAbEd25519YaoWalletSessionMintResultV1,
 } from './routerAbEd25519YaoProductRegistration';
@@ -36,6 +38,7 @@ export type RouterAbEd25519YaoProductRegistrationRequestScopedRuntimeInputV1 = {
   readonly signingWorkerId: string;
   readonly session: SessionAdapter;
   readonly store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1;
+  readonly registrationBackend: RouterAbEd25519YaoRegistrationBackend;
   /** Loads one canonical signer record for an existing-wallet capability miss. */
   readonly loadPersistedActiveCapability?: (
     input: RouterAbEd25519YaoActiveCapabilityLookupV1,
@@ -89,13 +92,20 @@ class RouterAbEd25519YaoProductRegistrationRequestScopedRuntime implements Route
     );
   }
 
+  async bindAndAdmitVerifiedRegistration(
+    input: RouterAbEd25519YaoVerifiedActivationIntentV1,
+  ): Promise<RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1> {
+    return await bindAndAdmitVerifiedRegistration({
+      input,
+      store: this.input.store,
+      backend: this.input.registrationBackend,
+    });
+  }
+
   async consumeActivated(
     input: RouterAbEd25519YaoActivationConsumptionRequestV1,
   ): Promise<RouterAbEd25519YaoActivationConsumptionResultV1> {
-    return await this.commitUntilReconciled(
-      input.reference.lifecycleId,
-      consumeActivatedMutation.bind(undefined, input),
-    );
+    return await this.input.store.consumeRegistrationExecution(input);
   }
 
   async installRegistrationFinalizeCapability(
@@ -171,6 +181,60 @@ class RouterAbEd25519YaoProductRegistrationRequestScopedRuntime implements Route
   }
 }
 
+async function bindAndAdmitVerifiedRegistration(input: {
+  readonly input: RouterAbEd25519YaoVerifiedActivationIntentV1;
+  readonly store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1;
+  readonly backend: RouterAbEd25519YaoRegistrationBackend;
+}): Promise<RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1> {
+  const lifecycleId = input.input.admissionRequest.scope.lifecycle_id;
+  let backendResult: RouterAbEd25519YaoRegistrationBackendResult | null = null;
+  for (let attempt = 0; attempt < MAX_DETERMINISTIC_COMMIT_ATTEMPTS; attempt += 1) {
+    const loaded = await input.store.load(lifecycleId);
+    const bound = await new InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter(
+      loaded.state.authorization,
+    ).bindVerifiedIntent(input.input);
+    if (!bound.ok) return bound;
+
+    const service = new InMemoryRouterAbEd25519YaoRegistrationService(
+      input.backend,
+      loaded.state.registration,
+    );
+    const preparation = service.prepareAdmit(input.input.admissionRequest);
+    if (preparation.kind === 'completed') {
+      return { ok: true, status: 200, value: preparation.value };
+    }
+    if (preparation.kind === 'failed') return preparation.failure;
+
+    if (backendResult === null) {
+      try {
+        backendResult = await input.backend.admit(input.input.admissionRequest);
+      } catch (error: unknown) {
+        return {
+          ok: false,
+          status: 503,
+          code: 'admission_uncertain',
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+    const admitted = service.commitAdmit({
+      request: input.input.admissionRequest,
+      claim: preparation.claim,
+      outcome: { kind: 'backend_response', result: backendResult },
+    });
+    if (!admitted.ok) return admitted;
+
+    const committed = await input.store.commit(commitInput(lifecycleId, loaded));
+    if (committed.kind === 'stored') return admitted;
+  }
+  return {
+    ok: false,
+    status: 503,
+    code: 'admission_uncertain',
+    message: 'Yao verified registration admission remained contended after one reconciliation',
+  };
+}
+
 async function bindVerifiedIntentMutation(
   input: RouterAbEd25519YaoVerifiedActivationIntentV1,
   state: RouterAbEd25519YaoProductRegistrationStateV1,
@@ -178,14 +242,6 @@ async function bindVerifiedIntentMutation(
   const result = await new InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter(
     state.authorization,
   ).bindVerifiedIntent(input);
-  return result.ok ? { kind: 'commit', value: result } : { kind: 'reject', value: result };
-}
-
-async function consumeActivatedMutation(
-  input: RouterAbEd25519YaoActivationConsumptionRequestV1,
-  state: RouterAbEd25519YaoProductRegistrationStateV1,
-): Promise<RequestScopedMutationResult<RouterAbEd25519YaoActivationConsumptionResultV1>> {
-  const result = registrationService(state).consumeActivated(input);
   return result.ok ? { kind: 'commit', value: result } : { kind: 'reject', value: result };
 }
 
@@ -231,6 +287,8 @@ function commitInput(
     sharedState: loaded.sharedState,
     sharedVersion: loaded.sharedVersion,
     ceremonyVersion: loaded.ceremonyVersion,
+    execution: loaded.execution,
+    executionVersion: loaded.executionVersion,
   };
 }
 

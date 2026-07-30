@@ -17,12 +17,13 @@ use router_ab_core::{
 const DERIVER_B_BINDING: &str = "DERIVER_B";
 const DERIVER_B_WEBSOCKET_URL: &str =
     "https://deriver-b.internal/router-ab/deriver-b/ed25519-yao/duplex";
-const LEGACY_WEBSOCKET_PROTOCOL_PREFIX: &str = "seams-ed25519-yao-p0-v1";
 const PAIR_WEBSOCKET_PROTOCOL_PREFIX: &str = "seams-ed25519-yao-p1-v1";
 pub(crate) const READINESS_RECEIPT_HEADER: &str = "x-seams-yao-readiness-receipt";
 pub(crate) const EXECUTION_ID_HEADER: &str = "x-seams-yao-execution-id";
 pub(crate) const START_ACCEPTANCE_HEADER: &str = "x-seams-yao-start-acceptance";
 const DIRECTIONAL_EOF: &[u8] = b"seams-ed25519-yao-directional-eof-v1";
+const SEALED_COMPLETION_PREFIX: &[u8] = b"seams-ed25519-yao-sealed-completion-v1:";
+const MAX_SEALED_COMPLETION_BYTES: usize = 1_048_576;
 
 /// Fixed Yao circuit family selected before the WebSocket upgrade.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,57 +58,35 @@ pub struct CloudflareEd25519YaoWebSocketBindingV1 {
     pub circuit: CloudflareEd25519YaoCircuitV1,
     /// Non-zero Router-admitted ceremony session.
     pub session: [u8; 32],
-    /// Canonical A/B input-pair digest. Zero is used only by the existing
-    /// session route during the boundary migration.
+    /// Canonical A/B input-pair digest.
     pub pair_digest: [u8; 32],
 }
 
 impl CloudflareEd25519YaoWebSocketBindingV1 {
-    /// Creates one exact protocol binding.
-    pub fn new(
-        circuit: CloudflareEd25519YaoCircuitV1,
-        session: [u8; 32],
-    ) -> Result<Self, CloudflareEd25519YaoWebSocketErrorV1> {
-        if session.iter().all(|byte| *byte == 0) {
-            return Err(CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol);
-        }
-        Ok(Self {
-            circuit,
-            session,
-            pair_digest: [0_u8; 32],
-        })
-    }
-
     /// Creates a pair-bound protocol binding for the Refactor 93 lifecycle.
     pub fn with_pair_digest(
         circuit: CloudflareEd25519YaoCircuitV1,
         session: [u8; 32],
         pair_digest: [u8; 32],
     ) -> Result<Self, CloudflareEd25519YaoWebSocketErrorV1> {
-        if pair_digest.iter().all(|byte| *byte == 0) {
+        if session.iter().all(|byte| *byte == 0) || pair_digest.iter().all(|byte| *byte == 0) {
             return Err(CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol);
         }
-        let mut binding = Self::new(circuit, session)?;
-        binding.pair_digest = pair_digest;
-        Ok(binding)
+        Ok(Self {
+            circuit,
+            session,
+            pair_digest,
+        })
     }
 
     /// Encodes the binding as a WebSocket subprotocol token.
     pub fn protocol(self) -> String {
-        if self.pair_digest.iter().all(|byte| *byte == 0) {
-            format!(
-                "{LEGACY_WEBSOCKET_PROTOCOL_PREFIX}.{}.{}",
-                self.circuit.protocol_label(),
-                encode_hex(self.session)
-            )
-        } else {
-            format!(
-                "{PAIR_WEBSOCKET_PROTOCOL_PREFIX}.{}.{}.{}",
-                self.circuit.protocol_label(),
-                encode_hex(self.session),
-                encode_hex(self.pair_digest)
-            )
-        }
+        format!(
+            "{PAIR_WEBSOCKET_PROTOCOL_PREFIX}.{}.{}.{}",
+            self.circuit.protocol_label(),
+            encode_hex(self.session),
+            encode_hex(self.pair_digest)
+        )
     }
 
     /// Parses and validates one WebSocket subprotocol token.
@@ -126,7 +105,6 @@ impl CloudflareEd25519YaoWebSocketBindingV1 {
         let circuit = CloudflareEd25519YaoCircuitV1::parse(circuit)?;
         let session = decode_hex_32(session)?;
         match (prefix, pair_digest, parts.next()) {
-            (LEGACY_WEBSOCKET_PROTOCOL_PREFIX, None, None) => Self::new(circuit, session),
             (PAIR_WEBSOCKET_PROTOCOL_PREFIX, Some(pair_digest), None) => {
                 Self::with_pair_digest(circuit, session, decode_hex_32(pair_digest)?)
             }
@@ -163,36 +141,12 @@ impl fmt::Display for CloudflareEd25519YaoWebSocketErrorV1 {
 }
 
 /// Clean WebSocket teardown evidence.
-pub struct CloudflareEd25519YaoWebSocketCompletionV1;
+pub struct CloudflareEd25519YaoWebSocketCompletionV1 {
+    /// Opaque peer-sealed execution delivered after authenticated protocol EOF.
+    pub peer_sealed_completion: Option<Vec<u8>>,
+}
 
 impl YaoTransportCompletion for CloudflareEd25519YaoWebSocketCompletionV1 {}
-
-/// Opens the canonical same-account Service Binding WebSocket from A to B.
-pub async fn connect_cloudflare_ed25519_yao_deriver_b_v1(
-    env: &Env,
-    binding: CloudflareEd25519YaoWebSocketBindingV1,
-    trace_id: Option<crate::CloudflareTraceIdV1>,
-) -> Result<WebSocket, CloudflareEd25519YaoWebSocketErrorV1> {
-    connect_cloudflare_ed25519_yao_deriver_b_with_receipt_v1(env, binding, trace_id, None).await
-}
-
-/// Opens the pair-bound Deriver B WebSocket and carries the exact peer receipt.
-pub async fn connect_cloudflare_ed25519_yao_deriver_b_with_receipt_v1(
-    env: &Env,
-    binding: CloudflareEd25519YaoWebSocketBindingV1,
-    trace_id: Option<crate::CloudflareTraceIdV1>,
-    readiness_receipt: Option<&Ed25519YaoRoleReadinessReceiptV1>,
-) -> Result<WebSocket, CloudflareEd25519YaoWebSocketErrorV1> {
-    connect_cloudflare_ed25519_yao_deriver_b_inner_v1(
-        env,
-        binding,
-        trace_id,
-        readiness_receipt,
-        None,
-    )
-    .await
-    .map(|(socket, _)| socket)
-}
 
 /// Pair-bound WebSocket connection carrying B's signed start acceptance.
 pub struct CloudflareEd25519YaoPairStartConnectionV1 {
@@ -214,11 +168,10 @@ pub async fn connect_cloudflare_ed25519_yao_deriver_b_with_start_acceptance_v1(
         env,
         binding,
         trace_id,
-        Some(readiness_receipt),
-        Some(execution_id),
+        readiness_receipt,
+        execution_id,
     )
     .await?;
-    let acceptance = acceptance.ok_or(CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol)?;
     Ok(CloudflareEd25519YaoPairStartConnectionV1 { socket, acceptance })
 }
 
@@ -226,12 +179,12 @@ async fn connect_cloudflare_ed25519_yao_deriver_b_inner_v1(
     env: &Env,
     binding: CloudflareEd25519YaoWebSocketBindingV1,
     trace_id: Option<crate::CloudflareTraceIdV1>,
-    readiness_receipt: Option<&Ed25519YaoRoleReadinessReceiptV1>,
-    execution_id: Option<Ed25519YaoExecutionIdV1>,
-) -> Result<
-    (WebSocket, Option<Ed25519YaoRoleStartAcceptanceV1>),
-    CloudflareEd25519YaoWebSocketErrorV1,
-> {
+    readiness_receipt: &Ed25519YaoRoleReadinessReceiptV1,
+    execution_id: Ed25519YaoExecutionIdV1,
+) -> Result<(WebSocket, Ed25519YaoRoleStartAcceptanceV1), CloudflareEd25519YaoWebSocketErrorV1> {
+    if binding.pair_digest.iter().all(|byte| *byte == 0) {
+        return Err(CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol);
+    }
     let protocol = binding.protocol();
     let mut request = Request::new(DERIVER_B_WEBSOCKET_URL, Method::Get)
         .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::ServiceBinding)?;
@@ -244,20 +197,14 @@ async fn connect_cloudflare_ed25519_yao_deriver_b_inner_v1(
     headers
         .set("Sec-WebSocket-Protocol", &protocol)
         .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::ServiceBinding)?;
-    if binding.pair_digest.iter().any(|byte| *byte != 0) {
-        let readiness_receipt =
-            readiness_receipt.ok_or(CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol)?;
-        let execution_id =
-            execution_id.ok_or(CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol)?;
-        let serialized = serde_json::to_string(readiness_receipt)
-            .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol)?;
-        headers
-            .set(READINESS_RECEIPT_HEADER, &serialized)
-            .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::ServiceBinding)?;
-        headers
-            .set(EXECUTION_ID_HEADER, &encode_hex(execution_id.into_bytes()))
-            .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::ServiceBinding)?;
-    }
+    let serialized = serde_json::to_string(readiness_receipt)
+        .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol)?;
+    headers
+        .set(READINESS_RECEIPT_HEADER, &serialized)
+        .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::ServiceBinding)?;
+    headers
+        .set(EXECUTION_ID_HEADER, &encode_hex(execution_id.into_bytes()))
+        .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::ServiceBinding)?;
     set_cloudflare_internal_service_auth_header_v1(
         env,
         headers,
@@ -285,19 +232,13 @@ async fn connect_cloudflare_ed25519_yao_deriver_b_inner_v1(
     if negotiated != protocol {
         return Err(CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol);
     }
-    let acceptance = if binding.pair_digest.iter().any(|byte| *byte != 0) {
-        let serialized = response
-            .headers()
-            .get(START_ACCEPTANCE_HEADER)
-            .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol)?
-            .ok_or(CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol)?;
-        Some(
-            serde_json::from_str::<Ed25519YaoRoleStartAcceptanceV1>(&serialized)
-                .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol)?,
-        )
-    } else {
-        None
-    };
+    let serialized = response
+        .headers()
+        .get(START_ACCEPTANCE_HEADER)
+        .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol)?
+        .ok_or(CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol)?;
+    let acceptance = serde_json::from_str::<Ed25519YaoRoleStartAcceptanceV1>(&serialized)
+        .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol)?;
     response
         .websocket()
         .ok_or(CloudflareEd25519YaoWebSocketErrorV1::ServiceBinding)
@@ -310,6 +251,13 @@ pub struct CloudflareEd25519YaoWebSocketTransportV1<'socket> {
     events: EventStream<'socket>,
     encoder: Option<DirectionalWireEncoder>,
     decoder: Option<DirectionalWireDecoder>,
+    side: CloudflareEd25519YaoWebSocketSideV1,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CloudflareEd25519YaoWebSocketSideV1 {
+    DeriverA,
+    DeriverB,
 }
 
 impl<'socket> CloudflareEd25519YaoWebSocketTransportV1<'socket> {
@@ -323,6 +271,7 @@ impl<'socket> CloudflareEd25519YaoWebSocketTransportV1<'socket> {
             session,
             WireDirection::DeriverAToDeriverB,
             WireDirection::DeriverBToDeriverA,
+            CloudflareEd25519YaoWebSocketSideV1::DeriverA,
         )
     }
 
@@ -336,6 +285,7 @@ impl<'socket> CloudflareEd25519YaoWebSocketTransportV1<'socket> {
             session,
             WireDirection::DeriverBToDeriverA,
             WireDirection::DeriverAToDeriverB,
+            CloudflareEd25519YaoWebSocketSideV1::DeriverB,
         )
     }
 
@@ -344,6 +294,7 @@ impl<'socket> CloudflareEd25519YaoWebSocketTransportV1<'socket> {
         session: [u8; 32],
         outbound: WireDirection,
         inbound: WireDirection,
+        side: CloudflareEd25519YaoWebSocketSideV1,
     ) -> Result<Self, CloudflareEd25519YaoWebSocketErrorV1> {
         socket
             .as_ref()
@@ -365,6 +316,37 @@ impl<'socket> CloudflareEd25519YaoWebSocketTransportV1<'socket> {
                 DirectionalWireDecoder::new(inbound, session)
                     .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::Envelope)?,
             ),
+            side,
+        })
+    }
+
+    /// Delivers B's durably committed sealed result before closing the socket.
+    pub async fn finish_with_local_sealed_completion(
+        self,
+        sealed_completion: &[u8],
+    ) -> Result<CloudflareEd25519YaoWebSocketCompletionV1, CloudflareEd25519YaoWebSocketErrorV1>
+    {
+        if self.side != CloudflareEd25519YaoWebSocketSideV1::DeriverB
+            || self.encoder.is_some()
+            || self.decoder.is_some()
+            || sealed_completion.is_empty()
+            || sealed_completion.len() > MAX_SEALED_COMPLETION_BYTES
+        {
+            return Err(CloudflareEd25519YaoWebSocketErrorV1::InvalidState);
+        }
+        let mut frame = Zeroizing::new(Vec::with_capacity(
+            SEALED_COMPLETION_PREFIX.len() + sealed_completion.len(),
+        ));
+        frame.extend_from_slice(SEALED_COMPLETION_PREFIX);
+        frame.extend_from_slice(sealed_completion);
+        self.socket
+            .send_with_bytes(&frame)
+            .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::WebSocketEvent)?;
+        self.socket
+            .close(Some(1000), Some("complete"))
+            .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::WebSocketEvent)?;
+        Ok(CloudflareEd25519YaoWebSocketCompletionV1 {
+            peer_sealed_completion: None,
         })
     }
 
@@ -468,15 +450,48 @@ impl YaoDuplexTransport for CloudflareEd25519YaoWebSocketTransportV1<'_> {
         Ok((evidence, None))
     }
 
-    async fn finish(self) -> Result<Self::Completion, Self::Error> {
+    async fn finish(mut self) -> Result<Self::Completion, Self::Error> {
         if self.encoder.is_some() || self.decoder.is_some() {
             return Err(CloudflareEd25519YaoWebSocketErrorV1::InvalidState);
         }
+        let peer_sealed_completion = if self.side == CloudflareEd25519YaoWebSocketSideV1::DeriverA {
+            Some(read_sealed_completion(&mut self.events).await?)
+        } else {
+            None
+        };
         self.socket
             .close(Some(1000), Some("complete"))
             .map_err(|_| CloudflareEd25519YaoWebSocketErrorV1::WebSocketEvent)?;
-        Ok(CloudflareEd25519YaoWebSocketCompletionV1)
+        Ok(CloudflareEd25519YaoWebSocketCompletionV1 {
+            peer_sealed_completion,
+        })
     }
+}
+
+async fn read_sealed_completion(
+    events: &mut EventStream<'_>,
+) -> Result<Vec<u8>, CloudflareEd25519YaoWebSocketErrorV1> {
+    let Some(Ok(WebsocketEvent::Message(message))) = events.next().await else {
+        return Err(CloudflareEd25519YaoWebSocketErrorV1::WebSocketEvent);
+    };
+    let data = message.as_ref().data();
+    if !data.is_object() {
+        return Err(CloudflareEd25519YaoWebSocketErrorV1::WebSocketEvent);
+    }
+    let array = worker::js_sys::Uint8Array::new(&data);
+    let frame_len = array.length() as usize;
+    if frame_len <= SEALED_COMPLETION_PREFIX.len()
+        || frame_len > SEALED_COMPLETION_PREFIX.len() + MAX_SEALED_COMPLETION_BYTES
+    {
+        return Err(CloudflareEd25519YaoWebSocketErrorV1::Envelope);
+    }
+    let mut frame = Zeroizing::new(vec![0_u8; frame_len]);
+    array.copy_to(frame.as_mut_slice());
+    array.fill(0, 0, array.length());
+    if !frame.starts_with(SEALED_COMPLETION_PREFIX) {
+        return Err(CloudflareEd25519YaoWebSocketErrorV1::Envelope);
+    }
+    Ok(frame[SEALED_COMPLETION_PREFIX.len()..].to_vec())
 }
 
 fn encode_hex(bytes: [u8; 32]) -> String {
@@ -518,19 +533,6 @@ mod tests {
     };
 
     #[test]
-    fn protocol_binding_round_trips_exact_circuit_and_session() {
-        let binding = CloudflareEd25519YaoWebSocketBindingV1::new(
-            CloudflareEd25519YaoCircuitV1::Activation,
-            [7_u8; 32],
-        )
-        .unwrap();
-        assert_eq!(
-            CloudflareEd25519YaoWebSocketBindingV1::parse_protocol(&binding.protocol()).unwrap(),
-            binding
-        );
-    }
-
-    #[test]
     fn pair_bound_protocol_round_trips_pair_digest() {
         let binding = CloudflareEd25519YaoWebSocketBindingV1::with_pair_digest(
             CloudflareEd25519YaoCircuitV1::Activation,
@@ -547,15 +549,16 @@ mod tests {
     #[test]
     fn protocol_binding_rejects_zero_session_and_unknown_circuit() {
         assert_eq!(
-            CloudflareEd25519YaoWebSocketBindingV1::new(
+            CloudflareEd25519YaoWebSocketBindingV1::with_pair_digest(
                 CloudflareEd25519YaoCircuitV1::Export,
                 [0_u8; 32],
+                [8_u8; 32],
             ),
             Err(CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol)
         );
         assert_eq!(
             CloudflareEd25519YaoWebSocketBindingV1::parse_protocol(
-                "seams-ed25519-yao-p0-v1.other.0707070707070707070707070707070707070707070707070707070707070707"
+                "seams-ed25519-yao-p1-v1.other.0707070707070707070707070707070707070707070707070707070707070707.0808080808080808080808080808080808080808080808080808080808080808"
             ),
             Err(CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol)
         );

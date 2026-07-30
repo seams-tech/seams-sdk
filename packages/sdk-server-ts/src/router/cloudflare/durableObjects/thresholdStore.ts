@@ -14,6 +14,7 @@ import {
   type SigningRootRecordResult,
 } from '../../../core/ThresholdService/signingRootRecords';
 import {
+  parseEcdsaWalletSessionRecord,
   parseRouterAbEcdsaDerivationPoolFillSessionRecord as parseFullRouterAbEcdsaDerivationPoolFillSessionRecord,
   parseWalletSigningBudgetSessionRecord,
 } from '../../../core/ThresholdService/validation';
@@ -97,32 +98,19 @@ type DoReq =
   | { op: 'authReleaseReservedBudgetUseCountForIdentity'; key: string; input: unknown }
   | { op: 'authReserveReplayGuard'; key: string; expiresAtMs: number }
   | {
-      op: 'registrationReserveWalletId';
-      key: string;
-      walletId: string;
-      expiresAtMs: number;
+      op: 'ecdsaNormalSigningSessionProvision';
+      sessionKey: string;
+      budgetKey: string;
+      thresholdSessionId: string;
+      signingGrantId: string;
+      session: unknown;
+      remainingUses: number;
     }
   | {
       op: 'registrationCancelTerminal';
       ceremonyKey: string;
       registrationCeremonyId: string;
       walletId: string;
-      reservation:
-        | {
-            kind: 'server_allocated_wallet';
-            key: string;
-          }
-        | {
-            kind: 'none';
-          };
-    }
-  | {
-      op: 'routerAbNormalSigningReserveQuota';
-      key: string;
-      requestId: string;
-      lifecycleId: string;
-      expiresAtMs: number;
-      nowMs: number;
     }
   | {
       op: 'routerAbEcdsaDerivationPoolFillSessionCreate';
@@ -154,6 +142,14 @@ type AuthEntry = {
   committedBudgetReservations?: Record<string, AuthBudgetCommit>;
 };
 
+type EcdsaNormalSigningSessionProvisionInput = {
+  readonly sessionKey: string;
+  readonly budgetKey: string;
+  readonly thresholdSessionId: string;
+  readonly session: NonNullable<ReturnType<typeof parseEcdsaWalletSessionRecord>>;
+  readonly remainingUses: number;
+};
+
 type AuthBudgetReservation = {
   kind: 'wallet_signing_budget_reservation_v1';
   signingGrantId: string;
@@ -176,18 +172,6 @@ type AuthBudgetCommit = {
   remainingUses: number;
   expiresAtMs: number;
 };
-
-type RouterAbNormalSigningQuotaReservation = {
-  kind: 'router_ab_normal_signing_quota_reservation_v1';
-  requestId: string;
-  lifecycleId: string;
-  expiresAtMs: number;
-};
-
-type RouterAbNormalSigningQuotaDecision =
-  | { kind: 'accepted'; requestId: string }
-  | { kind: 'reuse_existing'; requestId: string; existingLifecycleId: string }
-  | { kind: 'short_window_saturated' };
 
 const ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE =
   '[threshold-ecdsa] EVM-family key identity already exists for wallet/subject/rp/signing root';
@@ -460,6 +444,238 @@ function parseAuthEntry(raw: unknown): AuthEntry | null {
   return raw as AuthEntry;
 }
 
+function numericIdsMatch(left: readonly number[], right: readonly number[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function ecdsaSessionAuthorityMatches(
+  left: NonNullable<ReturnType<typeof parseEcdsaWalletSessionRecord>>,
+  right: NonNullable<ReturnType<typeof parseEcdsaWalletSessionRecord>>,
+): boolean {
+  return (
+    left.relayerKeyId === right.relayerKeyId &&
+    left.walletId === right.walletId &&
+    left.evmFamilySigningKeySlotId === right.evmFamilySigningKeySlotId &&
+    numericIdsMatch(left.participantIds, right.participantIds)
+  );
+}
+
+function parseEcdsaNormalSigningSessionProvisionInput(
+  raw: Record<string, unknown>,
+): EcdsaNormalSigningSessionProvisionInput | DoErr {
+  const sessionKey = toKey(raw.sessionKey);
+  const budgetKey = toKey(raw.budgetKey);
+  const thresholdSessionId = toKey(raw.thresholdSessionId);
+  const signingGrantId = toKey(raw.signingGrantId);
+  const session = parseEcdsaWalletSessionRecord(raw.session);
+  const remainingUses = Math.floor(Number(raw.remainingUses));
+  if (
+    !sessionKey ||
+    !budgetKey ||
+    !thresholdSessionId ||
+    !signingGrantId ||
+    !session ||
+    !Number.isSafeInteger(remainingUses) ||
+    remainingUses <= 0 ||
+    session.expiresAtMs <= Date.now()
+  ) {
+    return err(
+      'invalid_body',
+      'ECDSA normal-signing provisioning requires session, grant, future expiry, and uses',
+    );
+  }
+  return { sessionKey, budgetKey, thresholdSessionId, session, remainingUses };
+}
+
+function findEcdsaBudgetBinding(
+  budget: NonNullable<ReturnType<typeof parseWalletSigningBudgetSessionRecord>>,
+  sessionKeyId: string,
+): { readonly thresholdSessionId: string } | null {
+  switch (budget.bindings.kind) {
+    case 'ed25519_only':
+      return null;
+    case 'ecdsa_only':
+    case 'ed25519_and_ecdsa':
+      return (
+        budget.bindings.ecdsa.find((binding) => binding.thresholdSessionId === sessionKeyId) || null
+      );
+    default:
+      return null;
+  }
+}
+
+function addEcdsaBudgetBinding(
+  budget: NonNullable<ReturnType<typeof parseWalletSigningBudgetSessionRecord>>,
+  sessionKeyId: string,
+  session: NonNullable<ReturnType<typeof parseEcdsaWalletSessionRecord>>,
+  expiresAtMs: number,
+): NonNullable<ReturnType<typeof parseWalletSigningBudgetSessionRecord>> | null {
+  const binding = {
+    thresholdSessionId: sessionKeyId,
+    evmFamilySigningKeySlotId: session.evmFamilySigningKeySlotId,
+    participantIds: [...session.participantIds],
+  };
+  switch (budget.bindings.kind) {
+    case 'ed25519_only':
+      return {
+        kind: 'wallet_signing_budget_session',
+        expiresAtMs,
+        walletId: budget.walletId,
+        bindings: {
+          kind: 'ed25519_and_ecdsa',
+          ed25519: budget.bindings.ed25519,
+          ecdsa: [binding],
+        },
+      };
+    case 'ecdsa_only':
+    case 'ed25519_and_ecdsa': {
+      const compatible = budget.bindings.ecdsa.every(
+        (existing) =>
+          existing.evmFamilySigningKeySlotId === session.evmFamilySigningKeySlotId &&
+          numericIdsMatch(existing.participantIds, session.participantIds),
+      );
+      if (!compatible) return null;
+      if (budget.bindings.kind === 'ecdsa_only') {
+        return {
+          kind: 'wallet_signing_budget_session',
+          expiresAtMs,
+          walletId: budget.walletId,
+          bindings: {
+            kind: 'ecdsa_only',
+            ecdsa: [budget.bindings.ecdsa[0], ...budget.bindings.ecdsa.slice(1), binding],
+          },
+        };
+      }
+      return {
+        kind: 'wallet_signing_budget_session',
+        expiresAtMs,
+        walletId: budget.walletId,
+        bindings: {
+          kind: 'ed25519_and_ecdsa',
+          ed25519: budget.bindings.ed25519,
+          ecdsa: [budget.bindings.ecdsa[0], ...budget.bindings.ecdsa.slice(1), binding],
+        },
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+async function provisionEcdsaNormalSigningSession(
+  store: DurableObjectStorageLike,
+  input: EcdsaNormalSigningSessionProvisionInput,
+): Promise<DoResp<{ readonly expiresAtMs: number; readonly remainingUses: number }>> {
+  const nowMs = Date.now();
+  const rawSessionEntry = await store.get(input.sessionKey);
+  const rawBudgetEntry = await store.get(input.budgetKey);
+  const sessionEntry = parseAuthEntry(rawSessionEntry);
+  const budgetEntry = parseAuthEntry(rawBudgetEntry);
+  const existingSession =
+    sessionEntry && sessionEntry.expiresAtMs > nowMs
+      ? parseEcdsaWalletSessionRecord(sessionEntry.record)
+      : null;
+  const existingBudget =
+    budgetEntry && budgetEntry.expiresAtMs > nowMs
+      ? parseWalletSigningBudgetSessionRecord(budgetEntry.record)
+      : null;
+
+  if (rawSessionEntry !== null && rawSessionEntry !== undefined && !sessionEntry) {
+    return err('conflict', 'thresholdSessionId has invalid persisted state');
+  }
+  if (rawBudgetEntry !== null && rawBudgetEntry !== undefined && !budgetEntry) {
+    return err('conflict', 'signingGrantId has invalid persisted state');
+  }
+  if (sessionEntry && sessionEntry.expiresAtMs <= nowMs) await store.delete(input.sessionKey);
+  if (budgetEntry && budgetEntry.expiresAtMs <= nowMs) await store.delete(input.budgetKey);
+
+  const thresholdSessionId = input.thresholdSessionId;
+  if (existingSession) {
+    if (!ecdsaSessionAuthorityMatches(existingSession, input.session)) {
+      return err('conflict', 'thresholdSessionId belongs to another ECDSA signing authority');
+    }
+    if (!existingBudget || !findEcdsaBudgetBinding(existingBudget, thresholdSessionId)) {
+      return err('conflict', 'ECDSA normal-signing state is incomplete');
+    }
+    const projection = authBudgetProjection(budgetEntry as AuthEntry, nowMs);
+    return ok({
+      expiresAtMs: existingBudget.expiresAtMs,
+      remainingUses: projection.remainingUses,
+    });
+  }
+
+  let nextBudgetEntry: AuthEntry;
+  if (!existingBudget) {
+    nextBudgetEntry = {
+      record: {
+        kind: 'wallet_signing_budget_session',
+        expiresAtMs: input.session.expiresAtMs,
+        walletId: input.session.walletId,
+        bindings: {
+          kind: 'ecdsa_only',
+          ecdsa: [
+            {
+              thresholdSessionId,
+              evmFamilySigningKeySlotId: input.session.evmFamilySigningKeySlotId,
+              participantIds: [...input.session.participantIds],
+            },
+          ],
+        },
+      },
+      remainingUses: input.remainingUses,
+      expiresAtMs: input.session.expiresAtMs,
+    };
+  } else {
+    if (existingBudget.walletId !== input.session.walletId) {
+      return err('conflict', 'signingGrantId belongs to another signing authority');
+    }
+    if (findEcdsaBudgetBinding(existingBudget, thresholdSessionId)) {
+      return err('conflict', 'ECDSA normal-signing state is incomplete');
+    }
+    const projection = authBudgetProjection(budgetEntry as AuthEntry, nowMs);
+    if (projection.reservedUses > 0) {
+      return err('conflict', 'signingGrantId has in-flight reservations');
+    }
+    const expiresAtMs = Math.min(existingBudget.expiresAtMs, input.session.expiresAtMs);
+    const record = addEcdsaBudgetBinding(
+      existingBudget,
+      thresholdSessionId,
+      input.session,
+      expiresAtMs,
+    );
+    if (!record) {
+      return err('conflict', 'signingGrantId is bound to another ECDSA authority');
+    }
+    nextBudgetEntry = {
+      ...(budgetEntry as AuthEntry),
+      record,
+      expiresAtMs,
+    };
+  }
+
+  const sessionTtl = toTtlSeconds(input.session.expiresAtMs - nowMs);
+  const budgetTtl = toTtlSeconds(nextBudgetEntry.expiresAtMs - nowMs);
+  await store.put(
+    input.sessionKey,
+    {
+      record: input.session,
+      remainingUses: input.remainingUses,
+      expiresAtMs: input.session.expiresAtMs,
+    } satisfies AuthEntry,
+    sessionTtl ? { expirationTtl: sessionTtl } : undefined,
+  );
+  await store.put(
+    input.budgetKey,
+    nextBudgetEntry,
+    budgetTtl ? { expirationTtl: budgetTtl } : undefined,
+  );
+  return ok({
+    expiresAtMs: nextBudgetEntry.expiresAtMs,
+    remainingUses: nextBudgetEntry.remainingUses,
+  });
+}
+
 function normalizeBudgetField(value: unknown): string {
   return String(value || '').trim();
 }
@@ -493,63 +709,6 @@ function parseFutureEpochMs(value: unknown, floorExclusiveMs: number): number | 
   const parsed = Math.floor(Number(value));
   if (!Number.isSafeInteger(parsed) || parsed <= floorExclusiveMs) return null;
   return parsed;
-}
-
-function parseRouterAbNormalSigningQuotaReservation(
-  raw: unknown,
-): RouterAbNormalSigningQuotaReservation | null {
-  if (!isPlainObject(raw)) return null;
-  if (raw.kind !== 'router_ab_normal_signing_quota_reservation_v1') return null;
-  const requestId = toKey(raw.requestId);
-  const lifecycleId = toKey(raw.lifecycleId);
-  const expiresAtMs = Number(raw.expiresAtMs);
-  if (!requestId || !lifecycleId || !Number.isSafeInteger(expiresAtMs)) return null;
-  return {
-    kind: 'router_ab_normal_signing_quota_reservation_v1',
-    requestId,
-    lifecycleId,
-    expiresAtMs,
-  };
-}
-
-async function reserveRouterAbNormalSigningQuota(
-  store: DurableObjectStorageLike,
-  input: {
-    readonly key: string;
-    readonly requestId: string;
-    readonly lifecycleId: string;
-    readonly expiresAtMs: number;
-    readonly nowMs: number;
-  },
-): Promise<DoResp<RouterAbNormalSigningQuotaDecision>> {
-  const raw = await store.get(input.key);
-  const existing = parseRouterAbNormalSigningQuotaReservation(raw);
-  if (existing && existing.expiresAtMs > input.nowMs) {
-    if (existing.requestId === input.requestId) {
-      return ok({
-        kind: 'reuse_existing',
-        requestId: input.requestId,
-        existingLifecycleId: existing.lifecycleId,
-      });
-    }
-    return ok({ kind: 'short_window_saturated' });
-  }
-  if (raw !== null && raw !== undefined) {
-    await store.delete(input.key);
-  }
-
-  const ttl = toTtlSeconds(input.expiresAtMs - input.nowMs);
-  await store.put(
-    input.key,
-    {
-      kind: 'router_ab_normal_signing_quota_reservation_v1',
-      requestId: input.requestId,
-      lifecycleId: input.lifecycleId,
-      expiresAtMs: input.expiresAtMs,
-    } satisfies RouterAbNormalSigningQuotaReservation,
-    ttl ? { expirationTtl: ttl } : undefined,
-  );
-  return ok({ kind: 'accepted', requestId: input.requestId });
 }
 
 function authBudgetProjection(
@@ -818,49 +977,6 @@ async function withRequiredTxn<T>(
   return await state.storage.transaction(operation);
 }
 
-type RegistrationWalletReservation = {
-  readonly kind: 'registration_wallet_reservation_v1';
-  readonly walletId: string;
-  readonly expiresAtMs: number;
-};
-
-type RegistrationTerminalCancellationReservation =
-  | {
-      readonly kind: 'server_allocated_wallet';
-      readonly key: string;
-    }
-  | {
-      readonly kind: 'none';
-    };
-
-function parseRegistrationWalletReservation(raw: unknown): RegistrationWalletReservation | null {
-  if (!isPlainObject(raw)) return null;
-  const walletId = toKey(raw.walletId);
-  const expiresAtMs = Math.floor(Number(raw.expiresAtMs));
-  if (
-    raw.kind !== 'registration_wallet_reservation_v1' ||
-    !walletId ||
-    !Number.isSafeInteger(expiresAtMs)
-  ) {
-    return null;
-  }
-  return {
-    kind: 'registration_wallet_reservation_v1',
-    walletId,
-    expiresAtMs,
-  };
-}
-
-function parseRegistrationTerminalCancellationReservation(
-  raw: unknown,
-): RegistrationTerminalCancellationReservation | null {
-  if (!isPlainObject(raw)) return null;
-  if (raw.kind === 'none') return { kind: 'none' };
-  if (raw.kind !== 'server_allocated_wallet') return null;
-  const key = toKey(raw.key);
-  return key ? { kind: 'server_allocated_wallet', key } : null;
-}
-
 function registrationCeremonyIdentityMatches(input: {
   readonly raw: unknown;
   readonly registrationCeremonyId: string;
@@ -1115,51 +1231,12 @@ export class ThresholdStoreDurableObject {
       return json(ok(value));
     }
 
-    if (op === 'registrationReserveWalletId') {
-      const key = toKey((req as { key?: unknown }).key);
-      const walletId = toKey((req as { walletId?: unknown }).walletId);
-      const expiresAtMs = Math.floor(Number((req as { expiresAtMs?: unknown }).expiresAtMs));
-      if (!key) return json(err('invalid_body', 'Missing registration wallet reservation key'));
-      if (!walletId) return json(err('invalid_body', 'Missing registration walletId'));
-      if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
-        return json(err('invalid_body', 'Invalid registration wallet reservation expiry'));
-      }
-      const result = await withRequiredTxn(this.state, async (store) => {
-        const existingRaw = await store.get(key);
-        if (existingRaw !== null && existingRaw !== undefined) {
-          const existing = parseRegistrationWalletReservation(existingRaw);
-          if (!existing) {
-            return err(
-              'registration_wallet_reservation_corrupt',
-              'Registration wallet reservation has an invalid stored shape',
-            );
-          }
-          if (existing.expiresAtMs > Date.now()) {
-            return err('wallet_id_reserved', 'walletId is already reserved');
-          }
-          await store.delete(key);
-        }
-        const reservation: RegistrationWalletReservation = {
-          kind: 'registration_wallet_reservation_v1',
-          walletId,
-          expiresAtMs,
-        };
-        const ttlSeconds = Math.max(1, Math.ceil((expiresAtMs - Date.now()) / 1000));
-        await store.put(key, reservation, { expirationTtl: ttlSeconds });
-        return ok({ reserved: true });
-      });
-      return json(result);
-    }
-
     if (op === 'registrationCancelTerminal') {
       const ceremonyKey = toKey((req as { ceremonyKey?: unknown }).ceremonyKey);
       const registrationCeremonyId = toKey(
         (req as { registrationCeremonyId?: unknown }).registrationCeremonyId,
       );
       const walletId = toKey((req as { walletId?: unknown }).walletId);
-      const reservation = parseRegistrationTerminalCancellationReservation(
-        (req as { reservation?: unknown }).reservation,
-      );
       if (!ceremonyKey) {
         return json(err('invalid_body', 'Missing terminal registration ceremony key'));
       }
@@ -1167,16 +1244,12 @@ export class ThresholdStoreDurableObject {
         return json(err('invalid_body', 'Missing terminal registration ceremony ID'));
       }
       if (!walletId) return json(err('invalid_body', 'Missing terminal registration walletId'));
-      if (!reservation) {
-        return json(err('invalid_body', 'Invalid terminal registration reservation'));
-      }
       const result = await withRequiredTxn(this.state, async (store) => {
         const ceremony = await store.get(ceremonyKey);
         if (ceremony === null || ceremony === undefined) {
           return ok({
             kind: 'not_found',
             ceremonyDeleted: false,
-            walletReservationReleased: false,
           });
         }
         if (
@@ -1191,61 +1264,12 @@ export class ThresholdStoreDurableObject {
             'Terminal registration cancellation does not match the stored ceremony',
           );
         }
-        let reservationExists = false;
-        if (reservation.kind === 'server_allocated_wallet') {
-          const reservationRaw = await store.get(reservation.key);
-          if (reservationRaw !== null && reservationRaw !== undefined) {
-            const storedReservation = parseRegistrationWalletReservation(reservationRaw);
-            if (!storedReservation) {
-              return err(
-                'registration_wallet_reservation_corrupt',
-                'Registration wallet reservation has an invalid stored shape',
-              );
-            }
-            if (storedReservation.walletId !== walletId) {
-              return err(
-                'registration_wallet_reservation_identity_mismatch',
-                'Terminal registration cancellation does not match the wallet reservation',
-              );
-            }
-            reservationExists = true;
-          }
-        }
         await store.delete(ceremonyKey);
-        const walletReservationReleased =
-          reservation.kind === 'server_allocated_wallet' && reservationExists
-            ? await store.delete(reservation.key)
-            : false;
         return ok({
           kind: 'cancelled',
           ceremonyDeleted: true,
-          walletReservationReleased,
         });
       });
-      return json(result);
-    }
-
-    if (op === 'routerAbNormalSigningReserveQuota') {
-      const key = toKey((req as { key?: unknown }).key);
-      const requestId = toKey((req as { requestId?: unknown }).requestId);
-      const lifecycleId = toKey((req as { lifecycleId?: unknown }).lifecycleId);
-      const nowMs = Math.floor(Number((req as { nowMs?: unknown }).nowMs));
-      const expiresAtMs = parseFutureEpochMs((req as { expiresAtMs?: unknown }).expiresAtMs, nowMs);
-      if (!key) return json(err('invalid_body', 'Missing key'));
-      if (!requestId) return json(err('invalid_body', 'Missing requestId'));
-      if (!lifecycleId) return json(err('invalid_body', 'Missing lifecycleId'));
-      if (!Number.isSafeInteger(nowMs)) return json(err('invalid_body', 'Invalid nowMs'));
-      if (expiresAtMs === null) return json(err('invalid_body', 'Invalid expiresAtMs'));
-
-      const result = await withTxn(this.state, (store) =>
-        reserveRouterAbNormalSigningQuota(store, {
-          key,
-          requestId,
-          lifecycleId,
-          expiresAtMs,
-          nowMs,
-        }),
-      );
       return json(result);
     }
 
@@ -1424,6 +1448,17 @@ export class ThresholdStoreDurableObject {
       });
 
       return json(res);
+    }
+
+    if (op === 'ecdsaNormalSigningSessionProvision') {
+      const parsed = parseEcdsaNormalSigningSessionProvisionInput(
+        req as unknown as Record<string, unknown>,
+      );
+      if (isDoErr(parsed)) return json(parsed);
+      const result = await withRequiredTxn(this.state, (store) =>
+        provisionEcdsaNormalSigningSession(store, parsed),
+      );
+      return json(result);
     }
 
     if (op === 'authGetBudgetStatus') {

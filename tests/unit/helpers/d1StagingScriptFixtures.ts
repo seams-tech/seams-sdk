@@ -152,17 +152,17 @@ compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "CONSOLE_DB"
-database_name = "seams-console-staging"
+database_name = "seams-console-staging-nrt"
 database_id = "11111111-1111-4111-8111-111111111111"
 migrations_dir = "migrations/d1-console"
 
 [vars]
 SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
-CONSOLE_SESSION_ISSUER = "seams-console-staging"
+CONSOLE_SESSION_ISSUER = "seams-console-staging-nrt"
 CONSOLE_SESSION_AUDIENCE = "seams-console-dashboard"
 
 [secrets]
-required = ["CONSOLE_SESSION_HMAC_SECRET", "STRIPE_API_SK"]
+required = ["CONSOLE_SESSION_HMAC_SECRET", "STRIPE_API_SK", "STRIPE_WEBHOOK_SECRET"]
 `;
 }
 
@@ -175,35 +175,23 @@ compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "CONSOLE_DB"
-database_name = "seams-console-staging"
+database_name = "seams-console-staging-nrt"
 database_id = "11111111-1111-4111-8111-111111111111"
 migrations_dir = "migrations/d1-console"
 
 [[d1_databases]]
 binding = "SIGNER_DB"
-database_name = "seams-signer-staging"
+database_name = "seams-signer-staging-nrt"
 database_id = "22222222-2222-4222-8222-222222222222"
-migrations_dir = "../sdk-server-ts/migrations/d1-signer"
-
-[[durable_objects.bindings]]
-name = "THRESHOLD_STORE"
-class_name = "ThresholdStoreDurableObject"
-
-[[durable_objects.bindings]]
-name = "ROUTER_API_RUNTIME"
-class_name = "RouterApiRuntimeDurableObject"
-
-[[services]]
-binding = "DERIVER_A"
-service = "router-ab-deriver-a-staging"
-
-[[services]]
-binding = "DERIVER_B"
-service = "router-ab-deriver-b-staging"
+migrations_dir = "node_modules/@seams/sdk-server/migrations/d1-signer"
 
 [[services]]
 binding = "SIGNING_WORKER"
 service = "router-ab-signing-worker-staging"
+
+[[services]]
+binding = "MPC_ROUTER"
+service = "router-ab-mpc-router-staging"
 
 [[migrations]]
 tag = "threshold-store-sqlite-v1"
@@ -212,6 +200,14 @@ new_sqlite_classes = ["ThresholdStoreDurableObject"]
 [[migrations]]
 tag = "router-api-runtime-sqlite-v1"
 new_sqlite_classes = ["RouterApiRuntimeDurableObject"]
+
+[[migrations]]
+tag = "router-api-runtime-delete-v1"
+deleted_classes = ["RouterApiRuntimeDurableObject"]
+
+[[migrations]]
+tag = "threshold-store-delete-v1"
+deleted_classes = ["ThresholdStoreDurableObject"]
 
 [[secrets_store_secrets]]
 binding = "SIGNING_ROOT_KEK_STAGING_R1"
@@ -225,25 +221,29 @@ SEAMS_STAGING_PROJECT_ID = "project_staging"
 SEAMS_STAGING_ENV_ID = "staging"
 ROUTER_AB_NORMAL_SIGNING_WORKER_ID = "router-ab-signing-worker-staging"
 SIGNING_WORKER_ID = "router-ab-signing-worker-staging"
-ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS = ""
-ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS = ""
-ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS = ""
-ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS = ""
-ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS = ""
-ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS = ""
 DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY = "x25519:1111111111111111111111111111111111111111111111111111111111111111"
 DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY = "x25519:2222222222222222222222222222222222222222222222222222222222222222"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:3333333333333333333333333333333333333333333333333333333333333333"
 RELAYER_ACCOUNT_ID = "seams-relayer-staging.testnet"
 RELAYER_PUBLIC_KEY = "ed25519:11111111111111111111111111111111"
-RELAY_SESSION_ISSUER = "seams-gateway-staging"
-RELAY_SESSION_AUDIENCE = "seams-wallet-session"
+ROUTER_AB_CEREMONY_JWT_KEY_ID = "router-ab-ceremony-staging-r1"
+ROUTER_AB_CEREMONY_JWT_ISSUER = "https://seams-gateway-staging.example"
+ROUTER_AB_CEREMONY_JWT_AUDIENCE = "router-ab"
 SPONSORED_EXECUTION_REAL_PRICING_JSON = '{"provider":"coingecko","near":{"TESTNET":{"assetId":"near","nativeUnitDecimals":24,"estimateFeeAmountYocto":"1000000000000000000000","pricingVersionPrefix":"coingecko-near-testnet"}}}'
+CONSOLE_BASE_URL = "https://console.staging.example"
+CONSOLE_EMAIL_RUNTIME_PROFILE = "PRODUCTION"
+CONSOLE_EMAIL_PROVIDER = "RESEND"
+CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID = "console-email-staging-r1"
+CONSOLE_EMAIL_FROM = "Seams <notifications@seams.sh>"
+CONSOLE_EMAIL_CRON_EXPRESSIONS = "*/5 * * * *"
 SIGNING_ROOT_KEK_PROVIDER = "cloudflare_secrets_store"
 SIGNING_ROOT_KEK_ENCODING = "base64url"
 SIGNING_ROOT_KEK_IDS = "signing-root-kek-staging-r1"
 
+[triggers]
+crons = ["*/5 * * * *"]
+
 [secrets]
-required = ["RELAY_SESSION_HMAC_SECRET", "ACCOUNT_ID_DERIVATION_SECRET", "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET", "SPONSORED_EVM_EXECUTORS_JSON", "STRIPE_API_SK"]
+required = ["ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK", "ACCOUNT_ID_DERIVATION_SECRET", "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET", "SPONSORED_EVM_EXECUTORS_JSON", "STRIPE_API_SK", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY", "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U"]
 `;
 }
