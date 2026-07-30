@@ -311,6 +311,7 @@ type NearEd25519SelectedTransactionLane = TransactionLaneSelectedState<
 
 type PreparedNearEd25519TransactionSigningSession = {
   thresholdSessionRecord: ThresholdEd25519SessionRecord | null;
+  preparation: NearEd25519YaoSigningPreparation;
   signingAuthPlan: SigningAuthPlan;
   signingLane: NearTransactionSigningLane;
   transactionLane: SelectedEd25519Lane;
@@ -1613,6 +1614,7 @@ async function prepareNearEd25519TransactionSigningSession(args: {
   const budget = preparedTransaction.budget;
   return {
     thresholdSessionRecord,
+    preparation: initialMaterialBoundary.preparation,
     signingAuthPlan,
     signingLane,
     transactionLane,
@@ -1665,6 +1667,7 @@ export async function signTransactionWithActions(
     forceFreshAuth: attempt.forceFreshAuth === true,
   });
   const thresholdSessionRecord = preparedSigningSession.thresholdSessionRecord;
+  const preparationAuthorization = preparedSigningSession.preparation.authorization;
   const signingAuthPlan = preparedSigningSession.signingAuthPlan;
   const signingLane = preparedSigningSession.signingLane;
   const transactionLane = preparedSigningSession.transactionLane;
@@ -1761,7 +1764,7 @@ export async function signTransactionWithActions(
     if (
       !attempt.retryingFreshAuth &&
       !alreadyAttemptedFreshAuth &&
-      thresholdSessionRecord &&
+      preparationAuthorization.kind === 'authorized' &&
       (walletSessionRequiresStepUp || admissionDecision)
     ) {
       const nextOperationId = operationId || createNearTransactionSigningOperationId();
@@ -1778,9 +1781,9 @@ export async function signTransactionWithActions(
         failure: walletSessionFailure,
         coordinator: signingSessionCoordinator,
         lane: preparedSigningSession.transactionLane,
-        expiresAtMs: thresholdSessionRecord.expiresAtMs,
+        expiresAtMs: preparationAuthorization.authorization.status.expiresAtMs,
       });
-      const isEmailOtpSession = thresholdSessionRecord.source === 'email_otp';
+      const isEmailOtpSession = transactionLane.auth.kind === 'email_otp';
       const reason = admissionDecision
         ? admissionDecision.reason === 'stale_projection'
           ? 'wallet_signing_budget_stale_projection'
