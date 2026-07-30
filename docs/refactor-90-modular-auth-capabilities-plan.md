@@ -355,6 +355,8 @@ removes.
       it is a provisioning-only identifier outside material selection.
   - [x] Delete the zero-caller slot-bearing server-planned WASM context and its
         type fixture (`2b2d2f4b3`).
+  - [x] Delete the zero-caller server export-share request, response, and parser
+        contract that still carried the slot identity (`84677131e`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.
