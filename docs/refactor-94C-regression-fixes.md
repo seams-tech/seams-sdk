@@ -414,16 +414,30 @@ No mixed-topology revision is deployed.
 - [x] Run one optimized local Email OTP and one passkey registration.
 - [ ] Deploy one coherent staging revision and manually exercise registration,
       unlock/sign, recovery, and export.
-      Progress (July 30, 2026): a staging revision is deployed and passkey and
-      Email OTP registration were exercised there. Recovery and export remain
-      unexercised — the ECDSA recovery and server-share-refresh Router calls
-      lacked their request policy until the fix landed on this branch, so the
-      checkbox stays open until they pass on a redeployed revision.
+      Deferred by the owner on July 30, 2026. The owner confirmed registration,
+      unlock/sign, recovery, and export apart from NEAR delegate sponsorship;
+      the final coherent-revision acceptance pass remains manual.
 - [x] Confirm the existing timing summary reports zero DO intervals and a
       wallet-ready result within 3 seconds.
-- [ ] Deploy the same revision to production after staging passes.
-- [ ] Delete migration commands, retired bindings/configuration, and fixtures
+- [x] Deploy the same implementation to production. The owner explicitly
+      authorized production rollout while deferring the final manual staging
+      acceptance pass.
+- [x] Delete migration commands, retired bindings/configuration, and fixtures
       whose only purpose was the removed topology.
+
+Deployment record (July 30, 2026):
+
+- staging Gateway: `https://staging.api.seams.sh`, Worker version
+  `6fab660a-200d-4b8d-83c1-03068995af19`;
+- production Gateway: `https://api.seams.sh`, Worker version
+  `92e2f6f2-d23f-491e-91ee-0f274679b3c1`;
+- production frontend workflow: GitHub Actions run `30516830211`;
+- production `/readyz`, `/healthz`, Router ceremony JWKS, `seams.sh`, and
+  `sign.seams.sh` returned HTTP 200 after applying signer D1 migration
+  `0017_signer_router_ab_normal_signing_admission.sql`;
+- the final legacy Gateway Durable Object was deleted with a one-time
+  deployment-boundary migration. The checked-in end state retains no retired
+  Gateway Durable Object binding or migration scaffold.
 
 Exit: local, staging, and production use the same zero-DO implementation.
 
@@ -444,8 +458,14 @@ Required evidence:
       affected by the changed adapters.
 - [ ] `pnpm check`, `cargo test -p router-ab-cloudflare`, and
       `git diff --check` before staging.
+      `cargo test -p router-ab-cloudflare`, SDK typecheck, Rust formatting,
+      Rust lint, signing-architecture checks, and `git diff --check` passed on
+      July 30. The aggregate command remains unchecked: the clean-worktree app
+      typecheck exposed pre-existing seams-site fixture/API drift, and the
+      signer-parity browser runner could not bind localhost port 3600 in the
+      sandbox. Neither failure is in the changed deployment path.
 - [ ] One manual Email OTP and one passkey registration in local, staging, and
-      production.
+      production. Final manual staging acceptance is explicitly deferred.
 
 Integration evidence at `4d8d8741a`:
 
