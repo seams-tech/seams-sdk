@@ -214,6 +214,16 @@
     "gatewayDeploymentConfig": {
       "schemaVersion": 3,
       "target": "production",
+      "runtimeProfile": {
+        "kind": "testnet_live_demo",
+        "nearFunding": {
+          "kind": "implicit_account_relayer",
+          "network": "near_testnet"
+        },
+        "emailOtpDelivery": {
+          "kind": "demo_code_response"
+        }
+      },
       "resources": {
         "workerName": "seams-sdk-d1-gateway",
         "consoleD1": {
@@ -265,28 +275,28 @@
               "deriver_a": {
                 "role": "signer_a",
                 "key_epoch": "epoch-1",
-                "public_key": "x25519:7988de6065a78acf348826e31d53c03c286c4baae1e85b2d7812d8e6c33ff41b"
+                "public_key": "x25519:7647ee5b2d70291af58ccc66c87cbaf474f3128bc45accc30c2654fbf12e4816"
               },
               "deriver_b": {
                 "role": "signer_b",
                 "key_epoch": "epoch-1",
-                "public_key": "x25519:fc644884eb06436c545ee36cf8ce3fdb28aab626cc0fa9a7d716d23771589846"
+                "public_key": "x25519:74cc588915daaae1b37643d437dcdbb296c19dbfce10dc283d305549f8cad134"
               }
             }
           },
           "signer_peer_verifying_keys": {
             "deriver_a": {
               "role": "signer_a",
-              "verifying_key_hex": "811ff5f0c57f22010d7df01d9e9c9a805432926e1e72f47b97c7366a23ca8215"
+              "verifying_key_hex": "3d42e6bbd83c0499f753348823327aaaa3e530c134944d017c6a6c37acc1d86f"
             },
             "deriver_b": {
               "role": "signer_b",
-              "verifying_key_hex": "31d5c2eed5a7455db83e2c2911c366f07b45ff10fcd1ecc3c6142e21b3e3bd20"
+              "verifying_key_hex": "f863ee15ad7539d61dfce758047c892dd5998b5c9fe8f4a69cd02a81a247f23b"
             }
           },
           "signing_worker_server_output_hpke": {
             "key_epoch": "epoch-1",
-            "public_key": "x25519:b9ff508f0968010912cb7ac6f89b4e72f3c032757688d5cd30aa785b425d7c29"
+            "public_key": "x25519:8a4fa1b06071d252f1f5d25fd8f78aacbc9d0f90d44f97f4cf965359d25f2659"
           }
         },
         "registrationTopology": {
@@ -307,25 +317,25 @@
             "selected_server": {
               "server_id": "router-ab-signing-worker",
               "key_epoch": "epoch-1",
-              "recipient_encryption_key": "x25519:b9ff508f0968010912cb7ac6f89b4e72f3c032757688d5cd30aa785b425d7c29"
+              "recipient_encryption_key": "x25519:8a4fa1b06071d252f1f5d25fd8f78aacbc9d0f90d44f97f4cf965359d25f2659"
             }
           },
           "deriverRecipientKeys": {
             "deriver_a": {
               "role": "signer_a",
               "key_epoch": "epoch-1",
-              "public_key": "x25519:7988de6065a78acf348826e31d53c03c286c4baae1e85b2d7812d8e6c33ff41b"
+              "public_key": "x25519:7647ee5b2d70291af58ccc66c87cbaf474f3128bc45accc30c2654fbf12e4816"
             },
             "deriver_b": {
               "role": "signer_b",
               "key_epoch": "epoch-1",
-              "public_key": "x25519:fc644884eb06436c545ee36cf8ce3fdb28aab626cc0fa9a7d716d23771589846"
+              "public_key": "x25519:74cc588915daaae1b37643d437dcdbb296c19dbfce10dc283d305549f8cad134"
             }
           }
         },
-        "deriverAYaoInputPublicKey": "x25519:7988de6065a78acf348826e31d53c03c286c4baae1e85b2d7812d8e6c33ff41b",
-        "deriverBYaoInputPublicKey": "x25519:fc644884eb06436c545ee36cf8ce3fdb28aab626cc0fa9a7d716d23771589846",
-        "signingWorkerOutputPublicKey": "x25519:b9ff508f0968010912cb7ac6f89b4e72f3c032757688d5cd30aa785b425d7c29"
+        "deriverAYaoInputPublicKey": "x25519:7647ee5b2d70291af58ccc66c87cbaf474f3128bc45accc30c2654fbf12e4816",
+        "deriverBYaoInputPublicKey": "x25519:74cc588915daaae1b37643d437dcdbb296c19dbfce10dc283d305549f8cad134",
+        "signingWorkerOutputPublicKey": "x25519:8a4fa1b06071d252f1f5d25fd8f78aacbc9d0f90d44f97f4cf965359d25f2659"
       },
       "optional": {
         "nearRelayer": {
@@ -334,18 +344,8 @@
           "rpcUrl": "https://test.rpc.fastnear.com",
           "initialBalanceYocto": "30000000000000000000000"
         },
-        "googleOidcClientId": "971053349716-p10qdg7lsjh24lcocbsckt4f85is5igs.apps.googleusercontent.com",
+        "googleOidcClientId": "971053349716-2ck8cp6ucohvkd075aebdtv9jskla2b5.apps.googleusercontent.com",
         "oidcExchange": null
-      },
-      "runtimeProfile": {
-        "kind": "testnet_live_demo",
-        "nearFunding": {
-          "kind": "implicit_account_relayer",
-          "network": "near_testnet"
-        },
-        "emailOtpDelivery": {
-          "kind": "demo_code_response"
-        }
       }
     },
     "origins": {
