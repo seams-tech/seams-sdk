@@ -3,19 +3,12 @@ import type {
   SigningSessionSealedStoreRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type { ExactEcdsaSigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
-import type { EmailOtpSigningSessionAuthLane } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningSessionAuthority } from './ecdsaSigningSessionAuthority';
 
 export type SealedEmailOtpEcdsaSigningSessionAuthInput = {
   lane: ExactEcdsaSigningLaneIdentity;
   sealedRecord: SigningSessionSealedStoreRecord;
 };
-
-export function emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord(
-  input: SealedEmailOtpEcdsaSigningSessionAuthInput,
-): EmailOtpSigningSessionAuthLane | null {
-  return emailOtpEcdsaSigningSessionAuthorityFromSealedRecord(input)?.authLane || null;
-}
 
 export function emailOtpEcdsaSigningSessionAuthorityFromSealedRecord(
   _input: SealedEmailOtpEcdsaSigningSessionAuthInput,
