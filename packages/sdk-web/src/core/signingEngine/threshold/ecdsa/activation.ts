@@ -16,7 +16,6 @@ import type {
 } from '@/core/signingEngine/threshold/crypto/webauthn';
 import { bootstrapEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/bootstrapSession';
 import type { BootstrapEcdsaSessionResult } from '@/core/signingEngine/threshold/ecdsa/bootstrapSession';
-import type { connectEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/connectSession';
 import type { keygenEcdsa } from '@/core/signingEngine/threshold/ecdsa/keygen';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
@@ -113,9 +112,15 @@ function buildWalletBudgetProjectionVersion(args: {
 }
 
 export type EcdsaKeygenResult = Awaited<ReturnType<typeof keygenEcdsa>>;
-export type EcdsaSessionResult = Awaited<ReturnType<typeof connectEcdsaSession>>;
 export type EcdsaKeygenSuccess = EcdsaKeygenResult & { ok: true };
-export type EcdsaSessionSuccess = EcdsaSessionResult & { ok: true };
+type EcdsaSessionSuccess = {
+  ok: true;
+  sessionId?: string;
+  expiresAtMs?: number;
+  remainingUses?: number;
+  jwt?: string;
+  clientVerifyingShareB64u?: string;
+};
 
 export type ThresholdEcdsaSessionBootstrapResult = {
   thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
@@ -552,11 +557,6 @@ function resolveExactActivationOwnerAddress(args: {
   }
   return trustedOwnerAddress;
 }
-
-type BootstrapEcdsaSessionSuccess = Extract<
-  Awaited<ReturnType<typeof bootstrapEcdsaSession>>,
-  { ok: true }
->;
 
 function bootstrapSecretSourceArgsForActivation(
   args: ActivateEcdsaSessionByPurposeRequest,
