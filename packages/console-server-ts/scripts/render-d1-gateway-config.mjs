@@ -217,20 +217,18 @@ function buildSponsoredExecutionPricingConfig(runtimeProfile) {
   const networkClass =
     gatewayRuntimeProfileNearNetwork(runtimeProfile) === 'mainnet' ? 'MAINNET' : 'TESTNET';
   return {
-    provider: 'ref_finance',
+    provider: 'outlayer',
     nearRpcUrl: 'https://free.rpc.fastnear.com',
-    dexContractId: 'v2.ref-finance.near',
-    poolId: 4512,
-    nearTokenId: 'wrap.near',
-    usdcTokenId: '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1',
-    nearTokenDecimals: 24,
-    usdcTokenDecimals: 6,
-    cacheTtlMs: 300_000,
+    oracleContractId: 'price-oracle.near',
+    nearUsdPriceId: 'c415de8d2efa7db216527dff4b60e8f3a5311c740dadb233e13e12547e226750',
+    maxAgeSeconds: 120,
+    maxLatestToEmaDeviationBps: 1_000,
+    cacheTtlMs: 60_000,
     near: {
       [networkClass]: {
         nativeUnitDecimals: 24,
         estimateFeeAmountYocto: '1000000000000000000000',
-        pricingVersionPrefix: `ref-finance-near-${networkClass.toLowerCase()}`,
+        pricingVersionPrefix: `outlayer-near-${networkClass.toLowerCase()}`,
       },
     },
   };
