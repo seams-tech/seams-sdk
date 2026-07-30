@@ -26,7 +26,6 @@ import type {
 } from '../../core/registrationContracts';
 import { registrationPreparationIdFromString } from '../../core/registrationContracts';
 import type { D1WalletStore } from '../../core/d1WalletStore';
-import type { RouterAbNormalSigningRuntime } from '../../core/routerAbSigning/RouterAbNormalSigningRuntime';
 import type {
   StoredEd25519YaoAddSignerActivation,
   StoredEcdsaAddSignerActivated,
@@ -35,10 +34,7 @@ import type {
   StoredWalletAddSignerFinalizeRequest,
   StoredWalletAddSignerSignerState,
 } from '../../core/RegistrationCeremonyStore';
-import {
-  CloudflareD1RegistrationCeremonyIntentStore,
-  missingRegistrationCeremonyDoStore,
-} from './d1RegistrationCeremonyStore';
+import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import {
   buildD1EcdsaWalletKeysFromBootstrap,
   buildD1WalletEcdsaSignerRecords,
@@ -75,20 +71,48 @@ import {
 import {
   parseRouterAbEd25519YaoRegistrationSideEffectRecordV1,
   runRouterAbEd25519YaoRegistrationSideEffectV1,
+  throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1,
   type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
   type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
 } from '../routerAbEd25519YaoRegistrationSideEffectBoundary';
+import type {
+  RouterAbWalletBudgetGrantProvisionerV1,
+  RouterAbWalletBudgetSignerBindingV1,
+} from '../routerAbPrivateSigningWorker';
 
 type StartWalletAddSignerInput = WalletAddSignerStartRequest;
 type RespondWalletAddSignerDerivationInput = WalletAddSignerEcdsaDerivationRespondRequest;
 type ActivateWalletAddSignerEcdsaInput = WalletAddSignerEcdsaActivationRequest;
 type FinalizeWalletAddSignerInput = WalletAddSignerFinalizeRequest;
 
-type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore | null;
-type RouterAbNormalSigningRuntimeProvider = () => RouterAbNormalSigningRuntime | null;
+type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore;
 type WalletStoreProvider = () => D1WalletStore;
 type Ed25519YaoProductRegistrationProvider =
   () => RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
+
+function addSignerWalletBudgetRelyingPartyId(
+  ceremony: StoredWalletAddSignerCeremony,
+): string {
+  return ceremony.auth.kind === 'webauthn_assertion'
+    ? ceremony.auth.rpId
+    : `app-session:${ceremony.intent.walletId}`;
+}
+
+function addSignerWalletBudgetSigner(input: {
+  readonly curve: RouterAbWalletBudgetSignerBindingV1['curve'];
+  readonly thresholdSessionId: string;
+  readonly signingWorkerId: string;
+}): RouterAbWalletBudgetSignerBindingV1 {
+  return {
+    curve: input.curve,
+    threshold_session_id: input.thresholdSessionId,
+    signing_worker_id: input.signingWorkerId,
+  };
+}
+
+function addSignerWalletBudgetIssuerId(signingGrantId: string): string {
+  return `add-signer:${signingGrantId}`;
+}
 
 type Ed25519AddSignerIntent = AddSignerIntentV1 & {
   readonly signerSelection: Extract<AddSignerIntentV1['signerSelection'], { mode: 'ed25519' }>;
@@ -98,6 +122,7 @@ const ADD_SIGNER_CEREMONY_TTL_MS = 10 * 60_000;
 const ADD_SIGNER_REPLAY_TTL_MS = 10 * 60_000;
 const WALLET_ADD_SIGNER_START_RESUME_AFTER_MS = 30_000;
 const WALLET_ADD_SIGNER_FINALIZE_RESUME_AFTER_MS = 30_000;
+const WALLET_ADD_SIGNER_ROUTER_POLICY_VERSION = 'wallet-add-signer-v1';
 
 export type D1WalletAddSignerStartPreparedV1 = {
   readonly kind: 'd1_wallet_add_signer_start_prepared_v1';
@@ -444,21 +469,6 @@ function assertNeverWalletAddSignerFinalizeRun(value: never): never {
   throw new Error(`Unhandled wallet add-signer finalize result: ${String(value)}`);
 }
 
-function terminalOrRetryableAddSignerFinalizeFailure<
-  T extends { readonly ok: false; readonly code: string; readonly message: string },
->(failure: T): T {
-  switch (failure.code) {
-    case 'internal':
-    case 'execution_in_progress':
-    case 'temporarily_unavailable':
-    case 'timeout':
-    case 'uncertain':
-      throw new Error(failure.message);
-    default:
-      return failure;
-  }
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '');
 }
@@ -585,7 +595,7 @@ function bootstrapWithProvisionedSession(input: {
 export class CloudflareD1WalletAddSignerService {
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
-  private readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
+  private readonly walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null;
   private readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
   private readonly getWalletStore: WalletStoreProvider;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
@@ -595,7 +605,7 @@ export class CloudflareD1WalletAddSignerService {
   constructor(input: {
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
-    readonly getRouterAbNormalSigningRuntime: RouterAbNormalSigningRuntimeProvider;
+    readonly walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null;
     readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
     readonly getWalletStore: WalletStoreProvider;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
@@ -604,7 +614,7 @@ export class CloudflareD1WalletAddSignerService {
   }) {
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getEd25519YaoProductRegistration = input.getEd25519YaoProductRegistration;
-    this.getRouterAbNormalSigningRuntime = input.getRouterAbNormalSigningRuntime;
+    this.walletBudgetGrantProvisioner = input.walletBudgetGrantProvisioner;
     this.ecdsaStrictRegistration = input.ecdsaStrictRegistration;
     this.getWalletStore = input.getWalletStore;
     this.walletAuthMethods = input.walletAuthMethods;
@@ -616,7 +626,6 @@ export class CloudflareD1WalletAddSignerService {
     addSignerCeremonyId: string,
   ): Promise<NonNullable<ReturnType<typeof parseD1RuntimePolicyScope>> | null> {
     const store = this.getRegistrationCeremonyIntentStore();
-    if (!store) return null;
     const ceremony = await store.getAddSignerCeremony(addSignerCeremonyId);
     if (!ceremony) return null;
     return parseD1RuntimePolicyScope(ceremony.intent.runtimePolicyScope) ?? null;
@@ -627,7 +636,6 @@ export class CloudflareD1WalletAddSignerService {
   ): Promise<WalletAddSignerStartResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const walletId = parseWalletIdForIntent(request.walletId);
       if (!walletId) {
         return { ok: false, code: 'invalid_body', message: 'walletId is required' };
@@ -701,7 +709,11 @@ export class CloudflareD1WalletAddSignerService {
           ? returnD1WalletAddSignerStartPrepared.bind(null, prepared)
           : rejectUnexpectedWalletAddSignerStartPreparation,
         derivePreparedArtifactFingerprint: fingerprintD1WalletAddSignerStartPrepared,
-        execute: this.executeWalletAddSignerStart.bind(this, { request, store, walletId }),
+        execute: this.executeWalletAddSignerStartSideEffect.bind(this, {
+          request,
+          store,
+          walletId,
+        }),
       });
       switch (run.kind) {
         case 'executed':
@@ -735,6 +747,22 @@ export class CloudflareD1WalletAddSignerService {
         message: errorMessage(error) || 'Failed to start wallet add-signer ceremony',
       };
     }
+  }
+
+  private async executeWalletAddSignerStartSideEffect(
+    input: {
+      readonly request: StartWalletAddSignerInput;
+      readonly store: CloudflareD1RegistrationCeremonyIntentStore;
+      readonly walletId: WalletId;
+    },
+    prepared: D1WalletAddSignerStartPreparedV1,
+    attempt: 'fresh' | 'resumed',
+  ): Promise<D1WalletAddSignerStartTerminalV1> {
+    const terminal = await this.executeWalletAddSignerStart(input, prepared, attempt);
+    if (terminal.kind === 'd1_wallet_add_signer_start_rejected_v1') {
+      throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(terminal.response);
+    }
+    return terminal;
   }
 
   private async executeWalletAddSignerStart(
@@ -812,8 +840,7 @@ export class CloudflareD1WalletAddSignerService {
         );
       }
       yaoRuntime = this.getEd25519YaoProductRegistration();
-      const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
-      if (!yaoRuntime || !normalSigningRuntime) {
+      if (!yaoRuntime || !this.walletBudgetGrantProvisioner) {
         return rejectedWalletAddSignerStartTerminal(
           'not_configured',
           'Ed25519 Yao add-signer is not configured on this server',
@@ -936,7 +963,6 @@ export class CloudflareD1WalletAddSignerService {
   ): Promise<WalletAddSignerEcdsaDerivationRespondResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const ceremony = await store.getAddSignerCeremony(request.addSignerCeremonyId);
       if (!ceremony) {
         return { ok: false, code: 'not_found', message: 'add-signer ceremony not found' };
@@ -991,6 +1017,10 @@ export class CloudflareD1WalletAddSignerService {
       }
       const registered = await this.ecdsaStrictRegistration.register({
         request: request.ecdsa.strictRegistration,
+        requestPolicy: {
+          policyVersion: WALLET_ADD_SIGNER_ROUTER_POLICY_VERSION,
+          requestDigestB64u: request.ecdsa.requestDigestB64u,
+        },
         authority: ecdsaStrictRegistrationAuthority(ceremony.signerState.strictRegistration),
       });
       if (!registered.ok) {
@@ -1039,7 +1069,6 @@ export class CloudflareD1WalletAddSignerService {
     request: ActivateWalletAddSignerEcdsaInput,
   ): Promise<WalletAddSignerEcdsaActivationResponse> {
     const store = this.getRegistrationCeremonyIntentStore();
-    if (!store) return missingRegistrationCeremonyDoStore();
     const ceremony = await store.getAddSignerCeremony(request.addSignerCeremonyId);
     if (!ceremony) {
       return { ok: false, code: 'not_found', message: 'add-signer ceremony not found' };
@@ -1078,6 +1107,10 @@ export class CloudflareD1WalletAddSignerService {
     const activated = await this.ecdsaStrictRegistration.activate({
       pendingActivation: state.pendingActivation,
       clientActivation: request.ecdsa.publicFacts,
+      requestPolicy: {
+        policyVersion: WALLET_ADD_SIGNER_ROUTER_POLICY_VERSION,
+        requestDigestB64u: request.ecdsa.publicFacts.registrationRequestDigestB64u,
+      },
       authority: ecdsaStrictRegistrationAuthority(state.strictRegistration),
     });
     if (!activated.ok) {
@@ -1090,24 +1123,33 @@ export class CloudflareD1WalletAddSignerService {
         publicFacts: request.ecdsa.publicFacts,
         activation: activated.value,
       });
-      const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
-      if (!normalSigningRuntime) {
-        throw new Error('Router A/B normal signing is not configured');
+      const budgetProvisioner = this.walletBudgetGrantProvisioner;
+      if (!budgetProvisioner) {
+        throw new Error('Router A/B private-D1 wallet-budget provisioning is not configured');
       }
-      const provisioned = await normalSigningRuntime.provisionRouterAbEcdsaNormalSigningSession({
-        kind: 'router_ab_ecdsa_normal_signing_session_v1',
+      const provisioned = await budgetProvisioner.provisionGrant({
         walletId: bootstrap.walletId,
-        evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
-        relayerKeyId: bootstrap.relayerKeyId,
-        thresholdSessionId: bootstrap.thresholdSessionId,
         signingGrantId: bootstrap.signingGrantId,
-        signingRootId: bootstrap.signingRootId,
-        signingRootVersion: bootstrap.signingRootVersion,
-        participantIds: exactEcdsaParticipantPair(bootstrap.participantIds),
+        relyingPartyId: addSignerWalletBudgetRelyingPartyId(ceremony),
+        authorizedSigners: [
+          addSignerWalletBudgetSigner({
+            curve: 'ecdsa',
+            thresholdSessionId: bootstrap.thresholdSessionId,
+            signingWorkerId: state.strictRegistration.lifecycle.selected_server_id,
+          }),
+        ],
+        initialSignatureUses: bootstrap.remainingUses,
         expiresAtMs: bootstrap.expiresAtMs,
-        remainingUses: bootstrap.remainingUses,
+        issuerIdempotencyKey: addSignerWalletBudgetIssuerId(bootstrap.signingGrantId),
       });
       if (!provisioned.ok) throw new Error(provisioned.message);
+      if (
+        provisioned.remainingUses !== bootstrap.remainingUses ||
+        provisioned.availableUses !== bootstrap.remainingUses ||
+        provisioned.reservedUses !== 0
+      ) {
+        throw new Error('SigningWorker returned an unexpected add-signer wallet budget');
+      }
       const activatedState: StoredEcdsaAddSignerActivated = {
         kind: 'ecdsa_add_signer_activated',
         derivationKind: state.derivationKind,
@@ -1123,7 +1165,14 @@ export class CloudflareD1WalletAddSignerService {
           clientActivation: request.ecdsa.publicFacts,
           activationReceipt: activated.value,
         }),
-        bootstrap: bootstrapWithProvisionedSession({ bootstrap, provisioned }),
+        bootstrap: bootstrapWithProvisionedSession({
+          bootstrap,
+          provisioned: {
+            expiresAtMs: provisioned.expiresAtMs,
+            remainingUses: provisioned.remainingUses,
+            participantIds: exactEcdsaParticipantPair(bootstrap.participantIds),
+          },
+        }),
       };
       await store.updateAddSignerCeremony({
         expected: ceremony,
@@ -1158,7 +1207,6 @@ export class CloudflareD1WalletAddSignerService {
   ): Promise<WalletAddSignerFinalizeResponse> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
-      if (!store) return missingRegistrationCeremonyDoStore();
       const idempotencyKey = toOptionalTrimmedString(request.idempotencyKey);
       if (!idempotencyKey) {
         return { ok: false, code: 'invalid_body', message: 'idempotencyKey is required' };
@@ -1213,9 +1261,10 @@ export class CloudflareD1WalletAddSignerService {
           ? returnD1WalletAddSignerFinalizePrepared.bind(null, prepared)
           : rejectUnexpectedWalletAddSignerFinalizePreparation,
         derivePreparedArtifactFingerprint: fingerprintD1WalletAddSignerFinalizePrepared,
-        execute: this.executeWalletAddSignerFinalize.bind(this, {
+        execute: this.executeWalletAddSignerFinalizeSideEffect.bind(this, {
           finalizeRequest,
           store,
+          consumerBinding: requestFingerprint,
         }),
       });
       switch (run.kind) {
@@ -1258,10 +1307,23 @@ export class CloudflareD1WalletAddSignerService {
     }
   }
 
+  private async executeWalletAddSignerFinalizeSideEffect(
+    input: {
+      readonly finalizeRequest: StoredWalletAddSignerFinalizeRequest;
+      readonly store: CloudflareD1RegistrationCeremonyIntentStore;
+      readonly consumerBinding: string;
+    },
+    prepared: D1WalletAddSignerFinalizePreparedV1,
+  ): Promise<WalletAddSignerFinalizeResponse> {
+    const response = await this.executeWalletAddSignerFinalize(input, prepared);
+    return response.ok ? response : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(response);
+  }
+
   private async executeWalletAddSignerFinalize(
     input: {
       readonly finalizeRequest: StoredWalletAddSignerFinalizeRequest;
       readonly store: CloudflareD1RegistrationCeremonyIntentStore;
+      readonly consumerBinding: string;
     },
     prepared: D1WalletAddSignerFinalizePreparedV1,
   ): Promise<WalletAddSignerFinalizeResponse> {
@@ -1285,7 +1347,7 @@ export class CloudflareD1WalletAddSignerService {
       }
       return replay.response;
     }
-    const ceremony = await store.getAddSignerCeremony(finalizeRequest.addSignerCeremonyId);
+    let ceremony = await store.getAddSignerCeremony(finalizeRequest.addSignerCeremonyId);
     if (!ceremony) {
       return { ok: false, code: 'not_found', message: 'add-signer ceremony not found' };
     }
@@ -1303,6 +1365,7 @@ export class CloudflareD1WalletAddSignerService {
           message: 'authorized WebAuthn Ed25519 Yao add-signer state is required',
         };
       }
+      const webAuthnAuth = ceremony.auth;
       const runtimePolicyScope = parseD1RuntimePolicyScope(ceremony.intent.runtimePolicyScope);
       const participantIds = resolveEd25519AddSignerParticipantIds(ceremony.intent.signerSelection);
       if (!runtimePolicyScope || !participantIds) {
@@ -1327,8 +1390,8 @@ export class CloudflareD1WalletAddSignerService {
         };
       }
       const yaoRuntime = this.getEd25519YaoProductRegistration();
-      const normalSigningRuntime = this.getRouterAbNormalSigningRuntime();
-      if (!yaoRuntime || !normalSigningRuntime) {
+      const budgetProvisioner = this.walletBudgetGrantProvisioner;
+      if (!yaoRuntime || !budgetProvisioner) {
         return {
           ok: false,
           code: 'not_configured',
@@ -1356,9 +1419,9 @@ export class CloudflareD1WalletAddSignerService {
         }
         const consumed = await yaoRuntime.consumeActivated({
           reference: requestedActivationReference,
-          consumerBinding: alphabetizeStringify(finalizeRequest),
+          consumerBinding: input.consumerBinding,
         });
-        if (!consumed.ok) return terminalOrRetryableAddSignerFinalizeFailure(consumed);
+        if (!consumed.ok) return consumed;
         if (
           alphabetizeStringify(consumed.activation.admissionRequest) !==
           alphabetizeStringify(currentState.admissionRequest)
@@ -1373,19 +1436,21 @@ export class CloudflareD1WalletAddSignerService {
           finalizeRequest,
           activation: consumed.activation,
         };
+        const activatedCeremony = updateAddSignerCeremonyState({
+          ceremony,
+          signingRootId,
+          signingRootVersion,
+          signerState: {
+            kind: 'near_ed25519_yao_add_signer_activated',
+            finalizeRequest: activation.finalizeRequest,
+            activation: activation.activation,
+          },
+        });
         await store.updateAddSignerCeremony({
           expected: ceremony,
-          next: updateAddSignerCeremonyState({
-            ceremony,
-            signingRootId,
-            signingRootVersion,
-            signerState: {
-              kind: 'near_ed25519_yao_add_signer_activated',
-              finalizeRequest: activation.finalizeRequest,
-              activation: activation.activation,
-            },
-          }),
+          next: activatedCeremony,
         });
+        ceremony = activatedCeremony;
       } else if (
         currentState.kind === 'near_ed25519_yao_add_signer_activated' ||
         currentState.kind === 'near_ed25519_yao_add_signer_finalizing'
@@ -1433,12 +1498,12 @@ export class CloudflareD1WalletAddSignerService {
         const activeYaoCapability =
           buildRouterAbEd25519YaoRegistrationCapabilityRecordV1(capabilityInstallation);
         if (!activeYaoCapability.ok) {
-          return terminalOrRetryableAddSignerFinalizeFailure(activeYaoCapability);
+          return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(activeYaoCapability);
         }
         const authority = buildPasskeyWalletAuthAuthority({
           walletId: ceremony.intent.walletId,
-          rpId: ceremony.auth.rpId,
-          credentialIdB64u: ceremony.auth.credentialIdB64u,
+          rpId: webAuthnAuth.rpId,
+          credentialIdB64u: webAuthnAuth.credentialIdB64u,
         });
         const session = await yaoRuntime.mintWalletSession({
           kind: 'add_signer_wallet_session_v1',
@@ -1453,7 +1518,9 @@ export class CloudflareD1WalletAddSignerService {
           expiresAtMs: prepared.expiresAtMs,
           remainingUses: prepared.remainingUses,
         });
-        if (!session.ok) return terminalOrRetryableAddSignerFinalizeFailure(session);
+        if (!session.ok) {
+          return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(session);
+        }
         finalizingAtMs = prepared.finalizingAtMs;
         const ed25519 = {
           signerSlot: selection.signerSlot,
@@ -1470,8 +1537,8 @@ export class CloudflareD1WalletAddSignerService {
           ok: true,
           kind: 'near_ed25519',
           walletId: ceremony.intent.walletId,
-          rpId: ceremony.auth.rpId,
-          credentialIdB64u: ceremony.auth.credentialIdB64u,
+          rpId: webAuthnAuth.rpId,
+          credentialIdB64u: webAuthnAuth.credentialIdB64u,
           ed25519,
         };
         signer = buildYaoEd25519WalletSignerRecord({
@@ -1510,8 +1577,8 @@ export class CloudflareD1WalletAddSignerService {
 
       if (
         response.walletId !== ceremony.intent.walletId ||
-        response.rpId !== ceremony.auth.rpId ||
-        response.credentialIdB64u !== ceremony.auth.credentialIdB64u ||
+        response.rpId !== webAuthnAuth.rpId ||
+        response.credentialIdB64u !== webAuthnAuth.credentialIdB64u ||
         response.ed25519.signerSlot !== selection.signerSlot ||
         response.ed25519.session.thresholdSessionId !==
           activation.activation.admissionRequest.scope.wallet_session_id ||
@@ -1535,21 +1602,26 @@ export class CloudflareD1WalletAddSignerService {
           message: 'stored Ed25519 Yao add-signer finalize plan is invalid',
         };
       }
-      const provisioned =
-        await normalSigningRuntime.provisionRouterAbEd25519YaoNormalSigningSession({
-          kind: 'router_ab_ed25519_yao_normal_signing_session_v1',
-          walletId: ceremony.intent.walletId,
-          nearAccountId: response.ed25519.nearAccountId,
-          nearEd25519SigningKeyId: response.ed25519.nearEd25519SigningKeyId,
-          authorityScope: response.ed25519.session.authorityScope,
-          thresholdSessionId: response.ed25519.session.thresholdSessionId,
-          signingGrantId: response.ed25519.session.signingGrantId,
-          signingWorkerId: yaoRuntime.signingWorkerId,
-          expiresAtMs: response.ed25519.session.expiresAtMs,
-          participantIds,
-          remainingUses: response.ed25519.session.remainingUses,
-        });
-      if (!provisioned.ok) return terminalOrRetryableAddSignerFinalizeFailure(provisioned);
+      const provisioned = await budgetProvisioner.provisionGrant({
+        walletId: ceremony.intent.walletId,
+        signingGrantId: response.ed25519.session.signingGrantId,
+        relyingPartyId: addSignerWalletBudgetRelyingPartyId(ceremony),
+        authorizedSigners: [
+          addSignerWalletBudgetSigner({
+            curve: 'ed25519',
+            thresholdSessionId: response.ed25519.session.thresholdSessionId,
+            signingWorkerId: yaoRuntime.signingWorkerId,
+          }),
+        ],
+        initialSignatureUses: response.ed25519.session.remainingUses,
+        expiresAtMs: response.ed25519.session.expiresAtMs,
+        issuerIdempotencyKey: addSignerWalletBudgetIssuerId(
+          response.ed25519.session.signingGrantId,
+        ),
+      });
+      if (!provisioned.ok) {
+        return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(provisioned);
+      }
       const inserted = await walletStore.putEd25519SignerIfSlotAvailable(signer);
       if (!inserted) {
         const existing = await walletStore.getEd25519SignerBySlot({
@@ -1567,7 +1639,9 @@ export class CloudflareD1WalletAddSignerService {
       const installed = await yaoRuntime.installPersistedActiveCapability(
         signer.activeYaoCapability,
       );
-      if (!installed.ok) return terminalOrRetryableAddSignerFinalizeFailure(installed);
+      if (!installed.ok) {
+        return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(installed);
+      }
       await store.putAddSignerFinalizeReplay({
         kind: 'wallet_add_signer_finalize_replay_v1',
         addSignerCeremonyId: ceremony.addSignerCeremonyId,

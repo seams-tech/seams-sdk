@@ -148,6 +148,7 @@ import {
   deriveRouterAbEd25519YaoRuntimePolicyBindingV1,
   parseRouterAbEd25519YaoExportAdmissionRequestV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoRecoveryActivationReceiptV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -507,9 +508,7 @@ function buildEmailOtpEd25519YaoStableCustodyBinding(args: {
     participantIds: args.metadata.participantIds,
     signingWorkerId: args.metadata.scope.signing_worker_id,
     registeredPublicKeyB64u: base64UrlEncode(args.metadata.registeredPublicKey),
-    signingWorkerVerifyingShareB64u: base64UrlEncode(
-      args.metadata.signingWorkerVerifyingShare,
-    ),
+    signingWorkerVerifyingShareB64u: base64UrlEncode(args.metadata.signingWorkerVerifyingShare),
     stateEpoch: args.metadata.stateEpoch.toString(10),
     activationTranscriptB64u: base64UrlEncode(args.metadata.transcript),
     activeCapabilityBindingB64u: base64UrlEncode(
@@ -1056,10 +1055,7 @@ function readSigningGrantId(value: unknown, label: string): SigningGrantId {
   return parsed.value;
 }
 
-function readThresholdEd25519SessionId(
-  value: unknown,
-  label: string,
-): ThresholdEd25519SessionId {
+function readThresholdEd25519SessionId(value: unknown, label: string): ThresholdEd25519SessionId {
   const parsed = parseThresholdEd25519SessionId(value);
   if (!parsed.ok) {
     throw new Error(`${label} is invalid`);
@@ -2552,7 +2548,9 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
       ok: false,
       code: 'internal',
       message:
-        error instanceof Error ? error.message : String(error || 'Yao local material restore failed'),
+        error instanceof Error
+          ? error.message
+          : String(error || 'Yao local material restore failed'),
     };
   } finally {
     if (importedClient) {
@@ -3484,10 +3482,7 @@ function metadataFromEmailOtpEd25519YaoLocalMaterial(args: {
       lifecycle_id: binding.lifecycleId,
       root_share_epoch: binding.rootShareEpoch,
       account_id: binding.walletId,
-      wallet_session_id: readString(
-        args.expectedThresholdSessionId,
-        'expectedThresholdSessionId',
-      ),
+      wallet_session_id: readString(args.expectedThresholdSessionId, 'expectedThresholdSessionId'),
       signer_set_id: binding.signerSetId,
       signing_worker_id: binding.signingWorkerId,
     },
@@ -4978,9 +4973,7 @@ function parseEmailOtpWalletUnlockMaterialRequest(
       );
       return {
         kind: 'ed25519_yao_exact_local_session',
-        ed25519YaoSession: parseEmailOtpEd25519YaoExactLocalSessionRequest(
-          obj.ed25519YaoSession,
-        ),
+        ed25519YaoSession: parseEmailOtpEd25519YaoExactLocalSessionRequest(obj.ed25519YaoSession),
         providerSubject: readString(obj.providerSubject, 'material.providerSubject'),
         nearAccountId: readString(obj.nearAccountId, 'material.nearAccountId'),
         expectedOperationalPublicKey: readString(
@@ -5386,6 +5379,12 @@ function parseEmailOtpEd25519YaoRootScope(value: unknown): EmailOtpEd25519YaoRoo
 
 function parseEmailOtpEd25519YaoRegistrationAdmission(value: unknown) {
   const parsed = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(value);
+  if (!parsed.ok) throw new Error(parsed.message);
+  return parsed.value;
+}
+
+function parseEmailOtpEd25519YaoRegistrationAdmissionReceipt(value: unknown) {
+  const parsed = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(value);
   if (!parsed.ok) throw new Error(parsed.message);
   return parsed.value;
 }
@@ -6214,6 +6213,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         [
           'rootHandle',
           'admissionRequest',
+          'admissionReceipt',
           'walletId',
           'providerSubject',
           'registrationAuthorityId',
@@ -6228,6 +6228,9 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         payload: {
           rootHandle: parseEmailOtpEd25519YaoRootHandle(payload.rootHandle),
           admissionRequest: parseEmailOtpEd25519YaoRegistrationAdmission(payload.admissionRequest),
+          admissionReceipt: parseEmailOtpEd25519YaoRegistrationAdmissionReceipt(
+            payload.admissionReceipt,
+          ),
           walletId: readString(payload.walletId, 'walletId'),
           providerSubject: readString(payload.providerSubject, 'providerSubject'),
           registrationAuthorityId: readString(
@@ -6951,6 +6954,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             kind: 'email_otp_ed25519_yao_registration_input_v1',
             rootHandle: msg.payload.rootHandle,
             admissionRequest: msg.payload.admissionRequest,
+            admissionReceipt: msg.payload.admissionReceipt,
             authority: {
               kind: 'verified_email_otp_ed25519_yao_authority_v1',
               walletId: msg.payload.walletId,
@@ -6983,6 +6987,14 @@ self.addEventListener('message', async (event: MessageEvent) => {
               pendingHandle,
               operationalPublicKey,
               activationReference,
+              // Email OTP runs Yao in this worker, so the Router breakdown
+              // only reaches the main thread by riding this response.
+              ...(result.value.routerServerTiming
+                ? { routerServerTiming: result.value.routerServerTiming }
+                : {}),
+              ...(result.value.clientTimings
+                ? { clientTimings: result.value.clientTimings }
+                : {}),
             },
           });
         } catch (error) {

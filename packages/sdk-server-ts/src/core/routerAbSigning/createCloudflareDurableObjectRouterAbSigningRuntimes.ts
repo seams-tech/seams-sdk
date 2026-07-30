@@ -78,6 +78,7 @@ export function createCloudflareDurableObjectRouterAbSigningRuntimes(input: {
     walletSessionStore: ed25519Stores.walletSessionStore,
     ecdsaWalletSessionStore: ecdsaStores.walletSessionStore,
     walletBudgetSessionStore: walletBudgetStores.walletSessionStore,
+    ecdsaNormalSigningProvisioner: ecdsaStores.normalSigningProvisioner,
     config: normalSigningConfig,
   });
   const localSigningSeed = new RouterAbLocalSigningSeedRuntime({
@@ -87,9 +88,7 @@ export function createCloudflareDurableObjectRouterAbSigningRuntimes(input: {
     normalSigningRuntime: normalSigning,
   });
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({
-    logger,
     config: parseRouterAbEcdsaPresignRuntimeConfig(input.thresholdStore),
-    ecdsaPoolFillSessionStore: ecdsaStores.poolFillSessionStore,
     signingWorkerTransport,
     ensureReady,
   });

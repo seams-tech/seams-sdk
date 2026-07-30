@@ -26,13 +26,10 @@
       "@seams-internal/console-shared/*": ["../console-shared-ts/src/*"],
       "@seams-internal/console-server": ["src/index.ts"],
       "@seams-internal/console-server/*": ["src/*"],
-      "@seams-internal/shared-ts/*": ["../shared-ts/src/*"],
-      "@seams/sdk-server/internal/*": ["../sdk-server-ts/src/*"],
-      "@shared/*": ["../shared-ts/src/*"],
       "express": ["./node_modules/@types/express/index.d.ts"],
       "*": ["./node_modules/*", "../node_modules/*", "../../node_modules/*"]
     }
   },
-  "include": ["src/**/*", "../console-shared-ts/src/**/*", "../shared-ts/src/**/*"],
+  "include": ["src/**/*", "../console-shared-ts/src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

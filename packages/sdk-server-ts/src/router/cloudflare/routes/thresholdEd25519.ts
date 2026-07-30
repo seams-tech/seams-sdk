@@ -10,9 +10,8 @@ import {
 import { resolveThresholdRuntimePolicyScope } from '../../commonRouterUtils';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
 import {
-  handleRouterAbEd25519NormalSigningRouteCore,
-  ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS,
-  type RouterAbEd25519PrivateSigningPath,
+  authorizeRouterAbEd25519NormalSigningRoute,
+  type RouterAbEd25519NormalSigningRoutePhase,
 } from '../../routerAbPrivateSigningWorker';
 import { parseThresholdEd25519SessionRouteRequest } from '../../thresholdEd25519RequestValidation';
 import {
@@ -31,6 +30,7 @@ import type {
   RouterAbEd25519YaoBudgetRefreshAuthorizationV1,
   RouterAbEd25519YaoSessionRouteCommandV1,
 } from '../../routerAbEd25519YaoWalletSession';
+import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
 
 type PasskeyEd25519AuthorizationResult =
   | {
@@ -229,27 +229,30 @@ async function validateSignedEd25519SessionAuthorization(input: {
 async function handleRouterAbEd25519NormalSigningRoute(input: {
   ctx: CloudflareRouterApiContext;
   body: Record<string, unknown>;
-  privatePath: RouterAbEd25519PrivateSigningPath;
-  phase: 'prepare' | 'finalize';
+  phase: RouterAbEd25519NormalSigningRoutePhase;
 }): Promise<Response> {
-  const result = await handleRouterAbEd25519NormalSigningRouteCore({
+  const authorization = await authorizeRouterAbEd25519NormalSigningRoute({
     body: input.body,
     rawBody: input.body,
     headers: Object.fromEntries(input.ctx.request.headers.entries()),
     session: input.ctx.opts.session,
-    runtime: input.ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime(),
     admissionAdapter: input.ctx.opts.routerAbNormalSigningAdmission,
-    privatePath: input.privatePath,
     phase: input.phase,
   });
-  return json(result.body, { status: result.status });
+  if (!authorization.ok) {
+    return json(authorization.result.body, { status: authorization.result.status });
+  }
+  return await proxyNormalSigningRequestToMpcRouter({
+    request: input.ctx.request,
+    proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+  });
 }
 
 export async function handleThresholdEd25519(
   ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ED25519_HEALTH_PATH) {
-    if (!ctx.service.thresholdRuntime.getRouterAbNormalSigningRuntime()) {
+    if (!ctx.opts.routerAbNormalSigningRouterProxy) {
       const body = {
         ok: false,
         code: 'not_configured',
@@ -272,7 +275,7 @@ export async function handleThresholdEd25519(
     return null;
   }
 
-  const bodyUnknown = await readJson(ctx.request);
+  const bodyUnknown = await readJson(ctx.request.clone());
   const body =
     bodyUnknown && typeof bodyUnknown === 'object' && !Array.isArray(bodyUnknown)
       ? (bodyUnknown as Record<string, unknown>)
@@ -283,7 +286,6 @@ export async function handleThresholdEd25519(
       return handleRouterAbEd25519NormalSigningRoute({
         ctx,
         body,
-        privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare,
         phase: 'prepare',
       });
 
@@ -291,7 +293,6 @@ export async function handleThresholdEd25519(
       return handleRouterAbEd25519NormalSigningRoute({
         ctx,
         body,
-        privatePath: ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize,
         phase: 'finalize',
       });
   }

@@ -1,7 +1,5 @@
 import type {
   CloudflareTenantStorageRoute,
-  ConsoleD1StorageTarget,
-  ConsolePostgresStorageTarget,
   D1DatabaseLike,
   D1PreparedStatementLike,
   HyperdriveBindingLike,
@@ -17,7 +15,6 @@ import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
 } from './tenantRoute';
 import { parseOrgId, type OrgId } from '@shared/utils/domainIds';
-import type { CloudflareDurableObjectNamespaceLike } from '../core/types';
 import type { SigningRootKekProvider } from '../core/ThresholdService/signingRootKekProvider';
 
 function orgIdFromString(input: string): OrgId {
@@ -35,10 +32,16 @@ const preparedStatement: D1PreparedStatementLike = {
   async first<T = unknown>(): Promise<T | null> {
     return null;
   },
-  async all<T = unknown>(): Promise<{ readonly results?: readonly T[]; readonly success: boolean }> {
+  async all<T = unknown>(): Promise<{
+    readonly results?: readonly T[];
+    readonly success: boolean;
+  }> {
     return { results: [], success: true };
   },
-  async run<T = unknown>(): Promise<{ readonly results?: readonly T[]; readonly success: boolean }> {
+  async run<T = unknown>(): Promise<{
+    readonly results?: readonly T[];
+    readonly success: boolean;
+  }> {
     return { results: [], success: true };
   },
 };
@@ -55,30 +58,12 @@ const d1Database: D1DatabaseLike = {
   },
 };
 
-const thresholdStore: CloudflareDurableObjectNamespaceLike = {
-  idFromName(name: string): unknown {
-    return name;
-  },
-  get() {
-    return {
-      async fetch(): Promise<Response> {
-        return new Response('{}');
-      },
-    };
-  },
-};
-
 const kekProvider: SigningRootKekProvider = {
   kind: 'worker_secret',
-  workerSecretsByKekId: { 'signing-root-kek-test-r1': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
+  workerSecretsByKekId: {
+    'signing-root-kek-test-r1': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+  },
   encoding: 'base64url',
-};
-
-const consoleD1Target: ConsoleD1StorageTarget = {
-  kind: 'd1',
-  bindingName: 'CONSOLE_DB',
-  databaseName: 'seams-console',
-  database: d1Database,
 };
 
 const signerD1DoTarget: SignerD1DoStorageTarget = {
@@ -86,22 +71,11 @@ const signerD1DoTarget: SignerD1DoStorageTarget = {
   metadataBindingName: 'SIGNER_DB',
   metadataDatabaseName: 'seams-signer',
   metadataDatabase: d1Database,
-  thresholdStoreBindingName: 'THRESHOLD_STORE',
-  thresholdStore,
   kekProvider,
 };
 
 const hyperdrive: HyperdriveBindingLike = {
   connectionString: 'postgres://example.invalid/seams',
-};
-
-const orgId = orgIdFromString('org_test');
-
-const consolePostgresTarget: ConsolePostgresStorageTarget = {
-  kind: 'postgres',
-  hyperdriveBindingName: 'SEAMS_POSTGRES',
-  hyperdrive,
-  postgresSchema: 'seams_console',
 };
 
 const signerPostgresTarget: SignerPostgresStorageTarget = {
@@ -112,17 +86,18 @@ const signerPostgresTarget: SignerPostgresStorageTarget = {
   kekProvider,
 };
 
-const cloudflareRoute: TenantStorageRoute = createCloudflareTenantStorageRoute({
+const orgId = orgIdFromString('org_test');
+
+const cloudflareRoute: CloudflareTenantStorageRoute = createCloudflareTenantStorageRoute({
   namespace: 'seams',
   orgId,
   routeVersion: 1,
   topology: 'shared',
   jurisdiction: 'automatic',
-  console: consoleD1Target,
   signer: signerD1DoTarget,
 });
 
-const postgresRoute: TenantStorageRoute = {
+const postgresRoute: PostgresTenantStorageRoute = {
   kind: 'postgres',
   namespace: 'seams',
   orgId,
@@ -130,7 +105,6 @@ const postgresRoute: TenantStorageRoute = {
   migrationReason: 'd1_size_limit',
   postgresRegion: 'wnam',
   postgresBackupRegion: 'enam',
-  console: consolePostgresTarget,
   signer: signerPostgresTarget,
 };
 
@@ -138,7 +112,6 @@ const resolver = createStaticCloudflareTenantStorageRouteResolver({
   routeVersion: 1,
   topology: 'shared',
   jurisdiction: 'automatic',
-  console: consoleD1Target,
   signer: signerD1DoTarget,
 });
 const resolvedRoute = resolver.resolveTenantStorageRoute({
@@ -151,14 +124,9 @@ const resolverFromBindings = createStaticCloudflareTenantStorageRouteResolverFro
   routeVersion: 1,
   topology: 'shared',
   jurisdiction: 'automatic',
-  consoleBindingName: 'CONSOLE_DB',
-  consoleDatabaseName: 'seams-console',
-  consoleDatabase: d1Database,
   signerMetadataBindingName: 'SIGNER_DB',
   signerMetadataDatabaseName: 'seams-signer',
   signerMetadataDatabase: d1Database,
-  thresholdStoreBindingName: 'THRESHOLD_STORE',
-  thresholdStore,
   kekProvider,
 });
 const resolvedFromBindings = resolverFromBindings.resolveTenantStorageRoute({
@@ -179,17 +147,27 @@ const resolvedPostgresRoute = postgresResolver.resolveTenantStorageRoute({
 const resolvedPostgresRouteKind: 'postgres' =
   resolvedPostgresRoute.kind === 'postgres' ? resolvedPostgresRoute.kind : postgresRoute.kind;
 
+const legacyConsoleTarget = {
+  kind: 'd1',
+  bindingName: 'CONSOLE_DB',
+  databaseName: 'seams-console',
+  database: d1Database,
+} as const;
+
 const invalidCloudflareConsoleTarget: CloudflareTenantStorageRoute = {
-  kind: 'cloudflare_d1_do',
-  namespace: 'seams',
-  orgId,
-  routeVersion: 1,
-  topology: 'shared',
-  jurisdiction: 'automatic',
-  // @ts-expect-error Cloudflare routes require a D1 console target.
-  console: consolePostgresTarget,
-  signer: signerD1DoTarget,
+  ...cloudflareRoute,
+  // @ts-expect-error Public tenant routes cannot carry console storage.
+  console: legacyConsoleTarget,
 };
+
+const cloudflareRouteHasNoConsoleKeys: Record<
+  Extract<'console', keyof CloudflareTenantStorageRoute>,
+  never
+> = {};
+const postgresRouteHasNoConsoleKeys: Record<
+  Extract<'console', keyof PostgresTenantStorageRoute>,
+  never
+> = {};
 
 const invalidCloudflareSignerTarget: CloudflareTenantStorageRoute = {
   kind: 'cloudflare_d1_do',
@@ -198,35 +176,25 @@ const invalidCloudflareSignerTarget: CloudflareTenantStorageRoute = {
   routeVersion: 1,
   topology: 'shared',
   jurisdiction: 'automatic',
-  console: consoleD1Target,
   // @ts-expect-error Cloudflare routes require a D1/DO signer target.
   signer: signerPostgresTarget,
 };
 
 const invalidCloudflareMigrationReason: CloudflareTenantStorageRoute = {
-  kind: 'cloudflare_d1_do',
-  namespace: 'seams',
-  orgId,
-  routeVersion: 1,
-  topology: 'shared',
-  jurisdiction: 'automatic',
-  console: consoleD1Target,
-  signer: signerD1DoTarget,
+  ...cloudflareRoute,
   // @ts-expect-error Cloudflare routes cannot carry a Postgres migration reason.
   migrationReason: 'd1_size_limit',
 };
 
 const invalidPostgresConsoleTarget: PostgresTenantStorageRoute = {
-  kind: 'postgres',
-  namespace: 'seams',
-  orgId,
-  routeVersion: 2,
-  migrationReason: 'd1_size_limit',
-  postgresRegion: 'wnam',
-  postgresBackupRegion: 'enam',
-  // @ts-expect-error Postgres routes require a Postgres console target.
-  console: consoleD1Target,
-  signer: signerPostgresTarget,
+  ...postgresRoute,
+  // @ts-expect-error Public tenant routes cannot carry console storage.
+  console: {
+    kind: 'postgres',
+    hyperdriveBindingName: 'SEAMS_POSTGRES',
+    hyperdrive,
+    postgresSchema: 'seams_console',
+  },
 };
 
 const invalidPostgresSignerTarget: PostgresTenantStorageRoute = {
@@ -237,21 +205,12 @@ const invalidPostgresSignerTarget: PostgresTenantStorageRoute = {
   migrationReason: 'd1_size_limit',
   postgresRegion: 'wnam',
   postgresBackupRegion: 'enam',
-  console: consolePostgresTarget,
   // @ts-expect-error Postgres routes require a Postgres signer target.
   signer: signerD1DoTarget,
 };
 
 const invalidPostgresTopology: PostgresTenantStorageRoute = {
-  kind: 'postgres',
-  namespace: 'seams',
-  orgId,
-  routeVersion: 2,
-  migrationReason: 'd1_size_limit',
-  postgresRegion: 'wnam',
-  postgresBackupRegion: 'enam',
-  console: consolePostgresTarget,
-  signer: signerPostgresTarget,
+  ...postgresRoute,
   // @ts-expect-error Postgres routes cannot carry a Cloudflare topology.
   topology: 'shared',
 };
@@ -262,6 +221,8 @@ void resolvedRouteKind;
 void resolvedFromBindingsKind;
 void resolvedPostgresRouteKind;
 void invalidCloudflareConsoleTarget;
+void cloudflareRouteHasNoConsoleKeys;
+void postgresRouteHasNoConsoleKeys;
 void invalidCloudflareSignerTarget;
 void invalidCloudflareMigrationReason;
 void invalidPostgresConsoleTarget;

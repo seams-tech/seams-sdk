@@ -503,6 +503,8 @@ export async function exportEd25519YaoKeyWithFreshEmailOtp(
       publicKey,
       curve: 'ed25519',
       chain: 'near',
+      flowId: args.flowId,
+      onEvent: args.onEvent,
     },
   );
   emitKeyExportEvent(args.onEvent, {

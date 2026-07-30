@@ -4,9 +4,9 @@ import {
   DEFAULT_WALLET_SESSION_TTL_MS,
   MAX_WALLET_SESSION_REMAINING_USES,
   MAX_WALLET_SESSION_TTL_MS,
-} from '@seams-internal/shared-ts/threshold/sessionPolicy';
+} from '@seams/sdk/advanced';
 
-const DEFAULT_NEAR_RPC_URL = 'https://test.rpc.fastnear.com';
+const DEFAULT_NEAR_RPC_URL = 'https://test.rpc.fastnear.com,https://rpc.testnet.near.org';
 const DEFAULT_NEAR_EXPLORER_URL = 'https://testnet.nearblocks.io';
 const DEFAULT_DOCS_ORIGIN = 'https://docs.localhost';
 const DEFAULT_TEMPO_RPC_URL = 'https://rpc.moderato.tempo.xyz';
@@ -14,6 +14,7 @@ const DEFAULT_TEMPO_EXPLORER_URL = 'https://explore.testnet.tempo.xyz';
 const DEFAULT_TEMPO_FEE_TOKEN = '0x20c0000000000000000000000000000000000001';
 // Arc-specific EVM demo defaults. Generic EVM behavior is still `chain: 'evm'`.
 const DEFAULT_ARC_RPC_URL = 'https://rpc.testnet.arc.network';
+const DEFAULT_ARC_RPC_FALLBACK_URL = 'https://rpc.drpc.testnet.arc.network';
 const DEFAULT_ARC_EXPLORER_URL = 'https://testnet.arcscan.app';
 const DEFAULT_DEMO_CONTRACT_ID = 'w3a-v1.testnet';
 
@@ -42,7 +43,9 @@ function parseSigningSessionPolicyValue(args: {
   if (!raw) return args.fallback;
   const parsed = Number(raw);
   if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > args.maximum) {
-    throw new Error(`${args.field} must be a positive safe integer no greater than ${args.maximum}`);
+    throw new Error(
+      `${args.field} must be a positive safe integer no greater than ${args.maximum}`,
+    );
   }
   return parsed;
 }
@@ -77,18 +80,10 @@ function stripTrailingSlash(path: string): string {
   return path.endsWith('/') ? path.slice(0, -1) : path;
 }
 
-function joinUrlPath(baseUrl: string, path: string): string {
-  const base = stripTrailingSlash(toTrimmedString(baseUrl));
-  const suffix = String(path || '').trim();
-  if (!base) return '';
-  if (!suffix) return base;
-  return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`;
-}
-
-type ManagedRegistrationConfig = Extract<
-  NonNullable<SeamsConfigsInput['registration']>,
-  { mode: 'managed' }
->;
+/* Registration config is a single managed shape now, not a union, so there is
+   no arm to extract — and `Extract` against an optional `mode` yields `never`,
+   which made every managed config unassignable. */
+type ManagedRegistrationConfig = NonNullable<SeamsConfigsInput['registration']>;
 
 function resolveManagedRegistrationConfig(
   source: ImportMetaEnv,
@@ -141,6 +136,7 @@ function resolveRouterAbConfig(
 const env = import.meta.env;
 const rpIdBase = toOptionalString(env.VITE_RP_ID_BASE) || currentBrowserHostname();
 const managedRegistration = resolveManagedRegistrationConfig(env);
+const relayerUrl = toOptionalString(env.VITE_RELAYER_URL);
 
 const docsOrigin = stripTrailingSlash(toTrimmedString(env.VITE_DOCS_ORIGIN)) || DEFAULT_DOCS_ORIGIN;
 const baseUrl = stripTrailingSlash(toTrimmedString(env.BASE_URL || '/')) || '/';
@@ -154,6 +150,14 @@ const tempoExplorerUrl = toTrimmedString(env.VITE_TEMPO_EXPLORER) || DEFAULT_TEM
 const tempoFeeToken = toTrimmedString(env.VITE_TEMPO_FEE_TOKEN) || DEFAULT_TEMPO_FEE_TOKEN;
 // Arc env keys stay Arc-branded because this demo config wires Arc testnet explicitly.
 const arcRpcUrl = toTrimmedString(env.VITE_ARC_RPC_URL) || DEFAULT_ARC_RPC_URL;
+const arcRpcRequestUrl = Array.from(
+  new Set(
+    [arcRpcUrl, DEFAULT_ARC_RPC_FALLBACK_URL]
+      .flatMap((value) => value.split(/[\s,]+/u))
+      .map((value) => value.trim())
+      .filter(Boolean),
+  ),
+).join(',');
 const arcExplorerUrl = toTrimmedString(env.VITE_ARC_EXPLORER) || DEFAULT_ARC_EXPLORER_URL;
 const signingSessionPersistenceMode = parseSigningSessionPersistenceMode(
   env.VITE_SIGNING_SESSION_PERSISTENCE_MODE,
@@ -175,14 +179,14 @@ const chains: NonNullable<SeamsConfigsInput['chains']> = [
   },
   {
     network: 'arc-testnet',
-    rpcUrl: arcRpcUrl,
+    rpcUrl: arcRpcRequestUrl,
     explorerUrl: arcExplorerUrl,
     chainId: 5_042_002,
   },
 ];
 
 export const FRONTEND_CONFIG = Object.freeze({
-  relayerUrl: toOptionalString(env.VITE_RELAYER_URL),
+  relayerUrl,
   consoleBaseUrl: toOptionalString(env.VITE_CONSOLE_BASE_URL),
   managedRegistration,
   relayerAccountId: toOptionalString(env.VITE_RELAYER_ACCOUNT_ID),
@@ -193,6 +197,7 @@ export const FRONTEND_CONFIG = Object.freeze({
   tempoExplorerUrl,
   tempoFeeToken,
   arcRpcUrl,
+  arcRpcRequestUrl,
   arcExplorerUrl,
   chains,
   walletOrigin: toOptionalString(env.VITE_WALLET_ORIGIN),

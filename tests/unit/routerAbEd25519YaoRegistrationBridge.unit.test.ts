@@ -6,6 +6,7 @@ import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/ut
 import { mintRouterAbEd25519YaoWalletSessionV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
 import {
   runRouterAbEd25519YaoRegistrationSideEffectV1,
+  throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1,
   type RouterAbEd25519YaoRegistrationSideEffectClaimV1,
   type RouterAbEd25519YaoRegistrationSideEffectCompletionV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistrationSideEffectBoundary';
@@ -17,6 +18,7 @@ import {
   OneConflictRegistrationBridgePartitionStore,
   RegistrationSideEffectMemoryStore,
   StaticWalletSessionAdapter,
+  UnavailableRouterAbEd25519YaoRegistrationBackend,
   UnusedSessionAdapter,
 } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
 
@@ -35,6 +37,14 @@ async function deriveTestPreparedArtifactFingerprint(prepared: unknown): Promise
 
 async function prepareTestEffect(): Promise<PreparedMarker> {
   return { kind: 'prepared_test_effect' };
+}
+
+async function executeRetryableTestEffect(): Promise<TestResponse> {
+  return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1({
+    ok: false,
+    code: 'not_configured',
+    message: 'runtime is temporarily unavailable',
+  });
 }
 
 class SideEffectProbe {
@@ -184,6 +194,34 @@ test.describe('registration side-effect persistence bridge', () => {
     expect(probe.calls).toBe(1);
   });
 
+  test('keeps retryable returned failures as resumable claims', async () => {
+    const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedMarker>();
+    const input = {
+      kind: 'prepared_resumable' as const,
+      operation: 'registration_start' as const,
+      key: 'registration-start:retryable',
+      requestFingerprint: REQUEST_FINGERPRINT,
+      resumeAfterMs: 1,
+      nowMs: fixedNow,
+      prepare: prepareTestEffect,
+      derivePreparedArtifactFingerprint: deriveTestPreparedArtifactFingerprint,
+      execute: executeRetryableTestEffect,
+    };
+
+    await expect(runRouterAbEd25519YaoRegistrationSideEffectV1(store, input)).resolves.toEqual({
+      kind: 'uncertain',
+      phase: 'effect',
+      message: 'runtime is temporarily unavailable',
+    });
+    await expect(store.read('registration-start:retryable')).resolves.toMatchObject({
+      kind: 'present',
+      value: { kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1' },
+    });
+    await expect(
+      runRouterAbEd25519YaoRegistrationSideEffectV1(store, input),
+    ).resolves.toMatchObject({ kind: 'in_progress' });
+  });
+
   test('does not invoke an effect when the durable claim write throws', async () => {
     const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedMarker>();
     store.throwClaimPuts = 1;
@@ -324,6 +362,7 @@ test.describe('registration side-effect persistence bridge', () => {
       signingWorkerId: 'signing-worker-bridge',
       session: new UnusedSessionAdapter(),
       store,
+      registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
     });
     const { walletId, fixture } = registrationCapabilityFixture();
 
@@ -358,6 +397,7 @@ test.describe('registration side-effect persistence bridge', () => {
       signingWorkerId: 'signing-worker-bridge',
       session: new UnusedSessionAdapter(),
       store,
+      registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
       loadPersistedActiveCapability: async () => {
         fallbackReads += 1;
         return fixture.capability;
@@ -384,6 +424,7 @@ test.describe('registration side-effect persistence bridge', () => {
       signingWorkerId: 'signing-worker-bridge',
       session: new UnusedSessionAdapter(),
       store,
+      registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
     });
     const { fixture } = registrationCapabilityFixture();
 

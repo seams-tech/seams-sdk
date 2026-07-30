@@ -92,10 +92,11 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
     'ROUTER_AB_CEREMONY_JWT_KEY_ID',
     LOCAL_CEREMONY_JWT_KEY_ID,
   );
+  const ceremonyPrivateJwkJson = resolveLocalCeremonyPrivateJwkJson(outputConfigPath);
   runtimeConfig = replaceTomlAssignment(
     runtimeConfig,
     'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
-    resolveLocalCeremonyPrivateJwkJson(outputConfigPath),
+    ceremonyPrivateJwkJson,
   );
   runtimeConfig = replaceTomlAssignment(
     runtimeConfig,
@@ -116,6 +117,7 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
   chmodSync(outputConfigPath, 0o600);
   return Object.freeze({
     outputConfigPath,
+    ceremonyJwksJson: createLocalCeremonyPublicJwksJson(ceremonyPrivateJwkJson),
     localConsoleOrganizationId,
     signingSessionPersistenceMode: LOCAL_SIGNING_SESSION_PERSISTENCE_MODE,
     signingSessionSealKeyVersion: readTomlStringAssignment(
@@ -126,6 +128,22 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
       runtimeConfig,
       'SIGNING_SESSION_SHAMIR_P_B64U',
     ),
+  });
+}
+
+function createLocalCeremonyPublicJwksJson(privateJwkJson) {
+  const privateJwk = JSON.parse(privateJwkJson);
+  return JSON.stringify({
+    keys: [
+      {
+        alg: 'EdDSA',
+        crv: privateJwk.crv,
+        kid: LOCAL_CEREMONY_JWT_KEY_ID,
+        kty: privateJwk.kty,
+        use: 'sig',
+        x: privateJwk.x,
+      },
+    ],
   });
 }
 
@@ -325,7 +343,7 @@ function applyRuntimePaths(source, repoRoot, outputConfigPath) {
       'migrations_dir = "migrations/d1-console"',
       `migrations_dir = ${JSON.stringify(consoleMigrationsPath)}`,
     ),
-    'migrations_dir = "../sdk-server-ts/migrations/d1-signer"',
+    'migrations_dir = "node_modules/@seams/sdk-server/migrations/d1-signer"',
     `migrations_dir = ${JSON.stringify(signerMigrationsPath)}`,
   );
 }

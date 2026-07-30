@@ -1,3 +1,5 @@
+import { parseRouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { WalletRegistrationActivateResponseV2 } from '../../core/threeRouteRegistrationContracts';
 import {
   D1WalletAuthMethodStore,
   type WalletAuthMethodStore,
@@ -29,7 +31,6 @@ import type {
 import { EmailRecoveryAuthOperations } from '../../core/authService/emailRecoveryAuthOperations';
 import type { RouterApiServiceBag } from '../authServicePort';
 import type { RouterApiEmailRecoveryAuthService } from '../routerApi';
-import { resolveRegistrationCeremonyDoConfig } from './d1RegistrationCeremonyDo';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import { isRecordValue, sha256BytesPortable } from './d1RouterApiAuthBoundary';
 import { CloudflareD1NearPublicKeyStore } from './d1NearPublicKeyStore';
@@ -46,7 +47,6 @@ import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVeri
 import { CloudflareD1EmailOtpChallengeIssuer } from './d1EmailOtpChallengeIssuer';
 import { CloudflareD1EmailOtpChallengeService } from './d1EmailOtpChallengeService';
 import { CloudflareD1EmailOtpRecoveryService } from './d1EmailOtpRecoveryService';
-import { CloudflareD1RouterAbSigningRuntime } from './d1RouterAbSigningRuntime';
 import { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from './d1GoogleEmailOtpRegistrationAttemptStore';
 import { CloudflareD1GoogleEmailOtpSessionResolver } from './d1GoogleEmailOtpSessionResolver';
 import { CloudflareD1SessionStore } from './d1SessionStore';
@@ -57,12 +57,11 @@ import { CloudflareD1WebAuthnAuthService } from './d1WebAuthnAuthService';
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
 import {
   CloudflareD1WalletRegistrationService,
-  parseD1WalletRegistrationStartSideEffectRecord,
-  type D1WalletRegistrationFinalizePreparedV1,
-  type D1WalletRegistrationFinalizeSideEffectRecord,
-  type D1WalletRegistrationFinalizeSideEffectStore,
-  type D1WalletRegistrationStartSideEffectRecord,
-  type D1WalletRegistrationStartSideEffectStore,
+  type D1WalletRegistrationOperationPreparedV1,
+  type D1WalletRegistrationActivateSideEffectRecord,
+  type D1WalletRegistrationActivateSideEffectStore,
+  type D1WalletRegistrationNearProvisioningSideEffectRecord,
+  type D1WalletRegistrationNearProvisioningSideEffectStore,
   type SponsoredNamedNearAccountCreationResult,
 } from './d1WalletRegistrationService';
 import { parseD1WalletRegistrationFinalizeTerminalResponse } from './d1RegistrationCeremonyRecords';
@@ -107,14 +106,15 @@ export type {
 } from './d1RouterApiAuthConfig';
 
 export type CloudflareD1RouterApiAuthService = Omit<RouterApiServiceBag, 'thresholdRuntime'> & {
-  readonly thresholdRuntime: RouterApiServiceBag['thresholdRuntime'] &
-    Pick<CloudflareD1RouterAbSigningRuntime, 'getRouterAbLocalSigningSeedRuntime'>;
+  readonly thresholdRuntime: RouterApiServiceBag['thresholdRuntime'];
   readonly executeSignedDelegate: (
     input: ExecuteSignedDelegateRequest,
   ) => Promise<ExecuteSignedDelegateResult>;
 };
 
 type ScopedD1Prepare = (sql: string, values: readonly unknown[]) => D1PreparedStatementLike;
+const DEFAULT_D1_THRESHOLD_RELAYER_ACCOUNT = 'cloudflare-d1-relayer.local';
+const DEFAULT_D1_THRESHOLD_RELAYER_PUBLIC_KEY = 'd1-relayer-public-key';
 
 type D1IdentityLinkInput = {
   readonly userId: string;
@@ -134,15 +134,10 @@ type SponsoredNamedNearAccountInput = {
 
 type CloudflareD1RouterApiLazyStoreState = {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
-  readonly registrationPersistence: RegistrationCeremonyPersistence;
   walletStore: D1WalletStore | null;
   walletAuthMethodStore: WalletAuthMethodStore | null;
   registrationCeremonyIntentStore: CloudflareD1RegistrationCeremonyIntentStore | null;
 };
-
-type RegistrationCeremonyPersistence =
-  | { readonly kind: 'partitioned_d1' }
-  | { readonly kind: 'legacy_threshold_do' };
 
 type CloudflareD1RouterApiAuthAssembly = {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
@@ -159,7 +154,6 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly walletRegistrations: CloudflareD1WalletRegistrationService;
   readonly walletAddSigners: CloudflareD1WalletAddSignerService;
   readonly registrationIntents: CloudflareD1RegistrationIntentService;
-  readonly routerAbSigning: CloudflareD1RouterAbSigningRuntime;
   readonly signedDelegateExecutor: CloudflareD1SignedDelegateExecutor;
 };
 
@@ -204,7 +198,7 @@ type D1SessionVersionRouteServiceAssembly = Pick<
 
 type D1ThresholdRuntimeRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'routerAbSigning'
+  'options'
 >;
 
 type D1NearFundingRouteServiceAssembly = Pick<
@@ -218,7 +212,7 @@ type D1EmailRecoveryAuthServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly
 
 type D1RouterAccountRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'routerAbSigning'
+  'options'
 >;
 
 class CloudflareD1SignedDelegateExecutor {
@@ -309,11 +303,9 @@ async function linkD1Identity(
 
 function createLazyStoreState(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
-  registrationPersistence: RegistrationCeremonyPersistence,
 ): CloudflareD1RouterApiLazyStoreState {
   return {
     options,
-    registrationPersistence,
     walletStore: null,
     walletAuthMethodStore: null,
     registrationCeremonyIntentStore: null,
@@ -322,39 +314,20 @@ function createLazyStoreState(
 
 function getRegistrationCeremonyIntentStoreForState(
   state: CloudflareD1RouterApiLazyStoreState,
-): CloudflareD1RegistrationCeremonyIntentStore | null {
+): CloudflareD1RegistrationCeremonyIntentStore {
   if (state.registrationCeremonyIntentStore) return state.registrationCeremonyIntentStore;
-  switch (state.registrationPersistence.kind) {
-    case 'partitioned_d1':
-      state.registrationCeremonyIntentStore = new CloudflareD1RegistrationCeremonyIntentStore({
-        kind: 'partitioned_d1',
-        database: state.options.database,
-        scope: {
-          namespace: state.options.namespace,
-          orgId: state.options.orgId,
-          projectId: state.options.projectId,
-          envId: state.options.envId,
-        },
-        keyPrefix: 'gateway-registration:',
-      });
-      break;
-    case 'legacy_threshold_do': {
-      const config = resolveRegistrationCeremonyDoConfig(state.options.thresholdStore);
-      if (!config) return null;
-      state.registrationCeremonyIntentStore = new CloudflareD1RegistrationCeremonyIntentStore({
-        kind: 'legacy_threshold_do',
-        config,
-      });
-      break;
-    }
-    default:
-      return assertNeverRegistrationCeremonyPersistence(state.registrationPersistence);
-  }
+  state.registrationCeremonyIntentStore = new CloudflareD1RegistrationCeremonyIntentStore({
+    kind: 'partitioned_d1',
+    database: state.options.database,
+    scope: {
+      namespace: state.options.namespace,
+      orgId: state.options.orgId,
+      projectId: state.options.projectId,
+      envId: state.options.envId,
+    },
+    keyPrefix: 'gateway-registration:',
+  });
   return state.registrationCeremonyIntentStore;
-}
-
-function assertNeverRegistrationCeremonyPersistence(value: never): never {
-  throw new Error(`Unhandled registration ceremony persistence: ${JSON.stringify(value)}`);
 }
 
 function getWalletAuthMethodStoreForState(
@@ -523,34 +496,142 @@ function parseSponsoredNearAccountSideEffectRecord(
   return null;
 }
 
-function parseWalletRegistrationFinalizePrepared(
+function parseWalletRegistrationOperationPrepared(
   raw: unknown,
-): D1WalletRegistrationFinalizePreparedV1 | null {
-  return isRecordValue(raw) && raw.kind === 'd1_wallet_registration_finalize_prepared_v1'
-    ? { kind: 'd1_wallet_registration_finalize_prepared_v1' }
+): D1WalletRegistrationOperationPreparedV1 | null {
+  return isRecordValue(raw) && raw.kind === 'd1_wallet_registration_operation_prepared_v1'
+    ? { kind: 'd1_wallet_registration_operation_prepared_v1' }
     : null;
 }
 
-function parseWalletRegistrationFinalizeSideEffectRecord(
+/**
+ * Refactor 94C. The activate operation row. Same record shape as the
+ * finalize journal it absorbs, tagged with its own operation so an activate
+ * row can never be read as a finalize row or vice versa.
+ */
+/**
+ * The activate terminal response is the finalize commit merged with the
+ * activation receipt and derivation bootstrap. Validating the commit half
+ * through the existing parser keeps one definition of that shape; the
+ * activation half must simply be present, since a stored response missing it
+ * could not bring a wallet online and is not a usable replay.
+ */
+function parseD1WalletRegistrationActivateTerminalResponse(
   raw: unknown,
-): D1WalletRegistrationFinalizeSideEffectRecord | null {
+): WalletRegistrationActivateResponseV2 | null {
+  /* The Ed25519-only pending terminal is not a finalize response: it has no
+     signer, resolved account, or key identity, because none exist yet. It
+     round-trips as itself, so a pending replay returns what was stored rather
+     than a degraded parse. */
+  if (
+    isRecordValue(raw) &&
+    raw.ok === true &&
+    raw.kind === 'near_ed25519' &&
+    isRecordValue(raw.nearProvisioning) &&
+    raw.nearProvisioning.status === 'near_pending'
+  ) {
+    return raw as unknown as WalletRegistrationActivateResponseV2;
+  }
+  const commit = parseD1WalletRegistrationFinalizeTerminalResponse(raw);
+  if (!commit) return null;
+  if (!commit.ok) return commit;
+  if (commit.kind !== 'evm_family_ecdsa' || !isRecordValue(raw)) return null;
+  const stored = isRecordValue(raw.ecdsa) ? raw.ecdsa : null;
+  if (!stored || !isRecordValue(stored.bootstrap)) return null;
+  let activation: ReturnType<typeof parseRouterAbEcdsaRegistrationActivationReceiptV1>;
+  try {
+    activation = parseRouterAbEcdsaRegistrationActivationReceiptV1(stored.activation);
+  } catch {
+    return null;
+  }
+  return {
+    ...commit,
+    ecdsa: {
+      ...commit.ecdsa,
+      activation,
+      /* The bootstrap is the Gateway's own derivation payload, written by
+         this service and never client-supplied; there is no separate parser
+         for it, so presence is the check. */
+      bootstrap: stored.bootstrap as WalletRegistrationActivateResponseV2 extends { ecdsa: infer E }
+        ? E extends { bootstrap: infer B }
+          ? B
+          : never
+        : never,
+    },
+  };
+}
+
+function parseWalletRegistrationActivateSideEffectRecord(
+  raw: unknown,
+): D1WalletRegistrationActivateSideEffectRecord | null {
   if (
     !isRecordValue(raw) ||
-    raw.operation !== 'finalize' ||
+    raw.operation !== 'registration_activate' ||
     !isNonNegativeSafeInteger(raw.claimedAtMs)
   ) {
     return null;
   }
   const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
   const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
-  const prepared = parseWalletRegistrationFinalizePrepared(raw.prepared);
+  const prepared = parseWalletRegistrationOperationPrepared(raw.prepared);
   if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
     return null;
   }
   if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
     return {
       kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
-      operation: 'finalize',
+      operation: 'registration_activate',
+      requestFingerprint,
+      preparedArtifactFingerprint,
+      claimedAtMs: raw.claimedAtMs,
+      prepared,
+    };
+  }
+  if (
+    raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1' ||
+    !isNonNegativeSafeInteger(raw.completedAtMs)
+  ) {
+    return null;
+  }
+  const response = parseD1WalletRegistrationActivateTerminalResponse(raw.response);
+  if (!response) return null;
+  return {
+    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+    operation: 'registration_activate',
+    requestFingerprint,
+    preparedArtifactFingerprint,
+    claimedAtMs: raw.claimedAtMs,
+    completedAtMs: raw.completedAtMs,
+    prepared,
+    response,
+  };
+}
+
+/**
+ * Deferred NEAR provisioning's own operation row. Same record shape as the
+ * finalize journal it replaces for this route, tagged with its own operation
+ * so a provisioning row can never be read as an activate or finalize row.
+ */
+function parseWalletRegistrationNearProvisioningSideEffectRecord(
+  raw: unknown,
+): D1WalletRegistrationNearProvisioningSideEffectRecord | null {
+  if (
+    !isRecordValue(raw) ||
+    raw.operation !== 'near_provisioning' ||
+    !isNonNegativeSafeInteger(raw.claimedAtMs)
+  ) {
+    return null;
+  }
+  const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
+  const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
+  const prepared = parseWalletRegistrationOperationPrepared(raw.prepared);
+  if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
+    return null;
+  }
+  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: 'near_provisioning',
       requestFingerprint,
       preparedArtifactFingerprint,
       claimedAtMs: raw.claimedAtMs,
@@ -567,7 +648,7 @@ function parseWalletRegistrationFinalizeSideEffectRecord(
   if (!response) return null;
   return {
     kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
-    operation: 'finalize',
+    operation: 'near_provisioning',
     requestFingerprint,
     preparedArtifactFingerprint,
     claimedAtMs: raw.claimedAtMs,
@@ -705,10 +786,10 @@ function sponsoredNearAccountSideEffectStore(
   });
 }
 
-function walletRegistrationFinalizeSideEffectStore(
+function walletRegistrationActivateSideEffectStore(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
-): D1WalletRegistrationFinalizeSideEffectStore {
-  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationFinalizeSideEffectRecord>({
+): D1WalletRegistrationActivateSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationActivateSideEffectRecord>({
     database: options.database,
     scope: {
       namespace: options.namespace,
@@ -716,16 +797,16 @@ function walletRegistrationFinalizeSideEffectStore(
       projectId: options.projectId,
       envId: options.envId,
     },
-    keyPrefix: 'wallet-registration-finalize:',
+    keyPrefix: 'wallet-registration-activate:',
     encode: (value) => value as unknown as CloudflareVersionedJsonObject,
-    parse: parseWalletRegistrationFinalizeSideEffectRecord,
+    parse: parseWalletRegistrationActivateSideEffectRecord,
   });
 }
 
-function walletRegistrationStartSideEffectStore(
+function walletRegistrationNearProvisioningSideEffectStore(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
-): D1WalletRegistrationStartSideEffectStore {
-  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationStartSideEffectRecord>({
+): D1WalletRegistrationNearProvisioningSideEffectStore {
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationNearProvisioningSideEffectRecord>({
     database: options.database,
     scope: {
       namespace: options.namespace,
@@ -733,9 +814,9 @@ function walletRegistrationStartSideEffectStore(
       projectId: options.projectId,
       envId: options.envId,
     },
-    keyPrefix: 'wallet-registration-start:',
+    keyPrefix: 'wallet-registration-near-provisioning:',
     encode: (value) => value as unknown as CloudflareVersionedJsonObject,
-    parse: parseD1WalletRegistrationStartSideEffectRecord,
+    parse: parseWalletRegistrationNearProvisioningSideEffectRecord,
   });
 }
 
@@ -884,11 +965,10 @@ async function createSponsoredNamedNearAccountForOptions(
 
 function createCloudflareD1RouterApiAuthAssembly(
   input: CloudflareD1RouterApiAuthServiceOptions,
-  registrationPersistence: RegistrationCeremonyPersistence,
 ): CloudflareD1RouterApiAuthAssembly {
   const options = normalizeD1RouterApiAuthOptions(input);
   const prepare: ScopedD1Prepare = scopePrepareForOptions.bind(undefined, options);
-  const lazyStores = createLazyStoreState(options, registrationPersistence);
+  const lazyStores = createLazyStoreState(options);
   const getRegistrationCeremonyIntentStore = getRegistrationCeremonyIntentStoreForState.bind(
     undefined,
     lazyStores,
@@ -995,36 +1075,24 @@ function createCloudflareD1RouterApiAuthAssembly(
     projectId: options.projectId,
     envId: options.envId,
   });
-  const routerAbSigning = new CloudflareD1RouterAbSigningRuntime({
-    relayerAccount: options.relayerAccount,
-    relayerPublicKey: options.relayerPublicKey,
-    routerAbSigningRuntimes: options.routerAbSigningRuntimes,
-    thresholdStore: options.thresholdStore,
-    auth: {
-      verifyWebAuthnAuthenticationLite:
-        webAuthnAuthService.verifyWebAuthnAuthenticationLite.bind(webAuthnAuthService),
-    },
-  });
   const signedDelegateExecutor = new CloudflareD1SignedDelegateExecutor(options);
   const walletRegistrations = new CloudflareD1WalletRegistrationService({
     createSponsoredNamedNearAccount,
     emailOtpRegistrationEnrollmentFinalizer,
     getRegistrationCeremonyIntentStore,
     getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
-    getRouterAbNormalSigningRuntime:
-      routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
+    walletBudgetGrantProvisioner: options.walletBudgetGrantProvisioner || null,
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
-    startSideEffects: walletRegistrationStartSideEffectStore(options),
-    finalizeSideEffects: walletRegistrationFinalizeSideEffectStore(options),
+    activateSideEffects: walletRegistrationActivateSideEffectStore(options),
+    nearProvisioningSideEffects: walletRegistrationNearProvisioningSideEffectStore(options),
     walletRegistrationCommitStore,
     walletAuthMethods,
   });
   const walletAddSigners = new CloudflareD1WalletAddSignerService({
     getRegistrationCeremonyIntentStore,
     getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
-    getRouterAbNormalSigningRuntime:
-      routerAbSigning.getRouterAbNormalSigningRuntime.bind(routerAbSigning),
+    walletBudgetGrantProvisioner: options.walletBudgetGrantProvisioner || null,
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
     walletAuthMethods,
@@ -1033,7 +1101,6 @@ function createCloudflareD1RouterApiAuthAssembly(
   });
   const registrationIntents = new CloudflareD1RegistrationIntentService({
     getRegistrationCeremonyIntentStore,
-    signerWallets: emailOtpEnrollments,
   });
   const emailOtpChallengeIssuer = new CloudflareD1EmailOtpChallengeIssuer({
     config: {
@@ -1083,7 +1150,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     walletRegistrations,
     walletAddSigners,
     registrationIntents,
-    routerAbSigning,
     signedDelegateExecutor,
   };
 }
@@ -1096,30 +1162,19 @@ function createD1WalletRegistrationRouteService(
       assembly.walletRegistrations.listWalletEcdsaKeyFactsInventory.bind(
         assembly.walletRegistrations,
       ),
-    createRegistrationIntent: assembly.registrationIntents.createRegistrationIntent.bind(
-      assembly.registrationIntents,
-    ),
-    cancelRegistrationIntent: assembly.registrationIntents.cancelRegistrationIntent.bind(
-      assembly.registrationIntents,
-    ),
-    startWalletRegistration: assembly.walletRegistrations.startWalletRegistration.bind(
+    setupWalletRegistration: assembly.walletRegistrations.setupWalletRegistration.bind(
       assembly.walletRegistrations,
     ),
-    respondWalletRegistrationEcdsaDerivation:
-      assembly.walletRegistrations.respondWalletRegistrationEcdsaDerivation.bind(
-        assembly.walletRegistrations,
-      ),
-    activateWalletRegistrationEcdsa:
-      assembly.walletRegistrations.activateWalletRegistrationEcdsa.bind(
-        assembly.walletRegistrations,
-      ),
-    getWalletRegistrationRuntimePolicyScope:
-      assembly.walletRegistrations.getWalletRegistrationRuntimePolicyScope.bind(
-        assembly.walletRegistrations,
-      ),
-    finalizeWalletRegistration: assembly.walletRegistrations.finalizeWalletRegistration.bind(
+    respondWalletRegistration: assembly.walletRegistrations.respondWalletRegistration.bind(
       assembly.walletRegistrations,
     ),
+    activateWalletRegistration: assembly.walletRegistrations.activateWalletRegistration.bind(
+      assembly.walletRegistrations,
+    ),
+    completeWalletRegistrationNearProvisioning:
+      assembly.walletRegistrations.completeWalletRegistrationNearProvisioning.bind(
+        assembly.walletRegistrations,
+      ),
     refreshEd25519YaoWalletSession:
       assembly.walletRegistrations.refreshEd25519YaoWalletSession.bind(
         assembly.walletRegistrations,
@@ -1355,15 +1410,18 @@ function createD1ThresholdRuntimeRouteService(
   assembly: D1ThresholdRuntimeRouteServiceAssembly,
 ): CloudflareD1RouterApiAuthService['thresholdRuntime'] {
   return {
-    getRouterAbNormalSigningRuntime: assembly.routerAbSigning.getRouterAbNormalSigningRuntime.bind(
-      assembly.routerAbSigning,
+    getWalletBudgetGrantProvisioner: getD1WalletBudgetGrantProvisioner.bind(
+      undefined,
+      assembly.options,
     ),
-    getRouterAbEcdsaPresignRuntime: assembly.routerAbSigning.getRouterAbEcdsaPresignRuntime.bind(
-      assembly.routerAbSigning,
-    ),
-    getRouterAbLocalSigningSeedRuntime:
-      assembly.routerAbSigning.getRouterAbLocalSigningSeedRuntime.bind(assembly.routerAbSigning),
+    getRouterAbEcdsaPresignRuntime: () => assembly.options.routerAbEcdsaPresignRuntime || null,
   };
+}
+
+function getD1WalletBudgetGrantProvisioner(
+  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
+) {
+  return options.walletBudgetGrantProvisioner || null;
 }
 
 function createD1NearFundingRouteService(
@@ -1400,33 +1458,18 @@ function createD1EmailRecoveryAuthService(
 function createD1RouterAccountRouteService(
   assembly: D1RouterAccountRouteServiceAssembly,
 ): RouterApiServiceBag['router'] {
+  const accountId = assembly.options.relayerAccount || DEFAULT_D1_THRESHOLD_RELAYER_ACCOUNT;
+  const publicKey = assembly.options.relayerPublicKey || DEFAULT_D1_THRESHOLD_RELAYER_PUBLIC_KEY;
   return {
-    getConfiguredRelayerAccount: assembly.routerAbSigning.getConfiguredRelayerAccount.bind(
-      assembly.routerAbSigning,
-    ),
-    getRelayerAccount: assembly.routerAbSigning.getRelayerAccount.bind(assembly.routerAbSigning),
+    getConfiguredRelayerAccount: () => accountId,
+    getRelayerAccount: async () => ({ accountId, publicKey }),
   };
 }
 
 export function createCloudflareD1RouterApiAuthService(
   input: CloudflareD1RouterApiAuthServiceOptions,
 ): CloudflareD1RouterApiAuthService {
-  return createCloudflareD1RouterApiAuthServiceForPersistence(input, { kind: 'partitioned_d1' });
-}
-
-export function createLegacyCloudflareD1RouterApiAuthService(
-  input: CloudflareD1RouterApiAuthServiceOptions,
-): CloudflareD1RouterApiAuthService {
-  return createCloudflareD1RouterApiAuthServiceForPersistence(input, {
-    kind: 'legacy_threshold_do',
-  });
-}
-
-function createCloudflareD1RouterApiAuthServiceForPersistence(
-  input: CloudflareD1RouterApiAuthServiceOptions,
-  registrationPersistence: RegistrationCeremonyPersistence,
-): CloudflareD1RouterApiAuthService {
-  const assembly = createCloudflareD1RouterApiAuthAssembly(input, registrationPersistence);
+  const assembly = createCloudflareD1RouterApiAuthAssembly(input);
   return {
     walletRegistration: createD1WalletRegistrationRouteService(assembly),
     walletAuthMethods: createD1WalletAuthMethodRouteService(assembly),
@@ -1448,6 +1491,6 @@ function createCloudflareD1RouterApiAuthServiceForPersistence(
 export function createCloudflareD1RouterApiEmailRecoveryAuthService(
   input: CloudflareD1RouterApiAuthServiceOptions,
 ): RouterApiEmailRecoveryAuthService {
-  const assembly = createCloudflareD1RouterApiAuthAssembly(input, { kind: 'partitioned_d1' });
+  const assembly = createCloudflareD1RouterApiAuthAssembly(input);
   return createD1EmailRecoveryAuthService(assembly);
 }

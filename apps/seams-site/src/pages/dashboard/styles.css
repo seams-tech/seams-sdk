@@ -5582,38 +5582,270 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   }
 }
 
-.dashboard-login {
-  --navbar-bg: var(--site-canvas, var(--vp-c-bg));
-  --navbar-surface2: var(--site-surface-muted, var(--vp-c-bg-alt));
-  --navbar-surface3: var(--site-surface-strong, var(--vp-c-bg-alt));
-  --navbar-text: var(--site-text-primary, var(--vp-c-text-1));
-  --navbar-border: var(--site-border, var(--vp-c-border));
-  --navbar-border-hover: var(--site-border-strong, var(--vp-c-border));
-  --navbar-shadow: var(--w3a-shadows-sm, rgba(15, 23, 42, 0.2));
-  --navbar-primary: var(--site-brand, oklch(0.52 0.138 255));
+/* Shown instead of the console shell whenever there are no session claims:
+   while the session check is in flight, and after a sign-out until the redirect
+   lands. Same paper canvas as the login page it hands off to. */
+.dashboard-session-gate {
   min-height: 100dvh;
   display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 1rem;
+  place-content: center;
   padding: 1rem;
-  background:
-    radial-gradient(
-      120% 100% at 50% 0%,
-      color-mix(in srgb, white 26%, transparent) 0%,
-      transparent 58%
-    ),
-    color-mix(in srgb, var(--navbar-bg) 84%, #a59f97 16%);
+  background: #ffffff;
+}
+
+.dashboard-session-gate__note {
+  margin: 0;
+  color: #a59f97;
+  font-size: 0.9rem;
+}
+
+/* The login page is the door to the console, so it wears the same pinned paper
+   palette as .dashboard-shell (hardcoded, theme-independent) rather than the
+   theme-following site canvas — otherwise the sign-in column goes dark while
+   the console behind it stays paper. */
+.dashboard-login {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 540px) minmax(0, 1fr);
+  color: #0a0a0a;
+  background: #ffffff;
+}
+
+.dashboard-login__panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 2rem;
+  padding: 2.25rem 3rem;
+  background: #ffffff;
 }
 
 .dashboard-login__brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.75rem;
-  color: var(--navbar-text);
+  gap: 0.55rem;
+  justify-self: start;
+  color: #0a0a0a;
   text-decoration: none;
-  font-size: 1.2rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.dashboard-login__brand:hover {
+  color: #0a0a0a;
+}
+
+/* Divider between the wordmark and the product name, matching the console
+   topbar's brand lockup. */
+.dashboard-login__brand-label {
+  padding-left: 0.55rem;
+  border-left: 1px solid #ebe8e4;
+  color: #44403b;
+}
+
+/* The form column is the visual centre of the panel; it holds a fixed
+   measure so the fields keep a form-like width on very wide panels. */
+.dashboard-login__body {
+  align-self: center;
+  width: 100%;
+  max-width: 384px;
+}
+
+.dashboard-login__form {
+  display: grid;
+  gap: 1.15rem;
+}
+
+.dashboard-login__form-header {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.dashboard-login__form-heading {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.dashboard-login__form-eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: #a59f97;
+}
+
+.dashboard-login__form-header :is(h1, h2) {
+  margin: 0;
+  color: #0a0a0a;
+  font-size: 1.85rem;
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.dashboard-login__form-copy {
+  margin: 0;
+  color: #777169;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.dashboard-login__google-button {
+  appearance: none;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 0.35rem;
+  border-radius: 8px;
+  border: 1px solid #0a0a0a;
+  background: #0a0a0a;
+  color: #ffffff;
+  min-height: 2.75rem;
+  padding: 0.6rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    opacity 160ms ease;
+}
+
+.dashboard-login__google-button:hover:enabled {
+  border-color: #262626;
+  background: #262626;
+}
+
+.dashboard-login__google-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.dashboard-login__google-button-icon svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  display: block;
+}
+
+.dashboard-login__form-note {
+  margin: 0;
+  color: #a59f97;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* Config/relay failures print long endpoint URLs; give them the console's
+   danger chip instead of a bare wall of red text, and let the URLs wrap. */
+.dashboard-login__form-error {
+  margin: 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, #b91c1c 22%, #f8e7e7);
+  background: #f8e7e7;
+  color: #b91c1c;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-login__legal {
+  margin: 0;
+  color: #a59f97;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.dashboard-login__legal a {
+  color: #44403b;
+  font-weight: 400;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.dashboard-login__aside {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 2rem;
+  padding: 2.25rem 3rem;
+  border-left: 1px solid #ebe8e4;
+  background: #f5f3f1;
+}
+
+.dashboard-login__aside-link {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #ebe8e4;
+  background: #ffffff;
+  color: #44403b;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.dashboard-login__aside-link:hover {
+  border-color: #a59f97;
+  color: #0a0a0a;
+}
+
+.dashboard-login__aside-body {
+  align-self: center;
+  display: grid;
+  gap: 1.1rem;
+  max-width: 34rem;
+}
+
+.dashboard-login__statement {
+  margin: 0;
+  color: #0a0a0a;
+  font-size: clamp(1.7rem, 2.6vw, 2.4rem);
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+}
+
+.dashboard-login__statement-sub {
+  margin: 0;
+  color: #44403b;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.dashboard-login__aside-mark {
+  display: inline-flex;
+  padding-top: 0.35rem;
+  opacity: 0.75;
+}
+
+/* Under two columns the aside is decoration, so it drops out and the sign-in
+   column takes the full page. */
+@media (max-width: 900px) {
+  .dashboard-login {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-login__aside {
+    display: none;
+  }
+
+  .dashboard-login__panel {
+    padding: 1.75rem 1.5rem;
+    justify-items: center;
+  }
+
+  .dashboard-login__brand,
+  .dashboard-login__legal {
+    justify-self: center;
+  }
+
+  .dashboard-login__legal {
+    text-align: center;
+  }
 }
 
 @media (max-width: 1460px) {

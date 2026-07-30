@@ -180,11 +180,7 @@ test.describe('package export contracts', () => {
       default: './dist/esm/wasm/signer.js',
       types: './dist/types/sdk-server-ts/src/wasm/signer.d.ts',
     });
-    expect(exportsMap['./internal/*']).toEqual({
-      import: './dist/esm/*.js',
-      default: './dist/esm/*.js',
-      types: './dist/types/sdk-server-ts/src/*.d.ts',
-    });
+    expect(exportsMap['./internal/*']).toBeUndefined();
     expect(readRepoFile('packages/sdk-server-ts/src/index.ts')).toContain('export { AuthService }');
     expect(readRepoFile('packages/sdk-server-ts/src/index.ts')).not.toContain(
       "export * from './console/",

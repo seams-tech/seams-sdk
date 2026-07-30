@@ -127,6 +127,9 @@ cross-run artifact inputs.
 | `RELAYER_PRIVATE_KEY`                           | Gateway deploy           | Optional funded NEAR relayer key; its public key is derived during startup.                      |
 | `SPONSORED_EVM_EXECUTORS_JSON`                  | Gateway deploy           | Optional environment-specific sponsored EVM executor secrets.                                    |
 | `STRIPE_API_SK`                                 | Gateway deploy           | Required Stripe secret or restricted key for hosted Checkout sessions.                           |
+| `STRIPE_WEBHOOK_SECRET`                         | Gateway deploy           | Required Stripe endpoint signing secret for webhook verification.                                |
+| `RESEND_API_KEY`                                | Gateway deploy           | Required Resend API key for console transactional email.                                         |
+| `CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U`      | Gateway deploy           | Generated 32-byte base64url key for invitation-secret encryption.                                |
 
 ### Variables
 
@@ -134,8 +137,10 @@ cross-run artifact inputs.
 | -------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------ |
 | `ROUTER_AB_JWT_ISSUER`                                   | Router A/B deploy | JWT issuer accepted by the Router admission boundary.                          |
 | `ROUTER_AB_JWT_AUDIENCE`                                 | Router A/B deploy | JWT audience accepted by the Router; defaults operationally to `router-ab`.    |
-| `ROUTER_AB_JWT_JWKS_URL`                                 | Router A/B deploy | JWKS URL used by Router JWT verification.                                      |
+| `ROUTER_AB_JWT_JWKS_JSON`                                | Router A/B deploy | Public JWKS injected into Router JWT verification.                             |
 | `SPONSORED_EXECUTION_REAL_PRICING_JSON`                  | Gateway deploy    | CoinGecko-backed pricing rules for sponsored NEAR execution.                   |
+| `CONSOLE_BASE_URL`                                       | Console, Gateway  | Public console URL used in transactional email links.                          |
+| `CONSOLE_EMAIL_FROM`                                     | Gateway deploy    | Resend sender using a verified domain.                                         |
 | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`           | Router A/B deploy | Public key matching `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`.                     |
 | `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`           | Router A/B deploy | Public key matching `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`.                     |
 | `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY` | Router A/B deploy | Public key matching `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`.           |
@@ -171,21 +176,11 @@ identity, session settings, bootstrap metadata, and optional integration
 configuration. The deployment target parser validates this document once and
 the renderer emits the individual Worker bindings expected by the runtime.
 
-Refactor 93 adds six optional non-secret cutover variables:
-
-- `ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS`
-- `ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS`
-- `ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS`
-- `ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS`
-- `ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS`
-- `ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS`
-
-Keep every pair empty before its family begins cutover. Configure both values
-for one family in the same deployment: the cutoff stops new admission, and the
-drain boundary follows the measured maximum in-flight lifetime. Registration,
-recovery, and export use independent schedules. The deployment preflight and
-renderer reject incomplete, reversed, invalid, and obsolete tenant-wide window
-configuration.
+Refactor 93 uses partitioned D1 and the MPC Router immediately. Gateway
+configuration has no Yao family cutoff or drain variables. Remove any retired
+`ROUTER_AB_YAO_GATEWAY_*_ADMISSION_CUTOFF_MS` or
+`ROUTER_AB_YAO_GATEWAY_*_DRAIN_UNTIL_MS` values from the staging and production
+GitHub Environments; the deployment does not read them.
 
 Gateway private cryptographic values and external credentials remain GitHub
 secrets. Public keys and deployment metadata are reviewed with normal code
@@ -261,7 +256,7 @@ Role-specific configuration:
 
 | Role          | Wrangler config                                            | GitHub Environment vars                                                                                                                               | GitHub Environment secrets                                                                              |
 | ------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Router        | `crates/router-ab-cloudflare/wrangler.router.toml`         | `ROUTER_AB_JWT_ISSUER`, `ROUTER_AB_JWT_AUDIENCE`, `ROUTER_AB_JWT_JWKS_URL`, `ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON`, all Router A/B public key vars | `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`                                                                |
+| Router        | `crates/router-ab-cloudflare/wrangler.router.toml`         | `ROUTER_AB_JWT_ISSUER`, `ROUTER_AB_JWT_AUDIENCE`, `ROUTER_AB_JWT_JWKS_JSON`, `ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON`, all Router A/B public key vars | `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`                                                                |
 | Deriver A     | `crates/router-ab-cloudflare/wrangler.deriver-a.toml`      | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`            | `DERIVER_A_ROOT_SHARE_WIRE_SECRET`, `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_A_PEER_SIGNING_KEY` |
 | Deriver B     | `crates/router-ab-cloudflare/wrangler.deriver-b.toml`      | `ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY`, `ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX`, `ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX`            | `DERIVER_B_ROOT_SHARE_WIRE_SECRET`, `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY`, `DERIVER_B_PEER_SIGNING_KEY` |
 | SigningWorker | `crates/router-ab-cloudflare/wrangler.signing-worker.toml` | `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY`                                                                                              | `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`                                                         |
@@ -443,12 +438,10 @@ with remote D1 database IDs, Cloudflare Secrets Store ID, relayer public key, an
 the required Wrangler secret declarations before running the preflight. The
 console Worker config binds only `CONSOLE_DB`. The Gateway config binds
 `CONSOLE_DB`, `SIGNER_DB`, `THRESHOLD_STORE`, hosted signer KEKs, Gateway
-session env secrets, relayer secrets, and six empty family cutover variable
-slots. The check fails if either config points at the wrong staging Worker,
+session env secrets, and relayer secrets. The check fails if either config points at the wrong staging Worker,
 contains Postgres env tokens, stores signer KEKs, session secrets, or
 sponsored-EVM executor config in plaintext vars, omits required profile
-bindings, contains an invalid family window, references an obsolete tenant-wide
-window, or leaves D1/Secrets Store placeholders in place.
+bindings, or leaves D1/Secrets Store placeholders in place.
 
 Production uses separate database names and IDs from staging. Apply D1
 migrations before deploying Workers that depend on new columns or tables.

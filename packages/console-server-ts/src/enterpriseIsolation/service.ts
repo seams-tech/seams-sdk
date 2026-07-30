@@ -8,7 +8,6 @@ import type {
 export interface ConsoleEnterpriseIsolationContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
   projectId?: string;
   environmentId?: string;
 }

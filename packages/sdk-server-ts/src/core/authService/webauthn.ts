@@ -751,9 +751,10 @@ export async function createWebAuthnSyncAccountOptionsWithStores(input: {
         return Boolean(binding.userId && binding.nearAccountId && binding.nearEd25519SigningKeyId);
       });
       if (resolvedBinding) {
-        walletBinding = resolvedEd25519WalletBindingFromCredentialBinding({
-          binding: resolvedBinding,
-        });
+        walletBinding =
+          resolvedEd25519WalletBindingFromCredentialBinding({
+            binding: resolvedBinding,
+          }) ?? undefined;
       }
       const seen = new Set<string>();
       credentialIds = [];
@@ -903,6 +904,18 @@ export async function verifyWebAuthnSyncAccountWithStores(input: {
     }
 
     const walletBinding = resolvedEd25519WalletBindingFromCredentialBinding({ binding });
+    const bindingPublicKey = binding.publicKey;
+    if (!walletBinding || !bindingPublicKey) {
+      // The credential is valid; the wallet simply has no Ed25519 signer yet
+      // because its Yao ceremony has not settled. This is a distinct, retryable
+      // state — never report it as an unknown credential.
+      return {
+        ok: false,
+        verified: false,
+        code: 'ed25519_not_provisioned',
+        message: 'Wallet has no Ed25519 signer yet; NEAR provisioning has not completed',
+      };
+    }
     const walletBindingAuthorityScope = passkeyThresholdEd25519AuthorityScope(
       requireWebAuthnRpId(walletBinding.rpId, 'sync credential binding rpId'),
     );
@@ -910,7 +923,7 @@ export async function verifyWebAuthnSyncAccountWithStores(input: {
       ? {
           relayerKeyId: binding.relayerKeyId,
           authorityScope: walletBindingAuthorityScope,
-          publicKey: binding.publicKey,
+          publicKey: bindingPublicKey,
           ...(binding.keyVersion ? { keyVersion: binding.keyVersion } : {}),
           ...(typeof binding.recoveryExportCapable === 'boolean'
             ? { recoveryExportCapable: binding.recoveryExportCapable }
@@ -937,7 +950,7 @@ export async function verifyWebAuthnSyncAccountWithStores(input: {
       walletBinding,
       rpId: walletBinding.rpId,
       signerSlot: walletBinding.signerSlot,
-      publicKey: binding.publicKey,
+      publicKey: bindingPublicKey,
       ...(binding.relayerKeyId ? { relayerKeyId: binding.relayerKeyId } : {}),
       credentialIdB64u: credentialId.credentialIdB64u,
       credentialPublicKeyB64u: auth.credentialPublicKeyB64u,

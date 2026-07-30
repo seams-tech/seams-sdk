@@ -7,6 +7,10 @@ import {
 } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import {
   prepareVerifiedPasskeyEd25519YaoRegistrationV1,
   registerVerifiedPasskeyEd25519YaoV1,
   type PasskeyRegistrationIntentV1,
@@ -21,6 +25,37 @@ function passkeyAuthMethod(): PasskeyRegistrationAuthMethodInput {
   const rpId = parseWebAuthnRpId('wallet.example.test');
   if (!rpId.ok) throw new Error(rpId.error.message);
   return { kind: 'passkey', rpId: rpId.value };
+}
+
+function fixtureBytes(seed: number): number[] {
+  return Array.from({ length: 32 }, (_, index) => (seed + index) & 0xff);
+}
+
+function admissionReceipt(): RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'> {
+  const parsed = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1({
+    binding: {
+      lifecycle: {
+        lifecycle_id: 'registration-ceremony-42',
+        work_kind: 'registration_prepare',
+        primitive_request_kind: 'registration',
+        root_share_epoch: 'root-share-epoch-9',
+        account_id: 'near-account.testnet',
+        session_id: 'wallet-session-42',
+        signer_set_id: 'signer-set-42',
+        selected_server_id: 'signing-worker-a',
+      },
+      operation: 'registration',
+      session_id: fixtureBytes(1),
+      stable_key_context_binding: fixtureBytes(33),
+    },
+    keyset: {
+      deriver_a_input_public_key: fixtureBytes(65),
+      deriver_b_input_public_key: fixtureBytes(97),
+      signing_worker_recipient_public_key: fixtureBytes(129),
+    },
+  });
+  if (!parsed.ok) throw new Error(parsed.message);
+  return parsed.value;
 }
 
 function signerSelection(
@@ -96,6 +131,7 @@ function registrationInput(args: {
       },
       participant_ids: args.participantIds,
     },
+    admissionReceipt: admissionReceipt(),
     httpTransport: {
       kind: 'passkey_ed25519_yao_http_transport_v1',
       routerOrigin: args.routerOrigin,
@@ -136,6 +172,7 @@ test.describe('verified passkey Ed25519 Yao registration orchestration', () => {
         },
         participant_ids: [11, 29],
       },
+      receipt: admissionReceipt(),
       transportConfig: {
         routerOrigin: 'http://127.0.0.1:8787',
         authorization: 'Bearer registration-yao-grant',

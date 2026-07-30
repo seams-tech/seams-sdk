@@ -17,7 +17,7 @@ import {
   buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
   ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
-  routerAbEcdsaDerivationActiveStateSessionId,
+  routerAbEcdsaDerivationActiveStateId,
   routerAbEcdsaDerivationContextBindingB64uV1,
   type RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
@@ -299,7 +299,7 @@ async function callEcdsaRouteCore(input: {
 test.describe('Router A/B ECDSA derivation route-core budget gates', () => {
   test.beforeAll(async () => {
     scope = await buildScope();
-    thresholdSessionId = routerAbEcdsaDerivationActiveStateSessionId({
+    thresholdSessionId = routerAbEcdsaDerivationActiveStateId({
       kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
       scope,
     });

@@ -1,43 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { RouterAbEcdsaRegistrationRequestV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
-import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 import { createRouterAbEcdsaStrictRegistrationPort } from '../../packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration';
-
-class MemoryStorage {
-  readonly values = new Map<string, unknown>();
-  transactionCount = 0;
-
-  async get(key: string): Promise<unknown> {
-    return this.values.get(key) ?? null;
-  }
-
-  async put(key: string, value: unknown): Promise<void> {
-    this.values.set(key, value);
-  }
-
-  async delete(key: string): Promise<boolean> {
-    return this.values.delete(key);
-  }
-
-  async transaction<T>(operation: (storage: MemoryStorage) => Promise<T>): Promise<T> {
-    this.transactionCount += 1;
-    return await operation(this);
-  }
-}
-
-async function post(
-  durableObject: ThresholdStoreDurableObject,
-  body: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const response = await durableObject.fetch(
-    new Request('https://threshold-store.invalid/', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
-  );
-  return (await response.json()) as Record<string, unknown>;
-}
+import { createRouterAbTraceContextV1 } from '../../packages/shared-ts/src/utils/routerAbTraceContext';
 
 async function configurationFailureFetch(): Promise<Response> {
   return new Response(
@@ -46,101 +10,40 @@ async function configurationFailureFetch(): Promise<Response> {
   );
 }
 
+class TraceCapturingRouter {
+  request: Request | null = null;
+
+  constructor(private readonly serverTiming: string | null = null) {}
+
+  async fetch(input: RequestInfo | URL): Promise<Response> {
+    this.request = new Request(input);
+    const response = await configurationFailureFetch();
+    if (!this.serverTiming) return response;
+    const headers = new Headers(response.headers);
+    headers.set('Server-Timing', this.serverTiming);
+    return new Response(await response.clone().text(), {
+      status: response.status,
+      headers,
+    });
+  }
+}
+
 async function issueCeremonyToken(): Promise<string> {
   return 'ceremony-token';
 }
 
+async function issueRegistrationCeremonyToken(): Promise<string> {
+  return 'registration-ceremony-token';
+}
+
+const REQUEST_POLICY = {
+  policyVersion: 'wallet-registration-v1',
+  requestDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+} as const;
+
 function emptyJwks(): { readonly keys: readonly JsonWebKey[] } {
   return { keys: [] };
 }
-
-test('terminal registration cancellation atomically releases its wallet reservation', async () => {
-  const storage = new MemoryStorage();
-  const durableObject = new ThresholdStoreDurableObject({ storage }, {});
-  const ceremonyKey = 'wallet-registration:ceremony:wrc_smoke';
-  const reservationKey =
-    'wallet-registration:server-allocated-wallet-reservation:frost-fjord-rgcmpa';
-  const walletId = 'frost-fjord-rgcmpa';
-  const expiresAtMs = Date.now() + 60_000;
-
-  await expect(
-    post(durableObject, {
-      op: 'registrationReserveWalletId',
-      key: reservationKey,
-      walletId,
-      expiresAtMs,
-    }),
-  ).resolves.toMatchObject({ ok: true });
-  await post(durableObject, {
-    op: 'set',
-    key: ceremonyKey,
-    value: {
-      registrationCeremonyId: 'wrc_smoke',
-      intent: { walletId },
-      expiresAtMs,
-    },
-  });
-
-  await expect(
-    post(durableObject, {
-      op: 'registrationCancelTerminal',
-      ceremonyKey,
-      registrationCeremonyId: 'wrc_smoke',
-      walletId: 'frost-fjord-zzzzzz',
-      reservation: { kind: 'server_allocated_wallet', key: reservationKey },
-    }),
-  ).resolves.toMatchObject({
-    ok: false,
-    code: 'registration_ceremony_identity_mismatch',
-  });
-  expect(storage.values.has(ceremonyKey)).toBe(true);
-  expect(storage.values.has(reservationKey)).toBe(true);
-
-  storage.values.set(reservationKey, {
-    kind: 'registration_wallet_reservation_v1',
-    walletId: 'frost-fjord-zzzzzz',
-    expiresAtMs,
-  });
-  await expect(
-    post(durableObject, {
-      op: 'registrationCancelTerminal',
-      ceremonyKey,
-      registrationCeremonyId: 'wrc_smoke',
-      walletId,
-      reservation: { kind: 'server_allocated_wallet', key: reservationKey },
-    }),
-  ).resolves.toMatchObject({
-    ok: false,
-    code: 'registration_wallet_reservation_identity_mismatch',
-  });
-  expect(storage.values.has(ceremonyKey)).toBe(true);
-  expect(storage.values.has(reservationKey)).toBe(true);
-  storage.values.set(reservationKey, {
-    kind: 'registration_wallet_reservation_v1',
-    walletId,
-    expiresAtMs,
-  });
-
-  await expect(
-    post(durableObject, {
-      op: 'registrationCancelTerminal',
-      ceremonyKey,
-      registrationCeremonyId: 'wrc_smoke',
-      walletId,
-      reservation: { kind: 'server_allocated_wallet', key: reservationKey },
-    }),
-  ).resolves.toEqual({
-    ok: true,
-    value: {
-      kind: 'cancelled',
-      ceremonyDeleted: true,
-      walletReservationReleased: true,
-    },
-  });
-  expect(storage.values.has(ceremonyKey)).toBe(false);
-  expect(storage.values.has(reservationKey)).toBe(false);
-  expect(storage.transactionCount).toBe(4);
-});
 
 test('coordinator configuration failures are terminal registration failures', async () => {
   const request = strictRegistrationRequest();
@@ -150,6 +53,8 @@ test('coordinator configuration failures are terminal registration failures', as
     },
     tokenIssuer: {
       issue: issueCeremonyToken,
+      issueRequest: issueCeremonyToken,
+      issueRegistration: issueRegistrationCeremonyToken,
       publicJwks: emptyJwks,
     },
     tokenScope: {
@@ -178,6 +83,7 @@ test('coordinator configuration failures are terminal registration failures', as
   await expect(
     port.register({
       request,
+      requestPolicy: REQUEST_POLICY,
       authority: {
         subjectId: request.client_id,
         sessionId: request.lifecycle.session_id,
@@ -192,6 +98,128 @@ test('coordinator configuration failures are terminal registration failures', as
     retryable: false,
   });
 });
+
+test('strict ECDSA registration forwards the opaque trace correlation header', async () => {
+  const request = strictRegistrationRequest();
+  const router = new TraceCapturingRouter();
+  const port = createRouterAbEcdsaStrictRegistrationPort({
+    router,
+    tokenIssuer: {
+      issue: issueCeremonyToken,
+      issueRequest: issueCeremonyToken,
+      issueRegistration: issueRegistrationCeremonyToken,
+      publicJwks: emptyJwks,
+    },
+    tokenScope: {
+      orgId: 'org_abcdefgh1234',
+      projectId: 'local-smoke-project',
+      environment: 'local',
+    },
+    topology: {
+      routerId: request.router_id,
+      signerSet: request.signer_set,
+      deriverRecipientKeys: {
+        deriver_a: {
+          role: 'signer_a',
+          key_epoch: 'epoch-1',
+          public_key: 'deriver-a-public-key',
+        },
+        deriver_b: {
+          role: 'signer_b',
+          key_epoch: 'epoch-1',
+          public_key: 'deriver-b-public-key',
+        },
+      },
+    },
+  });
+  const traceContext = createRouterAbTraceContextV1();
+
+  await port.register({
+    request,
+    requestPolicy: REQUEST_POLICY,
+    authority: {
+      subjectId: request.client_id,
+      sessionId: request.lifecycle.session_id,
+      accountId: request.lifecycle.account_id,
+      expiresAtMs: request.expires_at_ms,
+    },
+    traceContext,
+  });
+
+  expect(router.request?.headers.get('x-seams-trace-id')).toBe(traceContext.value);
+});
+
+/* Refactor 94B Phase 0. Role diagnostics are presence-only: whether the leg
+   returned Server-Timing is recorded, what it said is not. The value carries
+   role and span names from inside the MPC topology, so it reaches the timing
+   fold and nothing else. */
+test('strict ECDSA registration reports header presence without its contents', async () => {
+  const secret = 'router_internal_span;dur=42, deriver_a_internal;dur=7';
+  for (const [serverTiming, expected] of [
+    [secret, 'present'],
+    [null, 'absent'],
+  ] as const) {
+    const request = strictRegistrationRequest();
+    const router = new TraceCapturingRouter(serverTiming);
+    const port = strictRegistrationPortForRequest({ request, router });
+    const presences: { leg: string; serverTiming: 'present' | 'absent' }[] = [];
+    const timingHeaders: string[] = [];
+
+    await port.register({
+      request,
+      requestPolicy: REQUEST_POLICY,
+      authority: {
+        subjectId: request.client_id,
+        sessionId: request.lifecycle.session_id,
+        accountId: request.lifecycle.account_id,
+        expiresAtMs: request.expires_at_ms,
+      },
+      onServerTiming: (header) => timingHeaders.push(header),
+      onHeaderPresence: (presence) => presences.push({ ...presence }),
+    });
+
+    /* Absence is an observation too, so it is reported either way. */
+    expect(presences).toHaveLength(1);
+    expect(presences[0]?.serverTiming).toBe(expected);
+
+    /* Nothing the presence sink saw may contain the header's contents. */
+    const presenceJson = JSON.stringify(presences);
+    for (const fragment of ['router_internal_span', 'deriver_a_internal', 'dur=', '42']) {
+      expect(presenceJson).not.toContain(fragment);
+    }
+
+    /* The value goes only to the timing sink, which folds it to fixed names. */
+    expect(timingHeaders).toEqual(serverTiming ? [secret] : []);
+  }
+});
+
+function strictRegistrationPortForRequest(args: {
+  request: RouterAbEcdsaRegistrationRequestV1;
+  router: TraceCapturingRouter;
+}) {
+  return createRouterAbEcdsaStrictRegistrationPort({
+    router: args.router,
+    tokenIssuer: {
+      issue: issueCeremonyToken,
+      issueRequest: issueCeremonyToken,
+      issueRegistration: issueRegistrationCeremonyToken,
+      publicJwks: emptyJwks,
+    },
+    tokenScope: {
+      orgId: 'org_abcdefgh1234',
+      projectId: 'local-smoke-project',
+      environment: 'local',
+    },
+    topology: {
+      routerId: args.request.router_id,
+      signerSet: args.request.signer_set,
+      deriverRecipientKeys: {
+        deriver_a: { role: 'signer_a', key_epoch: 'epoch-1', public_key: 'deriver-a-public-key' },
+        deriver_b: { role: 'signer_b', key_epoch: 'epoch-1', public_key: 'deriver-b-public-key' },
+      },
+    },
+  });
+}
 
 function strictRegistrationRequest(): RouterAbEcdsaRegistrationRequestV1 {
   const digest = { bytes: new Array<number>(32).fill(0) };

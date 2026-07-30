@@ -5,7 +5,7 @@ Local development adapters for the Router/A/B architecture.
 This crate owns developer-only helpers that are intentionally outside the
 transport-neutral `router-ab-core` crate:
 
-- local SQLite seed and startup checks,
+- role-private SQLite state for Deriver A, Deriver B, and SigningWorker,
 - local Ed25519 Yao lifecycle and performance harnesses,
 - local Router/Deriver/SigningWorker config parsing,
 - private-worker local harness support.
@@ -64,22 +64,28 @@ MPCRouter, Deriver A, Deriver B, and SigningWorker Cloudflare Workers on
 when that HTTPS endpoint is absent. Browser account creation still needs the
 local app from `pnpm site`.
 
-Build the SDK and strict Worker artifacts explicitly before launching:
+Choose the SDK and strict Worker build profile before launching:
 
 ```sh
-pnpm build:sdk
+pnpm build:sdk-dev
 pnpm router
 ```
 
-Local `pnpm build:sdk` uses the fast Rust development profile for the strict
-Workers (`--dev --no-opt`). Use
-`ROUTER_AB_WORKER_BUILD_PROFILE=release pnpm build:sdk` when optimized Worker
-artifacts are required, and use the same variable with `pnpm router` to launch
-those artifacts. `pnpm router` checks that all four artifacts exist and match
-the current build profile. It does not compile Rust/WASM during startup. Use
-`pnpm router:build` when only the strict Workers need rebuilding. Stop a
-running Router topology before either build command; the build refuses to
-replace artifacts while ports `9100-3` are active.
+`pnpm build:sdk-dev` builds readable browser bundles and the strict Workers
+with the fast Rust development profile. Use the production-equivalent build
+when measuring runtime performance:
+
+```sh
+pnpm build:sdk-prod
+pnpm router
+```
+
+`pnpm build:sdk-prod` builds minified browser bundles, release WASM, and
+optimized strict Workers. `pnpm router` reads the generated build receipt and
+launches the exact profile produced by the preceding build. It does not compile
+Rust/WASM during startup. Use `pnpm router:build` when only the strict Workers
+need rebuilding. Stop a running Router topology before any build command; the
+build refuses to replace artifacts while ports `9100-3` are active.
 
 Starting `pnpm router` replaces any processes listening on ports `9100-9103`.
 It stops the existing listeners, waits for the ports to clear, and then claims

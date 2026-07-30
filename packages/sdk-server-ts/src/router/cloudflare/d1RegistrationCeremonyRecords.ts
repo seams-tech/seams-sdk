@@ -12,7 +12,6 @@ import {
   nearEd25519SigningKeyIdFromString,
   requireServerAllocatedWalletId,
   registrationEvmFamilyEcdsaBranchKey,
-  registrationIntentGrantFromString,
   registrationNearEd25519BranchKey,
   registrationSignerBranchKeyFromString,
   registrationSignerSetSelectionFromPlan,
@@ -102,20 +101,22 @@ import {
   parseStoredRegistrationSignerPlan,
   storedRegistrationSignerPlansMatch,
   type StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch,
+  type StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch,
   type StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch,
+  type StoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch,
+  type StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch,
   type StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch,
   type StoredWalletRegistrationNearEd25519YaoAuthorizedBranch,
   type StoredWalletRegistrationSignerBranch,
   type StoredWalletRegistrationSignerSetState,
   StoredAddAuthMethodIntent,
   StoredAddSignerIntent,
-  StoredRegistrationIntent,
   StoredWalletAddAuthMethodCeremony,
   StoredWalletAddSignerCeremony,
   StoredWalletAddSignerFinalizeReplay,
   StoredWalletAddSignerFinalizeRequest,
   StoredWalletRegistrationCeremony,
-  StoredWalletRegistrationFinalizeReplay,
+  StoredWalletRegistrationCeremonyAuthorityState,
 } from '../../core/RegistrationCeremonyStore';
 import {
   thresholdEcdsaChainTargetKey,
@@ -289,28 +290,6 @@ export function parseWalletIdForIntent(raw: unknown): WalletId | null {
   }
 }
 
-export function parseD1StoredRegistrationIntent(raw: unknown): StoredRegistrationIntent | null {
-  const record = toRecordValue(raw);
-  if (!record || record.kind !== 'intent_allocated') return null;
-  const grant = registrationIntentGrantFromString(toOptionalTrimmedString(record.grant) || '');
-  const intent = parseD1RegistrationIntent(record.intent);
-  const digestB64u = toOptionalTrimmedString(record.digestB64u);
-  const orgId = toOptionalTrimmedString(record.orgId);
-  const signingRootId = toOptionalTrimmedString(record.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
-  const expiresAtMs = safeInteger(record.expiresAtMs);
-  if (!grant || !intent || !digestB64u || !orgId || expiresAtMs === null) return null;
-  return {
-    kind: 'intent_allocated',
-    grant,
-    intent,
-    digestB64u,
-    orgId,
-    expiresAtMs,
-    ...intentScopeMetadata(record),
-  };
-}
-
 export function parseD1RegistrationIntent(raw: unknown): RegistrationIntentV1 | null {
   const record = toRecordValue(raw);
   if (!record || record.version !== 'registration_intent_v1') return null;
@@ -355,7 +334,7 @@ export function parseD1StoredWalletRegistrationCeremony(
   const digestB64u = toOptionalTrimmedString(record.digestB64u);
   const orgId = toOptionalTrimmedString(record.orgId);
   const expiresAtMs = safeInteger(record.expiresAtMs);
-  const authority = parseD1RegistrationAuthority(record.authority);
+  const authorityState = parseD1WalletRegistrationCeremonyAuthorityState(record.authorityState);
   const signerPlan = parseStoredRegistrationSignerPlan(record.signerPlan);
   const preparedContext = parseStoredWalletRegistrationPreparedContext(record.preparedContext);
   const intentSignerPlan = intent
@@ -372,7 +351,7 @@ export function parseD1StoredWalletRegistrationCeremony(
     !signingRootId ||
     !signingRootVersion ||
     expiresAtMs === null ||
-    !authority ||
+    !authorityState ||
     !signerPlan ||
     !preparedContext ||
     !intentSignerPlan ||
@@ -391,7 +370,7 @@ export function parseD1StoredWalletRegistrationCeremony(
     preparedContext,
     orgId,
     expiresAtMs,
-    authority,
+    authorityState,
     signerState,
   };
   const expectedOrigin = toOptionalTrimmedString(record.expectedOrigin);
@@ -401,38 +380,27 @@ export function parseD1StoredWalletRegistrationCeremony(
   return ceremony;
 }
 
-export function parseD1StoredWalletRegistrationFinalizeReplay(
+/**
+ * Refactor 94C. Setup creates the ceremony before the WebAuthn proof exists,
+ * so the stored authority is a two-arm state rather than a required record.
+ */
+function parseD1WalletRegistrationCeremonyAuthorityState(
   raw: unknown,
-): StoredWalletRegistrationFinalizeReplay | null {
+): StoredWalletRegistrationCeremonyAuthorityState | null {
   const record = toRecordValue(raw);
-  if (!record || record.kind !== 'wallet_registration_finalize_replay_v1') return null;
-  const registrationCeremonyId = toOptionalTrimmedString(record.registrationCeremonyId);
-  const idempotencyKey = toOptionalTrimmedString(record.idempotencyKey);
-  const requestFingerprint = toOptionalTrimmedString(record.requestFingerprint);
-  const response = parseD1WalletRegistrationFinalizeReplayResponse(record.response);
-  const createdAtMs = safeInteger(record.createdAtMs);
-  const expiresAtMs = safeInteger(record.expiresAtMs);
-  if (
-    !registrationCeremonyId ||
-    !idempotencyKey ||
-    !requestFingerprint ||
-    !response ||
-    createdAtMs === null ||
-    createdAtMs <= 0 ||
-    expiresAtMs === null ||
-    expiresAtMs <= 0
-  ) {
-    return null;
+  if (!record) return null;
+  switch (record.kind) {
+    case 'awaiting_proof': {
+      const authMethod = normalizeRegistrationAuthMethodInput(record.authMethod);
+      return authMethod ? { kind: 'awaiting_proof', authMethod } : null;
+    }
+    case 'verified': {
+      const authority = parseD1RegistrationAuthority(record.authority);
+      return authority ? { kind: 'verified', authority } : null;
+    }
+    default:
+      return null;
   }
-  return {
-    kind: 'wallet_registration_finalize_replay_v1',
-    registrationCeremonyId,
-    idempotencyKey,
-    requestFingerprint,
-    response,
-    createdAtMs,
-    expiresAtMs,
-  };
 }
 
 export function parseD1StoredWalletAddSignerFinalizeReplay(
@@ -553,11 +521,10 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
       ecdsa,
     };
   }
-  if (record.kind !== 'near_ed25519' && record.kind !== 'near_ed25519_and_evm_family_ecdsa') {
-    return null;
-  }
-  if (record.kind === 'near_ed25519_and_evm_family_ecdsa' && !ecdsa) return null;
-  if (record.kind === 'near_ed25519' && record.ecdsa !== undefined) return null;
+  /* Refactor 94 Phase 4+5: finalize commits one signer branch per call, so a
+     replayed Ed25519 response never carries ECDSA work. */
+  if (record.kind !== 'near_ed25519') return null;
+  if (record.ecdsa !== undefined) return null;
   const ed25519 = parseD1WalletRegistrationFinalizeEd25519(record.ed25519);
   const authorityScope = parseThresholdEd25519AuthorityScope(record.authorityScope);
   const accountProvisioning = parseD1RegistrationNearAccountProvisioning(
@@ -581,36 +548,9 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
   ) {
     return null;
   }
-  if (record.kind === 'near_ed25519_and_evm_family_ecdsa' && ecdsa) {
-    if (authMethod.kind === 'passkey') {
-      if (!rpId) return null;
-      return {
-        ok: true,
-        kind: 'near_ed25519_and_evm_family_ecdsa',
-        walletId,
-        rpId,
-        authority,
-        authMethod,
-        authorityScope,
-        accountProvisioning,
-        resolvedAccount,
-        ed25519,
-        ecdsa,
-      };
-    }
-    return {
-      ok: true,
-      kind: 'near_ed25519_and_evm_family_ecdsa',
-      walletId,
-      authority,
-      authMethod,
-      authorityScope,
-      accountProvisioning,
-      resolvedAccount,
-      ed25519,
-      ecdsa,
-    };
-  }
+  /* An Ed25519 finalize commits only its own branch, so a replayed record that
+     also carries ECDSA payload is from a shape that no longer exists. */
+  if (ecdsa) return null;
   if (authMethod.kind === 'passkey') {
     if (!rpId) return null;
     return {
@@ -643,30 +583,10 @@ function parseWalletRegistrationRouteTimingName(
   raw: unknown,
 ): WalletRegistrationRouteDiagnostics['entries'][number]['name'] | null {
   switch (raw) {
-    case 'registrationIntentLoadMs':
-    case 'registrationIntentDigestMs':
-    case 'registrationIntentConsumeMs':
-    case 'registrationAttemptGateMs':
-    case 'registrationPreparationPersistMs':
-    case 'registrationPreparationLoadMs':
-    case 'registrationPreparationConsumeMs':
-    case 'registrationPreparationScopeCheckMs':
-    case 'registrationAuthorityVerifyMs':
-    case 'registrationEcdsaPrepareMs':
-    case 'registrationCeremonyPersistMs':
-    case 'registerPrepareTotalMs':
-    case 'registerStartTotalMs':
-    case 'registrationEcdsaRespondMs':
-    case 'registrationFinalizeReplayLoadMs':
     case 'registrationCeremonyLoadMs':
     case 'registrationEcdsaBootstrapVerifyMs':
-    case 'sponsoredNearAccountCreateMs':
-    case 'registrationKeygenMs':
     case 'registrationEmailOtpEnrollmentPlanMs':
-    case 'relaySessionMintMs':
-    case 'relayGoogleEmailOtpActivationPlanMs':
     case 'relayPersistenceMs':
-    case 'registrationFinalizeReplayCacheMs':
     case 'registerFinalizeTotalMs':
       return raw;
     default:
@@ -1044,7 +964,11 @@ function parseD1StoredWalletRegistrationSignerState(
 function parseD1StoredSignerSetRegistrationState(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationSignerSetState | null {
-  if (!Array.isArray(record.branches) || record.branches.length === 0) return null;
+  /* An empty branch list is a real state, not a corrupt record: an
+     Ed25519-only ceremony has nothing admitted until respond derives the
+     authority-bound Yao admission. Callers check for the specific branch they
+     need, so requiring one here would only reject a legitimate ceremony. */
+  if (!Array.isArray(record.branches)) return null;
   const branches: StoredWalletRegistrationSignerBranch[] = [];
   for (const rawBranch of record.branches) {
     const branch = parseD1StoredSignerSetRegistrationBranch(rawBranch);
@@ -1068,10 +992,16 @@ function parseD1StoredSignerSetRegistrationBranch(
       return parseD1StoredNearEd25519YaoAuthorizedBranch(record);
     case 'evm_family_ecdsa_prepared':
       return parseD1StoredEvmFamilyEcdsaPreparedBranch(record);
+    case 'evm_family_ecdsa_response_claimed':
+      return parseD1StoredEvmFamilyEcdsaResponseClaimedBranch(record);
     case 'evm_family_ecdsa_pending_activation':
       return parseD1StoredEvmFamilyEcdsaPendingActivationBranch(record);
+    case 'evm_family_ecdsa_activation_claimed':
+      return parseD1StoredEvmFamilyEcdsaActivationClaimedBranch(record);
     case 'evm_family_ecdsa_activated':
       return parseD1StoredEvmFamilyEcdsaActivatedBranch(record);
+    case 'evm_family_ecdsa_finalized':
+      return parseD1StoredEvmFamilyEcdsaFinalizedBranch(record);
     default:
       return null;
   }
@@ -1084,11 +1014,15 @@ function parseD1StoredNearEd25519YaoAuthorizedBranch(
   const admissionRequest = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(
     record.admissionRequest,
   );
-  if (!branchKey || !admissionRequest.ok) return null;
+  const admissionReceipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+    record.admissionReceipt,
+  );
+  if (!branchKey || !admissionRequest.ok || !admissionReceipt.ok) return null;
   return {
     kind: 'near_ed25519_yao_authorized',
     branchKey,
     admissionRequest: admissionRequest.value,
+    admissionReceipt: admissionReceipt.value,
   };
 }
 
@@ -1105,7 +1039,30 @@ function parseD1StoredEvmFamilyEcdsaPreparedBranch(
     chainTargets: prepared.chainTargets,
     prepare: prepared.prepare,
     strictRegistration: prepared.strictRegistration,
+    strictRegistrationBindingJson: prepared.strictRegistrationBindingJson,
   };
+}
+
+function parseD1StoredEvmFamilyEcdsaResponseClaimedBranch(
+  record: Record<string, unknown>,
+): StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch | null {
+  const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  if (!branchKey || !prepared) return null;
+  try {
+    return {
+      kind: 'evm_family_ecdsa_response_claimed',
+      branchKey,
+      derivationKind: prepared.derivationKind,
+      chainTargets: prepared.chainTargets,
+      prepare: prepared.prepare,
+      strictRegistration: prepared.strictRegistration,
+      strictRegistrationBindingJson: prepared.strictRegistrationBindingJson,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseD1StoredEvmFamilyEcdsaPendingActivationBranch(
@@ -1122,11 +1079,43 @@ function parseD1StoredEvmFamilyEcdsaPendingActivationBranch(
       chainTargets: prepared.chainTargets,
       prepare: prepared.prepare,
       strictRegistration: prepared.strictRegistration,
+      strictRegistrationBindingJson: prepared.strictRegistrationBindingJson,
       registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
       pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1(record.pendingActivation),
       publicResponse: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(
         record.publicResponse,
       ),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseD1StoredEvmFamilyEcdsaActivationClaimedBranch(
+  record: Record<string, unknown>,
+): StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch | null {
+  const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  if (!branchKey || !prepared) return null;
+  try {
+    return {
+      kind: 'evm_family_ecdsa_activation_claimed',
+      branchKey,
+      derivationKind: prepared.derivationKind,
+      chainTargets: prepared.chainTargets,
+      prepare: prepared.prepare,
+      strictRegistration: prepared.strictRegistration,
+      strictRegistrationBindingJson: prepared.strictRegistrationBindingJson,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+      pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1(record.pendingActivation),
+      publicResponse: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(
+        record.publicResponse,
+      ),
+      publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
+      /* Empty on rows written before ownership existed; owner checks treat
+         empty as never-matching, so legacy claims deny adoption rather than
+         allowing it. */
+      activationOwner: typeof record.activationOwner === 'string' ? record.activationOwner : '',
     };
   } catch {
     return null;
@@ -1148,11 +1137,42 @@ function parseD1StoredEvmFamilyEcdsaActivatedBranch(
       chainTargets: prepared.chainTargets,
       prepare: prepared.prepare,
       strictRegistration: prepared.strictRegistration,
+      strictRegistrationBindingJson: prepared.strictRegistrationBindingJson,
       registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
       activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation),
       publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(record.publicCapability),
       bootstrap,
+      activationOwner: typeof record.activationOwner === 'string' ? record.activationOwner : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseD1StoredEvmFamilyEcdsaFinalizedBranch(
+  record: Record<string, unknown>,
+): StoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch | null {
+  const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
+  const finalizedAtMs = safeInteger(record.finalizedAtMs);
+  if (!branchKey || !prepared || !bootstrap || bootstrap.jwt || finalizedAtMs === null) return null;
+  try {
+    return {
+      kind: 'evm_family_ecdsa_finalized',
+      branchKey,
+      derivationKind: prepared.derivationKind,
+      chainTargets: prepared.chainTargets,
+      prepare: prepared.prepare,
+      strictRegistration: prepared.strictRegistration,
+      strictRegistrationBindingJson: prepared.strictRegistrationBindingJson,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+      publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
+      activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation),
+      publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(record.publicCapability),
+      bootstrap,
+      finalizedAtMs,
     };
   } catch {
     return null;
@@ -1174,17 +1194,29 @@ function parseD1StoredEcdsaRegistrationBase(record: Record<string, unknown>): {
   readonly chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
   readonly prepare: WalletRegistrationEcdsaPrepareContext;
   readonly strictRegistration: WalletRegistrationEcdsaPreparePayload['strictRegistration'];
+  readonly strictRegistrationBindingJson: string;
 } | null {
   const derivationKind = toOptionalTrimmedString(record.derivationKind);
   const chainTargets = parseD1ThresholdEcdsaChainTargets(record.chainTargets);
   const prepare = parseD1WalletRegistrationEcdsaPrepare(record.prepare);
-  if (derivationKind !== 'evm_family_ecdsa_keygen' || !chainTargets || !prepare) return null;
+  const strictRegistrationBindingJson = toOptionalTrimmedString(
+    record.strictRegistrationBindingJson,
+  );
+  if (
+    derivationKind !== 'evm_family_ecdsa_keygen' ||
+    !chainTargets ||
+    !prepare ||
+    !strictRegistrationBindingJson
+  ) {
+    return null;
+  }
   try {
     return {
       derivationKind,
       chainTargets,
       prepare,
       strictRegistration: parseRouterAbEcdsaRegistrationRequestFactsV1(record.strictRegistration),
+      strictRegistrationBindingJson,
     };
   } catch {
     return null;

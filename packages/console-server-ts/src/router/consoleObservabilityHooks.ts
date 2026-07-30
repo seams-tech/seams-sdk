@@ -4,8 +4,8 @@ import {
   buildBillingStripeWebhookFailureObservabilityEvent,
 } from '@seams-internal/console-server/observability/adapters';
 import type { ConsoleObservabilityIngestionService } from '@seams-internal/console-server/observability/ingestionService';
-import type { ConsoleAuthClaims } from '@seams/sdk-server/internal/router/consoleAuth';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/internal/router/logger';
+import type { ConsoleAuthClaims } from './consoleAuth';
+import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
 
 type ConsoleObservabilityIngestContext = Parameters<
   ConsoleObservabilityIngestionService['appendEvent']
@@ -26,6 +26,25 @@ function normalizeString(raw: unknown): string {
   return String(raw || '').trim();
 }
 
+function toUnknownRecord(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return raw as Record<string, unknown>;
+}
+
+function parseStripeWebhookEnvelope(raw: unknown): Record<string, unknown> {
+  let decoded: unknown = raw;
+  try {
+    if (typeof raw === 'string') {
+      decoded = JSON.parse(raw);
+    } else if (raw instanceof Uint8Array) {
+      decoded = JSON.parse(new TextDecoder().decode(raw));
+    }
+  } catch {
+    return {};
+  }
+  return toUnknownRecord(decoded);
+}
+
 export function toUnknownErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -34,11 +53,9 @@ export function buildConsoleObservabilityIngestContext(
   claims: ConsoleAuthClaims,
   fallbackActorUserId = 'system-console-router',
 ): ConsoleObservabilityIngestContext {
-  const roles = Array.isArray(claims.roles) ? claims.roles.filter(Boolean) : [];
   return {
     orgId: claims.orgId,
     actorUserId: normalizeString(claims.userId) || fallbackActorUserId,
-    roles: roles.length ? roles : ['ops'],
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
@@ -161,14 +178,20 @@ export function readConsoleStripeWebhookFailureMetadata(raw: unknown): {
   providerRef?: string;
   providerCustomerRef?: string;
 } {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-  const row = raw as Record<string, unknown>;
-  const orgId = normalizeString(row.orgId);
-  const stripeEventId = normalizeString(row.eventId);
-  const stripeEventType = normalizeString(row.eventType);
-  const checkoutSessionId = normalizeString(row.checkoutSessionId);
-  const providerRef = normalizeString(row.providerRef);
-  const providerCustomerRef = normalizeString(row.providerCustomerRef);
+  const envelope = parseStripeWebhookEnvelope(raw);
+  const stripeEventId = normalizeString(envelope.id);
+  const stripeEventType = normalizeString(envelope.type);
+  const object = toUnknownRecord(toUnknownRecord(envelope.data).object);
+  const metadata = toUnknownRecord(object.metadata);
+  const orgId =
+    normalizeString(object.client_reference_id) || normalizeString(metadata.org_id);
+  const checkoutSessionId =
+    stripeEventType === 'checkout.session.completed' ? normalizeString(object.id) : '';
+  const providerRef =
+    normalizeString(object.payment_intent) ||
+    normalizeString(object.charge) ||
+    normalizeString(object.id);
+  const providerCustomerRef = normalizeString(object.customer);
   return {
     ...(orgId ? { orgId } : {}),
     ...(stripeEventId ? { stripeEventId } : {}),
@@ -216,7 +239,6 @@ export async function emitConsoleBillingStripeWebhookFailureObservabilityEvent(
     {
       orgId,
       actorUserId: normalizeString(input.actorUserId) || 'system-stripe-webhook',
-      roles: ['ops'],
     },
     event,
   );

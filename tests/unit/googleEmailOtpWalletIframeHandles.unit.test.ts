@@ -171,7 +171,14 @@ async function beginFlow(input?: { flow?: GoogleEmailOtpWalletAuthFlow }): Promi
   await handlers.PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH?.({
     type: 'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH',
     requestId: 'begin-1',
-    payload: { idToken: 'google-id-token', mode: input?.flow?.mode ?? 'login' },
+    payload: {
+      idToken: 'google-id-token',
+      mode: input?.flow?.mode ?? 'login',
+      diagnostics: {
+        emailOtpUnlockTimings: false,
+        registrationBenchmarkTimings: false,
+      },
+    },
   });
   const response = posted.at(-1) as {
     payload: { result: { ok: true; value: unknown } };
@@ -313,6 +320,26 @@ test.describe('Google Email OTP wallet iframe flow handles', () => {
         payload: invalidPayload,
       }),
     ).rejects.toThrow(/must not include otpCode/);
+  });
+
+  test('enables registration benchmark diagnostics inside the wallet iframe', async () => {
+    const { handlers } = makeHarness(makeRegistrationFlow());
+    Reflect.set(globalThis, '__SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS', false);
+
+    await handlers.PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH?.({
+      type: 'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH',
+      requestId: 'begin-registration-diagnostics',
+      payload: {
+        idToken: 'google-id-token',
+        mode: 'register',
+        diagnostics: {
+          emailOtpUnlockTimings: false,
+          registrationBenchmarkTimings: true,
+        },
+      },
+    });
+
+    expect(Reflect.get(globalThis, '__SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS')).toBe(true);
   });
 
   test('rejects a handle used with the wrong wallet id', async () => {

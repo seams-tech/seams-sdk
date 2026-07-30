@@ -6,7 +6,9 @@ import type {
   WalletId,
 } from '@shared/utils/registrationIntent';
 import {
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import {
@@ -27,7 +29,15 @@ export type VerifiedPasskeyRegistrationIntentV1 = {
   kind: 'verified_passkey_registration_intent_v1';
   intent: PasskeyRegistrationIntentV1;
   registrationIntentDigestB64u: string;
-  registrationIntentGrant: RegistrationIntentGrant;
+  /**
+   * Bearer credential for this ceremony's Yao Router calls.
+   *
+   * Was the registration-intent grant. Refactor 94C deletes the grant, and the
+   * frozen contract designates `signedSetup` as the one opaque payload the
+   * client carries across the ceremony's routes — the Yao transport is another
+   * call in that same ceremony, so it carries the same credential.
+   */
+  registrationBearerToken: string;
   registrationCeremonyId: string;
 };
 
@@ -51,12 +61,14 @@ export type VerifiedPasskeyEd25519YaoRegistrationInputV1 = {
   verifiedIntent: VerifiedPasskeyRegistrationIntentV1;
   verifiedAuthority: VerifiedPasskeyRegistrationAuthorityV1;
   admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
   httpTransport: PasskeyEd25519YaoHttpTransportV1;
 };
 
 export type PreparedPasskeyEd25519YaoRegistrationV1 = {
   kind: 'prepared_passkey_ed25519_yao_registration_v1';
   request: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  receipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
   transportConfig: RouterAbEd25519YaoHttpTransportConfigV1;
 };
 
@@ -101,8 +113,8 @@ function transportConfig(
   input: VerifiedPasskeyEd25519YaoRegistrationInputV1,
 ): RouterAbEd25519YaoHttpTransportConfigV1 {
   const bearerToken = requireNonEmptyString(
-    String(input.verifiedIntent.registrationIntentGrant),
-    'registration-intent grant',
+    String(input.verifiedIntent.registrationBearerToken),
+    'registration ceremony bearer token',
   );
   return {
     routerOrigin: requireNonEmptyString(input.httpTransport.routerOrigin, 'Yao Router origin'),
@@ -131,6 +143,10 @@ export function prepareVerifiedPasskeyEd25519YaoRegistrationV1(
   );
   if (!parsedAdmission.ok) throw new Error(parsedAdmission.message);
   const admissionRequest = parsedAdmission.value;
+  const parsedReceipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+    input.admissionReceipt,
+  );
+  if (!parsedReceipt.ok) throw new Error(parsedReceipt.message);
   requireMatchingString(
     admissionRequest.scope.lifecycle_id,
     requireNonEmptyString(input.verifiedIntent.registrationCeremonyId, 'registration ceremony ID'),
@@ -150,6 +166,7 @@ export function prepareVerifiedPasskeyEd25519YaoRegistrationV1(
   return {
     kind: 'prepared_passkey_ed25519_yao_registration_v1',
     request: admissionRequest,
+    receipt: parsedReceipt.value,
     transportConfig: transportConfig(input),
   };
 }
@@ -165,6 +182,7 @@ export async function registerVerifiedPasskeyEd25519YaoV1(
         kind: 'passkey_prf_first',
         ownedSecret32: input.verifiedAuthority.ownedPasskeyPrfFirst,
       },
+      admission: { kind: 'verified_receipt', receipt: prepared.receipt },
       transport: new RouterAbEd25519YaoHttpActivationTransportV1(prepared.transportConfig),
     });
   } catch (error) {

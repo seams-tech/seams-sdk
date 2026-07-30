@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createD1ConsoleAccountService } from '../../packages/console-server-ts/src/account/d1';
+import type { ConsoleAccountContext } from '../../packages/console-server-ts/src/account/service';
 import { createD1ConsoleApiKeyService } from '../../packages/console-server-ts/src/apiKeys/d1';
 import { createD1ConsoleApprovalService } from '../../packages/console-server-ts/src/approvals/d1';
 import { createD1ConsoleAuditService } from '../../packages/console-server-ts/src/audit/d1';
@@ -15,7 +16,6 @@ import {
 } from '../../packages/console-server-ts/src/billingPrepaidReservations/d1';
 import type { ConsoleBillingPrepaidReservationService } from '../../packages/console-server-ts/src/billingPrepaidReservations/service';
 import type { ConsoleBillingPrepaidReservation } from '../../packages/console-server-ts/src/billingPrepaidReservations/types';
-import { createD1ConsoleBootstrapTokenService } from '../../packages/console-server-ts/src/bootstrapTokens/d1';
 import { createD1ConsoleKeyExportService } from '../../packages/console-server-ts/src/keyExports/d1';
 import {
   createD1ConsoleObservabilityIngestionService,
@@ -31,7 +31,7 @@ import {
 import type { ConsoleRuntimeSnapshotOutboxEvent } from '../../packages/console-server-ts/src/runtimeSnapshots/types';
 import { createD1ConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls/d1';
 import { createD1ConsoleSponsorshipSpendCapService } from '../../packages/console-server-ts/src/sponsorshipSpendCaps/d1';
-import { createD1ConsoleTeamRbacService } from '../../packages/console-server-ts/src/teamRbac/d1';
+import { createD1ConsoleOrganizationAccessService } from '../../packages/console-server-ts/src/teamRbac/d1';
 import { createD1ConsoleWalletService } from '../../packages/console-server-ts/src/wallets/d1';
 import {
   createAesGcmConsoleWebhookSecretCipher,
@@ -472,6 +472,25 @@ type RawD1EmailOtpRateLimitInsertInput = {
 function unwrapFixture<T>(result: { ok: true; value: T } | { ok: false }): T {
   if (!result.ok) throw new Error('invalid fixture value');
   return result.value;
+}
+
+function makeD1AccountOwnerContext(): ConsoleAccountContext {
+  return {
+    kind: 'authorized',
+    userId: 'user-d1-account',
+    orgId: 'org-d1-account-home',
+    membershipId: 'membership-d1-account-owner',
+    role: 'OWNER',
+    authorizationVersion: 1,
+    adminPermissions: [],
+    projectAccess: { kind: 'all' },
+    email: 'USER-D1-ACCOUNT@example.com',
+    name: 'D1 Account User',
+    provider: null,
+    projectId: null,
+    environmentId: null,
+    platformSupport: false,
+  };
 }
 
 class RuntimeSnapshotOutboxRaceHarness {
@@ -4400,12 +4419,10 @@ test.describe('D1 adapter contracts', () => {
       const primaryCtx = {
         orgId: 'org-d1-projects-primary',
         actorUserId: 'user-d1-projects-primary',
-        roles: ['admin'],
       };
       const secondaryCtx = {
         orgId: 'org-d1-projects-secondary',
         actorUserId: 'user-d1-projects-secondary',
-        roles: ['admin'],
       };
 
       let missingOrgError: unknown = null;
@@ -4520,6 +4537,7 @@ test.describe('D1 adapter contracts', () => {
   test('account adapter stores profiles and resolves created organizations from D1', async () => {
     const temp = createTemporaryD1Database();
     try {
+      await applyConsoleD1Migrations(temp.database);
       const namespace = 'd1-contracts';
       const orgProjectEnv = await createD1ConsoleOrgProjectEnvService({
         database: temp.database,
@@ -4527,7 +4545,7 @@ test.describe('D1 adapter contracts', () => {
         ensureSchema: true,
         now: () => new Date('2026-06-27T00:00:00.000Z'),
       });
-      const teamRbac = await createD1ConsoleTeamRbacService({
+      const organizationAccess = await createD1ConsoleOrganizationAccessService({
         database: temp.database,
         namespace,
         ensureSchema: true,
@@ -4538,16 +4556,10 @@ test.describe('D1 adapter contracts', () => {
         namespace,
         ensureSchema: true,
         orgProjectEnv,
-        teamRbac,
+        organizationAccess,
         now: () => new Date('2026-06-27T00:00:00.000Z'),
       });
-      const ctx = {
-        userId: 'user-d1-account',
-        orgId: 'org-d1-account-home',
-        roles: [],
-        email: 'USER-D1-ACCOUNT@example.com',
-        name: 'D1 Account User',
-      };
+      const ctx = makeD1AccountOwnerContext();
 
       const initialProfile = await service.getProfile(ctx);
       expect(initialProfile.displayName).toBe('D1 Account User');
@@ -4593,14 +4605,13 @@ test.describe('D1 adapter contracts', () => {
         id: 'org-d1-account-created',
         name: 'D1 Account Created Org',
       });
-      expect(organization.actorIsOwner).toBe(true);
-      expect(organization.actorRoles).toContain('owner');
+      expect(organization.role).toBe('OWNER');
+      expect(organization.projectAccess.kind).toBe('all');
 
       await orgProjectEnv.createProject(
         {
           orgId: organization.id,
           actorUserId: ctx.userId,
-          roles: ['owner'],
         },
         {
           id: 'project-d1-account',
@@ -4618,7 +4629,7 @@ test.describe('D1 adapter contracts', () => {
       });
 
       const switched = await service.switchOrganizationContext(ctx, organization.id);
-      expect(switched.actorRoles).toContain('owner');
+      expect(switched.role).toBe('OWNER');
       expect(switched.projectId).toBe('project-d1-account');
       expect(switched.environmentId).toBe('project-d1-account:prod');
 
@@ -4655,12 +4666,10 @@ test.describe('D1 adapter contracts', () => {
       const primaryCtx = {
         orgId: 'org-d1-wallets-primary',
         actorUserId: 'user-d1-wallets-primary',
-        roles: ['admin'],
       };
       const secondaryCtx = {
         orgId: 'org-d1-wallets-secondary',
         actorUserId: 'user-d1-wallets-secondary',
-        roles: ['admin'],
       };
       const upsertWallet = service.upsertWallet;
       if (!upsertWallet) throw new Error('D1 wallet adapter must expose wallet upsert');
@@ -4855,12 +4864,10 @@ test.describe('D1 adapter contracts', () => {
       const primaryCtx = {
         orgId: 'org-d1-api-keys-primary',
         actorUserId: 'user-d1-api-keys-primary',
-        roles: ['admin'],
       };
       const secondaryCtx = {
         orgId: 'org-d1-api-keys-secondary',
         actorUserId: 'user-d1-api-keys-secondary',
-        roles: ['admin'],
       };
 
       const createdSecretKey = await service.createApiKey(primaryCtx, {
@@ -4999,191 +5006,6 @@ test.describe('D1 adapter contracts', () => {
     }
   });
 
-  test('bootstrap token adapter redeems through atomic D1 conditional updates', async () => {
-    const temp = createTemporaryD1Database();
-    try {
-      let nowMsValue = Date.parse('2026-06-27T02:00:00.000Z');
-      const service = await createD1ConsoleBootstrapTokenService({
-        database: temp.database,
-        namespace: 'd1-contracts',
-        ensureSchema: true,
-        now: () => new Date(nowMsValue),
-      });
-      const primaryCtx = {
-        orgId: 'org-d1-bootstrap-primary',
-        actorUserId: 'user-d1-bootstrap-primary',
-        roles: ['admin'],
-      };
-      const secondaryCtx = {
-        orgId: 'org-d1-bootstrap-secondary',
-        actorUserId: 'user-d1-bootstrap-secondary',
-        roles: ['admin'],
-      };
-
-      const created = await service.createToken(primaryCtx, {
-        publishableKeyId: 'pk-d1-bootstrap',
-        projectId: 'project-d1-bootstrap',
-        environmentId: 'env-d1-bootstrap-prod',
-        newAccountId: 'account-d1-bootstrap',
-        rpId: 'app.example.com',
-        origin: 'https://app.example.com',
-        method: 'post',
-        path: '/wallets/register/intent',
-        allowedPaths: ['/wallets/register/intent', '/wallets/register/complete'],
-        requestHashSha256: 'request-hash-d1-bootstrap',
-        maxUses: 2,
-        ttlMs: 60_000,
-        riskDecision: 'allow',
-        paymentReference: 'billing-reservation-d1-bootstrap',
-      });
-      expect(created.token).toMatch(/^tbt_v1_/);
-      expect(created.record).toMatchObject({
-        orgId: primaryCtx.orgId,
-        publishableKeyId: 'pk-d1-bootstrap',
-        method: 'POST',
-        maxUses: 2,
-        usedCount: 0,
-        status: 'issued',
-      });
-      expect(created.record.allowedPaths).toEqual([
-        '/wallets/register/intent',
-        '/wallets/register/complete',
-      ]);
-
-      await expect(
-        service.countIssued(primaryCtx, { publishableKeyId: 'pk-d1-bootstrap' }),
-      ).resolves.toBe(1);
-      await expect(
-        service.countIssued(secondaryCtx, { publishableKeyId: 'pk-d1-bootstrap' }),
-      ).resolves.toBe(0);
-      await expect(
-        service.countIssued(primaryCtx, {
-          publishableKeyId: 'pk-d1-bootstrap',
-          issuedSince: '2026-06-27T02:00:01.000Z',
-        }),
-      ).resolves.toBe(0);
-
-      const peeked = await service.peekTokenRecord(created.token);
-      expect(peeked).toMatchObject({
-        id: created.record.id,
-        usedCount: 0,
-        status: 'issued',
-      });
-      await expect(service.peekTokenRecord(`${created.token}tampered`)).resolves.toBeNull();
-
-      const originMismatch = await service.redeemToken({
-        token: created.token,
-        origin: 'https://evil.example.com',
-        method: 'POST',
-        path: '/wallets/register/intent',
-        requestHashSha256: 'request-hash-d1-bootstrap',
-      });
-      expect(originMismatch).toMatchObject({
-        ok: false,
-        status: 403,
-        code: 'bootstrap_token_origin_mismatch',
-      });
-      await expect(service.peekTokenRecord(created.token)).resolves.toMatchObject({
-        usedCount: 0,
-        status: 'issued',
-      });
-
-      const requestMismatch = await service.redeemToken({
-        token: created.token,
-        origin: 'https://app.example.com',
-        method: 'POST',
-        path: '/wallets/register/intent',
-        requestHashSha256: 'wrong-request-hash',
-      });
-      expect(requestMismatch).toMatchObject({
-        ok: false,
-        status: 409,
-        code: 'bootstrap_token_request_mismatch',
-      });
-      await expect(service.peekTokenRecord(created.token)).resolves.toMatchObject({
-        usedCount: 0,
-        status: 'issued',
-      });
-
-      const firstRedeem = await service.redeemToken({
-        token: created.token,
-        origin: 'https://app.example.com',
-        method: 'POST',
-        path: '/wallets/register/complete',
-        requestHashSha256: 'request-hash-d1-bootstrap',
-      });
-      expect(firstRedeem).toMatchObject({
-        ok: true,
-        record: expect.objectContaining({
-          usedCount: 1,
-          status: 'issued',
-          redeemedAt: '2026-06-27T02:00:00.000Z',
-        }),
-      });
-
-      nowMsValue = Date.parse('2026-06-27T02:00:01.000Z');
-      const secondRedeem = await service.redeemToken({
-        token: created.token,
-        origin: 'https://app.example.com',
-        method: 'POST',
-        path: '/wallets/register/intent',
-        requestHashSha256: 'request-hash-d1-bootstrap',
-      });
-      expect(secondRedeem).toMatchObject({
-        ok: true,
-        record: expect.objectContaining({
-          usedCount: 2,
-          status: 'redeemed',
-          redeemedAt: '2026-06-27T02:00:01.000Z',
-        }),
-      });
-
-      const thirdRedeem = await service.redeemToken({
-        token: created.token,
-        origin: 'https://app.example.com',
-        method: 'POST',
-        path: '/wallets/register/intent',
-        requestHashSha256: 'request-hash-d1-bootstrap',
-      });
-      expect(thirdRedeem).toMatchObject({
-        ok: false,
-        status: 409,
-        code: 'bootstrap_token_already_used',
-      });
-
-      nowMsValue = Date.parse('2026-06-27T02:05:00.000Z');
-      const expiring = await service.createToken(primaryCtx, {
-        publishableKeyId: 'pk-d1-bootstrap-expiring',
-        projectId: 'project-d1-bootstrap',
-        environmentId: 'env-d1-bootstrap-prod',
-        newAccountId: 'account-d1-bootstrap-expiring',
-        rpId: 'app.example.com',
-        origin: 'https://app.example.com',
-        method: 'POST',
-        path: '/wallets/register/intent',
-        ttlMs: 1_000,
-      });
-      nowMsValue = Date.parse('2026-06-27T02:05:02.000Z');
-      const expired = await service.redeemToken({
-        token: expiring.token,
-        origin: 'https://app.example.com',
-        method: 'POST',
-        path: '/wallets/register/intent',
-      });
-      expect(expired).toMatchObject({
-        ok: false,
-        status: 401,
-        code: 'bootstrap_token_expired',
-      });
-      await expect(service.peekTokenRecord(expiring.token)).resolves.toMatchObject({
-        usedCount: 0,
-        status: 'expired',
-      });
-    } finally {
-      cleanupTemporaryD1Database(temp.tempDir);
-    }
-  });
-
   test('approval adapter records MFA-gated decisions through D1 conditional updates', async () => {
     const temp = createTemporaryD1Database();
     try {
@@ -5197,22 +5019,18 @@ test.describe('D1 adapter contracts', () => {
       const requesterCtx = {
         orgId: 'org-d1-approvals-primary',
         actorUserId: 'user-d1-approvals-requester',
-        roles: ['admin'],
       };
       const approverCtx = {
         orgId: requesterCtx.orgId,
         actorUserId: 'user-d1-approvals-approver',
-        roles: ['security_admin'],
       };
       const finalApproverCtx = {
         orgId: requesterCtx.orgId,
         actorUserId: 'user-d1-approvals-final-approver',
-        roles: ['security_admin'],
       };
       const secondaryCtx = {
         orgId: 'org-d1-approvals-secondary',
         actorUserId: 'user-d1-approvals-secondary',
-        roles: ['security_admin'],
       };
 
       const keyExport = await service.createApprovalRequest(requesterCtx, {
@@ -5402,22 +5220,18 @@ test.describe('D1 adapter contracts', () => {
       const requesterCtx = {
         orgId: 'org-d1-key-exports-primary',
         actorUserId: 'user-d1-key-exports-requester',
-        roles: ['admin'],
       };
       const approverCtx = {
         orgId: requesterCtx.orgId,
         actorUserId: 'user-d1-key-exports-approver',
-        roles: ['security_admin'],
       };
       const finalApproverCtx = {
         orgId: requesterCtx.orgId,
         actorUserId: 'user-d1-key-exports-final-approver',
-        roles: ['security_admin'],
       };
       const secondaryCtx = {
         orgId: 'org-d1-key-exports-secondary',
         actorUserId: 'user-d1-key-exports-secondary',
-        roles: ['security_admin'],
       };
 
       const created = await service.createKeyExport(requesterCtx, {
@@ -5428,7 +5242,7 @@ test.describe('D1 adapter contracts', () => {
         reason: 'Export encrypted root share for custody recovery',
         requiredApprovals: 2,
         constraints: {
-          roles: ['owner', 'owner', 'security_admin'],
+          roles: ['OWNER', 'OWNER', 'ADMIN'],
           chains: ['Base'],
           walletTypes: ['EOA'],
           environmentIds: ['env-d1-key-exports-prod'],
@@ -5444,7 +5258,7 @@ test.describe('D1 adapter contracts', () => {
         requiredApprovals: 2,
         approvals: [],
         constraints: {
-          roles: ['owner', 'security_admin'],
+          roles: ['OWNER', 'ADMIN'],
           chains: ['Base'],
           walletTypes: ['EOA'],
           environmentIds: ['env-d1-key-exports-prod'],
@@ -5576,12 +5390,10 @@ test.describe('D1 adapter contracts', () => {
       const primaryCtx = {
         orgId: 'org-d1-webhooks-primary',
         actorUserId: 'user-d1-webhooks-primary',
-        roles: ['admin'],
       };
       const secondaryCtx = {
         orgId: 'org-d1-webhooks-secondary',
         actorUserId: 'user-d1-webhooks-secondary',
-        roles: ['admin'],
       };
 
       const endpoint = await service.createEndpoint(primaryCtx, {
@@ -5638,6 +5450,13 @@ test.describe('D1 adapter contracts', () => {
         type: 'billing.credit_purchase.settled',
         data: { invoiceId: 'inv-d1-webhooks' },
       });
+      const duplicateDelivery = await service.emitEvent(primaryCtx, {
+        eventId: 'evt-d1-webhooks-billing',
+        eventType: 'billing.credit_purchase.settled',
+        payload: { invoiceId: 'inv-d1-webhooks' },
+      });
+      expect(duplicateDelivery.attempted).toBe(1);
+      expect(dispatcher.requests).toHaveLength(1);
 
       const deliveryPage = await service.listDeliveries(primaryCtx, endpoint.id);
       expect(deliveryPage.items).toHaveLength(1);
@@ -5767,7 +5586,6 @@ test.describe('D1 adapter contracts', () => {
       const ctx = {
         orgId,
         actorUserId: 'user-d1-webhook-retry',
-        roles: ['admin'],
       };
 
       const endpoint = await service.createEndpoint(ctx, {
@@ -5874,12 +5692,10 @@ test.describe('D1 adapter contracts', () => {
       const primaryCtx = {
         orgId: 'org-d1-observability-primary',
         actorUserId: 'user-d1-observability-primary',
-        roles: ['ops'],
       };
       const secondaryCtx = {
         orgId: 'org-d1-observability-secondary',
         actorUserId: 'user-d1-observability-secondary',
-        roles: ['ops'],
       };
 
       const appendResult = await ingestion.appendEvent(primaryCtx, {
@@ -6034,12 +5850,10 @@ test.describe('D1 adapter contracts', () => {
       const primaryCtx = {
         orgId: 'org-d1-audit-primary',
         actorUserId: 'user-d1-audit-primary',
-        roles: ['security_admin'],
       };
       const secondaryCtx = {
         orgId: 'org-d1-audit-secondary',
         actorUserId: 'user-d1-audit-secondary',
-        roles: ['security_admin'],
       };
 
       const policyEvent = await service.appendEvent(primaryCtx, {
@@ -6158,132 +5972,6 @@ test.describe('D1 adapter contracts', () => {
     }
   });
 
-  test('team RBAC adapter preserves owner and member lifecycle invariants', async () => {
-    const temp = createTemporaryD1Database();
-    try {
-      const service = await createD1ConsoleTeamRbacService({
-        database: temp.database,
-        namespace: 'd1-contracts',
-        ensureSchema: true,
-        now: () => new Date('2026-06-27T00:00:00.000Z'),
-      });
-      const ownerCtx = {
-        orgId: 'org-d1-team-rbac',
-        actorUserId: 'user-d1-owner',
-        roles: [],
-        actorEmail: 'owner-d1-team@example.com',
-        actorDisplayName: 'D1 Owner',
-      };
-      const ownerClaimCtx = {
-        ...ownerCtx,
-        roles: ['owner'],
-      };
-
-      const owner = await service.bootstrapOwner(ownerCtx);
-      expect(owner.roles.map((entry) => entry.role)).toContain('owner');
-
-      let forbiddenOwnerInviteError: unknown = null;
-      try {
-        await service.inviteMember(ownerCtx, {
-          userId: 'user-d1-forbidden-owner',
-          email: 'forbidden-owner@example.com',
-          roles: [{ role: 'owner', scope: 'ORG' }],
-        });
-      } catch (error: unknown) {
-        forbiddenOwnerInviteError = error;
-      }
-      expect(errorCode(forbiddenOwnerInviteError)).toBe('forbidden');
-
-      const admin = await service.inviteMember(ownerClaimCtx, {
-        userId: 'user-d1-admin',
-        email: 'admin-d1-team@example.com',
-        displayName: 'D1 Admin',
-        roles: [{ role: 'admin', scope: 'ORG' }],
-      });
-      expect(admin.status).toBe('ACTIVE');
-      expect(admin.roles.map((entry) => entry.role)).toEqual(['admin']);
-
-      let duplicateMemberError: unknown = null;
-      try {
-        await service.inviteMember(ownerClaimCtx, {
-          userId: 'user-d1-admin-copy',
-          email: 'admin-d1-team@example.com',
-          roles: [{ role: 'billing_read', scope: 'ORG' }],
-        });
-      } catch (error: unknown) {
-        duplicateMemberError = error;
-      }
-      expect(errorCode(duplicateMemberError)).toBe('member_already_exists');
-
-      let lastOwnerRoleError: unknown = null;
-      try {
-        await service.updateMemberRoles(ownerClaimCtx, owner.id, {
-          roles: [{ role: 'admin', scope: 'ORG' }],
-        });
-      } catch (error: unknown) {
-        lastOwnerRoleError = error;
-      }
-      expect(errorCode(lastOwnerRoleError)).toBe('last_owner_required');
-
-      const transfer = await service.transferOwner(ownerClaimCtx, admin.id);
-      expect(transfer.previousOwner.roles.map((entry) => entry.role)).toEqual(['admin']);
-      expect(transfer.nextOwner.roles.map((entry) => entry.role)).toEqual(['admin', 'owner']);
-
-      let lastOwnerRemoveError: unknown = null;
-      try {
-        await service.removeMember(
-          {
-            ...ownerClaimCtx,
-            actorUserId: admin.userId,
-            actorEmail: admin.email,
-          },
-          admin.id,
-        );
-      } catch (error: unknown) {
-        lastOwnerRemoveError = error;
-      }
-      expect(errorCode(lastOwnerRemoveError)).toBe('last_owner_required');
-
-      const removedPreviousOwner = await service.removeMember(
-        {
-          ...ownerClaimCtx,
-          actorUserId: admin.userId,
-          actorEmail: admin.email,
-        },
-        owner.id,
-      );
-      expect(removedPreviousOwner.removed).toBe(true);
-      expect(removedPreviousOwner.member?.status).toBe('REMOVED');
-
-      const restored = await service.inviteMember(
-        {
-          ...ownerClaimCtx,
-          actorUserId: admin.userId,
-          actorEmail: admin.email,
-        },
-        {
-          userId: owner.userId,
-          email: owner.email,
-          roles: [{ role: 'billing_read', scope: 'ORG' }],
-        },
-      );
-      expect(restored.id).toBe(owner.id);
-      expect(restored.status).toBe('ACTIVE');
-      expect(restored.roles.map((entry) => entry.role)).toEqual(['billing_read']);
-
-      const activeMembers = service.listOrganizationMembers
-        ? await service.listOrganizationMembers('org-d1-team-rbac', { status: 'ACTIVE' })
-        : [];
-      expect(activeMembers).toHaveLength(2);
-      const otherOrgMembers = service.listOrganizationMembers
-        ? await service.listOrganizationMembers('org-d1-team-rbac-other')
-        : [];
-      expect(otherOrgMembers).toEqual([]);
-    } finally {
-      cleanupTemporaryD1Database(temp.tempDir);
-    }
-  });
-
   test('policy adapter bootstraps defaults and resolves published scope precedence', async () => {
     const temp = createTemporaryD1Database();
     try {
@@ -6296,7 +5984,6 @@ test.describe('D1 adapter contracts', () => {
       const ctx = {
         orgId: 'org-d1-policies',
         actorUserId: 'user-d1-policies',
-        roles: ['admin'],
       };
 
       const initialPolicies = await service.listPolicies(ctx);
@@ -6454,7 +6141,6 @@ test.describe('D1 adapter contracts', () => {
       const otherCtx = {
         orgId: 'org-d1-policies-other',
         actorUserId: 'user-d1-policies-other',
-        roles: ['admin'],
       };
       await expect(service.getPolicy(otherCtx, created.id)).resolves.toBeNull();
       const otherPolicies = await service.listPolicies(otherCtx);
@@ -6478,7 +6164,6 @@ test.describe('D1 adapter contracts', () => {
       const ctx = {
         orgId: 'org-d1-billing',
         actorUserId: 'user-d1-billing',
-        roles: ['admin'],
       };
 
       const first = await service.reserve(ctx, {
@@ -6550,12 +6235,10 @@ test.describe('D1 adapter contracts', () => {
       const primaryCtx = {
         orgId: 'org-d1-spend-caps-primary',
         actorUserId: 'user-d1-spend-caps-primary',
-        roles: ['admin'],
       };
       const secondaryCtx = {
         orgId: 'org-d1-spend-caps-secondary',
         actorUserId: 'user-d1-spend-caps-secondary',
-        roles: ['admin'],
       };
 
       const first = await service.reserve(primaryCtx, {
@@ -6743,13 +6426,10 @@ test.describe('D1 adapter contracts', () => {
       const ctx = {
         orgId: 'org-d1-billing-purchase',
         actorUserId: 'user-d1-billing-purchase',
-        roles: ['admin'],
       };
 
       const checkout = await billing.createStripeCheckoutSession(ctx, {
         creditPackId: 'usd_10',
-        successUrl: 'https://example.test/success',
-        cancelUrl: 'https://example.test/cancel',
       });
       expect(checkout.amountMinor).toBe(1000);
       expect(checkout.id).toMatch(/^cs_/);
@@ -6797,6 +6477,13 @@ test.describe('D1 adapter contracts', () => {
         orgId: ctx.orgId,
         checkoutSessionId: checkout.id,
         providerCustomerRef: checkout.customerRef,
+        providerPaymentRef: `pi_${checkout.purchaseId}`,
+        providerRef: checkout.id,
+        purchaseId: checkout.purchaseId,
+        creditPackId: checkout.creditPackId,
+        amountMinor: checkout.amountMinor,
+        currency: 'USD',
+        paymentStatus: 'paid',
       });
       expect(duplicateWebhook.accepted).toBe(false);
       expect(duplicateWebhook.purchase?.id).toBe(settled.purchase?.id);
@@ -6807,6 +6494,13 @@ test.describe('D1 adapter contracts', () => {
         orgId: ctx.orgId,
         checkoutSessionId: checkout.id,
         providerCustomerRef: checkout.customerRef,
+        providerPaymentRef: `pi_${checkout.purchaseId}`,
+        providerRef: checkout.id,
+        purchaseId: checkout.purchaseId,
+        creditPackId: checkout.creditPackId,
+        amountMinor: checkout.amountMinor,
+        currency: 'USD',
+        paymentStatus: 'paid',
       });
       expect(freshWebhook.accepted).toBe(true);
       expect(freshWebhook.purchase?.id).toBe(settled.purchase?.id);
@@ -6845,7 +6539,6 @@ test.describe('D1 adapter contracts', () => {
       const ctx = {
         orgId,
         actorUserId: 'user-d1-billing-monthly',
-        roles: ['admin'],
       };
 
       await temp.database
@@ -6961,7 +6654,6 @@ test.describe('D1 adapter contracts', () => {
       const ctx = {
         orgId: 'org-d1-atomic-sponsored',
         actorUserId: 'user-d1-atomic-sponsored',
-        roles: ['platform_admin'],
       };
       const reservationSourceEventId = 'prepaid-reservation-d1-atomic';
 
@@ -7169,7 +6861,6 @@ test.describe('D1 adapter contracts', () => {
       const ctx = {
         orgId: 'org-d1-atomic-sponsored-stale',
         actorUserId: 'user-d1-atomic-sponsored-stale',
-        roles: ['platform_admin'],
       };
       const reservationSourceEventId = 'prepaid-reservation-d1-atomic-stale';
 
@@ -7271,7 +6962,6 @@ test.describe('D1 adapter contracts', () => {
       const ctx = {
         orgId: 'org-d1-sponsored',
         actorUserId: 'user-d1-sponsored',
-        roles: ['admin'],
       };
       const request = {
         environmentId: 'env-production',
@@ -8331,7 +8021,6 @@ test.describe('D1 adapter contracts', () => {
       const ctx = {
         orgId,
         actorUserId: 'user-d1-runtime-snapshot',
-        roles: ['admin'],
       };
 
       await service.publishSnapshot(ctx, {

@@ -112,6 +112,54 @@ async function countRows(database: D1DatabaseLike, table: string): Promise<numbe
   return Number(row?.count || 0);
 }
 
+test('D1 registration commit binds the passkey credential before Ed25519 exists', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const walletId = walletIdFromString('amber-atlas-abcdef');
+    const now = 1_900_000_000_000;
+    const store = new CloudflareD1WalletRegistrationCommitStore({
+      database,
+      ...TEST_SCOPE,
+    });
+
+    // An ECDSA-only passkey wallet: the Ed25519 Yao ceremony has not settled.
+    await store.commit({
+      kind: 'passkey_wallet_registration_commit_v1',
+      wallet: testWalletRecord(walletId, now),
+      walletSigners: [testEcdsaSigner(walletId, now)],
+      authority: testPasskeyAuthority(walletId),
+      now,
+    });
+
+    await expect(countRows(database, 'wallets')).resolves.toBe(1);
+    await expect(countRows(database, 'wallet_signers')).resolves.toBe(1);
+    await expect(countRows(database, 'webauthn_authenticators')).resolves.toBe(1);
+    // The binding must exist, or the next passkey login fails unknown_credential.
+    await expect(countRows(database, 'webauthn_credential_bindings')).resolves.toBe(1);
+
+    const webAuthnStore = new CloudflareD1WebAuthnStore({
+      database,
+      ...TEST_SCOPE,
+    });
+    const binding = await webAuthnStore.readBindingByCredential({
+      rpId: testRpId(),
+      credentialIdB64u: 'credential-a',
+    });
+    expect(binding).toMatchObject({
+      userId: String(walletId),
+      credentialIdB64u: 'credential-a',
+    });
+    // Ed25519 facts are absent as a set, not partially populated.
+    expect(binding?.nearAccountId).toBeUndefined();
+    expect(binding?.nearEd25519SigningKeyId).toBeUndefined();
+    expect(binding?.signerSlot).toBeUndefined();
+    expect(binding?.publicKey).toBeUndefined();
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
 test('D1 registration commit stores a mixed Ed25519 and ECDSA wallet atomically', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
@@ -362,6 +410,89 @@ test('re-running the Email OTP registration commit converges instead of duplicat
     await expect(countRows(database, 'wallet_signers')).resolves.toBe(1);
     await expect(countRows(database, 'wallet_auth_methods')).resolves.toBe(1);
     await expect(countRows(database, 'email_otp_wallet_enrollments')).resolves.toBe(1);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+/*
+ * Refactor 94 Phase 4+5. A wallet planned with both signers commits twice: the
+ * ECDSA commit makes it usable, the Ed25519 commit lands when the Yao ceremony
+ * settles. Both write the credential binding, so the second write must
+ * converge the Ed25519 facts onto the first without rewriting its history.
+ *
+ * Reads parse `record_json`, not the columns, so the upsert has to reconcile
+ * the timestamps inside the JSON too — the columns alone being correct is what
+ * made this survivable but wrong.
+ */
+test('the second credential binding write converges without rewriting history', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const walletId = walletIdFromString('amber-atlas-abcdef');
+    const createdAtMs = 1_900_000_000_000;
+    const settledAtMs = createdAtMs + 4_000;
+    const store = new CloudflareD1WalletRegistrationCommitStore({
+      database,
+      ...TEST_SCOPE,
+    });
+    const webAuthnStore = new CloudflareD1WebAuthnStore({ database, ...TEST_SCOPE });
+    const readBinding = async () =>
+      webAuthnStore.readBindingByCredential({
+        rpId: testRpId(),
+        credentialIdB64u: 'credential-a',
+      });
+
+    // Commit #1: ECDSA only. The wallet is usable; Ed25519 has not settled.
+    await store.commit({
+      kind: 'passkey_wallet_registration_commit_v1',
+      wallet: testWalletRecord(walletId, createdAtMs),
+      walletSigners: [testEcdsaSigner(walletId, createdAtMs)],
+      authority: testPasskeyAuthority(walletId),
+      now: createdAtMs,
+    });
+    const afterEcdsa = await readBinding();
+    expect(afterEcdsa?.createdAtMs).toBe(createdAtMs);
+    expect(afterEcdsa?.nearAccountId).toBeUndefined();
+
+    // Commit #2: the Ed25519 signer alone, as the deferred finalize sends it.
+    await store.commit({
+      kind: 'passkey_wallet_registration_commit_v1',
+      wallet: testWalletRecord(walletId, settledAtMs),
+      walletSigners: [testEd25519Signer(walletId, settledAtMs)],
+      authority: testPasskeyAuthority(walletId),
+      now: settledAtMs,
+    });
+    const afterEd25519 = await readBinding();
+    // The Ed25519 facts arrive as a set.
+    expect(afterEd25519?.nearAccountId).toBe(testEd25519Signer(walletId, settledAtMs).nearAccountId);
+    expect(afterEd25519?.signerSlot).toBe(testEd25519Signer(walletId, settledAtMs).signerSlot);
+    // The wallet's creation history is not rewritten by the later commit.
+    expect(afterEd25519?.createdAtMs).toBe(createdAtMs);
+    expect(afterEd25519?.updatedAtMs).toBe(settledAtMs);
+
+    // An exact replay of commit #2 changes nothing.
+    await store.commit({
+      kind: 'passkey_wallet_registration_commit_v1',
+      wallet: testWalletRecord(walletId, settledAtMs),
+      walletSigners: [testEd25519Signer(walletId, settledAtMs)],
+      authority: testPasskeyAuthority(walletId),
+      now: settledAtMs,
+    });
+    await expect(readBinding()).resolves.toEqual(afterEd25519);
+
+    // An out-of-order replay of commit #1 must not regress the update stamp
+    // nor drop the Ed25519 facts that commit #2 established.
+    await store.commit({
+      kind: 'passkey_wallet_registration_commit_v1',
+      wallet: testWalletRecord(walletId, createdAtMs),
+      walletSigners: [testEcdsaSigner(walletId, createdAtMs)],
+      authority: testPasskeyAuthority(walletId),
+      now: createdAtMs,
+    });
+    const afterStaleReplay = await readBinding();
+    expect(afterStaleReplay?.createdAtMs).toBe(createdAtMs);
+    expect(afterStaleReplay?.updatedAtMs).toBe(settledAtMs);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

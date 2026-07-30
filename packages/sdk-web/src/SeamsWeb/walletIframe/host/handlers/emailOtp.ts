@@ -273,12 +273,17 @@ async function storeEmailOtpRecoveryCodeBackupInIframe(input: {
   });
 }
 
-function enableEmailOtpUnlockDiagnosticsFromPayload(payload: Record<string, unknown>): void {
+function enableEmailOtpDiagnosticsFromPayload(payload: Record<string, unknown>): void {
   const diagnostics = recordFromPayload(payload.diagnostics);
   Reflect.set(
     globalThis,
     '__SEAMS_EMAIL_OTP_UNLOCK_DIAGNOSTICS',
     diagnostics.emailOtpUnlockTimings === true,
+  );
+  Reflect.set(
+    globalThis,
+    '__SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS',
+    diagnostics.registrationBenchmarkTimings === true,
   );
   delete payload.diagnostics;
 }
@@ -331,7 +336,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     ) => {
       const pm = deps.getSeamsWeb();
       const payloadRecord = recordFromPayload(req.payload);
-      enableEmailOtpUnlockDiagnosticsFromPayload(payloadRecord);
+      enableEmailOtpDiagnosticsFromPayload(payloadRecord);
       if (payloadRecord.mode === 'register') {
         assertNoGoogleRegistrationOtpFields(payloadRecord);
       }

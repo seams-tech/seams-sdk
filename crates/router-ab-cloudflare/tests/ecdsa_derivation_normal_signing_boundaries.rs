@@ -154,8 +154,8 @@ fn router_ab_ecdsa_derivation_finalize_consumes_before_fallible_signing_work() {
         "CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH",
         "CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1",
         "CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope",
-        "active_signing_worker_state_get_call",
-        "signing_worker_output_material_get_call",
+        "active_signing_worker_state_get_request",
+        "signing_worker_output_material_get_request",
         "CloudflareSigningWorkerEcdsaPoolCommandV1::Consume",
         "expected_revision: 1",
         "execute_cloudflare_signing_worker_ecdsa_pool_mutation_v1",
@@ -172,10 +172,10 @@ fn router_ab_ecdsa_derivation_finalize_consumes_before_fallible_signing_work() {
         .find("CloudflareSigningWorkerEcdsaPoolCommandV1::Consume")
         .expect("Router A/B ECDSA derivation finalize must consume presignature");
     let state_lookup = body
-        .find("active_signing_worker_state_get_call")
+        .find("active_signing_worker_state_get_request")
         .expect("Router A/B ECDSA derivation finalize must load active state");
     let material_lookup = body
-        .find("signing_worker_output_material_get_call")
+        .find("signing_worker_output_material_get_request")
         .expect("Router A/B ECDSA derivation finalize must load material");
     let handler = body
         .find("handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_private_request_v1")
@@ -223,7 +223,7 @@ fn router_ab_ecdsa_derivation_prepare_persists_exact_reservation_before_response
         "expected_revision: 0",
         "request_digest: prepare_request_digest",
         "admitted_signing_digest: signing_digest",
-        "signing_worker_ecdsa_pool_mutate_call",
+        "signing_worker_ecdsa_pool_mutate_request",
         "record.reserved_material()",
         "burn_cloudflare_signing_worker_ecdsa_reservation_after_prepare_failure_v1",
         "worker::Response::from_json(&prepared.response)",
@@ -237,7 +237,7 @@ fn router_ab_ecdsa_derivation_prepare_persists_exact_reservation_before_response
         .find("CloudflareSigningWorkerEcdsaPoolCommandV1::Reserve")
         .expect("pool-backed prepare must build exact reservation");
     let persist = body
-        .find("signing_worker_ecdsa_pool_mutate_call")
+        .find("signing_worker_ecdsa_pool_mutate_request")
         .expect("pool-backed prepare must persist exact reservation");
     let material = body
         .find("record.reserved_material()")
@@ -280,12 +280,12 @@ fn router_ab_ecdsa_derivation_presignature_pool_put_private_fetch_derives_active
         "CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1",
         "parsed.validate_at(now_unix_ms)",
         "CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope",
-        "active_signing_worker_state_get_call",
-        "signing_worker_output_material_get_call",
+        "active_signing_worker_state_get_request",
+        "signing_worker_output_material_get_request",
         "parsed.to_pool_record(",
         "&active_material",
         "CloudflareSigningWorkerEcdsaPoolCommandV1::PutAvailable",
-        "signing_worker_ecdsa_pool_mutate_call",
+        "signing_worker_ecdsa_pool_mutate_request",
         "require_signing_worker_ecdsa_pool_mutate_response_v1",
         "worker::Response::from_json(&receipt)",
     ] {
@@ -298,61 +298,4 @@ fn router_ab_ecdsa_derivation_presignature_pool_put_private_fetch_derives_active
         !body.contains("CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1::new("),
         "pool-fill fetch must delegate record construction to the validated boundary type"
     );
-}
-
-#[test]
-fn router_ab_ecdsa_derivation_presignature_state_uses_one_absorbing_lifecycle() {
-    let durable_object_rs = read_src_file("durable_object.rs");
-    let lifecycle_rs = read_src_file("ecdsa_pool_lifecycle.rs");
-    for required in [
-        "CloudflareSigningWorkerEcdsaPresignatureRecordV1",
-        "CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1",
-        "signing-worker-ecdsa-pool",
-        "SigningWorkerEcdsaPoolMutate",
-        "signing_worker_ecdsa_pool_lifecycle",
-        "put_signing_worker_ecdsa_pool_lifecycle",
-        "signing_worker_rerandomization_contribution32_b64u",
-        "handle_cloudflare_signing_worker_ecdsa_pool_alarm_v1",
-        "cleanup_expired_cloudflare_signing_worker_ecdsa_pool_records_v1",
-        ".set_alarm(",
-    ] {
-        assert!(
-            durable_object_rs.contains(required),
-            "Router A/B ECDSA derivation presignature Durable Object state must include `{required}`"
-        );
-    }
-    for required in [
-        "Available",
-        "Reserved",
-        "Consumed",
-        "Tombstone",
-        "expected_revision",
-        "Consume",
-        "Expire",
-        "Retire",
-        "RecoverInterrupted",
-        "CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVATION_LEASE_MS_V1",
-    ] {
-        assert!(
-            lifecycle_rs.contains(required),
-            "Router A/B ECDSA lifecycle must include `{required}`"
-        );
-    }
-    for forbidden in ["Committed", "FinishCommitted", "committed_material"] {
-        assert!(
-            !lifecycle_rs.contains(forbidden),
-            "obsolete ECDSA lifecycle must not include `{forbidden}`"
-        );
-    }
-    for forbidden in [
-        "SigningWorkerEcdsaPresignaturePut",
-        "SigningWorkerEcdsaPresignatureTake",
-        "signing-worker-ecdsa-presignature-pool",
-        "take_signing_worker_ecdsa_presignature",
-    ] {
-        assert!(
-            !durable_object_rs.contains(forbidden),
-            "obsolete delete-based ECDSA storage must not include `{forbidden}`"
-        );
-    }
 }

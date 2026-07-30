@@ -1,40 +1,29 @@
-import type { RouterAbNormalSigningAdmissionInput } from '@seams/sdk-server/internal/router/routerAbPrivateSigningWorker';
-import type { D1DatabaseLike } from '@seams/sdk-server/internal/storage/tenantRoute';
-import type {
-  ConsoleAuthAdapter,
-  ConsoleAuthClaims,
-  HeaderRecord,
-} from '@seams/sdk-server/internal/router/consoleAuth';
+import type { RouterAbNormalSigningAdmissionInput } from '@seams/sdk-server/cloud-host';
+import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
+import { createCloudflareD1RouterAbNormalSigningAdmissionStore } from '@seams/sdk-server/cloud-host';
+import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from '../consoleAuth';
 import {
   createSigningRootSecretShareKekResolver,
   type SigningRootKekProvider,
-} from '@seams/sdk-server/internal/core/ThresholdService/signingRootKekProvider';
-import { sealSigningRootSecretShareWireV1 } from '@seams/sdk-server/internal/core/ThresholdService/signingRootSecretSealing';
+} from '@seams/sdk-server/cloud-host';
+import { sealSigningRootSecretShareWireV1 } from '@seams/sdk-server/cloud-host';
 import {
   normalizeSigningRootSecretShareId,
   type SigningRootSecretShareWireV1,
-} from '@seams/sdk-server/internal/core/ThresholdService/signingRootSecretShareWires';
+} from '@seams/sdk-server/cloud-host';
 import type {
   CreateHostedSigningRootShareResolverInput,
   SealedSigningRootShare as ResolverSealedSigningRootShare,
   SigningRootShareSource,
   ThresholdPrfPolicy,
-} from '@seams/sdk-server/internal/core/ThresholdService/signingRootShareResolver';
-import { D1SigningRootSecretStore } from '@seams/sdk-server/internal/core/ThresholdService/stores/SigningRootSecretStore.d1';
-import type {
-  CfEnv,
-  CfExecutionContext,
-  FetchHandler,
-} from '@seams/sdk-server/internal/router/cloudflare/cloudflare.types';
-import { ThresholdStoreDurableObject } from '@seams/sdk-server/internal/router/cloudflare/durableObjects/thresholdStore';
-import type {
-  CloudflareDurableObjectNamespaceLike,
-  CloudflareDurableObjectStubLike,
-  ThresholdStoreConfigInput,
-} from '@seams/sdk-server/internal/core/types';
-import { createSigningSessionSealOptions } from '@seams/sdk-server/internal/threshold/session/signingSessionSeal/options';
-import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/internal/threshold/session/signingSessionSeal/signingSessionSeal.types';
-import { createCloudflareRouter } from '@seams/sdk-server/internal/router/cloudflare/createCloudflareRouter';
+} from '@seams/sdk-server/cloud-host';
+import { D1SigningRootSecretStore } from '@seams/sdk-server/cloud-host';
+import type { CfEnv, CfExecutionContext, FetchHandler } from '@seams/sdk-server/cloud-host';
+import { createSigningSessionSealOptions } from '@seams/sdk-server/cloud-host';
+import { RouterAbEcdsaPresignRuntime } from '@seams/sdk-server/cloud-host';
+import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/cloud-host';
+import { createCloudflareRouter } from '@seams/sdk-server/cloud-host';
+import { createRouterAbPrivateD1WalletBudgetGrantProvisionerV1 } from '@seams/sdk-server/cloud-host';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import {
   createCloudflareD1ConsoleServiceBundle,
@@ -46,13 +35,13 @@ import {
   createCloudflareD1RouterApiAuthService,
   type CloudflareD1EmailOtpServerSealConfig,
   type CloudflareD1RouterApiAuthServiceOptions,
-} from '@seams/sdk-server/internal/router/cloudflare/d1RouterApiAuthService';
+} from '@seams/sdk-server/cloud-host';
 import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
 import type {
   CloudflareD1OidcExchangeConfig,
   CloudflareD1OidcExchangeIssuerConfig,
-} from '@seams/sdk-server/internal/router/cloudflare/d1OidcBoundary';
-import { createHmacSessionAdapter } from './d1StagingSession';
+} from '@seams/sdk-server/cloud-host';
+import { createEd25519SessionAdapter } from './d1StagingSession';
 import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
@@ -64,15 +53,15 @@ import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   type RouterAbPublicKeysetV2,
-} from '@seams-internal/shared-ts/utils/routerAbPublicKeyset';
-import { parseWalletId, parseWebAuthnRpId } from '@seams-internal/shared-ts/utils/domainIds';
+} from '@seams/sdk-server/cloud-host';
+import { parseWalletId, parseWebAuthnRpId } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1,
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
-} from '@seams/sdk-server/internal/router/cloudflare-adaptor';
-import type { SessionAdapter } from '@seams/sdk-server/internal/router/routerApi';
-import { D1WalletStore } from '@seams/sdk-server/internal/core/d1WalletStore';
+} from '@seams/sdk-server/cloud-host';
+import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
+import { D1WalletStore } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEcdsaEd25519CeremonyTokenIssuer,
   createRouterAbEcdsaStrictPostRegistrationPort,
@@ -82,25 +71,23 @@ import {
   type RouterAbEcdsaEd25519PrivateJwk,
   type RouterAbEcdsaStrictPostRegistrationPort,
   type RouterAbEcdsaStrictRegistrationPort,
-} from '@seams/sdk-server/internal/router/routerAbEcdsaStrictRegistration';
+} from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbServiceBindingFetch,
   ROUTER_AB_MPC_ROUTER_ORIGIN,
   ROUTER_AB_SIGNING_WORKER_ORIGIN,
   type RouterAbServiceBindingEnv,
 } from './routerAbServiceBindings';
-import { withCors } from '@seams/sdk-server/internal/router/cloudflare/http';
-import {
-  createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
-} from '@seams/sdk-server/internal/router/routerAbEd25519YaoHttpRegistrationBackend';
-import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/internal/router/cloudflare/d1Ed25519YaoCapabilityPersistence';
-import { CloudflareD1WebAuthnAuthService } from '@seams/sdk-server/internal/router/cloudflare/d1WebAuthnAuthService';
-import { CloudflareD1WebAuthnStore } from '@seams/sdk-server/internal/router/cloudflare/d1WebAuthnStore';
-import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRegistrationRequestScopedCloudflare';
-import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
-import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/internal/router/routerAbEd25519YaoExportRequestScopedCloudflare';
-import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/sdk-server/internal/router/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
-import { RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter } from '@seams/sdk-server/internal/router/routerAbEd25519YaoExport';
+import { withCors } from '@seams/sdk-server/cloud-host';
+import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '@seams/sdk-server/cloud-host';
+import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/cloud-host';
+import { CloudflareD1WebAuthnAuthService } from '@seams/sdk-server/cloud-host';
+import { CloudflareD1WebAuthnStore } from '@seams/sdk-server/cloud-host';
+import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
+import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
+import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
+import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
+import { RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
 import {
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
@@ -110,21 +97,17 @@ import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
-} from '@shared/utils/routerAbEd25519Yao';
-import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
-
-export { ThresholdStoreDurableObject };
+} from '@seams/sdk-server/cloud-host';
+import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@seams/sdk-server/cloud-host';
 
 interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly CONSOLE_DB: D1DatabaseLike;
   readonly SIGNER_DB: D1DatabaseLike;
-  readonly THRESHOLD_STORE: CloudflareDurableObjectNamespaceLike;
   readonly SEAMS_TENANT_STORAGE_NAMESPACE?: string;
   readonly SEAMS_LOCAL_CONSOLE_USER_ID?: string;
   readonly SEAMS_LOCAL_CONSOLE_ORG_ID: string;
   readonly SEAMS_LOCAL_CONSOLE_PROJECT_ID?: string;
   readonly SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID?: string;
-  readonly SEAMS_LOCAL_CONSOLE_ROLES?: string;
   readonly SEAMS_LOCAL_RELAYER_ACCOUNT?: string;
   readonly SEAMS_LOCAL_RELAYER_PUBLIC_KEY?: string;
   readonly SEAMS_LOCAL_RELAYER_PRIVATE_KEY?: string;
@@ -132,6 +115,7 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly RELAYER_PUBLIC_KEY?: string;
   readonly RELAYER_PRIVATE_KEY?: string;
   readonly NEAR_RPC_URL?: string;
+  readonly ARC_RPC_URL?: string;
   readonly ACCOUNT_INITIAL_BALANCE?: string;
   readonly ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING?: string;
   readonly SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID?: string;
@@ -187,9 +171,10 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly SPONSORED_EXECUTION_REAL_PRICING_JSON?: string;
   readonly SPONSORED_EXECUTION_STATIC_PRICING_JSON?: string;
   readonly STRIPE_API_SK?: string;
-  readonly STRIPE_CHECKOUT_PRICE_ID?: string;
+  readonly STRIPE_WEBHOOK_SECRET?: string;
   readonly STRIPE_API_BASE_URL?: string;
   readonly STRIPE_API_TIMEOUT_MS?: string;
+  readonly CONSOLE_BASE_URL?: string;
 }
 
 type TableCountRow = {
@@ -202,7 +187,7 @@ type ReadyD1SchemaResult = {
 };
 
 type ReadyAdmissionResult = {
-  readonly durableObject: 'configured';
+  readonly database: 'SIGNER_DB';
   readonly quotaReservation: 'accepted' | 'reuse_existing';
 };
 
@@ -211,26 +196,9 @@ type LocalD1SigningRootShareRequest = {
   readonly signingRootVersion: string;
 };
 
-type AdmissionDoOk<T> = { readonly ok: true; readonly value: T };
-type AdmissionDoErr = { readonly ok: false; readonly code: string; readonly message: string };
-type AdmissionDoResp<T> = AdmissionDoOk<T> | AdmissionDoErr;
-
 const DEFAULT_LOCAL_CONSOLE_USER_ID = 'local-console-user';
 const DEFAULT_LOCAL_CONSOLE_PROJECT_ID = 'local-smoke-project';
 const DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID = 'local';
-const DEFAULT_LOCAL_RELAY_SESSION_HMAC_SECRET =
-  'seams-local-d1-relay-session-secret-change-before-shared-dev';
-const DEFAULT_LOCAL_RELAY_SESSION_ISSUER = 'seams-local-d1-relay';
-const DEFAULT_LOCAL_RELAY_SESSION_AUDIENCE = 'seams-local-d1';
-const DEFAULT_LOCAL_CONSOLE_ROLES = Object.freeze([
-  'owner',
-  'admin',
-  'platform_admin',
-  'security_admin',
-  'billing_admin',
-  'developer',
-  'ops',
-]);
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID = 'signing-root-kek-local-r1';
 const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
@@ -559,7 +527,9 @@ function localEcdsaCeremonyTokenIssuer(
   });
 }
 
-function localRouterAbCeremonyJwksResponse(env: LocalD1DevEnv): Response {
+function requireLocalEcdsaCeremonyPrivateJwk(
+  env: LocalD1DevEnv,
+): RouterAbEcdsaEd25519PrivateJwk {
   const privateJwkSource = normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK);
   const privateJwk = parseRouterAbEcdsaEd25519PrivateJwk(
     privateJwkSource ? JSON.parse(privateJwkSource) : null,
@@ -567,6 +537,11 @@ function localRouterAbCeremonyJwksResponse(env: LocalD1DevEnv): Response {
   if (!privateJwk) {
     throw new Error('Local ceremony JWT private JWK is required');
   }
+  return privateJwk;
+}
+
+function localRouterAbCeremonyJwksResponse(env: LocalD1DevEnv): Response {
+  const privateJwk = requireLocalEcdsaCeremonyPrivateJwk(env);
   const issuer = localEcdsaCeremonyTokenIssuer(env, privateJwk);
   return new Response(JSON.stringify(issuer.publicJwks()), {
     status: 200,
@@ -576,9 +551,6 @@ function localRouterAbCeremonyJwksResponse(env: LocalD1DevEnv): Response {
     },
   });
 }
-const LOCAL_ROUTER_AB_ED25519_SEED_PATH = '/router-ab/dev/ed25519/normal-signing/seed';
-const LOCAL_ROUTER_AB_ECDSA_DERIVATION_SEED_PATH =
-  '/router-ab/dev/ecdsa-derivation/normal-signing/seed';
 const LOCAL_SIGNING_ROOT_SECRET_SHARE_ENVELOPE_VERSION = 'local-d1-signing-root-share-v1';
 const LOCAL_SIGNING_ROOT_SECRET_SHARE_AUDIT_EVENT_ID = 'local-dev-signing-root-share-seed';
 const LOCAL_SIGNING_ROOT_SHARE_POLICY: ThresholdPrfPolicy = Object.freeze({
@@ -613,7 +585,11 @@ const CONSOLE_READY_TABLES = Object.freeze([
   'organizations',
   'projects',
   'environments',
-  'team_members',
+  'organization_memberships',
+  'organization_admin_permissions',
+  'organization_invitations',
+  'project_member_access',
+  'organization_owner_events',
   'user_profiles',
   'user_backup_emails',
   'policies',
@@ -634,7 +610,6 @@ const CONSOLE_READY_TABLES = Object.freeze([
   'observability_request_rollups_minute',
   'audit_events',
   'audit_evidence',
-  'bootstrap_tokens',
   'billing_accounts',
   'billing_ledger_entries',
   'billing_ledger_postings',
@@ -678,6 +653,7 @@ const SIGNER_READY_TABLES = Object.freeze([
   'router_ab_yao_capability_replacements',
   'router_ab_yao_versioned_json_records',
   'router_ab_yao_versioned_json_cas_guard',
+  'router_ab_normal_signing_admission_records',
   'registration_ceremony_records',
   'registration_ceremony_cas_guard',
 ]);
@@ -767,22 +743,8 @@ function localGoogleOidcClientId(env: LocalD1DevEnv): string | undefined {
   );
 }
 
-function localRouterApiSessionSecret(env: LocalD1DevEnv): string {
-  return (
-    normalizeLocalString(env.RELAY_SESSION_HMAC_SECRET) || DEFAULT_LOCAL_RELAY_SESSION_HMAC_SECRET
-  );
-}
-
 function localRouterApiSessionCookieName(env: LocalD1DevEnv): string | undefined {
   return normalizeLocalString(env.SESSION_COOKIE_NAME) || undefined;
-}
-
-function localRouterApiSessionIssuer(env: LocalD1DevEnv): string {
-  return normalizeLocalString(env.RELAY_SESSION_ISSUER) || DEFAULT_LOCAL_RELAY_SESSION_ISSUER;
-}
-
-function localRouterApiSessionAudience(env: LocalD1DevEnv): string {
-  return normalizeLocalString(env.RELAY_SESSION_AUDIENCE) || DEFAULT_LOCAL_RELAY_SESSION_AUDIENCE;
 }
 
 function localOidcExchangeIssuerConfig(
@@ -877,39 +839,30 @@ function headerOrEnvString(input: {
   );
 }
 
-function parseLocalConsoleRoles(input: string): string[] {
-  const roles: string[] = [];
-  for (const role of input.split(',')) {
-    const normalized = role.trim().toLowerCase();
-    if (normalized) roles.push(normalized);
-  }
-  return roles.length > 0 ? roles : [...DEFAULT_LOCAL_CONSOLE_ROLES];
-}
-
 function localConsoleAuthClaims(env: LocalD1DevEnv, headers: HeaderRecord): ConsoleAuthClaims {
-  const roles = parseLocalConsoleRoles(
+  const userId = headerOrEnvString({
+    headers,
+    headerName: 'x-console-user-id',
+    envValue: env.SEAMS_LOCAL_CONSOLE_USER_ID,
+    fallback: DEFAULT_LOCAL_CONSOLE_USER_ID,
+  });
+  const orgId = parseLocalConsoleOrganizationId(
     headerOrEnvString({
       headers,
-      headerName: 'x-console-roles',
-      envValue: env.SEAMS_LOCAL_CONSOLE_ROLES,
-      fallback: DEFAULT_LOCAL_CONSOLE_ROLES.join(','),
+      headerName: 'x-console-org-id',
+      envValue: env.SEAMS_LOCAL_CONSOLE_ORG_ID,
+      fallback: env.SEAMS_LOCAL_CONSOLE_ORG_ID,
     }),
   );
   return {
-    userId: headerOrEnvString({
-      headers,
-      headerName: 'x-console-user-id',
-      envValue: env.SEAMS_LOCAL_CONSOLE_USER_ID,
-      fallback: DEFAULT_LOCAL_CONSOLE_USER_ID,
-    }),
-    orgId: parseLocalConsoleOrganizationId(
-      headerOrEnvString({
-        headers,
-        headerName: 'x-console-org-id',
-        envValue: env.SEAMS_LOCAL_CONSOLE_ORG_ID,
-        fallback: env.SEAMS_LOCAL_CONSOLE_ORG_ID,
-      }),
-    ),
+    userId,
+    orgId,
+    membershipId: `local-owner:${orgId}:${userId}`,
+    authorizationVersion: 1,
+    role: 'OWNER',
+    adminPermissions: ['members.manage', 'projects.manage', 'billing.view', 'billing.manage'],
+    projectAccess: { kind: 'all' },
+    platformSupport: true,
     projectId: headerOrEnvString({
       headers,
       headerName: 'x-console-project-id',
@@ -922,7 +875,6 @@ function localConsoleAuthClaims(env: LocalD1DevEnv, headers: HeaderRecord): Cons
       envValue: env.SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID,
       fallback: DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID,
     }),
-    roles,
   };
 }
 
@@ -1156,7 +1108,7 @@ function isRouterApiPath(pathname: string): boolean {
 
 async function assertLocalD1DoReady(env: LocalD1DevEnv): Promise<void> {
   await assertLocalD1Schemas(env);
-  await runD1DoAdmissionSmoke(env);
+  await runD1AdmissionSmoke(env);
 }
 
 function createLocalReadyCheck(env: LocalD1DevEnv): () => Promise<void> {
@@ -1170,7 +1122,6 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
       signerMetadataDatabase: env.SIGNER_DB,
-      thresholdStore: env.THRESHOLD_STORE,
       kekProvider: localSigningRootKekProvider(env),
     },
     route: {
@@ -1181,6 +1132,7 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
       sponsoredEvmCallConfig,
       sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
       billingProviders: createStripeBillingProviderAdaptersFromEnv(env),
+      billingEmailConsoleBaseUrl: String(env.CONSOLE_BASE_URL || '').trim() || 'https://localhost',
     },
   });
   return createCloudflareConsoleRouter({
@@ -1189,6 +1141,7 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     readyz: true,
     auth: new LocalD1DevConsoleAuthAdapter(env),
     readyCheck: createLocalReadyCheck(env),
+    billingStripeWebhookSigningSecret: String(env.STRIPE_WEBHOOK_SECRET || '').trim() || undefined,
     // Local dev runs as a single auto-authenticated admin, so the 4-eyes
     // approval gate can't be satisfied and only blocks policy publishing
     // (POLICY_PUBLISH -> "approvalId is required"). Disable it so the console
@@ -1211,7 +1164,6 @@ async function createLocalRouterApiHandler(
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
       signerMetadataDatabase: env.SIGNER_DB,
-      thresholdStore: env.THRESHOLD_STORE,
       kekProvider: localSigningRootKekProvider(env),
     },
     route: {
@@ -1226,11 +1178,13 @@ async function createLocalRouterApiHandler(
     },
   });
   const sessionCookieName = localRouterApiSessionCookieName(env);
-  const session = createHmacSessionAdapter({
-    secret: localRouterApiSessionSecret(env),
+  const session = createEd25519SessionAdapter({
+    privateJwk: requireLocalEcdsaCeremonyPrivateJwk(env),
+    keyId: normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_KEY_ID) || 'local-router-ab-r1',
     cookieName: sessionCookieName,
-    issuer: localRouterApiSessionIssuer(env),
-    audience: localRouterApiSessionAudience(env),
+    issuer:
+      normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_ISSUER) || DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL,
+    audience: normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_AUDIENCE) || 'router-ab',
   });
   const ed25519Yao = await createLocalEd25519YaoProductComposition(env, session, routerFetch);
   const ecdsaStrictPorts = localEcdsaStrictPorts(env);
@@ -1244,10 +1198,9 @@ async function createLocalRouterApiHandler(
     corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
     ...(routerAbPublicKeyset ? { routerAbPublicKeyset } : {}),
     session,
-    ...(ed25519Yao.kind === 'enabled'
-      ? { routerAbEd25519YaoProduct: ed25519Yao.runtime }
-      : {}),
+    ...(ed25519Yao.kind === 'enabled' ? { routerAbEd25519YaoProduct: ed25519Yao.runtime } : {}),
     ...(sessionCookieName ? { sessionCookieName } : {}),
+    routerAbNormalSigningRouterProxy: env.MPC_ROUTER,
     routerAbEcdsaStrictPostRegistration: ecdsaStrictPorts.postRegistration,
     emailRecovery: {
       kind: 'prepare_only',
@@ -1327,21 +1280,6 @@ async function handleLocalYaoRequestScoped(
   }
 }
 
-function localThresholdStoreConfig(env: LocalD1DevEnv): ThresholdStoreConfigInput {
-  return {
-    kind: 'cloudflare-do',
-    namespace: env.THRESHOLD_STORE,
-    THRESHOLD_PREFIX: localTenantStorageNamespace(env),
-    ROUTER_AB_NORMAL_SIGNING_WORKER_ID:
-      normalizeLocalString(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID) ||
-      'local-d1-threshold-signing-worker',
-    ROUTER_AB_SIGNING_WORKER_URL: ROUTER_AB_SIGNING_WORKER_ORIGIN,
-    ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: localRouterAbInternalServiceAuthSecret(env),
-    routerAbSigningWorkerFetch: createRouterAbServiceBindingFetch(env),
-    signingRootShareResolverAdapters: createLocalD1SigningRootShareResolverAdapters(env),
-  };
-}
-
 function localSigningSessionSealOptions(
   env: LocalD1DevEnv,
 ): SigningSessionSealRoutesOptions | undefined {
@@ -1352,9 +1290,33 @@ function localSigningSessionSealOptions(
     shamirPrimeB64u: seal.shamirPrimeB64u,
     serverEncryptExponentB64u: seal.serverEncryptExponentB64u,
     serverDecryptExponentB64u: seal.serverDecryptExponentB64u,
-    thresholdStoreConfig: localThresholdStoreConfig(env),
   });
 }
+
+function createLocalEcdsaPresignRuntime(env: LocalD1DevEnv): RouterAbEcdsaPresignRuntime {
+  return new RouterAbEcdsaPresignRuntime({
+    config: {
+      nodeRole: 'coordinator',
+      participantIds: {
+        clientParticipantId: 1,
+        relayerParticipantId: 2,
+        participantIds2p: [1, 2],
+      },
+    },
+    signingWorkerTransport: {
+      kind: 'configured',
+      signingWorkerBaseUrl: ROUTER_AB_SIGNING_WORKER_ORIGIN,
+      auth: {
+        kind: 'internal_service_auth_secret',
+        secret: localRouterAbInternalServiceAuthSecret(env),
+      },
+      fetchImpl: createRouterAbServiceBindingFetch(env),
+    },
+    ensureReady: readyLocalEcdsaPresignRuntime,
+  });
+}
+
+async function readyLocalEcdsaPresignRuntime(): Promise<void> {}
 
 function localD1RouterApiAuthServiceOptions(
   env: LocalD1DevEnv,
@@ -1399,11 +1361,15 @@ function localD1RouterApiAuthServiceOptions(
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX,
     emailOtpGoogleRegistrationAttemptRateLimitWindowMs:
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
-    thresholdStore: localThresholdStoreConfig(env),
+    routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
+    walletBudgetGrantProvisioner:
+      createRouterAbPrivateD1WalletBudgetGrantProvisionerV1({
+        routerBaseUrl: ROUTER_AB_MPC_ROUTER_ORIGIN,
+        internalServiceAuthSecret: localRouterAbInternalServiceAuthSecret(env),
+        fetchImpl: createRouterAbServiceBindingFetch(env),
+      }),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env).registration,
-    ...(ed25519Yao.kind === 'enabled'
-      ? { ed25519YaoProductRegistration: ed25519Yao.runtime }
-      : {}),
+    ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
   };
 }
 
@@ -1416,7 +1382,9 @@ type LocalEd25519YaoProductCompositionState =
     };
 
 type LocalEd25519YaoRequestScopedDependencies = {
-  readonly store: ReturnType<typeof createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1>;
+  readonly store: ReturnType<
+    typeof createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1
+  >;
   readonly backend: ReturnType<typeof createRouterAbEd25519YaoHttpRegistrationBackendFromEnv>;
   readonly recoveryAuthorization: RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter;
   readonly capabilityPersistence: CloudflareD1RouterAbEd25519YaoCapabilityPersistence;
@@ -1468,6 +1436,7 @@ async function createLocalEd25519YaoProductComposition(
     signingWorkerId,
     session,
     store,
+    registrationBackend: backend,
     loadPersistedActiveCapability: async (lookup) => {
       const walletId = parseWalletId(lookup.walletId);
       if (!walletId.ok) return null;
@@ -1567,98 +1536,32 @@ function localAdmissionInput(
   };
 }
 
-async function runD1DoAdmissionSmoke(env: LocalD1DevEnv): Promise<ReadyAdmissionResult> {
+async function runD1AdmissionSmoke(env: LocalD1DevEnv): Promise<ReadyAdmissionResult> {
   const nowMs = Date.now();
   const input = localAdmissionInput(env, nowMs);
-  const key = [
-    'router-ab-normal-signing-admission',
-    'namespace',
-    localTenantStorageNamespace(env),
-    'readyz',
-    input.runtimePolicyScope.orgId,
-    input.runtimePolicyScope.projectId,
-    input.runtimePolicyScope.envId,
-    input.walletId,
-    input.thresholdSessionId,
-    input.requestId,
-  ].join(':');
-  const response = await callAdmissionDo(env.THRESHOLD_STORE, {
-    key,
-    requestId: input.requestId,
-    lifecycleId: normalSigningLifecycleId(input),
-    expiresAtMs: input.expiresAtMs,
-    nowMs,
+  const store = createCloudflareD1RouterAbNormalSigningAdmissionStore({
+    database: env.SIGNER_DB,
+    storageNamespace: localTenantStorageNamespace(env),
+    now: () => nowMs,
   });
-  if (!response.ok) {
-    throw new Error(`local D1/DO admission smoke failed: ${response.code}`);
+  const result = await store.reserveQuota(input);
+  switch (result.kind) {
+    case 'accepted':
+    case 'reuse_existing':
+      return {
+        database: 'SIGNER_DB',
+        quotaReservation: result.kind,
+      };
+    case 'short_window_saturated':
+    case 'signer_queue_saturated':
+      throw new Error(`local D1 admission smoke failed: ${result.kind}`);
+    default:
+      return assertNeverAdmissionDecision(result);
   }
-  const quotaReservation = parseAdmissionQuotaReservation(response.value);
-  if (!quotaReservation) {
-    throw new Error('local D1/DO admission smoke returned an invalid quota decision');
-  }
-  return {
-    durableObject: 'configured',
-    quotaReservation,
-  };
 }
 
-async function callAdmissionDo(
-  namespace: CloudflareDurableObjectNamespaceLike,
-  input: {
-    readonly key: string;
-    readonly requestId: string;
-    readonly lifecycleId: string;
-    readonly expiresAtMs: number;
-    readonly nowMs: number;
-  },
-): Promise<AdmissionDoResp<unknown>> {
-  const stub = admissionSmokeStub(namespace);
-  const response = await stub.fetch('https://threshold-store.invalid/', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      op: 'routerAbNormalSigningReserveQuota',
-      key: input.key,
-      requestId: input.requestId,
-      lifecycleId: input.lifecycleId,
-      expiresAtMs: input.expiresAtMs,
-      nowMs: input.nowMs,
-    }),
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`local D1/DO admission smoke HTTP ${response.status}: ${text}`);
-  }
-  return parseAdmissionDoResponse(text);
-}
-
-function admissionSmokeStub(
-  namespace: CloudflareDurableObjectNamespaceLike,
-): CloudflareDurableObjectStubLike {
-  const id = namespace.idFromName('seams-local-readyz-router-ab-admission');
-  return namespace.get(id);
-}
-
-function parseAdmissionDoResponse(text: string): AdmissionDoResp<unknown> {
-  const parsed = parseJsonObject(text);
-  if (!parsed) {
-    throw new Error('local D1/DO admission smoke returned invalid JSON');
-  }
-  if (parsed.ok === true) {
-    return { ok: true, value: parsed.value };
-  }
-  return {
-    ok: false,
-    code: requireOptionalString(parsed.code, 'internal'),
-    message: requireOptionalString(parsed.message, 'local D1/DO admission smoke failed'),
-  };
-}
-
-function parseAdmissionQuotaReservation(value: unknown): 'accepted' | 'reuse_existing' | null {
-  if (!isRecord(value)) return null;
-  if (value.kind === 'accepted') return 'accepted';
-  if (value.kind === 'reuse_existing') return 'reuse_existing';
-  return null;
+function assertNeverAdmissionDecision(value: never): never {
+  throw new Error(`Unsupported local D1 admission decision: ${JSON.stringify(value)}`);
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -1812,37 +1715,9 @@ async function assertLocalD1Schemas(env: LocalD1DevEnv): Promise<ReadyD1SchemaRe
   return { consoleTables, signerTables };
 }
 
-function normalSigningLifecycleId(input: RouterAbNormalSigningAdmissionInput): string {
-  const authority = normalSigningAuthority(input);
-  const base = [
-    input.curve,
-    input.phase,
-    input.walletId,
-    authority,
-    input.thresholdSessionId,
-    input.signingGrantId,
-    input.requestId,
-    input.signingWorkerId,
-  ];
-  return input.curve === 'ecdsa' ? [...base, input.keyHandle].join(':') : base.join(':');
-}
-
-function normalSigningAuthority(input: RouterAbNormalSigningAdmissionInput): string {
-  switch (input.curve) {
-    case 'ed25519':
-      return input.authorityScope.kind === 'passkey_rp'
-        ? `passkey_rp:${input.authorityScope.rpId}`
-        : `${input.authorityScope.kind}:${input.authorityScope.provider}:${input.authorityScope.providerUserId}`;
-    case 'ecdsa':
-      return input.evmFamilySigningKeySlotId;
-  }
-  input satisfies never;
-  throw new Error('Unsupported local D1/DO admission smoke curve');
-}
-
 async function handleReady(env: LocalD1DevEnv): Promise<Response> {
   const schemas = await assertLocalD1Schemas(env);
-  const admission = await runD1DoAdmissionSmoke(env);
+  const admission = await runD1AdmissionSmoke(env);
   return jsonResponse({
     ok: true,
     backend: 'cloudflare_d1_do',
@@ -1851,136 +1726,9 @@ async function handleReady(env: LocalD1DevEnv): Promise<Response> {
     bindings: {
       console: 'CONSOLE_DB',
       signer: 'SIGNER_DB',
-      thresholdStore: 'THRESHOLD_STORE',
     },
     admission,
   });
-}
-
-async function handleLocalRouterAbEd25519Seed(
-  request: Request,
-  env: LocalD1DevEnv,
-): Promise<Response> {
-  if (request.method !== 'POST') {
-    return jsonResponse(
-      { ok: false, code: 'method_not_allowed', message: 'method not allowed' },
-      { status: 405 },
-    );
-  }
-  if (!hasLocalRouterAbInternalServiceAuth(request, env)) {
-    return jsonResponse(
-      {
-        ok: false,
-        code: 'unauthorized',
-        message: 'local Router A/B internal service-auth header is invalid',
-      },
-      { status: 401 },
-    );
-  }
-  const body = parseJsonObject(await request.text());
-  if (!body) {
-    return jsonResponse(
-      { ok: false, code: 'invalid_body', message: 'seed body must be a JSON object' },
-      { status: 400 },
-    );
-  }
-  if (body.recoveryExportCapable !== true) {
-    return jsonResponse(
-      {
-        ok: false,
-        code: 'invalid_body',
-        message: 'seed body recoveryExportCapable must be true',
-      },
-      { status: 400 },
-    );
-  }
-  const service = createLocalD1RouterApiAuthService(env);
-  const seedRuntime = service.thresholdRuntime.getRouterAbLocalSigningSeedRuntime();
-  if (!seedRuntime) {
-    return jsonResponse(
-      {
-        ok: false,
-        code: 'not_configured',
-        message: 'local Router A/B signing seed runtime is not configured',
-      },
-      { status: 501 },
-    );
-  }
-  const seeded = await seedRuntime.seedLocalRouterAbEd25519NormalSigningSession({
-    relayerKeyId: requireOptionalString(body.relayerKeyId, ''),
-    walletId: requireOptionalString(body.walletId, ''),
-    nearAccountId: requireOptionalString(body.nearAccountId, ''),
-    nearEd25519SigningKeyId: requireOptionalString(body.nearEd25519SigningKeyId, ''),
-    rpId: requireOptionalString(body.rpId, ''),
-    thresholdSessionId: requireOptionalString(body.thresholdSessionId, ''),
-    signingGrantId: requireOptionalString(body.signingGrantId, ''),
-    publicKey: requireOptionalString(body.publicKey, ''),
-    relayerSigningShareB64u: requireOptionalString(body.relayerSigningShareB64u, ''),
-    relayerVerifyingShareB64u: requireOptionalString(body.relayerVerifyingShareB64u, ''),
-    keyVersion: requireOptionalString(body.keyVersion, ''),
-    thresholdExpiresAtMs: Number(body.thresholdExpiresAtMs),
-    participantIds: Array.isArray(body.participantIds) ? body.participantIds.map(Number) : [],
-    remainingUses: Number(body.remainingUses),
-    recoveryExportCapable: true,
-  });
-  return jsonResponse(seeded, { status: seeded.ok ? 200 : seeded.code === 'internal' ? 500 : 400 });
-}
-
-async function handleLocalRouterAbEcdsaDerivationSeed(
-  request: Request,
-  env: LocalD1DevEnv,
-): Promise<Response> {
-  if (request.method !== 'POST') {
-    return jsonResponse(
-      { ok: false, code: 'method_not_allowed', message: 'method not allowed' },
-      { status: 405 },
-    );
-  }
-  if (!hasLocalRouterAbInternalServiceAuth(request, env)) {
-    return jsonResponse(
-      {
-        ok: false,
-        code: 'unauthorized',
-        message: 'local Router A/B internal service-auth header is invalid',
-      },
-      { status: 401 },
-    );
-  }
-  const body = parseJsonObject(await request.text());
-  if (!body) {
-    return jsonResponse(
-      { ok: false, code: 'invalid_body', message: 'seed body must be a JSON object' },
-      { status: 400 },
-    );
-  }
-  const service = createLocalD1RouterApiAuthService(env);
-  const seedRuntime = service.thresholdRuntime.getRouterAbLocalSigningSeedRuntime();
-  if (!seedRuntime) {
-    return jsonResponse(
-      {
-        ok: false,
-        code: 'not_configured',
-        message: 'local Router A/B signing seed runtime is not configured',
-      },
-      { status: 501 },
-    );
-  }
-  const seeded = await seedRuntime.seedLocalRouterAbEcdsaDerivationNormalSigningSession({
-    walletId: requireOptionalString(body.walletId, ''),
-    evmFamilySigningKeySlotId: requireOptionalString(body.evmFamilySigningKeySlotId, ''),
-    ecdsaThresholdKeyId: requireOptionalString(body.ecdsaThresholdKeyId, ''),
-    signingRootId: requireOptionalString(body.signingRootId, ''),
-    signingRootVersion: requireOptionalString(body.signingRootVersion, ''),
-    walletKeyVersion: requireOptionalString(body.walletKeyVersion, ''),
-    derivationVersion: Number(body.derivationVersion),
-    relayerKeyId: requireOptionalString(body.relayerKeyId, ''),
-    thresholdSessionId: requireOptionalString(body.thresholdSessionId, ''),
-    signingGrantId: requireOptionalString(body.signingGrantId, ''),
-    thresholdExpiresAtMs: Number(body.thresholdExpiresAtMs),
-    participantIds: Array.isArray(body.participantIds) ? body.participantIds.map(Number) : [],
-    remainingUses: Number(body.remainingUses),
-  });
-  return jsonResponse(seeded, { status: seeded.ok ? 200 : seeded.code === 'internal' ? 500 : 400 });
 }
 
 async function fetch(
@@ -1993,12 +1741,6 @@ async function fetch(
   if (url.pathname === '/readyz') return await handleReady(env);
   if (request.method === 'GET' && url.pathname === LOCAL_ROUTER_AB_CEREMONY_JWKS_PATH) {
     return localRouterAbCeremonyJwksResponse(env);
-  }
-  if (url.pathname === LOCAL_ROUTER_AB_ED25519_SEED_PATH) {
-    return await handleLocalRouterAbEd25519Seed(request, env);
-  }
-  if (url.pathname === LOCAL_ROUTER_AB_ECDSA_DERIVATION_SEED_PATH) {
-    return await handleLocalRouterAbEcdsaDerivationSeed(request, env);
   }
   if (isConsolePath(url.pathname)) {
     const handler = await localConsoleHandler(env);
@@ -2025,7 +1767,6 @@ async function fetch(
         '/sponsorships/evm/call',
         '/wallet-session/seal/apply-server-seal',
         '/wallet-session/seal/remove-server-seal',
-        '/v1/registration/bootstrap-grants',
       ],
     },
     { status: 200 },

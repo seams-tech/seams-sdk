@@ -1,12 +1,11 @@
-import type { RouterApiBootstrapGrantBroker, RouterApiKeyAuthAdapter } from '@seams/sdk-server/internal/router/routerApi';
-import { handleRouterApiBootstrapGrant } from '@seams/sdk-server/internal/router/routerApiBootstrapGrant';
-import { resolveSourceIpFromFetchHeaders } from '@seams/sdk-server/internal/router/routerApiKeyAuth';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/internal/router/logger';
-import type { RouteDefinition } from '@seams/sdk-server/internal/router/routeDefinitions';
-import { routeJson, toFetchRouteResponse } from '@seams/sdk-server/internal/router/routeResponses';
-import type { RouterApiRouteExtension } from '@seams/sdk-server/internal/router/routeExtensions';
-import { readJson } from '@seams/sdk-server/internal/router/cloudflare/http';
-import type { RouterApiPublishableKeyAuthAdapter } from '@seams/sdk-server/internal/router/apiCredentialPorts';
+import type { RouterApiKeyAuthAdapter } from '@seams/sdk-server/cloud-host';
+import { resolveSourceIpFromFetchHeaders } from '@seams/sdk-server/cloud-host';
+import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
+import type { RouteDefinition } from '@seams/sdk-server/cloud-host';
+import { routeJson, toFetchRouteResponse } from '@seams/sdk-server/cloud-host';
+import type { RouterApiRouteExtension } from '@seams/sdk-server/cloud-host';
+import { readJson } from '@seams/sdk-server/cloud-host';
+import type { RouterApiPublishableKeyAuthAdapter } from '@seams/sdk-server/cloud-host';
 import type { ConsoleBillingService } from '../billing';
 import type { ConsoleBillingPrepaidReservationService } from '../billingPrepaidReservations';
 import type { ConsoleObservabilityIngestionService } from '../observability';
@@ -21,7 +20,7 @@ import type { SponsorshipSpendPricingService } from '../sponsorship/spendCaps';
 import type { ConsoleSponsorshipSpendCapService } from '../sponsorshipSpendCaps';
 import type { ConsoleWebhookService } from '../webhooks';
 import type { ConsoleWalletService } from '../wallets/service';
-import { ensureLeadingSlash } from '@seams-internal/shared-ts/utils/validation';
+import { ensureLeadingSlash } from '@seams/sdk-server/cloud-host';
 import {
   handleRouterApiSignedDelegate,
   type SignedDelegateRouterApiAuthService,
@@ -60,7 +59,6 @@ export interface ConsoleRouterApiSignedDelegateRouteOptions {
   readonly spendCaps: ConsoleSponsorshipSpendCapService | null;
   readonly webhooks: ConsoleWebhookService | null;
   readonly webhookActorUserId?: string;
-  readonly webhookRoles?: string[];
 }
 
 export interface ConsoleRouterApiSponsoredEvmCallRouteOptions {
@@ -77,12 +75,10 @@ export interface ConsoleRouterApiSponsoredEvmCallRouteOptions {
   readonly spendCaps: ConsoleSponsorshipSpendCapService | null;
   readonly webhooks?: ConsoleWebhookService | null;
   readonly webhookActorUserId?: string;
-  readonly webhookRoles?: string[];
 }
 
 export interface ConsoleRouterApiRouteExtensionsOptions {
   readonly apiKeyAuth?: RouterApiKeyAuthAdapter | null;
-  readonly bootstrapGrantBroker?: RouterApiBootstrapGrantBroker | null;
   readonly signedDelegate?: ConsoleRouterApiSignedDelegateRouteOptions | null;
   readonly sponsoredEvmCall?: ConsoleRouterApiSponsoredEvmCallRouteOptions | null;
   readonly wallets?: ConsoleWalletService | null;
@@ -98,24 +94,6 @@ function routeHeaders(headers: Headers): Record<string, string> {
 
 function routeUrl(request: Request): URL {
   return new URL(request.url);
-}
-
-function registrationBootstrapGrantRoute(): RouteDefinition {
-  return {
-    id: 'registration_bootstrap_grants',
-    surface: 'relay',
-    method: 'POST',
-    path: '/v1/registration/bootstrap-grants',
-    summary: 'Issue managed registration bootstrap grants',
-    auth: {
-      plane: 'api_credentials',
-      credentials: ['publishable_key'],
-      environmentBinding: 'required',
-      originBinding: 'required',
-    },
-    metering: { kind: 'none' },
-    requiredServices: ['bootstrapGrantBroker'],
-  };
 }
 
 function apiWalletListRoute(): RouteDefinition {
@@ -209,9 +187,6 @@ function consoleRouterApiRoutes(
   options: ConsoleRouterApiRouteExtensionsOptions,
 ): readonly RouteDefinition[] {
   const routes: RouteDefinition[] = [];
-  if (options.bootstrapGrantBroker) {
-    routes.push(registrationBootstrapGrantRoute());
-  }
   if (options.apiKeyAuth && options.wallets) {
     routes.push(apiWalletListRoute(), apiWalletSearchRoute(), apiWalletGetRoute());
   }
@@ -222,25 +197,6 @@ function consoleRouterApiRoutes(
     routes.push(sponsoredEvmCallRoute(options.sponsoredEvmCall.route));
   }
   return routes;
-}
-
-async function handleConsoleBootstrapGrantRoute(input: {
-  readonly request: Request;
-  readonly route: RouteDefinition;
-  readonly logger: NormalizedRouterLogger;
-  readonly broker?: RouterApiBootstrapGrantBroker | null;
-}): Promise<Response> {
-  const response = await handleRouterApiBootstrapGrant({
-    body: await readJson(input.request),
-    headers: routeHeaders(input.request.headers),
-    logger: input.logger,
-    origin: routeOrigin(input.request.headers),
-    route: input.route,
-    services: {
-      bootstrapGrantBroker: input.broker,
-    },
-  });
-  return toFetchRouteResponse(response);
 }
 
 async function handleConsoleApiWalletRoute(input: {
@@ -311,7 +267,6 @@ async function handleConsoleSignedDelegateRoute(input: {
       sponsoredCalls: options.ledger,
       webhooks: options.webhooks,
       webhookActorUserId: options.webhookActorUserId,
-      webhookRoles: options.webhookRoles,
     },
   });
   return toFetchRouteResponse(response);
@@ -358,7 +313,6 @@ async function handleConsoleSponsoredEvmCallRoute(input: {
         sponsoredCalls: options.ledger,
         webhooks: options.webhooks || null,
         webhookActorUserId: options.webhookActorUserId,
-        webhookRoles: options.webhookRoles,
       },
     },
   });
@@ -385,15 +339,6 @@ export function createConsoleRouterApiRouteExtensions(
       routes,
       async handleCloudflareRoute(input) {
         const logger = input.logger;
-        if (input.route.id === 'registration_bootstrap_grants') {
-          return await handleConsoleBootstrapGrantRoute({
-            request: input.request,
-            route: input.route,
-            logger,
-            broker: options.bootstrapGrantBroker,
-          });
-        }
-
         if (
           input.route.id === ROUTER_API_SPONSORED_EVM_CALL_ROUTE_ID &&
           options.sponsoredEvmCall

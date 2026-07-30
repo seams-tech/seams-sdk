@@ -322,7 +322,8 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     ...(nextSigningSessionSeal ? { signingSessionSeal: nextSigningSessionSeal } : {}),
     routerAb: payload?.routerAb ?? prev.routerAb,
     routerAbEcdsaDerivationPresignaturePool:
-      payload?.routerAbEcdsaDerivationPresignaturePool ?? prev.routerAbEcdsaDerivationPresignaturePool,
+      payload?.routerAbEcdsaDerivationPresignaturePool ??
+      prev.routerAbEcdsaDerivationPresignaturePool,
     provisioningDefaults: payload?.provisioningDefaults ?? prev.provisioningDefaults,
     relayer:
       payload?.relayer || prev.relayer
@@ -427,10 +428,24 @@ export function setWalletHostLifecycleListener(
   if (ctx.seamsWeb) ensureWalletHostLifecycleSubscription(ctx, ctx.seamsWeb);
 }
 
+function assertNeverSdkLifecycleEvent(value: never): never {
+  throw new Error(`Unhandled SDK lifecycle event: ${String(value)}`);
+}
+
 function handleWalletHostLifecycleEvent(ctx: HostContext, event: SdkLifecycleEvent): void {
-  const sessions = ctx.expiredSessionsByWallet.get(event.walletId);
-  if (sessions?.has(event.walletSessionId)) return;
-  if (sessions) sessions.add(event.walletSessionId);
-  else ctx.expiredSessionsByWallet.set(event.walletId, new Set([event.walletSessionId]));
-  ctx.lifecycleListener?.(event);
+  switch (event.event) {
+    case 'signing_session.expired': {
+      const sessions = ctx.expiredSessionsByWallet.get(event.walletId);
+      if (sessions?.has(event.walletSessionId)) return;
+      if (sessions) sessions.add(event.walletSessionId);
+      else ctx.expiredSessionsByWallet.set(event.walletId, new Set([event.walletSessionId]));
+      ctx.lifecycleListener?.(event);
+      return;
+    }
+    case 'registration.near_provisioning_changed':
+      ctx.lifecycleListener?.(event);
+      return;
+    default:
+      return assertNeverSdkLifecycleEvent(event);
+  }
 }

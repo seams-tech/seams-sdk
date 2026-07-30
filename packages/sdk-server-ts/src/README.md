@@ -128,10 +128,10 @@ export default {
 
 ## Routes exposed by the routers
 
-- POST `/wallets/register/intent` — allocate a wallet-registration intent before WebAuthn create.
-- POST `/wallets/register/start` — verify WebAuthn create and prepare requested signer ceremonies.
-- POST `/wallets/register/ecdsa-derivation/respond` — deliver client ECDSA derivation response material for the ceremony.
-- POST `/wallets/register/finalize` — finalize signer material, create any requested NEAR account, and persist wallet signer rows.
+- POST `/wallets/register/setup` — allocate the registration ceremony and prepare ECDSA work.
+- POST `/wallets/register/respond` — verify the registration proof and complete the derivation response.
+- POST `/wallets/register/activate` — activate and persist the wallet.
+- POST `/wallets/register/near-provisioning` — complete asynchronous NEAR signer provisioning.
 - POST `/auth/passkey/options` — mint a server-side WebAuthn login challenge (replay-protected). Body:
   - `{ user_id, rp_id, ttl_ms? }` → returns `{ challengeId, challengeB64u, expiresAtMs }`
 - POST `/auth/passkey/verify` — WebAuthn verification only (contract-free). Body:
@@ -227,17 +227,11 @@ Cloudflare CORS note
 import { createRouterApiRouter } from '@seams/sdk-server/router/express';
 import {
   createSigningSessionSealRoutesOptions,
-  createSigningSessionSealPolicyFromWalletSessionStores,
   createSigningSessionSealShamir3PassCipherAdapter,
   resolveSigningSessionSealRateLimitFromEnv,
 } from '@seams/sdk-server';
 
-const ecdsaWalletSessionStore = /* your ECDSA Wallet Session store */;
 const signingSessionSeal = createSigningSessionSealRoutesOptions({
-  sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
-    ecdsaStores: [ecdsaWalletSessionStore],
-    walletBudgetStores: [ecdsaWalletSessionStore],
-	  }),
 	  cipher: createSigningSessionSealShamir3PassCipherAdapter({
 	    currentKeyVersion: 'signing-session-seal-kek-2026-02-r1',
 	    keys: [{

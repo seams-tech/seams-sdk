@@ -142,14 +142,8 @@ const requiredResourceInventoryCheckIds = Object.freeze([
   'router_api_worker_deployment_status',
 ]);
 const signerOnlyConsoleD1Bindings = Object.freeze(['SIGNER_DB']);
-const signerOnlyConsoleDurableObjectBindings = Object.freeze([
-  'THRESHOLD_STORE',
-  'ROUTER_API_RUNTIME',
-]);
-const requiredGatewayDurableObjectBindings = Object.freeze([
-  'THRESHOLD_STORE',
-  'ROUTER_API_RUNTIME',
-]);
+const signerOnlyConsoleDurableObjectBindings = Object.freeze([]);
+const requiredGatewayDurableObjectBindings = Object.freeze([]);
 const requiredMigrationTargetActionPairs = Object.freeze([
   'console:list_before',
   'console:apply',
@@ -489,6 +483,15 @@ function validateResourceInventoryGatewaySignerBindings(input) {
     bindings: readArray(gatewayWorker.durableObjects),
     requiredBindings: requiredGatewayDurableObjectBindings,
   });
+  validateOnlyResourceBindings({
+    id: input.id,
+    errors: input.errors,
+    workerFieldName: 'gatewayWorker',
+    resourceFieldName: 'durableObjects',
+    bindingFieldName: 'name',
+    bindings: readArray(gatewayWorker.durableObjects),
+    allowedBindings: requiredGatewayDurableObjectBindings,
+  });
   validateGatewayReceivesConfiguredSignerKeks(input, gatewayWorker);
 }
 
@@ -513,6 +516,17 @@ function validateRequiredResourceBindings(input) {
     if (present.has(required)) continue;
     input.errors.push(
       `${input.id}: resources.${input.workerFieldName}.${input.resourceFieldName} missing ${required}`,
+    );
+  }
+}
+
+function validateOnlyResourceBindings(input) {
+  const allowed = new Set(input.allowedBindings);
+  for (const binding of input.bindings) {
+    const name = normalizeString(binding?.[input.bindingFieldName]);
+    if (!name || allowed.has(name)) continue;
+    input.errors.push(
+      `${input.id}: resources.${input.workerFieldName}.${input.resourceFieldName} includes unexpected binding ${name}`,
     );
   }
 }

@@ -70,7 +70,16 @@ export type RouterAbEd25519YaoRegistrationTransportFailureV1 = {
 };
 
 export type RouterAbEd25519YaoRegistrationTransportResultV1 =
-  | { ok: true; value: unknown }
+  | {
+      ok: true;
+      value: unknown;
+      /**
+       * Raw `Server-Timing` header from the Router, when present. Diagnostics
+       * only: it is never parsed into lifecycle control flow, and callers must
+       * treat it as absent-by-default.
+       */
+      serverTiming?: string | null;
+    }
   | RouterAbEd25519YaoRegistrationTransportFailureV1;
 
 export type RouterAbEd25519YaoRegistrationTransportRequestV1 =
@@ -264,7 +273,14 @@ export type RouterAbEd25519YaoClientSigningShareV1 = {
 };
 
 export type RouterAbEd25519YaoRegistrationResultV1 =
-  | { ok: true; activeClient: RouterAbEd25519YaoSealableActiveClientV1 }
+  | {
+      ok: true;
+      activeClient: RouterAbEd25519YaoSealableActiveClientV1;
+      /** Raw Router `Server-Timing` for the execute call. Diagnostics only. */
+      routerServerTiming?: string;
+      /** Client-observed Yao sub-steps in ms. Diagnostics only. */
+      clientTimings?: { admissionMs: number; sessionCreateMs: number };
+    }
   | RouterAbEd25519YaoRegistrationFailureV1;
 
 export type RouterAbEd25519YaoRecoveryResultV1 =
@@ -393,6 +409,18 @@ function consumeOwnedFactorSecret(
     };
   } finally {
     owned.fill(0);
+  }
+}
+
+function reownConsumedFactorSecret(
+  kind: RouterAbEd25519YaoClientRootFactorV1['kind'],
+  ownedSecret32: Uint8Array,
+): RouterAbEd25519YaoClientRootFactorV1 {
+  switch (kind) {
+    case 'passkey_prf_first':
+      return { kind, ownedSecret32 };
+    case 'email_otp_factor':
+      return { kind, ownedSecret32 };
   }
 }
 
@@ -738,6 +766,7 @@ function resolveHttpTraceContext(
 async function parseHttpResponse(
   response: Response,
 ): Promise<RouterAbEd25519YaoRegistrationTransportResultV1> {
+  const rawServerTiming = response.headers.get('Server-Timing');
   let value: unknown;
   try {
     value = await response.json();
@@ -749,13 +778,50 @@ async function parseHttpResponse(
       message: error instanceof Error ? error.message : String(error),
     };
   }
-  if (response.ok) return { ok: true, value };
+  if (response.ok) {
+    const serverTiming = rawServerTiming || resourceServerTiming(response.url);
+    return { ok: true, value, ...(serverTiming ? { serverTiming } : {}) };
+  }
   return {
     ok: false,
     code: 'router_rejected',
     status: response.status,
     message: JSON.stringify(value),
   };
+}
+
+function resourceServerTiming(responseUrl: string): string | null {
+  // Dedicated workers may expose cross-origin metrics through Resource Timing
+  // even when their Fetch header list omits Server-Timing.
+  if (
+    !responseUrl ||
+    typeof performance === 'undefined' ||
+    typeof performance.getEntriesByName !== 'function'
+  ) {
+    return null;
+  }
+  const entries = performance.getEntriesByName(responseUrl, 'resource');
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (!entry || entry.entryType !== 'resource') continue;
+    const serialized = serializePerformanceServerTiming(Reflect.get(entry, 'serverTiming'));
+    if (serialized) return serialized;
+  }
+  return null;
+}
+
+function serializePerformanceServerTiming(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  const serialized: string[] = [];
+  for (const rawMetric of value) {
+    if (typeof rawMetric !== 'object' || rawMetric === null) continue;
+    const name = String(Reflect.get(rawMetric, 'name') || '').trim();
+    const duration = Number(Reflect.get(rawMetric, 'duration'));
+    if (!/^[a-z0-9_]+$/.test(name)) continue;
+    if (!Number.isFinite(duration) || duration < 0) continue;
+    serialized.push(`${name};dur=${duration}`);
+  }
+  return serialized.length > 0 ? serialized.join(', ') : null;
 }
 
 export class RouterAbEd25519YaoHttpActivationTransportV1
@@ -1084,7 +1150,6 @@ export class RouterAbEd25519YaoClientV1 {
     const consumedFactor = consumeOwnedFactorSecret(args.factor);
     if (!consumedFactor.ok) return consumedFactor;
     const factorSecret32 = consumedFactor.value;
-
     const admissionResponse = await args.transport.send({
       kind: 'admit',
       path: ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
@@ -1101,6 +1166,32 @@ export class RouterAbEd25519YaoClientV1 {
       factorSecret32.fill(0);
       return { ok: false, code: 'invalid_router_response', status: 0, message: admission.message };
     }
+    return await this.registerAdmitted({
+      request: args.request,
+      admissionReceipt: admission.value,
+      factor: reownConsumedFactorSecret(factorKind, factorSecret32),
+      transport: args.transport,
+    });
+  }
+
+  async registerAdmitted(args: {
+    request: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    admissionReceipt: RegistrationAdmissionReceiptV1;
+    factor: RouterAbEd25519YaoClientRootFactorV1;
+    transport: RouterAbEd25519YaoRegistrationTransportV1;
+  }): Promise<RouterAbEd25519YaoRegistrationResultV1> {
+    const factorKind = args.factor.kind;
+    const consumedFactor = consumeOwnedFactorSecret(args.factor);
+    if (!consumedFactor.ok) return consumedFactor;
+    const factorSecret32 = consumedFactor.value;
+    const admissionStartedAt = performance.now();
+    const admission = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+      args.admissionReceipt,
+    );
+    if (!admission.ok) {
+      factorSecret32.fill(0);
+      return { ok: false, code: 'invalid_router_response', status: 0, message: admission.message };
+    }
     if (!activationAdmissionMatchesScope(args.request.scope, admission.value)) {
       factorSecret32.fill(0);
       return {
@@ -1111,7 +1202,10 @@ export class RouterAbEd25519YaoClientV1 {
       };
     }
 
+    const admissionMs = performance.now() - admissionStartedAt;
+
     const entropy = createActivationEntropy();
+    const sessionCreateStartedAt = performance.now();
     let session: WasmClientRegistrationSessionV1;
     try {
       session = createRegistrationSession({
@@ -1133,6 +1227,7 @@ export class RouterAbEd25519YaoClientV1 {
       factorSecret32.fill(0);
       zeroizeActivationEntropy(entropy);
     }
+    const sessionCreateMs = performance.now() - sessionCreateStartedAt;
 
     try {
       const executeRequest = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
@@ -1166,7 +1261,17 @@ export class RouterAbEd25519YaoClientV1 {
           result: result.value,
           activeCapabilityBinding: result.value.binding.session_id,
         });
-        return { ok: true, activeClient };
+        return {
+          ok: true,
+          activeClient,
+          ...(executeResponse.serverTiming
+            ? { routerServerTiming: executeResponse.serverTiming }
+            : {}),
+          clientTimings: {
+            admissionMs: Math.max(0, admissionMs),
+            sessionCreateMs: Math.max(0, sessionCreateMs),
+          },
+        };
       } catch (error) {
         activated.free();
         throw error;

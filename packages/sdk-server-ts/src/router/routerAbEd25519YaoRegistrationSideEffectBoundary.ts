@@ -5,9 +5,39 @@ import type {
 
 export type RouterAbEd25519YaoRegistrationSideEffectOperationV1 =
   | 'finalize'
+  /* 94C: the single Gateway operation row for activate-with-finalize. */
+  | 'registration_activate'
+  /* 94C: deferred NEAR provisioning is a separate effect with its own row. */
+  | 'near_provisioning'
   | 'registration_start'
   | 'add_signer_start'
   | 'add_signer_finalize';
+
+export type RouterAbEd25519YaoRetryableSideEffectFailureV1 = {
+  readonly ok: false;
+  readonly code: string;
+  readonly message: string;
+  readonly retryAfterMs?: number;
+};
+
+export function throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1<
+  T extends RouterAbEd25519YaoRetryableSideEffectFailureV1,
+>(failure: T): T {
+  if (failure.retryAfterMs !== undefined) throw new Error(failure.message);
+  switch (failure.code) {
+    case 'internal':
+    case 'not_configured':
+    case 'execution_in_progress':
+    case 'admission_in_progress':
+    case 'admission_uncertain':
+    case 'temporarily_unavailable':
+    case 'timeout':
+    case 'uncertain':
+      throw new Error(failure.message);
+    default:
+      return failure;
+  }
+}
 
 /**
  * The semantic request fingerprint detects idempotency conflicts before

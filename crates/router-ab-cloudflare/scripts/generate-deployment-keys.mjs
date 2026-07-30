@@ -29,24 +29,36 @@ DERIVER_A_ROOT_SHARE_WIRE_SECRET or DERIVER_B_ROOT_SHARE_WIRE_SECRET.`);
 
 const deriverAEnvelope = generateX25519KeyPair();
 const deriverBEnvelope = generateX25519KeyPair();
+const deriverARolePrivateD1Kek = generateX25519KeyPair();
+const deriverBRolePrivateD1Kek = generateX25519KeyPair();
 const signingWorkerServerOutput = generateX25519KeyPair();
+const signingWorkerPrivateD1Kek = generateX25519KeyPair();
 const deriverAPeer = generateEd25519KeyPair();
 const deriverBPeer = generateEd25519KeyPair();
 
 const variables = {
   ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: deriverAEnvelope.publicKey,
   ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: deriverBEnvelope.publicKey,
+  ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY: deriverARolePrivateD1Kek.publicKey,
+  ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION: 'epoch-1',
+  ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY: deriverBRolePrivateD1Kek.publicKey,
+  ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION: 'epoch-1',
   ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: signingWorkerServerOutput.publicKey,
+  ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY: signingWorkerPrivateD1Kek.publicKey,
+  ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION: 'epoch-1',
   ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: deriverAPeer.publicKeyHex,
   ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: deriverBPeer.publicKeyHex,
 };
 
 const secrets = {
   DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${deriverAEnvelope.privateKeyHex}`,
+  DERIVER_A_ROLE_PRIVATE_D1_KEK: `hpke-x25519-role-private-d1-private-v1:${deriverARolePrivateD1Kek.privateKeyHex}`,
   DERIVER_A_PEER_SIGNING_KEY: deriverAPeer.signingSeedB64u,
   DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${deriverBEnvelope.privateKeyHex}`,
+  DERIVER_B_ROLE_PRIVATE_D1_KEK: `hpke-x25519-role-private-d1-private-v1:${deriverBRolePrivateD1Kek.privateKeyHex}`,
   DERIVER_B_PEER_SIGNING_KEY: deriverBPeer.signingSeedB64u,
   SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: `hpke-x25519-server-output-private-v1:${signingWorkerServerOutput.privateKeyHex}`,
+  SIGNING_WORKER_PRIVATE_D1_KEK: `hpke-x25519-server-output-private-v1:${signingWorkerPrivateD1Kek.privateKeyHex}`,
 };
 
 const output = {

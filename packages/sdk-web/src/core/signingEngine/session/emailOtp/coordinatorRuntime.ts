@@ -269,14 +269,14 @@ export class EmailOtpWalletSessionRuntime {
 
   async requestExportChallenge(
     args: RequestEmailOtpChallengeArgs,
-  ): Promise<{ challengeId: string; emailHint?: string }> {
+  ): Promise<EmailOtpTransactionSigningChallenge> {
     return await this.exportRecoveryRuntime.requestExportChallenge(args);
   }
 
   async requestPublicReauthExportChallenge(args: {
     walletSession: WalletSessionRef;
     chain: ThresholdEcdsaChainTarget['kind'];
-  }): Promise<{ challengeId: string; emailHint?: string }> {
+  }): Promise<EmailOtpTransactionSigningChallenge> {
     const appSessionJwt = await this.resolveAppSessionJwt({
       walletSession: args.walletSession,
       relayUrl: this.runtimeConfig.requireRelayUrl(),

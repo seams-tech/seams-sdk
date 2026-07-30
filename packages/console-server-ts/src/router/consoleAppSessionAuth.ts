@@ -1,201 +1,206 @@
-import type { ConsoleAuditService } from '@seams-internal/console-server/audit/service';
-import type { ConsoleOrgProjectEnvService } from '@seams-internal/console-server/orgProjectEnv/service';
-import type { ConsoleTeamRbacService } from '@seams-internal/console-server/teamRbac/service';
-import {
-  CONSOLE_ORG_SCOPED_TEAM_ROLES,
-  type ConsoleOrgScopedTeamRole,
-  type ConsoleTeamRoleAssignment,
-} from '@seams-internal/console-server/teamRbac/types';
-import type { ConsoleAuthAdapter } from '@seams/sdk-server/internal/router/consoleAuth';
-import type { SessionAdapter } from '@seams/sdk-server/internal/router/routerApi';
+import type { ConsoleAuditService } from '../audit/service';
+import type {
+  ConsoleOrgProjectEnvContext,
+  ConsoleOrgProjectEnvService,
+} from '../orgProjectEnv/service';
+import type {
+  ActiveOrganizationAuthorization,
+  ConsoleOrganizationAccessService,
+} from '../teamRbac';
+import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
+import type {
+  ConsoleAuthAdapter,
+  ConsoleAuthClaims,
+  HeaderRecord,
+} from './consoleAuth';
 
 type AppSessionVersionValidationResult =
-  | { ok: true }
-  | { ok: false; code?: string; message?: string };
+  | { readonly ok: true }
+  | { readonly ok: false; readonly code?: string; readonly message?: string };
 
 interface AppSessionVersionValidator {
   validateAppSessionVersion(input: {
-    userId: string;
-    appSessionVersion: string;
+    readonly userId: string;
+    readonly appSessionVersion: string;
   }): Promise<AppSessionVersionValidationResult>;
 }
 
 export interface ConsoleSsoProvisioningOptions {
-  bootstrapRoles?: ReadonlyArray<unknown>;
-  orgProjectEnv?: ConsoleOrgProjectEnvService | null;
-  teamRbac?: ConsoleTeamRbacService | null;
-  audit?: ConsoleAuditService | null;
-  logger?: { warn(message?: unknown, ...optionalParams: unknown[]): void } | null;
+  readonly orgProjectEnv?: ConsoleOrgProjectEnvService | null;
+  readonly audit?: ConsoleAuditService | null;
+  readonly logger?: { warn(message?: unknown, ...optionalParams: unknown[]): void } | null;
 }
 
 export interface AppSessionConsoleAuthAdapterOptions {
-  session: SessionAdapter;
-  authService: AppSessionVersionValidator;
-  defaultOrgId?: string;
-  defaultProjectId?: string;
-  defaultEnvironmentId?: string;
-  fallbackRoles?: ReadonlyArray<unknown>;
-  platformAdminEmails?: ReadonlyArray<unknown> | string;
-  provisioning?: ConsoleSsoProvisioningOptions | null;
+  readonly session: SessionAdapter;
+  readonly authService: AppSessionVersionValidator;
+  readonly organizationAccess: ConsoleOrganizationAccessService;
+  readonly defaultOrgId?: string;
+  readonly defaultProjectId?: string;
+  readonly defaultEnvironmentId?: string;
+  readonly initialOwnerEmail?: string;
+  readonly platformSupportEmails?: ReadonlyArray<unknown> | string;
+  readonly provisioning?: ConsoleSsoProvisioningOptions | null;
 }
 
-const CONSOLE_ORG_ROLE_SET = new Set<string>(CONSOLE_ORG_SCOPED_TEAM_ROLES);
+interface ReconciledConsoleScope {
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly environmentId: string;
+  readonly derivedOrganization: boolean;
+}
+
+type ConsoleIdentityProfile =
+  | {
+      readonly kind: 'google_oidc';
+      readonly email: string;
+      readonly displayName: string;
+      readonly provider: 'oidc';
+      readonly emailVerified: boolean;
+      readonly hostedDomain: string | null;
+    }
+  | {
+      readonly kind: 'other';
+      readonly email: string;
+      readonly displayName: string;
+      readonly provider: string;
+    };
+
+const CONSOLE_SSO_ORG_ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+function normalizeString(value: unknown): string {
+  return String(value ?? '').trim();
+}
 
 function parseCsvValues(value: unknown): string[] {
-  return String(value || '')
+  return normalizeString(value)
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean);
 }
 
-function normalizeConsolePlatformAdminEmailList(input: unknown): string[] {
+function normalizeConsoleEmailList(input: unknown): readonly string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   const values = Array.isArray(input) ? input : parseCsvValues(input);
   for (const raw of values) {
-    const email = String(raw || '')
-      .trim()
-      .toLowerCase();
-    if (!email || !email.includes('@')) continue;
-    if (seen.has(email)) continue;
+    const email = normalizeConsoleEmail(raw);
+    if (!email || seen.has(email)) continue;
     seen.add(email);
     out.push(email);
   }
   return out;
 }
 
+function normalizeConsoleEmail(value: unknown): string | null {
+  const email = normalizeString(value).toLowerCase();
+  const separator = email.indexOf('@');
+  if (
+    !email ||
+    separator <= 0 ||
+    separator === email.length - 1 ||
+    email.indexOf('@', separator + 1) !== -1 ||
+    /\s/u.test(email)
+  ) {
+    return null;
+  }
+  return email;
+}
+
+function normalizeInitialOwnerEmail(value: unknown): string | null {
+  const raw = normalizeString(value);
+  if (!raw) return null;
+  const email = normalizeConsoleEmail(raw);
+  if (!email || raw.includes(',')) {
+    throw new Error('initialOwnerEmail must contain exactly one valid email address');
+  }
+  return email;
+}
+
 function hasConsoleErrorCode(error: unknown, code: string): boolean {
-  if (!error || typeof error !== 'object') return false;
-  return String((error as { code?: unknown }).code || '').trim() === code;
+  if (!error || typeof error !== 'object' || !('code' in error)) return false;
+  return normalizeString(error.code) === code;
 }
 
-export function normalizeConsoleOrgScopedRoleList(input: unknown): ConsoleOrgScopedTeamRole[] {
-  const out: ConsoleOrgScopedTeamRole[] = [];
-  const seen = new Set<ConsoleOrgScopedTeamRole>();
-
-  const values = Array.isArray(input) ? input : parseCsvValues(input);
-  for (const raw of values) {
-    const role = String(raw || '')
-      .trim()
-      .toLowerCase() as ConsoleOrgScopedTeamRole;
-    if (!CONSOLE_ORG_ROLE_SET.has(role)) continue;
-    if (seen.has(role)) continue;
-    seen.add(role);
-    out.push(role);
-  }
-  return out;
+function readConsoleEmailClaim(claims: Record<string, unknown>): string | null {
+  const claimed = normalizeString(claims.email || claims.email_address).toLowerCase();
+  return claimed && claimed.includes('@') ? claimed : null;
 }
 
-export function mergeConsoleOrgScopedRoleLists(
-  ...lists: ReadonlyArray<ReadonlyArray<unknown>>
-): ConsoleOrgScopedTeamRole[] {
-  const out: ConsoleOrgScopedTeamRole[] = [];
-  const seen = new Set<ConsoleOrgScopedTeamRole>();
-  for (const list of lists) {
-    for (const raw of list) {
-      const role = String(raw || '')
-        .trim()
-        .toLowerCase() as ConsoleOrgScopedTeamRole;
-      if (!CONSOLE_ORG_ROLE_SET.has(role)) continue;
-      if (seen.has(role)) continue;
-      seen.add(role);
-      out.push(role);
-    }
-  }
-  return out;
+function readConsoleDisplayNameClaim(claims: Record<string, unknown>): string | null {
+  const displayName = normalizeString(claims.name || claims.preferred_username);
+  if (displayName) return displayName;
+  const fullName = `${normalizeString(claims.given_name)} ${normalizeString(
+    claims.family_name,
+  )}`.trim();
+  return fullName || null;
 }
 
-function extractConsoleOrgScopedRoleClaims(
-  assignments: ReadonlyArray<{ role: unknown }>,
-): ConsoleOrgScopedTeamRole[] {
-  const out: ConsoleOrgScopedTeamRole[] = [];
-  const seen = new Set<ConsoleOrgScopedTeamRole>();
-  for (const assignment of assignments) {
-    const role = String(assignment.role || '')
-      .trim()
-      .toLowerCase() as ConsoleOrgScopedTeamRole;
-    if (!CONSOLE_ORG_ROLE_SET.has(role)) continue;
-    if (seen.has(role)) continue;
-    seen.add(role);
-    out.push(role);
-  }
-  return out;
-}
-
-function toConsoleRoleAssignments(
-  roles: ReadonlyArray<ConsoleOrgScopedTeamRole>,
-): ConsoleTeamRoleAssignment[] {
-  return roles.map((role) => ({
-    role,
-    scope: 'ORG',
-  }));
-}
-
-function resolveConsoleSsoEmail(userId: string, claims: Record<string, unknown>): string {
-  const claimed = String(claims.email || claims.email_address || '')
-    .trim()
-    .toLowerCase();
-  if (claimed && claimed.includes('@')) return claimed;
-  const normalized = String(userId || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._+-]/g, '_');
-  return `${normalized || 'user'}@console.local`;
-}
-
-function resolveConsoleSsoDisplayName(
+function resolveConsoleIdentityProfile(
   userId: string,
   claims: Record<string, unknown>,
-): string | undefined {
-  const displayName = String(claims.name || claims.preferred_username || '').trim();
-  if (displayName) return displayName;
-  const given = String(claims.given_name || '').trim();
-  const family = String(claims.family_name || '').trim();
-  const full = `${given} ${family}`.trim();
-  if (full) return full;
-  const fallback = String(userId || '').trim();
-  return fallback || undefined;
+): ConsoleIdentityProfile {
+  const claimedEmail = readConsoleEmailClaim(claims);
+  const emailUser = normalizeString(userId)
+    .toLowerCase()
+    .replace(/[^a-z0-9._+-]/gu, '_');
+  const email = claimedEmail ?? `${emailUser || 'user'}@console.local`;
+  const displayName = readConsoleDisplayNameClaim(claims) ?? userId;
+  const provider = normalizeString(claims.provider) || 'unknown';
+  if (provider === 'oidc' && normalizeString(claims.oidcProvider).toLowerCase() === 'google') {
+    return {
+      kind: 'google_oidc',
+      email,
+      displayName,
+      provider,
+      emailVerified: claims.oidcEmailVerified === true,
+      hostedDomain: normalizeConsoleEmailDomain(claims.oidcHostedDomain),
+    };
+  }
+  return { kind: 'other', email, displayName, provider };
 }
 
-function readConsoleSsoEmailClaim(claims: Record<string, unknown>): string | undefined {
-  const claimed = String(claims.email || claims.email_address || '')
-    .trim()
-    .toLowerCase();
-  if (claimed && claimed.includes('@')) return claimed;
-  return undefined;
+function normalizeConsoleEmailDomain(value: unknown): string | null {
+  const domain = normalizeString(value).toLowerCase();
+  if (!domain || domain.includes('@') || /\s/u.test(domain)) return null;
+  return domain;
 }
 
-function readConsoleSsoDisplayNameClaim(claims: Record<string, unknown>): string | undefined {
-  const displayName = String(claims.name || claims.preferred_username || '').trim();
-  if (displayName) return displayName;
-  const given = String(claims.given_name || '').trim();
-  const family = String(claims.family_name || '').trim();
-  const full = `${given} ${family}`.trim();
-  return full || undefined;
+function isAuthoritativeGoogleEmail(profile: ConsoleIdentityProfile): boolean {
+  if (profile.kind !== 'google_oidc' || !profile.emailVerified) return false;
+  const domain = profile.email.slice(profile.email.lastIndexOf('@') + 1);
+  return domain === 'gmail.com' || profile.hostedDomain === domain;
 }
 
-function readEnvironmentKeyCandidate(environmentId: string): 'dev' | 'staging' | 'prod' | null {
-  const candidate = String(environmentId || '')
-    .trim()
-    .split(':')
-    .pop()
-    ?.toLowerCase();
+function matchesInitialOwnerEmail(input: {
+  readonly profile: ConsoleIdentityProfile;
+  readonly initialOwnerEmail: string | null;
+}): boolean {
+  return (
+    Boolean(input.initialOwnerEmail) &&
+    input.profile.email === input.initialOwnerEmail &&
+    isAuthoritativeGoogleEmail(input.profile)
+  );
+}
+
+function readEnvironmentKeyCandidate(
+  environmentId: string,
+): 'dev' | 'staging' | 'prod' | null {
+  const candidate = normalizeString(environmentId).split(':').pop()?.toLowerCase();
   if (candidate === 'dev' || candidate === 'staging' || candidate === 'prod') {
     return candidate;
   }
   return null;
 }
 
-const CONSOLE_SSO_ORG_ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
-
 function deriveConsoleSsoOrganizationId(input: {
-  userId: string;
-  claims: Record<string, unknown>;
+  readonly userId: string;
+  readonly claims: Record<string, unknown>;
 }): string {
   const source =
-    String(input.claims.providerSubject || '').trim() ||
-    String(input.claims.oidcSub || '').trim() ||
-    String(input.userId || '').trim();
+    normalizeString(input.claims.providerSubject) ||
+    normalizeString(input.claims.oidcSub) ||
+    normalizeString(input.userId);
   let h1 = 0x811c9dc5;
   let h2 = 0x9e3779b9;
   for (let index = 0; index < source.length; index += 1) {
@@ -208,475 +213,518 @@ function deriveConsoleSsoOrganizationId(input: {
     h1 = Math.imul(h1 ^ (h2 + index), 0x01000193) >>> 0;
     h2 = Math.imul(h2 ^ (h1 + index), 0xc2b2ae35) >>> 0;
     const alphabetIndex = ((h1 ^ h2) >>> 0) % CONSOLE_SSO_ORG_ID_ALPHABET.length;
-    suffix += CONSOLE_SSO_ORG_ID_ALPHABET[alphabetIndex] || '0';
+    suffix += CONSOLE_SSO_ORG_ID_ALPHABET[alphabetIndex] ?? '0';
   }
   return `org_${suffix}`;
 }
 
-function shouldCreateConsoleSsoOrganization(input: {
-  userId: string;
-  claims: Record<string, unknown>;
-  bootstrapRoles: ConsoleOrgScopedTeamRole[];
-}): boolean {
-  if (!String(input.userId || '').trim()) return false;
-  if (input.bootstrapRoles.length === 0) return false;
-  const provider = String(input.claims.provider || '').trim();
-  return provider === 'oidc';
-}
-
 function createConsoleScopeReadContext(input: {
-  orgId: string;
-  userId: string;
-  claims: Record<string, unknown>;
-}) {
+  readonly orgId: string;
+  readonly userId: string;
+  readonly projectId?: string;
+  readonly environmentId?: string;
+}): ConsoleOrgProjectEnvContext {
   return {
     orgId: input.orgId,
     actorUserId: input.userId,
-    roles: [],
-    ...(readConsoleSsoEmailClaim(input.claims)
-      ? { actorEmail: readConsoleSsoEmailClaim(input.claims) }
-      : {}),
-    ...(readConsoleSsoDisplayNameClaim(input.claims)
-      ? { actorDisplayName: readConsoleSsoDisplayNameClaim(input.claims) }
-      : {}),
+    ...(input.projectId ? { projectId: input.projectId } : {}),
+    ...(input.environmentId ? { environmentId: input.environmentId } : {}),
   };
 }
 
+async function organizationExists(input: {
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly orgId: string;
+  readonly userId: string;
+}): Promise<boolean> {
+  try {
+    await input.orgProjectEnv.getOrganization(
+      createConsoleScopeReadContext({ orgId: input.orgId, userId: input.userId }),
+    );
+    return true;
+  } catch (error: unknown) {
+    if (hasConsoleErrorCode(error, 'organization_not_found')) return false;
+    throw error;
+  }
+}
+
+async function resolveDefaultConsoleOrgId(input: {
+  readonly defaultOrgId: string;
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService | null;
+}): Promise<string> {
+  if (input.defaultOrgId || !input.orgProjectEnv) return input.defaultOrgId;
+  try {
+    return normalizeString((await input.orgProjectEnv.findDefaultOrganization())?.id);
+  } catch {
+    return '';
+  }
+}
+
 async function reconcileConsoleScopeClaims(input: {
-  orgProjectEnv: ConsoleOrgProjectEnvService | null;
-  userId: string;
-  claims: Record<string, unknown>;
-  defaultOrgId: string;
-  orgId: string;
-  projectId: string;
-  environmentId: string;
-  bootstrapRoles: ConsoleOrgScopedTeamRole[];
-}): Promise<{ orgId: string; projectId: string; environmentId: string }> {
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService | null;
+  readonly userId: string;
+  readonly claims: Record<string, unknown>;
+  readonly defaultOrgId: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly environmentId: string;
+}): Promise<ReconciledConsoleScope> {
   if (!input.orgProjectEnv) {
+    const derivedOrganization =
+      !input.orgId && normalizeString(input.claims.provider) === 'oidc';
     return {
-      orgId: input.orgId,
+      orgId: derivedOrganization
+        ? deriveConsoleSsoOrganizationId({ userId: input.userId, claims: input.claims })
+        : input.orgId,
       projectId: input.projectId,
       environmentId: input.environmentId,
+      derivedOrganization,
     };
   }
 
   try {
-    let orgId = String(input.orgId || '').trim();
-    if (orgId) {
-      try {
-        await input.orgProjectEnv.getOrganization(
-          createConsoleScopeReadContext({
-            orgId,
-            userId: input.userId,
-            claims: input.claims,
-          }),
-        );
-      } catch (error: unknown) {
-        if (!hasConsoleErrorCode(error, 'organization_not_found')) {
-          throw error;
-        }
-        orgId = '';
-      }
+    let orgId = input.orgId;
+    let derivedOrganization = false;
+    if (
+      orgId &&
+      !(await organizationExists({
+        orgProjectEnv: input.orgProjectEnv,
+        orgId,
+        userId: input.userId,
+      }))
+    ) {
+      orgId = '';
     }
-
     if (!orgId) {
-      const resolvedOrganization = await input.orgProjectEnv.findOrganizationForScope({
+      const organization = await input.orgProjectEnv.findOrganizationForScope({
         ...(input.projectId ? { projectId: input.projectId } : {}),
         ...(input.environmentId ? { environmentId: input.environmentId } : {}),
       });
-      orgId = String(resolvedOrganization?.id || '').trim();
+      orgId = normalizeString(organization?.id);
     }
-
-    if (!orgId) {
-      const fallbackOrgId = String(input.defaultOrgId || '').trim();
-      if (fallbackOrgId) {
-        try {
-          await input.orgProjectEnv.getOrganization(
-            createConsoleScopeReadContext({
-              orgId: fallbackOrgId,
-              userId: input.userId,
-              claims: input.claims,
-            }),
-          );
-          orgId = fallbackOrgId;
-        } catch (error: unknown) {
-          if (!hasConsoleErrorCode(error, 'organization_not_found')) {
-            throw error;
-          }
-        }
-      }
+    if (
+      !orgId &&
+      input.defaultOrgId &&
+      (await organizationExists({
+        orgProjectEnv: input.orgProjectEnv,
+        orgId: input.defaultOrgId,
+        userId: input.userId,
+      }))
+    ) {
+      orgId = input.defaultOrgId;
     }
-
-    if (!orgId) {
-      if (
-        shouldCreateConsoleSsoOrganization({
-          userId: input.userId,
-          claims: input.claims,
-          bootstrapRoles: input.bootstrapRoles,
-        })
-      ) {
-        orgId = deriveConsoleSsoOrganizationId({
-          userId: input.userId,
-          claims: input.claims,
-        });
-      }
+    if (!orgId && normalizeString(input.claims.provider) === 'oidc') {
+      orgId = deriveConsoleSsoOrganizationId({
+        userId: input.userId,
+        claims: input.claims,
+      });
+      derivedOrganization = true;
     }
-
-    if (!orgId) {
+    if (!orgId || derivedOrganization) {
       return {
-        orgId: input.orgId,
+        orgId,
         projectId: input.projectId,
         environmentId: input.environmentId,
+        derivedOrganization,
       };
     }
 
     const readCtx = createConsoleScopeReadContext({
       orgId,
       userId: input.userId,
-      claims: input.claims,
+      projectId: input.projectId,
+      environmentId: input.environmentId,
     });
     const [projects, environments] = await Promise.all([
       input.orgProjectEnv.listProjects(readCtx, { status: 'ACTIVE' }),
       input.orgProjectEnv.listEnvironments(readCtx, { status: 'ACTIVE' }),
     ]);
-    if (!projects.length && !environments.length) {
-      return {
-        orgId,
-        projectId: input.projectId,
-        environmentId: input.environmentId,
-      };
-    }
-
     let projectId = input.projectId;
     let environmentId = input.environmentId;
-    let environment =
-      environments.find((entry) => entry.id === environmentId) || null;
-    const project =
-      projectId && projects.find((entry) => entry.id === projectId)
-        ? projects.find((entry) => entry.id === projectId) || null
-        : null;
-
-    if (environment) {
-      projectId = environment.projectId;
-      environmentId = environment.id;
+    const exactEnvironment = environments.find(
+      (environment) => environment.id === environmentId,
+    );
+    if (exactEnvironment) {
+      projectId = exactEnvironment.projectId;
+      environmentId = exactEnvironment.id;
     } else {
-      const keyCandidate = readEnvironmentKeyCandidate(environmentId);
-      environment =
-        (projectId && keyCandidate
+      const environmentKey = readEnvironmentKeyCandidate(environmentId);
+      const environment =
+        (projectId && environmentKey
           ? environments.find(
-              (entry) => entry.projectId === projectId && entry.key === keyCandidate,
-            ) || null
-          : null) ||
+              (entry) => entry.projectId === projectId && entry.key === environmentKey,
+            )
+          : undefined) ??
         (projectId
-          ? environments.find((entry) => entry.projectId === projectId) || null
-          : null) ||
-        (keyCandidate
-          ? environments.find((entry) => entry.key === keyCandidate) || null
-          : null) ||
-        environments[0] ||
-        null;
+          ? environments.find((entry) => entry.projectId === projectId)
+          : undefined) ??
+        (environmentKey
+          ? environments.find((entry) => entry.key === environmentKey)
+          : undefined) ??
+        environments[0];
       if (environment) {
         projectId = environment.projectId;
         environmentId = environment.id;
       }
     }
-
-    if (!projectId || !project) {
-      projectId =
-        (environment && environment.projectId) ||
-        projects[0]?.id ||
-        '';
+    if (!projectId || !projects.some((project) => project.id === projectId)) {
+      projectId = projects[0]?.id ?? '';
     }
-
     return {
       orgId,
       projectId,
       environmentId,
+      derivedOrganization: false,
     };
   } catch {
     return {
       orgId: input.orgId,
       projectId: input.projectId,
       environmentId: input.environmentId,
+      derivedOrganization: false,
     };
   }
 }
 
-async function resolveDefaultConsoleOrgId(input: {
-  defaultOrgId: string;
-  orgProjectEnv: ConsoleOrgProjectEnvService | null;
-}): Promise<string> {
-  const configuredOrgId = String(input.defaultOrgId || '').trim();
-  if (configuredOrgId || !input.orgProjectEnv) return configuredOrgId;
+async function appendInitialOwnerAudit(input: {
+  readonly audit: ConsoleAuditService | null;
+  readonly logger: { warn(message?: unknown, ...optionalParams: unknown[]): void };
+  readonly authorization: ActiveOrganizationAuthorization;
+  readonly profile: ConsoleIdentityProfile;
+}): Promise<void> {
+  if (!input.audit) return;
   try {
-    return String((await input.orgProjectEnv.findDefaultOrganization())?.id || '').trim();
-  } catch {
-    return '';
+    await input.audit.appendEvent(
+      {
+        orgId: input.authorization.orgId,
+        actorUserId: input.authorization.userId,
+      },
+      {
+        category: 'TEAM',
+        action: 'member.owner.bootstrap',
+        outcome: 'SUCCESS',
+        summary: `Provisioned initial owner ${input.authorization.userId}`,
+        metadata: {
+          source: 'console_auth_sso',
+          membershipId: input.authorization.membershipId,
+          provider: input.profile.provider,
+        },
+      },
+    );
+  } catch (error: unknown) {
+    input.logger.warn(
+      `[console-auth] failed to append initial-owner audit event for ${
+        input.authorization.userId
+      }: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
-const consoleSsoProvisioningLocks = new Map<string, Promise<ConsoleOrgScopedTeamRole[]>>();
-
-async function runConsoleSsoProvisioningWithLock(
-  key: string,
-  task: () => Promise<ConsoleOrgScopedTeamRole[]>,
-): Promise<ConsoleOrgScopedTeamRole[]> {
-  const existing = consoleSsoProvisioningLocks.get(key);
-  if (existing) return existing;
-  const inFlight = task().finally(() => {
-    if (consoleSsoProvisioningLocks.get(key) === inFlight) {
-      consoleSsoProvisioningLocks.delete(key);
-    }
+async function provisionInitialOidcOwner(input: {
+  readonly orgId: string;
+  readonly userId: string;
+  readonly profile: ConsoleIdentityProfile;
+  readonly organizationAccess: ConsoleOrganizationAccessService;
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly audit: ConsoleAuditService | null;
+  readonly logger: { warn(message?: unknown, ...optionalParams: unknown[]): void };
+}): Promise<void> {
+  const existingAuthorization = await input.organizationAccess.lookupAuthorization({
+    orgId: input.orgId,
+    userId: input.userId,
   });
-  consoleSsoProvisioningLocks.set(key, inFlight);
-  return inFlight;
+  if (existingAuthorization?.kind === 'authorized') return;
+  const exists = await organizationExists({
+    orgProjectEnv: input.orgProjectEnv,
+    orgId: input.orgId,
+    userId: input.userId,
+  });
+  if (!exists) {
+    await input.orgProjectEnv.upsertOrganization(
+      createConsoleScopeReadContext({ orgId: input.orgId, userId: input.userId }),
+      {},
+    );
+  }
+  let ownerId = '';
+  try {
+    const owner = await input.organizationAccess.bootstrapInitialOwner({
+      orgId: input.orgId,
+      userId: input.userId,
+      email: input.profile.email,
+      displayName: input.profile.displayName,
+    });
+    ownerId = owner.id;
+  } catch (error: unknown) {
+    if (hasConsoleErrorCode(error, 'owner_already_exists')) return;
+    throw error;
+  }
+  const authorization = await input.organizationAccess.lookupAuthorization({
+    orgId: input.orgId,
+    userId: input.userId,
+  });
+  if (!authorization || authorization.kind === 'denied' || authorization.role !== 'OWNER') {
+    throw new Error(`Initial owner ${ownerId} could not be authorized`);
+  }
+  await appendInitialOwnerAudit({
+    audit: input.audit,
+    logger: input.logger,
+    authorization,
+    profile: input.profile,
+  });
 }
 
-async function ensureConsoleSsoProvisioning(input: {
-  userId: string;
-  orgId: string;
-  projectId: string;
-  environmentId: string;
-  claims: Record<string, unknown>;
-  bootstrapRoles: ConsoleOrgScopedTeamRole[];
-  orgProjectEnv: ConsoleOrgProjectEnvService | null;
-  teamRbac: ConsoleTeamRbacService | null;
-  audit: ConsoleAuditService | null;
-  logger: { warn(message?: unknown, ...optionalParams: unknown[]): void };
-}): Promise<ConsoleOrgScopedTeamRole[]> {
-  const teamRbac = input.teamRbac;
-  if (!teamRbac) return [];
-  if (!String(input.orgId || '').trim()) return [];
-
-  const lockKey = `${input.orgId}:${input.userId}`;
-  return runConsoleSsoProvisioningWithLock(lockKey, async () => {
-    const actorEmail = resolveConsoleSsoEmail(input.userId, input.claims);
-    const actorDisplayName = resolveConsoleSsoDisplayName(input.userId, input.claims);
-    const readCtx = {
-      orgId: input.orgId,
-      actorUserId: input.userId,
-      roles: [],
-      actorEmail,
-      ...(actorDisplayName ? { actorDisplayName } : {}),
-      projectId: input.projectId,
-      environmentId: input.environmentId,
+async function restrictScopeToAuthorization(input: {
+  readonly scope: ReconciledConsoleScope;
+  readonly authorization: ActiveOrganizationAuthorization;
+  readonly userId: string;
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService | null;
+}): Promise<ReconciledConsoleScope> {
+  if (input.authorization.role !== 'MEMBER') return input.scope;
+  const assignments = input.authorization.projectAccess.assignments;
+  const assignedProjectIds = new Set(assignments.map((assignment) => assignment.projectId));
+  if (!input.orgProjectEnv) {
+    const projectId = assignedProjectIds.has(input.scope.projectId)
+      ? input.scope.projectId
+      : assignments[0]?.projectId ?? '';
+    return {
+      orgId: input.scope.orgId,
+      projectId,
+      environmentId: projectId === input.scope.projectId ? input.scope.environmentId : '',
+      derivedOrganization: input.scope.derivedOrganization,
     };
-    const provisionCtx = {
-      ...readCtx,
-      roles: input.bootstrapRoles,
-    };
-    const ownerProvisionCtx = {
-      ...provisionCtx,
-      roles: mergeConsoleOrgScopedRoleLists(['owner', 'admin'], input.bootstrapRoles),
-    };
-
-    let organizationCreated = false;
-    if (input.orgProjectEnv) {
-      let organizationExists = true;
-      try {
-        await input.orgProjectEnv.getOrganization(readCtx);
-      } catch (error: unknown) {
-        if (hasConsoleErrorCode(error, 'organization_not_found')) {
-          organizationExists = false;
-        } else {
-          throw error;
-        }
-      }
-
-      if (!organizationExists) {
-        await input.orgProjectEnv.upsertOrganization(provisionCtx, {});
-        organizationCreated = true;
-      }
-    }
-
-    const activeMembers = await teamRbac.listMembers(readCtx, { status: 'ACTIVE' });
-    const currentMember = activeMembers.find(
-      (entry) => String(entry.userId || '').trim() === input.userId,
-    );
-    let roles = currentMember ? extractConsoleOrgScopedRoleClaims(currentMember.roles) : [];
-    let firstLoginProvisioned = false;
-
-    if (!currentMember && input.bootstrapRoles.length > 0) {
-      try {
-        const invited = await teamRbac.inviteMember(provisionCtx, {
-          userId: input.userId,
-          email: actorEmail,
-          ...(actorDisplayName ? { displayName: actorDisplayName } : {}),
-          roles: toConsoleRoleAssignments(input.bootstrapRoles),
-        });
-        roles = extractConsoleOrgScopedRoleClaims(invited.roles);
-        firstLoginProvisioned = roles.length > 0;
-      } catch (error: unknown) {
-        if (!hasConsoleErrorCode(error, 'member_already_exists')) throw error;
-        const refreshed = await teamRbac.listMembers(readCtx, { status: 'ACTIVE' });
-        const matched = refreshed.find(
-          (entry) => String(entry.userId || '').trim() === input.userId,
-        );
-        roles = matched ? extractConsoleOrgScopedRoleClaims(matched.roles) : [];
-      }
-    } else if (currentMember && roles.length === 0 && input.bootstrapRoles.length > 0) {
-      const updated = await teamRbac.updateMemberRoles(ownerProvisionCtx, currentMember.id, {
-        roles: toConsoleRoleAssignments(input.bootstrapRoles),
-      });
-      roles = extractConsoleOrgScopedRoleClaims((updated || currentMember).roles);
-      firstLoginProvisioned = roles.length > 0;
-    }
-
-    if (firstLoginProvisioned && input.audit) {
-      try {
-        await input.audit.appendEvent(provisionCtx, {
-          category: 'TEAM',
-          action: 'member.owner.bootstrap',
-          outcome: 'SUCCESS',
-          summary: `Provisioned first-login SSO membership for ${input.userId}`,
-          metadata: {
-            source: 'console_auth_sso',
-            organizationCreated,
-            userId: input.userId,
-            provider: String(input.claims.provider || '').trim() || 'unknown',
-            roles,
-          },
-        });
-      } catch (error: unknown) {
-        input.logger.warn(
-          `[console-auth] failed to append first-login SSO audit event for ${input.userId}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
-
-    return roles;
+  }
+  const readCtx = createConsoleScopeReadContext({
+    orgId: input.scope.orgId,
+    userId: input.userId,
   });
+  const [projects, environments] = await Promise.all([
+    input.orgProjectEnv.listProjects(readCtx, { status: 'ACTIVE' }),
+    input.orgProjectEnv.listEnvironments(readCtx, { status: 'ACTIVE' }),
+  ]);
+  const accessibleProjects = projects.filter((project) => assignedProjectIds.has(project.id));
+  const exactEnvironment = environments.find(
+    (environment) =>
+      environment.id === input.scope.environmentId &&
+      assignedProjectIds.has(environment.projectId),
+  );
+  if (exactEnvironment) {
+    return {
+      orgId: input.scope.orgId,
+      projectId: exactEnvironment.projectId,
+      environmentId: exactEnvironment.id,
+      derivedOrganization: input.scope.derivedOrganization,
+    };
+  }
+  const projectId = assignedProjectIds.has(input.scope.projectId)
+    ? input.scope.projectId
+    : accessibleProjects[0]?.id ?? '';
+  const environmentId =
+    environments.find((environment) => environment.projectId === projectId)?.id ?? '';
+  return {
+    orgId: input.scope.orgId,
+    projectId,
+    environmentId,
+    derivedOrganization: input.scope.derivedOrganization,
+  };
+}
+
+function buildConsoleAuthClaims(input: {
+  readonly authorization: ActiveOrganizationAuthorization;
+  readonly scope: ReconciledConsoleScope;
+  readonly profile: ConsoleIdentityProfile;
+  readonly platformSupport: boolean;
+}): ConsoleAuthClaims {
+  const identity = {
+    userId: input.authorization.userId,
+    orgId: input.authorization.orgId,
+    platformSupport: input.platformSupport,
+    email: input.profile.email,
+    name: input.profile.displayName,
+    provider: input.profile.provider,
+    ...(input.scope.projectId ? { projectId: input.scope.projectId } : {}),
+    ...(input.scope.environmentId ? { environmentId: input.scope.environmentId } : {}),
+  };
+  switch (input.authorization.role) {
+    case 'OWNER':
+      return {
+        ...identity,
+        membershipId: input.authorization.membershipId,
+        authorizationVersion: input.authorization.authorizationVersion,
+        role: 'OWNER',
+        adminPermissions: [...input.authorization.adminPermissions],
+        projectAccess: { kind: 'all' },
+      };
+    case 'ADMIN':
+      return {
+        ...identity,
+        membershipId: input.authorization.membershipId,
+        authorizationVersion: input.authorization.authorizationVersion,
+        role: 'ADMIN',
+        adminPermissions: [...input.authorization.adminPermissions],
+        projectAccess: { kind: 'all' },
+      };
+    case 'MEMBER':
+      return {
+        ...identity,
+        membershipId: input.authorization.membershipId,
+        authorizationVersion: input.authorization.authorizationVersion,
+        role: 'MEMBER',
+        adminPermissions: [],
+        projectAccess: {
+          kind: 'assigned',
+          assignments: input.authorization.projectAccess.assignments.map((assignment) => ({
+            projectId: assignment.projectId,
+            accessLevel: assignment.accessLevel,
+          })),
+        },
+      };
+  }
+}
+
+interface AppSessionConsoleAuthRuntime {
+  readonly options: AppSessionConsoleAuthAdapterOptions;
+  readonly defaultOrgId: string;
+  readonly defaultProjectId: string;
+  readonly defaultEnvironmentId: string;
+  readonly initialOwnerEmail: string | null;
+  readonly platformSupportEmails: readonly string[];
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService | null;
+  readonly audit: ConsoleAuditService | null;
+  readonly logger: { warn(message?: unknown, ...optionalParams: unknown[]): void };
+}
+
+class AppSessionConsoleAuthAdapter implements ConsoleAuthAdapter {
+  readonly #runtime: AppSessionConsoleAuthRuntime;
+
+  constructor(options: AppSessionConsoleAuthAdapterOptions) {
+    this.#runtime = {
+      options,
+      defaultOrgId: normalizeString(options.defaultOrgId),
+      defaultProjectId: normalizeString(options.defaultProjectId),
+      defaultEnvironmentId: normalizeString(options.defaultEnvironmentId),
+      initialOwnerEmail: normalizeInitialOwnerEmail(options.initialOwnerEmail),
+      platformSupportEmails: normalizeConsoleEmailList(
+        options.platformSupportEmails ?? [],
+      ),
+      orgProjectEnv: options.provisioning?.orgProjectEnv ?? null,
+      audit: options.provisioning?.audit ?? null,
+      logger: options.provisioning?.logger ?? console,
+    };
+  }
+
+  async authenticate(headers: HeaderRecord) {
+    const parsedSession = await this.#runtime.options.session.parse(headers);
+    if (!parsedSession.ok) {
+      return {
+        ok: false as const,
+        code: 'unauthorized' as const,
+        message: 'Missing or invalid app session',
+        status: 401 as const,
+      };
+    }
+    const claims = parsedSession.claims;
+    const kind = normalizeString(claims.kind);
+    const userId = normalizeString(claims.sub);
+    const appSessionVersion = normalizeString(claims.appSessionVersion);
+    if (kind !== 'app_session_v1' || !userId || !appSessionVersion) {
+      return {
+        ok: false as const,
+        code: 'unauthorized' as const,
+        message: 'Invalid app session',
+        status: 401 as const,
+      };
+    }
+    const validation =
+      await this.#runtime.options.authService.validateAppSessionVersion({
+        userId,
+        appSessionVersion,
+      });
+    if (!validation.ok) {
+      return {
+        ok: false as const,
+        code: 'unauthorized' as const,
+        message: validation.message || 'Expired app session',
+        status: 401 as const,
+      };
+    }
+
+    const profile = resolveConsoleIdentityProfile(userId, claims);
+    const resolvedDefaultOrgId = await resolveDefaultConsoleOrgId({
+      defaultOrgId: this.#runtime.defaultOrgId,
+      orgProjectEnv: this.#runtime.orgProjectEnv,
+    });
+    let scope = await reconcileConsoleScopeClaims({
+      orgProjectEnv: this.#runtime.orgProjectEnv,
+      userId,
+      claims,
+      defaultOrgId: resolvedDefaultOrgId,
+      orgId: normalizeString(claims.orgId) || resolvedDefaultOrgId,
+      projectId: normalizeString(claims.projectId) || this.#runtime.defaultProjectId,
+      environmentId:
+        normalizeString(claims.environmentId) || this.#runtime.defaultEnvironmentId,
+    });
+    if (!scope.orgId) {
+      return {
+        ok: false as const,
+        code: 'forbidden' as const,
+        message: 'No console organization assigned',
+        status: 403 as const,
+      };
+    }
+    if (
+      profile.provider === 'oidc' &&
+      this.#runtime.orgProjectEnv &&
+      (scope.derivedOrganization ||
+        matchesInitialOwnerEmail({
+          profile,
+          initialOwnerEmail: this.#runtime.initialOwnerEmail,
+        }))
+    ) {
+      await provisionInitialOidcOwner({
+        orgId: scope.orgId,
+        userId,
+        profile,
+        organizationAccess: this.#runtime.options.organizationAccess,
+        orgProjectEnv: this.#runtime.orgProjectEnv,
+        audit: this.#runtime.audit,
+        logger: this.#runtime.logger,
+      });
+    }
+    const authorization =
+      await this.#runtime.options.organizationAccess.lookupAuthorization({
+        orgId: scope.orgId,
+        userId,
+      });
+    if (!authorization || authorization.kind === 'denied') {
+      return {
+        ok: false as const,
+        code: 'forbidden' as const,
+        message: 'No active organization membership',
+        status: 403 as const,
+      };
+    }
+    scope = await restrictScopeToAuthorization({
+      scope,
+      authorization,
+      userId,
+      orgProjectEnv: this.#runtime.orgProjectEnv,
+    });
+    return {
+      ok: true as const,
+      claims: buildConsoleAuthClaims({
+        authorization,
+        scope,
+        profile,
+        platformSupport:
+          isAuthoritativeGoogleEmail(profile) &&
+          this.#runtime.platformSupportEmails.includes(profile.email),
+      }),
+    };
+  }
 }
 
 export function createAppSessionConsoleAuthAdapter(
   options: AppSessionConsoleAuthAdapterOptions,
 ): ConsoleAuthAdapter {
-  const defaultOrgId = String(options.defaultOrgId || '').trim();
-  const defaultProjectId = String(options.defaultProjectId || '').trim();
-  const defaultEnvironmentId = String(options.defaultEnvironmentId || '').trim();
-  const fallbackRoles = normalizeConsoleOrgScopedRoleList(options.fallbackRoles || []);
-  const platformAdminEmails = normalizeConsolePlatformAdminEmailList(
-    options.platformAdminEmails || [],
-  );
-  const provisioning = options.provisioning || null;
-  const bootstrapRoles = normalizeConsoleOrgScopedRoleList(provisioning?.bootstrapRoles || []);
-  const logger = provisioning?.logger || console;
-
-  return {
-    authenticate: async (headers) => {
-      const parsedSession = await options.session.parse(headers);
-      if (!parsedSession.ok) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'Missing or invalid app session',
-          status: 401,
-        };
-      }
-
-      const claims = (parsedSession as { claims?: Record<string, unknown> }).claims || {};
-      const kind = String(claims.kind || '').trim();
-      const userId = String(claims.sub || '').trim();
-      const appSessionVersion = String(claims.appSessionVersion || '').trim();
-      if (kind !== 'app_session_v1' || !userId || !appSessionVersion) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'Invalid app session',
-          status: 401,
-        };
-      }
-
-      const appSessionVersionValidation = await options.authService.validateAppSessionVersion({
-        userId,
-        appSessionVersion,
-      });
-      if (!appSessionVersionValidation.ok) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: appSessionVersionValidation.message || 'Expired app session',
-          status: 401,
-        };
-      }
-
-      const resolvedDefaultOrgId = await resolveDefaultConsoleOrgId({
-        defaultOrgId,
-        orgProjectEnv: provisioning?.orgProjectEnv || null,
-      });
-      const scopedClaims = await reconcileConsoleScopeClaims({
-        orgProjectEnv: provisioning?.orgProjectEnv || null,
-        userId,
-        claims,
-        defaultOrgId: resolvedDefaultOrgId,
-        orgId: String(claims.orgId || '').trim() || resolvedDefaultOrgId,
-        projectId: String(claims.projectId || '').trim() || defaultProjectId,
-        environmentId: String(claims.environmentId || '').trim() || defaultEnvironmentId,
-        bootstrapRoles,
-      });
-      const orgId = scopedClaims.orgId;
-      const projectId = scopedClaims.projectId;
-      const environmentId = scopedClaims.environmentId;
-      const claimedEmail = readConsoleSsoEmailClaim(claims);
-
-      const hasOrgScope = Boolean(orgId);
-      let roles: string[] = hasOrgScope ? [...fallbackRoles] : [];
-      if (provisioning?.teamRbac) {
-        roles = hasOrgScope
-          ? await ensureConsoleSsoProvisioning({
-              userId,
-              orgId,
-              projectId,
-              environmentId,
-              claims,
-              bootstrapRoles,
-              orgProjectEnv: provisioning.orgProjectEnv || null,
-              teamRbac: provisioning.teamRbac || null,
-              audit: provisioning.audit || null,
-              logger,
-            }).catch((error: unknown) => {
-              logger.warn(
-                `[console-auth] failed to provision Team RBAC membership for ${userId}: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-              );
-              return [] as ConsoleOrgScopedTeamRole[];
-            })
-          : [];
-      }
-
-      if (claimedEmail && platformAdminEmails.includes(claimedEmail)) {
-        roles = roles.includes('platform_admin') ? roles : [...roles, 'platform_admin'];
-      }
-
-      if (!roles.length && hasOrgScope) {
-        return {
-          ok: false,
-          code: 'forbidden',
-          message: 'No console roles assigned',
-          status: 403,
-        };
-      }
-
-      return {
-        ok: true,
-        claims: {
-          orgId,
-          userId,
-          roles,
-          ...(String(claims.provider || '').trim()
-            ? { provider: String(claims.provider).trim() }
-            : {}),
-          ...(readConsoleSsoEmailClaim(claims) ? { email: readConsoleSsoEmailClaim(claims) } : {}),
-          ...(readConsoleSsoDisplayNameClaim(claims)
-            ? { name: readConsoleSsoDisplayNameClaim(claims) }
-            : {}),
-          ...(projectId ? { projectId } : {}),
-          ...(environmentId ? { environmentId } : {}),
-        },
-      };
-    },
-  };
+  return new AppSessionConsoleAuthAdapter(options);
 }

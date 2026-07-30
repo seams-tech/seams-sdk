@@ -10,7 +10,17 @@ import {
 export interface DashboardConsoleSessionClaims {
   userId: string;
   orgId: string;
-  roles: string[];
+  membershipId: string;
+  authorizationVersion: number;
+  role: 'OWNER' | 'ADMIN' | 'MEMBER';
+  adminPermissions: Array<
+    'members.manage' | 'projects.manage' | 'billing.view' | 'billing.manage'
+  >;
+  projectAccess: Array<{
+    projectId: string;
+    accessLevel: 'viewer' | 'editor';
+  }>;
+  platformSupport: boolean;
   email?: string;
   name?: string;
   projectId?: string;
@@ -40,6 +50,38 @@ export interface DashboardConsoleSessionState {
   refresh: () => void;
 }
 
+export function canDashboardEditProject(
+  claims: DashboardConsoleSessionClaims | null,
+  projectId: string,
+): boolean {
+  if (!claims) return false;
+  if (claims.role === 'OWNER' || claims.role === 'ADMIN') return true;
+  return claims.projectAccess.some(
+    (assignment) =>
+      assignment.projectId === projectId && assignment.accessLevel === 'editor',
+  );
+}
+
+export function canDashboardViewBilling(
+  claims: DashboardConsoleSessionClaims | null,
+): boolean {
+  if (!claims) return false;
+  if (claims.role === 'OWNER') return true;
+  return (
+    claims.role === 'ADMIN' &&
+    (claims.adminPermissions.includes('billing.view') ||
+      claims.adminPermissions.includes('billing.manage'))
+  );
+}
+
+export function canDashboardManageBilling(
+  claims: DashboardConsoleSessionClaims | null,
+): boolean {
+  if (!claims) return false;
+  if (claims.role === 'OWNER') return true;
+  return claims.role === 'ADMIN' && claims.adminPermissions.includes('billing.manage');
+}
+
 const DashboardConsoleSessionContext = React.createContext<DashboardConsoleSessionState | null>(
   null,
 );
@@ -59,9 +101,53 @@ function parseClaims(raw: unknown): DashboardConsoleSessionClaims | null {
   const row = raw as Record<string, unknown>;
   const userId = String(row.userId || '').trim();
   const orgId = String(row.orgId || '').trim();
-  if (!userId) return null;
-  const roles = Array.isArray(row.roles)
-    ? row.roles.map((entry) => String(entry || '').trim()).filter(Boolean)
+  const membershipId = String(row.membershipId || '').trim();
+  const authorizationVersion = Number(row.authorizationVersion);
+  const roleRaw = String(row.role || '').trim().toUpperCase();
+  const role =
+    roleRaw === 'OWNER' || roleRaw === 'ADMIN' || roleRaw === 'MEMBER' ? roleRaw : null;
+  if (
+    !userId ||
+    !orgId ||
+    !membershipId ||
+    !role ||
+    !Number.isSafeInteger(authorizationVersion) ||
+    authorizationVersion < 1
+  ) {
+    return null;
+  }
+  const permissionSet = new Set<
+    'members.manage' | 'projects.manage' | 'billing.view' | 'billing.manage'
+  >();
+  if (Array.isArray(row.adminPermissions)) {
+    for (const entry of row.adminPermissions) {
+      const permission = String(entry || '').trim();
+      if (
+        permission === 'members.manage' ||
+        permission === 'projects.manage' ||
+        permission === 'billing.view' ||
+        permission === 'billing.manage'
+      ) {
+        permissionSet.add(permission);
+      }
+    }
+  }
+  if (permissionSet.has('billing.manage')) permissionSet.add('billing.view');
+  const projectAccess = Array.isArray(row.projectAccess)
+    ? row.projectAccess.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+        const access = entry as Record<string, unknown>;
+        const accessProjectId = String(access.projectId || '').trim();
+        const accessLevel = String(access.accessLevel || '').trim().toLowerCase();
+        if (
+          !accessProjectId ||
+          (accessLevel !== 'viewer' && accessLevel !== 'editor')
+        ) {
+          return [];
+        }
+        const normalizedAccessLevel: 'viewer' | 'editor' = accessLevel;
+        return [{ projectId: accessProjectId, accessLevel: normalizedAccessLevel }];
+      })
     : [];
   const email = String(row.email || '').trim();
   const name = String(row.name || '').trim();
@@ -70,7 +156,21 @@ function parseClaims(raw: unknown): DashboardConsoleSessionClaims | null {
   return {
     userId,
     orgId,
-    roles,
+    membershipId,
+    authorizationVersion,
+    role,
+    adminPermissions: [
+      'members.manage',
+      'projects.manage',
+      'billing.view',
+      'billing.manage',
+    ].filter((permission) =>
+      permissionSet.has(
+        permission as 'members.manage' | 'projects.manage' | 'billing.view' | 'billing.manage',
+      ),
+    ) as DashboardConsoleSessionClaims['adminPermissions'],
+    projectAccess,
+    platformSupport: row.platformSupport === true,
     ...(email ? { email } : {}),
     ...(name ? { name } : {}),
     ...(projectId ? { projectId } : {}),
@@ -146,6 +246,34 @@ export async function revokeDashboardConsoleSession(): Promise<void> {
     return;
   }
   throw new Error(consoleErrorMessage(response, body, 'Session revoke failed'));
+}
+
+const CONSOLE_SIGN_OUT_FLAG_KEY = 'seams.console.signedOut';
+
+/**
+ * Records that the user explicitly signed out. The login page consumes this to
+ * skip its auto-resume redirect: if a revoke fails server-side the cookie is
+ * still valid, and without the flag the login page would bounce the user
+ * straight back into the console they just left.
+ */
+export function markDashboardConsoleSignOut(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(CONSOLE_SIGN_OUT_FLAG_KEY, '1');
+  } catch {}
+}
+
+/** Reads and clears the sign-out flag; true only for the first read after a sign-out. */
+export function consumeDashboardConsoleSignOut(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = window.sessionStorage.getItem(CONSOLE_SIGN_OUT_FLAG_KEY);
+    if (!raw) return false;
+    window.sessionStorage.removeItem(CONSOLE_SIGN_OUT_FLAG_KEY);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function DashboardConsoleSessionProvider({

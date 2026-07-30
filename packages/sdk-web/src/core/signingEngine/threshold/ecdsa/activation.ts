@@ -396,7 +396,6 @@ function requireStrictEcdsaRouteAuth(
     case 'app_session':
     case 'wallet_session':
       return auth;
-    case 'bootstrap_grant':
     case 'publishable_key':
       throw new Error('Strict ECDSA session bootstrap requires app or Wallet Session authority');
   }

@@ -74,7 +74,10 @@ invariant.
 - **R90-INV-012 — Enforcement matches failure mode.** Types reject invalid core
   construction, boundary tests reject hostile raw data, guards enforce
   dependency/artifact boundaries, integration tests prove cross-store effects,
-  and E2E tests prove selected user-visible transitions.
+  and E2E tests prove selected user-visible transitions. This is a standing
+  review norm bounded by the plan's Verification Budget, not a per-slice
+  deliverable: it is satisfied by the other invariants' evidence, so it carries
+  no checklist entry of its own.
 - **R90-INV-013 — Authorization/material identity separation.** A
   `SeamsSessionId` identifies app identity and general authorization, a
   `WalletSessionId` identifies reusable wallet-signing authorization, an
@@ -103,8 +106,8 @@ invariant.
 
 This checklist tracks conformance evidence for the normative invariants. The
 implementation plan owns task status. Check an item here only when the invariant
-is expressed in code and its cheapest effective verification passes; link the
-evidence from the progress journal.
+is expressed in code and its cheapest effective verification passes; cite the
+implementing commit SHA as the evidence.
 
 ### Foundations A-B
 
@@ -120,8 +123,6 @@ evidence from the progress journal.
   disposal, zeroization, or other volatile facts.
 - [ ] `R90-INV-011` — ECDSA post-commit verification creates no durable
   readback/publication state.
-- [ ] `R90-INV-012` — Foundation type fixtures, parser tests, persistence tests,
-  and generic-module guards each cover their assigned failure mode once.
 
 ### Slice A — authorization proving vertical
 
@@ -154,8 +155,6 @@ evidence from the progress journal.
   every SDK/UI adapter discards and re-resolves the stale lane.
 - [ ] `R90-INV-011` — Near post-commit verification creates no durable readback
   stage.
-- [ ] `R90-INV-012` — type, parser, guard, integration, concurrency, and E2E
-  checks follow the one-enforcement-per-failure-mode rule.
 - [ ] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
   and export use an exact material-activation reference independently from the
   current authorization session.
@@ -165,7 +164,7 @@ evidence from the progress journal.
 
 ### Final conformance
 
-- [ ] Every invariant has implementation and validation evidence in the journal.
+- [ ] Every invariant has a cited implementing commit SHA.
 - [ ] No unchecked invariant is represented as complete in the implementation
   plan.
 - [ ] Follow-on capability/provider designs extend the closed unions only when

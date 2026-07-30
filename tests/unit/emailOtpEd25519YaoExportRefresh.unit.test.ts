@@ -151,7 +151,15 @@ class EmailOtpEd25519ExportRefreshHarness {
       nearAccountId: String(NEAR_ACCOUNT_ID),
       authLane: durableEd25519AuthLane(),
     });
-    return { challengeId: 'challenge-email-otp-export-refresh' };
+    return {
+      challengeId: 'challenge-email-otp-export-refresh',
+      emailHint: 'a***@example.test',
+      delivery: {
+        kind: 'provider' as const,
+        status: 'sent' as const,
+        emailHint: 'a***@example.test',
+      },
+    };
   }
 
   async exportSeedWithFreshAuthorization(

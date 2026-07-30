@@ -9,6 +9,11 @@ export type {
   BillingCreditPurchase,
   BillingLiveEnvironmentState,
   BillingLedgerEntryType,
+  BillingLedgerPostingDirection,
+  BillingLedgerAccountCode,
+  BillingLedgerDebitPosting,
+  BillingLedgerCreditPosting,
+  BillingBalancedPostings,
   BillingLedgerEntry,
   BillingSponsoredExecutionDebitEntry,
   BillingOverview,
@@ -27,6 +32,13 @@ export type {
   BillingInvoiceListSummary,
   BillingManualAdjustmentRequest,
   BillingManualAdjustmentResult,
+  BillingRefundStatus,
+  BillingRefund,
+  BillingRefundRequest,
+  BillingRefundReconcileRequest,
+  BillingRefundResult,
+  BillingDisputeStatus,
+  BillingDispute,
   BillingAccountActivityRequest,
   BillingAccountActivityResult,
   GenerateMonthlyInvoiceRequest,
@@ -35,16 +47,15 @@ export type {
   StripeCheckoutSessionReconcileResult,
   StripeCheckoutSessionRequest,
   StripeCheckoutSession,
+  StripeProviderRefundStatus,
+  StripeRefundEventItem,
   StripeWebhookEventRequest,
   StripeWebhookEventResult,
 } from './types';
 export {
-  CUSTOM_BILLING_CREDIT_PACK_ID,
-  MIN_CUSTOM_CREDIT_PACK_AMOUNT_MINOR,
   BILLING_CREDIT_PACK_IDS,
   BILLING_PRESET_CREDIT_PACKS,
   isBillingCreditPackId,
-  validateCustomCreditPackAmountMinor,
   resolveCreditPackAmountMinorOrThrow,
 } from './creditPacks';
 
@@ -53,10 +64,28 @@ export type {
   StripeCheckoutSessionLookupProviderInput,
   StripeCheckoutSessionLookupProviderOutput,
   StripeCheckoutSessionProviderOutput,
+  StripeRefundProviderInput,
+  StripeRefundLookupProviderInput,
+  StripeRefundProviderOutput,
   StripeBillingProviderAdapter,
   BillingProviderAdapters,
 } from './providers';
 export { createDefaultBillingProviderAdapters, resolveBillingProviderAdapters } from './providers';
+export {
+  assertBillingEntryBalances,
+  billingBalanceFromEntries,
+  buildBillingBalancedPostings,
+} from './ledger';
+export type {
+  BillingStripeCreditPurchaseSettledPayload,
+  BillingStripePostProcessingEffect,
+  BillingStripePostProcessingOutboxItem,
+} from './stripePostProcessing';
+export {
+  buildBillingStripePostProcessingPayload,
+  buildConsoleBillingCreditPurchaseSettledAuditEvent,
+  parseBillingStripePostProcessingPayload,
+} from './stripePostProcessing';
 export type { StripeBillingProviderEnv, StripeBillingProviderOptions } from './stripeProvider';
 export {
   createStripeBillingProviderAdapter,
@@ -68,6 +97,7 @@ export {
 
 export type {
   ConsoleBillingContext,
+  ConsoleBillingRefundSupportContext,
   ConsoleBillingService,
   InMemoryConsoleBillingServiceOptions,
 } from './service';
@@ -84,7 +114,7 @@ export {
   CONSOLE_BILLING_D1_RUNTIME,
   createD1BillingLedgerEntryInsertStatement,
   createD1ConsoleBillingService,
-  createSponsoredExecutionDebitD1InsertStatement,
+  createSponsoredExecutionDebitD1Statements,
   getConsoleBillingD1Runtime,
   recordSponsoredExecutionDebitD1,
   runD1ConsoleBillingMonthlyFinalization,
@@ -103,16 +133,22 @@ export {
   parseBillingAccountActivityRequest,
   parseBillingInvoiceListRequest,
   parseBillingManualAdjustmentRequest,
+  parseBillingRefundRequest,
+  parseBillingRefundReconcileRequest,
   parseStripeCheckoutSessionReconcileRequest,
   parseStripeCheckoutSessionRequest,
-  parseStripeWebhookEventRequest,
   parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
 } from './requests';
+export type { StripeWebhookVerificationInput } from './stripeWebhook';
+export {
+  parseStripeWebhookEventEnvelope,
+  verifyAndParseStripeWebhookRequest,
+  verifyStripeWebhookSignature,
+} from './stripeWebhook';
 
 export {
   buildConsoleBillingInvoicePdf,
   buildConsoleBillingInvoicePdfFilename,
   CONSOLE_BILLING_INVOICE_PDF_EXPORT_POLICY,
 } from './pdf';
-export { canTransitionPaymentState, listAllowedPaymentTransitions } from './paymentStateMachine';

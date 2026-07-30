@@ -16,7 +16,6 @@ import {
 
 const VALID_TARGETS = new Set(['staging', 'production']);
 const VALID_DEPLOYMENT_COMPONENTS = new Set(['wallet-core', 'product']);
-const CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
 const githubCli = process.env.GITHUB_CLI_BIN || 'gh';
 const argv = process.argv.slice(2).filter((argument) => argument !== '--');
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -510,6 +509,27 @@ function buildTargetConfiguration(targetName, suppliedValues) {
       `${targetName}-gateway`,
       'GATEWAY_SIGNER_D1_DATABASE_ID',
     ) || manual(`${targetName}-signer-d1-database-id`);
+  const deriverAPrivateDatabaseId =
+    readSuppliedValue(
+      suppliedValues,
+      targetName,
+      `${targetName}-deriver-a`,
+      'ROUTER_AB_DERIVER_A_PRIVATE_D1_ID',
+    ) || manual(`${targetName}-deriver-a-private-d1-database-id`);
+  const deriverBPrivateDatabaseId =
+    readSuppliedValue(
+      suppliedValues,
+      targetName,
+      `${targetName}-deriver-b`,
+      'ROUTER_AB_DERIVER_B_PRIVATE_D1_ID',
+    ) || manual(`${targetName}-deriver-b-private-d1-database-id`);
+  const signingWorkerPrivateDatabaseId =
+    readSuppliedValue(
+      suppliedValues,
+      targetName,
+      `${targetName}-signing-worker`,
+      'ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID',
+    ) || manual(`${targetName}-signing-worker-private-d1-database-id`);
   const secretsStoreId =
     readSuppliedValue(
       suppliedValues,
@@ -537,10 +557,13 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     deriverAWorkerName: production ? 'router-ab-deriver-a' : 'router-ab-deriver-a-staging',
     deriverBWorkerName: production ? 'router-ab-deriver-b' : 'router-ab-deriver-b-staging',
     signingWorkerName: production ? 'router-ab-signing-worker' : 'router-ab-signing-worker-staging',
-    consoleDatabaseName: production ? 'seams-console' : 'seams-console-staging',
+    consoleDatabaseName: production ? 'seams-console' : 'seams-console-staging-nrt',
     consoleDatabaseId,
-    signerDatabaseName: production ? 'seams-signer' : 'seams-signer-staging',
+    signerDatabaseName: production ? 'seams-signer' : 'seams-signer-staging-nrt',
     signerDatabaseId,
+    deriverAPrivateDatabaseId,
+    deriverBPrivateDatabaseId,
+    signingWorkerPrivateDatabaseId,
     secretsStoreId,
     signingRootKekId: `signing-root-kek-${targetName}-r1`,
     ceremonyJwtKeyId: `router-ab-ceremony-${targetName}-r1`,
@@ -556,6 +579,7 @@ function buildGeneratedSecrets(targetName, sealMaterial) {
     internalServiceAuth: `router-ab-internal-service-auth-v1:${randomBase64Url(32)}`,
     relaySessionHmac: randomBase64Url(32),
     accountIdDerivation: randomBase64Url(32),
+    consoleEmailInvitationSecret: randomBase64Url(32),
     ceremonyPrivateJwk: generateCeremonyPrivateJwk(),
     publishableKey: `pk_${randomBytes(16).toString('hex')}`,
     signingRootKek: randomBase64Url(32),
@@ -745,7 +769,9 @@ function buildGatewayEnvironment(input) {
     environmentName,
     {
       purpose: 'Gateway Worker, D1, tenant state, and public ceremony JWT issuer',
-      variables: {},
+      variables: {
+        CONSOLE_EMAIL_FROM: manual(`${input.target}-console-email-from`),
+      },
       optionalVariables: {},
       secrets: {
         CLOUDFLARE_API_TOKEN: manual(`${environmentName}-cloudflare-worker-api-token`),
@@ -756,6 +782,9 @@ function buildGatewayEnvironment(input) {
         ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: input.generatedSecrets.ceremonyPrivateJwk,
         RELAYER_PRIVATE_KEY: manual(`${input.target}-near-relayer-private-key`),
         SPONSORED_EVM_EXECUTORS_JSON: manual(`${input.target}-sponsored-evm-executors-json`),
+        STRIPE_API_SK: manual(`${input.target}-stripe-secret-key`),
+        STRIPE_WEBHOOK_SECRET: manual(`${input.target}-stripe-webhook-signing-secret`),
+        CONSOLE_INITIAL_OWNER_EMAIL: manual(`${input.target}-console-initial-owner-email`),
         SIGNING_ROOT_KEK_VALUE: input.generatedSecrets.signingRootKek,
         SIGNING_SESSION_SEAL_KEY_VERSION: signingSession.keyVersion,
         SIGNING_SESSION_SHAMIR_P_B64U: signingSession.shamirPrimeB64u,
@@ -880,7 +909,10 @@ function buildMpcRouterEnvironment(input) {
       variables: {
         ROUTER_AB_JWT_ISSUER: input.configuration.gatewayOrigin,
         ROUTER_AB_JWT_AUDIENCE: input.configuration.routerJwtAudience,
-        ROUTER_AB_JWT_JWKS_URL: buildGatewayJwksUrl(input.configuration.gatewayOrigin),
+        ROUTER_AB_JWT_JWKS_JSON: buildCeremonyPublicJwks(
+          input.generatedSecrets.ceremonyPrivateJwk,
+          input.configuration.ceremonyJwtKeyId,
+        ),
         ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
         ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:
@@ -916,11 +948,17 @@ function buildDeriverAEnvironment(input) {
   secrets.DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY =
     input.deployment.secrets.DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY;
   secrets.DERIVER_A_PEER_SIGNING_KEY = input.deployment.secrets.DERIVER_A_PEER_SIGNING_KEY;
+  secrets.DERIVER_A_ROLE_PRIVATE_D1_KEK = input.deployment.secrets.DERIVER_A_ROLE_PRIVATE_D1_KEK;
   return [
     environmentName,
     {
       purpose: 'Deriver A Worker',
       variables: {
+        ROUTER_AB_DERIVER_A_PRIVATE_D1_ID: input.configuration.deriverAPrivateDatabaseId,
+        ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION:
+          variables.ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION,
         ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
         ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX:
@@ -947,11 +985,17 @@ function buildDeriverBEnvironment(input) {
   secrets.DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY =
     input.deployment.secrets.DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY;
   secrets.DERIVER_B_PEER_SIGNING_KEY = input.deployment.secrets.DERIVER_B_PEER_SIGNING_KEY;
+  secrets.DERIVER_B_ROLE_PRIVATE_D1_KEK = input.deployment.secrets.DERIVER_B_ROLE_PRIVATE_D1_KEK;
   return [
     environmentName,
     {
       purpose: 'Deriver B Worker',
       variables: {
+        ROUTER_AB_DERIVER_B_PRIVATE_D1_ID: input.configuration.deriverBPrivateDatabaseId,
+        ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION:
+          variables.ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION,
         ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
         ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX:
@@ -974,11 +1018,17 @@ function buildSigningWorkerEnvironment(input) {
   );
   secrets.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY =
     input.deployment.secrets.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY;
+  secrets.SIGNING_WORKER_PRIVATE_D1_KEK = input.deployment.secrets.SIGNING_WORKER_PRIVATE_D1_KEK;
   return [
     environmentName,
     {
       purpose: 'SigningWorker Worker',
       variables: {
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID: input.configuration.signingWorkerPrivateDatabaseId,
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY:
+          input.deployment.variables.ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY,
+        ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION:
+          input.deployment.variables.ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION,
         ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:
           input.deployment.variables.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
       },
@@ -1099,8 +1149,28 @@ function generateCeremonyPrivateJwk() {
   });
 }
 
-function buildGatewayJwksUrl(gatewayOrigin) {
-  return `${gatewayOrigin.replace(/\/+$/, '')}${CEREMONY_JWKS_PATH}`;
+function buildCeremonyPublicJwks(privateJwkJson, keyId) {
+  const privateJwk = JSON.parse(privateJwkJson);
+  if (
+    privateJwk.kty !== 'OKP' ||
+    privateJwk.crv !== 'Ed25519' ||
+    typeof privateJwk.x !== 'string' ||
+    !privateJwk.x
+  ) {
+    throw new Error('ceremony JWT private JWK cannot produce an Ed25519 public JWKS');
+  }
+  return JSON.stringify({
+    keys: [
+      {
+        alg: 'EdDSA',
+        crv: privateJwk.crv,
+        kid: keyId,
+        kty: privateJwk.kty,
+        use: 'sig',
+        x: privateJwk.x,
+      },
+    ],
+  });
 }
 
 function hostnameFromOrigin(origin) {
@@ -1160,14 +1230,50 @@ async function discoverCloudflareValues(targetName, suppliedValues, progressLogg
     suppliedValues,
     progressLogger,
     variableName: 'GATEWAY_CONSOLE_D1_DATABASE_ID',
-    databaseName: targetName === 'production' ? 'seams-console' : 'seams-console-staging',
+    databaseName: targetName === 'production' ? 'seams-console' : 'seams-console-staging-nrt',
   });
   ensureD1Database({
     targetName,
     suppliedValues,
     progressLogger,
     variableName: 'GATEWAY_SIGNER_D1_DATABASE_ID',
-    databaseName: targetName === 'production' ? 'seams-signer' : 'seams-signer-staging',
+    databaseName: targetName === 'production' ? 'seams-signer' : 'seams-signer-staging-nrt',
+  });
+  ensureD1Database({
+    targetName,
+    suppliedValues,
+    progressLogger,
+    environmentName: `${targetName}-deriver-a`,
+    variableName: 'ROUTER_AB_DERIVER_A_PRIVATE_D1_ID',
+    databaseName:
+      targetName === 'production'
+        ? 'router-ab-deriver-a-private'
+        : 'router-ab-deriver-a-staging-private',
+    locationHint: 'apac',
+  });
+  ensureD1Database({
+    targetName,
+    suppliedValues,
+    progressLogger,
+    environmentName: `${targetName}-deriver-b`,
+    variableName: 'ROUTER_AB_DERIVER_B_PRIVATE_D1_ID',
+    databaseName:
+      targetName === 'production'
+        ? 'router-ab-deriver-b-private'
+        : 'router-ab-deriver-b-staging-private',
+    locationHint: 'apac',
+  });
+  ensureD1Database({
+    targetName,
+    suppliedValues,
+    progressLogger,
+    environmentName: `${targetName}-signing-worker`,
+    variableName: 'ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID',
+    databaseName:
+      targetName === 'production'
+        ? 'router-ab-signing-worker-private'
+        : 'router-ab-signing-worker-staging-private',
+    locationHint: 'apac',
   });
   ensurePagesProjects(targetName, suppliedValues, progressLogger);
   ensureSecretsStore(targetName, suppliedValues, progressLogger);
@@ -1250,7 +1356,7 @@ function ensureD1Database(input) {
   const existing = readSuppliedValue(
     input.suppliedValues,
     input.targetName,
-    `${input.targetName}-gateway`,
+    input.environmentName || `${input.targetName}-gateway`,
     input.variableName,
   );
   if (existing) {
@@ -1258,7 +1364,9 @@ function ensureD1Database(input) {
   }
   let database = runWranglerJson(['d1', 'info', input.databaseName, '--json']);
   if (!database.ok || typeof database.value.uuid !== 'string') {
-    const created = runWrangler(['d1', 'create', input.databaseName]);
+    const createArguments = ['d1', 'create', input.databaseName];
+    if (input.locationHint) createArguments.push('--location', input.locationHint);
+    const created = runWrangler(createArguments);
     if (created.status !== 0) {
       throw new Error(formatWranglerFailure(`create D1 database ${input.databaseName}`, created));
     }
@@ -1871,6 +1979,22 @@ function validateGatewayRegistrationDocuments(outputDocument) {
   assertEqual(ceremonyJwk.kty, 'OKP', 'ceremony JWT JWK kty');
   assertEqual(ceremonyJwk.crv, 'Ed25519', 'ceremony JWT JWK curve');
   assertExactKeys(ceremonyJwk, ['kty', 'crv', 'x', 'd'], 'ceremony JWT private JWK');
+  const ceremonyJwks = JSON.parse(router.variables.ROUTER_AB_JWT_JWKS_JSON);
+  assertEqual(ceremonyJwks.keys.length, 1, 'ceremony JWT public JWKS key count');
+  const ceremonyPublicJwk = ceremonyJwks.keys[0];
+  assertEqual(ceremonyPublicJwk.kty, ceremonyJwk.kty, 'ceremony JWT public JWK kty');
+  assertEqual(ceremonyPublicJwk.crv, ceremonyJwk.crv, 'ceremony JWT public JWK curve');
+  assertEqual(ceremonyPublicJwk.x, ceremonyJwk.x, 'ceremony JWT public key');
+  assertEqual(
+    ceremonyPublicJwk.kid,
+    deploymentConfig.routerAb.ceremonyJwtKeyId,
+    'ceremony JWT public key id',
+  );
+  assertExactKeys(
+    ceremonyPublicJwk,
+    ['alg', 'crv', 'kid', 'kty', 'use', 'x'],
+    'ceremony JWT public JWK',
+  );
 }
 
 function validateSigningSessionConsistency(outputDocument) {

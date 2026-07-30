@@ -5,31 +5,15 @@ compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "CONSOLE_DB"
-database_name = "seams-console-staging"
+database_name = "seams-console-staging-nrt"
 database_id = "<remote-console-d1-database-id>"
 migrations_dir = "migrations/d1-console"
 
 [[d1_databases]]
 binding = "SIGNER_DB"
-database_name = "seams-signer-staging"
+database_name = "seams-signer-staging-nrt"
 database_id = "<remote-signer-d1-database-id>"
-migrations_dir = "../sdk-server-ts/migrations/d1-signer"
-
-[[durable_objects.bindings]]
-name = "THRESHOLD_STORE"
-class_name = "ThresholdStoreDurableObject"
-
-[[durable_objects.bindings]]
-name = "ROUTER_API_RUNTIME"
-class_name = "RouterApiRuntimeDurableObject"
-
-[[services]]
-binding = "DERIVER_A"
-service = "router-ab-deriver-a-staging"
-
-[[services]]
-binding = "DERIVER_B"
-service = "router-ab-deriver-b-staging"
+migrations_dir = "node_modules/@seams/sdk-server/migrations/d1-signer"
 
 [[services]]
 binding = "SIGNING_WORKER"
@@ -47,6 +31,14 @@ new_sqlite_classes = ["ThresholdStoreDurableObject"]
 tag = "router-api-runtime-sqlite-v1"
 new_sqlite_classes = ["RouterApiRuntimeDurableObject"]
 
+[[migrations]]
+tag = "router-api-runtime-delete-v1"
+deleted_classes = ["RouterApiRuntimeDurableObject"]
+
+[[migrations]]
+tag = "threshold-store-delete-v1"
+deleted_classes = ["ThresholdStoreDurableObject"]
+
 [[secrets_store_secrets]]
 binding = "SIGNING_ROOT_KEK_STAGING_R1"
 store_id = "<cloudflare-secrets-store-id>"
@@ -54,6 +46,12 @@ secret_name = "signing-root-kek-staging-r1"
 
 [vars]
 SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
+CONSOLE_BASE_URL = "https://<console-staging-host>"
+CONSOLE_EMAIL_RUNTIME_PROFILE = "PRODUCTION"
+CONSOLE_EMAIL_PROVIDER = "RESEND"
+CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID = "console-email-staging-r1"
+CONSOLE_EMAIL_FROM = "Seams <notifications@<verified-email-domain>>"
+CONSOLE_EMAIL_CRON_EXPRESSIONS = "*/5 * * * *"
 SEAMS_STAGING_ORG_ID = "org_staging"
 SEAMS_STAGING_PROJECT_ID = "project_staging"
 SEAMS_STAGING_ENV_ID = "staging"
@@ -62,12 +60,6 @@ SIGNING_WORKER_ID = "router-ab-signing-worker-staging"
 ROUTER_AB_CEREMONY_JWT_ISSUER = "https://<gateway-staging-host>"
 ROUTER_AB_CEREMONY_JWT_AUDIENCE = "router-ab"
 ROUTER_AB_CEREMONY_JWT_KEY_ID = "router-ab-ceremony-staging-r1"
-ROUTER_AB_YAO_GATEWAY_REGISTRATION_ADMISSION_CUTOFF_MS = ""
-ROUTER_AB_YAO_GATEWAY_REGISTRATION_DRAIN_UNTIL_MS = ""
-ROUTER_AB_YAO_GATEWAY_RECOVERY_ADMISSION_CUTOFF_MS = ""
-ROUTER_AB_YAO_GATEWAY_RECOVERY_DRAIN_UNTIL_MS = ""
-ROUTER_AB_YAO_GATEWAY_EXPORT_ADMISSION_CUTOFF_MS = ""
-ROUTER_AB_YAO_GATEWAY_EXPORT_DRAIN_UNTIL_MS = ""
 ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON = '{"routerId":"router-ab-mpc-router-staging","signerSet":{"signer_set_id":"router-ab-staging-signers-r1","policy":"all_2","signer_a":{"role":"signer_a","signer_id":"signer-a","key_epoch":"epoch-1"},"signer_b":{"role":"signer_b","signer_id":"signer-b","key_epoch":"epoch-1"},"selected_server":{"server_id":"router-ab-signing-worker-staging","key_epoch":"epoch-1","recipient_encryption_key":"x25519:<signing-worker-output-public-key>"}},"deriverRecipientKeys":{"deriver_a":{"role":"signer_a","key_epoch":"epoch-1","public_key":"x25519:<deriver-a-envelope-public-key>"},"deriver_b":{"role":"signer_b","key_epoch":"epoch-1","public_key":"x25519:<deriver-b-envelope-public-key>"}}}'
 DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY = "x25519:<deriver-a-input-public-key>"
 DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY = "x25519:<deriver-b-input-public-key>"
@@ -84,6 +76,9 @@ SIGNING_ROOT_KEK_PROVIDER = "cloudflare_secrets_store"
 SIGNING_ROOT_KEK_ENCODING = "base64url"
 SIGNING_ROOT_KEK_IDS = "signing-root-kek-staging-r1"
 
+[triggers]
+crons = ["*/5 * * * *"]
+
 [secrets]
 required = [
   "RELAY_SESSION_HMAC_SECRET",
@@ -93,4 +88,7 @@ required = [
   "RELAYER_PRIVATE_KEY",
   "SPONSORED_EVM_EXECUTORS_JSON",
   "STRIPE_API_SK",
+  "STRIPE_WEBHOOK_SECRET",
+  "RESEND_API_KEY",
+  "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U",
 ]

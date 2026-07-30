@@ -1,7 +1,8 @@
-import { secureRandomBase36 } from '@seams-internal/shared-ts/utils/secureRandomId';
-import type { BillingCreditPackId } from './types';
+import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
+import type { BillingCreditPackId, StripeProviderRefundStatus } from './types';
 
 export interface StripeCheckoutSessionProviderInput {
+  purchaseId: string;
   orgId: string;
   successUrl: string;
   cancelUrl: string;
@@ -25,8 +26,32 @@ export interface StripeCheckoutSessionLookupProviderOutput {
   id: string;
   orgId: string | null;
   customerRef: string | null;
+  paymentIntentRef: string | null;
   paymentStatus: string;
   checkoutStatus: string;
+  purchaseId: string;
+  creditPackId: BillingCreditPackId;
+  amountMinor: number;
+  currency: 'USD';
+}
+
+export interface StripeRefundProviderInput {
+  refundId: string;
+  orgId: string;
+  purchaseId: string;
+  providerPaymentRef: string;
+  amountMinor: number;
+  reason: string;
+}
+
+export interface StripeRefundLookupProviderInput {
+  providerRefundId: string;
+}
+
+export interface StripeRefundProviderOutput {
+  id: string;
+  status: StripeProviderRefundStatus;
+  failureCode: string | null;
 }
 
 export interface StripeBillingProviderAdapter {
@@ -36,6 +61,12 @@ export interface StripeBillingProviderAdapter {
   getCheckoutSession(
     input: StripeCheckoutSessionLookupProviderInput,
   ): Promise<StripeCheckoutSessionLookupProviderOutput> | StripeCheckoutSessionLookupProviderOutput;
+  createRefund(
+    input: StripeRefundProviderInput,
+  ): Promise<StripeRefundProviderOutput> | StripeRefundProviderOutput;
+  getRefund(
+    input: StripeRefundLookupProviderInput,
+  ): Promise<StripeRefundProviderOutput> | StripeRefundProviderOutput;
 }
 
 export interface BillingProviderAdapters {
@@ -60,6 +91,7 @@ function buildMockCheckoutSuccessUrl(successUrl: string, checkoutSessionId: stri
 
 export function createDefaultBillingProviderAdapters(): BillingProviderAdapters {
   const sessions = new Map<string, StripeCheckoutSessionLookupProviderOutput>();
+  const refunds = new Map<string, StripeRefundProviderOutput>();
   return {
     stripe: {
       createCheckoutSession(
@@ -71,8 +103,13 @@ export function createDefaultBillingProviderAdapters(): BillingProviderAdapters 
           id,
           orgId: input.orgId,
           customerRef,
+          paymentIntentRef: `pi_${input.purchaseId}`,
           paymentStatus: 'paid',
           checkoutStatus: 'complete',
+          purchaseId: input.purchaseId,
+          creditPackId: input.creditPackId,
+          amountMinor: input.amountMinor,
+          currency: 'USD',
         });
         return {
           id,
@@ -92,6 +129,26 @@ export function createDefaultBillingProviderAdapters(): BillingProviderAdapters 
           );
         }
         return session;
+      },
+      createRefund(input: StripeRefundProviderInput): StripeRefundProviderOutput {
+        const existing = refunds.get(input.refundId);
+        if (existing) return existing;
+        const refund = {
+          id: `re_${input.refundId}`,
+          status: 'succeeded',
+          failureCode: null,
+        } as const;
+        refunds.set(input.refundId, refund);
+        refunds.set(refund.id, refund);
+        return refund;
+      },
+      getRefund(input: StripeRefundLookupProviderInput): StripeRefundProviderOutput {
+        const providerRefundId = String(input.providerRefundId || '').trim();
+        const refund = refunds.get(providerRefundId);
+        if (!refund) {
+          throw new Error(`Stripe refund ${providerRefundId || '(missing)'} was not found`);
+        }
+        return refund;
       },
     },
   };

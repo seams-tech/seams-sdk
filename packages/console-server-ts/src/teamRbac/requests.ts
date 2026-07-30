@@ -1,140 +1,246 @@
 import {
-  readOptionalQueryStringField as readOptionalQueryString,
-  readOptionalStringField as readOptionalString,
-  readRequiredStringField as readRequiredString,
-  requireBodyObject as requireObject,
+  readOptionalQueryStringField,
+  readRequiredStringField,
+  requireBodyObject,
   requireQueryObject,
 } from '../shared/requestParse';
-import { ConsoleTeamRbacError } from './errors';
+import { ConsoleOrganizationAccessError } from './errors';
 import {
-  CONSOLE_ORG_SCOPED_TEAM_ROLES,
-  type ConsoleTeamMemberListStatusFilter,
-  type ConsoleTeamRole,
-  type ConsoleTeamRoleAssignment,
-  type InviteConsoleTeamMemberRequest,
-  type ListConsoleTeamMembersRequest,
-  type UpdateConsoleTeamMemberRolesRequest,
+  ORGANIZATION_ADMIN_PERMISSIONS,
+  ORGANIZATION_INVITATION_KINDS,
+  ORGANIZATION_MEMBERSHIP_KINDS,
+  type ChangeOrganizationMembershipRoleRequest,
+  type InviteOrganizationMemberRequest,
+  type ListOrganizationInvitationsRequest,
+  type ListOrganizationMembershipsRequest,
+  type OrganizationAdminPermission,
+  type OrganizationInvitationGrant,
+  type ProjectAccessAssignment,
+  type ProjectAccessLevel,
+  type RedeemOrganizationInvitationRequest,
+  type SetOrganizationAdminPermissionsRequest,
+  type SetProjectMemberAccessRequest,
 } from './types';
 
-const ORG_ROLE_SET = new Set<string>(CONSOLE_ORG_SCOPED_TEAM_ROLES);
-const MEMBER_STATUS_SET = new Set<ConsoleTeamMemberListStatusFilter>([
-  'ALL',
-  'INVITED',
-  'ACTIVE',
-  'SUSPENDED',
-  'REMOVED',
-]);
+function requestError(
+  code: string,
+  status: number,
+  message: string,
+): ConsoleOrganizationAccessError {
+  return new ConsoleOrganizationAccessError(code, status, message);
+}
 
-function normalizeRoleOrThrow(raw: unknown): ConsoleTeamRole {
-  const role = String(raw || '')
+function invalidBody(message: string): never {
+  throw requestError('invalid_body', 400, message);
+}
+
+function normalizeEmail(raw: string): string {
+  const email = raw.trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/u.test(email)) {
+    invalidBody('Field email must be a valid email address');
+  }
+  return email;
+}
+
+function parseMembershipRole(raw: unknown): 'OWNER' | 'ADMIN' | 'MEMBER' {
+  const role = String(raw ?? '')
+    .trim()
+    .toUpperCase();
+  switch (role) {
+    case 'OWNER':
+    case 'ADMIN':
+    case 'MEMBER':
+      return role;
+    default:
+      return invalidBody('Field role must be OWNER, ADMIN, or MEMBER');
+  }
+}
+
+function parseAdminPermission(raw: unknown): OrganizationAdminPermission {
+  const permission = String(raw ?? '')
     .trim()
     .toLowerCase();
-  if (ORG_ROLE_SET.has(role)) {
-    return role as ConsoleTeamRole;
+  switch (permission) {
+    case 'members.manage':
+    case 'projects.manage':
+    case 'billing.view':
+    case 'billing.manage':
+      return permission;
+    default:
+      return invalidBody(`Unsupported administrator permission: ${permission || 'empty'}`);
   }
-  throw new ConsoleTeamRbacError('invalid_body', 400, `Unsupported role: ${role || 'unknown'}`);
 }
 
-function parseRoleAssignmentsOrThrow(raw: unknown): ConsoleTeamRoleAssignment[] {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    throw new ConsoleTeamRbacError(
-      'invalid_body',
-      400,
-      'Field roles must be a non-empty array of role assignments',
-    );
-  }
-
-  const out: ConsoleTeamRoleAssignment[] = [];
-  const seen = new Set<string>();
-  for (const entryRaw of raw) {
-    if (!entryRaw || typeof entryRaw !== 'object' || Array.isArray(entryRaw)) {
-      throw new ConsoleTeamRbacError('invalid_body', 400, 'Each role assignment must be an object');
-    }
-    const entry = entryRaw as Record<string, unknown>;
-    const role = normalizeRoleOrThrow(entry.role);
-    const scopeRaw = readOptionalString(entry, 'scope');
-    if (scopeRaw) {
-      const normalizedScope = scopeRaw.toUpperCase();
-      if (normalizedScope !== 'ORG') {
-        throw new ConsoleTeamRbacError('invalid_body', 400, `Role ${role} must use ORG scope`);
-      }
-    }
-
-    const projectId = readOptionalString(entry, 'projectId');
-    if (projectId) {
-      throw new ConsoleTeamRbacError('invalid_body', 400, `Role ${role} cannot include projectId`);
-    }
-
-    const dedupeKey = `ORG:${role}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
-    out.push({
-      role,
-      scope: 'ORG',
-    });
-  }
-
-  if (out.length === 0) {
-    throw new ConsoleTeamRbacError(
-      'invalid_body',
-      400,
-      'Field roles must include at least one unique role assignment',
-    );
-  }
-  return out;
+function sortAdminPermissions(
+  permissions: ReadonlySet<OrganizationAdminPermission>,
+): readonly OrganizationAdminPermission[] {
+  return ORGANIZATION_ADMIN_PERMISSIONS.filter((permission) => permissions.has(permission));
 }
 
-export function parseListConsoleTeamMembersRequest(query: unknown): ListConsoleTeamMembersRequest {
-  const input = requireQueryObject(
-    query,
-    (code, status, message) => new ConsoleTeamRbacError(code, status, message),
-  );
-  const statusRaw = readOptionalQueryString(input, 'status');
-  if (!statusRaw) return {};
-  const status = statusRaw.toUpperCase() as ConsoleTeamMemberListStatusFilter;
-  if (!MEMBER_STATUS_SET.has(status)) {
-    throw new ConsoleTeamRbacError(
-      'invalid_query',
-      400,
-      `Query parameter status must be one of: ${Array.from(MEMBER_STATUS_SET).join(', ')}`,
-    );
+function parseAdminPermissions(raw: unknown): readonly OrganizationAdminPermission[] {
+  if (!Array.isArray(raw)) {
+    return invalidBody('Field adminPermissions must be an array');
   }
-  return status === 'ALL' ? {} : { status };
+  const permissions = new Set<OrganizationAdminPermission>();
+  for (const entry of raw) {
+    permissions.add(parseAdminPermission(entry));
+  }
+  if (permissions.has('billing.manage')) {
+    permissions.add('billing.view');
+  }
+  return sortAdminPermissions(permissions);
 }
 
-export function parseInviteConsoleTeamMemberRequest(body: unknown): InviteConsoleTeamMemberRequest {
-  const obj = requireObject(
-    body,
-    (code, status, message) => new ConsoleTeamRbacError(code, status, message),
-  );
-  const userId = readRequiredString(
-    obj,
-    'userId',
-    (code, status, message) => new ConsoleTeamRbacError(code, status, message),
-  );
-  const email = readRequiredString(
-    obj,
-    'email',
-    (code, status, message) => new ConsoleTeamRbacError(code, status, message),
-  );
-  const roles = parseRoleAssignmentsOrThrow(obj.roles);
-  const displayName = readOptionalString(obj, 'displayName');
+function parseProjectAccessLevel(raw: unknown): ProjectAccessLevel {
+  const accessLevel = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  switch (accessLevel) {
+    case 'viewer':
+    case 'editor':
+      return accessLevel;
+    default:
+      return invalidBody('Field accessLevel must be viewer or editor');
+  }
+}
+
+function parseProjectAccessEntry(raw: unknown): ProjectAccessAssignment {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return invalidBody('Each projectAccess entry must be an object');
+  }
+  const entry = raw as Record<string, unknown>;
   return {
-    userId,
-    ...(displayName ? { displayName } : {}),
-    email,
-    roles,
+    projectId: readRequiredStringField(entry, 'projectId', requestError),
+    accessLevel: parseProjectAccessLevel(entry.accessLevel),
   };
 }
 
-export function parseUpdateConsoleTeamMemberRolesRequest(
-  body: unknown,
-): UpdateConsoleTeamMemberRolesRequest {
-  const obj = requireObject(
-    body,
-    (code, status, message) => new ConsoleTeamRbacError(code, status, message),
+function parseProjectAccess(raw: unknown): readonly ProjectAccessAssignment[] {
+  if (!Array.isArray(raw)) {
+    return invalidBody('Field projectAccess must be an array');
+  }
+  const assignments = new Map<string, ProjectAccessAssignment>();
+  for (const entry of raw) {
+    const assignment = parseProjectAccessEntry(entry);
+    if (assignments.has(assignment.projectId)) {
+      return invalidBody(`Project ${assignment.projectId} appears more than once`);
+    }
+    assignments.set(assignment.projectId, assignment);
+  }
+  return Array.from(assignments.values()).sort((left, right) =>
+    left.projectId.localeCompare(right.projectId),
   );
+}
+
+function rejectPresentField(source: Record<string, unknown>, key: string, role: string): void {
+  if (source[key] !== undefined && source[key] !== null) {
+    invalidBody(`Field ${key} is not valid for role ${role}`);
+  }
+}
+
+function parseInvitationGrant(source: Record<string, unknown>): OrganizationInvitationGrant {
+  const role = parseMembershipRole(source.role);
+  switch (role) {
+    case 'OWNER':
+      rejectPresentField(source, 'adminPermissions', role);
+      rejectPresentField(source, 'projectAccess', role);
+      return { role };
+    case 'ADMIN':
+      rejectPresentField(source, 'projectAccess', role);
+      return {
+        role,
+        adminPermissions: parseAdminPermissions(source.adminPermissions),
+      };
+    case 'MEMBER':
+      rejectPresentField(source, 'adminPermissions', role);
+      return {
+        role,
+        projectAccess: parseProjectAccess(source.projectAccess),
+      };
+  }
+}
+
+export function parseListOrganizationMembershipsRequest(
+  query: unknown,
+): ListOrganizationMembershipsRequest {
+  const input = requireQueryObject(query, requestError);
+  const rawKind = readOptionalQueryStringField(input, 'kind');
+  if (!rawKind || rawKind.toLowerCase() === 'all') return { kind: 'all' };
+  const kind = rawKind.toLowerCase();
+  for (const supported of ORGANIZATION_MEMBERSHIP_KINDS) {
+    if (kind === supported) return { kind: supported };
+  }
+  throw requestError(
+    'invalid_query',
+    400,
+    `Query parameter kind must be one of: all, ${ORGANIZATION_MEMBERSHIP_KINDS.join(', ')}`,
+  );
+}
+
+export function parseListOrganizationInvitationsRequest(
+  query: unknown,
+): ListOrganizationInvitationsRequest {
+  const input = requireQueryObject(query, requestError);
+  const rawKind = readOptionalQueryStringField(input, 'kind');
+  if (!rawKind || rawKind.toLowerCase() === 'all') return { kind: 'all' };
+  const kind = rawKind.toLowerCase();
+  for (const supported of ORGANIZATION_INVITATION_KINDS) {
+    if (kind === supported) return { kind: supported };
+  }
+  throw requestError(
+    'invalid_query',
+    400,
+    `Query parameter kind must be one of: all, ${ORGANIZATION_INVITATION_KINDS.join(', ')}`,
+  );
+}
+
+export function parseInviteOrganizationMemberRequest(
+  body: unknown,
+): InviteOrganizationMemberRequest {
+  const input = requireBodyObject(body, requestError);
+  const email = normalizeEmail(readRequiredStringField(input, 'email', requestError));
+  const grant = parseInvitationGrant(input);
+  switch (grant.role) {
+    case 'OWNER':
+      return { email, role: grant.role };
+    case 'ADMIN':
+      return {
+        email,
+        role: grant.role,
+        adminPermissions: grant.adminPermissions,
+      };
+    case 'MEMBER':
+      return {
+        email,
+        role: grant.role,
+        projectAccess: grant.projectAccess,
+      };
+  }
+}
+
+export function parseChangeOrganizationMembershipRoleRequest(
+  body: unknown,
+): ChangeOrganizationMembershipRoleRequest {
+  return parseInvitationGrant(requireBodyObject(body, requestError));
+}
+
+export function parseSetOrganizationAdminPermissionsRequest(
+  body: unknown,
+): SetOrganizationAdminPermissionsRequest {
+  const input = requireBodyObject(body, requestError);
+  return { permissions: parseAdminPermissions(input.permissions) };
+}
+
+export function parseSetProjectMemberAccessRequest(body: unknown): SetProjectMemberAccessRequest {
+  const input = requireBodyObject(body, requestError);
+  return { accessLevel: parseProjectAccessLevel(input.accessLevel) };
+}
+
+export function parseRedeemOrganizationInvitationRequest(
+  body: unknown,
+): RedeemOrganizationInvitationRequest {
+  const input = requireBodyObject(body, requestError);
   return {
-    roles: parseRoleAssignmentsOrThrow(obj.roles),
+    token: readRequiredStringField(input, 'token', requestError),
   };
 }

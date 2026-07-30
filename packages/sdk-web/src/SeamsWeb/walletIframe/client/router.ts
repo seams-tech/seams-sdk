@@ -51,9 +51,7 @@ import {
   isRegistrationTimingSpanV1,
 } from '../shared/messages';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
-import {
-  OnEventsProgressBus,
-} from './progress/on-events-progress-bus';
+import { OnEventsProgressBus } from './progress/on-events-progress-bus';
 import type {
   ActionHooksOptions,
   AfterCall,
@@ -85,6 +83,7 @@ import {
   isWalletFlowEvent,
   LinkDeviceEventPhase,
   RegistrationEventPhase,
+  parseNearProvisioningState,
   parseSdkLifecycleEvent,
   SigningEventPhase,
   UnlockEventPhase,
@@ -95,6 +94,7 @@ import type {
   GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
   WalletSession,
+  NearProvisioningState,
   RegistrationResult,
   SignDelegateActionResult,
   SignTransactionResult,
@@ -112,6 +112,7 @@ import type { DemoEmailOtpCodeResponse } from '@/core/signingEngine/session/emai
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
   thresholdEcdsaChainTargetsEqual,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -205,6 +206,7 @@ import type { LoginUnlockRequest } from '@/core/types/login.types';
 import { buildPMUnlockPayload } from '../shared/unlockOptions';
 import type { WalletId } from '@shared/utils/domainIds';
 import {
+  exactSessionStateFromWalletSession,
   parseWalletIframeExactSessionLockResult,
   parseWalletIframeExactSessionState,
   parseWalletIframeMissingSessionLockResult,
@@ -980,7 +982,8 @@ export class WalletIframeRouter {
           signingSessionPersistenceMode,
           ...(signingSessionSeal ? { signingSessionSeal } : {}),
           routerAb: this.opts.routerAb,
-          routerAbEcdsaDerivationPresignaturePool: this.opts.routerAbEcdsaDerivationPresignaturePool,
+          routerAbEcdsaDerivationPresignaturePool:
+            this.opts.routerAbEcdsaDerivationPresignaturePool,
           provisioningDefaults: this.opts.provisioningDefaults,
           iframeWallet: this.opts.rpIdOverride
             ? { rpIdOverride: this.opts.rpIdOverride }
@@ -1110,13 +1113,18 @@ export class WalletIframeRouter {
     }
   }
 
-  private async refreshExactSessionAndEmitLoginStatus(): Promise<WalletIframeExactSessionState> {
-    const state = await this.refreshExactSessionState();
+  private mirrorExactSessionAndEmitLoginStatus(state: WalletIframeExactSessionState): void {
+    this.exactSessionState = state;
     this.emitLoginStatusChanged(
       state.kind === 'wallet_locked'
         ? { isLoggedIn: false, walletId: null }
         : { isLoggedIn: true, walletId: state.walletId },
     );
+  }
+
+  private async refreshExactSessionAndEmitLoginStatus(): Promise<WalletIframeExactSessionState> {
+    const state = await this.refreshExactSessionState();
+    this.mirrorExactSessionAndEmitLoginStatus(state);
     return state;
   }
 
@@ -1147,6 +1155,11 @@ export class WalletIframeRouter {
           listener(event);
         }
         return;
+      case 'registration.near_provisioning_changed':
+        for (const listener of Array.from(this.listeners.sdkLifecycleEvent)) {
+          listener(event);
+        }
+        return;
       default:
         assertNeverSdkLifecycleEventName(eventName);
     }
@@ -1155,7 +1168,8 @@ export class WalletIframeRouter {
   private mirrorExpiredSession(event: SigningSessionExpiredEvent): void {
     const state = this.exactSessionState;
     if (state.kind !== 'active_session') return;
-    if (state.walletId !== event.walletId || state.walletSessionId !== event.walletSessionId) return;
+    if (state.walletId !== event.walletId || state.walletSessionId !== event.walletSessionId)
+      return;
     this.exactSessionState = {
       kind: 'expired_session',
       walletId: event.walletId,
@@ -1169,7 +1183,10 @@ export class WalletIframeRouter {
     for (const [requestId, pending] of this.state.pending) {
       const binding = pending.sessionBinding;
       if (binding.kind !== 'exact_session') continue;
-      if (binding.walletId !== event.walletId || binding.walletSessionId !== event.walletSessionId) {
+      if (
+        binding.walletId !== event.walletId ||
+        binding.walletSessionId !== event.walletSessionId
+      ) {
         continue;
       }
       this.state.pending.delete(requestId);
@@ -1306,6 +1323,20 @@ export class WalletIframeRouter {
       await this.refreshExactSessionAndEmitLoginStatus();
     }
     return res.result;
+  }
+
+  async getNearProvisioningState(args: {
+    walletId: WalletId | string;
+  }): Promise<NearProvisioningState | null> {
+    const walletId = toWalletId(args.walletId);
+    const response = await this.post<unknown>({
+      type: 'PM_GET_NEAR_PROVISIONING_STATE',
+      payload: { walletId: String(walletId) },
+    });
+    if (response.result === null) return null;
+    const state = parseNearProvisioningState(response.result);
+    if (!state) throw new Error('[WalletIframeRouter] Invalid NEAR provisioning state response');
+    return state;
   }
 
   async addWalletSigner(
@@ -1485,7 +1516,9 @@ export class WalletIframeRouter {
             },
           );
           if (res.result.ok) {
-            await this.refreshExactSessionAndEmitLoginStatus();
+            this.mirrorExactSessionAndEmitLoginStatus(
+              exactSessionStateFromWalletSession(res.result.value.session),
+            );
           }
           return res.result;
         },
@@ -1575,10 +1608,13 @@ export class WalletIframeRouter {
     const { onDemoOtp, onEvent, ...wirePayload } = payload;
     const diagnosticsEnabled =
       Reflect.get(globalThis, '__SEAMS_EMAIL_OTP_UNLOCK_DIAGNOSTICS') === true;
+    const registrationBenchmarkTimings =
+      Reflect.get(globalThis, '__SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS') === true;
     const requestPayload: PMGoogleEmailOtpWalletAuthStartPayload = {
       ...wirePayload,
       diagnostics: {
         emailOtpUnlockTimings: diagnosticsEnabled,
+        registrationBenchmarkTimings,
       },
     };
     const res = await this.post<
@@ -2574,7 +2610,9 @@ export class WalletIframeRouter {
 
         try {
           // Step 6: Strip non-cloneable fields (functions) from envelope options before posting
-          const stickyVal = isObject(options) ? (options as { sticky?: unknown }).sticky : undefined;
+          const stickyVal = isObject(options)
+            ? (options as { sticky?: unknown }).sticky
+            : undefined;
           const wireOptions = isBoolean(stickyVal) ? { sticky: stickyVal } : undefined;
           const serializableFull = wireOptions
             ? { ...full, options: wireOptions }

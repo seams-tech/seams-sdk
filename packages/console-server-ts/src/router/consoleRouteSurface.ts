@@ -1,9 +1,12 @@
-import { createConsoleRouteDefinitions, type RouteDefinition } from '@seams/sdk-server/internal/router/routeDefinitions';
+import {
+  createConsoleRouteDefinitions,
+  type ConsoleRouteDefinition,
+} from './consoleRouteDefinitions';
 
 const CONSOLE_ROUTE_SURFACE_SYMBOL = Symbol.for('seams.consoleRouteSurface');
 
 export interface ConsoleRouteSurface {
-  routeDefinitions: readonly RouteDefinition[];
+  routeDefinitions: readonly ConsoleRouteDefinition[];
 }
 
 export function resolveConsoleRouteSurface(): ConsoleRouteSurface {

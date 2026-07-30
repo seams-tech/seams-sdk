@@ -34,7 +34,7 @@ import type {
   D1PreparedStatementLike,
 } from '../../../packages/sdk-server-ts/src/storage/tenantRoute';
 import {
-  createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1,
+  createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
   createRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
@@ -43,12 +43,19 @@ import {
   type RouterAbEd25519YaoRegistrationBackend,
   type RouterAbEd25519YaoRegistrationBackendResult,
 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistration';
-import type {
-  RouterAbEd25519YaoCapabilityPersistenceV1,
-  RouterAbEd25519YaoCapabilityPersistenceResultV1,
+import { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistrationIntentAuthorization';
+import {
+  InMemoryRouterAbEd25519YaoRecoveryService,
+  type RouterAbEd25519YaoCapabilityPersistenceV1,
+  type RouterAbEd25519YaoCapabilityPersistenceResultV1,
+  type RouterAbEd25519YaoRecoveryBackend,
 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
-import type { RouterAbEd25519YaoRecoveryBackend } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
-import type { RouterAbEd25519YaoExportBackend } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoExport';
+import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
+import {
+  InMemoryRouterAbEd25519YaoExportService,
+  RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter,
+  type RouterAbEd25519YaoExportBackend,
+} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoExport';
 import type { RouterAbEcdsaStrictRegistrationPort } from '../../../packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration';
 import {
   implicitNearAccountProvisioning,
@@ -77,6 +84,10 @@ import { buildEd25519YaoCapabilityFixture } from '../../helpers/ed25519YaoCapabi
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../../helpers/sqliteD1';
 import { applySignerMigrations } from './cloudflareD1RouterApiAuthService.fixtures';
 import { StaticWalletSessionAdapter } from './routerAbEd25519YaoRegistrationBridge.fixtures';
+import type {
+  RouterAbWalletBudgetGrantProvisionInputV1,
+  RouterAbWalletBudgetGrantProvisionerV1,
+} from '../../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 
 const TEST_SCOPE = {
   namespace: 'registration-finalize-convergence',
@@ -110,7 +121,6 @@ export type FinalizeConvergenceFault =
   | 'normal_signing_response_loss'
   | 'wallet_commit_response_loss'
   | 'capability_install_response_loss'
-  | 'finalize_replay_response_loss'
   | 'ceremony_delete_response_loss'
   | 'finalize_claim_response_loss'
   | 'finalize_completion_response_loss';
@@ -412,7 +422,6 @@ class ResponseLossD1Database implements D1DatabaseLike {
   private loseWalletCommitResponse = false;
   private loseFinalizeClaimResponse = false;
   private loseFinalizeCompletionResponse = false;
-  private loseRegistrationReplayResponse = false;
   private loseCeremonyDeleteResponse = false;
 
   constructor(readonly delegate: D1DatabaseLike) {}
@@ -427,10 +436,6 @@ class ResponseLossD1Database implements D1DatabaseLike {
 
   armFinalizeCompletionResponseLoss(): void {
     this.loseFinalizeCompletionResponse = true;
-  }
-
-  armRegistrationReplayResponseLoss(): void {
-    this.loseRegistrationReplayResponse = true;
   }
 
   armCeremonyDeleteResponseLoss(): void {
@@ -461,14 +466,6 @@ class ResponseLossD1Database implements D1DatabaseLike {
   loseRunResponse(query: string, values: readonly unknown[]): void {
     const registrationScope = String(values[4] || '');
     const registrationRecordId = String(values[5] || '');
-    if (
-      this.loseRegistrationReplayResponse &&
-      registrationScope === 'finalize-replay' &&
-      registrationRecordId.includes(REGISTRATION_CEREMONY_ID)
-    ) {
-      this.loseRegistrationReplayResponse = false;
-      throw new Error('simulated finalize replay response loss');
-    }
     if (
       this.loseCeremonyDeleteResponse &&
       registrationScope === 'ceremony' &&
@@ -602,6 +599,7 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
   readonly kind = 'router_ab_ed25519_yao_product_registration_runtime_v1' as const;
   readonly signingWorkerId: string;
   private fault: YaoFault | null = null;
+  private lastConsumerBinding: string | null = null;
 
   constructor(private readonly delegate: RouterAbEd25519YaoProductRegistrationRuntimeV1) {
     this.signingWorkerId = delegate.signingWorkerId;
@@ -609,6 +607,10 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
 
   arm(fault: YaoFault): void {
     this.fault = fault;
+  }
+
+  consumerBinding(): string | null {
+    return this.lastConsumerBinding;
   }
 
   async bindVerifiedIntent(
@@ -619,11 +621,24 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
     return await this.delegate.bindVerifiedIntent(input);
   }
 
+  async bindAndAdmitVerifiedRegistration(
+    input: Parameters<
+      RouterAbEd25519YaoProductRegistrationRuntimeV1['bindAndAdmitVerifiedRegistration']
+    >[0],
+  ): Promise<
+    Awaited<
+      ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['bindAndAdmitVerifiedRegistration']>
+    >
+  > {
+    return await this.delegate.bindAndAdmitVerifiedRegistration(input);
+  }
+
   async consumeActivated(
     input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']>[0],
   ): Promise<
     Awaited<ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']>>
   > {
+    this.lastConsumerBinding = input.consumerBinding;
     const result = await this.delegate.consumeActivated(input);
     this.throwAfter('activation_consume_response_loss');
     return result;
@@ -682,7 +697,10 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
   }
 }
 
-class FailureInjectingNormalSigningRuntime extends RouterAbNormalSigningRuntime {
+class FailureInjectingNormalSigningRuntime
+  extends RouterAbNormalSigningRuntime
+  implements RouterAbWalletBudgetGrantProvisionerV1
+{
   private loseProvisionResponse = false;
 
   constructor() {
@@ -701,6 +719,22 @@ class FailureInjectingNormalSigningRuntime extends RouterAbNormalSigningRuntime 
 
   armProvisionResponseLoss(): void {
     this.loseProvisionResponse = true;
+  }
+
+  async provisionGrant(input: RouterAbWalletBudgetGrantProvisionInputV1) {
+    const result = {
+      ok: true as const,
+      signingGrantId: input.signingGrantId,
+      remainingUses: input.initialSignatureUses,
+      reservedUses: 0,
+      availableUses: input.initialSignatureUses,
+      expiresAtMs: input.expiresAtMs,
+    };
+    if (this.loseProvisionResponse) {
+      this.loseProvisionResponse = false;
+      throw new Error('simulated normal-signing provision response loss');
+    }
+    return result;
   }
 
   override async provisionRouterAbEd25519YaoNormalSigningSession(
@@ -782,6 +816,7 @@ function testRpId() {
 function buildCeremony(input: {
   readonly walletId: WalletId;
   readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
   readonly accountProvisioning: RegistrationNearAccountProvisioning;
 }): StoredWalletRegistrationCeremony {
   const signerSelection: RegistrationSignerSetSelection = {
@@ -824,38 +859,65 @@ function buildCeremony(input: {
     signingRootVersion: runtimePolicyScope.signingRootVersion,
     expectedOrigin: 'https://app.example.com',
     expiresAtMs: Date.now() + 60_000,
-    authority: testPasskeyAuthority(input.walletId, testRpId()),
+    authorityState: {
+      kind: 'verified',
+      authority: testPasskeyAuthority(input.walletId, testRpId()),
+    },
     signerState: {
       kind: 'signer_set_registration',
       branches: [
         buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch({
           branchKey: registrationNearEd25519BranchKey(1),
           admissionRequest: input.admissionRequest,
+          admissionReceipt: input.admissionReceipt,
         }),
       ],
     },
   };
 }
 
-async function activatedRuntimeFixture(): Promise<{
+/**
+ * Builds the fixture against a concrete admission request when one is given,
+ * so a runtime can satisfy whatever ceremony actually arrives instead of only
+ * its own fixed ids. The receipt binding mirrors the request scope, so every
+ * field it needs is derivable from that request.
+ */
+export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
+  readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  readonly signingRootVersion?: string;
+}): Promise<{
   readonly runtime: FailureInjectingYaoRuntime;
   readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
   readonly activationResult: RouterAbEd25519YaoActivationResultV1<'registration'>;
 }> {
-  const walletId = walletIdFromString('finalize-convergence-wallet');
+  const incoming = overrides?.admissionRequest;
+  const walletId = incoming
+    ? walletIdFromString(incoming.application_binding.wallet_id)
+    : walletIdFromString('finalize-convergence-wallet');
   const capability = buildEd25519YaoCapabilityFixture({
     walletId,
     nearAccountId: 'finalize-convergence.testnet',
-    nearEd25519SigningKeyId: 'near-ed25519-finalize-convergence',
-    thresholdSessionId: 'threshold-finalize-convergence',
-    signerSlot: 1,
-    signingWorkerId: SIGNING_WORKER_ID,
+    nearEd25519SigningKeyId: incoming
+      ? incoming.application_binding.near_ed25519_signing_key_id
+      : 'near-ed25519-finalize-convergence',
+    thresholdSessionId: incoming
+      ? incoming.scope.wallet_session_id
+      : 'threshold-finalize-convergence',
+    signerSlot: incoming
+      ? incoming.application_binding.key_creation_signer_slot
+      : 1,
+    signingWorkerId: incoming ? incoming.scope.signing_worker_id : SIGNING_WORKER_ID,
     participantIds: [1, 2],
     runtimePolicyScope: {
       ...TEST_SCOPE,
-      signingRootVersion: 'root-finalize-v1',
+      signingRootVersion:
+        incoming?.scope.root_share_epoch ?? overrides?.signingRootVersion ?? 'root-finalize-v1',
     },
     seed: 93,
+    ...(incoming
+      ? { lifecycleId: incoming.scope.lifecycle_id, signerSetId: incoming.scope.signer_set_id }
+      : {}),
   });
   if (capability.capability.version !== 'wallet_ed25519_yao_registration_capability_v1') {
     throw new Error('Finalize fixture must build a registration capability');
@@ -874,21 +936,38 @@ async function activatedRuntimeFixture(): Promise<{
   if (!admitted.ok) throw new Error(admitted.message);
   const executed = await registration.execute(executeRequest);
   if (!executed.ok) throw new Error(executed.message);
-  const composition = createRouterAbEd25519YaoProductRegistrationStatefulCompositionV1({
-    signingWorkerId: SIGNING_WORKER_ID,
+  const session = new StaticWalletSessionAdapter();
+  const recoveryService = new InMemoryRouterAbEd25519YaoRecoveryService(
     backend,
-    session: new StaticWalletSessionAdapter(),
-    webAuthn: {
+    state.recovery,
+    new AppliedCapabilityPersistence(),
+  );
+  const exportService = new InMemoryRouterAbEd25519YaoExportService(
+    backend,
+    recoveryService,
+    state.export,
+  );
+  const composition = createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1({
+    signingWorkerId: SIGNING_WORKER_ID,
+    registrationService: registration,
+    authorization: new InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter(
+      state.authorization,
+    ),
+    recoveryService,
+    capabilities: recoveryService,
+    recoveryAuthorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session),
+    exportService,
+    exportAuthorization: new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(session, {
       async verifyWebAuthnAuthenticationLite(): Promise<never> {
         throw new Error('WebAuthn export is outside the finalize convergence fixture');
       },
-    },
-    state,
-    capabilityPersistence: new AppliedCapabilityPersistence(),
+    }),
+    session,
   });
   return {
     runtime: new FailureInjectingYaoRuntime(composition.runtime),
     admissionRequest,
+    admissionReceipt,
     activationResult,
   };
 }
@@ -921,6 +1000,7 @@ export type FinalizeConvergenceHarness = {
   readonly database: D1DatabaseLike;
   readonly cleanup: () => Promise<void>;
   readonly arm: (fault: FinalizeConvergenceFault) => void;
+  readonly activationConsumerBinding: () => string | null;
   readonly expireFinalizeClaim: () => Promise<void>;
   readonly countRows: (table: string) => Promise<number>;
 };
@@ -986,7 +1066,7 @@ async function createFinalizeConvergenceHarnessForMode(
   await applySignerMigrations(temporary.database);
   const database = new ResponseLossD1Database(temporary.database);
   const durableObjects = new FinalizeCeremonyDurableObjectNamespace();
-  const yao = await activatedRuntimeFixture();
+  const yao = await createActivatedFinalizeYaoRuntimeFixture();
   const normalSigning = new FailureInjectingNormalSigningRuntime();
   const thresholdStore = {
     kind: 'cloudflare-do' as const,
@@ -998,6 +1078,7 @@ async function createFinalizeConvergenceHarnessForMode(
     ...TEST_SCOPE,
     thresholdStore,
     routerAbSigningRuntimes: createSigningRuntimeBundle(normalSigning),
+    walletBudgetGrantProvisioner: normalSigning,
     ed25519YaoProductRegistration: yao.runtime,
     ecdsaStrictRegistration: new UnusedEcdsaStrictRegistration(),
     ...(mode.kind === 'sponsored'
@@ -1021,6 +1102,7 @@ async function createFinalizeConvergenceHarnessForMode(
     buildCeremony({
       walletId,
       admissionRequest: yao.admissionRequest,
+      admissionReceipt: buildAdmissionReceipt(yao.activationResult),
       accountProvisioning: accountProvisioningForMode(mode),
     }),
   );
@@ -1067,9 +1149,6 @@ async function createFinalizeConvergenceHarnessForMode(
         case 'wallet_commit_response_loss':
           database.armBatchResponseLoss();
           return;
-        case 'finalize_replay_response_loss':
-          database.armRegistrationReplayResponseLoss();
-          return;
         case 'ceremony_delete_response_loss':
           database.armCeremonyDeleteResponseLoss();
           return;
@@ -1081,6 +1160,7 @@ async function createFinalizeConvergenceHarnessForMode(
           return;
       }
     },
+    activationConsumerBinding: () => yao.runtime.consumerBinding(),
     countRows: async (table) => {
       const row = await database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first<{
         readonly count?: unknown;

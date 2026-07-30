@@ -996,11 +996,6 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
               heading: 'navbar-static__auth-heading',
               eyebrow: 'navbar-static__auth-eyebrow',
               copy: 'navbar-static__auth-copy',
-              provider: 'navbar-static__auth-provider',
-              providerIcon: 'navbar-static__auth-provider-icon',
-              providerBody: 'navbar-static__auth-provider-body',
-              providerLabel: 'navbar-static__auth-provider-label',
-              providerCopy: 'navbar-static__auth-provider-copy',
               ctaButton: 'navbar-static__auth-google-button',
               ctaIcon: 'navbar-static__auth-google-button-icon',
               note: 'navbar-static__auth-note',
@@ -1013,10 +1008,8 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
               onMouseDown: (event) => event.stopPropagation(),
             }}
             titleId="navbar-dashboard-auth-title"
-            title="Sign In To Open Dashboard"
-            description="Use Google SSO to enter the console. Wallet passkeys can be added later inside the dashboard when you create wallets for stablecoin billing."
-            providerLabel="Google SSO"
-            providerDescription="One secure sign-in to open the dashboard and start managing billing."
+            title="Sign in"
+            description="Use Google SSO to open the console."
             continueLabel={
               googleSigningIn
                 ? 'Signing in with Google...'
@@ -1032,9 +1025,11 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
             onContinue={() => {
               void onGoogleSignIn();
             }}
+            /* Only the misconfiguration hint earns a footnote; the happy path
+               needs no explanation beyond the button. */
             note={
               googleConfigChecked && googleConfigured
-                ? 'Google signs you into the dashboard first. Wallet passkeys are created later inside the console.'
+                ? ''
                 : 'Set GOOGLE_OIDC_CLIENT_ID or GOOGLE_OIDC_CLIENT_IDS on the relay to enable dashboard sign-in.'
             }
             errorMessage={dashboardAuthError}

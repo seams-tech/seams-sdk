@@ -1,13 +1,16 @@
-import { base64UrlDecode, base64UrlEncode } from '@seams-internal/shared-ts/utils/encoders';
-import { SessionService } from '@seams/sdk-server/internal/core/SessionService';
+import { base64UrlDecode, base64UrlEncode } from '@seams/sdk-server/cloud-host';
+import { SessionService } from '@seams/sdk-server/cloud-host';
 import type {
   CloudflareSecretsStoreSecretBinding,
   SigningRootEncodedKekMaterialEncoding,
   SigningRootKekProvider,
-} from '@seams/sdk-server/internal/core/ThresholdService/signingRootKekProvider';
-import type { ConsoleTeamRbacService } from '@seams-internal/console-server/teamRbac/service';
-import type { ConsoleAuthAdapter, ConsoleAuthAdapterResult, HeaderRecord } from '@seams/sdk-server/internal/router/consoleAuth';
-import type { SessionAdapter } from '@seams/sdk-server/internal/router/routerApi';
+} from '@seams/sdk-server/cloud-host';
+import type {
+  ActiveOrganizationAuthorization,
+  ConsoleOrganizationAccessService,
+} from '@seams-internal/console-server/teamRbac';
+import type { ConsoleAuthAdapter, ConsoleAuthAdapterResult, HeaderRecord } from '../consoleAuth';
+import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
 
 export interface CloudflareD1StagingSecretEnv extends Readonly<Record<string, unknown>> {
   readonly SIGNING_ROOT_KEK_PROVIDER?: string;
@@ -34,13 +37,27 @@ export interface HmacSessionEnvOptions {
   readonly ttlSeconds?: number;
 }
 
+export interface Ed25519SessionAdapterOptions {
+  readonly privateJwk: JsonWebKey & {
+    readonly kty: 'OKP';
+    readonly crv: 'Ed25519';
+    readonly x: string;
+    readonly d: string;
+  };
+  readonly keyId: string;
+  readonly cookieName?: string;
+  readonly issuer: string;
+  readonly audience: string;
+  readonly ttlSeconds?: number;
+}
+
 export interface ConsoleSessionAuthAdapterOptions {
   readonly session: SessionAdapter;
-  readonly teamRbac: ConsoleTeamRbacService;
+  readonly organizationAccess: ConsoleOrganizationAccessService;
   readonly defaultOrgId?: string;
   readonly defaultProjectId?: string;
   readonly defaultEnvironmentId?: string;
-  readonly platformAdminEmails?: string;
+  readonly platformSupportEmails?: string;
 }
 
 type HmacVerificationResult =
@@ -148,6 +165,159 @@ class HmacSessionJwtAdapter {
   }
 }
 
+class Ed25519SessionJwtAdapter {
+  private readonly issuer: string;
+  private readonly audience: string;
+  private readonly keyId: string;
+  private readonly ttlSeconds: number;
+  private readonly signingKey: Promise<CryptoKey>;
+  private readonly verifyingKey: Promise<CryptoKey>;
+
+  constructor(private readonly options: Ed25519SessionAdapterOptions) {
+    this.issuer = requireNormalizedString(options.issuer, 'Ed25519 session issuer');
+    this.audience = requireNormalizedString(options.audience, 'Ed25519 session audience');
+    this.keyId = requireNormalizedString(options.keyId, 'Ed25519 session key id');
+    this.ttlSeconds = normalizeTtlSeconds(options.ttlSeconds);
+    this.signingKey = this.importSigningKey();
+    this.verifyingKey = this.importVerifyingKey();
+  }
+
+  async signToken(input: {
+    readonly header: Record<string, unknown>;
+    readonly payload: Record<string, unknown>;
+  }): Promise<string> {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    /* The adapter TTL is a ceiling, not the expiry. Wallet-session claims
+       carry their own `exp` bound to the threshold session; overriding it
+       here would mint a bearer token that outlives the session it names.
+       A caller-supplied `exp` therefore survives unless it exceeds the
+       configured maximum; only claims without one get the full TTL. */
+    const requestedExpSeconds = Number(input.payload.exp);
+    const maxExpSeconds = nowSeconds + this.ttlSeconds;
+    const expSeconds =
+      Number.isFinite(requestedExpSeconds) && requestedExpSeconds > nowSeconds
+        ? Math.min(Math.floor(requestedExpSeconds), maxExpSeconds)
+        : maxExpSeconds;
+    const headerB64u = encodeJsonSegment({
+      ...input.header,
+      typ: 'JWT',
+      alg: 'EdDSA',
+      kid: this.keyId,
+    });
+    const payloadB64u = encodeJsonSegment({
+      ...input.payload,
+      ...routerWalletSessionScopeClaims(input.payload),
+      iat: nowSeconds,
+      exp: expSeconds,
+      iss: this.issuer,
+      aud: this.audience,
+    });
+    const signingInput = `${headerB64u}.${payloadB64u}`;
+    const signature = await crypto.subtle.sign(
+      { name: 'Ed25519' },
+      await this.signingKey,
+      new TextEncoder().encode(signingInput),
+    );
+    return `${signingInput}.${base64UrlEncode(new Uint8Array(signature))}`;
+  }
+
+  async verifyToken(token: string): Promise<{ readonly valid: boolean; readonly payload?: unknown }> {
+    const parsed = parseJwt(token);
+    if (!parsed.ok) return { valid: false };
+    if (
+      normalizeString(parsed.header.alg) !== 'EdDSA' ||
+      normalizeString(parsed.header.kid) !== this.keyId ||
+      !payloadMatchesIssuer(parsed.payload, this.issuer) ||
+      !payloadMatchesAudience(parsed.payload, this.audience)
+    ) {
+      return { valid: false };
+    }
+    let signature: Uint8Array;
+    try {
+      signature = base64UrlDecode(parsed.signatureB64u);
+    } catch {
+      return { valid: false };
+    }
+    const valid = await crypto.subtle.verify(
+      { name: 'Ed25519' },
+      await this.verifyingKey,
+      toArrayBufferCopy(signature),
+      new TextEncoder().encode(`${parsed.headerB64u}.${parsed.payloadB64u}`),
+    );
+    return valid ? { valid: true, payload: parsed.payload } : { valid: false };
+  }
+
+  private async importSigningKey(): Promise<CryptoKey> {
+    return await crypto.subtle.importKey(
+      'jwk',
+      this.options.privateJwk,
+      { name: 'Ed25519' },
+      false,
+      ['sign'],
+    );
+  }
+
+  private async importVerifyingKey(): Promise<CryptoKey> {
+    const { crv, kty, x } = this.options.privateJwk;
+    return await crypto.subtle.importKey(
+      'jwk',
+      { alg: 'EdDSA', crv, kty, use: 'sig', x },
+      { name: 'Ed25519' },
+      false,
+      ['verify'],
+    );
+  }
+}
+
+function requireNormalizedString(value: unknown, label: string): string {
+  const normalized = normalizeString(value);
+  if (!normalized) throw new Error(`${label} is required`);
+  return normalized;
+}
+
+function payloadMatchesIssuer(payload: Record<string, unknown>, issuer: string): boolean {
+  return normalizeString(payload.iss) === issuer;
+}
+
+function payloadMatchesAudience(payload: Record<string, unknown>, audience: string): boolean {
+  const value = payload.aud;
+  if (typeof value === 'string') return value === audience;
+  return Array.isArray(value) && value.includes(audience);
+}
+
+function routerWalletSessionScopeClaims(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const kind = normalizeString(payload.kind);
+  if (
+    kind !== 'router_ab_ed25519_wallet_session_v1' &&
+    kind !== 'router_ab_ecdsa_derivation_wallet_session_v1'
+  ) {
+    return {};
+  }
+  const scope =
+    payload.runtimePolicyScope &&
+    typeof payload.runtimePolicyScope === 'object' &&
+    !Array.isArray(payload.runtimePolicyScope)
+      ? (payload.runtimePolicyScope as Record<string, unknown>)
+      : null;
+  const orgId = requireNormalizedString(scope?.orgId, 'Wallet Session org id');
+  const projectId = requireNormalizedString(scope?.projectId, 'Wallet Session project id');
+  const environment = requireNormalizedString(scope?.envId, 'Wallet Session environment');
+  const accountId = requireNormalizedString(payload.walletId ?? payload.sub, 'Wallet Session account id');
+  const sessionId = requireNormalizedString(
+    payload.thresholdSessionId,
+    'Wallet Session threshold session id',
+  );
+  return {
+    org_id: orgId,
+    project_id: projectId,
+    environment,
+    account_id: accountId,
+    sid: sessionId,
+  };
+}
+
 class CrossSiteSessionCookieAdapter {
   private readonly cookieName: string;
   private readonly ttlSeconds: number;
@@ -185,19 +355,19 @@ class CrossSiteSessionCookieAdapter {
 
 class ConsoleSessionAuthAdapter implements ConsoleAuthAdapter {
   private readonly session: SessionAdapter;
-  private readonly teamRbac: ConsoleTeamRbacService;
+  private readonly organizationAccess: ConsoleOrganizationAccessService;
   private readonly defaultOrgId: string;
   private readonly defaultProjectId: string;
   private readonly defaultEnvironmentId: string;
-  private readonly platformAdminEmails: readonly string[];
+  private readonly platformSupportEmails: readonly string[];
 
   constructor(options: ConsoleSessionAuthAdapterOptions) {
     this.session = options.session;
-    this.teamRbac = options.teamRbac;
+    this.organizationAccess = options.organizationAccess;
     this.defaultOrgId = normalizeString(options.defaultOrgId);
     this.defaultProjectId = normalizeString(options.defaultProjectId);
     this.defaultEnvironmentId = normalizeString(options.defaultEnvironmentId);
-    this.platformAdminEmails = normalizeEmailList(options.platformAdminEmails);
+    this.platformSupportEmails = normalizeEmailList(options.platformSupportEmails);
   }
 
   async authenticate(headers: HeaderRecord): Promise<ConsoleAuthAdapterResult> {
@@ -232,53 +402,111 @@ class ConsoleSessionAuthAdapter implements ConsoleAuthAdapter {
       };
     }
 
-    const roles = await this.resolveRoles({ claims, orgId, userId });
-    if (roles.length === 0) {
+    const authorization = await this.organizationAccess.lookupAuthorization({ orgId, userId });
+    if (!authorization || authorization.kind === 'denied') {
       return {
         ok: false,
         code: 'forbidden',
-        message: 'No console roles assigned',
+        message: 'No active organization membership',
         status: 403,
       };
     }
 
-    return {
-      ok: true,
-      claims: {
-        userId,
-        orgId,
-        roles,
-        ...(normalizeString(claims.projectId) || this.defaultProjectId
-          ? { projectId: normalizeString(claims.projectId) || this.defaultProjectId }
-          : {}),
-        ...(normalizeString(claims.environmentId) || this.defaultEnvironmentId
-          ? { environmentId: normalizeString(claims.environmentId) || this.defaultEnvironmentId }
-          : {}),
-        ...(normalizeString(claims.email) ? { email: normalizeString(claims.email) } : {}),
-        ...(normalizeString(claims.name) ? { name: normalizeString(claims.name) } : {}),
-      },
+    const claimedProjectId = normalizeString(claims.projectId) || this.defaultProjectId;
+    const projectId =
+      authorization.role === 'MEMBER'
+        ? resolveMemberProjectId(authorization, claimedProjectId)
+        : claimedProjectId;
+    const claimedEnvironmentId =
+      normalizeString(claims.environmentId) || this.defaultEnvironmentId;
+    const environmentId =
+      authorization.role === 'MEMBER' && projectId !== claimedProjectId
+        ? ''
+        : claimedEnvironmentId;
+    const email = normalizeString(claims.email).toLowerCase();
+    const identity = {
+      userId,
+      orgId,
+      platformSupport: this.platformSupportEmails.includes(email),
+      ...(projectId ? { projectId } : {}),
+      ...(environmentId ? { environmentId } : {}),
+      ...(email ? { email } : {}),
+      ...(normalizeString(claims.name) ? { name: normalizeString(claims.name) } : {}),
+      ...(normalizeString(claims.provider)
+        ? { provider: normalizeString(claims.provider) }
+        : {}),
     };
-  }
-
-  private async resolveRoles(input: {
-    readonly claims: Record<string, unknown>;
-    readonly orgId: string;
-    readonly userId: string;
-  }): Promise<string[]> {
-    const memberRoles = await loadActiveConsoleMemberRoles({
-      teamRbac: this.teamRbac,
-      orgId: input.orgId,
-      userId: input.userId,
-    });
-    const adminRoles = this.platformAdminEmails.includes(normalizeString(input.claims.email))
-      ? ['platform_admin']
-      : [];
-    return mergeRoleLists(memberRoles, adminRoles);
+    switch (authorization.role) {
+      case 'OWNER':
+        return {
+          ok: true,
+          claims: {
+            ...identity,
+            membershipId: authorization.membershipId,
+            authorizationVersion: authorization.authorizationVersion,
+            role: 'OWNER',
+            adminPermissions: [...authorization.adminPermissions],
+            projectAccess: { kind: 'all' },
+          },
+        };
+      case 'ADMIN':
+        return {
+          ok: true,
+          claims: {
+            ...identity,
+            membershipId: authorization.membershipId,
+            authorizationVersion: authorization.authorizationVersion,
+            role: 'ADMIN',
+            adminPermissions: [...authorization.adminPermissions],
+            projectAccess: { kind: 'all' },
+          },
+        };
+      case 'MEMBER':
+        return {
+          ok: true,
+          claims: {
+            ...identity,
+            membershipId: authorization.membershipId,
+            authorizationVersion: authorization.authorizationVersion,
+            role: 'MEMBER',
+            adminPermissions: [],
+            projectAccess: {
+              kind: 'assigned',
+              assignments: authorization.projectAccess.assignments.map((assignment) => ({
+                projectId: assignment.projectId,
+                accessLevel: assignment.accessLevel,
+              })),
+            },
+          },
+        };
+    }
   }
 }
 
 export function createHmacSessionAdapter(options: HmacSessionAdapterOptions): SessionAdapter {
   const jwt = new HmacSessionJwtAdapter(options);
+  const cookieName = normalizeString(options.cookieName) || 'seams-jwt';
+  const cookie = new CrossSiteSessionCookieAdapter(
+    cookieName,
+    normalizeTtlSeconds(options.ttlSeconds),
+  );
+  return new SessionService({
+    jwt: {
+      signToken: jwt.signToken.bind(jwt),
+      verifyToken: jwt.verifyToken.bind(jwt),
+    },
+    cookie: {
+      name: cookieName,
+      buildSetHeader: cookie.buildSetHeader.bind(cookie),
+      buildClearHeader: cookie.buildClearHeader.bind(cookie),
+    },
+  });
+}
+
+export function createEd25519SessionAdapter(
+  options: Ed25519SessionAdapterOptions,
+): SessionAdapter {
+  const jwt = new Ed25519SessionJwtAdapter(options);
   const cookieName = normalizeString(options.cookieName) || 'seams-jwt';
   const cookie = new CrossSiteSessionCookieAdapter(
     cookieName,
@@ -436,51 +664,19 @@ function toArrayBufferCopy(bytes: Uint8Array): ArrayBuffer {
   return out;
 }
 
-async function loadActiveConsoleMemberRoles(input: {
-  readonly teamRbac: ConsoleTeamRbacService;
-  readonly orgId: string;
-  readonly userId: string;
-}): Promise<string[]> {
-  if (!input.teamRbac.listOrganizationMembers) return [];
-  const members = await input.teamRbac.listOrganizationMembers(input.orgId, {
-    status: 'ACTIVE',
-  });
-  for (const member of members) {
-    if (member.userId !== input.userId) continue;
-    return normalizeRoleList(member.roles.map(readRoleAssignmentRole));
+function resolveMemberProjectId(
+  authorization: Extract<ActiveOrganizationAuthorization, { readonly role: 'MEMBER' }>,
+  requestedProjectId: string,
+): string {
+  if (
+    requestedProjectId &&
+    authorization.projectAccess.assignments.some(
+      (assignment) => assignment.projectId === requestedProjectId,
+    )
+  ) {
+    return requestedProjectId;
   }
-  return [];
-}
-
-function readRoleAssignmentRole(input: { readonly role: unknown }): string {
-  return normalizeString(input.role);
-}
-
-function normalizeRoleList(input: unknown): string[] {
-  const rawValues = Array.isArray(input) ? input : normalizeString(input).split(',');
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const raw of rawValues) {
-    const role = normalizeString(raw).toLowerCase();
-    if (!role || seen.has(role)) continue;
-    out.push(role);
-    seen.add(role);
-  }
-  return out;
-}
-
-function mergeRoleLists(...lists: readonly string[][]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const list of lists) {
-    for (const role of list) {
-      const normalized = normalizeString(role).toLowerCase();
-      if (!normalized || seen.has(normalized)) continue;
-      out.push(normalized);
-      seen.add(normalized);
-    }
-  }
-  return out;
+  return authorization.projectAccess.assignments[0]?.projectId ?? '';
 }
 
 function normalizeEmailList(input: unknown): string[] {

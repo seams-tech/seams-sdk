@@ -352,6 +352,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
   }) => {
     const result = await page.evaluate(
       async ({ walletOrigin }) => {
+        Reflect.set(globalThis, '__SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS', true);
         const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
         const walletId = 'frost-vermillion-k7p9m2';
@@ -791,6 +792,10 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           mode: 'register',
           sessionKind: 'cookie',
           ecdsaTargets: { kind: 'configured' },
+          diagnostics: {
+            emailOtpUnlockTimings: false,
+            registrationBenchmarkTimings: true,
+          },
         });
         continue;
       }

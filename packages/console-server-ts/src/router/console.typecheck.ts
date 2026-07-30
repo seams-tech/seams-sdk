@@ -1,14 +1,15 @@
 import type { ConsoleRouterOptions } from './console';
 import type {
-  CloudflareTenantStorageRoute,
   D1DatabaseLike,
   D1PreparedStatementLike,
   ResolveTenantStorageRouteInput,
+} from '@seams/sdk-server/cloud-host';
+import type {
+  CloudflareTenantStorageRoute,
   TenantStorageRouteResolver,
-} from '@seams/sdk-server/internal/storage/tenantRoute';
-import type { CloudflareDurableObjectNamespaceLike } from '@seams/sdk-server/internal/core/types';
-import type { SigningRootKekProvider } from '@seams/sdk-server/internal/core/ThresholdService/signingRootKekProvider';
-import { parseOrgId, type OrgId } from '@seams-internal/shared-ts/utils/domainIds';
+} from './cloudflare/tenantStorageRoute';
+import type { SigningRootKekProvider } from '@seams/sdk-server/cloud-host';
+import { parseOrgId, type OrgId } from '@seams/sdk-server/cloud-host';
 
 const preparedStatement: D1PreparedStatementLike = {
   bind(): D1PreparedStatementLike {
@@ -17,10 +18,16 @@ const preparedStatement: D1PreparedStatementLike = {
   async first<T = unknown>(): Promise<T | null> {
     return null;
   },
-  async all<T = unknown>(): Promise<{ readonly results?: readonly T[]; readonly success: boolean }> {
+  async all<T = unknown>(): Promise<{
+    readonly results?: readonly T[];
+    readonly success: boolean;
+  }> {
     return { results: [], success: true };
   },
-  async run<T = unknown>(): Promise<{ readonly results?: readonly T[]; readonly success: boolean }> {
+  async run<T = unknown>(): Promise<{
+    readonly results?: readonly T[];
+    readonly success: boolean;
+  }> {
     return { results: [], success: true };
   },
 };
@@ -45,22 +52,11 @@ function orgIdFromString(input: string): OrgId {
   return parsed.value;
 }
 
-const thresholdStore: CloudflareDurableObjectNamespaceLike = {
-  idFromName(name: string): unknown {
-    return name;
-  },
-  get() {
-    return {
-      async fetch(): Promise<Response> {
-        return new Response('{}');
-      },
-    };
-  },
-};
-
 const kekProvider: SigningRootKekProvider = {
   kind: 'worker_secret',
-  workerSecretsByKekId: { 'signing-root-kek-test-r1': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
+  workerSecretsByKekId: {
+    'signing-root-kek-test-r1': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+  },
   encoding: 'base64url',
 };
 
@@ -82,8 +78,6 @@ const route: CloudflareTenantStorageRoute = {
     metadataBindingName: 'SIGNER_DB',
     metadataDatabaseName: 'seams-signer',
     metadataDatabase: database,
-    thresholdStoreBindingName: 'THRESHOLD_STORE',
-    thresholdStore,
     kekProvider,
   },
 };

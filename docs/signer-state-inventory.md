@@ -6,7 +6,7 @@ Status: historical diagnostic snapshot captured before the July 20, 2026 stable
 wallet lifecycle checkpoint. The target-state analysis remains useful. File
 paths and claims about the current implementation must be checked against the
 checkpoint reconciliation in
-[`refactor-90-journal.md`](./refactor-90-journal.md).
+git history.
 
 Disposition: the canonical ECDSA capability manifest, persistence commit, flow
 cutover, and `ThresholdEcdsaSessionRecordCore` deletion described here are now

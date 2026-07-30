@@ -42,7 +42,7 @@ const localEnvRoles = [
       'DERIVER_A_PEER_SIGNING_KEY',
       'DERIVER_A_PEER_VERIFYING_KEY',
       'DERIVER_B_PEER_VERIFYING_KEY',
-      'DERIVER_A_ROOT_SHARE_STORAGE_PATH',
+      'DERIVER_A_ROLE_PRIVATE_STORAGE_PATH',
       'DERIVER_A_SEALED_ROOT_SHARES_PATH',
     ],
   },
@@ -58,7 +58,7 @@ const localEnvRoles = [
       'DERIVER_B_PEER_SIGNING_KEY',
       'DERIVER_A_PEER_VERIFYING_KEY',
       'DERIVER_B_PEER_VERIFYING_KEY',
-      'DERIVER_B_ROOT_SHARE_STORAGE_PATH',
+      'DERIVER_B_ROLE_PRIVATE_STORAGE_PATH',
       'DERIVER_B_SEALED_ROOT_SHARES_PATH',
     ],
   },
@@ -72,7 +72,7 @@ const localEnvRoles = [
       'SIGNING_WORKER_KEY_EPOCH',
       'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
       'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
-      'SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH',
+      'SIGNING_WORKER_PRIVATE_STORAGE_PATH',
     ],
     forbiddenKeys: [
       'SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY',
@@ -95,7 +95,12 @@ const d1LocalWranglerConfigPath = resolvePath(
 const strictPersistPath = join(root, '.runtime', 'router-ab-strict-state');
 const strictWorkerBuildRoot = join(repoRoot, 'crates', 'router-ab-cloudflare', 'build');
 const strictBuildReceiptPath = join(strictWorkerBuildRoot, 'local-build-receipt.json');
-const strictWorkerBuildProfile = process.env.ROUTER_AB_WORKER_BUILD_PROFILE || 'dev';
+const strictWorkerBuildProfile = resolveStrictWorkerBuildProfile({
+  explicitProfile: process.env.ROUTER_AB_WORKER_BUILD_PROFILE,
+  buildOnly: options.buildOnly,
+  help: options.help,
+  receiptPath: strictBuildReceiptPath,
+});
 const ecdsaDerivationClientRoot = join(repoRoot, 'wasm', 'router_ab_ecdsa_derivation_client');
 const ecdsaDerivationClientDependencyPath = join(
   ecdsaDerivationClientRoot,
@@ -217,14 +222,16 @@ try {
     console.log('Router A/B Cloudflare Worker artifacts are ready.');
     process.exit(0);
   }
+  const d1Runtime = prepareD1LocalRouterConfig();
   strictRuntime = prepareRouterAbStrictLocalRuntimeConfigs({
     repoRoot,
     localEnvRoot: root,
+    ceremonyJwksJson: d1Runtime.ceremonyJwksJson,
   });
-  prepareD1LocalRouterConfig();
   assertProductionWorkerBinariesReady();
   assertBrowserEcdsaClientReady();
   await assertProductionWorkerPortsAvailable();
+  applyPrivateD1Migrations();
   if (options.mode === 'multiplex' && displayMode === 'logs') {
     console.log('Multiplex mode requires a TTY; using interleaved logs.');
   }
@@ -279,7 +286,7 @@ function ensureLocalEnv() {
 }
 
 function prepareD1LocalRouterConfig() {
-  prepareRouterAbD1LocalRuntimeConfig({
+  return prepareRouterAbD1LocalRuntimeConfig({
     repoRoot,
     localEnvRoot: root,
     outputConfigPath: d1LocalWranglerConfigPath,
@@ -336,6 +343,30 @@ function buildProductionWorkerBinaries() {
   );
 }
 
+function resolveStrictWorkerBuildProfile(input) {
+  if (input.explicitProfile) return parseStrictWorkerBuildProfile(input.explicitProfile);
+  if (input.buildOnly || input.help) return 'release';
+  if (!existsSync(input.receiptPath)) {
+    throw new Error(
+      'Router A/B Worker build receipt is missing. Run pnpm build:sdk-dev or pnpm build:sdk-prod before pnpm router.',
+    );
+  }
+  let receipt;
+  try {
+    receipt = JSON.parse(readFileSync(input.receiptPath, 'utf8'));
+  } catch {
+    throw new Error(
+      'Router A/B Worker build receipt is invalid. Run pnpm build:sdk-dev or pnpm build:sdk-prod before pnpm router.',
+    );
+  }
+  return parseStrictWorkerBuildProfile(receipt.worker_build_profile);
+}
+
+function parseStrictWorkerBuildProfile(value) {
+  if (value === 'dev' || value === 'release') return value;
+  throw new Error('ROUTER_AB_WORKER_BUILD_PROFILE must be dev or release');
+}
+
 function assertProductionWorkerBinariesReady() {
   const missingArtifacts = missingProductionWorkerArtifactPaths();
   if (missingArtifacts.length > 0) {
@@ -368,7 +399,7 @@ function assertProductionWorkerBinariesReady() {
     !rolesMatch
   ) {
     throw new Error(
-      `Router A/B Worker artifacts do not match the current ${strictWorkerBuildProfile} build profile. Run pnpm build:sdk before pnpm router.`,
+      `Router A/B Worker artifacts do not match the current ${strictWorkerBuildProfile} build profile. Rebuild with pnpm build:sdk-dev or pnpm build:sdk-prod before pnpm router.`,
     );
   }
 }
@@ -736,6 +767,32 @@ function startProductionWorkers() {
       appendLine(pane, `spawn error: ${error.message}`);
       if (!shutdownStarted) shutdown(1);
     });
+  }
+}
+
+function applyPrivateD1Migrations() {
+  for (const config of strictRuntime.configs) {
+    if (!config.privateD1) continue;
+    const persistPath = join(strictPersistPath, config.role);
+    mkdirSync(persistPath, { recursive: true });
+    console.log(`Applying local ${config.role} private-D1 migrations...`);
+    run(
+      'pnpm',
+      [
+        'exec',
+        'wrangler',
+        'd1',
+        'migrations',
+        'apply',
+        config.privateD1.databaseName,
+        '--local',
+        '--persist-to',
+        persistPath,
+        '--config',
+        config.configPath,
+      ],
+      { ...process.env, CI: 'true' },
+    );
   }
 }
 

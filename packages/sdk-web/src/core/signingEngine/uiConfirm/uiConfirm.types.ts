@@ -254,6 +254,12 @@ export interface UiConfirmRegistrationPort {
 export interface UiConfirmWorkerLifecyclePort {
   initialize(): Promise<void>;
   setWorkerBaseOrigin(origin: string | undefined): void;
+  /**
+   * Best-effort: constructs the confirm worker's nested Shamir3Pass worker and
+   * instantiates its WASM ahead of the first seal. Never throws; first real
+   * use retries construction on its own.
+   */
+  prewarmShamir3Pass(): Promise<void>;
 }
 
 export interface UiConfirmSecureConfirmationPort {

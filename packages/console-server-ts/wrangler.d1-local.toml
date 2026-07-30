@@ -15,27 +15,11 @@ binding = "SIGNER_DB"
 database_name = "seams-signer"
 database_id = "00000000-0000-0000-0000-000000000201"
 preview_database_id = "00000000-0000-0000-0000-000000000202"
-migrations_dir = "../sdk-server-ts/migrations/d1-signer"
-
-[[durable_objects.bindings]]
-name = "THRESHOLD_STORE"
-class_name = "ThresholdStoreDurableObject"
-
-[[migrations]]
-tag = "threshold-store-sqlite-v1"
-new_sqlite_classes = ["ThresholdStoreDurableObject"]
+migrations_dir = "node_modules/@seams/sdk-server/migrations/d1-signer"
 
 [[services]]
 binding = "MPC_ROUTER"
 service = "router-ab-mpc-router"
-
-[[services]]
-binding = "DERIVER_A"
-service = "router-ab-deriver-a"
-
-[[services]]
-binding = "DERIVER_B"
-service = "router-ab-deriver-b"
 
 [[services]]
 binding = "SIGNING_WORKER"
@@ -43,6 +27,7 @@ service = "router-ab-signing-worker"
 
 [vars]
 SEAMS_TENANT_STORAGE_NAMESPACE = "seams-local"
+CONSOLE_BASE_URL = "https://localhost"
 SEAMS_LOCAL_CONSOLE_ORG_ID = "generated-by-local-runtime-config"
 SEAMS_LOCAL_RELAYER_ACCOUNT = "relay.local"
 SEAMS_LOCAL_RELAYER_PUBLIC_KEY = "ed25519:local-relay-public-key"
@@ -82,3 +67,4 @@ SIGNING_SESSION_SEAL_D_S_B64U = "wZN52VGMdGQJDo4EAeoSMaT8SYER4MUDWAOOy-lIt501N95
 SPONSORED_EVM_EXECUTORS_JSON = '{"42431":{"sponsorPrivateKeyHex":"0x1111111111111111111111111111111111111111111111111111111111111111"}}'
 # Local-only deterministic NEAR pricing: $3.00 per NEAR with a 0.001 NEAR estimate.
 SPONSORED_EXECUTION_STATIC_PRICING_JSON = '{"near":{"TESTNET":{"estimateFeeAmountYocto":"1000000000000000000000","minorPerFeeUnitNumerator":"300","minorPerFeeUnitDenominator":"1000000000000000000000000","pricingVersion":"static-near-testnet-local-v1"}}}'
+STRIPE_WEBHOOK_SECRET = "whsec_local_console_only"

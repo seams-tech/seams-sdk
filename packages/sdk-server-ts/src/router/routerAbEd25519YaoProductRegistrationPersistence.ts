@@ -192,8 +192,6 @@ function ceremonyFieldSource(pathname: string): CeremonyFieldSource {
       return { kind: 'field', field: 'binding.lifecycle.lifecycle_id' };
     case ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1:
       return { kind: 'field', field: 'binding.ceremony.lifecycle.lifecycle_id' };
-    case '/wallets/register/finalize':
-      return { kind: 'field', field: 'ed25519.activationReference.lifecycle_id' };
     default:
       return /^\/wallets\/[^/]+\/signers\/finalize$/u.test(pathname)
         ? { kind: 'field', field: 'ed25519.activationReference.lifecycle_id' }

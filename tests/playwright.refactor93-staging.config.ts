@@ -9,8 +9,8 @@ const REPOSITORY_ROOT = path.resolve(TESTS_ROOT, '..');
 const LOCAL_SITE_ORIGIN = 'http://127.0.0.1:37994';
 const EXPECTED_STAGING_ORIGINS = Object.freeze({
   gateway: 'https://seams-sdk-d1-gateway-staging.n6378056.workers.dev',
-  site: 'https://seams-site-staging.pages.dev',
-  wallet: 'https://seams-wallet-staging.pages.dev',
+  site: 'https://staging.seams.sh',
+  wallet: 'https://staging.sign.seams.sh',
 });
 export const REFACTOR93_STAGING_RUNTIME_PATHS = Object.freeze({
   playwrightOutput: path.join(tmpdir(), 'seams-refactor93-staging-playwright'),

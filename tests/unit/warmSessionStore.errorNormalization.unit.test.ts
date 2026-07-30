@@ -3,7 +3,6 @@ import {
   SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR,
   THRESHOLD_SESSION_EXHAUSTED_ERROR,
 } from '@/core/signingEngine/session/warmCapabilities/statusReader';
-import { isSigningSessionAuthUnavailableError } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   getThresholdEcdsaSessionRecordByThresholdSessionId,
   thresholdEcdsaLaneCandidateFromSessionRecord,
@@ -66,14 +65,6 @@ async function resolveNearThresholdSigningAuthForTest(
 }
 
 test.describe('WarmSessionStore caller-facing error normalization', () => {
-  test('classifies required touch-confirm consume not_found as auth-unavailable for step-up retry', () => {
-    const error = new Error(
-      '[SigningSessionCoordinator] touch_confirm signing-session consume returned not_found',
-    );
-
-    expect(isSigningSessionAuthUnavailableError(error)).toBe(true);
-  });
-
   test('treats strict Router A/B passkey ECDSA records as ready without volatile status', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);

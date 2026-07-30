@@ -38,8 +38,8 @@ test('staging cohort configuration is pinned to the checked-in staging origins',
     mode: 'check',
     origins: {
       gateway: 'https://seams-sdk-d1-gateway-staging.n6378056.workers.dev',
-      site: 'https://seams-site-staging.pages.dev',
-      wallet: 'https://seams-wallet-staging.pages.dev',
+      site: 'https://staging.seams.sh',
+      wallet: 'https://staging.sign.seams.sh',
     },
     localSiteOrigin: 'http://127.0.0.1:37994',
   });
@@ -64,18 +64,14 @@ test('live staging cohort requires a frozen full commit SHA', () => {
 });
 
 if (REFACTOR93_STAGING_CONFIG.mode === 'live') {
+  // Narrowing the imported union does not survive into the test callbacks below.
+  const liveConfig = REFACTOR93_STAGING_CONFIG;
   test('live staging cohort binds the intended harness to staging', () => {
-    expect(process.env.SEAMS_INTENDED_APP_URL).toBe(REFACTOR93_STAGING_CONFIG.origins.site);
-    expect(process.env.SEAMS_INTENDED_ROUTER_URL).toBe(REFACTOR93_STAGING_CONFIG.origins.gateway);
-    expect(process.env.SEAMS_INTENDED_WALLET_ORIGIN).toBe(
-      REFACTOR93_STAGING_CONFIG.origins.wallet,
-    );
-    expect(process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID).toBe(
-      REFACTOR93_STAGING_CONFIG.projectEnvironmentId,
-    );
-    expect(process.env.SEAMS_INTENDED_PUBLISHABLE_KEY).toBe(
-      REFACTOR93_STAGING_CONFIG.publishableKey,
-    );
+    expect(process.env.SEAMS_INTENDED_APP_URL).toBe(liveConfig.origins.site);
+    expect(process.env.SEAMS_INTENDED_ROUTER_URL).toBe(liveConfig.origins.gateway);
+    expect(process.env.SEAMS_INTENDED_WALLET_ORIGIN).toBe(liveConfig.origins.wallet);
+    expect(process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID).toBe(liveConfig.projectEnvironmentId);
+    expect(process.env.SEAMS_INTENDED_PUBLISHABLE_KEY).toBe(liveConfig.publishableKey);
   });
   test(
     'staging registration redelivers exact terminal output for byte-identical replay',
