@@ -21,7 +21,6 @@ import {
   type EvmFamilyEcdsaSessionLanePolicy,
   type EvmFamilyEcdsaWalletKey,
   type HydratedEcdsaSignerMaterial,
-  type DurableEvmFamilyEcdsaPublicFactsRecord,
   type EmailOtpEcdsaAuthBinding,
   type WalletSessionJwtTransportAuth,
   type PasskeyEcdsaAuthBinding,
@@ -218,32 +217,6 @@ const invalidPublicFactsWithRawPublicKey: VerifiedEcdsaPublicFacts = {
   publicKeyB64u: 'raw-public-key',
 };
 void invalidPublicFactsWithRawPublicKey;
-
-const durablePublicFactsRecord: DurableEvmFamilyEcdsaPublicFactsRecord = {
-  ecdsaRestore: {
-    keyHandle,
-    thresholdEcdsaPublicKeyB64u: publicKeyB64u,
-    participantIds: key.participantIds,
-    ethereumAddress: key.thresholdOwnerAddress,
-  },
-};
-void durablePublicFactsRecord;
-
-const invalidDurablePublicFactsRecordWithSigningRoot: DurableEvmFamilyEcdsaPublicFactsRecord = {
-  ...durablePublicFactsRecord,
-  // @ts-expect-error durable public facts reject signing-root identity.
-  signingRootId: key.signingRootId,
-};
-void invalidDurablePublicFactsRecordWithSigningRoot;
-
-const invalidDurablePublicFactsRecordWithThresholdKeyId: DurableEvmFamilyEcdsaPublicFactsRecord = {
-  ecdsaRestore: {
-    ...durablePublicFactsRecord.ecdsaRestore,
-    // @ts-expect-error durable public facts reject threshold-key identity.
-    ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
-  },
-};
-void invalidDurablePublicFactsRecordWithThresholdKeyId;
 
 const passkeyBinding = buildPasskeyEcdsaAuthBinding({
   rpId: 'localhost',
