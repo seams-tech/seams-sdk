@@ -41,7 +41,6 @@ import {
   createDashboardGasSponsorshipPolicy,
   deleteDashboardGasSponsorshipPolicy,
   listDashboardGasSponsorshipPolicies,
-  publishDashboardGasSponsorshipPolicy,
   setDashboardGasSponsorshipPolicyEnabled,
   updateDashboardGasSponsorshipPolicy,
   type DashboardGasSponsorshipAllowedCall,
@@ -950,6 +949,10 @@ function formatRuleSummary(policy: DashboardGasSponsorshipPolicy): string {
   ].join(' / ');
 }
 
+function isGasSponsorshipPolicyEnabled(policy: DashboardGasSponsorshipPolicy): boolean {
+  return policy.publicationStatus === 'PUBLISHED' && policy.enabled;
+}
+
 export function GasSponsorshipPage(): React.JSX.Element {
   const { go } = useSiteRouter();
   const session = useDashboardConsoleSession();
@@ -1584,37 +1587,10 @@ export function GasSponsorshipPage(): React.JSX.Element {
       setMutationError('');
       setMutationNotice('');
       try {
-        await setDashboardGasSponsorshipPolicyEnabled(policy.id, !policy.enabled);
+        const enabled = !isGasSponsorshipPolicyEnabled(policy);
+        await setDashboardGasSponsorshipPolicyEnabled(policy.id, enabled);
         await loadGasPolicies();
-        setMutationNotice(
-          `${policy.name || policy.id} ${policy.enabled ? 'disabled' : 'enabled'}.`,
-        );
-      } catch (error: unknown) {
-        setMutationError(error instanceof Error ? error.message : String(error));
-      } finally {
-        setMutating(false);
-      }
-    },
-    [canMutatePolicy, loadGasPolicies, session.claims, session.errorMessage],
-  );
-
-  const onPublishPolicy = React.useCallback(
-    async (policy: DashboardGasSponsorshipPolicy) => {
-      if (!session.claims) {
-        setMutationError(session.errorMessage || 'Console session is unavailable');
-        return;
-      }
-      if (!canMutatePolicy) {
-        setMutationError('Owner, administrator, or project editor access is required.');
-        return;
-      }
-      setMutating(true);
-      setMutationError('');
-      setMutationNotice('');
-      try {
-        await publishDashboardGasSponsorshipPolicy(policy.id);
-        await loadGasPolicies();
-        setMutationNotice(`${policy.name || policy.id} published and activated.`);
+        setMutationNotice(`${policy.name || policy.id} ${enabled ? 'enabled' : 'disabled'}.`);
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -1820,10 +1796,12 @@ export function GasSponsorshipPage(): React.JSX.Element {
                   No gas sponsorship policies found for this environment yet.
                 </DashboardTableState>
               ) : (
-                gasPoliciesPagination.rows.map((policy) => (
-                  <DashboardTableRow
+                gasPoliciesPagination.rows.map((policy) => {
+                  const enabled = isGasSponsorshipPolicyEnabled(policy);
+                  return (
+                    <DashboardTableRow
                     className={`dashboard-gas-sponsorship-table__row${
-                      policy.enabled ? '' : ' dashboard-gas-sponsorship-table__row--disabled'
+                      enabled ? '' : ' dashboard-gas-sponsorship-table__row--disabled'
                     }`}
                     key={policy.id}
                   >
@@ -1834,13 +1812,12 @@ export function GasSponsorshipPage(): React.JSX.Element {
                         </strong>
                         <span
                           className={`dashboard-data-table__badge ${
-                            policy.enabled
+                            enabled
                               ? 'dashboard-data-table__badge--success'
                               : 'dashboard-data-table__badge--neutral'
                           }`}
                         >
-                          {policy.publicationStatus === 'PUBLISHED' ? 'Published' : 'Draft'} ·{' '}
-                          {policy.enabled ? 'Enabled' : 'Disabled'}
+                          {enabled ? 'Enabled' : 'Disabled'}
                         </span>
                       </span>
                     </DashboardTableCell>
@@ -1874,16 +1851,8 @@ export function GasSponsorshipPage(): React.JSX.Element {
                           onClick={() => onToggleEnabled(policy)}
                           disabled={!canMutatePolicy || mutating}
                         >
-                          {policy.enabled ? 'Disable' : 'Enable'}
+                          {enabled ? 'Disable' : 'Enable'}
                         </DashboardTableActionButton>
-                        {policy.publicationStatus !== 'PUBLISHED' ? (
-                          <DashboardTableActionButton
-                            onClick={() => onPublishPolicy(policy)}
-                            disabled={!canMutatePolicy || mutating}
-                          >
-                            Publish
-                          </DashboardTableActionButton>
-                        ) : null}
                         <DashboardTableActionButton
                           onClick={() => onDeletePolicy(policy)}
                           disabled={!canMutatePolicy || mutating}
@@ -1892,8 +1861,9 @@ export function GasSponsorshipPage(): React.JSX.Element {
                         </DashboardTableActionButton>
                       </DashboardTableActionGroup>
                     </DashboardTableCell>
-                  </DashboardTableRow>
-                ))
+                    </DashboardTableRow>
+                  );
+                })
               )}
             </DashboardTable>
           </section>
@@ -1944,8 +1914,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                     <div className="dashboard-gas-coverage__stat">
                       <span>Status</span>
                       <strong>
-                        {selectedPolicy.publicationStatus === 'PUBLISHED' ? 'Published' : 'Draft'} ·{' '}
-                        {selectedPolicy.enabled ? 'Enabled' : 'Disabled'}
+                        {isGasSponsorshipPolicyEnabled(selectedPolicy) ? 'Enabled' : 'Disabled'}
                       </strong>
                     </div>
                     <div className="dashboard-gas-coverage__stat">
