@@ -664,6 +664,8 @@ the replacement and legacy MPC paths must not ship together.
       custody in their secure owners.
 - [ ] Remove replaced worker entrypoints, loaders, manifest rows, and public
       exports.
+- [x] Delete the zero-caller wallet-host registration-preparation loader and
+      module-type exports; retain the single registration-surface preload entrypoint.
 - [x] Delete the zero-caller Router A/B ECDSA refresh-client-proof worker
       operation across its wrapper, channel, type map, and worker dispatch.
 - [x] Delete the unreachable Email OTP `session_bootstrap` worker branch and
