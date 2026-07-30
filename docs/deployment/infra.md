@@ -138,7 +138,7 @@ cross-run artifact inputs.
 | `ROUTER_AB_JWT_ISSUER`                                   | Router A/B deploy | JWT issuer accepted by the Router admission boundary.                          |
 | `ROUTER_AB_JWT_AUDIENCE`                                 | Router A/B deploy | JWT audience accepted by the Router; defaults operationally to `router-ab`.    |
 | `ROUTER_AB_JWT_JWKS_JSON`                                | Router A/B deploy | Public JWKS injected into Router JWT verification.                             |
-| `SPONSORED_EXECUTION_REAL_PRICING_JSON`                  | Gateway deploy    | On-chain Ref Finance NEAR/USDC pricing rules for sponsored execution.          |
+| `SPONSORED_EXECUTION_REAL_PRICING_JSON`                  | Gateway deploy    | On-chain Outlayer NEAR/USD pricing rules for sponsored execution.              |
 | `CONSOLE_BASE_URL`                                       | Console, Gateway  | Public console URL used in transactional email links.                          |
 | `CONSOLE_EMAIL_FROM`                                     | Gateway deploy    | Resend sender using a verified domain.                                         |
 | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`           | Router A/B deploy | Public key matching `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`.                     |

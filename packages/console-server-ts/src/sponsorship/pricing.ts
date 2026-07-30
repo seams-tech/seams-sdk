@@ -6,10 +6,7 @@ import type {
   SponsorshipSpendPricingQuote,
   SponsorshipSpendPricingService,
 } from './spendCaps';
-import {
-  isSponsorshipSpendCapEnforcementError,
-  SponsorshipSpendCapEnforcementError,
-} from './spendCaps';
+import { SponsorshipSpendCapEnforcementError } from './spendCaps';
 import type { ConsoleSponsoredCallChainFamily } from '../sponsoredCalls/types';
 
 type StaticSponsoredEvmSpendPricingRule = {
@@ -28,21 +25,21 @@ type StaticSponsoredNearSpendPricingRule = {
   pricingVersion: string;
 };
 
-type RefFinanceSponsoredEvmSpendPricingRule = {
+type OutlayerSponsoredEvmSpendPricingRule = {
   chainId: number;
   rpcUrl: string;
   nativeUnitDecimals: number;
   pricingVersionPrefix: string;
 };
 
-type RefFinanceSponsoredNearSpendPricingRule = {
+type OutlayerSponsoredNearSpendPricingRule = {
   networkClass: 'TESTNET' | 'MAINNET';
   nativeUnitDecimals: number;
   estimateFeeAmountYocto: bigint;
   pricingVersionPrefix: string;
 };
 
-type RefFinanceMarketPriceCacheEntry = {
+type OutlayerMarketPriceCacheEntry = {
   spendMinorNumerator: bigint;
   spendMinorDenominator: bigint;
   pricingVersion: string;
@@ -67,17 +64,15 @@ export interface StaticSponsoredExecutionPricingConfig {
   nearByChain: ReadonlyMap<number, StaticSponsoredNearSpendPricingRule>;
 }
 
-export interface RefFinanceSponsoredExecutionPricingConfig {
+export interface OutlayerSponsoredExecutionPricingConfig {
   nearRpcUrl: string;
-  dexContractId: string;
-  poolId: number;
-  nearTokenId: string;
-  usdcTokenId: string;
-  nearTokenDecimals: number;
-  usdcTokenDecimals: number;
+  oracleContractId: string;
+  nearUsdPriceId: string;
+  maxAgeSeconds: number;
+  maxLatestToEmaDeviationBps: number;
   cacheTtlMs: number;
-  evmByChain: ReadonlyMap<number, RefFinanceSponsoredEvmSpendPricingRule>;
-  nearByChain: ReadonlyMap<number, RefFinanceSponsoredNearSpendPricingRule>;
+  evmByChain: ReadonlyMap<number, OutlayerSponsoredEvmSpendPricingRule>;
+  nearByChain: ReadonlyMap<number, OutlayerSponsoredNearSpendPricingRule>;
 }
 
 export interface ChainFamilySponsoredExecutionPricingConfig {
@@ -210,27 +205,6 @@ function normalizeUrlPath(value: string): string {
   return value.endsWith('/') ? value.slice(0, -1) : value;
 }
 
-function normalizeApiBaseUrl(value: unknown, fallback: string): string {
-  const normalized = normalizeUrlPath(String(value || '').trim() || fallback);
-  try {
-    return normalizeUrlPath(new URL(normalized).toString());
-  } catch {
-    return normalizeUrlPath(fallback);
-  }
-}
-
-function readCacheTtlMs(value: unknown, fallback: number): number {
-  const parsed = parseOptionalPositiveInteger(value);
-  return parsed && parsed > 0 ? parsed : fallback;
-}
-
-function readNativeUnitDecimals(value: unknown, fallback: number): number {
-  if (value === undefined || value === null || value === '') return fallback;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 36) return fallback;
-  return parsed;
-}
-
 function quoteFromRule(input: {
   rule: StaticSponsoredEvmSpendPricingRule;
   feeAmount: bigint;
@@ -285,10 +259,10 @@ function resolveStaticNearPricingRule(
   );
 }
 
-function resolveRefFinanceEvmPricingRule(
-  config: RefFinanceSponsoredExecutionPricingConfig,
+function resolveOutlayerEvmPricingRule(
+  config: OutlayerSponsoredExecutionPricingConfig,
   chainId: number,
-): RefFinanceSponsoredEvmSpendPricingRule {
+): OutlayerSponsoredEvmSpendPricingRule {
   const rule = config.evmByChain.get(chainId) || null;
   if (rule) return rule;
   throw new SponsorshipSpendCapEnforcementError(
@@ -298,10 +272,10 @@ function resolveRefFinanceEvmPricingRule(
   );
 }
 
-function resolveRefFinanceNearPricingRule(
-  config: RefFinanceSponsoredExecutionPricingConfig,
+function resolveOutlayerNearPricingRule(
+  config: OutlayerSponsoredExecutionPricingConfig,
   chainId: number,
-): RefFinanceSponsoredNearSpendPricingRule {
+): OutlayerSponsoredNearSpendPricingRule {
   const rule = config.nearByChain.get(chainId) || null;
   if (rule) return rule;
   throw new SponsorshipSpendCapEnforcementError(
@@ -360,13 +334,13 @@ async function fetchJsonRpcResult(
   return payload.result;
 }
 
-function requirePositiveInteger(value: unknown, label: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+function requireSafeInteger(value: unknown, label: string): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isSafeInteger(parsed)) {
     throw new SponsorshipSpendCapEnforcementError(
       'sponsorship_pricing_invalid',
       500,
-      `${label} must be a positive integer`,
+      `${label} must be a safe integer`,
     );
   }
   return parsed;
@@ -376,25 +350,20 @@ function encodeJsonBase64(value: unknown): string {
   return btoa(JSON.stringify(value));
 }
 
-function parseRefFinancePoolResult(input: {
-  result: unknown;
-  nearTokenId: string;
-  usdcTokenId: string;
-}): {
-  nearReserve: bigint;
-  usdcReserve: bigint;
-  blockHeight: number;
-} {
-  const queryResult = requireRecord(input.result, 'Ref Finance RPC query result');
-  const blockHeight = requirePositiveInteger(
-    queryResult.block_height,
-    'Ref Finance RPC query result.block_height',
-  );
+function parseNearContractJsonResult(input: { result: unknown; label: string }): unknown {
+  const queryResult = requireRecord(input.result, `${input.label} RPC query result`);
+  if (queryResult.error) {
+    throw new SponsorshipSpendCapEnforcementError(
+      'sponsorship_pricing_unavailable',
+      503,
+      `${input.label} contract call failed: ${String(queryResult.error)}`,
+    );
+  }
   if (!Array.isArray(queryResult.result)) {
     throw new SponsorshipSpendCapEnforcementError(
       'sponsorship_pricing_invalid',
       500,
-      'Ref Finance RPC query result.result must be a byte array',
+      `${input.label} RPC query result.result must be a byte array`,
     );
   }
   const bytes = queryResult.result.map((value, index) => {
@@ -403,97 +372,191 @@ function parseRefFinancePoolResult(input: {
       throw new SponsorshipSpendCapEnforcementError(
         'sponsorship_pricing_invalid',
         500,
-        `Ref Finance RPC query result.result[${index}] must be a byte`,
+        `${input.label} RPC query result.result[${index}] must be a byte`,
       );
     }
     return byte;
   });
-  let pool: Record<string, unknown>;
   try {
-    pool = requireRecord(
-      JSON.parse(new TextDecoder().decode(Uint8Array.from(bytes))),
-      'Ref Finance pool',
-    );
+    return JSON.parse(new TextDecoder().decode(Uint8Array.from(bytes)));
   } catch (error: unknown) {
-    if (isSponsorshipSpendCapEnforcementError(error)) throw error;
     throw new SponsorshipSpendCapEnforcementError(
       'sponsorship_pricing_invalid',
       500,
-      `Ref Finance pool response is invalid JSON: ${
+      `${input.label} response is invalid JSON: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
   }
-  if (!Array.isArray(pool.token_account_ids) || !Array.isArray(pool.amounts)) {
-    throw new SponsorshipSpendCapEnforcementError(
-      'sponsorship_pricing_invalid',
-      500,
-      'Ref Finance pool must contain token_account_ids and amounts arrays',
-    );
-  }
-  const nearIndex = pool.token_account_ids.indexOf(input.nearTokenId);
-  const usdcIndex = pool.token_account_ids.indexOf(input.usdcTokenId);
-  if (nearIndex < 0 || usdcIndex < 0 || nearIndex === usdcIndex) {
-    throw new SponsorshipSpendCapEnforcementError(
-      'sponsorship_pricing_invalid',
-      500,
-      'Configured Ref Finance pool does not contain the expected NEAR and USDC tokens',
-    );
-  }
-  const nearReserve = requireNonNegativeBigInt(
-    pool.amounts[nearIndex],
-    'Ref Finance NEAR reserve',
-  );
-  const usdcReserve = requireNonNegativeBigInt(
-    pool.amounts[usdcIndex],
-    'Ref Finance USDC reserve',
-  );
-  if (nearReserve === 0n || usdcReserve === 0n) {
+}
+
+type ParsedOutlayerPrice = {
+  ratio: DecimalRatio;
+  publishTimeSeconds: number;
+};
+
+function parseOutlayerPrice(input: {
+  value: unknown;
+  label: string;
+  nowMs: number;
+  maxAgeSeconds: number;
+}): ParsedOutlayerPrice {
+  if (input.value === null || input.value === undefined) {
     throw new SponsorshipSpendCapEnforcementError(
       'sponsorship_pricing_unavailable',
       503,
-      'Configured Ref Finance pool has no liquidity',
+      `${input.label} is unavailable`,
     );
   }
+  const price = requireRecord(input.value, input.label);
+  const priceValue = requireSafeInteger(price.price, `${input.label}.price`);
+  if (priceValue <= 0) {
+    throw new SponsorshipSpendCapEnforcementError(
+      'sponsorship_pricing_invalid',
+      500,
+      `${input.label}.price must be positive`,
+    );
+  }
+  const exponent = requireSafeInteger(price.expo, `${input.label}.expo`);
+  if (exponent < -36 || exponent > 36) {
+    throw new SponsorshipSpendCapEnforcementError(
+      'sponsorship_pricing_invalid',
+      500,
+      `${input.label}.expo must be between -36 and 36`,
+    );
+  }
+  const publishTimeSeconds = requireSafeInteger(price.publish_time, `${input.label}.publish_time`);
+  if (publishTimeSeconds <= 0) {
+    throw new SponsorshipSpendCapEnforcementError(
+      'sponsorship_pricing_invalid',
+      500,
+      `${input.label}.publish_time must be positive`,
+    );
+  }
+  const ageMs = input.nowMs - publishTimeSeconds * 1000;
+  if (ageMs < -30_000) {
+    throw new SponsorshipSpendCapEnforcementError(
+      'sponsorship_pricing_invalid',
+      500,
+      `${input.label}.publish_time is in the future`,
+    );
+  }
+  if (ageMs > input.maxAgeSeconds * 1000) {
+    throw new SponsorshipSpendCapEnforcementError(
+      'sponsorship_pricing_unavailable',
+      503,
+      `${input.label} is stale`,
+    );
+  }
+  const scale = 10n ** BigInt(Math.abs(exponent));
+  const unsignedPrice = BigInt(priceValue);
   return {
-    nearReserve,
-    usdcReserve,
-    blockHeight,
+    ratio:
+      exponent >= 0
+        ? {
+            numerator: unsignedPrice * 100n * scale,
+            denominator: 1n,
+          }
+        : {
+            numerator: unsignedPrice * 100n,
+            denominator: scale,
+          },
+    publishTimeSeconds,
   };
 }
 
-async function fetchRefFinanceNearUsdPrice(input: {
-  config: RefFinanceSponsoredExecutionPricingConfig;
+function assertLatestWithinEmaDeviation(input: {
+  latest: DecimalRatio;
+  ema: DecimalRatio;
+  maxDeviationBps: number;
+}): void {
+  const latestScaled = input.latest.numerator * input.ema.denominator;
+  const emaScaled = input.ema.numerator * input.latest.denominator;
+  const difference =
+    latestScaled >= emaScaled ? latestScaled - emaScaled : emaScaled - latestScaled;
+  if (difference * 10_000n <= emaScaled * BigInt(input.maxDeviationBps)) return;
+  throw new SponsorshipSpendCapEnforcementError(
+    'sponsorship_pricing_unavailable',
+    503,
+    `Outlayer NEAR/USD latest price exceeds the ${input.maxDeviationBps} bps EMA deviation limit`,
+  );
+}
+
+async function fetchOutlayerNearUsdPrice(input: {
+  config: OutlayerSponsoredExecutionPricingConfig;
   fetchImpl: typeof fetch;
-}): Promise<{ spendMinorRatio: DecimalRatio; pricingVersion: string }> {
-  const result = await fetchJsonRpcResult(
+  nowMs: number;
+}): Promise<{
+  spendMinorRatio: DecimalRatio;
+  pricingVersion: string;
+  freshnessExpiresAtMs: number;
+}> {
+  const [latestResult, emaResult] = await Promise.all([
+    fetchOutlayerPriceMethod({
+      config: input.config,
+      fetchImpl: input.fetchImpl,
+      methodName: 'get_price',
+      args: { price_identifier: input.config.nearUsdPriceId },
+    }),
+    fetchOutlayerPriceMethod({
+      config: input.config,
+      fetchImpl: input.fetchImpl,
+      methodName: 'get_ema_price',
+      args: { price_id: input.config.nearUsdPriceId },
+    }),
+  ]);
+  const latest = parseOutlayerPrice({
+    value: parseNearContractJsonResult({
+      result: latestResult,
+      label: 'Outlayer NEAR/USD latest price',
+    }),
+    label: 'Outlayer NEAR/USD latest price',
+    nowMs: input.nowMs,
+    maxAgeSeconds: input.config.maxAgeSeconds,
+  });
+  const ema = parseOutlayerPrice({
+    value: parseNearContractJsonResult({
+      result: emaResult,
+      label: 'Outlayer NEAR/USD EMA price',
+    }),
+    label: 'Outlayer NEAR/USD EMA price',
+    nowMs: input.nowMs,
+    maxAgeSeconds: input.config.maxAgeSeconds,
+  });
+  assertLatestWithinEmaDeviation({
+    latest: latest.ratio,
+    ema: ema.ratio,
+    maxDeviationBps: input.config.maxLatestToEmaDeviationBps,
+  });
+  return {
+    spendMinorRatio: latest.ratio,
+    pricingVersion:
+      `outlayer:${input.config.oracleContractId}:near-usd:${latest.publishTimeSeconds}:` +
+      `ema-guard-${input.config.maxLatestToEmaDeviationBps}bps`,
+    freshnessExpiresAtMs:
+      Math.min(latest.publishTimeSeconds, ema.publishTimeSeconds) * 1000 +
+      input.config.maxAgeSeconds * 1000,
+  };
+}
+
+function fetchOutlayerPriceMethod(input: {
+  config: OutlayerSponsoredExecutionPricingConfig;
+  fetchImpl: typeof fetch;
+  methodName: 'get_price' | 'get_ema_price';
+  args: Readonly<Record<string, string>>;
+}): Promise<unknown> {
+  return fetchJsonRpcResult(
     input.config.nearRpcUrl,
     'query',
     {
       request_type: 'call_function',
       finality: 'final',
-      account_id: input.config.dexContractId,
-      method_name: 'get_pool',
-      args_base64: encodeJsonBase64({ pool_id: input.config.poolId }),
+      account_id: input.config.oracleContractId,
+      method_name: input.methodName,
+      args_base64: encodeJsonBase64(input.args),
     },
     input.fetchImpl,
   );
-  const pool = parseRefFinancePoolResult({
-    result,
-    nearTokenId: input.config.nearTokenId,
-    usdcTokenId: input.config.usdcTokenId,
-  });
-  return {
-    spendMinorRatio: {
-      numerator:
-        pool.usdcReserve *
-        100n *
-        10n ** BigInt(input.config.nearTokenDecimals),
-      denominator:
-        pool.nearReserve * 10n ** BigInt(input.config.usdcTokenDecimals),
-    },
-    pricingVersion: `ref-finance:${input.config.dexContractId}:pool-${input.config.poolId}:block-${pool.blockHeight}`,
-  };
 }
 
 function quoteFromMarketPrice(input: {
@@ -506,14 +569,16 @@ function quoteFromMarketPrice(input: {
     spendMinor: computeQuotedSpendMinor({
       feeAmount: input.feeAmount,
       numerator: input.spendMinorRatio.numerator,
-      denominator: (10n ** BigInt(input.nativeUnitDecimals)) * input.spendMinorRatio.denominator,
+      denominator: 10n ** BigInt(input.nativeUnitDecimals) * input.spendMinorRatio.denominator,
     }),
     pricingVersion: input.pricingVersion,
   };
 }
 
 function parseNearPricingNetworkClass(value: unknown): 'TESTNET' | 'MAINNET' | null {
-  const normalized = String(value || '').trim().toUpperCase();
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
   if (normalized === 'TESTNET' || normalized === 'MAINNET') {
     return normalized;
   }
@@ -589,8 +654,8 @@ export function createStaticSponsoredExecutionPricingService(
   };
 }
 
-export function createRefFinanceSponsoredExecutionPricingService(
-  config: RefFinanceSponsoredExecutionPricingConfig,
+export function createOutlayerSponsoredExecutionPricingService(
+  config: OutlayerSponsoredExecutionPricingConfig,
   options?: {
     fetch?: typeof fetch;
     now?: () => number;
@@ -598,7 +663,7 @@ export function createRefFinanceSponsoredExecutionPricingService(
 ): SponsorshipSpendPricingService {
   const fetchImpl = resolveSponsorshipPricingFetch(options?.fetch);
   const now = options?.now || (() => Date.now());
-  let marketPriceCache: RefFinanceMarketPriceCacheEntry | null = null;
+  let marketPriceCache: OutlayerMarketPriceCacheEntry | null = null;
 
   const resolveMarketPrice = async (): Promise<{
     spendMinorRatio: DecimalRatio;
@@ -614,15 +679,16 @@ export function createRefFinanceSponsoredExecutionPricingService(
         pricingVersion: marketPriceCache.pricingVersion,
       };
     }
-    const fetched = await fetchRefFinanceNearUsdPrice({
+    const fetched = await fetchOutlayerNearUsdPrice({
       config,
       fetchImpl,
+      nowMs: currentMs,
     });
     marketPriceCache = {
       spendMinorNumerator: fetched.spendMinorRatio.numerator,
       spendMinorDenominator: fetched.spendMinorRatio.denominator,
       pricingVersion: fetched.pricingVersion,
-      expiresAtMs: currentMs + config.cacheTtlMs,
+      expiresAtMs: Math.min(currentMs + config.cacheTtlMs, fetched.freshnessExpiresAtMs),
     };
     return fetched;
   };
@@ -632,7 +698,7 @@ export function createRefFinanceSponsoredExecutionPricingService(
       input: SponsorshipSpendPricingEstimateInput,
     ): Promise<SponsorshipSpendPricingQuote> {
       if (input.chainFamily === 'near') {
-        const rule = resolveRefFinanceNearPricingRule(config, input.chainId);
+        const rule = resolveOutlayerNearPricingRule(config, input.chainId);
         const marketPrice = await resolveMarketPrice();
         return quoteFromMarketPrice({
           feeAmount: rule.estimateFeeAmountYocto,
@@ -648,7 +714,7 @@ export function createRefFinanceSponsoredExecutionPricingService(
           `Real sponsored spend pricing does not support ${input.chainFamily}`,
         );
       }
-      const rule = resolveRefFinanceEvmPricingRule(config, input.chainId);
+      const rule = resolveOutlayerEvmPricingRule(config, input.chainId);
       const gasLimit = extractGasLimitForEvmEstimate(input.requestDetails);
       const gasPriceHex = await fetchJsonRpcResult(rule.rpcUrl, 'eth_gasPrice', [], fetchImpl);
       const gasPriceWei = requireNonNegativeBigInt(gasPriceHex, 'pricing RPC eth_gasPrice result');
@@ -672,7 +738,7 @@ export function createRefFinanceSponsoredExecutionPricingService(
             `Real sponsored spend pricing expected feeUnit yocto_near, received ${input.feeUnit}`,
           );
         }
-        const rule = resolveRefFinanceNearPricingRule(config, input.chainId);
+        const rule = resolveOutlayerNearPricingRule(config, input.chainId);
         const marketPrice = await resolveMarketPrice();
         return quoteFromMarketPrice({
           feeAmount: requireNonNegativeBigInt(input.feeAmount, 'feeAmount'),
@@ -693,9 +759,9 @@ export function createRefFinanceSponsoredExecutionPricingService(
           'sponsorship_pricing_invalid',
           500,
           `Real sponsored spend pricing expected feeUnit wei, received ${input.feeUnit}`,
-          );
+        );
       }
-      const rule = resolveRefFinanceEvmPricingRule(config, input.chainId);
+      const rule = resolveOutlayerEvmPricingRule(config, input.chainId);
       const marketPrice = await resolveMarketPrice();
       return quoteFromMarketPrice({
         feeAmount: requireNonNegativeBigInt(input.feeAmount, 'feeAmount'),
@@ -799,7 +865,54 @@ export function resolveStaticSponsoredExecutionPricingFromEnv(
   });
 }
 
-export function resolveRefFinanceSponsoredExecutionPricingFromEnv(
+function invalidRealPricingConfig(message: string): never {
+  throw new SponsorshipSpendCapEnforcementError(
+    'sponsorship_pricing_invalid',
+    500,
+    `SPONSORED_EXECUTION_REAL_PRICING_JSON ${message}`,
+  );
+}
+
+function requireRealPricingString(value: unknown, field: string): string {
+  const normalized = String(value || '').trim();
+  if (!normalized) invalidRealPricingConfig(`requires ${field}`);
+  return normalized;
+}
+
+function requireRealPricingPositiveInteger(value: unknown, field: string): number {
+  const parsed = parseOptionalPositiveInteger(value);
+  if (!parsed) invalidRealPricingConfig(`requires positive integer ${field}`);
+  return parsed;
+}
+
+function requireRealPricingDecimals(value: unknown, field: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 36) {
+    return invalidRealPricingConfig(`requires integer ${field} between 0 and 36`);
+  }
+  return parsed;
+}
+
+function requireRealPricingBigInt(
+  value: unknown,
+  field: string,
+  options?: { allowZero?: boolean },
+): bigint {
+  const parsed = parseOptionalBigIntLiteral(value, options);
+  if (parsed === null) invalidRealPricingConfig(`requires integer ${field}`);
+  return parsed;
+}
+
+function requireRealPricingUrl(value: unknown, field: string): string {
+  const normalized = requireRealPricingString(value, field);
+  try {
+    return normalizeUrlPath(new URL(normalized).toString());
+  } catch {
+    return invalidRealPricingConfig(`requires valid URL ${field}`);
+  }
+}
+
+export function resolveOutlayerSponsoredExecutionPricingFromEnv(
   env: SponsoredExecutionPricingEnv,
 ): SponsorshipSpendPricingService | null {
   const raw = String(env.SPONSORED_EXECUTION_REAL_PRICING_JSON || '').trim();
@@ -808,80 +921,116 @@ export function resolveRefFinanceSponsoredExecutionPricingFromEnv(
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return null;
+    return invalidRealPricingConfig('must be valid JSON');
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return invalidRealPricingConfig('must be an object');
+  }
   const root = parsed as Record<string, unknown>;
-  const provider = String(root.provider || '').trim().toLowerCase();
-  if (provider !== 'ref_finance') return null;
-  const poolId = parseOptionalPositiveInteger(root.poolId);
-  const dexContractId = String(root.dexContractId || '').trim();
-  const nearTokenId = String(root.nearTokenId || '').trim();
-  const usdcTokenId = String(root.usdcTokenId || '').trim();
-  if (!poolId || !dexContractId || !nearTokenId || !usdcTokenId) return null;
+  const provider = String(root.provider || '')
+    .trim()
+    .toLowerCase();
+  if (provider !== 'outlayer') {
+    return invalidRealPricingConfig('requires provider "outlayer"');
+  }
+  const oracleContractId = requireRealPricingString(root.oracleContractId, 'oracleContractId');
+  const nearUsdPriceId = requireRealPricingString(root.nearUsdPriceId, 'nearUsdPriceId');
+  if (!/^[0-9a-f]{64}$/i.test(nearUsdPriceId)) {
+    return invalidRealPricingConfig('requires a 64-character hexadecimal nearUsdPriceId');
+  }
+  const maxAgeSeconds = requireRealPricingPositiveInteger(root.maxAgeSeconds, 'maxAgeSeconds');
+  const maxLatestToEmaDeviationBps = requireRealPricingPositiveInteger(
+    root.maxLatestToEmaDeviationBps,
+    'maxLatestToEmaDeviationBps',
+  );
+  if (maxLatestToEmaDeviationBps > 10_000) {
+    return invalidRealPricingConfig('maxLatestToEmaDeviationBps must not exceed 10000');
+  }
+  const cacheTtlMs = requireRealPricingPositiveInteger(root.cacheTtlMs, 'cacheTtlMs');
+  if (cacheTtlMs > maxAgeSeconds * 1000) {
+    return invalidRealPricingConfig('cacheTtlMs must not exceed maxAgeSeconds');
+  }
 
-  const evmByChain = new Map<number, RefFinanceSponsoredEvmSpendPricingRule>();
+  const evmByChain = new Map<number, OutlayerSponsoredEvmSpendPricingRule>();
   const evmSection = root.evm;
-  if (evmSection && typeof evmSection === 'object' && !Array.isArray(evmSection)) {
+  if (evmSection !== undefined) {
+    if (!evmSection || typeof evmSection !== 'object' || Array.isArray(evmSection)) {
+      return invalidRealPricingConfig('requires object evm');
+    }
     for (const [chainIdRaw, value] of Object.entries(evmSection as Record<string, unknown>)) {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return invalidRealPricingConfig(`requires object evm.${chainIdRaw}`);
+      }
       const row = value as Record<string, unknown>;
-      const chainId =
-        parseOptionalPositiveInteger(chainIdRaw) ||
-        parseOptionalPositiveInteger(row.chainId) ||
-        undefined;
-      const rpcUrl = String(row.rpcUrl || '').trim();
-      if (!chainId || !rpcUrl) continue;
-      if (evmByChain.has(chainId)) return null;
+      const chainId = parseOptionalPositiveInteger(chainIdRaw);
+      if (!chainId)
+        invalidRealPricingConfig(`requires positive integer EVM chain id ${chainIdRaw}`);
+      if (evmByChain.has(chainId)) {
+        return invalidRealPricingConfig(`contains duplicate EVM chain id ${chainId}`);
+      }
       evmByChain.set(chainId, {
         chainId,
-        rpcUrl,
-        nativeUnitDecimals: readNativeUnitDecimals(row.nativeUnitDecimals, 18),
-        pricingVersionPrefix: normalizePricingVersion(
+        rpcUrl: requireRealPricingUrl(row.rpcUrl, `evm.${chainId}.rpcUrl`),
+        nativeUnitDecimals: requireRealPricingDecimals(
+          row.nativeUnitDecimals,
+          `evm.${chainId}.nativeUnitDecimals`,
+        ),
+        pricingVersionPrefix: requireRealPricingString(
           row.pricingVersionPrefix,
-          `ref-finance-evm-${chainId}`,
+          `evm.${chainId}.pricingVersionPrefix`,
         ),
       });
     }
   }
 
-  const nearByChain = new Map<number, RefFinanceSponsoredNearSpendPricingRule>();
+  const nearByChain = new Map<number, OutlayerSponsoredNearSpendPricingRule>();
   const nearSection = root.near;
-  if (nearSection && typeof nearSection === 'object' && !Array.isArray(nearSection)) {
+  if (nearSection !== undefined) {
+    if (!nearSection || typeof nearSection !== 'object' || Array.isArray(nearSection)) {
+      return invalidRealPricingConfig('requires object near');
+    }
     for (const [networkClassRaw, value] of Object.entries(nearSection as Record<string, unknown>)) {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return invalidRealPricingConfig(`requires object near.${networkClassRaw}`);
+      }
       const row = value as Record<string, unknown>;
-      const networkClass =
-        parseNearPricingNetworkClass(networkClassRaw) ||
-        parseNearPricingNetworkClass(row.networkClass);
-      const estimateFeeAmountYocto = parseOptionalBigIntLiteral(row.estimateFeeAmountYocto, {
-        allowZero: true,
-      });
-      if (!networkClass || estimateFeeAmountYocto === null) continue;
+      const networkClass = parseNearPricingNetworkClass(networkClassRaw);
+      if (!networkClass) {
+        return invalidRealPricingConfig(`requires TESTNET or MAINNET key near.${networkClassRaw}`);
+      }
       const chainId = getNearSpendCapChainId(networkClass);
-      if (nearByChain.has(chainId)) return null;
+      if (nearByChain.has(chainId)) {
+        return invalidRealPricingConfig(`contains duplicate NEAR network ${networkClass}`);
+      }
       nearByChain.set(chainId, {
         networkClass,
-        nativeUnitDecimals: readNativeUnitDecimals(row.nativeUnitDecimals, 24),
-        estimateFeeAmountYocto,
-        pricingVersionPrefix: normalizePricingVersion(
+        nativeUnitDecimals: requireRealPricingDecimals(
+          row.nativeUnitDecimals,
+          `near.${networkClass}.nativeUnitDecimals`,
+        ),
+        estimateFeeAmountYocto: requireRealPricingBigInt(
+          row.estimateFeeAmountYocto,
+          `near.${networkClass}.estimateFeeAmountYocto`,
+          { allowZero: true },
+        ),
+        pricingVersionPrefix: requireRealPricingString(
           row.pricingVersionPrefix,
-          `ref-finance-near-${networkClass.toLowerCase()}`,
+          `near.${networkClass}.pricingVersionPrefix`,
         ),
       });
     }
   }
 
-  if (evmByChain.size === 0 && nearByChain.size === 0) return null;
-  return createRefFinanceSponsoredExecutionPricingService({
-    nearRpcUrl: normalizeApiBaseUrl(root.nearRpcUrl, 'https://rpc.mainnet.near.org'),
-    dexContractId,
-    poolId,
-    nearTokenId,
-    usdcTokenId,
-    nearTokenDecimals: readNativeUnitDecimals(root.nearTokenDecimals, 24),
-    usdcTokenDecimals: readNativeUnitDecimals(root.usdcTokenDecimals, 6),
-    cacheTtlMs: readCacheTtlMs(root.cacheTtlMs, 5 * 60 * 1000),
+  if (evmByChain.size === 0 && nearByChain.size === 0) {
+    return invalidRealPricingConfig('requires at least one valid EVM or NEAR rule');
+  }
+  return createOutlayerSponsoredExecutionPricingService({
+    nearRpcUrl: requireRealPricingUrl(root.nearRpcUrl, 'nearRpcUrl'),
+    oracleContractId,
+    nearUsdPriceId: nearUsdPriceId.toLowerCase(),
+    maxAgeSeconds,
+    maxLatestToEmaDeviationBps,
+    cacheTtlMs,
     evmByChain,
     nearByChain,
   });
@@ -894,7 +1043,7 @@ export function resolveSponsoredExecutionPricingFromEnv(
     return pricingServiceByEnv.get(env) || null;
   }
   const service =
-    resolveRefFinanceSponsoredExecutionPricingFromEnv(env) ||
+    resolveOutlayerSponsoredExecutionPricingFromEnv(env) ||
     resolveStaticSponsoredExecutionPricingFromEnv(env);
   pricingServiceByEnv.set(env, service);
   return service;

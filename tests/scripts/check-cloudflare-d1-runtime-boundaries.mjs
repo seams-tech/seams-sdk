@@ -94,7 +94,7 @@ const forbiddenCloudflareD1EnvPricingPatterns = [
         message: 'reads sponsored execution pricing from Worker env instead of Console D1',
     },
     {
-        pattern: /\bresolve(?:Static|RefFinance|Sponsored)SponsoredExecutionPricingFromEnv\b/,
+        pattern: /\bresolve(?:Static|Outlayer|Sponsored)SponsoredExecutionPricingFromEnv\b/,
         message: 'constructs sponsored execution pricing from Worker env instead of Console D1',
     },
 ];
