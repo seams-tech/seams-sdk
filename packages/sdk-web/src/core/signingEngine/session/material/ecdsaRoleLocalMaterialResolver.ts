@@ -15,12 +15,9 @@ import {
   openEcdsaRoleLocalSigningMaterialWasm,
   type OpenEcdsaRoleLocalSigningMaterialWasmResult,
 } from '../../threshold/crypto/ecdsaDerivationClientWasm';
-import {
-  parseEcdsaRoleLocalPersistedMaterialRef,
-  parseEcdsaRoleLocalWorkerHandle,
-  type EcdsaRoleLocalDurableMaterialRef,
-  type EcdsaRoleLocalPersistedMaterialRef,
-  type EcdsaRoleLocalWorkerHandle,
+import type {
+  EcdsaRoleLocalPersistedMaterialRef,
+  EcdsaRoleLocalWorkerHandle,
 } from '../keyMaterialBrands';
 
 const persistedMaterialBrand: unique symbol = Symbol('persisted-ecdsa-role-local-material');
@@ -89,13 +86,6 @@ export type EcdsaRoleLocalMaterialResolution =
       readonly liveHandle?: never;
       readonly materialRef?: never;
     };
-
-export type LiveEcdsaRoleLocalMaterial = {
-  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
-  readonly liveHandle: EcdsaRoleLocalWorkerHandle;
-};
-
-const liveMaterialsByExactIdentity = new Map<string, LiveEcdsaRoleLocalMaterial>();
 
 export function ecdsaRoleLocalActiveStateId(
   publicFacts: EcdsaRoleLocalPublicFacts,
@@ -224,128 +214,6 @@ export function unavailableEcdsaRoleLocalMaterialSource(): EcdsaRoleLocalMateria
   };
 }
 
-export function bindLiveEcdsaRoleLocalMaterial(input: {
-  readonly persistedMaterial: PersistedEcdsaRoleLocalMaterial;
-  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
-  readonly liveHandle: EcdsaRoleLocalWorkerHandle;
-}): EcdsaRoleLocalWorkerHandle {
-  return bindLiveEcdsaRoleLocalMaterialRef({
-    persistedMaterial: input.persistedMaterial,
-    materialRef: input.materialRef,
-    liveHandle: input.liveHandle,
-  });
-}
-
-export function requireMatchingLiveEcdsaRoleLocalMaterial(input: {
-  readonly persistedMaterial: PersistedEcdsaRoleLocalMaterial;
-  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
-  readonly liveHandle: EcdsaRoleLocalWorkerHandle;
-}): EcdsaRoleLocalWorkerHandle {
-  return requireMatchingLiveEcdsaRoleLocalMaterialRef({
-    persistedMaterial: input.persistedMaterial,
-    materialRef: input.materialRef,
-    liveHandle: input.liveHandle,
-  });
-}
-
-function requireMatchingLiveEcdsaRoleLocalMaterialRef(input: {
-  readonly persistedMaterial: PersistedEcdsaRoleLocalMaterial;
-  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
-  readonly liveHandle: EcdsaRoleLocalWorkerHandle;
-}): EcdsaRoleLocalWorkerHandle {
-  const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(input.materialRef);
-  const liveHandle = parseEcdsaRoleLocalWorkerHandle(input.liveHandle);
-  if (
-    !mpcMaterialActivationRefsEqual(
-      materialRef.materialActivation,
-      input.persistedMaterial.materialActivation,
-    ) ||
-    !materialRefMatchesPublicFacts(materialRef, input.persistedMaterial.publicFacts)
-  ) {
-    throw new Error(
-      '[SigningEngine] ECDSA role-local material reference does not match exact activation identity',
-    );
-  }
-  if (!liveHandleMatchesMaterialRef(liveHandle, materialRef)) {
-    throw new Error(
-      '[SigningEngine] ECDSA role-local live worker handle does not match persisted material',
-    );
-  }
-  return liveHandle;
-}
-
-export function getLiveEcdsaRoleLocalMaterial(
-  persistedMaterial: PersistedEcdsaRoleLocalMaterial,
-): EcdsaRoleLocalWorkerHandle | null {
-  return getLiveEcdsaRoleLocalMaterialBinding(persistedMaterial)?.liveHandle ?? null;
-}
-
-function exactMaterialIdentityKey(
-  persistedMaterial: Pick<PersistedEcdsaRoleLocalMaterial, 'authority' | 'materialActivation'>,
-): string {
-  const activation = persistedMaterial.materialActivation;
-  return JSON.stringify([
-    persistedMaterial.authority.walletId,
-    persistedMaterial.authority.authorityDigest,
-    activation.activationId,
-    activation.capability,
-    activation.materialOwner,
-    activation.keyBinding,
-    activation.lifecycleBinding,
-    activation.signingWorker,
-  ]);
-}
-
-export function getLiveEcdsaRoleLocalMaterialBinding(
-  persistedMaterial: PersistedEcdsaRoleLocalMaterial,
-): LiveEcdsaRoleLocalMaterial | null {
-  const binding = liveMaterialsByExactIdentity.get(exactMaterialIdentityKey(persistedMaterial));
-  if (
-    !binding ||
-    !liveHandleMatchesMaterialRef(binding.liveHandle, binding.materialRef) ||
-    !mpcMaterialActivationRefsEqual(
-      binding.materialRef.materialActivation,
-      persistedMaterial.materialActivation,
-    ) ||
-    !materialRefMatchesPublicFacts(binding.materialRef, persistedMaterial.publicFacts)
-  ) {
-    return null;
-  }
-  return binding;
-}
-
-function bindLiveEcdsaRoleLocalMaterialRef(input: {
-  readonly persistedMaterial: PersistedEcdsaRoleLocalMaterial;
-  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
-  readonly liveHandle: EcdsaRoleLocalWorkerHandle;
-}): EcdsaRoleLocalWorkerHandle {
-  const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(input.materialRef);
-  const liveHandle = requireMatchingLiveEcdsaRoleLocalMaterialRef({
-    persistedMaterial: input.persistedMaterial,
-    materialRef,
-    liveHandle: input.liveHandle,
-  });
-  liveMaterialsByExactIdentity.set(exactMaterialIdentityKey(input.persistedMaterial), {
-    materialRef,
-    liveHandle,
-  });
-  return liveHandle;
-}
-
-export function forgetLiveEcdsaRoleLocalMaterial(
-  durableMaterialRef: EcdsaRoleLocalDurableMaterialRef,
-): void {
-  for (const [key, binding] of liveMaterialsByExactIdentity) {
-    if (binding.materialRef.durableMaterialRef === durableMaterialRef) {
-      liveMaterialsByExactIdentity.delete(key);
-    }
-  }
-}
-
-export function clearEcdsaRoleLocalWorkerRuntimeState(): void {
-  liveMaterialsByExactIdentity.clear();
-}
-
 export async function resolveEcdsaRoleLocalMaterial(input: {
   readonly purpose: EcdsaRoleLocalMaterialResolutionPurpose;
   readonly source: EcdsaRoleLocalMaterialSource;
@@ -391,19 +259,10 @@ export async function resolveEcdsaRoleLocalMaterial(input: {
             message: 'ECDSA role-local worker restored a different durable material',
           });
         }
-        const boundHandle = bindLiveEcdsaRoleLocalMaterialRef({
-          persistedMaterial: buildPersistedEcdsaRoleLocalMaterial({
-            authority: input.source.authority,
-            materialActivation: input.source.materialActivation,
-            publicFacts: input.source.publicFacts,
-          }),
-          materialRef: rehydrated.materialRef,
-          liveHandle: rehydrated.liveHandle,
-        });
         return {
           kind: 'rehydrated',
           purpose: input.purpose,
-          liveHandle: boundHandle,
+          liveHandle: rehydrated.liveHandle,
           materialRef: rehydrated.materialRef,
         };
       } catch (error: unknown) {

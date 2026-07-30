@@ -44,7 +44,6 @@ import {
   SignerWorkerOperationError,
   WorkerControlMessage,
 } from './workerTypes';
-import { clearEcdsaRoleLocalWorkerRuntimeState } from '../session/material/ecdsaRoleLocalMaterialResolver';
 
 type RpcOk<T = unknown> = { id: string; ok: true; result: T };
 type RpcErr = { id: string; ok: false; error: string; code?: string; coreCode?: string };
@@ -1028,7 +1027,6 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
 
   private resetWorker(kind: SignerWorkerKind): void {
     if (kind === 'ecdsaDerivationClient') {
-      clearEcdsaRoleLocalWorkerRuntimeState();
       this.derivationPresignConnected = false;
       this.resetWorker('ecdsaPresignClient');
     } else if (kind === 'ecdsaPresignClient') {
