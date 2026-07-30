@@ -289,12 +289,12 @@ Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
 - [x] Cover the seven canonical states for each capability: live,
       sealed-active, retired, missing, corrupt, conflicting, and unavailable.
 - [x] Delete duplicate readiness helpers after the shared path is active.
-- [ ] Delete remaining protocol-specific derivation helpers after their last
+- [x] Delete remaining protocol-specific derivation helpers after their last
       caller moves to the shared path.
   - [x] Delete the zero-caller key-ref, server-record, bootstrap-context,
         wallet-key projection, and record-fingerprint adapters (`26bd50338`).
-  - [ ] Move the remaining sealed-export public-facts validation onto exact
-        manifest/runtime correlation, then delete its durable-record adapter.
+  - [x] Move sealed-export public-facts validation onto exact manifest/runtime
+        correlation and delete its durable-record adapter (`2d447bc05`).
 - [x] Verify there is one hydration decision for Passkey and Email OTP.
 - [x] Prove routine Passkey/OTP local rehydration makes zero Deriver A/B calls.
 - [x] Fail closed for missing, mismatched, corrupt, conflicting, or unavailable
@@ -361,6 +361,8 @@ removes.
         the bootstrap result shape directly (`713fc967c`).
   - [x] Remove the slot from server normal-signing provision admission and
         durable ECDSA MPC session records (`a980592a0`, `9bada9733`).
+  - [x] Remove the slot from local ECDSA normal-signing session seeding and
+        assert budget identity with the exact key handle (`5f63b4de9`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.

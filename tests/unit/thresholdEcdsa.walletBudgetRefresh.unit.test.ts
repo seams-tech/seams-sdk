@@ -4,6 +4,7 @@ import {
   computeEcdsaDerivationRoleLocalThresholdKeyId,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import type { LocalRouterAbEcdsaDerivationNormalSigningSeedResult } from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbLocalSigningSeedRuntime';
 import { walletSigningBudgetSessionId } from '../../packages/sdk-server-ts/src/core/ThresholdService/walletSigningBudget';
 import { createRouterAbSigningRuntimesForUnitTests } from '../helpers/routerAbSigningRuntimeTestUtils';
@@ -25,7 +26,6 @@ function assertSeedOk(
 
 async function ecdsaSeedBase(): Promise<{
   walletId: string;
-  evmFamilySigningKeySlotId: typeof evmFamilySigningKeySlotId;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -37,7 +37,6 @@ async function ecdsaSeedBase(): Promise<{
 }> {
   return {
     walletId,
-    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: await computeEcdsaDerivationRoleLocalThresholdKeyId({
       walletId,
       evmFamilySigningKeySlotId,
@@ -57,10 +56,15 @@ async function ecdsaSeedBase(): Promise<{
   };
 }
 
-async function allowsMultipleExactEcdsaSessionsForOneWalletKeySlot(): Promise<void> {
+async function allowsMultipleExactEcdsaSessionsForOneWalletKey(): Promise<void> {
   const { routerAbLocalSigningSeedRuntime, walletBudgetSessionStore } =
     createRouterAbSigningRuntimesForUnitTests({});
   const base = await ecdsaSeedBase();
+  const keyHandle = await deriveThresholdEcdsaKeyHandle({
+    ecdsaThresholdKeyId: base.ecdsaThresholdKeyId,
+    signingRootId: base.signingRootId,
+    signingRootVersion: base.signingRootVersion,
+  });
   const signingGrantId = 'wss_exact_ecdsa_wallet_budget';
   const first = await routerAbLocalSigningSeedRuntime.seedLocalRouterAbEcdsaDerivationNormalSigningSession(
     {
@@ -89,18 +93,18 @@ async function allowsMultipleExactEcdsaSessionsForOneWalletKeySlot(): Promise<vo
       ecdsa: [
         {
           thresholdSessionId: 'tederivation_exact_budget_first',
-          evmFamilySigningKeySlotId,
+          keyHandle,
         },
         {
           thresholdSessionId: 'tederivation_exact_budget_second',
-          evmFamilySigningKeySlotId,
+          keyHandle,
         },
       ],
     },
   });
 }
 
-async function rejectsDifferentEcdsaKeySlotWithoutOrphaningState(): Promise<void> {
+async function rejectsDifferentEcdsaKeyWithoutOrphaningState(): Promise<void> {
   const { routerAbLocalSigningSeedRuntime, ecdsaWalletSessionStore } =
     createRouterAbSigningRuntimesForUnitTests({});
   const base = await ecdsaSeedBase();
@@ -123,7 +127,6 @@ async function rejectsDifferentEcdsaKeySlotWithoutOrphaningState(): Promise<void
   const rejected =
     await routerAbLocalSigningSeedRuntime.seedLocalRouterAbEcdsaDerivationNormalSigningSession({
       ...base,
-      evmFamilySigningKeySlotId: substitutedSlotId,
       ecdsaThresholdKeyId: await computeEcdsaDerivationRoleLocalThresholdKeyId({
         walletId,
         evmFamilySigningKeySlotId: substitutedSlotId,
@@ -145,10 +148,10 @@ async function rejectsDifferentEcdsaKeySlotWithoutOrphaningState(): Promise<void
 }
 
 test(
-  'ECDSA signing grants bind multiple exact sessions for one wallet key slot',
-  allowsMultipleExactEcdsaSessionsForOneWalletKeySlot,
+  'ECDSA signing grants bind multiple exact sessions for one wallet key',
+  allowsMultipleExactEcdsaSessionsForOneWalletKey,
 );
 test(
-  'ECDSA signing grants reject a different key slot without orphaning session state',
-  rejectsDifferentEcdsaKeySlotWithoutOrphaningState,
+  'ECDSA signing grants reject a different key without orphaning session state',
+  rejectsDifferentEcdsaKeyWithoutOrphaningState,
 );
