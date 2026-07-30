@@ -207,6 +207,9 @@ implementing commit SHA as the evidence.
     zero-consumer bootstrap relayer port family is deleted (`a843d8dbc`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
+  - [x] NEAR sealed-material hydration no longer implies authorization-budget
+    readmission; only an actual authorization/session replacement refreshes
+    that identity (`30b52879b`).
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.

@@ -709,6 +709,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Add no execution lease: no implemented operation outlives its request or
       transfers between workers. Reopen this only for a demonstrated owner
       transfer.
+- [x] Stop deriving NEAR budget readmission from material-hydration provenance;
+      only a real authorization/session replacement refreshes budget identity
+      (`30b52879b`).
 
 ### Worker, WASM, and bundle boundary
 
