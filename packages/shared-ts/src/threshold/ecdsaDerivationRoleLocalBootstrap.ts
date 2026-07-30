@@ -1,6 +1,7 @@
 import { alphabetizeStringify, sha256Bytes, sha256BytesUtf8 } from '../utils/digests';
 import { base64UrlDecode, base64UrlEncode } from '../utils/encoders';
 import type { SigningGrantId, WalletId } from '../utils/domainIds';
+import { deriveEvmFamilySigningKeySlotId } from '../signing-lanes/evmFamilySigningKeySlotId';
 
 const THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID = 'threshold-secp256k1-ecdsa-2p-v1';
 const SDK_ECDSA_DERIVATION_APPLICATION_BINDING_DOMAIN_V1 =
@@ -162,14 +163,16 @@ export async function computeEcdsaDerivationRoleLocalThresholdKeyId(input: {
 
 export async function computeEcdsaDerivationRoleLocalRelayerKeyId(input: {
   walletId: string;
-  evmFamilySigningKeySlotId: string;
+  signingRootId: string;
+  signingRootVersion: string;
 }): Promise<string> {
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId(input);
   const digest32 = await sha256BytesUtf8(
     alphabetizeStringify({
       version: 'threshold_ecdsa_derivation_relayer_key_id_v1',
       schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
       walletId: input.walletId,
-      evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+      evmFamilySigningKeySlotId,
     }),
   );
   return `ederivation-relayer-${base64UrlEncode(digest32)}`;

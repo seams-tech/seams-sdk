@@ -393,6 +393,18 @@ removes.
   - [x] Replace the dead keygen-derived activation projection with required,
         slot-free activated ECDSA key facts for Passkey and Email OTP
         (`2768d24a0`).
+  - [x] Delete the zero-caller ECDSA keygen facade and its dead
+        normal-signing-state builder (`f762803df`).
+  - [x] Delete the registration-era ECDSA enrollment activation/bootstrap
+        variant; activation now accepts exact existing-session identity only
+        (`1e317e433`).
+  - [x] Delete registration-era bootstrap tests that exercised the retired
+        activation request shapes while retaining the client-root proof
+        boundary test (`499a9e00e`).
+  - [x] Remove provisioning-slot inputs from post-registration relayer-key
+        derivation; exact-session bootstrap now supplies wallet and signing-root
+        facts while the derivation preserves the established wire identifier
+        (`fca3baaf2`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.
@@ -484,6 +496,10 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
       quota when the operation declares quota use.
 - [x] Make repeated claims return the recorded outcome without double
       consumption.
+- [x] Keep the normal-signing prepare-response parser and endpoint fixture
+      aligned on the required budget claim fields; the canonical operating-path
+      proof completes pooled prepare/finalize to a verified 65-byte signature
+      (`7c20fe644`, `e75d2bcfb`).
 - [x] Keep export quota-neutral.
 - [x] Keep step-up grants single-operation and incapable of creating a reusable
       Wallet Session.

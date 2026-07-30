@@ -158,7 +158,8 @@ export class EmailRecoveryAuthOperations {
     });
     const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
       walletId: input.walletId,
-      evmFamilySigningKeySlotId,
+      signingRootId: input.signingRootId,
+      signingRootVersion,
     });
     for (const chainTarget of input.chainTargets) {
       const chainTargetKey = thresholdEcdsaChainTargetKey(chainTarget);

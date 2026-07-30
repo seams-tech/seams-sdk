@@ -158,7 +158,13 @@ replacement.
   projecting the slot into activated runtime state in `1f04bb1bb`. Ready
   ECDSA use-case lanes and Email OTP runtime activation authority forbid the
   slot in `47070b2b0`. The keygen-derived activation projection was replaced
-  by required slot-free activated key facts in `2768d24a0`.
+  by required slot-free activated key facts in `2768d24a0`. The zero-caller
+  ECDSA keygen facade and dead normal-signing-state builder were deleted in
+  `f762803df`. The registration-era enrollment activation/bootstrap variant
+  was deleted in `1e317e433`; its obsolete request-shape tests followed in
+  `499a9e00e`, while the client-root proof boundary test remains.
+  Post-registration relayer-key derivation stopped accepting the provisioning
+  slot in `fca3baaf2`; callers now supply exact wallet and signing-root facts.
 - ~~`evmFamilySigningKeySlotId` in ECDSA Wallet Session JWT binding facts and
   normal-signing claims~~ — deleted by `4986d279f`; the value remains only on
   the registration bootstrap request/response boundary in that path.

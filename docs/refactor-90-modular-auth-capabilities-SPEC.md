@@ -192,6 +192,14 @@ implementing commit SHA as the evidence.
     provisioning-slot identity (`47070b2b0`).
   - [x] Passkey and Email OTP activation results expose required exact key
     facts and cannot carry a provisioning slot (`2768d24a0`).
+  - [x] The zero-caller ECDSA keygen facade and dead normal-signing-state
+    builder are deleted (`f762803df`).
+  - [x] ECDSA activation/bootstrap accepts exact existing-session identity
+    only; the registration-era enrollment variant and its obsolete tests are
+    deleted (`1e317e433`, `499a9e00e`).
+  - [x] Post-registration relayer-key derivation accepts wallet and signing-root
+    facts instead of a provisioning slot while preserving the established
+    derived identifier (`fca3baaf2`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
@@ -207,6 +215,9 @@ implementing commit SHA as the evidence.
   by exact owner and reject stale generations/fences.
 - [ ] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
   applicable quota once; existing claims consume neither again.
+  - [x] The ECDSA prepare-response parser and endpoint fixture agree on all
+    required budget claim fields, and the canonical operating-path proof
+    reaches a verified 65-byte signature (`7c20fe644`, `e75d2bcfb`).
 - [x] `R90-INV-010` — authority/lifecycle replacement returns `superseded` and
   every SDK/UI adapter discards and re-resolves the stale lane.
   (Typed `superseded` with three supersession kinds through the material plan;
