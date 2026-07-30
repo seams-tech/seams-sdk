@@ -700,6 +700,15 @@ the replacement and legacy MPC paths must not ship together.
           `ensurePasskeySealedRecordPersisted` coordinator and move its
           optional missing-restore-metadata handling into
           `PasskeyMpcSessionManager`.
+    - [x] Move high-level seal persistence, exact-record registration/readback,
+          and persistence single-flight into `PasskeyMpcSessionManager`
+          (`d9c303f3c`).
+    - [ ] Move sealed-session policy coordination into
+          `PasskeyMpcSessionManager`; preserve sealed material on expiry and
+          exhaustion, and delete only invalid persisted records.
+    - [x] Delete the remaining generic durable-session ports and callback cycle
+          after the dedicated session owner supplies persistence and policy
+          coordination directly (`d9c303f3c`).
 - [x] Remove replaced worker entrypoints, loaders, manifest rows, and public
       exports.
   - [x] Delete the generic worker's `EXPORT_PRIVATE_KEYS_WITH_UI` protocol arm
