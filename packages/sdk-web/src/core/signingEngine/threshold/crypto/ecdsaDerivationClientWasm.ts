@@ -1,8 +1,4 @@
 import {
-  requireEvmFamilySigningKeySlotId,
-  type EvmFamilySigningKeySlotId,
-} from '@shared/signing-lanes';
-import {
   executeWorkerOperation,
   type WorkerOperationContext,
 } from '../../workerManager/executeWorkerOperation';
@@ -59,12 +55,7 @@ import type {
   PrepareEcdsaClientBootstrapCommand as GeneratedPrepareEcdsaClientBootstrapCommand,
   PrepareEcdsaClientBootstrapOutput as GeneratedPrepareEcdsaClientBootstrapOutput,
 } from '@/core/platform/generated/signerCoreCommands';
-import {
-  thresholdEcdsaChainTargetFromRequest,
-  type ThresholdEcdsaChainTarget,
-  toWalletId,
-  type WalletId,
-} from '../../interfaces/ecdsaChainTarget';
+import { toWalletId, type WalletId } from '../../interfaces/ecdsaChainTarget';
 import {
   toEcdsaDerivationSigningRootId,
   toEcdsaDerivationSigningRootVersion,
@@ -172,62 +163,8 @@ export type ThresholdEcdsaDerivationStableKeyContext = {
   thresholdSessionId?: never;
 };
 
-declare const serverPlannedEcdsaDerivationContextBrand: unique symbol;
-
-export type ServerPlannedEcdsaDerivationContext = ThresholdEcdsaDerivationStableKeyContext & {
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  readonly [serverPlannedEcdsaDerivationContextBrand]: true;
-};
-
 export type ThresholdEcdsaDerivationRoleLocalClientContext =
   ThresholdEcdsaDerivationStableKeyContext;
-
-function readThresholdEcdsaDerivationChainTarget(value: unknown): ThresholdEcdsaChainTarget {
-  if (typeof value !== 'object' || value === null) {
-    throw new Error('[email-otp-derivation] chainTarget is required');
-  }
-  const record = value as Record<string, unknown>;
-  return thresholdEcdsaChainTargetFromRequest({
-    chain: record.chain,
-    kind: record.kind,
-    namespace: record.namespace,
-    chainId: record.chainId,
-    networkSlug: record.networkSlug,
-  });
-}
-
-function buildThresholdEcdsaDerivationStableKeyContext(input: {
-  walletId: unknown;
-  ecdsaThresholdKeyId: unknown;
-  signingRootId: unknown;
-  signingRootVersion: unknown;
-}): ThresholdEcdsaDerivationStableKeyContext {
-  return {
-    walletId: toWalletId(input.walletId),
-    ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId(input.ecdsaThresholdKeyId),
-    signingRootId: toEcdsaDerivationSigningRootId(input.signingRootId),
-    signingRootVersion: toEcdsaDerivationSigningRootVersion(input.signingRootVersion),
-  };
-}
-
-export function parseServerPlannedEcdsaDerivationContext(input: {
-  walletId: unknown;
-  evmFamilySigningKeySlotId: unknown;
-  chainTarget: unknown;
-  ecdsaThresholdKeyId: unknown;
-  signingRootId: unknown;
-  signingRootVersion: unknown;
-}): ServerPlannedEcdsaDerivationContext {
-  return {
-    ...buildThresholdEcdsaDerivationStableKeyContext(input),
-    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
-      input.evmFamilySigningKeySlotId,
-      'evmFamilySigningKeySlotId',
-    ),
-    chainTarget: readThresholdEcdsaDerivationChainTarget(input.chainTarget),
-  } as ServerPlannedEcdsaDerivationContext;
-}
 
 export async function prepareEcdsaClientBootstrapCommandWasm(input: {
   command: GeneratedPrepareEcdsaClientBootstrapCommand;

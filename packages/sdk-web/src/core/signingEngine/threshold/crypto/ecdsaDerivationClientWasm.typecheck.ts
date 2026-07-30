@@ -2,9 +2,7 @@ import {
   buildEcdsaRoleLocalExportArtifactCommandWasm,
   finalizeEcdsaClientBootstrapCommandWasm,
   openEcdsaRoleLocalSigningMaterialWasm,
-  parseServerPlannedEcdsaDerivationContext,
   prepareEcdsaClientBootstrapCommandWasm,
-  type ServerPlannedEcdsaDerivationContext,
   type ThresholdEcdsaDerivationRoleLocalClientContext,
   type ThresholdEcdsaDerivationStableKeyContext,
 } from './ecdsaDerivationClientWasm';
@@ -24,24 +22,6 @@ import {
 } from '../../session/identity/emailOtpEcdsaDerivationIdentity';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-const serverPlannedContext = parseServerPlannedEcdsaDerivationContext({
-  walletId: 'wallet-user',
-  evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-    walletId: 'wallet-user',
-    signingRootId: 'project:dev',
-    signingRootVersion: 'default',
-  }),
-  chainTarget: {
-    kind: 'evm',
-    namespace: 'eip155',
-    chainId: 11155111,
-    networkSlug: 'ethereum-sepolia',
-  },
-  ecdsaThresholdKeyId: 'ederivation-stable',
-  signingRootId: 'project:dev',
-  signingRootVersion: 'default',
-});
-void (serverPlannedContext satisfies ServerPlannedEcdsaDerivationContext);
 
 const locallyConstructedStableContext: ThresholdEcdsaDerivationStableKeyContext = {
   walletId: toWalletId('wallet-user'),
