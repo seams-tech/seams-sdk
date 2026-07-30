@@ -244,8 +244,11 @@ implementing commit SHA as the evidence.
   resumes the abandoned parent operation (`51b738d2a`).
 - [ ] `R90-INV-008` — concurrent recovery, signing, refresh, and export serialize
   by exact owner and reject stale generations/fences.
-- [ ] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
-  applicable quota once; existing claims consume neither again.
+- [x] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
+  applicable quota once; existing claims consume neither again. Reusable Near
+  claims, operation-step-up Near claims, and one-use ECDSA export claims commit
+  at their durable owner and replay from the recorded outcome without another
+  grant or quota use (`6fd6c7c25`, `b166b0bf1`, `b4a286bb5`, `f260700e4`).
   - [x] The ECDSA prepare-response parser and endpoint fixture agree on all
     required budget claim fields, and the canonical operating-path proof
     reaches a verified 65-byte signature (`7c20fe644`, `e75d2bcfb`).

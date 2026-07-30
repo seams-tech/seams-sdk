@@ -656,9 +656,11 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Keep expiry, exhaustion, missing, unavailable, and invalid as distinct
       typed states.
 - [x] Look up an existing operation claim before fresh authorization or
-      recovery; reuse its outcome without another grant/quota use.
+      recovery; reuse its outcome without another grant/quota use
+      (`b166b0bf1`, `b4a286bb5`).
 - [x] For an absent claim, atomically validate lifecycle, consume the exact
-      grant and applicable quota, create the claim, and link its audit event.
+      grant and applicable quota, create the claim, and link its audit event
+      (`6fd6c7c25`, `b166b0bf1`, `b4a286bb5`, `f260700e4`).
 - [x] Require reusable-session authority to carry
       `WalletSessionId + CapabilityGrantId`; require step-up authority to carry
       `CapabilityGrantId` and forbid `WalletSessionId`.
@@ -702,10 +704,11 @@ the replacement and legacy MPC paths must not ship together.
       atomically in Gateway authorization D1 before execution. Forward its typed
       receipt through the internally authenticated Router route; SigningWorker
       private D1 owns exact cryptographic-effect deduplication and terminal
-      replay.
+      replay (`b166b0bf1`).
 - [x] Commit the operation-step-up Near claim and consume its exact one-use grant
       before forwarding execution. Preserve the same operation fingerprint and
-      SigningWorker terminal replay used by reusable-session signing.
+      SigningWorker terminal replay used by reusable-session signing
+      (`b4a286bb5`).
 - [x] Add no execution lease: no implemented operation outlives its request or
       transfers between workers. Reopen this only for a demonstrated owner
       transfer.
