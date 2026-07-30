@@ -71,7 +71,7 @@ export function createManagerAssembly(args: {
   const passkeyMpcSession = createPasskeyMpcSessionManager({
     signingSessionPersistenceMode: args.seamsWebConfigs.signing.sessionPersistenceMode,
     persistSigningSessionSealForThresholdSession: (persistArgs) =>
-      touchConfirm.ensurePasskeySealedRecordPersisted(persistArgs),
+      touchConfirm.persistSigningSessionSealForThresholdSession(persistArgs),
     onPolicyResult: (purpose, result) =>
       touchConfirm.recordPasskeyWarmSessionPolicyResult(purpose, result),
   });

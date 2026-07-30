@@ -459,6 +459,10 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~exported `PasskeyMpcSessionDurableWorkerPort` duplicate of the dedicated
   session port's raw seal/rehydrate methods~~ — deleted; generic confirmation
   temporarily receives only the one raw seal method it still calls
+- ~~`ensurePasskeySealedRecordPersisted` and
+  `PasskeyWarmSessionPersistenceCoordinator` one-call adapter~~ — deleted; the
+  dedicated session owner handles the optional missing-restore-metadata result
+  before evaluating persistence failure
 - ~~unused `UiConfirmSigningRuntimePort` and generic combined
   `UiConfirmSigningSessionPort` exports~~ — Near runtime dependencies name the
   required confirmation and warm-material ports directly

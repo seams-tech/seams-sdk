@@ -388,13 +388,19 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
       startedAt: workerPutStartedAt,
     });
     const persistStartedAt = performance.now();
-    const persisted = args.transport
+    const persistenceResult = args.transport
       ? await this.deps.persistSigningSessionSealForThresholdSession({
           sessionId: args.sessionId,
           transport: args.transport,
           ...(diagnostics ? { diagnostics } : {}),
         })
       : null;
+    const persisted =
+      persistenceResult &&
+      !persistenceResult.ok &&
+      persistenceResult.code === 'missing_restore_metadata'
+        ? null
+        : persistenceResult;
     recordDiagnosticDuration({
       diagnostics,
       bucket: 'sealed_record_persist',
