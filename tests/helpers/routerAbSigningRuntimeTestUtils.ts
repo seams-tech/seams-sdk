@@ -148,22 +148,13 @@ export class FixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsa
     throw new Error('Strict ECDSA registration is outside this fixture');
   }
 
-  async prepareActivation(): Promise<never> {
-    throw new Error('Strict ECDSA activation preparation is outside this fixture');
-  }
-
   async activate(): Promise<never> {
     throw new Error('Strict ECDSA activation is outside this fixture');
-  }
-
-  async queryActivation(): Promise<never> {
-    throw new Error('Strict ECDSA activation query is outside this fixture');
   }
 }
 
 export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsaStrictRegistrationPort {
   registrationRequest: RouterAbEcdsaRegistrationRequestV1 | null = null;
-  activationPrepareCalls = 0;
   activatedReceipt: RouterAbEcdsaRegistrationActivationReceiptV1 | null = null;
 
   topology(): RouterAbEcdsaStrictRegistrationTopology {
@@ -203,25 +194,25 @@ export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements Rou
     const registration = this.registrationRequest;
     if (!registration) throw new Error('Strict ECDSA activation preceded registration');
     const publicFacts = parseRouterAbEcdsaVerifiedClientActivationFactsV1(input.clientActivation);
-    const expectedDigest = fixtureActivationRequestDigest();
-    if (
-      input.expectedActivationRequestDigest.bytes.some(
-        (value, index) => value !== expectedDigest.bytes[index],
-      )
-    ) {
-      return {
-        ok: false,
-        code: 'fixture_activation_digest_mismatch',
-        message: 'Fixture activation digest mismatch',
-        retryable: false,
-      };
-    }
+    const expectedDigest = fixtureActivationRequestDigest(input.requestPolicy.requestDigestB64u);
     if (this.activatedReceipt) {
       if (this.activatedReceipt.activation_correlation_id !== input.activationCorrelationId) {
         return {
           ok: false,
           code: 'fixture_activation_correlation_conflict',
           message: 'Fixture activation correlation conflict',
+          retryable: false,
+        };
+      }
+      if (
+        this.activatedReceipt.activation_request_digest.bytes.some(
+          (value, index) => value !== expectedDigest.bytes[index],
+        )
+      ) {
+        return {
+          ok: false,
+          code: 'fixture_activation_digest_mismatch',
+          message: 'Fixture activation digest mismatch',
           retryable: false,
         };
       }
@@ -257,48 +248,14 @@ export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements Rou
       value: receipt,
     };
   }
-
-  async prepareActivation(
-    input: Parameters<RouterAbEcdsaStrictRegistrationPort['prepareActivation']>[0],
-  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['prepareActivation']> {
-    if (!this.registrationRequest) {
-      throw new Error('Strict ECDSA activation preparation preceded registration');
-    }
-    this.activationPrepareCalls += 1;
-    return {
-      ok: true,
-      value: {
-        activation_correlation_id: input.activationCorrelationId,
-        activation_request_digest: fixtureActivationRequestDigest(),
-      },
-    };
-  }
-
-  async queryActivation(
-    input: Parameters<RouterAbEcdsaStrictRegistrationPort['queryActivation']>[0],
-  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['queryActivation']> {
-    if (this.activatedReceipt) {
-      return {
-        ok: true,
-        value: {
-          kind: 'committed',
-          receipt: this.activatedReceipt,
-        },
-      };
-    }
-    return {
-      ok: true,
-      value: {
-        kind: 'not_committed',
-        activation_correlation_id: input.activationCorrelationId,
-        activation_request_digest: input.expectedActivationRequestDigest,
-      },
-    };
-  }
 }
 
-function fixtureActivationRequestDigest(): { bytes: number[] } {
-  return { bytes: new Array<number>(32).fill(12) };
+function fixtureActivationRequestDigest(requestDigestB64u: string): { bytes: number[] } {
+  const bytes = base64UrlDecode(requestDigestB64u);
+  if (bytes.length !== 32) {
+    throw new Error('Strict ECDSA activation fixture requires a 32-byte request digest');
+  }
+  return { bytes: Array.from(bytes) };
 }
 
 function littleEndianBytesToBigInt(bytes: Uint8Array): bigint {

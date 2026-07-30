@@ -866,7 +866,6 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
     await expect(
       service.walletAuthMethods.activateWalletAddSignerEcdsa(activationCommitRequest),
     ).resolves.toEqual(activated);
-    expect(strictRegistration.activationPrepareCalls).toBe(4);
 
     const finalizeRequest = {
       kind: 'evm_family_ecdsa' as const,

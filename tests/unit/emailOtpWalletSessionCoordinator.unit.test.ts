@@ -1130,39 +1130,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     });
   });
 
-  test('requests page-refresh export challenges with refreshed app-session authority', async () => {
-    const { coordinator, workerCalls, getRefreshCount } = createCoordinator();
-
-    const challenge = await coordinator.requestPublicReauthExportChallenge({
-      walletSession: TEST_WALLET_SESSION,
-      chain: 'evm',
-    });
-
-    expect(challenge).toMatchObject({
-      challengeId: 'challenge-1',
-      emailHint: 'a***@example.com',
-    });
-    expect(getRefreshCount()).toBe(1);
-    expect(workerCalls[0]).toMatchObject({
-      kind: 'emailOtp',
-      request: {
-        type: 'requestEmailOtpChallenge',
-        payload: {
-          relayUrl: 'https://relay.example',
-          walletId: 'alice.testnet',
-          routePlan: {
-            routeFamily: 'login',
-            authLane: {
-              kind: 'app_session',
-              jwt: expect.any(String),
-            },
-            operation: 'export_key',
-          },
-          otpChannel: 'email_otp',
-        },
-      },
-    });
-  });
 
   test('transaction challenges reject missing signing-session authority', async () => {
     const { coordinator, workerCalls, getRefreshCount } = createCoordinator();

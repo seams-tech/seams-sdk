@@ -183,7 +183,7 @@ export function ecdsaCapabilityActivationFixture(args?: {
           },
         ],
       }),
-      materialOwner: unwrap(parseMpcMaterialOwnerRef('ecdsa-material-owner-fixture')),
+      materialOwner: unwrap(parseMpcMaterialOwnerRef(String(walletId))),
       signingRootId: parseSdkEcdsaDerivationSigningRootId('fixture:dev'),
       signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion('v1'),
     }),
