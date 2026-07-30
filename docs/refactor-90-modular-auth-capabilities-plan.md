@@ -683,6 +683,9 @@ the replacement and legacy MPC paths must not ship together.
           remove the optional host-assembly fallback that silently omitted it
           and the redundant `authMethod` discriminators from Passkey discovery
           and restore ports.
+    - [x] Move persisted-session discovery and exact sealed-record listing into
+          `PasskeyMpcSessionManager`; session-public and no-prompt ECDSA reuse
+          call the session owner directly.
 - [ ] Remove replaced worker entrypoints, loaders, manifest rows, and public
       exports.
   - [x] Delete the generic worker's `EXPORT_PRIVATE_KEYS_WITH_UI` protocol arm

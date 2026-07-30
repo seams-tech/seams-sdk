@@ -69,6 +69,7 @@ export function createManagerAssembly(args: {
 
   let touchConfirm: UiConfirmRuntimeBridgePort;
   const passkeyMpcSession = createPasskeyMpcSessionManager({
+    signingSessionPersistenceMode: args.seamsWebConfigs.signing.sessionPersistenceMode,
     persistSigningSessionSealForThresholdSession: (persistArgs) =>
       touchConfirm.ensurePasskeySealedRecordPersisted(persistArgs),
     onPolicyResult: (purpose, result) =>

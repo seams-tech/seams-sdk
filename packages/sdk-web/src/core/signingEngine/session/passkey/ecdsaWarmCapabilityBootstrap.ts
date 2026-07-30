@@ -4,7 +4,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { DurableRecordStore } from '@/core/platform';
 import type {
-  DurableSealedSessionPort,
+  PasskeyMpcSessionPort,
   UiConfirmRuntimeBridgePort,
 } from '../../uiConfirm/uiConfirm.types';
 import { SigningOperationIntent } from '../operationState/types';
@@ -62,6 +62,7 @@ export type BootstrapWarmEcdsaCapabilityDeps = {
   queueByWallet: Map<string, Promise<void>>;
   activationDeps: WalletSessionActivationDeps;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   capabilityReader: WarmSessionCapabilityReader;
 };
@@ -69,7 +70,7 @@ export type BootstrapWarmEcdsaCapabilityDeps = {
 export type NoPromptWarmSessionDeps = {
   getWarmSession: WarmSessionCapabilityReader['getWarmSession'];
   discoverPersistedSessionsForWallet: NonNullable<
-    DurableSealedSessionPort['discoverPersistedSessionsForWallet']
+    PasskeyMpcSessionPort['discoverPersistedSessionsForWallet']
   >;
   prompt?: never;
   webauthnPrompt?: never;
@@ -143,13 +144,10 @@ function createProvisionThresholdEcdsaSessionDeps(
 function createNoPromptWarmSessionDeps(
   deps: BootstrapWarmEcdsaCapabilityDeps,
 ): NoPromptWarmSessionDeps {
-  const discoverPersistedSessionsForWallet = deps.touchConfirm.discoverPersistedSessionsForWallet;
-  if (typeof discoverPersistedSessionsForWallet !== 'function') {
-    throw new Error('[SigningEngine][ecdsa] no-prompt reuse requires durable discovery capability');
-  }
   return {
     getWarmSession: (walletId) => deps.capabilityReader.getWarmSession(walletId),
-    discoverPersistedSessionsForWallet: discoverPersistedSessionsForWallet.bind(deps.touchConfirm),
+    discoverPersistedSessionsForWallet:
+      deps.passkeyMpcSession.discoverPersistedSessionsForWallet.bind(deps.passkeyMpcSession),
   };
 }
 

@@ -444,6 +444,10 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   `UiConfirmManager.deleteDurableSealedSessionRecord` public alias and port~~ —
   deleted; Passkey corruption cleanup remains private to its durable owner and
   Email OTP retains its exact store boundary
+- ~~Passkey persisted-session discovery, exact sealed-record listing, and its
+  optional host fallback inside generic confirmation~~ — moved to
+  `PasskeyMpcSessionManager`; session-public and no-prompt ECDSA reuse call the
+  factor owner directly
 - ~~unused `UiConfirmSigningRuntimePort` and generic combined
   `UiConfirmSigningSessionPort` exports~~ — Near runtime dependencies name the
   required confirmation and warm-material ports directly

@@ -19,9 +19,13 @@ import type {
   ClearAllVolatileWarmSessionMaterialCommand,
   ClearVolatileWarmSessionMaterialCommand,
   PasskeyMpcSessionPort,
+  WarmSessionPersistedDiscovery,
   WarmSessionClaimResult,
   WarmSessionStatusResult,
 } from './uiConfirm.types';
+import { listExactSealedSessionsForWallet } from '../session/persistence/sealedSessionStore';
+import { discoverPersistedSessionsForWalletCommand } from '../session/sealedRecovery/restoreCoordinator';
+import type { DiscoverPersistedSessionsForWalletResult } from '../session/sealedRecovery/sealedRecovery.types';
 
 type PendingPasskeyMpcSessionRequest = {
   id: string;
@@ -43,6 +47,7 @@ export type PasskeyMpcSessionManagerPort = PasskeyMpcSessionPort &
   PasskeyMpcSessionDurableWorkerPort;
 
 type PasskeyMpcSessionManagerDeps = {
+  signingSessionPersistenceMode: 'none' | 'sealed_refresh_v1';
   persistSigningSessionSealForThresholdSession(args: {
     sessionId: string;
     transport: NonNullable<
@@ -258,6 +263,43 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
   getWarmSessionStatus = async (args: {
     sessionId: string;
   }): Promise<WarmSessionStatusResult> => await this.readWarmSessionStatus(args);
+
+  discoverPersistedSessionsForWallet = async (
+    args: Parameters<WarmSessionPersistedDiscovery['discoverPersistedSessionsForWallet']>[0],
+  ): Promise<DiscoverPersistedSessionsForWalletResult> => {
+    if (this.deps.signingSessionPersistenceMode !== 'sealed_refresh_v1') {
+      return { listed: 0, discovered: 0, truncated: 0 };
+    }
+    return await discoverPersistedSessionsForWalletCommand(
+      { ...args, authMethod: 'passkey' },
+      {
+        listExactSealedSessionsForWallet: async (filter) =>
+          await listExactSealedSessionsForWallet({
+            walletId: filter.walletId,
+            filter:
+              filter.curve === 'ecdsa'
+                ? {
+                    authMethod: 'passkey',
+                    curve: 'ecdsa',
+                    chainTarget: filter.chainTarget,
+                  }
+                : { authMethod: 'passkey', curve: 'ed25519' },
+          }),
+        onListError: ({ walletId, error }) => {
+          console.warn('[PasskeyMpcSession] persisted-session discovery list failed', {
+            walletId,
+            error: error instanceof Error ? error.message : String(error || 'unknown error'),
+          });
+        },
+        onRejectedRecord: ({ walletId, rejection }) => {
+          console.warn('[PasskeyMpcSession] persisted-session discovery rejected record', {
+            walletId,
+            rejection,
+          });
+        },
+      },
+    );
+  };
 
   getWarmSessionStatuses = async (args: {
     sessionIds: string[];
