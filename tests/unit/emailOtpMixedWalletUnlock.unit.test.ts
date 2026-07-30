@@ -14,9 +14,7 @@ import type {
   SignerWorkerOperationType,
 } from '../../packages/sdk-web/src/core/signingEngine/workerManager/workerTypes';
 import { createEcdsaSessionActivationFixture } from './helpers/ecdsaBootstrap.fixtures';
-import {
-  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
-} from '../../packages/shared-ts/src/utils/emailOtpDomain';
+import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '../../packages/shared-ts/src/utils/emailOtpDomain';
 import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
@@ -61,7 +59,7 @@ const RUNTIME_POLICY_SCOPE = {
   signingRootVersion: 'root-v1',
 } as const;
 const ECDSA_HANDLE_BINDING = {
-  evmFamilySigningKeySlotId: 'evm-family-primary',
+  keyHandle: 'ecdsa-key-handle',
   authSubjectId: 'google:mixed-subject',
   operation: 'wallet_unlock',
   chainTarget: CHAIN_TARGET,
@@ -75,7 +73,7 @@ const ECDSA_ROOT_HANDLE: EmailOtpEcdsaSessionBootstrapHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',
   sessionId: 'ecdsa-root-session',
   walletId: String(WALLET_ID),
-  evmFamilySigningKeySlotId: ECDSA_HANDLE_BINDING.evmFamilySigningKeySlotId,
+  keyHandle: ECDSA_HANDLE_BINDING.keyHandle,
   authSubjectId: ECDSA_HANDLE_BINDING.authSubjectId,
   action: 'threshold_ecdsa_bootstrap',
   operation: 'wallet_unlock',
@@ -135,9 +133,7 @@ const ED25519_RECOVERY_BOOTSTRAP: EmailOtpEd25519YaoRecoveryBootstrapV1 = {
     },
     thresholdSessionId: THRESHOLD_SESSION_ID,
     signingGrantId: SIGNING_GRANT_ID,
-    walletSessionId: requireFixtureDomainId(
-      parseWalletSessionId('mixed-email-otp-wallet-session'),
-    ),
+    walletSessionId: requireFixtureDomainId(parseWalletSessionId('mixed-email-otp-wallet-session')),
     quotaId: requireFixtureDomainId(parseMpcWalletSigningQuotaId('mixed-email-otp-quota')),
     expiresAtMs: 1_800_000_000_000,
     participantIds: PARTICIPANT_IDS,

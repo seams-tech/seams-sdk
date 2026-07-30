@@ -114,7 +114,6 @@ export type EvmFamilyEcdsaWalletKeyFacts = {
 export type EvmFamilyEcdsaWalletKey = {
   kind: 'evm_family_ecdsa_wallet_key';
   walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   chainTarget: ThresholdEcdsaChainTarget;
   keyFacts: EvmFamilyEcdsaWalletKeyFacts;
@@ -304,7 +303,6 @@ export type BuildVerifiedEcdsaPublicFactsInput = {
 };
 
 export type BuildEvmFamilyEcdsaWalletKeyInput = BuildEvmFamilyEcdsaKeyIdentityInput & {
-  evmFamilySigningKeySlotId: unknown;
   keyHandle: unknown;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdEcdsaPublicKeyB64u: unknown;
@@ -632,7 +630,6 @@ export function buildEvmFamilyEcdsaWalletKey(
   return {
     kind: 'evm_family_ecdsa_wallet_key',
     walletId: keyIdentity.walletId,
-    evmFamilySigningKeySlotId: normalizeWalletKeyId(input.evmFamilySigningKeySlotId),
     keyHandle,
     chainTarget: input.chainTarget,
     keyFacts: {

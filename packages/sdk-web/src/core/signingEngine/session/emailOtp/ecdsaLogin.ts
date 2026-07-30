@@ -9,6 +9,7 @@ import {
 } from '@/core/signingEngine/session/identity/laneIdentity';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -27,6 +28,7 @@ import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/
 import type {
   EmailOtpEd25519YaoRecoveryBootstrapV1,
   EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
+  EmailOtpEcdsaSessionBootstrapHandleBinding,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpWorkerProgressEvent,
   EmailOtpWorkerSessionHandleOperation,
@@ -393,7 +395,7 @@ function assertEmailOtpEcdsaExportHandleMatchesLane(args: {
   const walletKey = args.existingKey.walletKey;
   if (
     String(args.handle.walletId) !== String(walletKey.walletId) ||
-    String(args.handle.evmFamilySigningKeySlotId) !== String(walletKey.evmFamilySigningKeySlotId) ||
+    String(args.handle.keyHandle) !== String(walletKey.keyHandle) ||
     args.handle.authSubjectId !== emailOtpAuthContextProviderUserId(args.emailOtpAuthContext) ||
     !thresholdEcdsaChainTargetsEqual(args.handle.chainTarget, walletKey.chainTarget) ||
     !thresholdEcdsaChainTargetsEqual(args.handle.chainTarget, args.chainTarget)
@@ -539,6 +541,45 @@ function emailOtpNonUnlockWorkerHandleOperationFromLoginOperation(
   }
   operation satisfies never;
   throw new Error('Unsupported Email OTP non-unlock operation');
+}
+
+function emailOtpNonUnlockEcdsaHandleBinding(args: {
+  walletId: WalletId;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  keyHandle: string;
+  authSubjectId: string;
+  operation: Exclude<EmailOtpWorkerSessionHandleOperation, 'wallet_unlock'>;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): Exclude<EmailOtpEcdsaSessionBootstrapHandleBinding, { operation: 'wallet_unlock' }> {
+  if (args.operation === 'registration') {
+    return {
+      evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
+        walletId: args.walletId,
+        runtimePolicyScope: args.runtimePolicyScope,
+      }),
+      authSubjectId: args.authSubjectId,
+      operation: 'registration',
+      chainTarget: args.chainTarget,
+    };
+  }
+  switch (args.operation) {
+    case 'sign':
+      return {
+        keyHandle: args.keyHandle,
+        authSubjectId: args.authSubjectId,
+        operation: 'sign',
+        chainTarget: args.chainTarget,
+      };
+    case 'export':
+      return {
+        keyHandle: args.keyHandle,
+        authSubjectId: args.authSubjectId,
+        operation: 'export',
+        chainTarget: args.chainTarget,
+      };
+  }
+  args.operation satisfies never;
+  throw new Error('Unsupported Email OTP non-unlock handle operation');
 }
 
 export function buildEmailOtpExistingKeyActivation(args: {
@@ -1015,10 +1056,6 @@ async function runEmailOtpEcdsaCapability(
   if (!runtimePolicyScope) {
     throw new Error('Email OTP ECDSA login requires runtimePolicyScope');
   }
-  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
-    walletId: args.walletSession.walletId,
-    runtimePolicyScope,
-  });
   const appSessionJwt = appSessionJwtFromEmailOtpAuthLane(routePlan.authLane);
   if (appSessionJwt) {
     ports.rememberAppSessionJwt({ walletId: args.walletSession.walletId, appSessionJwt });
@@ -1111,7 +1148,7 @@ async function runEmailOtpEcdsaCapability(
           ...(preparedUnlockSessionActivation
             ? {
                 ecdsaClientRootHandleBinding: {
-                  evmFamilySigningKeySlotId,
+                  keyHandle: String(existingKey.keyHandle),
                   authSubjectId: emailOtpProviderUserId,
                   operation: 'wallet_unlock' as const,
                   chainTarget,
@@ -1119,20 +1156,22 @@ async function runEmailOtpEcdsaCapability(
                 ecdsaSessionActivation: preparedUnlockSessionActivation,
               }
             : {
-                ecdsaClientRootHandleBinding: {
-                  evmFamilySigningKeySlotId,
+                ecdsaClientRootHandleBinding: emailOtpNonUnlockEcdsaHandleBinding({
+                  walletId: existingKey.walletKey.walletId,
+                  runtimePolicyScope,
+                  keyHandle: String(existingKey.keyHandle),
                   authSubjectId: emailOtpProviderUserId,
                   operation: emailOtpNonUnlockWorkerHandleOperationFromLoginOperation(
                     routePlan.operation,
                   ),
                   chainTarget,
-                },
+                }),
               }),
         })
       : await unlockEmailOtpMixedWallet({
           ...unlockArgs,
           ecdsaClientRootHandleBinding: {
-            evmFamilySigningKeySlotId,
+            keyHandle: String(existingKey.keyHandle),
             authSubjectId: emailOtpProviderUserId,
             operation: 'wallet_unlock',
             chainTarget,

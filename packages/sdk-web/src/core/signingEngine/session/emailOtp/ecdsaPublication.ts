@@ -37,7 +37,6 @@ import {
 } from '../identity/evmFamilyEcdsaIdentity';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
-import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { buildEcdsaRoleLocalPublicFacts } from '../persistence/ecdsaRoleLocalRecords';
 import {
   buildPersistedEcdsaRoleLocalMaterial,
@@ -174,8 +173,7 @@ export async function requireEmailOtpExistingEcdsaPublicCapability(args: {
     chainTarget: args.chainTarget,
     runtimePolicyScope: args.runtimePolicyScope,
     keyHandle: args.keyHandle,
-    listActiveEcdsaCapabilityManifestsForWallet:
-      args.listActiveEcdsaCapabilityManifestsForWallet,
+    listActiveEcdsaCapabilityManifestsForWallet: args.listActiveEcdsaCapabilityManifestsForWallet,
   });
   if (!existing) {
     throw new Error(
@@ -249,7 +247,6 @@ export function projectEmailOtpExistingEcdsaKeyToChainTarget(args: {
     publicCapability: publicFacts.publicCapability,
     walletKey: buildEvmFamilyEcdsaWalletKey({
       walletId: publicFacts.walletId,
-      evmFamilySigningKeySlotId: args.existingKey.walletKey.evmFamilySigningKeySlotId,
       keyHandle: publicFacts.keyHandle,
       chainTarget: args.chainTarget,
       ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
@@ -273,11 +270,6 @@ function manifestEmailOtpEcdsaCandidate(
   const publicFacts = manifest.durableMaterial.roleLocalPublicFacts;
   const walletKey = buildEvmFamilyEcdsaWalletKey({
     walletId: publicFacts.walletId,
-    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-      walletId: publicFacts.walletId,
-      signingRootId: publicFacts.signingRootId,
-      signingRootVersion: publicFacts.signingRootVersion,
-    }),
     keyHandle: publicFacts.keyHandle,
     chainTarget: publicFacts.chainTarget,
     ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
@@ -319,30 +311,29 @@ export async function resolveEmailOtpExistingEcdsaKey(args: {
         manifest.signer.walletId === args.walletId &&
         (!requestedKeyHandle || String(publicFacts.keyHandle).trim() === requestedKeyHandle) &&
         String(publicFacts.signingRootId).trim() === identity.signingRootId &&
-        String(publicFacts.signingRootVersion || 'default').trim() ===
-          identity.signingRootVersion
+        String(publicFacts.signingRootVersion || 'default').trim() === identity.signingRootVersion
       );
     })
     .map(manifestEmailOtpEcdsaCandidate)
     .reduce((unique, candidate) => {
-    const existing = unique.find((value) => value.keyHandle === candidate.keyHandle);
-    if (!existing) {
-      unique.push(candidate);
+      const existing = unique.find((value) => value.keyHandle === candidate.keyHandle);
+      if (!existing) {
+        unique.push(candidate);
+        return unique;
+      }
+      if (
+        alphabetizeStringify(existing.publicCapability) !==
+          alphabetizeStringify(candidate.publicCapability) ||
+        !mpcMaterialActivationRefsEqual(
+          existing.persistedRoleLocalMaterial.materialActivation,
+          candidate.persistedRoleLocalMaterial.materialActivation,
+        )
+      ) {
+        throw new Error(
+          `Email OTP ECDSA has conflicting persisted role-local material for ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
+        );
+      }
       return unique;
-    }
-    if (
-      alphabetizeStringify(existing.publicCapability) !==
-        alphabetizeStringify(candidate.publicCapability) ||
-      !mpcMaterialActivationRefsEqual(
-        existing.persistedRoleLocalMaterial.materialActivation,
-        candidate.persistedRoleLocalMaterial.materialActivation,
-      )
-    ) {
-      throw new Error(
-        `Email OTP ECDSA has conflicting persisted role-local material for ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
-      );
-    }
-    return unique;
     }, [] as ResolvedEmailOtpExistingEcdsaKey[]);
   if (candidates.length === 0) return null;
   if (candidates.length !== 1) {

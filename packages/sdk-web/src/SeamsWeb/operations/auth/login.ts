@@ -4020,7 +4020,6 @@ function repairedEcdsaSignerMetadata(args: {
     keyScope: keyFacts.keyScope,
     keyHandle: walletKey.keyHandle,
     walletId: walletKey.walletId,
-    evmFamilySigningKeySlotId: walletKey.evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId: keyFacts.ecdsaThresholdKeyId,
     signingRootId: keyFacts.signingRootId,
     signingRootVersion: keyFacts.signingRootVersion,
@@ -4034,7 +4033,6 @@ function repairedEcdsaSignerMetadata(args: {
     },
     sharedEvmFamilyKey: {
       walletId: walletKey.walletId,
-      evmFamilySigningKeySlotId: walletKey.evmFamilySigningKeySlotId,
       keyScope: keyFacts.keyScope,
       keyHandle: walletKey.keyHandle,
       ecdsaThresholdKeyId: keyFacts.ecdsaThresholdKeyId,

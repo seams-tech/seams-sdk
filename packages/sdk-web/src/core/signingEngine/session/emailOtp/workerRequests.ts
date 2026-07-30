@@ -35,7 +35,7 @@ export type EmailOtpWarmSessionTransport = {
 export type EmailOtpEcdsaWarmSessionRestore = {
   sessionId: string;
   walletId: string;
-  provisioningKeySlotId: string;
+  keyHandle: string;
   chainTarget: ThresholdEcdsaChainTarget;
   authSubjectId: string;
 };
@@ -166,9 +166,7 @@ export async function requestRehydrateEmailOtpEd25519YaoLocalMaterial(args: {
   expiresAtMs: number;
   transport: Required<EmailOtpWarmSessionTransport>;
   restore: EmailOtpEd25519YaoLocalMaterialRestore;
-}): Promise<
-  SignerWorkerOperationResult<'emailOtp', 'rehydrateEmailOtpEd25519YaoLocalMaterial'>
-> {
+}): Promise<SignerWorkerOperationResult<'emailOtp', 'rehydrateEmailOtpEd25519YaoLocalMaterial'>> {
   return await args.workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {

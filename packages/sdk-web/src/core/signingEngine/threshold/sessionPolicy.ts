@@ -9,10 +9,6 @@ import {
   MAX_WALLET_SESSION_REMAINING_USES,
   MAX_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
-import {
-  requireEvmFamilySigningKeySlotId,
-  type EvmFamilySigningKeySlotId,
-} from '@shared/signing-lanes';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   EmailOtpWalletAuthAuthority,
@@ -23,18 +19,9 @@ import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
-import {
-  ThresholdEcdsaChainTarget,
-  toWalletId,
-  type WalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import {
-  toEcdsaDerivationThresholdKeyId,
-  toEcdsaDerivationThresholdSessionId,
   toEcdsaDerivationSigningGrantId,
-  type EcdsaThresholdKeyId,
-  type ThresholdEcdsaSessionId,
   type SigningGrantId,
 } from '../session/identity/emailOtpEcdsaDerivationIdentity';
 
@@ -42,7 +29,6 @@ export type ThresholdRuntimePolicyScope = RuntimePolicyScope;
 export type ThresholdSessionKind = 'jwt' | 'cookie';
 
 export const THRESHOLD_SESSION_POLICY_VERSION = 'threshold_session_v1' as const;
-export const THRESHOLD_ECDSA_SESSION_POLICY_VERSION = 'threshold_session_policy_v2' as const;
 
 export type Ed25519AuthorityScope =
   | {
@@ -163,34 +149,6 @@ type BuildExactEd25519SessionPolicyParams = Ed25519SessionPolicyBaseParams & {
   authorityScope?: never;
 };
 
-export type EcdsaDerivationSessionPolicy = {
-  version: typeof THRESHOLD_ECDSA_SESSION_POLICY_VERSION;
-  walletId: WalletId;
-  subjectId?: never;
-  walletSessionUserId?: never;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  keyHandle?: string;
-  ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
-  sessionId: ThresholdEcdsaSessionId;
-  signingGrantId: SigningGrantId;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  /**
-   * Optional signer set binding (participant ids).
-   *
-   * When present, the relayer must bind the session token to this signer set and ensure
-   * downstream signature share usage is scoped to the same set.
-   */
-  participantIds?: number[];
-  ttlMs: number;
-  remainingUses: number;
-};
-
-export type EcdsaSessionPolicy = EcdsaDerivationSessionPolicy & {
-  relayerKeyId: string;
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-};
-
 // Upper bounds to avoid unbounded TTL/use values while still supporting practical
 // "login once, sign many times" sessions.
 export const THRESHOLD_SESSION_POLICY_MAX_TTL_MS = MAX_WALLET_SESSION_TTL_MS;
@@ -229,14 +187,6 @@ export function generateSigningGrantId(): SigningGrantId {
 
 export async function computeEd25519SessionPolicyDigest32(
   policy: Ed25519SessionPolicy,
-): Promise<string> {
-  const json = alphabetizeStringify(policy);
-  const bytes = await sha256BytesUtf8(json);
-  return base64UrlEncode(bytes);
-}
-
-export async function computeEcdsaSessionPolicyDigest32(
-  policy: EcdsaSessionPolicy,
 ): Promise<string> {
   const json = alphabetizeStringify(policy);
   const bytes = await sha256BytesUtf8(json);
@@ -336,87 +286,6 @@ async function buildExactEd25519SessionPolicy(
   return { policy, policyJson: JSON.stringify(policy), sessionPolicyDigest32 };
 }
 
-export async function buildEcdsaSessionPolicy(params: {
-  walletId: unknown;
-  subjectId?: never;
-  walletSessionUserId?: never;
-  evmFamilySigningKeySlotId: unknown;
-  relayerKeyId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
-  ecdsaThresholdKeyId: unknown;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  participantIds?: number[];
-  sessionId?: unknown;
-  signingGrantId?: unknown;
-  ttlMs?: number;
-  remainingUses?: number;
-}): Promise<{
-  policy: EcdsaSessionPolicy;
-  policyJson: string;
-  sessionPolicyDigest32: string;
-}> {
-  const derivationPolicy = buildEcdsaDerivationSessionPolicy(params);
-  if (!derivationPolicy.ecdsaThresholdKeyId) {
-    throw new Error('[threshold-ecdsa] ecdsaThresholdKeyId is required');
-  }
-  const relayerKeyId = String(params.relayerKeyId || '').trim();
-  if (!relayerKeyId) {
-    throw new Error('[threshold-ecdsa] relayerKeyId is required');
-  }
-  const policy: EcdsaSessionPolicy = {
-    ...derivationPolicy,
-    relayerKeyId,
-    ecdsaThresholdKeyId: derivationPolicy.ecdsaThresholdKeyId,
-  };
-  const sessionPolicyDigest32 = await computeEcdsaSessionPolicyDigest32(policy);
-  return { policy, policyJson: JSON.stringify(policy), sessionPolicyDigest32 };
-}
-
-export function buildEcdsaDerivationSessionPolicy(params: {
-  walletId: unknown;
-  subjectId?: never;
-  walletSessionUserId?: never;
-  evmFamilySigningKeySlotId: unknown;
-  chainTarget: ThresholdEcdsaChainTarget;
-  keyHandle?: unknown;
-  ecdsaThresholdKeyId?: unknown;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  participantIds?: number[];
-  sessionId?: unknown;
-  signingGrantId?: unknown;
-  ttlMs?: number;
-  remainingUses?: number;
-}): EcdsaDerivationSessionPolicy {
-  const sessionId = params.sessionId || generateThresholdSessionId();
-  const signingGrantId = String(params.signingGrantId || '').trim() || generateSigningGrantId();
-  const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
-    ttlMs: params.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
-    remainingUses: params.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
-  });
-  const participantIds = normalizeThresholdEd25519ParticipantIds(params.participantIds);
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(params.runtimePolicyScope);
-  const keyHandle = String(params.keyHandle || '').trim();
-  const ecdsaThresholdKeyId = String(params.ecdsaThresholdKeyId || '').trim();
-  return {
-    version: THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
-    walletId: toWalletId(params.walletId),
-    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
-      params.evmFamilySigningKeySlotId,
-      'threshold-ecdsa evmFamilySigningKeySlotId',
-    ),
-    chainTarget: params.chainTarget,
-    ...(keyHandle ? { keyHandle } : {}),
-    ...(ecdsaThresholdKeyId
-      ? { ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId(ecdsaThresholdKeyId) }
-      : {}),
-    sessionId: toEcdsaDerivationThresholdSessionId(sessionId),
-    signingGrantId: toEcdsaDerivationSigningGrantId(signingGrantId),
-    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(participantIds ? { participantIds } : {}),
-    ttlMs,
-    remainingUses,
-  };
-}
 
 export function isThresholdSignerMissingKeyError(err: unknown): boolean {
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();

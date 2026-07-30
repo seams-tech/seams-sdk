@@ -22,23 +22,15 @@ import {
   requestBindEmailOtpEcdsaWarmSessionFromWorkerHandle,
   requestRehydrateEmailOtpEcdsaWarmSessionMaterial,
 } from './workerRequests';
-import {
-  parseSigningSessionSealKeyVersion,
-} from '../keyMaterialBrands';
-import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import { parseSigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import {
   walletAuthAuthorityRef,
   type EmailOtpWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
-import {
-  buildEcdsaRoleLocalPublicFacts,
-} from '../persistence/ecdsaRoleLocalRecords';
-import {
-  buildPersistedEcdsaRoleLocalMaterial,
-} from '../material/ecdsaRoleLocalMaterialResolver';
+import { buildEcdsaRoleLocalPublicFacts } from '../persistence/ecdsaRoleLocalRecords';
+import { buildPersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import {
   buildEvmFamilyEcdsaWalletKey,
-  deriveEvmFamilySigningKeySlotId,
   type EvmFamilyEcdsaWalletKey,
 } from '../identity/evmFamilyEcdsaIdentity';
 import {
@@ -47,9 +39,7 @@ import {
   parseSdkEcdsaDerivationThresholdKeyId,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { parseEmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
-import {
-  buildEmailOtpExistingKeyActivation,
-} from './ecdsaLogin';
+import { buildEmailOtpExistingKeyActivation } from './ecdsaLogin';
 import type { ThresholdEcdsaActivationRequest } from '../passkey/ecdsaSessionProvision';
 import type { ResolvedEmailOtpExistingEcdsaKey } from './ecdsaPublication';
 import { resolveActiveEcdsaCapabilityRuntime } from '../material/activeEcdsaCapabilityRuntime';
@@ -97,7 +87,6 @@ export type EmailOtpEcdsaRestoreSource = {
   relayerUrl: string;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
-  provisioningKeySlotId: EvmFamilySigningKeySlotId;
   relayerKeyId: string;
   participantIds: readonly number[];
   sessionKind: 'jwt';
@@ -120,9 +109,7 @@ function sealedRecordEmailOtpSessionAuthContext(
   });
 }
 
-function emailOtpSealedRoleLocalParticipantIds(
-  participantIds: readonly number[],
-): readonly [1, 2] {
+function emailOtpSealedRoleLocalParticipantIds(participantIds: readonly number[]): readonly [1, 2] {
   if (participantIds.length !== 2 || participantIds[0] !== 1 || participantIds[1] !== 2) {
     throw new Error('Email OTP sealed refresh requires participantIds [1, 2]');
   }
@@ -143,29 +130,19 @@ async function emailOtpSealedExistingKey(
   }
   const capability = sealedRecord.publicCapability;
   const publicIdentity = capability.public_identity;
-  const provisioningKeySlotId = deriveEvmFamilySigningKeySlotId({
-    walletId: sealedRecord.walletId,
-    signingRootId: sealedRecord.signingRootId,
-    signingRootVersion: sealedRecord.signingRootVersion,
-  });
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: toWalletId(sealedRecord.walletId),
     chainTarget: sealedRecord.chainTarget,
     keyHandle: sealedRecord.keyHandle,
-    ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(
-      sealedRecord.ecdsaThresholdKeyId,
-    ),
+    ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(sealedRecord.ecdsaThresholdKeyId),
     signingRootId: parseSdkEcdsaDerivationSigningRootId(sealedRecord.signingRootId),
-    signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(
-      sealedRecord.signingRootVersion,
-    ),
+    signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(sealedRecord.signingRootVersion),
     applicationBindingDigestB64u: capability.context.application_binding_digest_b64u,
     participantIds: emailOtpSealedRoleLocalParticipantIds(sealedRecord.participantIds),
     clientParticipantId: 1,
     relayerParticipantId: 2,
     contextBinding32B64u: publicIdentity.context_binding_b64u,
-    derivationClientSharePublicKey33B64u:
-      publicIdentity.derivation_client_share_public_key33_b64u,
+    derivationClientSharePublicKey33B64u: publicIdentity.derivation_client_share_public_key33_b64u,
     relayerPublicKey33B64u: publicIdentity.server_public_key33_b64u,
     groupPublicKey33B64u: publicIdentity.threshold_public_key33_b64u,
     ethereumAddress: sealedRecord.ethereumAddress,
@@ -173,7 +150,6 @@ async function emailOtpSealedExistingKey(
   });
   const walletKey: EvmFamilyEcdsaWalletKey = buildEvmFamilyEcdsaWalletKey({
     walletId: publicFacts.walletId,
-    evmFamilySigningKeySlotId: provisioningKeySlotId,
     keyHandle: publicFacts.keyHandle,
     chainTarget: publicFacts.chainTarget,
     ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
@@ -252,11 +228,6 @@ function buildSealedRecordEmailOtpEcdsaRestoreSource(args: {
     relayerUrl: sealedRecord.relayerUrl,
     chainTarget: sealedRecord.chainTarget,
     keyHandle: sealedRecord.keyHandle,
-    provisioningKeySlotId: deriveEvmFamilySigningKeySlotId({
-      walletId: sealedRecord.walletId,
-      signingRootId: sealedRecord.signingRootId,
-      signingRootVersion: sealedRecord.signingRootVersion,
-    }),
     relayerKeyId: sealedRecord.relayerKeyId,
     participantIds: [...sealedRecord.participantIds],
     sessionKind,
@@ -269,7 +240,9 @@ function buildSealedRecordEmailOtpEcdsaRestoreSource(args: {
 
 export function createEmailOtpEcdsaSigningSessionMaterialRestorer(
   ports: EmailOtpEcdsaSealedRecoveryPorts,
-): (args: EmailOtpEcdsaSealedRecoveryRecordInput) => Promise<EmailOtpThresholdEcdsaRehydrateResult | null> {
+): (
+  args: EmailOtpEcdsaSealedRecoveryRecordInput,
+) => Promise<EmailOtpThresholdEcdsaRehydrateResult | null> {
   return async (args) =>
     await restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord({
       ...ports,
@@ -329,7 +302,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     restore: {
       sessionId: restoreSource.thresholdSessionId,
       walletId: sealedRecord.walletId,
-      provisioningKeySlotId: String(restoreSource.provisioningKeySlotId),
+      keyHandle: restoreSource.keyHandle,
       chainTarget: restoreSource.chainTarget,
       authSubjectId: emailOtpAuthContextProviderUserId(restoreSource.emailOtpAuthContext),
     },
