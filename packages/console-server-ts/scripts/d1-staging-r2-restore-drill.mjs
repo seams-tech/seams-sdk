@@ -115,14 +115,14 @@ function drillPaths(options) {
   return {
     exportDir,
     restoreDir,
-    consoleExportPath: `${exportDir}/seams-console-staging.sql`,
-    signerExportPath: `${exportDir}/seams-signer-staging.sql`,
-    consoleRestorePath: `${restoreDir}/seams-console-staging.sql`,
-    signerRestorePath: `${restoreDir}/seams-signer-staging.sql`,
-    consoleObjectPath: `${options.r2Bucket}/refactor-82/${options.stamp}/seams-console-staging.sql`,
-    signerObjectPath: `${options.r2Bucket}/refactor-82/${options.stamp}/seams-signer-staging.sql`,
-    consoleRestoreDatabaseName: `seams-console-staging-restore-drill-${options.stamp.toLowerCase()}`,
-    signerRestoreDatabaseName: `seams-signer-staging-restore-drill-${options.stamp.toLowerCase()}`,
+    consoleExportPath: `${exportDir}/seams-console-staging-nrt.sql`,
+    signerExportPath: `${exportDir}/seams-signer-staging-nrt.sql`,
+    consoleRestorePath: `${restoreDir}/seams-console-staging-nrt.sql`,
+    signerRestorePath: `${restoreDir}/seams-signer-staging-nrt.sql`,
+    consoleObjectPath: `${options.r2Bucket}/refactor-82/${options.stamp}/seams-console-staging-nrt.sql`,
+    signerObjectPath: `${options.r2Bucket}/refactor-82/${options.stamp}/seams-signer-staging-nrt.sql`,
+    consoleRestoreDatabaseName: `seams-console-staging-nrt-restore-drill-${options.stamp.toLowerCase()}`,
+    signerRestoreDatabaseName: `seams-signer-staging-nrt-restore-drill-${options.stamp.toLowerCase()}`,
   };
 }
 
@@ -144,11 +144,11 @@ function drillArtifacts(paths) {
 function drillCommands(input) {
   return [
     wranglerCommand(
-      `d1 export seams-console-staging --remote --output ${shellArg(input.paths.consoleExportPath)}`,
+      `d1 export seams-console-staging-nrt --remote --output ${shellArg(input.paths.consoleExportPath)}`,
       input.options.consoleConfigPath,
     ),
     wranglerCommand(
-      `d1 export seams-signer-staging --remote --output ${shellArg(input.paths.signerExportPath)}`,
+      `d1 export seams-signer-staging-nrt --remote --output ${shellArg(input.paths.signerExportPath)}`,
       input.options.gatewayConfigPath,
     ),
     wranglerR2Command(

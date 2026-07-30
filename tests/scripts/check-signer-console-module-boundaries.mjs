@@ -19,10 +19,8 @@ const signerCoreRoots = [
 const signerRouterFiles = [
   'packages/sdk-server-ts/src/router/routerApi.ts',
   'packages/sdk-server-ts/src/router/commonRouterUtils.ts',
-  'packages/sdk-server-ts/src/router/bootstrapGrantBroker.ts',
   'packages/sdk-server-ts/src/router/routerApiKeyAuth.ts',
   'packages/sdk-server-ts/src/router/routerApiCredentialAuth.ts',
-  'packages/sdk-server-ts/src/router/routerApiBootstrapGrant.ts',
   'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
   'packages/sdk-server-ts/src/router/routeDefinitions.ts',
   'packages/sdk-server-ts/src/router/routeAuthPolicy.ts',

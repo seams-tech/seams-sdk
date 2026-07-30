@@ -2,6 +2,13 @@
 
 Status: **production lifecycle validation pending**
 
+Persistence note (July 28, 2026): the Durable Object references below describe
+the measured Refactor 93 deployment and remain historical evidence. Refactor
+94C replaces that runtime topology with role-only root-share Worker Secrets,
+separate encrypted role-private D1 lifecycle stores, and zero production
+Durable Object bindings. The current custody and deployment rules live in
+[router-ab/deployment.md](../deployment.md).
+
 This file owns only the high-impact path from the completed local Yao A/B
 implementation to a production release decision. Local implementation evidence
 stays in [router-ab/ed25519-yao/implementation-plan.md](./implementation-plan.md). General Router A/B and ECDSA deployment

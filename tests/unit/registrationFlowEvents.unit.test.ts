@@ -7,6 +7,7 @@ test.describe('registration flow events', () => {
     const event = createRegistrationLifecycleEvent({
       accountId: 'alice.testnet',
       event: {
+        authMethod: 'passkey',
         phase: RegistrationEventPhase.STEP_01_STARTED,
         status: 'started',
       },

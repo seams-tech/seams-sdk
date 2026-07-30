@@ -139,7 +139,18 @@ export function prepareD1WebAuthnCredentialBindingPutStatement(input: {
       DO UPDATE SET
         user_id = EXCLUDED.user_id,
         signer_slot = EXCLUDED.signer_slot,
-        record_json = EXCLUDED.record_json,
+        -- Reads parse record_json, not the columns, so the JSON has to carry
+        -- the same reconciled timestamps the columns do. Replacing it wholesale
+        -- let a second write (the Ed25519 commit, or an out-of-order replay)
+        -- appear to reset createdAtMs and regress updatedAtMs while the columns
+        -- stayed correct.
+        record_json = json_set(
+          EXCLUDED.record_json,
+          '$.createdAtMs',
+          MIN(webauthn_credential_bindings.created_at_ms, EXCLUDED.created_at_ms),
+          '$.updatedAtMs',
+          MAX(webauthn_credential_bindings.updated_at_ms, EXCLUDED.updated_at_ms)
+        ),
         created_at_ms = MIN(
           webauthn_credential_bindings.created_at_ms,
           EXCLUDED.created_at_ms

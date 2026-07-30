@@ -42,7 +42,7 @@ const localEnvRoles = [
       'DERIVER_A_PEER_SIGNING_KEY',
       'DERIVER_A_PEER_VERIFYING_KEY',
       'DERIVER_B_PEER_VERIFYING_KEY',
-      'DERIVER_A_ROOT_SHARE_STORAGE_PATH',
+      'DERIVER_A_ROLE_PRIVATE_STORAGE_PATH',
       'DERIVER_A_SEALED_ROOT_SHARES_PATH',
     ],
   },
@@ -58,7 +58,7 @@ const localEnvRoles = [
       'DERIVER_B_PEER_SIGNING_KEY',
       'DERIVER_A_PEER_VERIFYING_KEY',
       'DERIVER_B_PEER_VERIFYING_KEY',
-      'DERIVER_B_ROOT_SHARE_STORAGE_PATH',
+      'DERIVER_B_ROLE_PRIVATE_STORAGE_PATH',
       'DERIVER_B_SEALED_ROOT_SHARES_PATH',
     ],
   },
@@ -72,7 +72,7 @@ const localEnvRoles = [
       'SIGNING_WORKER_KEY_EPOCH',
       'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
       'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
-      'SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH',
+      'SIGNING_WORKER_PRIVATE_STORAGE_PATH',
     ],
     forbiddenKeys: [
       'SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY',
@@ -231,6 +231,7 @@ try {
   assertProductionWorkerBinariesReady();
   assertBrowserEcdsaClientReady();
   await assertProductionWorkerPortsAvailable();
+  applyPrivateD1Migrations();
   if (options.mode === 'multiplex' && displayMode === 'logs') {
     console.log('Multiplex mode requires a TTY; using interleaved logs.');
   }
@@ -766,6 +767,32 @@ function startProductionWorkers() {
       appendLine(pane, `spawn error: ${error.message}`);
       if (!shutdownStarted) shutdown(1);
     });
+  }
+}
+
+function applyPrivateD1Migrations() {
+  for (const config of strictRuntime.configs) {
+    if (!config.privateD1) continue;
+    const persistPath = join(strictPersistPath, config.role);
+    mkdirSync(persistPath, { recursive: true });
+    console.log(`Applying local ${config.role} private-D1 migrations...`);
+    run(
+      'pnpm',
+      [
+        'exec',
+        'wrangler',
+        'd1',
+        'migrations',
+        'apply',
+        config.privateD1.databaseName,
+        '--local',
+        '--persist-to',
+        persistPath,
+        '--config',
+        config.configPath,
+      ],
+      { ...process.env, CI: 'true' },
+    );
   }
 }
 

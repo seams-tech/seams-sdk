@@ -84,6 +84,36 @@ test.describe('evm client waitForTransactionReceipt', () => {
     expect(String(result.receipt?.status || '')).toBe('0x1');
   });
 
+  test('uses the next configured RPC after a transport failure', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ importPath }) => {
+        const { createEvmClient } = await import(importPath);
+        const calls: string[] = [];
+        const client = createEvmClient({
+          rpcUrl: 'https://first-rpc.example,https://second-rpc.example',
+          fetchImpl: (async (input: RequestInfo | URL): Promise<Response> => {
+            const url = String(input);
+            calls.push(url);
+            if (url.includes('first-rpc')) throw new TypeError('Failed to fetch');
+            return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x4cef52' }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            });
+          }) as typeof fetch,
+        });
+        const chainId = await client.request<string>({ method: 'eth_chainId', params: [] });
+        return { calls, chainId };
+      },
+      { importPath: IMPORT_PATH },
+    );
+
+    expect(result.calls).toEqual([
+      'https://first-rpc.example/',
+      'https://second-rpc.example/',
+    ]);
+    expect(result.chainId).toBe('0x4cef52');
+  });
+
   test('detects sustained underpriced pending tx via helper client', async ({ page }) => {
     const result = await page.evaluate(
       async ({ importPath }) => {

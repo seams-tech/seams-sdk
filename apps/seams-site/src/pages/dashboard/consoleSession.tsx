@@ -248,6 +248,34 @@ export async function revokeDashboardConsoleSession(): Promise<void> {
   throw new Error(consoleErrorMessage(response, body, 'Session revoke failed'));
 }
 
+const CONSOLE_SIGN_OUT_FLAG_KEY = 'seams.console.signedOut';
+
+/**
+ * Records that the user explicitly signed out. The login page consumes this to
+ * skip its auto-resume redirect: if a revoke fails server-side the cookie is
+ * still valid, and without the flag the login page would bounce the user
+ * straight back into the console they just left.
+ */
+export function markDashboardConsoleSignOut(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(CONSOLE_SIGN_OUT_FLAG_KEY, '1');
+  } catch {}
+}
+
+/** Reads and clears the sign-out flag; true only for the first read after a sign-out. */
+export function consumeDashboardConsoleSignOut(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = window.sessionStorage.getItem(CONSOLE_SIGN_OUT_FLAG_KEY);
+    if (!raw) return false;
+    window.sessionStorage.removeItem(CONSOLE_SIGN_OUT_FLAG_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function DashboardConsoleSessionProvider({
   children,
 }: {

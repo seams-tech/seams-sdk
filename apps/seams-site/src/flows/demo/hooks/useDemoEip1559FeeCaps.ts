@@ -13,10 +13,7 @@ import {
    chain the user is signing on, so each chain is polled only while it is the
    selected tab. Both default to enabled for callers that want the old
    fetch-everything behaviour. */
-export function useDemoEip1559FeeCaps(options?: {
-  tempoEnabled?: boolean;
-  arcEnabled?: boolean;
-}) {
+export function useDemoEip1559FeeCaps(options?: { tempoEnabled?: boolean; arcEnabled?: boolean }) {
   const tempoEnabled = options?.tempoEnabled ?? true;
   const arcEnabled = options?.arcEnabled ?? true;
   const [tempoEip1559FeeCaps, setTempoEip1559FeeCaps] = useState<Eip1559FeeCaps>(
@@ -37,7 +34,7 @@ export function useDemoEip1559FeeCaps(options?: {
             )
           : Promise.resolve(null),
         arcEnabled
-          ? resolveEip1559FeeCaps(FRONTEND_CONFIG.arcRpcUrl).catch(
+          ? resolveEip1559FeeCaps(FRONTEND_CONFIG.arcRpcRequestUrl).catch(
               () => DEFAULT_DEMO_EIP1559_FEE_CAPS,
             )
           : Promise.resolve(null),

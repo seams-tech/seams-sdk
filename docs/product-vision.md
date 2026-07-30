@@ -6,7 +6,6 @@ Status: draft product vision; use as positioning and product-direction context.
 
 Related docs:
 
-- [Router A/B sales pitch](router-a-b-sales-pitch.md)
 - [Router A/B spec](./router-ab/protocol.md)
 - [Router A/B deployment](./router-ab/deployment.md)
 - [Wallet key and execution lanes](refactor-96-wallet-execution-lanes.md)

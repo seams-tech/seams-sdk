@@ -15,7 +15,6 @@ import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
 } from './tenantRoute';
 import { parseOrgId, type OrgId } from '@shared/utils/domainIds';
-import type { CloudflareDurableObjectNamespaceLike } from '../core/types';
 import type { SigningRootKekProvider } from '../core/ThresholdService/signingRootKekProvider';
 
 function orgIdFromString(input: string): OrgId {
@@ -59,19 +58,6 @@ const d1Database: D1DatabaseLike = {
   },
 };
 
-const thresholdStore: CloudflareDurableObjectNamespaceLike = {
-  idFromName(name: string): unknown {
-    return name;
-  },
-  get() {
-    return {
-      async fetch(): Promise<Response> {
-        return new Response('{}');
-      },
-    };
-  },
-};
-
 const kekProvider: SigningRootKekProvider = {
   kind: 'worker_secret',
   workerSecretsByKekId: {
@@ -85,8 +71,6 @@ const signerD1DoTarget: SignerD1DoStorageTarget = {
   metadataBindingName: 'SIGNER_DB',
   metadataDatabaseName: 'seams-signer',
   metadataDatabase: d1Database,
-  thresholdStoreBindingName: 'THRESHOLD_STORE',
-  thresholdStore,
   kekProvider,
 };
 
@@ -143,8 +127,6 @@ const resolverFromBindings = createStaticCloudflareTenantStorageRouteResolverFro
   signerMetadataBindingName: 'SIGNER_DB',
   signerMetadataDatabaseName: 'seams-signer',
   signerMetadataDatabase: d1Database,
-  thresholdStoreBindingName: 'THRESHOLD_STORE',
-  thresholdStore,
   kekProvider,
 });
 const resolvedFromBindings = resolverFromBindings.resolveTenantStorageRoute({

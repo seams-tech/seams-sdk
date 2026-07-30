@@ -571,7 +571,6 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         },
       });
 
-      expect(requests.some((url) => url.includes('/v1/registration/bootstrap-grants'))).toBe(false);
       expect(bootstrapBodies).toHaveLength(1);
       expect(bootstrapBodies[0]?.clientRootProof).toMatchObject({
         version: 'ecdsa-derivation:role-local:first-bootstrap-root-proof:v2',

@@ -32,14 +32,14 @@ const migrationTargets = Object.freeze([
   Object.freeze({
     logicalName: 'console',
     profile: 'console',
-    databaseName: 'seams-console-staging',
+    databaseName: 'seams-console-staging-nrt',
     configField: 'consoleConfigPath',
     migrationsDir: 'migrations/d1-console',
   }),
   Object.freeze({
     logicalName: 'signer',
     profile: 'gateway',
-    databaseName: 'seams-signer-staging',
+    databaseName: 'seams-signer-staging-nrt',
     configField: 'gatewayConfigPath',
     migrationsDir: 'node_modules/@seams/sdk-server/migrations/d1-signer',
   }),

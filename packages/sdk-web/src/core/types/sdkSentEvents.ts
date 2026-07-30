@@ -5,7 +5,8 @@ import type {
   ActionResult,
   DelegateRouterApiResult,
   LoginAndCreateSessionResult,
-  LoginResult,
+  NearProvisioningState,
+  NearProvisioningErrorCode,
   RegistrationResult,
   SignAndSendDelegateActionResult,
   SignDelegateActionResult,
@@ -52,11 +53,30 @@ export type SigningSessionExpiredEvent = {
   readonly source: SigningSessionExpiryDetectionSource;
 };
 
-export type SdkLifecycleEvent = SigningSessionExpiredEvent;
+export type NearProvisioningStateChangedEvent = {
+  readonly version: typeof SDK_LIFECYCLE_EVENT_VERSION;
+  readonly event: 'registration.near_provisioning_changed';
+  readonly walletId: WalletId;
+  readonly state: NearProvisioningState;
+};
+
+export type SdkLifecycleEvent = SigningSessionExpiredEvent | NearProvisioningStateChangedEvent;
 
 export type SigningSessionExpiredEventInput = Omit<SigningSessionExpiredEvent, 'version' | 'event'>;
 
 export type SdkLifecycleEventListener = (event: SdkLifecycleEvent) => void;
+
+export function createNearProvisioningStateChangedEvent(input: {
+  readonly walletId: WalletId;
+  readonly state: NearProvisioningState;
+}): NearProvisioningStateChangedEvent {
+  return {
+    version: SDK_LIFECYCLE_EVENT_VERSION,
+    event: 'registration.near_provisioning_changed',
+    walletId: input.walletId,
+    state: input.state,
+  };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -64,6 +84,53 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isPositiveSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function parseNearProvisioningErrorCode(value: unknown): NearProvisioningErrorCode | null {
+  switch (value) {
+    case 'near_provisioning_interrupted':
+    case 'near_finalize_failed':
+    case 'near_capability_persist_failed':
+    case 'near_seal_failed':
+    case 'near_provisioning_failed':
+      return value;
+    default:
+      return null;
+  }
+}
+
+export function parseNearProvisioningState(value: unknown): NearProvisioningState | null {
+  if (!isRecord(value) || !isPositiveSafeInteger(value.updatedAtMs)) return null;
+  switch (value.status) {
+    case 'near_pending':
+      return { status: 'near_pending', updatedAtMs: value.updatedAtMs };
+    case 'near_provisioning':
+      return { status: 'near_provisioning', updatedAtMs: value.updatedAtMs };
+    case 'near_ready':
+      if (!isNonEmptyString(value.nearAccountId)) return null;
+      return {
+        status: 'near_ready',
+        updatedAtMs: value.updatedAtMs,
+        nearAccountId: value.nearAccountId,
+      };
+    case 'near_failed_retryable': {
+      if (!isNonEmptyString(value.error)) return null;
+      const errorCode = parseNearProvisioningErrorCode(value.errorCode);
+      if (!errorCode) return null;
+      return {
+        status: 'near_failed_retryable',
+        updatedAtMs: value.updatedAtMs,
+        error: value.error,
+        errorCode,
+      };
+    }
+    default:
+      return null;
+  }
 }
 
 function parseSigningSessionExpiryDetectionSource(
@@ -108,6 +175,18 @@ export function createSigningSessionExpiredEvent(
 export function parseSdkLifecycleEvent(value: unknown): SdkLifecycleEvent | null {
   if (!isRecord(value)) return null;
   if (value.version !== SDK_LIFECYCLE_EVENT_VERSION) return null;
+
+  if (value.event === 'registration.near_provisioning_changed') {
+    const walletId = parseWalletId(value.walletId);
+    const state = parseNearProvisioningState(value.state);
+    if (!walletId.ok || !state) return null;
+    return {
+      version: SDK_LIFECYCLE_EVENT_VERSION,
+      event: 'registration.near_provisioning_changed',
+      walletId: walletId.value,
+      state,
+    };
+  }
   if (value.event !== 'signing_session.expired') return null;
 
   const walletId = parseWalletId(value.walletId);

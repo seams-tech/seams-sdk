@@ -82,7 +82,12 @@ export type VerifiedEmailOtpEd25519YaoRegistrationWorkerInputV1 = {
   walletId: string;
   providerSubject: string;
   registrationAuthorityId: string;
-  registrationIntentGrant: string;
+  /**
+   * Bearer credential for this ceremony's Yao Router calls. Was the
+   * registration-intent grant; Refactor 94C deletes the grant and the client
+   * carries `signedSetup` across the ceremony's routes instead.
+   */
+  registrationBearerToken: string;
   routerOrigin: string;
   /**
    * Receives the Yao timing breakdown once the worker reports it. Email OTP
@@ -629,7 +634,10 @@ export async function startEmailOtpEd25519YaoWorkerRegistrationV1(
     if (scope.walletId !== input.walletId) {
       throw new Error('Email OTP Ed25519 Yao admission changed the verified wallet');
     }
-    const bearerToken = requireNonEmpty(input.registrationIntentGrant, 'registrationIntentGrant');
+    const bearerToken = requireNonEmpty(
+      input.registrationBearerToken,
+      'registrationBearerToken',
+    );
     const routerOrigin = new URL(input.routerOrigin).origin;
     const bound = await input.workerContext.requestWorkerOperation({
       kind: 'emailOtp',

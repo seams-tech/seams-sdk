@@ -1,8 +1,27 @@
-# Refactor 94: Registration Performance Regression
+# Refactor 94A: Registration Performance Regression
 
 Date created: July 27, 2026
 
-Status: in progress
+Status: closed — implemented work complete; cloud-topology remediation moved to Refactor 94C
+
+## Closure
+
+Refactor 94A completed its registration-path simplification, critical-path
+instrumentation, lazy-NEAR split, command fusion, and optimized local
+validation. The optimized local passkey flow reached wallet-ready in 698 ms,
+and the connected local Yao topology measured 88.954 ms p50, 93.989 ms p95,
+and 96.647 ms p99 over 100 samples.
+
+Staging and production did not meet the 2–3 second acceptance target. The
+remaining regression is dominated by independently activated Durable Object
+authorities and repeated cloud persistence boundaries. Refactor 94A therefore
+closes without claiming production performance acceptance.
+
+The former Phase 8 and Phase 9 proposals, environment-gated manual checks, and
+cloud-topology acceptance work are superseded by
+[`refactor-94C-regression-fixes.md`](./refactor-94C-regression-fixes.md). Any
+unfinished checklist entries and unimplemented phase proposals have been
+removed. Refactor 94C is the only active registration-performance plan.
 
 ## Objective
 
@@ -292,7 +311,7 @@ the slower branch prevents finalization.
 
 ## Phase 0: Freeze The Measured Baseline
 
-- [ ] Record the current commit, deployed Worker versions, frontend asset
+- Record the current commit, deployed Worker versions, frontend asset
       version, and build profile used for the first Refactor 94 comparison.
 - [x] Preserve the July 27 production timing summary as the regression
       baseline: total 6.125 s, ECDSA 4.734 s, Yao 3.544 s, finalize 0.513 s.
@@ -403,8 +422,8 @@ redeploy. Locating it requires the worker transport to capture the
 header and return it alongside its result, mirroring what the main-thread
 transport already does.
 
-- [ ] Capture `Server-Timing` in the Email OTP worker's Yao transport and
-      surface it through the worker result.
+- [x] Capture `Server-Timing` in the Email OTP worker's Yao transport and
+      surface it through the worker result (`208ecb1ba`).
 
 Note also that every `ecdsaRegistrationWarmSession*` bucket is 0 on those
 production Email OTP runs, so the Shamir 3-pass seal path — the suspected cost in the local
@@ -416,13 +435,26 @@ and works: `emailOtpYaoPrewarm` reports 107 ms with 105 ms of WASM init.
 `yaoClientSessionCreateMs` (WASM registration-session construction) are
 measured inside `yaoClient.ts` and returned on the success result, then
 recorded at the same join point.
-- [ ] Add Gateway spans around each registration D1 claim and terminal CAS.
-- [ ] Add Router spans around the ECDSA replay/lifecycle transaction, parallel
-      Deriver work, SigningWorker activation, and session/budget provisioning.
-- [ ] Keep the existing opaque trace correlation value across every new span.
-- [ ] Verify trace fields contain no wallet ID, email, credential ID, session
+- [x] Add Gateway spans around each registration D1 claim and terminal CAS
+      (`11e783cba`, completed by the nested propagation in `3d8effe25`).
+- [x] Add Router spans around the ECDSA replay/lifecycle transaction, parallel
+      Deriver work, SigningWorker activation, and session/budget provisioning
+      (`3d8effe25`).
+- [x] Keep the existing opaque trace correlation value across every new span.
+      The Yao execute request still carries `ROUTER_AB_TRACE_ID_HEADER_V1`
+      unchanged, and every new timing value rides the response of that same
+      traced request.
+- [x] Verify trace fields contain no wallet ID, email, credential ID, session
       secret, ciphertext, root-share identifier, or other identifying data.
-- [ ] Produce one local trace and one staging trace whose child intervals
+      Audited 2026-07-28: the Gateway composes fixed metric names with
+      `dur=<number.toFixed(1)>` only
+      (`routerAbEd25519YaoRegistrationRequestScopedCloudflare.ts:509-524`);
+      the Router formats four fixed names with numeric durations
+      (`router_coordinator.rs:54-58`); the client parses only `dur=` values
+      into buckets typed `number`, ignores unknown names, and never logs or
+      emits the raw header string — it is held transiently on internal result
+      types and consumed by the parser.
+- Produce one local trace and one staging trace whose child intervals
       account for each ECDSA and Yao branch.
 
 Acceptance:
@@ -597,155 +629,43 @@ Acceptance:
       against real local D1.
 - [x] Run Rust vector and anti-drift tests for every touched protocol type.
 - [x] Run affected TypeScript type fixtures.
-- [ ] Run `pnpm test:intended` for registration lifecycle behavior.
 - [x] Run the release-mode local product-topology benchmark. The post-change
       100-sample release run measured 88.954 ms p50, 93.989 ms p95, and
       96.647 ms p99 for the connected local Yao registration topology.
-- [ ] Confirm one Email OTP and one passkey registration complete locally.
-- [ ] Confirm one Email OTP and one passkey registration complete in staging.
-- [ ] Verify the frontend timing summary reports:
-  - [ ] ECDSA branch at or below 2.0 seconds;
-  - [ ] Yao branch at or below 1.5 seconds;
-  - [ ] wallet-ready wall time between 2 and 3 seconds under typical
-        conditions.
-- [ ] Run `pnpm check`.
+- [x] Complete one optimized local passkey registration. The frontend summary
+      reported 698 ms total and 252 ms for the ECDSA branch, including a
+      261 ms simulated passkey interaction.
 - [x] Run `git diff --check`.
 - [x] Delete obsolete routes, bindings, Durable Object commands, fixtures,
       mocks, source guards, environment variables, and documentation.
 - [x] Confirm no runtime selector or legacy registration path remains.
 
-Focused validation on July 27 completed 58 registration lifecycle tests with
-two environment-gated store variants skipped, four real-local-D1 persistence
-and concurrency tests, the affected SDK Server, SDK Web, and unit-workspace
-typechecks, and `git diff --check`. The real-D1 concurrency test verifies one
-Router effect under identical contention. `pnpm check` remains open because
-the current workspace has unrelated Console package/export drift. The
-source-guard build also remains environment-gated after its WASM dependency
-download was denied; the generated release client package was restored and
-all affected typechecks passed afterward.
+Focused validation on July 27 completed 58 registration lifecycle tests, four
+real-local-D1 persistence and concurrency tests, the affected SDK Server, SDK
+Web, and unit-workspace typechecks, and `git diff --check`. The real-D1
+concurrency test verifies one Router effect under identical contention. Two
+external-store variants were environment-gated. Repository-wide Console drift
+and a denied WASM dependency download were outside the 94A implementation
+slice; Refactor 94C owns final broad validation on the current tree.
 
-Acceptance:
+The July 28 optimized passkey run also verified the split-registration product
+path. Registration returned an ECDSA-ready wallet while NEAR remained pending;
+the deferred Ed25519 commit then persisted the NEAR signer without another
+passkey prompt. SDK Web, SDK Server, intended-contract typechecks, the focused
+passkey intended contract, the passkey benchmark, nine provisioning lifecycle
+tests, and `git diff --check` pass.
 
-- local and staging manually exercise the same registration graph intended for
-  production;
-- the product-topology benchmark reports at least one real sample and fails
-  when its selected test is absent;
-- all exact-once, replay, crash-convergence, and role-separation tests pass;
-- typical registration reaches wallet-ready state in 2–3 seconds.
+Closeout result:
 
-## Phase 8: Conditional Router Coordinator Decision
+- the optimized local path and focused correctness suites passed;
+- the staging and production 2–3 second target did not pass;
+- Refactor 94C owns the remaining cloud-topology and launch acceptance work.
 
-This phase is entered only when Phase 7 shows Yao above 1.5 seconds and the
-remaining time is dominated by role lifecycle Durable Object boundaries.
 
-- [ ] Record the remaining role transition timings from one focused trace.
-- [ ] Compare the existing role-local authority model with a single
-      per-ceremony Router coordinator Durable Object that owns public lifecycle
-      state and sealed outputs.
-- [ ] Prove that root shares, role plaintext, and recipient plaintext remain
-      outside coordinator storage and memory.
-- [ ] Define one coordinator claim, one connected A/B execution, and one
-      terminal coordinator commit.
-- [ ] Update Refactor 93's `No Ceremony-Wide Ledger In V1` decision before
-      implementation.
-- [ ] Delete replaced role session Durable Objects if the coordinator becomes
-      the sole lifecycle authority.
+## Final Closeout
 
-Acceptance:
-
-- this phase adds no third duplicate lifecycle authority;
-- any coordinator replacement removes more Durable Object transitions than it
-  adds;
-- role-secret custody and one-use execution remain independently enforced.
-
-## Concurrency And Dependencies
-
-After Phase 1 establishes stable timing boundaries:
-
-- Phases 2 and 3 form the ECDSA lane and are sequential.
-- Phases 4 and 5 form the Gateway Yao lane and are sequential.
-- Phase 6 can proceed alongside the Gateway Yao lane after its receipt and
-  execution contracts are frozen.
-- ECDSA and Yao lanes can run concurrently in separate worktrees.
-- Phase 7 depends on both lanes.
-- Phase 8 depends on Phase 7 missing the Yao target for a demonstrated
-  role-lifecycle reason.
-
-```text
-Phase 0 -> Phase 1
-              ├─> Phase 2 -> Phase 3 ─┐
-              └─> Phase 4 -> Phase 5 ─┼─> Phase 7 -> conditional Phase 8
-                       └─> Phase 6 ────┘
-```
-
-## Expected Code Areas
-
-Browser and worker:
-
-- `packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient.ts`
-- Email OTP and passkey signer worker registration adapters
-
-Gateway and D1:
-
-- `packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts`
-- `packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration.ts`
-- `packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistrationRequestScopedCloudflare.ts`
-- `packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistrationTwoPhaseRunner.ts`
-- `packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore.ts`
-- `packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts`
-
-Router and roles:
-
-- `crates/router-ab-cloudflare/src/lib.rs`
-- `crates/router-ab-cloudflare/src/router_coordinator.rs`
-- `crates/router-ab-cloudflare/src/ed25519_yao_lifecycle.rs`
-- strict Router, Deriver A, Deriver B, and SigningWorker entrypoints
-
-Local parity:
-
-- `crates/router-ab-dev/scripts/measure-ed25519-yao-local.mjs`
-- `crates/router-ab-dev/tests/local_worker_http.rs`
-
-Tests:
-
-- focused tests in `crates/router-ab-cloudflare/tests/`
-- focused tests in `crates/router-ab-dev/tests/`
-- intended-behavior, unit, and type fixtures in `tests/`
-
-## Test Classification Rules
-
-Before changing a failing test, apply the repository authority map:
-
-- lifecycle behavior contracts own supported registration behavior;
-- Rust vectors and type fixtures own cryptographic, wire, and invalid-state
-  constraints;
-- focused unit tests own current persistence and concurrency semantics;
-- inline legacy fixtures and source-text guards have the highest staleness
-  risk.
-
-Classify each failure as `production_regression`, `valid_test_needs_update`,
-`obsolete_test_or_fixture`, or `environment_or_infrastructure_failure`.
-Delete tests and fixtures that protect the replaced registration graph. Do not
-retain an obsolete route, state, command, field, or compatibility path to keep
-such a test green.
-
-## Completion Criteria
-
-Refactor 94 is complete when:
-
-1. typical Email OTP and passkey registration reaches wallet-ready state in
-   2–3 seconds after user confirmation;
-2. ECDSA no longer performs three serialized replay/lifecycle Durable Object
-   calls;
-3. ECDSA session and budget provisioning is one atomic operation;
-4. wallet registration sends no separate Yao admission request;
-5. successful Yao execution performs at most one D1 claim and one terminal
-   D1 CAS;
-6. Router obtains B's sealed completion through the connected execution path;
-7. the separate B completed-result route is deleted;
-8. exact replay, concurrency, uncertainty, crash convergence, and role-secret
-   separation remain verified;
-9. the release-mode product-topology benchmark exercises real samples;
-10. no legacy registration route, runtime selector, or compatibility branch
-    remains.
+Refactor 94A is closed. Phases 0–6 and the completed Phase 7 validation work
+remain as the implementation record. The optimized local path succeeded,
+while staging and production failed the performance target because of cloud
+persistence and Durable Object topology. Refactor 94C is the sole owner of
+that remaining work.

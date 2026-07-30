@@ -307,7 +307,7 @@ test.describe('Router API route surface wiring', () => {
 
     const response = await callCf(handler, {
       method: 'OPTIONS',
-      path: '/wallets/register/start',
+      path: '/wallets/register/setup',
       origin,
       headers: {
         'Access-Control-Request-Headers': `content-type,${ROUTER_AB_TRACE_ID_HEADER_V1}`,

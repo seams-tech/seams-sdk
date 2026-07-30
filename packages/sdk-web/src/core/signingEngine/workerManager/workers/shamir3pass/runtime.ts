@@ -31,6 +31,7 @@ let shamirWorkerSingleton: Worker | null = null;
 let requestCounter = 0;
 
 type Shamir3PassWorkerRequestType =
+  | 'warmup'
   | 'createClientKeyHandle'
   | 'destroyClientKeyHandle'
   | 'addClientSealWithKeyHandle'
@@ -267,6 +268,25 @@ function createShamir3PassRuntime(): Shamir3PassRuntime {
       return new Uint8Array(result);
     },
   };
+}
+
+/**
+ * Constructs the nested Shamir3Pass worker and instantiates its WASM module
+ * ahead of first use. This is the only worker on the passkey registration path
+ * without a prewarm; cold, the spawn + 422KB instantiate lands inside the
+ * post-finalize seal window. Failure is swallowed — prewarming is best-effort
+ * and first real use retries construction from scratch.
+ */
+export async function warmupShamir3PassRuntime(): Promise<
+  { kind: 'succeeded'; elapsedMs: number } | { kind: 'failed'; elapsedMs: number }
+> {
+  const startedAt = performance.now();
+  try {
+    await sendWorkerRequest('warmup', {});
+    return { kind: 'succeeded', elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)) };
+  } catch {
+    return { kind: 'failed', elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)) };
+  }
 }
 
 export async function getShamir3PassRuntime(): Promise<Shamir3PassRuntime> {

@@ -17,16 +17,24 @@ import {
   stepRouterAbEcdsaPresignSession,
 } from '@server/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge';
 import { parseRouterAbNormalSigningRuntimeConfig } from '@server/core/routerAbSigning/RouterAbNormalSigningRuntime';
+import { RouterAbEcdsaDerivationPoolFillHandlers } from '@server/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 function b64u(byte: number, length: number): string {
   return Buffer.from(new Uint8Array(length).fill(byte)).toString('base64url');
 }
 
+const walletKeyId = deriveEvmFamilySigningKeySlotId({
+  walletId: 'wallet-1',
+  signingRootId: 'project-1:env-1',
+  signingRootVersion: 'root-v1',
+});
+
 const scope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
-  wallet_key_id: 'wallet-key-localhost',
+  wallet_key_id: walletKeyId,
   wallet_id: 'wallet-1',
   ecdsa_threshold_key_id: 'ecdsa-key-1',
-  signing_root_id: 'root-1',
+  signing_root_id: 'project-1:env-1',
   signing_root_version: 'root-v1',
   context: {
     application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
@@ -64,6 +72,45 @@ function digest(byte: number): { bytes: number[] } {
 
 const hostedSigningWorkerFetch: typeof fetch = async () => Response.json({ ok: true });
 
+type StatelessPresignScenario = {
+  readonly requests: Array<{ url: string; body: Record<string, unknown> }>;
+};
+
+let statelessPresignScenario: StatelessPresignScenario | null = null;
+
+function requireStatelessPresignScenario(): StatelessPresignScenario {
+  if (!statelessPresignScenario) throw new Error('stateless presign scenario is not active');
+  return statelessPresignScenario;
+}
+
+async function statelessPresignFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const scenario = requireStatelessPresignScenario();
+  const url = String(input);
+  const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+  scenario.requests.push({ url, body });
+  if (url.endsWith(CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_INIT_PATH)) {
+    return Response.json({
+      kind: 'continue',
+      presign_session_id: body.presign_session_id,
+      stage: 'triples',
+      event: 'none',
+      outgoing_messages_b64u: [],
+    });
+  }
+  return Response.json({
+    kind: 'complete',
+    presign_session_id: body.presign_session_id,
+    server_presignature_id: 'presignature-private-do-1',
+    server_big_r33_b64u: b64u(2, 33),
+  });
+}
+
+async function readyPresignRuntime(): Promise<void> {}
+
+function fixturePresignSessionId(expiresAtMs: number): string {
+  return `ecdsa-presign-v2:${expiresAtMs}:fixture`;
+}
+
 function request(): CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1Wire {
   return buildRouterAbEcdsaDerivationPresignaturePoolPutRequest({
     scope,
@@ -94,6 +141,82 @@ function receipt(
 }
 
 test.describe('Router A/B ECDSA derivation presign bridge', () => {
+  test('keeps presign coordination exclusively in the SigningWorker session route', async () => {
+    const expiresAtMs = Date.now() + 60_000;
+    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    statelessPresignScenario = { requests };
+    const handlers = new RouterAbEcdsaDerivationPoolFillHandlers({
+      nodeRole: 'coordinator',
+      participantIds2p: [1, 2],
+      ensureReady: readyPresignRuntime,
+      createPoolFillSessionId: fixturePresignSessionId,
+      signingWorkerTransport: {
+        signingWorkerBaseUrl: 'http://signing-worker.internal',
+        auth: { kind: 'internal_service_auth_secret', secret: 'test-secret' },
+        fetchImpl: statelessPresignFetch,
+      },
+    });
+    const claims = {
+      walletId: scope.wallet_id,
+      evmFamilySigningKeySlotId: scope.wallet_key_id,
+      relayerKeyId: 'relayer-key-1',
+      keyHandle: 'key-handle-1',
+      runtimePolicyScope: {
+        orgId: 'org-1',
+        projectId: 'project-1',
+        envId: 'env-1',
+        signingRootVersion: 'root-v1',
+      },
+      participantIds: [1, 2],
+      thresholdExpiresAtMs: expiresAtMs + 10_000,
+      routerAbEcdsaDerivationNormalSigning: {
+        kind: 'router_ab_ecdsa_derivation_normal_signing_v1' as const,
+        scope,
+      },
+    };
+
+    const initialized = await handlers.routerAbEcdsaDerivationPresignaturePoolFillInit({
+      claims,
+      request: {
+        keyHandle: claims.keyHandle,
+        count: 1,
+        poolFill: {
+          kind: 'router_ab_ecdsa_derivation_signing_worker_pool',
+          scope,
+          expiresAtMs,
+        },
+      },
+    });
+    if (!initialized.ok) throw new Error(`${initialized.code}: ${initialized.message}`);
+    expect(initialized).toMatchObject({
+      ok: true,
+      presignSessionId: `ecdsa-presign-v2:${expiresAtMs}:fixture`,
+      stage: 'triples',
+    });
+    if (!initialized.presignSessionId) {
+      throw new Error('expected initialized presign session');
+    }
+
+    const completed = await handlers.routerAbEcdsaDerivationPresignaturePoolFillStep({
+      claims,
+      request: {
+        presignSessionId: initialized.presignSessionId,
+        stage: 'presign',
+        outgoingMessagesB64u: [],
+      },
+    });
+    expect(completed).toMatchObject({
+      ok: true,
+      stage: 'done',
+      event: 'presign_done',
+      presignatureId: 'presignature-private-do-1',
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.body.expires_at_ms).toBe(expiresAtMs);
+    expect(requests[1]?.body.expires_at_ms).toBe(expiresAtMs);
+    statelessPresignScenario = null;
+  });
+
   test('preserves the hosted SigningWorker service-binding transport', () => {
     const config = parseRouterAbNormalSigningRuntimeConfig({
       ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-1',

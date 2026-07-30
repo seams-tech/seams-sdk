@@ -88,9 +88,7 @@ export function createCloudflareDurableObjectRouterAbSigningRuntimes(input: {
     normalSigningRuntime: normalSigning,
   });
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({
-    logger,
     config: parseRouterAbEcdsaPresignRuntimeConfig(input.thresholdStore),
-    ecdsaPoolFillSessionStore: ecdsaStores.poolFillSessionStore,
     signingWorkerTransport,
     ensureReady,
   });

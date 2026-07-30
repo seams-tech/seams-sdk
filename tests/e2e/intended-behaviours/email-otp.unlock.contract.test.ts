@@ -6,6 +6,7 @@ async function verifyEmailOtpUnlockImmediateLifecycle({
   harness: IntendedBehaviourHarness;
 }): Promise<void> {
   await harness.registerEmailOtpWallet();
+  await harness.awaitNearReady();
   await harness.unlockEmailOtpWallet();
   await harness.exportEd25519Key();
   await harness.exportEcdsaKey();
@@ -21,6 +22,7 @@ test(
 
 test('Email OTP unlock lifecycle', async ({ harness }) => {
   await harness.registerEmailOtpWallet();
+  await harness.awaitNearReady();
   await harness.unlockEmailOtpWallet();
   await harness.refreshPagePreservingWalletStorage();
   await harness.exportEd25519Key();

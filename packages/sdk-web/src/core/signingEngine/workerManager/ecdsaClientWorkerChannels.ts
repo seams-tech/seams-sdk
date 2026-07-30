@@ -132,6 +132,7 @@ export type CreateRouterAbEcdsaPostRegistrationCeremonyResultV1 =
       readonly kind: 'router_ab_ecdsa_explicit_export_ceremony_created_v1';
       readonly ceremonyId: string;
       readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+      readonly requestDigestB64u: string;
     }
   | {
       readonly kind: 'router_ab_ecdsa_activation_refresh_ceremony_created_v1';
