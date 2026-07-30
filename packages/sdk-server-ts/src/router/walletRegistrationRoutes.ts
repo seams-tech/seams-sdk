@@ -61,6 +61,7 @@ import {
 import {
   parseAppSessionClaims,
   parseWalletRegistrationEcdsaClientBootstrap,
+  resolveAppSessionWalletIdForWalletScope,
 } from '../core/ThresholdService/validation';
 import { findUnexpectedRouteKey } from './routeRequestValidation';
 import {
@@ -2340,6 +2341,9 @@ export async function handleRouterApiWalletAddSignerStart(
     if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
       return routeError(401, 'unauthorized', 'App session is expired');
     }
+    if (resolveAppSessionWalletIdForWalletScope(appSessionClaims, walletId) !== walletId) {
+      return routeError(403, 'forbidden', 'App session does not match walletId');
+    }
     const sessionVersion = await input.services.walletRegistration.validateAppSessionVersion({
       userId: appSessionClaims.sub,
       appSessionVersion: appSessionClaims.appSessionVersion,
@@ -2535,6 +2539,9 @@ export async function handleRouterApiWalletAddAuthMethodStart(
     if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
       return routeError(401, 'unauthorized', 'App session is expired');
     }
+    if (resolveAppSessionWalletIdForWalletScope(appSessionClaims, walletId) !== walletId) {
+      return routeError(403, 'forbidden', 'App session does not match walletId');
+    }
     const sessionVersion = await input.services.walletRegistration.validateAppSessionVersion({
       userId: appSessionClaims.sub,
       appSessionVersion: appSessionClaims.appSessionVersion,
@@ -2617,6 +2624,9 @@ export async function handleRouterApiWalletRevokeAuthMethod(
     if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
       return routeError(401, 'unauthorized', 'App session is expired');
     }
+    if (resolveAppSessionWalletIdForWalletScope(appSessionClaims, walletId) !== walletId) {
+      return routeError(403, 'forbidden', 'App session does not match walletId');
+    }
     const sessionVersion = await input.services.walletRegistration.validateAppSessionVersion({
       userId: appSessionClaims.sub,
       appSessionVersion: appSessionClaims.appSessionVersion,
@@ -2680,6 +2690,9 @@ export async function handleRouterApiWalletEcdsaKeyFactsInventory(
     }
     if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
       return routeError(401, 'unauthorized', 'App session is expired');
+    }
+    if (resolveAppSessionWalletIdForWalletScope(appSessionClaims, walletId) !== walletId) {
+      return routeError(403, 'forbidden', 'App session does not match walletId');
     }
     const sessionVersion = await input.services.walletRegistration.validateAppSessionVersion({
       userId: appSessionClaims.sub,

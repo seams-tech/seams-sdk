@@ -396,10 +396,6 @@ test.describe('wallet registration route boundaries', () => {
       webauthn_authentication: credential,
     });
     expect(serviceRequest).toMatchObject({
-      subject: {
-        kind: 'wallet_auth_method_management',
-        walletId: 'wallet_alice',
-      },
       addSignerIntentDigestB64u: digest,
       auth: {
         kind: 'webauthn_assertion',
@@ -568,6 +564,7 @@ test.describe('wallet registration route boundaries', () => {
             claims: {
               kind: 'app_session_v1',
               sub: 'app-user-1',
+              walletId: 'wallet_alice',
               appSessionVersion: 'asv-1',
               exp: Math.floor(Date.now() / 1000) + 60,
             },
@@ -578,10 +575,6 @@ test.describe('wallet registration route boundaries', () => {
 
     expect(response.status).toBe(200);
     expect(serviceRequest).toMatchObject({
-      subject: {
-        kind: 'wallet_auth_method_management',
-        walletId: 'wallet_alice',
-      },
       auth: {
         kind: 'app_session',
         policy: {
@@ -994,6 +987,7 @@ test.describe('wallet registration route boundaries', () => {
             claims: {
               kind: 'app_session_v1',
               sub: 'user_1',
+              walletId: 'wallet_alice',
               appSessionVersion: 'v1',
               exp: Math.floor(Date.now() / 1000) + 60,
             },
@@ -1059,6 +1053,7 @@ test.describe('wallet registration route boundaries', () => {
             claims: {
               kind: 'app_session_v1',
               sub: 'user_1',
+              walletId: 'wallet_alice',
               appSessionVersion: 'v1',
               exp: Math.floor(Date.now() / 1000) + 60,
             },
@@ -1142,6 +1137,7 @@ test.describe('wallet registration route boundaries', () => {
             claims: {
               kind: 'app_session_v1',
               sub: 'user_1',
+              walletId: 'wallet_alice',
               appSessionVersion: 'v1',
               exp: Math.floor(Date.now() / 1000) + 60,
             },
@@ -1183,6 +1179,7 @@ test.describe('wallet registration route boundaries', () => {
         kind: 'email_otp',
         email: 'alice@example.test',
       },
+      walletId: 'wallet_alice',
     });
   });
 
@@ -1258,6 +1255,7 @@ test.describe('wallet registration route boundaries', () => {
             claims: {
               kind: 'app_session_v1',
               sub: 'app-user-1',
+              walletId: 'wallet_alice',
               appSessionVersion: 'asv-1',
               exp: Math.floor(Date.now() / 1000) + 60,
             },
