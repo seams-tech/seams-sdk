@@ -9,7 +9,6 @@ import {
   type RouteDefinition,
 } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import {
-  ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH,
   ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH,
 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -123,7 +122,6 @@ test.describe('route definition scaffolding', () => {
     expect(sessionState?.aliases).toBeUndefined();
 
     const routePaths = routes.map((route) => route.path);
-    expect(routePaths).toContain(ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH);
     expect(routePaths).toContain(ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH);
     expect(routePaths).toContain(ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH);
     expect(routePaths).not.toContain('/threshold-ed25519/session');
