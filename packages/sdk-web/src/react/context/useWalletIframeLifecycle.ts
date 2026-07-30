@@ -4,7 +4,7 @@ import type { SeamsWeb } from '@/SeamsWeb';
 import type { WalletIframeExactSessionState } from '@/SeamsWeb/walletIframe/shared/exactSessionState';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState } from '../types';
-import { isWalletSessionReadUnavailable } from './walletSessionReadiness';
+import { shouldPreserveReactLoginForWalletSessionRead } from './walletSessionReadiness';
 import {
   buildReactLoggedInLoginStateFromSession,
   buildReactLoggedOutLoginState,
@@ -65,7 +65,7 @@ async function applyExactWalletIframeSessionState(args: {
 
   const session = await args.seams.auth.getWalletSession(args.state.walletId);
   if (args.lifecycle.cancelled || args.lifecycle.revision !== args.revision) return;
-  if (isWalletSessionReadUnavailable(session)) return;
+  if (shouldPreserveReactLoginForWalletSessionRead(session)) return;
   const nextLoginState = buildReactLoggedInLoginStateFromSession(session);
   if (nextLoginState === null) {
     args.setLoginState(buildReactLoggedOutLoginState());
