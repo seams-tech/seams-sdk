@@ -146,7 +146,9 @@ replacement.
   client ECDSA session-policy type, builder, digest, public exports, and
   slot-pinning source checks were deleted in `3d6c4c74b`. Registration,
   add-signer, and bootstrap persistence stopped copying the provisioning slot
-  into durable IndexedDB signer metadata in `0fbbbb04b`.
+  into durable IndexedDB signer metadata in `0fbbbb04b`. The zero-caller server
+  role-local key-record parser and its in-memory, Redis, Upstash, and Durable
+  Object stores were deleted in `a913d461f`.
 - ~~`evmFamilySigningKeySlotId` in ECDSA Wallet Session JWT binding facts and
   normal-signing claims~~ — deleted by `4986d279f`; the value remains only on
   the registration bootstrap request/response boundary in that path.
