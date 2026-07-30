@@ -2,15 +2,9 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import { parseEnv } from 'node:util';
-import {
-  buildGatewayRuntimeProfile,
-  DEFAULT_NEAR_INITIAL_BALANCE_YOCTO,
-  GATEWAY_RUNTIME_PROFILE_KINDS,
-  GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
-  gatewayRuntimeProfileNearNetwork,
-  parseGatewayDeploymentConfig,
-} from '../../../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
+import { isDeepStrictEqual, parseEnv } from 'node:util';
+import { gatewayRuntimeProfileNearNetwork } from '../../../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
+import { readDeploymentTarget } from '../../../scripts/deployment-targets.mjs';
 
 const TARGETS = new Set(['staging', 'production']);
 const COMPONENTS = new Set(['wallet-core', 'product']);
@@ -68,13 +62,12 @@ async function main(options) {
   validateExternalValues(values, options.component);
   const repository = resolveGitHubRepository(options.repository);
   const plan = buildBasePlan(options, repository, values);
+  validateCheckedInGatewayConfiguration(plan.target, values);
   if (options.component === 'product') {
     addProductNearRelayerUpdate(plan, values);
-    addProductNearNetworkUpdates(plan, values, repository);
+    addProductNearNetworkUpdates(plan);
   } else {
-    addGatewayRuntimeProfileUpdate(plan, values, repository);
-    addWalletCoreNearRelayerUpdates(plan, values, repository);
-    addGatewayOptionalConfigUpdates(plan, values, repository);
+    addWalletCoreNearRelayerSecretUpdate(plan, values);
   }
   validatePlan(plan);
   const selectedPlan = selectPlan(plan, options.selection);
@@ -149,14 +142,6 @@ function validateExternalValues(values, component) {
   if (relayerPublicKey && !relayerAccountId) {
     throw new Error('RELAYER_PUBLIC_KEY requires RELAYER_ACCOUNT_ID');
   }
-  const runtimeProfileKind = readValue(values, 'GATEWAY_RUNTIME_PROFILE');
-  const emailOtpDeliveryKind = readValue(values, 'EMAIL_OTP_DELIVERY_MODE');
-  if (runtimeProfileKind || emailOtpDeliveryKind) {
-    buildGatewayRuntimeProfile(
-      runtimeProfileKind || GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo,
-      emailOtpDeliveryKind || undefined,
-    );
-  }
   const initialBalanceYocto = readValue(values, 'RELAYER_INITIAL_BALANCE_YOCTO');
   if (initialBalanceYocto) {
     requirePositiveUnsignedInteger(initialBalanceYocto, 'RELAYER_INITIAL_BALANCE_YOCTO');
@@ -209,14 +194,13 @@ function buildBasePlan(options, repository, values) {
     valuesFile: options.valuesFile,
     variables: [],
     secrets: [],
-    gatewayConfig: null,
+    gatewayDeploymentConfig: readDeploymentTarget(options.target).gatewayDeploymentConfig,
   };
   if (options.component === 'product') {
     appendMappedUpdates(plan.variables, options.target, values, GENERAL_VARIABLE_INPUTS);
     appendMappedUpdates(plan.secrets, options.target, values, CLOUDFLARE_SECRET_INPUTS);
   } else {
     appendWalletCoreCloudflareDeploymentUpdates(plan, options.target, values);
-    addGatewayWalletOriginUpdate(plan, values, repository);
     appendMappedUpdates(
       plan.variables,
       `${options.target}-gateway`,
@@ -226,39 +210,6 @@ function buildBasePlan(options, repository, values) {
     appendMappedUpdates(plan.secrets, `${options.target}-gateway`, values, GATEWAY_SECRET_INPUTS);
   }
   return plan;
-}
-
-function addGatewayWalletOriginUpdate(plan, values, repository) {
-  const walletOrigin = readValue(values, 'VITE_WALLET_ORIGIN');
-  if (!walletOrigin) {
-    return;
-  }
-  const previousWalletOrigin = readGitHubVariable(
-    plan.target,
-    'VITE_WALLET_ORIGIN',
-    repository,
-  );
-  const config = requireGatewayConfig(plan, repository);
-  config.origins.allowedCors = replaceExactOrigin(
-    config.origins.allowedCors,
-    previousWalletOrigin,
-    walletOrigin,
-    'Gateway CORS origins',
-  );
-  config.bootstrap.allowedOrigins = replaceExactOrigin(
-    config.bootstrap.allowedOrigins,
-    previousWalletOrigin,
-    walletOrigin,
-    'Gateway publishable-key origins',
-  );
-}
-
-function replaceExactOrigin(origins, previousOrigin, nextOrigin, label) {
-  const matchCount = origins.filter((origin) => origin === previousOrigin).length;
-  if (matchCount !== 1) {
-    throw new Error(`${label} must contain the current wallet origin exactly once`);
-  }
-  return origins.map((origin) => (origin === previousOrigin ? nextOrigin : origin));
 }
 
 function appendWalletCoreCloudflareDeploymentUpdates(plan, target, values) {
@@ -288,8 +239,8 @@ function addProductNearRelayerUpdate(plan, values) {
   });
 }
 
-function addProductNearNetworkUpdates(plan, values, repository) {
-  const config = readCurrentGatewayConfig(plan.target, repository);
+function addProductNearNetworkUpdates(plan) {
+  const config = plan.gatewayDeploymentConfig;
   const runtimeProfile = config.runtimeProfile;
   const network = gatewayRuntimeProfileNearNetwork(runtimeProfile);
   const publicConfig = NEAR_PUBLIC_CONFIG_BY_NETWORK[network];
@@ -316,125 +267,67 @@ function addProductNearNetworkUpdates(plan, values, repository) {
   );
 }
 
-function addWalletCoreNearRelayerUpdates(plan, values, repository) {
-  const accountId = readValue(values, 'RELAYER_ACCOUNT_ID');
+function addWalletCoreNearRelayerSecretUpdate(plan, values) {
   const privateKey = readValue(values, 'RELAYER_PRIVATE_KEY');
-  const publicKey = readValue(values, 'RELAYER_PUBLIC_KEY');
-  const suppliedRpcUrl = readValue(values, 'NEAR_RPC_URL');
-  const suppliedInitialBalanceYocto = readValue(values, 'RELAYER_INITIAL_BALANCE_YOCTO');
-  if (!accountId && !privateKey && !publicKey && !suppliedRpcUrl && !suppliedInitialBalanceYocto) {
+  if (!privateKey) {
     return;
   }
-  const config = requireGatewayConfig(plan, repository);
+  if (!plan.gatewayDeploymentConfig.optional.nearRelayer) {
+    throw new Error('RELAYER_PRIVATE_KEY requires nearRelayer in deployment/targets.json');
+  }
+  plan.secrets.push({
+    environment: `${plan.target}-gateway`,
+    name: 'RELAYER_PRIVATE_KEY',
+    value: privateKey,
+  });
+}
+
+function validateCheckedInGatewayConfiguration(target, values) {
+  const config = readDeploymentTarget(target).gatewayDeploymentConfig;
+  assertSuppliedValueMatches(values, 'GATEWAY_RUNTIME_PROFILE', config.runtimeProfile.kind);
+  assertSuppliedValueMatches(
+    values,
+    'EMAIL_OTP_DELIVERY_MODE',
+    config.runtimeProfile.emailOtpDelivery.kind,
+  );
+  assertSuppliedValueMatches(values, 'GOOGLE_OIDC_CLIENT_ID', config.optional.googleOidcClientId);
+  assertSuppliedJsonMatches(values, 'SEAMS_OIDC_EXCHANGE_JSON', config.optional.oidcExchange);
+  const walletOrigin = readValue(values, 'VITE_WALLET_ORIGIN');
+  if (
+    walletOrigin &&
+    (!config.origins.allowedCors.includes(walletOrigin) ||
+      !config.bootstrap.allowedOrigins.includes(walletOrigin))
+  ) {
+    throw new Error('VITE_WALLET_ORIGIN must be updated in deployment/targets.json first');
+  }
   const nearRelayer = config.optional.nearRelayer;
-  if (!nearRelayer && !accountId) {
-    throw new Error('NEAR relayer funding updates require an existing or supplied relayer account');
-  }
-  if (accountId) {
-    const current = nearRelayer?.accountId === accountId ? nearRelayer : null;
-    const defaultRpcUrl = current
-      ? current.rpcUrl
-      : readGitHubVariable(plan.target, 'VITE_NEAR_RPC_URL', repository);
-    config.optional.nearRelayer = buildUpdatedNearRelayer({
-      accountId,
-      publicKey,
-      suppliedRpcUrl,
-      suppliedInitialBalanceYocto,
-      current,
-      defaultRpcUrl,
-    });
-    plan.secrets.push({
-      environment: `${plan.target}-gateway`,
-      name: 'RELAYER_PRIVATE_KEY',
-      value: privateKey,
-    });
-    return;
-  }
-  if (suppliedRpcUrl) {
-    nearRelayer.rpcUrl = suppliedRpcUrl;
-  }
-  if (suppliedInitialBalanceYocto) {
-    nearRelayer.initialBalanceYocto = suppliedInitialBalanceYocto;
-  }
-}
-
-function buildUpdatedNearRelayer(input) {
-  return {
-    accountId: input.accountId,
-    publicKey: input.publicKey || input.current?.publicKey || null,
-    rpcUrl: input.suppliedRpcUrl || input.current?.rpcUrl || input.defaultRpcUrl,
-    initialBalanceYocto:
-      input.suppliedInitialBalanceYocto ||
-      input.current?.initialBalanceYocto ||
-      DEFAULT_NEAR_INITIAL_BALANCE_YOCTO,
-  };
-}
-
-function addGatewayRuntimeProfileUpdate(plan, values, repository) {
-  const runtimeProfileKind = readValue(values, 'GATEWAY_RUNTIME_PROFILE');
-  const emailOtpDeliveryKind = readValue(values, 'EMAIL_OTP_DELIVERY_MODE');
-  if (!runtimeProfileKind && !emailOtpDeliveryKind) {
-    return;
-  }
-  const config = requireGatewayConfig(plan, repository);
-  const parsed = parseGatewayDeploymentConfig(JSON.stringify(config), plan.target);
-  config.schemaVersion = GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION;
-  config.runtimeProfile = buildGatewayRuntimeProfile(
-    runtimeProfileKind || parsed.runtimeProfile.kind,
-    emailOtpDeliveryKind || parsed.runtimeProfile.emailOtpDelivery.kind,
+  assertSuppliedValueMatches(values, 'RELAYER_ACCOUNT_ID', nearRelayer?.accountId ?? null);
+  assertSuppliedValueMatches(values, 'RELAYER_PUBLIC_KEY', nearRelayer?.publicKey ?? null);
+  assertSuppliedValueMatches(values, 'NEAR_RPC_URL', nearRelayer?.rpcUrl ?? null);
+  assertSuppliedValueMatches(
+    values,
+    'RELAYER_INITIAL_BALANCE_YOCTO',
+    nearRelayer?.initialBalanceYocto ?? null,
   );
 }
 
-function addGatewayOptionalConfigUpdates(plan, values, repository) {
-  const googleOidcClientId = readValue(values, 'GOOGLE_OIDC_CLIENT_ID');
-  const oidcExchange = parseOptionalJsonObject(values, 'SEAMS_OIDC_EXCHANGE_JSON');
-  if (!googleOidcClientId && !oidcExchange) {
-    return;
-  }
-  const config = requireGatewayConfig(plan, repository);
-  if (googleOidcClientId) {
-    config.optional.googleOidcClientId = googleOidcClientId;
-  }
-  if (oidcExchange) {
-    config.optional.oidcExchange = oidcExchange;
+function assertSuppliedValueMatches(values, name, expected) {
+  const supplied = readValue(values, name);
+  if (supplied && supplied !== expected) {
+    throw new Error(`${name} must be updated in deployment/targets.json first`);
   }
 }
 
-function requireGatewayConfig(plan, repository) {
-  if (plan.gatewayConfig) {
-    return plan.gatewayConfig;
+function assertSuppliedJsonMatches(values, name, expected) {
+  const supplied = parseOptionalJsonObject(values, name);
+  if (supplied && !isDeepStrictEqual(supplied, expected)) {
+    throw new Error(`${name} must be updated in deployment/targets.json first`);
   }
-  const environment = `${plan.target}-gateway`;
-  const source = readGitHubVariable(
-    environment,
-    'GATEWAY_DEPLOYMENT_CONFIG_JSON',
-    repository,
-  );
-  parseGatewayDeploymentConfig(source, plan.target);
-  const raw = parseJsonObject(source, 'GATEWAY_DEPLOYMENT_CONFIG_JSON');
-  plan.gatewayConfig = raw;
-  return raw;
-}
-
-function readCurrentGatewayConfig(target, repository) {
-  const environment = `${target}-gateway`;
-  const source = readGitHubVariable(environment, 'GATEWAY_DEPLOYMENT_CONFIG_JSON', repository);
-  return parseGatewayDeploymentConfig(source, target);
 }
 
 function validatePlan(plan) {
   validateUniqueUpdates(plan.variables, 'variable');
   validateUniqueUpdates(plan.secrets, 'secret');
-  if (plan.gatewayConfig) {
-    const source = JSON.stringify(plan.gatewayConfig);
-    parseGatewayDeploymentConfig(source, plan.target);
-    plan.variables.push({
-      environment: `${plan.target}-gateway`,
-      name: 'GATEWAY_DEPLOYMENT_CONFIG_JSON',
-      value: source,
-    });
-    validateUniqueUpdates(plan.variables, 'variable');
-  }
 }
 
 function requirePositiveUnsignedInteger(value, name) {
@@ -462,7 +355,7 @@ function selectPlan(plan, selection) {
     valuesFile: plan.valuesFile,
     variables,
     secrets,
-    gatewayConfig: plan.gatewayConfig,
+    gatewayDeploymentConfig: plan.gatewayDeploymentConfig,
   };
 }
 
@@ -533,10 +426,7 @@ function printPlan(plan, applying) {
 }
 
 function printGatewayRuntimeProfile(plan) {
-  if (!plan.gatewayConfig) {
-    return;
-  }
-  const parsed = parseGatewayDeploymentConfig(JSON.stringify(plan.gatewayConfig), plan.target);
+  const parsed = plan.gatewayDeploymentConfig;
   process.stdout.write(`Gateway runtime profile: ${parsed.runtimeProfile.kind}\n`);
   process.stdout.write(
     `NEAR network: ${gatewayRuntimeProfileNearNetwork(parsed.runtimeProfile)}\n`,
@@ -568,9 +458,6 @@ function displayUpdateValue(update, redactValue) {
   if (redactValue) {
     return '<redacted>';
   }
-  if (update.name === 'GATEWAY_DEPLOYMENT_CONFIG_JSON') {
-    return '<validated-config-update>';
-  }
   return update.value;
 }
 
@@ -589,18 +476,6 @@ function resolveGitHubRepository(requestedRepository) {
     throw new Error(`GitHub returned an invalid repository name: ${repository}`);
   }
   return repository;
-}
-
-function readGitHubVariable(environment, name, repository) {
-  const child = runGhResult(['variable', 'get', name, '--env', environment, '--repo', repository]);
-  if (child.status !== 0) {
-    throw new Error(formatGhFailure(`read ${environment}.${name}`, child));
-  }
-  const value = String(child.stdout).trim();
-  if (!value) {
-    throw new Error(`GitHub variable ${environment}.${name} is empty`);
-  }
-  return value;
 }
 
 function runGh(args, input) {

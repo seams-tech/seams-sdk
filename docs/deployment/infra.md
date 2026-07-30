@@ -170,12 +170,11 @@ cross-run artifact inputs.
 | `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`                | Pages build       | Exact SigningWorker id bound into Router A/B warm signing sessions.            |
 | `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED`                  | Pages build       | Optional dashboard route gate.                                                 |
 
-The Gateway GitHub Environment has one required non-secret deployment variable:
-`GATEWAY_DEPLOYMENT_CONFIG_JSON`. Its versioned document contains D1 and
+`deployment/targets.json` owns the non-secret Gateway configuration: D1 and
 Secrets Store resource IDs, tenant identity, origins, Router A/B public
 identity, session settings, bootstrap metadata, and optional integration
-configuration. The deployment renderer validates this document once and emits
-the individual Worker bindings expected by the runtime.
+configuration. The deployment target parser validates this document once and
+the renderer emits the individual Worker bindings expected by the runtime.
 
 Refactor 93 uses partitioned D1 and the MPC Router immediately. Gateway
 configuration has no Yao family cutoff or drain variables. Remove any retired
@@ -183,9 +182,9 @@ configuration has no Yao family cutoff or drain variables. Remove any retired
 `ROUTER_AB_YAO_GATEWAY_*_DRAIN_UNTIL_MS` values from the staging and production
 GitHub Environments; the deployment does not read them.
 
-Gateway cryptographic values and external credentials remain separate GitHub
-secrets. This preserves GitHub secret masking and allows credential rotation
-without rewriting public deployment configuration.
+Gateway private cryptographic values and external credentials remain GitHub
+secrets. Public keys and deployment metadata are reviewed with normal code
+changes in `deployment/targets.json`.
 
 Use names such as `seams-console-staging` and `seams-signer-staging` for
 staging. Production uses `seams-console` and `seams-signer` with different D1

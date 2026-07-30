@@ -87,12 +87,12 @@ export function gatewayRuntimeProfileNearNetwork(runtimeProfile) {
 }
 
 export function parseGatewayDeploymentConfig(source, expectedTarget) {
-  const root = parseJsonObject(source, 'GATEWAY_DEPLOYMENT_CONFIG_JSON');
+  const root = parseJsonObject(source, 'Gateway deployment config');
   const sourceSchemaVersion = parseGatewayDeploymentConfigSchemaVersion(root.schemaVersion);
   requireExactKeys(
     root,
     gatewayDeploymentConfigKeys(sourceSchemaVersion),
-    'GATEWAY_DEPLOYMENT_CONFIG_JSON',
+    'Gateway deployment config',
   );
   const target = requireTarget(root.target, 'target');
   if (target !== expectedTarget) {

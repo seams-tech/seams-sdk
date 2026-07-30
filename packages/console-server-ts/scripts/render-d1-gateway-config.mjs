@@ -14,17 +14,14 @@ import {
   DEFAULT_SESSION_COOKIE_NAME,
   GATEWAY_WORKER_COMPATIBILITY_DATE,
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
-  parseGatewayDeploymentConfig,
 } from './gateway-deployment-config.mjs';
+import { readDeploymentTarget } from '../../../scripts/deployment-targets.mjs';
 
 const VALID_TARGETS = new Set(['staging', 'production']);
 
 function main() {
   const options = parseArguments(process.argv.slice(2));
-  const deployment = parseGatewayDeploymentConfig(
-    process.env.GATEWAY_DEPLOYMENT_CONFIG_JSON,
-    options.target,
-  );
+  const deployment = readDeploymentTarget(options.target).gatewayDeploymentConfig;
   assertNearRelayerSecretConsistency(deployment.optional.nearRelayer);
   const config = buildConfig(deployment, process.cwd());
   const plan = buildGatewayDeploymentPlan(deployment);

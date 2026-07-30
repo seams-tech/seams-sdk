@@ -32,8 +32,6 @@ github_environments:
       CF_PAGES_PROJECT_WALLET: '<staging-wallet-pages-project>'
 
   staging-gateway:
-    vars:
-      GATEWAY_DEPLOYMENT_CONFIG_JSON: '<generated-gateway-deployment-config-json>'
     secrets:
       CLOUDFLARE_API_TOKEN: '<gateway-worker-deploy-token>'
       CLOUDFLARE_ACCOUNT_ID: '<account-id>'
@@ -59,8 +57,6 @@ github_environments:
       CF_PAGES_PROJECT_WALLET: '<production-wallet-pages-project>'
 
   production-gateway:
-    vars:
-      GATEWAY_DEPLOYMENT_CONFIG_JSON: '<generated-gateway-deployment-config-json>'
     secrets:
       CLOUDFLARE_API_TOKEN: '<gateway-worker-deploy-token>'
       CLOUDFLARE_ACCOUNT_ID: '<account-id>'
