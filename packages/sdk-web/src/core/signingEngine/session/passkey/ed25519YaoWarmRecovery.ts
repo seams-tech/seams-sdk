@@ -4,9 +4,6 @@ import type {
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { listExactSealedSessionsForWallet } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
-import type {
-  DurableSealedSessionPort,
-} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import {
   assertEd25519YaoRecoveryDescriptorContinuity,
   parseEd25519YaoRecoveryCapabilityV1,

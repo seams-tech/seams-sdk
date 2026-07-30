@@ -309,7 +309,7 @@ export interface SigningSessionSurface {
   hydrateSigningSession(input: HydrateWarmSigningSessionInput): Promise<void>;
   persistSigningSessionSealForThresholdSession(input: {
     sessionId: string;
-    transport?: WarmSessionSealTransportInput;
+    transport: Exclude<WarmSessionSealTransportInput, { authMethod: 'email_otp' }>;
   }): Promise<WarmSessionSealAndPersistResult>;
   readReusableWalletSessionState(walletId: WalletId | string): Promise<ReusableWalletSessionState>;
   discoverPersistedSessionsForWallet(

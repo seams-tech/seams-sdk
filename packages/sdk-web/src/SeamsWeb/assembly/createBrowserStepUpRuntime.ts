@@ -53,7 +53,7 @@ export function createBrowserStepUpRuntime(args: {
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           activationDeps: args.getEnginePorts().walletSessionActivationDeps,
-          touchConfirm: args.baseTouchConfirm,
+          sealPersistence: args.passkeyMpcSession,
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
           resolveSealTransport: ({ lane, authorization }) =>

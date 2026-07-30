@@ -6,20 +6,15 @@ import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLane
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import type {
   WarmSessionSealPersister,
-  WarmSessionWorkerSealPort,
 } from '../../uiConfirm/uiConfirm.types';
 
-export type WarmSessionSealPersistPorts =
-  | Partial<
-      Pick<
-        WarmSessionSealPersister & WarmSessionWorkerSealPort,
-        'sealAndPersistWarmSessionMaterial' | 'persistSigningSessionSealForThresholdSession'
-      >
-    >
-  | undefined;
+export type WarmSessionSealPersistPorts = Pick<
+  WarmSessionSealPersister,
+  'persistSigningSessionSealForThresholdSession'
+>;
 
 export async function ensureEcdsaPrfSealPersisted(args: {
-  touchConfirm: WarmSessionSealPersistPorts;
+  sealPersistence: WarmSessionSealPersistPorts;
   lane: ExactEcdsaSigningLaneIdentity;
   authorization: ActiveEvmFamilyWalletSessionAuthorization;
   required?: boolean;
@@ -46,11 +41,9 @@ export async function ensureEcdsaPrfSealPersisted(args: {
       if (sealTransport && sealTransport.curve !== 'ecdsa') {
         throw new Error('[WarmSessionStore] ECDSA seal persistence received non-ECDSA transport');
       }
-      const exactPersistFn = args.touchConfirm?.persistSigningSessionSealForThresholdSession;
-      if (typeof exactPersistFn === 'function' && sealTransport) {
-        // Use the high-level persist boundary after the ECDSA record exists; it
-        // writes both the server seal and the local exact-purpose restore record.
-        const persisted = await exactPersistFn({
+      if (sealTransport) {
+        const persisted =
+          await args.sealPersistence.persistSigningSessionSealForThresholdSession({
           sessionId: materialActivationId,
           transport: {
             curve: sealTransport.curve,
@@ -77,35 +70,6 @@ export async function ensureEcdsaPrfSealPersisted(args: {
           );
         }
         if (persisted.ok) return;
-      }
-      const persistFn = args.touchConfirm?.sealAndPersistWarmSessionMaterial;
-      if (typeof persistFn === 'function' && sealTransport) {
-        const persisted = await persistFn({
-          sessionId: materialActivationId,
-          transport: {
-            curve: sealTransport.curve,
-            ...(sealTransport.walletId ? { walletId: sealTransport.walletId } : {}),
-            chainTarget: sealTransport.chainTarget,
-            relayerUrl: sealTransport.relayerUrl,
-            ...(sealTransport.signingGrantId
-              ? { signingGrantId: sealTransport.signingGrantId }
-              : {}),
-            ...(sealTransport.walletSessionJwt
-              ? { walletSessionJwt: sealTransport.walletSessionJwt }
-              : {}),
-            ...(sealTransport.signingSessionSealKeyVersion
-              ? { signingSessionSealKeyVersion: sealTransport.signingSessionSealKeyVersion }
-              : {}),
-            ...(sealTransport.groupId
-              ? { groupId: sealTransport.groupId }
-              : {}),
-          },
-        });
-        if (!persisted.ok && persisted.code !== 'not_enabled' && args.required) {
-          throw new Error(
-            `[WarmSessionStore] ${errorContext} failed (${persisted.code}): ${persisted.message}`,
-          );
-        }
       }
     })();
     args.sealPersistInFlightBySessionId.set(persistKey, persistPromise);

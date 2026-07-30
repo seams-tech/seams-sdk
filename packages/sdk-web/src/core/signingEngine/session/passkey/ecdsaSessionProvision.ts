@@ -2,7 +2,6 @@ import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/r
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type {
   DurableRecordStore,
-  EmailOtpEcdsaExportWorkerIssuedSessionHandle,
   EmailOtpWorkerIssuedSessionHandle,
 } from '@/core/platform';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -55,10 +54,7 @@ import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding'
 import type {
   EcdsaSessionIdentity,
 } from '../warmCapabilities/ecdsaProvisionPlan';
-import type {
-  ThresholdRuntimePolicyScope,
-  ThresholdSessionKind,
-} from '../../threshold/sessionPolicy';
+import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaBackendBinding } from '../../interfaces/signing';
 import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
@@ -71,7 +67,7 @@ import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/sign
 export type ProvisionThresholdEcdsaSessionDeps = {
   queueByWallet: Map<string, Promise<void>>;
   activationDeps: WalletSessionActivationDeps;
-  touchConfirm: WarmSessionSealPersistPorts;
+  sealPersistence: WarmSessionSealPersistPorts;
   persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   resolveSealTransport: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
@@ -680,7 +676,7 @@ export async function provisionThresholdEcdsaSessionFromBootstrapArgs(
         return bootstrap;
       }
       await ensureEcdsaPrfSealPersisted({
-        touchConfirm: deps.touchConfirm,
+        sealPersistence: deps.sealPersistence,
         lane: sealLane.lane,
         authorization: sealLane.authorization,
         required: sealRequired,

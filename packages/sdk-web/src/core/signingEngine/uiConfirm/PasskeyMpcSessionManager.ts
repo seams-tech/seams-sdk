@@ -19,6 +19,7 @@ import { parseClearVolatileWarmMaterialCommand } from '../session/warmCapabiliti
 import type {
   ClearAllVolatileWarmSessionMaterialCommand,
   ClearVolatileWarmSessionMaterialCommand,
+  PasskeyWarmSessionSealTransportInput,
   PasskeyMpcSessionPort,
   WarmSessionPersistedDiscovery,
   WarmSessionClaimResult,
@@ -29,7 +30,6 @@ import {
   deleteDurableSealedSessionRecord,
   listExactSealedSessionsForWallet,
   releaseSigningSessionRestoreLease,
-  updateExactSealedSessionPolicy,
 } from '../session/persistence/sealedSessionStore';
 import { createDeleteDurableSealedSessionCommand } from '../session/persistence/durableSealedSessionCommands';
 import {
@@ -46,16 +46,14 @@ import type {
 import type { SealedRecoveryRecord } from '../session/sealedRecovery/recoveryRecord';
 import { sealedRecoveryWalletSessionJwt } from '../session/sealedRecovery/recoveryRecord';
 import { restorePasskeyEcdsaSealedRecordForWallet } from '../session/passkey/ecdsaRecovery';
-import {
-  parseSigningSessionSealKeyVersion,
-  type SigningSessionSealKeyVersion,
-} from '../session/keyMaterialBrands';
+import { parseSigningSessionSealKeyVersion } from '../session/keyMaterialBrands';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
 } from '../interfaces/ecdsaChainTarget';
+import { PasskeyMpcSessionDurableState } from './PasskeyMpcSessionDurableState';
 
 type PendingPasskeyMpcSessionRequest = {
   id: string;
@@ -68,17 +66,6 @@ export type PasskeyMpcSessionManagerPort = PasskeyMpcSessionPort;
 
 type PasskeyMpcSessionManagerDeps = {
   signingSessionPersistenceMode: 'none' | 'sealed_refresh_v1';
-  persistSigningSessionSealForThresholdSession(args: {
-    sessionId: string;
-    transport: NonNullable<
-      Parameters<PasskeyMpcSessionPort['putWarmSessionMaterial']>[0]['transport']
-    >;
-    diagnostics?: WarmSessionMaterialWriteDiagnostics;
-  }): Promise<WarmSessionSealAndPersistResult | null>;
-  onPolicyResult(
-    purpose: WarmSessionLanePurpose,
-    result: WarmSessionStatusResult | WarmSessionClaimResult,
-  ): Promise<void>;
 };
 
 const PASSKEY_MPC_SESSION_TIMEOUT_MS = 60_000;
@@ -220,6 +207,14 @@ function positiveInteger(value: unknown): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
+function isNonnegativeSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) > 0;
+}
+
 function parseWarmSessionStatusResult(data: unknown): WarmSessionStatusResult | null {
   if (!isObjectRecord(data) || typeof data.ok !== 'boolean') return null;
   if (!data.ok) {
@@ -229,7 +224,12 @@ function parseWarmSessionStatusResult(data: unknown): WarmSessionStatusResult | 
       message: typeof data.message === 'string' ? data.message : 'Warm-session status read failed',
     };
   }
-  if (typeof data.remainingUses !== 'number' || typeof data.expiresAtMs !== 'number') return null;
+  if (
+    !isNonnegativeSafeInteger(data.remainingUses) ||
+    !isPositiveSafeInteger(data.expiresAtMs)
+  ) {
+    return null;
+  }
   return {
     ok: true,
     remainingUses: data.remainingUses,
@@ -241,7 +241,13 @@ function parseWarmSessionStatusBatchResult(data: unknown): WarmSessionStatusBatc
   if (!isObjectRecord(data) || !Array.isArray(data.results)) return null;
   const results: WarmSessionStatusBatchResult['results'] = [];
   for (const entry of data.results) {
-    if (!isObjectRecord(entry) || typeof entry.sessionId !== 'string') return null;
+    if (
+      !isObjectRecord(entry) ||
+      typeof entry.sessionId !== 'string' ||
+      !entry.sessionId.trim()
+    ) {
+      return null;
+    }
     const result = parseWarmSessionStatusResult(entry.result);
     if (!result) return null;
     results.push({ sessionId: entry.sessionId, result });
@@ -260,8 +266,9 @@ function parseWarmSessionClaimResult(data: unknown): WarmSessionClaimResult | nu
   }
   if (
     typeof data.prfFirstB64u !== 'string' ||
-    typeof data.remainingUses !== 'number' ||
-    typeof data.expiresAtMs !== 'number'
+    !data.prfFirstB64u.trim() ||
+    !isNonnegativeSafeInteger(data.remainingUses) ||
+    !isPositiveSafeInteger(data.expiresAtMs)
   ) {
     return null;
   }
@@ -287,8 +294,11 @@ function parseWarmSessionSealAndPersistResult(
   }
   if (
     typeof data.sealedSecretB64u !== 'string' ||
-    typeof data.remainingUses !== 'number' ||
-    typeof data.expiresAtMs !== 'number'
+    !data.sealedSecretB64u.trim() ||
+    typeof data.keyVersion !== 'string' ||
+    !data.keyVersion.trim() ||
+    !isNonnegativeSafeInteger(data.remainingUses) ||
+    !isPositiveSafeInteger(data.expiresAtMs)
   ) {
     return null;
   }
@@ -304,13 +314,20 @@ function parseWarmSessionSealAndPersistResult(
   return {
     ok: true,
     sealedSecretB64u: data.sealedSecretB64u,
-    ...(typeof data.keyVersion === 'string' && data.keyVersion.trim()
-      ? { keyVersion: data.keyVersion.trim() }
-      : {}),
+    keyVersion: data.keyVersion.trim(),
     remainingUses: data.remainingUses,
     expiresAtMs: data.expiresAtMs,
     ...(diagnostics ? { diagnostics } : {}),
   };
+}
+
+function requirePasskeySealTransport(
+  transport: WarmSessionSealTransportInput,
+): PasskeyWarmSessionSealTransportInput {
+  if (transport.authMethod === 'email_otp') {
+    throw new Error('Passkey MPC session owner rejected Email OTP seal transport');
+  }
+  return transport;
 }
 
 function roundDurationMs(startedAt: number): number {
@@ -333,8 +350,15 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
   private readonly pendingRequests = new Map<string, PendingPasskeyMpcSessionRequest>();
   private readonly boundHandleWorkerMessage = this.handleWorkerMessage.bind(this);
   private readonly boundHandleWorkerError = this.handleWorkerError.bind(this);
+  private readonly durableState: PasskeyMpcSessionDurableState;
 
-  constructor(private readonly deps: PasskeyMpcSessionManagerDeps) {}
+  constructor(private readonly deps: PasskeyMpcSessionManagerDeps) {
+    this.durableState = new PasskeyMpcSessionDurableState({
+      signingSessionPersistenceMode: deps.signingSessionPersistenceMode,
+      sealAndPersistWarmSessionMaterial: this.sealAndPersistWarmSessionMaterial.bind(this),
+      readWarmSessionStatus: this.readWarmSessionStatus.bind(this),
+    });
+  }
 
   setWorkerBaseOrigin(origin: string | undefined): void {
     this.workerBaseOrigin = origin;
@@ -389,9 +413,9 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
     });
     const persistStartedAt = performance.now();
     const persistenceResult = args.transport
-      ? await this.deps.persistSigningSessionSealForThresholdSession({
+      ? await this.persistSigningSessionSealForThresholdSession({
           sessionId: args.sessionId,
-          transport: args.transport,
+          transport: requirePasskeySealTransport(args.transport),
           ...(diagnostics ? { diagnostics } : {}),
         })
       : null;
@@ -550,16 +574,16 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
         deletePersistedRecord: async () =>
           await deleteInvalidPasskeyEcdsaRecord({ thresholdSessionId, chainTarget }),
         recordSessionMaterialRestored: async (status) =>
-          await this.deps.onPolicyResult(
+          await this.recordWarmSessionPolicyResult(
             { curve: 'ecdsa', thresholdSessionId, chainTarget },
             status,
           ),
         readWarmSessionStatusFromWorker: async (sessionId) =>
           await this.readWarmSessionStatus({ sessionId }),
         updatePersistedPolicy: async (policy) =>
-          await updateExactSealedSessionPolicy({
+          await this.durableState.updatePersistedPolicy({
             thresholdSessionId,
-            filter: { authMethod: 'passkey', curve: 'ecdsa', chainTarget },
+            purpose: { curve: 'ecdsa', thresholdSessionId, chainTarget },
             ...policy,
           }),
       });
@@ -617,7 +641,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
         message: String(response.error || 'Warm-session claim failed'),
       };
     }
-    await this.deps.onPolicyResult(args.purpose, parsed);
+    await this.recordWarmSessionPolicyResult(args.purpose, parsed);
     return parsed;
   };
 
@@ -642,7 +666,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
         message: String(response.error || 'Warm-session consume failed'),
       };
     }
-    await this.deps.onPolicyResult(args.purpose, parsed);
+    await this.recordWarmSessionPolicyResult(args.purpose, parsed);
     return parsed;
   };
 
@@ -703,6 +727,18 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
       message: String(response.error || 'Signing-session seal and persist failed'),
     };
   }
+
+  persistSigningSessionSealForThresholdSession = async (
+    args: Parameters<
+      PasskeyMpcSessionPort['persistSigningSessionSealForThresholdSession']
+    >[0],
+  ): Promise<WarmSessionSealAndPersistResult> =>
+    await this.durableState.persistSigningSessionSealForThresholdSession(args);
+
+  private readonly recordWarmSessionPolicyResult = async (
+    purpose: WarmSessionLanePurpose,
+    result: WarmSessionStatusResult | WarmSessionClaimResult,
+  ): Promise<void> => await this.durableState.recordPolicyResult(purpose, result);
 
   async rehydrateWarmSessionMaterial(
     args: WarmSessionRehydratePayload,

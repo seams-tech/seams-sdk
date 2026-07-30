@@ -64,7 +64,7 @@ export type ThresholdWarmSessionMaterialPort = {
   }>;
   persistSigningSessionSealForThresholdSession?: (args: {
     sessionId: string;
-    transport?: WarmSessionSealTransportInput;
+    transport: Exclude<WarmSessionSealTransportInput, { authMethod: 'email_otp' }>;
   }) => Promise<{
     ok: boolean;
     code?: string;

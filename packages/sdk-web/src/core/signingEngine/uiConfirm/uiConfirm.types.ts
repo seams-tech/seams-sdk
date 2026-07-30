@@ -164,10 +164,15 @@ export interface WarmSessionWorkerSealPort {
   ): Promise<WarmSessionSealAndPersistResult>;
 }
 
+export type PasskeyWarmSessionSealTransportInput = Exclude<
+  WarmSessionSealTransportInput,
+  { authMethod: 'email_otp' }
+>;
+
 export interface WarmSessionSealPersister {
   persistSigningSessionSealForThresholdSession(args: {
     sessionId: string;
-    transport?: WarmSessionSealTransportInput;
+    transport: PasskeyWarmSessionSealTransportInput;
     diagnostics?: WarmSessionMaterialWriteDiagnostics;
   }): Promise<WarmSessionSealAndPersistResult>;
 }
@@ -197,13 +202,6 @@ export interface WarmSessionPersistedRestorer {
   ): Promise<RestorePersistedSessionForSigningResult>;
 }
 
-export interface PasskeyWarmSessionPolicyRecorder {
-  recordPasskeyWarmSessionPolicyResult(
-    purpose: WarmSessionLanePurpose,
-    result: WarmSessionStatusResult | WarmSessionClaimResult,
-  ): Promise<void>;
-}
-
 export type VolatileWarmMaterialPort = WarmSessionStatusReader &
   WarmSessionStatusBatchReader &
   WarmSessionMaterialClaimer &
@@ -211,20 +209,12 @@ export type VolatileWarmMaterialPort = WarmSessionStatusReader &
   VolatileWarmSessionMaterialClearer &
   VolatileWarmSessionMaterialClearAll;
 
-export type DurableSealedSessionPort = WarmSessionSealPersister &
-  PasskeyWarmSessionPolicyRecorder;
-
 export type PromptCapableBootstrapPort = UiConfirmContextPort &
   UiConfirmSigningPort &
   UiConfirmRegistrationPort &
   UiConfirmRequestConfirmationPort;
 
-export type WarmSessionMaterialPort = WarmSessionMaterialWriter &
-  VolatileWarmMaterialPort &
-  DurableSealedSessionPort;
-
 export type UiConfirmRuntimeBridgePort = PromptCapableBootstrapPort &
-  DurableSealedSessionPort &
   UiConfirmWorkerLifecyclePort;
 
 export interface PasskeyMpcSessionWorkerLifecyclePort {
@@ -234,6 +224,7 @@ export interface PasskeyMpcSessionWorkerLifecyclePort {
 
 export type PasskeyMpcSessionPort = WarmSessionMaterialWriter &
   VolatileWarmMaterialPort &
+  WarmSessionSealPersister &
   WarmSessionWorkerSealPort &
   WarmSessionRehydrator &
   WarmSessionPersistedDiscovery &
@@ -285,4 +276,4 @@ export interface PasskeyMpcExportPort {
 }
 
 export interface UiConfirmManager
-  extends PromptCapableBootstrapPort, DurableSealedSessionPort, UiConfirmWorkerLifecyclePort {}
+  extends PromptCapableBootstrapPort, UiConfirmWorkerLifecyclePort {}
