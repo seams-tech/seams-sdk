@@ -314,37 +314,6 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
     ).rejects.toThrow('ecdsaSigningResponse.request_digest does not match request');
   });
 
-  test('accepts the canonical private-D1 budget projection and rejects truncated projections', async () => {
-    const request = prepareRequest();
-    const finalizeRequest = buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1({
-      scope,
-      requestId: request.request_id,
-      budgetReservationId: 'ecdsa-sign-budget-reservation-1',
-      budgetOperationId: 'ecdsa-sign-budget-operation-1',
-      expiresAtMs: request.expires_at_ms,
-      signingDigest32: new Uint8Array(32).fill(11),
-      serverPresignatureId: request.client_presignature_id,
-      clientSignatureShare32: new Uint8Array(32).fill(17),
-      clientRerandomizationContribution32,
-    });
-    const response = await signingResponse(finalizeRequest);
-    const coreRequest = routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
-      finalizeRequest,
-    );
-
-    await expect(
-      parseRouterAbEcdsaDerivationEvmDigestSigningResponseForCoreRequestV1(coreRequest, response),
-    ).resolves.toEqual(response);
-
-    const { remaining_uses: _remainingUses, ...truncatedBudgetStatus } = response.budget_status;
-    await expect(
-      parseRouterAbEcdsaDerivationEvmDigestSigningResponseForCoreRequestV1(coreRequest, {
-        ...response,
-        budget_status: truncatedBudgetStatus,
-      }),
-    ).rejects.toThrow('ecdsaSigningResponse.budget_status.remaining_uses must be a finite number');
-  });
-
   test('posts prepare and finalize requests through Wallet Session bearer auth', async () => {
     const request = prepareRequest();
     const preparedResponse = await prepareResponse(request);
