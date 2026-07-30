@@ -7,11 +7,15 @@ import {
 } from '../../packages/console-server-ts/src/sponsorship';
 
 function createMockFetch() {
-  return async (input: string | URL | Request): Promise<Response> => {
+  return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = String(
       typeof input === 'string' || input instanceof URL ? input : input.url,
     );
     if (url.includes('/simple/price')) {
+      const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+      if (headers.get('x-cg-demo-api-key') !== 'demo-api-key') {
+        throw new Error('CoinGecko request missing Demo API key');
+      }
       return new Response(
         JSON.stringify({
           near: {
@@ -47,6 +51,7 @@ test.describe('real sponsored execution pricing', () => {
     const pricing = createCoinGeckoSponsoredExecutionPricingService(
       {
         apiBaseUrl: 'https://api.coingecko.com/api/v3',
+        apiKey: 'demo-api-key',
         cacheTtlMs: 60_000,
         evmByChain: new Map([
           [
@@ -130,6 +135,7 @@ test.describe('real sponsored execution pricing', () => {
     const pricing = createCoinGeckoSponsoredExecutionPricingService(
       {
         apiBaseUrl: 'https://api.coingecko.com/api/v3',
+        apiKey: 'demo-api-key',
         cacheTtlMs: 60_000,
         evmByChain: new Map(),
         nearByChain: new Map([
@@ -199,6 +205,7 @@ test.describe('real sponsored execution pricing', () => {
     globalThis.fetch = createMockFetch() as typeof fetch;
     try {
       const pricing = resolveSponsoredExecutionPricingFromEnv({
+        COINGECKO_DEMO_API_KEY: 'demo-api-key',
         SPONSORED_EXECUTION_REAL_PRICING_JSON: JSON.stringify({
           provider: 'coingecko',
           evm: {
@@ -292,6 +299,7 @@ test.describe('real sponsored execution pricing', () => {
     const pricing = createCoinGeckoSponsoredExecutionPricingService(
       {
         apiBaseUrl: 'https://api.coingecko.com/api/v3',
+        apiKey: 'demo-api-key',
         cacheTtlMs: 60_000,
         evmByChain: new Map(),
         nearByChain: new Map(),

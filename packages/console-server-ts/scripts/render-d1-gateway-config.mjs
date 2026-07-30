@@ -185,8 +185,11 @@ function buildWorkerVars(deployment) {
     SIGNING_ROOT_KEK_PROVIDER: 'cloudflare_secrets_store',
     SIGNING_ROOT_KEK_ENCODING: deployment.signingRoot.encoding,
     SIGNING_ROOT_KEK_IDS: deployment.signingRoot.id,
+    SPONSORED_EXECUTION_REAL_PRICING_JSON: JSON.stringify(
+      buildCoinGeckoSponsoredExecutionPricingConfig(deployment.runtimeProfile),
+    ),
     SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify(
-      buildSponsoredExecutionPricingConfig(deployment.runtimeProfile),
+      buildStaticSponsoredExecutionPricingConfig(deployment.runtimeProfile),
     ),
   };
   if (demoEmailOtpDelivery) {
@@ -198,7 +201,24 @@ function buildWorkerVars(deployment) {
   return vars;
 }
 
-function buildSponsoredExecutionPricingConfig(runtimeProfile) {
+function buildCoinGeckoSponsoredExecutionPricingConfig(runtimeProfile) {
+  const networkClass =
+    gatewayRuntimeProfileNearNetwork(runtimeProfile) === 'mainnet' ? 'MAINNET' : 'TESTNET';
+  return {
+    provider: 'coingecko',
+    cacheTtlMs: 300_000,
+    near: {
+      [networkClass]: {
+        assetId: 'near',
+        nativeUnitDecimals: 24,
+        estimateFeeAmountYocto: '1000000000000000000000',
+        pricingVersionPrefix: `coingecko-near-${networkClass.toLowerCase()}`,
+      },
+    },
+  };
+}
+
+function buildStaticSponsoredExecutionPricingConfig(runtimeProfile) {
   const networkClass =
     gatewayRuntimeProfileNearNetwork(runtimeProfile) === 'mainnet' ? 'MAINNET' : 'TESTNET';
   return {
