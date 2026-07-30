@@ -910,6 +910,10 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete the NEAR recovery-ordering and sealed-refresh source guards after
         their retired markers and hydration-derived budget assumption were
         removed (`6d6002e3c`).
+  - [x] Delete the combined Email OTP unlock fixture after unlock began
+        returning exact sibling capability outcomes (`89e9cd4a5`).
+  - [x] Delete the wrapper-only ECDSA refresh test with its duplicate HTTP
+        adapter (`df478bfed`).
 
 ### Unit 3a exit
 

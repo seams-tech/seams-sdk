@@ -222,19 +222,21 @@ implementing commit SHA as the evidence.
   - [x] NEAR sealed-material hydration no longer implies authorization-budget
     readmission; only an actual authorization/session replacement refreshes
     that identity (`30b52879b`).
-- [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
+- [x] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.
   - [x] The direct recovery-source suite covers cancellation reload, promotion
     readback, crashes around the consuming call, and atomic local finalization;
     the source-ordering guards that duplicated retired shapes are deleted
     (`51b738d2a`, `6d6002e3c`).
-- [ ] `R90-INV-005` — Near finalization atomically swaps or retires material,
-  persists lifecycle facts, and deletes the journal.
-- [ ] `R90-INV-006` — Near durable journals contain only server uncertainty and
-  the promotion receipt required for local convergence.
-- [ ] `R90-INV-007` — cancel/crash/reload tests prove `cancel_requested` never
-  resumes the abandoned parent operation.
+- [x] `R90-INV-005` — Near finalization atomically swaps or retires material,
+  persists lifecycle facts, and deletes the journal. The direct recovery-source
+  suite exercises the atomic finalization boundary (`5db9ad87e`, `51b738d2a`).
+- [x] `R90-INV-006` — Near durable journals contain only server uncertainty and
+  the promotion receipt required for local convergence. Runtime publication
+  remains outside the journal (`5db9ad87e`).
+- [x] `R90-INV-007` — cancel/crash/reload tests prove `cancel_requested` never
+  resumes the abandoned parent operation (`51b738d2a`).
 - [ ] `R90-INV-008` — concurrent recovery, signing, refresh, and export serialize
   by exact owner and reject stale generations/fences.
 - [ ] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
@@ -254,8 +256,9 @@ implementing commit SHA as the evidence.
   lifecycle, demo lock — to keep the wallet unlocked and re-resolve. Covered by
   `ecdsaMaterialSupersession` and `walletSessionSuperseded` unit suites.
   Commits 53632c8c6, 4c418cde7, dc1fda487.)
-- [ ] `R90-INV-011` — Near post-commit verification creates no durable readback
-  stage.
+- [x] `R90-INV-011` — Near post-commit verification creates no durable readback
+  stage; readback converges through the two-state journal and direct
+  recovery-source tests (`5db9ad87e`, `51b738d2a`).
 - [x] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
   and export use an exact material-activation reference independently from the
   discriminated reusable-session or operation-step-up authority; step-up
