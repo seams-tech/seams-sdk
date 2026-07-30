@@ -791,19 +791,6 @@ async function resolveNearTransactionWalletAuth(args: {
   };
 }
 
-function walletSessionJwtForPreparedNearExecution(args: {
-  record: ThresholdEd25519SessionRecord | null | undefined;
-  emailOtpCommittedLane: Ed25519SigningLane | null;
-}): string {
-  const record = args.record;
-  if (!record) return '';
-  if (record.source === 'email_otp') {
-    return String(args.emailOtpCommittedLane?.walletSessionAuthority.walletSessionJwt || '').trim();
-  }
-  const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
-  return authority.ok ? authority.value.auth.walletSessionJwt : '';
-}
-
 function resolvePreparedSigningRequestSessionId(args: {
   providedSessionId?: string;
   identity: ResolvedEd25519SigningSessionIdentity;
@@ -1897,18 +1884,8 @@ export async function signTransactionWithActions(
           passkeyEd25519OperationStepUp: passkeyEd25519OperationStepUp || null,
           emailOtpEd25519Reauthorization: emailOtpEd25519Reauthorization || null,
         });
-        const walletSessionJwt = walletSessionJwtForPreparedNearExecution({
-          record: thresholdSessionRecord,
-          emailOtpCommittedLane: executionState.emailOtpCommittedLane,
-        });
-        if (!walletSessionJwt) {
-          throw new Error(
-            '[SigningEngine][near] prepared Ed25519 session is missing Wallet Session bearer JWT',
-          );
-        }
         const ed25519SigningBoundary = {
           sessionId: executionState.sessionId,
-          walletSessionJwt,
           signingSessionPlan: executionState.signingSessionPlan,
           signingAuthPlan: executionState.signingAuthPlan,
           signingLane: executionState.signingLane,
