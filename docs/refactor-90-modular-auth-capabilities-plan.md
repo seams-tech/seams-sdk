@@ -742,6 +742,11 @@ the replacement and legacy MPC paths must not ship together.
       consume the exact OTP challenge, persist factor evidence, and issue a
       one-use operation grant without minting a reusable Wallet Session or
       consuming its quota (`007416714`).
+- [x] Complete NEAR Email OTP operation step-up for transaction, delegate, and
+      NEP-413 signing. Prepare the exact operation before confirmation, hydrate
+      canonical material independently, consume one operation grant, and keep
+      reusable Wallet Session creation and quota use out of the step-up branch
+      (`069db2326`).
 
 ### Worker, WASM, and bundle boundary
 
@@ -933,6 +938,10 @@ the replacement and legacy MPC paths must not ship together.
       duplicate two-slot committed-lane selector.
 - [x] Delete the dead in-place ECDSA lane-identity updater, its record-era unit
       test, and the source-range guard whose remaining subject it owned.
+- [x] Delete the dead record-backed Email OTP Ed25519 routine-signing lane and
+      its active-material recovery path. Retain cold login/unlock recovery,
+      sealed refresh, and export recovery; the focused retained recovery suite
+      passes 12/12 (`069db2326`).
 - [ ] Delete obsolete tests, handwritten records, mocks, guards, and fixtures
       that encode pre-cutover behavior.
   - [x] Delete the route-wrapper-only test and the stale public route-catalog

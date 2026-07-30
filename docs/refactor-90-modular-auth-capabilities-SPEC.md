@@ -249,6 +249,14 @@ implementing commit SHA as the evidence.
     consumes its OTP challenge, persists factor evidence, and issues a one-use
     operation grant without creating a reusable Wallet Session or spending its
     quota (`007416714`).
+  - [x] NEAR Email OTP transaction, delegate, and NEP-413 signing prepare the
+    exact operation before confirmation, hydrate canonical material
+    independently, consume one operation grant, and never create or spend a
+    reusable Wallet Session in the step-up branch (`069db2326`).
+  - [x] The record-backed Email OTP Ed25519 routine-signing lane and its
+    active-material recovery path are deleted. Cold login/unlock recovery,
+    sealed refresh, and export recovery remain, and the focused retained
+    recovery suite passes 12/12 (`069db2326`).
 - [x] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.
