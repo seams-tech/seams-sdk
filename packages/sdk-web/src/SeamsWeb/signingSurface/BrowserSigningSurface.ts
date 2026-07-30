@@ -1,4 +1,5 @@
 import type { DurableRecordStore, RuntimePorts } from '@/core/platform';
+import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
@@ -79,7 +80,6 @@ import {
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
   resolvePasskeyEd25519YaoExportContextV1,
-  type PasskeyEd25519WarmRecoverySubject,
 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import { readPersistedEd25519SessionRecordForSigning } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
 import {
@@ -516,7 +516,7 @@ export class BrowserSigningSurface {
     });
     this.emailOtpPublicDeps = {
       relayerUrl: this.seamsWebConfigs.network.relayer?.url || '',
-      shamirPrimeB64u: this.seamsWebConfigs.signing.sessionSeal?.shamirPrimeB64u || '',
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       getSignerWorkerContext: () =>
         this.enginePorts.walletSessionActivationDeps.getSignerWorkerContext(),
       emailOtpSessions: this.emailOtpSessions,
@@ -1809,7 +1809,7 @@ export class BrowserSigningSurface {
       challengeId: args.challengeId,
       otpCode: args.otpCode,
       appSessionJwt: args.appSessionJwt,
-      shamirPrimeB64u: this.seamsWebConfigs.signing.sessionSeal.shamirPrimeB64u,
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       workerContext: this.signerWorkerManager.getContext(),
       activateCapability: this.enginePorts.ed25519YaoActiveClients.activate.bind(
         this.enginePorts.ed25519YaoActiveClients,
@@ -1864,7 +1864,7 @@ export class BrowserSigningSurface {
     otpCode: string;
     relayUrl?: string;
     challengeId?: string;
-    shamirPrimeB64u?: string;
+    groupId?: string;
     appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     otpChannel?: WalletEmailOtpChannel;

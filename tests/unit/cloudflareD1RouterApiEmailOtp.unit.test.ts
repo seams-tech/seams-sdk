@@ -45,7 +45,6 @@ import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
-import { createSigningSessionSealShamir3PassBigIntRuntime } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/cipher';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -54,11 +53,7 @@ import {
 } from '../helpers/sqliteD1';
 import {
   EMAIL_OTP_SERVER_SEAL_KEY_VERSION,
-  EMAIL_OTP_SHAMIR_PRIME_B64U,
-  EMAIL_OTP_SERVER_ENCRYPT_EXPONENT_B64U,
-  EMAIL_OTP_SERVER_DECRYPT_EXPONENT_B64U,
-  EMAIL_OTP_CLIENT_ENCRYPT_EXPONENT_B64U,
-  EMAIL_OTP_CLIENT_DECRYPT_EXPONENT_B64U,
+  EMAIL_OTP_SERVER_SEAL_ROOT_SECRET_B64U,
   TEST_COMBINED_NEAR_ACCOUNT_ID,
   googleEmailOtpD1RegistrationAttemptBoundaryFixture,
   testEvmFamilyRegistrationSignerSet,
@@ -97,9 +92,7 @@ import {
   jsonBase64Url,
   fakeWebAuthnRegistrationCredential,
   encodePositiveBigIntB64u,
-  addEmailOtpClientSeal,
-  removeEmailOtpClientSeal,
-  addEmailOtpServerSeal,
+  createEmailOtpClientSealFixture,
   generateGoogleOidcTestKey,
   makeSignedGoogleIdToken,
   googleJwksFetchMockPublicJwk,
@@ -156,14 +149,13 @@ test('Cloudflare D1 Router API auth service applies and removes Email OTP server
       relayerAccount: 'relay.local',
       accountIdDerivationSecret: 'test-account-id-derivation-secret',
       emailOtpServerSeal: {
-        keyVersion: EMAIL_OTP_SERVER_SEAL_KEY_VERSION,
-        shamirPrimeB64u: EMAIL_OTP_SHAMIR_PRIME_B64U,
-        serverEncryptExponentB64u: EMAIL_OTP_SERVER_ENCRYPT_EXPONENT_B64U,
-        serverDecryptExponentB64u: EMAIL_OTP_SERVER_DECRYPT_EXPONENT_B64U,
+        rootSecretB64u: EMAIL_OTP_SERVER_SEAL_ROOT_SECRET_B64U,
+        currentKeyVersion: EMAIL_OTP_SERVER_SEAL_KEY_VERSION,
       },
     });
     const plaintextSecretB64u = encodePositiveBigIntB64u(19n);
-    const clientWrappedCiphertext = addEmailOtpClientSeal(plaintextSecretB64u);
+    const client = await createEmailOtpClientSealFixture();
+    const clientWrappedCiphertext = client.addLock(plaintextSecretB64u);
 
     const applied = await service.emailOtp.applyEmailOtpServerSeal({
       wrappedCiphertext: clientWrappedCiphertext,
@@ -174,9 +166,7 @@ test('Cloudflare D1 Router API auth service applies and removes Email OTP server
     });
     if (!applied.ok) return;
     expect(applied.ciphertext).not.toBe(clientWrappedCiphertext);
-    expect(removeEmailOtpClientSeal(applied.ciphertext)).toBe(
-      addEmailOtpServerSeal(plaintextSecretB64u),
-    );
+    expect(client.removeLock(applied.ciphertext)).not.toBe(plaintextSecretB64u);
 
     const removed = await service.emailOtp.removeEmailOtpServerSeal({
       wrappedCiphertext: applied.ciphertext,
@@ -187,7 +177,8 @@ test('Cloudflare D1 Router API auth service applies and removes Email OTP server
     });
     if (!removed.ok) return;
     expect(removed.ciphertext).not.toBe(applied.ciphertext);
-    expect(removeEmailOtpClientSeal(removed.ciphertext)).toBe(plaintextSecretB64u);
+    expect(client.removeLock(removed.ciphertext)).toBe(plaintextSecretB64u);
+    client.destroy();
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -207,7 +198,7 @@ test('Cloudflare D1 Router API auth service fails closed when Email OTP server s
     });
     await expect(
       service.emailOtp.applyEmailOtpServerSeal({
-        wrappedCiphertext: addEmailOtpClientSeal(encodePositiveBigIntB64u(23n)),
+        wrappedCiphertext: encodePositiveBigIntB64u(23n),
       }),
     ).resolves.toMatchObject({
       ok: false,

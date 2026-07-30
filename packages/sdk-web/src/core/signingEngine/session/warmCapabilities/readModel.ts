@@ -365,13 +365,13 @@ export function resolveEcdsaSealTransport(args: {
   runtime: NonNullable<WarmSessionEcdsaCapabilityState['runtime']>;
   auth: ActiveEvmFamilyWalletSessionAuthorization | null;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-  shamirPrimeB64u?: string;
+  groupId?: string;
 }): ThresholdSessionSealTransportAuthMaterial | null {
   const walletSessionJwt = String(args.auth?.projection.walletSessionJwt || '').trim();
   if (args.runtime.authBinding.kind === 'email_otp' && !walletSessionJwt) return null;
   const relayerUrl = String(args.runtime.relayerUrl || '').trim();
   if (!relayerUrl) return null;
-  const shamirPrimeB64u = String(args.shamirPrimeB64u || '').trim();
+  const groupId = String(args.groupId || '').trim();
   return {
     curve: 'ecdsa',
     walletId: String(args.runtime.walletId),
@@ -384,6 +384,6 @@ export function resolveEcdsaSealTransport(args: {
     ...(args.signingSessionSealKeyVersion
       ? { signingSessionSealKeyVersion: args.signingSessionSealKeyVersion }
       : {}),
-    ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
+    ...(groupId ? { groupId } : {}),
   };
 }

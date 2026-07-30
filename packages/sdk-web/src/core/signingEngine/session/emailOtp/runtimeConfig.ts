@@ -1,4 +1,5 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
+import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 
 export type EmailOtpRuntimeConfigPorts = {
   configs: SeamsConfigsReadonly;
@@ -16,14 +17,8 @@ export class EmailOtpRuntimeConfig {
     return relayUrl;
   }
 
-  requireShamirPrimeB64u(): string {
-    const shamirPrimeB64u = String(
-      this.ports.configs.signing.sessionSeal?.shamirPrimeB64u || '',
-    ).trim();
-    if (!shamirPrimeB64u) {
-      throw new Error('Missing shamir prime for Email OTP runtime');
-    }
-    return shamirPrimeB64u;
+  requireSigningSessionSealGroupId(): string {
+    return SIGNING_SESSION_SEAL_GROUP_ID;
   }
 
   requireRpId(operation: string): string {

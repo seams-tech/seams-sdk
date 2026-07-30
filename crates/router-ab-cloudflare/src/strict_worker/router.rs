@@ -14,6 +14,9 @@ pub(super) async fn handle_strict_router_fetch_v1(
     env: Env,
 ) -> worker::Result<Response> {
     let path = request.path();
+    if path == CLOUDFLARE_INTERNAL_PREWARM_PATH {
+        return handle_router_prewarm_v1(&request, &env).await;
+    }
     if is_cloudflare_router_public_keyset_path(&path) {
         if request.method() == Method::Options {
             return cloudflare_router_public_keyset_preflight_response_v1(&request, &env);
@@ -498,6 +501,103 @@ pub(super) async fn handle_strict_router_fetch_v1(
     }
 
     Response::error("Router A/B strict public route is unavailable", 404)
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn handle_router_prewarm_v1(request: &Request, env: &Env) -> worker::Result<Response> {
+    if let Err(err) = require_cloudflare_internal_service_auth_request_v1(request, env) {
+        return cloudflare_private_service_auth_error_response_v1(err);
+    }
+    if request.method() != Method::Post {
+        return cloudflare_prewarm_response_v1(request);
+    }
+    if let Err(err) = CloudflareRouterWorkerRuntimeV1::from_worker_env(env) {
+        return cloudflare_protocol_error_response_v1(err);
+    }
+    let result = await_prewarm_fanout_v1(
+        prewarm_service_binding_v1(env, "DERIVER_A"),
+        prewarm_service_binding_v1(env, "DERIVER_B"),
+        prewarm_service_binding_v1(env, "SIGNING_WORKER"),
+    )
+    .await;
+    if result.is_err() {
+        return Response::error("Router A/B prewarm fan-out failed", 502);
+    }
+    cloudflare_prewarm_response_v1(request)
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn prewarm_service_binding_v1(env: &Env, binding_name: &str) -> Result<(), ()> {
+    let fetcher = env.service(binding_name).map_err(|_| ())?;
+    let headers = worker::Headers::new();
+    set_cloudflare_internal_service_auth_header_v1(env, &headers, "Worker prewarm")
+        .map_err(|_| ())?;
+    let mut init = worker::RequestInit::new();
+    init.with_method(Method::Post).with_headers(headers);
+    let request =
+        Request::new_with_init("https://router-ab-prewarm.internal/internal/prewarm", &init)
+            .map_err(|_| ())?;
+    let response = fetcher.fetch_request(request).await.map_err(|_| ())?;
+    if !(200..=299).contains(&response.status_code()) {
+        return Err(());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn await_prewarm_fanout_v1<A, B, C, E>(a: A, b: B, c: C) -> Result<(), E>
+where
+    A: core::future::Future<Output = Result<(), E>>,
+    B: core::future::Future<Output = Result<(), E>>,
+    C: core::future::Future<Output = Result<(), E>>,
+{
+    futures::try_join!(a, b, c)?;
+    Ok(())
+}
+
+#[cfg(all(test, feature = "strict-worker-router-entrypoint"))]
+mod prewarm_tests {
+    use super::await_prewarm_fanout_v1;
+    use core::task::Poll;
+    use futures::future::poll_fn;
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+    use std::task::Waker;
+
+    fn gated_prewarm_child(
+        started: Rc<Cell<usize>>,
+        waiting: Rc<RefCell<Vec<Waker>>>,
+    ) -> impl core::future::Future<Output = Result<(), ()>> {
+        let mut entered = false;
+        poll_fn(move |context| {
+            if !entered {
+                entered = true;
+                started.set(started.get() + 1);
+            }
+            if started.get() == 3 {
+                for waker in waiting.borrow_mut().drain(..) {
+                    waker.wake();
+                }
+                return Poll::Ready(Ok(()));
+            }
+            waiting.borrow_mut().push(context.waker().clone());
+            Poll::Pending
+        })
+    }
+
+    #[test]
+    fn router_prewarm_polls_all_three_role_bindings_concurrently() {
+        let started = Rc::new(Cell::new(0));
+        let waiting = Rc::new(RefCell::new(Vec::new()));
+        let result = futures::executor::block_on(await_prewarm_fanout_v1(
+            gated_prewarm_child(started.clone(), waiting.clone()),
+            gated_prewarm_child(started.clone(), waiting.clone()),
+            gated_prewarm_child(started.clone(), waiting),
+        ));
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(started.get(), 3);
+    }
 }
 
 #[cfg(feature = "strict-worker-router-entrypoint")]

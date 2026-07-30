@@ -17,8 +17,10 @@ declare const authority: WalletAuthAuthorityRef;
 declare const emailOtpAuthority: EmailOtpWalletAuthAuthority;
 
 const validEcdsaSealedSessionRecord = {
-  v: 1,
-  alg: 'shamir3pass-v1',
+  v: 2,
+  alg: 'shamir3pass-v2',
+  groupId: 'rfc2409-group2',
+  keyVersion: 'seal-v2',
   storageScope: 'iframe_origin_indexeddb',
   authMethod: 'email_otp',
   secretKind: 'signing_session_secret32',
@@ -64,8 +66,10 @@ const validEcdsaSealedSessionRecord = {
 void validEcdsaSealedSessionRecord;
 
 const validEd25519SealedSessionRecord = {
-  v: 1,
-  alg: 'shamir3pass-v1',
+  v: 2,
+  alg: 'shamir3pass-v2',
+  groupId: 'rfc2409-group2',
+  keyVersion: 'seal-v2',
   storageScope: 'iframe_origin_indexeddb',
   authMethod: 'passkey',
   secretKind: 'signing_session_secret32',
@@ -96,6 +100,23 @@ const validEd25519SealedSessionRecord = {
   updatedAtMs: 4,
 } satisfies SealedSigningSessionRecord;
 void validEd25519SealedSessionRecord;
+
+const { groupId: _groupId, ...recordMissingGroupId } = validEd25519SealedSessionRecord;
+// @ts-expect-error v2 sealed records require the crate-owned group identifier.
+const invalidRecordMissingGroupId: SealedSigningSessionRecord = recordMissingGroupId;
+void invalidRecordMissingGroupId;
+
+const { keyVersion: _keyVersion, ...recordMissingKeyVersion } = validEd25519SealedSessionRecord;
+// @ts-expect-error v2 sealed records require the exact server key version used to seal them.
+const invalidRecordMissingKeyVersion: SealedSigningSessionRecord = recordMissingKeyVersion;
+void invalidRecordMissingKeyVersion;
+
+const invalidRecordWithRawPrime = {
+  ...validEd25519SealedSessionRecord,
+  // @ts-expect-error v2 records identify a built-in group and never persist a raw prime.
+  shamirPrimeB64u: 'prime',
+} satisfies SealedSigningSessionRecord;
+void invalidRecordWithRawPrime;
 
 const invalidEcdsaSealedSessionRecordWithSubject = {
   ...validEcdsaSealedSessionRecord,

@@ -250,19 +250,13 @@ type RawThresholdEcdsaDerivationRoleLocalRouteResponse<T> = {
   value?: T;
 };
 
-type RouterAbEcdsaPostRegistrationClientProofCall =
-  | {
-      readonly kind: 'explicit_export';
-      readonly path: typeof ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH;
-      readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
-      readonly auth: ThresholdEcdsaDerivationRouteAuth;
-    }
-  | {
-      readonly kind: 'recovery';
-      readonly path: typeof ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH;
-      readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
-      readonly auth: ThresholdEcdsaDerivationRouteAuth;
-    };
+type RouterAbEcdsaPostRegistrationClientProofCall = {
+  readonly kind: 'recovery';
+  readonly path: typeof ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH;
+  readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
+  readonly requestDigestB64u: string;
+  readonly auth: ThresholdEcdsaDerivationRouteAuth;
+};
 
 export type ThresholdEcdsaDerivationRouteAuth =
   | AppOrWalletSessionAuth
@@ -546,7 +540,7 @@ async function executeRouterAbEcdsaPostRegistrationClientProofCall(
       `${base}${call.path}`,
       buildRelayRequestInit({
         auth: call.auth,
-        body: call.request,
+        body: { request: call.request, requestDigestB64u: call.requestDigestB64u },
       }),
     );
     const json = await parseRelayJson<unknown>(response);
@@ -624,6 +618,7 @@ export async function routerAbEcdsaRecovery(
   relayServerUrl: string,
   input: {
     readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
+    readonly requestDigestB64u: string;
     readonly auth: ThresholdEcdsaDerivationRouteAuth;
   },
 ): Promise<
@@ -633,6 +628,7 @@ export async function routerAbEcdsaRecovery(
     kind: 'recovery',
     path: ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
     request: input.request,
+    requestDigestB64u: input.requestDigestB64u,
     auth: input.auth,
   });
 }

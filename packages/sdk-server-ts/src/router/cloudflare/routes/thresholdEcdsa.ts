@@ -679,11 +679,13 @@ type StrictEcdsaPostRegistrationRequest =
   | {
       readonly kind: 'recovery';
       readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
+      readonly requestDigestB64u: string;
     }
   | {
       readonly kind: 'refresh';
       readonly command: RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
       readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+      readonly requestDigestB64u: string;
     };
 
 type StrictEcdsaPostRegistrationAuthorization =
@@ -786,41 +788,63 @@ async function resolveStrictEcdsaAuthorizationClaims(input: {
   };
 }
 
+/**
+ * Every post-registration call carries `{request, requestDigestB64u}`.
+ *
+ * The digest is not trusted here — Router recomputes it from the forwarded
+ * request — but the Gateway must sign a request policy over it, so the caller
+ * has to state which request the policy covers.
+ */
+function parseStrictEcdsaRequestDigestEnvelope(
+  body: unknown,
+  label: string,
+): { readonly request: unknown; readonly requestDigestB64u: string } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new Error(`Strict ECDSA ${label} body must be an object`);
+  }
+  const record = body as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  if (keys.length !== 2 || keys[0] !== 'request' || keys[1] !== 'requestDigestB64u') {
+    throw new Error(`Strict ECDSA ${label} body fields are invalid`);
+  }
+  const requestDigestB64u = String(record.requestDigestB64u || '').trim();
+  if (!/^[A-Za-z0-9_-]{43}$/.test(requestDigestB64u)) {
+    throw new Error(`Strict ECDSA ${label} request digest must contain 32 base64url bytes`);
+  }
+  return { request: record.request, requestDigestB64u };
+}
+
 function parseStrictEcdsaPostRegistrationRequest(
   pathname: string,
   body: unknown,
 ): StrictEcdsaPostRegistrationRequest {
   switch (pathname) {
     case ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH: {
-      if (!body || typeof body !== 'object' || Array.isArray(body)) {
-        throw new Error('Strict ECDSA export body must be an object');
-      }
-      const record = body as Record<string, unknown>;
-      const keys = Object.keys(record).sort();
-      if (keys.length !== 2 || keys[0] !== 'request' || keys[1] !== 'requestDigestB64u') {
-        throw new Error('Strict ECDSA export body fields are invalid');
-      }
-      const requestDigestB64u = String(record.requestDigestB64u || '').trim();
-      if (!/^[A-Za-z0-9_-]{43}$/.test(requestDigestB64u)) {
-        throw new Error('Strict ECDSA export request digest must contain 32 base64url bytes');
-      }
+      const envelope = parseStrictEcdsaRequestDigestEnvelope(body, 'export');
       return {
         kind: 'export',
-        request: parseRouterAbEcdsaDerivationExplicitExportRequestV1(record.request),
-        requestDigestB64u,
+        request: parseRouterAbEcdsaDerivationExplicitExportRequestV1(envelope.request),
+        requestDigestB64u: envelope.requestDigestB64u,
       };
     }
-    case ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH:
+    case ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH: {
+      const envelope = parseStrictEcdsaRequestDigestEnvelope(body, 'recovery');
       return {
         kind: 'recovery',
-        request: parseRouterAbEcdsaDerivationRecoveryRequestV1(body),
+        request: parseRouterAbEcdsaDerivationRecoveryRequestV1(envelope.request),
+        requestDigestB64u: envelope.requestDigestB64u,
       };
+    }
     case ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH: {
-      const command = parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1(body);
+      const envelope = parseStrictEcdsaRequestDigestEnvelope(body, 'refresh');
+      const command = parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1(
+        envelope.request,
+      );
       return {
         kind: 'refresh',
         command,
         request: command.refresh_request,
+        requestDigestB64u: envelope.requestDigestB64u,
       };
     }
     default:
@@ -998,6 +1022,7 @@ async function handleStrictEcdsaPostRegistrationRoute(input: {
     case 'recovery': {
       const result = await input.port.recover({
         request: parsed.request,
+        requestDigestB64u: parsed.requestDigestB64u,
         authority: authorized.authority,
       });
       if (!result.ok) return strictPostRegistrationFailureResponse(result);
@@ -1014,6 +1039,7 @@ async function handleStrictEcdsaPostRegistrationRoute(input: {
     case 'refresh': {
       const result = await input.port.refresh({
         request: parsed.command,
+        requestDigestB64u: parsed.requestDigestB64u,
         authority: authorized.authority,
       });
       if (!result.ok) return strictPostRegistrationFailureResponse(result);

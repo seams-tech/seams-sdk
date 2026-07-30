@@ -130,7 +130,7 @@ export type ThresholdSessionSealTransportAuthMaterial =
       walletSessionJwt?: string;
       walletSessionJwtSource: WalletSessionJwtAuthSource;
       signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-      shamirPrimeB64u?: string;
+      groupId?: string;
     }
   | {
       curve: 'ecdsa';
@@ -141,7 +141,7 @@ export type ThresholdSessionSealTransportAuthMaterial =
       walletSessionJwt?: string;
       walletSessionJwtSource: WalletSessionJwtAuthSource;
       signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-      shamirPrimeB64u?: string;
+      groupId?: string;
     };
 
 function nullableRecordInteger(value: unknown): number | null {

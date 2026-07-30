@@ -126,6 +126,7 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
   async claimEcdsaActivation(input: {
     readonly registrationCeremonyId: string;
     readonly publicFacts: StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch['publicFacts'];
+    readonly activationOwner: string;
   }): Promise<D1WalletRegistrationEcdsaCeremonyClaimV1 | null> {
     return await this.claimEcdsaBranch({
       registrationCeremonyId: input.registrationCeremonyId,
@@ -134,6 +135,7 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
       patch: {
         kind: 'evm_family_ecdsa_activation_claimed',
         publicFacts: input.publicFacts,
+        activationOwner: input.activationOwner,
       },
     });
   }

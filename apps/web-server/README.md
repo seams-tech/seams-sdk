@@ -92,17 +92,17 @@ If active sponsorship policies use spend caps, also configure a pricing adapter.
 
 Real pricing currently supports:
 
-- EVM native gas spend using live `eth_gasPrice` from the configured chain RPC plus CoinGecko USD pricing for the configured native asset
-- NEAR gas-only spend using CoinGecko USD pricing for `near` plus an operator-configured reservation estimate in yoctoNEAR
+- EVM native gas spend using live `eth_gasPrice` plus the on-chain Ref Finance NEAR/USDC price
+- NEAR gas-only spend using the on-chain Ref Finance NEAR/USDC price plus an operator-configured reservation estimate in yoctoNEAR
 
 ```env
-SPONSORED_EXECUTION_REAL_PRICING_JSON={"provider":"coingecko","cacheTtlMs":300000,"evm":{"42431":{"rpcUrl":"https://rpc.moderato.tempo.xyz","assetId":"near","nativeUnitDecimals":18,"pricingVersionPrefix":"coingecko-tempo-testnet"}},"near":{"TESTNET":{"assetId":"near","nativeUnitDecimals":24,"estimateFeeAmountYocto":"2000","pricingVersionPrefix":"coingecko-near-testnet"}}}
+SPONSORED_EXECUTION_REAL_PRICING_JSON={"provider":"ref_finance","nearRpcUrl":"https://free.rpc.fastnear.com","dexContractId":"v2.ref-finance.near","poolId":4512,"nearTokenId":"wrap.near","usdcTokenId":"17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1","nearTokenDecimals":24,"usdcTokenDecimals":6,"cacheTtlMs":300000,"near":{"TESTNET":{"nativeUnitDecimals":24,"estimateFeeAmountYocto":"2000","pricingVersionPrefix":"ref-finance-near-testnet"}}}
 ```
 
 That adapter uses:
 
 - `rpcUrl` to read live `eth_gasPrice` for EVM estimate reservations
-- `assetId` to fetch the native asset USD price from CoinGecko
+- `nearRpcUrl`, `dexContractId`, and `poolId` to read the NEAR/USDC reserves on-chain
 - `nativeUnitDecimals` to convert native fee units into whole-asset pricing
 - `estimateFeeAmountYocto` for NEAR reservation estimates before execution settles actual `tokens_burnt`
 - `pricingVersionPrefix` to stamp reservation/settlement records with the live pricing source version
@@ -177,28 +177,16 @@ When enabled, this example mounts:
 
 - `POST /wallet-session/seal/apply`
 - `POST /wallet-session/seal/remove`
-- `GET /.well-known/webauthn` response includes `capabilities.signingSessionSeal` so sealed-refresh clients can enforce startup parity (`mode`, `keyVersion`, `shamirPrimeB64u`)
+- `GET /.well-known/webauthn` publishes the public protocol and current key version.
 
-Provide all signing-session seal key-material values to mount the routes:
+The backend derives its Shamir lock key from one random 32-byte secret:
 
-- `SIGNING_SESSION_SEAL_KEY_VERSION`
-- `SIGNING_SESSION_SHAMIR_P_B64U`
-- `SIGNING_SESSION_SEAL_E_S_B64U`
-- `SIGNING_SESSION_SEAL_D_S_B64U`
+- `SIGNING_SESSION_SEAL_ROOT_SECRET_B64U` (secret)
+- `SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION` (deployment config)
+- `SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS` (comma-separated deployment config)
 
-Generate matching server/client values:
-
-```bash
-# from repo root
-pnpm signing-session-seal:keygen
-```
-
-The command prints:
-
-- server env values: `SIGNING_SESSION_SHAMIR_P_B64U`, `SIGNING_SESSION_SEAL_E_S_B64U`, `SIGNING_SESSION_SEAL_D_S_B64U`, `SIGNING_SESSION_SEAL_KEY_VERSION`
-- client env values: `VITE_SIGNING_SESSION_PERSISTENCE_MODE`, `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`, `VITE_SIGNING_SESSION_SHAMIR_P_B64U`
-
-Keep the printed client values aligned with Router API `SIGNING_SESSION_*` values. Sealed-refresh clients fail closed on mismatch.
+The frontend only selects `VITE_SIGNING_SESSION_PERSISTENCE_MODE=sealed_refresh_v1`. It
+learns the public protocol and active key version from the backend capability response.
 
 ## Router A/B Normal Signing
 
@@ -303,12 +291,10 @@ ROUTER_API_KEY_AUTH_ENABLED=1
 # Active environment metadata supplies signingRootVersion=default for the local fixture.
 # Do not configure a process-wide signing root on the Router API for hosted multi-project flows.
 
-# Optional signing-session seal/unseal routes for refresh rehydrate.
-# SIGNING_SESSION_SEAL_KEY_VERSION=kek-s-2026-02
-# Generate values with: pnpm signing-session-seal:keygen
-# SIGNING_SESSION_SHAMIR_P_B64U=...
-# SIGNING_SESSION_SEAL_E_S_B64U=...
-# SIGNING_SESSION_SEAL_D_S_B64U=...
+# Optional signing-session seal/unseal routes.
+# SIGNING_SESSION_SEAL_ROOT_SECRET_B64U=<base64url-encoded random 32 bytes>
+# SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION=signing-session-seal-local-r2
+# SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS=signing-session-seal-local-r2
 # SIGNING_SESSION_SEAL_RATE_LIMIT_KIND=in-memory
 # SIGNING_SESSION_SEAL_RATE_LIMIT=30
 # SIGNING_SESSION_SEAL_RATE_LIMIT_WINDOW_MS=60000

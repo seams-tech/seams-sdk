@@ -81,7 +81,7 @@ test('D1 staging readiness check accepts the console-only staging shape', async 
   expect(result).toMatchObject({ errors: [], ok: true });
 });
 
-test('D1 staging readiness check accepts the gateway D1/DO/Secrets Store shape', async () => {
+test('D1 staging readiness check accepts the gateway D1 and Secrets Store shape', async () => {
   const result = await checkConfig(validD1GatewayStagingConfig(), 'gateway');
   expect(result).toMatchObject({ errors: [], ok: true });
 });
@@ -110,18 +110,6 @@ test('D1 staging readiness check rejects retired direct role bindings', async ()
   );
 });
 
-test('D1 staging readiness check requires the Gateway runtime deletion migration', async () => {
-  const source = validD1GatewayStagingConfig().replace(
-    '[[migrations]]\ntag = "router-api-runtime-delete-v1"\ndeleted_classes = ["RouterApiRuntimeDurableObject"]\n',
-    '',
-  );
-
-  expectErrorContaining(
-    await checkConfig(source, 'gateway'),
-    'missing Durable Object deleted_classes migration for RouterApiRuntimeDurableObject',
-  );
-});
-
 test('D1 staging readiness check supports env.staging Wrangler sections', async () => {
   const result = await checkConfig(validEnvGatewayStagingConfig(), 'gateway');
   expect(result).toMatchObject({ errors: [], ok: true });
@@ -137,7 +125,7 @@ test('D1 staging readiness check rejects unexpected D1 bindings', async () => {
 
 test('D1 staging readiness check rejects duplicate D1 bindings', async () => {
   const result = await checkConfig(
-    gatewayConfigWithD1Binding('CONSOLE_DB', 'seams-console-staging'),
+    gatewayConfigWithD1Binding('CONSOLE_DB', 'seams-console-staging-nrt'),
     'gateway',
   );
   expectErrorContaining(result, 'duplicate D1 binding CONSOLE_DB');
@@ -185,6 +173,6 @@ test('D1 staging readiness check rejects the local development Worker config', a
   expectErrorContaining(result, 'staging must not use the local D1 development Worker entrypoint');
   expectErrorContaining(result, 'SPONSORED_EVM_EXECUTORS_JSON must not be configured');
   expectErrorContaining(result, 'ACCOUNT_ID_DERIVATION_SECRET must not be configured');
-  expectErrorContaining(result, 'RELAY_SESSION_HMAC_SECRET must be declared');
+  expectErrorContaining(result, 'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK must be declared');
   expectErrorContaining(result, 'SIGNING_ROOT_KEK_PROVIDER must be cloudflare_secrets_store');
 });

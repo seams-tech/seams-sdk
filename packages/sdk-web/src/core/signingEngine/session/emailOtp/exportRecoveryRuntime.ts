@@ -92,7 +92,7 @@ export class EmailOtpExportRecoveryRuntime {
     private readonly ports: {
       getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
       requireRelayUrl: () => string;
-      requireShamirPrimeB64u: () => string;
+      requireSigningSessionSealGroupId: () => string;
       prepareEcdsaExportCapability: (
         args: PrepareEmailOtpEcdsaExportCapabilityArgs,
       ) => Promise<EmailOtpThresholdEcdsaExportPreparation>;
@@ -142,7 +142,7 @@ export class EmailOtpExportRecoveryRuntime {
       {
         getSignerWorkerContext: this.ports.getSignerWorkerContext,
         requireRelayUrl: this.ports.requireRelayUrl,
-        requireShamirPrimeB64u: this.ports.requireShamirPrimeB64u,
+        requireSigningSessionSealGroupId: this.ports.requireSigningSessionSealGroupId,
         buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
       },
       args,
@@ -153,7 +153,7 @@ export class EmailOtpExportRecoveryRuntime {
     return {
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
       requireRelayUrl: this.ports.requireRelayUrl,
-      requireShamirPrimeB64u: this.ports.requireShamirPrimeB64u,
+      requireSigningSessionSealGroupId: this.ports.requireSigningSessionSealGroupId,
       buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
     };
   }
@@ -162,7 +162,7 @@ export class EmailOtpExportRecoveryRuntime {
     return {
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
       requireRelayUrl: this.ports.requireRelayUrl,
-      requireShamirPrimeB64u: this.ports.requireShamirPrimeB64u,
+      requireSigningSessionSealGroupId: this.ports.requireSigningSessionSealGroupId,
       buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
     };
   }

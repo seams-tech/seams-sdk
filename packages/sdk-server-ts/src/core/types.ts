@@ -236,11 +236,10 @@ export type ThresholdStoreEnvInput = {
   ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
   /** Fetch transport for hosted runtimes that reach the SigningWorker through a service binding. */
   routerAbSigningWorkerFetch?: typeof globalThis.fetch;
-  /** Optional signing session-seal key metadata and Shamir 3-pass parameters. */
-  SIGNING_SESSION_SEAL_KEY_VERSION?: string;
-  SIGNING_SESSION_SHAMIR_P_B64U?: string;
-  SIGNING_SESSION_SEAL_E_S_B64U?: string;
-  SIGNING_SESSION_SEAL_D_S_B64U?: string;
+  /** Signing-session seal root plus public rotation configuration. */
+  SIGNING_SESSION_SEAL_ROOT_SECRET_B64U?: string;
+  SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION?: string;
+  SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS?: string;
   /** Optional signing session-seal idempotency backend configuration. */
   SIGNING_SESSION_SEAL_IDEMPOTENCY_KIND?: string;
   SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL?: string;

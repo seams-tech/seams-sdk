@@ -14,17 +14,15 @@ import {
   DEFAULT_SESSION_COOKIE_NAME,
   GATEWAY_WORKER_COMPATIBILITY_DATE,
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
-  parseGatewayDeploymentConfig,
+  gatewayRuntimeProfileNearNetwork,
 } from './gateway-deployment-config.mjs';
+import { readDeploymentTarget } from '../../../scripts/deployment-targets.mjs';
 
 const VALID_TARGETS = new Set(['staging', 'production']);
 
 function main() {
   const options = parseArguments(process.argv.slice(2));
-  const deployment = parseGatewayDeploymentConfig(
-    process.env.GATEWAY_DEPLOYMENT_CONFIG_JSON,
-    options.target,
-  );
+  const deployment = readDeploymentTarget(options.target).gatewayDeploymentConfig;
   assertNearRelayerSecretConsistency(deployment.optional.nearRelayer);
   const config = buildConfig(deployment, process.cwd());
   const plan = buildGatewayDeploymentPlan(deployment);
@@ -86,6 +84,12 @@ function buildConfig(deployment, packageRoot) {
     compatibility_date: GATEWAY_WORKER_COMPATIBILITY_DATE,
     compatibility_flags: GATEWAY_WORKER_COMPATIBILITY_FLAGS,
     workers_dev: true,
+    routes: [
+      {
+        pattern: new URL(deployment.origins.gateway).hostname,
+        custom_domain: true,
+      },
+    ],
     d1_databases: [
       {
         binding: 'CONSOLE_DB',
@@ -107,24 +111,9 @@ function buildConfig(deployment, packageRoot) {
       { binding: 'SIGNING_WORKER', service: deployment.serviceNames.signingWorker },
       { binding: 'MPC_ROUTER', service: deployment.serviceNames.mpcRouter },
     ],
-    migrations: [
-      {
-        tag: 'threshold-store-sqlite-v1',
-        new_sqlite_classes: ['ThresholdStoreDurableObject'],
-      },
-      {
-        tag: 'router-api-runtime-sqlite-v1',
-        new_sqlite_classes: ['RouterApiRuntimeDurableObject'],
-      },
-      {
-        tag: 'router-api-runtime-delete-v1',
-        deleted_classes: ['RouterApiRuntimeDurableObject'],
-      },
-      {
-        tag: 'threshold-store-delete-v1',
-        deleted_classes: ['ThresholdStoreDurableObject'],
-      },
-    ],
+    triggers: {
+      crons: ['* * * * *'],
+    },
     observability: {
       enabled: true,
       logs: {
@@ -160,6 +149,7 @@ function buildWorkerVars(deployment) {
     SEAMS_STAGING_PROJECT_ID: deployment.tenant.projectId,
     SEAMS_STAGING_ENV_ID: deployment.tenant.environmentId,
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID: deployment.serviceNames.signingWorker,
+    ROUTER_AB_PREWARM_ENABLED: 'true',
     SIGNING_WORKER_ID: deployment.serviceNames.signingWorker,
     ROUTER_AB_CEREMONY_JWT_ISSUER: deployment.origins.gateway,
     ROUTER_AB_CEREMONY_JWT_AUDIENCE: deployment.routerAb.ceremonyJwtAudience,
@@ -177,6 +167,10 @@ function buildWorkerVars(deployment) {
     RELAY_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
     CONSOLE_BASE_URL: deployment.origins.allowedCors[0],
     SESSION_COOKIE_NAME: DEFAULT_SESSION_COOKIE_NAME,
+    SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION:
+      deployment.signingSessionSeal.currentKeyVersion,
+    SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS:
+      deployment.signingSessionSeal.acceptedWarmKeyVersions.join(','),
     EMAIL_OTP_RUNTIME_PROFILE: deployment.runtimeProfile.kind,
     EMAIL_OTP_DELIVERY_MODE: deployment.runtimeProfile.emailOtpDelivery.kind,
     EMAIL_OTP_PRODUCTION: String(production),
@@ -199,6 +193,12 @@ function buildWorkerVars(deployment) {
     SIGNING_ROOT_KEK_PROVIDER: 'cloudflare_secrets_store',
     SIGNING_ROOT_KEK_ENCODING: deployment.signingRoot.encoding,
     SIGNING_ROOT_KEK_IDS: deployment.signingRoot.id,
+    SPONSORED_EXECUTION_REAL_PRICING_JSON: JSON.stringify(
+      buildRefFinanceSponsoredExecutionPricingConfig(deployment.runtimeProfile),
+    ),
+    SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify(
+      buildStaticSponsoredExecutionPricingConfig(deployment.runtimeProfile),
+    ),
   };
   if (demoEmailOtpDelivery) {
     vars.EMAIL_OTP_DEMO_ALLOWED_ORIGINS = deployment.origins.allowedCors.join(',');
@@ -207,6 +207,44 @@ function buildWorkerVars(deployment) {
   addOptionalStringVar(vars, 'GOOGLE_OIDC_CLIENT_ID', deployment.optional.googleOidcClientId);
   addOptionalObjectVar(vars, 'SEAMS_OIDC_EXCHANGE_JSON', deployment.optional.oidcExchange);
   return vars;
+}
+
+function buildRefFinanceSponsoredExecutionPricingConfig(runtimeProfile) {
+  const networkClass =
+    gatewayRuntimeProfileNearNetwork(runtimeProfile) === 'mainnet' ? 'MAINNET' : 'TESTNET';
+  return {
+    provider: 'ref_finance',
+    nearRpcUrl: 'https://free.rpc.fastnear.com',
+    dexContractId: 'v2.ref-finance.near',
+    poolId: 4512,
+    nearTokenId: 'wrap.near',
+    usdcTokenId: '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1',
+    nearTokenDecimals: 24,
+    usdcTokenDecimals: 6,
+    cacheTtlMs: 300_000,
+    near: {
+      [networkClass]: {
+        nativeUnitDecimals: 24,
+        estimateFeeAmountYocto: '1000000000000000000000',
+        pricingVersionPrefix: `ref-finance-near-${networkClass.toLowerCase()}`,
+      },
+    },
+  };
+}
+
+function buildStaticSponsoredExecutionPricingConfig(runtimeProfile) {
+  const networkClass =
+    gatewayRuntimeProfileNearNetwork(runtimeProfile) === 'mainnet' ? 'MAINNET' : 'TESTNET';
+  return {
+    near: {
+      [networkClass]: {
+        estimateFeeAmountYocto: '1000000000000000000000',
+        minorPerFeeUnitNumerator: '300',
+        minorPerFeeUnitDenominator: '1000000000000000000000000',
+        pricingVersion: `static-near-${networkClass.toLowerCase()}-v1`,
+      },
+    },
+  };
 }
 
 function addNearRelayerVars(vars, nearRelayer) {

@@ -3,8 +3,6 @@ import {
   createWarmSessionCapabilityReaderCore,
   type WarmSessionCapabilityReaderSeal,
 } from './capabilityReaderCore';
-import { parseSigningSessionSealKeyVersion } from '../keyMaterialBrands';
-import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import {
   createWarmSessionStatusReader,
   type WarmSessionStatusReaderDeps,
@@ -19,8 +17,7 @@ import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/sign
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type WarmSessionCapabilityReaderSealInput = {
-  signingSessionSealKeyVersion: SigningSessionSealKeyVersion;
-  shamirPrimeB64u: string;
+  groupId: string;
 } | null;
 
 export type WarmSessionCapabilityReaderTouchConfirmInput = Exclude<
@@ -107,15 +104,13 @@ export function normalizeWarmCapabilityReaderPorts(
 export function normalizeWarmSessionCapabilityReaderSeal(
   sealInput: WarmSessionCapabilityReaderSealInput,
 ): WarmSessionCapabilityReaderSeal {
-  const keyVersion = String(sealInput?.signingSessionSealKeyVersion || '').trim();
-  const shamirPrimeB64u = String(sealInput?.shamirPrimeB64u || '').trim();
-  if (!keyVersion || !shamirPrimeB64u) {
+  const groupId = String(sealInput?.groupId || '').trim();
+  if (!groupId) {
     return { seal: 'unconfigured' };
   }
   return {
     seal: 'configured',
-    signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(keyVersion),
-    shamirPrimeB64u,
+    groupId,
   };
 }
 

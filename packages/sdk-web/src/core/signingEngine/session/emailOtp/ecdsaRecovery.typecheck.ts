@@ -27,7 +27,7 @@ const restoreSourceCommon = {
   participantIds: [1, 2],
   sessionKind: 'jwt',
   signingSessionSealKeyVersion: 'signing-session-seal-kek-test-r1',
-  signingSessionSealShamirPrimeB64u: 'prime-b64u',
+  signingSessionSealGroupId: 'prime-b64u',
 } as const;
 
 void ({

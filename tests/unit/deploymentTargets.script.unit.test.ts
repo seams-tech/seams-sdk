@@ -104,6 +104,19 @@ function targetsWithMissingCapability(): Record<string, unknown> {
   };
 }
 
+function targetsWithDeploymentBootstrap(): Record<string, unknown> {
+  const targets = structuredClone(validTargets());
+  const staging = targets.staging as Record<string, unknown>;
+  staging.gatewayDeploymentConfig = {
+    ...(staging.gatewayDeploymentConfig as Record<string, unknown>),
+    bootstrap: {
+      publishableKey: 'pk_00000000000000000000000000000000',
+      allowedOrigins: ['https://staging.seams.sh'],
+    },
+  };
+  return targets;
+}
+
 test('deployment target parsing rejects malformed capability records', async () => {
   const module = await deploymentTargetsModule;
 
@@ -134,6 +147,30 @@ test('deployment target parsing rejects a partial capability set', async () => {
   );
 });
 
+test('deployment target parsing rejects Gateway configuration drift', async () => {
+  const module = await deploymentTargetsModule;
+  const targets = structuredClone(validTargets());
+  const staging = targets.staging as Record<string, unknown>;
+  const gatewayDeploymentConfig = structuredClone(
+    staging.gatewayDeploymentConfig as Record<string, unknown>,
+  );
+  const origins = gatewayDeploymentConfig.origins as Record<string, unknown>;
+  origins.gateway = 'https://wrong-gateway.example';
+  staging.gatewayDeploymentConfig = gatewayDeploymentConfig;
+
+  expect(() => module.parseDeploymentTargets(targets)).toThrow(
+    /gatewayDeploymentConfig does not match deployment target staging/u,
+  );
+});
+
+test('deployment target parsing rejects deployment tenant bootstrap configuration', async () => {
+  const module = await deploymentTargetsModule;
+
+  expect(() => module.parseDeploymentTargets(targetsWithDeploymentBootstrap())).toThrow(
+    /bootstrap is not supported/u,
+  );
+});
+
 test('required secrets are derived from enabled capabilities and their owners', async () => {
   const module = await deploymentTargetsModule;
   const targets = module.parseDeploymentTargets(validTargets());
@@ -144,10 +181,7 @@ test('required secrets are derived from enabled capabilities and their owners', 
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
     'STRIPE_API_SK',
-    'SIGNING_SESSION_SEAL_KEY_VERSION',
-    'SIGNING_SESSION_SHAMIR_P_B64U',
-    'SIGNING_SESSION_SEAL_E_S_B64U',
-    'SIGNING_SESSION_SEAL_D_S_B64U',
+    'SIGNING_SESSION_SEAL_ROOT_SECRET_B64U',
   ]);
   expect(module.componentSecretNames(targets.staging, 'gateway')).toContain('STRIPE_API_SK');
   expect(module.componentSecretNames(targets.staging, 'gateway')).not.toContain(

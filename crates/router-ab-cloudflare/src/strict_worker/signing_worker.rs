@@ -9,6 +9,15 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
         return cloudflare_private_service_auth_error_response_v1(err);
     }
     let path = request.path();
+    if path == CLOUDFLARE_INTERNAL_PREWARM_PATH {
+        if request.method() != Method::Post {
+            return cloudflare_prewarm_response_v1(&request);
+        }
+        if let Err(err) = CloudflareSigningWorkerRuntimeV1::from_worker_env(&env) {
+            return cloudflare_protocol_error_response_v1(err);
+        }
+        return cloudflare_prewarm_response_v1(&request);
+    }
     if path == CLOUDFLARE_SIGNING_WORKER_WALLET_BUDGET_PATH_V1 {
         return match handle_cloudflare_signing_worker_wallet_budget_private_fetch_v1(request, &env)
             .await

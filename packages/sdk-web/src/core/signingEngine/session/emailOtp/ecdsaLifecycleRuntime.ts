@@ -59,7 +59,8 @@ export class EmailOtpEcdsaLifecycleRuntime {
       provisionEmailOtpEcdsaExplicitExportSession:
         this.ports.provisionEmailOtpEcdsaExplicitExportSession,
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
-      requireShamirPrimeB64u: () => this.ports.runtimeConfig.requireShamirPrimeB64u(),
+      requireSigningSessionSealGroupId: () =>
+        this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
       rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
       publicationPorts: this.ports.publicationPorts(),
     });
@@ -75,7 +76,8 @@ export class EmailOtpEcdsaLifecycleRuntime {
       provisionEmailOtpEcdsaExplicitExportSession:
         this.ports.provisionEmailOtpEcdsaExplicitExportSession,
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
-      requireShamirPrimeB64u: () => this.ports.runtimeConfig.requireShamirPrimeB64u(),
+      requireSigningSessionSealGroupId: () =>
+        this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
       rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
       publicationPorts: this.ports.publicationPorts(),
     });

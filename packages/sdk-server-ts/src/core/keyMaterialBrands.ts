@@ -14,10 +14,6 @@ export type Ed25519RelayerKeyId = Brand<string, 'Ed25519RelayerKeyId'>;
 export type EcdsaRelayerKeyId = Brand<string, 'EcdsaRelayerKeyId'>;
 export type EcdsaThresholdKeyId = Brand<string, 'EcdsaThresholdKeyId'>;
 export type EcdsaKeyHandle = Brand<string, 'EcdsaKeyHandle'>;
-export type SigningSessionSealShamirPrimeB64u = Brand<
-  string,
-  'SigningSessionSealShamirPrimeB64u'
->;
 
 function parseNonEmptyBrand<T extends string>(value: unknown, label: string): Brand<string, T> {
   const normalized = String(value ?? '').trim();
@@ -74,14 +70,6 @@ export function parseEcdsaKeyHandle(value: unknown): EcdsaKeyHandle {
   return parseNonEmptyBrand<'EcdsaKeyHandle'>(value, 'ECDSA key handle');
 }
 
-export function parseSigningSessionSealShamirPrimeB64u(
-  value: unknown,
-): SigningSessionSealShamirPrimeB64u {
-  return parseNonEmptyBrand<'SigningSessionSealShamirPrimeB64u'>(
-    value,
-    'signing-session seal Shamir prime',
-  );
-}
 
 export function formatEcdsaDerivationKeyVersionForWire(value: EcdsaDerivationKeyVersion): string {
   return value;
@@ -118,11 +106,5 @@ export function formatEcdsaThresholdKeyIdForWire(value: EcdsaThresholdKeyId): st
 }
 
 export function formatEcdsaKeyHandleForWire(value: EcdsaKeyHandle): string {
-  return value;
-}
-
-export function formatSigningSessionSealShamirPrimeB64uForWire(
-  value: SigningSessionSealShamirPrimeB64u,
-): string {
   return value;
 }

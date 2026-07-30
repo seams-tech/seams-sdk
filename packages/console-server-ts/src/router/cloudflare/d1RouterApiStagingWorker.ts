@@ -111,6 +111,7 @@ interface CloudflareD1RouterApiStagingEnv
   readonly RELAYER_PUBLIC_KEY?: string;
   readonly RELAYER_PRIVATE_KEY?: string;
   readonly NEAR_RPC_URL?: string;
+  readonly ARC_RPC_URL?: string;
   readonly ACCOUNT_INITIAL_BALANCE?: string;
   readonly ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING?: string;
   readonly GOOGLE_OIDC_CLIENT_ID?: string;
@@ -119,6 +120,7 @@ interface CloudflareD1RouterApiStagingEnv
   readonly ROUTER_AB_NORMAL_SIGNING_WORKER_ID?: string;
   readonly SIGNING_WORKER_ID?: string;
   readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
+  readonly ROUTER_AB_PREWARM_ENABLED: string;
   readonly ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK?: string;
   readonly ROUTER_AB_CEREMONY_JWT_ISSUER?: string;
   readonly ROUTER_AB_CEREMONY_JWT_AUDIENCE?: string;
@@ -128,10 +130,9 @@ interface CloudflareD1RouterApiStagingEnv
   readonly DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
   readonly DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
   readonly SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY?: string;
-  readonly SIGNING_SESSION_SEAL_KEY_VERSION?: string;
-  readonly SIGNING_SESSION_SHAMIR_P_B64U?: string;
-  readonly SIGNING_SESSION_SEAL_E_S_B64U?: string;
-  readonly SIGNING_SESSION_SEAL_D_S_B64U?: string;
+  readonly SIGNING_SESSION_SEAL_ROOT_SECRET_B64U?: string;
+  readonly SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION?: string;
+  readonly SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS?: string;
   readonly EMAIL_OTP_DELIVERY_MODE?: string;
   readonly EMAIL_OTP_RUNTIME_PROFILE?: string;
   readonly EMAIL_OTP_DEMO_ALLOWED_ORIGINS?: string;
@@ -350,15 +351,11 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
       'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS',
     ),
     routerAbEcdsaPresignRuntime: createStagingEcdsaPresignRuntime(env),
-    walletBudgetGrantProvisioner:
-      createRouterAbPrivateD1WalletBudgetGrantProvisionerV1({
-        routerBaseUrl: ROUTER_AB_MPC_ROUTER_ORIGIN,
-        internalServiceAuthSecret: requireEnvString(
-          env,
-          'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
-        ),
-        fetchImpl: createRouterAbServiceBindingFetch(env),
-      }),
+    walletBudgetGrantProvisioner: createRouterAbPrivateD1WalletBudgetGrantProvisionerV1({
+      routerBaseUrl: ROUTER_AB_MPC_ROUTER_ORIGIN,
+      internalServiceAuthSecret: requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET'),
+      fetchImpl: createRouterAbServiceBindingFetch(env),
+    }),
     ed25519YaoProductRegistration: yaoRuntime,
     ecdsaStrictRegistration,
   });
@@ -484,10 +481,9 @@ function stagingSigningSessionSealOptions(
   const seal = stagingEmailOtpServerSealConfig(env);
   if (!seal) return undefined;
   return createSigningSessionSealOptions({
-    keyVersion: seal.keyVersion,
-    shamirPrimeB64u: seal.shamirPrimeB64u,
-    serverEncryptExponentB64u: seal.serverEncryptExponentB64u,
-    serverDecryptExponentB64u: seal.serverDecryptExponentB64u,
+    rootSecretB64u: seal.rootSecretB64u,
+    currentKeyVersion: seal.currentKeyVersion,
+    acceptedWarmKeyVersions: seal.acceptedWarmKeyVersions,
   });
 }
 
@@ -564,23 +560,27 @@ async function assertD1Tables(input: {
 function stagingEmailOtpServerSealConfig(
   env: CloudflareD1RouterApiStagingEnv,
 ): CloudflareD1EmailOtpServerSealConfig | undefined {
-  const keyVersion = readEnvString(env, 'SIGNING_SESSION_SEAL_KEY_VERSION');
-  const shamirPrimeB64u = readEnvString(env, 'SIGNING_SESSION_SHAMIR_P_B64U');
-  const serverEncryptExponentB64u = readEnvString(env, 'SIGNING_SESSION_SEAL_E_S_B64U');
-  const serverDecryptExponentB64u = readEnvString(env, 'SIGNING_SESSION_SEAL_D_S_B64U');
-  if (!keyVersion && !shamirPrimeB64u && !serverEncryptExponentB64u && !serverDecryptExponentB64u) {
+  const rootSecretB64u = readEnvString(env, 'SIGNING_SESSION_SEAL_ROOT_SECRET_B64U');
+  const currentKeyVersion = readEnvString(env, 'SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION');
+  const acceptedWarmKeyVersions = readEnvString(
+    env,
+    'SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS',
+  )
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!rootSecretB64u && !currentKeyVersion) {
     return undefined;
   }
-  if (!keyVersion || !shamirPrimeB64u || !serverEncryptExponentB64u || !serverDecryptExponentB64u) {
+  if (!rootSecretB64u || !currentKeyVersion || acceptedWarmKeyVersions.length === 0) {
     throw new Error(
-      'Email OTP server seal requires SIGNING_SESSION_SEAL_KEY_VERSION, SIGNING_SESSION_SHAMIR_P_B64U, SIGNING_SESSION_SEAL_E_S_B64U, and SIGNING_SESSION_SEAL_D_S_B64U',
+      'Email OTP server seal requires the root secret, current key version, and accepted warm key versions',
     );
   }
   return {
-    keyVersion,
-    shamirPrimeB64u,
-    serverEncryptExponentB64u,
-    serverDecryptExponentB64u,
+    rootSecretB64u,
+    currentKeyVersion,
+    acceptedWarmKeyVersions,
   };
 }
 
@@ -705,12 +705,58 @@ function gatewayScheduledHandler(env: CloudflareD1RouterApiStagingEnv): Schedule
   return createCloudflareCron({});
 }
 
+const ROUTER_AB_PREWARM_CRON = '* * * * *';
+const ROUTER_AB_PREWARM_PATH = '/internal/prewarm';
+const ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER = 'x-router-ab-internal-service-auth';
+
+function parseRouterAbPrewarmEnabled(value: unknown): boolean {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error('ROUTER_AB_PREWARM_ENABLED must be true or false');
+}
+
+function isSuccessfulPrewarmResponse(value: unknown): value is { readonly ok: true } {
+  return isRecord(value) && value.ok === true;
+}
+
+export async function runRouterAbPrewarmScheduled(
+  event: CfScheduledEvent,
+  env: Pick<
+    CloudflareD1RouterApiStagingEnv,
+    'MPC_ROUTER' | 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET' | 'ROUTER_AB_PREWARM_ENABLED'
+  >,
+): Promise<void> {
+  if (event.cron !== ROUTER_AB_PREWARM_CRON) return;
+  if (!parseRouterAbPrewarmEnabled(env.ROUTER_AB_PREWARM_ENABLED)) return;
+  const response = await env.MPC_ROUTER.fetch(
+    new Request(`${ROUTER_AB_MPC_ROUTER_ORIGIN}${ROUTER_AB_PREWARM_PATH}`, {
+      method: 'POST',
+      headers: {
+        [ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER]: requireEnvString(
+          env,
+          'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
+        ),
+      },
+    }),
+  );
+  if (!response.ok) {
+    throw new Error(`Router A/B prewarm failed with HTTP ${response.status}`);
+  }
+  const body: unknown = await response.json();
+  if (!isSuccessfulPrewarmResponse(body)) {
+    throw new Error('Router A/B prewarm returned an invalid response');
+  }
+}
+
 async function scheduled(
   event: CfScheduledEvent,
   env: CloudflareD1RouterApiStagingEnv,
   ctx: CfExecutionContext,
 ): Promise<void> {
-  await gatewayScheduledHandler(env)(event, env, ctx);
+  await Promise.all([
+    gatewayScheduledHandler(env)(event, env, ctx),
+    runRouterAbPrewarmScheduled(event, env),
+  ]);
 }
 
 type RouterApiYaoDirectOperationV1 =

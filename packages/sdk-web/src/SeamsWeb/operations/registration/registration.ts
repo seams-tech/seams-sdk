@@ -2039,6 +2039,38 @@ function registrationRouteHeaders(
   return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
+/**
+ * Near-provisioning retries must present the SAME operation identity.
+ *
+ * The server's Yao consume writes a first-writer consumer binding derived from
+ * the request fingerprint, which includes this key. A fresh key per attempt
+ * would permanently poison the activation on any ambiguous first attempt —
+ * the retry would arrive as a different consumer and hit `activation_consumed`
+ * forever. Deriving the key from the ceremony and activation reference makes
+ * every retry the same consumer, so takeover resume works instead.
+ */
+async function deriveNearProvisioningIdempotencyKey(input: {
+  readonly registrationCeremonyId: string;
+  readonly activationReference: {
+    readonly lifecycle_id: string;
+    readonly session_id: readonly number[];
+  };
+}): Promise<RegistrationFinalizeIdempotencyKey> {
+  const digestHex = await sha256HexUtf8(
+    [
+      'wallet-registration-near-provisioning',
+      input.registrationCeremonyId,
+      input.activationReference.lifecycle_id,
+      input.activationReference.session_id
+        .map((byte) => byte.toString(16).padStart(2, '0'))
+        .join(''),
+    ].join(':'),
+  );
+  return registrationFinalizeIdempotencyKeyFromString(
+    `wallet-registration-near-provisioning:${digestHex}`,
+  );
+}
+
 function createRegistrationOperationIdempotencyKey(
   label: string,
 ): RegistrationFinalizeIdempotencyKey {
@@ -4073,6 +4105,7 @@ async function commitDeferredEd25519Registration(args: {
        hands out the one in-flight ceremony for this tab and claims it once. */
     const pending = await args.yaoWork.requirePending();
     const clientPublicKey = pending.publicKey();
+    const activationReference = pending.activationReference();
     /* One deferred completion path for both plans: a mixed wallet's NEAR arm
        lands here exactly as an Ed25519-only wallet's sole signer does. */
     const completed = await completeWalletRegistrationNearProvisioning({
@@ -4080,13 +4113,15 @@ async function commitDeferredEd25519Registration(args: {
       registrationCeremonyId: args.registrationCeremonyId,
       signedSetup: args.signedSetup,
       headers: args.headers,
-      /* Distinct from activate's key: the server derives its side-effect key
-         from {ceremonyId, idempotencyKey}, so sharing one would replay
-         activate's commit instead of completing this branch. */
-      idempotencyKey: createRegistrationOperationIdempotencyKey(
-        'wallet-registration-near-provisioning',
-      ),
-      ed25519: { activationReference: pending.activationReference() },
+      /* Deterministic, and distinct from activate's key: the server derives
+         its side-effect key from {ceremonyId, idempotencyKey}, so sharing
+         activate's key would replay activate's commit, while a random key
+         would poison the Yao consume on retry. */
+      idempotencyKey: await deriveNearProvisioningIdempotencyKey({
+        registrationCeremonyId: args.registrationCeremonyId,
+        activationReference,
+      }),
+      ed25519: { activationReference },
     });
     if (!completed.ok) {
       throw new Error('Deferred NEAR provisioning did not complete');

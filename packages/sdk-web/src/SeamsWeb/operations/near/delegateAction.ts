@@ -44,6 +44,7 @@ export interface DelegateRelayerAuth {
 
 /** HTTP header carrying the managed environment id for Router API auth. */
 const ROUTER_API_ENVIRONMENT_ID_HEADER = 'X-Seams-Environment-Id';
+const DELEGATE_RELAYER_TIMEOUT_MS = 30_000;
 
 function buildDelegateRelayerHeaders(auth?: DelegateRelayerAuth): Record<string, string> {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -52,6 +53,24 @@ function buildDelegateRelayerHeaders(auth?: DelegateRelayerAuth): Record<string,
   const environmentId = String(auth?.environmentId ?? '').trim();
   if (environmentId) headers[ROUTER_API_ENVIRONMENT_ID_HEADER] = environmentId;
   return headers;
+}
+
+function parseDelegateRelayerFailure(body: unknown, status: number): DelegateRouterApiResult {
+  if (!isObject(body)) {
+    return { ok: false, error: `Relayer HTTP ${status}` };
+  }
+  const code = typeof body.code === 'string' ? body.code.trim() : '';
+  const message =
+    typeof body.message === 'string'
+      ? body.message.trim()
+      : typeof body.error === 'string'
+        ? body.error.trim()
+        : '';
+  const detail = message || `Relayer HTTP ${status}`;
+  return {
+    ok: false,
+    error: code ? `${detail} (${code})` : detail,
+  };
 }
 
 /**
@@ -221,10 +240,15 @@ export async function sendDelegateActionViaRelayer(args: {
       method: 'POST',
       headers: buildDelegateRelayerHeaders(auth),
       body: JSON.stringify(normalizedPayload),
-      signal,
+      signal: signal || AbortSignal.timeout(DELEGATE_RELAYER_TIMEOUT_MS),
     });
   } catch (err: unknown) {
-    const error = err instanceof Error ? err : new Error(String(err));
+    const error =
+      err instanceof DOMException && err.name === 'TimeoutError'
+        ? new Error('Relayer request timed out after 30 seconds')
+        : err instanceof Error
+          ? err
+          : new Error(String(err));
     options?.onError?.(error);
     emitError(error.message);
     await options?.afterCall?.(false);
@@ -232,10 +256,11 @@ export async function sendDelegateActionViaRelayer(args: {
   }
 
   if (!res.ok) {
-    const response: DelegateRouterApiResult = {
-      ok: false,
-      error: `Relayer HTTP ${res.status}`,
-    };
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {}
+    const response = parseDelegateRelayerFailure(body, res.status);
     options?.onError?.(new Error(response.error));
     emitError(response.error!);
     await options?.afterCall?.(false);

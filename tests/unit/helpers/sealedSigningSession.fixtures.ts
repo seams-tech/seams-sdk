@@ -1,6 +1,7 @@
 import {
   SIGNING_SESSION_SEALED_RECORD_VERSION,
   SIGNING_SESSION_SEAL_ALG,
+  SIGNING_SESSION_SEAL_GROUP_ID,
   SIGNING_SESSION_SEAL_STORAGE_SCOPE,
   SIGNING_SESSION_SECRET_KIND,
   type SealedSigningSessionRecord,
@@ -188,7 +189,7 @@ export function seedEmailOtpEcdsaSealedSigningSessionRecord(
     relayerUrl,
     ecdsaRestore: restore,
     keyVersion: 'signing-session-seal-kek-test-r1',
-    shamirPrimeB64u: 'prime',
+    groupId: SIGNING_SESSION_SEAL_GROUP_ID,
     issuedAtMs: 1,
     expiresAtMs: 2,
     remainingUses: 3,

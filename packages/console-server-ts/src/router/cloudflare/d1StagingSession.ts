@@ -187,6 +187,17 @@ class Ed25519SessionJwtAdapter {
     readonly payload: Record<string, unknown>;
   }): Promise<string> {
     const nowSeconds = Math.floor(Date.now() / 1000);
+    /* The adapter TTL is a ceiling, not the expiry. Wallet-session claims
+       carry their own `exp` bound to the threshold session; overriding it
+       here would mint a bearer token that outlives the session it names.
+       A caller-supplied `exp` therefore survives unless it exceeds the
+       configured maximum; only claims without one get the full TTL. */
+    const requestedExpSeconds = Number(input.payload.exp);
+    const maxExpSeconds = nowSeconds + this.ttlSeconds;
+    const expSeconds =
+      Number.isFinite(requestedExpSeconds) && requestedExpSeconds > nowSeconds
+        ? Math.min(Math.floor(requestedExpSeconds), maxExpSeconds)
+        : maxExpSeconds;
     const headerB64u = encodeJsonSegment({
       ...input.header,
       typ: 'JWT',
@@ -197,7 +208,7 @@ class Ed25519SessionJwtAdapter {
       ...input.payload,
       ...routerWalletSessionScopeClaims(input.payload),
       iat: nowSeconds,
-      exp: nowSeconds + this.ttlSeconds,
+      exp: expSeconds,
       iss: this.issuer,
       aud: this.audience,
     });

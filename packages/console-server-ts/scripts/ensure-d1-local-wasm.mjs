@@ -13,6 +13,8 @@ const requiredArtifacts = [
   'dist/esm/wasm/evm_crypto/pkg/evm_crypto_bg.wasm',
   'dist/esm/wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.js',
   'dist/esm/wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker_bg.wasm',
+  'dist/esm/wasm/shamir3pass_runtime/pkg/shamir3pass_runtime.js',
+  'dist/esm/wasm/shamir3pass_runtime/pkg/shamir3pass_runtime_bg.wasm',
 ];
 
 const missingArtifacts = requiredArtifacts.filter(

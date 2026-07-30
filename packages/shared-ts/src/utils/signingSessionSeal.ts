@@ -10,8 +10,9 @@ import type {
 import type { MpcMaterialActivationRef } from './domainIds';
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from './signerDomain';
 
-export const SIGNING_SESSION_SEALED_RECORD_VERSION = 1 as const;
-export const SIGNING_SESSION_SEAL_ALG = 'shamir3pass-v1' as const;
+export const SIGNING_SESSION_SEALED_RECORD_VERSION = 2 as const;
+export const SIGNING_SESSION_SEAL_ALG = 'shamir3pass-v2' as const;
+export const SIGNING_SESSION_SEAL_GROUP_ID = 'rfc2409-group2' as const;
 export const SIGNING_SESSION_SEAL_STORAGE_SCOPE = 'iframe_origin_indexeddb' as const;
 export const SIGNING_SESSION_SECRET_KIND = 'signing_session_secret32' as const;
 export const ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND =
@@ -45,6 +46,11 @@ export type SigningSessionSealAuthMethod = Extract<
   typeof SIGNER_AUTH_METHODS.passkey | typeof SIGNER_AUTH_METHODS.emailOtp
 >;
 export type SigningSessionSealCurve = 'ed25519' | 'ecdsa';
+export type SigningSessionSealGroupId = typeof SIGNING_SESSION_SEAL_GROUP_ID;
+export type SigningSessionSealProtocol = {
+  algorithm: typeof SIGNING_SESSION_SEAL_ALG;
+  groupId: SigningSessionSealGroupId;
+};
 export type SealedSigningSessionEcdsaRestoreSource =
   | 'login'
   | 'registration'
@@ -194,8 +200,8 @@ type SealedSigningSessionRecordBase = {
   sealedSecretB64u: string;
   walletId: string;
   relayerUrl: string;
-  keyVersion?: string;
-  shamirPrimeB64u?: string;
+  groupId: SigningSessionSealGroupId;
+  keyVersion: string;
   issuedAtMs: number;
   expiresAtMs: number;
   remainingUses: number;

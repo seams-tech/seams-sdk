@@ -87,7 +87,6 @@ import type {
   SigningOperationId,
   SigningOperationIntent,
   SigningSessionPlan,
-  SigningGrantId,
 } from './operationState/types';
 import type { WarmSessionPrfClaim } from './warmCapabilities/types';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';

@@ -44,7 +44,7 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   challengeId?: string;
   otpCode: string;
   operation?: WalletEmailOtpLoginOperation;
-  shamirPrimeB64u?: string;
+  groupId?: string;
   appSessionJwt?: string;
   routeAuth?: AppOrWalletSessionAuth;
   keyHandle?: string;
@@ -72,7 +72,7 @@ export type EnrollEmailOtpInternalArgs = {
   otpCode: string;
   relayUrl?: string;
   challengeId?: string;
-  shamirPrimeB64u?: string;
+  groupId?: string;
   appSessionJwt?: string;
   clientSecret32?: Uint8Array;
   otpChannel?: WalletEmailOtpChannel;
@@ -104,7 +104,7 @@ type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgsBase = {
   walletId: WalletId;
   userId: string;
   relayUrl?: string;
-  shamirPrimeB64u?: string;
+  groupId?: string;
   appSessionJwt: string;
   otpChannel?: WalletEmailOtpChannel;
   clientSecret32?: Uint8Array;
@@ -121,7 +121,7 @@ export type PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult = Awaite
 
 export type EmailOtpPublicDeps = {
   relayerUrl: string;
-  shamirPrimeB64u: string;
+  groupId: string;
   getSignerWorkerContext: () => WorkerOperationContext;
   emailOtpSessions: {
     requestTransactionSigningChallenge: Parameters<
@@ -177,7 +177,7 @@ function emailOtpEcdsaLoginCoreArgsFromBoundary(
     ...(args.relayUrl ? { relayUrl: args.relayUrl } : {}),
     ...(args.challengeId ? { challengeId: args.challengeId } : {}),
     ...(args.operation ? { operation: args.operation } : {}),
-    ...(args.shamirPrimeB64u ? { shamirPrimeB64u: args.shamirPrimeB64u } : {}),
+    ...(args.groupId ? { groupId: args.groupId } : {}),
     ...(args.keyHandle ? { keyHandle: args.keyHandle } : {}),
     ...(args.participantIds ? { participantIds: args.participantIds } : {}),
     ...(args.publicationChainTargets
@@ -294,8 +294,8 @@ export async function enrollEmailOtpInternal(
   if (!relayUrl) {
     throw new Error('Missing relayer url (configs.network.relayer.url)');
   }
-  const shamirPrimeB64u = String(args.shamirPrimeB64u || deps.shamirPrimeB64u || '').trim();
-  if (!shamirPrimeB64u) {
+  const groupId = String(args.groupId || deps.groupId || '').trim();
+  if (!groupId) {
     throw new Error('Missing shamir prime for Email OTP runtime');
   }
   return await enrollEmailOtpWallet({
@@ -304,7 +304,7 @@ export async function enrollEmailOtpInternal(
     userId: String(walletId),
     challengeId: args.challengeId,
     otpCode: args.otpCode,
-    shamirPrimeB64u,
+    groupId,
     workerCtx: deps.getSignerWorkerContext(),
     appSessionJwt: args.appSessionJwt,
     otpChannel: args.otpChannel,
@@ -339,8 +339,8 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterialInternal(
   if (!relayUrl) {
     throw new Error('Missing relayer url (configs.network.relayer.url)');
   }
-  const shamirPrimeB64u = String(args.shamirPrimeB64u || deps.shamirPrimeB64u || '').trim();
-  if (!shamirPrimeB64u) {
+  const groupId = String(args.groupId || deps.groupId || '').trim();
+  if (!groupId) {
     throw new Error('Missing shamir prime for Email OTP runtime');
   }
   const userId = String(args.userId).trim();
@@ -351,7 +351,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterialInternal(
     relayUrl,
     walletId: String(walletId),
     userId,
-    shamirPrimeB64u,
+    groupId,
     workerCtx: deps.getSignerWorkerContext(),
     appSessionJwt: args.appSessionJwt,
     otpChannel: args.otpChannel,

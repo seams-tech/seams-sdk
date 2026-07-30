@@ -1,6 +1,7 @@
 import type { RuntimePorts } from '@/core/platform';
 import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
 import { IndexedDbEcdsaCapabilityManifestStore } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import {
   createRelayerReusableWalletSessionStatusPort,
@@ -78,7 +79,7 @@ type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 type EmailOtpEd25519RecoveryRequest = Omit<
   Parameters<typeof rehydrateEmailOtpEd25519CapabilityForSigningV1>[0],
   | 'workerContext'
-  | 'shamirPrimeB64u'
+  | 'groupId'
   | 'resolveActiveCapability'
   | 'activateCapability'
   | 'expectedOperationalPublicKey'
@@ -496,7 +497,7 @@ async function rehydrateEmailOtpEd25519CapabilityForSigning(args: {
     remainingUses: args.request.remainingUses,
     expectedOperationalPublicKey: user.operationalPublicKey,
     workerContext: args.assembly.signerWorkerManager.getContext(),
-    shamirPrimeB64u: args.assembly.seamsWebConfigs.signing.sessionSeal.shamirPrimeB64u,
+    groupId: SIGNING_SESSION_SEAL_GROUP_ID,
     materialActivation: references[0].materialActivation,
     resolveActiveCapability: (scope) =>
       args.assembly.getEnginePorts().ed25519YaoActiveClients.resolveForWalletAccount(scope),

@@ -3412,7 +3412,7 @@ class RouterAbPrivateD1WalletBudgetGrantProvisionerV1 implements RouterAbWalletB
     if (!parsed.ok) return parsed;
     if (
       parsed.signingGrantId !== input.signingGrantId ||
-      parsed.expiresAtMs !== input.expiresAtMs
+      parsed.expiresAtMs > input.expiresAtMs
     ) {
       return {
         ok: false,

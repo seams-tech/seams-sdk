@@ -25,7 +25,7 @@ type WarmSessionSealTransportCommon = {
   relayerUrl: string;
   signingGrantId?: string;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-  shamirPrimeB64u?: string;
+  groupId?: string;
 };
 
 type EmailOtpWarmSessionSealTransportCommon = WarmSessionSealTransportCommon & {
@@ -48,7 +48,7 @@ export interface UiConfirmManagerConfig {
   debug?: boolean;
   signingSessionPersistenceMode?: SigningSessionPersistenceMode;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-  signingSessionSealShamirPrimeB64u?: string;
+  signingSessionSealGroupId?: string;
 }
 
 export type UserConfirmWorkerMessageType =
