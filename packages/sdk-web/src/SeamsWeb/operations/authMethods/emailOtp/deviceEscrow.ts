@@ -26,7 +26,7 @@ export async function restoreEmailOtpDeviceEnrollmentEscrow(args: {
   challengeId: string;
   otpCode: string;
   recoveryKey: string;
-  shamirPrimeB64u: string;
+  groupId: string;
   workerCtx: WorkerOperationContext;
   appSessionJwt?: string;
   otpChannel?: WalletEmailOtpChannel;
@@ -44,7 +44,7 @@ export async function restoreEmailOtpDeviceEnrollmentEscrow(args: {
           challengeId: readString(args.challengeId, 'challengeId'),
           otpCode: readString(args.otpCode, 'otpCode'),
           recoveryKey: readString(args.recoveryKey, 'recoveryKey'),
-          shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
+          groupId: readString(args.groupId, 'groupId'),
           routePlan: buildWorkerEmailOtpRoutePlan({
             routeFamily: 'login',
             appSessionJwt: args.appSessionJwt,

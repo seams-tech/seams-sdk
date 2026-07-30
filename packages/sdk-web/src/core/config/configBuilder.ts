@@ -18,7 +18,10 @@ import {
   type IntRange,
 } from './configHelpers';
 import { normalizeWalletHostVariant } from '../browser/walletIframe/hostVariant';
-import { parseSigningSessionSealKeyVersion } from '../signingEngine/session/keyMaterialBrands';
+import {
+  SIGNING_SESSION_SEAL_ALG,
+  SIGNING_SESSION_SEAL_GROUP_ID,
+} from '@shared/utils/signingSessionSeal';
 
 const THRESHOLD_ECDSA_PRESIGN_POOL_LIMITS = {
   targetDepth: { min: 1, max: 64 } satisfies IntRange,
@@ -70,10 +73,6 @@ function resolveEmailOtpAuthPolicy(args: {
   throw new Error(
     `[configPresets] Invalid config: emailOtpAuthPolicy (${raw}); expected "session" or "per_operation"`,
   );
-}
-
-function isBase64UrlNoPadding(value: string): boolean {
-  return /^[A-Za-z0-9_-]+$/.test(value);
 }
 
 function joinUrlPath(baseUrl: string, path: string): string {
@@ -147,36 +146,16 @@ function resolveRegistrationConfig(args: {
 
 function resolveSigningSessionSeal(args: {
   mode: SigningSessionPersistenceMode;
-  overrides: SeamsConfigsInput;
-  defaults: SeamsConfigsReadonly;
 }): SeamsConfigsReadonly['signing']['sessionSeal'] {
   if (args.mode !== 'sealed_refresh_v1') {
-    return {};
+    return { mode: 'none' };
   }
-
-  const keyVersion =
-    toTrimmedString(args.overrides.signingSessionSeal?.keyVersion) ||
-    toTrimmedString(args.defaults.signing.sessionSeal.signingSessionSealKeyVersion);
-  const shamirPrimeB64u =
-    toTrimmedString(args.overrides.signingSessionSeal?.shamirPrimeB64u) ||
-    toTrimmedString(args.defaults.signing.sessionSeal.shamirPrimeB64u);
-
-  if (!shamirPrimeB64u) {
-    throw new Error(
-      '[configPresets] Missing required config: signingSessionSeal.shamirPrimeB64u when signingSessionPersistenceMode="sealed_refresh_v1"',
-    );
-  }
-  if (!isBase64UrlNoPadding(shamirPrimeB64u)) {
-    throw new Error(
-      '[configPresets] Invalid config: signingSessionSeal.shamirPrimeB64u must be base64url (no padding)',
-    );
-  }
-
   return {
-    ...(keyVersion
-      ? { signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(keyVersion) }
-      : {}),
-    shamirPrimeB64u,
+    mode: 'sealed_refresh_v1',
+    protocol: {
+      algorithm: SIGNING_SESSION_SEAL_ALG,
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+    },
   };
 }
 
@@ -247,8 +226,6 @@ export function buildConfigsFromDefaults(args: {
   });
   const signingSessionSeal = resolveSigningSessionSeal({
     mode: signingSessionPersistenceMode,
-    overrides,
-    defaults,
   });
   const routerAbNormalSigning = resolveRouterAbNormalSigningConfig({
     overrides,

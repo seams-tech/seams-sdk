@@ -1740,7 +1740,7 @@ export class SeamsWeb {
     otpCode: string;
     relayUrl?: string;
     challengeId?: string;
-    shamirPrimeB64u?: string;
+    groupId?: string;
     appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;
@@ -1804,7 +1804,7 @@ export class SeamsWeb {
         otpCode: args.otpCode,
         ...(args.relayUrl ? { relayUrl: args.relayUrl } : {}),
         ...(args.challengeId ? { challengeId: args.challengeId } : {}),
-        ...(args.shamirPrimeB64u ? { shamirPrimeB64u: args.shamirPrimeB64u } : {}),
+        ...(args.groupId ? { groupId: args.groupId } : {}),
         ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
         ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
       });

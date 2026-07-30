@@ -150,8 +150,8 @@ test.describe('signing session sealed store', () => {
       remainingUses: 3,
     });
     const fixtureBinding = fixtureBootstrap.thresholdEcdsaKeyRef.backendBinding;
-    if (fixtureBinding?.materialKind !== 'role_local_ready_state_blob') {
-      throw new Error('expected role-local fixture');
+    if (fixtureBinding?.materialKind !== 'role_local_worker_handle') {
+      throw new Error('expected role-local worker fixture');
     }
     const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef('role-local:expired-anchor');
     const bootstrap = {
@@ -166,12 +166,12 @@ test.describe('signing session sealed store', () => {
             kind: 'ecdsa_role_local_worker_handle_v1' as const,
             materialHandle: parseEcdsaRoleLocalMaterialHandle('role-local:expired-anchor'),
             bindingDigest: parseEcdsaRoleLocalBindingDigest(
-              fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+              fixtureBinding.publicFacts.contextBinding32B64u,
             ),
             durableMaterialRef,
           },
-          publicFacts: fixtureBinding.ecdsaRoleLocalReadyRecord.publicFacts,
-          authMethod: fixtureBinding.ecdsaRoleLocalReadyRecord.authMethod,
+          publicFacts: fixtureBinding.publicFacts,
+          authMethod: fixtureBinding.authMethod,
         },
       },
     };
@@ -249,12 +249,13 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: ECDSA_RESTORE,
             walletId: 'sealed-store.testnet',
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-secret-b64u',
             walletSessionJwt: 'jwt-must-not-persist',
             signingSessionSecretB64u: 'plaintext-k-must-not-persist',
             emailOtpSecretS: 'plaintext-s-must-not-persist',
             enrollmentEscrowB64u: 'enrollment-escrow-must-not-persist',
-            keyVersion: 'signing-session-seal-kek-2026-02-r1',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 7,
@@ -329,11 +330,12 @@ test.describe('signing session sealed store', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.record?.alg).toBe('shamir3pass-v1');
+    expect(result.record?.alg).toBe('shamir3pass-v2');
+    expect(result.record?.groupId).toBe('rfc2409-group2');
     expect(result.record?.storageScope).toBe('iframe_origin_indexeddb');
     expect(result.record?.secretKind).toBe('signing_session_secret32');
     expect(result.record?.sealedSecretB64u).toBe('sealed-secret-b64u');
-    expect(result.record?.keyVersion).toBe('signing-session-seal-kek-2026-02-r1');
+    expect(result.record?.keyVersion).toBe('signing-session-seal-test-r2');
     expect(result.record?.thresholdSessionIds.ecdsa).toBe('sess-sealed-1');
     expect(result.recordHasTopLevelSigningRoot).toBe(false);
     expect(result.rawHasTopLevelSigningRoot).toBe(false);
@@ -384,8 +386,9 @@ test.describe('signing session sealed store', () => {
           },
           walletId,
           relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
           sealedSecretB64u: 'sealed-secret-b64u',
-          keyVersion: 'signing-session-seal-kek-2026-02-r1',
           issuedAtMs: Date.now(),
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -550,8 +553,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
-            keyVersion: 'signing-session-seal-kek-test-r1',
-            shamirPrimeB64u: 'prime-b64u',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-email-otp-k',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -583,8 +586,8 @@ test.describe('signing session sealed store', () => {
         const tx = db.transaction('signing_session_seals', 'readwrite');
         tx.objectStore('signing_session_seals').put({
           store_key: 'bad-email-otp-wallet-session:email_otp:ecdsa',
-          v: 1,
-          alg: 'shamir3pass-v1',
+          v: 2,
+          alg: 'shamir3pass-v2',
           storageScope: 'iframe_origin_indexeddb',
           runtimeSessionId: sessionStorage.getItem(
             'seams:signing-session-sealed:runtime-session-id:v1',
@@ -596,6 +599,8 @@ test.describe('signing session sealed store', () => {
           thresholdSessionIds: { ecdsa: 'bad-email-otp-ecdsa-session' },
           curve: 'ecdsa',
           ecdsaRestore: ECDSA_RESTORE,
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
           sealedSecretB64u: 'must-not-read',
           issuedAtMs: Date.now(),
           expiresAtMs: Date.now() + 60_000,
@@ -651,6 +656,8 @@ test.describe('signing session sealed store', () => {
             walletId: 'alice.testnet',
             ed25519Restore: PASSKEY_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-passkey-session',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -668,7 +675,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
-            shamirPrimeB64u: 'prime-b64u',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-email-otp-session',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -763,6 +771,8 @@ test.describe('signing session sealed store', () => {
             walletId: 'passkey-ed25519-prf-only.testnet',
             ed25519Restore: PASSKEY_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-passkey-prf-first',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -794,8 +804,8 @@ test.describe('signing session sealed store', () => {
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
         const rawRecord = {
-          v: 1,
-          alg: 'shamir3pass-v1',
+          v: 2,
+          alg: 'shamir3pass-v2',
           storageScope: 'iframe_origin_indexeddb',
           authMethod: 'passkey',
           secretKind: 'signing_session_secret32',
@@ -807,6 +817,8 @@ test.describe('signing session sealed store', () => {
           walletId: 'passkey-ed25519-subject.testnet',
           ed25519Restore: PASSKEY_ED25519_RESTORE,
           relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
           sealedSecretB64u: 'sealed-passkey-subject',
           issuedAtMs: Date.now(),
           expiresAtMs: Date.now() + 60_000,
@@ -834,8 +846,8 @@ test.describe('signing session sealed store', () => {
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
         const rawRecord = {
-          v: 1,
-          alg: 'shamir3pass-v1',
+          v: 2,
+          alg: 'shamir3pass-v2',
           storageScope: 'iframe_origin_indexeddb',
           authMethod: 'passkey',
           secretKind: 'signing_session_secret32',
@@ -847,6 +859,8 @@ test.describe('signing session sealed store', () => {
           userId: 'legacy-user-id',
           ecdsaRestore: ECDSA_RESTORE,
           relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
           sealedSecretB64u: 'sealed-passkey-user',
           issuedAtMs: Date.now(),
           expiresAtMs: Date.now() + 60_000,
@@ -876,8 +890,8 @@ test.describe('signing session sealed store', () => {
         const { walletSessionJwt: _walletSessionJwt, ...restoreWithoutJwt } = (globalThis as any)
           .EMAIL_OTP_ECDSA_RESTORE;
         const rawRecord = {
-          v: 1,
-          alg: 'shamir3pass-v1',
+          v: 2,
+          alg: 'shamir3pass-v2',
           storageScope: 'iframe_origin_indexeddb',
           authMethod: 'email_otp',
           secretKind: 'signing_session_secret32',
@@ -891,6 +905,8 @@ test.describe('signing session sealed store', () => {
             sessionKind: 'jwt',
           },
           relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
           sealedSecretB64u: 'sealed-email-otp-ecdsa-missing-jwt',
           issuedAtMs: Date.now(),
           expiresAtMs: Date.now() + 60_000,
@@ -920,8 +936,8 @@ test.describe('signing session sealed store', () => {
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
         const rawRecord = {
-          v: 1,
-          alg: 'shamir3pass-v1',
+          v: 2,
+          alg: 'shamir3pass-v2',
           storageScope: 'iframe_origin_indexeddb',
           authMethod: 'passkey',
           secretKind: 'signing_session_secret32',
@@ -935,6 +951,8 @@ test.describe('signing session sealed store', () => {
             walletSessionJwt: 'wallet-session-jwt',
           },
           relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
           sealedSecretB64u: 'sealed-passkey-ed25519-cookie-jwt',
           signingRootId: 'sr-test:dev',
           signingRootVersion: 'default',
@@ -966,8 +984,8 @@ test.describe('signing session sealed store', () => {
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
         const rawRecord = {
-          v: 1,
-          alg: 'shamir3pass-v1',
+          v: 2,
+          alg: 'shamir3pass-v2',
           storageScope: 'iframe_origin_indexeddb',
           authMethod: 'passkey',
           secretKind: 'signing_session_secret32',
@@ -980,6 +998,8 @@ test.describe('signing session sealed store', () => {
           signingRootVersion: 'legacy-version',
           ecdsaRestore: ECDSA_RESTORE,
           relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
           sealedSecretB64u: 'sealed-passkey-signing-root',
           issuedAtMs: Date.now(),
           expiresAtMs: Date.now() + 60_000,
@@ -1018,7 +1038,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
-            shamirPrimeB64u: 'prime-b64u',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-email-otp-ecdsa',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -1036,6 +1057,8 @@ test.describe('signing session sealed store', () => {
             walletId: 'alice.testnet',
             ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-email-otp-ed25519',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -1053,6 +1076,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: ECDSA_RESTORE,
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-passkey-ecdsa',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -1070,7 +1095,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: bobEmailOtpEcdsaRestore,
             walletId: 'bob.testnet',
             relayerUrl: 'https://relay.example',
-            shamirPrimeB64u: 'prime-b64u',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-bob-email-otp-ecdsa',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -1131,6 +1157,8 @@ test.describe('signing session sealed store', () => {
           walletId: 'alice.testnet',
           ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
           relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
           sealedSecretB64u: 'old-ed25519',
           issuedAtMs: oldPersistedAtMs,
           expiresAtMs: oldPersistedAtMs + 60_000,
@@ -1146,6 +1174,8 @@ test.describe('signing session sealed store', () => {
           walletId: 'alice.testnet',
           ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
           relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
           sealedSecretB64u: 'new-ed25519',
           issuedAtMs: newPersistedAtMs,
           expiresAtMs: newPersistedAtMs + 60_000,
@@ -1168,6 +1198,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'old-ecdsa',
             issuedAtMs: oldPersistedAtMs,
             expiresAtMs: oldPersistedAtMs + 60_000,
@@ -1185,6 +1217,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'new-ecdsa',
             issuedAtMs: newPersistedAtMs,
             expiresAtMs: newPersistedAtMs + 60_000,
@@ -1239,6 +1273,8 @@ test.describe('signing session sealed store', () => {
             walletId: 'alice.testnet',
             ed25519Restore: PASSKEY_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-passkey-ed25519',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -1259,6 +1295,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-email-otp-ecdsa',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -1311,6 +1349,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: ECDSA_RESTORE,
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'a',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -1328,6 +1368,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: ECDSA_RESTORE,
             walletId: 'bob.testnet',
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'b',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -1397,6 +1439,8 @@ test.describe('signing session sealed store', () => {
               ecdsaRestore: ECDSA_RESTORE,
               walletId: 'alice.testnet',
               relayerUrl: 'https://relay.example',
+              groupId: 'rfc2409-group2',
+              keyVersion: 'signing-session-seal-test-r2',
               sealedSecretB64u: 'sealed-host',
               issuedAtMs: Date.now(),
               expiresAtMs: Date.now() + 60_000,
@@ -1460,6 +1504,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: ECDSA_RESTORE,
             walletId: 'disabled.testnet',
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-disabled',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -1506,6 +1552,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: ECDSA_RESTORE,
             walletId: 'restart.testnet',
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-restart',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -1563,6 +1611,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: ECDSA_RESTORE,
             walletId: 'lease.testnet',
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-lease',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -1663,6 +1713,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
             walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-transaction-k',
             issuedAtMs: Date.now(),
             expiresAtMs: Date.now() + 60_000,
@@ -1758,6 +1810,8 @@ test.describe('signing session sealed store', () => {
             ecdsaRestore: identityEmailOtpEcdsaRestore,
             walletId: 'identity.testnet',
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-identity-k',
             issuedAtMs: 12_345,
             expiresAtMs: 72_345,
@@ -1860,6 +1914,8 @@ test.describe('signing session sealed store', () => {
               nearEd25519SigningKeyId,
             },
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-split-ed25519',
             issuedAtMs: 33_333,
             expiresAtMs: 93_333,
@@ -1907,6 +1963,8 @@ test.describe('signing session sealed store', () => {
             signingRootId: 'preserve-identity-root',
             ed25519Restore: PASSKEY_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-preserve-identity-k',
             issuedAtMs: 44_444,
             expiresAtMs: 104_444,
@@ -1947,6 +2005,8 @@ test.describe('signing session sealed store', () => {
             signingRootId: 'preserve-identity-root',
             ed25519Restore: PASSKEY_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
+            groupId: 'rfc2409-group2',
+            keyVersion: 'signing-session-seal-test-r2',
             sealedSecretB64u: 'sealed-preserve-identity-k-2',
             issuedAtMs: 55_555,
             expiresAtMs: 115_555,

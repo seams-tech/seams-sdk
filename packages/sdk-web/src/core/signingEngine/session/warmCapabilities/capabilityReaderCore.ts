@@ -57,14 +57,12 @@ import type { AccountId } from '@/core/types/accountIds';
 
 export type WarmSessionCapabilityReaderSealConfigured = {
   seal: 'configured';
-  signingSessionSealKeyVersion: SigningSessionSealKeyVersion;
-  shamirPrimeB64u: string;
+  groupId: string;
 };
 
 export type WarmSessionCapabilityReaderSealUnavailable = {
   seal: 'unconfigured';
-  signingSessionSealKeyVersion?: never;
-  shamirPrimeB64u?: never;
+  groupId?: never;
 };
 
 export type WarmSessionCapabilityReaderSeal =
@@ -547,21 +545,15 @@ export function createWarmSessionCapabilityReaderCore(
     const record = exactRecord.record;
     if (!record) return null;
     const auth = resolveEcdsaAuthMaterial(record);
-    const fallbackSigningSessionSealKeyVersion =
-      deps.signingSessionSeal.seal === 'configured'
-        ? deps.signingSessionSeal.signingSessionSealKeyVersion
-        : undefined;
-    const fallbackShamirPrimeB64u =
-      deps.signingSessionSeal.seal === 'configured' ? deps.signingSessionSeal.shamirPrimeB64u : '';
+    const fallbackGroupId =
+      deps.signingSessionSeal.seal === 'configured' ? deps.signingSessionSeal.groupId : '';
     return resolveEcdsaSealTransport({
       record,
       auth,
       signingSessionSealKeyVersion: record.signingSessionSealKeyVersion
         ? parseSigningSessionSealKeyVersion(record.signingSessionSealKeyVersion)
-        : fallbackSigningSessionSealKeyVersion,
-      shamirPrimeB64u: String(
-        record.signingSessionSealShamirPrimeB64u || fallbackShamirPrimeB64u,
-      ).trim(),
+        : undefined,
+      groupId: String(record.signingSessionSealGroupId || fallbackGroupId).trim(),
     });
   }
 

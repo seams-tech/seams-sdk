@@ -138,7 +138,7 @@ cross-run artifact inputs.
 | `ROUTER_AB_JWT_ISSUER`                                   | Router A/B deploy | JWT issuer accepted by the Router admission boundary.                          |
 | `ROUTER_AB_JWT_AUDIENCE`                                 | Router A/B deploy | JWT audience accepted by the Router; defaults operationally to `router-ab`.    |
 | `ROUTER_AB_JWT_JWKS_JSON`                                | Router A/B deploy | Public JWKS injected into Router JWT verification.                             |
-| `SPONSORED_EXECUTION_REAL_PRICING_JSON`                  | Gateway deploy    | CoinGecko-backed pricing rules for sponsored NEAR execution.                   |
+| `SPONSORED_EXECUTION_REAL_PRICING_JSON`                  | Gateway deploy    | On-chain Ref Finance NEAR/USDC pricing rules for sponsored execution.          |
 | `CONSOLE_BASE_URL`                                       | Console, Gateway  | Public console URL used in transactional email links.                          |
 | `CONSOLE_EMAIL_FROM`                                     | Gateway deploy    | Resend sender using a verified domain.                                         |
 | `ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY`           | Router A/B deploy | Public key matching `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY`.                     |
@@ -165,8 +165,6 @@ cross-run artifact inputs.
 | `VITE_ARC_RPC_URL`                                       | Pages build       | Optional Arc RPC URL.                                                          |
 | `VITE_ARC_EXPLORER`                                      | Pages build       | Optional Arc explorer URL.                                                     |
 | `VITE_SIGNING_SESSION_PERSISTENCE_MODE`                  | Pages build       | Set when enabling sealed-refresh client flows.                                 |
-| `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`                  | Pages build       | Must match the active Gateway seal key version when sealed-refresh is enabled. |
-| `VITE_SIGNING_SESSION_SHAMIR_P_B64U`                     | Pages build       | Public Shamir prime value for sealed-refresh clients.                          |
 | `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`                | Pages build       | Exact SigningWorker id bound into Router A/B warm signing sessions.            |
 | `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED`                  | Pages build       | Optional dashboard route gate.                                                 |
 
@@ -176,6 +174,10 @@ identity, session settings, and optional integration configuration. The
 deployment target parser validates this document once and the renderer emits
 the individual Worker bindings expected by the runtime. Tenant identifiers are
 configuration only; deployment creates no tenant rows.
+
+The browser discovers the public signing-session seal protocol from the
+Gateway capability response. Shamir key rotation does not require Pages build
+variables or a frontend rebuild.
 
 Refactor 93 uses partitioned D1 and the MPC Router immediately. Gateway
 configuration has no Yao family cutoff or drain variables. Remove any retired

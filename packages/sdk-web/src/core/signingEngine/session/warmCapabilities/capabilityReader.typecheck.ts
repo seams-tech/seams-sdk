@@ -6,15 +6,11 @@ import type {
 } from './capabilityReader';
 import type { WarmSessionCapabilityReaderSeal } from './capabilityReaderCore';
 import type { WarmSessionReadPorts } from './readModel';
-import { parseSigningSessionSealKeyVersion } from '../keyMaterialBrands';
 
 declare const touchConfirm: WarmSessionReadPorts;
 declare const getEmailOtpWarmSessionStatus: (
   sessionId: string,
 ) => Promise<WarmSessionStatusResult>;
-const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(
-  'signing-session-seal-kek-test-r1',
-);
 
 const configuredPorts: WarmCapabilityReaderPortsConfigured = {
   runtimeStatus: 'configured',
@@ -48,8 +44,7 @@ void noRuntimeStatusPortsWithTouchConfirm;
 const factoryDeps: WarmSessionCapabilityReaderFactoryDeps = {
   touchConfirm,
   signingSessionSeal: {
-    signingSessionSealKeyVersion,
-    shamirPrimeB64u: 'prime-b64u',
+    groupId: 'rfc2409-group2',
   },
   getEmailOtpWarmSessionStatus,
 };
@@ -78,31 +73,21 @@ void factoryDepsWithNullPorts;
 
 const configuredSeal: WarmSessionCapabilityReaderSeal = {
   seal: 'configured',
-  signingSessionSealKeyVersion,
-  shamirPrimeB64u: 'prime-b64u',
+  groupId: 'rfc2409-group2',
 };
 void configuredSeal;
 
-const configuredSealWithRawKeyVersion: WarmSessionCapabilityReaderSeal = {
+// @ts-expect-error configured seal fallback requires the public group ID.
+const configuredSealWithoutGroup: WarmSessionCapabilityReaderSeal = {
   seal: 'configured',
-  // @ts-expect-error configured seal fallback requires a branded seal key version.
-  signingSessionSealKeyVersion: 'signing-session-seal-kek-test-r1',
-  shamirPrimeB64u: 'prime-b64u',
 };
-void configuredSealWithRawKeyVersion;
+void configuredSealWithoutGroup;
 
-// @ts-expect-error configured seal fallback requires the Shamir prime.
-const configuredSealWithoutPrime: WarmSessionCapabilityReaderSeal = {
-  seal: 'configured',
-  signingSessionSealKeyVersion,
-};
-void configuredSealWithoutPrime;
-
-// @ts-expect-error unconfigured seal fallback rejects partial key material.
-const unconfiguredSealWithKey: WarmSessionCapabilityReaderSeal = {
+// @ts-expect-error unconfigured seal fallback rejects partial protocol state.
+const unconfiguredSealWithGroup: WarmSessionCapabilityReaderSeal = {
   seal: 'unconfigured',
-  signingSessionSealKeyVersion,
+  groupId: 'rfc2409-group2',
 };
-void unconfiguredSealWithKey;
+void unconfiguredSealWithGroup;
 
 export {};

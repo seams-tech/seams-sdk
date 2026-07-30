@@ -1,6 +1,7 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
+import { requireTrimmedString } from '@shared/utils/validation';
+import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import type { ThresholdEd25519SessionRecord } from '../persistence/records';
 import {
   emailOtpAuthContextEmailHashHex,
@@ -12,10 +13,6 @@ import {
   readExactSealedSession,
   type BuildCurrentSealedSessionRecordInput,
 } from '../persistence/sealedSessionStore';
-import {
-  formatSigningSessionSealKeyVersionForWire,
-  type SigningSessionSealKeyVersion,
-} from '../keyMaterialBrands';
 import {
   requestSealEmailOtpWarmSessionMaterial,
   type EmailOtpWarmSessionTransport,
@@ -41,34 +38,13 @@ function requirePositiveInteger(value: unknown, label: string): number {
 function buildEd25519YaoSealTransport(args: {
   relayerUrl: string;
   walletSessionJwt: string;
-  shamirPrimeB64u: string;
-  signingSessionSealKeyVersion: SigningSessionSealKeyVersion | undefined;
+  groupId: string;
 }): EmailOtpWarmSessionTransport {
-  if (args.signingSessionSealKeyVersion) {
-    return {
-      relayerUrl: args.relayerUrl,
-      walletSessionJwt: args.walletSessionJwt,
-      signingSessionSealKeyVersion: args.signingSessionSealKeyVersion,
-      shamirPrimeB64u: args.shamirPrimeB64u,
-    };
-  }
   return {
     relayerUrl: args.relayerUrl,
     walletSessionJwt: args.walletSessionJwt,
-    shamirPrimeB64u: args.shamirPrimeB64u,
+    groupId: args.groupId,
   };
-}
-
-function resolveSigningSessionSealKeyVersion(args: {
-  sealedKeyVersion: unknown;
-  configuredKeyVersion: SigningSessionSealKeyVersion | undefined;
-}): string {
-  const sealedKeyVersion = toOptionalTrimmedNonEmptyString(args.sealedKeyVersion);
-  if (sealedKeyVersion) return sealedKeyVersion;
-  if (!args.configuredKeyVersion) {
-    throw new Error('keyVersion is required for Email OTP Ed25519 sealed refresh');
-  }
-  return formatSigningSessionSealKeyVersionForWire(args.configuredKeyVersion);
 }
 
 export async function persistEmailOtpEd25519YaoSessionForRefresh(
@@ -94,21 +70,15 @@ export async function persistEmailOtpEd25519YaoSessionForRefresh(
   const signingGrantId = requireTrimmedString(record.signingGrantId, 'signingGrantId');
   const walletSessionJwt = requireTrimmedString(record.walletSessionJwt, 'walletSessionJwt');
   const relayerUrl = requireTrimmedString(record.relayerUrl, 'relayerUrl');
-  const shamirPrimeB64u = requireTrimmedString(
-    ports.configs.signing.sessionSeal?.shamirPrimeB64u,
-    'shamirPrimeB64u',
-  );
+  const groupId = SIGNING_SESSION_SEAL_GROUP_ID;
   const runtimePolicyScope = record.runtimePolicyScope;
   if (!runtimePolicyScope) {
     throw new Error('runtimePolicyScope is required for Email OTP Ed25519 sealed refresh');
   }
-  const signingSessionSealKeyVersion =
-    ports.configs.signing.sessionSeal?.signingSessionSealKeyVersion;
   const transport = buildEd25519YaoSealTransport({
     relayerUrl,
     walletSessionJwt,
-    signingSessionSealKeyVersion,
-    shamirPrimeB64u,
+    groupId,
   });
   const sealed = await requestSealEmailOtpWarmSessionMaterial({
     workerCtx: workerContext,
@@ -121,10 +91,7 @@ export async function persistEmailOtpEd25519YaoSessionForRefresh(
   const nowMs = Date.now();
   const expiresAtMs = requirePositiveInteger(sealed.expiresAtMs, 'expiresAtMs');
   const remainingUses = requirePositiveInteger(sealed.remainingUses, 'remainingUses');
-  const keyVersion = resolveSigningSessionSealKeyVersion({
-    sealedKeyVersion: sealed.keyVersion,
-    configuredKeyVersion: signingSessionSealKeyVersion,
-  });
+  const keyVersion = requireTrimmedString(sealed.keyVersion, 'keyVersion');
   const providerSubjectId = requireTrimmedString(
     emailOtpAuthContextProviderUserId(authContext),
     'providerSubjectId',
@@ -135,7 +102,7 @@ export async function persistEmailOtpEd25519YaoSessionForRefresh(
     authMethod: 'email_otp',
     signingGrantId,
     keyVersion,
-    shamirPrimeB64u,
+    groupId,
     issuedAtMs: nowMs,
     expiresAtMs,
     remainingUses,

@@ -56,7 +56,11 @@ const removeEmailOtpServerSealOperation: EmailOtpServerSealOperation = {
 };
 
 export class CloudflareD1EmailOtpServerSealRuntime {
-  constructor(private readonly config: EmailOtpServerSealRuntimeConfig) {}
+  private readonly cipherResult: EmailOtpServerSealCipherResult;
+
+  constructor(private readonly config: EmailOtpServerSealRuntimeConfig) {
+    this.cipherResult = this.createCipher();
+  }
 
   async removeEmailOtpServerSeal(
     input: EmailOtpServerSealInput,
@@ -81,7 +85,7 @@ export class CloudflareD1EmailOtpServerSealRuntime {
           message: 'Missing wrappedCiphertext',
         };
       }
-      const shamir = this.createCipher();
+      const shamir = this.cipherResult;
       if (!shamir.ok) return shamir;
       const result = await shamir.cipher.run({
         operation: operation.cipherOperation,
@@ -114,19 +118,12 @@ export class CloudflareD1EmailOtpServerSealRuntime {
       };
     }
     try {
+      const keyVersion = this.config.rootConfig.currentKeyVersion;
       return {
         ok: true,
-        keyVersion: this.config.keyVersion,
+        keyVersion,
         cipher: createSigningSessionSealShamir3PassCipherAdapter({
-          currentKeyVersion: this.config.keyVersion,
-          keys: [
-            {
-              keyVersion: this.config.keyVersion,
-              shamirPrimeB64u: this.config.shamirPrimeB64u,
-              serverEncryptExponentB64u: this.config.serverEncryptExponentB64u,
-              serverDecryptExponentB64u: this.config.serverDecryptExponentB64u,
-            },
-          ],
+          config: this.config.rootConfig,
         }),
       };
     } catch (error: unknown) {

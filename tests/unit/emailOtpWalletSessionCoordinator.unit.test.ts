@@ -657,7 +657,7 @@ type EcdsaSealedRecordFixtureArgs = {
   signingRootVersion?: string;
   relayerUrl?: string;
   keyVersion?: string;
-  shamirPrimeB64u?: string;
+  groupId?: BuildCurrentEcdsaSealedSessionRecordInput['groupId'];
   sealedSecretB64u?: string;
   chainTarget?: BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore']['chainTarget'];
   ecdsaRestore?: Partial<EmailOtpJwtEcdsaSealedRestore>;
@@ -749,7 +749,7 @@ function buildEcdsaSealedRecordFixture(
     walletId,
     relayerUrl: args.relayerUrl || 'https://relay.example',
     keyVersion: args.keyVersion || 'signing-session-seal-kek-test-r1',
-    shamirPrimeB64u: args.shamirPrimeB64u || 'prime-b64u',
+    groupId: args.groupId || 'rfc2409-group2',
     signingGrantId,
     thresholdSessionId,
     thresholdSessionIds: args.thresholdSessionIds || { ecdsa: thresholdSessionId },
@@ -957,7 +957,10 @@ function createCoordinator(overrides?: {
         },
       },
       sessionPersistenceMode: 'none',
-      sessionSeal: { shamirPrimeB64u: 'prime-b64u' },
+      sessionSeal: {
+        mode: 'sealed_refresh_v1',
+        protocol: { algorithm: 'shamir3pass-v2', groupId: 'rfc2409-group2' },
+      },
     },
   };
   const defaultEcdsaRecord = {
@@ -1636,8 +1639,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
           sessionSeal: {
-            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
+            mode: 'sealed_refresh_v1',
+            protocol: { algorithm: 'shamir3pass-v2', groupId: 'rfc2409-group2' },
           },
         },
       },
@@ -1723,7 +1726,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
             relayerUrl: 'https://relay.example',
             walletSessionJwt: expect.any(String),
             signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
+            groupId: 'rfc2409-group2',
           },
         },
       },
@@ -1741,7 +1744,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         walletId: 'alice.testnet',
         relayerUrl: 'https://relay.example',
         keyVersion: 'signing-session-seal-kek-test-r1',
-        shamirPrimeB64u: 'prime-b64u',
+        groupId: 'rfc2409-group2',
         remainingUses: 9,
       });
     }
@@ -1754,8 +1757,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
           sessionSeal: {
-            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
+            mode: 'sealed_refresh_v1',
+            protocol: { algorithm: 'shamir3pass-v2', groupId: 'rfc2409-group2' },
           },
         },
       },
@@ -1801,8 +1804,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           emailOtp: { authPolicy: 'per_operation' },
           sessionPersistenceMode: 'sealed_refresh_v1',
           sessionSeal: {
-            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
+            mode: 'sealed_refresh_v1',
+            protocol: { algorithm: 'shamir3pass-v2', groupId: 'rfc2409-group2' },
           },
         },
       },
@@ -1908,8 +1911,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           emailOtp: { authPolicy: 'per_operation' },
           sessionPersistenceMode: 'sealed_refresh_v1',
           sessionSeal: {
-            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
+            mode: 'sealed_refresh_v1',
+            protocol: { algorithm: 'shamir3pass-v2', groupId: 'rfc2409-group2' },
           },
         },
       },
@@ -2009,8 +2012,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
           sessionSeal: {
-            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
+            mode: 'sealed_refresh_v1',
+            protocol: { algorithm: 'shamir3pass-v2', groupId: 'rfc2409-group2' },
           },
         },
       },
@@ -2088,8 +2091,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
           sessionSeal: {
-            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
+            mode: 'sealed_refresh_v1',
+            protocol: { algorithm: 'shamir3pass-v2', groupId: 'rfc2409-group2' },
           },
         },
       },
@@ -2186,7 +2189,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
             relayerUrl: 'https://relay.example',
             walletSessionJwt: expect.any(String),
             signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
+            groupId: 'rfc2409-group2',
           },
           restore: {
             sessionId: 'ecdsa-session',
@@ -2230,8 +2233,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
           sessionSeal: {
-            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
+            mode: 'sealed_refresh_v1',
+            protocol: { algorithm: 'shamir3pass-v2', groupId: 'rfc2409-group2' },
           },
         },
       },
@@ -2289,8 +2292,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
           sessionSeal: {
-            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
+            mode: 'sealed_refresh_v1',
+            protocol: { algorithm: 'shamir3pass-v2', groupId: 'rfc2409-group2' },
           },
         },
       },
@@ -2413,8 +2416,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
           sessionSeal: {
-            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
+            mode: 'sealed_refresh_v1',
+            protocol: { algorithm: 'shamir3pass-v2', groupId: 'rfc2409-group2' },
           },
         },
       },
@@ -2484,8 +2487,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
           sessionSeal: {
-            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
+            mode: 'sealed_refresh_v1',
+            protocol: { algorithm: 'shamir3pass-v2', groupId: 'rfc2409-group2' },
           },
         },
       },
@@ -2588,7 +2591,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       signingGrantId: 'wallet-session-1',
       walletSessionJwt: 'threshold-session-jwt',
       signingSessionSealKeyVersion: 'signing-session-seal-kek-test-r1',
-      signingSessionSealShamirPrimeB64u: 'prime-b64u',
+      signingSessionSealGroupId: 'rfc2409-group2',
       expiresAtMs,
       remainingUses: 2,
       emailOtpAuthContext: emailOtpAuthContextFixture(),
@@ -2601,8 +2604,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
           sessionSeal: {
-            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
-            shamirPrimeB64u: 'prime-b64u',
+            mode: 'sealed_refresh_v1',
+            protocol: { algorithm: 'shamir3pass-v2', groupId: 'rfc2409-group2' },
           },
         },
       },

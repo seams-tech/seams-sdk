@@ -1,4 +1,5 @@
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
+import type { SigningSessionSealGroupId } from '@shared/utils/signingSessionSeal';
 import { requireTrimmedString } from '@shared/utils/validation';
 
 export type Shamir3PassClientKeyHandle = {
@@ -6,7 +7,7 @@ export type Shamir3PassClientKeyHandle = {
 };
 
 export interface Shamir3PassRuntime {
-  createClientKeyHandle(args: { shamirPrimeB64u: string }): Promise<Shamir3PassClientKeyHandle>;
+  createClientKeyHandle(args: { groupId: SigningSessionSealGroupId }): Promise<Shamir3PassClientKeyHandle>;
   destroyClientKeyHandle(args: { keyHandle: string }): Promise<void>;
   addClientSealWithKeyHandle(input: {
     ciphertextB64u: string;
@@ -216,10 +217,10 @@ function sendWorkerRequest(
 
 function createShamir3PassRuntime(): Shamir3PassRuntime {
   return {
-    createClientKeyHandle: async ({ shamirPrimeB64u }) =>
+    createClientKeyHandle: async ({ groupId }) =>
       normalizeClientKeyHandle(
         await sendWorkerRequest('createClientKeyHandle', {
-          shamirPrimeB64u,
+          groupId,
         }),
       ),
     destroyClientKeyHandle: async ({ keyHandle }) => {

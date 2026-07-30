@@ -1,4 +1,5 @@
 import React from 'react';
+import type { NearProvisioningState, NearProvisioningStateChangedEvent } from '@seams/sdk';
 import {
   ActionType,
   useSeams,
@@ -350,11 +351,7 @@ type IntendedEmailOtpCodeRequest =
       challengeId?: never;
     };
 
-type IntendedNearProvisioningState = NonNullable<
-  Awaited<
-    ReturnType<ReturnType<typeof useSeams>['seams']['registration']['getNearProvisioningState']>
-  >
->;
+type IntendedNearProvisioningState = NearProvisioningState;
 
 type IntendedNearProvisioningReadyState = Extract<
   IntendedNearProvisioningState,
@@ -2019,9 +2016,11 @@ async function awaitWalletNearReady(args: {
         reject(error);
       }
     };
-    unsubscribe = args.registration.onNearProvisioningStateChanged((event) => {
-      if (String(event.walletId) === args.walletId) settle(event.state);
-    });
+    unsubscribe = args.registration.onNearProvisioningStateChanged(
+      (event: NearProvisioningStateChangedEvent) => {
+        if (String(event.walletId) === args.walletId) settle(event.state);
+      },
+    );
     void args.registration
       .getNearProvisioningState({ walletId: args.walletId })
       .then(settle)

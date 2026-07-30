@@ -1,3 +1,4 @@
+import type { SigningSessionSealProtocol } from '@shared/utils/signingSessionSeal';
 import type { NormalizedLogger } from '../../../core/logger';
 import type { ThresholdEd25519AuthorityScope } from '../../../core/types';
 import type { SessionParseResult } from '../../../core/sessionValidation';
@@ -99,8 +100,8 @@ export interface SigningSessionSealRoutesOptions {
 
 export interface SigningSessionSealStartupCapabilities {
   mode: 'sealed_refresh_v1';
-  keyVersion?: string;
-  shamirPrimeB64u: string;
+  protocol: SigningSessionSealProtocol;
+  currentKeyVersion: string;
 }
 
 export type SigningSessionSealOperation = 'apply-server-seal' | 'remove-server-seal';

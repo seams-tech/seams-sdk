@@ -318,8 +318,6 @@ function siteEnv() {
     VITE_SEAMS_PROJECT_ENVIRONMENT_ID: projectEnvironmentId,
     VITE_SEAMS_PUBLISHABLE_KEY: publishableKey,
     VITE_SIGNING_SESSION_PERSISTENCE_MODE: runtime.signingSessionPersistenceMode,
-    VITE_SIGNING_SESSION_SEAL_KEY_VERSION: runtime.signingSessionSealKeyVersion,
-    VITE_SIGNING_SESSION_SHAMIR_P_B64U: runtime.signingSessionShamirPrimeB64u,
     VITE_ENABLE_INTENDED_E2E: '1',
   };
 }

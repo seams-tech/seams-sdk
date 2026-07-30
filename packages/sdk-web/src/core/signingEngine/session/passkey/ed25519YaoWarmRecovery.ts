@@ -251,7 +251,7 @@ async function restoreAndClaimWarmRecoveryPrf(args: {
 }): Promise<WarmRecoveryPrfResult> {
   const record = args.record;
   const thresholdSessionId = record.thresholdSessionIds.ed25519;
-  const shamirPrimeB64u = requireString(record.shamirPrimeB64u, 'shamirPrimeB64u');
+  const groupId = requireString(record.groupId, 'groupId');
   const rehydrated = await args.ports.rehydrateWarmSessionMaterial({
     sessionId: thresholdSessionId,
     sealedSecretB64u: record.sealedSecretB64u,
@@ -266,7 +266,7 @@ async function restoreAndClaimWarmRecoveryPrf(args: {
       signingGrantId: record.signingGrantId,
       walletSessionJwt: passkeyWalletSessionJwt(record.ed25519Restore),
       signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(record.keyVersion),
-      shamirPrimeB64u,
+      groupId,
     },
   });
   if (!rehydrated.ok) {

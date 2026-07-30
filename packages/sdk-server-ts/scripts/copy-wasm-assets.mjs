@@ -23,6 +23,10 @@ const assets = [
     target:
       'dist/esm/wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker_bg.wasm',
   },
+  {
+    source: 'wasm/shamir3pass_runtime/pkg/shamir3pass_runtime_bg.wasm',
+    target: 'dist/esm/wasm/shamir3pass_runtime/pkg/shamir3pass_runtime_bg.wasm',
+  },
 ];
 
 function copyAsset(asset) {

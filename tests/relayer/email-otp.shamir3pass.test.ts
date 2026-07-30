@@ -1,15 +1,17 @@
 import { expect, test } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
-import { createSigningSessionSealShamir3PassBigIntRuntime } from '@server/threshold/session/signingSessionSeal';
+import { ensureSigningSessionSealShamir3PassWasm } from '@server/threshold/session/signingSessionSeal/crypto/shamir3PassWasm';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import {
+  shamir3pass_add_lock,
+  shamir3pass_destroy_lock_key_handle,
+  shamir3pass_generate_lock_key_handle,
+  shamir3pass_remove_lock,
+} from '../../wasm/shamir3pass_runtime/pkg/shamir3pass_runtime.js';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 const EMAIL_OTP_KEY_VERSION = 'kek-s-email-otp-test';
-const SHAMIR_PRIME_B64U = encodePositiveBigIntB64u(257n);
-const SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(3n);
-const SHAMIR_SERVER_DECRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(171n);
-const CLIENT_ENCRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(5n);
-const CLIENT_DECRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(205n);
+const EMAIL_OTP_ROOT_SECRET_B64U = Buffer.alloc(32, 0x42).toString('base64url');
 
 function encodePositiveBigIntB64u(value: bigint): string {
   if (value <= 0n) throw new Error('value must be > 0');
@@ -33,52 +35,40 @@ function makeService(): AuthService {
     createAccountAndRegisterGas: '1',
     logger: null,
     thresholdStore: {
-      SIGNING_SESSION_SEAL_KEY_VERSION: EMAIL_OTP_KEY_VERSION,
-      SIGNING_SESSION_SHAMIR_P_B64U: SHAMIR_PRIME_B64U,
-      SIGNING_SESSION_SEAL_E_S_B64U: SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,
-      SIGNING_SESSION_SEAL_D_S_B64U: SHAMIR_SERVER_DECRYPT_EXPONENT_B64U,
+      SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: EMAIL_OTP_ROOT_SECRET_B64U,
+      SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION: EMAIL_OTP_KEY_VERSION,
+      SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS: EMAIL_OTP_KEY_VERSION,
     },
   });
 }
 
-function addClientSeal(ciphertextB64u: string): string {
-  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
-  return String(
-    runtime.addServerSeal({
-      ciphertextB64u,
-      exponentB64u: CLIENT_ENCRYPT_EXPONENT_B64U,
-      shamirPrimeB64u: SHAMIR_PRIME_B64U,
-    }),
-  );
+class ClientLockFixture {
+  constructor(private readonly handle: number) {}
+
+  add(ciphertextB64u: string): string {
+    return shamir3pass_add_lock(this.handle, ciphertextB64u);
+  }
+
+  remove(ciphertextB64u: string): string {
+    return shamir3pass_remove_lock(this.handle, ciphertextB64u);
+  }
+
+  destroy(): void {
+    shamir3pass_destroy_lock_key_handle(this.handle);
+  }
 }
 
-function removeClientSeal(ciphertextB64u: string): string {
-  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
-  return String(
-    runtime.removeServerSeal({
-      ciphertextB64u,
-      exponentB64u: CLIENT_DECRYPT_EXPONENT_B64U,
-      shamirPrimeB64u: SHAMIR_PRIME_B64U,
-    }),
-  );
-}
-
-function addServerSeal(ciphertextB64u: string): string {
-  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
-  return String(
-    runtime.addServerSeal({
-      ciphertextB64u,
-      exponentB64u: SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,
-      shamirPrimeB64u: SHAMIR_PRIME_B64U,
-    }),
-  );
+async function createClientLock(): Promise<ClientLockFixture> {
+  await ensureSigningSessionSealShamir3PassWasm();
+  return new ClientLockFixture(shamir3pass_generate_lock_key_handle('rfc2409-group2'));
 }
 
 test.describe('Email OTP shamir3pass semantics', () => {
   test('enroll seal path transforms E_kc(S) into E_kc(E_ks(S)) and client unseal yields E_ks(S)', async () => {
     const service = makeService();
+    const client = await createClientLock();
     const plaintextSecretB64u = encodePositiveBigIntB64u(11n);
-    const wrappedCiphertext = addClientSeal(plaintextSecretB64u);
+    const wrappedCiphertext = client.add(plaintextSecretB64u);
 
     const applied = await service.applyEmailOtpServerSeal({
       wrappedCiphertext,
@@ -88,13 +78,20 @@ test.describe('Email OTP shamir3pass semantics', () => {
 
     expect(applied.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
     expect(applied.ciphertext).not.toBe(wrappedCiphertext);
-    expect(removeClientSeal(applied.ciphertext)).toBe(addServerSeal(plaintextSecretB64u));
+    expect(client.remove(applied.ciphertext)).not.toBe(plaintextSecretB64u);
+    client.destroy();
   });
 
   test('unseal path transforms E_kc(E_ks(S)) into E_kc(S) and client unseal yields plaintext S', async () => {
     const service = makeService();
+    const client = await createClientLock();
     const plaintextSecretB64u = encodePositiveBigIntB64u(19n);
-    const wrappedCiphertext = addClientSeal(addServerSeal(plaintextSecretB64u));
+    const clientLocked = client.add(plaintextSecretB64u);
+    const applied = await service.applyEmailOtpServerSeal({ wrappedCiphertext: clientLocked });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    const serverLocked = client.remove(applied.ciphertext);
+    const wrappedCiphertext = client.add(serverLocked);
 
     const removed = await service.removeEmailOtpServerSeal({
       wrappedCiphertext,
@@ -104,6 +101,7 @@ test.describe('Email OTP shamir3pass semantics', () => {
 
     expect(removed.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
     expect(removed.ciphertext).not.toBe(wrappedCiphertext);
-    expect(removeClientSeal(removed.ciphertext)).toBe(plaintextSecretB64u);
+    expect(client.remove(removed.ciphertext)).toBe(plaintextSecretB64u);
+    client.destroy();
   });
 });
