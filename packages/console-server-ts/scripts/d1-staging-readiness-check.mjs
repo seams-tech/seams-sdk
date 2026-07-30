@@ -376,23 +376,6 @@ function checkDurableObject(source, errors) {
   checkRetiredDurableObjectBinding(blocks, 'ROUTER_API_RUNTIME', errors);
 }
 
-function checkRequiredDurableObject(input) {
-  const block = findBlockByAssignment(input.blocks, 'name', input.bindingName);
-  if (!block) {
-    input.errors.push(`missing Durable Object binding ${input.bindingName}`);
-    return;
-  }
-  checkExactString(
-    readString(block, 'class_name'),
-    input.className,
-    `${input.bindingName}.class_name`,
-    input.errors,
-  );
-  if (!hasSqliteClassMigration(input.source, input.className)) {
-    input.errors.push(`missing Durable Object new_sqlite_classes migration for ${input.className}`);
-  }
-}
-
 function checkRetiredDurableObjectBinding(blocks, bindingName, errors) {
   if (findBlockByAssignment(blocks, 'name', bindingName)) {
     errors.push(`retired Durable Object binding ${bindingName} must be removed`);
@@ -506,14 +489,6 @@ function findBlockByAssignment(blocks, key, expected) {
     if (readString(block, key) === expected) return block;
   }
   return '';
-}
-
-function hasSqliteClassMigration(source, className) {
-  const blocks = arrayTableBodies(source, 'migrations');
-  for (const block of blocks) {
-    if (includesString(readArray(block, 'new_sqlite_classes'), className)) return true;
-  }
-  return false;
 }
 
 function hasSecretStoreSecret(source, secretName) {
