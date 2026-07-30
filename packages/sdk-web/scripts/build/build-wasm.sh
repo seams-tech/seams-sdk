@@ -241,6 +241,7 @@ GATEWAY_WASM_SOURCES=(
   "$SOURCE_WASM_SIGNER"
   "$SOURCE_WASM_ECDSA_SIGNING_WORKER"
   "$SOURCE_WASM_EVM_CRYPTO"
+  "$SOURCE_WASM_SHAMIR3PASS_RUNTIME"
   "$SOURCE_WASM_THRESHOLD_PRF"
 )
 FULL_SDK_WASM_SOURCES=(
@@ -250,7 +251,6 @@ FULL_SDK_WASM_SOURCES=(
   "$SOURCE_WASM_ECDSA_PRESIGN_CLIENT"
   "$SOURCE_WASM_ECDSA_ONLINE_CLIENT"
   "$SOURCE_WASM_TEMPO_SIGNER"
-  "$SOURCE_WASM_SHAMIR3PASS_RUNTIME"
   "$SOURCE_WASM_EMAIL_OTP_RUNTIME"
 )
 
@@ -273,6 +273,7 @@ else
   start_job "NEAR signer WASM (release)" build_near_signer
   start_job "ECDSA server signing worker WASM (release)" build_router_ab_ecdsa_signing_worker
   start_job "EVM crypto WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EVM_CRYPTO" evm_crypto
+  start_job "Shamir3Pass runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_SHAMIR3PASS_RUNTIME" shamir3pass_runtime
   start_job "threshold-prf WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_THRESHOLD_PRF" threshold_prf
   if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
     start_job "Ed25519 Yao Client WASM (release)" build_ed25519_yao_client
@@ -281,7 +282,6 @@ else
     start_job "ECDSA presign client WASM (release)" build_router_ab_ecdsa_presign_client
     start_job "ECDSA online client WASM (release)" build_router_ab_ecdsa_online_client
     start_job "Tempo signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_TEMPO_SIGNER" tempo_signer
-    start_job "Shamir3Pass runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_SHAMIR3PASS_RUNTIME" shamir3pass_runtime
     start_job "Email OTP runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EMAIL_OTP_RUNTIME" email_otp_runtime
   fi
   wait_for_jobs
