@@ -45,12 +45,6 @@ export class EmailOtpWalletSessionCoordinator {
     return this.runtime.restorePersistedSessionForSigning(args);
   }
 
-  readPersistedSessionSnapshot(
-    args: Parameters<EmailOtpWalletSessionRuntime['readPersistedSessionSnapshot']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['readPersistedSessionSnapshot']> {
-    return this.runtime.readPersistedSessionSnapshot(args);
-  }
-
   readWarmSessionStatusOnly(
     sessionId: Parameters<EmailOtpWalletSessionRuntime['readWarmSessionStatusOnly']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['readWarmSessionStatusOnly']> {

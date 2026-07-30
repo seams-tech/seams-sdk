@@ -84,10 +84,8 @@ const passkeyLane: ConcreteAvailableEcdsaSigningLane = {
   resolvedKey,
   curve: 'ecdsa',
   chainTarget,
-  state: 'ready',
-  source: 'runtime_session_record',
-  signingGrantId: 'signing-grant-1',
-  thresholdSessionId: 'threshold-session-1',
+  state: 'deferred',
+  source: 'canonical_capability',
 };
 void passkeyLane;
 
@@ -104,16 +102,16 @@ const canonicalAuthorizationRequiredLane: ConcreteAvailableEcdsaSigningLane = {
 };
 void canonicalAuthorizationRequiredLane;
 
-// @ts-expect-error canonical ECDSA availability never carries session aliases.
 const invalidCanonicalLaneWithSessionAlias: ConcreteAvailableEcdsaSigningLane = {
   ...canonicalAuthorizationRequiredLane,
+  // @ts-expect-error canonical ECDSA availability never carries session aliases.
   thresholdSessionId: 'threshold-session-legacy',
 };
 void invalidCanonicalLaneWithSessionAlias;
 
-// @ts-expect-error canonical ECDSA availability never carries grant aliases.
 const invalidCanonicalLaneWithGrantAlias: ConcreteAvailableEcdsaSigningLane = {
   ...canonicalAuthorizationRequiredLane,
+  // @ts-expect-error canonical ECDSA availability never carries grant aliases.
   signingGrantId: 'signing-grant-legacy',
 };
 void invalidCanonicalLaneWithGrantAlias;
@@ -181,29 +179,27 @@ void invalidPasskeyLaneIdentityWithSubjectId;
 // @ts-expect-error passkey available lanes require a resolved EVM-family key.
 const passkeyLaneMissingResolvedKey: ConcreteAvailableEcdsaSigningLane = {
   key,
+  materialActivation,
   publicFacts,
   auth: passkeyAuth,
   curve: 'ecdsa',
   chainTarget,
-  state: 'ready',
-  source: 'runtime_session_record',
-  signingGrantId: 'signing-grant-1',
-  thresholdSessionId: 'threshold-session-1',
+  state: 'deferred',
+  source: 'canonical_capability',
 };
 void passkeyLaneMissingResolvedKey;
 
 const passkeyLaneWithEmailOtpResolvedKey: ConcreteAvailableEcdsaSigningLane = {
   key,
+  materialActivation,
   publicFacts,
   auth: passkeyAuth,
   // @ts-expect-error passkey lanes reject Email OTP auth bindings.
   resolvedKey: emailOtpResolvedKey,
   curve: 'ecdsa',
   chainTarget,
-  state: 'ready',
-  source: 'runtime_session_record',
-  signingGrantId: 'signing-grant-1',
-  thresholdSessionId: 'threshold-session-1',
+  state: 'deferred',
+  source: 'canonical_capability',
 };
 void passkeyLaneWithEmailOtpResolvedKey;
 
@@ -221,15 +217,14 @@ void passkeyLaneIdentityMissingResolvedKey;
 // @ts-expect-error Email OTP available lanes need provider identity before resolved-key binding.
 const emailOtpLaneWithResolvedKey: ConcreteAvailableEcdsaSigningLane = {
   key,
+  materialActivation,
   publicFacts,
   auth: emailOtpAuth,
   resolvedKey,
   curve: 'ecdsa',
   chainTarget,
-  state: 'ready',
-  source: 'runtime_session_record',
-  signingGrantId: 'signing-grant-1',
-  thresholdSessionId: 'threshold-session-1',
+  state: 'deferred',
+  source: 'canonical_capability',
 };
 void emailOtpLaneWithResolvedKey;
 
@@ -296,20 +291,6 @@ const readyEd25519LaneMissingThresholdSessionId: ConcreteAvailableEd25519Signing
   thresholdSessionId: undefined,
 };
 void readyEd25519LaneMissingThresholdSessionId;
-
-// @ts-expect-error shared ECDSA lanes require the source target.
-const sharedEcdsaLaneMissingSourceTarget: ConcreteAvailableEcdsaSigningLane = {
-  ...passkeyLane,
-  source: 'evm_family_shared_key',
-};
-void sharedEcdsaLaneMissingSourceTarget;
-
-const sharedEcdsaLane: ConcreteAvailableEcdsaSigningLane = {
-  ...passkeyLane,
-  source: 'evm_family_shared_key',
-  sourceChainTarget: chainTarget,
-};
-void sharedEcdsaLane;
 
 const durablePolicyAdvisory: AvailableLaneStateAdvisory = {
   kind: 'durable_policy',

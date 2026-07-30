@@ -16,7 +16,6 @@ import {
   SigningSessionIds,
   type SigningAuthMethod,
   type SigningCurve,
-  type ThresholdEcdsaSessionId,
   type ThresholdEd25519SessionId,
   type ThresholdSessionId,
   type SigningGrantId,
@@ -458,7 +457,6 @@ export type LaneCandidateSource =
   | 'canonical_capability'
   | 'durable_sealed_record'
   | 'runtime_session_record'
-  | 'evm_family_shared_key'
   | 'unknown';
 
 type CommonLaneCandidate = {
@@ -496,27 +494,21 @@ type BaseEcdsaLaneCandidate = CommonLaneCandidate & {
   resolvedKey?: ResolvedEvmFamilyEcdsaKey;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   chainTarget: ThresholdEcdsaChainTarget;
+  source: 'canonical_capability';
+  sourceChainTarget?: never;
 } & (
-  | {
-      authorizationState: 'authorized';
-      authorization: ActiveEvmFamilyWalletSessionAuthorization;
-    }
-  | {
-      authorizationState: 'authorization_required';
-      authorization?: never;
-      state: 'deferred';
-    }
-);
+    | {
+        authorizationState: 'authorized';
+        authorization: ActiveEvmFamilyWalletSessionAuthorization;
+      }
+    | {
+        authorizationState: 'authorization_required';
+        authorization?: never;
+        state: 'deferred';
+      }
+  );
 
-export type EcdsaLaneCandidate =
-  | (BaseEcdsaLaneCandidate & {
-      source: 'evm_family_shared_key';
-      sourceChainTarget: ThresholdEcdsaChainTarget;
-    })
-  | (BaseEcdsaLaneCandidate & {
-      source: Exclude<LaneCandidateSource, 'evm_family_shared_key'>;
-      sourceChainTarget?: never;
-    });
+export type EcdsaLaneCandidate = BaseEcdsaLaneCandidate;
 
 export type AuthorizedEcdsaLaneCandidate = Extract<
   EcdsaLaneCandidate,

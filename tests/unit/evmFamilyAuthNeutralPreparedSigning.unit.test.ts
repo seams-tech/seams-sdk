@@ -17,9 +17,9 @@ import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningS
 import {
   AVAILABLE_LANES_ECDSA_TARGET,
   AVAILABLE_LANES_WALLET_ID,
+  authorizationRequiredCanonicalEcdsaAvailableLane,
+  canonicalEcdsaAvailableLane,
   readAvailableLanesFixture,
-  runtimeAuthorizationRequiredEcdsaAvailableLaneRecord,
-  runtimeEcdsaAvailableLaneRecord,
 } from './helpers/availableSigningLanes.fixtures';
 import { walletSessionRefFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import {
@@ -46,11 +46,11 @@ function prepareDeps(
   };
 }
 
-async function prepareForRecord(record: ReturnType<typeof runtimeEcdsaAvailableLaneRecord>) {
+async function prepareForRecord(record: ReturnType<typeof canonicalEcdsaAvailableLane>) {
   const availableLanes = await readAvailableLanesFixture({
     walletId: AVAILABLE_LANES_WALLET_ID,
     ecdsaChainTargets: [AVAILABLE_LANES_ECDSA_TARGET],
-    runtimeEcdsaRecords: [record],
+    canonicalEcdsaLanes: [record],
   });
   return await prepareEvmFamilyEcdsaSigningSession({
     deps: prepareDeps(availableLanes),
@@ -68,12 +68,11 @@ async function prepareForRecord(record: ReturnType<typeof runtimeEcdsaAvailableL
 }
 
 function authRequiredRecord(authMethod: 'passkey' | 'email_otp') {
-  return runtimeAuthorizationRequiredEcdsaAvailableLaneRecord({
+  return authorizationRequiredCanonicalEcdsaAvailableLane({
     chainTarget: AVAILABLE_LANES_ECDSA_TARGET,
-    thresholdSessionId: `auth-neutral-${authMethod}`,
-    signingGrantId: 'retired-grant-field',
     thresholdOwnerAddress: `0x${'ab'.repeat(20)}`,
     authMethod,
+    ecdsaThresholdKeyId: `auth-neutral-${authMethod}`,
   });
 }
 
@@ -130,13 +129,12 @@ test.describe('EVM-family auth-neutral prepared signing', () => {
     const availableLanes = await readAvailableLanesFixture({
       walletId: AVAILABLE_LANES_WALLET_ID,
       ecdsaChainTargets: [AVAILABLE_LANES_ECDSA_TARGET],
-      runtimeEcdsaRecords: [
-        runtimeEcdsaAvailableLaneRecord({
+      canonicalEcdsaLanes: [
+        canonicalEcdsaAvailableLane({
           chainTarget: AVAILABLE_LANES_ECDSA_TARGET,
-          thresholdSessionId: 'authorized-material',
-          signingGrantId: 'retired-grant-field',
           thresholdOwnerAddress: `0x${'cd'.repeat(20)}`,
           authMethod: 'passkey',
+          ecdsaThresholdKeyId: 'authorized-material',
         }),
       ],
     });
