@@ -197,6 +197,9 @@ implementing commit SHA as the evidence.
   - [x] ECDSA activation/bootstrap accepts exact existing-session identity
     only; the registration-era enrollment variant and its obsolete tests are
     deleted (`1e317e433`, `499a9e00e`).
+  - [x] Post-registration relayer-key derivation accepts wallet and signing-root
+    facts instead of a provisioning slot while preserving the established
+    derived identifier (`fca3baaf2`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently

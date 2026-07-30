@@ -163,6 +163,8 @@ replacement.
   `f762803df`. The registration-era enrollment activation/bootstrap variant
   was deleted in `1e317e433`; its obsolete request-shape tests followed in
   `499a9e00e`, while the client-root proof boundary test remains.
+  Post-registration relayer-key derivation stopped accepting the provisioning
+  slot in `fca3baaf2`; callers now supply exact wallet and signing-root facts.
 - ~~`evmFamilySigningKeySlotId` in ECDSA Wallet Session JWT binding facts and
   normal-signing claims~~ — deleted by `4986d279f`; the value remains only on
   the registration bootstrap request/response boundary in that path.

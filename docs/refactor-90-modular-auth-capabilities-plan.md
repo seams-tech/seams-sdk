@@ -401,6 +401,10 @@ removes.
   - [x] Delete registration-era bootstrap tests that exercised the retired
         activation request shapes while retaining the client-root proof
         boundary test (`499a9e00e`).
+  - [x] Remove provisioning-slot inputs from post-registration relayer-key
+        derivation; exact-session bootstrap now supplies wallet and signing-root
+        facts while the derivation preserves the established wire identifier
+        (`fca3baaf2`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.
