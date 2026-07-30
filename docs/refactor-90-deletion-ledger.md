@@ -448,6 +448,10 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   optional host fallback inside generic confirmation~~ — moved to
   `PasskeyMpcSessionManager`; session-public and no-prompt ECDSA reuse call the
   factor owner directly
+- ~~raw Passkey session-worker seal and rehydrate forwarding methods on
+  `UiConfirmManager` and `DurableSealedSessionPort`~~ — removed; internal
+  durable coordination calls the dedicated `PasskeyMpcSessionManager`
+  directly
 - ~~unused `UiConfirmSigningRuntimePort` and generic combined
   `UiConfirmSigningSessionPort` exports~~ — Near runtime dependencies name the
   required confirmation and warm-material ports directly

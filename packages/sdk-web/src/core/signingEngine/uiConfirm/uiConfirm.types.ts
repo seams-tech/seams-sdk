@@ -158,10 +158,13 @@ export interface VolatileWarmSessionMaterialClearAll {
   ): Promise<void>;
 }
 
-export interface WarmSessionSealPersister {
+export interface WarmSessionWorkerSealPort {
   sealAndPersistWarmSessionMaterial(
     args: WarmSessionSealAndPersistPayload,
   ): Promise<WarmSessionSealAndPersistResult>;
+}
+
+export interface WarmSessionSealPersister {
   persistSigningSessionSealForThresholdSession(args: {
     sessionId: string;
     transport?: WarmSessionSealTransportInput;
@@ -217,7 +220,6 @@ export type VolatileWarmMaterialPort = WarmSessionStatusReader &
   VolatileWarmSessionMaterialClearAll;
 
 export type DurableSealedSessionPort = WarmSessionSealPersister &
-  WarmSessionRehydrator &
   WarmSessionPersistedRestorer &
   PasskeyWarmSessionPolicyRecorder &
   PasskeyWarmSessionPersistenceCoordinator;
@@ -242,6 +244,8 @@ export interface PasskeyMpcSessionWorkerLifecyclePort {
 
 export type PasskeyMpcSessionPort = WarmSessionMaterialWriter &
   VolatileWarmMaterialPort &
+  WarmSessionWorkerSealPort &
+  WarmSessionRehydrator &
   WarmSessionPersistedDiscovery &
   PasskeyMpcSessionWorkerLifecyclePort;
 

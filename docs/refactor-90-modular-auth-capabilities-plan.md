@@ -686,6 +686,9 @@ the replacement and legacy MPC paths must not ship together.
     - [x] Move persisted-session discovery and exact sealed-record listing into
           `PasskeyMpcSessionManager`; session-public and no-prompt ECDSA reuse
           call the session owner directly.
+    - [x] Move raw worker seal and rehydrate operations onto
+          `PasskeyMpcSessionManager`; generic confirmation calls the owner
+          internally and exposes no forwarding methods.
 - [ ] Remove replaced worker entrypoints, loaders, manifest rows, and public
       exports.
   - [x] Delete the generic worker's `EXPORT_PRIVATE_KEYS_WITH_UI` protocol arm
