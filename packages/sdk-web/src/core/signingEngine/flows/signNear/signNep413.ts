@@ -14,7 +14,6 @@ import { resolveNearSigningMaterials } from './shared/signingMaterials';
 import { resolveActiveAuthorizedRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   buildNearSigningSessionAuthPlan,
-  createNearSigningSessionCoordinator,
   resolveNearSigningSessionAuthContext,
   SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/signingSessionAuthMode';
@@ -74,6 +73,7 @@ export async function signNep413Message({
   signingSessionCoordinator,
   payload,
   forceFreshAuth,
+  selectedLane,
   passkeyEd25519OperationStepUp,
   emailOtpEd25519Reauthorization,
   yaoSigningPreparation,
@@ -86,15 +86,13 @@ export async function signNep413Message({
   if (!touchConfirm) {
     throw new Error('UiConfirm bridge not available for NEP-413 signing');
   }
-  const warmSessionReader = createNearSigningSessionCoordinator(ctx.passkeyMpcSession);
-
   const requiredSignatureUses = 1;
-  const signingSessionAuthContext = await resolveNearSigningSessionAuthContext({
-    warmSessionReader,
+  const signingSessionAuthContext = resolveNearSigningSessionAuthContext({
     requiredSignatureUses,
     commandSubject,
-    operationLabel: 'NEP-413 signing',
     forceFreshAuth,
+    selectedLane,
+    preparation: yaoSigningPreparation,
   });
   const resolvedSigningSession = {
     signingSessionPlan: planSigningSession({

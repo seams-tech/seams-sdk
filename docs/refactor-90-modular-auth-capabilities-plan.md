@@ -720,6 +720,13 @@ the replacement and legacy MPC paths must not ship together.
       Transaction, delegate, and NEP-413 payloads carry preparation data and an
       explicit material executor, and exact activation is checked before use
       (`6a818aea3`, `e118d0d5e`).
+- [x] Make delegate and NEP-413 authorization planning consume the canonical
+      preparation's active-status proof. Delete the record-backed warm-capability
+      reader, record-to-lane reconstruction, and obsolete handwritten
+      session-selection suite (`5a8ce9090`, `70ef2a420`).
+- [x] Delete the unread record-derived Wallet Session bearer projection from
+      NEAR transaction admission. Canonical preparation and the admitted
+      operation-claim receipt remain the authorization inputs (`5173ad50b`).
 
 ### Worker, WASM, and bundle boundary
 
@@ -922,6 +929,10 @@ the replacement and legacy MPC paths must not ship together.
         returning exact sibling capability outcomes (`89e9cd4a5`).
   - [x] Delete the wrapper-only ECDSA refresh test with its duplicate HTTP
         adapter (`df478bfed`).
+  - [x] Delete the record-era NEAR session-selection suite after delegate and
+        NEP-413 planning moved to canonical hydration plus independent
+        authorization; retain same-method step-up coverage through current
+        typed hooks (`70ef2a420`).
 
 ### Unit 3a exit
 

@@ -791,19 +791,6 @@ async function resolveNearTransactionWalletAuth(args: {
   };
 }
 
-function walletSessionJwtForPreparedNearExecution(args: {
-  record: ThresholdEd25519SessionRecord | null | undefined;
-  emailOtpCommittedLane: Ed25519SigningLane | null;
-}): string {
-  const record = args.record;
-  if (!record) return '';
-  if (record.source === 'email_otp') {
-    return String(args.emailOtpCommittedLane?.walletSessionAuthority.walletSessionJwt || '').trim();
-  }
-  const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
-  return authority.ok ? authority.value.auth.walletSessionJwt : '';
-}
-
 function resolvePreparedSigningRequestSessionId(args: {
   providedSessionId?: string;
   identity: ResolvedEd25519SigningSessionIdentity;
@@ -937,7 +924,9 @@ function requirePreparedNearEd25519YaoActivation(args: {
   if (!expected) {
     throw new Error('[SigningEngine][near] prepared material has no activation');
   }
-  const actual = nearEd25519YaoMaterialActivationFromMetadata(args.capability.activeClient.metadata());
+  const actual = nearEd25519YaoMaterialActivationFromMetadata(
+    args.capability.activeClient.metadata(),
+  );
   if (!mpcMaterialActivationRefsEqual(expected, actual)) {
     throw new Error('[SigningEngine][near] prepared material activation changed before execution');
   }
@@ -981,10 +970,7 @@ async function preparePasskeyOperationStepUpAtBoundary(
 ) {
   const prepared = await prepareExactNearEd25519YaoOperationStepUp(args);
   const expected = preparation.hydration.materialActivation;
-  if (
-    !expected ||
-    !mpcMaterialActivationRefsEqual(expected, prepared.materialActivation)
-  ) {
+  if (!expected || !mpcMaterialActivationRefsEqual(expected, prepared.materialActivation)) {
     throw new Error('[SigningEngine][near] operation step-up changed material activation');
   }
   return prepared;
@@ -1898,18 +1884,8 @@ export async function signTransactionWithActions(
           passkeyEd25519OperationStepUp: passkeyEd25519OperationStepUp || null,
           emailOtpEd25519Reauthorization: emailOtpEd25519Reauthorization || null,
         });
-        const walletSessionJwt = walletSessionJwtForPreparedNearExecution({
-          record: thresholdSessionRecord,
-          emailOtpCommittedLane: executionState.emailOtpCommittedLane,
-        });
-        if (!walletSessionJwt) {
-          throw new Error(
-            '[SigningEngine][near] prepared Ed25519 session is missing Wallet Session bearer JWT',
-          );
-        }
         const ed25519SigningBoundary = {
           sessionId: executionState.sessionId,
-          walletSessionJwt,
           signingSessionPlan: executionState.signingSessionPlan,
           signingAuthPlan: executionState.signingAuthPlan,
           signingLane: executionState.signingLane,
@@ -2074,6 +2050,7 @@ async function runPreparedNearDelegateSigning(args: {
       onEvent: args.input.onEvent,
       operationId: args.operationId,
       forceFreshAuth: args.prepared.forceFreshAuth,
+      selectedLane: args.prepared.selectedLane,
       passkeyEd25519OperationStepUp: args.prepared.passkeyEd25519OperationStepUp,
       emailOtpEd25519Reauthorization: args.prepared.emailOtpEd25519Reauthorization,
       yaoSigningPreparation: args.prepared.yaoSigningPreparation,
@@ -2200,6 +2177,7 @@ async function runPreparedNearNep413Signing(args: {
       nearAccount,
       signingSessionCoordinator: args.deps.signingSessionCoordinator,
       forceFreshAuth: args.prepared.forceFreshAuth,
+      selectedLane: args.prepared.selectedLane,
       passkeyEd25519OperationStepUp: args.prepared.passkeyEd25519OperationStepUp,
       emailOtpEd25519Reauthorization: args.prepared.emailOtpEd25519Reauthorization,
       yaoSigningPreparation: args.prepared.yaoSigningPreparation,
