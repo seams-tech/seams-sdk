@@ -436,7 +436,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 
 ## Phase 27 — final sweep
 
-- `SigningAuthPlan` and signer-auth aliases
+- `SigningAuthPlan` and remaining signer-auth aliases
+- ~~pure `SigningAuthMethod = SignerAuthMethod` alias and its lane-identity
+  re-export~~ — consumers use canonical `SignerAuthMethod`
 - remaining `signing-session` terminology and old route planes
   (`threshold_session`, `user_session` on migrated surfaces)
 - wallet-only `AuthMethod` usages outside capability-local modules

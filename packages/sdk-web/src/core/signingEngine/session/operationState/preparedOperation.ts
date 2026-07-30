@@ -1,4 +1,4 @@
-import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
+import type { SensitiveOperationPolicy, SignerAuthMethod } from '@shared/utils/signerDomain';
 import type {
   SigningSessionBudgetStatusAuth,
   SigningSessionPreparedBudgetIdentity,
@@ -8,7 +8,6 @@ import type {
   SigningSessionReadiness,
 } from '../planning/planner';
 import type {
-  SigningAuthMethod,
   SigningChainFamily,
   SigningCurve,
   SelectedEd25519SigningSessionPlanningLane,
@@ -76,7 +75,7 @@ export type PreparedThresholdSigningOperation<
   intent: ThresholdSigningIntent;
   operation?: SigningOperationContext;
   lane: TLane;
-  authMethod: SigningAuthMethod;
+  authMethod: SignerAuthMethod;
   signingSessionPlan: SigningSessionPlan;
   readiness: SigningSessionReadiness;
   expiresAtMs: number;

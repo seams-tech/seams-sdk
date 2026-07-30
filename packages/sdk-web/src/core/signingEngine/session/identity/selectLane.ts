@@ -26,7 +26,7 @@ import {
   type SelectedEd25519Lane,
   type SelectedLane,
 } from './laneIdentity';
-import type { SigningAuthMethod } from '../operationState/types';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type {
   EvmFamilyEcdsaTransactionSigningIntent,
   NearEd25519TransactionSigningIntent,
@@ -37,8 +37,8 @@ import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces
 
 export type TransactionLaneSelectionFailure =
   | { kind: 'unsupported_intent'; curve: string; chain: string }
-  | { kind: 'no_candidate'; authMethod?: SigningAuthMethod }
-  | { kind: 'ambiguous_material'; allowedAuthMethods: readonly SigningAuthMethod[] }
+  | { kind: 'no_candidate'; authMethod?: SignerAuthMethod }
+  | { kind: 'ambiguous_material'; allowedAuthMethods: readonly SignerAuthMethod[] }
   | { kind: 'policy_blocked'; reason: string };
 
 export type NearEd25519AvailableLane = AvailableEd25519SigningLane &
@@ -398,7 +398,7 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
 
 function allowedAuthMethods(
   candidates: readonly { candidate: LaneCandidate }[],
-): SigningAuthMethod[] {
+): SignerAuthMethod[] {
   return [
     ...new Set(candidates.map((candidate) => laneCandidateAuthMethod(candidate.candidate))),
   ].sort();

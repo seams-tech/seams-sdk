@@ -731,6 +731,8 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete `active_state_session_id` from production types and wire shapes.
 - [ ] Delete remaining generic wire session aliases and
       authorization/material-scope aliases owned by this cutover.
+  - [x] Delete the pure `SigningAuthMethod = SignerAuthMethod` alias and use
+        canonical `SignerAuthMethod` throughout signing operation state.
 - [x] Inline the canonical bootstrap and exact/missing Wallet Session payload
       types in the iframe envelope and delete their one-use wire aliases.
 - [x] Delete the unread duplicate ECDSA export operation-authorization carrier;

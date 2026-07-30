@@ -14,12 +14,12 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   SigningSessionIds,
-  type SigningAuthMethod,
   type SigningCurve,
   type ThresholdEd25519SessionId,
   type ThresholdSessionId,
   type SigningGrantId,
 } from '../operationState/types';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import {
   toEvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyHandle,
@@ -42,7 +42,7 @@ import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/sign
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 
-export type { SigningAuthMethod, SigningCurve };
+export type { SigningCurve };
 export type { EcdsaThresholdKeyId };
 export type SigningRootId = string & { readonly __brand?: 'SigningRootId' };
 export type SigningRootVersion = string & { readonly __brand?: 'SigningRootVersion' };
@@ -522,10 +522,10 @@ export type AuthorizationRequiredEcdsaLaneCandidate = Extract<
 
 export type LaneCandidate = Ed25519LaneCandidate | EcdsaLaneCandidate;
 
-export function selectedLaneAuthMethod(lane: SelectedLane): SigningAuthMethod {
+export function selectedLaneAuthMethod(lane: SelectedLane): SignerAuthMethod {
   return signingLaneAuthMethod(lane.auth);
 }
 
-export function laneCandidateAuthMethod(candidate: LaneCandidate): SigningAuthMethod {
+export function laneCandidateAuthMethod(candidate: LaneCandidate): SignerAuthMethod {
   return signingLaneAuthMethod(candidate.auth);
 }

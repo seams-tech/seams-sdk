@@ -1,6 +1,6 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { SignerSlot } from '@shared/utils/signerSlot';
-import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
+import type { SensitiveOperationPolicy, SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   LaneCandidate,
@@ -16,7 +16,6 @@ import type {
   TransactionAvailableLanesReadState,
 } from '../identity/selectLane';
 import {
-  type SigningAuthMethod,
   type SigningChainFamily,
   type SigningCurve,
   type SelectedSigningSessionPlanningLane,
@@ -103,8 +102,8 @@ export type TransactionSigningIntent =
 
 export type TransactionAuthSelectionPolicy =
   | { kind: 'any' }
-  | { kind: 'explicit'; authMethod: SigningAuthMethod }
-  | { kind: 'account_class'; authMethod: SigningAuthMethod };
+  | { kind: 'explicit'; authMethod: SignerAuthMethod }
+  | { kind: 'account_class'; authMethod: SignerAuthMethod };
 
 export type TransactionLane = SelectedLane;
 
