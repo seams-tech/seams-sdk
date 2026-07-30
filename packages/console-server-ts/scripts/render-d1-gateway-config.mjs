@@ -163,6 +163,10 @@ function buildWorkerVars(deployment) {
     RELAY_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
     CONSOLE_BASE_URL: deployment.origins.allowedCors[0],
     SESSION_COOKIE_NAME: DEFAULT_SESSION_COOKIE_NAME,
+    SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION:
+      deployment.signingSessionSeal.currentKeyVersion,
+    SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS:
+      deployment.signingSessionSeal.acceptedWarmKeyVersions.join(','),
     EMAIL_OTP_RUNTIME_PROFILE: deployment.runtimeProfile.kind,
     EMAIL_OTP_DELIVERY_MODE: deployment.runtimeProfile.emailOtpDelivery.kind,
     EMAIL_OTP_PRODUCTION: String(production),

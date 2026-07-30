@@ -65,7 +65,7 @@ export type RawSigningSessionSealedStoreRecord = RawSealedSessionRecord & {
   signingRootVersion?: unknown;
   relayerUrl?: unknown;
   keyVersion?: unknown;
-  shamirPrimeB64u?: unknown;
+  groupId?: unknown;
   ecdsaRestore?: RawEcdsaRestoreMetadata | unknown;
   issuedAtMs?: unknown;
   expiresAtMs?: unknown;
@@ -104,7 +104,7 @@ type SealedRecoveryRecordBase = {
   remainingUses: number;
   updatedAtMs: number;
   keyVersion?: string;
-  shamirPrimeB64u?: string;
+  groupId?: string;
 };
 
 type EcdsaSealedRecoveryRecordBase = SealedRecoveryRecordBase & {
@@ -563,8 +563,8 @@ export function normalizeSealedRecoveryRecord(
           ...(normalizeNonEmptyString(raw.keyVersion)
             ? { keyVersion: normalizeNonEmptyString(raw.keyVersion)! }
             : {}),
-          ...(normalizeNonEmptyString(raw.shamirPrimeB64u)
-            ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
+          ...(normalizeNonEmptyString(raw.groupId)
+            ? { groupId: normalizeNonEmptyString(raw.groupId)! }
             : {}),
           chainTarget,
           source: passkeySource!,
@@ -601,8 +601,8 @@ export function normalizeSealedRecoveryRecord(
           ...(normalizeNonEmptyString(raw.keyVersion)
             ? { keyVersion: normalizeNonEmptyString(raw.keyVersion)! }
             : {}),
-          ...(normalizeNonEmptyString(raw.shamirPrimeB64u)
-            ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
+          ...(normalizeNonEmptyString(raw.groupId)
+            ? { groupId: normalizeNonEmptyString(raw.groupId)! }
             : {}),
           chainTarget,
           source: 'email_otp',

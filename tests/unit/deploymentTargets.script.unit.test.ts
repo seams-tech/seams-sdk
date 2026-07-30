@@ -181,10 +181,7 @@ test('required secrets are derived from enabled capabilities and their owners', 
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
     'STRIPE_API_SK',
-    'SIGNING_SESSION_SEAL_KEY_VERSION',
-    'SIGNING_SESSION_SHAMIR_P_B64U',
-    'SIGNING_SESSION_SEAL_E_S_B64U',
-    'SIGNING_SESSION_SEAL_D_S_B64U',
+    'SIGNING_SESSION_SEAL_ROOT_SECRET_B64U',
   ]);
   expect(module.componentSecretNames(targets.staging, 'gateway')).toContain('STRIPE_API_SK');
   expect(module.componentSecretNames(targets.staging, 'gateway')).not.toContain(

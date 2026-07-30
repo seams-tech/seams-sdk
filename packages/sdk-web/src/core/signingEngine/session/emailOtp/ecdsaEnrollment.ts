@@ -69,7 +69,7 @@ export type EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
   otpCode: string;
   relayUrl?: string;
   challengeId?: string;
-  shamirPrimeB64u?: string;
+  groupId?: string;
   appSessionJwt?: never;
   routeAuth?: never;
   keyHandle?: string;
@@ -118,7 +118,7 @@ export type EmailOtpEcdsaEnrollmentPorts = {
   configs: SeamsConfigsReadonly;
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
   requireRelayUrl: () => string;
-  requireShamirPrimeB64u: () => string;
+  requireSigningSessionSealGroupId: () => string;
   requireRpId: (operation: string) => string;
   provisionThresholdEcdsaSession: (
     request: ThresholdEcdsaActivationRequest,
@@ -193,7 +193,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   const emailOtpAuthPolicy: EmailOtpAuthPolicy =
     args.emailOtpAuthPolicy || ports.configs.signing.emailOtp.authPolicy;
   const relayUrl = String(args.relayUrl || ports.requireRelayUrl()).trim();
-  const shamirPrimeB64u = String(args.shamirPrimeB64u || ports.requireShamirPrimeB64u()).trim();
+  const groupId = String(args.groupId || ports.requireSigningSessionSealGroupId()).trim();
   const routePlan = args.routePlan;
   const mintingSession = buildEmailOtpEcdsaMintingSession({
     emailOtpAuthPolicy,
@@ -291,7 +291,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     userId: emailOtpProviderUserId,
     ...(args.challengeId ? { challengeId: args.challengeId } : {}),
     otpCode: args.otpCode,
-    shamirPrimeB64u,
+    groupId,
     routePlan,
     workerCtx,
     googleEmailOtpRegistrationAttemptId: registrationInput.registrationAttemptId,
@@ -328,7 +328,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
         provisionEmailOtpEcdsaExplicitExportSession:
           ports.provisionEmailOtpEcdsaExplicitExportSession,
         requireRelayUrl: ports.requireRelayUrl,
-        requireShamirPrimeB64u: ports.requireShamirPrimeB64u,
+        requireSigningSessionSealGroupId: ports.requireSigningSessionSealGroupId,
         rememberAppSessionJwt: ports.rememberAppSessionJwt,
         publicationPorts,
       },
@@ -375,7 +375,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
       runtimePolicyScope: registrationInput.runtimePolicyScope,
       emailOtpAuthContext,
       relayerUrl: relayUrl,
-      shamirPrimeB64u,
+      groupId,
     },
     publicationPorts,
   );

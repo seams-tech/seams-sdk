@@ -325,14 +325,9 @@ const deployment = runJsonScript(join(scriptDir, 'generate-deployment-keys.mjs')
 ]);
 progress.step('Generate matched Deriver root shares');
 const rootShares = runJsonScript(join(scriptDir, 'generate-root-share-keys.mjs'), ['--json']);
-progress.step('Generate signing-session seal material');
-const sealMaterial = runJsonScript(
-  join(repoRoot, 'apps/web-server/scripts/generate-signing-session-seal-keys.mjs'),
-  ['--key-version', `signing-session-seal-${target}-r1`, '--json'],
-);
 progress.step('Build and validate the GitHub Environment manifest');
 const configuration = buildTargetConfiguration(target, suppliedValues);
-const generatedSecrets = buildGeneratedSecrets(target, sealMaterial);
+const generatedSecrets = buildGeneratedSecrets(target);
 const output = buildOutput({
   target,
   deployment,
@@ -575,7 +570,7 @@ function buildTargetConfiguration(targetName, suppliedValues) {
   };
 }
 
-function buildGeneratedSecrets(targetName, sealMaterial) {
+function buildGeneratedSecrets(targetName) {
   return {
     internalServiceAuth: `router-ab-internal-service-auth-v1:${randomBase64Url(32)}`,
     relaySessionHmac: randomBase64Url(32),
@@ -584,10 +579,9 @@ function buildGeneratedSecrets(targetName, sealMaterial) {
     ceremonyPrivateJwk: generateCeremonyPrivateJwk(),
     signingRootKek: randomBase64Url(32),
     signingSession: {
-      keyVersion: sealMaterial.keyVersion,
-      shamirPrimeB64u: sealMaterial.shamirPrimeB64u,
-      serverEncryptExponentB64u: sealMaterial.serverEncryptExponentB64u,
-      serverDecryptExponentB64u: sealMaterial.serverDecryptExponentB64u,
+      rootSecretB64u: randomBase64Url(32),
+      currentKeyVersion: `signing-session-seal-${targetName}-r2`,
+      acceptedWarmKeyVersions: [`signing-session-seal-${targetName}-r2`],
     },
     generationId: `${targetName}-${randomBase64Url(12)}`,
   };
@@ -720,7 +714,6 @@ function computeComponentManifestSha256(manifest) {
 function buildGeneralEnvironment(input) {
   const environmentName = input.target;
   const configuration = input.configuration;
-  const signingSession = input.generatedSecrets.signingSession;
   return [
     environmentName,
     {
@@ -735,8 +728,6 @@ function buildGeneralEnvironment(input) {
         VITE_WALLET_ORIGIN: configuration.walletOrigin,
         VITE_RP_ID_BASE: configuration.rpId,
         VITE_SIGNING_SESSION_PERSISTENCE_MODE: 'sealed_refresh_v1',
-        VITE_SIGNING_SESSION_SEAL_KEY_VERSION: signingSession.keyVersion,
-        VITE_SIGNING_SESSION_SHAMIR_P_B64U: signingSession.shamirPrimeB64u,
         VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: configuration.signingWorkerName,
       },
       optionalVariables: {
@@ -764,7 +755,6 @@ function buildGeneralEnvironment(input) {
 
 function buildGatewayEnvironment(input) {
   const environmentName = `${input.target}-gateway`;
-  const signingSession = input.generatedSecrets.signingSession;
   return [
     environmentName,
     {
@@ -786,10 +776,8 @@ function buildGatewayEnvironment(input) {
         STRIPE_WEBHOOK_SECRET: manual(`${input.target}-stripe-webhook-signing-secret`),
         CONSOLE_INITIAL_OWNER_EMAIL: manual(`${input.target}-console-initial-owner-email`),
         SIGNING_ROOT_KEK_VALUE: input.generatedSecrets.signingRootKek,
-        SIGNING_SESSION_SEAL_KEY_VERSION: signingSession.keyVersion,
-        SIGNING_SESSION_SHAMIR_P_B64U: signingSession.shamirPrimeB64u,
-        SIGNING_SESSION_SEAL_E_S_B64U: signingSession.serverEncryptExponentB64u,
-        SIGNING_SESSION_SEAL_D_S_B64U: signingSession.serverDecryptExponentB64u,
+        SIGNING_SESSION_SEAL_ROOT_SECRET_B64U:
+          input.generatedSecrets.signingSession.rootSecretB64u,
       },
     },
   ];
@@ -831,6 +819,12 @@ function buildGatewayDeploymentConfig(input) {
     },
     session: {
       issuer: configuration.relaySessionIssuer,
+    },
+    signingSessionSeal: {
+      algorithm: 'shamir3pass-v2',
+      groupId: 'rfc2409-group2',
+      currentKeyVersion: input.generatedSecrets.signingSession.currentKeyVersion,
+      acceptedWarmKeyVersions: input.generatedSecrets.signingSession.acceptedWarmKeyVersions,
     },
     routerAb: {
       ceremonyJwtAudience: configuration.routerJwtAudience,
@@ -1996,24 +1990,15 @@ function validateGatewayRegistrationDocuments(outputDocument) {
 function validateSigningSessionConsistency(outputDocument) {
   const general = outputDocument.environments[outputDocument.target];
   const gateway = outputDocument.environments[`${outputDocument.target}-gateway`];
-  assertEqual(
-    general.variables.VITE_SIGNING_SESSION_SEAL_KEY_VERSION,
-    gateway.secrets.SIGNING_SESSION_SEAL_KEY_VERSION,
-    'signing-session seal key version',
-  );
-  assertEqual(
-    general.variables.VITE_SIGNING_SESSION_SHAMIR_P_B64U,
-    gateway.secrets.SIGNING_SESSION_SHAMIR_P_B64U,
-    'signing-session Shamir prime',
-  );
+  if (!gateway.secrets.SIGNING_SESSION_SEAL_ROOT_SECRET_B64U) {
+    throw new Error('Gateway signing-session seal root secret is missing');
+  }
   for (const name of [
-    'SIGNING_SESSION_SEAL_KEY_VERSION',
-    'SIGNING_SESSION_SHAMIR_P_B64U',
-    'SIGNING_SESSION_SEAL_E_S_B64U',
-    'SIGNING_SESSION_SEAL_D_S_B64U',
+    'VITE_SIGNING_SESSION_SEAL_KEY_VERSION',
+    'VITE_SIGNING_SESSION_SHAMIR_P_B64U',
   ]) {
-    if (!gateway.secrets[name]) {
-      throw new Error(`Gateway signing-session seal secret ${name} is missing`);
+    if (Object.hasOwn(general.variables, name)) {
+      throw new Error(`${name} must not be present in the frontend environment`);
     }
   }
 }

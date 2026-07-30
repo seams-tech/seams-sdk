@@ -39,6 +39,12 @@
       "session": {
         "issuer": "seams-gateway-staging"
       },
+      "signingSessionSeal": {
+        "algorithm": "shamir3pass-v2",
+        "groupId": "rfc2409-group2",
+        "currentKeyVersion": "signing-session-seal-staging-r2",
+        "acceptedWarmKeyVersions": ["signing-session-seal-staging-r2"]
+      },
       "routerAb": {
         "ceremonyJwtAudience": "router-ab",
         "ceremonyJwtKeyId": "router-ab-ceremony-staging-r1",
@@ -190,10 +196,7 @@
         "enabled": true,
         "owner": "gateway",
         "secrets": [
-          "SIGNING_SESSION_SEAL_KEY_VERSION",
-          "SIGNING_SESSION_SHAMIR_P_B64U",
-          "SIGNING_SESSION_SEAL_E_S_B64U",
-          "SIGNING_SESSION_SEAL_D_S_B64U"
+          "SIGNING_SESSION_SEAL_ROOT_SECRET_B64U"
         ]
       }
     }
@@ -232,6 +235,12 @@
       },
       "session": {
         "issuer": "seams-gateway-production"
+      },
+      "signingSessionSeal": {
+        "algorithm": "shamir3pass-v2",
+        "groupId": "rfc2409-group2",
+        "currentKeyVersion": "signing-session-seal-production-r2",
+        "acceptedWarmKeyVersions": ["signing-session-seal-production-r2"]
       },
       "routerAb": {
         "ceremonyJwtAudience": "router-ab",
@@ -386,10 +395,7 @@
         "enabled": true,
         "owner": "gateway",
         "secrets": [
-          "SIGNING_SESSION_SEAL_KEY_VERSION",
-          "SIGNING_SESSION_SHAMIR_P_B64U",
-          "SIGNING_SESSION_SEAL_E_S_B64U",
-          "SIGNING_SESSION_SEAL_D_S_B64U"
+          "SIGNING_SESSION_SEAL_ROOT_SECRET_B64U"
         ]
       }
     }

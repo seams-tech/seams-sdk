@@ -30,7 +30,10 @@ import {
 } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { base58Encode } from '@shared/utils/base58';
-import { WALLET_SESSION_SEAL_BASE_PATH } from '@shared/utils/signingSessionSeal';
+import {
+  SIGNING_SESSION_SEAL_GROUP_ID,
+  WALLET_SESSION_SEAL_BASE_PATH,
+} from '@shared/utils/signingSessionSeal';
 import {
   joinNormalizedUrl,
   normalizeNonNegativeInteger,
@@ -115,7 +118,6 @@ type SigningSessionSealTransport = {
   relayerUrl: string;
   walletSessionJwt?: string;
   keyVersion?: string;
-  shamirPrimeB64u?: string;
   serverSealedSecretCacheScope?: PasskeyServerSealedSecretCacheScope;
 };
 
@@ -240,15 +242,13 @@ async function passkeyServerSealedSecretCacheKey(args: {
   prfFirstB64u: string;
   relayerUrl: string;
   keyVersion: string;
-  shamirPrimeB64u: string;
   cacheScope: PasskeyServerSealedSecretCacheScope | undefined;
 }): Promise<string | null> {
   const prfFirstB64u = normalizeOptionalTrimmedString(args.prfFirstB64u);
   const relayerUrl = normalizeOptionalTrimmedString(args.relayerUrl);
   const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
-  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.shamirPrimeB64u);
   const cacheScope = args.cacheScope;
-  if (!prfFirstB64u || !relayerUrl || !keyVersion || !shamirPrimeB64u || !cacheScope) {
+  if (!prfFirstB64u || !relayerUrl || !keyVersion || !cacheScope) {
     return null;
   }
   const prfDigestHex = await sha256HexUtf8(prfFirstB64u);
@@ -256,7 +256,7 @@ async function passkeyServerSealedSecretCacheKey(args: {
     'passkey-server-sealed-secret-v1',
     relayerUrl,
     keyVersion,
-    shamirPrimeB64u,
+    SIGNING_SESSION_SEAL_GROUP_ID,
     cacheScope.walletId,
     cacheScope.credentialIdB64u,
     cacheScope.signingGrantId,
@@ -619,7 +619,6 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
   const walletSessionJwt = normalizeOptionalNonEmptyString(transport.walletSessionJwt);
   const keyVersion = normalizeOptionalNonEmptyString(transport.signingSessionSealKeyVersion);
-  const shamirPrimeB64u = normalizeOptionalNonEmptyString(transport.shamirPrimeB64u);
   const serverSealedSecretCacheScope = parsePasskeyServerSealedSecretCacheScope(
     transport.serverSealedSecretCacheScope,
   );
@@ -628,7 +627,6 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
     relayerUrl,
     ...(walletSessionJwt ? { walletSessionJwt } : {}),
     ...(keyVersion ? { keyVersion } : {}),
-    ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
     ...(serverSealedSecretCacheScope ? { serverSealedSecretCacheScope } : {}),
   };
 }
@@ -692,7 +690,6 @@ function makeSigningSessionSealSingleFlightKey(args: {
   sessionId: string;
   relayerUrl: string;
   keyVersion?: string;
-  shamirPrimeB64u?: string;
   payloadKey?: string;
 }): string {
   const operation =
@@ -700,9 +697,8 @@ function makeSigningSessionSealSingleFlightKey(args: {
   const sessionId = normalizeOptionalTrimmedString(args.sessionId) || '';
   const relayerUrl = normalizeOptionalTrimmedString(args.relayerUrl) || '';
   const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion) || '';
-  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.shamirPrimeB64u) || '';
   const payloadKey = normalizeOptionalNonEmptyString(args.payloadKey) || '';
-  return `${operation}|${sessionId}|${relayerUrl}|${keyVersion}|${shamirPrimeB64u}|${payloadKey}`;
+  return `${operation}|${sessionId}|${relayerUrl}|${keyVersion}|${SIGNING_SESSION_SEAL_GROUP_ID}|${payloadKey}`;
 }
 
 async function callSigningSessionSealRoute(args: {
@@ -1481,14 +1477,6 @@ async function runSigningSessionSealAndPersist(args: {
   if (!sessionId) {
     return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
   }
-  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
-  if (!shamirPrimeB64u) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message: 'Missing shamirPrimeB64u for signing-session seal',
-    };
-  }
   const activeEntry = readWarmSessionMaterialEntry(sessionId);
   if (!activeEntry.ok) return activeEntry;
   const entry = activeEntry.entry;
@@ -1497,7 +1485,6 @@ async function runSigningSessionSealAndPersist(args: {
     sessionId,
     relayerUrl: args.transport.relayerUrl,
     keyVersion: args.transport.keyVersion,
-    shamirPrimeB64u,
     payloadKey: entry.prfFirstHandle,
   });
   const inFlight = signingSessionSealApplyInFlight.get(singleFlightKey);
@@ -1508,7 +1495,9 @@ async function runSigningSessionSealAndPersist(args: {
     try {
       const runtimeSetupStartedAt = performance.now();
       const runtime = await getShamir3PassRuntime();
-      const clientKeyHandle = await runtime.createClientKeyHandle({ shamirPrimeB64u });
+      const clientKeyHandle = await runtime.createClientKeyHandle({
+        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+      });
       recordWarmSessionSealAndPersistDiagnosticDuration({
         diagnostics,
         bucket: 'runtimeSetupMs',
@@ -1565,7 +1554,6 @@ async function runSigningSessionSealAndPersist(args: {
               prfFirstB64u: activeEntry.secret.prfFirstB64u,
               relayerUrl: args.transport.relayerUrl,
               keyVersion,
-              shamirPrimeB64u,
               cacheScope: args.transport.serverSealedSecretCacheScope,
             })
           : null;
@@ -1649,20 +1637,11 @@ async function runSigningSessionRehydrate(args: {
       message: 'Warm-session material expired for threshold session',
     };
   }
-  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
-  if (!shamirPrimeB64u) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message: 'Missing shamirPrimeB64u for signing-session rehydrate',
-    };
-  }
   const singleFlightKey = makeSigningSessionSealSingleFlightKey({
     operation: 'remove-server-seal',
     sessionId,
     relayerUrl: args.transport.relayerUrl,
     keyVersion: args.keyVersion || args.transport.keyVersion,
-    shamirPrimeB64u,
     payloadKey: sealedSecretB64u,
   });
   const inFlight = signingSessionSealRemoveInFlight.get(singleFlightKey);
@@ -1671,7 +1650,9 @@ async function runSigningSessionRehydrate(args: {
   const task = (async (): Promise<OkResult | ErrResult> => {
     try {
       const runtime = await getShamir3PassRuntime();
-      const clientKeyHandle = await runtime.createClientKeyHandle({ shamirPrimeB64u });
+      const clientKeyHandle = await runtime.createClientKeyHandle({
+        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+      });
       try {
         const clientEncryptedCiphertext = await runtime.addClientSealWithKeyHandle({
           ciphertextB64u: sealedSecretB64u,

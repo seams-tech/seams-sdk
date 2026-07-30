@@ -598,7 +598,7 @@ export async function recoverEmailOtpEd25519YaoFromSealedSessionV1(input: {
       relayerUrl: record.relayerUrl,
       walletSessionJwt: emailOtp.walletSessionJwt,
       signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(record.keyVersion),
-      shamirPrimeB64u: requireString(record.shamirPrimeB64u, 'shamirPrimeB64u'),
+      groupId: requireString(record.groupId, 'groupId'),
     },
     restore: {
       session,

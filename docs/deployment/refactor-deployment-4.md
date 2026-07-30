@@ -443,12 +443,7 @@ which component owns them, and what each requires:
       "signingSessionSeal": {
         "enabled": true,
         "owner": "gateway",
-        "secrets": [
-          "SIGNING_SESSION_SEAL_KEY_VERSION",
-          "SIGNING_SESSION_SHAMIR_P_B64U",
-          "SIGNING_SESSION_SEAL_E_S_B64U",
-          "SIGNING_SESSION_SEAL_D_S_B64U",
-        ],
+        "secrets": ["SIGNING_SESSION_SEAL_ROOT_SECRET_B64U"],
       },
     },
   },
