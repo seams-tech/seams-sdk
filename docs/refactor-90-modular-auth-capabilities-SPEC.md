@@ -200,6 +200,9 @@ implementing commit SHA as the evidence.
   - [x] Post-registration relayer-key derivation accepts wallet and signing-root
     facts instead of a provisioning slot while preserving the established
     derived identifier (`fca3baaf2`).
+  - [x] Remaining positive provisioning-slot uses are confined to registration
+    and publication boundaries; runtime shapes reject the field, and the
+    zero-consumer bootstrap relayer port family is deleted (`a843d8dbc`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
 - [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently

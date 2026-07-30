@@ -351,7 +351,7 @@ removes.
 - [x] Remove raw share bytes and broad state objects from generic callers.
 - [x] Delete `evmFamilySigningKeySlotId` from role-local public facts,
       activation/durable bindings, persistence keys, and sealing AAD.
-- [ ] Delete `evmFamilySigningKeySlotId` from remaining runtime paths or prove
+- [x] Delete `evmFamilySigningKeySlotId` from remaining runtime paths or prove
       it is a provisioning-only identifier outside material selection.
   - [x] Delete the zero-caller slot-bearing server-planned WASM context and its
         type fixture (`2b2d2f4b3`).
@@ -405,6 +405,9 @@ removes.
         derivation; exact-session bootstrap now supplies wallet and signing-root
         facts while the derivation preserves the established wire identifier
         (`fca3baaf2`).
+  - [x] Audit the remaining positive uses as registration/provisioning-only,
+        retain explicit runtime `never`/parser rejection, and delete the
+        zero-consumer bootstrap relayer port family (`a843d8dbc`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.

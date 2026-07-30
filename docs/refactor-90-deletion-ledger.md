@@ -129,7 +129,7 @@ replacement.
   durable bindings, persistence keys, and sealing AAD~~ — deleted by
   `e7c1168a0`; provisioning/wire consumers derive it from wallet plus signing
   root/version.
-- `evmFamilySigningKeySlotId` in remaining runtime paths (audit first: delete,
+- ~~`evmFamilySigningKeySlotId` in remaining runtime paths~~ (audit first: delete,
   or rename to `EvmFamilyEcdsaProvisioningReservationId` confined to
   registration/bootstrap). Forbidden in `ExactSigningLaneIdentity`,
   Wallet Session claims, Router A/B normal-signing scope,
@@ -165,6 +165,9 @@ replacement.
   `499a9e00e`, while the client-root proof boundary test remains.
   Post-registration relayer-key derivation stopped accepting the provisioning
   slot in `fca3baaf2`; callers now supply exact wallet and signing-root facts.
+  The final audit found positive uses only at registration/provisioning
+  boundaries and explicit rejection in runtime shapes; the zero-consumer
+  bootstrap relayer port family was deleted in `a843d8dbc`.
 - ~~`evmFamilySigningKeySlotId` in ECDSA Wallet Session JWT binding facts and
   normal-signing claims~~ — deleted by `4986d279f`; the value remains only on
   the registration bootstrap request/response boundary in that path.
