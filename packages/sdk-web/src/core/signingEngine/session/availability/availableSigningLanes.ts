@@ -693,33 +693,6 @@ export function ecdsaAvailableLaneIdentityKey(
   }
 }
 
-export function ecdsaAvailableLaneMaterialKey(
-  lane: EcdsaAvailableLaneIdentityInput | MissingAvailableEcdsaSigningLane | null | undefined,
-): string | null {
-  if (!lane || lane.curve !== 'ecdsa') return null;
-  if (!lane.chainTarget || !('key' in lane) || !lane.key) return null;
-  if (!('auth' in lane) || !lane.auth) return null;
-  const authMethod = signingLaneAuthMethod(lane.auth);
-  const authKey = ecdsaAvailableLaneAuthKey(lane.auth);
-  if (!authMethod || !authKey) return null;
-  try {
-    return [
-      authMethod,
-      'ecdsa',
-      thresholdEcdsaChainTargetKey(lane.chainTarget),
-      authKey,
-      String(lane.key.walletId),
-      materialActivationKey(lane.materialActivation),
-      String(lane.key.ecdsaThresholdKeyId),
-      String(lane.key.signingRootId),
-      String(lane.key.signingRootVersion || 'default'),
-      deriveAvailableEcdsaLaneFingerprint(lane),
-    ].join(':');
-  } catch {
-    return null;
-  }
-}
-
 export function ecdsaAvailableLaneAuthKey(auth: SigningLaneAuthBinding): string | null {
   return signingLaneAuthBindingKey(auth);
 }

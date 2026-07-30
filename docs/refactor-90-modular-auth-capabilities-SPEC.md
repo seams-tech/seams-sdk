@@ -151,6 +151,9 @@ implementing commit SHA as the evidence.
 
 - [ ] `R90-INV-001` — session, evidence, grant, claim, vault, and audit requests
   and rows normalize at their owning boundaries.
+  - [x] ECDSA refresh HTTP input is owned by the canonical route-definition
+    boundary; the duplicate standalone adapter and wrapper-only test are
+    deleted (`a89ede462`, `df478bfed`).
 - [ ] `R90-INV-009` — the minimal vault operation uses a stable fingerprint and
   one atomic absent-claim grant-use transaction.
 - [ ] `R90-INV-012` — the real minimal vault vertical proves session → Passkey
