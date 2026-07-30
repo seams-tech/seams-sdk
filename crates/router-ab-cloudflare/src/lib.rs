@@ -4892,6 +4892,18 @@ pub enum CloudflareRouterEd25519AuthorizationClaimV1 {
         display_digest_b64u: String,
         operation_fingerprint_digest: String,
     },
+    OperationStepUpOperationClaimV1 {
+        authorization_session_id: String,
+        use_id: String,
+        grant_id: String,
+        operation_id: String,
+        capability_kind: CloudflareRouterEd25519CapabilityKindV1,
+        operation_kind: CloudflareRouterEd25519OperationKindV1,
+        lane_digest_b64u: String,
+        intent_digest_b64u: String,
+        display_digest_b64u: String,
+        operation_fingerprint_digest: String,
+    },
 }
 
 /// Capability domain admitted by the Ed25519 reusable-session route.
@@ -4917,7 +4929,8 @@ pub enum CloudflareRouterEd25519OperationKindV1 {
 #[cfg(feature = "workers-rs")]
 impl CloudflareRouterEd25519AuthorizationClaimV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        let Self::ReusableWalletSessionOperationClaimV1 {
+        let (
+            authorization_session_id,
             use_id,
             grant_id,
             operation_id,
@@ -4925,8 +4938,53 @@ impl CloudflareRouterEd25519AuthorizationClaimV1 {
             intent_digest_b64u,
             display_digest_b64u,
             operation_fingerprint_digest,
-            ..
-        } = self;
+        ) = match self {
+            Self::ReusableWalletSessionOperationClaimV1 {
+                use_id,
+                grant_id,
+                operation_id,
+                lane_digest_b64u,
+                intent_digest_b64u,
+                display_digest_b64u,
+                operation_fingerprint_digest,
+                ..
+            } => (
+                None,
+                use_id,
+                grant_id,
+                operation_id,
+                lane_digest_b64u,
+                intent_digest_b64u,
+                display_digest_b64u,
+                operation_fingerprint_digest,
+            ),
+            Self::OperationStepUpOperationClaimV1 {
+                authorization_session_id,
+                use_id,
+                grant_id,
+                operation_id,
+                lane_digest_b64u,
+                intent_digest_b64u,
+                display_digest_b64u,
+                operation_fingerprint_digest,
+                ..
+            } => (
+                Some(authorization_session_id),
+                use_id,
+                grant_id,
+                operation_id,
+                lane_digest_b64u,
+                intent_digest_b64u,
+                display_digest_b64u,
+                operation_fingerprint_digest,
+            ),
+        };
+        if let Some(authorization_session_id) = authorization_session_id {
+            require_non_empty(
+                "authorization_claim.authorization_session_id",
+                authorization_session_id,
+            )?;
+        }
         require_non_empty("authorization_claim.use_id", use_id)?;
         require_non_empty("authorization_claim.grant_id", grant_id)?;
         require_non_empty("authorization_claim.operation_id", operation_id)?;
@@ -4946,12 +5004,41 @@ impl CloudflareRouterEd25519AuthorizationClaimV1 {
     pub fn validate_for_finalize_request(
         &self,
         request: &RouterAbEd25519NormalSigningFinalizeRequestV2,
+        authorization: &CloudflareRouterNormalSigningAuthorizationV2,
     ) -> RouterAbProtocolResult<()> {
         self.validate()?;
         request.validate()?;
-        let Self::ReusableWalletSessionOperationClaimV1 {
-            intent_digest_b64u, ..
-        } = self;
+        authorization.validate()?;
+        let intent_digest_b64u = match (self, authorization) {
+            (
+                Self::ReusableWalletSessionOperationClaimV1 {
+                    intent_digest_b64u, ..
+                },
+                CloudflareRouterNormalSigningAuthorizationV2::ReusableWalletSession { .. },
+            ) => intent_digest_b64u,
+            (
+                Self::OperationStepUpOperationClaimV1 {
+                    authorization_session_id,
+                    grant_id,
+                    intent_digest_b64u,
+                    ..
+                },
+                CloudflareRouterNormalSigningAuthorizationV2::OperationStepUp {
+                    authorization_session_id: admitted_session_id,
+                    grant_id: admitted_grant_id,
+                },
+            ) if authorization_session_id == admitted_session_id
+                && grant_id == admitted_grant_id =>
+            {
+                intent_digest_b64u
+            }
+            _ => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Ed25519 authorization claim does not match Router admission",
+                ));
+            }
+        };
         let intent_digest = decode_public_digest_b64u_v1(
             "authorization_claim.intent_digest_b64u",
             intent_digest_b64u,
@@ -4970,24 +5057,41 @@ impl CloudflareRouterEd25519AuthorizationClaimV1 {
         wallet_session_id: String,
     ) -> RouterAbProtocolResult<CloudflareSigningWorkerNormalSigningEffectClaimV1> {
         self.validate()?;
-        let Self::ReusableWalletSessionOperationClaimV1 {
-            use_id,
-            grant_id,
-            operation_id,
-            operation_fingerprint_digest,
-            ..
-        } = self;
-        Ok(
-            CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
-                claim: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::new(
-                    wallet_session_id,
+        match self {
+            Self::ReusableWalletSessionOperationClaimV1 {
+                use_id,
+                grant_id,
+                operation_id,
+                operation_fingerprint_digest,
+                ..
+            } => Ok(
+                CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
+                    claim: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::new(
+                        wallet_session_id,
+                        grant_id,
+                        use_id,
+                        operation_id,
+                        operation_fingerprint_digest,
+                    )?,
+                },
+            ),
+            Self::OperationStepUpOperationClaimV1 {
+                authorization_session_id,
+                use_id,
+                grant_id,
+                operation_id,
+                operation_fingerprint_digest,
+                ..
+            } => Ok(
+                CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
+                    authorization_session_id,
                     grant_id,
                     use_id,
                     operation_id,
                     operation_fingerprint_digest,
-                )?,
-            },
-        )
+                },
+            ),
+        }
     }
 }
 
@@ -5155,7 +5259,7 @@ pub fn parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json(
     bytes: &[u8],
 ) -> RouterAbProtocolResult<(
     RouterAbEd25519NormalSigningFinalizeRequestV2,
-    Option<CloudflareRouterEd25519AuthorizationClaimV1>,
+    CloudflareRouterEd25519AuthorizationClaimV1,
 )> {
     let value = serde_json::from_slice::<serde_json::Value>(bytes).map_err(|err| {
         RouterAbProtocolError::new(
@@ -5172,21 +5276,20 @@ pub fn parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json(
             ));
         }
     };
-    let claim = object
-        .remove("authorization_claim")
-        .map(|claim_value| {
-            serde_json::from_value::<CloudflareRouterEd25519AuthorizationClaimV1>(claim_value)
-        })
-        .transpose()
+    let claim_value = object.remove("authorization_claim").ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "authorization_claim is required",
+        )
+    })?;
+    let claim = serde_json::from_value::<CloudflareRouterEd25519AuthorizationClaimV1>(claim_value)
         .map_err(|err| {
             RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::MalformedWirePayload,
                 format!("Ed25519 authorization claim JSON parse failed: {err}"),
             )
         })?;
-    if let Some(claim) = &claim {
-        claim.validate()?;
-    }
+    claim.validate()?;
     let request = serde_json::from_value::<RouterAbEd25519NormalSigningFinalizeRequestV2>(
         serde_json::Value::Object(object),
     )
@@ -6127,7 +6230,7 @@ pub async fn handle_cloudflare_router_normal_signing_finalize_authenticated_publ
     runtime: &CloudflareRouterWorkerRuntimeV1,
     now_unix_ms: u64,
     request: RouterAbEd25519NormalSigningFinalizeRequestV2,
-    authorization_claim: Option<CloudflareRouterEd25519AuthorizationClaimV1>,
+    authorization_claim: CloudflareRouterEd25519AuthorizationClaimV1,
     credential: CloudflareRouterWalletSessionCredentialV1,
     trusted_source_digest: PublicDigest32,
     mut verifier: Verifier,
@@ -6158,41 +6261,15 @@ where
             "normal-signing v2 finalize Router admission did not allow SigningWorker forwarding",
         ));
     }
-    let admitted = match (&admission.authorization, authorization_claim) {
-        (
-            CloudflareRouterNormalSigningAuthorizationV2::ReusableWalletSession { .. },
-            Some(authorization_claim),
-        ) => {
-            authorization_claim.validate_for_finalize_request(&request)?;
-            let effect_claim = authorization_claim
-                .into_signing_worker_effect_claim(wallet_session.wallet_session_id.clone())?;
-            CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
-                request,
-                admission,
-                trusted_admission,
-                effect_claim,
-            )?
-        }
-        (CloudflareRouterNormalSigningAuthorizationV2::ReusableWalletSession { .. }, None) => {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "authorization_claim is required for reusable Wallet Session finalize",
-            ));
-        }
-        (CloudflareRouterNormalSigningAuthorizationV2::OperationStepUp { .. }, None) => {
-            CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::operation_step_up(
-                request,
-                admission,
-                trusted_admission,
-            )?
-        }
-        (CloudflareRouterNormalSigningAuthorizationV2::OperationStepUp { .. }, Some(_)) => {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "operation-step-up finalize must not carry authorization_claim",
-            ));
-        }
-    };
+    authorization_claim.validate_for_finalize_request(&request, &admission.authorization)?;
+    let effect_claim = authorization_claim
+        .into_signing_worker_effect_claim(wallet_session.wallet_session_id.clone())?;
+    let admitted = CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
+        request,
+        admission,
+        trusted_admission,
+        effect_claim,
+    )?;
     execute_cloudflare_signing_worker_normal_signing_finalize_service_call_v2(
         env,
         runtime.signing_worker_peer(),

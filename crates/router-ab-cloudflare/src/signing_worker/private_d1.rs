@@ -992,10 +992,16 @@ pub async fn claim_cloudflare_signing_worker_near_effect_v1(
             )
             .await
         }
-        CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp { grant_id, .. } => {
+        CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
+            authorization_session_id,
+            grant_id,
+            use_id,
+            ..
+        } => {
             let authorization_json =
                 encode_json("SigningWorker effect authorization", &request.effect_claim)?;
-            let authorization_key = format!("operation-step-up/{grant_id}");
+            let authorization_key =
+                format!("operation-step-up/{authorization_session_id}/{grant_id}/{use_id}");
             claim_cloudflare_signing_worker_authorization_effect_v1(
                 &session,
                 &operation_key,

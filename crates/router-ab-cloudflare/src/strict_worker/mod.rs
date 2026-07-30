@@ -78,7 +78,6 @@ use crate::{
 #[cfg(feature = "strict-worker-signing-worker-entrypoint")]
 use crate::{
     cloudflare_now_unix_ms_v1,
-    handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_commit_query_fetch_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_fetch_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_refresh_fetch_v1,
     handle_cloudflare_signing_worker_ecdsa_export_share_private_fetch_v1,
@@ -100,7 +99,6 @@ use crate::{
     CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH,
     CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_ROUND1_PREPARE_PATH,
     CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH,
-    CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_COMMIT_QUERY_PATH,
     CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH,
     CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH,
     CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH,

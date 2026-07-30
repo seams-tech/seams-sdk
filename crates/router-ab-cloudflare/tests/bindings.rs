@@ -7507,19 +7507,28 @@ fn normal_signing_step_up_admission_derives_the_exact_one_use_claim() {
         ExpensiveWorkGateDecisionV1::accepted(request.scope.request_id.clone()).expect("accepted"),
     )
     .expect("trusted admission");
-    let admitted =
-        CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::operation_step_up(
-            request,
-            admission,
-            trusted_admission,
-        )
-        .expect("admitted step-up finalize");
+    let admitted = CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
+        request,
+        admission,
+        trusted_admission,
+        CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
+            authorization_session_id: "authorization-session-1".to_owned(),
+            grant_id: "operation-grant-1".to_owned(),
+            use_id: "operation-use-1".to_owned(),
+            operation_id: "operation-1".to_owned(),
+            operation_fingerprint_digest: "fingerprint-1".to_owned(),
+        },
+    )
+    .expect("admitted step-up finalize");
 
     assert_eq!(
         admitted.effect_claim,
         CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
             authorization_session_id: "authorization-session-1".to_owned(),
             grant_id: "operation-grant-1".to_owned(),
+            use_id: "operation-use-1".to_owned(),
+            operation_id: "operation-1".to_owned(),
+            operation_fingerprint_digest: "fingerprint-1".to_owned(),
         }
     );
     let operation_key = admitted.effect_operation_key().expect("operation key");
@@ -7556,26 +7565,56 @@ fn normal_signing_finalize_boundary_extracts_reusable_operation_claim() {
             .expect("authorized finalize request");
 
     assert_eq!(parsed_request, request);
+    let authorization =
+        CloudflareRouterNormalSigningAuthorizationV2::reusable_wallet_session("wallet-session-1")
+            .expect("reusable authorization");
     claim
-        .expect("reusable operation claim")
-        .validate_for_finalize_request(&parsed_request)
+        .validate_for_finalize_request(&parsed_request, &authorization)
         .expect("claim matches finalize request");
 }
 
 #[test]
-fn normal_signing_finalize_boundary_accepts_operation_step_up_without_reusable_claim() {
+fn normal_signing_finalize_boundary_extracts_operation_step_up_claim() {
     let mut request = normal_signing_v2_finalize_request(2_000);
     request.scope.authorization =
         NormalSigningAuthorizationV1::operation_step_up("operation-grant-1")
             .expect("operation step-up");
-    let bytes = serde_json::to_vec(&request).expect("operation-step-up finalize JSON");
+    let mut body = serde_json::to_value(&request)
+        .expect("operation-step-up finalize JSON")
+        .as_object()
+        .expect("operation-step-up finalize object")
+        .clone();
+    body.insert(
+        "authorization_claim".to_owned(),
+        serde_json::json!({
+            "kind": "operation_step_up_operation_claim_v1",
+            "authorization_session_id": "authorization-session-1",
+            "use_id": "operation-use-1",
+            "grant_id": "operation-grant-1",
+            "operation_id": "operation-1",
+            "capability_kind": "near_ed25519_mpc_signing",
+            "operation_kind": "near.sign_transaction",
+            "lane_digest_b64u": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x11; 32]),
+            "intent_digest_b64u": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(request.intent_digest().as_bytes()),
+            "display_digest_b64u": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x22; 32]),
+            "operation_fingerprint_digest": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x33; 32]),
+        }),
+    );
+    let bytes = serde_json::to_vec(&body).expect("authorized operation-step-up finalize JSON");
 
     let (parsed_request, claim) =
         parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json(&bytes)
             .expect("operation-step-up finalize request");
 
     assert_eq!(parsed_request, request);
-    assert_eq!(claim, None);
+    let authorization = CloudflareRouterNormalSigningAuthorizationV2::operation_step_up(
+        "authorization-session-1",
+        "operation-grant-1",
+    )
+    .expect("operation-step-up authorization");
+    claim
+        .validate_for_finalize_request(&parsed_request, &authorization)
+        .expect("step-up claim matches finalize request");
 }
 
 #[test]

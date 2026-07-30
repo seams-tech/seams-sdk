@@ -173,6 +173,38 @@ const invalidStepUpFinalize: RouterAbNormalSigningFinalizeRequestV2Wire =
   stepUpFinalizeWithReusableClaim;
 void invalidStepUpFinalize;
 
+const stepUpAuthorizationClaim = {
+  kind: 'operation_step_up_operation_claim_v1' as const,
+  authorization_session_id: 'authorization-session-1',
+  use_id: 'operation-use-2',
+  grant_id: 'step-up-grant-1',
+  operation_id: 'operation-1',
+  capability_kind: 'near_ed25519_mpc_signing' as const,
+  operation_kind: 'near.sign_transaction' as const,
+  lane_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  intent_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  display_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  operation_fingerprint_digest: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+};
+
+const validStepUpFinalize = {
+  ...finalizeRequest,
+  scope: stepUpFinalizeWithReusableClaim.scope,
+  authorization_claim: stepUpAuthorizationClaim,
+} satisfies RouterAbNormalSigningFinalizeRequestV2Wire;
+void validStepUpFinalize;
+
+const stepUpFinalizeWithoutClaim = {
+  scope: validStepUpFinalize.scope,
+  expires_at_ms: validStepUpFinalize.expires_at_ms,
+  prepare_binding: validStepUpFinalize.prepare_binding,
+  protocol: validStepUpFinalize.protocol,
+};
+// @ts-expect-error operation step-up finalize requires its exact operation claim.
+const invalidStepUpFinalizeWithoutClaim: RouterAbNormalSigningFinalizeRequestV2Wire =
+  stepUpFinalizeWithoutClaim;
+void invalidStepUpFinalizeWithoutClaim;
+
 const ecdsaScope = {
   wallet_id: 'wallet-1',
   ecdsa_threshold_key_id: 'ecdsa-threshold-key-1',

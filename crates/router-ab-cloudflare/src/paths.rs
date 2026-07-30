@@ -108,9 +108,6 @@ pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH: 
 /// Private SigningWorker endpoint for Router A/B ECDSA derivation activation refresh.
 pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH: &str =
     "/router-ab/signing-worker/ecdsa-derivation/refresh";
-/// Private SigningWorker endpoint for querying one exact ECDSA activation commit.
-pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_COMMIT_QUERY_PATH: &str =
-    "/router-ab/signing-worker/ecdsa-derivation/activation-commit/query";
 /// Private SigningWorker endpoint for one-time explicit-export share delivery.
 pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH: &str =
     "/router-ab/signing-worker/ecdsa-derivation/export-share";

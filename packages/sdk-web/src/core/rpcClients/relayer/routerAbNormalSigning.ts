@@ -183,6 +183,23 @@ export type RouterAbReusableWalletSessionOperationClaimV1Wire = {
   operation_fingerprint_digest: string;
 };
 
+export type RouterAbOperationStepUpOperationClaimV1Wire = {
+  kind: 'operation_step_up_operation_claim_v1';
+  authorization_session_id: string;
+  use_id: string;
+  grant_id: string;
+  operation_id: string;
+  capability_kind: 'near_ed25519_mpc_signing';
+  operation_kind:
+    | 'near.sign_transaction'
+    | 'near.sign_delegate_action'
+    | 'near.sign_nep413_message';
+  lane_digest_b64u: string;
+  intent_digest_b64u: string;
+  display_digest_b64u: string;
+  operation_fingerprint_digest: string;
+};
+
 type RouterAbNormalSigningFinalizeRequestV2BaseWire = {
   scope: RouterAbNormalSigningScopeV2Wire;
   expires_at_ms: number;
@@ -207,7 +224,7 @@ export type RouterAbNormalSigningFinalizeRequestV2Wire =
           { kind: 'operation_step_up' }
         >;
       };
-      authorization_claim?: never;
+      authorization_claim: RouterAbOperationStepUpOperationClaimV1Wire;
     });
 
 type RouterAbNormalSigningPrepareResponseV1BaseWire = {
@@ -240,7 +257,7 @@ export type RouterAbNormalSigningPrepareResponseV1Wire =
           { kind: 'operation_step_up' }
         >;
       };
-      authorization_claim?: never;
+      authorization_claim: RouterAbOperationStepUpOperationClaimV1Wire;
     });
 
 export type RouterAbNormalSigningResponseV1Wire = {
@@ -623,6 +640,10 @@ export function buildRouterAbEd25519NormalSigningFinalizeRequestV2(args: {
         ...scope,
         authorization: scope.authorization,
       },
+      authorization_claim: parseOperationStepUpOperationClaim(
+        args.prepareResponse.authorization_claim,
+        'authorization_claim',
+      ),
     };
   }
   throw new Error('Router A/B normal-signing authorization changed after prepare');
@@ -789,6 +810,78 @@ function parseReusableWalletSessionOperationClaim(
   };
 }
 
+function parseOperationStepUpOperationClaim(
+  value: unknown,
+  label: string,
+): RouterAbOperationStepUpOperationClaimV1Wire {
+  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  if (!record) throw new Error(`${label} must be an object`);
+  requireExactFields(
+    record,
+    [
+      'kind',
+      'authorization_session_id',
+      'use_id',
+      'grant_id',
+      'operation_id',
+      'capability_kind',
+      'operation_kind',
+      'lane_digest_b64u',
+      'intent_digest_b64u',
+      'display_digest_b64u',
+      'operation_fingerprint_digest',
+    ],
+    label,
+  );
+  const kind = requireNonEmptyString(record.kind, `${label}.kind`);
+  if (kind !== 'operation_step_up_operation_claim_v1') {
+    throw new Error(`${label}.kind is invalid`);
+  }
+  const capabilityKind = requireNonEmptyString(
+    record.capability_kind,
+    `${label}.capability_kind`,
+  );
+  if (capabilityKind !== 'near_ed25519_mpc_signing') {
+    throw new Error(`${label}.capability_kind is invalid`);
+  }
+  const operationKind = requireNonEmptyString(record.operation_kind, `${label}.operation_kind`);
+  if (
+    operationKind !== 'near.sign_transaction' &&
+    operationKind !== 'near.sign_delegate_action' &&
+    operationKind !== 'near.sign_nep413_message'
+  ) {
+    throw new Error(`${label}.operation_kind is invalid`);
+  }
+  return {
+    kind: 'operation_step_up_operation_claim_v1',
+    authorization_session_id: requireNonEmptyString(
+      record.authorization_session_id,
+      `${label}.authorization_session_id`,
+    ),
+    use_id: requireNonEmptyString(record.use_id, `${label}.use_id`),
+    grant_id: requireNonEmptyString(record.grant_id, `${label}.grant_id`),
+    operation_id: requireNonEmptyString(record.operation_id, `${label}.operation_id`),
+    capability_kind: 'near_ed25519_mpc_signing',
+    operation_kind: operationKind,
+    lane_digest_b64u: requireDigestB64u(
+      record.lane_digest_b64u,
+      `${label}.lane_digest_b64u`,
+    ),
+    intent_digest_b64u: requireDigestB64u(
+      record.intent_digest_b64u,
+      `${label}.intent_digest_b64u`,
+    ),
+    display_digest_b64u: requireDigestB64u(
+      record.display_digest_b64u,
+      `${label}.display_digest_b64u`,
+    ),
+    operation_fingerprint_digest: requireDigestB64u(
+      record.operation_fingerprint_digest,
+      `${label}.operation_fingerprint_digest`,
+    ),
+  };
+}
+
 function parsePrepareResponse(value: unknown): RouterAbNormalSigningPrepareResponseV1Wire {
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!record) throw new Error('Router A/B normal-signing prepare response must be an object');
@@ -856,12 +949,17 @@ function parsePrepareResponse(value: unknown): RouterAbNormalSigningPrepareRespo
           'signature_scheme',
           'prepared_at_ms',
           'expires_at_ms',
+          'authorization_claim',
         ],
         'Router A/B operation step-up prepare response',
       );
       return {
         ...base,
         scope: { ...scope, authorization: scope.authorization },
+        authorization_claim: parseOperationStepUpOperationClaim(
+          record.authorization_claim,
+          'authorization_claim',
+        ),
       };
   }
 }

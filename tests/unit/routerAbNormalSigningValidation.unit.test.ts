@@ -5,7 +5,10 @@ import type {
   RouterAbNormalSigningResponseV1Wire,
   RouterAbPublicDigest32Wire,
 } from '@/core/rpcClients/relayer/routerAbNormalSigning';
-import { prepareRouterAbNormalSigningV2 } from '@/core/rpcClients/relayer/routerAbNormalSigning';
+import {
+  buildRouterAbEd25519NormalSigningFinalizeRequestV2,
+  prepareRouterAbNormalSigningV2,
+} from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import {
   isSigningSessionBudgetAdmissionBlockedError,
   SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
@@ -156,6 +159,13 @@ async function prepareWithHttpError(fixture: HttpErrorFixture): Promise<unknown>
 }
 
 async function prepareWithHttpResponse(body: unknown): Promise<unknown> {
+  return prepareRequestWithHttpResponse(request, body);
+}
+
+async function prepareRequestWithHttpResponse(
+  requestInput: RouterAbNormalSigningPrepareRequestV2Wire,
+  body: unknown,
+): Promise<unknown> {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>
     new Response(JSON.stringify(body), {
@@ -166,7 +176,7 @@ async function prepareWithHttpResponse(body: unknown): Promise<unknown> {
     return await prepareRouterAbNormalSigningV2({
       relayServerUrl: 'https://router.example/base/',
       credential: { kind: 'jwt', walletSessionJwt: 'wallet-session-jwt' },
-      request,
+      request: requestInput,
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -265,5 +275,57 @@ test('parses the reusable Wallet Session operation-claim receipt', async () => {
     response.authorization_claim;
   await expect(
     prepareWithHttpResponse({ ...response, authorization_claim: truncatedClaim }),
+  ).rejects.toThrow('authorization_claim has invalid fields');
+});
+
+test('parses and echoes the operation step-up claim receipt', async () => {
+  const stepUpRequest: RouterAbNormalSigningPrepareRequestV2Wire = {
+    ...request,
+    scope: {
+      ...request.scope,
+      authorization: { kind: 'operation_step_up', grant_id: 'step-up-grant-1' },
+    },
+  };
+  const stepUpClaim = {
+    kind: 'operation_step_up_operation_claim_v1' as const,
+    authorization_session_id: 'authorization-session-1',
+    use_id: 'operation-use-2',
+    grant_id: 'step-up-grant-1',
+    operation_id: 'operation-1',
+    capability_kind: 'near_ed25519_mpc_signing' as const,
+    operation_kind: 'near.sign_transaction' as const,
+    lane_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+    intent_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+    display_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+    operation_fingerprint_digest: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  };
+  const response: RouterAbNormalSigningPrepareResponseV1Wire = {
+    ...prepareResponse('signing-worker-a'),
+    scope: stepUpRequest.scope,
+    authorization_claim: stepUpClaim,
+  };
+  await expect(prepareRequestWithHttpResponse(stepUpRequest, response)).resolves.toEqual(response);
+
+  const finalize = buildRouterAbEd25519NormalSigningFinalizeRequestV2({
+    scope: stepUpRequest.scope,
+    expiresAtMs: stepUpRequest.expires_at_ms,
+    prepareResponse: response,
+    admissionMaterial: {
+      intentDigest: digest32,
+      signingPayloadDigest: digest32,
+      admittedSigningDigest: digest32,
+    },
+    clientCommitments: { hiding: 'client-hiding', binding: 'client-binding' },
+    clientVerifyingShareB64u: 'client-verifying-share',
+    clientSignatureShareB64u: 'client-signature-share',
+  });
+  expect(finalize.authorization_claim).toEqual(stepUpClaim);
+
+  const { authorization_session_id: _authorizationSessionId, ...truncatedClaim } = stepUpClaim;
+  await expect(
+    prepareRequestWithHttpResponse(stepUpRequest, {
+      ...response,
+      authorization_claim: truncatedClaim,
+    }),
   ).rejects.toThrow('authorization_claim has invalid fields');
 });
