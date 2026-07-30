@@ -5,14 +5,51 @@ import {
   type WarmSessionTransitionEvent,
 } from '@/core/signingEngine/session/warmCapabilities/transitions';
 import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapabilities/types';
-import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  buildBaseEvmFamilyEcdsaKeyIdentity,
+  toRpId,
+} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { canonicalEcdsaSealedRuntimeFixture } from './helpers/ecdsaOperationStepUp.fixtures';
+import { activeEvmFamilyWalletSessionAuthorizationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 
-function createEnvelope(): WarmSessionEnvelope {
+async function createEnvelope(): Promise<WarmSessionEnvelope> {
+  const { fixture, runtime } = await canonicalEcdsaSealedRuntimeFixture('passkey');
+  const authorization = activeEvmFamilyWalletSessionAuthorizationFixture({
+    manifest: fixture.manifest,
+  });
+  const publicFacts = fixture.manifest.durableMaterial.roleLocalPublicFacts;
+  if (
+    runtime.authBinding.kind !== 'passkey' ||
+    !runtime.authBinding.rpId ||
+    !runtime.authBinding.credentialIdB64u
+  ) {
+    throw new Error('transition fixture requires an exact passkey runtime binding');
+  }
+  const credentialIdB64u = runtime.authBinding.credentialIdB64u;
+  const key = buildBaseEvmFamilyEcdsaKeyIdentity({
+    walletId: runtime.walletId,
+    ecdsaThresholdKeyId: runtime.ecdsaThresholdKeyId,
+    signingRootId: String(publicFacts.signingRootId),
+    signingRootVersion: String(publicFacts.signingRootVersion),
+    participantIds: [...runtime.participantIds],
+    thresholdOwnerAddress: String(publicFacts.ethereumAddress),
+  });
+  const lane = selectedEcdsaLane({
+    key,
+    materialActivation: runtime.materialActivation,
+    keyHandle: runtime.keyHandle,
+    walletId: runtime.walletId,
+    auth: {
+      kind: 'passkey',
+      rpId: toRpId(runtime.authBinding.rpId),
+      credentialIdB64u,
+    },
+    authorization,
+    chainTarget: runtime.chainTarget,
+  });
   return {
-    walletId: 'transition-summary.testnet' as any,
+    walletId: runtime.walletId,
     capabilities: {
       ed25519: {
         capability: 'ed25519',
@@ -38,7 +75,8 @@ function createEnvelope(): WarmSessionEnvelope {
       ecdsa: {
         evm: {
           capability: 'ecdsa',
-          record: null,
+          manifest: null,
+          runtime: null,
           key: null,
           lane: null,
           auth: null,
@@ -46,73 +84,15 @@ function createEnvelope(): WarmSessionEnvelope {
           state: 'missing',
         },
         tempo: {
-          ...(function () {
-            const chainTarget = testEcdsaChainTarget('tempo');
-            const key = {
-              walletId: 'transition-summary.testnet',
-              subjectId: 'wallet-transition',
-              rpId: 'example.localhost',
-              keyScope: 'evm-family',
-              ecdsaThresholdKeyId: 'ek-tempo',
-              signingRootId: 'signing-root',
-              signingRootVersion: 'default',
-              participantIds: [1, 2],
-              thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
-            } as any;
-            const lane = selectedEcdsaLane({
-              key,
-              materialActivation: buildMpcMaterialActivationRefFixture('transition-summary'),
-              keyHandle: 'ek-tempo-handle',
-              walletId: 'transition-summary.testnet' as any,
-              auth: {
-                kind: 'passkey',
-                rpId: 'example.localhost' as any,
-                credentialIdB64u: 'credential-transition-summary',
-              },
-              signingGrantId: 'wallet-tempo-session',
-              thresholdSessionId: 'tempo-session',
-              chainTarget,
-            });
-            return {
-              capability: 'ecdsa' as const,
-              record: {
-                walletId: 'transition-summary.testnet',
-                subjectId: toWalletId(key.walletId),
-                rpId: 'example.localhost',
-                chainTarget,
-                ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
-                signingRootId: key.signingRootId,
-                signingRootVersion: key.signingRootVersion,
-                participantIds: [1, 2],
-                ethereumAddress: `0x${'11'.repeat(20)}`,
-                thresholdSessionId: 'tempo-session',
-                signingGrantId: 'wallet-tempo-session',
-                thresholdSessionKind: 'jwt',
-                relayerUrl: 'https://relay.example',
-                relayerKeyId: 'relayer-key',
-                clientVerifyingShareB64u: 'AQ',
-                expiresAtMs: Date.now() + 120_000,
-                remainingUses: 2,
-                source: 'login',
-                updatedAtMs: Date.now(),
-              } as any,
-              key,
-              lane: {
-                ...lane,
-                key,
-              },
-            };
-          })(),
-          auth: {
-            capability: 'ecdsa',
-            state: 'ready',
-            record: {} as any,
-            walletSessionJwt: 'jwt:tempo-session',
-            walletSessionJwtSource: 'ecdsa_record',
-          },
+          capability: 'ecdsa',
+          manifest: fixture.manifest,
+          runtime,
+          key,
+          lane,
+          auth: authorization,
           prfClaim: {
             state: 'unavailable',
-            sessionId: 'tempo-session',
+            sessionId: runtime.sealedRecord.thresholdSessionId,
             code: 'worker_error',
           },
           state: 'prf_unavailable',
@@ -124,9 +104,10 @@ function createEnvelope(): WarmSessionEnvelope {
 }
 
 test.describe('warmSessionTransitions', () => {
-  test('summarizes warm-session envelopes into transition snapshots', () => {
-    expect(summarizeWarmSessionTransition(createEnvelope())).toMatchObject({
-      walletId: 'transition-summary.testnet',
+  test('summarizes warm-session envelopes into transition snapshots', async () => {
+    const envelope = await createEnvelope();
+    expect(summarizeWarmSessionTransition(envelope)).toMatchObject({
+      walletId: envelope.walletId,
       updatedAtMs: 5678,
       capabilities: {
         ed25519: {
@@ -140,7 +121,8 @@ test.describe('warmSessionTransitions', () => {
         ecdsa: {
           tempo: {
             state: 'prf_unavailable',
-            thresholdSessionId: 'tempo-session',
+            thresholdSessionId: envelope.capabilities.ecdsa.tempo.runtime?.sealedRecord
+              .thresholdSessionId,
             authState: 'present',
             prfClaimState: 'unavailable',
           },
@@ -149,7 +131,8 @@ test.describe('warmSessionTransitions', () => {
     });
   });
 
-  test('swallows synchronous transition callback failures', () => {
+  test('swallows synchronous transition callback failures', async () => {
+    const envelope = await createEnvelope();
     const warnings: unknown[][] = [];
     const originalWarn = console.warn;
     console.warn = (...args: unknown[]) => {
@@ -164,8 +147,8 @@ test.describe('warmSessionTransitions', () => {
           type: 'ed25519_capability_provisioned',
           walletId: 'transition-summary.testnet' as any,
           thresholdSessionId: 'ed25519-session',
-          before: summarizeWarmSessionTransition(createEnvelope()),
-          after: summarizeWarmSessionTransition(createEnvelope()),
+          before: summarizeWarmSessionTransition(envelope),
+          after: summarizeWarmSessionTransition(envelope),
         },
       });
     } finally {
@@ -177,6 +160,7 @@ test.describe('warmSessionTransitions', () => {
   });
 
   test('swallows asynchronous transition callback failures', async () => {
+    const envelope = await createEnvelope();
     const warnings: unknown[][] = [];
     const originalWarn = console.warn;
     console.warn = (...args: unknown[]) => {
@@ -187,8 +171,8 @@ test.describe('warmSessionTransitions', () => {
         type: 'ed25519_capability_provisioned',
         walletId: 'transition-summary.testnet' as any,
         thresholdSessionId: 'ed25519-session',
-        before: summarizeWarmSessionTransition(createEnvelope()),
-        after: summarizeWarmSessionTransition(createEnvelope()),
+        before: summarizeWarmSessionTransition(envelope),
+        after: summarizeWarmSessionTransition(envelope),
       };
       emitWarmSessionTransition({
         onTransition: async () => {

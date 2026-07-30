@@ -1,6 +1,7 @@
 import {
   nearEd25519YaoMaterialActivationFromPublicFacts,
   nearEd25519YaoRuntimeRef,
+  type NearEd25519YaoCapabilityHydrationInputV1,
 } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 import {
   buildMpcCapabilityPublicReauthAnchor,
@@ -31,7 +32,25 @@ function authorityFixture(): WalletAuthAuthorityRef {
   return authority;
 }
 
-export function nearEd25519YaoCapabilityHydrationFixture() {
+type NearEd25519YaoCapabilityHydrationFixture = {
+  authority: WalletAuthAuthorityRef;
+  materialActivation: Extract<
+    NearEd25519YaoCapabilityHydrationInputV1['publicLocator'],
+    { kind: 'available' }
+  >['materialActivation'];
+  publicLocator: Extract<
+    NearEd25519YaoCapabilityHydrationInputV1['publicLocator'],
+    { kind: 'available' }
+  >;
+  sealed: Extract<NearEd25519YaoCapabilityHydrationInputV1['sealed'], { kind: 'available' }>;
+  runtime: Extract<NearEd25519YaoCapabilityHydrationInputV1['runtime'], { kind: 'live' }>;
+  publicReauthAnchor: Extract<
+    NearEd25519YaoCapabilityHydrationInputV1['publicLocator'],
+    { kind: 'retired' }
+  >['publicReauthAnchor'];
+};
+
+export function nearEd25519YaoCapabilityHydrationFixture(): NearEd25519YaoCapabilityHydrationFixture {
   const authority = authorityFixture();
   const materialActivation = nearEd25519YaoMaterialActivationFromPublicFacts({
     activationId: 'material-activation-near-hydration',

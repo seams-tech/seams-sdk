@@ -503,7 +503,7 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Use no eventual-revocation command: no implemented offline cleanup path
       requires one. Continue disposing local secrets immediately; add a command
       only if a concrete server revocation obligation appears.
-- [ ] Add fault-injection tests for crashes before call, after call, after
+- [x] Add fault-injection tests for crashes before call, after call, after
       readback, and during atomic local finalization.
 - [x] Ensure expiry never invokes recovery or device linking; the canonical
       Email OTP refresh and sealed-lifecycle paths preserve material and its

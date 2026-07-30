@@ -134,6 +134,10 @@ export class UnusedSessionAdapter implements SessionAdapter {
     throw new Error('Session signing is outside this fixture');
   }
 
+  async verifyJwt(): Promise<never> {
+    throw new Error('Session verification is outside this fixture');
+  }
+
   async parse(): Promise<never> {
     throw new Error('Session parsing is outside this fixture');
   }
@@ -154,6 +158,16 @@ export class UnusedSessionAdapter implements SessionAdapter {
 export class StaticWalletSessionAdapter implements SessionAdapter {
   async signJwt(): Promise<string> {
     return 'registration.wallet.session';
+  }
+
+  async verifyJwt(
+    token: string,
+  ): Promise<
+    { readonly valid: true; readonly payload: Record<string, unknown> } | { readonly valid: false }
+  > {
+    return token === 'registration.wallet.session'
+      ? { valid: true, payload: {} }
+      : { valid: false };
   }
 
   async parse(): Promise<never> {

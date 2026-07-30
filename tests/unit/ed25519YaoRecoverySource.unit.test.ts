@@ -103,6 +103,22 @@ class MemoryRecoveryJournalStore
   }
 }
 
+class FaultInjectingRecoveryJournalStore extends MemoryRecoveryJournalStore {
+  failNextFinalization = true;
+
+  override async finalizeKeyMaterialRecovery(input: {
+    journalKey: string;
+    expectedJournal: unknown;
+    replacement: KeyMaterialRecord;
+  }): Promise<void> {
+    if (this.failNextFinalization) {
+      this.failNextFinalization = false;
+      throw new Error('injected atomic finalization crash');
+    }
+    await super.finalizeKeyMaterialRecovery(input);
+  }
+}
+
 class AdmittedRecoveryStatusTransport implements RouterAbEd25519YaoRecoveryTransportV1 {
   sawExecute = false;
 
@@ -469,6 +485,114 @@ test('atomically finalizes a promotion-committed journal', async () => {
     promotionReceipt: requirePromotionReceipt(request),
     replacement,
   });
+  await finalizePromotionCommittedNearEd25519YaoRecoveryV1({
+    store,
+    walletId: identity.walletId,
+    signerSlot: identity.signerSlot,
+    journal: committed,
+  });
+  expect(
+    await readNearEd25519YaoRecoveryJournalV1({
+      store,
+      walletId: identity.walletId,
+      signerSlot: identity.signerSlot,
+    }),
+  ).toBeNull();
+  expect(store.record?.keyKind).toBe('router_ab_ed25519_yao_active_client_v1');
+  zeroizeRouterAbEd25519YaoActivationEntropyV1(entropy);
+  prf.fill(0);
+});
+
+test('survives crashes before recovery call, after readback, and during atomic finalization', async () => {
+  const store = new FaultInjectingRecoveryJournalStore();
+  const entropy = createRouterAbEd25519YaoActivationEntropyV1();
+  const prf = new Uint8Array(32).fill(31);
+  const identity = {
+    walletId: 'wallet-recovery-source-1',
+    nearAccountId: toAccountId('wallet-recovery-source.testnet'),
+    nearEd25519SigningKeyId: 'near-signing-key-1',
+    signerSlot: 1,
+    operationalPublicKey: 'ed25519:public-key-1',
+    authority: requireAuthority(),
+    materialOwner: requireMaterialOwner(),
+  };
+  const request = requireAdmissionRequest();
+  const source = await sealEd25519YaoRecoverySourceV1({
+    store,
+    identity,
+    request,
+    ownedPasskeyPrfFirst: prf,
+    entropy,
+  });
+  const prepared = buildPreparedNearEd25519YaoRecoveryJournalV1({
+    authority: identity.authority,
+    materialOwner: identity.materialOwner,
+    source,
+    request,
+  });
+  await persistPreparedNearEd25519YaoRecoveryJournalV1({
+    store,
+    walletId: identity.walletId,
+    signerSlot: identity.signerSlot,
+    journal: prepared,
+  });
+
+  expect(
+    await readNearEd25519YaoRecoveryJournalV1({
+      store,
+      walletId: identity.walletId,
+      signerSlot: identity.signerSlot,
+    }),
+  ).toMatchObject({ kind: 'prepared', recoveryId: prepared.recoveryId });
+
+  if (!store.record?.payloadEnvelope) {
+    throw new Error('prepared recovery fixture is unavailable');
+  }
+  const replacement: KeyMaterialRecord = {
+    ...store.record,
+    keyKind: 'router_ab_ed25519_yao_active_client_v1',
+    payloadEnvelope: {
+      ...store.record.payloadEnvelope,
+      aad: {
+        ...store.record.payloadEnvelope.aad,
+        keyKind: 'router_ab_ed25519_yao_active_client_v1',
+      },
+    },
+  };
+  const committed = await persistPromotionCommittedNearEd25519YaoRecoveryV1({
+    store,
+    walletId: identity.walletId,
+    signerSlot: identity.signerSlot,
+    prepared,
+    promotionReceipt: requirePromotionReceipt(request),
+    replacement,
+  });
+
+  expect(
+    await readNearEd25519YaoRecoveryJournalV1({
+      store,
+      walletId: identity.walletId,
+      signerSlot: identity.signerSlot,
+    }),
+  ).toMatchObject({ kind: 'promotion_committed', recoveryId: prepared.recoveryId });
+
+  await expect(
+    finalizePromotionCommittedNearEd25519YaoRecoveryV1({
+      store,
+      walletId: identity.walletId,
+      signerSlot: identity.signerSlot,
+      journal: committed,
+    }),
+  ).rejects.toThrow('injected atomic finalization crash');
+  expect(store.record?.keyKind).toBe('router_ab_ed25519_yao_recovery_source_v1');
+  expect(
+    await readNearEd25519YaoRecoveryJournalV1({
+      store,
+      walletId: identity.walletId,
+      signerSlot: identity.signerSlot,
+    }),
+  ).toMatchObject({ kind: 'promotion_committed', recoveryId: prepared.recoveryId });
+
   await finalizePromotionCommittedNearEd25519YaoRecoveryV1({
     store,
     walletId: identity.walletId,
