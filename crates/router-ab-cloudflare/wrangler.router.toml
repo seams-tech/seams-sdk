@@ -6,33 +6,6 @@ workers_dev = true
 [build]
 command = "cargo install -q worker-build --version 0.8.4 && bash ./scripts/build-strict-worker.sh router"
 
-[[migrations]]
-tag = "router_ab_router_v1"
-new_sqlite_classes = [
-  "RouterAbRouterReplayDurableObject",
-  "RouterAbRouterLifecycleDurableObject",
-  "RouterAbRouterProjectPolicyDurableObject",
-  "RouterAbRouterQuotaDurableObject",
-  "RouterAbRouterAbuseDurableObject",
-]
-
-[[migrations]]
-tag = "router_ab_router_wallet_budget_v1"
-new_sqlite_classes = [
-  "RouterAbRouterWalletBudgetDurableObject",
-]
-
-[[migrations]]
-tag = "router_ab_router_stateless_v1"
-deleted_classes = [
-  "RouterAbRouterReplayDurableObject",
-  "RouterAbRouterLifecycleDurableObject",
-  "RouterAbRouterProjectPolicyDurableObject",
-  "RouterAbRouterQuotaDurableObject",
-  "RouterAbRouterAbuseDurableObject",
-  "RouterAbRouterWalletBudgetDurableObject",
-]
-
 [[services]]
 binding = "DERIVER_A"
 service = "router-ab-deriver-a"

@@ -81,7 +81,7 @@ test('D1 staging readiness check accepts the console-only staging shape', async 
   expect(result).toMatchObject({ errors: [], ok: true });
 });
 
-test('D1 staging readiness check accepts the gateway D1/DO/Secrets Store shape', async () => {
+test('D1 staging readiness check accepts the gateway D1 and Secrets Store shape', async () => {
   const result = await checkConfig(validD1GatewayStagingConfig(), 'gateway');
   expect(result).toMatchObject({ errors: [], ok: true });
 });
@@ -107,18 +107,6 @@ test('D1 staging readiness check rejects retired direct role bindings', async ()
   expectErrorContaining(
     await checkConfig(source, 'gateway'),
     'retired Gateway Service Binding DERIVER_A must be removed',
-  );
-});
-
-test('D1 staging readiness check requires the Gateway runtime deletion migration', async () => {
-  const source = validD1GatewayStagingConfig().replace(
-    '[[migrations]]\ntag = "router-api-runtime-delete-v1"\ndeleted_classes = ["RouterApiRuntimeDurableObject"]\n',
-    '',
-  );
-
-  expectErrorContaining(
-    await checkConfig(source, 'gateway'),
-    'missing Durable Object deleted_classes migration for RouterApiRuntimeDurableObject',
   );
 });
 
