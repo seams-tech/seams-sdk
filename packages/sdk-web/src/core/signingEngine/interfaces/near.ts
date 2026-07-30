@@ -97,6 +97,7 @@ export type NearEd25519YaoSigningCapability = {
 export type NearPasskeyEd25519OperationStepUpCapabilityPreparation = {
   materialActivation: MpcMaterialActivationRef;
   walletSessionState: NearResolvedEd25519SigningSessionState;
+  participantIds: readonly number[];
   rehydrate(credential: WebAuthnAuthenticationCredential): Promise<NearEd25519YaoSigningCapability>;
 };
 

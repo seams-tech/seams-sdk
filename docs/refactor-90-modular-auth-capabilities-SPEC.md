@@ -234,6 +234,13 @@ implementing commit SHA as the evidence.
   - [x] NEAR transaction admission carries no unread record-derived Wallet
     Session bearer projection; canonical preparation and the admitted
     operation-claim receipt own authorization (`5173ad50b`).
+  - [x] NEAR transaction readiness and authorization planning consume the
+    canonical preparation plus the independent reusable-authorization state;
+    the composite session record no longer decides either outcome
+    (`6edc2d100`).
+  - [x] NEAR transaction expiry invalidation, retry admission, and same-method
+    UI routing derive from the canonical active authorization and selected
+    factor rather than the composite session record (`535c0be3b`).
 - [x] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.

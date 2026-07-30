@@ -727,6 +727,13 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the unread record-derived Wallet Session bearer projection from
       NEAR transaction admission. Canonical preparation and the admitted
       operation-claim receipt remain the authorization inputs (`5173ad50b`).
+- [x] Make NEAR transaction readiness and authorization planning consume the
+      shared canonical preparation plus independent reusable-authorization
+      state. The composite session record remains only for the still-open
+      lifecycle hook adapters (`6edc2d100`).
+- [x] Derive NEAR transaction expiry invalidation, retry admission, and
+      same-method UI routing from the canonical active authorization and
+      selected factor instead of the composite session record (`535c0be3b`).
 
 ### Worker, WASM, and bundle boundary
 
