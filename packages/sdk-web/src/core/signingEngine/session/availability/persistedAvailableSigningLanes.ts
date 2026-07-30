@@ -24,7 +24,6 @@ import {
   listExactSealedSessionsForWallet,
   type CurrentEd25519SealedSessionRecord,
   type EcdsaDurableLaneRecord,
-  type EcdsaReauthAnchorRecord,
   type SigningSessionSealedStoreRecord,
 } from '../persistence/sealedSessionStore';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
@@ -695,7 +694,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
       listSealedRecordsForWallet: async ({ walletId: recordWalletId, filter }) => {
         const listByAuthMethod = async (
           authMethod: SignerAuthMethod,
-        ): Promise<Array<SigningSessionSealedStoreRecord | EcdsaReauthAnchorRecord>> => {
+        ): Promise<SigningSessionSealedStoreRecord[]> => {
           const ed25519Records = await listExactSealedSessionsForWallet({
             walletId: recordWalletId,
             filter: { authMethod, curve: 'ed25519' },

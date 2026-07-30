@@ -6,10 +6,7 @@ import {
 } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
-import type {
-  EcdsaReauthAnchorRecord,
-  SigningSessionSealedStoreRecord,
-} from '../persistence/sealedSessionStore';
+import type { SigningSessionSealedStoreRecord } from '../persistence/sealedSessionStore';
 import type {
   EcdsaLaneCandidate,
   Ed25519LaneCandidate,
@@ -382,7 +379,7 @@ function durableEd25519AuthBinding(
 }
 
 function recordToEd25519Lane(
-  record: SigningSessionSealedStoreRecord | EcdsaReauthAnchorRecord,
+  record: SigningSessionSealedStoreRecord,
 ): ConcreteAvailableEd25519SigningLane | null {
   if (record.curve !== 'ed25519') return null;
   const thresholdSessionId = String(record.thresholdSessionIds.ed25519 || '').trim();
@@ -518,7 +515,7 @@ export type ReadAvailableSigningLanesPorts = {
       authMethod?: 'email_otp' | 'passkey';
       curve: 'ed25519';
     };
-  }) => Promise<Array<SigningSessionSealedStoreRecord | EcdsaReauthAnchorRecord>>;
+  }) => Promise<SigningSessionSealedStoreRecord[]>;
   listCanonicalEcdsaLanesForWallet?: (args: {
     walletId: string;
   }) => Promise<ConcreteAvailableEcdsaSigningLane[]>;

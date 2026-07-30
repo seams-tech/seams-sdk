@@ -5,6 +5,7 @@ import type {
 import {
   buildCurrentSealedSessionRecord,
   readExactSealedSession,
+  updateExactSealedSessionPolicy,
   writeExactSealedSession,
   type BuildCurrentSealedSessionRecordInput,
   type CurrentEd25519RestoreMetadata,
@@ -30,7 +31,6 @@ import {
   type SealedSigningSessionWalletSessionAuth,
 } from '@shared/utils/signingSessionSeal';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import { parseSigningSessionSealKeyVersion } from '../session/keyMaterialBrands';
 import type {
   WarmSessionMaterialWriteDiagnosticBucket,
   WarmSessionMaterialWriteDiagnostics,
@@ -799,7 +799,7 @@ export class PasskeyMpcSessionDurableState {
             chainTarget: purpose.chainTarget,
           }
         : { authMethod: 'passkey', curve: 'ed25519' };
-    return await readExactSealedSession(purpose.thresholdSessionId, filter).catch(() => null);
+    return await readExactSealedSession(purpose.thresholdSessionId, filter);
   }
 
   private async writePolicy(
@@ -807,53 +807,23 @@ export class PasskeyMpcSessionDurableState {
     expiresAtMs: number,
     remainingUses: number,
   ): Promise<void> {
-    let transport: PasskeyWarmSessionSealTransportInput;
-    if (existing.curve === 'ecdsa') {
-      if (existing.ecdsaRestore.source === 'email_otp') {
-        throw new Error('[SigningSessionSealedStore] Passkey policy received Email OTP restore');
-      }
-      transport = {
-        curve: 'ecdsa',
-        authMethod: 'passkey',
-        walletId: existing.walletId,
-        chainTarget: existing.ecdsaRestore.chainTarget,
-        relayerUrl: existing.relayerUrl,
-        signingGrantId: existing.signingGrantId,
-        signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(existing.keyVersion),
-        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
-        ecdsaRestore: existing.ecdsaRestore,
-      };
-    } else {
-      transport = {
-        curve: 'ed25519',
-        authMethod: 'passkey',
-        walletId: existing.walletId,
-        relayerUrl: existing.relayerUrl,
-        signingGrantId: existing.signingGrantId,
-        signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(existing.keyVersion),
-        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
-      };
-    }
-    const metadata = existingRecordMetadata(existing);
-    await writeCurrentRecord(
-      buildCurrentRecordInput({
-        thresholdSessionId:
-          existing.curve === 'ecdsa'
-            ? existing.thresholdSessionIds.ecdsa
-            : existing.thresholdSessionIds.ed25519,
-        transport,
-        metadata,
-        sealedSecretB64u: existing.sealedSecretB64u,
-        signingGrantId: existing.signingGrantId,
-        relayerUrl: existing.relayerUrl,
-        keyVersion: existing.keyVersion,
-        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
-        issuedAtMs: existing.issuedAtMs,
-        expiresAtMs: Math.max(1, Math.floor(expiresAtMs)),
-        remainingUses: Math.max(0, Math.floor(remainingUses)),
-        updatedAtMs: Date.now(),
-        existing,
-      }),
-    );
+    const filter: SigningSessionSealedRecordFilter =
+      existing.curve === 'ecdsa'
+        ? {
+            authMethod: 'passkey',
+            curve: 'ecdsa',
+            chainTarget: existing.ecdsaRestore.chainTarget,
+          }
+        : { authMethod: 'passkey', curve: 'ed25519' };
+    await updateExactSealedSessionPolicy({
+      thresholdSessionId:
+        existing.curve === 'ecdsa'
+          ? existing.thresholdSessionIds.ecdsa
+          : existing.thresholdSessionIds.ed25519,
+      filter,
+      expiresAtMs: Math.max(1, Math.floor(expiresAtMs)),
+      remainingUses: Math.max(0, Math.floor(remainingUses)),
+      updatedAtMs: Date.now(),
+    });
   }
 }
