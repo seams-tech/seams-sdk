@@ -7,12 +7,12 @@
       "resources": {
         "workerName": "seams-sdk-d1-gateway-staging",
         "consoleD1": {
-          "name": "seams-console-staging",
-          "id": "a421e35a-cbf0-4be9-974a-71c65f5a8f95"
+          "name": "seams-console-staging-nrt",
+          "id": "572d772c-3e15-4f60-a03f-e7a82fd452e7"
         },
         "signerD1": {
-          "name": "seams-signer-staging",
-          "id": "09fc2eec-a605-459d-9a23-aff9ff4b509c"
+          "name": "seams-signer-staging-nrt",
+          "id": "c68f90e9-9831-427e-87af-b08304cc7f8e"
         },
         "secretsStoreId": "41fe2fa0a4a64d25a120a6c00973da1d"
       },
