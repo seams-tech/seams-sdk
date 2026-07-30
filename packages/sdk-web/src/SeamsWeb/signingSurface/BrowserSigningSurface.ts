@@ -1604,10 +1604,10 @@ export class BrowserSigningSurface {
 
   persistSigningSessionSealForThresholdSession(
     input: Parameters<
-      UiConfirmRuntimeBridgePort['persistSigningSessionSealForThresholdSession']
+      PasskeyMpcSessionPort['persistSigningSessionSealForThresholdSession']
     >[0],
-  ): ReturnType<UiConfirmRuntimeBridgePort['persistSigningSessionSealForThresholdSession']> {
-    return this.touchConfirm.persistSigningSessionSealForThresholdSession(input);
+  ): ReturnType<PasskeyMpcSessionPort['persistSigningSessionSealForThresholdSession']> {
+    return this.passkeyMpcSession.persistSigningSessionSealForThresholdSession(input);
   }
 
   requestRegistrationCredentialConfirmation(params: {

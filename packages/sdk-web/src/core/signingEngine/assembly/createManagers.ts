@@ -20,7 +20,6 @@ import { type UserPreferencesStorePort, UserPreferencesManager } from '../sessio
 import type { NonceLaneCoordinationStore } from '../nonce/NonceCoordinator';
 import type { DurableRecordStore } from '@/core/platform';
 import { nearOperationStepUpPreparationPort } from '../flows/signNear/shared/operationStepUpPreparation';
-import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 
 export type ManagerAssembly = {
   touchIdPrompt: TouchIdPrompt;
@@ -64,26 +63,11 @@ export function createManagerAssembly(args: {
   const nearExplorerUrl = resolvePrimaryExplorerUrl(chains, 'near');
   const tempoExplorerUrl = resolvePrimaryExplorerUrl(chains, 'tempo');
   const evmExplorerUrl = resolvePrimaryExplorerUrl(chains, 'evm');
-  const isSealedRefreshMode =
-    args.seamsWebConfigs.signing.sessionPersistenceMode === 'sealed_refresh_v1';
-
-  let touchConfirm: UiConfirmRuntimeBridgePort;
   const passkeyMpcSession = createPasskeyMpcSessionManager({
     signingSessionPersistenceMode: args.seamsWebConfigs.signing.sessionPersistenceMode,
-    persistSigningSessionSealForThresholdSession: (persistArgs) =>
-      touchConfirm.persistSigningSessionSealForThresholdSession(persistArgs),
-    onPolicyResult: (purpose, result) =>
-      touchConfirm.recordPasskeyWarmSessionPolicyResult(purpose, result),
   });
-  touchConfirm = createUiConfirmManager(
-    {
-      signingSessionPersistenceMode: args.seamsWebConfigs.signing.sessionPersistenceMode,
-      ...(isSealedRefreshMode
-        ? {
-            signingSessionSealGroupId: SIGNING_SESSION_SEAL_GROUP_ID,
-          }
-        : {}),
-    },
+  const touchConfirm = createUiConfirmManager(
+    {},
     {
       touchIdPrompt: touchIdPrompt,
       nearClient: args.nearClient,
@@ -102,8 +86,6 @@ export function createManagerAssembly(args: {
       getAppearance: args.getAppearance,
       loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
     },
-    passkeyMpcSession,
-    passkeyMpcSession,
   );
   const passkeyMpcExport = createPasskeyMpcExportManager(touchConfirm.getContext());
 

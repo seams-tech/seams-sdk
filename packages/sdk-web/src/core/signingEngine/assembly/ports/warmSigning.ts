@@ -139,7 +139,6 @@ export function createPasskeyPublicDeps(args: {
           ensureSealedRefreshStartupParity: args.ensureSealedRefreshStartupParity,
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           activationDeps: args.walletSessionActivationDeps,
-          touchConfirm: args.touchConfirm,
           passkeyMpcSession: args.passkeyMpcSession,
           persistEcdsaRoleLocalReadyRecord: args.persistEcdsaRoleLocalReadyRecord,
           capabilityReader: args.warmSigning.capabilityReader,

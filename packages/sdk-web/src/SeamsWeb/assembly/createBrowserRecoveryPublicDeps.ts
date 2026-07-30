@@ -91,7 +91,7 @@ export function createBrowserRecoveryPublicDeps(args: {
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           activationDeps: args.getWalletSessionActivationDeps(),
-          touchConfirm: args.touchConfirm,
+          sealPersistence: args.passkeyMpcSession,
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
           resolveSealTransport: ({ lane, authorization }) =>
