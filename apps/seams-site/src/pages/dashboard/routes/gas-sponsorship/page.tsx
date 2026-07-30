@@ -41,6 +41,7 @@ import {
   createDashboardGasSponsorshipPolicy,
   deleteDashboardGasSponsorshipPolicy,
   listDashboardGasSponsorshipPolicies,
+  publishDashboardGasSponsorshipPolicy,
   setDashboardGasSponsorshipPolicyEnabled,
   updateDashboardGasSponsorshipPolicy,
   type DashboardGasSponsorshipAllowedCall,
@@ -1597,6 +1598,32 @@ export function GasSponsorshipPage(): React.JSX.Element {
     [canMutatePolicy, loadGasPolicies, session.claims, session.errorMessage],
   );
 
+  const onPublishPolicy = React.useCallback(
+    async (policy: DashboardGasSponsorshipPolicy) => {
+      if (!session.claims) {
+        setMutationError(session.errorMessage || 'Console session is unavailable');
+        return;
+      }
+      if (!canMutatePolicy) {
+        setMutationError('Owner, administrator, or project editor access is required.');
+        return;
+      }
+      setMutating(true);
+      setMutationError('');
+      setMutationNotice('');
+      try {
+        await publishDashboardGasSponsorshipPolicy(policy.id);
+        await loadGasPolicies();
+        setMutationNotice(`${policy.name || policy.id} published and activated.`);
+      } catch (error: unknown) {
+        setMutationError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setMutating(false);
+      }
+    },
+    [canMutatePolicy, loadGasPolicies, session.claims, session.errorMessage],
+  );
+
   const onDeletePolicy = React.useCallback(
     async (policy: DashboardGasSponsorshipPolicy) => {
       if (!session.claims) {
@@ -1812,6 +1839,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                               : 'dashboard-data-table__badge--neutral'
                           }`}
                         >
+                          {policy.publicationStatus === 'PUBLISHED' ? 'Published' : 'Draft'} ·{' '}
                           {policy.enabled ? 'Enabled' : 'Disabled'}
                         </span>
                       </span>
@@ -1848,6 +1876,14 @@ export function GasSponsorshipPage(): React.JSX.Element {
                         >
                           {policy.enabled ? 'Disable' : 'Enable'}
                         </DashboardTableActionButton>
+                        {policy.publicationStatus !== 'PUBLISHED' ? (
+                          <DashboardTableActionButton
+                            onClick={() => onPublishPolicy(policy)}
+                            disabled={!canMutatePolicy || mutating}
+                          >
+                            Publish
+                          </DashboardTableActionButton>
+                        ) : null}
                         <DashboardTableActionButton
                           onClick={() => onDeletePolicy(policy)}
                           disabled={!canMutatePolicy || mutating}
@@ -1907,7 +1943,10 @@ export function GasSponsorshipPage(): React.JSX.Element {
                     </div>
                     <div className="dashboard-gas-coverage__stat">
                       <span>Status</span>
-                      <strong>{selectedPolicy.enabled ? 'Enabled' : 'Disabled'}</strong>
+                      <strong>
+                        {selectedPolicy.publicationStatus === 'PUBLISHED' ? 'Published' : 'Draft'} ·{' '}
+                        {selectedPolicy.enabled ? 'Enabled' : 'Disabled'}
+                      </strong>
                     </div>
                     <div className="dashboard-gas-coverage__stat">
                       <span>{selectedPolicy.kind === 'near_delegate' ? 'Delegate actions' : 'Rules'}</span>
