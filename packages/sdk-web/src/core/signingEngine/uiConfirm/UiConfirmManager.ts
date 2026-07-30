@@ -91,14 +91,11 @@ import type {
   PasskeyMpcSessionPort,
 } from './uiConfirm.types';
 import {
-  discoverPersistedSessionsForWalletCommand,
   restorePersistedSessionForSigningCommand,
 } from '../session/sealedRecovery/restoreCoordinator';
 import { parseClearVolatileWarmMaterialCommand } from '../session/warmCapabilities/volatileWarmMaterialCommands';
 import { restorePasskeyEcdsaSealedRecordForWallet } from '../session/passkey/ecdsaRecovery';
 import type {
-  DiscoverPersistedSessionsForWalletInput,
-  DiscoverPersistedSessionsForWalletResult,
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
   RestorePersistedSessionPurpose,
@@ -1448,46 +1445,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         });
       },
     });
-  };
-
-  discoverPersistedSessionsForWallet = async (
-    args: Parameters<WarmSessionPersistedRestorer['discoverPersistedSessionsForWallet']>[0],
-  ): Promise<DiscoverPersistedSessionsForWalletResult> => {
-    if (!this.isSealedRefreshModeEnabled()) {
-      return { listed: 0, discovered: 0, truncated: 0 };
-    }
-    return await discoverPersistedSessionsForWalletCommand(
-      {
-        ...args,
-        authMethod: 'passkey',
-      },
-      {
-        listExactSealedSessionsForWallet: async (filter) =>
-          await listExactSealedSessionsForWallet({
-            walletId: filter.walletId,
-            filter:
-              filter.curve === 'ecdsa'
-                ? {
-                    authMethod: 'passkey',
-                    curve: 'ecdsa',
-                    chainTarget: filter.chainTarget,
-                  }
-                : { authMethod: 'passkey', curve: 'ed25519' },
-          }),
-        onListError: ({ walletId, error }) => {
-          console.warn('[UiConfirm] passkey account signing-session discovery list failed', {
-            walletId,
-            error: error instanceof Error ? error.message : String(error || 'unknown error'),
-          });
-        },
-        onRejectedRecord: ({ walletId, rejection }) => {
-          console.warn('[UiConfirm] passkey account signing-session discovery rejected record', {
-            walletId,
-            rejection,
-          });
-        },
-      },
-    );
   };
 
   persistSigningSessionSealForThresholdSession = async (args: {

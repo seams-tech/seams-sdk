@@ -23,7 +23,7 @@ export function createSessionPublicDeps(args: {
     emailOtp: (discoveryArgs) =>
       args.emailOtpSessions.discoverPersistedSessionsForWallet(discoveryArgs),
     passkey: (discoveryArgs) =>
-      args.touchConfirm.discoverPersistedSessionsForWallet(discoveryArgs),
+      args.passkeyMpcSession.discoverPersistedSessionsForWallet(discoveryArgs),
   };
   return {
     availableLanes: {

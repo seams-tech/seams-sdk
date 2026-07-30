@@ -182,10 +182,13 @@ type PasskeyPersistedSessionDiscoveryInput =
       : never
     : never;
 
-export interface WarmSessionPersistedRestorer {
+export interface WarmSessionPersistedDiscovery {
   discoverPersistedSessionsForWallet(
     args: PasskeyPersistedSessionDiscoveryInput,
   ): Promise<DiscoverPersistedSessionsForWalletResult>;
+}
+
+export interface WarmSessionPersistedRestorer {
   restorePersistedSessionForSigning(
     args: Omit<RestorePersistedSessionForSigningInput, 'authMethod'>,
   ): Promise<RestorePersistedSessionForSigningResult>;
@@ -239,6 +242,7 @@ export interface PasskeyMpcSessionWorkerLifecyclePort {
 
 export type PasskeyMpcSessionPort = WarmSessionMaterialWriter &
   VolatileWarmMaterialPort &
+  WarmSessionPersistedDiscovery &
   PasskeyMpcSessionWorkerLifecyclePort;
 
 export interface UiConfirmContextPort {
