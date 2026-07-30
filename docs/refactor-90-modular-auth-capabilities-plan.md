@@ -380,6 +380,10 @@ removes.
   - [x] Remove unused provisioning-slot projections from Wallet Session
         `stableKeyContext`, persisted Email OTP capability lookup, and sealed
         refresh validation (`45e495ddc`).
+  - [x] Remove the provisioning slot from server-persisted ECDSA signer
+        records and key inventory, require exact top-level/nested key-handle
+        correlation, and delete the forbidden slot from post-registration
+        normal-signing scope (`5f7075386`).
 - [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
       equality, and sealed projections to required branded `EcdsaKeyHandle`;
       reject old slot-bearing persisted records at the parser boundary.
