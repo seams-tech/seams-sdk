@@ -158,10 +158,6 @@ function ecdsaBootstrapSignerActivation(args: {
     'relayerVerifyingShareB64u',
   );
   const participantIds = requireParticipantIds(keyRef.participantIds || keygen.participantIds);
-  const evmFamilySigningKeySlotId = requireBootstrapString(
-    keygen.evmFamilySigningKeySlotId,
-    'evmFamilySigningKeySlotId',
-  );
   const chainIdKey = resolveBootstrapTargetChainIdKey({
     chainTarget: args.chainTarget,
     bootstrap: args.bootstrap,
@@ -175,7 +171,6 @@ function ecdsaBootstrapSignerActivation(args: {
     keyScope: 'evm-family',
     keyHandle,
     walletId: args.walletId,
-    evmFamilySigningKeySlotId,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -192,7 +187,6 @@ function ecdsaBootstrapSignerActivation(args: {
     },
     sharedEvmFamilyKey: {
       walletId: args.walletId,
-      evmFamilySigningKeySlotId,
       keyScope: 'evm-family',
       keyHandle,
       ecdsaThresholdKeyId,

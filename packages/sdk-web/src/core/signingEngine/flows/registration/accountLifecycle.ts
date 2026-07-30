@@ -1595,10 +1595,6 @@ function prepareWalletEcdsaSignerActivations(
       walletKey.signingRootVersion,
       'wallet key signingRootVersion',
     );
-    const evmFamilySigningKeySlotId = requireStoreWalletString(
-      walletKey.evmFamilySigningKeySlotId,
-      'wallet key evmFamilySigningKeySlotId',
-    );
     const relayerKeyId = requireStoreWalletString(
       walletKey.relayerKeyId,
       'wallet key relayerKeyId',
@@ -1642,7 +1638,6 @@ function prepareWalletEcdsaSignerActivations(
             keyScope: walletKey.keyScope,
             keyHandle,
             walletId: walletId,
-            evmFamilySigningKeySlotId,
             ecdsaThresholdKeyId,
             signingRootId,
             signingRootVersion,
@@ -1663,7 +1658,6 @@ function prepareWalletEcdsaSignerActivations(
             },
             sharedEvmFamilyKey: {
               walletId: walletId,
-              evmFamilySigningKeySlotId,
               keyScope: walletKey.keyScope,
               keyHandle,
               ecdsaThresholdKeyId,
