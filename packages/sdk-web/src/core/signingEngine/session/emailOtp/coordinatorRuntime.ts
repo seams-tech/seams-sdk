@@ -10,10 +10,6 @@ import type {
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
 } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
-import {
-  type ReadAvailableSigningLanesInput,
-  type AvailableSigningLanes,
-} from '@/core/signingEngine/session/availability/availableSigningLanes';
 import { createEmailOtpEcdsaSigningSessionMaterialRestorer } from './ecdsaRecovery';
 import {
   EmailOtpAppSessionJwtCache,
@@ -22,7 +18,6 @@ import {
 } from './appSessionJwtCache';
 import type { EmailOtpWalletSessionCoordinatorDeps } from './ports';
 import type { EmailOtpTransactionSigningChallenge } from './publicTypes';
-import { readEmailOtpPersistedSessionSnapshot } from './persistedSnapshot';
 import {
   type EmailOtpThresholdEcdsaLoginResult,
   type LoginEmailOtpEcdsaCapabilityArgs,
@@ -173,16 +168,6 @@ export class EmailOtpWalletSessionRuntime {
     args: RestorePersistedSessionForSigningInput,
   ): Promise<RestorePersistedSessionForSigningResult> {
     return await this.sealedRestoreOrchestrator.restorePersistedSessionForSigning(args);
-  }
-
-  async readPersistedSessionSnapshot(
-    args: Omit<ReadAvailableSigningLanesInput, 'ecdsaChainTargets'>,
-  ): Promise<AvailableSigningLanes> {
-    return await readEmailOtpPersistedSessionSnapshot(args, {
-      configs: this.deps.configs,
-      listExactSealedSessionsForWallet: this.deps.listExactSealedSessionsForWallet,
-      readWarmSessionStatusOnly: (sessionId) => this.readWarmSessionStatusOnly(sessionId),
-    });
   }
 
   async readWarmSessionStatusOnly(sessionId: string): Promise<WarmSessionStatusResult> {

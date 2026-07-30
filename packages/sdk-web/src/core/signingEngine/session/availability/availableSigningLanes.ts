@@ -7,18 +7,9 @@ import {
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type {
-  EcdsaDurableLaneRecord,
-  EcdsaReauthAnchorPublicRestore,
   EcdsaReauthAnchorRecord,
   SigningSessionSealedStoreRecord,
 } from '../persistence/sealedSessionStore';
-import { buildEcdsaReauthAnchorPublicRestore } from '../persistence/sealedSessionStore';
-import { normalizeSealedRecoveryRecord } from '../sealedRecovery/recoveryRecord';
-import type {
-  EmailOtpEcdsaSealedRecoveryRecord,
-  PasskeyEcdsaSealedRecoveryRecord,
-  SealedRecoveryRecord,
-} from '../sealedRecovery/recoveryRecord';
 import type {
   EcdsaLaneCandidate,
   Ed25519LaneCandidate,
@@ -26,15 +17,9 @@ import type {
   LaneCandidateState,
 } from '../identity/laneIdentity';
 import {
-  buildPasskeyEcdsaAuthBinding,
-  buildBaseEvmFamilyEcdsaKeyIdentity,
-  buildResolvedEvmFamilyEcdsaKey,
   deriveEvmFamilyKeyFingerprintFromPublicFacts,
-  resolveThresholdEcdsaKeyIdFromRecord,
   toRpId,
-  toVerifiedEcdsaPublicFactsFromDurableRecord,
   type EvmFamilyKeyFingerprint,
-  type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
   type PasskeyEcdsaAuthBinding,
   type ResolvedEvmFamilyEcdsaKey,
@@ -124,29 +109,6 @@ type ConcreteAvailableEcdsaSigningLaneAuth =
       resolvedKey?: never;
     };
 
-function isPasskeyResolvedEcdsaKey(
-  value: ResolvedEvmFamilyEcdsaKey,
-): value is ResolvedPasskeyAvailableEcdsaKey {
-  return value.authBinding.kind === 'passkey_ecdsa_auth_binding';
-}
-
-type NonCanonicalAvailableEcdsaSigningLaneSource =
-  | {
-      source?: 'runtime_session_record';
-      sourceChainTarget?: never;
-      publicReauthAuthority?: never;
-    }
-  | {
-      source: 'durable_sealed_record';
-      sourceChainTarget?: never;
-      publicReauthAuthority: EcdsaReauthAnchorPublicRestore;
-    }
-  | {
-      source: 'evm_family_shared_key';
-      sourceChainTarget: ThresholdEcdsaChainTarget;
-      publicReauthAuthority?: never;
-    };
-
 type ConcreteAvailableEcdsaSigningLaneBase = {
   key: EvmFamilyEcdsaKeyIdentity;
   materialActivation: MpcMaterialActivationRef;
@@ -158,14 +120,13 @@ type ConcreteAvailableEcdsaSigningLaneBase = {
   updatedAtMs?: number;
 } & ConcreteAvailableEcdsaSigningLaneAuth;
 
-type CanonicalAvailableEcdsaSigningLane = ConcreteAvailableEcdsaSigningLaneBase &
-  {
-    source: 'canonical_capability';
-    sourceChainTarget?: never;
-    publicReauthAuthority?: never;
-    signingGrantId?: never;
-    thresholdSessionId?: never;
-  } & (
+export type ConcreteAvailableEcdsaSigningLane = ConcreteAvailableEcdsaSigningLaneBase & {
+  source: 'canonical_capability';
+  sourceChainTarget?: never;
+  publicReauthAuthority?: never;
+  signingGrantId?: never;
+  thresholdSessionId?: never;
+} & (
     | {
         authorization: ActiveEvmFamilyWalletSessionAuthorization;
         remainingUses: number;
@@ -178,19 +139,6 @@ type CanonicalAvailableEcdsaSigningLane = ConcreteAvailableEcdsaSigningLaneBase 
         expiresAtMs?: never;
       }
   );
-
-type NonCanonicalAvailableEcdsaSigningLane = ConcreteAvailableEcdsaSigningLaneBase &
-  NonCanonicalAvailableEcdsaSigningLaneSource & {
-    authorization?: ActiveEvmFamilyWalletSessionAuthorization;
-    signingGrantId?: string;
-    thresholdSessionId?: string;
-    remainingUses?: number;
-    expiresAtMs?: number;
-  };
-
-export type ConcreteAvailableEcdsaSigningLane =
-  | CanonicalAvailableEcdsaSigningLane
-  | NonCanonicalAvailableEcdsaSigningLane;
 
 export type AvailableEcdsaSigningLane =
   | MissingAvailableEcdsaSigningLane
@@ -209,10 +157,7 @@ function materialActivationKey(activation: MpcMaterialActivationRef): string {
     .join(':');
 }
 
-export type EcdsaLaneRecordFactSource =
-  | 'runtime_session_record'
-  | 'sealed_restore_record'
-  | 'evm_family_shared_projection';
+export type EcdsaLaneRecordFactSource = 'canonical_capability';
 
 export type EcdsaLaneGroupKey = {
   walletId: string;
@@ -396,55 +341,6 @@ export function durableRecordPolicyAdvisory(args: {
   };
 }
 
-export function runtimeEcdsaRecordAdvisoryKey(
-  record: AvailableSigningLanesRuntimeEcdsaRecord,
-): string | null {
-  const walletId = String(record.key.walletId || '').trim();
-  const keyHandle = String(record.keyHandle || '').trim();
-  if (!walletId || !keyHandle) return null;
-  return [
-    encodeURIComponent(walletId),
-    encodeURIComponent(keyHandle),
-    encodeURIComponent(signingLaneAuthMethod(record.auth)),
-    'ecdsa',
-    encodeURIComponent(thresholdEcdsaChainTargetKey(record.chainTarget)),
-    encodeURIComponent(materialActivationKey(record.materialActivation)),
-  ].join(':');
-}
-
-type AvailableSigningLanesRuntimeEcdsaAuthRecord =
-  | {
-      auth: Extract<SigningLaneAuthBinding, { kind: 'passkey' }>;
-      resolvedKey?: ResolvedEvmFamilyEcdsaKey;
-    }
-  | {
-      auth: Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>;
-      resolvedKey?: never;
-    };
-
-type AvailableSigningLanesRuntimeEcdsaPublicFactsRecord = {
-  verifiedPublicFacts?: VerifiedEcdsaPublicFacts;
-  keyHandle: EvmFamilyEcdsaKeyHandle;
-};
-
-export type AvailableSigningLanesRuntimeEcdsaRecord = {
-  key: EvmFamilyEcdsaKeyIdentity;
-  materialActivation: MpcMaterialActivationRef;
-  verifiedPublicFacts: VerifiedEcdsaPublicFacts;
-  curve: 'ecdsa';
-  chainTarget: ThresholdEcdsaChainTarget;
-  authorizationState:
-    | {
-        kind: 'authorized';
-        authorization: ActiveEvmFamilyWalletSessionAuthorization;
-      }
-    | {
-        kind: 'authorization_required';
-        authorization?: never;
-      };
-} & AvailableSigningLanesRuntimeEcdsaAuthRecord &
-  AvailableSigningLanesRuntimeEcdsaPublicFactsRecord;
-
 export type AvailableSigningLanesRuntimeEd25519Record = {
   auth: SigningLaneAuthBinding;
   curve: 'ed25519';
@@ -618,30 +514,14 @@ export type ReadAvailableSigningLanesForSigningInput =
 export type ReadAvailableSigningLanesPorts = {
   listSealedRecordsForWallet: (args: {
     walletId: string;
-    filter:
-      | {
-          authMethod?: 'email_otp' | 'passkey';
-          curve: 'ed25519';
-        }
-      | {
-          authMethod?: 'email_otp' | 'passkey';
-          curve: 'ecdsa';
-          chainTarget: ThresholdEcdsaChainTarget;
-        };
-  }) => Promise<Array<SigningSessionSealedStoreRecord | EcdsaReauthAnchorRecord>>;
-  listEcdsaSealedRecordsForWallet?: (args: {
-    walletId: string;
     filter: {
       authMethod?: 'email_otp' | 'passkey';
-      curve: 'ecdsa';
+      curve: 'ed25519';
     };
-  }) => Promise<EcdsaDurableLaneRecord[]>;
-  listRuntimeEcdsaLanesForWallet?: (args: {
+  }) => Promise<Array<SigningSessionSealedStoreRecord | EcdsaReauthAnchorRecord>>;
+  listCanonicalEcdsaLanesForWallet?: (args: {
     walletId: string;
-  }) => Promise<AvailableSigningLanesRuntimeEcdsaRecord[]>;
-  readEcdsaWarmStatusAdvisoriesForRecords?: (
-    records: AvailableSigningLanesRuntimeEcdsaRecord[],
-  ) => Promise<Map<string, AvailableLaneStateAdvisory | null>>;
+  }) => Promise<ConcreteAvailableEcdsaSigningLane[]>;
   listRuntimeEd25519RecordsForWallet?: (args: {
     walletId: string;
   }) => Promise<AvailableSigningLanesRuntimeEd25519Record[]>;
@@ -661,12 +541,6 @@ export function isConcreteAvailableSigningLane(
     if (lane.signingGrantId !== signingGrantId) return false;
     if (!thresholdSessionId || !signingGrantId) return false;
     return lane.auth.kind === 'email_otp' || lane.auth.kind === 'passkey';
-  }
-  if (
-    lane.source !== 'canonical_capability' &&
-    (!String(lane.thresholdSessionId || '').trim() || !String(lane.signingGrantId || '').trim())
-  ) {
-    return false;
   }
   if (lane.auth.kind !== 'email_otp' && lane.auth.kind !== 'passkey') return false;
   const hasEcdsaFields = Boolean(
@@ -709,12 +583,6 @@ function laneCandidateStateFromAvailableLaneState(
 function laneCandidateSourceFromAvailableLaneSource(
   source: ConcreteAvailableSigningLane['source'],
 ): LaneCandidateSource {
-  return source || 'unknown';
-}
-
-function nonSharedLaneCandidateSourceFromAvailableLaneSource(
-  source: Exclude<ConcreteAvailableSigningLane['source'], 'evm_family_shared_key'>,
-): Exclude<LaneCandidateSource, 'evm_family_shared_key'> {
   return source || 'unknown';
 }
 
@@ -796,63 +664,13 @@ export function ecdsaLaneCandidateFromAvailableLane(args: {
   };
 }
 
-function runtimePasskeyResolvedKeyFromRecord(args: {
-  record: AvailableSigningLanesRuntimeEcdsaRecord;
-  publicFacts: VerifiedEcdsaPublicFacts;
-}): ResolvedPasskeyAvailableEcdsaKey | null {
-  const candidate = args.record.resolvedKey;
-  if (!candidate) return null;
-  if (candidate.kind !== 'resolved_evm_family_ecdsa_key') return null;
-  if (!isPasskeyResolvedEcdsaKey(candidate)) return null;
-  if (String(candidate.walletId) !== String(args.record.key.walletId)) return null;
-  if (String(candidate.publicFacts.keyHandle) !== String(args.publicFacts.keyHandle)) return null;
-  if (
-    String(candidate.publicFacts.thresholdOwnerAddress) !==
-    String(args.publicFacts.thresholdOwnerAddress)
-  ) {
-    return null;
-  }
-  return candidate;
-}
-
-function passkeyAuthFromResolvedEcdsaKey(
-  resolvedKey: ResolvedPasskeyAvailableEcdsaKey,
-): Extract<SigningLaneAuthBinding, { kind: 'passkey' }> {
-  return {
-    kind: 'passkey',
-    rpId: toRpId(resolvedKey.authBinding.rpId),
-    credentialIdB64u: resolvedKey.authBinding.credentialIdB64u,
-  };
-}
-
-function ecdsaRecoveryRecordAuthBinding(
-  record: EmailOtpEcdsaSealedRecoveryRecord | PasskeyEcdsaSealedRecoveryRecord,
-): SigningLaneAuthBinding {
-  if (record.source !== 'email_otp') {
-    return {
-      kind: 'passkey',
-      rpId: toRpId(record.authority.verifier.rpId),
-      credentialIdB64u: record.authority.factor.credentialIdB64u,
-    };
-  }
-  return {
-    kind: 'email_otp',
-    providerSubjectId: record.emailOtpAuthority.factor.providerUserId,
-  };
-}
-
 type EcdsaAvailableLaneIdentityBase = Pick<
   ConcreteAvailableEcdsaSigningLane,
-  | 'curve'
-  | 'chainTarget'
-  | 'key'
-  | 'materialActivation'
-  | 'publicFacts'
-  | 'authorization'
+  'curve' | 'chainTarget' | 'key' | 'materialActivation' | 'publicFacts' | 'authorization'
 >;
 
-export type EcdsaAvailableLaneIdentityInput =
-  EcdsaAvailableLaneIdentityBase & ConcreteAvailableEcdsaSigningLaneAuth;
+export type EcdsaAvailableLaneIdentityInput = EcdsaAvailableLaneIdentityBase &
+  ConcreteAvailableEcdsaSigningLaneAuth;
 
 export function ecdsaAvailableLaneIdentityKey(
   lane: EcdsaAvailableLaneIdentityInput | MissingAvailableEcdsaSigningLane | null | undefined,
@@ -903,54 +721,6 @@ export function ecdsaAvailableLaneMaterialKey(
   } catch {
     return null;
   }
-}
-
-type DurableAvailableEcdsaSigningLane = Extract<
-  ConcreteAvailableEcdsaSigningLane,
-  { source: 'durable_sealed_record' }
->;
-
-function isDurableAvailableEcdsaSigningLane(
-  lane: AvailableEcdsaSigningLane,
-): lane is DurableAvailableEcdsaSigningLane {
-  return isConcreteAvailableSigningLane(lane) && lane.source === 'durable_sealed_record';
-}
-
-function selectDurableEcdsaLaneForRuntime(args: {
-  runtimeLaneKey: string | null;
-  runtimeLaneMaterialKey: string | null;
-  targetCandidates: AvailableEcdsaSigningLane[];
-  targetLane: AvailableEcdsaSigningLane;
-  chainTarget: ThresholdEcdsaChainTarget;
-}): AvailableEcdsaSigningLane {
-  for (const lane of args.targetCandidates) {
-    if (
-      !isDurableAvailableEcdsaSigningLane(lane) ||
-      args.runtimeLaneKey === null ||
-      ecdsaAvailableLaneIdentityKey(lane) !== args.runtimeLaneKey
-    ) {
-      continue;
-    }
-    return lane;
-  }
-  if (
-    isDurableAvailableEcdsaSigningLane(args.targetLane) &&
-    args.runtimeLaneMaterialKey !== null &&
-    ecdsaAvailableLaneMaterialKey(args.targetLane) === args.runtimeLaneMaterialKey
-  ) {
-    return args.targetLane;
-  }
-  for (const lane of args.targetCandidates) {
-    if (
-      !isDurableAvailableEcdsaSigningLane(lane) ||
-      args.runtimeLaneMaterialKey === null ||
-      ecdsaAvailableLaneMaterialKey(lane) !== args.runtimeLaneMaterialKey
-    ) {
-      continue;
-    }
-    return lane;
-  }
-  return emptyEcdsaLane({ chainTarget: args.chainTarget });
 }
 
 export function ecdsaAvailableLaneAuthKey(auth: SigningLaneAuthBinding): string | null {
@@ -1217,8 +987,7 @@ function sourceStateFromEcdsaLaneCandidate(
     candidate.state === 'exhausted' ? 0 : candidate.authorization.status.remainingUses;
   return {
     kind: 'reauth_anchor_source_state',
-    availabilitySource:
-      candidate.source === 'unknown' ? 'runtime_session_record' : candidate.source,
+    availabilitySource: candidate.source,
     storeSource: authState.storeSource,
     retention: authState.retention,
     remainingUses,
@@ -1254,291 +1023,6 @@ function durablePolicyHint(record: {
     hint.expiresAtMs = expiresAtMs;
   }
   return Object.keys(hint).length ? hint : undefined;
-}
-
-function ecdsaRecoveryRecordForDurableLane(
-  record: SealedRecoveryRecord,
-): EmailOtpEcdsaSealedRecoveryRecord | PasskeyEcdsaSealedRecoveryRecord | undefined {
-  return record;
-}
-
-function concreteAvailableEcdsaAuthFields(args: {
-  key: EvmFamilyEcdsaKeyIdentity;
-  auth: SigningLaneAuthBinding;
-  publicFacts: VerifiedEcdsaPublicFacts;
-}): ConcreteAvailableEcdsaSigningLaneAuth {
-  if (args.auth.kind === 'passkey') {
-    return {
-      auth: args.auth,
-      resolvedKey: buildResolvedEvmFamilyEcdsaKey({
-        walletId: args.key.walletId,
-        publicFacts: args.publicFacts,
-        authBinding: buildPasskeyEcdsaAuthBinding({
-          rpId: args.auth.rpId,
-          credentialIdB64u: args.auth.credentialIdB64u,
-        }),
-      }),
-    };
-  }
-  return { auth: args.auth };
-}
-
-function verifiedPublicFactsFromRuntimeEcdsaRecord(
-  record: AvailableSigningLanesRuntimeEcdsaRecord,
-): VerifiedEcdsaPublicFacts | null {
-  const facts = record.verifiedPublicFacts;
-  if (record.keyHandle !== facts.keyHandle) return null;
-  if (record.key.thresholdOwnerAddress !== facts.thresholdOwnerAddress) return null;
-  if (
-    record.key.participantIds.length !== facts.participantIds.length ||
-    record.key.participantIds.some(
-      (participantId, index) => participantId !== facts.participantIds[index],
-    )
-  ) {
-    return null;
-  }
-  return facts;
-}
-
-export function buildRuntimeEcdsaAvailableLaneIdentityInput(args: {
-  record: AvailableSigningLanesRuntimeEcdsaRecord;
-  publicFacts: VerifiedEcdsaPublicFacts;
-}): EcdsaAvailableLaneIdentityInput {
-  if (args.record.auth.kind === 'passkey') {
-    const resolvedKey =
-      runtimePasskeyResolvedKeyFromRecord(args) ||
-      buildResolvedEvmFamilyEcdsaKey({
-        walletId: args.record.key.walletId,
-        publicFacts: args.publicFacts,
-        authBinding: buildPasskeyEcdsaAuthBinding({
-          rpId: args.record.auth.rpId,
-          credentialIdB64u: args.record.auth.credentialIdB64u,
-        }),
-      });
-    return {
-      key: args.record.key,
-      materialActivation: args.record.materialActivation,
-      publicFacts: args.publicFacts,
-      auth: passkeyAuthFromResolvedEcdsaKey(resolvedKey),
-      resolvedKey,
-      curve: 'ecdsa',
-      chainTarget: args.record.chainTarget,
-      ...(args.record.authorizationState.kind === 'authorized'
-        ? { authorization: args.record.authorizationState.authorization }
-        : {}),
-    };
-  }
-  return {
-    key: args.record.key,
-    materialActivation: args.record.materialActivation,
-    publicFacts: args.publicFacts,
-    auth: args.record.auth,
-    curve: 'ecdsa',
-    chainTarget: args.record.chainTarget,
-    ...(args.record.authorizationState.kind === 'authorized'
-      ? { authorization: args.record.authorizationState.authorization }
-      : {}),
-  };
-}
-
-export async function runtimeEcdsaAvailableLaneIdentityKey(
-  record: AvailableSigningLanesRuntimeEcdsaRecord,
-): Promise<string | null> {
-  const publicFacts = verifiedPublicFactsFromRuntimeEcdsaRecord(record);
-  if (!publicFacts) return null;
-  return ecdsaAvailableLaneIdentityKey(
-    buildRuntimeEcdsaAvailableLaneIdentityInput({ record, publicFacts }),
-  );
-}
-
-function reauthAnchorAuthBinding(record: EcdsaReauthAnchorRecord): SigningLaneAuthBinding {
-  const restore = record.ecdsaRestore;
-  if (restore.source === 'email_otp') {
-    return {
-      kind: 'email_otp',
-      providerSubjectId: restore.providerSubjectId,
-    };
-  }
-  return {
-    kind: 'passkey',
-    rpId: toRpId(restore.rpId),
-    credentialIdB64u: restore.credentialIdB64u,
-  };
-}
-
-async function reauthAnchorToEcdsaLane(args: {
-  chainTarget: ThresholdEcdsaChainTarget;
-  record: EcdsaReauthAnchorRecord;
-}): Promise<AvailableEcdsaSigningLane | null> {
-  const record = args.record;
-  const restore = record.ecdsaRestore;
-  if (
-    thresholdEcdsaChainTargetKey(restore.chainTarget) !==
-    thresholdEcdsaChainTargetKey(args.chainTarget)
-  ) {
-    return null;
-  }
-  const auth = reauthAnchorAuthBinding(record);
-  let ecdsaThresholdKeyId: string;
-  try {
-    ecdsaThresholdKeyId = String(
-      resolveThresholdEcdsaKeyIdFromRecord({
-        record: { ecdsaThresholdKeyId: restore.ecdsaThresholdKeyId },
-      }),
-    );
-  } catch {
-    return null;
-  }
-  let keyIdentity: EvmFamilyEcdsaKeyIdentity;
-  try {
-    keyIdentity = buildBaseEvmFamilyEcdsaKeyIdentity({
-      walletId: record.walletId,
-      ecdsaThresholdKeyId,
-      signingRootId: restore.signingRootId,
-      signingRootVersion: restore.signingRootVersion,
-      participantIds: restore.participantIds,
-      thresholdOwnerAddress: restore.ethereumAddress,
-    });
-  } catch {
-    return null;
-  }
-  let publicFacts: VerifiedEcdsaPublicFacts;
-  try {
-    publicFacts = await toVerifiedEcdsaPublicFactsFromDurableRecord({
-      record: {
-        ecdsaRestore: {
-          keyHandle: restore.keyHandle,
-          thresholdEcdsaPublicKeyB64u: restore.thresholdEcdsaPublicKeyB64u,
-          participantIds: restore.participantIds,
-          ethereumAddress: restore.ethereumAddress,
-        },
-      },
-    });
-  } catch {
-    return null;
-  }
-  const authFields = concreteAvailableEcdsaAuthFields({
-    key: keyIdentity,
-    auth,
-    publicFacts,
-  });
-  if (!authFields) return null;
-  return {
-    key: keyIdentity,
-    materialActivation: restore.roleLocalMaterialRef.materialActivation,
-    publicFacts,
-    ...authFields,
-    curve: 'ecdsa',
-    chainTarget: args.chainTarget,
-    state: record.state === 'active' ? 'restorable' : record.state,
-    source: 'durable_sealed_record',
-    publicReauthAuthority: record.ecdsaRestore,
-    signingGrantId: record.signingGrantId,
-    thresholdSessionId: record.thresholdSessionIds.ecdsa,
-    remainingUses: record.state === 'exhausted' ? 0 : record.remainingUses,
-    expiresAtMs: record.expiresAtMs,
-    updatedAtMs: record.updatedAtMs,
-    policyHint: durablePolicyHint(record),
-  };
-}
-
-async function recordToEcdsaLane(args: {
-  chainTarget: ThresholdEcdsaChainTarget;
-  record: EcdsaDurableLaneRecord;
-}): Promise<AvailableEcdsaSigningLane | null> {
-  if ('recordKind' in args.record) {
-    return await reauthAnchorToEcdsaLane({
-      chainTarget: args.chainTarget,
-      record: args.record,
-    });
-  }
-  const normalized = normalizeSealedRecoveryRecord(args.record, {
-    allowExpired: true,
-    allowExhausted: true,
-  });
-  if (normalized.kind !== 'accepted') return null;
-  const recoveryRecord = ecdsaRecoveryRecordForDurableLane(normalized.record);
-  if (!recoveryRecord) return null;
-  let recordTargetKey: string;
-  try {
-    recordTargetKey = thresholdEcdsaChainTargetKey(recoveryRecord.chainTarget);
-  } catch {
-    return null;
-  }
-  if (recordTargetKey !== thresholdEcdsaChainTargetKey(args.chainTarget)) {
-    return null;
-  }
-
-  const thresholdSessionId = recoveryRecord.thresholdSessionId;
-  const signingGrantId = recoveryRecord.signingGrantId;
-  const ecdsaThresholdKeyId = recoveryRecord.ecdsaThresholdKeyId;
-  const policyHint = durablePolicyHint(args.record);
-  const walletId = recoveryRecord.walletId;
-  let keyIdentity: ReturnType<typeof buildBaseEvmFamilyEcdsaKeyIdentity>;
-  try {
-    keyIdentity = buildBaseEvmFamilyEcdsaKeyIdentity({
-      walletId,
-      ecdsaThresholdKeyId,
-      signingRootId: recoveryRecord.signingRootId,
-      signingRootVersion: recoveryRecord.signingRootVersion,
-      participantIds: recoveryRecord.participantIds,
-      thresholdOwnerAddress: recoveryRecord.ethereumAddress,
-    });
-  } catch {
-    return null;
-  }
-  let publicFacts: VerifiedEcdsaPublicFacts;
-  try {
-    publicFacts = await toVerifiedEcdsaPublicFactsFromDurableRecord({
-      record: {
-        ecdsaRestore: {
-          keyHandle: recoveryRecord.keyHandle,
-          thresholdEcdsaPublicKeyB64u: recoveryRecord.thresholdEcdsaPublicKeyB64u,
-          participantIds: recoveryRecord.participantIds,
-          ethereumAddress: recoveryRecord.ethereumAddress,
-        },
-      },
-    });
-  } catch {
-    return null;
-  }
-  const expiresAtMs = Math.floor(Number(args.record.expiresAtMs) || 0);
-  const remainingUses = Math.floor(Number(args.record.remainingUses) || 0);
-  const state: AvailableSigningLaneState =
-    expiresAtMs > 0 && expiresAtMs <= Date.now()
-      ? 'expired'
-      : remainingUses <= 0
-        ? 'exhausted'
-        : 'restorable';
-  const authFields = concreteAvailableEcdsaAuthFields({
-    key: keyIdentity,
-    auth: ecdsaRecoveryRecordAuthBinding(recoveryRecord),
-    publicFacts,
-  });
-  if (!args.record.ecdsaRestore) return null;
-  const publicReauthAuthority = buildEcdsaReauthAnchorPublicRestore(
-    args.record.ecdsaRestore,
-    args.record.relayerUrl,
-  );
-  if (!publicReauthAuthority) return null;
-
-  return {
-    key: keyIdentity,
-    materialActivation: recoveryRecord.roleLocalMaterialRef.materialActivation,
-    publicFacts,
-    ...authFields,
-    curve: 'ecdsa',
-    chainTarget: args.chainTarget,
-    state,
-    source: 'durable_sealed_record',
-    publicReauthAuthority,
-    signingGrantId,
-    thresholdSessionId,
-    updatedAtMs: Math.floor(Number(args.record.updatedAtMs) || 0),
-    ...(policyHint ? { policyHint } : {}),
-    ...(state === 'exhausted' ? { remainingUses: 0 } : {}),
-    ...(state === 'expired' && expiresAtMs > 0 ? { expiresAtMs } : {}),
-  };
 }
 
 export function warmStatusToAvailableLaneStateAdvisory(args: {
@@ -1632,64 +1116,6 @@ function runtimeRecordPolicyState(args: {
   return null;
 }
 
-async function runtimeRecordToEcdsaLane(args: {
-  record: AvailableSigningLanesRuntimeEcdsaRecord;
-  publicFacts: VerifiedEcdsaPublicFacts;
-}): Promise<ConcreteAvailableEcdsaSigningLane> {
-  const runtimeLaneIdentity = buildRuntimeEcdsaAvailableLaneIdentityInput({
-    record: args.record,
-    publicFacts: args.publicFacts,
-  });
-  const authorization =
-    args.record.authorizationState.kind === 'authorized'
-      ? args.record.authorizationState.authorization
-      : null;
-  const base = {
-    key: args.record.key,
-    materialActivation: args.record.materialActivation,
-    publicFacts: args.publicFacts,
-    curve: 'ecdsa',
-    chainTarget: args.record.chainTarget,
-    source: 'canonical_capability',
-  } as const;
-  if (runtimeLaneIdentity.auth.kind === 'passkey') {
-    const resolvedKey = runtimeLaneIdentity.resolvedKey;
-    if (!resolvedKey) {
-      throw new Error('[SigningSession] passkey ECDSA runtime lane is missing resolved key');
-    }
-    return authorization
-      ? {
-          ...base,
-          auth: runtimeLaneIdentity.auth,
-          resolvedKey,
-          state: 'ready',
-          authorization,
-          remainingUses: authorization.status.remainingUses,
-          expiresAtMs: authorization.status.expiresAtMs,
-        }
-      : {
-          ...base,
-          auth: runtimeLaneIdentity.auth,
-          resolvedKey,
-          state: 'deferred',
-        };
-  }
-  return authorization
-    ? {
-        ...base,
-        auth: runtimeLaneIdentity.auth,
-        state: 'ready',
-        authorization,
-        remainingUses: authorization.status.remainingUses,
-        expiresAtMs: authorization.status.expiresAtMs,
-      }
-    : {
-        ...base,
-        auth: runtimeLaneIdentity.auth,
-        state: 'deferred',
-      };
-}
-
 function runtimeRecordToEd25519Lane(args: {
   record: AvailableSigningLanesRuntimeEd25519Record;
   advisory: AvailableLaneStateAdvisory | null;
@@ -1735,9 +1161,7 @@ function availableLaneUpdatedAtMs(
 }
 
 function laneCandidateUpdatedAtMs(candidate: EcdsaLaneCandidate | Ed25519LaneCandidate): number {
-  return candidate.curve === 'ecdsa'
-    ? 0
-    : Math.floor(Number(candidate.updatedAtMs) || 0);
+  return candidate.curve === 'ecdsa' ? 0 : Math.floor(Number(candidate.updatedAtMs) || 0);
 }
 
 function laneCandidateExpiry(
@@ -1798,11 +1222,10 @@ function availableLaneSourcePriority(
   lane: AvailableEcdsaSigningLane | AvailableEd25519SigningLane,
 ): number {
   if (!isConcreteAvailableSigningLane(lane)) return 0;
+  if (lane.curve === 'ecdsa') return 0;
   switch (lane.source) {
     case 'runtime_session_record':
       return 4;
-    case 'evm_family_shared_key':
-      return 2;
     case 'durable_sealed_record':
       return 1;
     default:
@@ -2093,11 +1516,6 @@ function summarizeEcdsaLaneForDiagnostics(
     targetKey: thresholdEcdsaChainTargetKey(lane.chainTarget),
     state: lane.state,
     source: lane.source,
-    ...(lane.source === 'evm_family_shared_key'
-      ? { sourceChainTarget: lane.sourceChainTarget }
-      : {}),
-    signingGrantId: lane.signingGrantId,
-    thresholdSessionId: lane.thresholdSessionId,
     evmFamilyKeyFingerprint: deriveAvailableEcdsaLaneFingerprint(lane),
     ecdsaThresholdKeyId: lane.key.ecdsaThresholdKeyId,
     participantIds: lane.publicFacts.participantIds,
@@ -2109,11 +1527,9 @@ function summarizeEcdsaLaneForDiagnostics(
 }
 
 function ecdsaLaneRecordFactSource(
-  lane: ConcreteAvailableEcdsaSigningLane,
+  _lane: ConcreteAvailableEcdsaSigningLane,
 ): EcdsaLaneRecordFactSource {
-  if (lane.source === 'evm_family_shared_key') return 'evm_family_shared_projection';
-  if (lane.source === 'durable_sealed_record') return 'sealed_restore_record';
-  return 'runtime_session_record';
+  return 'canonical_capability';
 }
 
 function ecdsaLaneGroupKey(lane: ConcreteAvailableEcdsaSigningLane): EcdsaLaneGroupKey | null {
@@ -2264,10 +1680,8 @@ function ecdsaRecordFactsForCandidates(
     .filter((fact): fact is EcdsaLaneRecordFact => fact !== null);
 }
 
-function ecdsaCanonicalSourcePriority(lane: ConcreteAvailableEcdsaSigningLane): number {
-  if (lane.source === 'evm_family_shared_key') return 1;
-  if (lane.source === 'durable_sealed_record') return 2;
-  return 3;
+function ecdsaCanonicalSourcePriority(_lane: ConcreteAvailableEcdsaSigningLane): number {
+  return 1;
 }
 
 function ecdsaCanonicalFactGroupKey(fact: EcdsaLaneRecordFact): EcdsaLaneGroupKey {
@@ -2293,16 +1707,14 @@ function ecdsaCanonicalFactGeneration(fact: EcdsaLaneRecordFact): ServerIssuedGe
   return availableLaneServerIssuedGeneration(fact.lane);
 }
 
-function ecdsaCanonicalFactExactness(
-  fact: EcdsaLaneRecordFact,
-): 'exact_target' | 'shared_projection' {
-  return fact.lane.source === 'evm_family_shared_key' ? 'shared_projection' : 'exact_target';
+function ecdsaCanonicalFactExactness(_fact: EcdsaLaneRecordFact): 'exact_target' {
+  return 'exact_target';
 }
 
 function ecdsaCanonicalStableTieBreakKey(lane: ConcreteAvailableEcdsaSigningLane): string {
   return [
     materialActivationKey(lane.materialActivation),
-    lane.source || 'runtime_session_record',
+    lane.source,
     thresholdEcdsaChainTargetKey(lane.chainTarget),
   ]
     .map((part) => String(part))
@@ -2459,148 +1871,6 @@ function canonicalizeEcdsaAvailableLanes(args: {
   };
 }
 
-function ecdsaSharedKeyCompletionGroup(lane: ConcreteAvailableEcdsaSigningLane): string {
-  return [
-    lane.key.walletId,
-    ecdsaAvailableLaneAuthKey(lane.auth),
-    lane.key.keyScope,
-    lane.publicFacts.keyHandle,
-    lane.publicFacts.publicKeyB64u,
-    lane.publicFacts.thresholdOwnerAddress,
-    lane.publicFacts.participantIds.map((participantId) => Number(participantId)).join(','),
-    signingLaneAuthMethod(lane.auth),
-  ]
-    .map((part) => String(part))
-    .join('|');
-}
-
-function sharedEvmFamilyLaneForTarget(args: {
-  sourceLane: ConcreteAvailableEcdsaSigningLane;
-  chainTarget: ThresholdEcdsaChainTarget;
-}): ConcreteAvailableEcdsaSigningLane {
-  const sourceLane = args.sourceLane;
-  const base = {
-    key: sourceLane.key,
-    materialActivation: sourceLane.materialActivation,
-    publicFacts: sourceLane.publicFacts,
-    curve: 'ecdsa',
-    chainTarget: args.chainTarget,
-    state: sourceLane.state,
-    source: 'evm_family_shared_key',
-    sourceChainTarget: sourceLane.chainTarget,
-    signingGrantId: sourceLane.signingGrantId,
-    thresholdSessionId: sourceLane.thresholdSessionId,
-    ...(sourceLane.remainingUses == null ? {} : { remainingUses: sourceLane.remainingUses }),
-    ...(sourceLane.expiresAtMs == null ? {} : { expiresAtMs: sourceLane.expiresAtMs }),
-    updatedAtMs: sourceLane.updatedAtMs,
-  } as const;
-  if (sourceLane.auth.kind === 'passkey') {
-    const resolvedKey = sourceLane.resolvedKey;
-    if (!resolvedKey) {
-      throw new Error('[SigningSession] passkey ECDSA shared lane is missing resolved key');
-    }
-    return {
-      ...base,
-      auth: sourceLane.auth,
-      resolvedKey,
-    };
-  }
-  return {
-    ...base,
-    auth: sourceLane.auth,
-  };
-}
-
-function completeMissingEvmFamilyTargetsFromSharedKey(args: {
-  targets: readonly ThresholdEcdsaChainTarget[];
-  lanesByTarget: Record<string, AvailableEcdsaSigningLane>;
-  candidatesByTarget: Record<string, AvailableEcdsaSigningLane[]>;
-  laneUpdatedAtMsByTarget: Record<string, number>;
-}): void {
-  const sourceLanesByGroup = new Map<string, ConcreteAvailableEcdsaSigningLane[]>();
-  for (const candidates of Object.values(args.candidatesByTarget)) {
-    for (const candidate of candidates) {
-      if (!isConcreteAvailableSigningLane(candidate) || candidate.curve !== 'ecdsa') continue;
-      if (candidate.source === 'evm_family_shared_key') continue;
-      const groupKey = ecdsaSharedKeyCompletionGroup(candidate);
-      sourceLanesByGroup.set(groupKey, [...(sourceLanesByGroup.get(groupKey) || []), candidate]);
-    }
-  }
-
-  const uniqueSourceLanes = [...sourceLanesByGroup.values()]
-    .filter((group) => group.length > 0)
-    .map(
-      (group) => [...group].sort((left, right) => compareAvailableLanePriority(right, left))[0]!,
-    );
-  if (uniqueSourceLanes.length !== 1) return;
-  const sourceLane = uniqueSourceLanes[0]!;
-
-  for (const chainTarget of args.targets) {
-    const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
-    const concreteCandidates = (args.candidatesByTarget[targetKey] || []).filter(
-      (candidate): candidate is ConcreteAvailableEcdsaSigningLane =>
-        isConcreteAvailableSigningLane(candidate) && candidate.curve === 'ecdsa',
-    );
-    // Exact target authority owns the lane even when a sibling projection is newer.
-    if (concreteCandidates.length > 0) continue;
-    if (thresholdEcdsaChainTargetKey(sourceLane.chainTarget) === targetKey) continue;
-    const sharedLane = sharedEvmFamilyLaneForTarget({ sourceLane, chainTarget });
-    args.candidatesByTarget[targetKey] = [
-      ...(args.candidatesByTarget[targetKey] || []),
-      sharedLane,
-    ];
-    args.lanesByTarget[targetKey] = sharedLane;
-    args.laneUpdatedAtMsByTarget[targetKey] = availableLaneUpdatedAtMs(sharedLane);
-  }
-}
-
-function summarizeSealedEcdsaRecordForDiagnostics(
-  record: EcdsaDurableLaneRecord,
-): Record<string, unknown> {
-  if ('recordKind' in record) {
-    const restore = record.ecdsaRestore;
-    return {
-      storeKey: record.storeKey,
-      walletId: record.walletId,
-      authMethod: record.authMethod,
-      curve: record.curve,
-      signingGrantId: record.signingGrantId,
-      thresholdSessionId: record.thresholdSessionIds.ecdsa,
-      restoreThresholdSessionId: record.thresholdSessionIds.ecdsa,
-      restoreChainTarget: restore.chainTarget,
-      restoreTargetKey: thresholdEcdsaChainTargetKey(restore.chainTarget),
-      keyHandle: restore.keyHandle,
-      ecdsaThresholdKeyId: restore.ecdsaThresholdKeyId || null,
-      normalizedRecoveryKind: record.recordKind,
-      updatedAtMs: record.updatedAtMs,
-    };
-  }
-  const restore = record.ecdsaRestore;
-  const normalized = normalizeSealedRecoveryRecord(record, {
-    allowExpired: true,
-    allowExhausted: true,
-  });
-  const recoveryRecord =
-    normalized.kind === 'accepted' ? ecdsaRecoveryRecordForDurableLane(normalized.record) : null;
-  return {
-    storeKey: record.storeKey,
-    walletId: String(record.walletId || '').trim() || null,
-    authMethod: record.authMethod,
-    curve: record.curve,
-    signingGrantId: String(record.signingGrantId || '').trim() || null,
-    thresholdSessionId: String(record.thresholdSessionIds?.ecdsa || '').trim() || null,
-    restoreThresholdSessionId: String(recoveryRecord?.thresholdSessionId || '').trim() || null,
-    restoreChainTarget: restore?.chainTarget || null,
-    restoreTargetKey: restore?.chainTarget
-      ? thresholdEcdsaChainTargetKey(restore.chainTarget)
-      : null,
-    keyHandle: String(restore?.keyHandle || '').trim() || null,
-    ecdsaThresholdKeyId: String(recoveryRecord?.ecdsaThresholdKeyId || '').trim() || null,
-    normalizedRecoveryKind: normalized.kind,
-    updatedAtMs: Math.floor(Number(record.updatedAtMs) || 0),
-  };
-}
-
 function collapseExactDuplicateAvailableLanes<
   TLane extends AvailableEcdsaSigningLane | AvailableEd25519SigningLane,
 >(
@@ -2634,27 +1904,6 @@ export async function readAvailableSigningLanes(
     ecdsaTargetsByKey.set(thresholdEcdsaChainTargetKey(chainTarget), chainTarget);
   }
   const ecdsaChainTargets = [...ecdsaTargetsByKey.values()];
-  const ecdsaRecordsByTarget = await Promise.all(
-    ecdsaChainTargets.map((chainTarget) =>
-      ports.listSealedRecordsForWallet({
-        walletId,
-        filter: {
-          ...(input.authMethod ? { authMethod: input.authMethod } : {}),
-          curve: 'ecdsa',
-          chainTarget,
-        },
-      }),
-    ),
-  );
-  const walletScopedEcdsaRecords = ports.listEcdsaSealedRecordsForWallet
-    ? await ports.listEcdsaSealedRecordsForWallet({
-        walletId,
-        filter: {
-          ...(input.authMethod ? { authMethod: input.authMethod } : {}),
-          curve: 'ecdsa',
-        },
-      })
-    : [];
   const ed25519Records = await ports.listSealedRecordsForWallet({
     walletId,
     filter: {
@@ -2662,11 +1911,6 @@ export async function readAvailableSigningLanes(
       curve: 'ed25519',
     },
   });
-  const ecdsaRecordsByStoreKey = new Map<string, EcdsaDurableLaneRecord>();
-  for (const record of [...ecdsaRecordsByTarget.flat(), ...walletScopedEcdsaRecords]) {
-    ecdsaRecordsByStoreKey.set(record.storeKey, record);
-  }
-  const ecdsaRecords = [...ecdsaRecordsByStoreKey.values()];
   const ecdsaTargets = [...ecdsaChainTargets];
   const ecdsaLanesByTarget: Record<string, AvailableEcdsaSigningLane> = {};
   const ecdsaCandidatesByTarget: Record<string, AvailableEcdsaSigningLane[]> = {};
@@ -2680,18 +1924,8 @@ export async function readAvailableSigningLanes(
   const ed25519Candidates: AvailableEd25519SigningLane[] = [];
   let generation = 0;
   const collectDiagnostics = isAvailableSigningLaneDiagnosticsEnabled();
-  const durableEcdsaDiscovery: Record<string, unknown>[] = [];
   const runtimeEcdsaDiscovery: Record<string, unknown>[] = [];
   const invalidLanes: InvalidAvailableSigningLaneDiagnostic[] = [];
-  const recordDurableEcdsaDiscovery = (
-    record: EcdsaDurableLaneRecord,
-    result: Record<string, unknown>,
-  ): void => {
-    durableEcdsaDiscovery.push({
-      ...summarizeSealedEcdsaRecordForDiagnostics(record),
-      ...result,
-    });
-  };
 
   for (const record of ed25519Records) {
     const lane = recordToEd25519Lane(record);
@@ -2701,68 +1935,9 @@ export async function readAvailableSigningLanes(
     generation = Math.max(generation, updatedAtMs);
   }
 
-  for (const record of ecdsaRecords) {
-    if (!record.thresholdSessionIds.ecdsa) {
-      recordDurableEcdsaDiscovery(record, {
-        result: 'rejected',
-        reason: 'missing_ecdsa_threshold_session_id',
-      });
-      continue;
-    }
-    const chainTarget = record.ecdsaRestore?.chainTarget;
-    if (!chainTarget) {
-      recordDurableEcdsaDiscovery(record, {
-        result: 'rejected',
-        reason: 'missing_ecdsa_restore_chain_target',
-      });
-      continue;
-    }
-    const chain = chainTarget.kind;
-    if (chain !== 'tempo' && chain !== 'evm') {
-      recordDurableEcdsaDiscovery(record, {
-        result: 'rejected',
-        reason: 'unsupported_ecdsa_chain_target',
-        chainTarget,
-      });
-      continue;
-    }
-    const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
-    const updatedAtMs = Math.floor(Number(record.updatedAtMs) || 0);
-    generation = Math.max(generation, updatedAtMs);
-    const lane = await recordToEcdsaLane({
-      chainTarget,
-      record,
-    });
-    if (!lane) {
-      recordDurableEcdsaDiscovery(record, {
-        result: 'rejected',
-        reason: 'record_to_ecdsa_lane_rejected',
-        requestedTargetKeys: [...ecdsaTargetsByKey.keys()],
-        recordTargetKey: targetKey,
-      });
-      continue;
-    }
-    recordDurableEcdsaDiscovery(record, {
-      result: 'accepted',
-      targetKey,
-      lane: summarizeEcdsaLaneForDiagnostics(lane),
-    });
-    ecdsaCandidatesByTarget[targetKey] ||= [];
-    ecdsaCandidatesByTarget[targetKey].push(lane);
-    if (updatedAtMs < (ecdsaLaneUpdatedAtMsByTarget[targetKey] || 0)) continue;
-    ecdsaLaneUpdatedAtMsByTarget[targetKey] = updatedAtMs;
-    ecdsaLanesByTarget[targetKey] = lane;
-  }
-
-  const rawRuntimeEcdsaRecords = ports.listRuntimeEcdsaLanesForWallet
-    ? await ports.listRuntimeEcdsaLanesForWallet({ walletId })
+  const canonicalEcdsaLanes = ports.listCanonicalEcdsaLanesForWallet
+    ? await ports.listCanonicalEcdsaLanesForWallet({ walletId })
     : [];
-  const runtimeEcdsaRecords: AvailableSigningLanesRuntimeEcdsaRecord[] = [];
-  for (const record of rawRuntimeEcdsaRecords) {
-    const recordAuthMethod = signingLaneAuthMethod(record.auth);
-    if (input.authMethod && recordAuthMethod !== input.authMethod) continue;
-    runtimeEcdsaRecords.push(record);
-  }
   const rawRuntimeEd25519Records = ports.listRuntimeEd25519RecordsForWallet
     ? await ports.listRuntimeEd25519RecordsForWallet({ walletId })
     : [];
@@ -2772,10 +1947,6 @@ export async function readAvailableSigningLanes(
     if (input.authMethod && recordAuthMethod !== input.authMethod) continue;
     runtimeEd25519Records.push(record);
   }
-  const advisoriesByEcdsaRecordKey =
-    runtimeEcdsaRecords.length && ports.readEcdsaWarmStatusAdvisoriesForRecords
-      ? await ports.readEcdsaWarmStatusAdvisoriesForRecords(runtimeEcdsaRecords)
-      : new Map<string, AvailableLaneStateAdvisory | null>();
   const runtimeEd25519SessionIds = runtimeEd25519Records
     .map((record) => String(record.thresholdSessionId || '').trim())
     .filter(Boolean);
@@ -2784,92 +1955,21 @@ export async function readAvailableSigningLanes(
       ? await ports.readWarmStatusAdvisoriesForSessions(runtimeEd25519SessionIds)
       : new Map<string, AvailableLaneStateAdvisory | null>();
 
-  for (const runtimeRecord of runtimeEcdsaRecords) {
-    const runtimeAuthMethod = signingLaneAuthMethod(runtimeRecord.auth);
-    const chain = runtimeRecord.chainTarget.kind;
-    if (chain !== 'tempo' && chain !== 'evm') {
-      invalidLanes.push({
-        curve: 'ecdsa',
-        source: 'runtime_session_record',
-        reason: 'unsupported_ecdsa_chain_target',
-        authMethod: runtimeAuthMethod,
-      });
-      runtimeEcdsaDiscovery.push({
-        result: 'rejected',
-        reason: 'unsupported_ecdsa_chain_target',
-        record: runtimeRecord,
-      });
-      continue;
-    }
-    const runtimePublicFacts = verifiedPublicFactsFromRuntimeEcdsaRecord(runtimeRecord);
-    if (!runtimePublicFacts) {
-      invalidLanes.push({
-        curve: 'ecdsa',
-        source: 'runtime_session_record',
-        reason: 'invalid_runtime_public_facts',
-        authMethod: runtimeAuthMethod,
-      });
-      runtimeEcdsaDiscovery.push({
-        result: 'rejected',
-        reason: 'invalid_runtime_public_facts',
-        record: runtimeRecord,
-      });
-      continue;
-    }
-    const runtimeLaneIdentity = buildRuntimeEcdsaAvailableLaneIdentityInput({
-      record: runtimeRecord,
-      publicFacts: runtimePublicFacts,
-    });
-    const runtimeLaneKey = ecdsaAvailableLaneIdentityKey(runtimeLaneIdentity);
-    const targetKey = thresholdEcdsaChainTargetKey(runtimeRecord.chainTarget);
-    const targetCandidates = ecdsaCandidatesByTarget[targetKey] || [];
-    const advisoryKey = runtimeEcdsaRecordAdvisoryKey(runtimeRecord);
-    const runtimeAdvisory = advisoryKey
-      ? advisoriesByEcdsaRecordKey.get(advisoryKey) || null
-      : null;
-    let runtimeLane: ConcreteAvailableEcdsaSigningLane;
-    try {
-      runtimeLane = await runtimeRecordToEcdsaLane({
-        record: runtimeRecord,
-        publicFacts: runtimePublicFacts,
-      });
-    } catch (error) {
-      invalidLanes.push({
-        curve: 'ecdsa',
-        source: 'runtime_session_record',
-        reason: 'invalid_runtime_public_facts',
-        authMethod: runtimeAuthMethod,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      runtimeEcdsaDiscovery.push({
-        result: 'rejected',
-        reason: 'invalid_runtime_public_facts',
-        message: error instanceof Error ? error.message : String(error),
-        record: runtimeRecord,
-      });
-      continue;
-    }
+  for (const lane of canonicalEcdsaLanes) {
+    const authMethod = signingLaneAuthMethod(lane.auth);
+    if (input.authMethod && authMethod !== input.authMethod) continue;
+    if (String(lane.key.walletId) !== String(walletId)) continue;
+    const targetKey = thresholdEcdsaChainTargetKey(lane.chainTarget);
+    if (!ecdsaTargetsByKey.has(targetKey)) continue;
+    ecdsaCandidatesByTarget[targetKey] ||= [];
+    ecdsaCandidatesByTarget[targetKey].push(lane);
+    const updatedAtMs = availableLaneUpdatedAtMs(lane);
+    generation = Math.max(generation, updatedAtMs);
     runtimeEcdsaDiscovery.push({
       result: 'accepted',
       targetKey,
-      runtimeLaneKey,
-      advisory: runtimeAdvisory,
-      lane: summarizeEcdsaLaneForDiagnostics(runtimeLane),
+      lane: summarizeEcdsaLaneForDiagnostics(lane),
     });
-    const candidateIndex = runtimeLaneKey
-      ? targetCandidates.findIndex((lane) => ecdsaAvailableLaneIdentityKey(lane) === runtimeLaneKey)
-      : -1;
-    if (candidateIndex >= 0) {
-      targetCandidates[candidateIndex] = runtimeLane;
-    } else {
-      targetCandidates.push(runtimeLane);
-    }
-    ecdsaCandidatesByTarget[targetKey] = targetCandidates;
-    const runtimeUpdatedAtMs = availableLaneUpdatedAtMs(runtimeLane);
-    if (runtimeUpdatedAtMs >= (ecdsaLaneUpdatedAtMsByTarget[targetKey] || 0)) {
-      ecdsaLaneUpdatedAtMsByTarget[targetKey] = runtimeUpdatedAtMs;
-      ecdsaLanesByTarget[targetKey] = runtimeLane;
-    }
   }
 
   for (const runtimeRecord of runtimeEd25519Records) {
@@ -2933,12 +2033,6 @@ export async function readAvailableSigningLanes(
     candidatesByTarget: ecdsaCandidatesByTarget,
     invalidLanes,
   });
-  completeMissingEvmFamilyTargetsFromSharedKey({
-    targets: ecdsaTargets,
-    lanesByTarget: canonicalEcdsaSources.lanesByTarget,
-    candidatesByTarget: canonicalEcdsaSources.candidatesByTarget,
-    laneUpdatedAtMsByTarget: ecdsaLaneUpdatedAtMsByTarget,
-  });
   const canonicalEcdsaAvailableLanes = canonicalizeEcdsaAvailableLanes({
     targets: ecdsaTargets,
     candidatesByTarget: canonicalEcdsaSources.candidatesByTarget,
@@ -2989,9 +2083,9 @@ export async function readAvailableSigningLanes(
       chainTarget: target,
       targetKey: thresholdEcdsaChainTargetKey(target),
     })),
-    sealedRecordCount: ecdsaRecords.length,
-    runtimeRecordCount: runtimeEcdsaRecords.length,
-    durableDiscovery: durableEcdsaDiscovery,
+    sealedRecordCount: 0,
+    runtimeRecordCount: canonicalEcdsaLanes.length,
+    durableDiscovery: [],
     runtimeDiscovery: runtimeEcdsaDiscovery,
     resultSelectedLanesByTarget: Object.fromEntries(
       Object.entries(availableLanes.ecdsa.lanesByTarget).map(([targetKey, lane]) => [

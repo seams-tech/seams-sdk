@@ -198,11 +198,7 @@ export type ReauthAdmittedLifecycle<
 
 export type ReauthAnchorSourceState = {
   kind: 'reauth_anchor_source_state';
-  availabilitySource:
-    | 'canonical_capability'
-    | 'durable_sealed_record'
-    | 'runtime_session_record'
-    | 'evm_family_shared_key';
+  availabilitySource: 'canonical_capability' | 'durable_sealed_record' | 'runtime_session_record';
   storeSource: ThresholdEcdsaSessionStoreSource | ThresholdEd25519SessionStoreSource;
   retention: 'session' | 'single_use' | 'unknown';
   remainingUses: number | null;

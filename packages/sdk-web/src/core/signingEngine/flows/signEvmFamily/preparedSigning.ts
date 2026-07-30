@@ -30,10 +30,7 @@ import {
   type ExactEcdsaSigningLaneIdentity,
 } from '../../session/identity/exactSigningLaneIdentity';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import {
-  selectEvmFamilyEcdsaMaterialCandidate,
-  type EvmFamilyEcdsaAvailableLane,
-} from '../../session/identity/selectLane';
+import { selectEvmFamilyEcdsaMaterialCandidate } from '../../session/identity/selectLane';
 import { deriveEvmFamilyKeyFingerprintFromPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   prepareTransactionSigningOperation,
@@ -78,7 +75,6 @@ import {
 } from './ecdsaSelection';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { EvmFamilyPreConfirmSigningDeps } from './authPlanning';
-import { resolveEvmFamilyTransactionWalletAuth } from './accountAuth';
 import type { EvmFamilySigningTarget } from './types';
 
 export function buildEvmFamilyTransactionSigningIntent(args: {
@@ -130,7 +126,9 @@ function requireSingleConcreteAuthMethodForEcdsaTarget(args: {
     authMethods.add(availableEcdsaSigningLaneAuthMethod(lane));
   }
   if (authMethods.size !== 1) {
-    throw new Error('[SigningEngine][ecdsa] exact capability authority is unavailable or ambiguous');
+    throw new Error(
+      '[SigningEngine][ecdsa] exact capability authority is unavailable or ambiguous',
+    );
   }
   return Array.from(authMethods)[0];
 }
@@ -161,9 +159,6 @@ function summarizeEcdsaAvailableLane(
     ...(evmFamilyKeyFingerprint ? { evmFamilyKeyFingerprint } : {}),
     state: lane.state,
     source: lane.source,
-    ...(lane.source === 'evm_family_shared_key'
-      ? { sourceChainTarget: lane.sourceChainTarget }
-      : {}),
     walletSessionId: lane.authorization?.projection.walletSessionId,
     materialActivationId: lane.materialActivation.activationId,
     remainingUses: lane.authorization?.status.remainingUses,
@@ -213,9 +208,6 @@ function summarizeEcdsaLaneCandidate(
     curve: candidate.curve,
     chain: candidate.chainTarget.kind,
     chainTarget: candidate.chainTarget,
-    ...(candidate.source === 'evm_family_shared_key'
-      ? { sourceChainTarget: candidate.sourceChainTarget }
-      : {}),
     state: candidate.state,
     source: candidate.source,
     materialActivationId: candidate.materialActivation.activationId,
@@ -276,9 +268,7 @@ function readinessFromSelection(
 ): EvmFamilyPlannerReadiness {
   switch (selection.kind) {
     case 'ready': {
-      const expiresAtMs = Math.floor(
-        Number(selection.lane.authorization.status.expiresAtMs) || 0,
-      );
+      const expiresAtMs = Math.floor(Number(selection.lane.authorization.status.expiresAtMs) || 0);
       const remainingUses = Math.max(
         0,
         Math.floor(Number(selection.lane.authorization.status.remainingUses) || 0),
@@ -299,10 +289,10 @@ function readinessFromSelection(
     case 'reauth_required': {
       const status =
         selection.reason === 'expired'
-            ? 'expired'
-            : selection.reason === 'exhausted'
-              ? 'exhausted'
-              : 'missing_session';
+          ? 'expired'
+          : selection.reason === 'exhausted'
+            ? 'exhausted'
+            : 'missing_session';
       const readiness: SigningSessionReadiness =
         status === 'expired'
           ? {
@@ -490,7 +480,10 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
     candidatesByTarget: summarizeEcdsaAvailableCandidatesByTarget(candidateAvailableLanes),
   };
   if (laneReadDiagnostic.candidateCount === 0) {
-    emitVisibleEcdsaLaneDiagnostic('[ECDSA_LANE_READ_DIAGNOSTIC][no-candidates]', laneReadDiagnostic);
+    emitVisibleEcdsaLaneDiagnostic(
+      '[ECDSA_LANE_READ_DIAGNOSTIC][no-candidates]',
+      laneReadDiagnostic,
+    );
   }
   emitSigningSessionFlowTrace('evm-family', {
     stage: 'ecdsa_prepare.available_lanes_read',
@@ -583,7 +576,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
       intent: transactionIntent,
     };
   }
-  const selectedAvailableLane: EvmFamilyEcdsaAvailableLane = materialSelection.availableLane;
   const laneCandidate: AuthorizedEcdsaLaneCandidate = materialSelection.candidate;
   const transactionLane: SelectedEcdsaLane = materialSelection.lane;
   const preparedTransaction = await prepareTransactionSigningOperation({
@@ -617,14 +609,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           chainTarget,
           senderSignatureAlgorithm: 'secp256k1',
           laneCandidate,
-          reauth:
-            reauthAnchor && selectedAvailableLane.source === 'durable_sealed_record'
-              ? {
-                  kind: 'public_anchor',
-                  reauthAnchor,
-                  publicRestore: selectedAvailableLane.publicReauthAuthority,
-                }
-              : { kind: 'not_required' },
+          reauth: { kind: 'not_required' },
         });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.material_selected',

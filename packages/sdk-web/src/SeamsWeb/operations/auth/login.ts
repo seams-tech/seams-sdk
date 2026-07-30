@@ -83,9 +83,7 @@ import type {
   AccountSignerRecord,
   ProfileAuthenticatorRecord,
 } from '@/core/indexedDB/passkeyClientDB.types';
-import type {
-  EcdsaBootstrapRequest,
-} from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
+import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
 import {
@@ -94,15 +92,9 @@ import {
   getStoredThresholdEd25519SessionRecordForWallet,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
 } from '@/core/signingEngine/session/persistence/records';
-import {
-  buildPersistedEcdsaRoleLocalMaterial,
-  type PersistedEcdsaRoleLocalMaterial,
-} from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
+import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import { parseWarmEd25519SigningSessionAuthorizationFromRecord } from '@/core/signingEngine/session/warmCapabilities/ed25519Authorization';
-import type {
-  ThresholdEcdsaEmailOtpAuthContext,
-  ThresholdEcdsaSessionStoreSource,
-} from '@/core/signingEngine/session/identity/laneIdentity';
+import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   STALE_ECDSA_KEY_IDENTITY_ERROR_CODE,
@@ -126,8 +118,6 @@ import type {
   AvailableSigningLanes,
   ConcreteAvailableEcdsaSigningLane,
   ConcreteAvailableEd25519SigningLane,
-  AvailableEcdsaSigningLane,
-  AvailableEd25519SigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
   ecdsaAvailableLaneForTarget,
@@ -137,7 +127,6 @@ import {
 import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
 import {
   thresholdEcdsaChainTargetKey,
-  thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -146,7 +135,6 @@ import type {
   RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import { buildEcdsaRoleLocalPublicFacts } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaSessionLanePolicy,
@@ -2661,62 +2649,6 @@ function publicCapabilityFromThresholdEcdsaBootstrap(
   }
 }
 
-function publicCapabilityFromDurableAvailableLane(args: {
-  lane: ConcreteAvailableEcdsaSigningLane;
-  walletId: WalletId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  keyHandle: string;
-}): RouterAbEcdsaDerivationPublicCapabilityV1 | undefined {
-  if (args.lane.source !== 'durable_sealed_record') return undefined;
-  const restore = args.lane.publicReauthAuthority;
-  if (
-    String(restore.keyHandle) !== args.keyHandle ||
-    !thresholdEcdsaChainTargetsEqual(restore.chainTarget, args.chainTarget) ||
-    String(restore.publicCapability.client_id) !== String(args.walletId)
-  ) {
-    throw new Error(
-      `[login] threshold ECDSA durable public capability identity mismatch for ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
-    );
-  }
-  return restore.publicCapability;
-}
-
-function persistedRoleLocalMaterialFromDurableAvailableLane(args: {
-  lane: ConcreteAvailableEcdsaSigningLane;
-  walletId: WalletId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  keyHandle: string;
-}): PersistedEcdsaRoleLocalMaterial | undefined {
-  const publicCapability = publicCapabilityFromDurableAvailableLane(args);
-  if (!publicCapability || args.lane.source !== 'durable_sealed_record') return undefined;
-  const restore = args.lane.publicReauthAuthority;
-  if (restore.source === 'email_otp') return undefined;
-  const publicIdentity = publicCapability.public_identity;
-  const publicFacts = buildEcdsaRoleLocalPublicFacts({
-    walletId: args.walletId,
-    chainTarget: args.chainTarget,
-    keyHandle: args.keyHandle,
-    ecdsaThresholdKeyId: restore.ecdsaThresholdKeyId,
-    signingRootId: restore.signingRootId,
-    signingRootVersion: restore.signingRootVersion,
-    applicationBindingDigestB64u: publicCapability.context.application_binding_digest_b64u,
-    clientParticipantId: 1,
-    relayerParticipantId: 2,
-    participantIds: restore.participantIds,
-    contextBinding32B64u: publicIdentity.context_binding_b64u,
-    derivationClientSharePublicKey33B64u: publicIdentity.derivation_client_share_public_key33_b64u,
-    relayerPublicKey33B64u: publicIdentity.server_public_key33_b64u,
-    groupPublicKey33B64u: publicIdentity.threshold_public_key33_b64u,
-    ethereumAddress: restore.ethereumAddress,
-    publicCapability,
-  });
-  return buildPersistedEcdsaRoleLocalMaterial({
-    authority: restore.authority,
-    materialActivation: restore.roleLocalMaterialRef.materialActivation,
-    publicFacts,
-  });
-}
-
 function sameThresholdRuntimePolicyScope(
   left: ThresholdRuntimePolicyScope,
   right: ThresholdRuntimePolicyScope,
@@ -2747,32 +2679,6 @@ function mergeThresholdEcdsaWarmSessionContexts(args: {
     );
   }
   return mergeCanonicalThresholdEcdsaWarmSessionContexts(args.current, args.incoming);
-}
-
-function runtimePolicyScopeFromDurableAvailableLane(args: {
-  lane: ConcreteAvailableEcdsaSigningLane;
-  chainTarget: ThresholdEcdsaChainTarget;
-}): ThresholdRuntimePolicyScope | undefined {
-  if (args.lane.source !== 'durable_sealed_record') return undefined;
-  const restore = args.lane.publicReauthAuthority;
-  const runtimePolicyScope = restore.runtimePolicyScope;
-  if (!runtimePolicyScope) {
-    throw new Error(
-      `[login] threshold ECDSA durable lane is missing runtime policy scope for ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
-    );
-  }
-  const signingRootBinding = resolveThresholdSigningRootBindingFromRuntimePolicyScope({
-    runtimePolicyScope,
-  });
-  if (
-    String(signingRootBinding.signingRootId) !== restore.signingRootId ||
-    String(signingRootBinding.signingRootVersion) !== restore.signingRootVersion
-  ) {
-    throw new Error(
-      `[login] threshold ECDSA durable lane runtime policy scope mismatch for ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
-    );
-  }
-  return runtimePolicyScope;
 }
 
 /** Public capability and authority are the manifest's half of the capability
@@ -3523,7 +3429,7 @@ async function primeThresholdLoginWarmSigners(args: {
           completeActiveContextFromConfiguredTargets('login ECDSA warm-up preflight');
           for (const target of configuredEcdsaTargets) {
             const targetKey = thresholdEcdsaChainTargetKey(target.chainTarget);
-            let targetEcdsaKey = activeCanonicalEcdsaContext.ecdsaKeys.find(
+            const targetEcdsaKey = activeCanonicalEcdsaContext.ecdsaKeys.find(
               (key) => key.targetKey === targetKey,
             );
             const keyHandle = String(targetEcdsaKey?.keyHandle || '').trim();
@@ -3732,13 +3638,6 @@ function readWalletSessionNonceDiagnostics(
     return null;
   }
 }
-
-const THRESHOLD_ECDSA_LOGIN_METADATA_SOURCES: readonly ThresholdEcdsaSessionStoreSource[] = [
-  'email_otp',
-  'login',
-  'registration',
-  'manual-bootstrap',
-];
 
 function normalizeEvmOwnerAddress(value: unknown): string {
   const candidate = String(value || '')
@@ -4468,9 +4367,6 @@ async function resolveCanonicalThresholdEcdsaWarmSessionContext(
   walletId: WalletId,
   keyFactsInventoryInput?: LoginEcdsaKeyFactsInventoryInput,
 ): Promise<CanonicalThresholdEcdsaWarmSessionContext> {
-  const allowedSources = new Set<ThresholdEcdsaSessionStoreSource>(
-    THRESHOLD_ECDSA_LOGIN_METADATA_SOURCES,
-  );
   const configuredTargets = listConfiguredThresholdEcdsaPublicationTargets(
     context.configs.network.chains,
   );
@@ -4493,22 +4389,44 @@ async function resolveCanonicalThresholdEcdsaWarmSessionContext(
       if (!isConcreteAvailableSigningLane(lane)) continue;
       const keyHandle = String(lane.publicFacts.keyHandle || '').trim();
       if (!keyHandle) continue;
-      const publicCapability = publicCapabilityFromDurableAvailableLane({
-        lane,
+      const resolved = await resolveActiveEcdsaCapabilityRuntime({
         walletId,
         chainTarget: target,
-        keyHandle,
       });
-      const existingRoleLocalMaterial = persistedRoleLocalMaterialFromDurableAvailableLane({
-        lane,
-        walletId,
-        chainTarget: target,
-        keyHandle,
+      if (resolved.kind !== 'resolved') {
+        throw createThresholdEcdsaDeviceLinkRequiredError(thresholdEcdsaChainTargetKey(target));
+      }
+      const publicFacts = resolved.manifest.durableMaterial.roleLocalPublicFacts;
+      if (String(publicFacts.keyHandle) !== keyHandle) {
+        throw new Error(
+          `[login] threshold ECDSA canonical lane identity mismatch for ${thresholdEcdsaChainTargetKey(target)}`,
+        );
+      }
+      const publicCapability = publicFacts.publicCapability;
+      const existingRoleLocalMaterial = buildPersistedEcdsaRoleLocalMaterial({
+        authority: resolved.manifest.signer.authority,
+        materialActivation: resolved.manifest.activation.materialActivation,
+        publicFacts,
       });
-      const laneRuntimePolicyScope = runtimePolicyScopeFromDurableAvailableLane({
-        lane,
-        chainTarget: target,
+      const laneRuntimePolicyScope = resolved.runtime.runtimePolicyScope || undefined;
+      if (!laneRuntimePolicyScope) {
+        throw new Error(
+          `[login] threshold ECDSA canonical runtime is missing policy scope for ${thresholdEcdsaChainTargetKey(target)}`,
+        );
+      }
+      const signingRootBinding = resolveThresholdSigningRootBindingFromRuntimePolicyScope({
+        runtimePolicyScope: laneRuntimePolicyScope,
       });
+      if (
+        String(signingRootBinding.signingRootId) !==
+          String(resolved.manifest.signer.signingRootId) ||
+        String(signingRootBinding.signingRootVersion) !==
+          String(resolved.manifest.signer.signingRootVersion)
+      ) {
+        throw new Error(
+          `[login] threshold ECDSA canonical runtime policy scope mismatch for ${thresholdEcdsaChainTargetKey(target)}`,
+        );
+      }
       if (
         availableLaneRuntimePolicyScope &&
         laneRuntimePolicyScope &&

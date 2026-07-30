@@ -6,7 +6,6 @@ import {
 import type {
   AvailableSigningLanes,
   AvailableEd25519SigningLane,
-  ConcreteAvailableEcdsaSigningLane,
 } from '../availability/availableSigningLanes';
 import {
   availableEd25519SigningLaneAuthMethod,
@@ -27,7 +26,7 @@ export type RuntimePostconditionTarget =
 export type RuntimeLaneMaterial =
   | { kind: 'durable_sealed_record'; sourceChainTarget?: never }
   | { kind: 'runtime_session_record'; sourceChainTarget?: never }
-  | { kind: 'evm_family_shared_key'; sourceChainTarget: ThresholdEcdsaChainTarget };
+  | { kind: 'canonical_capability'; sourceChainTarget?: never };
 
 export type RuntimePostconditionLaneState = 'ready' | 'restorable';
 
@@ -46,8 +45,8 @@ export type UsableRuntimeLane =
       state: RuntimePostconditionLaneState;
       authMethod: RuntimePostconditionAuthMethod;
       target: { curve: 'ecdsa'; chainTarget: ThresholdEcdsaChainTarget };
-      signingGrantId: string;
-      thresholdSessionId: string;
+      authorizationSessionId: string;
+      materialActivationId: string;
       remainingSignatureUses: number;
       expiresAtMs: number;
       material: RuntimeLaneMaterial;
@@ -116,19 +115,6 @@ function laneExpiresAtMs(
   nowMs: number,
 ): number | null {
   return futureEpochMs(value.expiresAtMs ?? value.policyHint?.expiresAtMs, nowMs);
-}
-
-function ecdsaMaterialForLane(lane: ConcreteAvailableEcdsaSigningLane): RuntimeLaneMaterial | null {
-  if (lane.source === 'evm_family_shared_key') {
-    return { kind: 'evm_family_shared_key', sourceChainTarget: lane.sourceChainTarget };
-  }
-  if (
-    lane.source === 'durable_sealed_record' ||
-    lane.source === 'runtime_session_record'
-  ) {
-    return { kind: lane.source };
-  }
-  return null;
 }
 
 function ed25519MaterialForTransactionReadyLane(
@@ -252,20 +238,18 @@ function readEcdsaUseCaseReadyLane(args: {
   if (lane.state !== 'ready' && lane.state !== 'restorable') return 'ecdsa_lane_missing';
   const remainingSignatureUses = laneRemainingUses(lane);
   const expiresAtMs = laneExpiresAtMs(lane, args.nowMs);
-  if (!lane.signingGrantId || !lane.thresholdSessionId || !remainingSignatureUses || !expiresAtMs) {
+  if (!lane.authorization || !remainingSignatureUses || !expiresAtMs) {
     return 'lane_inventory_mismatch';
   }
-  const material = ecdsaMaterialForLane(lane);
-  if (!material) return 'lane_material_missing';
   return {
     state: lane.state,
     authMethod: args.authMethod,
     target: { curve: 'ecdsa', chainTarget: args.chainTarget },
-    signingGrantId: lane.signingGrantId,
-    thresholdSessionId: lane.thresholdSessionId,
+    authorizationSessionId: String(lane.authorization.projection.walletSessionId),
+    materialActivationId: String(lane.materialActivation.activationId),
     remainingSignatureUses,
     expiresAtMs,
-    material,
+    material: { kind: 'canonical_capability' },
   };
 }
 
@@ -348,9 +332,6 @@ export async function readWalletRuntimePostconditions(args: {
 }
 
 function laneMaterialShape(lane: UsableRuntimeLane): string {
-  if (lane.material.kind === 'evm_family_shared_key') {
-    return `${lane.material.kind}:${thresholdEcdsaChainTargetKey(lane.material.sourceChainTarget)}`;
-  }
   return lane.material.kind;
 }
 

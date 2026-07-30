@@ -8,7 +8,6 @@ import {
   buildCurrentSealedSessionRecord,
   type SigningSessionSealedStoreRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
-import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   AVAILABLE_LANES_ECDSA_TARGET as ECDSA_TARGET,
@@ -17,9 +16,7 @@ import {
   AVAILABLE_LANES_ED25519_WALLET_ID as ED25519_WALLET_ID,
   AVAILABLE_LANES_ECDSA_RP_ID as RP_ID,
   AVAILABLE_LANES_EXPIRES_AT_MS as EXPIRES_AT_MS,
-  AVAILABLE_LANES_TEMPO_TARGET as TEMPO_TARGET,
   readAvailableLanesFixture as readAvailableLanes,
-  runtimeEcdsaAvailableLaneRecord as runtimeEcdsaRecord,
   runtimeEd25519RouterAbNormalSigningState,
 } from './helpers/availableSigningLanes.fixtures';
 
@@ -627,154 +624,5 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
         reason: 'ambiguous_material',
       }),
     );
-  });
-
-  test('propagates exhausted Email OTP runtime ECDSA state to shared Tempo lanes', async () => {
-    const availableLanes = await readAvailableLanes({
-      sealedRecords: [],
-      ecdsaChainTargets: [ECDSA_TARGET, TEMPO_TARGET],
-      runtimeEcdsaRecords: [
-        runtimeEcdsaRecord({
-          authMethod: 'email_otp',
-          chainTarget: ECDSA_TARGET,
-          thresholdSessionId: 'tsess-email-otp-runtime-exhausted',
-          signingGrantId: 'wsess-email-otp-runtime-exhausted',
-          thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
-          remainingUses: 0,
-        }),
-      ],
-    });
-
-    const evmTargetKey = thresholdEcdsaChainTargetKey(ECDSA_TARGET);
-    const tempoTargetKey = thresholdEcdsaChainTargetKey(TEMPO_TARGET);
-    expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey]).toHaveLength(1);
-    expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0]).toMatchObject({
-      auth: { kind: 'email_otp' },
-      source: 'runtime_session_record',
-      state: 'exhausted',
-      remainingUses: 0,
-      signingGrantId: 'wsess-email-otp-runtime-exhausted',
-      thresholdSessionId: 'tsess-email-otp-runtime-exhausted',
-    });
-    expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey]).toHaveLength(1);
-    expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey][0]).toMatchObject({
-      auth: { kind: 'email_otp' },
-      source: 'evm_family_shared_key',
-      sourceChainTarget: ECDSA_TARGET,
-      state: 'exhausted',
-      remainingUses: 0,
-      signingGrantId: 'wsess-email-otp-runtime-exhausted',
-      thresholdSessionId: 'tsess-email-otp-runtime-exhausted',
-    });
-  });
-
-  test('propagates ready Email OTP runtime ECDSA state to shared Tempo lanes', async () => {
-    const thresholdSessionId = 'tsess-email-otp-runtime-ready';
-    const availableLanes = await readAvailableLanes({
-      sealedRecords: [],
-      ecdsaChainTargets: [ECDSA_TARGET, TEMPO_TARGET],
-      runtimeEcdsaRecords: [
-        runtimeEcdsaRecord({
-          authMethod: 'email_otp',
-          chainTarget: ECDSA_TARGET,
-          thresholdSessionId,
-          signingGrantId: 'wsess-email-otp-runtime-ready',
-          thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
-          remainingUses: 1,
-        }),
-      ],
-      warmStatusAdvisories: new Map([
-        [
-          thresholdSessionId,
-          {
-            kind: 'warm_status',
-            status: 'active',
-            thresholdSessionId: thresholdSessionId,
-            remainingUses: 1,
-            expiresAtMs: EXPIRES_AT_MS,
-          },
-        ],
-      ]),
-    });
-
-    const evmTargetKey = thresholdEcdsaChainTargetKey(ECDSA_TARGET);
-    const tempoTargetKey = thresholdEcdsaChainTargetKey(TEMPO_TARGET);
-    expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey]).toHaveLength(1);
-    expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0]).toMatchObject({
-      auth: { kind: 'email_otp' },
-      source: 'runtime_session_record',
-      state: 'ready',
-      remainingUses: 1,
-      signingGrantId: 'wsess-email-otp-runtime-ready',
-      thresholdSessionId,
-    });
-    expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey]).toHaveLength(1);
-    expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey][0]).toMatchObject({
-      auth: { kind: 'email_otp' },
-      source: 'evm_family_shared_key',
-      sourceChainTarget: ECDSA_TARGET,
-      state: 'ready',
-      remainingUses: 1,
-      signingGrantId: 'wsess-email-otp-runtime-ready',
-      thresholdSessionId,
-    });
-  });
-
-  test('rejects EVM-family runtime rows with one key id but different owner addresses', async () => {
-    const availableLanes = await readAvailableLanes({
-      sealedRecords: [],
-      ecdsaChainTargets: [ECDSA_TARGET, TEMPO_TARGET],
-      runtimeEcdsaRecords: [
-        runtimeEcdsaRecord({
-          chainTarget: ECDSA_TARGET,
-          thresholdSessionId: 'tsess-arc',
-          signingGrantId: 'wsess-arc',
-          thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
-        }),
-        runtimeEcdsaRecord({
-          chainTarget: TEMPO_TARGET,
-          thresholdSessionId: 'tsess-tempo',
-          signingGrantId: 'wsess-tempo',
-          thresholdOwnerAddress: `0x${'22'.repeat(20)}`,
-        }),
-      ],
-    });
-
-    expect(
-      availableLanes.ecdsa.candidatesByTarget[thresholdEcdsaChainTargetKey(ECDSA_TARGET)],
-    ).toHaveLength(0);
-    expect(
-      availableLanes.ecdsa.candidatesByTarget[thresholdEcdsaChainTargetKey(TEMPO_TARGET)],
-    ).toHaveLength(0);
-  });
-
-  test('rejects EVM-family runtime rows with one signing root but different key ids', async () => {
-    const availableLanes = await readAvailableLanes({
-      sealedRecords: [],
-      ecdsaChainTargets: [ECDSA_TARGET, TEMPO_TARGET],
-      runtimeEcdsaRecords: [
-        runtimeEcdsaRecord({
-          chainTarget: ECDSA_TARGET,
-          thresholdSessionId: 'tsess-arc',
-          signingGrantId: 'wsess-arc',
-          thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
-          ecdsaThresholdKeyId: 'shared-ecdsa-key-1',
-        }),
-        runtimeEcdsaRecord({
-          chainTarget: TEMPO_TARGET,
-          thresholdSessionId: 'tsess-tempo',
-          signingGrantId: 'wsess-tempo',
-          thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
-          ecdsaThresholdKeyId: 'shared-ecdsa-key-2',
-        }),
-      ],
-    });
-
-    expect(
-      availableLanes.ecdsa.candidatesByTarget[thresholdEcdsaChainTargetKey(ECDSA_TARGET)],
-    ).toHaveLength(0);
-    expect(
-      availableLanes.ecdsa.candidatesByTarget[thresholdEcdsaChainTargetKey(TEMPO_TARGET)],
-    ).toHaveLength(0);
   });
 });
