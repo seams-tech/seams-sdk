@@ -23,15 +23,11 @@ import {
   ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH,
   ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
-  ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
   ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH,
-  parseRouterAbEcdsaDerivationActivationRefreshResponseV1,
   parseRouterAbEcdsaExplicitExportForwardedResponseV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
   parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1,
-  type RouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
-  type RouterAbEcdsaDerivationActivationRefreshResponseV1,
   type RouterAbEcdsaExplicitExportForwardedResponseV1,
   type RouterAbEcdsaDerivationExplicitExportRequestV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
@@ -631,49 +627,6 @@ export async function routerAbEcdsaRecovery(
     requestDigestB64u: input.requestDigestB64u,
     auth: input.auth,
   });
-}
-
-export async function routerAbEcdsaActivationRefresh(
-  relayServerUrl: string,
-  input: {
-    readonly request: RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
-    readonly auth: ThresholdEcdsaDerivationRouteAuth;
-  },
-): Promise<
-  ThresholdEcdsaDerivationRoleLocalRouteResult<RouterAbEcdsaDerivationActivationRefreshResponseV1>
-> {
-  try {
-    const base = normalizeRelayerBaseUrl(relayServerUrl);
-    if (!base) throw new Error('Missing relayServerUrl');
-    const response = await fetch(
-      `${base}${ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH}`,
-      buildRelayRequestInit({
-        auth: input.auth,
-        body: input.request,
-      }),
-    );
-    const json = await parseRelayJson<unknown>(response);
-    if (!response.ok) {
-      const failure =
-        json && typeof json === 'object' && !Array.isArray(json)
-          ? (json as { code?: unknown; message?: unknown })
-          : null;
-      return {
-        ok: false,
-        code: String(failure?.code || 'http_error'),
-        message: String(failure?.message || `HTTP ${response.status}`),
-      };
-    }
-    return {
-      ok: true,
-      value: parseRouterAbEcdsaDerivationActivationRefreshResponseV1(json),
-    };
-  } catch (error: unknown) {
-    return {
-      ok: false,
-      error: errorMessage(error) || 'Router A/B ECDSA activation refresh failed',
-    };
-  }
 }
 
 export async function activateRouterAbEcdsaPostRegistrationSession(

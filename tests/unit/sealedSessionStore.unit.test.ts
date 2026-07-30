@@ -144,6 +144,76 @@ test.describe('signing session sealed store', () => {
     );
   });
 
+  test('preserves an expired passkey ECDSA anchor for the next unlock', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths, restore }) => {
+        const mod = await import(paths.sealedSessionStore);
+        const now = Date.now();
+        const thresholdSessionId = 'expired-anchor-session';
+        await mod.clearAllSealedSessions();
+        const record = mod.buildCurrentSealedSessionRecord({
+          thresholdSessionId,
+          signingGrantId: 'expired-anchor-grant',
+          thresholdSessionIds: { ecdsa: thresholdSessionId },
+          curve: 'ecdsa',
+          authMethod: 'passkey',
+          ecdsaRestore: restore,
+          walletId: 'sealed-store.testnet',
+          relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
+          sealedSecretB64u: 'sealed-secret-b64u',
+          issuedAtMs: now,
+          expiresAtMs: now + 60_000,
+          remainingUses: 3,
+          updatedAtMs: now,
+        });
+        if (!record) throw new Error('expected current ECDSA sealed record');
+        await mod.writeExactSealedSession(record);
+        const persisted = await mod.readExactSealedSession(thresholdSessionId, {
+          authMethod: 'passkey',
+          curve: 'ecdsa',
+          chainTarget: restore.chainTarget,
+        });
+        if (!persisted) throw new Error('expected persisted current ECDSA sealed record');
+        await mod.updateExactSealedSessionPolicy({
+          thresholdSessionId,
+          filter: {
+            authMethod: 'passkey',
+            curve: 'ecdsa',
+            chain: 'tempo',
+            chainTarget: restore.chainTarget,
+          },
+          expiresAtMs: now - 1,
+          remainingUses: 3,
+          updatedAtMs: now + 1,
+        });
+        const records = await mod.listEcdsaSealedSessionsForWallet({
+          walletId: 'sealed-store.testnet',
+          filter: { authMethod: 'passkey', curve: 'ecdsa' },
+        });
+        const matching = records.find(
+          (candidate: { thresholdSessionIds: { ecdsa?: string } }) =>
+            candidate.thresholdSessionIds.ecdsa === thresholdSessionId,
+        );
+        return matching
+          ? {
+              state: matching.state,
+              retirement: matching.retirement,
+              publicCapability: matching.ecdsaRestore.publicCapability,
+            }
+          : null;
+      },
+      { paths: IMPORT_PATHS, restore: ECDSA_RESTORE },
+    );
+
+    expect(result).toMatchObject({
+      state: 'expired',
+      retirement: 'expired',
+      publicCapability: ECDSA_RESTORE.publicCapability,
+    });
+  });
+
   test('writes shamir3pass records to IndexedDB without persisting plaintext secret or JWT auth', async ({
     page,
   }) => {

@@ -459,7 +459,7 @@ export interface PMEnrollEmailOtpPayload {
   relayUrl?: string;
   challengeId?: string;
   groupId?: string;
-  appSessionJwt?: string;
+  appSessionJwt?: never;
 }
 
 export interface PMGetEmailOtpRecoveryCodeStatusPayload {
@@ -486,7 +486,7 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   challengeId?: string;
   otpCode: string;
   groupId?: string;
-  appSessionJwt?: string;
+  appSessionJwt?: never;
   registrationAttemptId?: string;
   emailOtpAuthorityEmail?: string;
 }
