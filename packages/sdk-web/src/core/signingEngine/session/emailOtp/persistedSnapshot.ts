@@ -136,7 +136,7 @@ export async function readEmailOtpPersistedSessionSnapshot(
             const status = await ports.readWarmSessionStatusOnly(sessionId);
             advisories.set(
               sessionId,
-              warmStatusToAvailableLaneStateAdvisory({ thresholdSessionId: sessionId, status }),
+              warmStatusToAvailableLaneStateAdvisory({ status }),
             );
           }),
         );

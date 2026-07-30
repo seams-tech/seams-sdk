@@ -350,7 +350,6 @@ export async function readPersistedEd25519SessionRecordForSigning(args: {
 }
 
 function applyWalletBudgetStatusToAdvisory(args: {
-  sessionId: string;
   localAdvisory: AvailableLaneStateAdvisory | null;
   walletBudgetStatus: SigningSessionStatus | null;
 }): AvailableLaneStateAdvisory | null {
@@ -361,7 +360,6 @@ function applyWalletBudgetStatusToAdvisory(args: {
     if (args.localAdvisory?.kind === 'runtime_material') {
       return {
         kind: 'runtime_material',
-        thresholdSessionId: args.sessionId,
         remainingUses: Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0)),
         expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localAdvisory.expiresAtMs,
       };
@@ -369,7 +367,6 @@ function applyWalletBudgetStatusToAdvisory(args: {
     if (args.localAdvisory?.kind === 'durable_policy') {
       return {
         kind: 'durable_policy',
-        thresholdSessionId: args.sessionId,
         remainingUses: Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0)),
         expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localAdvisory.expiresAtMs,
         state: args.localAdvisory.state,
@@ -381,7 +378,6 @@ function applyWalletBudgetStatusToAdvisory(args: {
     return {
       kind: 'warm_status',
       status: 'active',
-      thresholdSessionId: args.sessionId,
       remainingUses: Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0)),
       expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localAdvisory.expiresAtMs,
     };
@@ -390,13 +386,12 @@ function applyWalletBudgetStatusToAdvisory(args: {
     return args.localAdvisory;
   }
   if (budgetStatus.status === 'expired') {
-    return { kind: 'warm_status', status: 'expired', thresholdSessionId: args.sessionId };
+    return { kind: 'warm_status', status: 'expired' };
   }
   if (budgetStatus.status === 'exhausted') {
     return {
       kind: 'warm_status',
       status: 'exhausted',
-      thresholdSessionId: args.sessionId,
       remainingUses: 0,
     };
   }
@@ -478,7 +473,6 @@ async function readValidatedEd25519WarmClaim(args: {
           .catch(() => null);
   if (!status) return null;
   const advisory = warmStatusToAvailableLaneStateAdvisory({
-    thresholdSessionId: args.sessionId,
     status,
   });
   return advisory.kind === 'warm_status' &&
@@ -489,26 +483,22 @@ async function readValidatedEd25519WarmClaim(args: {
 
 function policyClaimForEd25519PersistedState(args: {
   state: RouterAbEd25519PersistedSigningRecordState;
-  sessionId: string;
 }): AvailableLaneStateAdvisory | null {
   switch (args.state.kind) {
     case 'ready':
       return durableRecordPolicyAdvisory({
-        thresholdSessionId: args.sessionId,
         remainingUses: args.state.value.remainingUses,
         expiresAtMs: args.state.value.expiresAtMs,
         state: 'ready',
       });
     case 'expired':
       return durableRecordPolicyAdvisory({
-        thresholdSessionId: args.sessionId,
         remainingUses: args.state.record.remainingUses,
         expiresAtMs: args.state.expiresAtMs,
         state: 'deferred',
       });
     case 'exhausted':
       return durableRecordPolicyAdvisory({
-        thresholdSessionId: args.sessionId,
         remainingUses: args.state.remainingUses,
         expiresAtMs: args.state.record.expiresAtMs,
         state: 'deferred',
@@ -539,13 +529,11 @@ async function readEd25519StateAdvisoryForRecord(args: {
       warmAdvisory ||
       policyClaimForEd25519PersistedState({
         state,
-        sessionId: args.sessionId,
       })
     );
   }
   return policyClaimForEd25519PersistedState({
     state,
-    sessionId: args.sessionId,
   });
 }
 
@@ -874,7 +862,6 @@ export async function readPersistedAvailableSigningLanesForTargets(
           advisories.set(advisoryKey, {
             kind: 'warm_status',
             status: 'active',
-            thresholdSessionId: String(status.walletSessionId),
             remainingUses: status.remainingUses,
             expiresAtMs: status.expiresAtMs,
           });
@@ -908,7 +895,6 @@ export async function readPersistedAvailableSigningLanesForTargets(
             advisories.set(
               sessionId,
               applyWalletBudgetStatusToAdvisory({
-                sessionId,
                 localAdvisory,
                 walletBudgetStatus,
               }),
