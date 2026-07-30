@@ -28,7 +28,6 @@ import type {
   PrepareEcdsaClientBootstrapOutput as GeneratedPrepareEcdsaClientBootstrapOutput,
 } from './generated/signerCoreCommands';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
-import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type {
   CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
   CloseRouterAbEcdsaRegistrationCeremonyResultV1,
@@ -279,84 +278,6 @@ export type EcdsaProvisioningFailureCode =
   | 'storage_failed'
   | 'invalid_state';
 
-export type RelayerResult<Ok, Code extends string> =
-  | {
-      ok: true;
-      value: Ok;
-      code?: never;
-      message?: never;
-      retryable?: never;
-      status?: never;
-    }
-  | {
-      ok: false;
-      code: Code;
-      message: string;
-      retryable: boolean;
-      status?: number;
-      value?: never;
-    };
-
-export type EcdsaBootstrapRouteAuth =
-  | {
-      kind: 'app_session';
-      jwt: string;
-      token?: never;
-    }
-  | {
-      kind: 'wallet_session';
-      jwt: string;
-      token?: never;
-    }
-  | {
-      kind: 'publishable_key';
-      token: string;
-      jwt?: never;
-    };
-
-export type BootstrapEcdsaSessionRouteInput = {
-  kind: 'bootstrap_ecdsa_session_route_v1';
-  walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  keyScope: 'evm-family';
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  relayerKeyId: RelayerKeyId;
-  requestId: string;
-  sessionId: string;
-  signingGrantId: string;
-  ttlMs: number;
-  remainingUses: number;
-  sessionKind: 'jwt';
-  participantIds: readonly [1, 2];
-  auth: EcdsaBootstrapRouteAuth;
-  clientBootstrap: EcdsaClientBootstrapFacts;
-  preparePublicFacts: EcdsaPreparePublicFacts;
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
-};
-
-export type BootstrapEcdsaSessionRouteOutput = {
-  kind: 'bootstrap_ecdsa_session_route_output_v1';
-  walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  keyHandle: string;
-  relayerPublicIdentity: EcdsaRelayerPublicIdentity;
-  clientShareRetryCounter: number;
-  relayerShareRetryCounter: number;
-  participantIds: readonly [1, 2];
-  thresholdSessionId: string;
-  signingGrantId: string;
-  expiresAtMs: number;
-  remainingUses: number;
-  walletSessionJwt: string;
-};
-
-export type BootstrapEcdsaSessionRouteFailureCode =
-  | 'unavailable'
-  | 'request_rejected'
-  | 'malformed_response';
-
 export type PrepareEcdsaClientBootstrapOutput = {
   pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
   clientBootstrap: EcdsaClientBootstrapFacts;
@@ -419,14 +340,6 @@ export type BuildEcdsaRoleLocalExportArtifactOutput = {
 
 export type BuildEcdsaRoleLocalExportArtifactErrorCode =
   GeneratedBuildEcdsaRoleLocalExportArtifactErrorCode;
-
-export type EcdsaRelayerClient = {
-  bootstrapEcdsaSession(
-    input: BootstrapEcdsaSessionRouteInput,
-  ): Promise<
-    RelayerResult<BootstrapEcdsaSessionRouteOutput, BootstrapEcdsaSessionRouteFailureCode>
-  >;
-};
 
 export type EcdsaProvisioningState =
   | {
