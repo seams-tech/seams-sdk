@@ -55,6 +55,10 @@ type AuthorizedEd25519LaneCandidate = Extract<
   Ed25519LaneCandidate,
   { authorizationState: 'authorized' }
 >;
+type AuthorizationRequiredEd25519LaneCandidate = Extract<
+  Ed25519LaneCandidate,
+  { authorizationState: 'authorization_required' }
+>;
 
 export type EvmFamilyEcdsaAvailableLane = ConcreteAvailableEcdsaSigningLane;
 
@@ -103,6 +107,26 @@ export type NearEd25519TransactionReauthLane = TransactionCandidatePair<
 export type NearEd25519TransactionSelectableLane =
   | NearEd25519TransactionReadyLane
   | NearEd25519TransactionReauthLane;
+
+export type NearEd25519MaterialSelectionResult =
+  | {
+      ok: true;
+      kind: 'authorized';
+      lane: SelectedEd25519Lane;
+      candidate: AuthorizedEd25519LaneCandidate;
+      availableLane: AuthorizedNearEd25519AvailableLane;
+    }
+  | {
+      ok: true;
+      kind: 'authorization_required';
+      lane?: never;
+      candidate: AuthorizationRequiredEd25519LaneCandidate;
+      availableLane: Extract<
+        NearEd25519AvailableLane,
+        { authorizationState: 'authorization_required' }
+      >;
+    }
+  | { ok: false; failure: TransactionLaneSelectionFailure };
 
 export type TransactionLaneSelectionResult =
   | {
@@ -463,21 +487,32 @@ export function selectTransactionLane(
 function selectSelectedEd25519Lane(
   input: SelectTransactionLaneInput & { intent: NearEd25519TransactionSigningIntent },
 ): TransactionLaneSelectionResult {
-  const intent = input.intent;
-  const concreteCandidates = input.availableLanes?.candidates?.ed25519?.near
-    ? listNearEd25519TransactionSelectableLanes(input.availableLanes.candidates.ed25519.near).filter(
-        (candidate) => nearEd25519CandidateMatchesIntent(candidate, intent),
-      )
-    : [];
-  return selectConcreteTransactionCandidate({
-    intent,
-    candidates: concreteCandidates,
-    buildLane: (entry) => entry.selectedLane,
-  });
+  const selected = selectNearEd25519MaterialCandidate(input);
+  if (!selected.ok) return selected;
+  if (selected.kind === 'authorization_required') {
+    return {
+      ok: false,
+      failure: {
+        kind: 'no_candidate',
+        authMethod: laneCandidateAuthMethod(selected.candidate),
+      },
+    };
+  }
+  const selectionCandidate = toNearEd25519TransactionSelectableLane(selected.availableLane);
+  if (!selectionCandidate) {
+    throw new Error('[SigningSessionSelectLane] authorized Ed25519 lane is not selectable');
+  }
+  return {
+    ok: true,
+    lane: selected.lane,
+    candidate: selected.candidate,
+    availableLane: selectionCandidate.availableLane,
+    selectionCandidate,
+  };
 }
 
 function nearEd25519CandidateMatchesIntent(
-  candidate: NearEd25519TransactionSelectableLane,
+  candidate: { candidate: Ed25519LaneCandidate },
   intent: NearEd25519TransactionSigningIntent,
 ): boolean {
   if (
@@ -492,6 +527,68 @@ function nearEd25519CandidateMatchesIntent(
     case 'signer_slot':
       return candidate.candidate.signerSlot === intent.signerSelection.signerSlot;
   }
+}
+
+export function selectNearEd25519MaterialCandidate(
+  input: SelectTransactionLaneInput & { intent: NearEd25519TransactionSigningIntent },
+): NearEd25519MaterialSelectionResult {
+  const intent = input.intent;
+  const candidates = (input.availableLanes?.candidates.ed25519.near || [])
+    .filter(isConcreteNearEd25519Lane)
+    .map((availableLane) => ({
+      availableLane,
+      candidate: ed25519LaneCandidateFromAvailableLane({ lane: availableLane }),
+    }))
+    .filter(
+      (
+        entry,
+      ): entry is {
+        availableLane: NearEd25519AvailableLane;
+        candidate: Ed25519LaneCandidate;
+      } => entry.candidate !== null,
+    )
+    .filter((candidate) => nearEd25519CandidateMatchesIntent(candidate, intent));
+  const allowed = transactionCandidatesAllowedByAuthPolicy(intent, candidates);
+  if (!allowed.length) {
+    return {
+      ok: false,
+      failure:
+        intent.authSelectionPolicy.kind === 'any'
+          ? { kind: 'no_candidate' }
+          : { kind: 'no_candidate', authMethod: intent.authSelectionPolicy.authMethod },
+    };
+  }
+  const selected = selectOnlyConcreteTransactionCandidate(allowed);
+  if (!selected) {
+    return {
+      ok: false,
+      failure: {
+        kind: 'ambiguous_material',
+        allowedAuthMethods: allowedAuthMethods(allowed),
+      },
+    };
+  }
+  if (selected.candidate.authorizationState === 'authorization_required') {
+    if (selected.availableLane.authorizationState !== 'authorization_required') {
+      throw new Error('[SigningSessionSelectLane] Ed25519 material authorization mismatch');
+    }
+    return {
+      ok: true,
+      kind: 'authorization_required',
+      candidate: selected.candidate,
+      availableLane: selected.availableLane,
+    };
+  }
+  if (selected.availableLane.authorizationState !== 'authorized') {
+    throw new Error('[SigningSessionSelectLane] Ed25519 material authorization mismatch');
+  }
+  return {
+    ok: true,
+    kind: 'authorized',
+    lane: selectedEd25519LaneForTransactionCandidate(selected.candidate),
+    candidate: selected.candidate,
+    availableLane: selected.availableLane,
+  };
 }
 
 function selectEvmFamilyEcdsaTransactionLane(
