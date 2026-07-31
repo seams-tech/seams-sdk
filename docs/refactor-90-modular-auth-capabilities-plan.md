@@ -1115,6 +1115,9 @@ the replacement and legacy MPC paths must not ship together.
         signing coordinator, PRF writer, and Passkey MPC manager aliases;
         consumers now name their canonical protocol or port types directly
         (`544f3934c`).
+  - [x] Delete the redundant signing-status dependency, EVM-family readiness,
+        and Email OTP restore-root input aliases; consumers use their canonical
+        dependency and input types directly (`272812bf2`).
   - [x] Rename the active SigningWorker wire field from `session_id` to
         `material_activation_id` across the Router A/B Rust schema, Cloudflare
         lookup/storage keys, shared TypeScript parser, dev adapter, fixtures,
@@ -1173,6 +1176,9 @@ the replacement and legacy MPC paths must not ship together.
           atomically migrate legacy grant-keyed rows and restore leases, and
           require authenticated warm-bootstrap authorization independently of
           the sealed material record (`d91e4bc9d`).
+    - [x] Delete the write-only Ed25519 resolved-identity map and both grant-
+          bearing publishers. Durable sealed records and current authorization
+          remain the only material and grant owners (`fbe92c4ee`).
     - [ ] Preserve a grant-free Ed25519 material candidate when reusable
           authorization is absent, then attach the current grant only after
           same-method step-up. Availability must not drop durable material
