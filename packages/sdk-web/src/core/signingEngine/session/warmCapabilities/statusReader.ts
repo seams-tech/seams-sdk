@@ -11,7 +11,6 @@ import {
   buildDiscoveredLaneForRecord,
   readWalletScopedLaneClaimsForLanes,
 } from '../availability/readiness';
-import { readWarmSessionEd25519RecordByThresholdSessionId } from './store';
 import {
   normalizeWarmSessionReadPorts,
   toSigningSessionStatus,
@@ -189,26 +188,8 @@ export function createWarmSessionStatusReader(
     );
   }
 
-  async function getEd25519SigningSessionStatusForSession(args: {
-    nearAccountId: AccountId;
-    thresholdSessionId: string;
-  }): Promise<SigningSessionStatus | null> {
-    const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-    if (!thresholdSessionId) {
-      throw new Error(
-        '[WarmSessionStatusReader] thresholdSessionId is required for Ed25519 status',
-      );
-    }
-    const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
-    if (!record || String(record.nearAccountId) !== String(args.nearAccountId)) {
-      return { sessionId: thresholdSessionId, status: 'not_found' };
-    }
-    return await getEd25519SigningSessionStatusForRecord(record);
-  }
-
   return {
     getEd25519SigningSessionStatus,
-    getEd25519SigningSessionStatusForSession,
     readEd25519WarmSessionClaim,
   };
 }

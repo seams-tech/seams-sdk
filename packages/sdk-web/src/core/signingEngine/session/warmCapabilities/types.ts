@@ -26,7 +26,6 @@ import {
 } from '../identity/laneIdentity';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import type { EmailOtpEcdsaSigningSessionAuthority } from '../emailOtp/ecdsaSigningSessionAuthority';
-import type { EmailOtpEd25519SigningSessionAuthority } from '../emailOtp/ed25519SigningSessionAuthority';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type {
   EmailOtpEd25519SessionPolicyAuthority,
@@ -753,21 +752,6 @@ export type EnsureWarmEcdsaCapabilityReadyResult = {
 
 export type WarmSessionCapabilityReader = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
-  getEd25519CapabilityForNearAccount: (
-    nearAccountId: AccountId,
-  ) => Promise<WarmSessionEd25519CapabilityState | null>;
-  resolveEd25519RecordByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => WarmSessionEd25519CapabilityState['record'];
-  resolveEd25519AuthByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => WarmSessionEd25519AuthMaterial | null;
-  resolveEmailOtpEd25519SigningSessionAuthority: (args: {
-    lane: ExactEd25519SigningLaneIdentity;
-  }) => EmailOtpEd25519SigningSessionAuthority | null;
-  getEd25519CapabilityByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => Promise<WarmSessionEd25519CapabilityState | null>;
   getEcdsaCapabilityForLane: (
     args: {
       lane: ExactEcdsaSigningLaneIdentity;
@@ -787,10 +771,6 @@ export type ThresholdWarmSessionStatusReader = {
   getEd25519SigningSessionStatus: (
     nearAccountId: AccountId,
   ) => Promise<SigningSessionStatus | null>;
-  getEd25519SigningSessionStatusForSession: (args: {
-    nearAccountId: AccountId;
-    thresholdSessionId: string;
-  }) => Promise<SigningSessionStatus | null>;
 };
 
 export type WarmSessionProvisioner = {

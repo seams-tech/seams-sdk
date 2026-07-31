@@ -1,5 +1,4 @@
 import {
-  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordForAccount,
   getStoredThresholdEd25519SessionRecordForWallet,
   type ThresholdEd25519SessionRecord,
@@ -17,12 +16,6 @@ export function readWarmSessionCapabilityRecordsForWallet(
   return {
     ed25519: getStoredThresholdEd25519SessionRecordForWallet(walletId),
   };
-}
-
-export function readWarmSessionEd25519RecordByThresholdSessionId(
-  thresholdSessionId: string,
-): ThresholdEd25519SessionRecord | null {
-  return getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
 }
 
 export function readWarmSessionEd25519RecordForAccount(

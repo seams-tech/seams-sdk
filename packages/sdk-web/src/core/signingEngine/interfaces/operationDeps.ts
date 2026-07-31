@@ -94,10 +94,6 @@ export type NearSigningApiDeps = {
   readAvailableSigningLanesForSigning: (
     args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ed25519' }>,
   ) => Promise<AvailableSigningLanes>;
-  getWarmThresholdEd25519SessionStatusForSession?: (args: {
-    nearAccountId: AccountId;
-    thresholdSessionId: string;
-  }) => Promise<NearEd25519SigningSessionStatus | null>;
   createSigningSessionId: (prefix: string) => string;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   withThresholdEd25519CommitQueue: <T>(args: {
