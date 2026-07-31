@@ -46,6 +46,7 @@ import {
   parseEcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalPersistedMaterialRef,
 } from '../keyMaterialBrands';
+import { ecdsaSealedRecordStoreKey } from './ecdsaSealedRecordKey';
 import {
   parseEmailOtpWalletAuthAuthority,
   parseWalletAuthAuthorityRef,
@@ -766,30 +767,28 @@ function normalizeCurrentEd25519RestoreMetadata(
   };
 }
 
-type SealedRecordStoreKeyInput =
-  | {
-      signingGrantId: string;
-      authMethod: 'passkey' | 'email_otp';
-      curve: 'ed25519';
-    }
-  | {
-      signingGrantId: string;
-      authMethod: 'passkey' | 'email_otp';
-      curve: 'ecdsa';
-      chainTarget: ThresholdEcdsaChainTarget;
-    };
+type SealedRecordStoreKeyInput = {
+  signingGrantId: string;
+  authMethod: 'passkey' | 'email_otp';
+  curve: 'ed25519';
+};
+
+function legacyEcdsaSealedRecordStoreKey(args: {
+  signingGrantId: string;
+  authMethod: 'passkey' | 'email_otp';
+  chainTarget: ThresholdEcdsaChainTarget;
+}): string {
+  return [
+    args.signingGrantId,
+    args.authMethod,
+    'ecdsa',
+    thresholdEcdsaChainTargetKey(args.chainTarget),
+  ]
+    .map(sealedStoreKeyPart)
+    .join(':');
+}
 
 function makeSealedRecordStoreKey(args: SealedRecordStoreKeyInput): string {
-  if (args.curve === 'ecdsa') {
-    return [
-      args.signingGrantId,
-      args.authMethod,
-      args.curve,
-      thresholdEcdsaChainTargetKey(args.chainTarget),
-    ]
-      .map(sealedStoreKeyPart)
-      .join(':');
-  }
   return [args.signingGrantId, args.authMethod, args.curve].map(sealedStoreKeyPart).join(':');
 }
 
@@ -1257,14 +1256,19 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
     if (!ecdsaRestore) {
       return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
     }
-    const storeKey = makeSealedRecordStoreKey({
+    const storeKey = ecdsaSealedRecordStoreKey({
+      walletId,
+      authMethod,
+      chainTarget: ecdsaRestore.chainTarget,
+      materialActivation: ecdsaRestore.roleLocalMaterialRef.materialActivation,
+    });
+    const legacyStoreKey = legacyEcdsaSealedRecordStoreKey({
       signingGrantId,
       authMethod,
-      curve: 'ecdsa',
       chainTarget: ecdsaRestore.chainTarget,
     });
     const providedStoreKey = normalizeOptionalNonEmptyString(obj.storeKey);
-    if (providedStoreKey && providedStoreKey !== storeKey) {
+    if (providedStoreKey && providedStoreKey !== storeKey && providedStoreKey !== legacyStoreKey) {
       return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
     }
     return {
@@ -1361,6 +1365,33 @@ function normalizeSigningSessionSealedStoreRecord(
 ): CurrentSealedSessionRecord | null {
   const classification = classifyRawSealedSessionRecord(storagePayloadFromSealedStoreRow(value));
   return classification.kind === 'current' ? classification.record : null;
+}
+
+async function classifyPersistedSealedRecord(
+  entry: StoredRawSealedRecordEntry,
+): Promise<SealedSessionRecordClassification> {
+  const payload = storagePayloadFromSealedStoreRow(entry.value);
+  const classification = classifyRawSealedSessionRecord(payload);
+  if (classification.kind !== 'current' || classification.record.curve !== 'ecdsa') {
+    return classification;
+  }
+  const raw = asRawSealedSessionRecord(payload);
+  const persistedStoreKey = normalizeOptionalNonEmptyString(raw?.storeKey);
+  if (!persistedStoreKey || persistedStoreKey === classification.record.storeKey) {
+    return classification;
+  }
+  const legacyStoreKey = legacyEcdsaSealedRecordStoreKey({
+    signingGrantId: classification.record.signingGrantId,
+    authMethod: classification.record.authMethod,
+    chainTarget: classification.record.ecdsaRestore.chainTarget,
+  });
+  if (persistedStoreKey !== legacyStoreKey) return classification;
+  await signingSessionSealsRepository.migrateSealedRecordStoreKey({
+    row: sealedRecordStorageRow(classification.record),
+    legacyStoreKeys: [String(entry.primaryKey), legacyStoreKey],
+    legacyRestoreLeaseKey: legacyStoreKey,
+  });
+  return classification;
 }
 
 function normalizeEcdsaInactiveMaterialPublicRestore(
@@ -1803,11 +1834,8 @@ async function collectRawSealedRecordEntriesByThresholdSessionId(
   if (entries.length) return entries;
   const allEntries = await signingSessionSealsRepository.collectAllRawSealedRecordEntries();
   return allEntries.filter((entry) => {
-    const record = normalizeSigningSessionSealedStoreRecord(entry.value);
     const rawThresholdSessionIds = rawThresholdSessionIdsFromSealedStoreRow(entry.value);
     return (
-      record?.thresholdSessionIds.ed25519 === thresholdSessionId ||
-      record?.thresholdSessionIds.ecdsa === thresholdSessionId ||
       rawThresholdSessionIds.ed25519 === thresholdSessionId ||
       rawThresholdSessionIds.ecdsa === thresholdSessionId
     );
@@ -1824,7 +1852,7 @@ async function readRecordByThresholdSessionId(
   let selected: CurrentSealedSessionRecord | null = null;
   const deletePrimaryKeys: unknown[] = [];
   for (const entry of entries) {
-    const classification = classifyRawSealedSessionRecord(entry.value);
+    const classification = await classifyPersistedSealedRecord(entry);
     if (classification.kind === 'current') {
       if (recordMatchesFilter(classification.record, thresholdSessionId, filter)) {
         selected = classification.record;
@@ -1852,9 +1880,10 @@ async function deleteRecordByThresholdSessionId(
     const entries = await collectRawSealedRecordEntriesByThresholdSessionId(thresholdSessionId);
     const deletePrimaryKeys: unknown[] = [];
     for (const entry of entries) {
-      const record = normalizeSigningSessionSealedStoreRecord(entry.value);
+      const classification = await classifyPersistedSealedRecord(entry);
+      const record = classification.kind === 'current' ? classification.record : null;
       if (record?.storeKey && recordMatchesFilter(record, thresholdSessionId, filter)) {
-        deletePrimaryKeys.push(entry.primaryKey);
+        deletePrimaryKeys.push(record.storeKey);
       }
     }
     await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
@@ -1869,7 +1898,8 @@ async function listSameScopeRecords(
     const all = await signingSessionSealsRepository.collectAllRawSealedRecordEntries();
     const records: CurrentSealedSessionRecord[] = [];
     for (const entry of all) {
-      const existing = normalizeSigningSessionSealedStoreRecord(entry.value);
+      const classification = await classifyPersistedSealedRecord(entry);
+      const existing = classification.kind === 'current' ? classification.record : null;
       if (!existing) continue;
       if (existing.storeKey === record.storeKey) continue;
       if (sealedRecordsHaveSamePurpose(existing, record)) {
@@ -1922,7 +1952,7 @@ export async function listExactSealedSessionsForWallet(args: {
     const records: CurrentSealedSessionRecord[] = [];
     const seen = new Set<string>();
     for (const value of values) {
-      const classification = classifyRawSealedSessionRecord(value.value);
+      const classification = await classifyPersistedSealedRecord(value);
       if (classification.kind !== 'current') {
         logSealedSessionClassification({
           operation: 'list exact account records',
@@ -1977,7 +2007,7 @@ export async function listEcdsaSealedSessionsForWallet(args: {
     const records: EcdsaDurableLaneRecord[] = [];
     const seen = new Set<string>();
     for (const value of values) {
-      const classification = classifyRawSealedSessionRecord(value.value);
+      const classification = await classifyPersistedSealedRecord(value);
       if (classification.kind === 'ecdsa_inactive_material') {
         const record = classification.record;
         if (record.walletId !== walletId) continue;
@@ -2302,6 +2332,12 @@ export async function acquireSigningSessionRestoreLease(
     normalizeInteger(args.ttlMs ?? DEFAULT_RESTORE_LEASE_TTL_MS) ?? DEFAULT_RESTORE_LEASE_TTL_MS,
   );
   const ownerId = normalizeOptionalNonEmptyString(args.ownerId) || createRandomId('restore-owner');
+  const currentRecord = await readRecordByThresholdSessionId(
+    thresholdSessionId,
+    purpose,
+    'acquire restore lease',
+  );
+  if (!currentRecord) return null;
   return await signingSessionSealsRepository.withRestoreLeaseTransaction(
     thresholdSessionId,
     async (tx) => {
