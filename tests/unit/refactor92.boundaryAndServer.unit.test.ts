@@ -11,6 +11,18 @@ import {
   parseWalletSessionAuthorizationBoundary,
   requireActiveWalletSessionAuthorization,
 } from '@/core/signingEngine/session/identity/clientSessionPersistenceState';
+import { readClientWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/clientSessionPersistence';
+import {
+  buildActiveWalletSessionAuthorizationProjection,
+  walletSessionAuthorizations,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { buildEd25519PasskeySigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { toAccountId } from '@/core/types/accountIds';
@@ -43,6 +55,39 @@ class FixedNowSessionService extends SessionService {
 
 function validTokenVerifier(): { valid: true; payload: { sub: string; exp: number } } {
   return { valid: true, payload: { sub: 'wallet', exp: NOW_SECONDS + 1 } };
+}
+
+function walletSessionJwtFixture(): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(
+    JSON.stringify({ kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND }),
+  ).toString('base64url');
+  return `${header}.${payload}.fixture`;
+}
+
+function activeAuthorizationFixture(expiresAtMs: number, authMethod: 'passkey' | 'email_otp') {
+  const walletId = LANE.identity.signer.account.wallet.walletId;
+  const authorizationSessionId = parseSeamsSessionId('refactor-92-authorization-session');
+  const walletSessionId = parseWalletSessionId('refactor-92-wallet-session');
+  const quotaId = parseMpcWalletSigningQuotaId('refactor-92-quota');
+  const authority = parseWalletAuthAuthorityRef({
+    kind: 'wallet_auth_authority_ref',
+    walletId,
+    authorityDigest: 'refactor-92-authority',
+  });
+  if (!authorizationSessionId.ok || !walletSessionId.ok || !quotaId.ok || !authority) {
+    throw new Error('Failed to build Refactor 92 authorization fixture');
+  }
+  return buildActiveWalletSessionAuthorizationProjection({
+    walletId,
+    authorizationSessionId: authorizationSessionId.value,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
+    walletSessionJwt: walletSessionJwtFixture(),
+    authMethod,
+    authority,
+    expiresAtMs,
+  });
 }
 
 test('Refactor 92 boundary parser classifies equality and elapsed time as expired', () => {
@@ -111,6 +156,37 @@ test('Refactor 92 boundary parser keeps missing, unavailable, and invalid distin
       nowMs: NOW_MS,
     }),
   ).toEqual(expect.objectContaining({ kind: 'invalid', reason: 'malformed' }));
+});
+
+test('Ed25519 export preflight reads canonical Wallet Session authorization', async () => {
+  const originalRead = walletSessionAuthorizations.readActiveForWallet;
+  try {
+    walletSessionAuthorizations.readActiveForWallet = async () => ({
+      kind: 'found',
+      projection: activeAuthorizationFixture(NOW_MS + 1, 'passkey'),
+    });
+    await expect(
+      readClientWalletSessionAuthorization({
+        kind: 'ed25519',
+        laneIdentity: LANE.identity,
+        nowMs: NOW_MS,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ kind: 'active', expiresAtMs: NOW_MS + 1 }));
+
+    walletSessionAuthorizations.readActiveForWallet = async () => ({
+      kind: 'found',
+      projection: activeAuthorizationFixture(NOW_MS + 1, 'email_otp'),
+    });
+    await expect(
+      readClientWalletSessionAuthorization({
+        kind: 'ed25519',
+        laneIdentity: LANE.identity,
+        nowMs: NOW_MS,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ kind: 'invalid', reason: 'scope_mismatch' }));
+  } finally {
+    walletSessionAuthorizations.readActiveForWallet = originalRead;
+  }
 });
 
 test('Refactor 92 server parser gives temporal claims exact precedence', async () => {

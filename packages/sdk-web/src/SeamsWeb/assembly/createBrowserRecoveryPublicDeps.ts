@@ -129,7 +129,8 @@ export function createBrowserRecoveryPublicDeps(args: {
     resolvePasskeyEd25519YaoExportContext: args.resolvePasskeyEd25519YaoExportContext,
     resolveEmailOtpEd25519YaoExportContext: args.resolveEmailOtpEd25519YaoExportContext,
     sessionLifecycle: {
-      readAuthorization: (request) => readClientWalletSessionAuthorization(request),
+      readAuthorization: async (request) =>
+        await readClientWalletSessionAuthorization(request),
       invalidateExpiredAuthorization: async (request) => {
         const result = await args.getSigningSessionCoordinator().invalidateExpiredWalletSession({
           state: request.state,
