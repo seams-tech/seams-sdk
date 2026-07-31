@@ -480,17 +480,38 @@ structure CorruptionInterfaceShape where
   experimentOutputCount : Nat
   deriving DecidableEq, Repr
 
+def corruptedViewInputShape : CorruptionInterfaceShape :=
+  ⟨.corruptedViewInput, 1, 1, 0, 0⟩
+
+def selectedProfileRealExecutionShape : CorruptionInterfaceShape :=
+  ⟨.selectedProfileRealExecution, 1, 1, 1, 0⟩
+
+def selectedProfileIdealSimulatorShape : CorruptionInterfaceShape :=
+  ⟨.selectedProfileIdealSimulator, 1, 1, 1, 0⟩
+
+def selectedProfileSecurityExperimentShape : CorruptionInterfaceShape :=
+  ⟨.selectedProfileSecurityExperiment, 1, 0, 0, 1⟩
+
+def allCorruptionInterfaceShapes : List CorruptionInterfaceShape :=
+  [corruptedViewInputShape,
+    selectedProfileRealExecutionShape,
+    selectedProfileIdealSimulatorShape,
+    selectedProfileSecurityExperimentShape]
+
+def ValidCorruptionInterfaceShape (shape : CorruptionInterfaceShape) : Prop :=
+  shape ∈ allCorruptionInterfaceShapes
+
 def CorruptedViewInput (shape : CorruptionInterfaceShape) : Prop :=
-  shape = ⟨.corruptedViewInput, 1, 1, 0, 0⟩
+  shape = corruptedViewInputShape
 
 def SelectedProfileRealExecution (shape : CorruptionInterfaceShape) : Prop :=
-  shape = ⟨.selectedProfileRealExecution, 1, 1, 1, 0⟩
+  shape = selectedProfileRealExecutionShape
 
 def SelectedProfileIdealSimulator (shape : CorruptionInterfaceShape) : Prop :=
-  shape = ⟨.selectedProfileIdealSimulator, 1, 1, 1, 0⟩
+  shape = selectedProfileIdealSimulatorShape
 
 def SelectedProfileSecurityExperiment (shape : CorruptionInterfaceShape) : Prop :=
-  shape = ⟨.selectedProfileSecurityExperiment, 1, 0, 0, 1⟩
+  shape = selectedProfileSecurityExperimentShape
 
 theorem semanticFrameClassesAreExactlyEleven :
     allSemanticFrameClasses =
@@ -721,11 +742,24 @@ theorem closedCorruptionMarkersAreExactlyTenAndExcludeOutOfScopeCoalitions :
   exact ⟨rfl, rfl, by intro marker; cases marker <;> decide⟩
 
 theorem corruptionInterfacesHaveExactlyFourFixedShapes :
-    CorruptedViewInput ⟨.corruptedViewInput, 1, 1, 0, 0⟩ ∧
-      SelectedProfileRealExecution ⟨.selectedProfileRealExecution, 1, 1, 1, 0⟩ ∧
-      SelectedProfileIdealSimulator ⟨.selectedProfileIdealSimulator, 1, 1, 1, 0⟩ ∧
-      SelectedProfileSecurityExperiment
-        ⟨.selectedProfileSecurityExperiment, 1, 0, 0, 1⟩ := by
-  exact ⟨rfl, rfl, rfl, rfl⟩
+    allCorruptionInterfaceShapes =
+      [corruptedViewInputShape,
+        selectedProfileRealExecutionShape,
+        selectedProfileIdealSimulatorShape,
+        selectedProfileSecurityExperimentShape] ∧
+      allCorruptionInterfaceShapes.length = 4 ∧
+      allCorruptionInterfaceShapes.Nodup ∧
+      ∀ shape,
+        ValidCorruptionInterfaceShape shape ↔
+          CorruptedViewInput shape ∨
+            SelectedProfileRealExecution shape ∨
+              SelectedProfileIdealSimulator shape ∨
+                SelectedProfileSecurityExperiment shape := by
+  refine ⟨rfl, rfl, ?_, ?_⟩
+  · decide
+  · intro shape
+    simp [ValidCorruptionInterfaceShape, allCorruptionInterfaceShapes,
+      CorruptedViewInput, SelectedProfileRealExecution,
+      SelectedProfileIdealSimulator, SelectedProfileSecurityExperiment]
 
 end Ed25519YaoModel

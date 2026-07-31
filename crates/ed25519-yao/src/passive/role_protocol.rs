@@ -1355,7 +1355,10 @@ where
         self,
         message: EncodedControlMessage<F, BaseChoicesKind>,
     ) -> Result<DeriverBAwaitDirect<F, C>, RoleProtocolError> {
-        let base_choices = BaseChoices::<F::Ot>::decode(message.as_bytes())?;
+        let base_choices = BaseChoices::<F::Ot>::decode_for_session(
+            message.as_bytes(),
+            F::ot_session(self.binding)?,
+        )?;
         let transcript = advance_transcript(self.transcript, message.as_bytes())?;
         Ok(DeriverBAwaitDirect {
             binding: self.binding,
@@ -4055,7 +4058,7 @@ mod tests {
     }
 
     #[test]
-    fn deriver_a_rejects_replayed_offer_from_another_session() {
+    fn derivers_reject_opening_ot_messages_from_another_session() {
         let (a_start, _) = export_starts(0x7a);
         let (_, b_start) = export_starts(0x7b);
         let began = DeriverBStartState::<ExportStream, Chunk64KiB>::new(b_start)
@@ -4064,6 +4067,26 @@ mod tests {
         assert_eq!(
             DeriverAAwaitOffer::<ExportStream, Chunk64KiB>::new(a_start)
                 .accept_offer(began.offer)
+                .err(),
+            Some(RoleProtocolError::Ot(OtError::SessionMismatch))
+        );
+
+        let (_, target_b_start) = export_starts(0x7c);
+        let (foreign_a_start, foreign_b_start) = export_starts(0x7d);
+        let target_b = DeriverBStartState::<ExportStream, Chunk64KiB>::new(target_b_start)
+            .begin()
+            .expect("target B offer");
+        let foreign_b = DeriverBStartState::<ExportStream, Chunk64KiB>::new(foreign_b_start)
+            .begin()
+            .expect("foreign B offer");
+        let foreign_choices = DeriverAAwaitOffer::<ExportStream, Chunk64KiB>::new(foreign_a_start)
+            .accept_offer(foreign_b.offer)
+            .expect("foreign A accepts offer")
+            .emit_base_choices();
+        assert_eq!(
+            target_b
+                .state
+                .accept_base_choices(foreign_choices.base_choices)
                 .err(),
             Some(RoleProtocolError::Ot(OtError::SessionMismatch))
         );
