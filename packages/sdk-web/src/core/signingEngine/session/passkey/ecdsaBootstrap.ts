@@ -104,8 +104,6 @@ type EcdsaBootstrapRegistrationPolicy = {
 
 type EcdsaBootstrapExactRequestBase = EcdsaBootstrapRequestCommon & EcdsaBootstrapExactIdentity;
 
-type PasskeyFreshBootstrapRouteAuth = AppOrWalletSessionAuth;
-
 type EmailOtpEcdsaBootstrapWorkerHandle = Extract<
   EmailOtpWorkerIssuedSessionHandle,
   { action: 'threshold_ecdsa_bootstrap' }
@@ -155,16 +153,16 @@ type PasskeyFreshEcdsaBootstrapExactRequestBase = EcdsaBootstrapExactRequestBase
 
 type PasskeyFreshEcdsaBootstrapExactRequest =
   | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
-      routeAuth?: PasskeyFreshBootstrapRouteAuth;
+      routeAuth?: AppOrWalletSessionAuth;
     } & PasskeyWebAuthnPrfBootstrapAuth)
   | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
-      routeAuth?: PasskeyFreshBootstrapRouteAuth;
+      routeAuth?: AppOrWalletSessionAuth;
     } & PasskeyWebAuthnBootstrapAuth)
   | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
-      routeAuth: PasskeyFreshBootstrapRouteAuth;
+      routeAuth: AppOrWalletSessionAuth;
     } & PasskeyPrfCredentialBootstrapAuth)
   | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
-      routeAuth: PasskeyFreshBootstrapRouteAuth;
+      routeAuth: AppOrWalletSessionAuth;
     } & PasskeyPromptBootstrapAuth)
   | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
       routeAuth?: never;

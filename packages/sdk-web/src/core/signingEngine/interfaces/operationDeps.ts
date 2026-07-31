@@ -147,14 +147,7 @@ export type PasskeyEcdsaSigningLookupArgs = EcdsaSigningLookupArgs & {
   source: PasskeyEcdsaSessionStoreSource;
 };
 
-export type EvmFamilyEcdsaSessionReaderDeps = {
-  // Exact persistence-boundary read: selection matches these records on
-  // stable material identity; no by-key, source-priority, or keyRef reads
-  // survive on the signing path.
-};
-
-export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps &
-  DurableEmailOtpEcdsaSigningSessionAuthorityResolver &
+export type EvmFamilySigningDeps = DurableEmailOtpEcdsaSigningSessionAuthorityResolver &
   EcdsaOperationStepUpSessionAuthResolver & {
     resolveCanonicalEcdsaSigningCapability: (args: {
       walletId: WalletId;
