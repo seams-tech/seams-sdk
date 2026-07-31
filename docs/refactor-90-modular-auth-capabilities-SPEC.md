@@ -196,6 +196,10 @@ implementing commit SHA as the evidence.
     `0e81b8bef`, `de6857bd5`, and `d9c303f3c`. High-level seal persistence,
     exact registration/readback, and persistence single-flight now share that
     owner; generic confirmation retains no durable-session port.
+  - [x] Passkey Ed25519 provisioning and sync recovery supply exact restore
+    metadata on the typed seal transport. The durable Passkey MPC owner writes
+    that metadata directly and no longer reconstructs it from a parallel
+    composite record keyed by threshold session ID (`0f5d7e6b6`).
   - [x] Email OTP runtime wallet-key projections, worker handles, and sealed
     rehydration correlate by exact key handle. Provisioning slots remain
     confined to registration handle branches (`6113b36bb`).
@@ -268,6 +272,9 @@ implementing commit SHA as the evidence.
     reseed the composite session-record cache. Canonical hydration plus the
     independent reusable-authorization status own signing and expiry behavior
     after refresh (`4f089b483`).
+  - [x] Recovered local-login restoration validates the verified recovery
+    binding against canonical app and Wallet Session identity without reading
+    the composite session cache (`51e71d7e8`).
   - [x] Non-iframe implicit NEAR funding reads the bearer credential from the
     canonical active Wallet Session authorization projection and fails before
     fetch when that authorization is absent or expired; no composite MPC record

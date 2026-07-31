@@ -777,6 +777,13 @@ the replacement and legacy MPC paths must not ship together.
       the independent reusable-authorization status; signing preparation now
       succeeds from canonical material plus authorization after refresh
       (`4f089b483`).
+- [x] Remove the composite-session lookup from recovered local-login
+      restoration; the verified recovery binding plus canonical app and Wallet
+      Session identity own the restore checks (`51e71d7e8`).
+- [x] Carry required Passkey Ed25519 restore metadata from provisioning and
+      sync recovery into sealed persistence. The durable Passkey MPC owner no
+      longer reverse-resolves a composite record by threshold session ID, and
+      the focused sealed-refresh suite passes 4/4 (`0f5d7e6b6`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
@@ -1031,6 +1038,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete zero-caller Ed25519 composite-record rejection, commit,
       runtime-reseed, broad-list, exact-clear, and recovered-session retirement
       helpers (`7886fd39f`).
+- [x] Delete the Passkey durable-state composite-record reverse lookup and its
+      record-to-restore parsers after exact Ed25519 restore metadata becomes a
+      required seal-transport field (`0f5d7e6b6`).
 - [x] Delete the forwarding-only selected-lane auth-method selector; prepared
       signing now reads the canonical auth binding directly, and its focused
       auth-neutral preparation suite passes 7/7 (`0983a94ec`).
