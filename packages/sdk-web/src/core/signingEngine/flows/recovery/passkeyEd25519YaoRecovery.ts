@@ -22,7 +22,6 @@ import {
 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
 import { buildPasskeyRouterAbEd25519WalletSessionState } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/session/routerAbSigningWalletSession';
-import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
@@ -445,15 +444,6 @@ function publishRecoveredWalletSession(input: {
   readonly rpId: string;
 }): NearResolvedEd25519SigningSessionState {
   const state = buildRecoveredWalletSessionState(input);
-  publishResolvedIdentity({
-    walletId: input.parsed.walletId,
-    authMethod: 'passkey',
-    curve: 'ed25519',
-    chain: 'near',
-    signingGrantId: input.parsed.session.signingGrantId,
-    thresholdSessionId: input.parsed.session.thresholdSessionId,
-    updatedAtMs: Date.now(),
-  });
   return state;
 }
 
