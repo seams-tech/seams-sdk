@@ -119,31 +119,6 @@ export function parseExactSealedSessionIdentity(value: unknown): ExactSealedSess
   };
 }
 
-export function exactSealedSessionIdentityFromFilter(args: {
-  thresholdSessionId: string;
-  filter: ExactSealedSessionRecordFilter;
-}): ExactSealedSessionIdentity | null {
-  const thresholdSessionId = normalizeNonEmptyString(args.thresholdSessionId);
-  if (!thresholdSessionId) return null;
-  switch (args.filter.curve) {
-    case 'ed25519':
-      return {
-        authMethod: args.filter.authMethod,
-        curve: 'ed25519',
-        thresholdSessionId,
-      };
-    case 'ecdsa':
-      return {
-        authMethod: args.filter.authMethod,
-        curve: 'ecdsa',
-        thresholdSessionId,
-        chainTarget: args.filter.chainTarget,
-      };
-    default:
-      return assertNever(args.filter);
-  }
-}
-
 export function exactSealedSessionIdentityFromRecoveryRecord(
   record: SealedRecoveryRecord,
 ): ExactSealedSessionIdentity {
