@@ -61,6 +61,10 @@ replacement.
 - ~~obsolete IndexedDB ECDSA composite session records~~ — absent at the
   `5d3518c98` audit; the manifest and sealed-runtime stores are the canonical
   current schema and are retained
+- ~~write-dead Ed25519 in-memory session-record family, lane readers, and
+  cache maps~~ — no production or retained-test consumer remained after the
+  canonical Ed25519 capability/sealed-runtime cutover; deleted with its stale
+  architecture guard and README references in `d4c8b90c1`
 - ~~`IndexedDbEcdsaRoleLocalSessionMaterialStore` and
   `ecdsaRoleLocalSessionMaterialStore.ts`~~ — deleted by `ab510dab8`
 - ~~`ecdsa_role_local_sealing_keys` and

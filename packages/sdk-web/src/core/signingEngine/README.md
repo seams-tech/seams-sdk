@@ -131,9 +131,9 @@ sequenceDiagram
 - `WalletSigningBudgetReservation` (`session/budget/budget.ts`): budget
   reservation and spend identity that follows the selected lane through the
   finalization path.
-- `ThresholdEd25519SessionRecord` (`session/persistence/records.ts`): Ed25519
-  persistence records normalized at storage boundaries. ECDSA material and
-  authorization use the capability manifest and sealed-runtime boundaries.
+- Ed25519 material and authorization use the capability and sealed-runtime
+  boundaries; the retired in-memory session-record family is no longer a
+  signing-engine state source.
 - `ThresholdEcdsaChainTarget` (`interfaces/ecdsaChainTarget.ts`): neutral EVM
   and Tempo chain target identity shared by session, prompt, threshold, and
   operation modules.
@@ -146,11 +146,11 @@ sequenceDiagram
 | Term                   | Axis                                                                                | Canonical owner                                 |
 | ---------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------- |
 | `warmSession`          | Secure-confirm worker PRF cache and volatile capability material.                   | `session/warmCapabilities/*`                    |
-| `warmSigning`          | Runtime aggregate of warm-session readers, status readers, and ECDSA record access. | `assembly/ports/warmSigning.ts`                 |
+| `warmSigning`          | Runtime aggregate of warm-session readers, status readers, and sealed-runtime access. | `assembly/ports/warmSigning.ts`                 |
 | `warmCapabilities`     | Public capability/status surface derived from warm material and budget state.       | `session/warmCapabilities/public.ts`            |
 | `signingSession`       | Operation lane, budget, and identity scope used while signing.                      | `session/planning/*`, `session/budget/*`        |
 | `signingGrant` | Server-issued wallet-scoped budget session identifier.                              | `session/budget/*`                              |
-| `thresholdSession`     | Cryptographic threshold-protocol authorization session.                             | `threshold/*`, `session/persistence/records.ts` |
+| `thresholdSession`     | Cryptographic threshold-protocol authorization session.                             | `threshold/*`, sealed-runtime boundaries        |
 | `emailOtpSession`      | Email OTP step-up session and warm-session coordination.                            | `session/emailOtp/*`                            |
 | `appSession`           | Outer application JWT/policy used to authorize wallet operations.                   | `stepUpConfirmation/*`, relayer clients         |
 
