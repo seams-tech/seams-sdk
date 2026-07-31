@@ -63,7 +63,10 @@ function validThresholdEd25519SessionBody(): Record<string, unknown> {
   };
 }
 
-function validOperationStepUpBody(proof: Record<string, unknown>): Record<string, unknown> {
+function validOperationStepUpBody(
+  proof: Record<string, unknown>,
+  materialRecovery: Record<string, unknown> = { kind: 'not_requested' },
+): Record<string, unknown> {
   return {
     kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
     normalSigningRequest: {
@@ -72,6 +75,7 @@ function validOperationStepUpBody(proof: Record<string, unknown>): Record<string
     },
     displayDigest: 'display-digest',
     proof,
+    materialRecovery,
   };
 }
 
@@ -120,13 +124,20 @@ async function acceptsExactEmailOtpOperationStepUpProof(): Promise<void> {
   });
   const authorityRef = await walletAuthAuthorityRef({ authority });
   const parsed = parseThresholdEd25519OperationStepUpGrantRequest(
-    validOperationStepUpBody({
-      kind: 'email_otp',
-      authority_ref: authorityRef,
-      provider_subject_id: 'email-user-route-validation',
-      challenge_id: 'challenge-route-validation',
-      otp_code: '123456',
-    }),
+    validOperationStepUpBody(
+      {
+        kind: 'email_otp',
+        authority_ref: authorityRef,
+        provider_subject_id: 'email-user-route-validation',
+        challenge_id: 'challenge-route-validation',
+        otp_code: '123456',
+      },
+      {
+        kind: 'email_otp_local_material_v1',
+        wrappedCiphertext: 'wrapped-ciphertext',
+        enrollmentSealKeyVersion: 'enrollment-seal-v1',
+      },
+    ),
   );
 
   expect(parsed.ok).toBe(true);
@@ -138,6 +149,33 @@ async function acceptsExactEmailOtpOperationStepUpProof(): Promise<void> {
     challengeId: 'challenge-route-validation',
     otpCode: '123456',
   });
+  expect(parsed.request.materialRecovery).toEqual({
+    kind: 'email_otp_local_material_v1',
+    wrappedCiphertext: 'wrapped-ciphertext',
+    enrollmentSealKeyVersion: 'enrollment-seal-v1',
+  });
+}
+
+async function acceptsEmailOtpOperationStepUpWithoutMaterialRecovery(): Promise<void> {
+  const authority = buildEmailOtpWalletAuthAuthority({
+    walletId: 'frost-vermillion-k7p9m2',
+    provider: 'email',
+    providerUserId: 'email-user-route-validation',
+    emailHashHex: 'email-hash-route-validation',
+  });
+  const authorityRef = await walletAuthAuthorityRef({ authority });
+  const parsed = parseThresholdEd25519OperationStepUpGrantRequest(
+    validOperationStepUpBody({
+      kind: 'email_otp',
+      authority_ref: authorityRef,
+      provider_subject_id: 'email-user-route-validation',
+      challenge_id: 'challenge-route-validation',
+      otp_code: '123456',
+    }),
+  );
+  expect(parsed.ok).toBe(true);
+  if (!parsed.ok) throw new Error(parsed.body.message);
+  expect(parsed.request.materialRecovery).toEqual({ kind: 'not_requested' });
 }
 
 async function rejectsMixedOperationStepUpProofFields(): Promise<void> {
@@ -176,6 +214,56 @@ function rejectsLegacyFlatOperationStepUpProof(): void {
   expectInvalidOperationStepUpBody(
     parseThresholdEd25519OperationStepUpGrantRequest(body),
     'Unsupported operation step-up grant field: authority',
+  );
+}
+
+function rejectsPasskeyMaterialRecovery(): void {
+  expectInvalidOperationStepUpBody(
+    parseThresholdEd25519OperationStepUpGrantRequest(
+      validOperationStepUpBody(
+        {
+          kind: 'passkey',
+          authority: validThresholdEd25519SessionPolicy().authority,
+          webauthn_authentication: validWebAuthnAuthentication(),
+        },
+        {
+          kind: 'email_otp_local_material_v1',
+          wrappedCiphertext: 'wrapped-ciphertext',
+          enrollmentSealKeyVersion: 'enrollment-seal-v1',
+        },
+      ),
+    ),
+    'Unsupported Passkey operation step-up material recovery field: wrappedCiphertext',
+  );
+}
+
+async function rejectsUnknownEmailOtpMaterialRecoveryField(): Promise<void> {
+  const authority = buildEmailOtpWalletAuthAuthority({
+    walletId: 'frost-vermillion-k7p9m2',
+    provider: 'email',
+    providerUserId: 'email-user-route-validation',
+    emailHashHex: 'email-hash-route-validation',
+  });
+  const authorityRef = await walletAuthAuthorityRef({ authority });
+  expectInvalidOperationStepUpBody(
+    parseThresholdEd25519OperationStepUpGrantRequest(
+      validOperationStepUpBody(
+        {
+          kind: 'email_otp',
+          authority_ref: authorityRef,
+          provider_subject_id: 'email-user-route-validation',
+          challenge_id: 'challenge-route-validation',
+          otp_code: '123456',
+        },
+        {
+          kind: 'email_otp_local_material_v1',
+          wrappedCiphertext: 'wrapped-ciphertext',
+          enrollmentSealKeyVersion: 'enrollment-seal-v1',
+          walletSessionId: 'retired-session-coupling',
+        },
+      ),
+    ),
+    'Unsupported Email OTP operation step-up material recovery field: walletSessionId',
   );
 }
 
@@ -322,10 +410,22 @@ test(
   acceptsExactEmailOtpOperationStepUpProof,
 );
 test(
+  'threshold-ed25519 operation step-up permits an active Email OTP client without material recovery',
+  acceptsEmailOtpOperationStepUpWithoutMaterialRecovery,
+);
+test(
   'threshold-ed25519 operation step-up rejects mixed factor proof fields',
   rejectsMixedOperationStepUpProofFields,
 );
 test(
   'threshold-ed25519 operation step-up rejects the retired flat proof shape',
   rejectsLegacyFlatOperationStepUpProof,
+);
+test(
+  'threshold-ed25519 operation step-up rejects Passkey material recovery',
+  rejectsPasskeyMaterialRecovery,
+);
+test(
+  'threshold-ed25519 operation step-up rejects unknown Email OTP material recovery fields',
+  rejectsUnknownEmailOtpMaterialRecoveryField,
 );

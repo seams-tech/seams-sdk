@@ -47,28 +47,65 @@ export type RouterAbEd25519YaoSessionRouteCommandV1 = {
   readonly sessionKind: 'jwt';
 };
 
-export type RouterAbEd25519YaoOperationStepUpGrantCommandV1 = {
+export type RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest =
+  | {
+      readonly kind: 'not_requested';
+      readonly wrappedCiphertext?: never;
+      readonly enrollmentSealKeyVersion?: never;
+    }
+  | {
+      readonly kind: 'email_otp_local_material_v1';
+      readonly wrappedCiphertext: string;
+      readonly enrollmentSealKeyVersion: string;
+    };
+
+export type RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse =
+  | {
+      readonly kind: 'not_requested';
+      readonly ciphertext?: never;
+      readonly enrollmentSealKeyVersion?: never;
+    }
+  | {
+      readonly kind: 'email_otp_local_material_v1';
+      readonly ciphertext: string;
+      readonly enrollmentSealKeyVersion: string;
+    };
+
+type RouterAbEd25519YaoOperationStepUpGrantCommandBase = {
   readonly kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1';
   readonly normalSigningRequest: Record<string, unknown>;
   readonly displayDigest: string;
-  readonly proof:
-    | {
-        readonly kind: 'passkey';
-        readonly authority: PasskeyWalletAuthAuthority;
-        readonly webauthnAuthentication: WebAuthnAuthenticationCredential;
-        readonly challengeId?: never;
-        readonly otpCode?: never;
-      }
-    | {
-        readonly kind: 'email_otp';
-        readonly authorityRef: WalletAuthAuthorityRef;
-        readonly providerSubjectId: string;
-        readonly challengeId: string;
-        readonly otpCode: string;
-        readonly webauthnAuthentication?: never;
-        readonly authority?: never;
-      };
 };
+
+export type RouterAbEd25519YaoOperationStepUpGrantCommandV1 =
+  RouterAbEd25519YaoOperationStepUpGrantCommandBase &
+    (
+      | {
+          readonly proof: {
+            readonly kind: 'passkey';
+            readonly authority: PasskeyWalletAuthAuthority;
+            readonly webauthnAuthentication: WebAuthnAuthenticationCredential;
+            readonly challengeId?: never;
+            readonly otpCode?: never;
+          };
+          readonly materialRecovery: Extract<
+            RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest,
+            { kind: 'not_requested' }
+          >;
+        }
+      | {
+          readonly proof: {
+            readonly kind: 'email_otp';
+            readonly authorityRef: WalletAuthAuthorityRef;
+            readonly providerSubjectId: string;
+            readonly challengeId: string;
+            readonly otpCode: string;
+            readonly webauthnAuthentication?: never;
+            readonly authority?: never;
+          };
+          readonly materialRecovery: RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest;
+        }
+    );
 
 export type RouterAbEd25519YaoBudgetRefreshAuthorizationV1 =
   | {

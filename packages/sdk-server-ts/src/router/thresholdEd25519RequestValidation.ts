@@ -23,6 +23,7 @@ const OPERATION_STEP_UP_GRANT_KEYS = [
   'normalSigningRequest',
   'displayDigest',
   'proof',
+  'materialRecovery',
 ] as const;
 const OPERATION_STEP_UP_PASSKEY_PROOF_KEYS = [
   'kind',
@@ -35,6 +36,12 @@ const OPERATION_STEP_UP_EMAIL_OTP_PROOF_KEYS = [
   'provider_subject_id',
   'challenge_id',
   'otp_code',
+] as const;
+const OPERATION_STEP_UP_NO_MATERIAL_RECOVERY_KEYS = ['kind'] as const;
+const OPERATION_STEP_UP_EMAIL_OTP_MATERIAL_RECOVERY_KEYS = [
+  'kind',
+  'wrappedCiphertext',
+  'enrollmentSealKeyVersion',
 ] as const;
 import {
   findUnexpectedRouteKey,
@@ -252,7 +259,11 @@ export function parseThresholdEd25519OperationStepUpGrantRequest(
   if (!isPlainObject(raw.proof)) {
     return invalidThresholdEd25519Body('proof is required');
   }
+  if (!isPlainObject(raw.materialRecovery)) {
+    return invalidThresholdEd25519Body('materialRecovery is required');
+  }
   const proof = raw.proof;
+  const materialRecovery = raw.materialRecovery;
   switch (proof.kind) {
     case 'passkey': {
       const authority = parseWalletAuthAuthority(proof.authority);
@@ -273,6 +284,20 @@ export function parseThresholdEd25519OperationStepUpGrantRequest(
       if (!credential.request) {
         return invalidThresholdEd25519Body('proof.webauthn_authentication is required');
       }
+      const unsupportedMaterialRecoveryKey = findUnexpectedRouteKey(
+        materialRecovery,
+        OPERATION_STEP_UP_NO_MATERIAL_RECOVERY_KEYS,
+      );
+      if (unsupportedMaterialRecoveryKey) {
+        return invalidThresholdEd25519Body(
+          `Unsupported Passkey operation step-up material recovery field: ${unsupportedMaterialRecoveryKey}`,
+        );
+      }
+      if (materialRecovery.kind !== 'not_requested') {
+        return invalidThresholdEd25519Body(
+          'Passkey operation step-up materialRecovery.kind must be not_requested',
+        );
+      }
       return {
         ok: true,
         request: {
@@ -284,6 +309,7 @@ export function parseThresholdEd25519OperationStepUpGrantRequest(
             authority,
             webauthnAuthentication: credential.request,
           },
+          materialRecovery: { kind: 'not_requested' },
         },
       };
     }
@@ -309,6 +335,51 @@ export function parseThresholdEd25519OperationStepUpGrantRequest(
       if (!challengeId.ok) return challengeId;
       const otpCode = requiredStringField(proof, 'otp_code');
       if (!otpCode.ok) return otpCode;
+      let parsedMaterialRecovery:
+        RouterAbEd25519YaoOperationStepUpGrantCommandV1['materialRecovery'];
+      switch (materialRecovery.kind) {
+        case 'not_requested': {
+          const unsupportedMaterialRecoveryKey = findUnexpectedRouteKey(
+            materialRecovery,
+            OPERATION_STEP_UP_NO_MATERIAL_RECOVERY_KEYS,
+          );
+          if (unsupportedMaterialRecoveryKey) {
+            return invalidThresholdEd25519Body(
+              `Unsupported Email OTP operation step-up material recovery field: ${unsupportedMaterialRecoveryKey}`,
+            );
+          }
+          parsedMaterialRecovery = { kind: 'not_requested' };
+          break;
+        }
+        case 'email_otp_local_material_v1': {
+          const unsupportedMaterialRecoveryKey = findUnexpectedRouteKey(
+            materialRecovery,
+            OPERATION_STEP_UP_EMAIL_OTP_MATERIAL_RECOVERY_KEYS,
+          );
+          if (unsupportedMaterialRecoveryKey) {
+            return invalidThresholdEd25519Body(
+              `Unsupported Email OTP operation step-up material recovery field: ${unsupportedMaterialRecoveryKey}`,
+            );
+          }
+          const wrappedCiphertext = requiredStringField(materialRecovery, 'wrappedCiphertext');
+          if (!wrappedCiphertext.ok) return wrappedCiphertext;
+          const enrollmentSealKeyVersion = requiredStringField(
+            materialRecovery,
+            'enrollmentSealKeyVersion',
+          );
+          if (!enrollmentSealKeyVersion.ok) return enrollmentSealKeyVersion;
+          parsedMaterialRecovery = {
+            kind: 'email_otp_local_material_v1',
+            wrappedCiphertext: wrappedCiphertext.request,
+            enrollmentSealKeyVersion: enrollmentSealKeyVersion.request,
+          };
+          break;
+        }
+        default:
+          return invalidThresholdEd25519Body(
+            'Email OTP operation step-up materialRecovery.kind is invalid',
+          );
+      }
       return {
         ok: true,
         request: {
@@ -322,6 +393,7 @@ export function parseThresholdEd25519OperationStepUpGrantRequest(
             challengeId: challengeId.request,
             otpCode: otpCode.request,
           },
+          materialRecovery: parsedMaterialRecovery,
         },
       };
     }

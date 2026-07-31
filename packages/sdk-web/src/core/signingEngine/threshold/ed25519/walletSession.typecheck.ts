@@ -1,12 +1,73 @@
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
+  Ed25519OperationStepUpGrantRequest,
+  Ed25519OperationStepUpProof,
   Ed25519WalletSessionMintAuthorization,
   ThresholdEd25519WebAuthnPrfSecretSource,
 } from './walletSession';
 import type { ProvisionWarmEd25519CapabilityArgs } from '../../session/warmCapabilities/types';
+import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 
 declare const credential: WebAuthnAuthenticationCredential;
 declare const webauthnPrfSource: ThresholdEd25519WebAuthnPrfSecretSource;
+declare const normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
+declare const passkeyStepUpProof: Extract<Ed25519OperationStepUpProof, { kind: 'passkey' }>;
+declare const emailOtpStepUpProof: Extract<Ed25519OperationStepUpProof, { kind: 'email_otp' }>;
+
+const stepUpRequestBase = {
+  relayerUrl: 'https://relay.example.test',
+  normalSigningRequest,
+  displayDigest: 'display-digest',
+};
+
+const validPasskeyStepUpWithoutMaterialRecovery = {
+  ...stepUpRequestBase,
+  proof: passkeyStepUpProof,
+  materialRecovery: { kind: 'not_requested' },
+} satisfies Ed25519OperationStepUpGrantRequest;
+void validPasskeyStepUpWithoutMaterialRecovery;
+
+const validEmailOtpStepUpWithoutMaterialRecovery = {
+  ...stepUpRequestBase,
+  proof: emailOtpStepUpProof,
+  materialRecovery: { kind: 'not_requested' },
+} satisfies Ed25519OperationStepUpGrantRequest;
+void validEmailOtpStepUpWithoutMaterialRecovery;
+
+const validEmailOtpStepUpWithLocalMaterialRecovery = {
+  ...stepUpRequestBase,
+  proof: emailOtpStepUpProof,
+  materialRecovery: {
+    kind: 'email_otp_local_material_v1',
+    wrappedCiphertext: 'wrapped-ciphertext',
+    enrollmentSealKeyVersion: 'enrollment-seal-key-version',
+  },
+} satisfies Ed25519OperationStepUpGrantRequest;
+void validEmailOtpStepUpWithLocalMaterialRecovery;
+
+// @ts-expect-error Passkey operation step-up cannot request Email OTP local-material recovery.
+const invalidPasskeyStepUpWithLocalMaterialRecovery: Ed25519OperationStepUpGrantRequest = {
+  ...stepUpRequestBase,
+  proof: passkeyStepUpProof,
+  materialRecovery: {
+    kind: 'email_otp_local_material_v1',
+    wrappedCiphertext: 'wrapped-ciphertext',
+    enrollmentSealKeyVersion: 'enrollment-seal-key-version',
+  },
+};
+void invalidPasskeyStepUpWithLocalMaterialRecovery;
+
+const invalidEmailOtpStepUpWithIncompleteLocalMaterialRecovery: Ed25519OperationStepUpGrantRequest =
+  {
+    ...stepUpRequestBase,
+    proof: emailOtpStepUpProof,
+    // @ts-expect-error Email OTP local-material recovery requires its enrollment seal key version.
+    materialRecovery: {
+      kind: 'email_otp_local_material_v1',
+      wrappedCiphertext: 'wrapped-ciphertext',
+    },
+  };
+void invalidEmailOtpStepUpWithIncompleteLocalMaterialRecovery;
 
 const validAppSessionJwtAuth = {
   kind: 'app_session_jwt',

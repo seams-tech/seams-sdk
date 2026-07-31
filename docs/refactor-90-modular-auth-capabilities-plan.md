@@ -751,11 +751,32 @@ the replacement and legacy MPC paths must not ship together.
       consume the exact OTP challenge, persist factor evidence, and issue a
       one-use operation grant without minting a reusable Wallet Session or
       consuming its quota (`007416714`).
+- [x] Extend the NEAR operation-grant boundary with a strict discriminated
+      material-recovery request and mirrored response. Passkey admits no
+      recovery branch; Email OTP removes the exact enrollment server seal after
+      OTP consumption and before grant issuance, and rejects key-version
+      substitution (`7dea7838a`).
+- [x] Parse the same material-recovery union at the SDK grant boundary and
+      correlate the mirrored response with the requested wallet, material
+      session, activation, and enrollment-key version. Passkey cannot request
+      local recovery in the client domain types (`88cc478f0`).
+- [x] Define the Email OTP worker transport for operation-material
+      rehydration. Its strict boundary parser validates the prepared
+      operation-step-up authorization, intent, display digest, proof authority,
+      expected material activation, threshold session, and public key; the
+      browser client rejects response correlation drift (`f07020d80`).
 - [x] Complete NEAR Email OTP operation step-up for transaction, delegate, and
-      NEP-413 signing. Prepare the exact operation before confirmation, hydrate
-      canonical material independently, consume one operation grant, and keep
-      reusable Wallet Session creation and quota use out of the step-up branch
-      (`069db2326`).
+      NEP-413 signing when the canonical material is already live. Prepare the
+      exact operation before confirmation, consume one operation grant, and
+      keep reusable Wallet Session creation and quota use out of the step-up
+      branch (`069db2326`).
+- [ ] Complete sealed Email OTP operation-material recovery inside the worker:
+      apply the ephemeral client seal, request the one-operation grant and
+      server-unsealed ciphertext, remove the client seal, import and correlate
+      the exact material, zeroize/dispose temporary secrets, and return the
+      active material beside the issued grant. Transaction, delegate, and
+      NEP-413 signing must use this path without creating or rereading a
+      reusable Wallet Session.
 - [x] Replace the five public NEAR factor-specific preparation, Passkey
       rehydration, and Email OTP recovery ports with one Browser-owned
       `{ preparation, executor }` material boundary. Exact factor, signer,

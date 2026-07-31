@@ -281,19 +281,231 @@ export type Ed25519OperationStepUpProof =
       authority?: never;
     };
 
-export async function issueEd25519OperationStepUpGrant(args: {
+export type Ed25519OperationStepUpMaterialRecoveryRequest =
+  | {
+      kind: 'not_requested';
+      wrappedCiphertext?: never;
+      enrollmentSealKeyVersion?: never;
+    }
+  | {
+      kind: 'email_otp_local_material_v1';
+      wrappedCiphertext: string;
+      enrollmentSealKeyVersion: string;
+    };
+
+export type Ed25519OperationStepUpMaterialRecoveryResponse =
+  | {
+      kind: 'not_requested';
+      ciphertext?: never;
+      enrollmentSealKeyVersion?: never;
+    }
+  | {
+      kind: 'email_otp_local_material_v1';
+      ciphertext: string;
+      enrollmentSealKeyVersion: string;
+    };
+
+type Ed25519EmailOtpOperationStepUpProof = Extract<
+  Ed25519OperationStepUpProof,
+  { kind: 'email_otp' }
+>;
+type Ed25519NoMaterialRecoveryRequest = Extract<
+  Ed25519OperationStepUpMaterialRecoveryRequest,
+  { kind: 'not_requested' }
+>;
+type Ed25519EmailOtpLocalMaterialRecoveryRequest = Extract<
+  Ed25519OperationStepUpMaterialRecoveryRequest,
+  { kind: 'email_otp_local_material_v1' }
+>;
+
+type Ed25519OperationStepUpGrantRequestBase = {
   relayerUrl: string;
   normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
   displayDigest: string;
-  proof: Ed25519OperationStepUpProof;
-}): Promise<{
+};
+
+export type Ed25519OperationStepUpGrantRequest = Ed25519OperationStepUpGrantRequestBase &
+  (
+    | {
+        proof: Ed25519OperationStepUpProof;
+        materialRecovery: Ed25519NoMaterialRecoveryRequest;
+      }
+    | {
+        proof: Ed25519EmailOtpOperationStepUpProof;
+        materialRecovery: Ed25519EmailOtpLocalMaterialRecoveryRequest;
+      }
+  );
+
+export type IssuedEd25519OperationStepUpGrant = {
   kind: 'operation_step_up';
   grantId: string;
   authorizationSessionId: string;
   expiresAtMs: number;
-}> {
+  materialRecovery: Ed25519OperationStepUpMaterialRecoveryResponse;
+};
+
+function requireEd25519OperationStepUpResponseRecord(
+  value: unknown,
+  label: string,
+): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`[threshold-ed25519] ${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireExactEd25519OperationStepUpResponseKeys(
+  record: Record<string, unknown>,
+  expectedKeys: readonly string[],
+  label: string,
+): void {
+  const actual = Object.keys(record).sort();
+  const expected = [...expectedKeys].sort();
+  if (actual.length !== expected.length) {
+    throw new Error(`[threshold-ed25519] ${label} contains unexpected fields`);
+  }
+  for (let index = 0; index < actual.length; index += 1) {
+    if (actual[index] !== expected[index]) {
+      throw new Error(`[threshold-ed25519] ${label} contains unexpected fields`);
+    }
+  }
+}
+
+function requireNormalizedEd25519OperationStepUpString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) {
+    throw new Error(`[threshold-ed25519] ${field} must be a non-empty normalized string`);
+  }
+  return value;
+}
+
+function buildEd25519OperationStepUpMaterialRecoveryRequest(
+  request: Ed25519OperationStepUpGrantRequest,
+): Ed25519OperationStepUpMaterialRecoveryRequest {
+  switch (request.materialRecovery.kind) {
+    case 'not_requested':
+      return { kind: 'not_requested' };
+    case 'email_otp_local_material_v1': {
+      if (request.proof.kind !== 'email_otp') {
+        throw new Error(
+          '[threshold-ed25519] Passkey operation step-up cannot request Email OTP material recovery',
+        );
+      }
+      return {
+        kind: 'email_otp_local_material_v1',
+        wrappedCiphertext: requireNormalizedEd25519OperationStepUpString(
+          request.materialRecovery.wrappedCiphertext,
+          'materialRecovery.wrappedCiphertext',
+        ),
+        enrollmentSealKeyVersion: requireNormalizedEd25519OperationStepUpString(
+          request.materialRecovery.enrollmentSealKeyVersion,
+          'materialRecovery.enrollmentSealKeyVersion',
+        ),
+      };
+    }
+    default: {
+      const exhaustive: never = request.materialRecovery;
+      return exhaustive;
+    }
+  }
+}
+
+function parseEd25519OperationStepUpMaterialRecoveryResponse(args: {
+  value: unknown;
+  requested: Ed25519OperationStepUpMaterialRecoveryRequest;
+}): Ed25519OperationStepUpMaterialRecoveryResponse {
+  const response = requireEd25519OperationStepUpResponseRecord(
+    args.value,
+    'operation step-up material recovery',
+  );
+  switch (response.kind) {
+    case 'not_requested': {
+      requireExactEd25519OperationStepUpResponseKeys(
+        response,
+        ['kind'],
+        'operation step-up material recovery',
+      );
+      if (args.requested.kind !== 'not_requested') {
+        throw new Error(
+          '[threshold-ed25519] operation step-up material recovery response does not match the request',
+        );
+      }
+      return { kind: 'not_requested' };
+    }
+    case 'email_otp_local_material_v1': {
+      requireExactEd25519OperationStepUpResponseKeys(
+        response,
+        ['kind', 'ciphertext', 'enrollmentSealKeyVersion'],
+        'operation step-up material recovery',
+      );
+      if (args.requested.kind !== 'email_otp_local_material_v1') {
+        throw new Error(
+          '[threshold-ed25519] operation step-up material recovery response does not match the request',
+        );
+      }
+      const enrollmentSealKeyVersion = requireNormalizedEd25519OperationStepUpString(
+        response.enrollmentSealKeyVersion,
+        'materialRecovery.enrollmentSealKeyVersion',
+      );
+      if (enrollmentSealKeyVersion !== args.requested.enrollmentSealKeyVersion) {
+        throw new Error(
+          '[threshold-ed25519] operation step-up material recovery key version changed',
+        );
+      }
+      return {
+        kind: 'email_otp_local_material_v1',
+        ciphertext: requireNormalizedEd25519OperationStepUpString(
+          response.ciphertext,
+          'materialRecovery.ciphertext',
+        ),
+        enrollmentSealKeyVersion,
+      };
+    }
+    default:
+      throw new Error('[threshold-ed25519] operation step-up material recovery kind is invalid');
+  }
+}
+
+function parseIssuedEd25519OperationStepUpGrant(args: {
+  body: unknown;
+  requestedMaterialRecovery: Ed25519OperationStepUpMaterialRecoveryRequest;
+}): IssuedEd25519OperationStepUpGrant {
+  const body = requireEd25519OperationStepUpResponseRecord(args.body, 'operation step-up response');
+  requireExactEd25519OperationStepUpResponseKeys(
+    body,
+    ['ok', 'kind', 'grantId', 'authorizationSessionId', 'expiresAtMs', 'materialRecovery'],
+    'operation step-up response',
+  );
+  if (body.ok !== true || body.kind !== 'operation_step_up') {
+    throw new Error('[threshold-ed25519] operation step-up response kind is invalid');
+  }
+  if (
+    typeof body.expiresAtMs !== 'number' ||
+    !Number.isSafeInteger(body.expiresAtMs) ||
+    body.expiresAtMs <= Date.now()
+  ) {
+    throw new Error('[threshold-ed25519] operation step-up expiry is invalid');
+  }
+  return {
+    kind: 'operation_step_up',
+    grantId: requireNormalizedEd25519OperationStepUpString(body.grantId, 'grantId'),
+    authorizationSessionId: requireNormalizedEd25519OperationStepUpString(
+      body.authorizationSessionId,
+      'authorizationSessionId',
+    ),
+    expiresAtMs: body.expiresAtMs,
+    materialRecovery: parseEd25519OperationStepUpMaterialRecoveryResponse({
+      value: body.materialRecovery,
+      requested: args.requestedMaterialRecovery,
+    }),
+  };
+}
+
+export async function issueEd25519OperationStepUpGrant(
+  args: Ed25519OperationStepUpGrantRequest,
+): Promise<IssuedEd25519OperationStepUpGrant> {
   const relayerUrl = stripTrailingSlashes(toTrimmedString(args.relayerUrl));
   if (!relayerUrl) throw new Error('[threshold-ed25519] operation step-up relayerUrl is required');
+  const materialRecovery = buildEd25519OperationStepUpMaterialRecoveryRequest(args);
   const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -322,27 +534,23 @@ export async function issueEd25519OperationStepUpGrant(args: {
               ),
               otp_code: requireNonEmptyEd25519SecretSourceString(args.proof.otpCode, 'otpCode'),
             },
+      materialRecovery,
     }),
   });
-  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok || body.ok !== true || body.kind !== 'operation_step_up') {
+  const body: unknown = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const errorBody =
+      body && typeof body === 'object' && !Array.isArray(body)
+        ? (body as Record<string, unknown>)
+        : {};
     throw new Error(
       `[threshold-ed25519] operation step-up failed: ${String(
-        body.message || `HTTP ${response.status}`,
+        errorBody.message || `HTTP ${response.status}`,
       )}`,
     );
   }
-  const expiresAtMs = Number(body.expiresAtMs);
-  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
-    throw new Error('[threshold-ed25519] operation step-up expiry is invalid');
-  }
-  return {
-    kind: 'operation_step_up',
-    grantId: requireNonEmptyEd25519SecretSourceString(body.grantId, 'grantId'),
-    authorizationSessionId: requireNonEmptyEd25519SecretSourceString(
-      body.authorizationSessionId,
-      'authorizationSessionId',
-    ),
-    expiresAtMs,
-  };
+  return parseIssuedEd25519OperationStepUpGrant({
+    body,
+    requestedMaterialRecovery: materialRecovery,
+  });
 }

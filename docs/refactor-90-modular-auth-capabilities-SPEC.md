@@ -258,10 +258,26 @@ implementing commit SHA as the evidence.
     consumes its OTP challenge, persists factor evidence, and issues a one-use
     operation grant without creating a reusable Wallet Session or spending its
     quota (`007416714`).
+  - [x] The NEAR operation-grant request and response parse an exact
+    discriminated material-recovery branch. Passkey forbids recovery; Email OTP
+    removes the exact enrollment server seal after OTP consumption and before
+    grant issuance, and key-version mismatch fails closed (`7dea7838a`).
+  - [x] The SDK grant boundary models the same closed material-recovery union
+    and correlates the mirrored response with the requested wallet, material
+    session, activation, and enrollment-key version. Passkey cannot construct a
+    local-recovery request (`88cc478f0`).
+  - [x] The Email OTP worker transport parses the prepared operation-step-up
+    request, proof authority, expected activation, threshold session, and
+    public key exactly; its browser client rejects response correlation drift
+    (`f07020d80`).
   - [x] NEAR Email OTP transaction, delegate, and NEP-413 signing prepare the
-    exact operation before confirmation, hydrate canonical material
-    independently, consume one operation grant, and never create or spend a
-    reusable Wallet Session in the step-up branch (`069db2326`).
+    exact operation before confirmation and consume one operation grant when
+    canonical material is already live. They never create or spend a reusable
+    Wallet Session in the step-up branch (`069db2326`).
+  - [ ] Sealed Email OTP operation step-up restores material inside its worker,
+    correlates the exact activation/session/public key, zeroizes temporary
+    secrets, and returns the active material beside the issued grant without
+    creating or rereading a reusable Wallet Session.
   - [x] The record-backed Email OTP Ed25519 routine-signing lane and its
     active-material recovery path are deleted. Cold login/unlock recovery,
     sealed refresh, and export recovery remain, and the focused retained

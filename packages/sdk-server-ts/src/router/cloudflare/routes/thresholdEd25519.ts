@@ -77,7 +77,14 @@ import {
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
-import { hashEmailOtpAppSessionClaims } from '../../emailOtpSessionRouteHelpers';
+import {
+  emailOtpStatusCode,
+  hashEmailOtpAppSessionClaims,
+} from '../../emailOtpSessionRouteHelpers';
+import type {
+  RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest,
+  RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse,
+} from '../../routerAbEd25519YaoWalletSession';
 
 type Ed25519ReusableOperationClaimReceipt = {
   readonly kind: 'reusable_wallet_session_operation_claim_v1';
@@ -856,6 +863,57 @@ export function isRouterAbEd25519OperationInProgressResponse(input: {
   );
 }
 
+type Ed25519OperationStepUpMaterialRecoveryResult =
+  | {
+      readonly ok: true;
+      readonly recovery: RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse;
+    }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly message: string;
+    };
+
+export async function recoverEd25519OperationStepUpMaterial(input: {
+  readonly request: RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest;
+  readonly removeEmailOtpServerSeal: (input: {
+    readonly wrappedCiphertext: string;
+  }) => Promise<
+    | {
+        readonly ok: true;
+        readonly ciphertext: string;
+        readonly enrollmentSealKeyVersion: string;
+      }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  >;
+}): Promise<Ed25519OperationStepUpMaterialRecoveryResult> {
+  switch (input.request.kind) {
+    case 'not_requested':
+      return { ok: true, recovery: { kind: 'not_requested' } };
+    case 'email_otp_local_material_v1': {
+      const unsealed = await input.removeEmailOtpServerSeal({
+        wrappedCiphertext: input.request.wrappedCiphertext,
+      });
+      if (!unsealed.ok) return unsealed;
+      if (unsealed.enrollmentSealKeyVersion !== input.request.enrollmentSealKeyVersion) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'Email OTP operation step-up enrollment seal key version changed',
+        };
+      }
+      return {
+        ok: true,
+        recovery: {
+          kind: 'email_otp_local_material_v1',
+          ciphertext: unsealed.ciphertext,
+          enrollmentSealKeyVersion: unsealed.enrollmentSealKeyVersion,
+        },
+      };
+    }
+  }
+}
+
 async function issueEd25519OperationStepUpGrant(input: {
   ctx: CloudflareRouterApiContext;
   request: RouterAbEd25519YaoOperationStepUpGrantCommandV1;
@@ -960,6 +1018,7 @@ async function issueEd25519OperationStepUpGrant(input: {
     parseGrantEvidenceSetId(`evidence-set:${requestId}`),
   );
   let factor: VerifiedGrantFactorResult;
+  let materialRecovery: RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse;
   switch (proof.kind) {
     case 'passkey': {
       if (
@@ -1017,6 +1076,7 @@ async function issueEd25519OperationStepUpGrant(input: {
         verifiedAtMs: nowMs,
         expiresAtMs,
       });
+      materialRecovery = { kind: 'not_requested' };
       break;
     }
     case 'email_otp': {
@@ -1057,6 +1117,22 @@ async function issueEd25519OperationStepUpGrant(input: {
       if (!consumed.ok) {
         return json(consumed, { status: consumed.code === 'invalid_body' ? 400 : 401 });
       }
+      const recoveredMaterial = await recoverEd25519OperationStepUpMaterial({
+        request: input.request.materialRecovery,
+        removeEmailOtpServerSeal:
+          input.ctx.service.emailOtp.removeEmailOtpServerSeal.bind(input.ctx.service.emailOtp),
+      });
+      if (!recoveredMaterial.ok) {
+        return json(
+          {
+            ok: false,
+            code: recoveredMaterial.code,
+            message: recoveredMaterial.message,
+          },
+          { status: emailOtpStatusCode(recoveredMaterial.code) },
+        );
+      }
+      materialRecovery = recoveredMaterial.recovery;
       factor = buildVerifiedEmailOtpFactorResult({
         tenantId: authenticated.session.tenantId,
         principalId: authenticated.session.principalId,
@@ -1125,6 +1201,7 @@ async function issueEd25519OperationStepUpGrant(input: {
       grantId,
       authorizationSessionId: authenticated.session.sessionId,
       expiresAtMs,
+      materialRecovery,
     },
     { status: 200 },
   );

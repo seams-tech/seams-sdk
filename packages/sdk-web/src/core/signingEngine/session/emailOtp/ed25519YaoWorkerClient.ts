@@ -8,6 +8,7 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import type {
   ProductEd25519YaoActivationReferenceV1,
   ProductEd25519YaoPendingRegistrationPortV1,
@@ -21,7 +22,11 @@ import type {
   RouterAbEd25519YaoClientSigningShareV1,
 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import { ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
-import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import type {
+  EmailOtpEd25519YaoIssuedOperationGrantV1,
+  EmailOtpEd25519YaoOperationStepUpProofV1,
+  EmailOtpEd25519YaoRecoveryBootstrapV1,
+} from '@/core/signingEngine/workerManager/workerTypes';
 import type {
   EmailOtpEd25519YaoPendingFactorHandle,
   EmailOtpEd25519YaoRootHandle,
@@ -31,6 +36,13 @@ import {
   emailOtpEd25519YaoRecoveryRootScopeV1,
   emailOtpEd25519YaoRegistrationRootScopeV1,
 } from './ed25519YaoActivation';
+import type {
+  MpcMaterialActivationRef,
+  ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import { requestRehydrateEmailOtpEd25519YaoOperationMaterial } from './workerRequests';
+import { nearEd25519YaoMaterialActivationFromMetadata } from '../material/nearEd25519YaoMaterialActivation';
 
 type WorkerActiveClientLifecycle =
   | { kind: 'active'; activeClientHandle: string }
@@ -435,6 +447,58 @@ export class EmailOtpEd25519YaoWorkerActiveClientV1 implements RouterAbEd25519Ya
         return assertNever(this.lifecycle);
     }
   }
+}
+
+export type RehydrateEmailOtpEd25519YaoOperationMaterialInputV1 = {
+  workerContext: WorkerOperationContext;
+  relayUrl: string;
+  walletId: string;
+  nearAccountId: string;
+  signerSlot: number;
+  providerSubjectId: string;
+  expectedOperationalPublicKey: string;
+  expectedThresholdSessionId: ThresholdEd25519SessionId;
+  expectedMaterialActivation: MpcMaterialActivationRef;
+  normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
+  displayDigest: string;
+  proof: EmailOtpEd25519YaoOperationStepUpProofV1;
+};
+
+export type RehydrateEmailOtpEd25519YaoOperationMaterialResultV1 = {
+  activeClient: EmailOtpEd25519YaoWorkerActiveClientV1;
+  issuedGrant: EmailOtpEd25519YaoIssuedOperationGrantV1;
+};
+
+export async function rehydrateEmailOtpEd25519YaoOperationMaterialV1(
+  input: RehydrateEmailOtpEd25519YaoOperationMaterialInputV1,
+): Promise<RehydrateEmailOtpEd25519YaoOperationMaterialResultV1> {
+  if (input.proof.providerSubjectId !== input.providerSubjectId) {
+    throw new Error('Email OTP Ed25519 operation proof changed provider identity');
+  }
+  const result = await requestRehydrateEmailOtpEd25519YaoOperationMaterial(input);
+  const activation = nearEd25519YaoMaterialActivationFromMetadata(result.metadata);
+  if (
+    result.metadata.scope.wallet_session_id !== input.expectedThresholdSessionId ||
+    result.metadata.applicationBinding.wallet_id !== input.walletId ||
+    result.metadata.applicationBinding.key_creation_signer_slot !== input.signerSlot ||
+    `ed25519:${base58Encode(result.metadata.registeredPublicKey)}` !==
+      input.expectedOperationalPublicKey ||
+    !mpcMaterialActivationRefsEqual(activation, input.expectedMaterialActivation)
+  ) {
+    await disposeEmailOtpEd25519YaoActiveClientV1({
+      workerContext: input.workerContext,
+      activeClientHandle: result.activeClientHandle,
+    }).catch(() => undefined);
+    throw new Error('Email OTP Ed25519 worker activated different signing material');
+  }
+  return {
+    activeClient: new EmailOtpEd25519YaoWorkerActiveClientV1(
+      input.workerContext,
+      result.activeClientHandle,
+      result.metadata,
+    ),
+    issuedGrant: result.issuedGrant,
+  };
 }
 
 class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519YaoPendingRegistrationPortV1 {
