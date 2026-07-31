@@ -143,7 +143,6 @@ function exactPurposeForAcceptedRecord(
   if (
     record.authMethod !== input.authMethod ||
     !thresholdEcdsaChainTargetsEqual(record.chainTarget, input.chainTarget) ||
-    record.signingGrantId !== input.signingGrantId ||
     record.thresholdSessionId !== input.thresholdSessionId
   ) {
     return null;
@@ -177,7 +176,6 @@ function exactPurposeForAcceptedRecord(
       curve: 'ecdsa',
       chainTarget: input.chainTarget,
       materialActivation: record.roleLocalMaterialRef.materialActivation,
-      signingGrantId: record.signingGrantId,
       thresholdSessionId: record.thresholdSessionId,
       reason: input.reason,
     },
@@ -217,7 +215,6 @@ function listedPurposeForAcceptedRecord(args: {
         curve: 'ecdsa',
         chainTarget: args.requestedChainTarget,
         materialActivation: args.record.roleLocalMaterialRef.materialActivation,
-        signingGrantId: args.record.signingGrantId,
         thresholdSessionId: args.record.thresholdSessionId,
         reason: args.reason,
       },

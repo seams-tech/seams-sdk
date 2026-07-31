@@ -44,9 +44,7 @@ function successfulRestoreCacheKey(
     chainKey,
     input.reason,
     materialActivationKey(materialActivation),
-    input.signingGrantId,
     input.thresholdSessionId,
-    record.signingGrantId,
     record.thresholdSessionId,
     record.updatedAtMs,
     'restored',
@@ -64,7 +62,6 @@ function purposeCacheKey(
     purpose.curve,
     chainKey,
     materialActivationKey(purpose.materialActivation),
-    purpose.signingGrantId,
     purpose.thresholdSessionId,
     record.updatedAtMs,
   ].join('|');
@@ -90,9 +87,7 @@ function duplicateRestoreRecordSummaries(
     authMethod: purpose.authMethod,
     curve: purpose.curve,
     chain: thresholdEcdsaChainTargetKey(purpose.chainTarget),
-    signingGrantId: purpose.signingGrantId,
     thresholdSessionId: purpose.thresholdSessionId,
-    recordSigningGrantId: record.signingGrantId,
     recordThresholdSessionId: record.thresholdSessionId,
     updatedAtMs: record.updatedAtMs,
   }));

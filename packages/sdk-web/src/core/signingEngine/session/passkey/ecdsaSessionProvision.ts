@@ -1,9 +1,6 @@
 import type { EcdsaSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
-import type {
-  DurableRecordStore,
-  EmailOtpWorkerIssuedSessionHandle,
-} from '@/core/platform';
+import type { DurableRecordStore, EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   bootstrapEmailOtpExplicitExportEcdsaSessionValue,
@@ -36,7 +33,7 @@ import {
 } from '../identity/laneIdentity';
 import type {
   EvmFamilyEcdsaWalletKey,
-  EvmFamilyEcdsaSessionLanePolicy,
+  EvmFamilyEcdsaActivationLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
 import {
   evmFamilyEcdsaWalletKeyToIdentity,
@@ -51,9 +48,7 @@ import {
 import { ecdsaRoleLocalReadyRecordStorageKeyFacts } from '../persistence/ecdsaRoleLocalRecords';
 import type { SigningOperationIntent } from '../operationState/types';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
-import type {
-  EcdsaSessionIdentity,
-} from '../warmCapabilities/ecdsaProvisionPlan';
+import type { EcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaBackendBinding } from '../../interfaces/signing';
 import type {
@@ -106,7 +101,7 @@ type ThresholdEcdsaActivationRequestSharedFields = {
 
 type ThresholdEcdsaActivationRequestIdentityFields = {
   walletKey: EvmFamilyEcdsaWalletKey;
-  lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  lanePolicy: EvmFamilyEcdsaActivationLanePolicy;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
   keyHandle?: never;
@@ -148,7 +143,14 @@ export type ThresholdEcdsaPasskeyExportActivationRequest =
 type ThresholdEcdsaEmailOtpActivationRequestBase = ThresholdEcdsaActivationRequestCommon & {
   kind: 'email_otp_ecdsa_activation';
   purpose: 'transaction_signing';
-  sessionIdentity: EcdsaSessionIdentity;
+  sessionIdentity:
+    | EcdsaSessionIdentity
+    | {
+        kind: 'recovered_material_session';
+        thresholdSessionId: EcdsaSessionIdentity['thresholdSessionId'];
+        materialActivation: PersistedEcdsaRoleLocalMaterial['materialActivation'];
+        signingGrantId?: never;
+      };
   sessionKind: 'jwt';
   emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
@@ -156,18 +158,17 @@ type ThresholdEcdsaEmailOtpActivationRequestBase = ThresholdEcdsaActivationReque
   webauthnAuthentication?: never;
 };
 
-export type ThresholdEcdsaEmailOtpActivationRequest =
-  ThresholdEcdsaEmailOtpActivationRequestBase &
-    (
-      | {
-          walletSessionRouteAuth: AppOrWalletSessionAuth;
-          preauthorizedSessionActivation?: never;
-        }
-      | {
-          preauthorizedSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
-          walletSessionRouteAuth?: never;
-        }
-    );
+export type ThresholdEcdsaEmailOtpActivationRequest = ThresholdEcdsaEmailOtpActivationRequestBase &
+  (
+    | {
+        walletSessionRouteAuth: AppOrWalletSessionAuth;
+        preauthorizedSessionActivation?: never;
+      }
+    | {
+        preauthorizedSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        walletSessionRouteAuth?: never;
+      }
+  );
 
 export type ThresholdEcdsaEmailOtpExportActivationRequest =
   ThresholdEcdsaExplicitExportActivationRequestBase & {
@@ -204,10 +205,21 @@ type BuildEmailOtpSessionBootstrapEcdsaActivationArgs =
     sessionKind: 'jwt';
     emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpSessionAuthContext;
-  walletSessionRouteAuth: AppOrWalletSessionAuth;
+    walletSessionRouteAuth: AppOrWalletSessionAuth;
     passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
   };
+
+type BuildEmailOtpRecoveredSessionEcdsaActivationArgs = Omit<
+  BuildEmailOtpSessionBootstrapEcdsaActivationArgs,
+  'sessionIdentity' | 'lanePolicy'
+> & {
+  sessionIdentity: Extract<
+    ThresholdEcdsaEmailOtpActivationRequest['sessionIdentity'],
+    { kind: 'recovered_material_session' }
+  >;
+  lanePolicy: import('../identity/evmFamilyEcdsaIdentity').EvmFamilyEcdsaRecoveredMaterialLanePolicy;
+};
 
 type BuildEmailOtpPreauthorizedSessionBootstrapEcdsaActivationArgs = Omit<
   BuildEmailOtpSessionBootstrapEcdsaActivationArgs,
@@ -284,6 +296,7 @@ export function buildPasskeyRegistrationEcdsaActivation(
 function buildEmailOtpEcdsaActivationRequest(
   args:
     | BuildEmailOtpSessionBootstrapEcdsaActivationArgs
+    | BuildEmailOtpRecoveredSessionEcdsaActivationArgs
     | BuildEmailOtpPreauthorizedSessionBootstrapEcdsaActivationArgs
     | BuildEmailOtpPerOperationReauthEcdsaActivationArgs,
 ): ThresholdEcdsaEmailOtpActivationRequest {
@@ -327,6 +340,17 @@ export function buildEmailOtpSessionBootstrapEcdsaActivation(
     context: args.emailOtpAuthContext,
     expected: 'session',
     label: 'session bootstrap',
+  });
+  return buildEmailOtpEcdsaActivationRequest(args);
+}
+
+export function buildEmailOtpRecoveredSessionEcdsaActivation(
+  args: BuildEmailOtpRecoveredSessionEcdsaActivationArgs,
+): ThresholdEcdsaEmailOtpActivationRequest {
+  assertEmailOtpActivationRetention({
+    context: args.emailOtpAuthContext,
+    expected: 'session',
+    label: 'recovered session',
   });
   return buildEmailOtpEcdsaActivationRequest(args);
 }
@@ -468,17 +492,17 @@ function toBootstrapEcdsaSessionRequest(
       );
     case 'email_otp_existing_session_activation': {
       const common = {
-          kind: 'email_otp_ecdsa_bootstrap',
-          keyHandle: command.request.walletKey.keyHandle,
-          key: evmFamilyEcdsaWalletKeyToIdentity(command.request.walletKey),
-          lanePolicy: command.request.lanePolicy,
-          publicCapability: command.request.publicCapability,
-          existingRoleLocalMaterial: command.request.existingRoleLocalMaterial,
-          source: 'email_otp',
-          relayerUrl: command.request.relayerUrl,
-          emailOtpWorkerSessionHandle: command.request.emailOtpWorkerSessionHandle,
-          emailOtpAuthContext: command.request.emailOtpAuthContext,
-        } as const;
+        kind: 'email_otp_ecdsa_bootstrap',
+        keyHandle: command.request.walletKey.keyHandle,
+        key: evmFamilyEcdsaWalletKeyToIdentity(command.request.walletKey),
+        lanePolicy: command.request.lanePolicy,
+        publicCapability: command.request.publicCapability,
+        existingRoleLocalMaterial: command.request.existingRoleLocalMaterial,
+        source: 'email_otp',
+        relayerUrl: command.request.relayerUrl,
+        emailOtpWorkerSessionHandle: command.request.emailOtpWorkerSessionHandle,
+        emailOtpAuthContext: command.request.emailOtpAuthContext,
+      } as const;
       return command.request.preauthorizedSessionActivation
         ? applyCommonActivationRequestFields(
             { ...common, sessionActivation: command.request.preauthorizedSessionActivation },

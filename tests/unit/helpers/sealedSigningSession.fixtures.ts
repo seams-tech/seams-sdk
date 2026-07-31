@@ -37,6 +37,7 @@ import {
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { parseEcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { ecdsaSealedRecordStoreKey } from '@/core/signingEngine/session/persistence/ecdsaSealedRecordKey';
 import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseMpcWalletSigningQuotaId,
@@ -76,10 +77,8 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
 ): CurrentEd25519SealedSessionRecord {
   const walletId = args.walletId ?? 'ed25519-sealed-runtime-wallet';
   const nearAccountId = args.nearAccountId ?? 'ed25519-sealed-runtime.testnet';
-  const nearEd25519SigningKeyId =
-    args.nearEd25519SigningKeyId ?? 'ed25519-sealed-runtime-key';
-  const thresholdSessionId =
-    args.thresholdSessionId ?? 'ed25519-sealed-runtime-session';
+  const nearEd25519SigningKeyId = args.nearEd25519SigningKeyId ?? 'ed25519-sealed-runtime-key';
+  const thresholdSessionId = args.thresholdSessionId ?? 'ed25519-sealed-runtime-session';
   const signingGrantId = args.signingGrantId ?? 'ed25519-sealed-runtime-grant';
   const record = buildCurrentSealedSessionRecord({
     curve: 'ed25519',
@@ -298,16 +297,19 @@ export function seedEmailOtpEcdsaSealedRestorePayload(
 export function seedEmailOtpEcdsaSealedSigningSessionRecord(
   overrides: Partial<EmailOtpEcdsaSealedSigningSessionRecord> = {},
 ): EmailOtpEcdsaSealedSigningSessionRecord {
-  const { walletId, signingGrantId, thresholdSessionId, relayerUrl, restore } =
-    emailOtpEcdsaSealedFixtureParts();
+  const { walletId, thresholdSessionId, relayerUrl, restore } = emailOtpEcdsaSealedFixtureParts();
   const record: EmailOtpEcdsaSealedSigningSessionRecord = {
     v: SIGNING_SESSION_SEALED_RECORD_VERSION,
     alg: SIGNING_SESSION_SEAL_ALG,
     storageScope: SIGNING_SESSION_SEAL_STORAGE_SCOPE,
     authMethod: 'email_otp',
     secretKind: SIGNING_SESSION_SECRET_KIND,
-    storeKey: `${signingGrantId}:email_otp:ecdsa`,
-    signingGrantId,
+    storeKey: ecdsaSealedRecordStoreKey({
+      walletId,
+      authMethod: 'email_otp',
+      chainTarget: restore.chainTarget,
+      materialActivation: restore.roleLocalMaterialRef.materialActivation,
+    }),
     thresholdSessionIds: {
       ecdsa: thresholdSessionId,
     },
@@ -372,7 +374,6 @@ function fixtureRuntimePolicyScope(publicFacts: {
 
 export function buildEmailOtpEcdsaSealedRuntimeRecordFixture(args: {
   manifest: ActiveEcdsaCapabilityManifest;
-  signingGrantId?: string;
   thresholdSessionId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
@@ -383,7 +384,6 @@ export function buildEmailOtpEcdsaSealedRuntimeRecordFixture(args: {
   const publicFacts = manifest.durableMaterial.roleLocalPublicFacts;
   const binding = manifest.durableMaterial.roleLocalBinding;
   const publicCapability = publicFacts.publicCapability;
-  const signingGrantId = args.signingGrantId ?? 'wallet-session-1';
   const thresholdSessionId = args.thresholdSessionId ?? 'ec-session';
   const providerSubjectId = `google:${walletId}`;
   const emailOtpAuthority = buildEmailOtpWalletAuthAuthority({
@@ -417,7 +417,6 @@ export function buildEmailOtpEcdsaSealedRuntimeRecordFixture(args: {
     thresholdSessionIds: { ecdsa: thresholdSessionId },
     sealedSecretB64u: 'sealed-k',
     authMethod: 'email_otp',
-    signingGrantId,
     keyVersion: 'signing-session-seal-kek-test-r1',
     groupId: 'rfc2409-group2',
     issuedAtMs: 1,
@@ -463,8 +462,7 @@ export function buildEmailOtpInactiveEcdsaMaterialRecordFixture(args: {
   const current = buildEmailOtpEcdsaSealedRuntimeRecordFixture(args);
   return inactiveEcdsaMaterialRecordFixture({
     current,
-    authorizationRetirementReason:
-      args.authorizationRetirementReason ?? 'expired',
+    authorizationRetirementReason: args.authorizationRetirementReason ?? 'expired',
   });
 }
 
@@ -474,8 +472,7 @@ export function buildPasskeyInactiveEcdsaMaterialRecordFixture(args: {
 }): EcdsaInactiveSealedMaterialRecord {
   return inactiveEcdsaMaterialRecordFixture({
     current: buildPasskeyEcdsaSealedRuntimeRecordFixture(args),
-    authorizationRetirementReason:
-      args.authorizationRetirementReason ?? 'expired',
+    authorizationRetirementReason: args.authorizationRetirementReason ?? 'expired',
   });
 }
 
@@ -484,10 +481,7 @@ function inactiveEcdsaMaterialRecordFixture(args: {
   authorizationRetirementReason: 'expired' | 'exhausted';
 }): EcdsaInactiveSealedMaterialRecord {
   const current = args.current;
-  const restore = buildEcdsaInactiveMaterialPublicRestore(
-    current.ecdsaRestore,
-    current.relayerUrl,
-  );
+  const restore = buildEcdsaInactiveMaterialPublicRestore(current.ecdsaRestore, current.relayerUrl);
   if (!restore) {
     throw new Error('Failed to build inactive Email OTP ECDSA restore fixture');
   }
@@ -529,7 +523,6 @@ function inactiveEcdsaMaterialRecordFixture(args: {
  * provider subject -- because the material it names is the same. */
 export function buildPasskeyEcdsaSealedRuntimeRecordFixture(args: {
   manifest: ActiveEcdsaCapabilityManifest;
-  signingGrantId?: string;
   thresholdSessionId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
@@ -539,7 +532,6 @@ export function buildPasskeyEcdsaSealedRuntimeRecordFixture(args: {
   const publicFacts = manifest.durableMaterial.roleLocalPublicFacts;
   const binding = manifest.durableMaterial.roleLocalBinding;
   const publicCapability = publicFacts.publicCapability;
-  const signingGrantId = args.signingGrantId ?? 'wallet-session-passkey-1';
   const thresholdSessionId = args.thresholdSessionId ?? 'ec-session-passkey';
   const roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef({
     kind: 'ecdsa_role_local_persisted_material_ref_v1',
@@ -566,7 +558,6 @@ export function buildPasskeyEcdsaSealedRuntimeRecordFixture(args: {
     thresholdSessionIds: { ecdsa: thresholdSessionId },
     sealedSecretB64u: 'sealed-k',
     authMethod: 'passkey',
-    signingGrantId,
     keyVersion: 'signing-session-seal-kek-test-r1',
     groupId: 'rfc2409-group2',
     issuedAtMs: 1,

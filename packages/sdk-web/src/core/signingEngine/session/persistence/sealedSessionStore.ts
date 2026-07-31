@@ -108,7 +108,7 @@ export type CurrentEd25519RestoreMetadata =
     });
 
 export type CurrentEd25519SealedSessionRecord = Omit<
-  SigningSessionSealedStoreRecord,
+  Extract<SigningSessionSealedStoreRecord, { curve: 'ed25519' }>,
   'curve' | 'thresholdSessionIds' | 'walletId' | 'relayerUrl' | 'ed25519Restore' | 'ecdsaRestore'
 > & {
   curve: 'ed25519';
@@ -120,13 +120,14 @@ export type CurrentEd25519SealedSessionRecord = Omit<
 };
 
 export type CurrentEcdsaSealedSessionRecord = Omit<
-  SigningSessionSealedStoreRecord,
+  Extract<SigningSessionSealedStoreRecord, { curve: 'ecdsa' }>,
   | 'curve'
   | 'thresholdSessionIds'
   | 'walletId'
   | 'relayerUrl'
   | 'signingRootId'
   | 'signingRootVersion'
+  | 'signingGrantId'
   | 'ecdsaRestore'
   | 'ed25519Restore'
 > & {
@@ -135,13 +136,13 @@ export type CurrentEcdsaSealedSessionRecord = Omit<
   walletId: string;
   signingRootId?: never;
   signingRootVersion?: never;
+  signingGrantId?: never;
   relayerUrl: string;
   ecdsaRestore: SealedSigningSessionEcdsaRestoreMetadata;
   ed25519Restore?: CurrentEd25519RestoreMetadata;
 };
 
-const ECDSA_INACTIVE_SEALED_MATERIAL_RECORD_KIND =
-  'ecdsa_inactive_sealed_material_v1' as const;
+const ECDSA_INACTIVE_SEALED_MATERIAL_RECORD_KIND = 'ecdsa_inactive_sealed_material_v1' as const;
 
 type EcdsaInactiveSealedMaterialRecordBase = {
   recordKind: typeof ECDSA_INACTIVE_SEALED_MATERIAL_RECORD_KIND;
@@ -308,7 +309,6 @@ type BuildCurrentSealedSessionRecordCommonInput = {
   thresholdSessionId: string;
   sealedSecretB64u: string;
   authMethod: 'passkey' | 'email_otp';
-  signingGrantId: string;
   keyVersion: string;
   groupId: typeof SIGNING_SESSION_SEAL_GROUP_ID;
   issuedAtMs: number;
@@ -320,6 +320,7 @@ type BuildCurrentSealedSessionRecordCommonInput = {
 export type BuildCurrentEd25519SealedSessionRecordInput =
   BuildCurrentSealedSessionRecordCommonInput & {
     curve: 'ed25519';
+    signingGrantId: string;
     thresholdSessionIds: Ed25519SealedRecordThresholdSessionIds;
     walletId: string;
     signingRootId?: string;
@@ -332,6 +333,7 @@ export type BuildCurrentEd25519SealedSessionRecordInput =
 export type BuildCurrentEcdsaSealedSessionRecordInput =
   BuildCurrentSealedSessionRecordCommonInput & {
     curve: 'ecdsa';
+    signingGrantId?: never;
     thresholdSessionIds: EcdsaSealedRecordThresholdSessionIds;
     walletId: string;
     relayerUrl: string;
@@ -343,16 +345,15 @@ export type BuildCurrentSealedSessionRecordInput =
   | BuildCurrentEd25519SealedSessionRecordInput
   | BuildCurrentEcdsaSealedSessionRecordInput;
 
-export type SealedStoreResolvedSigningSessionIdentity =
-  {
-      walletId: string;
-      authMethod: 'passkey' | 'email_otp';
-      curve: 'ed25519';
-      chain: 'near';
-      signingGrantId: string;
-      thresholdSessionId: string;
-      updatedAtMs: number;
-    };
+export type SealedStoreResolvedSigningSessionIdentity = {
+  walletId: string;
+  authMethod: 'passkey' | 'email_otp';
+  curve: 'ed25519';
+  chain: 'near';
+  signingGrantId: string;
+  thresholdSessionId: string;
+  updatedAtMs: number;
+};
 
 export type UpdateExactSealedSessionPolicyInput = {
   thresholdSessionId: string;
@@ -460,7 +461,7 @@ function durableLaneStorageRow(record: CurrentSealedSessionRecord): Record<strin
     signing_root_version: optionalStringForIndex(
       'signingRootVersion' in record ? record.signingRootVersion : undefined,
     ),
-    signing_grant_id: record.signingGrantId,
+    signing_grant_id: record.curve === 'ed25519' ? record.signingGrantId : undefined,
     ed25519_threshold_session_id: ed25519ThresholdSessionId,
     ecdsa_threshold_session_id: ecdsaThresholdSessionId,
     threshold_session_id: ecdsaThresholdSessionId || ed25519ThresholdSessionId,
@@ -834,12 +835,7 @@ type ResolvedIdentityListKeyInput = {
 };
 
 function makeResolvedIdentityListKey(args: ResolvedIdentityListKeyInput): string {
-  return [
-    args.walletId,
-    args.authMethod || '*',
-    args.curve,
-    'near',
-  ]
+  return [args.walletId, args.authMethod || '*', args.curve, 'near']
     .map(sealedStoreKeyPart)
     .join(':');
 }
@@ -899,11 +895,7 @@ function sameResolvedIdentityLane(
   a: SealedStoreResolvedSigningSessionIdentity,
   b: SealedStoreResolvedSigningSessionIdentity,
 ): boolean {
-  return (
-    a.walletId === b.walletId &&
-    a.authMethod === b.authMethod &&
-    a.curve === b.curve
-  );
+  return a.walletId === b.walletId && a.authMethod === b.authMethod && a.curve === b.curve;
 }
 
 function cloneResolvedIdentity(
@@ -999,6 +991,7 @@ function createDeleteResolvedIdentityCommand(args: {
 function resolvedIdentitiesForSealedRecord(
   record: SigningSessionSealedStoreRecord,
 ): SealedStoreResolvedSigningSessionIdentity[] {
+  if (record.curve !== 'ed25519') return [];
   const walletId = normalizeOptionalNonEmptyString(record.walletId);
   if (!walletId) return [];
   const identities: SealedStoreResolvedSigningSessionIdentity[] = [];
@@ -1199,12 +1192,7 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   const remainingUses = normalizeInteger(obj.remainingUses);
   const updatedAtMs = normalizeInteger(obj.updatedAtMs);
 
-  if (
-    !signingGrantId ||
-    !sealedSecretB64u ||
-    !keyVersion ||
-    groupId !== SIGNING_SESSION_SEAL_GROUP_ID
-  ) {
+  if (!sealedSecretB64u || !keyVersion || groupId !== SIGNING_SESSION_SEAL_GROUP_ID) {
     return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
   }
   if (authMethod !== 'passkey' && authMethod !== 'email_otp') {
@@ -1262,11 +1250,13 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
       chainTarget: ecdsaRestore.chainTarget,
       materialActivation: ecdsaRestore.roleLocalMaterialRef.materialActivation,
     });
-    const legacyStoreKey = legacyEcdsaSealedRecordStoreKey({
-      signingGrantId,
-      authMethod,
-      chainTarget: ecdsaRestore.chainTarget,
-    });
+    const legacyStoreKey = signingGrantId
+      ? legacyEcdsaSealedRecordStoreKey({
+          signingGrantId,
+          authMethod,
+          chainTarget: ecdsaRestore.chainTarget,
+        })
+      : null;
     const providedStoreKey = normalizeOptionalNonEmptyString(obj.storeKey);
     if (providedStoreKey && providedStoreKey !== storeKey && providedStoreKey !== legacyStoreKey) {
       return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
@@ -1280,7 +1270,6 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
         authMethod,
         secretKind: SIGNING_SESSION_SECRET_KIND,
         storeKey,
-        signingGrantId,
         thresholdSessionIds: {
           ...(thresholdSessionIds.ed25519 ? { ed25519: thresholdSessionIds.ed25519 } : {}),
           ecdsa: thresholdSessionIds.ecdsa,
@@ -1302,6 +1291,9 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   }
 
   if (!thresholdSessionIds.ed25519) {
+    return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
+  }
+  if (!signingGrantId) {
     return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
   }
   if (subjectId || userId)
@@ -1380,8 +1372,10 @@ async function classifyPersistedSealedRecord(
   if (!persistedStoreKey || persistedStoreKey === classification.record.storeKey) {
     return classification;
   }
+  const legacySigningGrantId = normalizeStoredSigningGrantId(raw);
+  if (!legacySigningGrantId) return classification;
   const legacyStoreKey = legacyEcdsaSealedRecordStoreKey({
-    signingGrantId: classification.record.signingGrantId,
+    signingGrantId: legacySigningGrantId,
     authMethod: classification.record.authMethod,
     chainTarget: classification.record.ecdsaRestore.chainTarget,
   });
@@ -1659,7 +1653,8 @@ export function buildCurrentSealedSessionRecord(
     curve,
     thresholdSessionIds: args.thresholdSessionIds,
   });
-  const signingGrantId = normalizeOptionalNonEmptyString(args.signingGrantId);
+  const signingGrantId =
+    args.curve === 'ed25519' ? normalizeOptionalNonEmptyString(args.signingGrantId) : undefined;
   const walletId = normalizeOptionalNonEmptyString(args.walletId);
   const sealedSecretB64u = normalizeOptionalNonEmptyString(args.sealedSecretB64u);
   const expiresAtMs = normalizeInteger(args.expiresAtMs);
@@ -1669,12 +1664,13 @@ export function buildCurrentSealedSessionRecord(
   const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
   if (
     !thresholdSessionId ||
-    !signingGrantId ||
     !sealedSecretB64u ||
     !keyVersion ||
     args.groupId !== SIGNING_SESSION_SEAL_GROUP_ID
-  ) return null;
+  )
+    return null;
   if (!thresholdSessionIds.ed25519 && !thresholdSessionIds.ecdsa) return null;
+  if (curve === 'ed25519' && !signingGrantId) return null;
   if (issuedAtMs == null || issuedAtMs <= 0) return null;
   if (expiresAtMs == null || expiresAtMs <= 0) return null;
   if (remainingUses == null || remainingUses < 0) return null;
@@ -1699,7 +1695,7 @@ export function buildCurrentSealedSessionRecord(
     storageScope: SIGNING_SESSION_SEAL_STORAGE_SCOPE,
     authMethod,
     secretKind: SIGNING_SESSION_SECRET_KIND,
-    signingGrantId,
+    ...(signingGrantId ? { signingGrantId } : {}),
     thresholdSessionIds,
     sealedSecretB64u,
     curve,
@@ -2059,8 +2055,7 @@ export async function writeExactSealedSession(record: CurrentSealedSessionRecord
   const currentRecord = classification.record;
 
   const staleRecords = await listSameScopeRecords(currentRecord);
-  const replacedInactiveMaterialStoreKey =
-    inactiveMaterialStoreKeyReplacedByCurrent(currentRecord);
+  const replacedInactiveMaterialStoreKey = inactiveMaterialStoreKeyReplacedByCurrent(currentRecord);
   for (const staleRecord of staleRecords) {
     deleteResolvedIdentityForSealedRecord(staleRecord, 'same_scope_replaced');
   }

@@ -255,7 +255,6 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   sealedSecretB64u: 'sealed-secret',
   curve: 'ecdsa',
   authMethod: 'passkey',
-  signingGrantId: 'wsess-ecdsa',
   walletId: 'wallet.testnet',
   relayerUrl: 'https://relay.example',
   ecdsaRestore: {
@@ -282,6 +281,13 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   subjectId: 'wallet-alice',
 };
 void invalidEcdsaWriteInput;
+
+const invalidGrantBearingEcdsaWriteInput = {
+  ...invalidEcdsaWriteInput,
+  // @ts-expect-error durable ECDSA writes do not accept Wallet Session grants.
+  signingGrantId: 'wsess-ecdsa',
+} satisfies BuildCurrentEcdsaSealedSessionRecordInput;
+void invalidGrantBearingEcdsaWriteInput;
 
 const invalidEcdsaWriteWithoutIssuedAtMs = {
   ...invalidEcdsaWriteInput,
@@ -326,14 +332,15 @@ const invalidEcdsaWriteSigningRootVersionInput: BuildCurrentEcdsaSealedSessionRe
 void invalidEcdsaWriteSigningRootVersionInput;
 
 // @ts-expect-error resolved runtime identity publication requires an explicit lifecycle timestamp.
-const invalidPublishResolvedIdentityWithoutUpdatedAtMs: SealedStoreResolvedSigningSessionIdentity = {
-  walletId: 'wallet.testnet',
-  authMethod: 'passkey',
-  curve: 'ed25519',
-  chain: 'near',
-  signingGrantId: 'wsess-ed25519',
-  thresholdSessionId: 'tsess-ed25519',
-};
+const invalidPublishResolvedIdentityWithoutUpdatedAtMs: SealedStoreResolvedSigningSessionIdentity =
+  {
+    walletId: 'wallet.testnet',
+    authMethod: 'passkey',
+    curve: 'ed25519',
+    chain: 'near',
+    signingGrantId: 'wsess-ed25519',
+    thresholdSessionId: 'tsess-ed25519',
+  };
 void invalidPublishResolvedIdentityWithoutUpdatedAtMs;
 
 // @ts-expect-error sealed-session policy updates require an explicit lifecycle timestamp.

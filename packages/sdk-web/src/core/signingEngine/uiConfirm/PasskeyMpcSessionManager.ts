@@ -87,7 +87,6 @@ function restoreSingleFlightKey(args: {
   thresholdSessionId: string;
   chainTarget: RestorePersistedSessionPurpose['chainTarget'];
   materialActivation: RestorePersistedSessionPurpose['materialActivation'];
-  signingGrantId: string;
 }): string {
   return [
     'rehydrate',
@@ -95,7 +94,6 @@ function restoreSingleFlightKey(args: {
     'ecdsa',
     thresholdEcdsaChainTargetKey(args.chainTarget),
     materialActivationKey(args.materialActivation),
-    String(args.signingGrantId || '').trim(),
     String(args.thresholdSessionId || '').trim(),
   ].join('|');
 }
@@ -199,10 +197,7 @@ function logPasskeyRestoreListError(args: {
   });
 }
 
-function logPasskeyRejectedRestoreRecord(args: {
-  walletId: string;
-  rejection: unknown;
-}): void {
+function logPasskeyRejectedRestoreRecord(args: { walletId: string; rejection: unknown }): void {
   console.warn('[PasskeyMpcSession] signing-session restore rejected record', args);
 }
 
@@ -232,10 +227,7 @@ function parseWarmSessionStatusResult(data: unknown): WarmSessionStatusResult | 
       message: typeof data.message === 'string' ? data.message : 'Warm-session status read failed',
     };
   }
-  if (
-    !isNonnegativeSafeInteger(data.remainingUses) ||
-    !isPositiveSafeInteger(data.expiresAtMs)
-  ) {
+  if (!isNonnegativeSafeInteger(data.remainingUses) || !isPositiveSafeInteger(data.expiresAtMs)) {
     return null;
   }
   return {
@@ -249,11 +241,7 @@ function parseWarmSessionStatusBatchResult(data: unknown): WarmSessionStatusBatc
   if (!isObjectRecord(data) || !Array.isArray(data.results)) return null;
   const results: WarmSessionStatusBatchResult['results'] = [];
   for (const entry of data.results) {
-    if (
-      !isObjectRecord(entry) ||
-      typeof entry.sessionId !== 'string' ||
-      !entry.sessionId.trim()
-    ) {
+    if (!isObjectRecord(entry) || typeof entry.sessionId !== 'string' || !entry.sessionId.trim()) {
       return null;
     }
     const result = parseWarmSessionStatusResult(entry.result);
@@ -445,9 +433,8 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
     }
   };
 
-  getWarmSessionStatus = async (args: {
-    sessionId: string;
-  }): Promise<WarmSessionStatusResult> => await this.readWarmSessionStatus(args);
+  getWarmSessionStatus = async (args: { sessionId: string }): Promise<WarmSessionStatusResult> =>
+    await this.readWarmSessionStatus(args);
 
   discoverPersistedSessionsForWallet = async (
     args: Parameters<WarmSessionPersistedDiscovery['discoverPersistedSessionsForWallet']>[0],
@@ -528,7 +515,6 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
       thresholdSessionId,
       chainTarget,
       materialActivation: args.purpose.materialActivation,
-      signingGrantId: args.purpose.signingGrantId,
     });
     const inFlight = signingSessionRehydrateSingleFlight.get(singleFlightKey);
     if (inFlight) {
@@ -588,7 +574,6 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
         walletId: args.walletId,
         chainTarget,
         relayerUrl: args.record.relayerUrl,
-        signingGrantId: args.purpose.signingGrantId,
         signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(args.record.keyVersion),
         groupId,
         walletSessionJwt: authorization.walletSessionJwt,
@@ -758,9 +743,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
   }
 
   persistSigningSessionSealForThresholdSession = async (
-    args: Parameters<
-      PasskeyMpcSessionPort['persistSigningSessionSealForThresholdSession']
-    >[0],
+    args: Parameters<PasskeyMpcSessionPort['persistSigningSessionSealForThresholdSession']>[0],
   ): Promise<WarmSessionSealAndPersistResult> =>
     await this.durableState.persistSigningSessionSealForThresholdSession(args);
 
@@ -864,10 +847,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
       try {
         worker.postMessage({ ...message, id });
       } catch (error) {
-        this.rejectPendingRequest(
-          id,
-          error instanceof Error ? error : new Error(String(error)),
-        );
+        this.rejectPendingRequest(id, error instanceof Error ? error : new Error(String(error)));
       }
     });
   }

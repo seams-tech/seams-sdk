@@ -2,6 +2,7 @@ import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
+import type { resolveActiveEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type {
@@ -56,6 +57,7 @@ export type EmailOtpEcdsaSessionPorts = {
   listActiveEcdsaCapabilityManifestsForWallet: (
     walletId: WalletId,
   ) => Promise<readonly ActiveEcdsaCapabilityManifest[]>;
+  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
 };
 
 export type EmailOtpSealedSessionStorePorts = {

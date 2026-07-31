@@ -5,9 +5,7 @@ import {
   type EcdsaRoleLocalAuthMethod,
   type EcdsaRoleLocalPublicFacts,
 } from '@/core/platform';
-import type {
-  EmailOtpWorkerIssuedSessionHandle,
-} from '@/core/platform';
+import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
@@ -16,9 +14,7 @@ import type {
 } from '@/core/signingEngine/threshold/crypto/webauthn';
 import { bootstrapEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/bootstrapSession';
 import type { BootstrapEcdsaSessionResult } from '@/core/signingEngine/threshold/ecdsa/bootstrapSession';
-import {
-  type ThresholdRuntimePolicyScope,
-} from '@/core/signingEngine/threshold/sessionPolicy';
+import { type ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { RouterAbNormalSigningConfig } from '@/core/types/seams';
@@ -33,7 +29,7 @@ import {
 import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
-  EvmFamilyEcdsaSessionLanePolicy,
+  EvmFamilyEcdsaActivationLanePolicy,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   deriveEvmFamilyKeyFingerprint,
@@ -226,7 +222,7 @@ type ActivateEcdsaExistingSessionRequestBase = ActivateEcdsaSessionRequestCommon
   kind: 'session_bootstrap';
   keyHandle: EvmFamilyEcdsaKeyHandle;
   key: EvmFamilyEcdsaKeyIdentity;
-  lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  lanePolicy: EvmFamilyEcdsaActivationLanePolicy;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
   walletSessionRouteAuth?: ThresholdEcdsaDerivationRouteAuth;
@@ -439,7 +435,8 @@ async function activateEcdsaSessionByPurpose(
   const walletId = toWalletId(String(args.key.walletId));
   const chainTarget = args.lanePolicy.chainTarget;
   const requestedSessionId = String(args.lanePolicy.thresholdSessionId).trim();
-  const requestedSigningGrantId = String(args.lanePolicy.signingGrantId).trim();
+  const requestedSigningGrantId =
+    'signingGrantId' in args.lanePolicy ? String(args.lanePolicy.signingGrantId || '').trim() : '';
   const resolvedSessionKind = args.lanePolicy.thresholdSessionKind;
   if (resolvedSessionKind !== 'jwt') {
     throw new Error('Threshold ECDSA activation requires JWT Wallet Session state');

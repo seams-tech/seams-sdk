@@ -35,7 +35,6 @@ type RestorePersistedSessionForSigningBaseInput = {
 
 type RestorePersistedSessionForSigningTransactionInput =
   RestorePersistedSessionForSigningBaseInput & {
-    signingGrantId: string;
     thresholdSessionId: string;
     reason: 'transaction' | 'export';
   };
@@ -75,7 +74,6 @@ export type RestorePersistedSessionPurpose = {
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
   materialActivation: MpcMaterialActivationRef;
-  signingGrantId: string;
   thresholdSessionId: string;
   reason: 'transaction' | 'export' | 'session_status';
 };

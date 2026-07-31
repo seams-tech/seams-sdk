@@ -192,30 +192,23 @@ test.describe('signing session sealed store', () => {
           }
           outcomes.push({
             exact,
-            authorizationRetirementReason:
-              inactive.authorizationRetirementReason,
+            authorizationRetirementReason: inactive.authorizationRetirementReason,
             sealedSecretB64u: inactive.sealedSecretB64u,
             keyVersion: inactive.keyVersion,
             groupId: inactive.groupId,
-            materialActivation:
-              inactive.ecdsaRestore.roleLocalMaterialRef.materialActivation,
+            materialActivation: inactive.ecdsaRestore.roleLocalMaterialRef.materialActivation,
             hasSigningGrantId: 'signingGrantId' in inactive,
             hasThresholdSessionIds: 'thresholdSessionIds' in inactive,
-            hasWalletSessionJwt:
-              'walletSessionJwt' in inactive.ecdsaRestore,
+            hasWalletSessionJwt: 'walletSessionJwt' in inactive.ecdsaRestore,
             hasSessionKind: 'sessionKind' in inactive.ecdsaRestore,
-            hasAllowance:
-              'remainingUses' in inactive || 'expiresAtMs' in inactive,
+            hasAllowance: 'remainingUses' in inactive || 'expiresAtMs' in inactive,
           });
           await mod.writeExactSealedSession(source);
           const reactivated = await mod.listEcdsaSealedSessionsForWallet({
             walletId: source.walletId,
             filter: { authMethod: 'passkey', curve: 'ecdsa' },
           });
-          if (
-            reactivated.length !== 1 ||
-            'recordKind' in reactivated[0]
-          ) {
+          if (reactivated.length !== 1 || 'recordKind' in reactivated[0]) {
             throw new Error('expected atomic inactive-to-current replacement');
           }
         }
@@ -231,8 +224,7 @@ test.describe('signing session sealed store', () => {
         sealedSecretB64u: sourceRecord.sealedSecretB64u,
         keyVersion: sourceRecord.keyVersion,
         groupId: sourceRecord.groupId,
-        materialActivation:
-          sourceRecord.ecdsaRestore.roleLocalMaterialRef.materialActivation,
+        materialActivation: sourceRecord.ecdsaRestore.roleLocalMaterialRef.materialActivation,
         hasSigningGrantId: false,
         hasThresholdSessionIds: false,
         hasWalletSessionJwt: false,
@@ -243,8 +235,7 @@ test.describe('signing session sealed store', () => {
         exact: null,
         authorizationRetirementReason: 'exhausted',
         sealedSecretB64u: sourceRecord.sealedSecretB64u,
-        materialActivation:
-          sourceRecord.ecdsaRestore.roleLocalMaterialRef.materialActivation,
+        materialActivation: sourceRecord.ecdsaRestore.roleLocalMaterialRef.materialActivation,
         hasSigningGrantId: false,
         hasThresholdSessionIds: false,
         hasWalletSessionJwt: false,
@@ -257,8 +248,7 @@ test.describe('signing session sealed store', () => {
         sealedSecretB64u: sourceRecord.sealedSecretB64u,
         keyVersion: sourceRecord.keyVersion,
         groupId: sourceRecord.groupId,
-        materialActivation:
-          sourceRecord.ecdsaRestore.roleLocalMaterialRef.materialActivation,
+        materialActivation: sourceRecord.ecdsaRestore.roleLocalMaterialRef.materialActivation,
         hasSigningGrantId: false,
         hasThresholdSessionIds: false,
         hasWalletSessionJwt: false,
@@ -389,9 +379,7 @@ test.describe('signing session sealed store', () => {
     expect(result.rawHasJwt).toBe(false);
   });
 
-  test('rejects Wallet Session bearer fields in sealed restore records', async ({
-    page,
-  }) => {
+  test('rejects Wallet Session bearer fields in sealed restore records', async ({ page }) => {
     const walletId = 'sealed-store-router-ab.testnet';
     const walletSessionJwt = jwtWithPayload({
       kind: 'router_ab_ecdsa_derivation_wallet_session_v1',
@@ -1374,13 +1362,13 @@ test.describe('signing session sealed store', () => {
     page,
   }) => {
     const { fixture } = await canonicalEcdsaSealedRuntimeFixture('passkey');
+    const legacySigningGrantId = 'legacy-ecdsa-signing-grant';
     const source = buildPasskeyEcdsaSealedRuntimeRecordFixture({
       manifest: fixture.manifest,
-      signingGrantId: 'legacy-ecdsa-signing-grant',
       thresholdSessionId: 'legacy-ecdsa-threshold-session',
     });
     const result = await page.evaluate(
-      async ({ paths, source }) => {
+      async ({ paths, source, legacySigningGrantId }) => {
         const mod = await import(paths.sealedSessionStore);
         await mod.clearAllSealedSessions();
         const thresholdSessionId = source.thresholdSessionIds.ecdsa;
@@ -1389,7 +1377,7 @@ test.describe('signing session sealed store', () => {
           chainTarget.kind === 'tempo'
             ? `tempo:${chainTarget.chainId}`
             : `${chainTarget.kind}:${chainTarget.namespace}:${chainTarget.chainId}`;
-        const legacyStoreKey = `${source.signingGrantId}:passkey:ecdsa:${encodeURIComponent(chainTargetKey)}`;
+        const legacyStoreKey = `${legacySigningGrantId}:passkey:ecdsa:${encodeURIComponent(chainTargetKey)}`;
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
           const request = indexedDB.open('seams_wallet');
           request.onsuccess = () => resolve(request.result);
@@ -1404,14 +1392,18 @@ test.describe('signing session sealed store', () => {
           wallet_id: source.walletId,
           auth_method: source.authMethod,
           curve: source.curve,
-          signing_grant_id: source.signingGrantId,
+          signing_grant_id: legacySigningGrantId,
           ecdsa_threshold_session_id: thresholdSessionId,
           threshold_session_id: thresholdSessionId,
           key_handle: source.ecdsaRestore.keyHandle,
           chain_target_key: chainTargetKey,
           expires_at_ms: source.expiresAtMs,
           updated_at: source.updatedAtMs,
-          sealed_record: { ...source, storeKey: legacyStoreKey },
+          sealed_record: {
+            ...source,
+            storeKey: legacyStoreKey,
+            signingGrantId: legacySigningGrantId,
+          },
         });
         const lease = {
           v: 1,
@@ -1469,12 +1461,10 @@ test.describe('signing session sealed store', () => {
           sealedSecretB64u: migrated?.sealedSecretB64u,
         };
       },
-      { paths: IMPORT_PATHS, source },
+      { paths: IMPORT_PATHS, source, legacySigningGrantId },
     );
 
-    expect(result.migratedStoreKey).toMatch(
-      /^ecdsa-material-v2:.*:passkey:evm%3Aeip155%3A1:/,
-    );
+    expect(result.migratedStoreKey).toMatch(/^ecdsa-material-v2:.*:passkey:evm%3Aeip155%3A1:/);
     expect(result.sealKeys).toEqual([result.migratedStoreKey]);
     expect(result.legacyLeasePresent).toBe(false);
     expect(result.sealedSecretB64u).toBe(source.sealedSecretB64u);

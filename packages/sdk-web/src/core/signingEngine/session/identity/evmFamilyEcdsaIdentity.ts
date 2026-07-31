@@ -281,6 +281,17 @@ export type EvmFamilyEcdsaSessionLanePolicy = {
   thresholdOwnerAddress?: never;
 };
 
+export type EvmFamilyEcdsaRecoveredMaterialLanePolicy = Omit<
+  EvmFamilyEcdsaSessionLanePolicy,
+  'signingGrantId'
+> & {
+  signingGrantId?: never;
+};
+
+export type EvmFamilyEcdsaActivationLanePolicy =
+  | EvmFamilyEcdsaSessionLanePolicy
+  | EvmFamilyEcdsaRecoveredMaterialLanePolicy;
+
 export type BuildEvmFamilyEcdsaKeyIdentityInput = {
   walletId: unknown;
   ecdsaThresholdKeyId: unknown;
@@ -343,6 +354,11 @@ export type BuildEvmFamilyEcdsaSessionLanePolicyInput = {
   remainingUses: unknown;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
 };
+
+export type BuildEvmFamilyEcdsaRecoveredMaterialLanePolicyInput = Omit<
+  BuildEvmFamilyEcdsaSessionLanePolicyInput,
+  'signingGrantId'
+>;
 
 function requiredString(value: unknown, field: string): string {
   const normalized = String(value ?? '').trim();
@@ -726,6 +742,27 @@ export function buildEvmFamilyEcdsaSessionLanePolicy(
     chainTarget: input.chainTarget,
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
     signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
+    thresholdSessionKind: input.thresholdSessionKind,
+    ttlMs,
+    remainingUses,
+    runtimePolicyScope: input.runtimePolicyScope,
+  };
+}
+
+export function buildEvmFamilyEcdsaRecoveredMaterialLanePolicy(
+  input: BuildEvmFamilyEcdsaRecoveredMaterialLanePolicyInput,
+): EvmFamilyEcdsaRecoveredMaterialLanePolicy {
+  const ttlMs = Math.floor(Number(input.ttlMs));
+  const remainingUses = Math.floor(Number(input.remainingUses));
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
+    throw new Error('[evm-family-ecdsa] ttlMs must be a positive finite value');
+  }
+  if (!Number.isFinite(remainingUses) || remainingUses <= 0) {
+    throw new Error('[evm-family-ecdsa] remainingUses must be a positive finite value');
+  }
+  return {
+    chainTarget: input.chainTarget,
+    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
     thresholdSessionKind: input.thresholdSessionKind,
     ttlMs,
     remainingUses,

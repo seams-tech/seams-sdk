@@ -6,6 +6,7 @@ import {
   isEmailOtpSessionAuthContext,
   type ThresholdEcdsaEmailOtpAuthContext,
   type ThresholdEcdsaEmailOtpPendingSingleUseAuthContext,
+  type ThresholdEcdsaEmailOtpSessionAuthContext,
 } from '@/core/signingEngine/session/identity/laneIdentity';
 import type {
   ThresholdEcdsaChainTarget,
@@ -45,6 +46,7 @@ import {
 } from '@shared/utils/emailOtpDomain';
 import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import {
+  buildEvmFamilyEcdsaRecoveredMaterialLanePolicy,
   buildEvmFamilyEcdsaSessionLanePolicy,
   deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope,
   toEvmFamilyEcdsaKeyHandle,
@@ -103,10 +105,12 @@ import {
   buildEmailOtpExplicitExportEcdsaActivation,
   buildEmailOtpPerOperationReauthEcdsaActivation,
   buildEmailOtpPreauthorizedSessionBootstrapEcdsaActivation,
+  buildEmailOtpRecoveredSessionEcdsaActivation,
   buildEmailOtpSessionBootstrapEcdsaActivation,
   type ThresholdEcdsaActivationRequest,
   type ThresholdEcdsaEmailOtpExportActivationRequest,
 } from '../passkey/ecdsaSessionProvision';
+import { SigningSessionIds } from '../operationState/types';
 import { buildStrictEcdsaPostRegistrationSessionActivationRequest } from '../../threshold/ecdsa/postRegistrationSessionActivation';
 import type { RouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbEcdsaPostRegistrationSessionActivationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -661,6 +665,50 @@ export function buildEmailOtpExistingKeyActivation(args: {
   throw new Error('Email OTP ECDSA activation cannot use a consumed single-use context');
 }
 
+export function buildEmailOtpRecoveredKeyActivation(args: {
+  existingKey: ResolvedEmailOtpExistingEcdsaKey;
+  chainTarget: ThresholdEcdsaChainTarget;
+  thresholdSessionId: string;
+  ttlMs: number;
+  remainingUses: number;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  relayerUrl: string;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpSessionAuthContext;
+  emailOtpWorkerSessionHandle: ReturnType<typeof parseEmailOtpWorkerIssuedSessionHandle>;
+  routeAuth: AppOrWalletSessionAuth;
+}): ThresholdEcdsaActivationRequest {
+  if (args.emailOtpWorkerSessionHandle.action !== 'threshold_ecdsa_bootstrap') {
+    throw new Error('Email OTP ECDSA recovery requires a threshold ECDSA worker handle');
+  }
+  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId);
+  return buildEmailOtpRecoveredSessionEcdsaActivation({
+    source: 'email_otp',
+    relayerUrl: args.relayerUrl,
+    sessionIdentity: {
+      kind: 'recovered_material_session',
+      thresholdSessionId,
+      materialActivation: args.existingKey.persistedRoleLocalMaterial.materialActivation,
+    },
+    sessionKind: 'jwt',
+    sessionBudgetUses: args.remainingUses,
+    runtimePolicy: { kind: 'scoped_policy', scope: args.runtimePolicyScope },
+    emailOtpWorkerSessionHandle: args.emailOtpWorkerSessionHandle,
+    emailOtpAuthContext: args.emailOtpAuthContext,
+    walletSessionRouteAuth: args.routeAuth,
+    walletKey: args.existingKey.walletKey,
+    lanePolicy: buildEvmFamilyEcdsaRecoveredMaterialLanePolicy({
+      chainTarget: args.chainTarget,
+      thresholdSessionId,
+      thresholdSessionKind: 'jwt',
+      ttlMs: args.ttlMs,
+      remainingUses: args.remainingUses,
+      runtimePolicyScope: args.runtimePolicyScope,
+    }),
+    publicCapability: args.existingKey.publicCapability,
+    existingRoleLocalMaterial: args.existingKey.persistedRoleLocalMaterial,
+  });
+}
+
 type EmailOtpPrimaryEcdsaSessionProvisioning =
   | {
       kind: 'route_authorized';
@@ -1211,7 +1259,7 @@ async function runEmailOtpEcdsaCapability(
           ttlMs: args.ttlMs,
           remainingUses,
         })
-        : resolveEmailOtpLoginSigningBudget({
+      : resolveEmailOtpLoginSigningBudget({
           ecdsaResult: workerResult,
           ed25519YaoResult,
           emailOtpAuthPolicy,

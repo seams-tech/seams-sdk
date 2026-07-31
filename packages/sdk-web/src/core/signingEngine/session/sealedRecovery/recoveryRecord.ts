@@ -102,7 +102,6 @@ type SealedRecoveryRecordBase = {
   walletId: string;
   authMethod: 'passkey' | 'email_otp';
   curve: 'ecdsa';
-  signingGrantId: string;
   thresholdSessionId: string;
   sealedSecretB64u: string;
   issuedAtMs: number;
@@ -130,34 +129,32 @@ type EcdsaSealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
 
-export type PasskeyEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
-  {
-    authMethod: 'passkey';
-    source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
-    authority: PasskeyWalletAuthAuthority;
-    clientVerifyingShareB64u: string;
-    roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
-    rpId?: never;
-    credentialIdB64u?: never;
-    providerSubjectId?: never;
-    emailHashHex?: never;
-    authSubjectId?: never;
-  };
+export type PasskeyEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase & {
+  authMethod: 'passkey';
+  source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+  authority: PasskeyWalletAuthAuthority;
+  clientVerifyingShareB64u: string;
+  roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
+  rpId?: never;
+  credentialIdB64u?: never;
+  providerSubjectId?: never;
+  emailHashHex?: never;
+  authSubjectId?: never;
+};
 
-export type EmailOtpEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
-  {
-    authMethod: 'email_otp';
-    source: 'email_otp';
-    authority: WalletAuthAuthorityRef;
-    emailOtpAuthority: EmailOtpWalletAuthAuthority;
-    clientVerifyingShareB64u?: string;
-    credentialIdB64u?: never;
-    providerSubjectId?: never;
-    emailHashHex?: never;
-    authSubjectId?: never;
-    roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
-    rpId?: never;
-  };
+export type EmailOtpEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase & {
+  authMethod: 'email_otp';
+  source: 'email_otp';
+  authority: WalletAuthAuthorityRef;
+  emailOtpAuthority: EmailOtpWalletAuthAuthority;
+  clientVerifyingShareB64u?: string;
+  credentialIdB64u?: never;
+  providerSubjectId?: never;
+  emailHashHex?: never;
+  authSubjectId?: never;
+  roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
+  rpId?: never;
+};
 
 export type SealedRecoveryRecord =
   | PasskeyEcdsaSealedRecoveryRecord
@@ -315,7 +312,6 @@ function safeSummary(record: RawSigningSessionSealedStoreRecord): Record<string,
     curve: record.curve,
     storeKey: record.storeKey,
     walletId: record.walletId || null,
-    signingGrantId: normalizeSigningGrantId(record),
     thresholdSessionIds,
     issuedAtMs: record.issuedAtMs,
     expiresAtMs: record.expiresAtMs,
@@ -349,7 +345,6 @@ export function normalizeSealedRecoveryRecord(
   const ecdsaRestore = normalizeRawObject<RawEcdsaRestoreMetadata>(raw.ecdsaRestore);
   const storeKey = normalizeNonEmptyString(raw.storeKey);
   const walletId = normalizeNonEmptyString(raw.walletId);
-  const signingGrantId = normalizeSigningGrantId(raw);
   const sealedSecretB64u = normalizeNonEmptyString(raw.sealedSecretB64u);
   const issuedAtMs = Math.floor(Number(raw.issuedAtMs) || 0);
   const expiresAtMs = Math.floor(Number(raw.expiresAtMs) || 0);
@@ -359,7 +354,7 @@ export function normalizeSealedRecoveryRecord(
   if ((raw.authMethod !== 'passkey' && raw.authMethod !== 'email_otp') || raw.curve !== 'ecdsa') {
     return reject(raw, 'unsupported_record');
   }
-  if (!storeKey || !walletId || !signingGrantId || !sealedSecretB64u) {
+  if (!storeKey || !walletId || !sealedSecretB64u) {
     return reject(raw, 'missing_identity');
   }
   if (expiresAtMs <= 0 || updatedAtMs <= 0 || issuedAtMs <= 0) {
@@ -406,9 +401,7 @@ export function normalizeSealedRecoveryRecord(
   );
   let roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef | null = null;
   try {
-    roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef(
-      restore?.roleLocalMaterialRef,
-    );
+    roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef(restore?.roleLocalMaterialRef);
   } catch {
     roleLocalMaterialRef = null;
   }
@@ -487,7 +480,6 @@ export function normalizeSealedRecoveryRecord(
           walletId,
           authMethod: 'passkey',
           curve: 'ecdsa',
-          signingGrantId,
           thresholdSessionId,
           sealedSecretB64u,
           issuedAtMs,
@@ -523,7 +515,6 @@ export function normalizeSealedRecoveryRecord(
           walletId,
           authMethod: 'email_otp',
           curve: 'ecdsa',
-          signingGrantId,
           thresholdSessionId,
           sealedSecretB64u,
           issuedAtMs,

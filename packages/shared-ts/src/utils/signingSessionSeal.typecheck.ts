@@ -24,8 +24,7 @@ const validEcdsaSealedSessionRecord = {
   storageScope: 'iframe_origin_indexeddb',
   authMethod: 'email_otp',
   secretKind: 'signing_session_secret32',
-  storeKey: 'wallet-session-1:email_otp:ecdsa',
-  signingGrantId: 'wallet-session-1',
+  storeKey: 'ecdsa-material-v2:activation-key',
   thresholdSessionIds: {
     ecdsa: 'ec-session',
   },
@@ -62,6 +61,13 @@ const validEcdsaSealedSessionRecord = {
   updatedAtMs: 4,
 } satisfies SealedSigningSessionRecord;
 void validEcdsaSealedSessionRecord;
+
+// @ts-expect-error durable ECDSA material is keyed by activation, not a signing grant.
+const invalidGrantBearingEcdsaSealedSessionRecord: SealedSigningSessionRecord = {
+  ...validEcdsaSealedSessionRecord,
+  signingGrantId: 'wallet-session-1',
+};
+void invalidGrantBearingEcdsaSealedSessionRecord;
 
 const validEd25519SealedSessionRecord = {
   v: 2,
@@ -158,7 +164,6 @@ const { provider: _ecdsaRestoreProvider, ...ecdsaRestoreMissingProvider } =
 const invalidEcdsaRestoreMissingProvider: SealedSigningSessionEcdsaRestoreMetadata =
   ecdsaRestoreMissingProvider;
 void invalidEcdsaRestoreMissingProvider;
-
 
 const { walletId: _ecdsaWalletId, ...ecdsaSealedSessionRecordWithoutWallet } =
   validEcdsaSealedSessionRecord;
