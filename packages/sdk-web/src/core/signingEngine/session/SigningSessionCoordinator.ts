@@ -94,8 +94,6 @@ import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/wall
 
 export type { SigningSessionReadiness };
 
-export type ResolveSigningSessionAuthPlanInput = SigningSessionPlannerInput;
-
 type ResolveSigningSessionAuthPlanFromReadinessOptions = {
   expiresAtMs?: number;
   remainingUses?: number;
@@ -325,7 +323,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   }
 
   resolveAuthPlan(
-    input: ResolveSigningSessionAuthPlanInput,
+    input: SigningSessionPlannerInput,
     onTrace?: (event: SigningPlannerDecisionTraceEvent) => void,
   ): SigningSessionPlan {
     const plan = planSigningSession(input);

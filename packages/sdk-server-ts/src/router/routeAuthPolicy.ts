@@ -1,6 +1,6 @@
 import type {
-  ThresholdEcdsaSessionClaims,
-  ThresholdEd25519SessionClaims,
+  RouterAbEcdsaDerivationWalletSessionClaims,
+  RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
 import type { RouterApiKeyPrincipal, SessionClaims } from './routerApi';
 import { ROUTER_API_CREDENTIAL_SCOPES } from './apiCredentialPorts';
@@ -60,7 +60,7 @@ export type RoutePrincipal =
     }
   | {
       kind: 'threshold_session';
-      claims: ThresholdEd25519SessionClaims | ThresholdEcdsaSessionClaims;
+      claims: RouterAbEd25519WalletSessionClaims | RouterAbEcdsaDerivationWalletSessionClaims;
     }
   | {
       kind: 'public';

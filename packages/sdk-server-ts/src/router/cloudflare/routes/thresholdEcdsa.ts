@@ -56,7 +56,6 @@ import type {
   RouterAbEcdsaDerivationPoolFillInitRequest,
   RouterAbEcdsaDerivationPoolFillStepRequest,
 } from '../../../core/types';
-import type { ThresholdEcdsaSessionClaims } from '../../../core/ThresholdService/validation';
 import type {
   RouterAbEcdsaStrictPostRegistrationPort,
   RouterAbEcdsaStrictPostRegistrationResult,
@@ -407,7 +406,7 @@ async function issueEcdsaOperationStepUpGrant(input: {
 }
 
 type RouterAbEcdsaPoolFillClaims = Pick<
-  ThresholdEcdsaSessionClaims,
+  RouterAbEcdsaDerivationWalletSessionClaims,
   | 'walletId'
   | 'relayerKeyId'
   | 'keyHandle'
