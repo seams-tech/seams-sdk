@@ -22,34 +22,8 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { parseRouterAbEd25519WalletSessionIdentityClaims } from '../routerAbSigningWalletSession';
 
-export const THRESHOLD_SESSION_MISSING_ERROR =
-  '[chains] Missing threshold signingSessionId; reconnect threshold session before signing';
-export const THRESHOLD_SESSION_EXHAUSTED_ERROR =
-  '[chains] threshold signingSession is exhausted; reconnect threshold session before signing';
 export const SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR =
   '[chains] signingSession auth is unavailable; reconnect signing session before signing';
-export const THRESHOLD_SESSION_STATUS_UNAVAILABLE_ERROR =
-  '[chains] threshold signingSession status is unavailable; retry after refreshing the signer runtime';
-
-export function formatThresholdSigningSessionStatusError(code: string): string {
-  return `[chains] threshold signingSession is ${code}; reconnect threshold session before signing`;
-}
-
-export function formatThresholdSigningSessionAvailabilityError(code?: string): string {
-  const suffix = typeof code === 'string' && code.trim() ? ` (${code.trim()})` : '';
-  return `${THRESHOLD_SESSION_STATUS_UNAVAILABLE_ERROR}${suffix}`;
-}
-
-export function requireThresholdSigningSessionId(sessionIdRaw: unknown): string {
-  const sessionId = String(sessionIdRaw || '').trim();
-  if (!sessionId) throw new Error(THRESHOLD_SESSION_MISSING_ERROR);
-  return sessionId;
-}
-
-export function normalizeUsesNeeded(usesNeededRaw: unknown): number {
-  const usesNeeded = Math.floor(Number(usesNeededRaw) || 0);
-  return usesNeeded > 0 ? usesNeeded : 1;
-}
 
 function ed25519SessionMetadata(runtime: ExactEd25519SealedSessionRuntime): {
   authMethod: SignerAuthMethod;
