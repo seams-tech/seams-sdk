@@ -407,21 +407,6 @@ async function requireExactEd25519SealedRuntimeForMaterialIdentity(args: {
   return runtimes[0];
 }
 
-async function requireExactEd25519SealedRuntimeForBoundaryInput(
-  input: PrepareNearEd25519YaoMaterialBoundaryInput,
-): Promise<ExactEd25519SealedSessionRuntime> {
-  if (input.laneIdentity !== undefined) {
-    return await requireExactEd25519SealedRuntimeForLane({
-      walletId: input.walletId,
-      laneIdentity: input.laneIdentity,
-    });
-  }
-  return await requireExactEd25519SealedRuntimeForMaterialIdentity({
-    walletId: input.walletId,
-    identity: input.materialIdentity,
-  });
-}
-
 async function walletSessionStateFromExactEd25519Runtime(
   runtime: ExactEd25519SealedSessionRuntime,
 ): Promise<ReturnType<typeof buildRouterAbEd25519WalletSessionStateFromExactRuntime>> {
