@@ -145,7 +145,10 @@ import {
   withThresholdEcdsaSigningQueue,
   type ThresholdEcdsaSigningQueueByKey,
 } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
-import { type ThresholdEd25519CommitQueueByKey } from '@/core/signingEngine/threshold/ed25519/commitQueue';
+import {
+  withThresholdEd25519CommitQueue,
+  type ThresholdEd25519CommitQueueByKey,
+} from '@/core/signingEngine/threshold/ed25519/commitQueue';
 import * as recoveryPublic from '@/core/signingEngine/flows/recovery/public';
 import type {
   SigningEngineResolveExactKeyExportLaneInput,
@@ -354,6 +357,7 @@ type EmailOtpEd25519YaoSilentRecoveryInput = {
   nearAccountId: AccountId;
   signerSlot: number;
   thresholdSessionId: string;
+  materialActivation: MpcMaterialActivationRef;
 };
 
 type PreparedNearEd25519YaoMaterialContext = {
@@ -1158,6 +1162,7 @@ export class BrowserSigningSurface {
         nearAccountId: args.nearAccountId,
         signerSlot: args.laneIdentity.signer.signerSlot,
         thresholdSessionId: String(args.laneIdentity.thresholdSessionId),
+        materialActivation: expectedActivation,
       });
       switch (recovery.kind) {
         case 'recovered':
@@ -1246,6 +1251,7 @@ export class BrowserSigningSurface {
                 nearAccountId: args.nearAccountId,
                 signerSlot: args.laneIdentity.signer.signerSlot,
                 thresholdSessionId: String(args.laneIdentity.thresholdSessionId),
+                materialActivation: expectedActivation,
               });
             switch (recovery.kind) {
               case 'recovered':
@@ -1603,6 +1609,8 @@ export class BrowserSigningSurface {
       String(args.nearAccountId),
       args.signerSlot,
       args.thresholdSessionId,
+      String(args.materialActivation.activationId),
+      String(args.materialActivation.lifecycleBinding),
     ]);
     const existing = this.emailOtpEd25519SilentRecoveryBySubject.get(recoveryKey);
     if (existing) return await existing;
@@ -1639,6 +1647,7 @@ export class BrowserSigningSurface {
         signerSlot: args.signerSlot,
         thresholdSessionId: args.thresholdSessionId,
       },
+      expectedMaterialActivation: args.materialActivation,
       expectedOperationalPublicKey: user.operationalPublicKey,
       rpId: this.getRpId(),
       relayerUrl,
@@ -1656,12 +1665,16 @@ export class BrowserSigningSurface {
         activateCapability: this.enginePorts.ed25519YaoActiveClients.activate.bind(
           this.enginePorts.ed25519YaoActiveClients,
         ),
+        withThresholdEd25519CommitQueue: (queueArgs) =>
+          withThresholdEd25519CommitQueue({
+            queueByKey: this.thresholdEd25519CommitQueueByKey,
+            ...queueArgs,
+          }),
+        persistRecoveredSession:
+          this.persistEmailOtpEd25519YaoSessionForRefreshInternal.bind(this),
         nowMs: Date.now,
       },
     });
-    if (result.kind === 'recovered') {
-      await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(result.recovery.record);
-    }
     return result;
   }
 
