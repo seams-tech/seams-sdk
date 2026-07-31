@@ -20,7 +20,6 @@ import {
   persistThresholdEcdsaBootstrapForWalletTarget,
   type ThresholdEcdsaBootstrapStorePort,
 } from '../warmCapabilities/ecdsaBootstrapPersistence';
-import { parseEcdsaThresholdKeyId } from '../keyMaterialBrands';
 import type { ThresholdEcdsaBootstrapParityArgs } from '../warmCapabilities/sealedRefreshParity';
 import {
   walletSessionAuthorizations,
@@ -90,35 +89,6 @@ function assertNeverThresholdEcdsaBootstrapBackendBinding(value: never): never {
   );
 }
 
-function canonicalizeWorkerProvisionedBootstrap(
-  bootstrap: ThresholdEcdsaSessionBootstrapResult,
-): ThresholdEcdsaSessionBootstrapResult {
-  const ecdsaThresholdKeyIdRaw = String(
-    bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId || '',
-  ).trim();
-  if (!ecdsaThresholdKeyIdRaw) {
-    throw new Error(
-      '[SigningEngine] threshold-ecdsa bootstrap did not provide canonical ecdsaThresholdKeyId',
-    );
-  }
-  const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(ecdsaThresholdKeyIdRaw);
-  const signingGrantId = String(
-    bootstrap.session.signingGrantId || bootstrap.thresholdEcdsaKeyRef.signingGrantId || '',
-  ).trim();
-  return {
-    ...bootstrap,
-    thresholdEcdsaKeyRef: {
-      ...bootstrap.thresholdEcdsaKeyRef,
-      ecdsaThresholdKeyId,
-      ...(signingGrantId ? { signingGrantId } : {}),
-    },
-    session: {
-      ...bootstrap.session,
-      ...(signingGrantId ? { signingGrantId } : {}),
-    },
-  };
-}
-
 async function persistWorkerProvisionedRoleLocalReadyRecord(args: {
   deps: CommitWorkerProvisionedThresholdEcdsaSessionDeps;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
@@ -180,7 +150,12 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
   }
 
   return await withThresholdEcdsaBootstrapQueue(deps.queueByWallet, args.walletId, async () => {
-    const canonicalBootstrap = canonicalizeWorkerProvisionedBootstrap(args.bootstrap);
+    const canonicalBootstrap = args.bootstrap;
+    if (!String(canonicalBootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId || '').trim()) {
+      throw new Error(
+        '[SigningEngine] threshold-ecdsa bootstrap did not provide canonical ecdsaThresholdKeyId',
+      );
+    }
     await persistThresholdEcdsaBootstrapForWalletTarget({
       bootstrapStore: deps.bootstrapStore,
       walletId: args.walletId,

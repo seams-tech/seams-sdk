@@ -146,8 +146,6 @@ export type KeyRef =
       ethereumAddress?: string;
       relayerVerifyingShareB64u?: string;
       routerAbEcdsaDerivationNormalSigning?: RouterAbEcdsaDerivationNormalSigningStateV1;
-      thresholdSessionId: string;
-      signingGrantId: string;
     }
   | {
       type: 'webauthnP256';

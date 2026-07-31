@@ -3207,11 +3207,7 @@ async function primeThresholdLoginWarmSigners(args: {
             String(bootstrap.passkeyCredentialIdB64u || '').trim() ||
             passkeyCredentialIdB64uFromAuthentication(credential || undefined) ||
             localPasskeyCredentialIdB64u;
-          const signingGrantId = String(
-            bootstrap.thresholdEcdsaKeyRef?.signingGrantId ||
-              bootstrap.session?.signingGrantId ||
-              '',
-          ).trim();
+          const signingGrantId = String(bootstrap.session.signingGrantId || '').trim();
           if (
             !thresholdEcdsaSessionJwt ||
             !passkeyPrfFirstB64u ||
