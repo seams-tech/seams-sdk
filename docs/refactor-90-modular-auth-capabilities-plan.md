@@ -747,6 +747,10 @@ the replacement and legacy MPC paths must not ship together.
       the independent reusable-authorization status; signing preparation now
       succeeds from canonical material plus authorization after refresh
       (`4f089b483`).
+- [x] Make non-iframe implicit NEAR funding read its bearer credential from the
+      canonical active Wallet Session authorization projection; missing or
+      expired authorization fails before network use, independently of MPC
+      material persistence (`174c89600`).
 - [x] Delete the unread record-derived Wallet Session bearer projection from
       NEAR transaction admission. Canonical preparation and the admitted
       operation-claim receipt remain the authorization inputs (`5173ad50b`).

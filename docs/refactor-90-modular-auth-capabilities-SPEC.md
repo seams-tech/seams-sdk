@@ -254,6 +254,10 @@ implementing commit SHA as the evidence.
     reseed the composite session-record cache. Canonical hydration plus the
     independent reusable-authorization status own signing and expiry behavior
     after refresh (`4f089b483`).
+  - [x] Non-iframe implicit NEAR funding reads the bearer credential from the
+    canonical active Wallet Session authorization projection and fails before
+    fetch when that authorization is absent or expired; no composite MPC record
+    participates (`174c89600`).
   - [x] NEAR transaction admission carries no unread record-derived Wallet
     Session bearer projection; canonical preparation and the admitted
     operation-claim receipt own authorization (`5173ad50b`).
