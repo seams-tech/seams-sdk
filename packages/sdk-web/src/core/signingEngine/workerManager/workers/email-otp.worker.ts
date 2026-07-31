@@ -1153,10 +1153,6 @@ function readEcdsaPublicationTargetPlans(args: {
   return plans;
 }
 
-function routePlanSessionAuth(plan: EmailOtpRoutePlan): AppOrWalletSessionAuth | undefined {
-  return authLaneToRouteAuth(plan.authLane);
-}
-
 type EmailOtpEd25519SessionMaterialRequest = Extract<
   EmailOtpWalletUnlockMaterialRequest,
   {
@@ -1238,7 +1234,7 @@ function assertEmailOtpUnlockMaterialRouteAuth(args: {
         walletId: args.walletId,
         material: args.material,
       });
-      const routeAuth = routePlanSessionAuth(args.routePlan);
+      const routeAuth = authLaneToRouteAuth(args.routePlan.authLane);
       const usesAppSession =
         routeAuth?.kind === 'app_session' && args.routePlan.authLane.kind === 'app_session';
       const usesEd25519WalletSession =
@@ -3245,7 +3241,7 @@ async function writeAndVerifyEmailOtpDeviceEnrollmentEscrowRecord(
 
 async function reportEmailOtpRecoveryKeyAttemptFailure(args: {
   relayUrl: string;
-  routeAuth: ReturnType<typeof routePlanSessionAuth>;
+  routeAuth: AppOrWalletSessionAuth | undefined;
   walletId: string;
   recoveryConsumeGrant: string;
 }): Promise<void> {
@@ -3287,7 +3283,7 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
     userId: args.userId,
     routePlan: args.routePlan,
   });
-  const routeAuth = routePlanSessionAuth(args.routePlan);
+  const routeAuth = authLaneToRouteAuth(args.routePlan.authLane);
   const response = await postEmailOtpJson({
     relayUrl,
     route: '/wallet/email-otp/recovery-wrapped-escrows',
@@ -3434,7 +3430,7 @@ async function rotateEmailOtpRecoveryCodesFromLocalDeviceEnrollment(args: {
   const walletId = readString(args.walletId, 'walletId');
   const requestedUserId = readOptionalString(args.userId);
   const routePlan = readRoutePlan(args.routePlan, 'rotateEmailOtpRecoveryCodes');
-  const routeAuth = routePlanSessionAuth(routePlan);
+  const routeAuth = authLaneToRouteAuth(routePlan.authLane);
   const record = await readSingleEmailOtpDeviceEnrollmentEscrowRecordForWallet({ walletId });
   if (!record) {
     throw new Error('Email OTP device enrollment escrow is unavailable on this device');
@@ -4135,7 +4131,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   let thresholdEcdsaClientVerifyingShare33: Uint8Array | null = null;
   let unlockPublicKey33: Uint8Array | null = null;
   try {
-    const sessionAuth = routePlanSessionAuth(args.routePlan);
+    const sessionAuth = authLaneToRouteAuth(args.routePlan.authLane);
     let challengeId = readOptionalString(args.challengeId);
     if (!challengeId && !args.skipServerFinalize) {
       const challenge = await postEmailOtpJson({
@@ -4381,7 +4377,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
   );
   let clientSecret32: Uint8Array | null = null;
   try {
-    const sessionAuth = routePlanSessionAuth(args.routePlan);
+    const sessionAuth = authLaneToRouteAuth(args.routePlan.authLane);
     let challengeId = readOptionalString(args.challengeId);
     if (!challengeId) {
       const challenge = await postEmailOtpJson({
@@ -7380,7 +7376,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
       }
       case 'requestEmailOtpChallenge': {
         const routePlan = readRoutePlan(msg.payload.routePlan, 'requestEmailOtpChallenge');
-        const sessionAuth = routePlanSessionAuth(routePlan);
+        const sessionAuth = authLaneToRouteAuth(routePlan.authLane);
         const response = await postEmailOtpJson({
           relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
           route: emailOtpRoutePath(routePlan, 'challenge'),
@@ -7434,7 +7430,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           msg.payload.routePlan,
           'requestEmailOtpEnrollmentChallenge',
         );
-        const sessionAuth = routePlanSessionAuth(routePlan);
+        const sessionAuth = authLaneToRouteAuth(routePlan.authLane);
         const response = await postEmailOtpJson({
           relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
           route: emailOtpRoutePath(routePlan, 'challenge'),
@@ -7831,7 +7827,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
       }
       case 'verifyEmailOtpCode': {
         const routePlan = readRoutePlan(msg.payload.routePlan, 'verifyEmailOtpCode');
-        const sessionAuth = routePlanSessionAuth(routePlan);
+        const sessionAuth = authLaneToRouteAuth(routePlan.authLane);
         const response = await postEmailOtpJson({
           relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
           route: emailOtpRoutePath(routePlan, 'verify'),

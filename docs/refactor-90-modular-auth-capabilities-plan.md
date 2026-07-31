@@ -1055,6 +1055,9 @@ the replacement and legacy MPC paths must not ship together.
       direct Gateway role calls, and Gateway-owned SigningWorker delivery.
 - [ ] Remove obsolete route handlers, service locators, and direct host-role
       access with their last caller.
+  - [x] Delete the forwarding-only wallet-unlock service locator; Cloudflare
+        unlock routes use the request-scoped `ctx.service.walletUnlock`
+        directly (`5f989ea9f`).
 - [x] Delete the zero-caller Cloudflare route-registration wrapper and its
       obsolete wrapper-only unit test; production routing remains owned by the
       canonical route-definition dispatcher.
@@ -1109,6 +1112,8 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the unread duplicate ECDSA export operation-authorization carrier;
       explicit export authorization remains the operation's sole authority.
 - [x] Delete legacy recovery microstates and compensation branches.
+  - [x] Delete the zero-producer Passkey ECDSA warm-seal pending registry, its
+        restore wait, and its obsolete unit suite (`c72cbf31f`).
 - [ ] Delete duplicate signing-lane selectors, auth-method fallbacks, direct
       protocol dispatch, and superseded export coordinators.
   - [x] Replace binary Passkey/Email OTP fallbacks and ad hoc two-factor unions
@@ -1121,6 +1126,14 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete the zero-caller private-key export coordinator and its dead
         dependency/store wiring; dedicated capability export owners remain
         (`d3201483b`).
+  - [x] Delete the zero-caller Email OTP route-plan auth forwarding selector;
+        the canonical auth-lane adapter remains the sole projection owner
+        (`6910f4d94`).
+  - [x] Delete the zero-caller exact ECDSA and Ed25519 lane-signer projection
+        selectors; consumers narrow the canonical signer binding directly
+        (`151110bd8`).
+  - [x] Delete the local Email OTP route-plan auth wrapper and inline the
+        canonical auth-lane projection at its worker callers (`e90c3f09a`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
@@ -1290,6 +1303,9 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
       pre-cutover fixtures in the same change.
 - [x] Delete the Ed25519 updated-at fallback lane and select directly from the
       canonicalized, priority-sorted candidates.
+  - [x] Delete the zero-caller ECDSA reauth-anchor candidate fallback and its
+        candidate-only freshness helpers; retain the live available-lane
+        builder (`24e0c2335`).
 
 ### Unit 4 exit
 

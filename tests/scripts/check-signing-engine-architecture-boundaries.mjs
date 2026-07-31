@@ -1039,6 +1039,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'persistence',
       'routerAbSigningWalletSession',
       'warmCapabilities',
+      'material',
     ],
     availability: [
       'keyMaterialBrands',
@@ -1050,6 +1051,8 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'budget',
       'planning',
       'sealedRecovery',
+      'material',
+      'emailOtp',
     ],
     planning: ['identity', 'operationState'],
     budget: ['persistence', 'operationState', 'identity'],
@@ -1070,6 +1073,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'planning',
       'routerAbSigningWalletSession',
       'warmCapabilities',
+      'material',
     ],
     warmCapabilities: [
       'availability',
@@ -1091,6 +1095,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'sealedRecovery',
       'warmCapabilities',
       'lifecycle',
+      'material',
     ],
     emailOtp: [
       'availability',
