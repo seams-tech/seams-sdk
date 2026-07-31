@@ -10,6 +10,8 @@ import {
   parseEcdsaClientVerifyingShareB64u,
   parseEcdsaThresholdKeyId,
 } from '@/core/signingEngine/session/keyMaterialBrands';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
   const ECDSA_THRESHOLD_KEY_ID = parseEcdsaThresholdKeyId('ecdsa-derivation-test-key-1');
@@ -20,6 +22,13 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
     kind: 'wallet_session_jwt' as const,
     walletSessionJwt: 'wallet-session-jwt',
   };
+  const WALLET_SESSION_AUTHORIZATION = {
+    kind: 'reusable_wallet_session' as const,
+    wallet_session_id: 'wallet-session-1',
+  };
+  const MATERIAL_ACTIVATION = routerAbMpcMaterialActivationRefToWire(
+    buildMpcMaterialActivationRefFixture('presign-policy'),
+  );
 
   function routerAbPoolFill(
     ecdsaThresholdKeyId: string = ECDSA_THRESHOLD_KEY_ID,
@@ -27,7 +36,6 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
     return {
       kind: 'router_ab_ecdsa_derivation_signing_worker_pool',
       scope: {
-        wallet_key_id: 'localhost',
         wallet_id: 'alice.testnet',
         ecdsa_threshold_key_id: ecdsaThresholdKeyId,
         signing_root_id: 'project:dev',
@@ -156,6 +164,8 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
       clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
       clientSigningMaterial: clientSigningMaterial(),
       credential: WALLET_SESSION_CREDENTIAL,
+      authorization: WALLET_SESSION_AUTHORIZATION,
+      materialActivation: MATERIAL_ACTIVATION,
       routerAbEcdsaDerivationPoolFill: routerAbPoolFill(),
       workerCtx: {} as any,
       poolPolicy: { enabled: false },
@@ -171,6 +181,8 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
       clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
       clientSigningMaterial: clientSigningMaterial(),
       credential: WALLET_SESSION_CREDENTIAL,
+      authorization: WALLET_SESSION_AUTHORIZATION,
+      materialActivation: MATERIAL_ACTIVATION,
       routerAbEcdsaDerivationPoolFill: routerAbPoolFill(),
       workerCtx: {} as any,
       poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 2 },
@@ -181,11 +193,12 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
       clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
       clientSigningMaterial: clientSigningMaterial(),
       credential: WALLET_SESSION_CREDENTIAL,
+      authorization: WALLET_SESSION_AUTHORIZATION,
+      materialActivation: MATERIAL_ACTIVATION,
       routerAbEcdsaDerivationPoolFill: routerAbPoolFill(),
       workerCtx: {} as any,
       poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 2 },
     });
-
     expect(first.scheduled).toBe(true);
     expect(second.scheduled).toBe(false);
     expect(second.reason).toBe('in_flight_for_pool_key');
@@ -198,6 +211,8 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
       clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u('backend-client-share-1'),
       clientSigningMaterial: clientSigningMaterial(),
       credential: WALLET_SESSION_CREDENTIAL,
+      authorization: WALLET_SESSION_AUTHORIZATION,
+      materialActivation: MATERIAL_ACTIVATION,
       routerAbEcdsaDerivationPoolFill: routerAbPoolFill('ecdsa-derivation-test-key-1'),
       workerCtx: {} as any,
       poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 1 },
@@ -208,6 +223,8 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
       clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u('backend-client-share-2'),
       clientSigningMaterial: clientSigningMaterial(),
       credential: WALLET_SESSION_CREDENTIAL,
+      authorization: WALLET_SESSION_AUTHORIZATION,
+      materialActivation: MATERIAL_ACTIVATION,
       routerAbEcdsaDerivationPoolFill: routerAbPoolFill('ecdsa-derivation-test-key-2'),
       workerCtx: {} as any,
       poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 1 },
@@ -247,6 +264,8 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         clientSigningMaterial: clientSigningMaterial(),
         credential: WALLET_SESSION_CREDENTIAL,
+        authorization: WALLET_SESSION_AUTHORIZATION,
+        materialActivation: MATERIAL_ACTIVATION,
         routerAbEcdsaDerivationPoolFill: routerAbPoolFill(),
         workerCtx: {} as any,
         poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 1 },
@@ -261,6 +280,8 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         clientSigningMaterial: clientSigningMaterial(),
         credential: WALLET_SESSION_CREDENTIAL,
+        authorization: WALLET_SESSION_AUTHORIZATION,
+        materialActivation: MATERIAL_ACTIVATION,
         routerAbEcdsaDerivationPoolFill: routerAbPoolFill(),
         workerCtx: {} as any,
         poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 1 },

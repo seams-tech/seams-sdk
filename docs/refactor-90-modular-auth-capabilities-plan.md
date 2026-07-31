@@ -664,7 +664,9 @@ the replacement and legacy MPC paths must not ship together.
       dedicated worker binding, pooled prepare/finalize, and verifies the
       resulting 65-byte signature; its endpoint fixture and prepare-response
       parser agree on the required operation-claim fields (`7c20fe644`,
-      `e75d2bcfb`).
+      `e75d2bcfb`). The focused hydration, signing, step-up, and sealed-runtime
+      proof set passes 26/26; the presign bridge, pool policy, and browser
+      pool-hit proofs pass 19/19 at `917439856`.
 - [x] Move the remaining registration and explicit-unlock entry points to
       capability-owned state: Passkey unlock plans from active signer and
       capability facts, while Email OTP registration/unlock resolves existing
@@ -924,6 +926,8 @@ the replacement and legacy MPC paths must not ship together.
       server-unsealed ciphertext, remove the client seal, import and correlate
       the exact material, zeroize/dispose temporary secrets, and return the
       active material beside the issued grant (`126df7138`).
+      The focused supersession, exact-owner queue, operation-material, and
+      Email OTP unseal/step-up suites pass 37/37 at the current checkpoint.
 - [x] Replace the five public NEAR factor-specific preparation, Passkey
       rehydration, and Email OTP recovery ports with one Browser-owned
       `{ preparation, executor }` material boundary. Exact factor, signer,
@@ -1264,6 +1268,9 @@ the replacement and legacy MPC paths must not ship together.
         (`20f1bcfca`, `1ce066cf9`, `69b0e6b30`).
   - [x] Delete the zero-caller network-only ECDSA chain-target adapter;
         configured-request and chain-family builders remain (`4250a8871`).
+  - [x] Delete the zero-caller ECDSA lane-specific presignature retirement
+        helper; global pool clearing and live worker retirement remain
+        (`814616909`).
 
 ### Unit 3a exit
 

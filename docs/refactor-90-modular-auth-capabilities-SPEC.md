@@ -288,6 +288,10 @@ implementing commit SHA as the evidence.
     resulting 65-byte signature. The endpoint fixture and prepare-response
     parser agree on every required operation-claim field (`7c20fe644`,
     `e75d2bcfb`).
+  - [x] ECDSA presignature bridge, pool-policy, and browser pool-hit fixtures
+    use the current activation and authorization identities; the retired
+    `wallet_key_id` fixture field and zero-caller lane cleanup helper are gone
+    (`917439856`, `814616909`).
   - [x] NEAR sealed-material hydration no longer implies authorization-budget
     readmission; only an actual authorization/session replacement refreshes
     that identity (`30b52879b`).
@@ -413,6 +417,9 @@ implementing commit SHA as the evidence.
     correlates the exact activation/session/public key, zeroizes temporary
     secrets, and returns the active material beside the issued grant without
     creating or rereading a reusable Wallet Session (`126df7138`).
+  - [x] Supersession, exact-owner queue, operation-material, and Email OTP
+    unseal/step-up focused suites pass 37/37; retryable supersession remains
+    distinct from terminal failure.
   - [x] The record-backed Email OTP Ed25519 routine-signing lane and its
     active-material recovery path are deleted. Cold login/unlock recovery,
     sealed refresh, and export recovery remain, and the focused retained
