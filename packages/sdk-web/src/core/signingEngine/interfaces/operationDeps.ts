@@ -40,6 +40,8 @@ import type {
 import type { SigningLaneAuthBinding } from '../session/identity/signingLaneAuthBinding';
 import type { ExactEd25519SigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
+import type { ThresholdEd25519SessionId } from '../session/operationState/types';
 import type {
   ActiveEvmFamilyWalletSessionAuthorization,
   AuthorizedEvmFamilyEcdsaSigningCapability,
@@ -79,14 +81,35 @@ export type EcdsaOperationStepUpSessionAuthResolver = {
   }) => Promise<EcdsaOperationStepUpSessionAuth>;
 };
 
+/** Stable Ed25519 material identity used before a reusable Wallet Session exists. */
+export type NearEd25519MaterialIdentity = {
+  readonly kind: 'near_ed25519_material_identity';
+  readonly signer: NearEd25519SignerBinding;
+  readonly auth: SigningLaneAuthBinding;
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+};
+
+export type NearEd25519MaterialBoundaryInput = {
+  readonly walletId: WalletId;
+  readonly nearAccountId: AccountId;
+} & (
+  | {
+      readonly laneIdentity: ExactEd25519SigningLaneIdentity;
+      readonly auth: SigningLaneAuthBinding;
+      readonly materialIdentity?: never;
+    }
+  | {
+      readonly laneIdentity?: never;
+      readonly auth?: never;
+      readonly materialIdentity: NearEd25519MaterialIdentity;
+    }
+);
+
 export type NearSigningApiDeps = {
   nearRpcUrl: string;
-  prepareNearEd25519YaoMaterialBoundary: (args: {
-    walletId: WalletId;
-    nearAccountId: AccountId;
-    laneIdentity: ExactEd25519SigningLaneIdentity;
-    auth: SigningLaneAuthBinding;
-  }) => Promise<NearEd25519YaoPreparedMaterialBoundary>;
+  prepareNearEd25519YaoMaterialBoundary: (
+    args: NearEd25519MaterialBoundaryInput,
+  ) => Promise<NearEd25519YaoPreparedMaterialBoundary>;
   requestEmailOtpEd25519SigningChallenge?: (args: {
     walletSession: WalletSessionRef;
   }) => Promise<EmailOtpTransactionSigningChallenge>;
