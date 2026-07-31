@@ -4,6 +4,7 @@ import {
   resolveExactEd25519SealedSessionRuntimeForWalletWithResolver,
   resolveExactEd25519SealedSessionRuntimeForWalletSubjectWithResolver,
 } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
+import { buildPasskeyRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { buildEd25519PasskeySigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -54,6 +55,32 @@ test('resolves one exact sealed Ed25519 session without a composite record', asy
       remainingUses: 3,
     }),
   });
+});
+
+test('builds passkey hydration state from the exact sealed runtime and active JWT', async () => {
+  const resolution = await resolveExactEd25519SealedSessionRuntimeForLaneWithResolver(
+    {
+      walletId: toWalletId(RECORD.walletId),
+      laneIdentity: LANE.identity,
+    },
+    {
+      listExactSealedSessionsForWallet: async () => [RECORD],
+    },
+  );
+  expect(resolution.kind).toBe('resolved');
+  if (resolution.kind !== 'resolved') return;
+
+  const state = buildPasskeyRouterAbEd25519WalletSessionStateFromExactRuntime({
+    runtime: resolution.runtime,
+    walletSessionJwt: resolution.runtime.walletSessionJwt,
+    nowMs: resolution.runtime.expiresAtMs - 1,
+  });
+
+  expect(state.thresholdSessionId).toBe(RECORD.thresholdSessionIds.ed25519);
+  expect(state.signingGrantId).toBe(RECORD.signingGrantId);
+  expect(state.signingLane.identity.signer.nearEd25519SigningKeyId).toBe(
+    RECORD.ed25519Restore.nearEd25519SigningKeyId,
+  );
 });
 
 test('keeps missing and conflicting sealed Ed25519 sessions distinct', async () => {

@@ -21,12 +21,14 @@ import {
 import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
+  buildRouterAbEd25519SigningWalletSession,
   parseRouterAbEd25519SigningWalletSessionFromRecord,
   type RouterAbEd25519SigningWalletSession,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { AccountId } from '@/core/types/accountIds';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
+import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
 
 export type ResolvedRouterAbEd25519WalletSessionState = NearResolvedEd25519SigningSessionState & {
   signingWalletSession: RouterAbEd25519SigningWalletSession;
@@ -112,6 +114,62 @@ export function buildEmailOtpRouterAbEd25519WalletSessionState(
     runtimePolicyScope: input.signingWalletSession.runtimePolicyScope,
     relayerUrl,
     signingWalletSession: input.signingWalletSession,
+  };
+}
+
+export function buildPasskeyRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
+  runtime: ExactEd25519SealedSessionRuntime;
+  walletSessionJwt: string;
+  nowMs: number;
+}): ResolvedRouterAbEd25519WalletSessionState {
+  const runtime = args.runtime;
+  if (runtime.factor.kind !== 'passkey' || runtime.auth.kind !== 'passkey') {
+    throw new Error('Passkey Ed25519 Wallet Session state requires passkey-bound runtime');
+  }
+  if (runtime.walletSessionJwt !== args.walletSessionJwt) {
+    throw new Error('Passkey Ed25519 Wallet Session authorization changed after provisioning');
+  }
+  const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
+    walletId: runtime.walletId,
+    nearAccountId: runtime.nearAccountId,
+    nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
+    thresholdSessionId: runtime.thresholdSessionId,
+    signingGrantId: runtime.signingGrantId,
+    remainingUses: runtime.remainingUses,
+    expiresAtMs: runtime.expiresAtMs,
+    runtimePolicyScope: runtime.runtimePolicyScope,
+    signingRootId: runtime.signingRootId,
+    signingRootVersion: runtime.signingRootVersion,
+    routerAbNormalSigning: runtime.routerAbNormalSigning,
+    walletSessionJwt: args.walletSessionJwt,
+    nowMs: args.nowMs,
+  });
+  if (!signingWalletSession.ok) {
+    throw new Error(
+      `Passkey Ed25519 Wallet Session runtime is invalid: ${signingWalletSession.reason}`,
+    );
+  }
+  return {
+    walletSessionAuth: signingWalletSession.value.auth,
+    thresholdSessionId: runtime.thresholdSessionId,
+    signingGrantId: runtime.signingGrantId,
+    signingLane: buildNearTransactionSigningLane({
+      walletId: runtime.walletId,
+      nearAccountId: runtime.nearAccountId,
+      nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
+      signerSlot: runtime.signerSlot,
+      auth: runtime.auth,
+      signingGrantId: runtime.signingGrantId,
+      thresholdSessionId: runtime.thresholdSessionId,
+      storageSource: 'login',
+    }),
+    remainingUses: runtime.remainingUses,
+    signingRootId: runtime.signingRootId,
+    signingRootVersion: runtime.signingRootVersion,
+    routerAbNormalSigning: runtime.routerAbNormalSigning,
+    runtimePolicyScope: runtime.runtimePolicyScope,
+    relayerUrl: runtime.relayerUrl,
+    signingWalletSession: signingWalletSession.value,
   };
 }
 

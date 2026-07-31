@@ -87,10 +87,6 @@ import type {
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
-import {
-  clearAllStoredThresholdEd25519SessionRecords,
-  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
-} from '@/core/signingEngine/session/persistence/records';
 import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
@@ -197,7 +193,11 @@ import {
   readPasskeyEd25519YaoLocalMaterialLocatorV1,
   type PasskeyEd25519YaoLocalMaterialLocatorV1,
 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
-import { resolveRouterAbEd25519WalletSessionStateFromRecord } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
+import {
+  buildPasskeyRouterAbEd25519WalletSessionStateFromExactRuntime,
+  type ResolvedRouterAbEd25519WalletSessionState,
+} from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
+import { resolveExactEd25519SealedSessionRuntimeForWalletSubject } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import { reconcileCanonicalEcdsaActivationWasm } from '@/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm';
 import {
   resolveWalletUnlockSubjectSet,
@@ -2886,9 +2886,7 @@ function buildLoginEd25519WalletSessionMintAuthorization(args: {
 
 type PasskeyEd25519LoginHydrationInput = {
   signingEngine: LoginUnlockSigningSurface;
-  walletSessionState: NonNullable<
-    ReturnType<typeof resolveRouterAbEd25519WalletSessionStateFromRecord>
-  >;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   walletId: string;
   nearAccountId: AccountId;
   signerSlot: number;
@@ -3131,14 +3129,24 @@ async function primeThresholdLoginWarmSigners(args: {
           if (!passkeyPrfFirstB64u) {
             throw new Error('[login] local Ed25519 material requires WebAuthn PRF.first');
           }
-          const record =
-            getStoredThresholdEd25519SessionRecordByThresholdSessionId(connectedSessionId);
-          const walletSessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(
-            record || undefined,
-          );
-          if (!walletSessionState) {
-            throw new Error('[login] local Ed25519 material requires a ready Wallet Session');
+          const runtimeResolution =
+            await resolveExactEd25519SealedSessionRuntimeForWalletSubject({
+              walletId: walletBinding.walletId,
+              nearAccountId: walletBinding.nearAccountId,
+              nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
+            });
+          if (
+            runtimeResolution.kind !== 'resolved' ||
+            runtimeResolution.runtime.thresholdSessionId !== connectedSessionId
+          ) {
+            throw new Error('[login] local Ed25519 material requires its exact sealed runtime');
           }
+          const walletSessionState =
+            buildPasskeyRouterAbEd25519WalletSessionStateFromExactRuntime({
+              runtime: runtimeResolution.runtime,
+              walletSessionJwt: connectedJwt,
+              nowMs: Date.now(),
+            });
           const localMaterial = await readPasskeyEd25519YaoLocalMaterialLocatorV1({
             store: IndexedDBManager,
             walletId: String(walletBinding.walletId),
@@ -4974,9 +4982,5 @@ export async function lock(context: LockOperationContext): Promise<void> {
   try {
     signingEngine.clearThresholdEcdsaSigningQueue();
   } catch {}
-  try {
-    await signingEngine.clearVolatileWarmSigningMaterial();
-  } finally {
-    clearAllStoredThresholdEd25519SessionRecords();
-  }
+  await signingEngine.clearVolatileWarmSigningMaterial();
 }
