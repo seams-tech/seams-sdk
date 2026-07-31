@@ -349,6 +349,10 @@ removes.
 - [x] Keep role-local material handles stable across Tempo and ARC for the same
       exact activated material.
 - [x] Remove raw share bytes and broad state objects from generic callers.
+  - [x] Remove the unbranded client-verifying-share copy from the exact ECDSA
+        runtime. The runtime now carries the manifest-owned branded client
+        verifying public key, while the normal-signing wire adapter performs
+        the only protocol-name conversion (`085b9c01a`).
 - [x] Delete `evmFamilySigningKeySlotId` from role-local public facts,
       activation/durable bindings, persistence keys, and sealing AAD.
 - [x] Delete `evmFamilySigningKeySlotId` from remaining runtime paths or prove

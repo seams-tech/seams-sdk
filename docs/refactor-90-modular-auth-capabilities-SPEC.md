@@ -134,6 +134,10 @@ implementing commit SHA as the evidence.
   records once and expose only precise internal branches.
 - [ ] `R90-INV-002` — Near and ECDSA each have one durable material owner and one
   volatile runtime owner.
+  - [x] The exact ECDSA runtime no longer reconstructs or owns an unbranded
+    client-verifying-share copy. It carries the manifest-owned branded client
+    verifying public key and converts to the normal-signing protocol name only
+    at that wire adapter (`085b9c01a`).
 - [x] `R90-INV-003` — one type fixture excludes entry-point provenance from
   resolver input.
 - [x] `R90-INV-003` — fourteen canonical-state cases cover both capabilities.
