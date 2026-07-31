@@ -27,6 +27,10 @@ import {
   withThresholdEcdsaSigningQueue,
   type ThresholdEcdsaSigningQueueByKey,
 } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
+import {
+  withThresholdEd25519CommitQueue,
+  type ThresholdEd25519CommitQueueByKey,
+} from '@/core/signingEngine/threshold/ed25519/commitQueue';
 
 async function resolvePasskeyEcdsaExportRouteAuth(
   emailOtpSessions: EmailOtpWalletSessionCoordinator,
@@ -62,6 +66,7 @@ export function createBrowserRecoveryPublicDeps(args: {
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
+  thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey;
   getWalletSessionActivationDeps: () => WalletSessionActivationDeps;
   resolveActiveEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['resolveActiveCapability'];
   recoverPasskeyEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['recoverPasskeyCapability'];
@@ -78,6 +83,11 @@ export function createBrowserRecoveryPublicDeps(args: {
     withThresholdEcdsaSigningQueue: (queueArgs) =>
       withThresholdEcdsaSigningQueue({
         queueByKey: args.thresholdEcdsaSigningQueueByKey,
+        ...queueArgs,
+      }),
+    withThresholdEd25519CommitQueue: (queueArgs) =>
+      withThresholdEd25519CommitQueue({
+        queueByKey: args.thresholdEd25519CommitQueueByKey,
         ...queueArgs,
       }),
     ecdsaSessions: args.warmSigning.ecdsaSessions,

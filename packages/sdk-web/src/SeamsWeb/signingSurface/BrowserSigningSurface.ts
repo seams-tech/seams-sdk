@@ -568,6 +568,7 @@ export class BrowserSigningSurface {
       emailOtpSessions: this.emailOtpSessions,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
       thresholdEcdsaSigningQueueByKey: this.thresholdEcdsaSigningQueueByKey,
+      thresholdEd25519CommitQueueByKey: this.thresholdEd25519CommitQueueByKey,
       getWalletSessionActivationDeps: () => this.enginePorts.walletSessionActivationDeps,
       resolveActiveEd25519YaoCapability: (scope) =>
         this.enginePorts.ed25519YaoActiveClients.resolveForWalletAccount(scope),

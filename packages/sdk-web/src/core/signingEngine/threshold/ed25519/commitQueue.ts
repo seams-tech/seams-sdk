@@ -1,4 +1,5 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
   clearThresholdCommitQueue,
   withThresholdCommitQueue,
@@ -12,7 +13,7 @@ export type ThresholdEd25519CommitQueueErrorCode = ThresholdCommitQueueErrorCode
 export type ThresholdEd25519CommitQueueError = ThresholdCommitQueueError;
 
 export type ThresholdEd25519CommitQueueKeyInput = {
-  thresholdSessionId: string;
+  materialActivation: MpcMaterialActivationRef;
 };
 
 export type ThresholdEd25519CommitQueueByKey = ThresholdCommitQueueByKey;
@@ -61,13 +62,12 @@ export function createThresholdEd25519CommitQueueCancelledError(
 export function resolveThresholdEd25519CommitQueueKey(
   args: ThresholdEd25519CommitQueueKeyInput,
 ): string {
-  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  if (!thresholdSessionId) {
-    throw new Error(
-      '[SigningEngine] threshold Ed25519 commit queue requires non-empty thresholdSessionId',
-    );
-  }
-  return `session:ed25519:${thresholdSessionId}`;
+  return [
+    'material',
+    encodeURIComponent(String(args.materialActivation.materialOwner)),
+    encodeURIComponent(String(args.materialActivation.capability)),
+    encodeURIComponent(String(args.materialActivation.activationId)),
+  ].join(':');
 }
 
 export function clearThresholdEd25519CommitQueue(

@@ -203,16 +203,25 @@ class PasskeyEd25519ExportRefreshHarness {
     throw new Error('passkey export fixture does not enter Email OTP export');
   }
 
+  async withThresholdEd25519CommitQueue<T>(
+    args: Parameters<Ed25519YaoExportFlowDeps['withThresholdEd25519CommitQueue']>[0],
+  ): Promise<T> {
+    return await args.task();
+  }
+
   deps(): Ed25519YaoExportFlowDeps {
     return {
       touchConfirm: {
-        exportPrivateKeysWithUi: this.exportPrivateKeysWithUi.bind(this),
         initialize: this.initialize.bind(this),
         requestUserConfirmation: this.unexpectedConfirmation.bind(this),
+      },
+      passkeyMpcExport: {
+        exportPrivateKeysWithUi: this.exportPrivateKeysWithUi.bind(this),
       },
       resolveActiveCapability: this.resolveActiveCapability.bind(this),
       recoverPasskeyCapability: this.recoverPasskeyCapability.bind(this),
       resolvePasskeyExportContext: this.resolvePasskeyExportContext.bind(this),
+      withThresholdEd25519CommitQueue: this.withThresholdEd25519CommitQueue.bind(this),
       emailOtp: {
         requestExportChallenge: this.unexpectedEmailOtpOperation.bind(this),
         resolveExportContext: this.unexpectedEmailOtpOperation.bind(this),

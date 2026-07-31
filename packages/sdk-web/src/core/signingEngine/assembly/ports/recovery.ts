@@ -22,12 +22,14 @@ import type {
 } from '../../session/emailOtp/exportRecoveryRuntime';
 import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
 import type { EcdsaExportFlowDeps } from '../../flows/recovery/ecdsaExportFlow';
+import type { Ed25519YaoExportFlowDeps } from '../../flows/recovery/ed25519YaoExportFlow';
 
 export function createRecoveryPublicDeps(args: {
   seamsWebConfigs: CreateSigningEnginePortsArgs['seamsWebConfigs'];
   signerWorkerManager: CreateSigningEnginePortsArgs['signerWorkerManager'];
   getTheme: CreateSigningEnginePortsArgs['getTheme'];
   withThresholdEcdsaSigningQueue: EcdsaExportFlowDeps['withThresholdEcdsaSigningQueue'];
+  withThresholdEd25519CommitQueue: Ed25519YaoExportFlowDeps['withThresholdEd25519CommitQueue'];
   ecdsaSessions: RecoveryPublicEcdsaSessionStoreDeps;
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
   touchConfirm: UiConfirmRuntimeBridgePort;
@@ -110,6 +112,7 @@ export function createRecoveryPublicDeps(args: {
       resolveActiveCapability: args.resolveActiveEd25519YaoCapability,
       recoverPasskeyCapability: args.recoverPasskeyEd25519YaoCapability,
       resolvePasskeyExportContext: args.resolvePasskeyEd25519YaoExportContext,
+      withThresholdEd25519CommitQueue: args.withThresholdEd25519CommitQueue,
       emailOtp: {
         requestExportChallenge: (request) => args.emailOtpSessions.requestExportChallenge(request),
         resolveExportContext: (subject) => args.resolveEmailOtpEd25519YaoExportContext(subject),
