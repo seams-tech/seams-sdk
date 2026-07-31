@@ -603,7 +603,10 @@ the replacement and legacy MPC paths must not ship together.
       requested grant (`3fdeba8b7`). Its remaining policy scope, Wallet Session
       bearer, and client verifying share are required; the dead optional
       success base, `sessionId`, budget-projection alias, and inert login
-      reconstruction are deleted (`04221828c`).
+      reconstruction are deleted (`04221828c`). The exact key reference is now
+      the sole owner of bootstrap material facts; the duplicate `keygen` result
+      branch and its hand-written fixtures are deleted (`118f5c882`,
+      `7d1e31bbd`).
 - [x] Cut ECDSA export over atomically across the client, Gateway, Router,
       SigningWorker, sealed-share AAD, and Rust protocol mirrors so requests
       carry discriminated authorization plus the exact material activation.
@@ -668,9 +671,17 @@ the replacement and legacy MPC paths must not ship together.
         and Email OTP export through the same exact-material activation queue
         instead of keying signing by threshold session identity
         (`10c8a61da`).
-- [x] Add canonical activation re-resolution immediately before recovery and
-      refresh worker use and commit. Keep their existing secure-owner lease and
-      worker singleflight; add no duplicate client queue.
+- [ ] Complete canonical activation serialization and re-resolution immediately
+      before every recovery and refresh consuming call and commit.
+  - [x] Email OTP ECDSA signing-session refresh enters the exact activation
+        queue, re-resolves before the consuming login call and after refresh,
+        and rejects disappearance or replacement (`71c67e3dc`).
+  - [x] Email OTP Ed25519 silent sealed recovery uses the queue shared by NEAR
+        signing and export, re-resolves before rehydration, persists before
+        releasing the owner, and verifies the durable activation afterward
+        (`b78210618`).
+  - [ ] Route the remaining Passkey recovery and Ed25519 refresh consuming
+        paths through their exact material owner fence.
 - [x] Bind live worker material to the exact material activation.
 - [x] Give a server-side expiry race at most one retry after same-method
       step-up.

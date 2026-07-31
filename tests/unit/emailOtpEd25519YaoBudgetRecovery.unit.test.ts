@@ -45,6 +45,7 @@ import {
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import { buildActiveWalletSessionAuthorizationProjection } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { resolveThresholdEd25519CommitQueueKey } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/commitQueue';
 
 const WALLET_ID = walletIdFromString('email-otp-ed25519-budget.testnet');
 const NEAR_ACCOUNT_ID = toAccountId('ab'.repeat(32));
@@ -453,6 +454,7 @@ function pendingFactorHandle(): EmailOtpEd25519YaoPendingFactorHandle {
 function buildEmailOtpSealedRecord(args: {
   expiresAtMs: number;
   remainingUses: number;
+  materialActivation?: ReturnType<typeof nearEd25519YaoMaterialActivationFromMetadata>;
 }): CurrentEd25519SealedSessionRecord {
   const record = buildCurrentSealedSessionRecord({
     curve: 'ed25519',
@@ -480,7 +482,8 @@ function buildEmailOtpSealedRecord(args: {
       provider: 'google',
       providerSubjectId: PROVIDER_SUBJECT,
       emailHashHex: '11'.repeat(32),
-      materialActivation: publicCapabilityReference().materialActivation,
+      materialActivation:
+        args.materialActivation ?? publicCapabilityReference().materialActivation,
       relayerKeyId: SIGNING_WORKER_ID,
       participantIds: [...PARTICIPANT_IDS],
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
@@ -493,6 +496,14 @@ function buildEmailOtpSealedRecord(args: {
   }
   return record;
 }
+
+async function runEd25519CommitQueueTask<T>(args: {
+  task: () => Promise<T>;
+}): Promise<T> {
+  return await args.task();
+}
+
+async function persistRecoveredSessionForTest(): Promise<void> {}
 
 async function warmRecoveryBootstrapResponse(args: {
   expiresAtMs: number;
@@ -553,6 +564,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         signerSlot: 1,
         thresholdSessionId: THRESHOLD_SESSION_ID,
       },
+      expectedMaterialActivation: publicCapabilityReference().materialActivation,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
       rpId: 'localhost',
       relayerUrl: RELAYER_URL,
@@ -563,6 +575,8 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         workerContext: worker.context(),
         resolveActiveCapability: activation.resolve.bind(activation),
         activateCapability: activation.activate.bind(activation),
+        withThresholdEd25519CommitQueue: runEd25519CommitQueueTask,
+        persistRecoveredSession: persistRecoveredSessionForTest,
         nowMs: Date.now,
       },
     });
@@ -575,6 +589,76 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
       expect(result.recovery.record.remainingUses).toBe(3);
       expect(result.recovery.record.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
     }
+  });
+
+  test('rejects a superseded activation inside the material-owner queue before recovery', async () => {
+    const expectedActivation = publicCapabilityReference().materialActivation;
+    const replacementMetadata = activeMetadata();
+    replacementMetadata.scope.lifecycle_id = 'email-otp-ed25519-replacement-lifecycle';
+    const replacementActivation =
+      nearEd25519YaoMaterialActivationFromMetadata(replacementMetadata);
+    const initialRecord = buildEmailOtpSealedRecord({
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 3,
+      materialActivation: expectedActivation,
+    });
+    const replacementRecord = buildEmailOtpSealedRecord({
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 3,
+      materialActivation: replacementActivation,
+    });
+    const worker = new RecoveryWorkerFixture({
+      prior: activeMetadata(),
+      substitutePublicKey: false,
+    });
+    const activation = new RecoveryActivationHarness(null);
+    let recordReads = 0;
+    let queueCalls = 0;
+    let persistCalls = 0;
+
+    await expect(
+      recoverEmailOtpEd25519YaoFromSealedSessionV1({
+        subject: {
+          walletId: WALLET_ID,
+          nearAccountId: NEAR_ACCOUNT_ID,
+          signerSlot: 1,
+          thresholdSessionId: THRESHOLD_SESSION_ID,
+        },
+        expectedMaterialActivation: expectedActivation,
+        expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
+        rpId: 'localhost',
+        relayerUrl: RELAYER_URL,
+        authPolicy: 'session',
+        ports: {
+          readExactSealedSession: async () => {
+            recordReads += 1;
+            return recordReads === 1 ? initialRecord : replacementRecord;
+          },
+          readActiveWalletSessionAuthorization: readActiveEmailOtpWalletSessionAuthorization,
+          workerContext: worker.context(),
+          resolveActiveCapability: activation.resolve.bind(activation),
+          activateCapability: activation.activate.bind(activation),
+          withThresholdEd25519CommitQueue: async (queueArgs) => {
+            queueCalls += 1;
+            expect(queueArgs.queueKey).toBe(
+              resolveThresholdEd25519CommitQueueKey({
+                materialActivation: expectedActivation,
+              }),
+            );
+            return await queueArgs.task();
+          },
+          persistRecoveredSession: async () => {
+            persistCalls += 1;
+          },
+          nowMs: Date.now,
+        },
+      }),
+    ).rejects.toThrow('superseded before use');
+    expect(recordReads).toBe(2);
+    expect(queueCalls).toBe(1);
+    expect(worker.operations).toEqual([]);
+    expect(activation.activateCalls).toBe(0);
+    expect(persistCalls).toBe(0);
   });
 
   test('routes an exhausted sealed Email OTP grant to step-up without attempting recovery', async () => {
@@ -595,6 +679,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         signerSlot: 1,
         thresholdSessionId: THRESHOLD_SESSION_ID,
       },
+      expectedMaterialActivation: publicCapabilityReference().materialActivation,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
       rpId: 'localhost',
       relayerUrl: RELAYER_URL,
@@ -604,6 +689,8 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         workerContext: worker.context(),
         resolveActiveCapability: activation.resolve.bind(activation),
         activateCapability: activation.activate.bind(activation),
+        withThresholdEd25519CommitQueue: runEd25519CommitQueueTask,
+        persistRecoveredSession: persistRecoveredSessionForTest,
         nowMs: Date.now,
       },
     });
@@ -635,6 +722,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         signerSlot: 1,
         thresholdSessionId: THRESHOLD_SESSION_ID,
       },
+      expectedMaterialActivation: publicCapabilityReference().materialActivation,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
       rpId: 'localhost',
       relayerUrl: RELAYER_URL,
@@ -644,6 +732,8 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         workerContext: worker.context(),
         resolveActiveCapability: activation.resolve.bind(activation),
         activateCapability: activation.activate.bind(activation),
+        withThresholdEd25519CommitQueue: runEd25519CommitQueueTask,
+        persistRecoveredSession: persistRecoveredSessionForTest,
         nowMs: () => nowMs,
       },
     });

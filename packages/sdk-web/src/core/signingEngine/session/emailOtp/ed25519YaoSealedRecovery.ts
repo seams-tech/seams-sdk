@@ -26,7 +26,10 @@ import {
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { isPlainObject } from '@shared/utils/validation';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
@@ -71,6 +74,8 @@ import {
   type MpcCapabilityHydrationPlan,
 } from '../material/mpcCapabilityHydration';
 import { buildRestorableMpcMaterialRefInternal } from '../material/restorableMpcMaterialRef.internal';
+import { resolveThresholdEd25519CommitQueueKey } from '../../threshold/ed25519/commitQueue';
+import type { ThresholdEd25519SessionRecord } from '../persistence/records';
 
 export type EmailOtpEd25519YaoSilentRecoveryUnavailableReason =
   | 'sealed_session_missing'
@@ -145,6 +150,13 @@ export type EmailOtpEd25519YaoSilentRecoveryPorts = {
   activateCapability: (
     capability: NearEd25519YaoSigningCapability,
   ) => Promise<Ed25519YaoActiveClientIdentityV1>;
+  withThresholdEd25519CommitQueue: <T>(args: {
+    queueKey: string;
+    nearAccountId: AccountId;
+    enabled: boolean;
+    task: () => Promise<T>;
+  }) => Promise<T>;
+  persistRecoveredSession: (record: ThresholdEd25519SessionRecord) => Promise<void>;
   nowMs: () => number;
 };
 
@@ -698,18 +710,33 @@ function exactLocalSessionFromSealedRecord(args: {
   };
 }
 
-export async function recoverEmailOtpEd25519YaoFromSealedSessionV1(input: {
+type RecoverEmailOtpEd25519YaoFromSealedSessionInput = {
   subject: EmailOtpEd25519YaoSilentRecoverySubject;
+  expectedMaterialActivation: MpcMaterialActivationRef;
   expectedOperationalPublicKey: string;
   rpId: string;
   relayerUrl: string;
   authPolicy: EmailOtpAuthPolicy;
   ports: EmailOtpEd25519YaoSilentRecoveryPorts;
-}): Promise<EmailOtpEd25519YaoSilentRecoveryResultV1> {
+};
+
+async function runFencedEmailOtpEd25519YaoSealedRecovery(
+  input: RecoverEmailOtpEd25519YaoFromSealedSessionInput,
+): Promise<EmailOtpEd25519YaoSilentRecoveryResultV1> {
   const sealedRecord = await resolveSealedRecord({ subject: input.subject, ports: input.ports });
   if (sealedRecord.kind === 'reauth_required') return sealedRecord;
   const record = sealedRecord.record;
   const emailOtp = emailOtpRestoreMetadata(record);
+  if (
+    !mpcMaterialActivationRefsEqual(
+      emailOtp.materialActivation,
+      input.expectedMaterialActivation,
+    )
+  ) {
+    throw new Error(
+      '[SigningEngine][near] Email OTP Ed25519 sealed recovery material was superseded before use',
+    );
+  }
   const authorization = await activeEmailOtpWalletSessionAuthorization({
     walletId: input.subject.walletId,
     nowMs: input.ports.nowMs(),
@@ -777,7 +804,41 @@ export async function recoverEmailOtpEd25519YaoFromSealedSessionV1(input: {
     workerContext: input.ports.workerContext,
     activateCapability: input.ports.activateCapability,
   });
+  await input.ports.persistRecoveredSession(recovery.record);
+  const committed = await resolveSealedRecord({ subject: input.subject, ports: input.ports });
+  if (
+    committed.kind === 'reauth_required' ||
+    !mpcMaterialActivationRefsEqual(
+      emailOtpRestoreMetadata(committed.record).materialActivation,
+      input.expectedMaterialActivation,
+    )
+  ) {
+    throw new Error(
+      '[SigningEngine][near] Email OTP Ed25519 sealed recovery material was superseded during commit',
+    );
+  }
   return { kind: 'recovered', recovery };
+}
+
+export async function recoverEmailOtpEd25519YaoFromSealedSessionV1(
+  input: RecoverEmailOtpEd25519YaoFromSealedSessionInput,
+): Promise<EmailOtpEd25519YaoSilentRecoveryResultV1> {
+  const initial = await resolveSealedRecord({ subject: input.subject, ports: input.ports });
+  if (initial.kind === 'reauth_required') return initial;
+  const initialActivation = emailOtpRestoreMetadata(initial.record).materialActivation;
+  if (!mpcMaterialActivationRefsEqual(initialActivation, input.expectedMaterialActivation)) {
+    throw new Error(
+      '[SigningEngine][near] Email OTP Ed25519 sealed recovery material was superseded before queueing',
+    );
+  }
+  return await input.ports.withThresholdEd25519CommitQueue({
+    queueKey: resolveThresholdEd25519CommitQueueKey({
+      materialActivation: input.expectedMaterialActivation,
+    }),
+    nearAccountId: input.subject.nearAccountId,
+    enabled: true,
+    task: runFencedEmailOtpEd25519YaoSealedRecovery.bind(undefined, input),
+  });
 }
 
 export async function resolveEmailOtpEd25519YaoExportContextV1(input: {
