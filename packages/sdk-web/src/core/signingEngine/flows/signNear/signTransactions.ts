@@ -607,7 +607,8 @@ export async function runNearTransactionWithActionsSigning({
       : buildNearEd25519OperationStepUpProof({
           authorization: stepUpAuthorization,
           preparation: yaoSigningPreparation,
-          lane: transactionOperation.lane,
+          auth: transactionOperation.lane.auth,
+          walletId: commandSubject.walletSession.walletId,
         });
   const preparedOperationStepUp =
     stepUpAuthorization.kind !== 'warm_session'
@@ -985,7 +986,8 @@ export async function runNearTransactionWithActionsSigning({
                   : {
                       ...buildNearEmailOtpEd25519OperationStepUpProof({
                         preparation: yaoSigningPreparation,
-                        lane: transactionOperation.lane,
+                        auth: transactionOperation.lane.auth,
+                        walletId: commandSubject.walletSession.walletId,
                         challengeId: stepUpAuthorization.challengeId,
                         otpCode: stepUpAuthorization.otpCode,
                       }),
