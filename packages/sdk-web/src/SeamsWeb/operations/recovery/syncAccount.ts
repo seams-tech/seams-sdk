@@ -36,11 +36,11 @@ import {
   buildPasskeyEd25519RestoreMetadata,
   persistPasskeyEd25519YaoSessionForRefresh,
 } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
-import { nearEd25519YaoMaterialActivationFromPublicFacts } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 import {
-  mpcMaterialActivationRefsEqual,
-  type MpcMaterialActivationRef,
-} from '@shared/utils/domainIds';
+  nearEd25519YaoMaterialActivationFromMetadata,
+  nearEd25519YaoMaterialActivationFromPublicFacts,
+} from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 
 export type { SyncAccountResult };
 
@@ -267,7 +267,6 @@ function assertRecoveredCapabilityBinding(input: {
 
 type RecoverAndCommitPasskeyEd25519UnlockInput = {
   parsed: ParsedPasskeyEd25519YaoSyncResponseV1;
-  expectedMaterialActivation: MpcMaterialActivationRef;
   ownedPasskeyPrfFirst: Uint8Array;
   relayerUrl: string;
   rpId: string;
@@ -301,22 +300,9 @@ async function recoverAndCommitPasskeyEd25519Unlock(
       recovery,
       selectedCredentialId: input.selectedCredentialId,
     });
-    const recoveredActivation = nearEd25519YaoMaterialActivationFromPublicFacts({
-      activationId: recovery.parsed.session.thresholdSessionId,
-      activeCapabilityBinding: recovery.parsed.capability.activeCapabilityBinding,
-      walletId: String(recovery.parsed.walletId),
-      registeredPublicKey: recovery.parsed.capability.registeredPublicKey,
-      lifecycleId: recovery.parsed.capability.lifecycle.lifecycleId,
-      signingWorkerId: recovery.parsed.capability.lifecycle.signingWorkerId,
-    });
-    if (
-      !mpcMaterialActivationRefsEqual(
-        recoveredActivation,
-        input.expectedMaterialActivation,
-      )
-    ) {
-      throw new Error('Passkey Ed25519 recovery changed the exact material activation');
-    }
+    const recoveredActivation = nearEd25519YaoMaterialActivationFromMetadata(
+      recovery.activeClient.metadata(),
+    );
     await persistPasskeyEd25519YaoSessionForRefresh({
       persistence: input.sessionPersistence,
       session: recovery.walletSessionState,
@@ -341,7 +327,7 @@ async function recoverAndCommitPasskeyEd25519Unlock(
     if (
       !mpcMaterialActivationRefsEqual(
         activated.materialActivation,
-        input.expectedMaterialActivation,
+        recoveredActivation,
       )
     ) {
       throw new Error('Passkey Ed25519 registry activation changed during recovery commit');
@@ -403,7 +389,6 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
       nearAccountId: parsed.nearAccountId,
       task: recoverAndCommitPasskeyEd25519Unlock.bind(undefined, {
         parsed,
-        expectedMaterialActivation,
         ownedPasskeyPrfFirst,
         relayerUrl: input.relayerUrl,
         rpId: input.rpId,

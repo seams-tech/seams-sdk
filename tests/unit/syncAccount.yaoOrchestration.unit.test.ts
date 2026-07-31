@@ -1,9 +1,20 @@
 import { expect, test } from '@playwright/test';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../packages/sdk-web/src/core/config/defaultConfigs';
 import type { ClientUserData } from '../../packages/sdk-web/src/core/accountData/near/nearAccountData.types';
+import { IndexedDBManager } from '../../packages/sdk-web/src/core/indexedDB';
+import type {
+  KeyMaterialKind,
+  KeyMaterialRecord,
+} from '../../packages/sdk-web/src/core/indexedDB/keyMaterial.types';
 import type { NearEd25519YaoSigningCapability } from '../../packages/sdk-web/src/core/signingEngine/interfaces/near';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import { RouterAbEd25519YaoClientV1 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
+import { nearEd25519YaoMaterialActivationFromMetadata } from '../../packages/sdk-web/src/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
+import {
+  ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
+  RouterAbEd25519YaoClientV1,
+  type RouterAbEd25519YaoRecoveryResultV1,
+  type RouterAbEd25519YaoSealableActiveClientV1,
+} from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
 import { MinimalNearClient } from '../../packages/sdk-web/src/core/rpcClients/near/NearClient';
 import type {
   AccountSyncSigningSurface,
@@ -18,6 +29,11 @@ import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { isPlainObject } from '../../packages/shared-ts/src/utils/validation';
+import {
+  parseRouterAbEd25519YaoRecoveryActivationReceiptV1,
+  parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+} from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
 
 const RELAYER_URL = 'https://router.example.test';
 const RP_ID = 'wallet.example.test';
@@ -38,19 +54,13 @@ const OPERATIONAL_PUBLIC_KEY = `ed25519:${base58Encode(REGISTERED_PUBLIC_KEY)}`;
 const PRF_FIRST = new Uint8Array(32).fill(77);
 const PRF_FIRST_B64U = base64UrlEncode(PRF_FIRST);
 
-type MockActiveClient = {
-  metadata(): {
-    readonly stateEpoch: bigint;
-    readonly registeredPublicKey: Uint8Array;
-  };
-  status(): { readonly kind: 'active' | 'disposed' };
-  dispose(): void;
-};
+type MockActiveClient = RouterAbEd25519YaoSealableActiveClientV1;
 
 class YaoScenario {
   readonly activeClient: MockActiveClient;
   failRecovery = false;
   capturedPrfFirst: Uint8Array | null = null;
+  recoveryRequest: RouterAbEd25519YaoRecoveryAdmissionRequestV1 | null = null;
   initializeCalls = 0;
   recoverCalls = 0;
   disposeCalls = 0;
@@ -69,8 +79,120 @@ type FetchScenario = {
 
 let activeYaoScenario: YaoScenario | null = null;
 let activeFetchScenario: FetchScenario | null = null;
+let activePersistenceFixture: SyncAccountPersistenceFixture | null = null;
 const originalFetch = globalThis.fetch;
 const originalInitializeBundled = RouterAbEd25519YaoClientV1.initializeBundled;
+
+type IndexedDbPersistenceMethod =
+  | 'getKeyMaterial'
+  | 'storeKeyMaterial'
+  | 'getAppState'
+  | 'compareAndSwapAppState'
+  | 'finalizeKeyMaterialRecovery';
+
+const indexedDbPersistenceMethods = [
+  'getKeyMaterial',
+  'storeKeyMaterial',
+  'getAppState',
+  'compareAndSwapAppState',
+  'finalizeKeyMaterialRecovery',
+] as const satisfies readonly IndexedDbPersistenceMethod[];
+
+const originalIndexedDbPersistenceMethods = new Map<IndexedDbPersistenceMethod, unknown>();
+
+function keyMaterialMapKey(input: {
+  profileId: string;
+  signerSlot: number;
+  chainIdKey: string;
+  keyKind: string;
+}): string {
+  return [input.profileId, input.signerSlot, input.chainIdKey, input.keyKind].join('|');
+}
+
+class SyncAccountPersistenceFixture {
+  readonly appState = new Map<string, unknown>();
+  readonly keyMaterial = new Map<string, KeyMaterialRecord>();
+
+  async getKeyMaterial(
+    profileId: string,
+    signerSlot: number,
+    chainIdKey: string,
+    keyKind: KeyMaterialKind,
+  ): Promise<KeyMaterialRecord | null> {
+    return (
+      this.keyMaterial.get(
+        keyMaterialMapKey({ profileId, signerSlot, chainIdKey, keyKind }),
+      ) ?? null
+    );
+  }
+
+  async storeKeyMaterial(record: KeyMaterialRecord): Promise<void> {
+    this.keyMaterial.set(keyMaterialMapKey(record), record);
+  }
+
+  async getAppState<T = unknown>(key: string): Promise<T | undefined> {
+    return this.appState.get(key) as T | undefined;
+  }
+
+  async compareAndSwapAppState(input: {
+    key: string;
+    expected: unknown | null;
+    replacement: unknown;
+  }): Promise<boolean> {
+    const current = this.appState.get(input.key);
+    const matches =
+      input.expected === null
+        ? current === undefined
+        : JSON.stringify(current) === JSON.stringify(input.expected);
+    if (!matches) return false;
+    this.appState.set(input.key, input.replacement);
+    return true;
+  }
+
+  async finalizeKeyMaterialRecovery(input: {
+    journalKey: string;
+    expectedJournal: unknown;
+    replacement: KeyMaterialRecord;
+    retire: {
+      profileId: string;
+      signerSlot: number;
+      chainIdKey: string;
+      keyKind: string;
+    };
+  }): Promise<void> {
+    if (
+      JSON.stringify(this.appState.get(input.journalKey)) !==
+      JSON.stringify(input.expectedJournal)
+    ) {
+      throw new Error('syncAccount recovery journal changed before finalization');
+    }
+    this.keyMaterial.delete(keyMaterialMapKey(input.retire));
+    await this.storeKeyMaterial(input.replacement);
+    this.appState.delete(input.journalKey);
+  }
+}
+
+function installPersistenceFixture(fixture: SyncAccountPersistenceFixture): void {
+  const manager = IndexedDBManager as unknown as Record<string, unknown>;
+  for (const method of indexedDbPersistenceMethods) {
+    originalIndexedDbPersistenceMethods.set(method, manager[method]);
+    const replacement = fixture[method].bind(fixture);
+    if (!Reflect.set(manager, method, replacement)) {
+      throw new Error(`failed to install IndexedDB ${method} fixture`);
+    }
+  }
+}
+
+function restorePersistenceFixture(): void {
+  const manager = IndexedDBManager as unknown as Record<string, unknown>;
+  for (const method of indexedDbPersistenceMethods) {
+    const original = originalIndexedDbPersistenceMethods.get(method);
+    if (!Reflect.set(manager, method, original)) {
+      throw new Error(`failed to restore IndexedDB ${method}`);
+    }
+  }
+  originalIndexedDbPersistenceMethods.clear();
+}
 
 function requireActiveYaoScenario(): YaoScenario {
   if (!activeYaoScenario) throw new Error('Yao test scenario is unavailable');
@@ -82,13 +204,40 @@ function requireActiveFetchScenario(): FetchScenario {
   return activeFetchScenario;
 }
 
+function requireActivePersistenceFixture(): SyncAccountPersistenceFixture {
+  if (!activePersistenceFixture) throw new Error('persistence test scenario is unavailable');
+  return activePersistenceFixture;
+}
+
 function createMockActiveClient(scenario: YaoScenario): MockActiveClient {
   return {
     metadata() {
+      const request = scenario.recoveryRequest;
+      if (!request) throw new Error('mock active client has no recovery request');
       return {
+        kind: ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
+        scope: request.scope,
+        applicationBinding: request.application_binding,
+        participantIds: request.participant_ids,
         stateEpoch: 2n,
         registeredPublicKey: REGISTERED_PUBLIC_KEY.slice(),
+        signingWorkerVerifyingShare: new Uint8Array(32).fill(15),
+        transcript: new Uint8Array(32).fill(11),
+        activeCapabilityBinding: request.replacement_capability_binding,
       };
+    },
+    async createSigningShare() {
+      throw new Error('signing is outside the syncAccount fixture');
+    },
+    sealLocalMaterial(input) {
+      return {
+        kind: 'router_ab_ed25519_yao_sealed_local_material_v1',
+        nonce: input.nonce.slice(),
+        ciphertext: new Uint8Array(48).fill(9),
+      };
+    },
+    sealEmailOtpLocalMaterial() {
+      throw new Error('Email OTP sealing is outside the syncAccount fixture');
     },
     status() {
       return { kind: scenario.disposed ? 'disposed' : 'active' };
@@ -106,6 +255,7 @@ function createYaoScenario(): YaoScenario {
 
 type MockPasskeyRecoveryFactorInput = {
   readonly ownedSecret32: Uint8Array;
+  readonly request: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
 };
 
 function requireMockRecoveryInput(value: unknown): MockPasskeyRecoveryFactorInput {
@@ -118,23 +268,65 @@ function requireMockRecoveryInput(value: unknown): MockPasskeyRecoveryFactorInpu
   ) {
     throw new Error('mock recovery received invalid passkey factor');
   }
-  return { ownedSecret32: value.factor.ownedSecret32 };
+  const request = parseRouterAbEd25519YaoRecoveryAdmissionRequestV1(value.request);
+  if (!request.ok) throw new Error(request.message);
+  return { ownedSecret32: value.factor.ownedSecret32, request: request.value };
 }
 
-async function mockRecover(value: unknown): Promise<unknown> {
+function requirePromotionReceipt(request: RouterAbEd25519YaoRecoveryAdmissionRequestV1) {
+  const parsed = parseRouterAbEd25519YaoRecoveryActivationReceiptV1({
+    binding: {
+      lifecycle: {
+        lifecycle_id: request.scope.lifecycle_id,
+        work_kind: 'recovery',
+        primitive_request_kind: 'recovery',
+        root_share_epoch: request.scope.root_share_epoch,
+        account_id: request.scope.account_id,
+        session_id: request.scope.wallet_session_id,
+        signer_set_id: request.scope.signer_set_id,
+        selected_server_id: request.scope.signing_worker_id,
+      },
+      operation: 'recovery',
+      session_id: new Array<number>(32).fill(7),
+      stable_key_context_binding: new Array<number>(32).fill(8),
+    },
+    public_receipt: {
+      transcript: new Array<number>(32).fill(11),
+      registered_public_key: request.registered_public_key,
+      joined_client_commitment: new Array<number>(32).fill(13),
+      joined_signing_worker_commitment: new Array<number>(32).fill(14),
+      signing_worker_verifying_share: new Array<number>(32).fill(15),
+      state_epoch: 2,
+    },
+    active_capability_binding: request.replacement_capability_binding,
+    retired_capability_binding: request.active_capability_binding,
+  });
+  if (!parsed.ok) throw new Error(parsed.message);
+  return parsed.value;
+}
+
+async function mockRecover(value: unknown): Promise<RouterAbEd25519YaoRecoveryResultV1> {
   const scenario = requireActiveYaoScenario();
   const input = requireMockRecoveryInput(value);
+  scenario.recoveryRequest = input.request;
   scenario.recoverCalls += 1;
   scenario.capturedPrfFirst = input.ownedSecret32;
-  if (scenario.failRecovery) throw new Error('mock Yao recovery failed');
-  input.ownedSecret32.fill(0);
-  return { ok: true, activeClient: scenario.activeClient };
+  try {
+    if (scenario.failRecovery) throw new Error('mock Yao recovery failed');
+    return {
+      ok: true,
+      activeClient: scenario.activeClient,
+      activation: requirePromotionReceipt(input.request),
+    };
+  } finally {
+    input.ownedSecret32.fill(0);
+  }
 }
 
 async function mockInitializeBundled(): Promise<unknown> {
   const scenario = requireActiveYaoScenario();
   scenario.initializeCalls += 1;
-  return { recover: mockRecover };
+  return { recoverPrepared: mockRecover };
 }
 
 function installYaoClientMock(): void {
@@ -406,17 +598,15 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
 
   async activateVerifiedNearEd25519YaoSigningCapability(
     capability: NearEd25519YaoSigningCapability,
-  ): Promise<{
-    walletId: ReturnType<typeof toWalletId>;
-    nearAccountId: ReturnType<typeof toAccountId>;
-    thresholdSessionId: string;
-  }> {
+  ): ReturnType<AccountSyncSigningSurface['activateVerifiedNearEd25519YaoSigningCapability']> {
     this.activationQueueStates.push(this.insideMaterialOwnerQueue);
     this.activatedCapabilities.push(capability);
     return {
       walletId: toWalletId(DISCOVERED_WALLET_ID),
       nearAccountId: toAccountId(NEAR_ACCOUNT_ID),
-      thresholdSessionId: capability.walletSessionState.thresholdSessionId,
+      materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
+        capability.activeClient.metadata(),
+      ),
     };
   }
 
@@ -512,14 +702,18 @@ function configureTestScenario(input: {
 function setupSyncAccountTest(): void {
   activeYaoScenario = null;
   activeFetchScenario = null;
+  activePersistenceFixture = new SyncAccountPersistenceFixture();
   globalThis.fetch = syncAccountFetch;
+  installPersistenceFixture(activePersistenceFixture);
   installYaoClientMock();
 }
 
 function teardownSyncAccountTest(): void {
   activeYaoScenario = null;
   activeFetchScenario = null;
+  activePersistenceFixture = null;
   globalThis.fetch = originalFetch;
+  restorePersistenceFixture();
   restoreYaoClientInitializer();
 }
 
@@ -543,7 +737,6 @@ test.describe('public syncAccount Yao orchestration', () => {
       nearAccountId: NEAR_ACCOUNT_ID,
       nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
       publicKey: OPERATIONAL_PUBLIC_KEY,
-      loginState: { isLoggedIn: true },
     });
     const fetchScenario = requireActiveFetchScenario();
     expect(fetchScenario.verifyRequest).not.toBeNull();
@@ -561,6 +754,11 @@ test.describe('public syncAccount Yao orchestration', () => {
     expect(surface.authenticatedWalletIds).toEqual([DISCOVERED_WALLET_ID, DISCOVERED_WALLET_ID]);
     expect(surface.lastUserWalletIds).toEqual([DISCOVERED_WALLET_ID]);
     expect(surface.clearWalletIds).toEqual([]);
+    const persistence = requireActivePersistenceFixture();
+    expect(persistence.appState.size).toBe(0);
+    expect([...persistence.keyMaterial.values()].map((record) => record.keyKind)).toEqual([
+      ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
+    ]);
   });
 
   test('rejects requested-wallet substitution and clears the recovered wallet capability', async () => {

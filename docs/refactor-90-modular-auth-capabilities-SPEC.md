@@ -453,9 +453,10 @@ implementing commit SHA as the evidence.
     material-owner runner. Login rereads the locator before hydration; sync
     keeps recovery, durable promotion, sealed refresh persistence, and registry
     activation in one queued commit (`26c3cedf2`, `5f3d52bab`).
-  - [ ] The Passkey sync/unlock queue-state operating test still requires an
-    IndexedDB-capable unit or intended environment; the current Node worker
-    fails before recovery with `indexedDB is not defined`.
+  - [x] The Passkey sync/unlock operating test supplies the durable recovery
+    store and proves source sealing, journal finalization, promoted activation
+    publication, capability activation, and refresh-seal persistence remain
+    inside one exact-owner queue.
 - [x] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
   applicable quota once; existing claims consume neither again. Reusable Near
   claims, operation-step-up Near claims, and one-use ECDSA export claims commit

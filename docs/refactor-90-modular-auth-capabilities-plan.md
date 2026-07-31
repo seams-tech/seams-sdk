@@ -679,7 +679,7 @@ the replacement and legacy MPC paths must not ship together.
         and Email OTP export through the same exact-material activation queue
         instead of keying signing by threshold session identity
         (`10c8a61da`).
-- [ ] Complete canonical activation serialization and re-resolution immediately
+- [x] Complete canonical activation serialization and re-resolution immediately
       before every recovery and refresh consuming call and commit.
   - [x] Email OTP ECDSA signing-session refresh enters the exact activation
         queue, re-resolves before the consuming login call and after refresh,
@@ -696,9 +696,12 @@ the replacement and legacy MPC paths must not ship together.
         hydration; sync parses once and keeps recovery, durable promotion,
         sealed refresh persistence, and registry activation in one queued
         commit (`26c3cedf2`, `5f3d52bab`).
-  - [ ] Run the Passkey sync/unlock queue-state operating test in a unit or
-        intended environment with IndexedDB available; the current Node worker
-        fails before recovery with `indexedDB is not defined`.
+  - [x] Run the Passkey sync/unlock queue-state operating test with the durable
+        recovery-store port supplied. The test exercises the production
+        source seal, two-state journal, atomic material replacement, registry
+        publication, and seal persistence inside one exact-owner queue. It
+        also proves that recovery publication adopts the promoted activation
+        instead of comparing it with the retired pre-promotion activation.
 - [x] Bind live worker material to the exact material activation.
 - [x] Give a server-side expiry race at most one retry after same-method
       step-up.
