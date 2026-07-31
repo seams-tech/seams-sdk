@@ -36,7 +36,6 @@ import type {
   EvmFamilyEcdsaKeyIdentity,
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
-import { budgetUnknownSigningSessionStatus } from './budgetProjection';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 export type SigningSessionBudgetZeroSpendReason =
@@ -668,21 +667,6 @@ export function getSameProjectionReservedUses(args: {
     uses += Math.max(0, Math.floor(Number(reservation.spend.uses) || 0));
   }
   return uses;
-}
-
-export function budgetUnknownStatusForSpend(
-  spend: WalletSigningSpendPlan,
-  reason: string = 'missing_trusted_status',
-): SigningSessionStatus {
-  return budgetUnknownSigningSessionStatus({
-    signingGrantId: signingGrantIdForSpend(spend),
-    reason:
-      reason === 'adapter_unavailable' ||
-      reason === 'status_unavailable' ||
-      reason === 'missing_trusted_status'
-        ? reason
-        : 'missing_trusted_status',
-  });
 }
 
 function budgetUnknownError(spend: WalletSigningSpendPlan, reason: string): Error {
