@@ -1,4 +1,4 @@
-import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
+import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
 import {
   thresholdEcdsaChainTargetKey,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';

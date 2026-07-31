@@ -6,7 +6,7 @@ import {
   type SigningSessionExpiredEvent,
   type SigningSessionExpiryDetectionSource,
 } from '@/core/types/sdkSentEvents';
-import { deleteExactSealedSession, updateExactSealedSessionPolicy } from './persistence/sealedSessionStore';
+import { updateExactSealedSessionPolicy } from './persistence/sealedSessionStore';
 import {
   createSigningPlannerDecisionTraceEvent,
   planSigningSession,
@@ -256,7 +256,6 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       ...deps,
       updateExactSealedSessionPolicy:
         deps.updateExactSealedSessionPolicy || updateExactSealedSessionPolicy,
-      deleteExactSealedSession: deps.deleteExactSealedSession || deleteExactSealedSession,
     };
     this.walletSessionState = {
       statusOverrides: new Map(),
@@ -408,7 +407,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
         targetThresholdSessionIds: targetThreshold,
       });
     };
-    const lanes = discoverLanesForWallet(this.walletSessionDeps, walletId).filter(
+    const lanes = (await discoverLanesForWallet(this.walletSessionDeps, walletId)).filter(
       (lane) => lane.signingGrantId === signingGrantId,
     );
     if (!lanes.length) return await readDirectTargetStatus();

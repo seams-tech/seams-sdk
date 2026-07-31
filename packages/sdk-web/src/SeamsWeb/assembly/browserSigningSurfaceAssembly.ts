@@ -11,7 +11,6 @@ import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableS
 import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusOperation } from '@/core/signingEngine/session/budget/budgetStatusReader';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { BrowserSealedSigningSessionStorePorts } from './createBrowserSigningStores';
-import { markThresholdEd25519EmailOtpSessionConsumedForWallet as markThresholdEd25519EmailOtpSessionConsumedForWalletOperation } from '@/core/signingEngine/session/persistence/records';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { provisionThresholdEcdsaSession as provisionThresholdEcdsaSessionOperation } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
@@ -605,8 +604,6 @@ export function createBrowserSigningSurfaceEnginePorts(
         readArgs,
         configuredThresholdEcdsaChainTargets(args.seamsWebConfigs.network.chains),
       ),
-    markThresholdEd25519EmailOtpSessionConsumedForWallet: (markArgs) =>
-      markThresholdEd25519EmailOtpSessionConsumedForWalletOperation(markArgs),
     provisionThresholdEcdsaSession: (provisionArgs) =>
       provisionThresholdEcdsaSessionOperation(
         {

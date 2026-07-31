@@ -10,7 +10,7 @@ import type {
   WarmSessionStatusReader,
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
-import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
+import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
 import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import type {
   WarmSessionEcdsaCapabilityState,

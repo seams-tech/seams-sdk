@@ -24,7 +24,5 @@ export function createSigningSessionCoordinatorPort(args: {
     getEmailOtpWarmSessionStatus,
     consumeEmailOtpWarmSessionUses: createArgs.consumeEmailOtpWarmSessionUses,
     clearEmailOtpWarmSessionMaterial: createArgs.clearEmailOtpWarmSessionMaterial,
-    markThresholdEd25519EmailOtpSessionConsumedForWallet:
-      createArgs.markThresholdEd25519EmailOtpSessionConsumedForWallet,
   });
 }

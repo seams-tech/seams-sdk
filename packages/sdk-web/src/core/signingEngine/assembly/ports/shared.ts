@@ -155,11 +155,6 @@ export type CreateSigningEnginePortsArgs = {
   readAvailableSigningLanesForSigning: (
     args: ReadAvailableSigningLanesForSigningInput,
   ) => Promise<AvailableSigningLanes>;
-  markThresholdEd25519EmailOtpSessionConsumedForWallet?: (args: {
-    walletId: WalletId;
-    thresholdSessionId: string;
-    uses?: number;
-  }) => void;
   provisionThresholdEcdsaSession: (
     args: import('../../session/passkey/ecdsaSessionProvision').ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
