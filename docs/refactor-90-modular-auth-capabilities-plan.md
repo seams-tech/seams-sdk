@@ -1104,7 +1104,7 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Prove the remaining Ed25519 in-memory session-record module has no
       production or retained-test consumers, then retire it with only its
       stale architecture/documentation references. Keep the server-side
-      persisted-record parser, which remains a live boundary (`d4c8b90c1`).
+      persisted-record parser, which remains a live boundary (`a84f92b37`).
 - [x] Remove legacy-only composite-record fixtures and move retained Email OTP
       coordinator setup to canonical manifest, authorization, and sealed-runtime
       factories.
