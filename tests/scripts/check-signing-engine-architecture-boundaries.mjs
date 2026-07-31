@@ -143,7 +143,10 @@ function sliceTypeAlias(source, name) {
   if (start < 0) {
     throw new Error(`missing exported type ${name}`);
   }
-  const next = source.indexOf('\nexport type ', start + 1);
+  const nextExport = source.indexOf('\nexport type ', start + 1);
+  const nextLocal = source.indexOf('\ntype ', start + 1);
+  const nextCandidates = [nextExport, nextLocal].filter((offset) => offset >= 0);
+  const next = nextCandidates.length ? Math.min(...nextCandidates) : -1;
   return source.slice(start, next < 0 ? source.length : next);
 }
 
@@ -325,29 +328,6 @@ function checkConfirmationContractsOwnedOutsideUiRuntimeInternals() {
       assertNotContains(source, 'confirmSigningOperation(', relativePath);
     }
   }
-}
-
-function checkEvmPostSignFinalizationCommandsLiveUnderFlows() {
-  const transactionExecutor = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
-  );
-  const postSignFinalization = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/postSignFinalization.ts',
-  );
-
-  for (const marker of [
-    'thresholdEcdsaRecord?:',
-    'thresholdEcdsaKeyRef?:',
-    'ThresholdEcdsaSecp256k1KeyRef',
-    'warmRecord',
-    'emailOtpReauthRecord',
-    'warmKeyRef',
-    'async function runSuccessfulEvmFamilyPostSignCommands',
-  ]) {
-    assertNotContains(transactionExecutor, marker, 'transactionExecutor.ts');
-  }
-  assertNotMatches(postSignFinalization, /from ['"][./]+api\//, 'postSignFinalization.ts');
-  assertNotMatches(postSignFinalization, /from ['"][./]+orchestration\//, 'postSignFinalization.ts');
 }
 
 function checkEvmThresholdAdmissionLivesUnderFlows() {
@@ -798,7 +778,6 @@ function checkThresholdProtocolEntrypointsTakeProtocolMaterial() {
   const protocolFiles = [
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts',
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
-    'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/keygen.ts',
     'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
     'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/poolFillRoutes.ts',
   ];
@@ -1286,7 +1265,6 @@ function runChecks() {
   checkNearSigningFlowsUseSharedMachineCommandSteps();
   checkAvailableSigningLanesOwnAvailabilityTerminology();
   checkConfirmationContractsOwnedOutsideUiRuntimeInternals();
-  checkEvmPostSignFinalizationCommandsLiveUnderFlows();
   checkEvmThresholdAdmissionLivesUnderFlows();
   checkOperationModulesAvoidSigningEngineAssemblyConstruction();
   checkAssemblyCreatePortsStaysThinAggregator();

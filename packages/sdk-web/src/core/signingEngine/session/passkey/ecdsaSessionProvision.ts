@@ -62,7 +62,7 @@ import type {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 
 export type ProvisionThresholdEcdsaSessionDeps = {
   queueByWallet: Map<string, Promise<void>>;

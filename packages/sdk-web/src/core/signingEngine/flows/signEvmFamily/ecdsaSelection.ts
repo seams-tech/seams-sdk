@@ -1,4 +1,4 @@
-import type { ActiveEvmFamilyWalletSessionAuthorization } from './ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {

@@ -10,7 +10,7 @@ import {
 import { selectedEcdsaLane } from '../identity/laneIdentity';
 import type { EcdsaSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import {
   deriveEcdsaCapabilityState,
   deriveEd25519CapabilityState,

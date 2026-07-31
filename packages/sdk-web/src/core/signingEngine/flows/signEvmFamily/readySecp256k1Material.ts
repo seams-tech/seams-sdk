@@ -33,8 +33,8 @@ import type {
   ActiveEvmFamilyWalletSessionAuthorization,
   AuthorizedEvmFamilyEcdsaSigningCapability,
   CanonicalEvmFamilyEcdsaSigningCapability,
-} from './ecdsaSigningCapability';
-import { authorizeEvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
+} from '../../session/material/ecdsaSigningCapability';
+import { authorizeEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
 
 export async function hydrateEcdsaRoleLocalMaterialForSigning(args: {
   persistedMaterial: PersistedEcdsaRoleLocalMaterial;

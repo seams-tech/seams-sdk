@@ -26,7 +26,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 import {

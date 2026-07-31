@@ -44,7 +44,7 @@ import type {
   ActiveEvmFamilyWalletSessionAuthorization,
   AuthorizedEvmFamilyEcdsaSigningCapability,
   CanonicalEvmFamilyEcdsaSigningCapability,
-} from '../flows/signEvmFamily/ecdsaSigningCapability';
+} from '../session/material/ecdsaSigningCapability';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { EcdsaOperationStepUpSessionAuth } from '../threshold/ecdsa/operationStepUp';
 

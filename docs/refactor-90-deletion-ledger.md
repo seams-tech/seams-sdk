@@ -560,6 +560,10 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   refresh path
 - source guards and fixtures whose invariant became structural during the
   slices
+- ~~architecture guard ranges for deleted `signEvmFamily/postSignFinalization.ts`
+  and `threshold/ecdsa/keygen.ts`, plus the type-alias slicer false positive~~
+  — retired or corrected in `944b619fe`; the guard now follows the live flow
+  tree and stops each exported type slice at the next local declaration
 - ~~optional auth-method discovery that silently searched both Passkey and
   Email OTP~~ — exact auth method is required by `e3fe3d32e`
 - ~~`RestorePersistedEcdsaSessionPurpose`,

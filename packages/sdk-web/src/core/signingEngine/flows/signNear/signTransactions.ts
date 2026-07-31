@@ -89,6 +89,7 @@ import {
   buildSigningConfirmationAuthParams,
   confirmationConfigForSigningAuthPlan,
   runSigningConfirmationCommand,
+  type ConfirmTransactionSigningOperationResult,
 } from '../shared/signingConfirmation';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 import type { NearAccountRef, NearCommandSubject } from '../../interfaces/ecdsaChainTarget';
@@ -117,7 +118,6 @@ import {
   type PreparedNearOperationStepUp,
 } from './shared/operationStepUpPreparation';
 import type { NearOperationStepUpPreparationRef } from '../../interfaces/operationStepUpPreparation';
-import type { NearTransactionSigningConfirmationResult } from '../../stepUpConfirmation/confirmOperation';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../../session/material/nearEd25519YaoMaterialActivation';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
@@ -542,7 +542,7 @@ export async function runNearTransactionWithActionsSigning({
       },
     });
   }
-  let confirmation: NearTransactionSigningConfirmationResult;
+  let confirmation: ConfirmTransactionSigningOperationResult;
   try {
     confirmation = await runSigningConfirmationCommand({
       signingSessionPlan: ed25519SigningBoundary.signingSessionPlan,

@@ -5,7 +5,7 @@ import type {
 import type { SelectedEcdsaLaneInput } from './laneIdentity';
 import { toRpId, type EvmFamilyEcdsaKeyIdentity } from './evmFamilyEcdsaIdentity';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 
 declare const walletId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;

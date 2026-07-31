@@ -31,7 +31,7 @@ import {
   type ConcreteAvailableEcdsaSigningLane,
   type AvailableSigningLanesRuntimeEd25519Record,
 } from './availableSigningLanes';
-import type { EvmFamilyEcdsaSigningCapabilityAvailability } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { EvmFamilyEcdsaSigningCapabilityAvailability } from '../material/ecdsaSigningCapability';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildPasskeyEcdsaAuthBinding,

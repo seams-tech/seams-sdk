@@ -8,7 +8,7 @@ import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from './ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 import {
   requireAuthoritativeExpiredWalletSessionAuthorizationBoundary,
   type ExpiredWalletSessionAuthorizationState,

@@ -38,7 +38,7 @@ import type { SigningEnginePorts } from './shared';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import type { DurableRecordStore } from '@/core/platform';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type EcdsaExportArtifactStorePorts = {

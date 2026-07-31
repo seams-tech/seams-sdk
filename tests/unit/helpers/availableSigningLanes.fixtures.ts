@@ -11,7 +11,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 import {
   parseMpcWalletSigningQuotaId,
   parseSeamsSessionId,

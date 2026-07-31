@@ -29,7 +29,7 @@ import {
   isPasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { CanonicalEvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
+import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
 import type { ReadyEvmFamilyEcdsaSigningSelection } from './ecdsaSelection';
 import type {
   EvmFamilyChain,

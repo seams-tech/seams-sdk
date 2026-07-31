@@ -33,7 +33,7 @@ import {
   type AuthorizedEvmFamilyEcdsaSigningCapability,
   type CanonicalEvmFamilyEcdsaSigningCapability,
   type EvmFamilyEcdsaSigningCapabilityAvailability,
-} from '@/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
+} from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
