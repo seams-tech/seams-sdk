@@ -310,6 +310,9 @@ implementing commit SHA as the evidence.
     signer, factor, JWT, policy, signing-root, participant, worker, allowance,
     and expiry facts once and distinguishes missing, conflict, and corrupt
     state (`2733f7960`).
+  - [x] Zero-caller Ed25519 account/session record readers, record-derived
+    Email OTP authority resolution, per-session status, and record auth
+    predicates are deleted from the warm capability surface (`94aa9b344`).
   - [x] Non-iframe implicit NEAR funding reads the bearer credential from the
     canonical active Wallet Session authorization projection and fails before
     fetch when that authorization is absent or expired; no composite MPC record

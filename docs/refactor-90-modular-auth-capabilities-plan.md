@@ -1072,6 +1072,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the remaining zero-caller operation-usable Ed25519 record,
       current-generation commit/supersession branch, and its obsolete unit and
       type fixtures (`f5c6ec6d9`).
+- [x] Delete the zero-caller account/session record readers, record-derived
+      Email OTP authority resolver, per-session status port, and record auth
+      predicate from the warm capability surface (`94aa9b344`).
 - [x] Delete the Passkey durable-state composite-record reverse lookup and its
       record-to-restore parsers after exact Ed25519 restore metadata becomes a
       required seal-transport field (`0f5d7e6b6`).
