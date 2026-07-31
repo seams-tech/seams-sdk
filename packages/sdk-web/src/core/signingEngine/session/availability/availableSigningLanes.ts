@@ -1803,8 +1803,10 @@ export async function readAvailableSigningLanes(
       });
       continue;
     }
-    const signingGrantId = String(runtimeRecord.signingGrantId || '').trim();
-    if (!signingGrantId) {
+    if (
+      runtimeRecord.authorizationState === 'authorized' &&
+      !String(runtimeRecord.signingGrantId || '').trim()
+    ) {
       invalidLanes.push({
         curve: 'ed25519',
         source: 'runtime_session_record',

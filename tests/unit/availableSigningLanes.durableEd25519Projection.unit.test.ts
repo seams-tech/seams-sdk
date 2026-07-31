@@ -70,6 +70,29 @@ function durableEmailOtpEd25519ProjectionRecord(): AvailableSigningLanesRuntimeE
   };
 }
 
+function deferredDurableEd25519ProjectionRecord(): AvailableSigningLanesRuntimeEd25519Record {
+  return {
+    auth: {
+      kind: 'passkey',
+      rpId: toRpId('wallet.example.localhost'),
+      credentialIdB64u: 'credential-deferred-durable-ed25519-projection',
+    },
+    curve: 'ed25519',
+    chain: 'near',
+    walletId: AVAILABLE_LANES_ED25519_WALLET_ID,
+    nearAccountId: AVAILABLE_LANES_ED25519_NEAR_ACCOUNT_ID,
+    nearEd25519SigningKeyId: AVAILABLE_LANES_ED25519_KEY_SCOPE_ID,
+    signerSlot: 1,
+    routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
+    thresholdSessionId: 'threshold-session-deferred-durable-ed25519-projection',
+    authorizationState: 'authorization_required',
+    source: 'durable_sealed_record',
+    remainingUses: 3,
+    expiresAtMs: AVAILABLE_LANES_EXPIRES_AT_MS,
+    updatedAtMs: 702,
+  };
+}
+
 test('keeps durable Ed25519 provenance when trusted budget state makes the lane ready', async () => {
   const availableLanes = await readAvailableLanesFixture({
     runtimeEd25519Records: [durableEd25519ProjectionRecord()],
@@ -95,6 +118,22 @@ test('keeps durable Ed25519 provenance when trusted budget state makes the lane 
     thresholdSessionId: THRESHOLD_SESSION_ID,
     remainingUses: 3,
   });
+});
+
+test('keeps a grant-free runtime projection available for authorization step-up', async () => {
+  const record = deferredDurableEd25519ProjectionRecord();
+  const availableLanes = await readAvailableLanesFixture({
+    runtimeEd25519Records: [record],
+  });
+
+  expect(availableLanes.candidates.ed25519.near).toContainEqual(
+    expect.objectContaining({
+      authorizationState: 'authorization_required',
+      state: 'deferred',
+      thresholdSessionId: record.thresholdSessionId,
+    }),
+  );
+  expect(availableLanes.candidates.ed25519.near[0]).not.toHaveProperty('signingGrantId');
 });
 
 test('discovers the exact durable Email OTP Ed25519 lane after page refresh', async () => {
