@@ -138,9 +138,35 @@ w3a-export-key-viewer {
   min-width: 0;
 }
 
-/* Masked middle portion (no blur) */
-.private-key .mask-chunk {
-  opacity: 0.9;
+.private-key-reel {
+  font-variant-numeric: tabular-nums;
+}
+
+.reel-prefix,
+.reel-slot {
+  display: inline-block;
+}
+
+.reel-slot {
+  width: 1ch;
+  text-align: center;
+  opacity: 0.62;
+}
+
+.reel-slot.settled {
+  opacity: 1;
+}
+
+.w3a-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .btn {
@@ -194,5 +220,11 @@ w3a-export-key-viewer {
   }
   100% {
     transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reel-slot {
+    opacity: 0.72;
   }
 }
