@@ -815,6 +815,11 @@ the replacement and legacy MPC paths must not ship together.
       persisted signer, factor, JWT, policy, signing-root, participant, worker,
       allowance, and expiry facts and returns distinct resolved, missing,
       conflict, and corrupt outcomes (`2733f7960`).
+- [x] Replace the wallet-scoped Ed25519 warm-capability envelope with the exact
+      sealed runtime, independent active Wallet Session authorization, and
+      worker claim. Missing authorization preserves material as
+      `authorization_required`; the read model no longer embeds or derives its
+      bearer credential from the composite session record (`cdd9cc2b8`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
@@ -1100,6 +1105,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the composite-record authorization lookup from Ed25519 key-export
       preflight; the canonical Wallet Session projection owns lifecycle expiry
       and factor correlation (`47fbe2cbc`).
+- [x] Delete composite-record ownership from the wallet-scoped Ed25519 warm
+      capability envelope and its transition/provision readback consumers.
+      Exact sealed runtime, active authorization, and worker claim now remain
+      separate typed inputs (`cdd9cc2b8`).
 - [x] Delete the forwarding-only selected-lane auth-method selector; prepared
       signing now reads the canonical auth binding directly, and its focused
       auth-neutral preparation suite passes 7/7 (`0983a94ec`).

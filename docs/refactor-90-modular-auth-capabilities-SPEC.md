@@ -310,6 +310,11 @@ implementing commit SHA as the evidence.
     signer, factor, JWT, policy, signing-root, participant, worker, allowance,
     and expiry facts once and distinguishes missing, conflict, and corrupt
     state (`2733f7960`).
+  - [x] The wallet-scoped Ed25519 warm-capability envelope is composed from the
+    exact sealed runtime, an independent active Wallet Session authorization,
+    and the worker claim. Missing authorization produces
+    `authorization_required` without discarding durable material; no composite
+    record supplies the bearer or capability state (`cdd9cc2b8`).
   - [x] Zero-caller Ed25519 account/session record readers, record-derived
     Email OTP authority resolution, per-session status, and record auth
     predicates are deleted from the warm capability surface (`94aa9b344`).
