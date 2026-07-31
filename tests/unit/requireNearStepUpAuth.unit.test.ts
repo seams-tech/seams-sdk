@@ -51,7 +51,7 @@ test.describe('requireNearStepUpAuth', () => {
 
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
-      signingLane,
+      signingLaneAuth: signingLane.auth,
       requiredSignatureUses: 1,
     });
 
@@ -102,7 +102,7 @@ test.describe('requireNearStepUpAuth', () => {
 
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
-      signingLane,
+      signingLaneAuth: signingLane.auth,
       requiredSignatureUses,
     });
 
@@ -127,7 +127,7 @@ test.describe('requireNearStepUpAuth', () => {
 
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
-      signingLane,
+      signingLaneAuth: signingLane.auth,
       requiredSignatureUses: 1,
       emailOtpEd25519StepUp: {
         prepare: async () => {
@@ -165,7 +165,7 @@ test.describe('requireNearStepUpAuth', () => {
 
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
-      signingLane,
+      signingLaneAuth: signingLane.auth,
       requiredSignatureUses: 1,
       passkeyEd25519OperationStepUp: {
         prepare: async ({ requiredSignatureUses }) => {
