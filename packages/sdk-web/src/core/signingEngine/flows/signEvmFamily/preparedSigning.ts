@@ -6,10 +6,8 @@ import type {
   SelectedEcdsaLane,
   ThresholdEcdsaSessionStoreSource,
 } from '../../session/identity/laneIdentity';
-import {
-  laneCandidateAuthMethod,
-  selectedLaneAuthMethod,
-} from '../../session/identity/laneIdentity';
+import { laneCandidateAuthMethod } from '../../session/identity/laneIdentity';
+import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import type {
   ReadAvailableSigningLanesForSigningInput,
   AvailableSigningLanes,
@@ -229,7 +227,7 @@ function assertSelectionMatchesLaneCandidate(args: {
       `[SigningEngine][ecdsa] prepared auth method ${candidateAuthMethod} did not match committed lane auth method ${committedAuthMethod}`,
     );
   }
-  const selectionLaneAuthMethod = selectedLaneAuthMethod(args.selection.lane);
+  const selectionLaneAuthMethod = signingLaneAuthMethod(args.selection.lane.auth);
   if (selectionLaneAuthMethod !== committedAuthMethod) {
     throw new Error(
       `[SigningEngine][ecdsa] selected lane auth method ${selectionLaneAuthMethod} did not match committed lane auth method ${committedAuthMethod}`,
