@@ -751,6 +751,7 @@ function createCoordinator(overrides?: {
   provisionEmailOtpEcdsaExplicitExportSession?: (request: any) => Promise<any>;
   acquireSigningSessionRestoreLease?: (args: any) => Promise<any>;
   releaseSigningSessionRestoreLease?: (lease: any) => Promise<void>;
+  readActiveWalletSessionAuthorization?: () => Promise<any>;
 }) {
   const workerCalls: any[] = [];
   let refreshCount = 0;
@@ -965,6 +966,16 @@ function createCoordinator(overrides?: {
     signerWorkerManager: worker as any,
     getRpId: overrides?.getRpId || (() => 'localhost'),
     getSignerWorkerContext: () => worker as any,
+    readActiveWalletSessionAuthorization:
+      overrides?.readActiveWalletSessionAuthorization ||
+      (async () => ({
+        kind: 'found',
+        projection: activeEvmFamilyWalletSessionAuthorizationFixture({
+          walletId: TEST_SUBJECT_ID,
+          authority: buildWalletAuthAuthorityRefFixture({ walletId: TEST_SUBJECT_ID }),
+          authMethod: 'email_otp',
+        }).projection,
+      })),
     refreshAppSessionJwt: async () => {
       refreshCount += 1;
       return overrides?.refreshAppSessionJwt ? overrides.refreshAppSessionJwt() : appSessionJwt();

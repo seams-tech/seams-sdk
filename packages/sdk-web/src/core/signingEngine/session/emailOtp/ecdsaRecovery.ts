@@ -11,12 +11,11 @@ import {
   toWalletId,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import {
-  sealedRecoverySessionKind,
-  sealedRecoveryWalletSessionJwt,
-  type EmailOtpEcdsaSealedRecoveryRecord,
-} from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
+import type {
+  ActiveWalletSessionAuthorizationProjection,
+  WalletSessionAuthorizationReadResult,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { EmailOtpEcdsaSealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   requestBindEmailOtpEcdsaWarmSessionFromWorkerHandle,
@@ -59,6 +58,9 @@ export type EmailOtpEcdsaSealedRecoveryRecordInput = {
 export type EmailOtpEcdsaSealedRecoveryPorts = {
   configs: SeamsConfigsReadonly;
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
+  readActiveWalletSessionAuthorization: (
+    walletId: WalletId,
+  ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
   provisionThresholdEcdsaSession: (
     request: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
@@ -81,7 +83,7 @@ export type EmailOtpEcdsaRestoreSource = {
   kind: 'sealed_record_restore';
   sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-  walletSessionJwt: string;
+  authorization: ActiveWalletSessionAuthorizationProjection;
   thresholdSessionId: string;
   signingGrantId: string;
   relayerUrl: string;
@@ -89,7 +91,6 @@ export type EmailOtpEcdsaRestoreSource = {
   keyHandle: string;
   relayerKeyId: string;
   participantIds: readonly number[];
-  sessionKind: 'jwt';
   signingSessionSealKeyVersion: string;
   signingSessionSealGroupId: string;
   runtimePolicyScope?: EmailOtpEcdsaSealedRecoveryRecord['runtimePolicyScope'];
@@ -188,26 +189,12 @@ function requireEmailOtpEcdsaSealedTransportSource(
   };
 }
 
-function requireEmailOtpSealedWalletSessionJwt(
-  sealedRecord: EmailOtpEcdsaSealedRecoveryRecord,
-): string {
-  const walletSessionJwt = sealedRecoveryWalletSessionJwt(sealedRecord.walletSessionAuth);
-  if (!walletSessionJwt) {
-    throw new Error('Email OTP sealed refresh is missing sealed Wallet Session JWT');
-  }
-  return walletSessionJwt;
-}
-
 function buildSealedRecordEmailOtpEcdsaRestoreSource(args: {
   sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
+  authorization: ActiveWalletSessionAuthorizationProjection;
 }): EmailOtpEcdsaRestoreSource {
   const { sealedRecord } = args;
   const transport = requireEmailOtpEcdsaSealedTransportSource(sealedRecord);
-  const sessionKind = sealedRecoverySessionKind(sealedRecord.walletSessionAuth);
-  if (sessionKind !== 'jwt') {
-    throw new Error('Email OTP sealed refresh requires JWT Wallet Session restore metadata');
-  }
-  const walletSessionJwt = requireEmailOtpSealedWalletSessionJwt(sealedRecord);
   if (
     !sealedRecord.thresholdSessionId ||
     !sealedRecord.signingGrantId ||
@@ -222,7 +209,7 @@ function buildSealedRecordEmailOtpEcdsaRestoreSource(args: {
     kind: 'sealed_record_restore',
     sealedRecord,
     emailOtpAuthContext: sealedRecordEmailOtpSessionAuthContext(sealedRecord.emailOtpAuthority),
-    walletSessionJwt,
+    authorization: args.authorization,
     thresholdSessionId: sealedRecord.thresholdSessionId,
     signingGrantId: sealedRecord.signingGrantId,
     relayerUrl: sealedRecord.relayerUrl,
@@ -230,12 +217,33 @@ function buildSealedRecordEmailOtpEcdsaRestoreSource(args: {
     keyHandle: sealedRecord.keyHandle,
     relayerKeyId: sealedRecord.relayerKeyId,
     participantIds: [...sealedRecord.participantIds],
-    sessionKind,
     ...transport,
     ...(sealedRecord.runtimePolicyScope
       ? { runtimePolicyScope: sealedRecord.runtimePolicyScope }
       : {}),
   };
+}
+
+export function requireEmailOtpSealedRestoreAuthorization(args: {
+  sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
+  authorizationRead: WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>;
+  nowMs: number;
+}): ActiveWalletSessionAuthorizationProjection {
+  if (args.authorizationRead.kind !== 'found') {
+    throw new Error(
+      `Email OTP sealed refresh requires active Wallet Session authorization: ${args.authorizationRead.kind}`,
+    );
+  }
+  const authorization = args.authorizationRead.projection;
+  if (
+    authorization.authMethod !== 'email_otp' ||
+    authorization.walletId !== toWalletId(args.sealedRecord.walletId) ||
+    authorization.authority.authorityDigest !== args.sealedRecord.authority.authorityDigest ||
+    authorization.expiresAtMs <= args.nowMs
+  ) {
+    throw new Error('Email OTP sealed refresh Wallet Session authorization mismatch');
+  }
+  return authorization;
 }
 
 export function createEmailOtpEcdsaSigningSessionMaterialRestorer(
@@ -257,8 +265,19 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   if (sealedRecord.authMethod !== 'email_otp' || sealedRecord.curve !== 'ecdsa') {
     return null;
   }
+  const authorizationRead = await args.readActiveWalletSessionAuthorization(
+    toWalletId(sealedRecord.walletId),
+  );
+  const authorization = requireEmailOtpSealedRestoreAuthorization({
+    sealedRecord,
+    authorizationRead,
+    nowMs: Date.now(),
+  });
   const existingKey = await emailOtpSealedExistingKey(sealedRecord);
-  const restoreSource = buildSealedRecordEmailOtpEcdsaRestoreSource({ sealedRecord });
+  const restoreSource = buildSealedRecordEmailOtpEcdsaRestoreSource({
+    sealedRecord,
+    authorization,
+  });
   if (emailOtpAuthContextRetention(restoreSource.emailOtpAuthContext) !== 'session') return null;
 
   const workerCtx = args.getSignerWorkerContext();
@@ -293,7 +312,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     expiresAtMs: sealedRecord.expiresAtMs,
     transport: {
       relayerUrl: restoreSource.relayerUrl,
-      walletSessionJwt: restoreSource.walletSessionJwt,
+      walletSessionJwt: restoreSource.authorization.walletSessionJwt,
       signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
         restoreSource.signingSessionSealKeyVersion,
       ),
@@ -333,7 +352,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
         kind: 'route_authorized',
         routeAuth: {
           kind: 'wallet_session',
-          jwt: restoreSource.walletSessionJwt,
+          jwt: restoreSource.authorization.walletSessionJwt,
         },
       },
     }),

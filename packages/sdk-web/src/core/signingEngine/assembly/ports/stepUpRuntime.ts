@@ -18,6 +18,7 @@ import {
 } from '../../session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type StepUpRuntime = {
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
@@ -48,6 +49,8 @@ export function createStepUpRuntime(args: {
     signerWorkerManager: args.signerWorkerManager,
     getRpId: () => args.touchIdPrompt.getRpId(),
     getSignerWorkerContext: args.getSignerWorkerContext,
+    readActiveWalletSessionAuthorization:
+      walletSessionAuthorizations.readActiveForWallet.bind(walletSessionAuthorizations),
     provisionThresholdEcdsaSession: args.provisionThresholdEcdsaSession,
     provisionEmailOtpEcdsaExplicitExportSession:
       args.provisionEmailOtpEcdsaExplicitExportSession,
