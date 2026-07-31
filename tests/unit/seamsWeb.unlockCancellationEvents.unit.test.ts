@@ -22,13 +22,6 @@ import type { LoginWebContext } from '@/SeamsWeb/signingSurface/types';
 import { createUnlockFlowEvent, UnlockEventPhase } from '@/core/types/sdkSentEvents';
 import { toAccountId } from '@/core/types/accountIds';
 import {
-  clearStoredThresholdEd25519SessionRecordForLaneKey,
-  getStoredThresholdEd25519SessionRecordForAccount,
-  thresholdEd25519SessionRecordKeyFromRecord,
-  upsertThresholdEd25519SessionFact,
-} from '@/core/signingEngine/session/persistence/records';
-import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
-import {
   parseCapabilityInstanceRef,
   parseWalletAuthorityBindingDigest,
   parseWalletId,
@@ -96,37 +89,28 @@ async function listNoEcdsaCapabilitySubjects(): Promise<ActiveEcdsaWalletCapabil
   return { kind: 'resolved', subjects: [] };
 }
 
-function seedUnlockPasskeyWalletBinding(): void {
-  upsertThresholdEd25519SessionFact({
-    walletId: UNLOCK_WALLET_ID,
-    nearAccountId: UNLOCK_NEAR_ACCOUNT_ID,
-    nearEd25519SigningKeyId: UNLOCK_NEAR_ED25519_SIGNING_KEY_ID,
-    rpId: 'localhost',
-    passkeyCredentialIdB64u: 'cred-1',
-    relayerUrl: 'https://relay.example',
-    relayerKeyId: 'rk-1',
-    participantIds: [1, 2],
-    signerSlot: 1,
-    thresholdSessionKind: 'jwt',
-    thresholdSessionId: 'tsess-unlock-binding',
-    signingGrantId: 'grant-unlock-binding',
-    walletSessionJwt: 'jwt-unlock-binding',
-    expiresAtMs: Date.now() + 60_000,
-    remainingUses: 1,
-    signingRootId: 'proj_local:dev',
-    signingRootVersion: 'default',
-    routerAbNormalSigning: {
-      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-      signingWorkerId: 'signing-worker-test',
+async function listUnlockNearWalletSigners() {
+  return [
+    {
+      profileId: UNLOCK_WALLET_ID,
+      chainIdKey: '__wallet_subject__',
+      accountAddress: UNLOCK_WALLET_ID,
+      signerId: 'ed25519:unlock',
+      signerSlot: 1,
+      signerType: 'threshold',
+      signerKind: 'threshold-ed25519',
+      signerAuthMethod: 'passkey',
+      signerSource: 'passkey_registration',
+      status: 'active',
+      addedAt: Date.now(),
+      updatedAt: Date.now(),
+      metadata: {
+        walletId: UNLOCK_WALLET_ID,
+        nearAccountId: UNLOCK_NEAR_ACCOUNT_ID,
+        nearEd25519SigningKeyId: UNLOCK_NEAR_ED25519_SIGNING_KEY_ID,
+      },
     },
-    source: 'login',
-  });
-}
-
-function clearUnlockPasskeyWalletBinding(): void {
-  const record = getStoredThresholdEd25519SessionRecordForAccount(UNLOCK_NEAR_ACCOUNT_ID);
-  const laneKey = record ? thresholdEd25519SessionRecordKeyFromRecord(record) : null;
-  if (laneKey) clearStoredThresholdEd25519SessionRecordForLaneKey(laneKey);
+  ] as any;
 }
 
 test.describe('SeamsWeb unlock cancellation events', () => {
@@ -181,7 +165,6 @@ test.describe('SeamsWeb unlock cancellation events', () => {
     IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
       listResolvedEcdsaCapabilitySubjects;
     try {
-      seedUnlockPasskeyWalletBinding();
       const resolution = await resolveEvmFamilyEcdsaWalletUnlockSubjectSet(UNLOCK_WALLET_ID);
 
       expect(nearSignerQueries).toBe(0);
@@ -214,7 +197,6 @@ test.describe('SeamsWeb unlock cancellation events', () => {
         wantsEcdsaWarmup: true,
       });
     } finally {
-      clearUnlockPasskeyWalletBinding();
       IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
       IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
         originalListActiveWalletCapabilitySubjects;
@@ -354,11 +336,10 @@ test.describe('SeamsWeb unlock cancellation events', () => {
     const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
     const originalListActiveWalletCapabilitySubjects =
       IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects;
-    IndexedDBManager.listActiveWalletSigners = async () => [];
+    IndexedDBManager.listActiveWalletSigners = listUnlockNearWalletSigners;
     IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
       listResolvedEcdsaCapabilitySubjects;
     try {
-      seedUnlockPasskeyWalletBinding();
       const resolution = await resolveWalletUnlockSubjectSet({
         walletId: UNLOCK_WALLET_ID,
         requestedCapabilityFamilies: { kind: 'all_registered_mpc' },
@@ -402,7 +383,6 @@ test.describe('SeamsWeb unlock cancellation events', () => {
         wantsEcdsaWarmup: true,
       });
     } finally {
-      clearUnlockPasskeyWalletBinding();
       IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
       IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
         originalListActiveWalletCapabilitySubjects;
@@ -413,11 +393,10 @@ test.describe('SeamsWeb unlock cancellation events', () => {
     const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
     const originalListActiveWalletCapabilitySubjects =
       IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects;
-    IndexedDBManager.listActiveWalletSigners = async () => [];
+    IndexedDBManager.listActiveWalletSigners = listUnlockNearWalletSigners;
     IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
       listUnavailableEcdsaCapabilitySubjects;
     try {
-      seedUnlockPasskeyWalletBinding();
       const resolution = await resolveWalletUnlockSubjectSet({
         walletId: UNLOCK_WALLET_ID,
         requestedCapabilityFamilies: { kind: 'all_registered_mpc' },
@@ -429,7 +408,6 @@ test.describe('SeamsWeb unlock cancellation events', () => {
         reason: 'capability_subject_lookup_failed',
       });
     } finally {
-      clearUnlockPasskeyWalletBinding();
       IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
       IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
         originalListActiveWalletCapabilitySubjects;
@@ -440,11 +418,10 @@ test.describe('SeamsWeb unlock cancellation events', () => {
     const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
     const originalListActiveWalletCapabilitySubjects =
       IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects;
-    IndexedDBManager.listActiveWalletSigners = async () => [];
+    IndexedDBManager.listActiveWalletSigners = listUnlockNearWalletSigners;
     IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
       listInvalidEcdsaCapabilitySubjects;
     try {
-      seedUnlockPasskeyWalletBinding();
       const resolution = await resolveWalletUnlockSubjectSet({
         walletId: UNLOCK_WALLET_ID,
         requestedCapabilityFamilies: { kind: 'all_registered_mpc' },
@@ -456,7 +433,6 @@ test.describe('SeamsWeb unlock cancellation events', () => {
         reason: 'invalid_capability_subject',
       });
     } finally {
-      clearUnlockPasskeyWalletBinding();
       IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
       IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
         originalListActiveWalletCapabilitySubjects;
@@ -467,7 +443,7 @@ test.describe('SeamsWeb unlock cancellation events', () => {
     const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
     const originalListActiveWalletCapabilitySubjects =
       IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects;
-    IndexedDBManager.listActiveWalletSigners = async () => [];
+    IndexedDBManager.listActiveWalletSigners = listUnlockNearWalletSigners;
     IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
       listNoEcdsaCapabilitySubjects;
     const events: any[] = [];
@@ -477,7 +453,6 @@ test.describe('SeamsWeb unlock cancellation events', () => {
     const cancellation = new Error('The operation either timed out or was not allowed');
     cancellation.name = 'NotAllowedError';
 
-    seedUnlockPasskeyWalletBinding();
     try {
       const result = await unlock(
         {
@@ -543,18 +518,10 @@ test.describe('SeamsWeb unlock cancellation events', () => {
           message: "Login was cancelled. Please try again when you're ready to authenticate.",
         },
       });
-      expect(
-        getStoredThresholdEd25519SessionRecordForAccount(UNLOCK_NEAR_ACCOUNT_ID),
-      ).toMatchObject({
-        walletId: UNLOCK_WALLET_ID,
-        nearAccountId: UNLOCK_NEAR_ACCOUNT_ID,
-        nearEd25519SigningKeyId: UNLOCK_NEAR_ED25519_SIGNING_KEY_ID,
-      });
       expect(afterCalls).toEqual([false]);
       expect(onErrors).toEqual(['The operation either timed out or was not allowed']);
       expect(promptedCredentialIds).toEqual(['cred-1']);
     } finally {
-      clearUnlockPasskeyWalletBinding();
       IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
       IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
         originalListActiveWalletCapabilitySubjects;
@@ -565,7 +532,7 @@ test.describe('SeamsWeb unlock cancellation events', () => {
     const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
     const originalListActiveWalletCapabilitySubjects =
       IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects;
-    IndexedDBManager.listActiveWalletSigners = async () => [];
+    IndexedDBManager.listActiveWalletSigners = listUnlockNearWalletSigners;
     IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
       listNoEcdsaCapabilitySubjects;
     let promptCalls = 0;
@@ -580,7 +547,6 @@ test.describe('SeamsWeb unlock cancellation events', () => {
       authMethod: undefined,
     };
 
-    seedUnlockPasskeyWalletBinding();
     try {
       const result = await unlock(
         {
@@ -603,7 +569,6 @@ test.describe('SeamsWeb unlock cancellation events', () => {
       });
       expect(promptCalls).toBe(0);
     } finally {
-      clearUnlockPasskeyWalletBinding();
       IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
       IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
         originalListActiveWalletCapabilitySubjects;
@@ -614,12 +579,11 @@ test.describe('SeamsWeb unlock cancellation events', () => {
     const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
     const originalListActiveWalletCapabilitySubjects =
       IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects;
-    IndexedDBManager.listActiveWalletSigners = async () => [];
+    IndexedDBManager.listActiveWalletSigners = listUnlockNearWalletSigners;
     IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
       listNoEcdsaCapabilitySubjects;
     const events: any[] = [];
     let promptStarted = false;
-    seedUnlockPasskeyWalletBinding();
     try {
       const result = await unlock(
         {
@@ -668,7 +632,6 @@ test.describe('SeamsWeb unlock cancellation events', () => {
       );
       expect(events.map((event) => event.phase)).toContain(UnlockEventPhase.STEP_07_COMPLETED);
     } finally {
-      clearUnlockPasskeyWalletBinding();
       IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
       IndexedDbEcdsaCapabilityManifestStore.prototype.listActiveWalletCapabilitySubjects =
         originalListActiveWalletCapabilitySubjects;

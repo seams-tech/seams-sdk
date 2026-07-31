@@ -3,7 +3,6 @@ import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../packages/sdk-web/src/core
 import type { ClientUserData } from '../../packages/sdk-web/src/core/accountData/near/nearAccountData.types';
 import type { NearEd25519YaoSigningCapability } from '../../packages/sdk-web/src/core/signingEngine/interfaces/near';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import { clearAllStoredThresholdEd25519SessionRecords } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import { RouterAbEd25519YaoClientV1 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
 import { MinimalNearClient } from '../../packages/sdk-web/src/core/rpcClients/near/NearClient';
 import type {
@@ -511,7 +510,6 @@ function configureTestScenario(input: {
 }
 
 function setupSyncAccountTest(): void {
-  clearAllStoredThresholdEd25519SessionRecords();
   activeYaoScenario = null;
   activeFetchScenario = null;
   globalThis.fetch = syncAccountFetch;
@@ -519,7 +517,6 @@ function setupSyncAccountTest(): void {
 }
 
 function teardownSyncAccountTest(): void {
-  clearAllStoredThresholdEd25519SessionRecords();
   activeYaoScenario = null;
   activeFetchScenario = null;
   globalThis.fetch = originalFetch;

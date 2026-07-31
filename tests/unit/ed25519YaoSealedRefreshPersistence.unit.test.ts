@@ -1,17 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import {
-  buildPasskeyEd25519RestoreMetadata,
   persistPasskeyEd25519YaoSessionForRefresh,
   type PasskeyEd25519YaoSessionPersistencePort,
 } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
-import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
 import {
   authorizeRouterAbEd25519WalletSessionState,
-  resolveRouterAbEd25519WalletSessionStateFromRecord,
+  buildRouterAbEd25519WalletSessionStateFromExactRuntime,
 } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
-import { runtimeEd25519RouterAbNormalSigningState } from './helpers/availableSigningLanes.fixtures';
-import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import type { WarmSessionSealAndPersistResult } from '@/core/types/secure-confirm-worker';
 import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
@@ -20,12 +17,14 @@ import {
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { buildPasskeyEd25519SealedSessionRecordFixture } from './helpers/sealedSigningSession.fixtures';
 
-const WALLET_ID = 'wallet-ed25519-yao-sealed-refresh';
-const NEAR_ACCOUNT_ID = toAccountId('ed25519-yao-sealed-refresh.testnet');
-const NEAR_SIGNING_KEY_ID = 'near-ed25519-key-sealed-refresh';
-const THRESHOLD_SESSION_ID = 'threshold-session-ed25519-yao-sealed-refresh';
-const SIGNING_GRANT_ID = 'signing-grant-ed25519-yao-sealed-refresh';
+const SEALED_RECORD = buildPasskeyEd25519SealedSessionRecordFixture();
+const WALLET_ID = SEALED_RECORD.walletId;
+const NEAR_ACCOUNT_ID = toAccountId(SEALED_RECORD.ed25519Restore.nearAccountId);
+const NEAR_SIGNING_KEY_ID = SEALED_RECORD.ed25519Restore.nearEd25519SigningKeyId;
+const THRESHOLD_SESSION_ID = SEALED_RECORD.thresholdSessionIds.ed25519;
+const SIGNING_GRANT_ID = SEALED_RECORD.signingGrantId;
 
 type SessionPersistenceCall = { kind: 'hydrate' | 'persist'; input: unknown };
 
@@ -54,21 +53,6 @@ function sessionPersistenceCallKind(call: SessionPersistenceCall): SessionPersis
   return call.kind;
 }
 
-function buildWalletSessionJwt(): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(
-    JSON.stringify({
-      kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-      walletId: WALLET_ID,
-      nearAccountId: NEAR_ACCOUNT_ID,
-      nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-      thresholdSessionId: THRESHOLD_SESSION_ID,
-      signingGrantId: SIGNING_GRANT_ID,
-    }),
-  ).toString('base64url');
-  return `${header}.${payload}.fixture-signature`;
-}
-
 function buildPasskeyWalletSessionAuthorization(args: {
   expiresAtMs: number;
   walletSessionJwt?: string;
@@ -89,7 +73,7 @@ function buildPasskeyWalletSessionAuthorization(args: {
     authorizationSessionId: authorizationSessionId.value,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
-    walletSessionJwt: args.walletSessionJwt || buildWalletSessionJwt(),
+    walletSessionJwt: args.walletSessionJwt || SEALED_RECORD.ed25519Restore.walletSessionJwt,
     authMethod: 'passkey',
     authority,
     expiresAtMs: args.expiresAtMs,
@@ -97,50 +81,18 @@ function buildPasskeyWalletSessionAuthorization(args: {
 }
 
 function buildPasskeyYaoWalletSession() {
-  const expiresAtMs = Date.now() + 60_000;
-  const walletSessionJwt = buildWalletSessionJwt();
-  const runtimePolicyScope = {
-    orgId: 'org-sealed-refresh',
-    projectId: 'project-sealed-refresh',
-    envId: 'env-sealed-refresh',
-    signingRootVersion: 'root-v1',
+  const runtime = parseExactEd25519SealedSessionRuntime(SEALED_RECORD);
+  if (!runtime) throw new Error('failed to parse exact passkey Yao runtime fixture');
+  const session = buildRouterAbEd25519WalletSessionStateFromExactRuntime({
+    runtime,
+    walletSessionJwt: runtime.walletSessionJwt,
+    nowMs: runtime.expiresAtMs - 1,
+  });
+  return {
+    ed25519Restore: SEALED_RECORD.ed25519Restore,
+    expiresAtMs: runtime.expiresAtMs,
+    session,
   };
-  const routerAbNormalSigning = runtimeEd25519RouterAbNormalSigningState();
-  const ed25519Restore = buildPasskeyEd25519RestoreMetadata({
-    rpId: 'wallet.example.localhost',
-    nearAccountId: String(NEAR_ACCOUNT_ID),
-    nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-    relayerKeyId: 'ed25519-signing-worker-sealed-refresh',
-    participantIds: [1, 2],
-    runtimePolicyScope,
-    signerSlot: 1,
-    routerAbNormalSigning,
-    credentialIdB64u: 'credential-ed25519-yao-sealed-refresh',
-    walletSessionJwt,
-  });
-  const record = persistWarmSessionEd25519Capability({
-    kind: 'jwt_passkey',
-    walletId: WALLET_ID,
-    nearAccountId: NEAR_ACCOUNT_ID,
-    nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-    rpId: 'wallet.example.localhost',
-    relayerUrl: 'https://relay.example.test',
-    relayerKeyId: 'ed25519-signing-worker-sealed-refresh',
-    runtimePolicyScope,
-    participantIds: [1, 2],
-    signerSlot: 1,
-    routerAbNormalSigning,
-    sessionId: THRESHOLD_SESSION_ID,
-    signingGrantId: SIGNING_GRANT_ID,
-    expiresAtMs,
-    remainingUses: 3,
-    jwt: walletSessionJwt,
-    passkeyCredentialIdB64u: 'credential-ed25519-yao-sealed-refresh',
-    source: 'registration',
-  });
-  const session = resolveRouterAbEd25519WalletSessionStateFromRecord(record);
-  if (!session) throw new Error('failed to build passkey Yao Wallet Session fixture');
-  return { ed25519Restore, expiresAtMs, session };
 }
 
 test('persists and verifies a passkey Yao session seal for page refresh', async () => {
@@ -168,7 +120,7 @@ test('persists and verifies a passkey Yao session seal for page refresh', async 
       authMethod: 'passkey',
       walletId: WALLET_ID,
       signingGrantId: SIGNING_GRANT_ID,
-      walletSessionJwt: buildWalletSessionJwt(),
+      walletSessionJwt: SEALED_RECORD.ed25519Restore.walletSessionJwt,
       ed25519Restore: fixture.ed25519Restore,
     },
   });

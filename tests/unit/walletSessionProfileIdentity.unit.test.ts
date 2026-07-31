@@ -12,7 +12,6 @@ const IMPORT_PATHS = {
   indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
   ecdsaManifestStore:
     '/_test-sdk/esm/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.js',
-  thresholdSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
 } as const;
 
 async function exerciseCanonicalEcdsaRefreshReconciliation(input: {
@@ -98,13 +97,11 @@ test.describe('wallet session profile identity restore', () => {
       async ({ paths, availableLanes }) => {
         const loginMod = await import(paths.login);
         const indexedDbMod = await import(paths.indexedDB);
-        const thresholdSessionStore = await import(paths.thresholdSessionStore);
         const db = indexedDbMod.IndexedDBManager;
         const walletId = 'refresh-wallet-profile-identity';
         const nearAccountId = 'refresh-profile.testnet';
         const now = Date.now();
 
-        thresholdSessionStore.clearAllStoredThresholdEd25519SessionRecords();
         await db.upsertProfile({
           profileId: walletId,
           defaultSignerSlot: 1,
@@ -203,13 +200,11 @@ test.describe('wallet session profile identity restore', () => {
         const loginMod = await import(paths.login);
         const subjectMod = await import(paths.walletUnlockSubject);
         const indexedDbMod = await import(paths.indexedDB);
-        const thresholdSessionStore = await import(paths.thresholdSessionStore);
         const db = indexedDbMod.IndexedDBManager;
         const walletId = 'refresh-last-profile-wallet';
         const nearAccountId = 'refresh-last-profile.testnet';
         const now = Date.now();
 
-        thresholdSessionStore.clearAllStoredThresholdEd25519SessionRecords();
         await db.upsertProfile({
           profileId: walletId,
           defaultSignerSlot: 1,
@@ -315,7 +310,6 @@ test.describe('wallet session profile identity restore', () => {
         const loginMod = await import(paths.login);
         const subjectMod = await import(paths.walletUnlockSubject);
         const indexedDbMod = await import(paths.indexedDB);
-        const thresholdSessionStore = await import(paths.thresholdSessionStore);
         const db = indexedDbMod.IndexedDBManager;
         const walletId = 'refresh-near-profile-wallet';
         const nearProfileId = 'near-profile:refresh-near-profile.testnet';
@@ -337,7 +331,6 @@ test.describe('wallet session profile identity restore', () => {
           },
         };
 
-        thresholdSessionStore.clearAllStoredThresholdEd25519SessionRecords();
         await db.upsertProfile({
           profileId: walletId,
           defaultSignerSlot: 1,
@@ -468,7 +461,6 @@ test.describe('wallet session profile identity restore', () => {
       async ({ paths }) => {
         const loginMod = await import(paths.login);
         const subjectMod = await import(paths.walletUnlockSubject);
-        const thresholdSessionStore = await import(paths.thresholdSessionStore);
         const walletId = 'refresh-empty-wallet-selection';
         const warnings: unknown[][] = [];
         const originalWarn = console.warn;
@@ -477,7 +469,6 @@ test.describe('wallet session profile identity restore', () => {
         };
 
         try {
-          thresholdSessionStore.clearAllStoredThresholdEd25519SessionRecords();
           const context = {
             configs: {
               network: { chains: [] },

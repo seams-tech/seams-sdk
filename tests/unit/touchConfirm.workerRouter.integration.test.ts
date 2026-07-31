@@ -23,7 +23,6 @@ const IMPORT_PATHS = {
     '/_test-sdk/esm/core/signingEngine/uiConfirm/PasskeyMpcSessionManager.js',
   passkeyMpcExportManager:
     '/_test-sdk/esm/core/signingEngine/uiConfirm/PasskeyMpcExportManager.js',
-  thresholdSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/records.js',
   sealedSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
   availableSigningLanes:
     '/_test-sdk/esm/core/signingEngine/session/availability/availableSigningLanes.js',
@@ -623,7 +622,6 @@ test.describe('UserConfirm worker router', () => {
         const mod = await import(paths.touchConfirmManager);
         const sessionMod = await import(paths.passkeyMpcSessionManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
-        const sessionStoreMod = await import(paths.thresholdSessionStore);
         const sessionManager = sessionMod.createPasskeyMpcSessionManager({
           signingSessionPersistenceMode: 'sealed_refresh_v1',
           persistSigningSessionSealForThresholdSession: async () => null,
