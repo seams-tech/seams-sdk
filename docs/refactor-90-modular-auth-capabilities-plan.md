@@ -825,6 +825,10 @@ the replacement and legacy MPC paths must not ship together.
       authorization and its bearer claims, preserve expiry-before-exhaustion,
       and derive budget identity from the runtime rather than a composite
       record (`4ea6eccb7`).
+- [x] Hydrate Passkey Ed25519 local material after login from the exact sealed
+      runtime correlated to the returned Wallet Session and active JWT. Wallet
+      lock now clears volatile material without clearing the retired composite
+      record cache (`5a582a992`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
