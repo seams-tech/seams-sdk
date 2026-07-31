@@ -7,14 +7,14 @@ const EXPORT_VIEWER_TAG = 'w3a-export-key-viewer';
 const PRIVATE_KEY = `0x${'1'.repeat(64)}`;
 
 type ViewerSnapshot = {
+  accentColor: string;
   copyDisabled: boolean;
+  hasRippleTarget: boolean;
   innerHtml: string;
-  interSlotWhitespaceNodes: number;
-  prefix: string;
-  reelSlots: number;
-  reelText: string;
-  settledSlots: number;
-  targetGlyphs: number;
+  rippleTargetText: string;
+  tileAnimationName: string;
+  tileColor: string;
+  rippleTiles: number;
   text: string;
 };
 
@@ -33,21 +33,23 @@ async function viewerSnapshot(page: Page): Promise<ViewerSnapshot> {
     const copyButton = privateKeyField.matches('button')
       ? (privateKeyField as HTMLButtonElement)
       : (privateKeyField.querySelector('button') as HTMLButtonElement | null);
-    const reel = privateKeyField.querySelector('.private-key-reel');
+    const rippleTarget = privateKeyField.querySelector('.private-key-ripple-target');
+    const firstTile = privateKeyField.querySelector('.ripple-tile');
+    const tileStyle = firstTile ? getComputedStyle(firstTile) : null;
+    const accentProbe = document.createElement('span');
+    accentProbe.style.backgroundColor = 'var(--w3a-colors-accent)';
+    privateKeyField.append(accentProbe);
+    const accentColor = getComputedStyle(accentProbe).backgroundColor;
+    accentProbe.remove();
     return {
+      accentColor,
       copyDisabled: copyButton?.disabled ?? true,
+      hasRippleTarget: rippleTarget !== null,
       innerHtml: privateKeyField.innerHTML,
-      interSlotWhitespaceNodes:
-        reel === null
-          ? 0
-          : Array.from(reel.childNodes).filter(
-              (node) => node.nodeType === Node.TEXT_NODE && /\s/.test(node.textContent ?? ''),
-            ).length,
-      prefix: reel?.querySelector('.reel-prefix')?.textContent ?? '',
-      reelSlots: reel?.querySelectorAll('.reel-slot').length ?? 0,
-      reelText: reel?.textContent ?? '',
-      settledSlots: reel?.querySelectorAll('.reel-slot.settled').length ?? 0,
-      targetGlyphs: reel?.querySelectorAll('.reel-glyph-target').length ?? 0,
+      rippleTargetText: rippleTarget?.textContent ?? '',
+      rippleTiles: privateKeyField.querySelectorAll('.ripple-tile').length,
+      tileAnimationName: tileStyle?.animationName ?? '',
+      tileColor: tileStyle?.backgroundColor ?? '',
       text: privateKeyField.textContent ?? '',
     };
   }, EXPORT_VIEWER_TAG);
@@ -137,7 +139,7 @@ async function mountReadyViewer(page: Page): Promise<void> {
   await waitForPrivateKeyField(page);
 }
 
-test.describe('Export private key slot reveal', () => {
+test.describe('Export private key tile reveal', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page);
     await ensureComponentModule(page, {
@@ -146,31 +148,33 @@ test.describe('Export private key slot reveal', () => {
     });
   });
 
-  test('spins a fixed key scaffold and settles before enabling Copy', async ({ page }) => {
+  test('ripples a tile field and settles before enabling Copy', async ({ page }) => {
     await mountLoadingViewer(page);
 
     const loading = await viewerSnapshot(page);
     expect(loading.text).not.toContain('Decrypting…');
-    expect(loading.prefix).toBe('0x');
-    expect(loading.reelSlots).toBe(64);
-    expect(loading.interSlotWhitespaceNodes).toBe(0);
+    expect(loading.rippleTiles).toBe(128);
+    expect(loading.hasRippleTarget).toBe(false);
+    expect(loading.tileAnimationName).toBe('private-key-tile-ripple');
+    expect(loading.tileColor).toBe(loading.accentColor);
     expect(loading.copyDisabled).toBe(true);
 
     await updateViewerToReady(page);
 
     const settling = await viewerSnapshot(page);
-    expect(settling.reelSlots).toBe(64);
-    expect(settling.targetGlyphs).toBe(64);
+    expect(settling.rippleTiles).toBe(128);
+    expect(settling.hasRippleTarget).toBe(true);
+    expect(settling.rippleTargetText).toBe(`0x${'1'.repeat(20)}${'x'.repeat(24)}${'1'.repeat(20)}`);
     expect(settling.copyDisabled).toBe(true);
     expect(settling.innerHtml).not.toContain(PRIVATE_KEY);
 
     await expect
-      .poll(async () => (await viewerSnapshot(page)).settledSlots, {
+      .poll(async () => (await viewerSnapshot(page)).copyDisabled, {
         intervals: [25],
         timeout: 2_000,
       })
-      .toBe(64);
-    await expect.poll(async () => (await viewerSnapshot(page)).reelSlots).toBe(0);
+      .toBe(false);
+    await expect.poll(async () => (await viewerSnapshot(page)).rippleTiles).toBe(0);
     const settled = await viewerSnapshot(page);
     expect(settled.copyDisabled).toBe(false);
     expect(settled.text).toContain(`0x${'1'.repeat(20)}${'x'.repeat(24)}${'1'.repeat(20)}`);
@@ -184,13 +188,14 @@ test.describe('Export private key slot reveal', () => {
     const firstLoading = await viewerSnapshot(page);
     await page.waitForTimeout(150);
     const secondLoading = await viewerSnapshot(page);
-    expect(firstLoading.reelText).toBe(secondLoading.reelText);
+    expect(firstLoading.innerHtml).toBe(secondLoading.innerHtml);
+    expect(firstLoading.rippleTiles).toBe(128);
     expect(firstLoading.copyDisabled).toBe(true);
 
     await updateViewerToReady(page);
 
     const ready = await viewerSnapshot(page);
-    expect(ready.reelSlots).toBe(0);
+    expect(ready.rippleTiles).toBe(0);
     expect(ready.copyDisabled).toBe(false);
     expect(ready.innerHtml).not.toContain(PRIVATE_KEY);
   });
@@ -207,13 +212,13 @@ test.describe('Export private key slot reveal', () => {
     }, EXPORT_VIEWER_TAG);
 
     const failed = await viewerSnapshot(page);
-    expect(failed.reelSlots).toBe(0);
+    expect(failed.rippleTiles).toBe(0);
     expect(failed.copyDisabled).toBe(true);
 
     await mountReadyViewer(page);
 
     const ready = await viewerSnapshot(page);
-    expect(ready.reelSlots).toBe(0);
+    expect(ready.rippleTiles).toBe(0);
     expect(ready.copyDisabled).toBe(false);
     expect(ready.innerHtml).not.toContain(PRIVATE_KEY);
   });
