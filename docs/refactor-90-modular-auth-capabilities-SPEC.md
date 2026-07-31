@@ -225,6 +225,9 @@ implementing commit SHA as the evidence.
   - [x] Remaining positive provisioning-slot uses are confined to registration
     and publication boundaries; runtime shapes reject the field, and the
     zero-consumer bootstrap relayer port family is deleted (`a843d8dbc`).
+  - [x] The one-arm `ExactEcdsaExportSession` wrapper is deleted; exact ECDSA
+    export lanes directly carry their required state, target, factor, and
+    material-availability facts (`643dde348`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
   - [x] The canonical ECDSA operating-path proof completes persisted hydration,

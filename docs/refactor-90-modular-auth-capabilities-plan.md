@@ -689,6 +689,9 @@ the replacement and legacy MPC paths must not ship together.
       records and their type fixtures.
 - [x] Carry export authorization beside the exact export material lane instead
       of reading it from material identity.
+- [x] Flatten the one-arm `ExactEcdsaExportSession` wrapper into the exact
+      export lane so export state, target, factor, and material availability
+      have one required-field carrier (`643dde348`).
 - [x] Delete the redundant Passkey ECDSA export bootstrap identity after the
       exact export lane owns material identity; retain only the relayer URL
       required by the fresh-authorization operation.

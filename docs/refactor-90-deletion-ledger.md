@@ -65,8 +65,9 @@ replacement.
 
 ## Foundation A — tactical unions replaced by the shared hydration plan
 
-- `ExactEcdsaExportSession` (the `current session | public reauth authority`
-  union)
+- ~~`ExactEcdsaExportSession` (the `current session | public reauth authority`
+  union)~~ — deleted by `643dde348`; its sole canonical branch is flattened
+  into the required-field exact export lane
 - `EcdsaPublicReauthLane`
 - `EvmFamilySharedEcdsaState`
 - Near material-inspection unions superseded by the shared outcomes
