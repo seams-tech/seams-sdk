@@ -262,39 +262,3 @@ export function buildEmailOtpEcdsaMintingSession(args: {
     ...(authorizingSigningGrantId ? { authorizingSigningGrantId } : {}),
   };
 }
-
-export function signingGrantIdFromEcdsaBootstrap(
-  bootstrap: ThresholdEcdsaSessionBootstrapResult | undefined,
-  defaultSigningGrantId: string,
-): string {
-  const keyRef = bootstrap ? bootstrap.thresholdEcdsaKeyRef : undefined;
-  return (
-    String(bootstrap?.session?.signingGrantId || '').trim() ||
-    String(keyRef ? keyRef.signingGrantId : '').trim() ||
-    String(defaultSigningGrantId || '').trim()
-  );
-}
-
-export function ecdsaBootstrapWithSigningGrantId(args: {
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  signingGrantId: string;
-}): ThresholdEcdsaSessionBootstrapResult {
-  const signingGrantId = signingGrantIdFromEcdsaBootstrap(
-    args.bootstrap,
-    args.signingGrantId,
-  );
-  if (!signingGrantId) {
-    throw new Error('Email OTP ECDSA bootstrap is missing signing grant identity');
-  }
-  return {
-    ...args.bootstrap,
-    thresholdEcdsaKeyRef: {
-      ...args.bootstrap.thresholdEcdsaKeyRef,
-      signingGrantId,
-    },
-    session: {
-      ...args.bootstrap.session,
-      signingGrantId,
-    },
-  };
-}

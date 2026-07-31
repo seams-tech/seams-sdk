@@ -235,6 +235,13 @@ implementing commit SHA as the evidence.
     kind, Wallet Session bearer credentials, or the unused MPC-session alias;
     activation and worker producers no longer publish those projections
     (`f32baab61`).
+  - [x] The ECDSA bootstrap session branch is the sole owner of
+    threshold-session and signing-grant identity. Key-reference copies and
+    precedence/rewrite helpers are deleted, and publication rejects a worker
+    grant that differs from the requested grant (`3fdeba8b7`). Runtime policy
+    scope, Wallet Session bearer, and client verifying share are required; the
+    dead optional success base and its session/budget aliases are deleted
+    (`04221828c`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
   - [x] The canonical ECDSA operating-path proof completes persisted hydration,

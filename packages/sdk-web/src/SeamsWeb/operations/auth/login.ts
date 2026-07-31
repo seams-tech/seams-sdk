@@ -1962,16 +1962,13 @@ async function unlockInternal(
         passkeyExchangeEcdsaActivation: completedPasskeyExchangeEcdsaActivation,
       });
 
-      // Ed25519 status is read from the engine; ECDSA-only unlock derives it from bootstraps.
+      // Ed25519 status is read from the engine; ECDSA authorization is projected independently.
       if (warmupPlan.signersToWarm.includes('ed25519')) {
         const exactNearWalletBinding = requireNearLoginWalletBinding(walletIdentity);
         const warmStatus = await signingEngine
           .getWarmThresholdEd25519SessionStatus(exactNearWalletBinding.nearAccountId)
           .catch(() => null);
         signingSession = warmStatus || signingSession;
-      } else {
-        signingSession =
-          ecdsaOnlySigningSessionStatus(warmupResult.ecdsaBootstraps) || signingSession;
       }
       const activeSigningSession = requireActiveWarmSession('threshold warm-up');
 
@@ -2855,23 +2852,6 @@ function resolveThresholdLoginWarmEcdsaPrfFirstB64u(args: {
   );
 }
 
-function ecdsaOnlySigningSessionStatus(
-  bootstraps: readonly ThresholdEcdsaSessionBootstrapResult[],
-): SigningSessionStatus | null {
-  const session = bootstraps[0]?.session;
-  const sessionId = String(session?.sessionId || '').trim();
-  if (!session || !sessionId) return null;
-  return {
-    sessionId,
-    status: 'active',
-    authMethod: 'passkey',
-    remainingUses: session.remainingUses,
-    expiresAtMs: session.expiresAtMs,
-    ...(session.projectionVersion ? { projectionVersion: session.projectionVersion } : {}),
-    createdAtMs: Date.now(),
-  };
-}
-
 function buildLoginEd25519WalletSessionMintAuthorization(args: {
   routeAuthorization: LoginWarmupRouteAuthorization;
   credentialState: LoginWarmupCredentialState;
@@ -3207,11 +3187,7 @@ async function primeThresholdLoginWarmSigners(args: {
             String(bootstrap.passkeyCredentialIdB64u || '').trim() ||
             passkeyCredentialIdB64uFromAuthentication(credential || undefined) ||
             localPasskeyCredentialIdB64u;
-          const signingGrantId = String(
-            bootstrap.thresholdEcdsaKeyRef?.signingGrantId ||
-              bootstrap.session?.signingGrantId ||
-              '',
-          ).trim();
+          const signingGrantId = String(bootstrap.session.signingGrantId || '').trim();
           if (
             !thresholdEcdsaSessionJwt ||
             !passkeyPrfFirstB64u ||

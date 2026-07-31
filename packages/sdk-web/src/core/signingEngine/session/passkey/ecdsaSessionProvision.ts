@@ -657,9 +657,7 @@ export async function provisionThresholdEcdsaSessionFromBootstrapArgs(
   return await withThresholdEcdsaBootstrapQueue(deps.queueByWallet, walletId, async () => {
     const bootstrap = await bootstrapEcdsaSessionValue(deps.activationDeps, request);
     await persistEcdsaRoleLocalReadyRecordForBootstrap({ deps, bootstrap });
-    const thresholdSessionId = String(
-      bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '',
-    ).trim();
+    const thresholdSessionId = String(bootstrap.session.thresholdSessionId || '').trim();
     if (thresholdSessionId && shouldEnsurePasskeyEcdsaSealAfterProvision(request)) {
       const sealLane = await exactEcdsaSealLaneFromBootstrap({
         deps,

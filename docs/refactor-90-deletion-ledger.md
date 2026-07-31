@@ -292,6 +292,10 @@ Completed deletions that must stay absent:
 Replacement: capability-local Near/ECDSA material adapters, generic session
 ports, and the two-state recovery journal.
 
+- ~~`canonicalizeWorkerProvisionedBootstrap`,
+  `signingGrantIdFromEcdsaBootstrap`, and
+  `ecdsaBootstrapWithSigningGrantId`~~ — deleted by `3fdeba8b7`; bootstrap
+  session identity now has one required owner and publication validates it
 - `EmailOtpUnlockMaterialPlan`
 - ~~every combined two-curve request/result/commit object~~ — replaced by one
   unlock envelope containing exact sibling ECDSA and Ed25519-Yao outcomes in
@@ -574,6 +578,10 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~exact aliases for ECDSA signing authorization, activation request/result,
   bootstrap args, and sealed resolved identity~~ — consumers use their
   canonical types directly after `dfee38d07`
+- ~~optional `EcdsaSessionSuccess`, its unpopulated `sessionId`, bootstrap
+  budget-projection alias, and `ecdsaOnlySigningSessionStatus` reconstruction~~
+  — deleted by `04221828c`; the exact bootstrap session requires its runtime
+  policy, Wallet Session bearer, and client verifying share
 - ~~duplicate persisted Ed25519 capability fallback service locator~~ — deleted
   by `729ad4cdd`; the request-scoped product runtime owns persisted load,
   correlation, installation, and reread

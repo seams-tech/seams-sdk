@@ -26,7 +26,6 @@ import type { EmailOtpEcdsaReadyPersistInput } from '@/core/signingEngine/sessio
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { SigningSessionIds } from '../operationState/types';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from './persistedSnapshot';
-import { ecdsaBootstrapWithSigningGrantId } from './routePlan';
 import { requestSealEmailOtpWarmSessionMaterial } from './workerRequests';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
@@ -447,10 +446,10 @@ async function commitEmailOtpEcdsaPublicationLane(
   lane: EmailOtpEcdsaPublicationLane,
 ): Promise<CommittedEmailOtpEcdsaPublicationLane> {
   const timings = createEmailOtpEcdsaPublicationTimings();
-  const workerBootstrap = ecdsaBootstrapWithSigningGrantId({
-    bootstrap: lane.bootstrap,
-    signingGrantId: context.args.signingGrantId,
-  });
+  const workerBootstrap = lane.bootstrap;
+  if (workerBootstrap.session.signingGrantId !== context.args.signingGrantId) {
+    throw new Error('Email OTP ECDSA bootstrap returned mismatched signing grant identity');
+  }
   const commitStartedAtMs = nowMs();
   const result = await context.ports.commitEvmFamilyThresholdEcdsaSessions({
     walletId: context.args.walletId,
@@ -499,10 +498,8 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
 
   const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
   const session = args.bootstrap.session;
-  const thresholdSessionId = String(
-    session?.thresholdSessionId || keyRef.thresholdSessionId || '',
-  ).trim();
-  const signingGrantId = String(session?.signingGrantId || keyRef.signingGrantId || '').trim();
+  const thresholdSessionId = String(session.thresholdSessionId || '').trim();
+  const signingGrantId = String(session.signingGrantId || '').trim();
   const relayerUrl = String(args.relayerUrl || keyRef.relayerUrl || '').trim();
   if (args.groupId && args.groupId !== SIGNING_SESSION_SEAL_GROUP_ID) {
     throw new Error('Email OTP sealed refresh received an unsupported Shamir group');

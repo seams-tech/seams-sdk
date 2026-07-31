@@ -11,6 +11,14 @@ declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const bootstrap: ThresholdEcdsaSessionBootstrapResult;
 declare const ports: EmailOtpEcdsaSessionPorts;
 
+void bootstrap.session.runtimePolicyScope.projectId;
+void bootstrap.session.jwt.trim();
+void bootstrap.session.clientVerifyingShareB64u.trim();
+// @ts-expect-error The exact bootstrap session has no legacy session alias.
+void bootstrap.session.sessionId;
+// @ts-expect-error Client budget projection state is not bootstrap material state.
+void bootstrap.session.projectionVersion;
+
 const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
 walletId: 'wallet.testnet',
 emailHashHex: 'email-hash',
