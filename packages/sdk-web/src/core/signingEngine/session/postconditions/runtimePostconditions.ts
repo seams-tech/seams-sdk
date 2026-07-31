@@ -17,7 +17,6 @@ import { listNearEd25519TransactionReadyLanes } from '../identity/selectLane';
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 
 export type RuntimePostconditionSource = 'registration_finalize' | 'wallet_unlock';
-export type RuntimePostconditionAuthMethod = SigningSessionSealAuthMethod;
 
 export type RuntimePostconditionTarget =
   | { curve: 'ed25519'; chainTarget?: never }
@@ -33,7 +32,7 @@ export type RuntimePostconditionLaneState = 'ready' | 'restorable';
 export type UsableRuntimeLane =
   | {
       state: RuntimePostconditionLaneState;
-      authMethod: RuntimePostconditionAuthMethod;
+      authMethod: SigningSessionSealAuthMethod;
       target: { curve: 'ed25519'; chainTarget?: never };
       signingGrantId: string;
       thresholdSessionId: string;
@@ -43,7 +42,7 @@ export type UsableRuntimeLane =
     }
   | {
       state: RuntimePostconditionLaneState;
-      authMethod: RuntimePostconditionAuthMethod;
+      authMethod: SigningSessionSealAuthMethod;
       target: { curve: 'ecdsa'; chainTarget: ThresholdEcdsaChainTarget };
       authorizationSessionId: string;
       materialActivationId: string;
@@ -54,7 +53,7 @@ export type UsableRuntimeLane =
 
 export type WalletRuntimeInventory = {
   walletId: string;
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
   ed25519?: UsableRuntimeLane;
   ecdsaByTarget: ReadonlyMap<string, UsableRuntimeLane>;
 };
@@ -78,7 +77,7 @@ export type WalletRuntimePostconditionResult =
 
 type ReadPersistedAvailableSigningLanes = (args: {
   walletId: string | WalletId;
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
 }) => Promise<AvailableSigningLanes>;
 
 export class WalletRuntimePostconditionError extends Error {
@@ -131,7 +130,7 @@ function ed25519MaterialForTransactionReadyLane(
 
 function concreteEd25519CandidatesForAuth(args: {
   candidates: readonly AvailableEd25519SigningLane[];
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
 }): AvailableEd25519SigningLane[] {
   const matches: AvailableEd25519SigningLane[] = [];
   for (const candidate of args.candidates) {
@@ -145,7 +144,7 @@ function concreteEd25519CandidatesForAuth(args: {
 
 function transactionReadyEd25519CandidatesForAuth(args: {
   candidates: readonly NearEd25519TransactionReadyLane[];
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
 }): NearEd25519TransactionReadyLane[] {
   const matches: NearEd25519TransactionReadyLane[] = [];
   for (const candidate of args.candidates) {
@@ -167,7 +166,7 @@ function hasEd25519TransactionReadyState(
 
 function readReadyEd25519Lane(args: {
   lanes: AvailableSigningLanes;
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
   nowMs: number;
 }): UsableRuntimeLane | WalletRuntimePostconditionFailureCode {
   const candidates = args.lanes.candidates.ed25519.near;
@@ -226,7 +225,7 @@ function readReadyEd25519Lane(args: {
 function readEcdsaUseCaseReadyLane(args: {
   lanes: AvailableSigningLanes;
   chainTarget: ThresholdEcdsaChainTarget;
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
   nowMs: number;
 }): UsableRuntimeLane | WalletRuntimePostconditionFailureCode {
   const targetKey = thresholdEcdsaChainTargetKey(args.chainTarget);
@@ -256,7 +255,7 @@ function readEcdsaUseCaseReadyLane(args: {
 export async function readWalletRuntimePostconditions(args: {
   source: RuntimePostconditionSource;
   walletId: string | WalletId;
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
   requiredTargets: readonly RuntimePostconditionTarget[];
   readPersistedAvailableSigningLanes: ReadPersistedAvailableSigningLanes;
   nowMs?: number;
@@ -439,7 +438,7 @@ export function compareWalletRuntimeInventories(args: {
 export async function assertWalletRuntimePostconditions(args: {
   source: RuntimePostconditionSource;
   walletId: string | WalletId;
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
   requiredTargets: readonly RuntimePostconditionTarget[];
   readPersistedAvailableSigningLanes: ReadPersistedAvailableSigningLanes;
   nowMs?: number;

@@ -13,8 +13,8 @@ import {
   assertWalletRuntimePostconditions,
   compareWalletRuntimeInventories,
   readWalletRuntimePostconditions,
-  type RuntimePostconditionAuthMethod,
 } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
+import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { canonicalEcdsaAvailableLane } from './helpers/availableSigningLanes.fixtures';
@@ -61,7 +61,7 @@ type TestLaneOptions = {
 
 function ed25519Lane(
   suffix: string,
-  authMethod: RuntimePostconditionAuthMethod = 'email_otp',
+  authMethod: SigningSessionSealAuthMethod = 'email_otp',
   options: TestLaneOptions = {},
 ): ConcreteAvailableEd25519SigningLane {
   return {
@@ -85,7 +85,7 @@ function ed25519Lane(
 function ecdsaLane(
   _suffix: string,
   chainTarget: ThresholdEcdsaChainTarget,
-  authMethod: RuntimePostconditionAuthMethod = 'email_otp',
+  authMethod: SigningSessionSealAuthMethod = 'email_otp',
   options: TestLaneOptions = {},
 ): ReturnType<typeof canonicalEcdsaAvailableLane> {
   return canonicalEcdsaAvailableLane({
@@ -103,7 +103,7 @@ function ecdsaLane(
 
 function availableLanes(
   suffix: string,
-  authMethod: RuntimePostconditionAuthMethod = 'email_otp',
+  authMethod: SigningSessionSealAuthMethod = 'email_otp',
   options: TestLaneOptions = {},
 ): AvailableSigningLanes {
   const tempoEcdsa = ecdsaLane(`${suffix}-tempo`, TARGET, authMethod, options);
