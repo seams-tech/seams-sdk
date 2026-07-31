@@ -5,7 +5,6 @@ import type {
   CurrentEcdsaSealedSessionRecord,
   EcdsaInactiveMaterialPublicRestore,
   EcdsaInactiveSealedMaterialRecord,
-  SealedStoreResolvedSigningSessionIdentity,
   UpdateExactSealedSessionPolicyInput,
 } from './sealedSessionStore';
 import type {
@@ -329,18 +328,6 @@ const invalidEcdsaWriteSigningRootVersionInput: BuildCurrentEcdsaSealedSessionRe
   signingRootVersion: 'root-version-ecdsa',
 };
 void invalidEcdsaWriteSigningRootVersionInput;
-
-// @ts-expect-error resolved runtime identity publication requires an explicit lifecycle timestamp.
-const invalidPublishResolvedIdentityWithoutUpdatedAtMs: SealedStoreResolvedSigningSessionIdentity =
-  {
-    walletId: 'wallet.testnet',
-    authMethod: 'passkey',
-    curve: 'ed25519',
-    chain: 'near',
-    signingGrantId: 'wsess-ed25519',
-    thresholdSessionId: 'tsess-ed25519',
-  };
-void invalidPublishResolvedIdentityWithoutUpdatedAtMs;
 
 // @ts-expect-error sealed-session policy updates require an explicit lifecycle timestamp.
 const invalidPolicyUpdateWithoutUpdatedAtMs: UpdateExactSealedSessionPolicyInput = {

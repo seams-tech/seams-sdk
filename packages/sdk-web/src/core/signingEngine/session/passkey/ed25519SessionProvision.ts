@@ -13,9 +13,6 @@ import {
   buildPasskeyEd25519RestoreMetadata,
 } from './ed25519YaoSealedSession';
 import type { PasskeyEd25519SealRestoreMetadata } from '@/core/types/secure-confirm-worker';
-import { publishResolvedIdentity } from '../persistence/sealedSessionStore';
-import type { ThresholdEd25519SessionStoreSource } from '../identity/laneIdentity';
-import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 
@@ -73,24 +70,6 @@ function passkeyCredentialIdB64uFromAuthority(
     throw new Error('[threshold-ed25519] passkey authority credential id is required');
   }
   return credentialIdB64u;
-}
-
-function signerAuthMethodForEd25519ProvisionSource(
-  source: ThresholdEd25519SessionStoreSource,
-): SignerAuthMethod {
-  switch (source) {
-    case 'email_otp':
-      return 'email_otp';
-    case 'login':
-    case 'registration':
-    case 'add-signer':
-    case 'manual-connect':
-    case 'bootstrap':
-      return 'passkey';
-    default:
-      source satisfies never;
-      throw new Error('[threshold-ed25519] unsupported session source');
-  }
 }
 
 function resolveEd25519ProvisionProtocol(
@@ -274,16 +253,6 @@ export async function provisionThresholdEd25519Session(
       };
     }
   }
-
-  publishResolvedIdentity({
-    walletId: protocol.walletId,
-    authMethod: signerAuthMethodForEd25519ProvisionSource(args.source),
-    curve: 'ed25519',
-    chain: 'near',
-    signingGrantId,
-    thresholdSessionId: resolvedSessionId,
-    updatedAtMs: Date.now(),
-  });
 
   return {
     ok: true,
