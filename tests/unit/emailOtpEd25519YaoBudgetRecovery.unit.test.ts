@@ -120,6 +120,8 @@ function walletSessionJwt(version: string, signingGrantId = SIGNING_GRANT_ID): s
     walletId: String(WALLET_ID),
     nearAccountId: String(NEAR_ACCOUNT_ID),
     nearEd25519SigningKeyId: String(NEAR_ED25519_SIGNING_KEY_ID),
+    walletSessionId: WALLET_SESSION_ID,
+    quotaId: WALLET_SESSION_QUOTA_ID,
     thresholdSessionId: THRESHOLD_SESSION_ID,
     signingGrantId,
     relayerKeyId: SIGNING_WORKER_ID,

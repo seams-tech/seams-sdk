@@ -287,6 +287,8 @@ export function ed25519SigningGrantForAuthorization(args: {
     claims.walletId !== args.runtime.walletId ||
     claims.nearAccountId !== args.runtime.nearAccountId ||
     claims.nearEd25519SigningKeyId !== args.runtime.nearEd25519SigningKeyId ||
+    claims.walletSessionId !== args.authorization.walletSessionId ||
+    claims.quotaId !== args.authorization.quotaId ||
     claims.thresholdSessionId !== args.runtime.thresholdSessionId
   ) {
     return null;

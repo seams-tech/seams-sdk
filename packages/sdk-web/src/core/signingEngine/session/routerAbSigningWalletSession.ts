@@ -89,6 +89,8 @@ export type RouterAbEd25519WalletSessionIdentityClaims = {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
+  walletSessionId: string;
+  quotaId: string;
   thresholdSessionId: string;
   signingGrantId: string;
 };
@@ -101,12 +103,16 @@ export function parseRouterAbEd25519WalletSessionIdentityClaims(
   const walletId = nonEmptyString(payload.walletId);
   const nearAccountId = nonEmptyString(payload.nearAccountId);
   const nearEd25519SigningKeyId = nonEmptyString(payload.nearEd25519SigningKeyId);
+  const walletSessionId = nonEmptyString(payload.walletSessionId);
+  const quotaId = nonEmptyString(payload.quotaId);
   const thresholdSessionId = nonEmptyString(payload.thresholdSessionId);
   const signingGrantId = nonEmptyString(payload.signingGrantId);
   if (
     !walletId ||
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
+    !walletSessionId ||
+    !quotaId ||
     !thresholdSessionId ||
     !signingGrantId
   ) {
@@ -116,6 +122,8 @@ export function parseRouterAbEd25519WalletSessionIdentityClaims(
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
+    walletSessionId,
+    quotaId,
     thresholdSessionId,
     signingGrantId,
   };
