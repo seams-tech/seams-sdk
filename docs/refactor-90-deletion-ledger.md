@@ -603,6 +603,8 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   deleted by `d51f1da06`; the canonical existing-key resolver remains live
 - ~~zero-caller `exactSealedSessionIdentityFromFilter` converter~~ — deleted by
   `45a4222b2`; the canonical sealed-session filter remains the boundary
+- ~~zero-caller `ecdsaCapabilityManifestIdentity` projection~~ — deleted by
+  `19ec99d94`; manifest identity builders remain the canonical path
 - ~~zero-caller `buildReauthAnchorIdentityFromEcdsaLaneCandidate` fallback and
   its candidate-only freshness helpers~~ — deleted by `24e0c2335`; live
   reauth uses the canonical available-lane builder

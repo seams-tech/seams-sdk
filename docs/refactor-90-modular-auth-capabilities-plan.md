@@ -1144,6 +1144,8 @@ the replacement and legacy MPC paths must not ship together.
         the canonical existing-key resolver remains live (`d51f1da06`).
   - [x] Delete the zero-caller sealed-session identity converter; the live
         sealed-session filter remains the persistence boundary (`45a4222b2`).
+  - [x] Delete the zero-caller ECDSA manifest identity projection; manifest
+        identity builders remain the canonical construction path (`19ec99d94`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
