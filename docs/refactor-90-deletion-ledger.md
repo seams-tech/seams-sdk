@@ -617,6 +617,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~zero-caller `resolveActiveEcdsaCapabilityRuntimeForSealedRecord` wrapper~~ —
   deleted by `3f251b7cb`; active resolution uses canonical wallet/target or
   chain-kind selectors
+- ~~zero-caller `exactSealedSessionIdentityFromRecoveryRecord` converter~~ —
+  deleted by `750138097`; recovery commands use the canonical exact identity
+  boundary directly
 - ~~stale registration/key-brand source-guard blocks for deleted persistence,
   lifecycle, and Shamir-seal paths~~ — retired by `703fa1d95`; remaining guard
   checks target live registration, branding, and WebAuthn boundaries

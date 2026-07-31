@@ -1157,6 +1157,9 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete the zero-caller sealed-record runtime wrapper; active runtime
         resolution uses the wallet/target or chain-kind canonical selectors
         (`3f251b7cb`).
+  - [x] Delete the zero-caller recovery-record-to-session identity converter;
+        recovery commands accept the canonical exact identity directly
+        (`750138097`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
