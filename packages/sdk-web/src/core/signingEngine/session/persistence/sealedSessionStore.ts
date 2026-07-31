@@ -411,6 +411,18 @@ function normalizeStoredSigningGrantId(value: unknown): string | undefined {
   return normalizeOptionalNonEmptyString(obj.signingGrantId);
 }
 
+function hasRawSigningGrantField(value: unknown): boolean {
+  const obj =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  if (!obj) return false;
+  return (
+    Object.prototype.hasOwnProperty.call(obj, 'signingGrantId') ||
+    Object.prototype.hasOwnProperty.call(obj, 'signing_grant_id')
+  );
+}
+
 function normalizeCurve(value: unknown): 'ed25519' | 'ecdsa' | undefined {
   const curve = String(value || '').trim();
   return curve === 'ed25519' || curve === 'ecdsa' ? curve : undefined;
@@ -1139,8 +1151,16 @@ async function classifyPersistedSealedRecord(
     return classification;
   }
   const raw = asRawSealedSessionRecord(payload);
+  const rawRow = asRawSealedSessionRecord(entry.value);
+  const hasGrantResidue = hasRawSigningGrantField(rawRow) || hasRawSigningGrantField(raw);
   const persistedStoreKey = normalizeOptionalNonEmptyString(raw?.storeKey);
   if (!persistedStoreKey || persistedStoreKey === classification.record.storeKey) {
+    if (classification.record.curve === 'ed25519' && hasGrantResidue) {
+      await signingSessionSealsRepository.replaceSealedRecord({
+        row: sealedRecordStorageRow(classification.record),
+        staleStoreKeys: [String(entry.primaryKey)],
+      });
+    }
     return classification;
   }
   const legacySigningGrantId = normalizeStoredSigningGrantId(raw);

@@ -1579,6 +1579,76 @@ test.describe('signing session sealed store', () => {
     expect(result.signingGrantId).toBeUndefined();
   });
 
+  test('scrubs grant residue from a canonical Ed25519 sealed row', async ({ page }) => {
+    const source = buildPasskeyEd25519SealedSessionRecordFixture({
+      thresholdSessionId: 'canonical-ed25519-grant-residue',
+    });
+    const result = await page.evaluate(
+      async ({ paths, source }) => {
+        const mod = await import(paths.sealedSessionStore);
+        await mod.clearAllSealedSessions();
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open('seams_wallet');
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        const write = db.transaction('signing_session_seals', 'readwrite');
+        write.objectStore('signing_session_seals').put({
+          store_key: source.storeKey,
+          wallet_id: source.walletId,
+          auth_method: source.authMethod,
+          curve: source.curve,
+          signing_grant_id: 'stale-wrapper-grant',
+          ed25519_threshold_session_id: source.thresholdSessionIds.ed25519,
+          threshold_session_id: source.thresholdSessionIds.ed25519,
+          expires_at_ms: source.expiresAtMs,
+          updated_at: source.updatedAtMs,
+          sealed_record: {
+            ...source,
+            signingGrantId: 'stale-payload-grant',
+          },
+        });
+        await new Promise<void>((resolve, reject) => {
+          write.oncomplete = () => resolve();
+          write.onerror = () => reject(write.error);
+          write.onabort = () => reject(write.error);
+        });
+
+        const readRecord = await mod.readExactSealedSession(source.thresholdSessionIds.ed25519, {
+          authMethod: 'passkey',
+          curve: 'ed25519',
+        });
+        const read = db.transaction('signing_session_seals', 'readonly');
+        const raw = await new Promise<Record<string, unknown> | undefined>((resolve, reject) => {
+          const request = read.objectStore('signing_session_seals').get(source.storeKey);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        await new Promise<void>((resolve, reject) => {
+          read.oncomplete = () => resolve();
+          read.onerror = () => reject(read.error);
+          read.onabort = () => reject(read.error);
+        });
+        db.close();
+        const payload = raw?.sealed_record;
+        return {
+          readStoreKey: readRecord?.storeKey,
+          hasWrapperGrant: Boolean(raw && Object.hasOwn(raw, 'signing_grant_id')),
+          hasPayloadGrant: Boolean(
+            payload && typeof payload === 'object' && Object.hasOwn(payload, 'signingGrantId'),
+          ),
+        };
+      },
+      { paths: IMPORT_PATHS, source },
+    );
+
+    expect(result).toEqual({
+      readStoreKey: source.storeKey,
+      hasWrapperGrant: false,
+      hasPayloadGrant: false,
+    });
+  });
+
   test('clearAll removes all IndexedDB sealed records', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
