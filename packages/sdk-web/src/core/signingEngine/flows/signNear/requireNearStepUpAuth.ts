@@ -15,7 +15,10 @@ import type {
   NearPasskeyOperationStepUpPlan,
 } from '@/core/signingEngine/interfaces/near';
 import type { NearTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
-import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
+import {
+  signingLaneAuthMethod,
+  type SigningLaneAuthBinding,
+} from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 
 type NearPreparedStepUpAuthBase = {
   confirmationAuthPayload: { signingAuthPlan: SigningAuthPlan };
@@ -51,7 +54,7 @@ export type NearPreparedStepUpAuth =
 
 export async function requireNearStepUpAuth(args: {
   signingAuthPlan: SigningAuthPlan;
-  signingLane: NearTransactionSigningLane;
+  signingLaneAuth: SigningLaneAuthBinding;
   requiredSignatureUses: number;
   passkeyEd25519OperationStepUp?: NearPasskeyEd25519OperationStepUpHook | null;
   emailOtpEd25519StepUp?: NearEmailOtpEd25519StepUpHook | null;
@@ -69,7 +72,7 @@ export async function requireNearStepUpAuth(args: {
       kind: 'near_ed25519_step_up' as const,
       requiredSignatureUses: args.requiredSignatureUses,
     },
-    selectedLane: { authMethod: signingLaneAuthMethod(args.signingLane.auth) },
+    selectedLane: { authMethod: signingLaneAuthMethod(args.signingLaneAuth) },
     policy: stepUpPolicyFromSigningAuthPlan(args.signingAuthPlan),
     methods: {
       ...(args.emailOtpEd25519StepUp
@@ -144,6 +147,20 @@ export async function requireNearStepUpAuth(args: {
       plannedPasskeyOperationStepUp,
     ),
   };
+}
+
+export function signingAuthPlanForNearMaterialRequirement(
+  auth: SigningLaneAuthBinding,
+): SigningAuthPlan {
+  switch (auth.kind) {
+    case 'passkey':
+      return { kind: 'passkeyReauth', method: 'passkey' };
+    case 'email_otp':
+      return { kind: 'emailOtpReauth', method: 'email_otp' };
+    default:
+      auth satisfies never;
+      throw new Error('[SigningEngine][near] unsupported material auth requirement');
+  }
 }
 
 async function completeNearEmailOtpPreparation(): Promise<void> {}

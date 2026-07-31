@@ -71,7 +71,8 @@ export type ThresholdEd25519SessionStoreSource =
   | 'add-signer'
   | 'manual-connect'
   | 'bootstrap'
-  | 'email_otp';
+  | 'email_otp'
+  | 'sealed_restore';
 
 export type ThresholdEcdsaEmailOtpAuthContext = {
   policy: EmailOtpAuthPolicy;

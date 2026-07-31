@@ -36,13 +36,19 @@ import {
   resolveNearSigningSessionAuthContext,
   SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/signingSessionAuthMode';
-import { isWarmSessionSigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
+import {
+  isWarmSessionSigningAuthPlan,
+  type SigningAuthPlan,
+} from '@/core/signingEngine/stepUpConfirmation/types';
 import { planSigningSession } from '../../session/planning/planner';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import {
   SigningOperationIntent,
+  SigningSessionPlanKind,
   SigningSessionIds,
+  type DeferredEd25519MaterialIdentity,
   type SigningOperationContext,
+  type SigningSessionPlan,
 } from '../../session/operationState/types';
 import {
   parseThresholdEd25519NearAction,
@@ -58,16 +64,21 @@ import {
   confirmationConfigForSigningAuthPlan,
   runSigningConfirmationCommand,
 } from '../shared/signingConfirmation';
-import { requireNearStepUpAuth } from './requireNearStepUpAuth';
+import {
+  requireNearStepUpAuth,
+  signingAuthPlanForNearMaterialRequirement,
+} from './requireNearStepUpAuth';
 import type {
   NearDelegateActionPayload,
   NearEd25519StepUpAuthorization,
 } from '../../interfaces/near';
+import { nearEd25519SignerBindingFromBoundaryFields } from '../../session/identity/exactSigningLaneIdentity';
 import {
   buildNearEd25519OperationStepUpProof,
   finalizeThresholdEd25519DelegateSignatureResult,
   prepareRouterAbEd25519SignatureOnlyOperationStepUp,
   requireNearEd25519OperationStepUpProof,
+  selectedNearEd25519LaneFromOperationStepUp,
   tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning,
 } from './shared/ed25519YaoNormalSigning';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
@@ -228,17 +239,19 @@ export async function runNearDelegateActionSigning({
   signerSlot,
   signingSessionCoordinator,
   forceFreshAuth,
-  selectedLane,
   passkeyEd25519OperationStepUp,
   emailOtpEd25519StepUp,
   yaoSigningPreparation,
   yaoMaterialExecutor,
+  selection,
 }: NearDelegateActionPayload): Promise<{
   signedDelegate: WasmSignedDelegate;
   hash: string;
   nearAccountId: AccountId;
   logs?: string[];
 }> {
+  const selectionAuth =
+    selection.kind === 'authorized' ? selection.selectedLane.auth : selection.candidate.auth;
   const nearAccountId = toAccountId(nearAccount.accountId);
   const relayerUrl = ctx.relayerUrl;
 
@@ -255,27 +268,65 @@ export async function runNearDelegateActionSigning({
     throw new Error('UiConfirm bridge not available for delegate signing');
   }
   const requiredSignatureUses = 1;
-  const signingSessionAuthContext = resolveNearSigningSessionAuthContext({
-    requiredSignatureUses,
-    commandSubject,
-    forceFreshAuth,
-    selectedLane,
-    preparation: yaoSigningPreparation,
-  });
-  const resolvedSigningSession = {
-    signingSessionPlan: planSigningSession({
-      lane: signingSessionAuthContext.coordinatorInput.lane,
+  let signingAuthPlan: SigningAuthPlan;
+  let signingSessionPlan: SigningSessionPlan;
+  if (selection.kind === 'authorized') {
+    const selectedLane = selection.selectedLane;
+    const signingSessionAuthContext = resolveNearSigningSessionAuthContext({
+      requiredSignatureUses,
+      commandSubject,
+      forceFreshAuth,
+      selectedLane,
+      preparation: yaoSigningPreparation,
+    });
+    const resolvedSigningSession = {
+      signingSessionPlan: planSigningSession({
+        lane: signingSessionAuthContext.coordinatorInput.lane,
+        readiness: signingSessionAuthContext.coordinatorInput.readiness,
+        forceFreshAuth: signingSessionAuthContext.coordinatorInput.forceFreshAuth,
+      }),
       readiness: signingSessionAuthContext.coordinatorInput.readiness,
-      forceFreshAuth: signingSessionAuthContext.coordinatorInput.forceFreshAuth,
-    }),
-    readiness: signingSessionAuthContext.coordinatorInput.readiness,
-    expiresAtMs: signingSessionAuthContext.coordinatorInput.expiresAtMs || 0,
-    remainingUses: signingSessionAuthContext.coordinatorInput.remainingUses || 0,
-  };
-  const signingSessionAuthPlan = buildNearSigningSessionAuthPlan({
-    context: signingSessionAuthContext,
-    resolvedSigningSession: resolvedSigningSession,
-  });
+      expiresAtMs: signingSessionAuthContext.coordinatorInput.expiresAtMs || 0,
+      remainingUses: signingSessionAuthContext.coordinatorInput.remainingUses || 0,
+    };
+    signingSessionPlan = resolvedSigningSession.signingSessionPlan;
+    const signingSessionAuthPlan = buildNearSigningSessionAuthPlan({
+      context: signingSessionAuthContext,
+      resolvedSigningSession,
+    });
+    signingAuthPlan = signingSessionAuthPlan.signingAuthPlan;
+  } else {
+    signingAuthPlan = signingAuthPlanForNearMaterialRequirement(selectionAuth);
+    const candidate = selection.candidate;
+    const deferredIdentity: DeferredEd25519MaterialIdentity = {
+      kind: 'deferred_ed25519_material_identity',
+      signer: nearEd25519SignerBindingFromBoundaryFields({
+        walletId: candidate.walletId,
+        nearAccountId: candidate.nearAccountId,
+        nearEd25519SigningKeyId: candidate.nearEd25519SigningKeyId,
+        signerSlot: candidate.signerSlot,
+      }),
+      auth: candidate.auth,
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+        candidate.thresholdSessionId,
+      ),
+    };
+    signingSessionPlan = {
+      kind: SigningSessionPlanKind.OperationStepUp,
+      lane: {
+        identity: deferredIdentity,
+        auth: candidate.auth,
+        curve: 'ed25519',
+        keyKind: 'threshold_ed25519',
+        chainFamily: 'near',
+        sessionOrigin: 'per_operation',
+        storageSource: 'sealed_restore',
+        retention: 'single_use',
+        runtimeState: 'no_runtime_material',
+        thresholdSessionId: deferredIdentity.thresholdSessionId,
+      },
+    };
+  }
 
   emitNearSigningEvent(onEvent, nearAccountId, {
     phase: SigningEventPhase.STEP_02_REQUEST_PREPARED,
@@ -329,14 +380,14 @@ export async function runNearDelegateActionSigning({
     execute: () => Promise<T>;
   }): Promise<T> =>
     await runSigningOperationCommand({
-      signingSessionPlan: resolvedSigningSession.signingSessionPlan,
+      signingSessionPlan,
       signingOperation,
       commandKind: args.commandKind,
       execute: args.execute,
     });
   const preparedStepUp = await requireNearStepUpAuth({
-    signingAuthPlan: signingSessionAuthPlan.signingAuthPlan,
-    signingLane: signingSessionAuthPlan.lane,
+    signingAuthPlan,
+    signingLaneAuth: selectionAuth,
     requiredSignatureUses,
     passkeyEd25519OperationStepUp,
     emailOtpEd25519StepUp,
@@ -412,7 +463,7 @@ export async function runNearDelegateActionSigning({
   let confirmation;
   try {
     confirmation = await runSigningConfirmationCommand({
-      signingSessionPlan: resolvedSigningSession.signingSessionPlan,
+      signingSessionPlan,
       signingOperation,
       runtime: touchConfirm,
       request: {
@@ -462,7 +513,7 @@ export async function runNearDelegateActionSigning({
       : buildNearEd25519OperationStepUpProof({
           authorization: stepUpAuthorization,
           preparation: yaoSigningPreparation,
-          auth: selectedLane.auth,
+          auth: selectionAuth,
           walletId: commandSubject.walletSession.walletId,
         });
   const preparedOperationStepUp =
@@ -605,9 +656,19 @@ export async function runNearDelegateActionSigning({
             },
           });
     if (routerAbNormalSigningResult) {
+      const postGrantLane =
+        resolvedMaterial.kind === 'operation_step_up' &&
+        routerAbNormalSigningResult.authorization === 'operation_step_up'
+          ? selectedNearEd25519LaneFromOperationStepUp({
+              materialFacts: resolvedMaterial.resolved.material.facts,
+              auth: selectionAuth,
+              prepared: requirePreparedNearDelegateOperationStepUp(preparedOperationStepUp),
+              issuedGrant: routerAbNormalSigningResult.issuedGrant,
+            })
+          : null;
       const delegateResult = await finalizeThresholdEd25519DelegateSignatureResult({
         ctx,
-        thresholdSessionId: canonicalThresholdSessionId,
+        thresholdSessionId: postGrantLane?.thresholdSessionId || canonicalThresholdSessionId,
         delegate: delegatePayload,
         signingDigestB64u,
         signatureB64u: routerAbNormalSigningResult.signatureB64u,

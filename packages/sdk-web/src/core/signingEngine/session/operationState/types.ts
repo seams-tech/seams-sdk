@@ -20,7 +20,10 @@ import type {
   ExactEd25519SigningLaneIdentity,
   ExactSigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
-import { exactSigningLaneIdentityKey } from '../identity/exactSigningLaneIdentity';
+import {
+  deferredEd25519MaterialIdentityKey,
+  exactSigningLaneIdentityKey,
+} from '../identity/exactSigningLaneIdentity';
 import {
   signingLaneAuthMethod,
   type SigningLaneAuthBinding,
@@ -49,6 +52,7 @@ export type {
 } from '@shared/utils/domainIds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
 
 export type Brand<TValue, TBrand extends string> = TValue & { readonly __brand: TBrand };
 
@@ -119,6 +123,29 @@ export type Ed25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane &
     thresholdSessionId: ThresholdEd25519SessionId;
   };
 
+export type DeferredEd25519MaterialIdentity = {
+  readonly kind: 'deferred_ed25519_material_identity';
+  readonly signer: NearEd25519SignerBinding;
+  readonly auth: SigningLaneAuthBinding;
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+};
+
+/** A material candidate before operation-step-up has issued a grant. This
+ * lane is deliberately excluded from reusable-session and budget paths. */
+export type DeferredEd25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane &
+  BranchSigningSessionRuntimeState & {
+    identity: DeferredEd25519MaterialIdentity;
+    auth: SigningLaneAuthBinding;
+    curve: 'ed25519';
+    keyKind: 'threshold_ed25519';
+    chainFamily: 'near';
+    sessionOrigin: 'per_operation';
+    storageSource: 'sealed_restore';
+    retention: 'single_use';
+    signingGrantId?: never;
+    thresholdSessionId: ThresholdEd25519SessionId;
+  };
+
 export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane &
   BranchSigningSessionRuntimeState & {
     identity: ExactEcdsaSigningLaneIdentity;
@@ -133,6 +160,7 @@ export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane &
 
 export type SigningSessionPlanningLane =
   | Ed25519SigningSessionPlanningLane
+  | DeferredEd25519SigningSessionPlanningLane
   | EcdsaSigningSessionPlanningLane;
 
 type BaseSelectedSigningLaneIdentity<
@@ -308,6 +336,7 @@ export const SigningSessionPlanKind = {
   EmailOtpReauth: 'email_otp_reauth',
   PasskeyReauth: 'passkey_reauth',
   NotReady: 'not_ready',
+  OperationStepUp: 'operation_step_up',
 } as const;
 
 export type SigningSessionPlanKind =
@@ -333,6 +362,10 @@ export type SigningSessionPlan =
       kind: typeof SigningSessionPlanKind.NotReady;
       lane: SelectedSigningSessionPlanningLane;
       reason: SigningSessionNotReadyReason;
+    }
+  | {
+      kind: typeof SigningSessionPlanKind.OperationStepUp;
+      lane: DeferredEd25519SigningSessionPlanningLane;
     };
 
 type BaseSigningLaneSummary = Pick<
@@ -441,7 +474,15 @@ export function findSigningLaneIdentityMismatch(
   a: SigningSessionPlanningLane,
   b: SigningSessionPlanningLane,
 ): string | null {
-  if (exactSigningLaneIdentityKey(a.identity) !== exactSigningLaneIdentityKey(b.identity)) {
+  const leftKey =
+    a.identity.kind === 'deferred_ed25519_material_identity'
+      ? deferredEd25519MaterialIdentityKey(a.identity)
+      : exactSigningLaneIdentityKey(a.identity);
+  const rightKey =
+    b.identity.kind === 'deferred_ed25519_material_identity'
+      ? deferredEd25519MaterialIdentityKey(b.identity)
+      : exactSigningLaneIdentityKey(b.identity);
+  if (leftKey !== rightKey) {
     return 'identity';
   }
   const fields: Array<keyof SigningSessionPlanningLane> = [

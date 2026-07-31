@@ -22,6 +22,7 @@ import type { SigningSessionCoordinator } from '../session/SigningSessionCoordin
 import type { SigningOperationId, SigningSessionPlan } from '../session/operationState/types';
 import type { NearTransactionSigningLane } from '../session/operationState/lanes';
 import type { SelectedEd25519Lane } from '../session/identity/laneIdentity';
+import type { AuthorizationRequiredEd25519LaneCandidate } from '../session/identity/selectLane';
 import type {
   BudgetAdmittedOperation,
   PreparedTransactionOperation,
@@ -225,6 +226,18 @@ export type NearTransactionWithActionsPayload = {
   yaoMaterialExecutor: NearEd25519YaoMaterialExecutor;
 };
 
+export type NearAdHocEd25519Selection =
+  | {
+      kind: 'authorized';
+      selectedLane: SelectedEd25519Lane;
+      candidate?: never;
+    }
+  | {
+      kind: 'authorization_required';
+      selectedLane?: never;
+      candidate: AuthorizationRequiredEd25519LaneCandidate;
+    };
+
 export type NearDelegateActionPayload = {
   ctx: NearSigningRuntimeDeps;
   commandSubject: NearCommandSubject;
@@ -239,7 +252,7 @@ export type NearDelegateActionPayload = {
   operationId: SigningOperationId;
   signerSlot?: number;
   forceFreshAuth: boolean;
-  selectedLane: SelectedEd25519Lane;
+  selection: NearAdHocEd25519Selection;
   passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
   emailOtpEd25519StepUp: NearEmailOtpEd25519StepUpHook | null;
   yaoSigningPreparation: NearEd25519YaoSigningPreparation;
@@ -252,7 +265,7 @@ export type NearNep413Payload = {
   nearAccount: NearAccountRef;
   signingSessionCoordinator: SigningSessionCoordinator;
   forceFreshAuth: boolean;
-  selectedLane: SelectedEd25519Lane;
+  selection: NearAdHocEd25519Selection;
   passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
   emailOtpEd25519StepUp: NearEmailOtpEd25519StepUpHook | null;
   yaoSigningPreparation: NearEd25519YaoSigningPreparation;
