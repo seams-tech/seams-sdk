@@ -10,7 +10,7 @@ import type {
   WarmSessionStatusReader,
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
-import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
+import type { EcdsaSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
 import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import type {
   WarmSessionEcdsaCapabilityState,
@@ -336,7 +336,7 @@ export function resolveEcdsaSealTransport(args: {
   auth: ActiveEvmFamilyWalletSessionAuthorization | null;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   groupId?: string;
-}): ThresholdSessionSealTransportAuthMaterial | null {
+}): EcdsaSealTransportAuthMaterial | null {
   const walletSessionJwt = String(args.auth?.projection.walletSessionJwt || '').trim();
   if (args.runtime.authBinding.kind === 'email_otp' && !walletSessionJwt) return null;
   const relayerUrl = String(args.runtime.relayerUrl || '').trim();
@@ -350,7 +350,6 @@ export function resolveEcdsaSealTransport(args: {
     // No signingGrantId: a grant is a distinct identity and the authorization
     // boundary carries none. The Wallet Session is identified by its own JWT.
     ...(walletSessionJwt ? { walletSessionJwt } : {}),
-    walletSessionJwtSource: walletSessionJwt ? 'ecdsa' : 'none',
     ...(args.signingSessionSealKeyVersion
       ? { signingSessionSealKeyVersion: args.signingSessionSealKeyVersion }
       : {}),

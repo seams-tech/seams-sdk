@@ -1,4 +1,4 @@
-import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
+import type { EcdsaSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
 import {
   thresholdEcdsaChainTargetKey,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -23,7 +23,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
   resolveSealTransport: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
     authorization: ActiveEvmFamilyWalletSessionAuthorization;
-  }) => Promise<ThresholdSessionSealTransportAuthMaterial | null>;
+  }) => Promise<EcdsaSealTransportAuthMaterial | null>;
 }): Promise<void> {
   const materialActivationId = String(
     args.lane.signer.materialActivation.activationId,
@@ -38,9 +38,6 @@ export async function ensureEcdsaPrfSealPersisted(args: {
         lane: args.lane,
         authorization: args.authorization,
       });
-      if (sealTransport && sealTransport.curve !== 'ecdsa') {
-        throw new Error('[WarmSessionStore] ECDSA seal persistence received non-ECDSA transport');
-      }
       if (sealTransport) {
         const persisted =
           await args.sealPersistence.persistSigningSessionSealForThresholdSession({
@@ -50,9 +47,6 @@ export async function ensureEcdsaPrfSealPersisted(args: {
             ...(sealTransport.walletId ? { walletId: sealTransport.walletId } : {}),
             chainTarget: sealTransport.chainTarget,
             relayerUrl: sealTransport.relayerUrl,
-            ...(sealTransport.signingGrantId
-              ? { signingGrantId: sealTransport.signingGrantId }
-              : {}),
             ...(sealTransport.walletSessionJwt
               ? { walletSessionJwt: sealTransport.walletSessionJwt }
               : {}),

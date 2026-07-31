@@ -10,7 +10,7 @@ import type { ActiveEcdsaCapabilityManifest } from '../material/ecdsaCapabilityM
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import type {
-  ThresholdSessionSealTransportAuthMaterial,
+  EcdsaSealTransportAuthMaterial,
 } from '../persistence/sealedSessionTransportAuth';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
@@ -728,7 +728,7 @@ export type WarmSessionCapabilityReader = {
   resolveEcdsaSealTransportForLane: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
     authorization: ActiveEvmFamilyWalletSessionAuthorization;
-  }) => Promise<ThresholdSessionSealTransportAuthMaterial | null>;
+  }) => Promise<EcdsaSealTransportAuthMaterial | null>;
 };
 
 export type ThresholdWarmSessionStatusReader = {

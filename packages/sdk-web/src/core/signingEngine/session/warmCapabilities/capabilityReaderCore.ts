@@ -8,7 +8,7 @@ import {
   toRpId,
 } from '../identity/evmFamilyEcdsaIdentity';
 import { selectedEcdsaLane } from '../identity/laneIdentity';
-import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
+import type { EcdsaSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import {
@@ -77,7 +77,7 @@ export type WarmSessionCapabilityReaderCore = {
   resolveEcdsaSealTransportForLane: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
     authorization: ActiveEvmFamilyWalletSessionAuthorization;
-  }) => Promise<ThresholdSessionSealTransportAuthMaterial | null>;
+  }) => Promise<EcdsaSealTransportAuthMaterial | null>;
 };
 
 /** The PRF claim for a resolved ECDSA capability. Correlation has already proved
@@ -411,7 +411,7 @@ export function createWarmSessionCapabilityReaderCore(
   async function resolveEcdsaSealTransportForLane(args: {
     lane: ExactEcdsaSigningLaneIdentity;
     authorization: ActiveEvmFamilyWalletSessionAuthorization;
-  }): Promise<ThresholdSessionSealTransportAuthMaterial | null> {
+  }): Promise<EcdsaSealTransportAuthMaterial | null> {
     const resolution = await resolveActiveEcdsaCapabilityRuntime({
       walletId: args.lane.signer.walletId,
       chainTarget: args.lane.signer.chainTarget,
