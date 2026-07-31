@@ -732,7 +732,9 @@ the replacement and legacy MPC paths must not ship together.
       forbid `signingGrantId` and `thresholdSessionId` on canonical availability
       records and their type fixtures.
 - [x] Carry export authorization beside the exact export material lane instead
-      of reading it from material identity.
+      of reading it from material identity; Email OTP Ed25519 export now sends
+      only selected lane, authorization, activation, and capability facts to
+      the worker (`f20403de5`).
 - [x] Flatten the one-arm `ExactEcdsaExportSession` wrapper into the exact
       export lane so export state, target, factor, and material availability
       have one required-field carrier (`643dde348`).

@@ -373,11 +373,14 @@ ports, and the two-state recovery journal.
 - ~~`ExactPasskeyEd25519SigningLaneIdentity`,
   `ExactEmailOtpEd25519SigningLaneIdentity`~~ — deleted by `a5fad3851`; export
   narrows the canonical generic lane by its factor authority.
-- `EmailOtpEd25519YaoExportSubjectV1`, `EmailOtpEd25519YaoExportContextV1`,
-  `EmailOtpEd25519YaoExportContextPorts`
+- ~~`EmailOtpEd25519YaoExportSubjectV1`, `EmailOtpEd25519YaoExportContextV1`,
+  `EmailOtpEd25519YaoExportContextPorts`~~ — replaced by the exact lane,
+  independent Wallet Session authorization projection, and material-owned
+  export context in `f20403de5`.
 - `recoverExactPasskeyEd25519YaoCapabilityForExport`
-- `resolveEmailOtpEd25519YaoExportContext` and matching Browser/assembly port
-  aliases
+- ~~matching Browser/assembly port aliases~~ — the resolver now accepts the
+  exact Email OTP lane directly; the canonical resolver remains in place
+  (`f20403de5`).
 - ~~the `laneIdentity.auth.kind` dispatch in `exportKeypairOperation.ts`~~ —
   moved inside the exhaustive capability-owned coordinator in `01bcabb29`
 - `EmailOtpEd25519YaoActiveCapabilityDescriptorV1` (destructive replace at the
