@@ -3,6 +3,7 @@ import {
   authLaneToRouteAuth,
   buildEmailOtpRoutePlan,
   emailOtpRoutePath,
+  normalizeEmailOtpRoutePlan,
   resolveEmailOtpAuthLane,
   routeFamilyForAuthLane,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
@@ -60,7 +61,6 @@ test.describe('Email OTP auth lane route planning', () => {
     const authLane = resolveEmailOtpAuthLane({
       routeAuth: { kind: 'wallet_session', jwt: 'threshold-session-jwt' },
       thresholdSessionId: 'threshold-session',
-      authorizingSigningGrantId: 'signing-grant',
       curve: 'ecdsa',
       chainTarget: TEMPO_CHAIN_TARGET,
     });
@@ -80,6 +80,44 @@ test.describe('Email OTP auth lane route planning', () => {
     expect(authLaneToRouteAuth(plan.authLane)).toEqual({
       kind: 'wallet_session',
       jwt: 'threshold-session-jwt',
+    });
+  });
+
+  test('rejects an ECDSA lane carrying the retired signing-grant alias', () => {
+    expect(
+      resolveEmailOtpAuthLane({
+        routeAuth: { kind: 'wallet_session', jwt: 'threshold-session-jwt' },
+        thresholdSessionId: 'threshold-session',
+        authorizingSigningGrantId: 'legacy-signing-grant',
+        curve: 'ecdsa',
+        chainTarget: TEMPO_CHAIN_TARGET,
+      }),
+    ).toBeUndefined();
+  });
+
+  test('normalizes the canonical grant-free ECDSA worker route plan', () => {
+    expect(
+      normalizeEmailOtpRoutePlan({
+        routeFamily: 'signing_session',
+        operation: 'transaction_sign',
+        authLane: {
+          kind: 'signing_session',
+          jwt: 'threshold-session-jwt',
+          thresholdSessionId: 'threshold-session',
+          curve: 'ecdsa',
+          chainTarget: TEMPO_CHAIN_TARGET,
+        },
+      }),
+    ).toEqual({
+      routeFamily: 'signing_session',
+      operation: 'transaction_sign',
+      authLane: {
+        kind: 'signing_session',
+        jwt: 'threshold-session-jwt',
+        thresholdSessionId: 'threshold-session',
+        curve: 'ecdsa',
+        chainTarget: TEMPO_CHAIN_TARGET,
+      },
     });
   });
 
