@@ -29,10 +29,8 @@ import {
   parseRouterAbEd25519NormalSigningState,
   type RouterAbEd25519NormalSigningState,
 } from '../../threshold/ed25519/routerAbNormalSigningState';
-import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import {
   toWalletId,
-  type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -87,31 +85,6 @@ export type ThresholdEd25519SessionRow = {
 };
 
 export type ThresholdEd25519SessionRecord = ThresholdEd25519SessionRow;
-
-export type WalletSessionJwtAuthSource = 'ecdsa' | 'ed25519' | 'none';
-
-export type ThresholdSessionSealTransportAuthMaterial =
-  | {
-      curve: 'ed25519';
-      walletId?: string;
-      relayerUrl: string;
-      signingGrantId?: string;
-      walletSessionJwt?: string;
-      walletSessionJwtSource: WalletSessionJwtAuthSource;
-      signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-      groupId?: string;
-    }
-  | {
-      curve: 'ecdsa';
-      walletId?: string;
-      chainTarget: ThresholdEcdsaChainTarget;
-      relayerUrl: string;
-      signingGrantId?: string;
-      walletSessionJwt?: string;
-      walletSessionJwtSource: WalletSessionJwtAuthSource;
-      signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
-      groupId?: string;
-    };
 
 function nullableRecordInteger(value: unknown): number | null {
   const normalized = normalizeInteger(value);

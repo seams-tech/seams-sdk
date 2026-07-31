@@ -2,7 +2,6 @@ import {
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { SealedRecoveryRecord } from '../sealedRecovery/recoveryRecord';
 
 export type ExactSealedSessionIdentity =
   | {
@@ -116,17 +115,6 @@ export function parseExactSealedSessionIdentity(value: unknown): ExactSealedSess
     curve: 'ecdsa',
     thresholdSessionId,
     chainTarget,
-  };
-}
-
-export function exactSealedSessionIdentityFromRecoveryRecord(
-  record: SealedRecoveryRecord,
-): ExactSealedSessionIdentity {
-  return {
-    authMethod: record.authMethod,
-    curve: 'ecdsa',
-    thresholdSessionId: record.thresholdSessionId,
-    chainTarget: record.chainTarget,
   };
 }
 
