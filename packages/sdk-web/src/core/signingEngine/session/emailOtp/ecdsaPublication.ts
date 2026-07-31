@@ -19,7 +19,6 @@ import {
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import { type ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import type { EmailOtpEcdsaPublicationTargetPlan } from '@/core/signingEngine/workerManager/workerTypes';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { EmailOtpEcdsaReadyPersistInput } from '@/core/signingEngine/session/warmCapabilities/persistencePorts';
@@ -31,7 +30,6 @@ import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal'
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   buildEvmFamilyEcdsaWalletKey,
-  deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope,
   type EvmFamilyEcdsaWalletKey,
 } from '../identity/evmFamilyEcdsaIdentity';
 import { alphabetizeStringify } from '@shared/utils/digests';
@@ -139,25 +137,6 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
     }
   }
   return targets;
-}
-
-export function emailOtpEcdsaPublicationTargetPlans(args: {
-  walletId: WalletId;
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
-  publicationChainTargets: readonly ThresholdEcdsaChainTarget[];
-}): EmailOtpEcdsaPublicationTargetPlan[] {
-  return args.publicationChainTargets.map((publicationChainTarget) => {
-    return {
-      kind: 'new_key_publication_target',
-      chainTarget: publicationChainTarget,
-      evmFamilySigningKeySlotId: String(
-        deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
-          walletId: args.walletId,
-          runtimePolicyScope: args.runtimePolicyScope,
-        }),
-      ),
-    };
-  });
 }
 
 export async function requireEmailOtpExistingEcdsaPublicCapability(args: {
