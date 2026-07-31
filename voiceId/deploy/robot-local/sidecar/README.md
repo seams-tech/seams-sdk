@@ -59,9 +59,13 @@ The local sidecar uses the same Python HTTP verifier API as other deployments:
 
 - `/voice-id/verifier/build-enrollment-template`
 - `/voice-id/verifier/verify-speaker`
+- `/voice-id/verifier/analyze-speech`
+- `/voice-id/verifier/analyze-verification`
 - `/health`
 
-It returns component results and has no wallet authority.
+The combined route returns independent phrase, semantic-intent, speaker,
+quality, and configured PAD component results from one canonical decode. The
+sidecar has no wallet authority.
 
 ## Local Configuration
 

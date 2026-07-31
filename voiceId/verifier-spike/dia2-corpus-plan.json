@@ -1,0 +1,477 @@
+{
+  "schemaVersion": "voice_id_dia2_generation_plan_v1",
+  "datasetVersion": "voiceid-solo-synthetic-2026-07-v1",
+  "repositoryRevision": "8687268f4ed3ed20704638fd353b51491de3b476",
+  "checkpoint": {
+    "repoId": "nari-labs/Dia2-1B",
+    "revision": "00042629c61c3268a6473552c911966ec7a5a450",
+    "mimiRepoId": "kyutai/mimi",
+    "mimiRevision": "89091b3e466eb6a9d11e537bf26b144f194978f7"
+  },
+  "settings": {
+    "dtype": "bfloat16",
+    "textTemperature": 0.6,
+    "textTopK": 50,
+    "audioTemperature": 0.8,
+    "audioTopK": 50,
+    "cfgScale": 2.0,
+    "useCudaGraph": true
+  },
+  "capture": {
+    "platform": "server",
+    "microphone": "digital_generation",
+    "room": "none",
+    "distanceCm": 0,
+    "codec": "pcm_s16le",
+    "channelCount": 1,
+    "language": "en",
+    "accent": "synthetic",
+    "noiseProfile": "none"
+  },
+  "jobs": [
+    {
+      "fixtureId": "dia2_dev_target_enrollment",
+      "audioFileName": "dia2_dev_target_enrollment.wav",
+      "subjectId": "dia2_dev_target",
+      "sessionId": "dia2_dev_target_enrollment_session",
+      "partition": "development",
+      "case": {
+        "kind": "enrollment"
+      },
+      "expectedIntent": null,
+      "challengeTokens": [],
+      "seed": 1101,
+      "script": "[S1] Cedar compass guides us toward a calm harbor at sunrise. River lantern glows beside a quiet path through the meadow. Silver meadow opens beneath a clear and cloudless morning sky. Harbor sunrise marks the beginning of a careful and deliberate journey.",
+      "prefix": {
+        "kind": "none"
+      },
+      "voice": "dia2_dev_target_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_dev_target_genuine",
+      "audioFileName": "dia2_dev_target_genuine.wav",
+      "subjectId": "dia2_dev_target",
+      "sessionId": "dia2_dev_target_genuine_session",
+      "partition": "development",
+      "case": {
+        "kind": "genuine_verification"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "amber",
+        "seven",
+        "kite"
+      ],
+      "seed": 1102,
+      "script": "[S1] I approve this request. Amber seven kite.",
+      "prefix": {
+        "kind": "generated_fixture",
+        "fixtureId": "dia2_dev_target_enrollment"
+      },
+      "voice": "dia2_dev_target_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_dev_target_substitution",
+      "audioFileName": "dia2_dev_target_substitution.wav",
+      "subjectId": "dia2_dev_target",
+      "sessionId": "dia2_dev_target_substitution_session",
+      "partition": "development",
+      "case": {
+        "kind": "challenge_error",
+        "errorKind": "substitution"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "amber",
+        "seven",
+        "kite"
+      ],
+      "seed": 1103,
+      "script": "[S1] I approve this request. Amber nine kite.",
+      "prefix": {
+        "kind": "generated_fixture",
+        "fixtureId": "dia2_dev_target_enrollment"
+      },
+      "voice": "dia2_dev_target_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_dev_target_insertion",
+      "audioFileName": "dia2_dev_target_insertion.wav",
+      "subjectId": "dia2_dev_target",
+      "sessionId": "dia2_dev_target_insertion_session",
+      "partition": "development",
+      "case": {
+        "kind": "challenge_error",
+        "errorKind": "insertion"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "forest",
+        "two",
+        "moon"
+      ],
+      "seed": 1104,
+      "script": "[S1] I approve this request. Forest bright two moon.",
+      "prefix": {
+        "kind": "generated_fixture",
+        "fixtureId": "dia2_dev_target_enrollment"
+      },
+      "voice": "dia2_dev_target_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_dev_impostor_enrollment",
+      "audioFileName": "dia2_dev_impostor_enrollment.wav",
+      "subjectId": "dia2_dev_impostor",
+      "sessionId": "dia2_dev_impostor_enrollment_session",
+      "partition": "development",
+      "case": {
+        "kind": "enrollment"
+      },
+      "expectedIntent": null,
+      "challengeTokens": [],
+      "seed": 1201,
+      "script": "[S1] Cedar compass guides us toward a calm harbor at sunrise. River lantern glows beside a quiet path through the meadow. Silver meadow opens beneath a clear and cloudless morning sky. Harbor sunrise marks the beginning of a careful and deliberate journey.",
+      "prefix": {
+        "kind": "none"
+      },
+      "voice": "dia2_dev_impostor_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_dev_zero_effort_impostor",
+      "audioFileName": "dia2_dev_zero_effort_impostor.wav",
+      "subjectId": "dia2_dev_impostor",
+      "sessionId": "dia2_dev_zero_effort_impostor_session",
+      "partition": "development",
+      "case": {
+        "kind": "zero_effort_impostor",
+        "targetSubjectId": "dia2_dev_target"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "amber",
+        "seven",
+        "kite"
+      ],
+      "seed": 1202,
+      "script": "[S1] I approve this request. Amber seven kite.",
+      "prefix": {
+        "kind": "generated_fixture",
+        "fixtureId": "dia2_dev_impostor_enrollment"
+      },
+      "voice": "dia2_dev_impostor_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_cal_target_enrollment",
+      "audioFileName": "dia2_cal_target_enrollment.wav",
+      "subjectId": "dia2_cal_target",
+      "sessionId": "dia2_cal_target_enrollment_session",
+      "partition": "calibration",
+      "case": {
+        "kind": "enrollment"
+      },
+      "expectedIntent": null,
+      "challengeTokens": [],
+      "seed": 2101,
+      "script": "[S1] Cedar compass guides us toward a calm harbor at sunrise. River lantern glows beside a quiet path through the meadow. Silver meadow opens beneath a clear and cloudless morning sky. Harbor sunrise marks the beginning of a careful and deliberate journey.",
+      "prefix": {
+        "kind": "none"
+      },
+      "voice": "dia2_cal_target_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_cal_target_genuine",
+      "audioFileName": "dia2_cal_target_genuine.wav",
+      "subjectId": "dia2_cal_target",
+      "sessionId": "dia2_cal_target_genuine_session",
+      "partition": "calibration",
+      "case": {
+        "kind": "genuine_verification"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "crystal",
+        "four",
+        "sun"
+      ],
+      "seed": 2102,
+      "script": "[S1] Please approve this request. Crystal four sun.",
+      "prefix": {
+        "kind": "generated_fixture",
+        "fixtureId": "dia2_cal_target_enrollment"
+      },
+      "voice": "dia2_cal_target_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_cal_target_omission",
+      "audioFileName": "dia2_cal_target_omission.wav",
+      "subjectId": "dia2_cal_target",
+      "sessionId": "dia2_cal_target_omission_session",
+      "partition": "calibration",
+      "case": {
+        "kind": "challenge_error",
+        "errorKind": "omission"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "crystal",
+        "four",
+        "sun"
+      ],
+      "seed": 2103,
+      "script": "[S1] Please approve this request. Crystal sun.",
+      "prefix": {
+        "kind": "generated_fixture",
+        "fixtureId": "dia2_cal_target_enrollment"
+      },
+      "voice": "dia2_cal_target_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_cal_target_reordering",
+      "audioFileName": "dia2_cal_target_reordering.wav",
+      "subjectId": "dia2_cal_target",
+      "sessionId": "dia2_cal_target_reordering_session",
+      "partition": "calibration",
+      "case": {
+        "kind": "challenge_error",
+        "errorKind": "reordering"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "ocean",
+        "six",
+        "pine"
+      ],
+      "seed": 2104,
+      "script": "[S1] Go ahead and approve this request. Pine six ocean.",
+      "prefix": {
+        "kind": "generated_fixture",
+        "fixtureId": "dia2_cal_target_enrollment"
+      },
+      "voice": "dia2_cal_target_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_cal_impostor_enrollment",
+      "audioFileName": "dia2_cal_impostor_enrollment.wav",
+      "subjectId": "dia2_cal_impostor",
+      "sessionId": "dia2_cal_impostor_enrollment_session",
+      "partition": "calibration",
+      "case": {
+        "kind": "enrollment"
+      },
+      "expectedIntent": null,
+      "challengeTokens": [],
+      "seed": 2201,
+      "script": "[S1] Cedar compass guides us toward a calm harbor at sunrise. River lantern glows beside a quiet path through the meadow. Silver meadow opens beneath a clear and cloudless morning sky. Harbor sunrise marks the beginning of a careful and deliberate journey.",
+      "prefix": {
+        "kind": "none"
+      },
+      "voice": "dia2_cal_impostor_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_cal_zero_effort_impostor",
+      "audioFileName": "dia2_cal_zero_effort_impostor.wav",
+      "subjectId": "dia2_cal_impostor",
+      "sessionId": "dia2_cal_zero_effort_impostor_session",
+      "partition": "calibration",
+      "case": {
+        "kind": "zero_effort_impostor",
+        "targetSubjectId": "dia2_cal_target"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "crystal",
+        "four",
+        "sun"
+      ],
+      "seed": 2202,
+      "script": "[S1] Please approve this request. Crystal four sun.",
+      "prefix": {
+        "kind": "generated_fixture",
+        "fixtureId": "dia2_cal_impostor_enrollment"
+      },
+      "voice": "dia2_cal_impostor_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_eval_target_enrollment",
+      "audioFileName": "dia2_eval_target_enrollment.wav",
+      "subjectId": "dia2_eval_target",
+      "sessionId": "dia2_eval_target_enrollment_session",
+      "partition": "evaluation",
+      "case": {
+        "kind": "enrollment"
+      },
+      "expectedIntent": null,
+      "challengeTokens": [],
+      "seed": 3101,
+      "script": "[S1] Cedar compass guides us toward a calm harbor at sunrise. River lantern glows beside a quiet path through the meadow. Silver meadow opens beneath a clear and cloudless morning sky. Harbor sunrise marks the beginning of a careful and deliberate journey.",
+      "prefix": {
+        "kind": "none"
+      },
+      "voice": "dia2_eval_target_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_eval_target_genuine",
+      "audioFileName": "dia2_eval_target_genuine.wav",
+      "subjectId": "dia2_eval_target",
+      "sessionId": "dia2_eval_target_genuine_session",
+      "partition": "evaluation",
+      "case": {
+        "kind": "genuine_verification"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "maple",
+        "eight",
+        "star"
+      ],
+      "seed": 3102,
+      "script": "[S1] I confirm and approve this request. Maple eight star.",
+      "prefix": {
+        "kind": "generated_fixture",
+        "fixtureId": "dia2_eval_target_enrollment"
+      },
+      "voice": "dia2_eval_target_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_eval_target_ambiguous",
+      "audioFileName": "dia2_eval_target_ambiguous.wav",
+      "subjectId": "dia2_eval_target",
+      "sessionId": "dia2_eval_target_ambiguous_session",
+      "partition": "evaluation",
+      "case": {
+        "kind": "challenge_error",
+        "errorKind": "ambiguous"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "maple",
+        "eight",
+        "star"
+      ],
+      "seed": 3103,
+      "script": "[S1] I might approve or cancel this request. Maple eight star.",
+      "prefix": {
+        "kind": "generated_fixture",
+        "fixtureId": "dia2_eval_target_enrollment"
+      },
+      "voice": "dia2_eval_target_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_eval_impostor_enrollment",
+      "audioFileName": "dia2_eval_impostor_enrollment.wav",
+      "subjectId": "dia2_eval_impostor",
+      "sessionId": "dia2_eval_impostor_enrollment_session",
+      "partition": "evaluation",
+      "case": {
+        "kind": "enrollment"
+      },
+      "expectedIntent": null,
+      "challengeTokens": [],
+      "seed": 3201,
+      "script": "[S1] Cedar compass guides us toward a calm harbor at sunrise. River lantern glows beside a quiet path through the meadow. Silver meadow opens beneath a clear and cloudless morning sky. Harbor sunrise marks the beginning of a careful and deliberate journey.",
+      "prefix": {
+        "kind": "none"
+      },
+      "voice": "dia2_eval_impostor_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_eval_zero_effort_impostor",
+      "audioFileName": "dia2_eval_zero_effort_impostor.wav",
+      "subjectId": "dia2_eval_impostor",
+      "sessionId": "dia2_eval_zero_effort_impostor_session",
+      "partition": "evaluation",
+      "case": {
+        "kind": "zero_effort_impostor",
+        "targetSubjectId": "dia2_eval_target"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "maple",
+        "eight",
+        "star"
+      ],
+      "seed": 3202,
+      "script": "[S1] I confirm and approve this request. Maple eight star.",
+      "prefix": {
+        "kind": "generated_fixture",
+        "fixtureId": "dia2_eval_impostor_enrollment"
+      },
+      "voice": "dia2_eval_impostor_voice",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_eval_synthesis_attack",
+      "audioFileName": "dia2_eval_synthesis_attack.wav",
+      "subjectId": "dia2_eval_attack",
+      "sessionId": "dia2_eval_synthesis_attack_session",
+      "partition": "evaluation",
+      "case": {
+        "kind": "presentation_attack",
+        "targetSubjectId": "dia2_eval_target",
+        "attackClass": "synthesis",
+        "attackTool": "dia2-1b-generated-prefix"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "maple",
+        "eight",
+        "star"
+      ],
+      "seed": 3301,
+      "script": "[S1] I confirm and approve this request. Star maple eight.",
+      "prefix": {
+        "kind": "generated_fixture",
+        "fixtureId": "dia2_eval_target_enrollment"
+      },
+      "voice": "dia2_eval_target_clone",
+      "conditioning": null
+    },
+    {
+      "fixtureId": "dia2_eval_owner_conditioned_attack",
+      "audioFileName": "dia2_eval_owner_conditioned_attack.wav",
+      "subjectId": "dia2_eval_owner_clone",
+      "sessionId": "dia2_eval_owner_conditioned_attack_session",
+      "partition": "evaluation",
+      "case": {
+        "kind": "presentation_attack",
+        "targetSubjectId": "owner_eval",
+        "attackClass": "synthesis",
+        "attackTool": "dia2-1b-owner-conditioned"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "maple",
+        "eight",
+        "star"
+      ],
+      "seed": 3401,
+      "script": "[S1] I confirm and approve this request. Maple eight star.",
+      "prefix": {
+        "kind": "consented_audio",
+        "audioFileName": "owner-reference.wav"
+      },
+      "voice": "dia2_owner_conditioned_voice",
+      "conditioning": {
+        "sourceSubjectId": "owner_eval",
+        "consentReference": "voiceid-owner-consent-2026-07",
+        "retentionClass": "project_indefinite"
+      }
+    }
+  ]
+}

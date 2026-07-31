@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from array import array
 from dataclasses import dataclass
 from typing import Literal, Sequence
 
@@ -74,8 +75,11 @@ class PlaceholderVerifierRuntime:
     def evaluate_audio(self, audio_bytes: bytes, claims: AudioClaims) -> EvaluatedAudio:
         return evaluate_decoded_input(audio_bytes=audio_bytes, claims=claims)
 
-    def extract_verification_embedding(self, decoded_audio: DecodedAudio) -> ExtractedSpeakerEmbedding:
-        return self.extractor.extract_decoded(decoded_audio.samples)
+    def extract_verification_embedding(
+        self,
+        speech_windows: Sequence[SpeechWindow],
+    ) -> ExtractedSpeakerEmbedding:
+        return extract_embedding_from_speech_windows(self.extractor, speech_windows)
 
     def extract_window_embedding(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
         return self.extractor.extract_decoded(samples)
@@ -100,13 +104,32 @@ class SpeechBrainEcapaVerifierRuntime:
     def evaluate_audio(self, audio_bytes: bytes, claims: AudioClaims) -> EvaluatedAudio:
         return evaluate_decoded_input(audio_bytes=audio_bytes, claims=claims)
 
-    def extract_verification_embedding(self, decoded_audio: DecodedAudio) -> ExtractedSpeakerEmbedding:
-        return self.extractor.extract_decoded(decoded_audio.samples)
+    def extract_verification_embedding(
+        self,
+        speech_windows: Sequence[SpeechWindow],
+    ) -> ExtractedSpeakerEmbedding:
+        return extract_embedding_from_speech_windows(self.extractor, speech_windows)
 
     def extract_window_embedding(self, samples: Sequence[float]) -> ExtractedSpeakerEmbedding:
         return self.extractor.extract_decoded(samples)
 
 VerifierRuntime = PlaceholderVerifierRuntime | SpeechBrainEcapaVerifierRuntime
+
+
+def extract_embedding_from_speech_windows(
+    extractor: PlaceholderEmbeddingExtractor | SpeechBrainEcapaEmbeddingExtractor,
+    speech_windows: Sequence[SpeechWindow],
+) -> ExtractedSpeakerEmbedding:
+    if len(speech_windows) == 0:
+        raise EmbeddingExtractionError("accepted speech windows are required")
+    samples = array("f")
+    try:
+        for window in speech_windows:
+            samples.extend(window.samples)
+        return extractor.extract_decoded(samples)
+    finally:
+        for index in range(len(samples)):
+            samples[index] = 0.0
 
 
 def evaluate_decoded_input(*, audio_bytes: bytes, claims: AudioClaims) -> EvaluatedAudio:

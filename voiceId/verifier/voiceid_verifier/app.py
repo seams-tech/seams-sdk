@@ -5,15 +5,22 @@ import json
 import os
 import sys
 import threading
+import time
+from array import array
+from collections.abc import Sequence
+from concurrent.futures import Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 from voiceid_verifier.audio_decode import zero_float_sequence
-from voiceid_verifier.audio_quality import AudioQuality
+from voiceid_verifier.audio_quality import AudioQuality, SpeechWindow
 from voiceid_verifier.embeddings import EmbeddingExtractionError
 from voiceid_verifier.enrollment import BuiltEnrollment, build_continuous_enrollment
 from voiceid_verifier.moonshine import MoonshineRecognizer
+from voiceid_verifier.pad import AasistPadDetector, PadDecision, PadDetector
 from voiceid_verifier.runtime import AudioClaims, VerifierRuntime, create_verifier_runtime_from_env
 from voiceid_verifier.schemas import (
     AudioMetadata,
@@ -26,6 +33,7 @@ from voiceid_verifier.schemas import (
     EnrollmentSpeechWindowResponse,
     KnownChannelCount,
     KnownSampleRate,
+    MAXIMUM_JSON_REQUEST_BYTES,
     RejectedEnrollmentTemplateResponse,
     SpeakerAccepted,
     SpeakerRejected,
@@ -47,6 +55,58 @@ DEFAULT_RUNTIME: VerifierRuntime | None = None
 DEFAULT_RUNTIME_LOCK = threading.Lock()
 DEFAULT_MOONSHINE: MoonshineRecognizer | None = None
 DEFAULT_MOONSHINE_LOCK = threading.Lock()
+DEFAULT_PAD_DETECTOR: PadDetector | None = None
+DEFAULT_PAD_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class VerificationStageDeadlines:
+    speech_ms: int
+    speaker_ms: int
+    pad_ms: int
+
+
+@dataclass(frozen=True)
+class TimedStageResult:
+    completed_at: float
+    value: Any
+
+
+class BoundedStageExecutor:
+    def __init__(self, maximum_active_stages: int) -> None:
+        if maximum_active_stages <= 0:
+            raise ValueError("maximum_active_stages must be positive")
+        self.maximum_active_stages = maximum_active_stages
+        self._slots = threading.BoundedSemaphore(maximum_active_stages)
+        self._executor = ThreadPoolExecutor(
+            max_workers=maximum_active_stages,
+            thread_name_prefix="voiceid-verification",
+        )
+
+    def submit(
+        self,
+        function: Callable[..., TimedStageResult],
+        *args: Any,
+    ) -> Future[TimedStageResult] | None:
+        if not self._slots.acquire(blocking=False):
+            return None
+        try:
+            future = self._executor.submit(function, *args)
+        except Exception:
+            self._slots.release()
+            raise
+        future.add_done_callback(self._release_slot)
+        return future
+
+    def _release_slot(self, _: Future[TimedStageResult]) -> None:
+        self._slots.release()
+
+    def shutdown(self) -> None:
+        self._executor.shutdown(wait=True, cancel_futures=True)
+
+
+VERIFICATION_STAGE_COUNT = 3
+VERIFICATION_STAGE_EXECUTOR = BoundedStageExecutor(maximum_active_stages=3)
 
 JSON_HEADERS = {
     "Content-Type": "application/json",
@@ -118,7 +178,7 @@ def verify_speaker_from_json(
                 if evaluated.decoded_audio is None:
                     raise ValueError("accepted verification audio requires decoded samples")
                 runtime_embedding = active_runtime.extract_verification_embedding(
-                    evaluated.decoded_audio
+                    evaluated.speech_windows
                 ).vector
                 score = cosine_score(template_embedding, runtime_embedding)
             except (EmbeddingExtractionError, ValueError):
@@ -171,6 +231,9 @@ def analyze_speech_from_json(
             evaluated.decoded_audio.samples,
             expected_phrase=request.expected_phrase,
             intent_name=request.intent_name,
+            challenge_tokens=tuple(
+                request.expected_phrase.lower().split()
+            ),
         )
         return SpeechAnalysisResponse(
             kind="speech_analysis",
@@ -190,16 +253,20 @@ def analyze_verification_from_json(
     *,
     runtime: VerifierRuntime | None = None,
     recognizer: MoonshineRecognizer | None = None,
+    pad_detector: PadDetector | None = None,
+    stage_deadlines: VerificationStageDeadlines | None = None,
+    stage_executor: BoundedStageExecutor | None = None,
 ) -> dict[str, Any]:
     request = parse_analyze_verification_request(value)
     active_runtime = runtime or get_default_runtime()
     active_recognizer = recognizer or get_default_moonshine()
+    active_pad_detector = pad_detector if pad_detector is not None else configured_pad_detector()
+    deadlines = stage_deadlines or verification_stage_deadlines_from_env()
+    active_stage_executor = stage_executor or VERIFICATION_STAGE_EXECUTOR
     evaluated = active_runtime.evaluate_audio(
         request.audio.audio_bytes,
         _audio_claims(request.audio.metadata),
     )
-    runtime_embedding: list[float] = []
-    template_embedding: list[float] = []
     try:
         quality = _audio_quality_response(evaluated.quality)
         if quality.kind != "accepted" or evaluated.decoded_audio is None:
@@ -211,56 +278,288 @@ def analyze_verification_from_json(
                 model_version=active_runtime.metadata.model_version,
                 threshold_version=active_runtime.metadata.threshold_version,
             )
+            speech = _unavailable_speech_analysis(request.expected_phrase)
+            pad = _unavailable_pad("low_audio_quality", detector=active_pad_detector)
         else:
-            try:
-                template_embedding = _decode_template_embedding(
-                    encrypted_template=request.template.encrypted_template,
-                    runtime=active_runtime,
+            speech_samples = array("f", evaluated.decoded_audio.samples)
+            shared_speech_samples = accepted_speech_samples(evaluated.speech_windows)
+            speaker_samples = array("f", shared_speech_samples)
+            pad_samples = array("f", shared_speech_samples)
+            zero_float_sequence(shared_speech_samples)
+            started_at = time.monotonic()
+            speech_future = active_stage_executor.submit(
+                _analyze_speech_timed,
+                active_recognizer,
+                speech_samples,
+                request.expected_phrase,
+                request.intent_name,
+                request.challenge_tokens,
+            )
+            speaker_future = active_stage_executor.submit(
+                _analyze_speaker_timed,
+                active_runtime,
+                speaker_samples,
+                request.template.encrypted_template,
+                request.threshold,
+            )
+            pad_future = (
+                active_stage_executor.submit(
+                    _analyze_pad_timed,
+                    active_pad_detector,
+                    pad_samples,
                 )
-                runtime_embedding = active_runtime.extract_verification_embedding(
-                    evaluated.decoded_audio
-                ).vector
-                score = cosine_score(template_embedding, runtime_embedding)
-            except (EmbeddingExtractionError, ValueError):
-                speaker = SpeakerUncertain(
-                    kind="uncertain",
-                    reason="verifier_unavailable",
-                    score=0.0,
-                    threshold=request.threshold,
-                    model_version=active_runtime.metadata.model_version,
-                    threshold_version=active_runtime.metadata.threshold_version,
-                )
-            else:
-                speaker = _speaker_result(
-                    score=score,
-                    threshold=request.threshold,
-                    runtime=active_runtime,
-                )
-
-        speech = (
-            active_recognizer.analyze(
-                evaluated.decoded_audio.samples,
+                if active_pad_detector is not None
+                else None
+            )
+            if active_pad_detector is None:
+                zero_float_sequence(pad_samples)
+            if speech_future is None:
+                zero_float_sequence(speech_samples)
+            if speaker_future is None:
+                zero_float_sequence(speaker_samples)
+            if active_pad_detector is not None and pad_future is None:
+                zero_float_sequence(pad_samples)
+            submitted_futures = tuple(
+                future
+                for future in (speech_future, speaker_future, pad_future)
+                if future is not None
+            )
+            wait(
+                submitted_futures,
+                timeout=max(deadlines.speech_ms, deadlines.speaker_ms, deadlines.pad_ms)
+                / 1000,
+            )
+            speech = resolve_speech_stage(
+                speech_future,
+                started_at=started_at,
+                deadline_ms=deadlines.speech_ms,
                 expected_phrase=request.expected_phrase,
-                intent_name=request.intent_name,
-            ).to_json()
-            if evaluated.decoded_audio is not None
-            else _unavailable_speech_analysis(request.expected_phrase)
-        )
+            )
+            speaker = resolve_speaker_stage(
+                speaker_future,
+                started_at=started_at,
+                deadline_ms=deadlines.speaker_ms,
+                runtime=active_runtime,
+                threshold=request.threshold,
+            )
+            pad = resolve_pad_stage(
+                pad_future,
+                started_at=started_at,
+                deadline_ms=deadlines.pad_ms,
+                detector=active_pad_detector,
+            )
         return VerificationAnalysisResponse(
             kind="verification_analysis",
             request_id=request.request_id,
             quality=quality.to_json(),
             speaker=speaker.to_json(),
             speech=speech,
-            pad={"kind": "pad_unavailable", "reason": "ordinary_browser_capture"},
+            pad=pad,
         ).to_json()
     finally:
         if evaluated.decoded_audio is not None:
             zero_float_sequence(evaluated.decoded_audio.samples)
         for window in evaluated.speech_windows:
             zero_float_sequence(window.samples)
+
+
+def _analyze_speaker(
+    runtime: VerifierRuntime,
+    samples: Sequence[float],
+    encrypted_template: str,
+    threshold: float,
+) -> SpeakerResponse:
+    runtime_embedding: list[float] = []
+    template_embedding: list[float] = []
+    try:
+        template_embedding = _decode_template_embedding(
+            encrypted_template=encrypted_template,
+            runtime=runtime,
+        )
+        runtime_embedding = runtime.extract_window_embedding(samples).vector
+        score = cosine_score(template_embedding, runtime_embedding)
+        return _speaker_result(
+            score=score,
+            threshold=threshold,
+            runtime=runtime,
+        )
+    except Exception:
+        return SpeakerUncertain(
+            kind="uncertain",
+            reason="verifier_unavailable",
+            score=0.0,
+            threshold=threshold,
+            model_version=runtime.metadata.model_version,
+            threshold_version=runtime.metadata.threshold_version,
+        )
+    finally:
         zero_float_sequence(runtime_embedding)
         zero_float_sequence(template_embedding)
+        zero_float_sequence(samples)
+
+
+def _analyze_speech(
+    recognizer: MoonshineRecognizer,
+    samples: Sequence[float],
+    expected_phrase: str,
+    intent_name: str,
+    challenge_tokens: tuple[str, ...],
+) -> dict[str, Any]:
+    try:
+        return recognizer.analyze(
+            samples,
+            expected_phrase=expected_phrase,
+            intent_name=intent_name,
+            challenge_tokens=challenge_tokens,
+        ).to_json()
+    except Exception:
+        return _unavailable_speech_analysis(expected_phrase)
+    finally:
+        zero_float_sequence(samples)
+
+
+def _analyze_pad(detector: PadDetector, samples: Sequence[float]) -> dict[str, Any]:
+    try:
+        return detector.analyze(samples).to_json()
+    except Exception:
+        return _unavailable_pad("model_unavailable", detector=detector)
+    finally:
+        zero_float_sequence(samples)
+
+
+def _analyze_speech_timed(
+    recognizer: MoonshineRecognizer,
+    samples: Sequence[float],
+    expected_phrase: str,
+    intent_name: str,
+    challenge_tokens: tuple[str, ...],
+) -> TimedStageResult:
+    value = _analyze_speech(
+        recognizer,
+        samples,
+        expected_phrase,
+        intent_name,
+        challenge_tokens,
+    )
+    return TimedStageResult(completed_at=time.monotonic(), value=value)
+
+
+def _analyze_speaker_timed(
+    runtime: VerifierRuntime,
+    samples: Sequence[float],
+    encrypted_template: str,
+    threshold: float,
+) -> TimedStageResult:
+    value = _analyze_speaker(runtime, samples, encrypted_template, threshold)
+    return TimedStageResult(completed_at=time.monotonic(), value=value)
+
+
+def _analyze_pad_timed(
+    detector: PadDetector,
+    samples: Sequence[float],
+) -> TimedStageResult:
+    value = _analyze_pad(detector, samples)
+    return TimedStageResult(completed_at=time.monotonic(), value=value)
+
+
+def accepted_speech_samples(speech_windows: Sequence[SpeechWindow]) -> array:
+    if len(speech_windows) == 0:
+        raise ValueError("accepted speech windows are required")
+    samples = array("f")
+    for window in speech_windows:
+        samples.extend(window.samples)
+    return samples
+
+
+def resolve_speech_stage(
+    future: Future[TimedStageResult] | None,
+    *,
+    started_at: float,
+    deadline_ms: int,
+    expected_phrase: str,
+) -> dict[str, Any]:
+    result = resolve_stage(future, started_at=started_at, deadline_ms=deadline_ms)
+    if result is None or not isinstance(result.value, dict):
+        return _unavailable_speech_analysis(expected_phrase)
+    return result.value
+
+
+def resolve_speaker_stage(
+    future: Future[TimedStageResult] | None,
+    *,
+    started_at: float,
+    deadline_ms: int,
+    runtime: VerifierRuntime,
+    threshold: float,
+) -> SpeakerResponse:
+    result = resolve_stage(future, started_at=started_at, deadline_ms=deadline_ms)
+    if result is not None and isinstance(
+        result.value,
+        (SpeakerAccepted, SpeakerRejected, SpeakerUncertain),
+    ):
+        return result.value
+    return SpeakerUncertain(
+        kind="uncertain",
+        reason="verifier_unavailable",
+        score=0.0,
+        threshold=threshold,
+        model_version=runtime.metadata.model_version,
+        threshold_version=runtime.metadata.threshold_version,
+    )
+
+
+def resolve_pad_stage(
+    future: Future[TimedStageResult] | None,
+    *,
+    started_at: float,
+    deadline_ms: int,
+    detector: PadDetector | None,
+) -> dict[str, Any]:
+    if detector is None:
+        return _unavailable_pad("model_unavailable")
+    result = resolve_stage(future, started_at=started_at, deadline_ms=deadline_ms)
+    if result is not None and isinstance(result.value, dict):
+        return result.value
+    reason = "overloaded" if future is None else "deadline_exceeded"
+    return _unavailable_pad(reason, detector=detector)
+
+
+def resolve_stage(
+    future: Future[TimedStageResult] | None,
+    *,
+    started_at: float,
+    deadline_ms: int,
+) -> TimedStageResult | None:
+    if future is None:
+        return None
+    if not future.done():
+        future.cancel()
+        return None
+    try:
+        result = future.result()
+    except Exception:
+        return None
+    elapsed_ms = (result.completed_at - started_at) * 1000
+    return result if elapsed_ms <= deadline_ms else None
+
+
+def _unavailable_pad(
+    reason: str,
+    *,
+    detector: PadDetector | None = None,
+) -> dict[str, Any]:
+    if detector is None:
+        return {"kind": "pad_unavailable", "reason": "ordinary_browser_capture"}
+    return {
+        "kind": "uncertain",
+        "reason": reason,
+        "score": 0.0,
+        "rejectThreshold": detector.reject_threshold,
+        "acceptThreshold": detector.accept_threshold,
+        "modelVersion": detector.model_version,
+        "calibrationVersion": detector.calibration_version,
+        "latencyMs": 0.0,
+    }
 
 
 def _unavailable_speech_analysis(expected_phrase: str) -> dict[str, Any]:
@@ -313,8 +612,39 @@ def get_default_moonshine() -> MoonshineRecognizer:
                 model_arch=os.environ.get("VOICEID_MOONSHINE_MODEL_ARCH", "tiny_streaming"),
                 intent_model_path=intent_model_path,
                 intent_threshold=float(os.environ.get("VOICEID_MOONSHINE_INTENT_THRESHOLD", "0.8")),
+                intent_margin=float(os.environ.get("VOICEID_MOONSHINE_INTENT_MARGIN", "0.1")),
             )
     return DEFAULT_MOONSHINE
+
+
+def get_default_pad_detector() -> PadDetector:
+    global DEFAULT_PAD_DETECTOR
+    if DEFAULT_PAD_DETECTOR is not None:
+        return DEFAULT_PAD_DETECTOR
+    with DEFAULT_PAD_LOCK:
+        if DEFAULT_PAD_DETECTOR is None:
+            source_path = required_path_from_env("VOICEID_PAD_AASIST_SOURCE_PATH")
+            checkpoint_path = required_path_from_env("VOICEID_PAD_AASIST_CHECKPOINT_PATH")
+            config_path = required_path_from_env("VOICEID_PAD_AASIST_CONFIG_PATH")
+            DEFAULT_PAD_DETECTOR = AasistPadDetector(
+                source_path=source_path,
+                checkpoint_path=checkpoint_path,
+                config_path=config_path,
+                device_name=os.environ.get("VOICEID_PAD_DEVICE", "auto"),
+                reject_threshold=probability_from_env(
+                    "VOICEID_PAD_REJECT_THRESHOLD",
+                    0.35,
+                ),
+                accept_threshold=probability_from_env(
+                    "VOICEID_PAD_ACCEPT_THRESHOLD",
+                    0.65,
+                ),
+                calibration_version=os.environ.get(
+                    "VOICEID_PAD_CALIBRATION_VERSION",
+                    "aasist-research-uncalibrated-v1",
+                ),
+            )
+    return DEFAULT_PAD_DETECTOR
 
 
 def _audio_claims(metadata: AudioMetadata) -> AudioClaims:
@@ -477,6 +807,8 @@ def handle_http_operation(
     *,
     runtime: VerifierRuntime | None = None,
     recognizer: MoonshineRecognizer | None = None,
+    pad_detector: PadDetector | None = None,
+    stage_executor: BoundedStageExecutor | None = None,
 ) -> dict[str, Any]:
     operation = _operation_for_path(path)
     if operation == "build_enrollment_template":
@@ -486,7 +818,13 @@ def handle_http_operation(
     if operation == "analyze_speech":
         return analyze_speech_from_json(request, runtime=runtime, recognizer=recognizer)
     if operation == "analyze_verification":
-        return analyze_verification_from_json(request, runtime=runtime, recognizer=recognizer)
+        return analyze_verification_from_json(
+            request,
+            runtime=runtime,
+            recognizer=recognizer,
+            pad_detector=pad_detector,
+            stage_executor=stage_executor,
+        )
     raise ValueError("unknown verifier operation")
 
 
@@ -504,17 +842,33 @@ class VoiceIdVerifierHttpServer(ThreadingHTTPServer):
         if queue_wait_ms < 0:
             raise ValueError("queue_wait_ms must be non-negative")
         self.verifier_runtime = runtime or get_default_runtime()
-        self.maximum_concurrent_inferences = maximum_concurrent_inferences
         self.queue_wait_ms = queue_wait_ms
         self.moonshine_recognizer = configured_moonshine_recognizer()
-        self._inference_slots = threading.BoundedSemaphore(maximum_concurrent_inferences)
+        self.pad_detector = configured_pad_detector()
+        effective_concurrent_inferences = (
+            1 if self.moonshine_recognizer is not None else maximum_concurrent_inferences
+        )
+        self.maximum_concurrent_inferences = effective_concurrent_inferences
+        self._inference_slots = threading.BoundedSemaphore(effective_concurrent_inferences)
+        self.verification_stage_executor: BoundedStageExecutor | None = None
         super().__init__(server_address, VoiceIdVerifierHttpHandler)
+        self.verification_stage_executor = BoundedStageExecutor(
+            maximum_active_stages=effective_concurrent_inferences * VERIFICATION_STAGE_COUNT
+        )
 
     def acquire_inference_slot(self) -> bool:
         return self._inference_slots.acquire(timeout=self.queue_wait_ms / 1000)
 
     def release_inference_slot(self) -> None:
         self._inference_slots.release()
+
+    def server_close(self) -> None:
+        try:
+            super().server_close()
+        finally:
+            executor = self.verification_stage_executor
+            if executor is not None:
+                executor.shutdown()
 
     def health_response(self) -> dict[str, Any]:
         metadata = self.verifier_runtime.metadata
@@ -543,6 +897,19 @@ class VoiceIdVerifierHttpServer(ThreadingHTTPServer):
                 "readiness": "ready" if self.moonshine_recognizer is not None else "disabled",
                 "modelArch": os.environ.get("VOICEID_MOONSHINE_MODEL_ARCH", "tiny_streaming"),
             },
+            "pad": {
+                "readiness": "ready" if self.pad_detector is not None else "disabled",
+                "modelVersion": (
+                    self.pad_detector.model_version
+                    if self.pad_detector is not None
+                    else None
+                ),
+                "calibrationVersion": (
+                    self.pad_detector.calibration_version
+                    if self.pad_detector is not None
+                    else None
+                ),
+            },
         }
 
 
@@ -570,6 +937,8 @@ class VoiceIdVerifierHttpHandler(BaseHTTPRequestHandler):
                 request,
                 runtime=server.verifier_runtime,
                 recognizer=server.moonshine_recognizer,
+                pad_detector=server.pad_detector,
+                stage_executor=server.verification_stage_executor,
             )
         except VerifierSchemaError as error:
             self._write_json(400, malformed_request(error))
@@ -594,8 +963,10 @@ class VoiceIdVerifierHttpHandler(BaseHTTPRequestHandler):
         return self.server
 
     def _read_json_request(self) -> dict[str, Any]:
-        content_length = int(self.headers.get("Content-Length", "0"))
+        content_length = parse_content_length(self.headers.get("Content-Length"))
         body = self.rfile.read(content_length)
+        if len(body) != content_length:
+            raise ValueError("request body ended before Content-Length bytes were received")
         value = json.loads(body.decode("utf-8"))
         if not isinstance(value, dict):
             raise ValueError("request body must be a JSON object")
@@ -633,6 +1004,33 @@ def configured_moonshine_recognizer() -> MoonshineRecognizer | None:
     if model_path == "" and intent_model_path == "":
         return None
     return get_default_moonshine()
+
+
+def configured_pad_detector() -> PadDetector | None:
+    paths = tuple(
+        os.environ.get(name, "").strip()
+        for name in (
+            "VOICEID_PAD_AASIST_SOURCE_PATH",
+            "VOICEID_PAD_AASIST_CHECKPOINT_PATH",
+            "VOICEID_PAD_AASIST_CONFIG_PATH",
+        )
+    )
+    if all(path == "" for path in paths):
+        return None
+    if any(path == "" for path in paths):
+        raise RuntimeError(
+            "VOICEID_PAD_AASIST_SOURCE_PATH, VOICEID_PAD_AASIST_CHECKPOINT_PATH, "
+            "and VOICEID_PAD_AASIST_CONFIG_PATH must be configured together"
+        )
+    return get_default_pad_detector()
+
+
+def verification_stage_deadlines_from_env() -> VerificationStageDeadlines:
+    return VerificationStageDeadlines(
+        speech_ms=positive_int_from_env("VOICEID_SPEECH_DEADLINE_MS", 900),
+        speaker_ms=positive_int_from_env("VOICEID_SPEAKER_DEADLINE_MS", 900),
+        pad_ms=positive_int_from_env("VOICEID_PAD_DEADLINE_MS", 900),
+    )
 
 
 def run_http_server(
@@ -687,6 +1085,32 @@ def non_negative_int_from_env(name: str, default: int) -> int:
     if value < 0:
         raise ValueError(f"{name} must be non-negative")
     return value
+
+
+def probability_from_env(name: str, default: float) -> float:
+    value = float(os.environ.get(name, str(default)))
+    if value < 0 or value > 1:
+        raise ValueError(f"{name} must be a probability")
+    return value
+
+
+def parse_content_length(value: str | None) -> int:
+    try:
+        content_length = int(value or "0")
+    except ValueError as error:
+        raise ValueError("Content-Length must be an integer") from error
+    if content_length <= 0:
+        raise ValueError("Content-Length must be positive")
+    if content_length > MAXIMUM_JSON_REQUEST_BYTES:
+        raise ValueError("request body exceeds the maximum JSON byte length")
+    return content_length
+
+
+def required_path_from_env(name: str) -> Path:
+    value = os.environ.get(name, "").strip()
+    if value == "":
+        raise RuntimeError(f"{name} is required")
+    return Path(value).expanduser().resolve()
 
 
 def _operation_for_path(path: str) -> str:
