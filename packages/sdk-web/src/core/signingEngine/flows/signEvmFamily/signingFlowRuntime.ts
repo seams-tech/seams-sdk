@@ -18,7 +18,8 @@ import {
   resolveExactInactiveEcdsaCapabilityMaterial,
 } from '../../session/material/activeEcdsaCapabilityRuntime';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
-import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -47,6 +48,18 @@ import type {
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from './ecdsaSigningCapability';
 import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
+
+function signerAuthMethodForWalletAuthority(authority: WalletAuthAuthority): SignerAuthMethod {
+  switch (authority.factor.kind) {
+    case 'passkey':
+      return 'passkey';
+    case 'email_otp':
+      return 'email_otp';
+    default:
+      authority.factor satisfies never;
+      throw new Error('[SigningEngine] unsupported wallet authorization factor');
+  }
+}
 
 async function runSerializedEcdsaMaterialUse<T>(
   args: {
@@ -175,9 +188,7 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   // Prefer active session runtime. Without reusable authorization, the same
   // manifest may instead correlate authorization-free inactive material for
   // one-operation step-up.
-  const authMethod = isEmailOtpWalletAuthAuthority(args.capability.authority)
-    ? 'email_otp'
-    : 'passkey';
+  const authMethod = signerAuthMethodForWalletAuthority(args.capability.authority);
   const activeRuntimeResolution = await resolveExactEcdsaCapabilityRuntime({
     manifest: args.capability.manifest,
     chainTarget: args.chainTarget,
@@ -313,9 +324,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           ? { kind: 'active' }
           : {
               kind: 'absent',
-              requiredFactor: isEmailOtpWalletAuthAuthority(capability.authority)
-                ? 'email_otp'
-                : 'passkey',
+              requiredFactor: signerAuthMethodForWalletAuthority(capability.authority),
             },
         operationStepUp: {
           prepare: async ({ operation, operationDigests, material }) =>
