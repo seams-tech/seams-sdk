@@ -34,10 +34,12 @@ import {
   mpcMaterialActivationRefsEqual,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
+import type { EmailOtpEd25519YaoPublicationContext } from './ed25519YaoPublication';
 
 export type EmailOtpEd25519YaoBudgetRecoveryResult = {
   sessionId: string;
   record: ThresholdEd25519SessionRecord;
+  publicationContext: EmailOtpEd25519YaoPublicationContext;
 } & NearEd25519YaoSigningCapability;
 
 export type PreparedColdEmailOtpEd25519YaoRecoveryV1 = {
@@ -84,6 +86,30 @@ function isFreshActivationForSameSigner(
     previous.keyBinding === next.keyBinding &&
     previous.signingWorker === next.signingWorker
   );
+}
+
+function buildEmailOtpEd25519YaoPublicationContext(args: {
+  prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
+  bootstrap: EmailOtpEd25519YaoUnlockBootstrapV1;
+}): EmailOtpEd25519YaoPublicationContext {
+  const authorityScope = args.bootstrap.session.authorityScope;
+  if (authorityScope.kind !== 'email_otp') {
+    throw new Error('Email OTP Ed25519 publication requires Email OTP authority');
+  }
+  const providerSubjectId = requireNonEmpty(
+    args.prepared.providerSubject,
+    'providerSubjectId',
+  );
+  if (authorityScope.providerUserId !== providerSubjectId) {
+    throw new Error('Email OTP Ed25519 publication authority subject mismatch');
+  }
+  return {
+    rpId: requireNonEmpty(args.prepared.rpId, 'rpId'),
+    provider: authorityScope.provider,
+    providerSubjectId,
+    emailHashHex: requireNonEmpty(args.prepared.emailHashHex, 'emailHashHex'),
+    materialActivation: args.prepared.identity.materialActivation,
+  };
 }
 
 function buildEmailOtpEd25519LoginRoutePlan(appSessionJwt: string) {
@@ -314,7 +340,12 @@ export async function activateColdEmailOtpEd25519YaoLocalSessionV1(args: {
       throw new Error('Email OTP Ed25519 local custody activated a different identity');
     }
     activeClient = null;
-    return { sessionId: walletSessionState.thresholdSessionId, record, ...capability };
+    return {
+      sessionId: walletSessionState.thresholdSessionId,
+      record,
+      publicationContext: buildEmailOtpEd25519YaoPublicationContext(args),
+      ...capability,
+    };
   } finally {
     activeClient?.dispose();
   }
@@ -378,7 +409,12 @@ export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
       throw new Error('Email OTP Ed25519 Yao recovery activated a different identity');
     }
     activeClient = null;
-    return { sessionId: walletSessionState.thresholdSessionId, record, ...capability };
+    return {
+      sessionId: walletSessionState.thresholdSessionId,
+      record,
+      publicationContext: buildEmailOtpEd25519YaoPublicationContext(args),
+      ...capability,
+    };
   } finally {
     activeClient?.dispose();
   }

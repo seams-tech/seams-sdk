@@ -50,6 +50,7 @@ import {
   prepareColdEmailOtpEd25519YaoRecoveryV1,
   type EmailOtpEd25519YaoBudgetRecoveryResult,
 } from './ed25519YaoBudgetRecovery';
+import type { EmailOtpEd25519YaoPublicationInput } from './ed25519YaoPublication';
 import { requestRehydrateEmailOtpEd25519YaoLocalMaterial } from './workerRequests';
 import {
   SigningSessionIds,
@@ -75,7 +76,6 @@ import {
 } from '../material/mpcCapabilityHydration';
 import { buildRestorableMpcMaterialRefInternal } from '../material/restorableMpcMaterialRef.internal';
 import { resolveThresholdEd25519CommitQueueKey } from '../../threshold/ed25519/commitQueue';
-import type { ThresholdEd25519SessionRecord } from '../persistence/records';
 
 export type EmailOtpEd25519YaoSilentRecoveryUnavailableReason =
   | 'sealed_session_missing'
@@ -156,7 +156,7 @@ export type EmailOtpEd25519YaoSilentRecoveryPorts = {
     enabled: boolean;
     task: () => Promise<T>;
   }) => Promise<T>;
-  persistRecoveredSession: (record: ThresholdEd25519SessionRecord) => Promise<void>;
+  persistRecoveredSession: (input: EmailOtpEd25519YaoPublicationInput) => Promise<void>;
   nowMs: () => number;
 };
 
@@ -804,7 +804,10 @@ async function runFencedEmailOtpEd25519YaoSealedRecovery(
     workerContext: input.ports.workerContext,
     activateCapability: input.ports.activateCapability,
   });
-  await input.ports.persistRecoveredSession(recovery.record);
+  await input.ports.persistRecoveredSession({
+    capability: recovery,
+    publicationContext: recovery.publicationContext,
+  });
   const committed = await resolveSealedRecord({ subject: input.subject, ports: input.ports });
   if (
     committed.kind === 'reauth_required' ||

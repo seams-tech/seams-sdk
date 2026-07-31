@@ -185,6 +185,7 @@ import {
   recoverColdEmailOtpEd25519CapabilityForLoginV1,
   type PreparedColdEmailOtpEd25519YaoRecoveryV1,
 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
+import type { EmailOtpEd25519YaoPublicationInput } from '@/core/signingEngine/session/emailOtp/ed25519YaoPublication';
 import type {
   EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
@@ -2288,12 +2289,9 @@ export class BrowserSigningSurface {
   }
 
   async persistEmailOtpEd25519YaoSessionForRefreshInternal(
-    record: ThresholdEd25519SessionRecord,
+    input: EmailOtpEd25519YaoPublicationInput,
   ): Promise<void> {
-    await this.emailOtpSessions.persistEd25519YaoSessionForRefresh({
-      record,
-      rpId: this.getRpId(),
-    });
+    await this.emailOtpSessions.persistEd25519YaoSessionForRefresh(input);
   }
 
   async activateEmailOtpEd25519YaoUnlockedRecoveryInternal(args: {
@@ -2326,7 +2324,10 @@ export class BrowserSigningSurface {
         this.enginePorts.ed25519YaoActiveClients,
       ),
     });
-    await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(recovered.record);
+    await this.persistEmailOtpEd25519YaoSessionForRefreshInternal({
+      capability: recovered,
+      publicationContext: recovered.publicationContext,
+    });
     this.requireCurrentEmailOtpEd25519Activation(args.prepared);
     return recovered.record;
   }
@@ -2364,7 +2365,10 @@ export class BrowserSigningSurface {
         this.enginePorts.ed25519YaoActiveClients,
       ),
     });
-    await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(activated.record);
+    await this.persistEmailOtpEd25519YaoSessionForRefreshInternal({
+      capability: activated,
+      publicationContext: activated.publicationContext,
+    });
     this.requireCurrentEmailOtpEd25519Activation(args.prepared);
     return activated.record;
   }
@@ -2409,7 +2413,10 @@ export class BrowserSigningSurface {
         this.enginePorts.ed25519YaoActiveClients,
       ),
     });
-    await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(recovered.record);
+    await this.persistEmailOtpEd25519YaoSessionForRefreshInternal({
+      capability: recovered,
+      publicationContext: recovered.publicationContext,
+    });
     this.requireCurrentEmailOtpEd25519Activation(input.prepared);
     return recovered.record;
   }

@@ -429,9 +429,6 @@ export interface PasskeyLoginAssertionSurface {
 
 export interface EmailOtpSigningSessionSurface {
   rememberEmailOtpAppSessionBinding(binding: EmailOtpAppSessionBinding): void;
-  persistEmailOtpEd25519YaoSessionForRefreshInternal(
-    record: ThresholdEd25519SessionRecord,
-  ): Promise<void>;
   prepareEmailOtpEd25519YaoLoginRecoveryInternal(args: {
     walletSession: WalletSessionRef;
     remainingUses: number;
@@ -513,7 +510,7 @@ export type RegistrationSigningSurface = RpIdSurface &
   > &
   Pick<
     EmailOtpSigningSessionSurface,
-    'rememberEmailOtpAppSessionBinding' | 'persistEmailOtpEd25519YaoSessionForRefreshInternal'
+    'rememberEmailOtpAppSessionBinding'
   > &
   SignerWorkerContextSurface &
   PasskeyLoginAssertionSurface &

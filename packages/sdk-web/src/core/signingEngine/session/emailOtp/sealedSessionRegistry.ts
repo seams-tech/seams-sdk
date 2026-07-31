@@ -21,7 +21,6 @@ import {
   persistEmailOtpEd25519YaoSessionForRefresh,
   type EmailOtpEd25519YaoPublicationPorts,
 } from './ed25519YaoPublication';
-import type { ThresholdEd25519SessionRecord } from '../persistence/records';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 
 export class EmailOtpSealedSessionRegistry {
@@ -70,10 +69,9 @@ export class EmailOtpSealedSessionRegistry {
     };
   }
 
-  async persistEd25519YaoSessionForRefresh(args: {
-    record: ThresholdEd25519SessionRecord;
-    rpId: string;
-  }): Promise<void> {
+  async persistEd25519YaoSessionForRefresh(
+    args: Parameters<typeof persistEmailOtpEd25519YaoSessionForRefresh>[0],
+  ): Promise<void> {
     await persistEmailOtpEd25519YaoSessionForRefresh(args, this.ed25519YaoPublicationPorts());
   }
 

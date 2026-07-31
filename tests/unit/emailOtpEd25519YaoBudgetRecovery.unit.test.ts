@@ -8,6 +8,7 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
 import { resolveEmailOtpEd25519YaoColdRecoveryV1 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoLogin';
 import { recoverEmailOtpEd25519YaoWorkerClientV1 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient';
+import type { EmailOtpEd25519YaoPublicationInput } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoPublication';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '../../packages/sdk-web/src/core/signingEngine/workerManager/workerTypes';
@@ -556,6 +557,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     const prior = activeMetadata();
     const worker = new RecoveryWorkerFixture({ prior, substitutePublicKey: false });
     const activation = new RecoveryActivationHarness(null);
+    let publicationInput: EmailOtpEd25519YaoPublicationInput | null = null;
 
     const result = await recoverEmailOtpEd25519YaoFromSealedSessionV1({
       subject: {
@@ -576,7 +578,9 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         resolveActiveCapability: activation.resolve.bind(activation),
         activateCapability: activation.activate.bind(activation),
         withThresholdEd25519CommitQueue: runEd25519CommitQueueTask,
-        persistRecoveredSession: persistRecoveredSessionForTest,
+        persistRecoveredSession: async (input) => {
+          publicationInput = input;
+        },
         nowMs: Date.now,
       },
     });
@@ -585,6 +589,17 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     expect(worker.operations).toEqual(['rehydrateEmailOtpEd25519YaoLocalMaterial']);
     expect(worker.operations).not.toContain('loginWithEmailOtpWallet');
     expect(activation.activateCalls).toBe(1);
+    expect(publicationInput).not.toBeNull();
+    expect(publicationInput).not.toHaveProperty('record');
+    expect(publicationInput?.publicationContext).toMatchObject({
+      rpId: 'localhost',
+      provider: 'google',
+      providerSubjectId: PROVIDER_SUBJECT,
+      emailHashHex: '11'.repeat(32),
+    });
+    expect(publicationInput?.capability.walletSessionState.thresholdSessionId).toBe(
+      THRESHOLD_SESSION_ID,
+    );
     if (result.kind === 'recovered') {
       expect(result.recovery.record.remainingUses).toBe(3);
       expect(result.recovery.record.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
