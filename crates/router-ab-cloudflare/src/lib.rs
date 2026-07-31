@@ -95,7 +95,7 @@ pub use auth::{
     set_cloudflare_internal_service_auth_header_v1,
 };
 use auth::{
-    router_jwt_segment_error, select_router_jwt_session_id_v1, unix_seconds_to_millis_v1,
+    router_jwt_segment_error, unix_seconds_to_millis_v1,
     verify_router_ed25519_jwt_signature_v1,
 };
 use encoding::{

@@ -31,6 +31,29 @@ import {
   resolveExactEd25519SealedSessionRuntimeForWallet,
   type Ed25519WalletSealedSessionRuntimeResolution,
 } from './ed25519SealedSessionRuntime';
+import type { ExactEcdsaSealedRuntimeAuthBinding } from '../material/ecdsaSealedRuntime';
+import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
+
+function signingLaneAuthBindingFromEcdsaRuntime(
+  authBinding: ExactEcdsaSealedRuntimeAuthBinding,
+): SigningLaneAuthBinding {
+  switch (authBinding.kind) {
+    case 'passkey':
+      return {
+        kind: 'passkey',
+        rpId: toRpId(authBinding.rpId),
+        credentialIdB64u: authBinding.credentialIdB64u,
+      };
+    case 'email_otp':
+      return {
+        kind: 'email_otp',
+        providerSubjectId: authBinding.providerSubjectId,
+      };
+    default:
+      authBinding satisfies never;
+      throw new Error('[WarmSessionStore] unsupported ECDSA runtime auth binding');
+  }
+}
 
 export type WarmSessionCapabilityReaderSealConfigured = {
   seal: 'configured';
@@ -269,14 +292,7 @@ export function createWarmSessionCapabilityReaderCore(
       materialActivation: runtime.materialActivation,
       keyHandle: runtime.keyHandle,
       walletId: runtime.walletId,
-      auth:
-        authBinding.kind === 'email_otp'
-          ? { kind: 'email_otp', providerSubjectId: authBinding.providerSubjectId }
-          : {
-              kind: 'passkey',
-              rpId: toRpId(authBinding.rpId),
-              credentialIdB64u: authBinding.credentialIdB64u,
-            },
+      auth: signingLaneAuthBindingFromEcdsaRuntime(authBinding),
       authorization: args.authorization,
       chainTarget: runtime.chainTarget,
     });

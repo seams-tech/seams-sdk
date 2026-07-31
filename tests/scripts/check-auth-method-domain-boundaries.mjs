@@ -16,11 +16,7 @@ const sourceRoots = [
 // Temporary Refactor 91 inventory. New occurrences fail; removals must shrink this list.
 const approvedBinaryFallbacks = new Map([
   ['packages/sdk-web/src/SeamsWeb/assembly/browserSigningSurfaceAssembly.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts', 3],
   ['packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/session/operationState/lanes.ts', 1],
   ['packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts', 1],
   ['packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts', 1],
   ['packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts', 1],

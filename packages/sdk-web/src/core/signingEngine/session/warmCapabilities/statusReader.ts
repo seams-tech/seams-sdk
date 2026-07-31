@@ -18,6 +18,7 @@ import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
+  type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { parseRouterAbEd25519WalletSessionIdentityClaims } from '../routerAbSigningWalletSession';
 
@@ -54,14 +55,43 @@ function ed25519SessionMetadata(runtime: ExactEd25519SealedSessionRuntime): {
   authMethod: SignerAuthMethod;
   retention?: 'session';
 } {
-  return runtime.factor.kind === SIGNER_AUTH_METHODS.emailOtp
-    ? {
-        authMethod: SIGNER_AUTH_METHODS.emailOtp,
-        retention: 'session',
-      }
-    : {
+  switch (runtime.factor.kind) {
+    case SIGNER_AUTH_METHODS.passkey:
+      return {
         authMethod: SIGNER_AUTH_METHODS.passkey,
       };
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return {
+        authMethod: SIGNER_AUTH_METHODS.emailOtp,
+        retention: 'session',
+      };
+    default:
+      runtime.factor satisfies never;
+      throw new Error('[WarmSessionStore] unsupported Ed25519 runtime factor');
+  }
+}
+
+function ed25519WalletAuthAuthority(
+  runtime: ExactEd25519SealedSessionRuntime,
+): WalletAuthAuthority {
+  switch (runtime.factor.kind) {
+    case SIGNER_AUTH_METHODS.passkey:
+      return buildPasskeyWalletAuthAuthority({
+        walletId: runtime.walletId,
+        rpId: runtime.factor.rpId,
+        credentialIdB64u: runtime.factor.credentialIdB64u,
+      });
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return buildEmailOtpWalletAuthAuthority({
+        walletId: runtime.walletId,
+        provider: runtime.factor.provider,
+        providerUserId: runtime.factor.providerSubjectId,
+        emailHashHex: runtime.factor.emailHashHex,
+      });
+    default:
+      runtime.factor satisfies never;
+      throw new Error('[WarmSessionStore] unsupported Ed25519 runtime factor');
+  }
 }
 
 async function ed25519AuthorizationMatchesRuntime(args: {
@@ -90,19 +120,7 @@ async function ed25519AuthorizationMatchesRuntime(args: {
     return false;
   }
   try {
-    const authority =
-      runtime.factor.kind === SIGNER_AUTH_METHODS.passkey
-        ? buildPasskeyWalletAuthAuthority({
-            walletId: runtime.walletId,
-            rpId: runtime.factor.rpId,
-            credentialIdB64u: runtime.factor.credentialIdB64u,
-          })
-        : buildEmailOtpWalletAuthAuthority({
-            walletId: runtime.walletId,
-            provider: runtime.factor.provider,
-            providerUserId: runtime.factor.providerSubjectId,
-            emailHashHex: runtime.factor.emailHashHex,
-          });
+    const authority = ed25519WalletAuthAuthority(runtime);
     const expected = await walletAuthAuthorityRef({ authority });
     return expected.authorityDigest === authorization.authority.authorityDigest;
   } catch {

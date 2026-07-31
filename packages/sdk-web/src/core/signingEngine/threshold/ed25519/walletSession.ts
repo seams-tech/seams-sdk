@@ -336,6 +336,50 @@ export type Ed25519OperationStepUpGrantRequest = Ed25519OperationStepUpGrantRequ
       }
   );
 
+type Ed25519OperationStepUpProofWire =
+  | {
+      kind: 'passkey';
+      authority: PasskeyWalletAuthAuthority;
+      webauthn_authentication: WebAuthnAuthenticationCredential;
+    }
+  | {
+      kind: 'email_otp';
+      authority_ref: WalletAuthAuthorityRef;
+      provider_subject_id: string;
+      challenge_id: string;
+      otp_code: string;
+    };
+
+function serializeEd25519OperationStepUpProof(
+  proof: Ed25519OperationStepUpProof,
+): Ed25519OperationStepUpProofWire {
+  switch (proof.kind) {
+    case 'passkey':
+      return {
+        kind: 'passkey',
+        authority: proof.authority,
+        webauthn_authentication: redactCredentialExtensionOutputs(proof.credential),
+      };
+    case 'email_otp':
+      return {
+        kind: 'email_otp',
+        authority_ref: proof.authorityRef,
+        provider_subject_id: requireNonEmptyEd25519SecretSourceString(
+          proof.providerSubjectId,
+          'providerSubjectId',
+        ),
+        challenge_id: requireNonEmptyEd25519SecretSourceString(
+          proof.challengeId,
+          'challengeId',
+        ),
+        otp_code: requireNonEmptyEd25519SecretSourceString(proof.otpCode, 'otpCode'),
+      };
+    default:
+      proof satisfies never;
+      throw new Error('[threshold-ed25519] unsupported operation step-up proof');
+  }
+}
+
 export type IssuedEd25519OperationStepUpGrant = {
   kind: 'operation_step_up';
   grantId: string;
@@ -514,26 +558,7 @@ export async function issueEd25519OperationStepUpGrant(
       kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
       normalSigningRequest: args.normalSigningRequest,
       displayDigest: args.displayDigest,
-      proof:
-        args.proof.kind === 'passkey'
-          ? {
-              kind: 'passkey',
-              authority: args.proof.authority,
-              webauthn_authentication: redactCredentialExtensionOutputs(args.proof.credential),
-            }
-          : {
-              kind: 'email_otp',
-              authority_ref: args.proof.authorityRef,
-              provider_subject_id: requireNonEmptyEd25519SecretSourceString(
-                args.proof.providerSubjectId,
-                'providerSubjectId',
-              ),
-              challenge_id: requireNonEmptyEd25519SecretSourceString(
-                args.proof.challengeId,
-                'challengeId',
-              ),
-              otp_code: requireNonEmptyEd25519SecretSourceString(args.proof.otpCode, 'otpCode'),
-            },
+      proof: serializeEd25519OperationStepUpProof(args.proof),
       materialRecovery,
     }),
   });

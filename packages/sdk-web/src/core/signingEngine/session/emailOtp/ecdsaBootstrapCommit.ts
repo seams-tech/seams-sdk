@@ -18,6 +18,7 @@ import type { ThresholdEcdsaBackendBinding } from '../../interfaces/signing';
 import { withThresholdEcdsaBootstrapQueue } from '../warmCapabilities/ecdsaBootstrapQueue';
 import {
   persistThresholdEcdsaBootstrapForWalletTarget,
+  type ThresholdEcdsaBootstrapSignerAuth,
   type ThresholdEcdsaBootstrapStorePort,
 } from '../warmCapabilities/ecdsaBootstrapPersistence';
 import type { ThresholdEcdsaBootstrapParityArgs } from '../warmCapabilities/sealedRefreshParity';
@@ -82,6 +83,34 @@ type CommitPasskeyEvmFamilyThresholdEcdsaSessionsArgs =
 type CommitEvmFamilyThresholdEcdsaSessionsArgs =
   | CommitEmailOtpEvmFamilyThresholdEcdsaSessionsArgs
   | CommitPasskeyEvmFamilyThresholdEcdsaSessionsArgs;
+
+function signerDomainForThresholdEcdsaSource(
+  source: ThresholdEcdsaSessionStoreSource,
+): ThresholdEcdsaBootstrapSignerAuth {
+  switch (source) {
+    case 'email_otp':
+      return {
+        authMethod: SIGNER_AUTH_METHODS.emailOtp,
+        signerSource: SIGNER_SOURCES.emailOtpRegistration,
+      };
+    case 'login':
+    case 'registration':
+    case 'manual-bootstrap':
+      return {
+        authMethod: SIGNER_AUTH_METHODS.passkey,
+        signerSource: SIGNER_SOURCES.passkeyRegistration,
+      };
+    default:
+      source satisfies never;
+      throw new Error('[SigningEngine] unsupported threshold ECDSA session source');
+  }
+}
+
+function signerAuthMethodForThresholdEcdsaSource(
+  source: ThresholdEcdsaSessionStoreSource,
+): (typeof SIGNER_AUTH_METHODS)[keyof typeof SIGNER_AUTH_METHODS] {
+  return signerDomainForThresholdEcdsaSource(source).authMethod;
+}
 
 function assertNeverThresholdEcdsaBootstrapBackendBinding(value: never): never {
   throw new Error(
@@ -161,16 +190,7 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
       walletId: args.walletId,
       chainTarget: args.chainTarget,
       bootstrap: canonicalBootstrap,
-      signerAuth:
-        args.source === 'email_otp'
-          ? {
-              authMethod: SIGNER_AUTH_METHODS.emailOtp,
-              signerSource: SIGNER_SOURCES.emailOtpRegistration,
-            }
-          : {
-              authMethod: SIGNER_AUTH_METHODS.passkey,
-              signerSource: SIGNER_SOURCES.passkeyRegistration,
-            },
+      signerAuth: signerDomainForThresholdEcdsaSource(args.source),
     });
     await persistWorkerProvisionedRoleLocalReadyRecord({
       deps,
@@ -186,10 +206,7 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
                 authority: args.emailOtpAuthContext.authority,
               })
             : args.authority,
-        authMethod:
-          args.source === 'email_otp'
-            ? SIGNER_AUTH_METHODS.emailOtp
-            : SIGNER_AUTH_METHODS.passkey,
+        authMethod: signerAuthMethodForThresholdEcdsaSource(args.source),
         bootstrap: canonicalBootstrap,
       },
     );

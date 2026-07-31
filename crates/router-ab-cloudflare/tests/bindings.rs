@@ -3024,6 +3024,37 @@ fn router_ed25519_jwks_jwt_verifier_accepts_bound_claims() {
 }
 
 #[test]
+fn router_ed25519_jwks_jwt_verifier_rejects_legacy_session_id_claim() {
+    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
+    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
+    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
+        .expect("ed25519 jwks verifier");
+    let mut claims = valid_router_jwt_claims();
+    claims["session_id"] = claims["sid"].take();
+    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
+    let authorization = CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
+        "Bearer {token}"
+    ))
+    .expect("authorization");
+
+    let error = verifier
+        .verify_public_request_jwt(
+            &router_admission_bindings().jwt,
+            &authorization,
+            &ecdsa_threshold_prf_request(2_000),
+            ecdsa_threshold_prf_request(2_000).router_replay_digest(),
+            1_000,
+            digest(0x91),
+        )
+        .expect_err("legacy session_id must not satisfy canonical sid");
+
+    assert_eq!(
+        error.code(),
+        RouterAbProtocolErrorCode::MalformedWirePayload
+    );
+}
+
+#[test]
 fn router_jwt_policy_binds_the_public_route_digest() {
     let signing_key = SigningKey::from_bytes(&[0x42; 32]);
     let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");

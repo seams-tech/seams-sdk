@@ -140,6 +140,22 @@ function blocked(
   return { kind: 'blocked', reason };
 }
 
+function authMethodForEcdsaSealedSource(
+  source: ExactEcdsaMaterialRecord['ecdsaRestore']['source'],
+): ExactEcdsaSealedRecordIdentity['authMethod'] {
+  switch (source) {
+    case 'email_otp':
+      return 'email_otp';
+    case 'login':
+    case 'registration':
+    case 'manual-bootstrap':
+      return 'passkey';
+    default:
+      source satisfies never;
+      throw new Error('[SigningEngine] unsupported sealed ECDSA source');
+  }
+}
+
 function normalizedNonEmpty(value: unknown): string {
   return String(value ?? '').trim();
 }
@@ -224,7 +240,7 @@ function sealedRecordBindsManifestFacts(args: {
   const binding = durable.roleLocalBinding;
   const publicFacts = durable.roleLocalPublicFacts;
   const normalScope = restore.routerAbEcdsaDerivationNormalSigning.scope;
-  const expectedAuthMethod = restore.source === 'email_otp' ? 'email_otp' : 'passkey';
+  const expectedAuthMethod = authMethodForEcdsaSealedSource(restore.source);
   const resolvedThresholdKeyId =
     normalizedNonEmpty(restore.ecdsaThresholdKeyId) ||
     normalizedNonEmpty(normalScope.ecdsa_threshold_key_id);

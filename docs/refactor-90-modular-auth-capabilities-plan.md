@@ -1079,6 +1079,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete `active_state_session_id` from production types and wire shapes.
 - [ ] Delete remaining generic wire session aliases and
       authorization/material-scope aliases owned by this cutover.
+  - [x] Require canonical JWT `sid` at the Cloudflare Router boundary and
+        delete the legacy `session_id` claim fallback and selector
+        (`af6dc1514`).
   - [x] Delete the pure `SigningAuthMethod = SignerAuthMethod` alias and use
         canonical `SignerAuthMethod` throughout signing operation state.
   - [x] Delete zero-caller wallet/session helpers and exact aliases for ECDSA
