@@ -292,6 +292,10 @@ Completed deletions that must stay absent:
 Replacement: capability-local Near/ECDSA material adapters, generic session
 ports, and the two-state recovery journal.
 
+- ~~`canonicalizeWorkerProvisionedBootstrap`,
+  `signingGrantIdFromEcdsaBootstrap`, and
+  `ecdsaBootstrapWithSigningGrantId`~~ — deleted by `3fdeba8b7`; bootstrap
+  session identity now has one required owner and publication validates it
 - `EmailOtpUnlockMaterialPlan`
 - ~~every combined two-curve request/result/commit object~~ — replaced by one
   unlock envelope containing exact sibling ECDSA and Ed25519-Yao outcomes in

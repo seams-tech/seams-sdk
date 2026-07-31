@@ -597,6 +597,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Remove session transport kind, Wallet Session bearer credentials, and
       the unused MPC-session alias from ECDSA bootstrap material key
       references; type fixtures reject all three projections (`f32baab61`).
+- [x] Make the bootstrap `session` branch the sole owner of threshold-session
+      and signing-grant identity. Delete key-reference copies, precedence and
+      rewrite helpers, and fail when the worker-issued grant disagrees with the
+      requested grant (`3fdeba8b7`).
 - [x] Cut ECDSA export over atomically across the client, Gateway, Router,
       SigningWorker, sealed-share AAD, and Rust protocol mirrors so requests
       carry discriminated authorization plus the exact material activation.
