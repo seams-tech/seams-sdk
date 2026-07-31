@@ -534,6 +534,11 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   deleted end to end by `4d0a1d8af`
 - ~~unreachable Email OTP `session_bootstrap` worker branch and its JWT-derived
   relayer identity~~ — deleted by `1ee23703b`
+- ~~zero-producer Passkey ECDSA warm-seal pending registry, its restore wait,
+  and its registry-only unit suite~~ — deleted by `c72cbf31f`
+- ~~forwarding-only `routerApiWalletUnlockRouteService` locator and its two
+  Cloudflare route callers~~ — deleted by `5f989ea9f`; routes use the
+  request-scoped wallet-unlock service directly
 
 ## Phase 27 — final sweep
 
@@ -582,6 +587,14 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   canonicalized priority order now selects the lane
 - ~~duplicate `ecdsaAvailableLaneMaterialKey` selector~~ — zero-caller
   material-key projection deleted by `5cc54814d`
+- ~~zero-caller `routeAuthFromEmailOtpRoutePlan` forwarding selector~~ —
+  deleted by `6910f4d94`; the canonical auth-lane adapter remains the sole
+  projection owner
+- ~~zero-caller `exactEcdsaSigningLaneSigner` and
+  `exactEd25519SigningLaneSigner` projection selectors~~ — deleted by
+  `151110bd8`; consumers narrow the canonical signer binding directly
+- ~~local `routePlanSessionAuth` Email OTP worker wrapper~~ — deleted by
+  `e90c3f09a`; callers use the canonical auth-lane projection directly
 - ~~zero-caller `BaseEcdsaWalletId`, bootstrap route-auth/session-id helpers,
   and sealed-record auth-lane wrapper~~ — deleted by `6207cea1f`
 - ~~exact aliases for ECDSA signing authorization, activation request/result,
