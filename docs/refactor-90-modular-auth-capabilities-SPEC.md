@@ -334,6 +334,10 @@ implementing commit SHA as the evidence.
   - [x] Passkey recovery and provisioning build Wallet Session state from exact
     response/runtime facts and publish the resolved identity without writing
     or reconstructing a composite Ed25519 record (`98a595709`).
+  - [x] Readiness discovery consumes exact sealed Ed25519 runtimes as durable
+    record-policy anchors. Trusted server budget governs consumption, while
+    clear, expiry, and exhaustion preserve the seal; the duplicate composite
+    mutation port is deleted (`e3a562ed3`).
   - [x] Zero-caller Ed25519 account/session record readers, record-derived
     Email OTP authority resolution, per-session status, and record auth
     predicates are deleted from the warm capability surface (`94aa9b344`).
