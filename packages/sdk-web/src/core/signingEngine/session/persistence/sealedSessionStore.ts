@@ -56,7 +56,6 @@ import {
 export type SigningSessionRestoreLease = {
   v: 1;
   leaseKey: string;
-  signingGrantId: string;
   ownerId: string;
   attemptId: string;
   startedAtMs: number;
@@ -503,7 +502,6 @@ function sealedRecordStorageRow(record: CurrentSealedSessionRecord): Record<stri
 function restoreLeaseStorageRow(lease: SigningSessionRestoreLease): Record<string, unknown> {
   return {
     lease_key: lease.leaseKey,
-    signing_grant_id: lease.signingGrantId,
     owner_id: lease.ownerId,
     attempt_id: lease.attemptId,
     started_at_ms: lease.startedAtMs,
@@ -1799,19 +1797,18 @@ function normalizeSigningSessionRestoreLease(value: unknown): SigningSessionRest
     return normalizeSigningSessionRestoreLease(obj.lease);
   }
   if (Number(obj.v) !== 1) return null;
+  if (obj.signingGrantId != null || obj.signing_grant_id != null) return null;
   const leaseKey = normalizeOptionalNonEmptyString(obj.leaseKey);
-  const signingGrantId = normalizeOptionalNonEmptyString(obj.signingGrantId);
   const ownerId = normalizeOptionalNonEmptyString(obj.ownerId);
   const attemptId = normalizeOptionalNonEmptyString(obj.attemptId);
   const startedAtMs = normalizeInteger(obj.startedAtMs);
   const expiresAtMs = normalizeInteger(obj.expiresAtMs);
-  if (!leaseKey || !signingGrantId || !ownerId || !attemptId) return null;
+  if (!leaseKey || !ownerId || !attemptId) return null;
   if (startedAtMs == null || startedAtMs <= 0) return null;
   if (expiresAtMs == null || expiresAtMs <= startedAtMs) return null;
   return {
     v: 1,
     leaseKey,
-    signingGrantId,
     ownerId,
     attemptId,
     startedAtMs,
@@ -1821,7 +1818,6 @@ function normalizeSigningSessionRestoreLease(value: unknown): SigningSessionRest
 
 function makeSigningSessionRestoreLease(args: {
   leaseKey: string;
-  signingGrantId: string;
   ownerId: string;
   nowMs: number;
   ttlMs: number;
@@ -1829,7 +1825,6 @@ function makeSigningSessionRestoreLease(args: {
   return {
     v: 1,
     leaseKey: args.leaseKey,
-    signingGrantId: args.signingGrantId,
     ownerId: args.ownerId,
     attemptId: createRandomId('restore-attempt'),
     startedAtMs: args.nowMs,
@@ -2428,7 +2423,6 @@ export async function acquireSigningSessionRestoreLease(
 
       const lease = makeSigningSessionRestoreLease({
         leaseKey: record.storeKey,
-        signingGrantId: record.signingGrantId,
         ownerId,
         nowMs,
         ttlMs,
@@ -2445,7 +2439,7 @@ export async function acquireSigningSessionRestoreLease(
 export async function releaseSigningSessionRestoreLease(
   lease: SigningSessionRestoreLeaseHandle | null | undefined,
 ): Promise<void> {
-  if (!lease?.signingGrantId || !lease.ownerId || !lease.attemptId) return;
+  if (!lease?.leaseKey || !lease.ownerId || !lease.attemptId) return;
   await signingSessionSealsRepository.deleteRestoreLeaseIf({
     leaseKey: lease.leaseKey,
     shouldDelete: (rawLease) => {

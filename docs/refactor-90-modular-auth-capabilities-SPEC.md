@@ -285,6 +285,14 @@ implementing commit SHA as the evidence.
     lane/cache helpers, stale architecture check, and ownership documentation
     are deleted; the independent server persisted-record parser remains the
     live boundary (`a84f92b37`, `5486df295`).
+  - [x] Active SigningWorker state names its exact material activation on the
+    Router A/B wire (`material_activation_id`) and validates it against the
+    activation scope; lifecycle and ceremony `session_id` fields remain
+    distinct (`d91498b2c`).
+  - [x] ECDSA registration bootstrap carries a required explicit
+    normal-signing state through the server/D1/client boundaries; route JWT
+    signing validates that state, and the client no longer derives signing
+    control facts from the bearer JWT (`d2128b7d9`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
   - [x] Concrete ECDSA availability excludes the retired `restorable` state;
@@ -522,6 +530,11 @@ implementing commit SHA as the evidence.
   canonical operating-path, challenge-binding, auth-neutral prepared-signing,
   and Email OTP auth-lane suites. Commits 847ded366, 96612453b, dc1fda487,
   440e3dd10.)
+  - [x] Restore coordination leases carry only the exact sealed-store key,
+    owner/attempt, and lease timing. They do not carry `signingGrantId`; old
+    grant-bearing lease rows are rejected at the persistence boundary
+    (`2d56e3a58`). The ECDSA sealed-record store key remains a separate,
+    follow-on activation re-key task.
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.

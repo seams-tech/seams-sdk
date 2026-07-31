@@ -27,7 +27,7 @@ import {
   parseRouterAbEcdsaExplicitExportForwardedResponseV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
-  parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1,
+  requireRouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaExplicitExportForwardedResponseV1,
   type RouterAbEcdsaDerivationExplicitExportRequestV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
@@ -325,6 +325,7 @@ const NON_EXPORT_BOOTSTRAP_RESPONSE_FIELDS = new Set([
   'expiresAtMs',
   'expiresAt',
   'remainingUses',
+  'routerAbEcdsaDerivationNormalSigning',
   'jwt',
 ]);
 
@@ -414,30 +415,9 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
   const expiresAtMs = requireNumber(record.expiresAtMs, 'expiresAtMs');
   const jwt = String(record.jwt || '').trim();
   const routerAbEcdsaDerivationNormalSigning =
-    parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1({
-      walletSessionJwt: jwt,
-      expected: {
-        walletId,
-        keyHandle,
-        relayerKeyId,
-        ecdsaThresholdKeyId,
-        signingRootId,
-        signingRootVersion,
-        thresholdSessionId,
-        activationEpoch,
-        signingGrantId,
-        expiresAtMs,
-        participantIds,
-        applicationBindingDigestB64u,
-        contextBinding32B64u,
-        clientPublicKey33B64u: publicIdentity.derivationClientSharePublicKey33B64u,
-        serverPublicKey33B64u: publicIdentity.relayerPublicKey33B64u,
-        thresholdPublicKey33B64u: publicIdentity.groupPublicKey33B64u,
-        ethereumAddress: publicIdentity.ethereumAddress,
-        clientShareRetryCounter,
-        serverShareRetryCounter: relayerShareRetryCounter,
-      },
-    });
+    requireRouterAbEcdsaDerivationNormalSigningStateV1(
+      record.routerAbEcdsaDerivationNormalSigning,
+    );
   return {
     formatVersion: 'ecdsa-derivation-role-local',
     walletId,

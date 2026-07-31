@@ -1630,7 +1630,7 @@ test.describe('signing session sealed store', () => {
     expect(result.readAfterMarkerRestored?.sealedSecretB64u).toBe('sealed-restart');
   });
 
-  test('leases restore attempts by signing grant', async ({ page }) => {
+  test('leases restore attempts by exact sealed store key', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
@@ -1721,7 +1721,7 @@ test.describe('signing session sealed store', () => {
     );
 
     expect(result.first?.ownerId).toBe('tab-a');
-    expect(result.first?.signingGrantId).toBe('wallet-session-lease');
+    expect(result.first?.leaseKey).toBeTruthy();
     expect(result.blocked).toBeNull();
     expect(result.afterRelease?.ownerId).toBe('tab-b');
     expect(result.expiredSteal?.ownerId).toBe('tab-c');

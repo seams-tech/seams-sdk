@@ -1111,6 +1111,16 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete `active_state_session_id` from production types and wire shapes.
 - [ ] Delete remaining generic wire session aliases and
       authorization/material-scope aliases owned by this cutover.
+  - [x] Rename the active SigningWorker wire field from `session_id` to
+        `material_activation_id` across the Router A/B Rust schema, Cloudflare
+        lookup/storage keys, shared TypeScript parser, dev adapter, fixtures,
+        and protocol documentation. Lifecycle and ceremony `session_id`
+        fields remain unchanged (`d91498b2c`).
+  - [x] Carry ECDSA normal-signing state explicitly in the server bootstrap
+        response, persist and reject malformed/old D1 rows at the boundary,
+        validate the state before Wallet Session JWT signing, and require the
+        client response field. Delete the JWT-derived reconstruction helper;
+        the JWT remains a bearer credential (`d2128b7d9`).
   - [ ] Remove Wallet Session bearer/grant state from durable Ed25519 and
         active ECDSA sealed-material restore metadata. Recovery and signing
         must receive reusable authorization or a one-operation grant through
@@ -1133,6 +1143,10 @@ the replacement and legacy MPC paths must not ship together.
           remains separate (`22ccd0c26`). The remaining record-level
           `signingGrantId` is a separate grant/lease identity that still needs
           a coordinated re-key; it is not a bearer credential.
+    - [x] Remove `signingGrantId` from restore-lease payloads and validation;
+          leases are coordination records keyed by the sealed-store key and
+          owner/attempt, and old grant-bearing lease rows are rejected
+          (`2d56e3a58`).
     - [ ] Complete the separate operation-authorization cutover for any
           remaining record-level `signingGrantId` protocol/lease identity; do
           not treat it as sealed restore bearer state.

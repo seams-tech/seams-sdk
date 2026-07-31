@@ -842,6 +842,42 @@ export async function buildActivatedEcdsaFamilyBootstrap(input: {
     signingRootId: prepare.signingRootId,
     signingRootVersion: prepare.signingRootVersion,
   });
+  const routerAbEcdsaDerivationNormalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1({
+    kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+    scope: {
+      wallet_key_id: prepare.evmFamilySigningKeySlotId,
+      wallet_id: String(prepare.walletId),
+      ecdsa_threshold_key_id: prepare.ecdsaThresholdKeyId,
+      signing_root_id: prepare.signingRootId,
+      signing_root_version: prepare.signingRootVersion,
+      context: {
+        application_binding_digest_b64u:
+          input.branch.strictRegistration.context.application_binding_digest_b64u,
+      },
+      public_identity: {
+        context_binding_b64u: input.publicFacts.contextBinding32B64u,
+        derivation_client_share_public_key33_b64u:
+          input.publicFacts.derivationClientSharePublicKey33B64u,
+        server_public_key33_b64u: identity.server_public_key33_b64u,
+        threshold_public_key33_b64u: identity.threshold_public_key33_b64u,
+        ethereum_address20_b64u: base64UrlEncode(
+          Uint8Array.from(
+            ethereumAddress
+              .slice(2)
+              .match(/.{2}/g)
+              ?.map((byte) => Number.parseInt(byte, 16)) ?? [],
+          ),
+        ),
+        client_share_retry_counter: input.publicFacts.clientShareRetryCounter,
+        server_share_retry_counter: identity.server_share_retry_counter,
+      },
+      signing_worker: input.activation.ecdsa_activation.signing_worker,
+      activation_epoch: input.activation.ecdsa_activation.activation_epoch,
+    },
+  });
+  if (!routerAbEcdsaDerivationNormalSigning) {
+    throw new Error('ECDSA activation produced invalid normal-signing state');
+  }
   return {
     formatVersion: 'ecdsa-derivation-role-local',
     walletId: String(prepare.walletId),
@@ -873,6 +909,7 @@ export async function buildActivatedEcdsaFamilyBootstrap(input: {
     expiresAtMs,
     expiresAt: new Date(expiresAtMs).toISOString(),
     remainingUses: prepare.remainingUses,
+    routerAbEcdsaDerivationNormalSigning,
   };
 }
 
@@ -3031,6 +3068,8 @@ export class CloudflareD1WalletRegistrationService {
             expiresAt: new Date(provisioned.expiresAtMs).toISOString(),
             remainingUses: provisioned.remainingUses,
             participantIds: [...exactEcdsaParticipantPair(bootstrap.participantIds)],
+            routerAbEcdsaDerivationNormalSigning:
+              bootstrap.routerAbEcdsaDerivationNormalSigning,
           },
         };
         const commitStartedAtMs = Date.now();

@@ -566,6 +566,8 @@ function bootstrapWithProvisionedSession(input: {
     expiresAt: new Date(input.provisioned.expiresAtMs).toISOString(),
     remainingUses: input.provisioned.remainingUses,
     participantIds: [...input.provisioned.participantIds],
+    routerAbEcdsaDerivationNormalSigning:
+      input.bootstrap.routerAbEcdsaDerivationNormalSigning,
   };
 }
 
