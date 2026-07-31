@@ -57,6 +57,13 @@ declare const ecdsaCapabilityLane: NonNullable<PresentWarmSessionEcdsaCapability
 declare const warmPrfClaim: WarmPrfClaim;
 declare const unavailablePrfClaim: UnavailablePrfClaim;
 
+// @ts-expect-error material key references never carry session transport kind.
+keyRef.thresholdSessionKind;
+// @ts-expect-error material key references never carry Wallet Session bearer credentials.
+keyRef.walletSessionJwt;
+// @ts-expect-error material key references never carry an MPC session alias.
+keyRef.mpcSessionId;
+
 const validEnsureWarmEcdsaProvisionPlanReadyArgs = {
   walletId,
   chainTarget,

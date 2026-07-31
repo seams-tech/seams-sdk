@@ -4704,8 +4704,6 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
         thresholdEcdsaPublicKeyB64u: value.thresholdEcdsaPublicKeyB64u,
         ethereumAddress: value.ethereumAddress,
         relayerVerifyingShareB64u: value.relayerVerifyingShareB64u,
-        thresholdSessionKind: sessionKind,
-        ...(walletSessionJwt ? { walletSessionJwt } : {}),
         thresholdSessionId: value.thresholdSessionId,
         signingGrantId: value.signingGrantId,
         routerAbEcdsaDerivationNormalSigning: value.routerAbEcdsaDerivationNormalSigning,

@@ -671,7 +671,6 @@ async function activateEcdsaSessionByPurpose(
     bootstrap.relayerVerifyingShareB64u.trim()
       ? { relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u.trim() }
       : {}),
-    thresholdSessionKind: args.lanePolicy.thresholdSessionKind,
     thresholdSessionId: sessionId,
     signingGrantId,
     routerAbEcdsaDerivationNormalSigning,
