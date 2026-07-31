@@ -4,9 +4,7 @@ import type {
   VolatileWarmSessionMaterialClearAll,
   VolatileWarmSessionMaterialClearer,
 } from '../../uiConfirm/uiConfirm.types';
-import {
-  getStoredThresholdEd25519SessionRecordForWallet,
-} from '../persistence/records';
+import { listExactSealedSessionsForWallet } from '../persistence/sealedSessionStore';
 import {
   createClearAllVolatileWarmSessionMaterialCommand,
   createClearVolatileWarmSessionMaterialCommand,
@@ -41,15 +39,23 @@ function hasVolatileWarmSessionMaterialClearer(
   );
 }
 
-function collectWarmSigningSessionIdsForWallet(
+async function collectWarmSigningSessionIdsForWallet(
   walletId: WalletId,
-): VolatileWarmSessionId[] {
+): Promise<VolatileWarmSessionId[]> {
   const sessionIds = new Set<VolatileWarmSessionId>();
-  const ed25519SessionId = parseVolatileWarmSessionId(
-    getStoredThresholdEd25519SessionRecordForWallet(walletId)?.thresholdSessionId,
-  );
-  if (ed25519SessionId) {
-    sessionIds.add(ed25519SessionId);
+  const records = await Promise.all([
+    listExactSealedSessionsForWallet({
+      walletId,
+      filter: { authMethod: 'passkey', curve: 'ed25519' },
+    }),
+    listExactSealedSessionsForWallet({
+      walletId,
+      filter: { authMethod: 'email_otp', curve: 'ed25519' },
+    }),
+  ]);
+  for (const record of records.flat()) {
+    const sessionId = parseVolatileWarmSessionId(record.thresholdSessionIds.ed25519);
+    if (sessionId) sessionIds.add(sessionId);
   }
   return [...sessionIds];
 }
@@ -65,7 +71,8 @@ export async function clearVolatileWarmSigningMaterial(
     return;
   }
 
-  const sessionIds = walletId != null ? collectWarmSigningSessionIdsForWallet(walletId) : [];
+  const sessionIds =
+    walletId != null ? await collectWarmSigningSessionIdsForWallet(walletId) : [];
   if (!hasVolatileWarmSessionMaterialClearer(deps.touchConfirm)) return;
 
   await Promise.all(

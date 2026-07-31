@@ -60,13 +60,6 @@ import {
 } from '../../threshold/sessionPolicy';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
-type CurrentSessionRetirementDiagnostic = {
-  kind: 'retired_null_generation_legacy_fact';
-  thresholdSessionId: string;
-};
-
-declare const operationUsableThresholdEd25519SessionRecord: unique symbol;
-
 // Raw persistence boundary shape. Core code uses ThresholdEd25519SessionRecord.
 export type ThresholdEd25519SessionRow = {
   walletId: WalletId;
@@ -94,30 +87,6 @@ export type ThresholdEd25519SessionRow = {
 };
 
 export type ThresholdEd25519SessionRecord = ThresholdEd25519SessionRow;
-
-export type OperationUsableThresholdEd25519SessionRecord = ThresholdEd25519SessionRecord & {
-  signingGrantId: string;
-  walletSessionJwt: string;
-  readonly [operationUsableThresholdEd25519SessionRecord]: true;
-};
-
-export type ThresholdEd25519SessionCommitResult =
-  | {
-      kind: 'committed_current';
-      current: OperationUsableThresholdEd25519SessionRecord;
-      retired: readonly ThresholdEd25519SessionRecord[];
-      diagnostics: readonly CurrentSessionRetirementDiagnostic[];
-    }
-  | {
-      kind: 'same_generation_distinct_session';
-      incoming: OperationUsableThresholdEd25519SessionRecord;
-      existing: OperationUsableThresholdEd25519SessionRecord;
-    }
-  | {
-      kind: 'stale_commit_ignored';
-      incoming: OperationUsableThresholdEd25519SessionRecord;
-      current: OperationUsableThresholdEd25519SessionRecord;
-    };
 
 export type WalletSessionJwtAuthSource = 'ecdsa' | 'ed25519' | 'none';
 
@@ -878,148 +847,12 @@ function getThresholdEd25519SessionLaneKeyForRecord(
   return key ? serializeThresholdEd25519SessionLaneKey(key) : null;
 }
 
-function thresholdEd25519AuthSupersessionKey(record: ThresholdEd25519SessionRecord): string | null {
-  if (record.source === 'email_otp') {
-    const providerSubjectId = record.emailOtpAuthContext
-      ? emailOtpAuthContextProviderUserId(record.emailOtpAuthContext)
-      : '';
-    return providerSubjectId ? `email_otp:${providerSubjectId}` : null;
-  }
-  const rpId = String(record.rpId || '').trim();
-  const credentialIdB64u = normalizeOptionalNonEmptyString(record.passkeyCredentialIdB64u);
-  return rpId && credentialIdB64u ? `passkey:${rpId}:${credentialIdB64u}` : null;
-}
-
-function thresholdEd25519SupersessionGroupKey(
-  record: ThresholdEd25519SessionRecord,
-): string | null {
-  const walletId = String(record.walletId || '').trim();
-  const nearAccountId = String(record.nearAccountId || '').trim();
-  const nearEd25519SigningKeyId = String(record.nearEd25519SigningKeyId || '').trim();
-  const signerSlot = parseSignerSlot(record.signerSlot);
-  const authKey = thresholdEd25519AuthSupersessionKey(record);
-  if (!walletId || !nearAccountId || !nearEd25519SigningKeyId || !signerSlot || !authKey) {
-    return null;
-  }
-  return [
-    encodeLaneToken(walletId),
-    encodeLaneToken(nearAccountId),
-    encodeLaneToken(nearEd25519SigningKeyId),
-    encodeLaneToken(authKey),
-    encodeLaneToken(String(signerSlot)),
-  ].join('|');
-}
-
-export function buildOperationUsableThresholdEd25519SessionRecord(
-  record: ThresholdEd25519SessionRecord,
-): OperationUsableThresholdEd25519SessionRecord | null {
-  if (!String(record.thresholdSessionId || '').trim()) return null;
-  if (!String(record.signingGrantId || '').trim()) return null;
-  if (!String(record.walletSessionJwt || '').trim()) return null;
-  if (Math.floor(Number(record.remainingUses) || 0) <= 0) return null;
-  if (!thresholdSessionRecordGeneration(record)) return null;
-  if (!thresholdEd25519SupersessionGroupKey(record)) return null;
-  return record as OperationUsableThresholdEd25519SessionRecord;
-}
-
-function thresholdEd25519SessionId(record: ThresholdEd25519SessionRecord): string {
-  return String(record.thresholdSessionId || '').trim();
-}
-
-function sameThresholdEd25519SupersessionGroup(args: {
-  incoming: ThresholdEd25519SessionRecord;
-  existing: ThresholdEd25519SessionRecord;
-}): boolean {
-  const incomingGroupKey = thresholdEd25519SupersessionGroupKey(args.incoming);
-  return Boolean(
-    incomingGroupKey && thresholdEd25519SupersessionGroupKey(args.existing) === incomingGroupKey,
-  );
-}
-
-function thresholdEd25519SameGroupRecords(
-  incomingRecord: ThresholdEd25519SessionRecord,
-): ThresholdEd25519SessionRecord[] {
-  return [...inMemoryEd25519RecordsByLane.values()].filter((existingRecord) =>
-    sameThresholdEd25519SupersessionGroup({
-      incoming: incomingRecord,
-      existing: existingRecord,
-    }),
-  );
-}
-
 function storeThresholdEd25519SessionFact(args: {
   record: ThresholdEd25519SessionRecord;
   defaultPolicy: Ed25519DefaultRecordPolicy;
 }): ThresholdEd25519SessionRecord {
   rememberInMemoryThresholdEd25519Record(args.record, args.defaultPolicy);
   return args.record;
-}
-
-export function commitCurrentThresholdEd25519Session(args: {
-  record: OperationUsableThresholdEd25519SessionRecord;
-}): ThresholdEd25519SessionCommitResult {
-  const incomingRecord = args.record;
-  const incomingGeneration = thresholdSessionRecordGeneration(incomingRecord);
-  if (!incomingGeneration) {
-    throw new Error('Current Ed25519 session commit requires server-issued generation');
-  }
-  const incomingSessionId = thresholdEd25519SessionId(incomingRecord);
-  const existingRecords = thresholdEd25519SameGroupRecords(incomingRecord);
-  for (const existingRecord of existingRecords) {
-    const existingGeneration = thresholdSessionRecordGeneration(existingRecord);
-    const existingSessionId = thresholdEd25519SessionId(existingRecord);
-    if (existingSessionId === incomingSessionId) continue;
-    const existingCurrent = buildOperationUsableThresholdEd25519SessionRecord(existingRecord);
-    if (existingCurrent && existingGeneration && existingGeneration > incomingGeneration) {
-      return {
-        kind: 'stale_commit_ignored',
-        incoming: incomingRecord,
-        current: existingCurrent,
-      };
-    }
-    if (existingCurrent && existingGeneration === incomingGeneration) {
-      return {
-        kind: 'same_generation_distinct_session',
-        incoming: incomingRecord,
-        existing: existingCurrent,
-      };
-    }
-  }
-
-  storeThresholdEd25519SessionFact({
-    record: incomingRecord,
-    defaultPolicy: 'prefer_incoming',
-  });
-
-  const incomingLaneKey = getThresholdEd25519SessionLaneKeyForRecord(incomingRecord);
-  const retired: ThresholdEd25519SessionRecord[] = [];
-  const diagnostics: CurrentSessionRetirementDiagnostic[] = [];
-  for (const existingRecord of existingRecords) {
-    const existingLaneKey = getThresholdEd25519SessionLaneKeyForRecord(existingRecord);
-    if (incomingLaneKey && existingLaneKey === incomingLaneKey) continue;
-    const existingSessionId = thresholdEd25519SessionId(existingRecord);
-    const existingGeneration = thresholdSessionRecordGeneration(existingRecord);
-    const shouldRetire =
-      existingSessionId === incomingSessionId ||
-      existingGeneration === null ||
-      existingGeneration < incomingGeneration;
-    if (!shouldRetire) continue;
-    if (existingGeneration === null) {
-      diagnostics.push({
-        kind: 'retired_null_generation_legacy_fact',
-        thresholdSessionId: existingSessionId,
-      });
-    }
-    forgetInMemoryThresholdEd25519Record(existingRecord);
-    retired.push(existingRecord);
-  }
-
-  return {
-    kind: 'committed_current',
-    current: incomingRecord,
-    retired,
-    diagnostics,
-  };
 }
 
 function thresholdEd25519RecordMatchesLane(
