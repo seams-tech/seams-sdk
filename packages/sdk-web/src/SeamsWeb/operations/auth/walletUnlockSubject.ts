@@ -2,7 +2,6 @@ import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { AccountSignerRecord, LastProfileState } from '@/core/indexedDB/passkeyClientDB.types';
-import { getStoredThresholdEd25519SessionRecordForWallet } from '@/core/signingEngine/session/persistence/records';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   parseNearEd25519SigningKeyId,
@@ -49,7 +48,6 @@ export type WalletUnlockSubjectSetResolution =
     };
 
 export type WalletIdentitySource =
-  | 'runtime_session_record'
   | 'profile_projection'
   | 'host_last_used_profile';
 
@@ -166,30 +164,6 @@ function requiredWalletUnlockMetadataString(
   return value.trim();
 }
 
-function nearEd25519WalletUnlockSubjectFromRuntimeRecord(
-  walletId: WalletId,
-): NearEd25519WalletUnlockSubjectParseResult {
-  const record = getStoredThresholdEd25519SessionRecordForWallet(walletId);
-  if (!record) return { kind: 'absent' };
-  try {
-    if (!record.nearAccountId) return { kind: 'invalid' };
-    const signerSlot = parseSignerSlot(record.signerSlot);
-    if (!signerSlot) return { kind: 'invalid' };
-    return {
-      kind: 'valid',
-      subject: {
-        kind: 'near_ed25519_wallet',
-        walletId,
-        nearAccountId: toAccountId(String(record.nearAccountId)),
-        nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(record.nearEd25519SigningKeyId),
-        signerSlot,
-      },
-    };
-  } catch {
-    return { kind: 'invalid' };
-  }
-}
-
 function nearEd25519WalletUnlockSubjectFromSigner(
   walletId: WalletId,
   signer: AccountSignerRecord,
@@ -224,17 +198,6 @@ async function resolveNearEd25519WalletUnlockSubjects(
   walletId: WalletId,
 ): Promise<NearEd25519WalletUnlockSubjectsResolution> {
   const subjects: NearEd25519WalletUnlockSubject[] = [];
-  const runtimeSubject = nearEd25519WalletUnlockSubjectFromRuntimeRecord(walletId);
-  if (runtimeSubject.kind === 'invalid') {
-    return {
-      kind: 'failed',
-      reason: 'invalid_capability_subject',
-    };
-  }
-  if (runtimeSubject.kind === 'valid') {
-    subjects.push(runtimeSubject.subject);
-  }
-
   let signers: AccountSignerRecord[];
   try {
     signers = await IndexedDBManager.listActiveWalletSigners({
@@ -311,10 +274,6 @@ function isNearEd25519WalletUnlockSubject(
   return subject.kind === 'near_ed25519_wallet';
 }
 
-function hasRuntimeWalletSessionRecord(walletId: WalletId): boolean {
-  return Boolean(getStoredThresholdEd25519SessionRecordForWallet(walletId));
-}
-
 function parseWalletSessionReadWalletId(raw: WalletId | string | undefined): WalletId | null {
   const value = String(raw || '').trim();
   if (!value) return null;
@@ -359,19 +318,6 @@ async function resolveWalletSessionReadTarget(
   }
   if (walletId) return { kind: 'none' };
   return await resolveLastUsedWalletSessionReadTarget();
-}
-
-function walletSessionReadSourceForTarget(
-  target: Exclude<WalletSessionReadTarget, { kind: 'none' | 'last_used_profile' }>,
-): WalletIdentitySource {
-  if (hasRuntimeWalletSessionRecord(target.walletId)) return 'runtime_session_record';
-  return 'profile_projection';
-}
-
-function walletSessionReadSourceForLastUsedProfile(walletId: WalletId): WalletIdentitySource {
-  return hasRuntimeWalletSessionRecord(walletId)
-    ? 'runtime_session_record'
-    : 'host_last_used_profile';
 }
 
 function signerMetadataWalletId(signer: AccountSignerRecord): WalletId | null {
@@ -587,10 +533,10 @@ export async function resolveWalletCapabilitySubjectResolution(
       };
     }
     resolvedWalletId = walletTarget.walletId;
-    source = walletSessionReadSourceForLastUsedProfile(resolvedWalletId);
+    source = 'host_last_used_profile';
   } else {
     resolvedWalletId = target.walletId;
-    source = walletSessionReadSourceForTarget(target);
+    source = 'profile_projection';
   }
   const subjectResolution = await resolveWalletUnlockSubjectSet({
     walletId: String(resolvedWalletId),
