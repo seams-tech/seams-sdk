@@ -95,6 +95,11 @@ import type {
   RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
+import type {
+  Ed25519OperationStepUpProof,
+  IssuedEd25519OperationStepUpGrant,
+} from '../threshold/ed25519/walletSession';
 
 export type EmailOtpEd25519YaoFactorRequest =
   | { kind: 'requested'; providerSubject: string }
@@ -575,6 +580,16 @@ export type EmailOtpYaoPrewarmWorkerResult =
       failureStage: 'yao_wasm_init';
     };
 
+export type EmailOtpEd25519YaoOperationStepUpProofV1 = Extract<
+  Ed25519OperationStepUpProof,
+  { kind: 'email_otp' }
+>;
+
+export type EmailOtpEd25519YaoIssuedOperationGrantV1 = Omit<
+  IssuedEd25519OperationStepUpGrant,
+  'materialRecovery'
+>;
+
 export interface EmailOtpWorkerOperationMap {
   prewarmEmailOtpRegistrationCrypto: {
     payload: Record<string, never>;
@@ -769,6 +784,26 @@ export interface EmailOtpWorkerOperationMap {
   disposeEmailOtpEd25519YaoActiveClient: {
     payload: { activeClientHandle: string };
     result: { removed: boolean };
+  };
+  rehydrateEmailOtpEd25519YaoOperationMaterial: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      nearAccountId: string;
+      signerSlot: number;
+      providerSubjectId: string;
+      expectedOperationalPublicKey: string;
+      expectedThresholdSessionId: ThresholdEd25519SessionId;
+      expectedMaterialActivation: MpcMaterialActivationRef;
+      normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
+      displayDigest: string;
+      proof: EmailOtpEd25519YaoOperationStepUpProofV1;
+    };
+    result: {
+      activeClientHandle: string;
+      metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+      issuedGrant: EmailOtpEd25519YaoIssuedOperationGrantV1;
+    };
   };
   prepareEcdsaClientBootstrapFromEmailOtpHandle: {
     payload: {
@@ -1124,7 +1159,8 @@ export type EmailOtpEnrollmentOperationType =
 export type EmailOtpRestoreOperationType =
   | 'restoreEmailOtpDeviceEnrollmentEscrow'
   | 'rotateEmailOtpRecoveryCodes'
-  | 'removeEmailOtpDeviceEnrollmentEscrowFromDevice';
+  | 'removeEmailOtpDeviceEnrollmentEscrowFromDevice'
+  | 'rehydrateEmailOtpEd25519YaoOperationMaterial';
 export type EmailOtpWarmSessionOperationType =
   | 'loginWithEmailOtpWallet'
   | 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle'

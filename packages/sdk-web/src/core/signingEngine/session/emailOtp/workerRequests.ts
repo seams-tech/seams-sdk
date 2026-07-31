@@ -2,11 +2,19 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
+  EmailOtpEd25519YaoIssuedOperationGrantV1,
+  EmailOtpEd25519YaoOperationStepUpProofV1,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   SignerWorkerOperationResult,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
+import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
+import type {
+  MpcMaterialActivationRef,
+  ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
 
 type EmailOtpWorkerRequester = Pick<WorkerOperationContext, 'requestWorkerOperation'>;
 
@@ -178,6 +186,46 @@ export async function requestRehydrateEmailOtpEd25519YaoLocalMaterial(args: {
         expiresAtMs: args.expiresAtMs,
         transport: args.transport,
         restore: args.restore,
+      },
+    },
+  });
+}
+
+export async function requestRehydrateEmailOtpEd25519YaoOperationMaterial(args: {
+  workerContext: WorkerOperationContext;
+  relayUrl: string;
+  walletId: string;
+  nearAccountId: string;
+  signerSlot: number;
+  providerSubjectId: string;
+  expectedOperationalPublicKey: string;
+  expectedThresholdSessionId: ThresholdEd25519SessionId;
+  expectedMaterialActivation: MpcMaterialActivationRef;
+  normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
+  displayDigest: string;
+  proof: EmailOtpEd25519YaoOperationStepUpProofV1;
+}): Promise<{
+  activeClientHandle: string;
+  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+  issuedGrant: EmailOtpEd25519YaoIssuedOperationGrantV1;
+}> {
+  return await args.workerContext.requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'rehydrateEmailOtpEd25519YaoOperationMaterial',
+      timeoutMs: 60_000,
+      payload: {
+        relayUrl: args.relayUrl,
+        walletId: args.walletId,
+        nearAccountId: args.nearAccountId,
+        signerSlot: args.signerSlot,
+        providerSubjectId: args.providerSubjectId,
+        expectedOperationalPublicKey: args.expectedOperationalPublicKey,
+        expectedThresholdSessionId: args.expectedThresholdSessionId,
+        expectedMaterialActivation: args.expectedMaterialActivation,
+        normalSigningRequest: args.normalSigningRequest,
+        displayDigest: args.displayDigest,
+        proof: args.proof,
       },
     },
   });

@@ -5,6 +5,7 @@ import { base58Encode } from '@shared/utils/base58';
 import { errorMessage } from '@shared/utils/errors';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import {
+  parseMpcMaterialActivationRef,
   parseSigningGrantId,
   parseThresholdEd25519SessionId,
   type MpcMaterialActivationRef,
@@ -64,6 +65,11 @@ import {
   parseRouterAbEd25519NormalSigningState,
 } from '@shared/utils/signingSessionSeal';
 import {
+  parseRouterAbMpcMaterialActivationRef,
+  parseRouterAbNormalSigningAuthorization,
+} from '@shared/utils/routerAbNormalSigningIdentity';
+import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import {
   thresholdEcdsaDerivationRoleLocalBootstrap,
   type ThresholdEcdsaDerivationRoleLocalBootstrapRequest,
   type ThresholdEcdsaDerivationRoleLocalClientRootProof,
@@ -106,6 +112,7 @@ import type {
   EmailOtpEcdsaPublicationTargetPlan,
   EmailOtpWorkerOperationMap,
 } from '@/core/signingEngine/workerManager/workerTypes';
+import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import {
   EmailOtpEd25519YaoRootVault,
   type EmailOtpEd25519YaoPendingFactorHandle,
@@ -6151,6 +6158,333 @@ function readRegistrationRoutePlan(value: unknown, label: string): EmailOtpRoute
   return routePlan;
 }
 
+function parseEmailOtpOperationStepUpDigest(
+  value: unknown,
+  label: string,
+): { bytes: readonly number[] } {
+  const digest = workerPayloadObject(value);
+  if (!digest) throw new Error(`${label} is required`);
+  rejectUnknownEmailOtpYaoFields(digest, ['bytes'], label);
+  if (
+    !Array.isArray(digest.bytes) ||
+    digest.bytes.length !== 32 ||
+    digest.bytes.some(
+      (byte) => !Number.isSafeInteger(byte) || Number(byte) < 0 || Number(byte) > 255,
+    )
+  ) {
+    throw new Error(`${label}.bytes must contain exactly 32 bytes`);
+  }
+  return { bytes: digest.bytes.map((byte) => Number(byte)) };
+}
+
+function parseEmailOtpOperationStepUpNormalSigningScope(
+  value: unknown,
+): RouterAbNormalSigningPrepareRequestV2Wire['scope'] {
+  const scope = workerPayloadObject(value);
+  if (!scope) throw new Error('normalSigningRequest.scope is required');
+  rejectUnknownEmailOtpYaoFields(
+    scope,
+    [
+      'request_id',
+      'account_id',
+      'authorization',
+      'material_activation',
+      'signing_worker_id',
+    ],
+    'normalSigningRequest.scope',
+  );
+  const authorization = parseRouterAbNormalSigningAuthorization(scope.authorization);
+  if (authorization.kind !== 'operation_step_up') {
+    throw new Error('Email OTP material recovery requires operation-step-up authorization');
+  }
+  return {
+    request_id: readString(scope.request_id, 'normalSigningRequest.scope.request_id'),
+    account_id: readString(scope.account_id, 'normalSigningRequest.scope.account_id'),
+    authorization,
+    material_activation: parseRouterAbMpcMaterialActivationRef(scope.material_activation),
+    signing_worker_id: readString(
+      scope.signing_worker_id,
+      'normalSigningRequest.scope.signing_worker_id',
+    ),
+  };
+}
+
+function parseEmailOtpOperationStepUpNearNetworkId(
+  value: unknown,
+): 'testnet' | 'mainnet' {
+  if (value === 'testnet' || value === 'mainnet') return value;
+  throw new Error('normalSigningRequest.intent.near_network_id is invalid');
+}
+
+function parseEmailOtpOperationStepUpNormalSigningIntent(
+  value: unknown,
+): RouterAbNormalSigningPrepareRequestV2Wire['intent'] {
+  const intent = workerPayloadObject(value);
+  if (!intent) throw new Error('normalSigningRequest.intent is required');
+  switch (intent.kind) {
+    case 'near_transaction_v1': {
+      rejectUnknownEmailOtpYaoFields(
+        intent,
+        [
+          'kind',
+          'operation_id',
+          'operation_fingerprint',
+          'near_account_id',
+          'near_network_id',
+          'transactions',
+          'unsigned_transaction_borsh_b64u',
+        ],
+        'normalSigningRequest.intent',
+      );
+      if (!Array.isArray(intent.transactions) || intent.transactions.length < 1) {
+        throw new Error('normalSigningRequest.intent.transactions is required');
+      }
+      const transactions = intent.transactions.map((value, index) => {
+        const transaction = workerPayloadObject(value);
+        if (!transaction) {
+          throw new Error(`normalSigningRequest.intent.transactions[${index}] is invalid`);
+        }
+        rejectUnknownEmailOtpYaoFields(
+          transaction,
+          ['receiver_id', 'action_fingerprint'],
+          `normalSigningRequest.intent.transactions[${index}]`,
+        );
+        return {
+          receiver_id: readString(
+            transaction.receiver_id,
+            `normalSigningRequest.intent.transactions[${index}].receiver_id`,
+          ),
+          action_fingerprint: readString(
+            transaction.action_fingerprint,
+            `normalSigningRequest.intent.transactions[${index}].action_fingerprint`,
+          ),
+        };
+      });
+      return {
+        kind: 'near_transaction_v1',
+        operation_id: readString(
+          intent.operation_id,
+          'normalSigningRequest.intent.operation_id',
+        ),
+        operation_fingerprint: readString(
+          intent.operation_fingerprint,
+          'normalSigningRequest.intent.operation_fingerprint',
+        ),
+        near_account_id: readString(
+          intent.near_account_id,
+          'normalSigningRequest.intent.near_account_id',
+        ),
+        near_network_id: parseEmailOtpOperationStepUpNearNetworkId(intent.near_network_id),
+        transactions,
+        unsigned_transaction_borsh_b64u: readString(
+          intent.unsigned_transaction_borsh_b64u,
+          'normalSigningRequest.intent.unsigned_transaction_borsh_b64u',
+        ),
+      };
+    }
+    case 'nep413_v1': {
+      rejectUnknownEmailOtpYaoFields(
+        intent,
+        [
+          'kind',
+          'operation_id',
+          'operation_fingerprint',
+          'near_account_id',
+          'near_network_id',
+          'recipient',
+          'message',
+          'nonce_b64u',
+          'callback_url',
+        ],
+        'normalSigningRequest.intent',
+      );
+      const callbackUrl = optionalWorkerString(intent.callback_url);
+      return {
+        kind: 'nep413_v1',
+        operation_id: readString(
+          intent.operation_id,
+          'normalSigningRequest.intent.operation_id',
+        ),
+        operation_fingerprint: readString(
+          intent.operation_fingerprint,
+          'normalSigningRequest.intent.operation_fingerprint',
+        ),
+        near_account_id: readString(
+          intent.near_account_id,
+          'normalSigningRequest.intent.near_account_id',
+        ),
+        near_network_id: parseEmailOtpOperationStepUpNearNetworkId(intent.near_network_id),
+        recipient: readString(intent.recipient, 'normalSigningRequest.intent.recipient'),
+        message: readString(intent.message, 'normalSigningRequest.intent.message'),
+        nonce_b64u: readString(intent.nonce_b64u, 'normalSigningRequest.intent.nonce_b64u'),
+        ...(callbackUrl ? { callback_url: callbackUrl } : {}),
+      };
+    }
+    case 'near_delegate_action_v1': {
+      rejectUnknownEmailOtpYaoFields(
+        intent,
+        [
+          'kind',
+          'operation_id',
+          'operation_fingerprint',
+          'near_account_id',
+          'near_network_id',
+          'delegate',
+        ],
+        'normalSigningRequest.intent',
+      );
+      const delegate = workerPayloadObject(intent.delegate);
+      if (!delegate) throw new Error('normalSigningRequest.intent.delegate is required');
+      rejectUnknownEmailOtpYaoFields(
+        delegate,
+        [
+          'sender_id',
+          'receiver_id',
+          'public_key',
+          'nonce',
+          'max_block_height',
+          'action_fingerprint',
+          'canonical_delegate_borsh_b64u',
+        ],
+        'normalSigningRequest.intent.delegate',
+      );
+      return {
+        kind: 'near_delegate_action_v1',
+        operation_id: readString(
+          intent.operation_id,
+          'normalSigningRequest.intent.operation_id',
+        ),
+        operation_fingerprint: readString(
+          intent.operation_fingerprint,
+          'normalSigningRequest.intent.operation_fingerprint',
+        ),
+        near_account_id: readString(
+          intent.near_account_id,
+          'normalSigningRequest.intent.near_account_id',
+        ),
+        near_network_id: parseEmailOtpOperationStepUpNearNetworkId(intent.near_network_id),
+        delegate: {
+          sender_id: readString(
+            delegate.sender_id,
+            'normalSigningRequest.intent.delegate.sender_id',
+          ),
+          receiver_id: readString(
+            delegate.receiver_id,
+            'normalSigningRequest.intent.delegate.receiver_id',
+          ),
+          public_key: readString(
+            delegate.public_key,
+            'normalSigningRequest.intent.delegate.public_key',
+          ),
+          nonce: readString(delegate.nonce, 'normalSigningRequest.intent.delegate.nonce'),
+          max_block_height: readString(
+            delegate.max_block_height,
+            'normalSigningRequest.intent.delegate.max_block_height',
+          ),
+          action_fingerprint: readString(
+            delegate.action_fingerprint,
+            'normalSigningRequest.intent.delegate.action_fingerprint',
+          ),
+          canonical_delegate_borsh_b64u: readString(
+            delegate.canonical_delegate_borsh_b64u,
+            'normalSigningRequest.intent.delegate.canonical_delegate_borsh_b64u',
+          ),
+        },
+      };
+    }
+    default:
+      throw new Error('normalSigningRequest.intent.kind is invalid');
+  }
+}
+
+function parseEmailOtpOperationStepUpNormalSigningPayload(
+  value: unknown,
+): RouterAbNormalSigningPrepareRequestV2Wire['signing_payload'] {
+  const payload = workerPayloadObject(value);
+  if (!payload) throw new Error('normalSigningRequest.signing_payload is required');
+  switch (payload.kind) {
+    case 'near_unsigned_transaction_borsh_v1':
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        ['kind', 'unsigned_transaction_borsh_b64u', 'expected_signing_digest_b64u'],
+        'normalSigningRequest.signing_payload',
+      );
+      return {
+        kind: 'near_unsigned_transaction_borsh_v1',
+        unsigned_transaction_borsh_b64u: readString(
+          payload.unsigned_transaction_borsh_b64u,
+          'normalSigningRequest.signing_payload.unsigned_transaction_borsh_b64u',
+        ),
+        expected_signing_digest_b64u: readString(
+          payload.expected_signing_digest_b64u,
+          'normalSigningRequest.signing_payload.expected_signing_digest_b64u',
+        ),
+      };
+    case 'nep413_message_v1':
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        ['kind', 'canonical_message_b64u', 'expected_signing_digest_b64u'],
+        'normalSigningRequest.signing_payload',
+      );
+      return {
+        kind: 'nep413_message_v1',
+        canonical_message_b64u: readString(
+          payload.canonical_message_b64u,
+          'normalSigningRequest.signing_payload.canonical_message_b64u',
+        ),
+        expected_signing_digest_b64u: readString(
+          payload.expected_signing_digest_b64u,
+          'normalSigningRequest.signing_payload.expected_signing_digest_b64u',
+        ),
+      };
+    case 'near_delegate_action_v1':
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        ['kind', 'canonical_delegate_borsh_b64u', 'expected_signing_digest_b64u'],
+        'normalSigningRequest.signing_payload',
+      );
+      return {
+        kind: 'near_delegate_action_v1',
+        canonical_delegate_borsh_b64u: readString(
+          payload.canonical_delegate_borsh_b64u,
+          'normalSigningRequest.signing_payload.canonical_delegate_borsh_b64u',
+        ),
+        expected_signing_digest_b64u: readString(
+          payload.expected_signing_digest_b64u,
+          'normalSigningRequest.signing_payload.expected_signing_digest_b64u',
+        ),
+      };
+    default:
+      throw new Error('normalSigningRequest.signing_payload.kind is invalid');
+  }
+}
+
+function parseEmailOtpOperationStepUpNormalSigningRequest(
+  value: unknown,
+): RouterAbNormalSigningPrepareRequestV2Wire {
+  const request = workerPayloadObject(value);
+  if (!request) throw new Error('normalSigningRequest is required');
+  rejectUnknownEmailOtpYaoFields(
+    request,
+    ['scope', 'expires_at_ms', 'display_digest', 'intent', 'signing_payload'],
+    'normalSigningRequest',
+  );
+  const expiresAtMs = normalizePositiveInteger(request.expires_at_ms);
+  if (expiresAtMs === null) {
+    throw new Error('normalSigningRequest.expires_at_ms must be a positive safe integer');
+  }
+  return {
+    scope: parseEmailOtpOperationStepUpNormalSigningScope(request.scope),
+    expires_at_ms: expiresAtMs,
+    display_digest: parseEmailOtpOperationStepUpDigest(
+      request.display_digest,
+      'normalSigningRequest.display_digest',
+    ),
+    intent: parseEmailOtpOperationStepUpNormalSigningIntent(request.intent),
+    signing_payload: parseEmailOtpOperationStepUpNormalSigningPayload(request.signing_payload),
+  };
+}
+
 function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null {
   const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
   if (!obj) return null;
@@ -6408,6 +6742,94 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           sessionPolicy: parseEmailOtpEd25519YaoSessionPolicy(payload.sessionPolicy),
         },
       };
+    case 'rehydrateEmailOtpEd25519YaoOperationMaterial': {
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        [
+          'relayUrl',
+          'walletId',
+          'nearAccountId',
+          'signerSlot',
+          'providerSubjectId',
+          'expectedOperationalPublicKey',
+          'expectedThresholdSessionId',
+          'expectedMaterialActivation',
+          'normalSigningRequest',
+          'displayDigest',
+          'proof',
+        ],
+        type,
+      );
+      const signerSlot = normalizePositiveInteger(payload.signerSlot);
+      if (signerSlot === null) {
+        throw new Error('signerSlot must be a positive safe integer');
+      }
+      const expectedMaterialActivation = parseMpcMaterialActivationRef(
+        payload.expectedMaterialActivation,
+      );
+      if (!expectedMaterialActivation.ok) {
+        throw new Error(expectedMaterialActivation.error.message);
+      }
+      const proof = workerPayloadObject(payload.proof);
+      if (!proof) {
+        throw new Error('Email OTP Ed25519 operation proof is required');
+      }
+      rejectUnknownEmailOtpYaoFields(
+        proof,
+        ['kind', 'authorityRef', 'providerSubjectId', 'challengeId', 'otpCode'],
+        'proof',
+      );
+      if (proof.kind !== 'email_otp') {
+        throw new Error('Email OTP Ed25519 operation proof kind is invalid');
+      }
+      const authorityRef = parseWalletAuthAuthorityRef(proof.authorityRef);
+      if (!authorityRef) {
+        throw new Error('Email OTP Ed25519 operation proof authority is invalid');
+      }
+      const walletId = readString(payload.walletId, 'walletId');
+      const providerSubjectId = readString(payload.providerSubjectId, 'providerSubjectId');
+      const proofProviderSubjectId = readString(
+        proof.providerSubjectId,
+        'proof.providerSubjectId',
+      );
+      if (
+        String(authorityRef.walletId) !== walletId ||
+        proofProviderSubjectId !== providerSubjectId
+      ) {
+        throw new Error('Email OTP Ed25519 operation proof changed material authority');
+      }
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId,
+          nearAccountId: readString(payload.nearAccountId, 'nearAccountId'),
+          signerSlot,
+          providerSubjectId,
+          expectedOperationalPublicKey: readString(
+            payload.expectedOperationalPublicKey,
+            'expectedOperationalPublicKey',
+          ),
+          expectedThresholdSessionId: readThresholdEd25519SessionId(
+            payload.expectedThresholdSessionId,
+            'expectedThresholdSessionId',
+          ),
+          expectedMaterialActivation: expectedMaterialActivation.value,
+          normalSigningRequest: parseEmailOtpOperationStepUpNormalSigningRequest(
+            payload.normalSigningRequest,
+          ),
+          displayDigest: readString(payload.displayDigest, 'displayDigest'),
+          proof: {
+            kind: 'email_otp',
+            authorityRef,
+            providerSubjectId: proofProviderSubjectId,
+            challengeId: readString(proof.challengeId, 'proof.challengeId'),
+            otpCode: readString(proof.otpCode, 'proof.otpCode'),
+          },
+        },
+      };
+    }
     case 'createEmailOtpEd25519YaoSigningShare':
       rejectUnknownEmailOtpYaoFields(payload, ['activeClientHandle', 'input'], type);
       return {
