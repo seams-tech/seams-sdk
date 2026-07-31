@@ -1177,6 +1177,10 @@ the replacement and legacy MPC paths must not ship together.
             and `authorization_required` branches; the deferred branch retains
             exact durable material identity and forbids `signingGrantId`
             (`6ac506d57`).
+      - [x] NEAR material selection preserves grant-free Passkey and Email OTP
+            candidates as a typed `authorization_required` result, and runtime
+            discovery no longer rejects that valid branch for lacking a grant
+            (`dd4ce7942`, `9d643b5e5`).
       - [ ] Carry the deferred candidate through NEAR signing confirmation and
             construct `SelectedEd25519Lane` only after reusable authorization
             or same-method operation step-up supplies the current grant.
