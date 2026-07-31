@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import {
+  buildPasskeyEd25519RestoreMetadata,
   persistPasskeyEd25519YaoSessionForRefresh,
   type PasskeyEd25519YaoSessionPersistencePort,
 } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
@@ -83,14 +84,30 @@ function buildPasskeyWalletSessionAuthorization(args: {
 function buildPasskeyYaoWalletSession() {
   const runtime = parseExactEd25519SealedSessionRuntime(SEALED_RECORD);
   if (!runtime) throw new Error('failed to parse exact passkey Yao runtime fixture');
+  const currentWalletSessionJwt = `${SEALED_RECORD.ed25519Restore.walletSessionJwt
+    .split('.')
+    .slice(0, 2)
+    .join('.')}.current`;
   const session = buildRouterAbEd25519WalletSessionStateFromExactRuntime({
     runtime,
-    walletSessionJwt: runtime.walletSessionJwt,
+    walletSessionJwt: currentWalletSessionJwt,
     nowMs: runtime.expiresAtMs - 1,
   });
   return {
-    ed25519Restore: SEALED_RECORD.ed25519Restore,
+    ed25519Restore: buildPasskeyEd25519RestoreMetadata({
+      rpId: SEALED_RECORD.ed25519Restore.rpId,
+      nearAccountId: SEALED_RECORD.ed25519Restore.nearAccountId,
+      nearEd25519SigningKeyId: SEALED_RECORD.ed25519Restore.nearEd25519SigningKeyId,
+      relayerKeyId: SEALED_RECORD.ed25519Restore.relayerKeyId,
+      participantIds: SEALED_RECORD.ed25519Restore.participantIds,
+      runtimePolicyScope: SEALED_RECORD.ed25519Restore.runtimePolicyScope,
+      signerSlot: SEALED_RECORD.ed25519Restore.signerSlot,
+      routerAbNormalSigning: SEALED_RECORD.ed25519Restore.routerAbNormalSigning,
+      credentialIdB64u: SEALED_RECORD.ed25519Restore.credentialIdB64u,
+      walletSessionJwt: currentWalletSessionJwt,
+    }),
     expiresAtMs: runtime.expiresAtMs,
+    walletSessionJwt: currentWalletSessionJwt,
     session,
   };
 }
@@ -120,7 +137,7 @@ test('persists and verifies a passkey Yao session seal for page refresh', async 
       authMethod: 'passkey',
       walletId: WALLET_ID,
       signingGrantId: SIGNING_GRANT_ID,
-      walletSessionJwt: SEALED_RECORD.ed25519Restore.walletSessionJwt,
+      walletSessionJwt: fixture.walletSessionJwt,
       ed25519Restore: fixture.ed25519Restore,
     },
   });
@@ -136,6 +153,7 @@ test('authorizes Ed25519 normal signing from the correlated Wallet Session proje
   const fixture = buildPasskeyYaoWalletSession();
   const authorization = buildPasskeyWalletSessionAuthorization({
     expiresAtMs: fixture.expiresAtMs,
+    walletSessionJwt: fixture.walletSessionJwt,
   });
 
   const authorized = authorizeRouterAbEd25519WalletSessionState({

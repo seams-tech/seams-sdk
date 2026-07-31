@@ -183,10 +183,12 @@ import {
 import type { EmailOtpEd25519YaoPublicationInput } from '@/core/signingEngine/session/emailOtp/ed25519YaoPublication';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
 import {
+  ed25519SealedRuntimeAuthorityRef,
   resolveExactEd25519SealedSessionRuntimeForLane,
   resolveExactEd25519SealedSessionRuntimeForWalletSubject,
   type ExactEd25519SealedSessionRuntime,
 } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
+import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import type {
   EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
@@ -360,12 +362,22 @@ async function requireExactEd25519SealedRuntimeForLane(args: {
   return resolution.runtime;
 }
 
-function walletSessionStateFromExactEd25519Runtime(
+async function walletSessionStateFromExactEd25519Runtime(
   runtime: ExactEd25519SealedSessionRuntime,
-) {
+): Promise<ReturnType<typeof buildRouterAbEd25519WalletSessionStateFromExactRuntime>> {
+  const authorization = await resolveActiveEd25519WalletSessionAuthorization(runtime.walletId);
+  const expectedAuthority = await ed25519SealedRuntimeAuthorityRef(runtime);
+  if (
+    !authorization ||
+    authorization.authMethod !== signingLaneAuthMethod(runtime.auth) ||
+    authorization.authority.authorityDigest !== expectedAuthority.authorityDigest ||
+    authorization.expiresAtMs <= Date.now()
+  ) {
+    throw new Error('[SigningEngine][near] active Wallet Session authorization is unavailable');
+  }
   return buildRouterAbEd25519WalletSessionStateFromExactRuntime({
     runtime,
-    walletSessionJwt: runtime.walletSessionJwt,
+    walletSessionJwt: authorization.walletSessionJwt,
     nowMs: Math.min(Date.now(), runtime.expiresAtMs - 1),
   });
 }
@@ -1132,7 +1144,7 @@ export class BrowserSigningSurface {
       walletId: args.walletId,
       laneIdentity: args.laneIdentity,
     });
-    const walletSessionState = walletSessionStateFromExactEd25519Runtime(sealedRuntime);
+    const walletSessionState = await walletSessionStateFromExactEd25519Runtime(sealedRuntime);
     const signer = walletSessionState.signingLane.identity.signer;
     const publicLocator = nearEd25519PublicLocatorObservation({
       references: await this.ed25519YaoPublicCapabilityReferences.list(),
@@ -1389,7 +1401,7 @@ export class BrowserSigningSurface {
           walletId: args.walletId,
           laneIdentity: args.laneIdentity,
         });
-        const walletSessionState = walletSessionStateFromExactEd25519Runtime(runtime);
+        const walletSessionState = await walletSessionStateFromExactEd25519Runtime(runtime);
         const user = await this.getUserBySignerSlot(
           args.nearAccountId,
           args.laneIdentity.signer.signerSlot,
@@ -1553,7 +1565,7 @@ export class BrowserSigningSurface {
       walletId: args.walletId,
       laneIdentity: args.laneIdentity,
     });
-    const walletSessionState = walletSessionStateFromExactEd25519Runtime(runtime);
+    const walletSessionState = await walletSessionStateFromExactEd25519Runtime(runtime);
     const credentialIdB64u =
       runtime.factor.kind === 'passkey' ? runtime.factor.credentialIdB64u : '';
     const rpId = runtime.factor.kind === 'passkey' ? runtime.factor.rpId : '';
@@ -1821,7 +1833,7 @@ export class BrowserSigningSurface {
       walletId: subject.walletId,
       laneIdentity,
     });
-    const walletSessionState = walletSessionStateFromExactEd25519Runtime(runtime);
+    const walletSessionState = await walletSessionStateFromExactEd25519Runtime(runtime);
     const credentialIdB64u =
       runtime.factor.kind === 'passkey' ? runtime.factor.credentialIdB64u : '';
     if (!credentialIdB64u) {

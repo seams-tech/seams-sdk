@@ -12,6 +12,7 @@ import {
 import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import {
   buildRouterAbEd25519SigningWalletSession,
+  parseRouterAbEd25519WalletSessionIdentityClaims,
   type RouterAbEd25519SigningWalletSession,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -176,8 +177,16 @@ export function buildRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
   nowMs: number;
 }): ResolvedRouterAbEd25519WalletSessionState {
   const runtime = args.runtime;
-  if (runtime.walletSessionJwt !== args.walletSessionJwt) {
-    throw new Error('Ed25519 Wallet Session authorization changed after runtime persistence');
+  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(args.walletSessionJwt);
+  if (
+    !claims ||
+    claims.walletId !== runtime.walletId ||
+    claims.nearAccountId !== runtime.nearAccountId ||
+    claims.nearEd25519SigningKeyId !== runtime.nearEd25519SigningKeyId ||
+    claims.thresholdSessionId !== runtime.thresholdSessionId ||
+    claims.signingGrantId !== runtime.signingGrantId
+  ) {
+    throw new Error('Ed25519 Wallet Session authorization does not match sealed material');
   }
   const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
     walletId: runtime.walletId,
