@@ -101,6 +101,7 @@ export class EmailOtpWalletSessionRuntime {
       createEmailOtpEcdsaSigningSessionMaterialRestorer({
         configs: deps.configs,
         getSignerWorkerContext: deps.getSignerWorkerContext,
+        readActiveWalletSessionAuthorization: deps.readActiveWalletSessionAuthorization,
         provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
         commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,
       });

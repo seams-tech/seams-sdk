@@ -2,13 +2,15 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import type { EmailOtpEcdsaSealedRecoveryRecord } from '../sealedRecovery/recoveryRecord';
 import type { EmailOtpEcdsaRestoreSource } from './ecdsaRecovery';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 declare const sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+declare const authorization: ActiveWalletSessionAuthorizationProjection;
 const restoreSourceCommon = {
   emailOtpAuthContext,
-  walletSessionJwt: 'wallet-session-jwt',
+  authorization,
   thresholdSessionId: 'threshold-session-id',
   signingGrantId: 'signing-grant-id',
   relayerUrl: 'https://relay.example',
@@ -16,10 +18,11 @@ const restoreSourceCommon = {
   keyHandle: 'key-handle',
   relayerKeyId: 'relayer-key-id',
   participantIds: [1, 2],
-  sessionKind: 'jwt',
   signingSessionSealKeyVersion: 'signing-session-seal-kek-test-r1',
   signingSessionSealGroupId: 'prime-b64u',
 } as const;
+const { authorization: _authorization, ...restoreSourceWithoutAuthorization } = restoreSourceCommon;
+void _authorization;
 
 void ({
   kind: 'sealed_record_restore',
@@ -38,9 +41,9 @@ void ({
 void ({
   kind: 'sealed_record_restore',
   sealedRecord,
-  ...restoreSourceCommon,
-  // @ts-expect-error restore source branches require Wallet Session JWT.
-  walletSessionJwt: undefined,
+  ...restoreSourceWithoutAuthorization,
+  // @ts-expect-error restore source branches require independent Wallet Session authorization.
+  authorization: undefined,
 } satisfies EmailOtpEcdsaRestoreSource);
 
 export {};

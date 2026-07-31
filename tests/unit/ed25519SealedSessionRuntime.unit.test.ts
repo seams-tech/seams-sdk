@@ -14,6 +14,10 @@ import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIden
 import { buildPasskeyEd25519SealedSessionRecordFixture } from './helpers/sealedSigningSession.fixtures';
 
 const RECORD = buildPasskeyEd25519SealedSessionRecordFixture();
+const CURRENT_WALLET_SESSION_JWT = `${RECORD.ed25519Restore.walletSessionJwt
+  .split('.')
+  .slice(0, 2)
+  .join('.')}.current`;
 const LANE = buildEd25519PasskeySigningLane({
   walletId: toWalletId(RECORD.walletId),
   nearAccountId: toAccountId(RECORD.ed25519Restore.nearAccountId),
@@ -55,6 +59,9 @@ test('resolves one exact sealed Ed25519 session without a composite record', asy
       remainingUses: 3,
     }),
   });
+  if (resolution.kind === 'resolved') {
+    expect(resolution.runtime).not.toHaveProperty('walletSessionJwt');
+  }
 });
 
 test('builds passkey hydration state from the exact sealed runtime and active JWT', async () => {
@@ -72,7 +79,7 @@ test('builds passkey hydration state from the exact sealed runtime and active JW
 
   const state = buildRouterAbEd25519WalletSessionStateFromExactRuntime({
     runtime: resolution.runtime,
-    walletSessionJwt: resolution.runtime.walletSessionJwt,
+    walletSessionJwt: CURRENT_WALLET_SESSION_JWT,
     nowMs: resolution.runtime.expiresAtMs - 1,
   });
 

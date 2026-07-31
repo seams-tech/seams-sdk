@@ -43,9 +43,12 @@ import {
   isPasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import {
+  ed25519SealedRuntimeAuthorityRef,
   parseExactEd25519SealedSessionRuntime,
   type ExactEd25519SealedSessionRuntime,
 } from '../warmCapabilities/ed25519SealedSessionRuntime';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 
 export type PersistedAvailableSigningLanesDeps = {
   listEcdsaSigningCapabilitiesForWallet: (args: {
@@ -233,10 +236,22 @@ async function readEd25519WalletBudgetStatusForRuntime(args: {
   runtime: ExactEd25519SealedSessionRuntime;
   walletId: string;
 }): Promise<SigningSessionStatus | null> {
+  const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
+    args.runtime.walletId,
+  );
+  const expectedAuthority = await ed25519SealedRuntimeAuthorityRef(args.runtime);
+  if (
+    authorizationRead.kind !== 'found' ||
+    authorizationRead.projection.authMethod !== signingLaneAuthMethod(args.runtime.auth) ||
+    authorizationRead.projection.authority.authorityDigest !== expectedAuthority.authorityDigest ||
+    authorizationRead.projection.expiresAtMs <= Date.now()
+  ) {
+    return null;
+  }
   const parsedAuth = parsePersistedBudgetStatusAuth({
     relayerUrl: args.runtime.relayerUrl,
     thresholdSessionId: args.runtime.thresholdSessionId,
-    walletSessionJwt: args.runtime.walletSessionJwt,
+    walletSessionJwt: authorizationRead.projection.walletSessionJwt,
   });
   if (parsedAuth.kind === 'unavailable') return null;
   return await readBudgetStatusOrNull({

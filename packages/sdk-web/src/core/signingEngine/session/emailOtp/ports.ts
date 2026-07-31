@@ -8,7 +8,10 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type {
+  ActiveWalletSessionAuthorizationProjection,
+  WalletSessionAuthorizationReadResult,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type {
   acquireSigningSessionRestoreLease,
   deleteDurableSealedSessionRecord,
@@ -27,6 +30,9 @@ export type EmailOtpCoordinatorRuntimePorts = {
   signerWorkerManager: SignerWorkerManager;
   getRpId: () => string | null;
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
+  readActiveWalletSessionAuthorization: (
+    walletId: WalletId,
+  ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
   refreshAppSessionJwt?: (args: { relayUrl: string }) => Promise<string>;
 };
 

@@ -10,9 +10,6 @@ import { parseSignerSlot, type SignerSlot } from '@shared/utils/signerSlot';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
-  parseRouterAbEd25519WalletSessionIdentityClaims,
-} from '../routerAbSigningWalletSession';
-import {
   listExactSealedSessionsForWallet,
   type CurrentEd25519SealedSessionRecord,
 } from '../persistence/sealedSessionStore';
@@ -29,6 +26,12 @@ import {
 } from '../operationState/types';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type { ExactEd25519SigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 
 type Ed25519SealedSessionFactor =
   | {
@@ -59,7 +62,6 @@ export type ExactEd25519SealedSessionRuntime = {
   readonly auth: SigningLaneAuthBinding;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
   readonly signingGrantId: SigningGrantId;
-  readonly walletSessionJwt: string;
   readonly remainingUses: number;
   readonly expiresAtMs: number;
   readonly relayerUrl: string;
@@ -187,7 +189,6 @@ export function parseExactEd25519SealedSessionRuntime(
   if (restore.sessionKind !== 'jwt') return null;
   const thresholdSessionIdRaw = nonEmptyString(record.thresholdSessionIds.ed25519);
   const signingGrantIdRaw = nonEmptyString(record.signingGrantId);
-  const walletSessionJwt = nonEmptyString(restore.walletSessionJwt);
   const relayerUrl = nonEmptyString(record.relayerUrl);
   const relayerKeyId = nonEmptyString(restore.relayerKeyId);
   const expiresAtMs = positiveSafeInteger(record.expiresAtMs);
@@ -206,7 +207,6 @@ export function parseExactEd25519SealedSessionRuntime(
   if (
     !thresholdSessionIdRaw ||
     !signingGrantIdRaw ||
-    !walletSessionJwt ||
     !relayerUrl ||
     !relayerKeyId ||
     !expiresAtMs ||
@@ -228,17 +228,6 @@ export function parseExactEd25519SealedSessionRuntime(
   ) {
     return null;
   }
-  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(walletSessionJwt);
-  if (
-    !claims ||
-    claims.walletId !== record.walletId ||
-    claims.nearAccountId !== restore.nearAccountId ||
-    claims.nearEd25519SigningKeyId !== restore.nearEd25519SigningKeyId ||
-    claims.thresholdSessionId !== thresholdSessionIdRaw ||
-    claims.signingGrantId !== signingGrantIdRaw
-  ) {
-    return null;
-  }
   try {
     return {
       kind: 'exact_ed25519_sealed_session_runtime',
@@ -253,7 +242,6 @@ export function parseExactEd25519SealedSessionRuntime(
       auth: authBinding(factor),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionIdRaw),
       signingGrantId: SigningSessionIds.signingGrant(signingGrantIdRaw),
-      walletSessionJwt,
       remainingUses,
       expiresAtMs,
       relayerUrl,
@@ -267,6 +255,25 @@ export function parseExactEd25519SealedSessionRuntime(
   } catch {
     return null;
   }
+}
+
+export async function ed25519SealedRuntimeAuthorityRef(
+  runtime: ExactEd25519SealedSessionRuntime,
+): Promise<WalletAuthAuthorityRef> {
+  const authority =
+    runtime.factor.kind === 'passkey'
+      ? buildPasskeyWalletAuthAuthority({
+          walletId: runtime.walletId,
+          rpId: runtime.factor.rpId,
+          credentialIdB64u: runtime.factor.credentialIdB64u,
+        })
+      : buildEmailOtpWalletAuthAuthority({
+          walletId: runtime.walletId,
+          provider: runtime.factor.provider,
+          providerUserId: runtime.factor.providerSubjectId,
+          emailHashHex: runtime.factor.emailHashHex,
+        });
+  return await walletAuthAuthorityRef({ authority });
 }
 
 function authBindingsEqual(

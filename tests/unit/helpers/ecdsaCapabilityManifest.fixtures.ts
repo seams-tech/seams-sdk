@@ -572,6 +572,7 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
   walletSessionId?: string;
   quotaId?: string;
   walletSessionJwt?: string;
+  authMethod?: 'passkey' | 'email_otp';
   expiresAtMs?: number;
   remainingUses?: number;
 }): ActiveEvmFamilyWalletSessionAuthorization {
@@ -615,7 +616,7 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
       ),
       walletSessionId,
       quotaId,
-      authMethod: 'passkey',
+      authMethod: args.authMethod ?? 'passkey',
       authority: signer.authority,
       expiresAtMs,
       walletSessionJwt,
