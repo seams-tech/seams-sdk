@@ -68,8 +68,10 @@ replacement.
 - ~~`ExactEcdsaExportSession` (the `current session | public reauth authority`
   union)~~ — deleted by `643dde348`; its sole canonical branch is flattened
   into the required-field exact export lane
-- `EcdsaPublicReauthLane`
-- `EvmFamilySharedEcdsaState`
+- ~~`EcdsaPublicReauthLane`~~ — removed with the public-reauthorization
+  selection cutover (`f6ce0651e`).
+- ~~`EvmFamilySharedEcdsaState`~~ — removed with the auth-neutral ECDSA state
+  cutover (`5db9ad87e`).
 - Near material-inspection unions superseded by the shared outcomes
 
 ## Phase 1 boundary residue — registration modes

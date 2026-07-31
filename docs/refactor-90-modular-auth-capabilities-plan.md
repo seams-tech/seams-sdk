@@ -1169,6 +1169,9 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete zero-caller warm-claim sufficiency and error-formatting
         helpers; claim/status mapping remains the sole read-model boundary
         (`9427bc746`).
+  - [x] Delete the superseded `EcdsaPublicReauthLane` and
+        `EvmFamilySharedEcdsaState` unions; canonical selection and hydration
+        outcomes own those branches (`f6ce0651e`, `5db9ad87e`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
