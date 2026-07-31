@@ -1098,6 +1098,10 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete zero-caller wallet/session helpers and exact aliases for ECDSA
         authorization, activation requests/results, bootstrap args, and sealed
         resolved identity (`6207cea1f`, `dfee38d07`).
+  - [x] Keep the Email OTP ECDSA signing-session route grant-free while
+        requiring the independent authorizing grant on Ed25519. The worker
+        boundary accepts the canonical ECDSA lane and rejects the retired
+        grant alias (`440e3dd10`).
 - [x] Inline the canonical bootstrap and exact/missing Wallet Session payload
       types in the iframe envelope and delete their one-use wire aliases.
 - [x] Delete the unread duplicate ECDSA export operation-authorization carrier;

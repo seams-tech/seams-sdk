@@ -492,9 +492,12 @@ implementing commit SHA as the evidence.
   is `{kind: 'operation_step_up', grant_id}` with exact-field parsing, so a
   `WalletSessionId` cannot ride along; persistence, expiry, warm-capability,
   seal, and export consumers receive authorization only through their explicit
-  operation carrier. Covered by the canonical operating-path, challenge-binding,
-  and auth-neutral prepared-signing suites. Commits 847ded366, 96612453b,
-  dc1fda487.)
+  operation carrier. The Email OTP worker route boundary likewise accepts
+  grant-free ECDSA signing-session lanes and rejects the retired grant alias,
+  while Ed25519 continues to require its authorizing grant. Covered by the
+  canonical operating-path, challenge-binding, auth-neutral prepared-signing,
+  and Email OTP auth-lane suites. Commits 847ded366, 96612453b, dc1fda487,
+  440e3dd10.)
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.
