@@ -6,7 +6,6 @@ import {
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  publishResolvedIdentity,
   type acquireSigningSessionRestoreLease,
   type listExactSealedSessionsForWallet,
   type readExactSealedSession,
@@ -29,6 +28,8 @@ import type {
   SigningSessionRestoreAttemptRegistry,
   SigningSessionRestoreCache,
 } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
+import { materialActivationKey } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import {
   normalizeSealedRecoveryRecord,
   type EmailOtpEcdsaSealedRecoveryRecord,
@@ -163,20 +164,6 @@ export class EmailOtpSealedRestoreOrchestrator {
         remainingUses: restored.remainingUses,
         expiresAtMs: restored.expiresAtMs,
       } satisfies RestoredWarmSessionStatus;
-      const chainTarget = sealedRecord.chainTarget;
-      const walletId = String(sealedRecord.walletId || '').trim();
-      if (walletId && chainTarget) {
-        const restoredAtMs = Date.now();
-        publishResolvedIdentity({
-          walletId,
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-          chainTarget,
-          signingGrantId: sealedRecord.signingGrantId,
-          thresholdSessionId,
-          updatedAtMs: restoredAtMs,
-        });
-      }
       await this.ports.recordSessionMaterialRestored(
         { thresholdSessionId, chainTarget: sealedRecord.chainTarget },
         result,
@@ -333,6 +320,14 @@ export class EmailOtpSealedRestoreOrchestrator {
     if (!thresholdEcdsaChainTargetsEqual(args.record.chainTarget, args.purpose.chainTarget)) {
       return 'deferred';
     }
+    if (
+      !mpcMaterialActivationRefsEqual(
+        args.record.roleLocalMaterialRef.materialActivation,
+        args.purpose.materialActivation,
+      )
+    ) {
+      return 'deferred';
+    }
     if (args.record.signingGrantId !== args.purpose.signingGrantId) {
       return 'deferred';
     }
@@ -341,6 +336,7 @@ export class EmailOtpSealedRestoreOrchestrator {
       args.purpose.authMethod,
       args.purpose.curve,
       thresholdEcdsaChainTargetKey(args.purpose.chainTarget),
+      materialActivationKey(args.purpose.materialActivation),
       args.purpose.signingGrantId,
       thresholdSessionId,
     ].join(':');

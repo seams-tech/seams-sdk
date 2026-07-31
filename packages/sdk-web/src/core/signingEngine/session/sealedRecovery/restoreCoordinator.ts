@@ -15,6 +15,7 @@ import type {
   SigningSessionRestoreAttemptRegistry,
   SigningSessionRestoreCache,
 } from './sealedRecovery.types';
+import { materialActivationKey } from './sealedRecovery.types';
 import type { SealedRecoveryRecord } from './recoveryRecord';
 
 type RestorePersistedSessionCacheInput =
@@ -32,12 +33,17 @@ function successfulRestoreCacheKey(
   record: SealedRecoveryRecord,
 ): string {
   const chainKey = thresholdEcdsaChainTargetKey(input.chainTarget);
+  const materialActivation =
+    'materialRestoreIdentity' in input
+      ? input.materialRestoreIdentity.lane.signer.materialActivation
+      : input.materialActivation;
   return [
     input.walletId,
     input.authMethod,
     input.curve,
     chainKey,
     input.reason,
+    materialActivationKey(materialActivation),
     input.signingGrantId,
     input.thresholdSessionId,
     record.signingGrantId,
@@ -57,6 +63,7 @@ function purposeCacheKey(
     purpose.authMethod,
     purpose.curve,
     chainKey,
+    materialActivationKey(purpose.materialActivation),
     purpose.signingGrantId,
     purpose.thresholdSessionId,
     record.updatedAtMs,

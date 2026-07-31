@@ -1364,9 +1364,120 @@ test.describe('signing session sealed store', () => {
     expect(result.passkeyEd25519?.storeKey).toBe('shared-signing-grant:passkey:ed25519');
     expect(result.emailOtpEd25519?.sealedSecretB64u).toBe('sealed-email-otp-ecdsa');
     expect(result.emailOtpEcdsa?.sealedSecretB64u).toBe('sealed-email-otp-ecdsa');
-    expect(result.emailOtpEcdsa?.storeKey).toBe(
-      'shared-signing-grant:email_otp:ecdsa:tempo%3A42431',
+    expect(result.emailOtpEcdsa?.storeKey).toMatch(
+      /^ecdsa-material-v2:alice\.testnet:email_otp:tempo%3A42431:/,
     );
+    expect(result.emailOtpEcdsa?.storeKey).not.toContain('shared-signing-grant');
+  });
+
+  test('atomically migrates a legacy ECDSA store key and clears its restore lease', async ({
+    page,
+  }) => {
+    const { fixture } = await canonicalEcdsaSealedRuntimeFixture('passkey');
+    const source = buildPasskeyEcdsaSealedRuntimeRecordFixture({
+      manifest: fixture.manifest,
+      signingGrantId: 'legacy-ecdsa-signing-grant',
+      thresholdSessionId: 'legacy-ecdsa-threshold-session',
+    });
+    const result = await page.evaluate(
+      async ({ paths, source }) => {
+        const mod = await import(paths.sealedSessionStore);
+        await mod.clearAllSealedSessions();
+        const thresholdSessionId = source.thresholdSessionIds.ecdsa;
+        const chainTarget = source.ecdsaRestore.chainTarget;
+        const chainTargetKey =
+          chainTarget.kind === 'tempo'
+            ? `tempo:${chainTarget.chainId}`
+            : `${chainTarget.kind}:${chainTarget.namespace}:${chainTarget.chainId}`;
+        const legacyStoreKey = `${source.signingGrantId}:passkey:ecdsa:${encodeURIComponent(chainTargetKey)}`;
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open('seams_wallet');
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        const write = db.transaction(
+          ['signing_session_seals', 'signing_session_restore_leases'],
+          'readwrite',
+        );
+        write.objectStore('signing_session_seals').put({
+          store_key: legacyStoreKey,
+          wallet_id: source.walletId,
+          auth_method: source.authMethod,
+          curve: source.curve,
+          signing_grant_id: source.signingGrantId,
+          ecdsa_threshold_session_id: thresholdSessionId,
+          threshold_session_id: thresholdSessionId,
+          key_handle: source.ecdsaRestore.keyHandle,
+          chain_target_key: chainTargetKey,
+          expires_at_ms: source.expiresAtMs,
+          updated_at: source.updatedAtMs,
+          sealed_record: { ...source, storeKey: legacyStoreKey },
+        });
+        const lease = {
+          v: 1,
+          leaseKey: legacyStoreKey,
+          ownerId: 'legacy-owner',
+          attemptId: 'legacy-attempt',
+          startedAtMs: Date.now(),
+          expiresAtMs: Date.now() + 30_000,
+        };
+        write.objectStore('signing_session_restore_leases').put({
+          lease_key: legacyStoreKey,
+          owner_id: lease.ownerId,
+          attempt_id: lease.attemptId,
+          started_at_ms: lease.startedAtMs,
+          expires_at_ms: lease.expiresAtMs,
+          lease,
+        });
+        await new Promise<void>((resolve, reject) => {
+          write.oncomplete = () => resolve();
+          write.onerror = () => reject(write.error);
+          write.onabort = () => reject(write.error);
+        });
+
+        const migrated = await mod.readExactSealedSession(thresholdSessionId, {
+          authMethod: 'passkey',
+          curve: 'ecdsa',
+          chainTarget,
+        });
+        const read = db.transaction(
+          ['signing_session_seals', 'signing_session_restore_leases'],
+          'readonly',
+        );
+        const sealKeysRequest = read.objectStore('signing_session_seals').getAllKeys();
+        const legacyLeaseRequest = read
+          .objectStore('signing_session_restore_leases')
+          .get(legacyStoreKey);
+        const sealKeys = await new Promise<IDBValidKey[]>((resolve, reject) => {
+          sealKeysRequest.onsuccess = () => resolve(sealKeysRequest.result);
+          sealKeysRequest.onerror = () => reject(sealKeysRequest.error);
+        });
+        const legacyLease = await new Promise<unknown>((resolve, reject) => {
+          legacyLeaseRequest.onsuccess = () => resolve(legacyLeaseRequest.result);
+          legacyLeaseRequest.onerror = () => reject(legacyLeaseRequest.error);
+        });
+        await new Promise<void>((resolve, reject) => {
+          read.oncomplete = () => resolve();
+          read.onerror = () => reject(read.error);
+          read.onabort = () => reject(read.error);
+        });
+        db.close();
+        return {
+          migratedStoreKey: migrated?.storeKey,
+          sealKeys: sealKeys.map(String),
+          legacyLeasePresent: Boolean(legacyLease),
+          sealedSecretB64u: migrated?.sealedSecretB64u,
+        };
+      },
+      { paths: IMPORT_PATHS, source },
+    );
+
+    expect(result.migratedStoreKey).toMatch(
+      /^ecdsa-material-v2:.*:passkey:evm%3Aeip155%3A1:/,
+    );
+    expect(result.sealKeys).toEqual([result.migratedStoreKey]);
+    expect(result.legacyLeasePresent).toBe(false);
+    expect(result.sealedSecretB64u).toBe(source.sealedSecretB64u);
   });
 
   test('clearAll removes all IndexedDB sealed records', async ({ page }) => {
@@ -1826,7 +1937,7 @@ test.describe('signing session sealed store', () => {
     expect(result.byExport).toBeNull();
   });
 
-  test('owns durable sealed identity by exact signing purpose', async ({ page }) => {
+  test('owns durable sealed records by exact signing purpose', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths, identityEmailOtpEcdsaRestore }) => {
         const mod = await import(paths.sealedSessionStore);
@@ -1879,15 +1990,6 @@ test.describe('signing session sealed store', () => {
             curve: 'ed25519',
           },
         );
-        const published = mod.publishResolvedIdentity({
-          walletId: 'identity.testnet',
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-          chainTarget: ECDSA_RESTORE.chainTarget,
-          signingGrantId: 'identity-wallet-session',
-          thresholdSessionId: 'identity-ecdsa-session',
-          updatedAtMs: 22_222,
-        });
         await mod.clearAllSealedSessions();
         const ecdsaAfterClear = await mod.readExactSealedSession('identity-ecdsa-session', {
           authMethod: 'email_otp',
@@ -1900,7 +2002,6 @@ test.describe('signing session sealed store', () => {
           ecdsaAfterWrite,
           wrongChainRecord,
           companionEd25519Record,
-          published,
           ecdsaAfterClear,
         };
       },
@@ -1919,7 +2020,6 @@ test.describe('signing session sealed store', () => {
     expect(result.companionEd25519Record?.thresholdSessionIds.ed25519).toBe(
       'identity-ed25519-session',
     );
-    expect(result.published?.updatedAtMs).toBe(22_222);
     expect(result.ecdsaAfterClear).toBeNull();
   });
 

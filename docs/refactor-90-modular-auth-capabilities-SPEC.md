@@ -535,6 +535,14 @@ implementing commit SHA as the evidence.
     grant-bearing lease rows are rejected at the persistence boundary
     (`2d56e3a58`). The ECDSA sealed-record store key remains a separate,
     follow-on activation re-key task.
+  - [x] Delete write-only ECDSA resolved-identity publication from passkey
+    recovery, Email OTP restore, and sealed-store identity projections. ECDSA
+    availability is resolved from canonical capability and sealed-runtime
+    facts; this map no longer publishes grant/session identity (`71d061d6d`).
+  - [x] Sealed-recovery purposes carry the exact `MpcMaterialActivationRef`;
+    lookup, passkey restore, Email OTP restore, and restore caches correlate
+    that reference before rehydration (`5c8e8c92b`). Durable ECDSA store-key
+    migration remains a separate cutover.
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.
