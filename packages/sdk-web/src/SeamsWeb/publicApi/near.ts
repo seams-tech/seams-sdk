@@ -28,8 +28,7 @@ import { buildNearWalletRegistrationArgs } from '@/SeamsWeb/operations/near';
 import { registerWallet as registerWalletWithUnifiedCeremony } from '@/SeamsWeb/operations/registration/registration';
 import { resolveNearCommandSubject } from '@/SeamsWeb/operations/near/commandSubject';
 import { fundImplicitNearAccountForTesting } from '@/core/rpcClients/relayer/walletRegistration';
-import { getStoredThresholdEd25519SessionRecordForWallet } from '@/core/signingEngine/session/persistence/records';
-import { parseRouterAbEd25519WalletSessionAuthorityFromRecord } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type {
   NearAccountRef,
   WalletSessionRef,
@@ -63,16 +62,17 @@ function requireNearSigningCapability(
   });
 }
 
-function requireCurrentEd25519WalletSessionJwt(walletSession: WalletSessionRef): string {
-  const record = getStoredThresholdEd25519SessionRecordForWallet(walletSession.walletId);
-  const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
-  if (!authority.ok) {
+async function requireCurrentEd25519WalletSessionJwt(
+  walletSession: WalletSessionRef,
+): Promise<string> {
+  const read = await walletSessionAuthorizations.readActiveForWallet(walletSession.walletId);
+  if (read.kind !== 'found' || read.projection.expiresAtMs <= Date.now()) {
     throw new Error('Current Ed25519 wallet session is required for implicit NEAR funding');
   }
-  return authority.value.auth.walletSessionJwt;
+  return read.projection.walletSessionJwt;
 }
 
-async function fundImplicitNearAccountFromCurrentSession(args: {
+export async function fundImplicitNearAccountFromCurrentSession(args: {
   configs: SeamsConfigsReadonly;
   walletSession: WalletSessionRef;
   nearAccount: NearAccountRef;
@@ -83,7 +83,7 @@ async function fundImplicitNearAccountFromCurrentSession(args: {
     walletId: args.walletSession.walletId,
     nearAccountId: args.nearAccount.accountId,
     nearPublicKeyStr: requireNearPublicKey(args.nearPublicKey),
-    walletSessionJwt: requireCurrentEd25519WalletSessionJwt(args.walletSession),
+    walletSessionJwt: await requireCurrentEd25519WalletSessionJwt(args.walletSession),
   });
 }
 
