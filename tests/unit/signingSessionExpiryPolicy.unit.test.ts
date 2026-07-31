@@ -61,6 +61,7 @@ test.describe('signing session expiry policy', () => {
         nowMs: NOW_MS,
       }).readiness,
     ).toEqual({
+      curve: 'ed25519',
       status: 'expired',
       thresholdSessionId: THRESHOLD_SESSION_ID,
       expiresAtMs: NOW_MS,
@@ -78,6 +79,7 @@ test.describe('signing session expiry policy', () => {
         nowMs: NOW_MS,
       }).readiness,
     ).toEqual({
+      curve: 'ed25519',
       status: 'exhausted',
       thresholdSessionId: THRESHOLD_SESSION_ID,
       remainingUses: 0,
@@ -100,6 +102,7 @@ test.describe('signing session expiry policy', () => {
         nowMs: NOW_MS,
       }).readiness,
     ).toEqual({
+      curve: 'ed25519',
       status: 'status_unavailable',
       thresholdSessionId: THRESHOLD_SESSION_ID,
     });
@@ -126,7 +129,6 @@ test.describe('signing session expiry policy', () => {
       }),
     ).toEqual({
       kind: 'durable_policy',
-      thresholdSessionId: String(THRESHOLD_SESSION_ID),
       remainingUses: 0,
       expiresAtMs: 1,
       state: 'expired',

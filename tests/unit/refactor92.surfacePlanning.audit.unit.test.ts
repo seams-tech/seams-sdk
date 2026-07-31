@@ -170,10 +170,20 @@ for (const fixture of LANES) {
     }
     expect(passkeyPlan.lane).toBe(fixture.passkeyLane);
     expect(emailOtpPlan.lane).toBe(fixture.emailOtpLane);
-    expect(passkeyPlan.reconnect).toEqual({
-      lane: fixture.passkeyLane,
-      thresholdSessionId: fixture.passkeyLane.thresholdSessionId,
-    });
+    if (fixture.passkeyLane.curve === 'ed25519') {
+      expect(passkeyPlan.reconnect).toEqual({
+        lane: fixture.passkeyLane,
+        curve: 'ed25519',
+        thresholdSessionId: fixture.passkeyLane.thresholdSessionId,
+      });
+    } else {
+      expect(passkeyPlan.reconnect).toEqual({
+        lane: fixture.passkeyLane,
+        curve: 'ecdsa',
+        materialActivation: fixture.passkeyLane.materialActivation,
+        authorization: fixture.passkeyLane.authorization,
+      });
+    }
     expect(emailOtpPlan.challenge).toEqual({
       chainFamily: fixture.emailOtpLane.chainFamily,
       lane: fixture.emailOtpLane,
@@ -199,6 +209,7 @@ for (const reason of ['auth_unavailable', 'status_unavailable', 'budget_unknown'
     const plan = planSigningSession({
       lane: NEAR_PASSKEY_LANE,
       readiness: {
+        curve: 'ed25519',
         status: reason,
         thresholdSessionId: NEAR_PASSKEY_LANE.thresholdSessionId,
       },
@@ -214,7 +225,17 @@ for (const reason of ['auth_unavailable', 'status_unavailable', 'budget_unknown'
 function expiredReadiness(
   lane: SelectedSigningSessionPlanningLane,
 ): SigningSessionReadiness {
+  if (lane.curve === 'ecdsa') {
+    return {
+      curve: 'ecdsa',
+      status: 'expired',
+      materialActivation: lane.materialActivation,
+      authorization: lane.authorization,
+      expiresAtMs: 1,
+    };
+  }
   return {
+    curve: 'ed25519',
     status: 'expired',
     thresholdSessionId: lane.thresholdSessionId,
     expiresAtMs: 1,
@@ -224,7 +245,18 @@ function expiredReadiness(
 function exhaustedReadiness(
   lane: SelectedSigningSessionPlanningLane,
 ): SigningSessionReadiness {
+  if (lane.curve === 'ecdsa') {
+    return {
+      curve: 'ecdsa',
+      status: 'exhausted',
+      materialActivation: lane.materialActivation,
+      authorization: lane.authorization,
+      remainingUses: 0,
+      expiresAtMs: 2_000_000_000_000,
+    };
+  }
   return {
+    curve: 'ed25519',
     status: 'exhausted',
     thresholdSessionId: lane.thresholdSessionId,
     remainingUses: 0,
