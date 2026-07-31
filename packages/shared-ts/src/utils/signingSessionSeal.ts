@@ -231,8 +231,6 @@ export type EmailOtpSigningSessionSecretInfoInput = {
   signingGrantId: string;
 };
 
-export type EmailOtpSigningSessionRestoreRootInfoInput = EmailOtpSigningSessionSecretInfoInput;
-
 export type EmailOtpEcdsaRestoreInfoInput = {
   ecdsaThresholdSessionId: string;
   ecdsaThresholdKeyId: string;
@@ -297,7 +295,7 @@ export function emailOtpSigningSessionSecretInfoFields(
 }
 
 export function emailOtpSigningSessionRestoreRootInfoFields(
-  args: EmailOtpSigningSessionRestoreRootInfoInput,
+  args: EmailOtpSigningSessionSecretInfoInput,
 ): string[] {
   return [
     'email_otp',

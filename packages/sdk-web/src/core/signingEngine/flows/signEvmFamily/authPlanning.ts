@@ -38,7 +38,6 @@ import type {
 } from './types';
 
 export type EvmFamilyPreConfirmSigningDeps = EvmFamilyEcdsaSessionReaderDeps;
-export type EvmFamilyWarmSessionReadinessDeps = EvmFamilyPreConfirmSigningDeps;
 
 export type EvmFamilyConfirmedEmailOtpDeps = {
   requestEmailOtpTransactionSigningChallenge?: (args: {
