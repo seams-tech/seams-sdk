@@ -626,6 +626,10 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~zero-caller threshold status/error constants, formatters, and
   `normalizeUsesNeeded` in `warmCapabilities/statusReader.ts`~~ — deleted by
   `308910932` and `111345f7c`; the read model owns the live status mapping
+- ~~zero-caller `hasSufficientWarmClaim`,
+  `formatMissingWarmPrfMaterialError`, and
+  `formatWarmSessionClaimUnavailableError` helpers~~ — deleted by
+  `9427bc746`; live claim/status conversion remains in `readModel.ts`
 - ~~stale registration/key-brand source-guard blocks for deleted persistence,
   lifecycle, and Shamir-seal paths~~ — retired by `703fa1d95`; remaining guard
   checks target live registration, branding, and WebAuthn boundaries
