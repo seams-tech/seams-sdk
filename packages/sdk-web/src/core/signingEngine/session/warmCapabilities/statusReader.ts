@@ -12,7 +12,10 @@ import type {
   ThresholdWarmSessionStatusReader,
   WarmSessionPrfClaim,
 } from './types';
-import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
+import {
+  ed25519SigningGrantForAuthorization,
+  type ExactEd25519SealedSessionRuntime,
+} from './ed25519SealedSessionRuntime';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   buildEmailOtpWalletAuthAuthority,
@@ -20,8 +23,6 @@ import {
   walletAuthAuthorityRef,
   type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
-import { parseRouterAbEd25519WalletSessionIdentityClaims } from '../routerAbSigningWalletSession';
-
 function ed25519SessionMetadata(runtime: ExactEd25519SealedSessionRuntime): {
   authMethod: SignerAuthMethod;
   retention?: 'session';
@@ -77,16 +78,9 @@ async function ed25519AuthorizationMatchesRuntime(args: {
   ) {
     return false;
   }
-  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(
-    authorization.walletSessionJwt,
-  );
+  const signingGrantId = ed25519SigningGrantForAuthorization({ runtime, authorization });
   if (
-    !claims ||
-    claims.walletId !== runtime.walletId ||
-    claims.nearAccountId !== runtime.nearAccountId ||
-    claims.nearEd25519SigningKeyId !== runtime.nearEd25519SigningKeyId ||
-    claims.thresholdSessionId !== runtime.thresholdSessionId ||
-    claims.signingGrantId !== runtime.signingGrantId
+    !signingGrantId
   ) {
     return false;
   }

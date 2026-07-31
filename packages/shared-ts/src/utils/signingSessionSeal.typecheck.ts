@@ -62,9 +62,9 @@ const validEcdsaSealedSessionRecord = {
 } satisfies SealedSigningSessionRecord;
 void validEcdsaSealedSessionRecord;
 
-// @ts-expect-error durable ECDSA material is keyed by activation, not a signing grant.
 const invalidGrantBearingEcdsaSealedSessionRecord: SealedSigningSessionRecord = {
   ...validEcdsaSealedSessionRecord,
+  // @ts-expect-error durable ECDSA material is keyed by activation, not a signing grant.
   signingGrantId: 'wallet-session-1',
 };
 void invalidGrantBearingEcdsaSealedSessionRecord;
@@ -77,8 +77,7 @@ const validEd25519SealedSessionRecord = {
   storageScope: 'iframe_origin_indexeddb',
   authMethod: 'passkey',
   secretKind: 'signing_session_secret32',
-  storeKey: 'wallet-session-1:passkey:ed25519',
-  signingGrantId: 'wallet-session-1',
+  storeKey: 'material:alice.testnet:passkey:ed25519:alice.testnet:alice.testnet:1',
   thresholdSessionIds: {
     ed25519: 'ed-session',
   },

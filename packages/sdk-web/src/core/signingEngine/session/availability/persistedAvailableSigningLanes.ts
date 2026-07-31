@@ -44,6 +44,7 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import {
   ed25519SealedRuntimeAuthorityRef,
+  ed25519SigningGrantForAuthorization,
   parseExactEd25519SealedSessionRuntime,
   type ExactEd25519SealedSessionRuntime,
 } from '../warmCapabilities/ed25519SealedSessionRuntime';
@@ -254,11 +255,16 @@ async function readEd25519WalletBudgetStatusForRuntime(args: {
     walletSessionJwt: authorizationRead.projection.walletSessionJwt,
   });
   if (parsedAuth.kind === 'unavailable') return null;
+  const signingGrantId = ed25519SigningGrantForAuthorization({
+    runtime: args.runtime,
+    authorization: authorizationRead.projection,
+  });
+  if (!signingGrantId) return null;
   return await readBudgetStatusOrNull({
     reader: args.reader,
     check: buildAuthenticatedThresholdBudgetStatusCheck({
       owner: ed25519WalletBudgetOwner(args.walletId),
-      signingGrantId: args.runtime.signingGrantId,
+      signingGrantId,
       targetThresholdSessionIds: [args.runtime.thresholdSessionId],
       trustedStatusAuth: parsedAuth.auth,
     }),
@@ -478,6 +484,15 @@ export async function readPersistedAvailableSigningLanesForTargets(
           if (sealedRecord.curve !== 'ed25519') continue;
           const runtime = parseExactEd25519SealedSessionRuntime(sealedRecord);
           if (!runtime) continue;
+          const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
+            runtime.walletId,
+          );
+          if (authorizationRead.kind !== 'found') continue;
+          const signingGrantId = ed25519SigningGrantForAuthorization({
+            runtime,
+            authorization: authorizationRead.projection,
+          });
+          if (!signingGrantId) continue;
           persistedEd25519RuntimesBySessionId.set(runtime.thresholdSessionId, runtime);
           pushRecord({
             auth: runtime.auth,
@@ -489,7 +504,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
             signerSlot: runtime.signerSlot,
             routerAbNormalSigning: runtime.routerAbNormalSigning,
             thresholdSessionId: runtime.thresholdSessionId,
-            signingGrantId: runtime.signingGrantId,
+            signingGrantId,
             source: 'durable_sealed_record',
             remainingUses: runtime.remainingUses,
             expiresAtMs: runtime.expiresAtMs,

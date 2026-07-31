@@ -70,7 +70,6 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
     nearAccountId?: string;
     nearEd25519SigningKeyId?: string;
     thresholdSessionId?: string;
-    signingGrantId?: string;
     expiresAtMs?: number;
     remainingUses?: number;
   } = {},
@@ -79,13 +78,11 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
   const nearAccountId = args.nearAccountId ?? 'ed25519-sealed-runtime.testnet';
   const nearEd25519SigningKeyId = args.nearEd25519SigningKeyId ?? 'ed25519-sealed-runtime-key';
   const thresholdSessionId = args.thresholdSessionId ?? 'ed25519-sealed-runtime-session';
-  const signingGrantId = args.signingGrantId ?? 'ed25519-sealed-runtime-grant';
   const record = buildCurrentSealedSessionRecord({
     curve: 'ed25519',
     authMethod: 'passkey',
     thresholdSessionId,
     thresholdSessionIds: { ed25519: thresholdSessionId },
-    signingGrantId,
     walletId,
     signingRootId: 'ed25519-sealed-runtime-project:test',
     signingRootVersion: 'v1',
@@ -150,7 +147,7 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
       nearAccountId: record.ed25519Restore.nearAccountId,
       nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
       thresholdSessionId: record.thresholdSessionIds.ed25519,
-      signingGrantId: record.signingGrantId,
+      signingGrantId: `grant:${record.thresholdSessionIds.ed25519}`,
     }),
     authMethod: 'passkey',
     authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),

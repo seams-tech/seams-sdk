@@ -320,7 +320,7 @@ type BuildCurrentSealedSessionRecordCommonInput = {
 export type BuildCurrentEd25519SealedSessionRecordInput =
   BuildCurrentSealedSessionRecordCommonInput & {
     curve: 'ed25519';
-    signingGrantId: string;
+    signingGrantId?: never;
     thresholdSessionIds: Ed25519SealedRecordThresholdSessionIds;
     walletId: string;
     signingRootId?: string;
@@ -461,7 +461,6 @@ function durableLaneStorageRow(record: CurrentSealedSessionRecord): Record<strin
     signing_root_version: optionalStringForIndex(
       'signingRootVersion' in record ? record.signingRootVersion : undefined,
     ),
-    signing_grant_id: record.curve === 'ed25519' ? record.signingGrantId : undefined,
     ed25519_threshold_session_id: ed25519ThresholdSessionId,
     ecdsa_threshold_session_id: ecdsaThresholdSessionId,
     threshold_session_id: ecdsaThresholdSessionId || ed25519ThresholdSessionId,
@@ -768,11 +767,18 @@ function normalizeCurrentEd25519RestoreMetadata(
   };
 }
 
-type SealedRecordStoreKeyInput = {
+type Ed25519SealedRecordStoreKeyInput = {
+  walletId: string;
+  authMethod: 'passkey' | 'email_otp';
+  restore: CurrentEd25519RestoreMetadata;
+};
+
+function legacyEd25519SealedRecordStoreKey(args: {
   signingGrantId: string;
   authMethod: 'passkey' | 'email_otp';
-  curve: 'ed25519';
-};
+}): string {
+  return [args.signingGrantId, args.authMethod, 'ed25519'].map(sealedStoreKeyPart).join(':');
+}
 
 function legacyEcdsaSealedRecordStoreKey(args: {
   signingGrantId: string;
@@ -789,8 +795,18 @@ function legacyEcdsaSealedRecordStoreKey(args: {
     .join(':');
 }
 
-function makeSealedRecordStoreKey(args: SealedRecordStoreKeyInput): string {
-  return [args.signingGrantId, args.authMethod, args.curve].map(sealedStoreKeyPart).join(':');
+function ed25519SealedRecordStoreKey(args: Ed25519SealedRecordStoreKeyInput): string {
+  return [
+    'material',
+    args.walletId,
+    args.authMethod,
+    'ed25519',
+    args.restore.nearAccountId,
+    args.restore.nearEd25519SigningKeyId,
+    args.restore.signerSlot,
+  ]
+    .map(sealedStoreKeyPart)
+    .join(':');
 }
 
 function makeInactiveEcdsaMaterialStoreKey(args: {
@@ -991,25 +1007,8 @@ function createDeleteResolvedIdentityCommand(args: {
 function resolvedIdentitiesForSealedRecord(
   record: SigningSessionSealedStoreRecord,
 ): SealedStoreResolvedSigningSessionIdentity[] {
-  if (record.curve !== 'ed25519') return [];
-  const walletId = normalizeOptionalNonEmptyString(record.walletId);
-  if (!walletId) return [];
-  const identities: SealedStoreResolvedSigningSessionIdentity[] = [];
-  const ed25519ThresholdSessionId = normalizeOptionalNonEmptyString(
-    record.thresholdSessionIds.ed25519,
-  );
-  if (ed25519ThresholdSessionId) {
-    identities.push({
-      walletId,
-      authMethod: record.authMethod,
-      curve: 'ed25519',
-      chain: 'near',
-      signingGrantId: record.signingGrantId,
-      thresholdSessionId: ed25519ThresholdSessionId,
-      updatedAtMs: record.updatedAtMs,
-    });
-  }
-  return identities;
+  void record;
+  return [];
 }
 
 function publishResolvedIdentityForSealedRecord(record: SigningSessionSealedStoreRecord): void {
@@ -1293,9 +1292,6 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   if (!thresholdSessionIds.ed25519) {
     return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
   }
-  if (!signingGrantId) {
-    return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
-  }
   if (subjectId || userId)
     return classifyNonCurrentRecord('delete_required', obj, 'invalid_identity');
   if (!ed25519RestoreObj || !relayerUrl) {
@@ -1311,13 +1307,16 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   if (!ed25519Restore) {
     return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
   }
-  const storeKey = makeSealedRecordStoreKey({
-    signingGrantId,
+  const storeKey = ed25519SealedRecordStoreKey({
+    walletId,
     authMethod,
-    curve: 'ed25519',
+    restore: ed25519Restore,
   });
+  const legacyStoreKey = signingGrantId
+    ? legacyEd25519SealedRecordStoreKey({ signingGrantId, authMethod })
+    : null;
   const providedStoreKey = normalizeOptionalNonEmptyString(obj.storeKey);
-  if (providedStoreKey && providedStoreKey !== storeKey) {
+  if (providedStoreKey && providedStoreKey !== storeKey && providedStoreKey !== legacyStoreKey) {
     return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
   }
   return {
@@ -1329,7 +1328,6 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
       authMethod,
       secretKind: SIGNING_SESSION_SECRET_KIND,
       storeKey,
-      signingGrantId,
       thresholdSessionIds: {
         ed25519: thresholdSessionIds.ed25519,
         ...(thresholdSessionIds.ecdsa ? { ecdsa: thresholdSessionIds.ecdsa } : {}),
@@ -1364,7 +1362,7 @@ async function classifyPersistedSealedRecord(
 ): Promise<SealedSessionRecordClassification> {
   const payload = storagePayloadFromSealedStoreRow(entry.value);
   const classification = classifyRawSealedSessionRecord(payload);
-  if (classification.kind !== 'current' || classification.record.curve !== 'ecdsa') {
+  if (classification.kind !== 'current') {
     return classification;
   }
   const raw = asRawSealedSessionRecord(payload);
@@ -1374,11 +1372,16 @@ async function classifyPersistedSealedRecord(
   }
   const legacySigningGrantId = normalizeStoredSigningGrantId(raw);
   if (!legacySigningGrantId) return classification;
-  const legacyStoreKey = legacyEcdsaSealedRecordStoreKey({
-    signingGrantId: legacySigningGrantId,
-    authMethod: classification.record.authMethod,
-    chainTarget: classification.record.ecdsaRestore.chainTarget,
-  });
+  const legacyStoreKey = classification.record.curve === 'ecdsa'
+    ? legacyEcdsaSealedRecordStoreKey({
+        signingGrantId: legacySigningGrantId,
+        authMethod: classification.record.authMethod,
+        chainTarget: classification.record.ecdsaRestore.chainTarget,
+      })
+    : legacyEd25519SealedRecordStoreKey({
+        signingGrantId: legacySigningGrantId,
+        authMethod: classification.record.authMethod,
+      });
   if (persistedStoreKey !== legacyStoreKey) return classification;
   await signingSessionSealsRepository.migrateSealedRecordStoreKey({
     row: sealedRecordStorageRow(classification.record),
@@ -1653,8 +1656,6 @@ export function buildCurrentSealedSessionRecord(
     curve,
     thresholdSessionIds: args.thresholdSessionIds,
   });
-  const signingGrantId =
-    args.curve === 'ed25519' ? normalizeOptionalNonEmptyString(args.signingGrantId) : undefined;
   const walletId = normalizeOptionalNonEmptyString(args.walletId);
   const sealedSecretB64u = normalizeOptionalNonEmptyString(args.sealedSecretB64u);
   const expiresAtMs = normalizeInteger(args.expiresAtMs);
@@ -1670,7 +1671,6 @@ export function buildCurrentSealedSessionRecord(
   )
     return null;
   if (!thresholdSessionIds.ed25519 && !thresholdSessionIds.ecdsa) return null;
-  if (curve === 'ed25519' && !signingGrantId) return null;
   if (issuedAtMs == null || issuedAtMs <= 0) return null;
   if (expiresAtMs == null || expiresAtMs <= 0) return null;
   if (remainingUses == null || remainingUses < 0) return null;
@@ -1695,7 +1695,6 @@ export function buildCurrentSealedSessionRecord(
     storageScope: SIGNING_SESSION_SEAL_STORAGE_SCOPE,
     authMethod,
     secretKind: SIGNING_SESSION_SECRET_KIND,
-    ...(signingGrantId ? { signingGrantId } : {}),
     thresholdSessionIds,
     sealedSecretB64u,
     curve,
@@ -2263,7 +2262,7 @@ export async function deleteExactSealedSession(
   if (!thresholdSessionId) return;
   const record = await readRecordByThresholdSessionId(thresholdSessionId, purpose, 'delete');
   await deleteRecordByThresholdSessionId(thresholdSessionId, purpose);
-  if (record?.signingGrantId && options.deleteResolvedIdentity) {
+  if (record && options.deleteResolvedIdentity) {
     deleteResolvedIdentityForSealedRecord(record, options.resolvedIdentityDeleteReason);
     await signingSessionSealsRepository.deleteRestoreLease(record.storeKey);
   }

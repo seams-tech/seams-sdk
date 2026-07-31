@@ -11,13 +11,15 @@ import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { buildPasskeyEd25519SealedSessionRecordFixture } from './helpers/sealedSigningSession.fixtures';
+import {
+  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyEd25519SealedSessionRecordFixture,
+} from './helpers/sealedSigningSession.fixtures';
 
 const RECORD = buildPasskeyEd25519SealedSessionRecordFixture();
-const CURRENT_WALLET_SESSION_JWT = `${RECORD.ed25519Restore.walletSessionJwt
-  .split('.')
-  .slice(0, 2)
-  .join('.')}.current`;
+const AUTHORIZATION = buildPasskeyEd25519AuthorizationProjectionFixture(RECORD);
+const SIGNING_GRANT_ID = `grant:${RECORD.thresholdSessionIds.ed25519}`;
+const CURRENT_WALLET_SESSION_JWT = AUTHORIZATION.walletSessionJwt;
 const LANE = buildEd25519PasskeySigningLane({
   walletId: toWalletId(RECORD.walletId),
   nearAccountId: toAccountId(RECORD.ed25519Restore.nearAccountId),
@@ -30,7 +32,7 @@ const LANE = buildEd25519PasskeySigningLane({
     rpId: toRpId('wallet.example.test'),
     credentialIdB64u: 'ed25519-sealed-runtime-credential',
   },
-  signingGrantId: SigningSessionIds.signingGrant(RECORD.signingGrantId),
+  signingGrantId: SigningSessionIds.signingGrant(SIGNING_GRANT_ID),
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
     RECORD.thresholdSessionIds.ed25519,
   ),
@@ -54,7 +56,6 @@ test('resolves one exact sealed Ed25519 session without a composite record', asy
       kind: 'exact_ed25519_sealed_session_runtime',
       walletId: RECORD.walletId,
       thresholdSessionId: RECORD.thresholdSessionIds.ed25519,
-      signingGrantId: RECORD.signingGrantId,
       participantIds: [1, 2],
       remainingUses: 3,
     }),
@@ -84,7 +85,7 @@ test('builds passkey hydration state from the exact sealed runtime and active JW
   });
 
   expect(state.thresholdSessionId).toBe(RECORD.thresholdSessionIds.ed25519);
-  expect(state.signingGrantId).toBe(RECORD.signingGrantId);
+  expect(state.signingGrantId).toBe(SIGNING_GRANT_ID);
   expect(state.signingLane.identity.signer.nearEd25519SigningKeyId).toBe(
     RECORD.ed25519Restore.nearEd25519SigningKeyId,
   );
@@ -151,7 +152,6 @@ test('selects an exact Ed25519 wallet subject when a wallet has multiple signers
     nearAccountId: 'ed25519-sealed-runtime-sibling.testnet',
     nearEd25519SigningKeyId: 'ed25519-sealed-runtime-sibling-key',
     thresholdSessionId: 'ed25519-sealed-runtime-sibling-session',
-    signingGrantId: 'ed25519-sealed-runtime-sibling-grant',
   });
   const resolution =
     await resolveExactEd25519SealedSessionRuntimeForWalletSubjectWithResolver(

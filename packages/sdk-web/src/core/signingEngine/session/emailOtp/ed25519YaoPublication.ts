@@ -147,7 +147,6 @@ export async function persistEmailOtpEd25519YaoSessionForRefresh(
     thresholdSessionId,
     sealedSecretB64u: requireTrimmedString(sealed.sealedSecretB64u, 'sealedSecretB64u'),
     authMethod: 'email_otp',
-    signingGrantId,
     keyVersion,
     groupId,
     issuedAtMs: nowMs,
@@ -184,7 +183,6 @@ export async function persistEmailOtpEd25519YaoSessionForRefresh(
     !persisted ||
     persisted.curve !== 'ed25519' ||
     persisted.thresholdSessionIds.ed25519 !== thresholdSessionId ||
-    persisted.signingGrantId !== signingGrantId ||
     persisted.ed25519Restore.providerSubjectId !== providerSubjectId
   ) {
     throw new Error('Email OTP Ed25519 sealed refresh read-back did not match the exact session');
