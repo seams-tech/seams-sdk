@@ -9,6 +9,7 @@ import {
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
   listNearEd25519TransactionReadyLanes,
+  selectNearEd25519MaterialCandidate,
   selectTransactionLane,
   toNearEd25519TransactionSelectableLane,
   toNearEd25519TransactionReadyLane,
@@ -17,6 +18,7 @@ import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIden
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
+import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 
 const walletId = toWalletId('cedar-zenith-pghgtw');
 const nearAccountId = toAccountId('cedar-zenith-pghgtw.testnet');
@@ -38,9 +40,11 @@ function signerSlot(value: number) {
 function ed25519Lane(input: {
   source: 'runtime_session_record' | 'durable_sealed_record';
   state: 'ready' | 'restorable' | 'deferred' | 'expired' | 'exhausted';
+  auth?: SigningLaneAuthBinding;
 }): AvailableEd25519SigningLane {
+  const laneAuth = input.auth || auth;
   const base = {
-    auth,
+    auth: laneAuth,
     curve: 'ed25519',
     chain: 'near',
     walletId,
@@ -66,7 +70,7 @@ function ed25519Lane(input: {
     authorization: availableLaneEd25519Authorization({
       walletId,
       identitySeed: 'transaction-selection',
-      authMethod: 'passkey',
+      authMethod: laneAuth.kind,
     }),
     state: input.state,
     signingGrantId: 'wss_ed25519_transaction_selection',
@@ -152,6 +156,50 @@ test('NEAR Ed25519 availability preserves a grant-free deferred material candida
   });
   expect(deferred).not.toHaveProperty('signingGrantId');
 });
+
+for (const laneAuth of [
+  auth,
+  {
+    kind: 'email_otp',
+    providerSubjectId: 'provider-subject-ed25519-transaction-selection',
+  } as const,
+]) {
+  test(`NEAR Ed25519 ${laneAuth.kind} selection preserves deferred material without selecting a lane`, () => {
+    const deferred = ed25519Lane({
+      source: 'durable_sealed_record',
+      state: 'deferred',
+      auth: laneAuth,
+    });
+
+    const selected = selectNearEd25519MaterialCandidate({
+      intent: {
+        walletId,
+        curve: 'ed25519',
+        chain: 'near',
+        signerSelection: { kind: 'near_account', nearAccountId },
+        authSelectionPolicy: { kind: 'account_class', authMethod: laneAuth.kind },
+        operationUsesNeeded: 1,
+      },
+      availableLanes: availableSigningLanes([deferred]),
+    });
+
+    expect(selected).toMatchObject({
+      ok: true,
+      kind: 'authorization_required',
+      candidate: {
+        authorizationState: 'authorization_required',
+        auth: laneAuth,
+        thresholdSessionId: 'tsess_ed25519_transaction_selection',
+      },
+      availableLane: {
+        authorizationState: 'authorization_required',
+        state: 'deferred',
+      },
+    });
+    expect(selected).not.toHaveProperty('lane');
+    expect(selected).not.toHaveProperty('signingGrantId');
+  });
+}
 
 test('NEAR Ed25519 transaction selection carries expired durable lanes as reauth anchors', () => {
   const expiredDurableLane = {
