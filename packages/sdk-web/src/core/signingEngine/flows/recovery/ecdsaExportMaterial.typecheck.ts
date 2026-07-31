@@ -5,7 +5,7 @@ import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/ro
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 import type {
-  ExactEcdsaExportSession,
+  ExactEcdsaExportLane,
   FreshEmailOtpEcdsaExportMaterial,
   FreshPasskeyEcdsaExportMaterial,
 } from './ecdsaExportMaterial';
@@ -17,18 +17,15 @@ declare const signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
 declare const relayerUrl: string;
-declare const currentExactExportSession: Extract<
-  ExactEcdsaExportSession,
-  { state: 'ready' | 'restorable' | 'deferred' }
->;
+declare const currentExactExportLane: ExactEcdsaExportLane;
 declare const obsoleteRecord: unknown;
 
-const exportSessionWithThresholdSessionId: ExactEcdsaExportSession = {
-  ...currentExactExportSession,
-  // @ts-expect-error export sessions carry no threshold-session identity.
+const exportLaneWithThresholdSessionId: ExactEcdsaExportLane = {
+  ...currentExactExportLane,
+  // @ts-expect-error export lanes carry no threshold-session identity.
   thresholdSessionId: 'threshold-session-1',
 };
-void exportSessionWithThresholdSessionId;
+void exportLaneWithThresholdSessionId;
 
 const walletSessionAuthorizedMaterial: FreshEmailOtpEcdsaExportMaterial = {
   kind: 'fresh_email_otp_route_auth_ready',
