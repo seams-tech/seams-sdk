@@ -18,7 +18,7 @@ import type {
   NearWorkerOperationRequest,
   EcdsaPresignClientSessionStepRequest,
 } from './workerTypes';
-import type { CapabilityInstanceRef, RootShareEpoch } from '@shared/utils/domainIds';
+import type { CapabilityInstanceRef, MpcMaterialActivationRef, RootShareEpoch } from '@shared/utils/domainIds';
 import {
   EcdsaDerivationClientCustomRequestType,
   EcdsaPresignClientRequestType,
@@ -48,6 +48,7 @@ declare const rootShareEpoch: RootShareEpoch;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const publicationTargetPlans: EmailOtpEcdsaPublicationTargetPlan[];
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
+declare const materialActivation: MpcMaterialActivationRef;
 declare const emailOtpEd25519YaoActiveCapability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
 declare const routeAuth: AppOrWalletSessionAuth;
 declare const incomingMessage: ArrayBuffer;
@@ -794,23 +795,22 @@ const emailOtpRecoveryCodeRotationResultWithSigningRoot = {
 } satisfies EmailOtpRecoveryCodeRotationResult;
 void emailOtpRecoveryCodeRotationResultWithSigningRoot;
 
-declare const emailOtpEd25519YaoExportRoutePlan: EmailOtpEd25519YaoExportPayload['routePlan'];
 const emailOtpEd25519YaoExportPayload: EmailOtpEd25519YaoExportPayload = {
   relayUrl: 'https://relay.example',
-  walletId: 'wallet.testnet',
-  userId: 'google:subject',
   challengeId: 'challenge-ed25519-export',
   otpCode: '123456',
   groupId: 'prime',
-  routePlan: emailOtpEd25519YaoExportRoutePlan,
-  walletSessionJwt: 'wallet-session-jwt',
-  nearAccountId: 'alice.testnet',
-  nearEd25519SigningKeyId: 'near-key-1',
-  signerSlot: 1,
-  thresholdSessionId: 'threshold-ed25519-export',
-  signingGrantId: 'grant-ed25519-export',
-  runtimePolicyScope,
-  capability: emailOtpEd25519YaoActiveCapability,
+  lane: {
+    walletId: 'wallet.testnet',
+    providerSubjectId: 'google:subject',
+    nearAccountId: 'alice.testnet',
+    nearEd25519SigningKeyId: 'near-key-1',
+    signerSlot: 1,
+    thresholdSessionId: 'threshold-ed25519-export',
+    signingGrantId: 'grant-ed25519-export',
+  },
+  authorization: { walletSessionJwt: 'wallet-session-jwt' },
+  material: { materialActivation, capability: emailOtpEd25519YaoActiveCapability },
 };
 void emailOtpEd25519YaoExportPayload;
 

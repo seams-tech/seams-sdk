@@ -6,7 +6,6 @@ import {
   type Ed25519YaoExportFlowDeps,
 } from '@/core/signingEngine/flows/recovery/ed25519YaoExportFlow';
 import { exactEd25519SigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
-import type { EmailOtpEd25519YaoExportSubjectV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery';
 import type { UserConfirmDecision } from '@/core/signingEngine/stepUpConfirmation/types';
 import type { UserConfirmRequest } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import {
@@ -17,6 +16,7 @@ import {
 import { parseNamedNearAccountId } from '@shared/utils/near';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { resolveEmailOtpAuthLane } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
+import { nearEd25519YaoMaterialActivationFromPublicFacts } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 
 const WALLET_ID = toWalletId('email-otp-export-refresh-wallet');
 const NEAR_ACCOUNT_ID = toAccountId('email-otp-export-refresh.testnet');
@@ -53,6 +53,15 @@ const CAPABILITY = {
   },
   stateEpoch: 1,
 } as const;
+
+const MATERIAL_ACTIVATION = nearEd25519YaoMaterialActivationFromPublicFacts({
+  activationId: CAPABILITY.lifecycle.thresholdSessionId,
+  activeCapabilityBinding: CAPABILITY.activeCapabilityBinding,
+  walletId: CAPABILITY.applicationBinding.wallet_id,
+  registeredPublicKey: CAPABILITY.registeredPublicKey,
+  lifecycleId: CAPABILITY.lifecycle.lifecycleId,
+  signingWorkerId: CAPABILITY.lifecycle.signingWorkerId,
+});
 
 function durableEd25519AuthLane() {
   const authLane = resolveEmailOtpAuthLane({
@@ -123,23 +132,16 @@ class EmailOtpEd25519ExportRefreshHarness {
     throw new Error('Email OTP export must not resolve a passkey export context');
   }
 
-  async resolveExportContext(subject: EmailOtpEd25519YaoExportSubjectV1) {
+  async resolveExportContext(
+    subject: Parameters<Ed25519YaoExportFlowDeps['emailOtp']['resolveExportContext']>[0],
+  ) {
     this.contextCalls += 1;
-    expect(subject).toEqual({
-      walletId: WALLET_ID,
-      nearAccountId: NEAR_ACCOUNT_ID,
-      nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-      signerSlot: 1,
-      thresholdSessionId: THRESHOLD_SESSION_ID,
-      signingGrantId: SIGNING_GRANT_ID,
-      providerSubjectId: PROVIDER_SUBJECT_ID,
-    });
+    expect(subject).toEqual(buildLaneIdentity());
     return {
       kind: 'email_otp_ed25519_yao_export_context_v1' as const,
-      authLane: durableEd25519AuthLane(),
-      walletSessionJwt: 'durable-wallet-session-jwt',
-      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-      capability: CAPABILITY,
+      lane: buildLaneIdentity(),
+      authorization: { walletSessionJwt: 'durable-wallet-session-jwt' },
+      material: { materialActivation: MATERIAL_ACTIVATION, capability: CAPABILITY },
     };
   }
 
@@ -166,9 +168,10 @@ class EmailOtpEd25519ExportRefreshHarness {
     args: Parameters<Ed25519YaoExportFlowDeps['emailOtp']['exportSeedWithFreshAuthorization']>[0],
   ) {
     this.exportCalls += 1;
-    this.exportedCapability = args.capability;
-    expect(args.walletSessionJwt).toBe('durable-wallet-session-jwt');
-    expect(args.authLane).toEqual(durableEd25519AuthLane());
+    this.exportedCapability = args.exportContext.material.capability;
+    expect(args.exportContext.authorization.walletSessionJwt).toBe(
+      'durable-wallet-session-jwt',
+    );
     return {
       artifactKind: 'near-ed25519-seed-v1' as const,
       publicKey: 'ed25519:exported-public-key',

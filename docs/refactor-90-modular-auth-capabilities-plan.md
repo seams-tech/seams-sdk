@@ -349,6 +349,10 @@ removes.
 - [x] Keep role-local material handles stable across Tempo and ARC for the same
       exact activated material.
 - [x] Remove raw share bytes and broad state objects from generic callers.
+  - [x] Remove the unbranded client-verifying-share copy from the exact ECDSA
+        runtime. The runtime now carries the manifest-owned branded client
+        verifying public key, while the normal-signing wire adapter performs
+        the only protocol-name conversion (`085b9c01a`).
 - [x] Delete `evmFamilySigningKeySlotId` from role-local public facts,
       activation/durable bindings, persistence keys, and sealing AAD.
 - [x] Delete `evmFamilySigningKeySlotId` from remaining runtime paths or prove
@@ -675,7 +679,7 @@ the replacement and legacy MPC paths must not ship together.
         and Email OTP export through the same exact-material activation queue
         instead of keying signing by threshold session identity
         (`10c8a61da`).
-- [ ] Complete canonical activation serialization and re-resolution immediately
+- [x] Complete canonical activation serialization and re-resolution immediately
       before every recovery and refresh consuming call and commit.
   - [x] Email OTP ECDSA signing-session refresh enters the exact activation
         queue, re-resolves before the consuming login call and after refresh,
@@ -692,9 +696,12 @@ the replacement and legacy MPC paths must not ship together.
         hydration; sync parses once and keeps recovery, durable promotion,
         sealed refresh persistence, and registry activation in one queued
         commit (`26c3cedf2`, `5f3d52bab`).
-  - [ ] Run the Passkey sync/unlock queue-state operating test in a unit or
-        intended environment with IndexedDB available; the current Node worker
-        fails before recovery with `indexedDB is not defined`.
+  - [x] Run the Passkey sync/unlock queue-state operating test with the durable
+        recovery-store port supplied. The test exercises the production
+        source seal, two-state journal, atomic material replacement, registry
+        publication, and seal persistence inside one exact-owner queue. It
+        also proves that recovery publication adopts the promoted activation
+        instead of comparing it with the retired pre-promotion activation.
 - [x] Bind live worker material to the exact material activation.
 - [x] Give a server-side expiry race at most one retry after same-method
       step-up.
@@ -1091,6 +1098,10 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete zero-caller wallet/session helpers and exact aliases for ECDSA
         authorization, activation requests/results, bootstrap args, and sealed
         resolved identity (`6207cea1f`, `dfee38d07`).
+  - [x] Keep the Email OTP ECDSA signing-session route grant-free while
+        requiring the independent authorizing grant on Ed25519. The worker
+        boundary accepts the canonical ECDSA lane and rejects the retired
+        grant alias (`440e3dd10`).
 - [x] Inline the canonical bootstrap and exact/missing Wallet Session payload
       types in the iframe envelope and delete their one-use wire aliases.
 - [x] Delete the unread duplicate ECDSA export operation-authorization carrier;

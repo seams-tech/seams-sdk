@@ -135,7 +135,6 @@ test.describe('threshold ECDSA export viewer payload', () => {
     const authLane = resolveEmailOtpAuthLane({
       routeAuth: { kind: 'wallet_session', jwt: 'wallet-session-jwt' },
       thresholdSessionId: 'threshold-session-1',
-      authorizingSigningGrantId: 'signing-grant-1',
       curve: 'ecdsa',
       chainTarget: EVM_TARGET,
     });

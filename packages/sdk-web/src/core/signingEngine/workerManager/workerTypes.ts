@@ -1045,20 +1045,25 @@ export interface EmailOtpWorkerOperationMap {
   exportEmailOtpEd25519YaoSeedWithAuthorization: {
     payload: {
       relayUrl: string;
-      walletId: string;
-      userId: string;
       challengeId: string;
       otpCode: string;
       groupId: string;
-      routePlan: EmailOtpRoutePlan;
-      walletSessionJwt: string;
-      nearAccountId: string;
-      nearEd25519SigningKeyId: string;
-      signerSlot: number;
-      thresholdSessionId: string;
-      signingGrantId: string;
-      runtimePolicyScope: ThresholdRuntimePolicyScope;
-      capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
+      lane: {
+        walletId: string;
+        providerSubjectId: string;
+        nearAccountId: string;
+        nearEd25519SigningKeyId: string;
+        signerSlot: number;
+        thresholdSessionId: string;
+        signingGrantId: string;
+      };
+      authorization: {
+        walletSessionJwt: string;
+      };
+      material: {
+        materialActivation: MpcMaterialActivationRef;
+        capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
+      };
     };
     result: {
       artifactKind: 'near-ed25519-seed-v1';

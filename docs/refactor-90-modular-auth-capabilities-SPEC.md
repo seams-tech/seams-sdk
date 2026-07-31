@@ -134,6 +134,10 @@ implementing commit SHA as the evidence.
   records once and expose only precise internal branches.
 - [ ] `R90-INV-002` — Near and ECDSA each have one durable material owner and one
   volatile runtime owner.
+  - [x] The exact ECDSA runtime no longer reconstructs or owns an unbranded
+    client-verifying-share copy. It carries the manifest-owned branded client
+    verifying public key and converts to the normal-signing protocol name only
+    at that wire adapter (`085b9c01a`).
 - [x] `R90-INV-003` — one type fixture excludes entry-point provenance from
   resolver input.
 - [x] `R90-INV-003` — fourteen canonical-state cases cover both capabilities.
@@ -449,9 +453,10 @@ implementing commit SHA as the evidence.
     material-owner runner. Login rereads the locator before hydration; sync
     keeps recovery, durable promotion, sealed refresh persistence, and registry
     activation in one queued commit (`26c3cedf2`, `5f3d52bab`).
-  - [ ] The Passkey sync/unlock queue-state operating test still requires an
-    IndexedDB-capable unit or intended environment; the current Node worker
-    fails before recovery with `indexedDB is not defined`.
+  - [x] The Passkey sync/unlock operating test supplies the durable recovery
+    store and proves source sealing, journal finalization, promoted activation
+    publication, capability activation, and refresh-seal persistence remain
+    inside one exact-owner queue.
 - [x] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
   applicable quota once; existing claims consume neither again. Reusable Near
   claims, operation-step-up Near claims, and one-use ECDSA export claims commit
@@ -487,9 +492,12 @@ implementing commit SHA as the evidence.
   is `{kind: 'operation_step_up', grant_id}` with exact-field parsing, so a
   `WalletSessionId` cannot ride along; persistence, expiry, warm-capability,
   seal, and export consumers receive authorization only through their explicit
-  operation carrier. Covered by the canonical operating-path, challenge-binding,
-  and auth-neutral prepared-signing suites. Commits 847ded366, 96612453b,
-  dc1fda487.)
+  operation carrier. The Email OTP worker route boundary likewise accepts
+  grant-free ECDSA signing-session lanes and rejects the retired grant alias,
+  while Ed25519 continues to require its authorizing grant. Covered by the
+  canonical operating-path, challenge-binding, auth-neutral prepared-signing,
+  and Email OTP auth-lane suites. Commits 847ded366, 96612453b, dc1fda487,
+  440e3dd10.)
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.

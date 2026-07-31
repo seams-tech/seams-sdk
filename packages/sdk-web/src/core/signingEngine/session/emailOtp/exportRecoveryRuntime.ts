@@ -6,8 +6,8 @@ import type {
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { VerifiedEcdsaPublicFacts } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { EmailOtpEd25519YaoActiveCapabilityDescriptorV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { ResolvedEmailOtpEd25519YaoExportV1 } from './ed25519YaoSealedRecovery';
 import type { EmailOtpEcdsaSigningSessionAuthority } from './ecdsaSigningSessionAuthority';
 import { buildEmailOtpSigningSessionRoutePlan } from './routePlan';
 import {
@@ -72,19 +72,9 @@ export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
 };
 
 export type ExportEd25519YaoSeedWithFreshEmailOtpLaneArgs = {
-  walletSession: WalletSessionRef;
   challengeId: string;
   otpCode: string;
-  providerSubjectId: string;
-  walletSessionJwt: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  signerSlot: number;
-  thresholdSessionId: string;
-  signingGrantId: string;
-  authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
-  capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
+  exportContext: ResolvedEmailOtpEd25519YaoExportV1;
 };
 
 export class EmailOtpExportRecoveryRuntime {
@@ -143,7 +133,6 @@ export class EmailOtpExportRecoveryRuntime {
         getSignerWorkerContext: this.ports.getSignerWorkerContext,
         requireRelayUrl: this.ports.requireRelayUrl,
         requireSigningSessionSealGroupId: this.ports.requireSigningSessionSealGroupId,
-        buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
       },
       args,
     );

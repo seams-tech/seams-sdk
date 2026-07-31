@@ -237,8 +237,10 @@ import { postEmailOtpJson } from './email-otp/fetch';
 import { getShamir3PassRuntime } from './shamir3pass/runtime';
 import {
   authLaneToRouteAuth,
+  buildEmailOtpRoutePlan,
   emailOtpRoutePath,
   normalizeEmailOtpRoutePlan,
+  resolveEmailOtpAuthLane,
   type EmailOtpRoutePlan,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
@@ -7076,48 +7078,76 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         payload,
         [
           'relayUrl',
-          'walletId',
-          'userId',
           'challengeId',
           'otpCode',
           'groupId',
-          'routePlan',
-          'walletSessionJwt',
+          'lane',
+          'authorization',
+          'material',
+        ],
+        type,
+      );
+      const lane = workerPayloadObject(payload.lane);
+      const authorization = workerPayloadObject(payload.authorization);
+      const material = workerPayloadObject(payload.material);
+      if (!lane || !authorization || !material) {
+        throw new Error(`${type} requires canonical lane, authorization, and material`);
+      }
+      rejectUnknownEmailOtpYaoFields(
+        lane,
+        [
+          'walletId',
+          'providerSubjectId',
           'nearAccountId',
           'nearEd25519SigningKeyId',
           'signerSlot',
           'thresholdSessionId',
           'signingGrantId',
-          'runtimePolicyScope',
-          'capability',
         ],
-        type,
+        `${type}.lane`,
       );
+      rejectUnknownEmailOtpYaoFields(authorization, ['walletSessionJwt'], `${type}.authorization`);
+      rejectUnknownEmailOtpYaoFields(material, ['materialActivation', 'capability'], `${type}.material`);
+      const materialActivation = parseMpcMaterialActivationRef(material.materialActivation);
+      if (!materialActivation.ok) {
+        throw new Error(materialActivation.error.message);
+      }
       return {
         id,
         type,
         payload: {
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
-          walletId: readString(payload.walletId, 'walletId'),
-          userId: readString(payload.userId, 'userId'),
           challengeId: readString(payload.challengeId, 'challengeId'),
           otpCode: readString(payload.otpCode, 'otpCode'),
           groupId: readString(payload.groupId, 'groupId'),
-          routePlan: readRoutePlan(payload.routePlan, type),
-          walletSessionJwt: readString(payload.walletSessionJwt, 'walletSessionJwt'),
-          nearAccountId: readString(payload.nearAccountId, 'nearAccountId'),
-          nearEd25519SigningKeyId: readString(
-            payload.nearEd25519SigningKeyId,
-            'nearEd25519SigningKeyId',
-          ),
-          signerSlot: normalizePositiveInteger(payload.signerSlot) || 0,
-          thresholdSessionId: readString(payload.thresholdSessionId, 'thresholdSessionId'),
-          signingGrantId: readString(payload.signingGrantId, 'signingGrantId'),
-          runtimePolicyScope: parseWorkerRuntimePolicyScope(
-            payload.runtimePolicyScope,
-            'Email OTP Ed25519 Yao export',
-          ),
-          capability: parseEmailOtpEd25519YaoActiveCapability(payload.capability),
+          lane: {
+            walletId: readString(lane.walletId, `${type}.lane.walletId`),
+            providerSubjectId: readString(
+              lane.providerSubjectId,
+              `${type}.lane.providerSubjectId`,
+            ),
+            nearAccountId: readString(lane.nearAccountId, `${type}.lane.nearAccountId`),
+            nearEd25519SigningKeyId: readString(
+              lane.nearEd25519SigningKeyId,
+              `${type}.lane.nearEd25519SigningKeyId`,
+            ),
+            signerSlot: normalizePositiveInteger(lane.signerSlot) || 0,
+            thresholdSessionId: readString(
+              lane.thresholdSessionId,
+              `${type}.lane.thresholdSessionId`,
+            ),
+            signingGrantId: readString(lane.signingGrantId, `${type}.lane.signingGrantId`),
+          },
+          authorization: {
+            walletSessionJwt: readString(
+              authorization.walletSessionJwt,
+              `${type}.authorization.walletSessionJwt`,
+            ),
+          },
+          material: {
+            materialActivation: materialActivation.value,
+            capability: parseEmailOtpEd25519YaoActiveCapability(material.capability),
+          },
         },
       };
     default:
@@ -8061,18 +8091,28 @@ self.addEventListener('message', async (event: MessageEvent) => {
         return;
       }
       case 'exportEmailOtpEd25519YaoSeedWithAuthorization': {
-        const routePlan = readRoutePlan(
-          msg.payload.routePlan,
-          'exportEmailOtpEd25519YaoSeedWithAuthorization',
-        );
-        if (routePlan.operation !== WALLET_EMAIL_OTP_EXPORT_OPERATION) {
-          throw new Error('Email OTP Ed25519 Yao export requires export_key routePlan');
+        const authLane = resolveEmailOtpAuthLane({
+          routeAuth: {
+            kind: 'wallet_session',
+            jwt: msg.payload.authorization.walletSessionJwt,
+          },
+          thresholdSessionId: msg.payload.lane.thresholdSessionId,
+          authorizingSigningGrantId: msg.payload.lane.signingGrantId,
+          curve: 'ed25519',
+        });
+        if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
+          throw new Error('Email OTP Ed25519 Yao export requires canonical signing-session auth');
         }
+        const routePlan = buildEmailOtpRoutePlan({
+          routeFamily: 'signing_session',
+          authLane,
+          operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+        });
         const recovered = await loginWithEmailOtpAndUnlockWallet({
           relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
-          walletId: readString(msg.payload.walletId, 'walletId'),
-          orgId: msg.payload.runtimePolicyScope.orgId,
-          userId: readString(msg.payload.userId, 'userId'),
+          walletId: readString(msg.payload.lane.walletId, 'lane.walletId'),
+          orgId: msg.payload.material.capability.runtimePolicyScope.orgId,
+          userId: readString(msg.payload.lane.providerSubjectId, 'lane.providerSubjectId'),
           challengeId: readString(msg.payload.challengeId, 'challengeId'),
           otpCode: readString(msg.payload.otpCode, 'otpCode'),
           groupId: readString(msg.payload.groupId, 'groupId'),
@@ -8085,16 +8125,16 @@ self.addEventListener('message', async (event: MessageEvent) => {
         try {
           const artifact = await exportEmailOtpEd25519YaoSeed({
             relayUrl: msg.payload.relayUrl,
-            walletId: msg.payload.walletId,
-            providerSubjectId: msg.payload.userId,
-            walletSessionJwt: msg.payload.walletSessionJwt,
-            nearAccountId: msg.payload.nearAccountId,
-            nearEd25519SigningKeyId: msg.payload.nearEd25519SigningKeyId,
-            signerSlot: msg.payload.signerSlot,
-            thresholdSessionId: msg.payload.thresholdSessionId,
-            signingGrantId: msg.payload.signingGrantId,
-            runtimePolicyScope: msg.payload.runtimePolicyScope,
-            capability: parseEmailOtpEd25519YaoActiveCapability(msg.payload.capability),
+            walletId: msg.payload.lane.walletId,
+            providerSubjectId: msg.payload.lane.providerSubjectId,
+            walletSessionJwt: msg.payload.authorization.walletSessionJwt,
+            nearAccountId: msg.payload.lane.nearAccountId,
+            nearEd25519SigningKeyId: msg.payload.lane.nearEd25519SigningKeyId,
+            signerSlot: msg.payload.lane.signerSlot,
+            thresholdSessionId: msg.payload.lane.thresholdSessionId,
+            signingGrantId: msg.payload.lane.signingGrantId,
+            runtimePolicyScope: msg.payload.material.capability.runtimePolicyScope,
+            capability: msg.payload.material.capability,
             clientSecret32: recovered.clientSecret32,
           });
           postToMainThread({ id: msg.id, ok: true, result: artifact });
