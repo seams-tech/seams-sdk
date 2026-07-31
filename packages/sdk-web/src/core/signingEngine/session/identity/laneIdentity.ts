@@ -39,6 +39,7 @@ import {
 import type { EcdsaThresholdKeyId } from '../keyMaterialBrands';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 
@@ -468,14 +469,13 @@ type CommonLaneCandidate = {
 };
 
 export type BaseLaneCandidate = CommonLaneCandidate & {
-  signingGrantId: string;
   thresholdSessionId: string;
   remainingUses: number | null;
   expiresAtMs: number | null;
   updatedAtMs: number | null;
 };
 
-export type Ed25519LaneCandidate = BaseLaneCandidate & {
+type BaseEd25519LaneCandidate = BaseLaneCandidate & {
   walletId: WalletId;
   nearAccountId: AccountId;
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
@@ -484,6 +484,21 @@ export type Ed25519LaneCandidate = BaseLaneCandidate & {
   curve: 'ed25519';
   chain: 'near';
 };
+
+export type Ed25519LaneCandidate = BaseEd25519LaneCandidate &
+  (
+    | {
+        authorizationState: 'authorized';
+        authorization: ActiveWalletSessionAuthorizationProjection;
+        signingGrantId: SigningGrantId;
+      }
+    | {
+        authorizationState: 'authorization_required';
+        authorization?: never;
+        signingGrantId?: never;
+        state: 'deferred';
+      }
+  );
 
 type BaseEcdsaLaneCandidate = CommonLaneCandidate & {
   curve: 'ecdsa';

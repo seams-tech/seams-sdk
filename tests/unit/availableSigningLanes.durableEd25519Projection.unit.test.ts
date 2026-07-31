@@ -6,6 +6,7 @@ import {
   AVAILABLE_LANES_ED25519_NEAR_ACCOUNT_ID,
   AVAILABLE_LANES_ED25519_WALLET_ID,
   AVAILABLE_LANES_EXPIRES_AT_MS,
+  availableLaneEd25519Authorization,
   readAvailableLanesFixture,
   runtimeEd25519RouterAbNormalSigningState,
 } from './helpers/availableSigningLanes.fixtures';
@@ -27,6 +28,12 @@ function durableEd25519ProjectionRecord(): AvailableSigningLanesRuntimeEd25519Re
     signerSlot: 1,
     routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
     thresholdSessionId: THRESHOLD_SESSION_ID,
+    authorizationState: 'authorized',
+    authorization: availableLaneEd25519Authorization({
+      walletId: AVAILABLE_LANES_ED25519_WALLET_ID,
+      identitySeed: THRESHOLD_SESSION_ID,
+      authMethod: 'passkey',
+    }),
     signingGrantId: 'signing-grant-durable-ed25519-projection',
     source: 'durable_sealed_record',
     remainingUses: 3,
@@ -49,6 +56,12 @@ function durableEmailOtpEd25519ProjectionRecord(): AvailableSigningLanesRuntimeE
     signerSlot: 1,
     routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
     thresholdSessionId: 'threshold-session-durable-email-otp-ed25519-projection',
+    authorizationState: 'authorized',
+    authorization: availableLaneEd25519Authorization({
+      walletId: AVAILABLE_LANES_ED25519_WALLET_ID,
+      identitySeed: 'durable-email-otp-ed25519-projection',
+      authMethod: 'email_otp',
+    }),
     signingGrantId: 'signing-grant-durable-email-otp-ed25519-projection',
     source: 'durable_sealed_record',
     remainingUses: 3,

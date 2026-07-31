@@ -47,6 +47,15 @@ export type NearEd25519AvailableLane = AvailableEd25519SigningLane &
     chain: 'near';
   };
 
+type AuthorizedNearEd25519AvailableLane = Extract<
+  NearEd25519AvailableLane,
+  { authorizationState: 'authorized' }
+>;
+type AuthorizedEd25519LaneCandidate = Extract<
+  Ed25519LaneCandidate,
+  { authorizationState: 'authorized' }
+>;
+
 export type EvmFamilyEcdsaAvailableLane = ConcreteAvailableEcdsaSigningLane;
 
 export type TransactionConcreteAvailableLane =
@@ -55,11 +64,17 @@ export type TransactionConcreteAvailableLane =
 
 export type Ed25519LaneAuthorityKey = string & { readonly __brand: 'Ed25519LaneAuthorityKey' };
 
-export type NearEd25519TransactionReadyAvailableLane = Omit<NearEd25519AvailableLane, 'source'> & {
+export type NearEd25519TransactionReadyAvailableLane = Omit<
+  AuthorizedNearEd25519AvailableLane,
+  'source'
+> & {
   state: 'ready' | 'restorable';
 };
 
-export type NearEd25519TransactionReauthAvailableLane = Omit<NearEd25519AvailableLane, 'source'> & {
+export type NearEd25519TransactionReauthAvailableLane = Omit<
+  AuthorizedNearEd25519AvailableLane,
+  'source'
+> & {
   state: 'expired' | 'exhausted';
 };
 
@@ -234,7 +249,7 @@ function nearEd25519TransactionReauthState(
 }
 
 function nearEd25519TransactionReadyAvailableLaneProjection(
-  lane: NearEd25519AvailableLane,
+  lane: AuthorizedNearEd25519AvailableLane,
 ): NearEd25519TransactionReadyAvailableLane {
   const state = nearEd25519TransactionReadyState(lane);
   if (!state) {
@@ -248,6 +263,8 @@ function nearEd25519TransactionReadyAvailableLaneProjection(
     nearAccountId: lane.nearAccountId,
     nearEd25519SigningKeyId: lane.nearEd25519SigningKeyId,
     signerSlot: lane.signerSlot,
+    authorizationState: 'authorized',
+    authorization: lane.authorization,
     state,
     signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,
@@ -259,7 +276,7 @@ function nearEd25519TransactionReadyAvailableLaneProjection(
 }
 
 function nearEd25519TransactionReauthAvailableLaneProjection(
-  lane: NearEd25519AvailableLane,
+  lane: AuthorizedNearEd25519AvailableLane,
 ): NearEd25519TransactionReauthAvailableLane {
   const state = nearEd25519TransactionReauthState(lane);
   if (!state) {
@@ -273,6 +290,8 @@ function nearEd25519TransactionReauthAvailableLaneProjection(
     nearAccountId: lane.nearAccountId,
     nearEd25519SigningKeyId: lane.nearEd25519SigningKeyId,
     signerSlot: lane.signerSlot,
+    authorizationState: 'authorized',
+    authorization: lane.authorization,
     state,
     signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,
@@ -284,7 +303,7 @@ function nearEd25519TransactionReauthAvailableLaneProjection(
 }
 
 function selectedEd25519LaneForTransactionCandidate(
-  candidate: Ed25519LaneCandidate,
+  candidate: AuthorizedEd25519LaneCandidate,
 ): SelectedEd25519Lane {
   return selectedEd25519Lane({
     walletId: candidate.walletId,
@@ -298,8 +317,8 @@ function selectedEd25519LaneForTransactionCandidate(
 }
 
 function buildNearEd25519TransactionReadyLane(args: {
-  lane: NearEd25519AvailableLane;
-  candidate: Ed25519LaneCandidate;
+  lane: AuthorizedNearEd25519AvailableLane;
+  candidate: AuthorizedEd25519LaneCandidate;
   authorityKey: Ed25519LaneAuthorityKey;
 }): NearEd25519TransactionReadyLane {
   return {
@@ -312,8 +331,8 @@ function buildNearEd25519TransactionReadyLane(args: {
 }
 
 function buildNearEd25519TransactionReauthLane(args: {
-  lane: NearEd25519AvailableLane;
-  candidate: Ed25519LaneCandidate;
+  lane: AuthorizedNearEd25519AvailableLane;
+  candidate: AuthorizedEd25519LaneCandidate;
   authorityKey: Ed25519LaneAuthorityKey;
 }): NearEd25519TransactionReauthLane {
   return {
@@ -329,11 +348,12 @@ export function toNearEd25519TransactionReadyLane(
   lane: AvailableEd25519SigningLane | null | undefined,
 ): NearEd25519TransactionReadyLane | null {
   if (!isConcreteNearEd25519Lane(lane)) return null;
+  if (lane.authorizationState !== 'authorized') return null;
   if (!nearEd25519TransactionReadyState(lane)) return null;
   const authorityKey = toEd25519LaneAuthorityKey(lane);
   if (!authorityKey) return null;
   const candidate = ed25519LaneCandidateFromAvailableLane({ lane });
-  if (!candidate) return null;
+  if (!candidate || candidate.authorizationState !== 'authorized') return null;
   return buildNearEd25519TransactionReadyLane({ lane, candidate, authorityKey });
 }
 
@@ -349,13 +369,14 @@ export function toNearEd25519TransactionSelectableLane(
   lane: AvailableEd25519SigningLane | null | undefined,
 ): NearEd25519TransactionSelectableLane | null {
   if (!isConcreteNearEd25519Lane(lane)) return null;
+  if (lane.authorizationState !== 'authorized') return null;
   const readyState = nearEd25519TransactionReadyState(lane);
   const reauthState = nearEd25519TransactionReauthState(lane);
   if (!readyState && !reauthState) return null;
   const authorityKey = toEd25519LaneAuthorityKey(lane);
   if (!authorityKey) return null;
   const candidate = ed25519LaneCandidateFromAvailableLane({ lane });
-  if (!candidate) return null;
+  if (!candidate || candidate.authorizationState !== 'authorized') return null;
   if (readyState) {
     return buildNearEd25519TransactionReadyLane({ lane, candidate, authorityKey });
   }

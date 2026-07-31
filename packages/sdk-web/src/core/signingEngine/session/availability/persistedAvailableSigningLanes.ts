@@ -487,14 +487,13 @@ export async function readPersistedAvailableSigningLanesForTargets(
           const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
             runtime.walletId,
           );
-          if (authorizationRead.kind !== 'found') continue;
-          const signingGrantId = ed25519SigningGrantForAuthorization({
-            runtime,
-            authorization: authorizationRead.projection,
-          });
-          if (!signingGrantId) continue;
+          const authorization =
+            authorizationRead.kind === 'found' ? authorizationRead.projection : null;
+          const signingGrantId = authorization
+            ? ed25519SigningGrantForAuthorization({ runtime, authorization })
+            : null;
           persistedEd25519RuntimesBySessionId.set(runtime.thresholdSessionId, runtime);
-          pushRecord({
+          const base = {
             auth: runtime.auth,
             curve: 'ed25519',
             chain: 'near',
@@ -504,12 +503,24 @@ export async function readPersistedAvailableSigningLanesForTargets(
             signerSlot: runtime.signerSlot,
             routerAbNormalSigning: runtime.routerAbNormalSigning,
             thresholdSessionId: runtime.thresholdSessionId,
-            signingGrantId,
             source: 'durable_sealed_record',
             remainingUses: runtime.remainingUses,
             expiresAtMs: runtime.expiresAtMs,
             updatedAtMs: runtime.sealedRecord.updatedAtMs,
-          });
+          } as const;
+          pushRecord(
+            authorization && signingGrantId
+              ? {
+                  ...base,
+                  authorizationState: 'authorized',
+                  authorization,
+                  signingGrantId,
+                }
+              : {
+                  ...base,
+                  authorizationState: 'authorization_required',
+                },
+          );
         }
         return records;
       },

@@ -17,7 +17,10 @@ import {
   parseSeamsSessionId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { WALLET_SESSION_AUTHORIZATION_RECORD_VERSION } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
+  type ActiveWalletSessionAuthorizationProjection,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { buildWalletAuthAuthorityRefFixture } from './ecdsaMaterialRef.fixtures';
 import { parseRootShareEpoch, type RootShareEpoch } from '@shared/utils/domainIds';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
@@ -131,6 +134,32 @@ function fixtureRootShareEpoch(value: string): RootShareEpoch {
 function requireAvailableLaneId<T>(result: { ok: true; value: T } | { ok: false }): T {
   if (!result.ok) throw new Error('available-lane fixture id is invalid');
   return result.value;
+}
+
+export function availableLaneEd25519Authorization(args: {
+  walletId: string;
+  identitySeed: string;
+  authMethod: 'email_otp' | 'passkey';
+  expiresAtMs?: number;
+}): ActiveWalletSessionAuthorizationProjection {
+  return {
+    recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
+    walletId: toWalletId(args.walletId),
+    authorizationSessionId: requireAvailableLaneId(
+      parseSeamsSessionId(`available-lane-authorization-session:${args.identitySeed}`),
+    ),
+    walletSessionId: requireAvailableLaneId(
+      parseWalletSessionId(`available-lane-wallet-session:${args.identitySeed}`),
+    ),
+    quotaId: requireAvailableLaneId(
+      parseMpcWalletSigningQuotaId(`available-lane-quota:${args.identitySeed}`),
+    ),
+    authMethod: args.authMethod,
+    authority: buildWalletAuthAuthorityRefFixture({ walletId: args.walletId }),
+    expiresAtMs: args.expiresAtMs ?? AVAILABLE_LANES_EXPIRES_AT_MS,
+    status: 'active',
+    walletSessionJwt: `fixture-wallet-session-jwt:${args.identitySeed}` as never,
+  };
 }
 
 // Active reusable Wallet Session authorization for a runtime ECDSA lane.

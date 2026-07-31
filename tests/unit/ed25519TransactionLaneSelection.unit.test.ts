@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
+  ed25519LaneCandidateFromAvailableLane,
   ed25519AvailableLaneIdentityKey,
   type AvailableEd25519SigningLane,
   type AvailableSigningLanes,
@@ -15,6 +16,7 @@ import {
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
+import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 
 const walletId = toWalletId('cedar-zenith-pghgtw');
 const nearAccountId = toAccountId('cedar-zenith-pghgtw.testnet');
@@ -37,7 +39,7 @@ function ed25519Lane(input: {
   source: 'runtime_session_record' | 'durable_sealed_record';
   state: 'ready' | 'restorable' | 'deferred' | 'expired' | 'exhausted';
 }): AvailableEd25519SigningLane {
-  return {
+  const base = {
     auth,
     curve: 'ed25519',
     chain: 'near',
@@ -45,13 +47,29 @@ function ed25519Lane(input: {
     nearAccountId,
     nearEd25519SigningKeyId,
     signerSlot: 1,
-    state: input.state,
     source: input.source,
-    signingGrantId: 'wss_ed25519_transaction_selection',
     thresholdSessionId: 'tsess_ed25519_transaction_selection',
     remainingUses: 3,
     expiresAtMs: Date.now() + 60_000,
     updatedAtMs: Date.now(),
+  } as const;
+  if (input.state === 'deferred') {
+    return {
+      ...base,
+      authorizationState: 'authorization_required',
+      state: 'deferred',
+    };
+  }
+  return {
+    ...base,
+    authorizationState: 'authorized',
+    authorization: availableLaneEd25519Authorization({
+      walletId,
+      identitySeed: 'transaction-selection',
+      authMethod: 'passkey',
+    }),
+    state: input.state,
+    signingGrantId: 'wss_ed25519_transaction_selection',
   };
 }
 
@@ -119,6 +137,20 @@ test('NEAR Ed25519 transaction ready lanes admit restorable lanes and reject def
     thresholdSessionId: 'tsess_ed25519_transaction_selection',
   });
   expect(toNearEd25519TransactionReadyLane(deferred)).toBeNull();
+});
+
+test('NEAR Ed25519 availability preserves a grant-free deferred material candidate', () => {
+  const deferred = ed25519Lane({
+    source: 'durable_sealed_record',
+    state: 'deferred',
+  });
+
+  expect(ed25519LaneCandidateFromAvailableLane({ lane: deferred })).toMatchObject({
+    authorizationState: 'authorization_required',
+    state: 'deferred',
+    thresholdSessionId: 'tsess_ed25519_transaction_selection',
+  });
+  expect(deferred).not.toHaveProperty('signingGrantId');
 });
 
 test('NEAR Ed25519 transaction selection carries expired durable lanes as reauth anchors', () => {
