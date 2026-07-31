@@ -1165,6 +1165,14 @@ the replacement and legacy MPC paths must not ship together.
           records, restore sources, cache keys, worker transports, and
           recovered-material activation requests are grant-free; live reusable
           authorization remains an independent carrier (`ec050a05d`).
+    - [x] Re-key durable Ed25519 sealed records by stable material identity,
+          atomically migrate legacy grant-keyed rows and restore leases, and
+          require authenticated warm-bootstrap authorization independently of
+          the sealed material record (`d91e4bc9d`).
+    - [ ] Preserve a grant-free Ed25519 material candidate when reusable
+          authorization is absent, then attach the current grant only after
+          same-method step-up. Availability must not drop durable material
+          merely because the Wallet Session is absent or expired.
   - [x] Require canonical JWT `sid` at the Cloudflare Router boundary and
         delete the legacy `session_id` claim fallback and selector
         (`af6dc1514`).
