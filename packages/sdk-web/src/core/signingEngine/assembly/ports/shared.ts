@@ -23,9 +23,6 @@ import type {
   AvailableSigningLanes,
 } from '../../session/availability/availableSigningLanes';
 import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
-import type {
-  ThresholdEd25519SessionRecord,
-} from '../../session/persistence/records';
 import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
