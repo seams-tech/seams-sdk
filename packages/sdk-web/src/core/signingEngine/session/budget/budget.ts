@@ -653,13 +653,6 @@ export function committedUsesForBudgetAdmission(status: SigningSessionStatus): n
   return Math.max(0, Math.floor(Number(status.remainingUses) || 0));
 }
 
-export function availableUsesForBudgetAdmission(status: SigningSessionStatus): number {
-  const remainingUses = Math.max(0, Math.floor(Number(status.remainingUses) || 0));
-  if (status.availableUses === undefined) return remainingUses;
-  const availableUses = Math.max(0, Math.floor(Number(status.availableUses) || 0));
-  return Math.min(remainingUses, availableUses);
-}
-
 export function getSameProjectionReservedUses(args: {
   reservationsByOperationId: Map<string, SigningSessionBudgetReservationRecord>;
   signingGrantId: string;
