@@ -1503,16 +1503,17 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     const sealCall = workerCalls.find(
       (call) => call.request?.type === 'sealEmailOtpWarmSessionMaterial',
     );
+    const sealedThresholdSessionId = sealCall?.request?.payload?.sessionId;
+    expect(sealedThresholdSessionId).toMatch(/^threshold-ecdsa-login-/);
     expect(sealCall).toMatchObject({
       kind: 'emailOtp',
       request: {
         type: 'sealEmailOtpWarmSessionMaterial',
         payload: {
-          sessionId: 'ecdsa-session',
+          sessionId: sealedThresholdSessionId,
           transport: {
             relayerUrl: 'https://relay.example',
             walletSessionJwt: expect.any(String),
-            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
             groupId: 'rfc2409-group2',
           },
         },
@@ -1527,7 +1528,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         sealedSecretB64u: 'sealed-email-otp-session-secret',
         curve: 'ecdsa',
         authMethod: 'email_otp',
-        thresholdSessionIds: { ecdsa: 'ecdsa-session' },
+        thresholdSessionIds: { ecdsa: sealedThresholdSessionId },
         walletId: 'alice.testnet',
         relayerUrl: 'https://relay.example',
         keyVersion: 'signing-session-seal-kek-test-r1',
