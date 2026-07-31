@@ -1151,6 +1151,10 @@ the replacement and legacy MPC paths must not ship together.
           recovery, Email OTP restore, and sealed-store identity projections;
           canonical ECDSA availability no longer receives a grant/session
           identity from this inert map (`71d061d6d`).
+    - [x] Carry the exact `MpcMaterialActivationRef` through sealed-recovery
+          purposes, correlate both restore callers against the record's role
+          local material, and include it in restore cache/single-flight keys
+          (`5c8e8c92b`).
     - [ ] Complete the separate operation-authorization cutover for any
           remaining record-level `signingGrantId` protocol/lease identity; do
           not treat it as sealed restore bearer state.
