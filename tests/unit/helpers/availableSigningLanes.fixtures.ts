@@ -179,7 +179,7 @@ export function canonicalEcdsaAvailableLane(args: {
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdOwnerAddress: string;
   authMethod?: 'email_otp' | 'passkey';
-  state?: 'ready' | 'restorable' | 'expired' | 'exhausted';
+  state?: 'ready' | 'deferred' | 'expired' | 'exhausted';
   ecdsaThresholdKeyId?: string;
   keyHandle?: EvmFamilyEcdsaKeyHandle;
   remainingUses?: number;
