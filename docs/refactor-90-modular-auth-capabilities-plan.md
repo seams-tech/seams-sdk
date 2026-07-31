@@ -1101,6 +1101,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the complete production `ThresholdEcdsaSessionRecord*` family,
       public APIs, runtime maps, readers, writers, parsers, and adapters after
       Unit 2 supplies the narrow authorization/session/quota projection.
+- [ ] Prove the remaining Ed25519 in-memory session-record module has no
+      production or retained-test consumers, then retire it with only its
+      stale architecture/documentation references. Keep the server-side
+      persisted-record parser, which remains a live boundary.
 - [x] Remove legacy-only composite-record fixtures and move retained Email OTP
       coordinator setup to canonical manifest, authorization, and sealed-runtime
       factories.
