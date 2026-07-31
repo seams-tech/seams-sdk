@@ -80,6 +80,7 @@ import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { buildEcdsaRoleLocalPublicFacts } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import {
   buildCanonicalEvmFamilyEcdsaSigningCapability,
@@ -149,15 +150,20 @@ function fixtureStateBlob(label: string): string {
 export function ecdsaCapabilityActivationFixture(args?: {
   authority?: WalletAuthAuthorityRef;
   manifestRevision?: number;
+  walletId?: ReturnType<typeof walletIdFromString>;
+  chainTarget?: ThresholdEcdsaChainTarget;
+  keyHandle?: string;
+  signingRootId?: string;
+  signingRootVersion?: string;
 }): EcdsaCapabilityActivationFixture {
-  const walletId = walletIdFromString('ecdsa-manifest-fixture-wallet');
+  const walletId = args?.walletId ?? walletIdFromString('ecdsa-manifest-fixture-wallet');
   const authority: WalletAuthAuthorityRef = args?.authority ?? {
     kind: 'wallet_auth_authority_ref',
     walletId,
     authorityDigest: unwrap(parseWalletAuthorityBindingDigest('authority-fixture')),
   };
   const roleLocalBinding = buildEcdsaRoleLocalMaterialBinding({
-    keyHandle: parseEcdsaKeyHandle('ecdsa-key-handle-fixture'),
+    keyHandle: parseEcdsaKeyHandle(args?.keyHandle ?? 'ecdsa-key-handle-fixture'),
     ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('ecdsa-threshold-key-fixture'),
     clientVerifyingPublicKey33B64u:
       parseEcdsaClientVerifyingPublicKey33B64u(CLIENT_PUBLIC_KEY_B64U),
@@ -175,7 +181,7 @@ export function ecdsaCapabilityActivationFixture(args?: {
       authority,
       scope: buildEcdsaCapabilityScope({
         targetMemberships: [
-          {
+          args?.chainTarget ?? {
             kind: 'evm',
             namespace: 'eip155',
             chainId: 1,
@@ -184,8 +190,10 @@ export function ecdsaCapabilityActivationFixture(args?: {
         ],
       }),
       materialOwner: unwrap(parseMpcMaterialOwnerRef(String(walletId))),
-      signingRootId: parseSdkEcdsaDerivationSigningRootId('fixture:dev'),
-      signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion('v1'),
+      signingRootId: parseSdkEcdsaDerivationSigningRootId(args?.signingRootId ?? 'fixture:dev'),
+      signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(
+        args?.signingRootVersion ?? 'v1',
+      ),
     }),
     activationId: unwrap(parseMpcMaterialActivationId('ecdsa-activation-fixture')),
     roleLocalBinding,
@@ -342,12 +350,19 @@ export function ecdsaCapabilityActivationLookupFixture(args?: {
 
 export async function canonicalEvmFamilyEcdsaSigningCapabilityFixture(
   factor: 'passkey' | 'email_otp',
+  overrides?: {
+    walletId?: ReturnType<typeof walletIdFromString>;
+    chainTarget?: ThresholdEcdsaChainTarget;
+    keyHandle?: string;
+    signingRootId?: string;
+    signingRootVersion?: string;
+  },
 ): Promise<{
   readonly authority: WalletAuthAuthority;
   readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
   readonly manifest: ActiveEcdsaCapabilityManifest;
 }> {
-  const walletId = walletIdFromString('ecdsa-manifest-fixture-wallet');
+  const walletId = overrides?.walletId ?? walletIdFromString('ecdsa-manifest-fixture-wallet');
   const authority =
     factor === 'passkey'
       ? buildPasskeyWalletAuthAuthority({
@@ -363,7 +378,7 @@ export async function canonicalEvmFamilyEcdsaSigningCapabilityFixture(
         });
   const authorityRef = await walletAuthAuthorityRef({ authority });
   const lookup = activeLookupFromFixture(
-    ecdsaCapabilityActivationFixture({ authority: authorityRef }),
+    ecdsaCapabilityActivationFixture({ authority: authorityRef, ...overrides }),
   );
   const manifest = lookup.manifest;
   const material = buildPersistedEcdsaRoleLocalMaterial({
