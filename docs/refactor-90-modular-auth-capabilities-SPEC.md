@@ -553,6 +553,10 @@ implementing commit SHA as the evidence.
     is stable material identity, legacy grant-keyed rows and restore leases
     migrate atomically, and current reusable authorization is obtained through
     the authenticated warm-bootstrap boundary (`d91e4bc9d`).
+  - [x] Ed25519 availability preserves durable material without reusable
+    authorization as an `authorization_required` candidate that cannot carry
+    `signingGrantId`; authorized candidates correlate an independent active
+    authorization projection (`6ac506d57`).
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.
