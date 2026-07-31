@@ -306,6 +306,10 @@ implementing commit SHA as the evidence.
     Wallet Session authorization projection and preserves typed missing,
     unavailable, invalid, active, and expired outcomes without consulting the
     composite session cache (`47fbe2cbc`).
+  - [x] The exact Ed25519 sealed-session runtime boundary validates persisted
+    signer, factor, JWT, policy, signing-root, participant, worker, allowance,
+    and expiry facts once and distinguishes missing, conflict, and corrupt
+    state (`2733f7960`).
   - [x] Non-iframe implicit NEAR funding reads the bearer credential from the
     canonical active Wallet Session authorization projection and fails before
     fetch when that authorization is absent or expired; no composite MPC record

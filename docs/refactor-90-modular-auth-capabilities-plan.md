@@ -811,6 +811,10 @@ the replacement and legacy MPC paths must not ship together.
       Wallet Session authorization projection asynchronously. Missing,
       corrupt, unavailable, mismatched, active, and expired states no longer
       depend on the composite record cache (`47fbe2cbc`).
+- [x] Add one exact Ed25519 sealed-session runtime boundary that validates
+      persisted signer, factor, JWT, policy, signing-root, participant, worker,
+      allowance, and expiry facts and returns distinct resolved, missing,
+      conflict, and corrupt outcomes (`2733f7960`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
