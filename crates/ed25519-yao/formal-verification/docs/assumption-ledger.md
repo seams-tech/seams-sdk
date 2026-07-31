@@ -7,6 +7,12 @@ exact claim, composition, and required security games.
 | ID             | Boundary                                                                                    | Affected obligations                                                                       | Evidence                                                                            | Invalidation trigger                                                                             |
 | -------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | TCB-RUST-001   | Rust compiler and host execution preserve tested semantics                                  | all executable checks                                                                      | locked Cargo dependency graphs and counted local gate                               | compiler/toolchain change                                                                        |
+| TCB-RUNTIME-001 | The host OS randomness API is available and the linked production protocol plus clear-oracle dependencies execute according to their Rust semantics | `YAO-RUN-001`, `YAO-RUN-002` | finite public-façade conformance, exact public-shape, and opening-flight replay checks under the locked task dependency graph | OS randomness boundary, production protocol API, oracle, dependency graph, or checked corpus changes |
+| TCB-PASSIVE-BASEOT-001 | A supplied acceptance-count bound relates the real and ideal-base-OT passive hybrid views for each fixed family and role | conditional `YAO-PRIV-001`; required to close `YAO-SEC-002` | explicit Lean transition-bound parameter; production base-OT reduction absent | base-OT construction, session domain, curve/hash primitive, role assignment, or reduction changes |
+| TCB-PASSIVE-OTEXT-001 | A supplied acceptance-count bound relates the ideal-base-OT and ideal-extension passive hybrid views | conditional `YAO-PRIV-001`; required to close `YAO-SEC-002` | explicit Lean transition-bound parameter; production IKNP reduction absent | extension construction, matrix encoding, PRG/hash primitive, OT count, or reduction changes |
+| TCB-PASSIVE-LABEL-001 | A supplied acceptance-count bound relates the real and simulated honest-party input-label components | conditional `YAO-PRIV-001`; required to close `YAO-SEC-002` | explicit Lean transition-bound parameter; production label semantics and reduction absent | input mapping, label derivation, direct/masked flight, delta, or reduction changes |
+| TCB-PASSIVE-GARBLE-001 | A supplied acceptance-count bound relates the real and simulated Half-Gates components | conditional `YAO-PRIV-001`; required to close `YAO-SEC-002` | explicit Lean transition-bound parameter; production garbling semantics and fixed-hash reduction absent | garbling algorithm, tweak/domain, hash construction, circuit identity, or reduction changes |
+| TCB-PASSIVE-OUTPUT-001 | A supplied acceptance-count bound relates the real and simulated output-label and authorized package-share components | conditional `YAO-PRIV-001`; required to close `YAO-SEC-002` | explicit Lean transition-bound parameter; production output/package semantics and reduction absent | output translation, package commitment, output-sharing, recipient binding, or reduction changes |
 | TCB-VERUS-001  | Verus `0.2026.04.03.21dfcd2` and pinned `vstd` check their stated logic faithfully          | `YAO-ID-001`, `YAO-MAN-001`, `YAO-MAN-002`, `YAO-MET-001`, `YAO-PROV-001`                  | task-runner version rejection and `verus/Cargo.lock`                                | Verus or `vstd` change                                                                           |
 | TCB-AENEAS-001 | Pinned Charon/Aeneas translate the selected Rust helper surface faithfully                  | `YAO-REF-001`, `YAO-REF-002`                                                               | exact Git pins, transient LLBC, committed Lean, regeneration comparison             | pin, flags, Rust surface, or generated output change                                             |
 | TCB-AENEAS-002 | The pinned external Aeneas Lean library contains admitted slice and string declarations     | current generated Lean build                                                               | Lake warnings name the affected external support modules                            | Aeneas pin or dependency use changes                                                             |
@@ -35,6 +41,24 @@ exact claim, composition, and required security games.
 The current project-owned Lean and Verus files contain no axioms or admitted
 proofs. Generated Aeneas code imports the pinned external support library;
 `TCB-AENEAS-001` and `TCB-AENEAS-002` keep that dependency explicit.
+
+`YAO-RUN-001` and `YAO-RUN-002` depend on `TCB-RUST-001` and
+`TCB-RUNTIME-001`. Their committed corpus exercises successful executions and
+opening-flight cross-session rejection. The clear oracle shares generator code
+with the runtime's generated artifacts, so this is conformance evidence rather
+than an independent specification proof. Treating the finite runs as universal
+refinement, treating fixed public shapes as noninterference, or treating replay
+rejection as computational privacy invalidates the evidence boundary.
+
+`YAO-PRIV-001` is a conditional composition scaffold. Its five
+`TCB-PASSIVE-*` transition bounds are visible parameters of the checked Lean
+result. Lean defines the acceptance-count condition and adds the supplied
+bounds; it does not discharge a nonvacuous bound for a deployed primitive. The
+ideal experiment is definitionally independent of honest private values and
+real coins, and the export-A simulator input uses the generated production
+public view. Treating this as discharge of `YAO-SEC-002`, payload-level
+production refinement, Router-coalition security, abort security, timing
+noninterference, or active security invalidates the evidence boundary.
 
 `YAO-SPEC-001` through `YAO-SPEC-027` add no protocol-security premise. Their
 byte-comparison and commitment checks are executable host checks

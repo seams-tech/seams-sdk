@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 ed25519-dalek = "2.1"
+ed25519-yao = { path = "../../../../crates/ed25519-yao", features = ["local-protocol"] }
 ed25519-yao-generator = { path = "../../../../tools/ed25519-yao-generator" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

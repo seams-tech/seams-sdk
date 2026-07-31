@@ -22,6 +22,8 @@ export function createThemeTokens(palette) {
     green: palette.gradients?.green,
     black: palette.gradients?.black,
     blueWhite: palette.gradients?.blueWhite,
+    sage: palette.gradients?.sage,
+    sageDeep: palette.gradients?.sageDeep,
   };
 
   const DARK_THEME = {
