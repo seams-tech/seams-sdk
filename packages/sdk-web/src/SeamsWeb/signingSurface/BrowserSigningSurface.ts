@@ -146,6 +146,7 @@ import {
   type ThresholdEcdsaSigningQueueByKey,
 } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
 import {
+  resolveThresholdEd25519CommitQueueKey,
   withThresholdEd25519CommitQueue,
   type ThresholdEd25519CommitQueueByKey,
 } from '@/core/signingEngine/threshold/ed25519/commitQueue';
@@ -2284,6 +2285,22 @@ export class BrowserSigningSurface {
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
   }): Promise<ThresholdEd25519SessionRecord> {
+    return await withThresholdEd25519CommitQueue({
+      queueByKey: this.thresholdEd25519CommitQueueByKey,
+      queueKey: resolveThresholdEd25519CommitQueueKey({
+        materialActivation: args.prepared.identity.materialActivation,
+      }),
+      nearAccountId: args.prepared.identity.nearAccountId,
+      enabled: true,
+      task: this.runEmailOtpEd25519YaoUnlockedRecoveryActivation.bind(this, args),
+    });
+  }
+
+  private async runEmailOtpEd25519YaoUnlockedRecoveryActivation(args: {
+    prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
+    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+  }): Promise<ThresholdEd25519SessionRecord> {
     const recovered = await activateColdEmailOtpEd25519YaoUnlockedRecoveryV1({
       prepared: args.prepared,
       bootstrap: args.bootstrap,
@@ -2294,10 +2311,28 @@ export class BrowserSigningSurface {
       ),
     });
     await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(recovered.record);
+    this.requireCurrentEmailOtpEd25519Activation(args.prepared);
     return recovered.record;
   }
 
   async activateEmailOtpEd25519YaoLocalSessionInternal(args: {
+    prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
+    bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+    activeClientHandle: string;
+    metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+  }): Promise<ThresholdEd25519SessionRecord> {
+    return await withThresholdEd25519CommitQueue({
+      queueByKey: this.thresholdEd25519CommitQueueByKey,
+      queueKey: resolveThresholdEd25519CommitQueueKey({
+        materialActivation: args.prepared.identity.materialActivation,
+      }),
+      nearAccountId: args.prepared.identity.nearAccountId,
+      enabled: true,
+      task: this.runEmailOtpEd25519YaoLocalSessionActivation.bind(this, args),
+    });
+  }
+
+  private async runEmailOtpEd25519YaoLocalSessionActivation(args: {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
     bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
     activeClientHandle: string;
@@ -2314,6 +2349,7 @@ export class BrowserSigningSurface {
       ),
     });
     await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(activated.record);
+    this.requireCurrentEmailOtpEd25519Activation(args.prepared);
     return activated.record;
   }
 
@@ -2328,11 +2364,29 @@ export class BrowserSigningSurface {
     if (!prepared) {
       throw new Error('Email OTP Ed25519 Yao login requires a persisted signer capability');
     }
+    return await withThresholdEd25519CommitQueue({
+      queueByKey: this.thresholdEd25519CommitQueueByKey,
+      queueKey: resolveThresholdEd25519CommitQueueKey({
+        materialActivation: prepared.identity.materialActivation,
+      }),
+      nearAccountId: prepared.identity.nearAccountId,
+      enabled: true,
+      task: this.runEmailOtpEd25519YaoCapabilityLogin.bind(this, {
+        args,
+        prepared,
+      }),
+    });
+  }
+
+  private async runEmailOtpEd25519YaoCapabilityLogin(input: {
+    args: LoginWithEmailOtpEd25519YaoCapabilityInternalArgs;
+    prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
+  }): Promise<ThresholdEd25519SessionRecord> {
     const recovered = await recoverColdEmailOtpEd25519CapabilityForLoginV1({
-      prepared,
-      challengeId: args.challengeId,
-      otpCode: args.otpCode,
-      appSessionJwt: args.appSessionJwt,
+      prepared: input.prepared,
+      challengeId: input.args.challengeId,
+      otpCode: input.args.otpCode,
+      appSessionJwt: input.args.appSessionJwt,
       groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       workerContext: this.signerWorkerManager.getContext(),
       activateCapability: this.enginePorts.ed25519YaoActiveClients.activate.bind(
@@ -2340,7 +2394,23 @@ export class BrowserSigningSurface {
       ),
     });
     await this.persistEmailOtpEd25519YaoSessionForRefreshInternal(recovered.record);
+    this.requireCurrentEmailOtpEd25519Activation(input.prepared);
     return recovered.record;
+  }
+
+  private requireCurrentEmailOtpEd25519Activation(
+    prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1,
+  ): void {
+    const current = this.enginePorts.ed25519YaoActiveClients.resolve({
+      walletId: prepared.identity.walletId,
+      nearAccountId: prepared.identity.nearAccountId,
+      materialActivation: prepared.identity.materialActivation,
+    });
+    if (!current) {
+      throw new Error(
+        '[SigningEngine][near] Email OTP Ed25519 activation was superseded during commit',
+      );
+    }
   }
 
   async requestEmailOtpSigningSessionChallenge(args: {
