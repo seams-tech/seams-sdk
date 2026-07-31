@@ -623,9 +623,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~zero-caller `ThresholdSessionSealTransportAuthMaterial` and
   `WalletSessionJwtAuthSource` record aliases~~ — deleted by `6dc24c395`; live
   sealed-recovery transports own their protocol-specific shapes
-- ~~zero-caller threshold status error constants, formatters, and
+- ~~zero-caller threshold status/error constants, formatters, and
   `normalizeUsesNeeded` in `warmCapabilities/statusReader.ts`~~ — deleted by
-  `308910932`; the read model owns the live status mapping
+  `308910932` and `111345f7c`; the read model owns the live status mapping
 - ~~stale registration/key-brand source-guard blocks for deleted persistence,
   lifecycle, and Shamir-seal paths~~ — retired by `703fa1d95`; remaining guard
   checks target live registration, branding, and WebAuthn boundaries

@@ -1165,7 +1165,7 @@ the replacement and legacy MPC paths must not ship together.
         (`6dc24c395`).
   - [x] Delete zero-caller threshold-status error constants, formatters, and
         normalization helpers from the warm-session reader; canonical status
-        mapping remains in the read model (`308910932`).
+        mapping remains in the read model (`308910932`, `111345f7c`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
