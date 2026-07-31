@@ -63,6 +63,7 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import {
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaDerivationNormalSigningStateV1,
   parseRouterAbEcdsaDerivationActivationPrepareResultV1,
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
   parseRouterAbEcdsaRegistrationRequestV1,
@@ -1625,6 +1626,10 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
   const expiresAtMs = safeInteger(record.expiresAtMs);
   const expiresAt = toOptionalTrimmedString(record.expiresAt);
   const remainingUses = safeInteger(record.remainingUses);
+  const routerAbEcdsaDerivationNormalSigning =
+    parseRouterAbEcdsaDerivationNormalSigningStateV1(
+      record.routerAbEcdsaDerivationNormalSigning,
+    );
   if (
     !walletId ||
     !evmFamilySigningKeySlotId ||
@@ -1649,6 +1654,7 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
     expiresAtMs === null ||
     !expiresAt ||
     remainingUses === null
+    || !routerAbEcdsaDerivationNormalSigning
   ) {
     return null;
   }
@@ -1677,6 +1683,7 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
     expiresAtMs,
     expiresAt,
     remainingUses,
+    routerAbEcdsaDerivationNormalSigning,
   };
   const jwt = toOptionalTrimmedString(record.jwt);
   if (jwt) bootstrap.jwt = jwt;

@@ -13,7 +13,10 @@ import type {
   EcdsaDerivationRelayerPublicKey33B64u,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
-import type { RouterAbEcdsaDerivationNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationNormalSigningScopeV1,
+  RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { WalletId } from '@shared/utils/registrationIntent';
 import type { RootShareEpoch, WebAuthnRpId } from '@shared/utils/domainIds';
@@ -847,6 +850,7 @@ export interface EcdsaDerivationServerBootstrapResponse {
   expiresAtMs: number;
   expiresAt: string;
   remainingUses: number;
+  routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
   jwt?: string;
 }
 

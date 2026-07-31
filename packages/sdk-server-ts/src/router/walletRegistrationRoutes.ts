@@ -70,6 +70,7 @@ import {
   signRouterAbEcdsaDerivationWalletSessionJwt,
   validateRouterAbEd25519WalletSessionTokenInputs,
 } from './commonRouterUtils';
+import { sameRouterAbEcdsaDerivationNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
 import type {
@@ -514,16 +515,23 @@ async function attachEcdsaWalletSessionJwt(
   if (!bootstrap.authorizationSessionId || !bootstrap.walletSessionId || !bootstrap.quotaId) {
     return routeError(500, 'internal', 'Router A/B ECDSA authorization identity is missing');
   }
-  const routerAbEcdsaDerivationNormalSigning =
+  const expectedNormalSigning =
     buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
       bootstrap,
       activationEpoch,
       routerAbPublicKeyset: input.services.routerAbPublicKeyset,
       signingWorkerId,
     });
-  if (!routerAbEcdsaDerivationNormalSigning.ok) {
-    return routeError(500, 'internal', routerAbEcdsaDerivationNormalSigning.message);
+  if (
+    !expectedNormalSigning.ok ||
+    !sameRouterAbEcdsaDerivationNormalSigningScopeV1(
+      expectedNormalSigning.state.scope,
+      bootstrap.routerAbEcdsaDerivationNormalSigning.scope,
+    )
+  ) {
+    return routeError(500, 'internal', 'Router A/B ECDSA bootstrap normal-signing state mismatch');
   }
+  const routerAbEcdsaDerivationNormalSigning = bootstrap.routerAbEcdsaDerivationNormalSigning;
   const signed = await signRouterAbEcdsaDerivationWalletSessionJwt({
     session: input.services.session,
     userId: bootstrap.walletId,
@@ -551,7 +559,7 @@ async function attachEcdsaWalletSessionJwt(
       publicIdentity: bootstrap.publicIdentity,
       activationEpoch,
       signingWorkerId,
-      routerAbEcdsaDerivationNormalSigning: routerAbEcdsaDerivationNormalSigning.state,
+      routerAbEcdsaDerivationNormalSigning,
     },
     fallbackParticipantIds: bootstrap.participantIds,
     requireJwtErrorMessage: 'Router A/B ECDSA derivation Wallet Session must use jwt sessionKind',

@@ -190,7 +190,10 @@ const routerAbPublicKeyset = {
   },
 } satisfies RouterAbPublicKeysetV2;
 
-function routerAbEcdsaBootstrap(): EcdsaDerivationServerBootstrapResponse {
+function routerAbEcdsaBootstrap(): Omit<
+  EcdsaDerivationServerBootstrapResponse,
+  'routerAbEcdsaDerivationNormalSigning'
+> {
   const issuer = routerAbEcdsaIssuerBinding();
   return {
     formatVersion: 'ecdsa-derivation-role-local',

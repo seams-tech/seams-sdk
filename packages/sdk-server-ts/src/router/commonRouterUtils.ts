@@ -440,7 +440,7 @@ function decodeEthereumAddress20Hex(address: string): Uint8Array {
 }
 
 export function buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap(input: {
-  bootstrap: EcdsaDerivationServerBootstrapResponse;
+  bootstrap: Omit<EcdsaDerivationServerBootstrapResponse, 'routerAbEcdsaDerivationNormalSigning'>;
   activationEpoch: RootShareEpoch;
   routerAbPublicKeyset: RouterAbPublicKeysetV2 | null | undefined;
   signingWorkerId: string;

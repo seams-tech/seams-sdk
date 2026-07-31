@@ -39,6 +39,34 @@ const ETHEREUM_ADDRESS20_B64U = 'ERERERERERERERERERERERERERE';
 const SIGNING_GRANT_ID = signingGrantIdForTest('signing-grant');
 const ACTIVATION_EPOCH = 'activation-epoch';
 
+const NORMAL_SIGNING_STATE_FIXTURE = {
+  kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
+  scope: {
+    wallet_id: 'wallet-user',
+    ecdsa_threshold_key_id: 'ecdsa-threshold-key',
+    signing_root_id: 'project:env',
+    signing_root_version: 'default',
+    context: {
+      application_binding_digest_b64u: APPLICATION_BINDING_DIGEST_32_B64U,
+    },
+    public_identity: {
+      context_binding_b64u: CONTEXT_BINDING_32_B64U,
+      derivation_client_share_public_key33_b64u: CLIENT_PUBLIC_KEY_33_B64U,
+      server_public_key33_b64u: RELAYER_PUBLIC_KEY_33_B64U,
+      threshold_public_key33_b64u: GROUP_PUBLIC_KEY_33_B64U,
+      ethereum_address20_b64u: ETHEREUM_ADDRESS20_B64U,
+      client_share_retry_counter: 0,
+      server_share_retry_counter: 0,
+    },
+    signing_worker: {
+      server_id: 'signing-worker-test',
+      key_epoch: 'signing-worker-output-epoch',
+      recipient_encryption_key: `x25519:${'33'.repeat(32)}`,
+    },
+    activation_epoch: ACTIVATION_EPOCH,
+  },
+} as const;
+
 function buildRouterAbEcdsaDerivationWalletSessionJwtFixture(args: { expiresAtMs: number }): string {
   return buildUnsignedJwtFixture({
     kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
@@ -51,33 +79,7 @@ function buildRouterAbEcdsaDerivationWalletSessionJwtFixture(args: { expiresAtMs
     relayerKeyId: 'relayer-key',
     thresholdExpiresAtMs: args.expiresAtMs,
     participantIds: [1, 2],
-    routerAbEcdsaDerivationNormalSigning: {
-      kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
-      scope: {
-        wallet_id: 'wallet-user',
-        ecdsa_threshold_key_id: 'ecdsa-threshold-key',
-        signing_root_id: 'project:env',
-        signing_root_version: 'default',
-        context: {
-          application_binding_digest_b64u: APPLICATION_BINDING_DIGEST_32_B64U,
-        },
-        public_identity: {
-          context_binding_b64u: CONTEXT_BINDING_32_B64U,
-          derivation_client_share_public_key33_b64u: CLIENT_PUBLIC_KEY_33_B64U,
-          server_public_key33_b64u: RELAYER_PUBLIC_KEY_33_B64U,
-          threshold_public_key33_b64u: GROUP_PUBLIC_KEY_33_B64U,
-          ethereum_address20_b64u: ETHEREUM_ADDRESS20_B64U,
-          client_share_retry_counter: 0,
-          server_share_retry_counter: 0,
-        },
-        signing_worker: {
-          server_id: 'signing-worker-test',
-          key_epoch: 'signing-worker-output-epoch',
-          recipient_encryption_key: `x25519:${'33'.repeat(32)}`,
-        },
-        activation_epoch: ACTIVATION_EPOCH,
-      },
-    },
+    routerAbEcdsaDerivationNormalSigning: NORMAL_SIGNING_STATE_FIXTURE,
   });
 }
 
@@ -137,6 +139,7 @@ function bootstrapValue(overrides?: Record<string, unknown>): Record<string, unk
     expiresAtMs,
     expiresAt: new Date(expiresAtMs).toISOString(),
     remainingUses: 2,
+    routerAbEcdsaDerivationNormalSigning: NORMAL_SIGNING_STATE_FIXTURE,
     jwt: buildRouterAbEcdsaDerivationWalletSessionJwtFixture({ expiresAtMs }),
     ...(overrides || {}),
   };
@@ -226,6 +229,29 @@ test.describe('threshold ECDSA derivation role-local client parser', () => {
         expect(result, field).toMatchObject({ ok: false });
         expect('value' in result ? result.value : undefined).toBeUndefined();
       }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('requires explicit normal-signing state in the bootstrap response', async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            value: bootstrapValue({ routerAbEcdsaDerivationNormalSigning: undefined }),
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )) as typeof fetch;
+
+      const result = await thresholdEcdsaDerivationRoleLocalBootstrap(
+        'https://relay.example.test',
+        BOOTSTRAP_ARGS,
+      );
+
+      expect(result).toMatchObject({ ok: false });
     } finally {
       globalThis.fetch = originalFetch;
     }
