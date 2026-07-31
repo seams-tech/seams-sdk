@@ -3,10 +3,6 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import { connectEd25519Session } from '../../threshold/ed25519/connectSession';
 import { cacheCredentialBoundarySetupExportPrfFirst, generateSessionId } from './prfCache';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
-import {
-  persistWarmSessionEd25519Capability,
-  type PersistWarmSessionEd25519CapabilityArgs,
-} from '../warmCapabilities/persistence';
 import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
@@ -17,6 +13,7 @@ import {
   buildPasskeyEd25519RestoreMetadata,
 } from './ed25519YaoSealedSession';
 import type { PasskeyEd25519SealRestoreMetadata } from '@/core/types/secure-confirm-worker';
+import { publishResolvedIdentity } from '../persistence/sealedSessionStore';
 
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 
@@ -46,7 +43,6 @@ export type ProvisionThresholdEd25519SessionDeps = {
   touchConfirm: Parameters<typeof cacheCredentialBoundarySetupExportPrfFirst>[0];
   defaultRelayerUrl: string;
   getSignerWorkerContext: () => ConnectEd25519SessionInput['workerCtx'];
-  persistWarmSessionEd25519Capability?: (args: PersistWarmSessionEd25519CapabilityArgs) => unknown;
 };
 
 function sealTransportForProvisionedEd25519Session(args: {
@@ -209,52 +205,7 @@ export async function provisionThresholdEd25519Session(
     };
   }
 
-  const persist = deps.persistWarmSessionEd25519Capability || persistWarmSessionEd25519Capability;
   const rpId = deps.touchIdPrompt.getRpId();
-  if (args.source === 'email_otp') {
-    persist({
-      kind: 'jwt_email_otp',
-      walletId: protocol.walletId,
-      nearAccountId,
-      nearEd25519SigningKeyId: protocol.nearEd25519SigningKeyId,
-      rpId,
-      relayerUrl,
-      relayerKeyId: args.relayerKeyId,
-      runtimePolicyScope,
-      routerAbNormalSigning: args.routerAbNormalSigning,
-      participantIds,
-      signerSlot: protocol.signerSlot,
-      sessionId: resolvedSessionId,
-      signingGrantId,
-      expiresAtMs,
-      remainingUses,
-      jwt,
-      emailOtpAuthContext: args.emailOtpAuthContext,
-      source: 'email_otp',
-    });
-  } else {
-    persist({
-      kind: 'jwt_passkey',
-      walletId: protocol.walletId,
-      nearAccountId,
-      nearEd25519SigningKeyId: protocol.nearEd25519SigningKeyId,
-      rpId,
-      relayerUrl,
-      relayerKeyId: args.relayerKeyId,
-      runtimePolicyScope,
-      routerAbNormalSigning: args.routerAbNormalSigning,
-      participantIds,
-      signerSlot: protocol.signerSlot,
-      sessionId: resolvedSessionId,
-      signingGrantId,
-      expiresAtMs,
-      remainingUses,
-      jwt,
-      passkeyCredentialIdB64u: passkeyCredentialIdB64uFromAuthority(args.authority),
-      source: args.source,
-    });
-  }
-
   if (prfFirstB64u) {
     if (args.source === 'email_otp') {
       return {
@@ -304,6 +255,16 @@ export async function provisionThresholdEd25519Session(
       };
     }
   }
+
+  publishResolvedIdentity({
+    walletId: protocol.walletId,
+    authMethod: args.source === 'email_otp' ? 'email_otp' : 'passkey',
+    curve: 'ed25519',
+    chain: 'near',
+    signingGrantId,
+    thresholdSessionId: resolvedSessionId,
+    updatedAtMs: Date.now(),
+  });
 
   return {
     ok: true,

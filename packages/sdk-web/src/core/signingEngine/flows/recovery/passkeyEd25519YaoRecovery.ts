@@ -20,9 +20,11 @@ import {
   rehydratePasskeyEd25519YaoLocalMaterialRecordV1,
   type PasskeyEd25519YaoLocalMaterialTargetV1,
 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
-import { resolveRouterAbEd25519WalletSessionStateFromRecord } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
-import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
-import { buildThresholdEd25519SessionFact } from '@/core/signingEngine/session/persistence/records';
+import { buildPasskeyRouterAbEd25519WalletSessionState } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
+import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   RouterAbEd25519YaoClientV1,
   RouterAbEd25519YaoHttpActivationTransportV1,
@@ -40,6 +42,7 @@ import {
   signingRootScopeFromRuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
   parseThresholdEd25519SessionId,
   type ThresholdEd25519SessionId,
@@ -396,38 +399,6 @@ function recoveryAdmissionRequest(
   }
 }
 
-function persistRecoveredWalletSession(input: {
-  readonly parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1;
-  readonly relayerUrl: string;
-  readonly rpId: string;
-}): NearResolvedEd25519SigningSessionState {
-  const parsed = input.parsed;
-  const session = parsed.session;
-  const record = persistWarmSessionEd25519Capability({
-    kind: 'jwt_passkey',
-    walletId: String(parsed.walletId),
-    nearAccountId: parsed.nearAccountId,
-    nearEd25519SigningKeyId: parsed.nearEd25519SigningKeyId,
-    rpId: input.rpId,
-    relayerUrl: input.relayerUrl,
-    relayerKeyId: parsed.relayerKeyId,
-    runtimePolicyScope: session.runtimePolicyScope,
-    participantIds: [...parsed.capability.participantIds],
-    signerSlot: parsed.signerSlot,
-    routerAbNormalSigning: session.routerAbNormalSigning,
-    sessionId: session.thresholdSessionId,
-    signingGrantId: session.signingGrantId,
-    expiresAtMs: session.expiresAtMs,
-    remainingUses: session.remainingUses,
-    jwt: session.walletSessionJwt,
-    passkeyCredentialIdB64u: parsed.credentialIdB64u,
-    source: 'login',
-  });
-  const walletSessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(record);
-  if (!walletSessionState) throw new Error('recovered Yao Wallet Session is unusable');
-  return walletSessionState;
-}
-
 function buildRecoveredWalletSessionState(input: {
   readonly parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1;
   readonly relayerUrl: string;
@@ -435,31 +406,55 @@ function buildRecoveredWalletSessionState(input: {
 }): NearResolvedEd25519SigningSessionState {
   const parsed = input.parsed;
   const session = parsed.session;
-  const record = buildThresholdEd25519SessionFact({
+  const signingRoot = signingRootScopeFromRuntimePolicyScope(session.runtimePolicyScope);
+  const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
     walletId: String(parsed.walletId),
-    nearAccountId: parsed.nearAccountId,
+    nearAccountId: String(parsed.nearAccountId),
     nearEd25519SigningKeyId: parsed.nearEd25519SigningKeyId,
-    rpId: input.rpId,
-    relayerUrl: input.relayerUrl,
-    relayerKeyId: parsed.relayerKeyId,
-    runtimePolicyScope: session.runtimePolicyScope,
-    participantIds: [...parsed.capability.participantIds],
-    signerSlot: parsed.signerSlot,
-    routerAbNormalSigning: session.routerAbNormalSigning,
-    thresholdSessionKind: 'jwt',
     thresholdSessionId: session.thresholdSessionId,
     signingGrantId: session.signingGrantId,
-    expiresAtMs: session.expiresAtMs,
     remainingUses: session.remainingUses,
+    expiresAtMs: session.expiresAtMs,
+    runtimePolicyScope: session.runtimePolicyScope,
+    signingRootId: signingRoot.signingRootId,
+    signingRootVersion: String(signingRoot.signingRootVersion || ''),
+    routerAbNormalSigning: session.routerAbNormalSigning,
     walletSessionJwt: session.walletSessionJwt,
-    passkeyCredentialIdB64u: parsed.credentialIdB64u,
-    source: 'login',
+    nowMs: Math.min(Date.now(), session.expiresAtMs - 1),
+  });
+  if (!signingWalletSession.ok) {
+    throw new Error(`recovered Yao Wallet Session is unusable: ${signingWalletSession.reason}`);
+  }
+  return buildPasskeyRouterAbEd25519WalletSessionState({
+    walletId: toWalletId(parsed.walletId),
+    nearAccountId: parsed.nearAccountId,
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
+      parsed.nearEd25519SigningKeyId,
+    ),
+    signerSlot: parsed.signerSlot,
+    rpId: toRpId(input.rpId),
+    credentialIdB64u: parsed.credentialIdB64u,
+    relayerUrl: input.relayerUrl,
+    signingWalletSession: signingWalletSession.value,
+  });
+}
+
+function publishRecoveredWalletSession(input: {
+  readonly parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1;
+  readonly relayerUrl: string;
+  readonly rpId: string;
+}): NearResolvedEd25519SigningSessionState {
+  const state = buildRecoveredWalletSessionState(input);
+  publishResolvedIdentity({
+    walletId: input.parsed.walletId,
+    authMethod: 'passkey',
+    curve: 'ed25519',
+    chain: 'near',
+    signingGrantId: input.parsed.session.signingGrantId,
+    thresholdSessionId: input.parsed.session.thresholdSessionId,
     updatedAtMs: Date.now(),
   });
-  if (!record) throw new Error('recovered Yao Wallet Session record is invalid');
-  const walletSessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(record);
-  if (!walletSessionState) throw new Error('recovered Yao Wallet Session is unusable');
-  return walletSessionState;
+  return state;
 }
 
 function requireMaterialOwner(walletId: WalletId): MpcMaterialOwnerRef {
@@ -600,7 +595,7 @@ async function commitRecoveredCapability<
       signerSlot: input.parsed.signerSlot,
       journal: committed,
     });
-    const publishedWalletSessionState = persistRecoveredWalletSession({
+    const publishedWalletSessionState = publishRecoveredWalletSession({
       parsed: input.parsed,
       relayerUrl: input.relayerUrl,
       rpId: input.rpId,
@@ -686,7 +681,7 @@ export async function recoverParsedPasskeyEd25519YaoCapabilityV1<
             parsed,
             activeClient: rehydrated.activeClient,
           });
-          const publishedWalletSessionState = persistRecoveredWalletSession({
+          const publishedWalletSessionState = publishRecoveredWalletSession({
             parsed,
             relayerUrl: input.relayerUrl,
             rpId: input.rpId,

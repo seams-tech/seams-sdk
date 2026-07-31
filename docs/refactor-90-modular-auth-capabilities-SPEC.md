@@ -324,6 +324,13 @@ implementing commit SHA as the evidence.
     the wallet, account, and signing key, correlates it with the returned
     Wallet Session and active JWT, and no longer reads or clears the composite
     session cache (`5a582a992`).
+  - [x] NEAR signing preparation, both operation-step-up factors, and
+    local-material rehydration resolve the exact sealed Ed25519 runtime by lane;
+    the sealed-record-to-composite-record signing adapter is deleted
+    (`7a97a1363`).
+  - [x] Persisted Ed25519 lane discovery and budget advisory parse exact sealed
+    runtimes once. The inventory no longer scans the inert composite-record
+    maps or rebuilds a composite record from a seal (`06f22ac7d`).
   - [x] Zero-caller Ed25519 account/session record readers, record-derived
     Email OTP authority resolution, per-session status, and record auth
     predicates are deleted from the warm capability surface (`94aa9b344`).

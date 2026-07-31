@@ -29,6 +29,7 @@ import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget'
 import type { AccountId } from '@/core/types/accountIds';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
+import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 
 export type ResolvedRouterAbEd25519WalletSessionState = NearResolvedEd25519SigningSessionState & {
   signingWalletSession: RouterAbEd25519SigningWalletSession;
@@ -43,6 +44,17 @@ export type BuildEmailOtpRouterAbEd25519WalletSessionStateInput = {
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   providerSubjectId: string;
   signerSlot: number;
+  relayerUrl: string;
+  signingWalletSession: RouterAbEd25519SigningWalletSession;
+};
+
+export type BuildPasskeyRouterAbEd25519WalletSessionStateInput = {
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  signerSlot: number;
+  rpId: ReturnType<typeof toRpId>;
+  credentialIdB64u: string;
   relayerUrl: string;
   signingWalletSession: RouterAbEd25519SigningWalletSession;
 };
@@ -117,6 +129,58 @@ export function buildEmailOtpRouterAbEd25519WalletSessionState(
   };
 }
 
+export function buildPasskeyRouterAbEd25519WalletSessionState(
+  input: BuildPasskeyRouterAbEd25519WalletSessionStateInput,
+): ResolvedRouterAbEd25519WalletSessionState {
+  const thresholdSessionId = requireNonEmptyStateValue(
+    input.signingWalletSession.thresholdSessionId,
+    'thresholdSessionId',
+  );
+  const signingGrantId = requireNonEmptyStateValue(
+    input.signingWalletSession.signingGrantId,
+    'signingGrantId',
+  );
+  const walletSessionJwt = requireNonEmptyStateValue(
+    input.signingWalletSession.auth.walletSessionJwt,
+    'walletSessionJwt',
+  );
+  const relayerUrl = requireNonEmptyStateValue(input.relayerUrl, 'relayerUrl');
+  const credentialIdB64u = requireNonEmptyStateValue(
+    input.credentialIdB64u,
+    'credentialIdB64u',
+  );
+  const signerSlot = requirePositiveStateInteger(input.signerSlot, 'signerSlot');
+  return {
+    walletSessionAuth: {
+      kind: 'wallet_session_jwt',
+      walletSessionJwt,
+    },
+    thresholdSessionId,
+    signingGrantId,
+    signingLane: buildNearTransactionSigningLane({
+      walletId: input.walletId,
+      nearAccountId: input.nearAccountId,
+      nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+      signerSlot,
+      auth: {
+        kind: 'passkey',
+        rpId: input.rpId,
+        credentialIdB64u,
+      },
+      signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
+      storageSource: 'login',
+    }),
+    remainingUses: input.signingWalletSession.remainingUses,
+    signingRootId: input.signingWalletSession.signingRootId,
+    signingRootVersion: input.signingWalletSession.signingRootVersion,
+    routerAbNormalSigning: input.signingWalletSession.routerAbNormalSigning,
+    runtimePolicyScope: input.signingWalletSession.runtimePolicyScope,
+    relayerUrl,
+    signingWalletSession: input.signingWalletSession,
+  };
+}
+
 export function buildRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
   runtime: ExactEd25519SealedSessionRuntime;
   walletSessionJwt: string;
@@ -146,19 +210,20 @@ export function buildRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
       `Ed25519 Wallet Session runtime is invalid: ${signingWalletSession.reason}`,
     );
   }
+  if (runtime.factor.kind === 'passkey' && runtime.auth.kind === 'passkey') {
+    return buildPasskeyRouterAbEd25519WalletSessionState({
+      walletId: runtime.walletId,
+      nearAccountId: runtime.nearAccountId,
+      nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
+      signerSlot: runtime.signerSlot,
+      rpId: runtime.factor.rpId,
+      credentialIdB64u: runtime.factor.credentialIdB64u,
+      relayerUrl: runtime.relayerUrl,
+      signingWalletSession: signingWalletSession.value,
+    });
+  }
   const signingLane =
-    runtime.factor.kind === 'passkey' && runtime.auth.kind === 'passkey'
-      ? buildNearTransactionSigningLane({
-          walletId: runtime.walletId,
-          nearAccountId: runtime.nearAccountId,
-          nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
-          signerSlot: runtime.signerSlot,
-          auth: runtime.auth,
-          signingGrantId: runtime.signingGrantId,
-          thresholdSessionId: runtime.thresholdSessionId,
-          storageSource: 'login',
-        })
-      : runtime.factor.kind === 'email_otp' && runtime.auth.kind === 'email_otp'
+    runtime.factor.kind === 'email_otp' && runtime.auth.kind === 'email_otp'
         ? buildNearTransactionSigningLane({
             walletId: runtime.walletId,
             nearAccountId: runtime.nearAccountId,
