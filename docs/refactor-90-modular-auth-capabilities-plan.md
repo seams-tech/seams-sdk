@@ -1147,6 +1147,10 @@ the replacement and legacy MPC paths must not ship together.
           leases are coordination records keyed by the sealed-store key and
           owner/attempt, and old grant-bearing lease rows are rejected
           (`2d56e3a58`).
+    - [x] Delete write-only ECDSA resolved-identity publication from passkey
+          recovery, Email OTP restore, and sealed-store identity projections;
+          canonical ECDSA availability no longer receives a grant/session
+          identity from this inert map (`71d061d6d`).
     - [ ] Complete the separate operation-authorization cutover for any
           remaining record-level `signingGrantId` protocol/lease identity; do
           not treat it as sealed restore bearer state.
