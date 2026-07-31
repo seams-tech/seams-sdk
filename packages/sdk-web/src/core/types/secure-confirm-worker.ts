@@ -8,8 +8,12 @@ import type {
   RouterAbEd25519YaoBytes32V1,
   RouterAbEd25519YaoLifecycleScopeV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
-import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
+import type {
+  RouterAbEd25519NormalSigningState,
+  SealedSigningSessionEcdsaRestoreMetadata,
+  SealedSigningSessionEd25519RestoreMetadata,
+  SigningSessionSealAuthMethod,
+} from '@shared/utils/signingSessionSeal';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 export type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
@@ -34,6 +38,14 @@ type PasskeyWarmSessionSealTransportCommon = WarmSessionSealTransportCommon & {
     credentialIdB64u: string;
     signingGrantId: string;
   };
+};
+
+export type PasskeyEd25519SealRestoreMetadata = Extract<
+  SealedSigningSessionEd25519RestoreMetadata,
+  { credentialIdB64u: string; sessionKind: 'jwt' }
+> & {
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
 export interface UiConfirmManagerConfig {
@@ -67,12 +79,17 @@ export type WarmSessionSealTransportInput =
       curve: 'ed25519';
       authMethod: 'email_otp';
       ecdsaRestore?: never;
+      ed25519Restore?: never;
       emailOtpRestore?: never;
     })
   | (PasskeyWarmSessionSealTransportCommon & {
       curve: 'ed25519';
-      authMethod?: 'passkey';
+      authMethod: 'passkey';
+      walletId: string;
+      signingGrantId: string;
+      walletSessionJwt: string;
       ecdsaRestore?: never;
+      ed25519Restore: PasskeyEd25519SealRestoreMetadata;
       emailOtpRestore?: never;
     })
   | (EmailOtpWarmSessionSealTransportCommon & {
@@ -80,6 +97,7 @@ export type WarmSessionSealTransportInput =
       authMethod: 'email_otp';
       chainTarget: ThresholdEcdsaChainTarget;
       ecdsaRestore?: never;
+      ed25519Restore?: never;
       emailOtpRestore?: never;
     })
   | (PasskeyWarmSessionSealTransportCommon & {
@@ -87,6 +105,7 @@ export type WarmSessionSealTransportInput =
       authMethod?: 'passkey';
       chainTarget: ThresholdEcdsaChainTarget;
       ecdsaRestore?: Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }>;
+      ed25519Restore?: never;
       emailOtpRestore?: never;
     });
 

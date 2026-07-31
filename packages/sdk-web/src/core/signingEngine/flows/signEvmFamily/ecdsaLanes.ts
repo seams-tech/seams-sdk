@@ -1,7 +1,6 @@
 import type { EvmFamilyChain } from '../../interfaces/operationDeps';
 import {
   selectedEcdsaLane,
-  selectedLaneAuthMethod,
   emailOtpAuthContextReason,
   emailOtpAuthContextRetention,
   type SelectedEcdsaLane,

@@ -3,7 +3,6 @@ import { normalizePositiveInteger } from '@shared/utils/normalize';
 import { getWalletSession } from '@/SeamsWeb/operations/auth/login';
 import type { LocalLoginStateWebContext } from '@/SeamsWeb/signingSurface/types';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { getStoredThresholdEd25519SessionRecordForWallet } from '@/core/signingEngine/session/persistence/records';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 
 export async function restoreLocalLoginState(args: {
@@ -28,16 +27,6 @@ export async function restoreLocalLoginState(args: {
   }
   if (!String(walletId).trim() || !String(nearEd25519SigningKeyId).trim()) {
     throw new Error('restoreLocalLoginState requires wallet binding fields');
-  }
-
-  const record = getStoredThresholdEd25519SessionRecordForWallet(walletId);
-  if (record) {
-    if (String(record.nearAccountId) !== String(nearAccountId)) {
-      throw new Error('restoreLocalLoginState nearAccountId mismatch');
-    }
-    if (String(record.nearEd25519SigningKeyId) !== nearEd25519SigningKeyId) {
-      throw new Error('restoreLocalLoginState nearEd25519SigningKeyId mismatch');
-    }
   }
 
   await args.context.signingEngine.setLastUser(walletId, signerSlot);

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import {
+  buildPasskeyEd25519RestoreMetadata,
   persistPasskeyEd25519YaoSessionForRefresh,
   type PasskeyEd25519YaoSessionPersistencePort,
 } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
@@ -97,6 +98,26 @@ function buildPasskeyWalletSessionAuthorization(args: {
 
 function buildPasskeyYaoWalletSession() {
   const expiresAtMs = Date.now() + 60_000;
+  const walletSessionJwt = buildWalletSessionJwt();
+  const runtimePolicyScope = {
+    orgId: 'org-sealed-refresh',
+    projectId: 'project-sealed-refresh',
+    envId: 'env-sealed-refresh',
+    signingRootVersion: 'root-v1',
+  };
+  const routerAbNormalSigning = runtimeEd25519RouterAbNormalSigningState();
+  const ed25519Restore = buildPasskeyEd25519RestoreMetadata({
+    rpId: 'wallet.example.localhost',
+    nearAccountId: String(NEAR_ACCOUNT_ID),
+    nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
+    relayerKeyId: 'ed25519-signing-worker-sealed-refresh',
+    participantIds: [1, 2],
+    runtimePolicyScope,
+    signerSlot: 1,
+    routerAbNormalSigning,
+    credentialIdB64u: 'credential-ed25519-yao-sealed-refresh',
+    walletSessionJwt,
+  });
   const record = persistWarmSessionEd25519Capability({
     kind: 'jwt_passkey',
     walletId: WALLET_ID,
@@ -105,26 +126,21 @@ function buildPasskeyYaoWalletSession() {
     rpId: 'wallet.example.localhost',
     relayerUrl: 'https://relay.example.test',
     relayerKeyId: 'ed25519-signing-worker-sealed-refresh',
-    runtimePolicyScope: {
-      orgId: 'org-sealed-refresh',
-      projectId: 'project-sealed-refresh',
-      envId: 'env-sealed-refresh',
-      signingRootVersion: 'root-v1',
-    },
+    runtimePolicyScope,
     participantIds: [1, 2],
     signerSlot: 1,
-    routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
+    routerAbNormalSigning,
     sessionId: THRESHOLD_SESSION_ID,
     signingGrantId: SIGNING_GRANT_ID,
     expiresAtMs,
     remainingUses: 3,
-    jwt: buildWalletSessionJwt(),
+    jwt: walletSessionJwt,
     passkeyCredentialIdB64u: 'credential-ed25519-yao-sealed-refresh',
     source: 'registration',
   });
   const session = resolveRouterAbEd25519WalletSessionStateFromRecord(record);
   if (!session) throw new Error('failed to build passkey Yao Wallet Session fixture');
-  return { expiresAtMs, session };
+  return { ed25519Restore, expiresAtMs, session };
 }
 
 test('persists and verifies a passkey Yao session seal for page refresh', async () => {
@@ -140,6 +156,7 @@ test('persists and verifies a passkey Yao session seal for page refresh', async 
     persistence,
     session: fixture.session,
     prfFirstB64u: 'passkey-prf-first-ed25519-yao-sealed-refresh',
+    ed25519Restore: fixture.ed25519Restore,
   });
 
   expect(persistence.calls.map(sessionPersistenceCallKind)).toEqual(['hydrate', 'persist']);
@@ -152,6 +169,13 @@ test('persists and verifies a passkey Yao session seal for page refresh', async 
       walletId: WALLET_ID,
       signingGrantId: SIGNING_GRANT_ID,
       walletSessionJwt: buildWalletSessionJwt(),
+      ed25519Restore: fixture.ed25519Restore,
+    },
+  });
+  expect(persistence.calls[1].input).toMatchObject({
+    sessionId: THRESHOLD_SESSION_ID,
+    transport: {
+      ed25519Restore: fixture.ed25519Restore,
     },
   });
 });
@@ -200,6 +224,7 @@ test('fails the lifecycle when the durable Yao session seal is unavailable', asy
       persistence,
       session: fixture.session,
       prfFirstB64u: 'passkey-prf-first-ed25519-yao-sealed-refresh',
+      ed25519Restore: fixture.ed25519Restore,
     }),
   ).rejects.toThrow('Ed25519 Yao sealed refresh persistence failed (not_enabled)');
 });

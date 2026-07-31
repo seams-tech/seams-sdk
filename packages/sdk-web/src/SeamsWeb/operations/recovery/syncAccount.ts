@@ -32,7 +32,10 @@ import {
   parseRecoveryResolvedWalletBindingFromResponse,
   type RecoveryResolvedWalletBinding,
 } from './recoveryWalletBinding';
-import { persistPasskeyEd25519YaoSessionForRefresh } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
+import {
+  buildPasskeyEd25519RestoreMetadata,
+  persistPasskeyEd25519YaoSessionForRefresh,
+} from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
 import { nearEd25519YaoMaterialActivationFromPublicFacts } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 import {
   mpcMaterialActivationRefsEqual,
@@ -318,6 +321,18 @@ async function recoverAndCommitPasskeyEd25519Unlock(
       persistence: input.sessionPersistence,
       session: recovery.walletSessionState,
       prfFirstB64u: input.prfFirstB64u,
+      ed25519Restore: buildPasskeyEd25519RestoreMetadata({
+        rpId: input.rpId,
+        nearAccountId: String(recovery.parsed.nearAccountId),
+        nearEd25519SigningKeyId: recovery.parsed.nearEd25519SigningKeyId,
+        relayerKeyId: recovery.parsed.relayerKeyId,
+        participantIds: recovery.parsed.session.participantIds,
+        runtimePolicyScope: recovery.parsed.session.runtimePolicyScope,
+        signerSlot: recovery.parsed.signerSlot,
+        routerAbNormalSigning: recovery.parsed.session.routerAbNormalSigning,
+        credentialIdB64u: recovery.parsed.credentialIdB64u,
+        walletSessionJwt: recovery.parsed.session.walletSessionJwt,
+      }),
     });
     const activated = await input.activateCapability({
       activeClient: recovery.activeClient,

@@ -522,10 +522,6 @@ export type AuthorizationRequiredEcdsaLaneCandidate = Extract<
 
 export type LaneCandidate = Ed25519LaneCandidate | EcdsaLaneCandidate;
 
-export function selectedLaneAuthMethod(lane: SelectedLane): SignerAuthMethod {
-  return signingLaneAuthMethod(lane.auth);
-}
-
 export function laneCandidateAuthMethod(candidate: LaneCandidate): SignerAuthMethod {
   return signingLaneAuthMethod(candidate.auth);
 }

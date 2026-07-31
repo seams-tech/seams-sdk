@@ -922,31 +922,6 @@ export function buildOperationUsableThresholdEd25519SessionRecord(
   return record as OperationUsableThresholdEd25519SessionRecord;
 }
 
-export function describeOperationUsableThresholdEd25519SessionRecordRejection(
-  record: ThresholdEd25519SessionRecord,
-): readonly string[] {
-  const reasons: string[] = [];
-  if (!String(record.thresholdSessionId || '').trim()) {
-    reasons.push('missing_threshold_session_id');
-  }
-  if (!String(record.signingGrantId || '').trim()) {
-    reasons.push('missing_signing_grant_id');
-  }
-  if (!String(record.walletSessionJwt || '').trim()) {
-    reasons.push('missing_wallet_session_jwt');
-  }
-  if (Math.floor(Number(record.remainingUses) || 0) <= 0) {
-    reasons.push('non_positive_remaining_uses');
-  }
-  if (!thresholdSessionRecordGeneration(record)) {
-    reasons.push('missing_session_generation');
-  }
-  if (!thresholdEd25519SupersessionGroupKey(record)) {
-    reasons.push('missing_supersession_group');
-  }
-  return reasons;
-}
-
 function thresholdEd25519SessionId(record: ThresholdEd25519SessionRecord): string {
   return String(record.thresholdSessionId || '').trim();
 }
@@ -1047,23 +1022,6 @@ export function commitCurrentThresholdEd25519Session(args: {
   };
 }
 
-export function requireCommittedThresholdEd25519Session(
-  result: ThresholdEd25519SessionCommitResult,
-): OperationUsableThresholdEd25519SessionRecord {
-  switch (result.kind) {
-    case 'committed_current':
-      return result.current;
-    case 'same_generation_distinct_session':
-      throw new Error('Current Ed25519 session commit produced same-generation distinct sessions');
-    case 'stale_commit_ignored':
-      throw new Error('Current Ed25519 session commit was stale');
-    default: {
-      const exhaustive: never = result;
-      throw new Error(String((exhaustive as { kind?: unknown })?.kind || 'unknown'));
-    }
-  }
-}
-
 function thresholdEd25519RecordMatchesLane(
   record: ThresholdEd25519SessionRecord,
   lane: ThresholdEd25519SessionRecordKey,
@@ -1155,24 +1113,6 @@ export function upsertThresholdEd25519SessionFact(
   });
 }
 
-/**
- * Re-seeds the in-memory runtime cache from a persisted Ed25519 session record
- * (e.g. after a page/iframe refresh wipes runtime state) so account-, wallet-,
- * and session-keyed readers resolve it again. Uses the generation-monotonic
- * 'prefer_current_generation' policy so it never downgrades a fresher in-flight
- * record. Only identity/metadata is seeded — ephemeral auth material (wallet
- * session JWT / PRF claim) is not persisted, so a rehydrated record still
- * derives as auth_missing and forces step-up re-auth before any signing.
- */
-export function rememberPersistedThresholdEd25519RuntimeRecord(
-  record: ThresholdEd25519SessionRecord,
-): ThresholdEd25519SessionRecord {
-  return storeThresholdEd25519SessionFact({
-    record,
-    defaultPolicy: 'prefer_current_generation',
-  });
-}
-
 // Broad Ed25519 wallet/account readers expose default/discovery records only.
 // Authority-bearing mutations must use exact lane-key helpers.
 export function getStoredThresholdEd25519SessionRecordForAccount(
@@ -1189,57 +1129,6 @@ export function getStoredThresholdEd25519SessionRecordForWallet(
   const inMemory = getInMemoryThresholdEd25519SessionRecordForWallet(walletIdRaw);
   if (inMemory) return inMemory;
   return null;
-}
-
-export function listStoredThresholdEd25519SessionRecordsForAccount(
-  nearAccountIdRaw: AccountId | string,
-): ThresholdEd25519SessionRecord[] {
-  try {
-    const accountKey = String(toAccountId(nearAccountIdRaw)).trim();
-    const record = accountKey ? inMemoryEd25519RecordsByAccount.get(accountKey) || null : null;
-    return record ? [record] : [];
-  } catch {
-    return [];
-  }
-}
-
-export function listStoredThresholdEd25519SessionRecordsForWallet(
-  walletIdRaw: WalletId | string,
-): ThresholdEd25519SessionRecord[] {
-  try {
-    const walletKey = String(toWalletId(walletIdRaw)).trim();
-    const record = walletKey ? inMemoryEd25519RecordsByWallet.get(walletKey) || null : null;
-    return record ? [record] : [];
-  } catch {
-    return [];
-  }
-}
-
-export function listStoredThresholdEd25519SessionLaneRecordsForAccount(
-  nearAccountIdRaw: AccountId | string,
-): ThresholdEd25519SessionRecord[] {
-  try {
-    const accountKey = String(toAccountId(nearAccountIdRaw)).trim();
-    if (!accountKey) return [];
-    const recordsBySessionId = new Map<string, ThresholdEd25519SessionRecord>();
-    const add = (record: ThresholdEd25519SessionRecord | null): void => {
-      if (!record) return;
-      if (String(record.nearAccountId || '').trim() !== accountKey) return;
-      const thresholdSessionId = String(record.thresholdSessionId || '').trim();
-      if (!thresholdSessionId) return;
-      recordsBySessionId.set(thresholdSessionId, record);
-    };
-    add(inMemoryEd25519RecordsByAccount.get(accountKey) || null);
-    for (const record of inMemoryEd25519RecordsByLane.values()) {
-      add(record);
-    }
-    return [...recordsBySessionId.values()].sort(
-      (left, right) =>
-        Math.floor(Number(right.updatedAtMs) || 0) - Math.floor(Number(left.updatedAtMs) || 0),
-    );
-  } catch {
-    return [];
-  }
 }
 
 export function listStoredThresholdEd25519SessionLaneRecordsForWallet(
@@ -1321,63 +1210,6 @@ export function clearStoredThresholdEd25519SessionRecordForLaneKey(
   }
   forgetInMemoryThresholdEd25519Record(record);
   return { ok: true, cleared: true };
-}
-
-export function clearStoredThresholdEd25519SessionRecordForExactIdentity(
-  identity: ExactEd25519SigningLaneIdentity,
-): ClearStoredThresholdEd25519SessionRecordForLaneKeyResult {
-  return clearStoredThresholdEd25519SessionRecordForLaneKey(
-    thresholdEd25519SessionRecordKeyFromExactIdentity(identity),
-  );
-}
-
-export type RetireRecoveredPasskeyThresholdEd25519SessionsResult = {
-  readonly retired: number;
-};
-
-export function retireRecoveredPasskeyThresholdEd25519Sessions(args: {
-  walletId: WalletId;
-  nearAccountId: AccountId;
-  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-  signerSlot: SignerSlot;
-  retainedThresholdSessionId: ThresholdEd25519SessionId;
-}): RetireRecoveredPasskeyThresholdEd25519SessionsResult {
-  const walletId = String(args.walletId).trim();
-  const nearAccountId = String(args.nearAccountId).trim();
-  const nearEd25519SigningKeyId = String(args.nearEd25519SigningKeyId).trim();
-  const signerSlot = parseSignerSlot(args.signerSlot);
-  const retainedThresholdSessionId = String(args.retainedThresholdSessionId).trim();
-  if (
-    !walletId ||
-    !nearAccountId ||
-    !nearEd25519SigningKeyId ||
-    !signerSlot ||
-    !retainedThresholdSessionId
-  ) {
-    throw new Error(
-      '[SigningEngine] recovered Ed25519 session retirement requires exact lane identity',
-    );
-  }
-
-  const retiredRecords = [...inMemoryEd25519RecordsByLane.values()].filter((record) => {
-    if (record.source === 'email_otp') return false;
-    if (String(record.walletId || '').trim() !== walletId) return false;
-    if (String(record.nearAccountId || '').trim() !== nearAccountId) return false;
-    if (String(record.nearEd25519SigningKeyId || '').trim() !== nearEd25519SigningKeyId) {
-      return false;
-    }
-    if (parseSignerSlot(record.signerSlot) !== signerSlot) return false;
-    if (String(record.thresholdSessionId || '').trim() === retainedThresholdSessionId) {
-      return false;
-    }
-    return true;
-  });
-
-  for (const record of retiredRecords) {
-    forgetInMemoryThresholdEd25519Record(record);
-  }
-
-  return { retired: retiredRecords.length };
 }
 
 export function markThresholdEd25519EmailOtpSessionConsumedForWallet(args: {

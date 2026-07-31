@@ -13,24 +13,15 @@ import {
   type SigningSessionSealedRecordFilter,
   type SigningSessionSealedStoreRecord,
 } from '../session/persistence/sealedSessionStore';
-import {
-  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
-  type ThresholdEd25519SessionRecord,
-} from '../session/persistence/records';
-import { parseRouterAbEd25519WalletSessionAuthorityFromRecord } from '../session/routerAbSigningWalletSession';
-import {
-  emailOtpAuthContextEmailHashHex,
-  emailOtpAuthContextProvider,
-  emailOtpAuthContextProviderUserId,
-} from '../session/identity/laneIdentity';
-import type { ThresholdEd25519SessionStoreSource } from '../session/identity/laneIdentity';
 import { thresholdEcdsaChainTargetKey } from '../interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetsEqual } from '../interfaces/ecdsaChainTarget';
 import {
   SIGNING_SESSION_SEAL_GROUP_ID,
-  type SealedSigningSessionWalletSessionAuth,
 } from '@shared/utils/signingSessionSeal';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import {
+  normalizeRuntimePolicyScope,
+  signingRootScopeFromRuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
 import type {
   WarmSessionMaterialWriteDiagnosticBucket,
   WarmSessionMaterialWriteDiagnostics,
@@ -63,11 +54,6 @@ const signingSessionSealPersistSingleFlight = new Map<
   string,
   Promise<WarmSessionSealAndPersistResult>
 >();
-
-function positiveInteger(value: unknown): number {
-  const parsed = Math.floor(Number(value));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
 
 function roundDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
@@ -108,108 +94,7 @@ function recordSealResultDiagnostics(args: {
   );
 }
 
-function assertNever(value: never): never {
-  throw new Error(`Unexpected warm-session seal auth source: ${String(value)}`);
-}
-
-function sealedAuthMethodForThresholdEd25519Source(
-  source: ThresholdEd25519SessionStoreSource,
-): 'passkey' | 'email_otp' {
-  switch (source) {
-    case 'email_otp':
-      return SIGNER_AUTH_METHODS.emailOtp;
-    case 'login':
-    case 'registration':
-    case 'add-signer':
-    case 'manual-connect':
-    case 'bootstrap':
-      return SIGNER_AUTH_METHODS.passkey;
-    default:
-      return assertNever(source);
-  }
-}
-
-function ed25519RestoreWalletSessionAuthFields(
-  record: ThresholdEd25519SessionRecord,
-): SealedSigningSessionWalletSessionAuth | null {
-  if (record.thresholdSessionKind === 'jwt') {
-    const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
-    return authority.ok
-      ? { sessionKind: 'jwt', walletSessionJwt: authority.value.auth.walletSessionJwt }
-      : null;
-  }
-  return record.thresholdSessionKind === 'cookie' ? { sessionKind: 'cookie' } : null;
-}
-
-type CurrentEd25519RestoreAuthBranch =
-  | {
-      kind: 'passkey';
-      credentialIdB64u: string;
-    }
-  | {
-      kind: 'email_otp';
-      provider: 'google' | 'email';
-      providerSubjectId: string;
-      emailHashHex: string;
-    };
-
-function currentEd25519RestoreAuthBranchFromRecord(
-  record: ThresholdEd25519SessionRecord,
-): CurrentEd25519RestoreAuthBranch | null {
-  if (record.source === 'email_otp') {
-    if (!record.emailOtpAuthContext) return null;
-    const providerSubjectId = emailOtpAuthContextProviderUserId(record.emailOtpAuthContext);
-    const provider = emailOtpAuthContextProvider(record.emailOtpAuthContext);
-    const emailHashHex = emailOtpAuthContextEmailHashHex(record.emailOtpAuthContext);
-    return providerSubjectId && emailHashHex
-      ? { kind: 'email_otp', provider, providerSubjectId, emailHashHex }
-      : null;
-  }
-  const credentialIdB64u = String(record.passkeyCredentialIdB64u || '').trim();
-  return credentialIdB64u ? { kind: 'passkey', credentialIdB64u } : null;
-}
-
-function currentEd25519RestoreMetadataFromSessionRecord(
-  record: ThresholdEd25519SessionRecord | null | undefined,
-): CurrentEd25519RestoreMetadata | undefined {
-  if (!record) return undefined;
-  const rpId = String(record.rpId || '').trim();
-  const nearAccountId = String(record.nearAccountId || '').trim();
-  const nearEd25519SigningKeyId = String(record.nearEd25519SigningKeyId || '').trim();
-  const relayerKeyId = String(record.relayerKeyId || '').trim();
-  const signerSlot = positiveInteger(record.signerSlot);
-  const routerAbNormalSigning = record.routerAbNormalSigning;
-  const authBranch = currentEd25519RestoreAuthBranchFromRecord(record);
-  const walletSessionAuth = ed25519RestoreWalletSessionAuthFields(record);
-  if (
-    !rpId ||
-    !nearAccountId ||
-    !nearEd25519SigningKeyId ||
-    !relayerKeyId ||
-    !record.participantIds.length ||
-    !signerSlot ||
-    !routerAbNormalSigning ||
-    authBranch?.kind !== 'passkey' ||
-    !walletSessionAuth
-  ) {
-    return undefined;
-  }
-  return {
-    rpId,
-    nearAccountId,
-    nearEd25519SigningKeyId,
-    relayerKeyId,
-    participantIds: record.participantIds,
-    ...walletSessionAuth,
-    signerSlot,
-    ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
-    routerAbNormalSigning,
-    credentialIdB64u: authBranch.credentialIdB64u,
-  };
-}
-
 function buildPasskeySealedRecordAccountMetadata(args: {
-  thresholdSessionId: string;
   transport: PasskeyWarmSessionSealTransportInput;
 }): PasskeySealedRecordAccountMetadata {
   if (args.transport.curve === 'ecdsa') {
@@ -218,24 +103,16 @@ function buildPasskeySealedRecordAccountMetadata(args: {
       ...(args.transport.ecdsaRestore ? { ecdsaRestore: args.transport.ecdsaRestore } : {}),
     };
   }
-  const ed25519Record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
-    args.thresholdSessionId,
+  const signingRoot = signingRootScopeFromRuntimePolicyScope(
+    normalizeRuntimePolicyScope(args.transport.ed25519Restore.runtimePolicyScope),
   );
-  if (
-    ed25519Record &&
-    sealedAuthMethodForThresholdEd25519Source(ed25519Record.source) !== 'passkey'
-  ) {
-    return {};
-  }
-  const walletId = String(ed25519Record?.walletId || args.transport.walletId || '').trim();
-  const ed25519Restore = currentEd25519RestoreMetadataFromSessionRecord(ed25519Record);
   return {
-    ...(walletId ? { walletId } : {}),
-    ...(ed25519Record?.signingRootId ? { signingRootId: ed25519Record.signingRootId } : {}),
-    ...(ed25519Record?.signingRootVersion
-      ? { signingRootVersion: ed25519Record.signingRootVersion }
+    walletId: args.transport.walletId,
+    signingRootId: signingRoot.signingRootId,
+    ...(signingRoot.signingRootVersion
+      ? { signingRootVersion: signingRoot.signingRootVersion }
       : {}),
-    ...(ed25519Restore ? { ed25519Restore } : {}),
+    ed25519Restore: args.transport.ed25519Restore,
   };
 }
 
@@ -488,7 +365,6 @@ export class PasskeyMpcSessionDurableState {
       };
     }
     const metadata = buildPasskeySealedRecordAccountMetadata({
-      thresholdSessionId,
       transport: args.transport,
     });
     const purpose = sealedRecordPurpose({ transport: args.transport });
