@@ -257,32 +257,6 @@ export function deriveEcdsaCapabilityState(args: {
   return 'ready';
 }
 
-export function hasSufficientWarmClaim(
-  prfClaim: WarmSessionPrfClaim | null,
-  usesNeededRaw: unknown,
-): boolean {
-  if (!prfClaim || prfClaim.state !== 'warm') return false;
-  const remainingUses = Math.floor(Number(prfClaim.remainingUses) || 0);
-  const usesNeeded = Math.floor(Number(usesNeededRaw) || 0);
-  return remainingUses >= (usesNeeded > 0 ? usesNeeded : 1);
-}
-
-export function formatMissingWarmPrfMaterialError(args: {
-  errorContext: string;
-  code?: string;
-}): Error {
-  const suffix = typeof args.code === 'string' && args.code.trim() ? ` (${args.code.trim()})` : '';
-  return new Error(`Missing warm PRF material for ${args.errorContext}${suffix}`);
-}
-
-export function formatWarmSessionClaimUnavailableError(args: {
-  errorContext: string;
-  code?: string;
-}): Error {
-  const suffix = typeof args.code === 'string' && args.code.trim() ? ` (${args.code.trim()})` : '';
-  return new Error(`Warm-session claim unavailable for ${args.errorContext}${suffix}`);
-}
-
 export function toSigningSessionStatus(args: {
   sessionId: string;
   claim: WarmSessionPrfClaim | null;
