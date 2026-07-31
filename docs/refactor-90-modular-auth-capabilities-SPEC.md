@@ -231,6 +231,10 @@ implementing commit SHA as the evidence.
   - [x] ECDSA session-lane policy requires the exact runtime policy scope;
     strict activation cannot receive a policy with absent scope, and type
     fixtures reject omission (`ff6464baf`).
+  - [x] ECDSA bootstrap material key references cannot carry session transport
+    kind, Wallet Session bearer credentials, or the unused MPC-session alias;
+    activation and worker producers no longer publish those projections
+    (`f32baab61`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
   - [x] The canonical ECDSA operating-path proof completes persisted hydration,
