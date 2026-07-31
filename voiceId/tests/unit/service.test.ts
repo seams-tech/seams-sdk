@@ -18,6 +18,7 @@ import {
   VoiceIdService,
   SplitVoiceIdAnalysisProvider,
   type VoiceIdAuditEvent,
+  type VoiceIdAnalysisProvider,
   type VoiceIdServiceConfig,
   type VoiceIdSpeakerVerification,
   type VoiceIdTranscriptProvider,
@@ -360,6 +361,24 @@ test('phrase mismatch rejects evidence without creating an accepted branch', asy
   assert.equal(result.value.kind === 'rejected' ? result.value.reason : '', 'phrase_mismatch');
 });
 
+test('presentation attack detection rejects otherwise accepted verification evidence', async () => {
+  const fixture = createFixture({ analysisProvider: new RejectingPadAnalysisProvider() });
+  const enrollmentId = await enroll(fixture.service);
+  const started = await fixture.service.startVerification({ userId, enrollmentId });
+  assert.equal(started.kind, 'ok');
+
+  const result = await fixture.service.submitVerificationRecording({
+    userId,
+    enrollmentId,
+    verificationId: started.value.record.verificationId,
+    audio: makeDemoAudioInput({ durationMs: 4_000 }),
+  });
+
+  assert.equal(result.kind, 'ok');
+  assert.equal(result.value.kind, 'rejected');
+  assert.equal(result.value.kind === 'rejected' ? result.value.reason : '', 'presentation_attack');
+});
+
 test('verification preserves transcript and speaker provider outages', async () => {
   const transcriptFixture = createFixture({
     transcriptProvider: new VerificationUnavailableTranscriptProvider(),
@@ -424,6 +443,7 @@ function createFixture(input: {
   config?: VoiceIdServiceConfig;
   transcriptProvider?: VoiceIdTranscriptProvider;
   verifier?: VoiceIdVerifier;
+  analysisProvider?: VoiceIdAnalysisProvider;
   now?: () => Date;
 } = {}) {
   const enrollmentStore = new InMemoryVoiceIdEnrollmentStore();
@@ -436,7 +456,8 @@ function createFixture(input: {
     verificationStore,
     verifier,
     transcriptProvider,
-    analysisProvider: new SplitVoiceIdAnalysisProvider(transcriptProvider, verifier),
+    analysisProvider:
+      input.analysisProvider ?? new SplitVoiceIdAnalysisProvider(transcriptProvider, verifier),
     config: input.config ?? defaultVoiceIdServiceConfig(),
     now: input.now ?? fixedNow,
     createChallengeNonce: fixedChallengeNonce,
@@ -483,6 +504,49 @@ class ThrowingTemplateVerifier extends FakeVoiceIdVerifier {
     _input: Parameters<VoiceIdVerifier['buildEnrollmentTemplate']>[0],
   ): Promise<never> {
     throw new Error('template transport unavailable');
+  }
+}
+
+class RejectingPadAnalysisProvider implements VoiceIdAnalysisProvider {
+  async analyzeVerification(
+    input: Parameters<VoiceIdAnalysisProvider['analyzeVerification']>[0],
+  ): ReturnType<VoiceIdAnalysisProvider['analyzeVerification']> {
+    return {
+      phrase: {
+        kind: 'accepted',
+        expectedNormalized: input.expectedPhrase,
+        spokenNormalized: input.expectedPhrase,
+        confidence: 1,
+      },
+      intent: {
+        kind: 'accepted',
+        expectedIntent: 'approve',
+        matchedIntent: 'approve',
+        confidence: 1,
+      },
+      speaker: {
+        kind: 'accepted',
+        score: 0.95,
+        threshold: input.threshold,
+        modelVersion: input.enrollment.modelVersion,
+        thresholdVersion: input.enrollment.thresholdVersion,
+      },
+      quality: {
+        kind: 'accepted',
+        durationMs: input.audio.metadata.durationMs,
+        signalScore: 0.95,
+      },
+      pad: {
+        kind: 'rejected',
+        reason: 'presentation_attack',
+        score: 0.05,
+        rejectThreshold: 0.35,
+        acceptThreshold: 0.65,
+        modelVersion: 'aasist-test',
+        calibrationVersion: 'pad-test',
+        latencyMs: 20,
+      },
+    };
   }
 }
 

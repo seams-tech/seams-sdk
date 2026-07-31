@@ -10,7 +10,8 @@ The active implementation:
   server-selected prompts;
 - records one 3–5 second verification response to a fresh, unpredictable,
   server-selected prompt;
-- evaluates phrase, audio quality, and speaker similarity independently;
+- evaluates phrase, semantic intent, audio quality, speaker similarity, and
+  configured PAD independently;
 - decodes claimed media to canonical mono 16 kHz audio, extracts internal VAD
   windows, and builds one quality-weighted template without exporting raw
   embeddings from the verifier;
@@ -114,22 +115,56 @@ The API reflects an allowed origin exactly and never emits wildcard CORS.
 the `AI` binding in Workers or `CLOUDFLARE_ACCOUNT_ID` and
 `CLOUDFLARE_API_TOKEN` for the local REST adapter.
 
-The Python sidecar loads its configured model before serving and publishes the
-exact runtime metadata on `/health`. Inference admission is bounded:
+The Python sidecar loads its configured candidate runtimes before serving and
+publishes exact runtime metadata on `/health`. ECAPA, AASIST, and the closed
+intent runtime stay warm. Moonshine uses a fresh request-owned native
+transcriber handle to prevent the cross-input carryover observed with reused
+handles. Inference admission is bounded:
 
 ```sh
 VOICEID_VERIFIER_MAX_CONCURRENT_INFERENCES=1
 VOICEID_VERIFIER_QUEUE_WAIT_MS=250
 ```
 
+The current Moonshine profile enforces an effective concurrency of one because
+the native transcriber handle is request-owned and model-load-bound. A higher
+configured value remains available only when Moonshine is disabled.
+
 An exhausted queue returns a deterministic `overloaded` response. The SDK HTTP
-deadline remains the outer request deadline.
+deadline remains the outer request deadline. Model stages also have bounded
+slots and independent deadlines:
+
+```sh
+VOICEID_SPEECH_DEADLINE_MS=900
+VOICEID_SPEAKER_DEADLINE_MS=900
+VOICEID_PAD_DEADLINE_MS=900
+```
 
 The `python-http` plus `python-moonshine` profile routes verification through
 `/voice-id/verifier/analyze-verification`. It decodes one canonical mono 16 kHz
 PCM buffer and derives phrase, intent, speaker, and quality decisions from that
 same buffer. PAD remains explicitly unavailable until its model and calibration
-are complete.
+are configured. The pinned AASIST research baseline uses:
+
+```sh
+VOICEID_PAD_AASIST_SOURCE_PATH=/path/to/AASIST.py
+VOICEID_PAD_AASIST_CHECKPOINT_PATH=/path/to/AASIST.pth
+VOICEID_PAD_AASIST_CONFIG_PATH=/path/to/AASIST.conf
+VOICEID_PAD_DEVICE=auto
+VOICEID_PAD_REJECT_THRESHOLD=<calibrated probability>
+VOICEID_PAD_ACCEPT_THRESHOLD=<calibrated probability>
+VOICEID_PAD_CALIBRATION_VERSION=<immutable calibration id>
+```
+
+With those variables present, AASIST consumes the same accepted VAD region as
+ECAPA and runs concurrently with Moonshine and speaker scoring. A PAD rejection
+terminates experimental verification as `presentation_attack`; PAD uncertainty
+fails closed. Browser evidence remains signing-ineligible regardless of PAD.
+
+Continuous enrollment builds a normalized medoid-weighted template and rejects
+window sets whose leave-one-out templates are unstable. The aggregation rule
+is bound into the verifier template version, so mean-template records cannot
+cross the current runtime boundary.
 
 The local ECAPA research threshold is `0.6352` under
 `ecapa-local-dev-v1`. It is fixture-derived E0 configuration. Set
@@ -174,7 +209,7 @@ pnpm -C voiceId fixtures:validate
 pnpm -C voiceId fixtures:validate:media
 pnpm -C voiceId fixtures:evaluate:spectral
 pnpm -C voiceId fixtures:evaluate:ecapa
-pnpm -C voiceId pad:test
+pnpm -C voiceId benchmark:test
 pnpm -C voiceId pad:evaluate
 ```
 
@@ -188,12 +223,11 @@ before any threshold or PAD claim can advance.
 The active engineering plan is the standalone VoiceID engine:
 
 1. build one reproducible accuracy, latency, and resource benchmark;
-2. share one canonical decode, VAD result, and speech-window set across warm
-   concurrent phrase, speaker, and PAD inference;
-3. select and calibrate speaker, constrained phrase, and PAD models on held-out
+2. select and calibrate semantic-intent, speaker, constrained-phrase, and PAD
+   models on held-out
    subjects and attacks;
-4. improve continuous-enrollment template stability;
-5. qualify optimized runtime builds with crash, overload, fuzz, and soak tests.
+3. improve continuous-enrollment template stability;
+4. qualify optimized runtime builds with crash, overload, fuzz, and soak tests.
 
 The detailed order and exit gates live in
 [VoiceID MVP 1 Tasks](docs/voiceId-mvp-1-tasks.md). The

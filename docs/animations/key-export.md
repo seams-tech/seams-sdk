@@ -62,14 +62,24 @@ Represent the presentation lifecycle as a discriminated union local to the viewe
 
 ```ts
 type PrivateKeyRevealState =
-  | { kind: 'idle' }
-  | { kind: 'spinning'; entryKey: string; slots: string[] }
+  | {
+      kind: 'spinning';
+      entryKey: string;
+      prefix: string;
+      alphabet: string;
+      slots: string[];
+      lastGlyphAtMs: number;
+    }
   | {
       kind: 'settling';
       entryKey: string;
+      prefix: string;
+      alphabet: string;
       slots: string[];
-      target: string;
+      targetSlots: string[];
+      lockedSlots: number;
       startedAtMs: number;
+      lastGlyphAtMs: number;
     }
   | { kind: 'settled'; entryKey: string };
 ```

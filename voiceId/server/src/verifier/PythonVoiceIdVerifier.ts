@@ -71,6 +71,7 @@ export type PythonAnalyzeVerificationRequest = {
   threshold: number;
   expectedPhrase: string;
   intentName: string;
+  challengeTokens: readonly string[];
 };
 
 export type PythonAudioRequest = {
