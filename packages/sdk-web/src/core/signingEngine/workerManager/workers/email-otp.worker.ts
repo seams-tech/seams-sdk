@@ -5,6 +5,7 @@ import { base58Encode } from '@shared/utils/base58';
 import { errorMessage } from '@shared/utils/errors';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import {
+  mpcMaterialActivationRefsEqual,
   parseMpcMaterialActivationRef,
   parseSigningGrantId,
   parseThresholdEd25519SessionId,
@@ -142,6 +143,7 @@ import {
   RouterAbEd25519YaoClientSigningInputV1,
   RouterAbEd25519YaoClientSigningShareV1,
 } from '../../threshold/ed25519/yaoClient';
+import { issueEd25519OperationStepUpGrant } from '../../threshold/ed25519/walletSession';
 import type { NearResolvedEd25519SigningSessionState } from '../../interfaces/near';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../../session/material/nearEd25519YaoMaterialActivation';
 import {
@@ -2615,6 +2617,191 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
       removeEmailOtpEd25519YaoActiveClient(importedClient.activeClientHandle);
     }
     zeroizeBytes(factorSecret32);
+  }
+}
+
+async function readEmailOtpEd25519YaoOperationMaterial(args: {
+  walletId: string;
+  nearAccountId: string;
+  signerSlot: number;
+  providerSubjectId: string;
+  expectedOperationalPublicKey: string;
+}): Promise<EmailOtpEd25519YaoLocalMaterialV1> {
+  const resolved = await readEmailOtpEd25519YaoLocalMaterialByLocatorV1({
+    store: IndexedDBManager,
+    walletId: args.walletId,
+    nearAccountId: args.nearAccountId,
+    signerSlot: args.signerSlot,
+    providerSubjectId: args.providerSubjectId,
+    expectedOperationalPublicKey: args.expectedOperationalPublicKey,
+  });
+  switch (resolved.kind) {
+    case 'exact_material_ready':
+      return resolved.material;
+    case 'material_absent':
+      throw new Error('Email OTP Ed25519 operation material is unavailable on this device');
+    case 'material_invalid':
+      throw new Error(`Email OTP Ed25519 local custody is invalid: ${resolved.code}`);
+    default:
+      return assertNeverEmailOtpWorker(resolved);
+  }
+}
+
+async function readEmailOtpEd25519YaoOperationEnrollment(args: {
+  material: EmailOtpEd25519YaoLocalMaterialV1;
+  walletId: string;
+  providerSubjectId: string;
+}): Promise<EmailOtpDeviceEnrollmentEscrowRecord> {
+  const binding = args.material.binding;
+  const enrollment = await readEmailOtpDeviceEnrollmentEscrowRecord({
+    walletId: args.walletId,
+    authSubjectId: args.providerSubjectId,
+    enrollmentId: binding.enrollmentId,
+  });
+  if (
+    !enrollment ||
+    enrollment.walletId !== args.walletId ||
+    enrollment.authSubjectId !== args.providerSubjectId ||
+    enrollment.enrollmentId !== binding.enrollmentId ||
+    enrollment.enrollmentVersion !== binding.enrollmentVersion ||
+    enrollment.enrollmentSealKeyVersion !== binding.enrollmentSealKeyVersion ||
+    enrollment.signingRootId !== binding.signingRootId ||
+    enrollment.signingRootVersion !== binding.signingRootVersion ||
+    enrollment.groupId !== SIGNING_SESSION_SEAL_GROUP_ID
+  ) {
+    throw new Error('Email OTP device enrollment escrow does not match operation material');
+  }
+  return enrollment;
+}
+
+function assertEmailOtpEd25519YaoOperationMaterialContinuity(args: {
+  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+  walletId: string;
+  signerSlot: number;
+  expectedOperationalPublicKey: string;
+  expectedThresholdSessionId: ThresholdEd25519SessionId;
+  expectedMaterialActivation: MpcMaterialActivationRef;
+}): void {
+  const activation = nearEd25519YaoMaterialActivationFromMetadata(args.metadata);
+  if (
+    args.metadata.scope.wallet_session_id !== String(args.expectedThresholdSessionId) ||
+    args.metadata.applicationBinding.wallet_id !== args.walletId ||
+    args.metadata.applicationBinding.key_creation_signer_slot !== args.signerSlot ||
+    `ed25519:${base58Encode(args.metadata.registeredPublicKey)}` !==
+      args.expectedOperationalPublicKey ||
+    !mpcMaterialActivationRefsEqual(activation, args.expectedMaterialActivation)
+  ) {
+    throw new Error('Email OTP operation recovery activated different signing material');
+  }
+}
+
+async function destroyEmailOtpOperationRecoveryKeyHandle(args: {
+  runtime: Awaited<ReturnType<typeof getShamir3PassRuntime>>;
+  keyHandle: string;
+}): Promise<void> {
+  try {
+    await args.runtime.destroyClientKeyHandle({ keyHandle: args.keyHandle });
+  } catch {
+    return;
+  }
+}
+
+async function rehydrateEmailOtpEd25519YaoOperationMaterial(
+  args: EmailOtpWorkerOperationMap['rehydrateEmailOtpEd25519YaoOperationMaterial']['payload'],
+): Promise<EmailOtpWorkerOperationMap['rehydrateEmailOtpEd25519YaoOperationMaterial']['result']> {
+  const walletId = readString(args.walletId, 'walletId');
+  const nearAccountId = readString(args.nearAccountId, 'nearAccountId');
+  const providerSubjectId = readString(args.providerSubjectId, 'providerSubjectId');
+  const expectedOperationalPublicKey = readString(
+    args.expectedOperationalPublicKey,
+    'expectedOperationalPublicKey',
+  );
+  const signerSlot = normalizePositiveInteger(args.signerSlot);
+  if (signerSlot === null) {
+    throw new Error('signerSlot must be a positive safe integer');
+  }
+  const material = await readEmailOtpEd25519YaoOperationMaterial({
+    walletId,
+    nearAccountId,
+    signerSlot,
+    providerSubjectId,
+    expectedOperationalPublicKey,
+  });
+  const enrollment = await readEmailOtpEd25519YaoOperationEnrollment({
+    material,
+    walletId,
+    providerSubjectId,
+  });
+
+  const runtime = await getShamir3PassRuntime();
+  let keyHandle: string | null = null;
+  let enrollmentSecret32: Uint8Array | null = null;
+  let importedClient: EmailOtpEd25519YaoWorkerActivationResult | null = null;
+  try {
+    const clientKey = await runtime.createClientKeyHandle({
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+    });
+    keyHandle = clientKey.keyHandle;
+    const wrappedCiphertext = await runtime.addClientSealWithKeyHandle({
+      ciphertextB64u: readString(enrollment.encSB64u, 'enrollment.encSB64u'),
+      keyHandle,
+    });
+    const issuedGrant = await issueEd25519OperationStepUpGrant({
+      relayerUrl: readString(args.relayUrl, 'relayUrl'),
+      normalSigningRequest: args.normalSigningRequest,
+      displayDigest: readString(args.displayDigest, 'displayDigest'),
+      proof: args.proof,
+      materialRecovery: {
+        kind: 'email_otp_local_material_v1',
+        wrappedCiphertext: readString(wrappedCiphertext, 'wrappedCiphertext'),
+        enrollmentSealKeyVersion: enrollment.enrollmentSealKeyVersion,
+      },
+    });
+    if (issuedGrant.materialRecovery.kind !== 'email_otp_local_material_v1') {
+      throw new Error('Email OTP operation step-up did not return recovered material');
+    }
+    const unsealed = await removeClientSealToSecret32({
+      runtime,
+      keyHandle,
+      ciphertextB64u: issuedGrant.materialRecovery.ciphertext,
+    });
+    if (unsealed.kind !== 'secret32') {
+      throw emailOtpCorruptLocalCustodyError(unsealed);
+    }
+    enrollmentSecret32 = unsealed.secret32;
+    importedClient = await importEmailOtpEd25519YaoLocalMaterial({
+      material,
+      expectedThresholdSessionId: String(args.expectedThresholdSessionId),
+      enrollmentSecret32,
+    });
+    assertEmailOtpEd25519YaoOperationMaterialContinuity({
+      metadata: importedClient.metadata,
+      walletId,
+      signerSlot,
+      expectedOperationalPublicKey,
+      expectedThresholdSessionId: args.expectedThresholdSessionId,
+      expectedMaterialActivation: args.expectedMaterialActivation,
+    });
+    const activeClient = importedClient;
+    importedClient = null;
+    return {
+      activeClientHandle: activeClient.activeClientHandle,
+      metadata: activeClient.metadata,
+      issuedGrant: {
+        kind: issuedGrant.kind,
+        grantId: issuedGrant.grantId,
+        authorizationSessionId: issuedGrant.authorizationSessionId,
+        expiresAtMs: issuedGrant.expiresAtMs,
+      },
+    };
+  } finally {
+    if (importedClient) {
+      removeEmailOtpEd25519YaoActiveClient(importedClient.activeClientHandle);
+    }
+    zeroizeBytes(enrollmentSecret32);
+    if (keyHandle) {
+      await destroyEmailOtpOperationRecoveryKeyHandle({ runtime, keyHandle });
+    }
   }
 }
 
@@ -8075,6 +8262,11 @@ self.addEventListener('message', async (event: MessageEvent) => {
               code: 'invalid_args',
               message: 'Invalid signing-session seal transport',
             };
+        postToMainThread({ id: msg.id, ok: true, result });
+        return;
+      }
+      case 'rehydrateEmailOtpEd25519YaoOperationMaterial': {
+        const result = await rehydrateEmailOtpEd25519YaoOperationMaterial(msg.payload);
         postToMainThread({ id: msg.id, ok: true, result });
         return;
       }
