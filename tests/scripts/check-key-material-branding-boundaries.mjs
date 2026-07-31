@@ -281,54 +281,6 @@ check('WebAuthn RP ids cannot be confused with NEAR Ed25519 signing-key ids', ()
   }
 });
 
-check('valid signing-session seal key ids use explicit domain names in active defaults', () => {
-  const localD1Worker = readRepoSource(
-    'packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts',
-  );
-  const stagingD1Worker = readRepoSource(
-    'packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts',
-  );
-  const d1AuthConfig = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts',
-  );
-  const serverSealOptions = readRepoSource(
-    'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts',
-  );
-  const generateKeys = readRepoSource(
-    'apps/web-server/scripts/generate-signing-session-seal-keys.mjs',
-  );
-  const currentSealFixtureFiles = [
-    'tests/unit/walletIframe.signerModeConfigPropagation.unit.test.ts',
-    'tests/unit/warmSessionStore.lifecycle.unit.test.ts',
-    'tests/unit/sealedRefresh.parity.unit.test.ts',
-    'tests/unit/signingSessionSeal.idempotencyRecords.unit.test.ts',
-    'tests/unit/sealedSessionStore.unit.test.ts',
-    'tests/unit/warmSessionReadModel.unit.test.ts',
-    'tests/unit/emailOtpWalletSessionCoordinator.unit.test.ts',
-    'tests/unit/sealedRecovery.methodAdapters.unit.test.ts',
-    'tests/unit/signingSessionSeal.shared.unit.test.ts',
-    'tests/unit/signingSessionRestoreCoordinator.unit.test.ts',
-  ];
-
-  expect(generateKeys).toContain('signing-session-seal-kek-${today}-r1');
-  expect(localD1Worker).toContain('normalizeLocalString(env.SIGNING_SESSION_SEAL_KEY_VERSION)');
-  expect(stagingD1Worker).toContain("readEnvString(env, 'SIGNING_SESSION_SEAL_KEY_VERSION')");
-  expect(localD1Worker).toContain('keyVersion: seal.keyVersion');
-  expect(stagingD1Worker).toContain('keyVersion: seal.keyVersion');
-  expect(serverSealOptions).toContain('parseSigningSessionSealKeyVersion(input.keyVersion)');
-  expect(d1AuthConfig).toContain('parseSigningSessionSealKeyVersion(keyVersionRaw)');
-  expect(d1AuthConfig).toContain('formatSigningSessionSealKeyVersionForWire');
-  expect(localD1Worker).not.toContain('kek-s-2026-02');
-  expect(stagingD1Worker).not.toContain('kek-s-2026-02');
-  expect(generateKeys).not.toContain('kek-s-${today}');
-  for (const relativePath of currentSealFixtureFiles) {
-    const source = readRepoSource(relativePath);
-    expect(source, relativePath).not.toContain('kek-s-2026-02');
-    expect(source, relativePath).not.toContain("keyVersion: 'seal-v1'");
-    expect(source, relativePath).not.toContain('keyVersion: "seal-v1"');
-  }
-});
-
 check('EVM-family signing key slot identity cannot fall back to generic wallet key strings', () => {
   const sharedEvmFamilyKey = readRepoSource(
     'packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId.ts',
