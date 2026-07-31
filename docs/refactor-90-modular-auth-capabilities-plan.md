@@ -1194,9 +1194,11 @@ the replacement and legacy MPC paths must not ship together.
             candidates as a typed `authorization_required` result, and runtime
             discovery no longer rejects that valid branch for lacking a grant
             (`dd4ce7942`, `9d643b5e5`).
-      - [ ] Carry the deferred candidate through NEAR signing confirmation and
-            construct `SelectedEd25519Lane` only after reusable authorization
-            or same-method operation step-up supplies the current grant.
+      - [x] Carry the deferred candidate through NEAR delegate and NEP-413
+            signing confirmation and construct `SelectedEd25519Lane` only
+            after same-method operation step-up supplies the relayer-issued
+            grant (`cd8f89760`). The transaction/deferred operating proof and
+            parent acceptance item remain open.
   - [x] Require canonical JWT `sid` at the Cloudflare Router boundary and
         delete the legacy `session_id` claim fallback and selector
         (`af6dc1514`).
