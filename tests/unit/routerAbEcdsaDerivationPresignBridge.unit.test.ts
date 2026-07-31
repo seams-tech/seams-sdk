@@ -18,20 +18,12 @@ import {
 } from '@server/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge';
 import { parseRouterAbNormalSigningRuntimeConfig } from '@server/core/routerAbSigning/RouterAbNormalSigningRuntime';
 import { RouterAbEcdsaDerivationPoolFillHandlers } from '@server/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers';
-import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 function b64u(byte: number, length: number): string {
   return Buffer.from(new Uint8Array(length).fill(byte)).toString('base64url');
 }
 
-const walletKeyId = deriveEvmFamilySigningKeySlotId({
-  walletId: 'wallet-1',
-  signingRootId: 'project-1:env-1',
-  signingRootVersion: 'root-v1',
-});
-
 const scope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
-  wallet_key_id: walletKeyId,
   wallet_id: 'wallet-1',
   ecdsa_threshold_key_id: 'ecdsa-key-1',
   signing_root_id: 'project-1:env-1',
@@ -158,7 +150,6 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
     });
     const claims = {
       walletId: scope.wallet_id,
-      evmFamilySigningKeySlotId: scope.wallet_key_id,
       relayerKeyId: 'relayer-key-1',
       keyHandle: 'key-handle-1',
       runtimePolicyScope: {
