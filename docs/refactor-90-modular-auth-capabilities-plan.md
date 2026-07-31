@@ -1142,6 +1142,8 @@ the replacement and legacy MPC paths must not ship together.
         (`b6b691bce`).
   - [x] Delete the zero-caller Email OTP existing-public-capability fallback;
         the canonical existing-key resolver remains live (`d51f1da06`).
+  - [x] Delete the zero-caller sealed-session identity converter; the live
+        sealed-session filter remains the persistence boundary (`45a4222b2`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the

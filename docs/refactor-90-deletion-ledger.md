@@ -601,6 +601,8 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   deleted by `b6b691bce`; publication uses the canonical chain-target planner
 - ~~zero-caller `requireEmailOtpExistingEcdsaPublicCapability` fallback~~ —
   deleted by `d51f1da06`; the canonical existing-key resolver remains live
+- ~~zero-caller `exactSealedSessionIdentityFromFilter` converter~~ — deleted by
+  `45a4222b2`; the canonical sealed-session filter remains the boundary
 - ~~zero-caller `buildReauthAnchorIdentityFromEcdsaLaneCandidate` fallback and
   its candidate-only freshness helpers~~ — deleted by `24e0c2335`; live
   reauth uses the canonical available-lane builder
