@@ -665,6 +665,13 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~forwarding-only Ed25519 recovery runtime locator and wrapper interface~~ —
   deleted by `868ba6dee`; the recovery service directly implements the narrow
   installation and lookup ports
+- ~~zero-caller ECDSA activation-journal id projection~~ — deleted by
+  `c51134bba`; journal owners read the required journal id directly
+- ~~zero-caller budget owner, availability, and unknown-status adapters~~ —
+  deleted by `20f1bcfca`, `1ce066cf9`, and `69b0e6b30`; live admission and
+  status readers retain their direct budget paths
+- ~~zero-caller network-only ECDSA chain-target adapter~~ — deleted by
+  `4250a8871`; configured-request and chain-family boundary builders remain
 
 ## 6e gate — composite ECDSA record family (measured 2026-07-28, at `3b904b63a`)
 

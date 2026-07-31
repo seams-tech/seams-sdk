@@ -423,6 +423,8 @@ removes.
 - [x] Reject cross-chain mismatch before worker open or material use.
 - [x] Confine any transitional `activeState` shape to its boundary and schedule
       its same-unit deletion.
+- [x] Delete the zero-caller ECDSA activation-journal id projection; journal
+      owners read the required id directly (`c51134bba`).
 
 ### Unit 1 exit
 
@@ -1253,6 +1255,11 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Repoint the EVM key-slot branding guard at the live provisioning,
         worker, Router validation, and registration/recovery boundaries
         (`fc048026f`).
+  - [x] Delete zero-caller budget owner, availability, and unknown-status
+        adapters; live admission and status readers remain unchanged
+        (`20f1bcfca`, `1ce066cf9`, `69b0e6b30`).
+  - [x] Delete the zero-caller network-only ECDSA chain-target adapter;
+        configured-request and chain-family builders remain (`4250a8871`).
 
 ### Unit 3a exit
 
