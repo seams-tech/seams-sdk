@@ -200,6 +200,11 @@ implementing commit SHA as the evidence.
     metadata on the typed seal transport. The durable Passkey MPC owner writes
     that metadata directly and no longer reconstructs it from a parallel
     composite record keyed by threshold session ID (`0f5d7e6b6`).
+  - [x] Email OTP Ed25519 sealed publication consumes the canonical active
+    capability plus factor-only publication context. It correlates
+    active-client metadata, the exact activation, Wallet Session state, and
+    factor identity before durable write; the publication, registry, and
+    silent-recovery port accept no composite session record (`93ae1e20a`).
   - [x] Email OTP runtime wallet-key projections, worker handles, and sealed
     rehydration correlate by exact key handle. Provisioning slots remain
     confined to registration handle branches (`6113b36bb`).
