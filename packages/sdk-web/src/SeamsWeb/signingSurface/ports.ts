@@ -17,7 +17,7 @@ import type {
 } from '@/core/signingEngine/session/public';
 import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
-import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
+import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
 import type { ReusableWalletSessionState } from '@/core/types/seams';
 import type {
   NearSignIntentRequest,
@@ -429,9 +429,6 @@ export interface PasskeyLoginAssertionSurface {
 
 export interface EmailOtpSigningSessionSurface {
   rememberEmailOtpAppSessionBinding(binding: EmailOtpAppSessionBinding): void;
-  persistEmailOtpEd25519YaoSessionForRefreshInternal(
-    record: ThresholdEd25519SessionRecord,
-  ): Promise<void>;
   prepareEmailOtpEd25519YaoLoginRecoveryInternal(args: {
     walletSession: WalletSessionRef;
     remainingUses: number;
@@ -441,16 +438,16 @@ export interface EmailOtpSigningSessionSurface {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
-  }): Promise<ThresholdEd25519SessionRecord>;
+  }): Promise<NearEd25519SignerBinding>;
   activateEmailOtpEd25519YaoLocalSessionInternal(args: {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
     bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
     activeClientHandle: string;
     metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-  }): Promise<ThresholdEd25519SessionRecord>;
+  }): Promise<NearEd25519SignerBinding>;
   loginWithEmailOtpEd25519YaoCapabilityInternal(
     args: LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
-  ): Promise<ThresholdEd25519SessionRecord>;
+  ): Promise<NearEd25519SignerBinding>;
   loginWithEmailOtpEcdsaCapabilityInternal(
     args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
   ): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult>;
@@ -513,7 +510,7 @@ export type RegistrationSigningSurface = RpIdSurface &
   > &
   Pick<
     EmailOtpSigningSessionSurface,
-    'rememberEmailOtpAppSessionBinding' | 'persistEmailOtpEd25519YaoSessionForRefreshInternal'
+    'rememberEmailOtpAppSessionBinding'
   > &
   SignerWorkerContextSurface &
   PasskeyLoginAssertionSurface &

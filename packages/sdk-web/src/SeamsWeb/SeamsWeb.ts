@@ -122,7 +122,6 @@ import {
   assertWalletRuntimePostconditions,
   type WalletRuntimeInventory,
 } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
-import { type ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from '@/core/signingEngine/session/emailOtp/persistedSnapshot';
 import type { LoginWithEmailOtpEd25519YaoCapabilityInternalArgs } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
@@ -146,7 +145,6 @@ import {
   type RegistrationSignerSetSelection,
 } from '@shared/utils/registrationIntent';
 import {
-  buildNearEd25519SignerBinding,
   nearAccountBindingFromRaw,
   type NearAccountBinding,
   type NearEd25519SignerBinding,
@@ -477,20 +475,6 @@ function requireNearAccountBindingForOperation(args: {
     throw new Error(`[SeamsWeb] ${args.operation} requires a valid NEAR account binding`);
   }
   return parsed.value;
-}
-
-function emailOtpEd25519SignerFromRecoveredRecord(
-  record: ThresholdEd25519SessionRecord,
-): NearEd25519SignerBinding {
-  return buildNearEd25519SignerBinding({
-    account: requireNearAccountBindingForOperation({
-      walletId: record.walletId,
-      nearAccountId: String(record.nearAccountId),
-      operation: 'Email OTP wallet activation',
-    }),
-    nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
-    signerSlot: record.signerSlot,
-  });
 }
 
 function resolvePrewarmNearAccountBinding(
@@ -1897,7 +1881,7 @@ export class SeamsWeb {
     const emailHashHex = await this.requireEmailOtpWalletAuthMethodEmailHashHex(
       args.walletSession.walletId,
     );
-    const record = await this.signingEngine.loginWithEmailOtpEd25519YaoCapabilityInternal({
+    const signer = await this.signingEngine.loginWithEmailOtpEd25519YaoCapabilityInternal({
       ...args,
       emailHashHex,
     });
@@ -1905,7 +1889,7 @@ export class SeamsWeb {
       { signingEngine: this.signingEngine, nearClient: this.nearClient },
       {
         kind: 'near_ed25519_wallet',
-        signer: emailOtpEd25519SignerFromRecoveredRecord(record),
+        signer,
       },
     );
   }
@@ -2051,10 +2035,10 @@ export class SeamsWeb {
       });
       let walletActivation: EmailOtpWalletPostUnlockActivation;
       if (preparedEd25519YaoRecovery) {
-        let recoveredEd25519Record: ThresholdEd25519SessionRecord;
+        let recoveredEd25519Signer: NearEd25519SignerBinding;
         switch (result.ed25519YaoRecovery.kind) {
           case 'unlocked':
-            recoveredEd25519Record =
+            recoveredEd25519Signer =
               await this.signingEngine.activateEmailOtpEd25519YaoUnlockedRecoveryInternal({
                 prepared: preparedEd25519YaoRecovery,
                 bootstrap: result.ed25519YaoRecovery.bootstrap,
@@ -2062,7 +2046,7 @@ export class SeamsWeb {
               });
             break;
           case 'local_session':
-            recoveredEd25519Record =
+            recoveredEd25519Signer =
               await this.signingEngine.activateEmailOtpEd25519YaoLocalSessionInternal({
                 prepared: preparedEd25519YaoRecovery,
                 bootstrap: result.ed25519YaoRecovery.bootstrap,
@@ -2077,7 +2061,7 @@ export class SeamsWeb {
         }
         walletActivation = {
           kind: 'near_ed25519_wallet',
-          signer: emailOtpEd25519SignerFromRecoveredRecord(recoveredEd25519Record),
+          signer: recoveredEd25519Signer,
         };
       } else if (result.ed25519YaoRecovery.kind !== 'not_requested') {
         throw new Error(

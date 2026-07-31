@@ -777,6 +777,23 @@ the replacement and legacy MPC paths must not ship together.
       the independent reusable-authorization status; signing preparation now
       succeeds from canonical material plus authorization after refresh
       (`4f089b483`).
+- [x] Remove the composite-session lookup from recovered local-login
+      restoration; the verified recovery binding plus canonical app and Wallet
+      Session identity own the restore checks (`51e71d7e8`).
+- [x] Carry required Passkey Ed25519 restore metadata from provisioning and
+      sync recovery into sealed persistence. The durable Passkey MPC owner no
+      longer reverse-resolves a composite record by threshold session ID, and
+      the focused sealed-refresh suite passes 4/4 (`0f5d7e6b6`).
+- [x] Publish Email OTP Ed25519 sealed refresh state from the canonical active
+      capability plus factor-only publication context. The publication
+      boundary, sealed-session registry, and silent-recovery persistence port
+      no longer accept a composite session record; the focused recovery suite
+      passes 13/13 (`93ae1e20a`).
+- [x] Build Email OTP Ed25519 cold login/unlock state directly from the exact
+      bootstrap. Correlate JWT claims, active allowance, expiry, signing root,
+      and signer identity at the boundary; return the activated lane's signer
+      through Browser and SeamsWeb without creating or returning a composite
+      session record. The focused recovery suite passes 14/14 (`f5062fc13`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
@@ -1031,6 +1048,17 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete zero-caller Ed25519 composite-record rejection, commit,
       runtime-reseed, broad-list, exact-clear, and recovered-session retirement
       helpers (`7886fd39f`).
+- [x] Delete the Passkey durable-state composite-record reverse lookup and its
+      record-to-restore parsers after exact Ed25519 restore metadata becomes a
+      required seal-transport field (`0f5d7e6b6`).
+- [x] Delete composite-record authority from Email OTP Ed25519 sealed
+      publication. Correlate the active-client metadata, exact activation,
+      canonical Wallet Session state, and factor publication context before
+      writing the sealed record (`93ae1e20a`).
+- [x] Delete composite-record construction and record-to-signer conversion
+      from Email OTP Ed25519 cold login/unlock. The exact bootstrap now builds
+      the Wallet Session state and private SDK activation surfaces return the
+      canonical signer directly (`f5062fc13`).
 - [x] Delete the forwarding-only selected-lane auth-method selector; prepared
       signing now reads the canonical auth binding directly, and its focused
       auth-neutral preparation suite passes 7/7 (`0983a94ec`).
