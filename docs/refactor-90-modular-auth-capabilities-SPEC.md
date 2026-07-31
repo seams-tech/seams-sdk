@@ -293,6 +293,9 @@ implementing commit SHA as the evidence.
   - [x] Recovered local-login restoration validates the verified recovery
     binding against canonical app and Wallet Session identity without reading
     the composite session cache (`51e71d7e8`).
+  - [x] NEAR wallet-unlock subjects resolve from canonical active signer
+    profile rows; the inert runtime-record subject duplicate and provenance
+    branch are deleted (`8c2aeb3ac`).
   - [x] Non-iframe implicit NEAR funding reads the bearer credential from the
     canonical active Wallet Session authorization projection and fails before
     fetch when that authorization is absent or expired; no composite MPC record
@@ -664,8 +667,8 @@ Refactor move:
   active and exhausted remain unlocked, while missing and expired are locked;
 - surface missing, corrupt, or ambiguous durable identity as typed
   `unresolvable` results;
-- keep provenance (`runtime_session_record`, `profile_projection`,
-  `host_last_used_profile`) as diagnostics only;
+- keep profile provenance (`profile_projection`, `host_last_used_profile`) as
+  diagnostics only;
 - resolve every MPC capability independently through
   `MpcCapabilityHydrationPlan`. Material readiness never substitutes for the
   Wallet Session lifecycle, and Wallet Session expiry or exhaustion never
@@ -695,7 +698,6 @@ type WalletUnlockSubjectSet = {
 };
 
 type WalletIdentitySource =
-  | "runtime_session_record"
   | "profile_projection"
   | "host_last_used_profile";
 
