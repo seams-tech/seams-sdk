@@ -18,6 +18,11 @@ import { nearEd25519YaoMaterialActivationFromMetadata } from '../../packages/sdk
 import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
 import { buildWalletAuthAuthorityRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  nearEd25519OperationMaterialFixture,
+  sealedEmailOtpNearOperationMaterialFixture,
+} from './helpers/nearEd25519OperationMaterial.fixtures';
+import { resolveNearOperationStepUpMaterial } from '../../packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519YaoCapabilityResolution';
 
 const WALLET_ID = 'email-otp-operation-material.testnet';
 const NEAR_ACCOUNT_ID = 'email-otp-operation-material.near';
@@ -150,4 +155,74 @@ test('Email OTP operation material client carries exact material identity withou
   expect(worker.operations[0]?.payload).not.toHaveProperty('walletSessionId');
   expect(worker.operations[0]?.payload).not.toHaveProperty('remainingUses');
   expect(worker.operations[0]?.payload).not.toHaveProperty('signingGrantId');
+});
+
+test('sealed Email OTP material authorizes and rehydrates only after operation confirmation', async () => {
+  const metadata = activeMetadata();
+  const activation = nearEd25519YaoMaterialActivationFromMetadata(metadata);
+  const worker = new OperationMaterialWorkerFixture(metadata);
+  const activeClient = new EmailOtpEd25519YaoWorkerActiveClientV1(
+    worker.context(),
+    'email-otp-operation-resolver-client',
+    metadata,
+  );
+  const material = nearEd25519OperationMaterialFixture({
+    activeClient,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
+    walletId: WALLET_ID,
+    nearAccountId: NEAR_ACCOUNT_ID,
+    signerSlot: 1,
+  });
+  const issuedGrant = {
+    kind: 'operation_step_up' as const,
+    grantId: OPERATION_GRANT_ID,
+    authorizationSessionId: 'email-otp-operation-authorization',
+    expiresAtMs: Date.now() + 30_000,
+  };
+  const request = await normalSigningRequest(metadata);
+  const proof = {
+    kind: 'email_otp' as const,
+    authorityRef: buildWalletAuthAuthorityRefFixture({ walletId: WALLET_ID }),
+    providerSubjectId: PROVIDER_SUBJECT_ID,
+    challengeId: 'email-otp-operation-challenge',
+    otpCode: '123456',
+  };
+  const observed: Array<{
+    request: RouterAbNormalSigningPrepareRequestV2Wire;
+    displayDigest: string;
+    proof: typeof proof;
+  }> = [];
+  const sealed = sealedEmailOtpNearOperationMaterialFixture({
+    materialActivation: activation,
+    material,
+    issuedGrant,
+    onAuthorize: (authorization) => {
+      observed.push({
+        request: authorization.normalSigningRequest,
+        displayDigest: authorization.displayDigest,
+        proof: authorization.proof,
+      });
+    },
+  });
+
+  expect(observed).toHaveLength(0);
+  const resolved = await resolveNearOperationStepUpMaterial({
+    kind: 'email_otp_sealed',
+    material: sealed,
+    expectedActivation: activation,
+    normalSigningRequest: request,
+    displayDigest: 'confirmed-display-digest',
+    proof,
+  });
+
+  expect(observed).toEqual([
+    {
+      request,
+      displayDigest: 'confirmed-display-digest',
+      proof,
+    },
+  ]);
+  expect(resolved.material).toBe(material);
+  expect(resolved.issuedGrant).toEqual(issuedGrant);
+  activeClient.dispose();
 });
