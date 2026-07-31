@@ -1,62 +1,46 @@
 import { expect, test } from '@playwright/test';
 import {
-  buildDiscoveredLaneForRecord,
+  buildDiscoveredLaneForRuntime,
   syncSealedRefreshPolicyForLanes,
 } from '@/core/signingEngine/session/availability/readiness';
 import type { UpdateExactSealedSessionPolicyInput } from '@/core/signingEngine/session/persistence/sealedSessionStore';
-import { clearAllStoredThresholdEd25519SessionRecords } from '@/core/signingEngine/session/persistence/records';
-import { seedEd25519WarmSessionRecord } from './helpers/signingSessionRecord.fixtures';
+import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
+import { buildPasskeyEd25519SealedSessionRecordFixture } from './helpers/sealedSigningSession.fixtures';
 
-test.describe('signing-session expiry persistence', () => {
-  test.beforeEach(() => {
-    clearAllStoredThresholdEd25519SessionRecords();
+test('updates an expired passkey Ed25519 seal and preserves its reauth anchor', async () => {
+  const expiresAtMs = Date.now() - 1_000;
+  const record = buildPasskeyEd25519SealedSessionRecordFixture({
+    nearAccountId: 'expired-passkey-ed25519.testnet',
+    thresholdSessionId: 'threshold-expired-passkey-ed25519',
+    signingGrantId: 'grant-expired-passkey-ed25519',
+    expiresAtMs,
+    remainingUses: 2,
   });
+  const runtime = parseExactEd25519SealedSessionRuntime(record);
+  if (!runtime) throw new Error('Expected exact passkey Ed25519 runtime fixture');
 
-  test.afterEach(() => {
-    clearAllStoredThresholdEd25519SessionRecords();
-  });
-
-  test('updates an expired passkey Ed25519 seal instead of deleting its reauth anchor', async () => {
-    const expiresAtMs = Date.now() - 1_000;
-    const record = seedEd25519WarmSessionRecord({
-      nearAccountId: 'expired-passkey-ed25519.testnet',
-      thresholdSessionId: 'threshold-expired-passkey-ed25519',
-      signingGrantId: 'grant-expired-passkey-ed25519',
+  const policyUpdates: UpdateExactSealedSessionPolicyInput[] = [];
+  await syncSealedRefreshPolicyForLanes({
+    lanes: [buildDiscoveredLaneForRuntime(runtime)],
+    status: {
+      sessionId: runtime.signingGrantId,
+      status: 'expired',
       expiresAtMs,
       remainingUses: 2,
-      source: 'login',
-    });
-    const lane = buildDiscoveredLaneForRecord(record);
-    if (!lane) throw new Error('Expected passkey Ed25519 lane fixture');
+    },
+    updatePolicy: async (update) => {
+      policyUpdates.push(update);
+    },
+  });
 
-    const policyUpdates: UpdateExactSealedSessionPolicyInput[] = [];
-    let deleteCalls = 0;
-    await syncSealedRefreshPolicyForLanes({
-      lanes: [lane],
-      status: {
-        sessionId: record.signingGrantId,
-        status: 'expired',
-        expiresAtMs,
-        remainingUses: 2,
-      },
-      updatePolicy: async (update) => {
-        policyUpdates.push(update);
-      },
-      deleteRecord: async () => {
-        deleteCalls += 1;
-      },
-    });
-
-    expect(deleteCalls).toBe(0);
-    expect(policyUpdates).toHaveLength(1);
-    expect(policyUpdates[0]).toMatchObject({
-      thresholdSessionId: 'threshold-expired-passkey-ed25519',
-      filter: {
-        authMethod: 'passkey',
-        curve: 'ed25519',
-      },
-      expiresAtMs,
-      remainingUses: 2,
-    });
+  expect(policyUpdates).toHaveLength(1);
+  expect(policyUpdates[0]).toMatchObject({
+    thresholdSessionId: 'threshold-expired-passkey-ed25519',
+    filter: {
+      authMethod: 'passkey',
+      curve: 'ed25519',
+    },
+    expiresAtMs,
+    remainingUses: 2,
   });
 });

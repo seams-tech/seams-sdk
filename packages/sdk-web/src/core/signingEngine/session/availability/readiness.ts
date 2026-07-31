@@ -6,23 +6,17 @@ import type {
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
 import {
-  clearStoredThresholdEd25519SessionRecordForLaneKey,
-  listStoredThresholdEd25519SessionLaneRecordsForWallet,
-  serializeThresholdEd25519SessionLaneKey,
-  thresholdEd25519SessionRecordKeyFromRecord,
-  type ThresholdEd25519SessionRecordKey,
-  type ThresholdEd25519SessionRecord,
-} from '../persistence/records';
-import type {
+  listExactSealedSessionsForWallet,
   SigningSessionSealedRecordFilter,
-  deleteExactSealedSession,
-  updateExactSealedSessionPolicy,
+  type updateExactSealedSessionPolicy,
 } from '../persistence/sealedSessionStore';
-import { readWarmSessionCapabilityRecordsForWallet } from '../warmCapabilities/store';
 import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabilities/volatileWarmMaterialCommands';
 import { parseVolatileWarmSessionId } from '../warmCapabilities/volatileWarmSessionId';
 import type { WarmSessionPrfClaim } from '../warmCapabilities/types';
-import { emailOtpAuthContextRetention } from '../identity/laneIdentity';
+import {
+  parseExactEd25519SealedSessionRuntime,
+  type ExactEd25519SealedSessionRuntime,
+} from '../warmCapabilities/ed25519SealedSessionRuntime';
 import {
   normalizeWarmSessionReadPorts,
   readWarmSessionClaim,
@@ -40,7 +34,6 @@ import {
   thresholdSessionIdsForBudgetStatusCheck,
   walletBudgetOwnerId,
   walletBudgetOwnerKey,
-  type SigningSessionBudgetStatusAuth,
   type SigningSessionBudgetStatusCheck,
   type WalletBudgetOwner,
 } from '../budget/budget';
@@ -63,7 +56,7 @@ export type SigningSessionLane = {
 };
 
 export type DiscoveredSigningSessionLane = SigningSessionLane & {
-  record: ThresholdEd25519SessionRecord;
+  runtime: ExactEd25519SealedSessionRuntime;
   backing: 'touch_confirm' | 'email_otp_worker' | 'record_policy';
 };
 
@@ -76,6 +69,7 @@ export type SigningGrantStatusOverride = {
 };
 
 export type SigningGrantReadinessDeps = {
+  listExactSealedSessionsForWallet?: typeof listExactSealedSessionsForWallet;
   touchConfirm?: Partial<
     Pick<
       VolatileWarmMaterialPort,
@@ -92,12 +86,6 @@ export type SigningGrantReadinessDeps = {
   }) => Promise<WarmSessionStatusResult>;
   clearEmailOtpWarmSessionMaterial?: (sessionId: string) => Promise<void>;
   updateExactSealedSessionPolicy?: typeof updateExactSealedSessionPolicy;
-  deleteExactSealedSession?: typeof deleteExactSealedSession;
-  markThresholdEd25519EmailOtpSessionConsumedForWallet?: (args: {
-    walletId: WalletId;
-    thresholdSessionId: string;
-    uses?: number;
-  }) => void;
 };
 
 export type SigningGrantClaimReaderDeps = {
@@ -224,32 +212,13 @@ export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
   };
 }
 
-function resolveSigningGrantId(
-  record: ThresholdEd25519SessionRecord | null | undefined,
-): string {
-  return normalizeNonEmpty(record?.signingGrantId);
-}
-
-function toLaneSource(
-  record: ThresholdEd25519SessionRecord,
-): SignerAuthMethod {
-  const source = record.source;
-  switch (source) {
-    case SIGNER_AUTH_METHODS.emailOtp:
+function toLaneSource(runtime: ExactEd25519SealedSessionRuntime): SignerAuthMethod {
+  switch (runtime.factor.kind) {
+    case 'email_otp':
       return SIGNER_AUTH_METHODS.emailOtp;
-    case 'login':
-    case 'registration':
-    case 'add-signer':
-    case 'manual-connect':
-    case 'bootstrap':
+    case 'passkey':
       return SIGNER_AUTH_METHODS.passkey;
-    default:
-      return assertNeverSigningSessionStoreSource(source);
   }
-}
-
-function assertNeverSigningSessionStoreSource(value: never): never {
-  throw new Error(`Unsupported signing session store source: ${String(value)}`);
 }
 
 function authMethodForSigningSessionLanes(
@@ -273,10 +242,10 @@ function assertNeverSigningSessionLaneAuthMethod(value: never): never {
   throw new Error(`Unsupported signing session lane auth method: ${String(value)}`);
 }
 
-function resolveRecordWalletOwnerId(
-  record: ThresholdEd25519SessionRecord,
+function resolveRuntimeWalletOwnerId(
+  runtime: ExactEd25519SealedSessionRuntime,
 ): WalletBudgetOwner {
-  return ed25519WalletBudgetOwner(record.walletId);
+  return ed25519WalletBudgetOwner(runtime.walletId);
 }
 
 function addLane(
@@ -290,67 +259,58 @@ function addLane(
   lanes.push(lane);
 }
 
-export function buildDiscoveredLaneForRecord(
-  record: ThresholdEd25519SessionRecord,
-): DiscoveredSigningSessionLane | null {
-  const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
-  if (!thresholdSessionId) return null;
+export function buildDiscoveredLaneForRuntime(
+  runtime: ExactEd25519SealedSessionRuntime,
+): DiscoveredSigningSessionLane {
   return {
     curve: 'ed25519',
     chain: 'near',
-    source: toLaneSource(record),
-    thresholdSessionId,
-    signingGrantId: resolveSigningGrantId(record),
-    backingMaterialSessionId: thresholdSessionId,
-    backing: 'touch_confirm',
-    record,
+    source: toLaneSource(runtime),
+    thresholdSessionId: runtime.thresholdSessionId,
+    signingGrantId: runtime.signingGrantId,
+    backingMaterialSessionId: runtime.thresholdSessionId,
+    backing: 'record_policy',
+    runtime,
   };
 }
 
-function addDiscoveredEd25519LaneRecord(args: {
-  lanes: DiscoveredSigningSessionLane[];
-  seenLaneKeys: Set<string>;
-  record: ThresholdEd25519SessionRecord | null;
-}): void {
-  if (!args.record) return;
-  const laneKey = thresholdEd25519SessionRecordKeyFromRecord(args.record);
-  if (!laneKey) return;
-  const serializedLaneKey = serializeThresholdEd25519SessionLaneKey(laneKey);
-  if (args.seenLaneKeys.has(serializedLaneKey)) return;
-  args.seenLaneKeys.add(serializedLaneKey);
-  addLane(args.lanes, buildDiscoveredLaneForRecord(args.record));
-}
-
-export function discoverLanesForWallet(
+export async function discoverLanesForWallet(
   deps: SigningGrantReadinessDeps,
   walletId: WalletId,
-): DiscoveredSigningSessionLane[] {
-  const records = readWarmSessionCapabilityRecordsForWallet(walletId);
+): Promise<DiscoveredSigningSessionLane[]> {
+  const listSealed = deps.listExactSealedSessionsForWallet ?? listExactSealedSessionsForWallet;
+  const records = (
+    await Promise.all([
+      listSealed({
+        walletId,
+        filter: { authMethod: SIGNER_AUTH_METHODS.passkey, curve: 'ed25519' },
+      }),
+      listSealed({
+        walletId,
+        filter: { authMethod: SIGNER_AUTH_METHODS.emailOtp, curve: 'ed25519' },
+      }),
+    ])
+  ).flat();
   const lanes: DiscoveredSigningSessionLane[] = [];
-  const seenEd25519LaneKeys = new Set<string>();
-  for (const record of listStoredThresholdEd25519SessionLaneRecordsForWallet(walletId)) {
-    addDiscoveredEd25519LaneRecord({
-      lanes,
-      seenLaneKeys: seenEd25519LaneKeys,
-      record,
-    });
+  const seenThresholdSessionIds = new Set<string>();
+  for (const record of records) {
+    if (record.curve !== 'ed25519') continue;
+    const runtime = parseExactEd25519SealedSessionRuntime(record);
+    if (!runtime || runtime.walletId !== walletId) continue;
+    if (seenThresholdSessionIds.has(runtime.thresholdSessionId)) continue;
+    seenThresholdSessionIds.add(runtime.thresholdSessionId);
+    addLane(lanes, buildDiscoveredLaneForRuntime(runtime));
   }
-  addDiscoveredEd25519LaneRecord({
-    lanes,
-    seenLaneKeys: seenEd25519LaneKeys,
-    record: records.ed25519,
-  });
-
   return lanes;
 }
 
-export function getLanesForWalletSession(args: {
+export async function getLanesForWalletSession(args: {
   deps: SigningGrantReadinessDeps;
   walletId: WalletId;
   signingGrantId: string;
-}): DiscoveredSigningSessionLane[] {
+}): Promise<DiscoveredSigningSessionLane[]> {
   const signingGrantId = normalizeRequired(args.signingGrantId, 'signingGrantId');
-  return discoverLanesForWallet(args.deps, args.walletId).filter(
+  return (await discoverLanesForWallet(args.deps, args.walletId)).filter(
     (lane) => lane.signingGrantId === signingGrantId,
   );
 }
@@ -490,7 +450,7 @@ function signingGrantStatusOverrideOwnersForLanes(
 ): WalletBudgetOwner[] {
   const ownersByKey = new Map<string, WalletBudgetOwner>();
   for (const lane of lanes) {
-    const owner = resolveRecordWalletOwnerId(lane.record);
+    const owner = resolveRuntimeWalletOwnerId(lane.runtime);
     ownersByKey.set(walletBudgetOwnerKey(owner), owner);
   }
   return [...ownersByKey.values()];
@@ -503,13 +463,6 @@ export function walletOwnerSigningSessionStatusOverrideKey(
   return `${walletBudgetOwnerKey(owner)}:${normalizeNonEmpty(signingGrantId)}`;
 }
 
-function ed25519LaneKeyFromDiscoveredLane(
-  lane: DiscoveredSigningSessionLane,
-): ThresholdEd25519SessionRecordKey | null {
-  if (lane.curve !== 'ed25519') return null;
-  return thresholdEd25519SessionRecordKeyFromRecord(lane.record as ThresholdEd25519SessionRecord);
-}
-
 function signingGrantStatusOverrideOwners(args: {
   owner: WalletBudgetOwner;
   lanes: DiscoveredSigningSessionLane[];
@@ -517,7 +470,7 @@ function signingGrantStatusOverrideOwners(args: {
   const ownersByKey = new Map<string, WalletBudgetOwner>();
   ownersByKey.set(walletBudgetOwnerKey(args.owner), args.owner);
   for (const lane of args.lanes) {
-    const owner = resolveRecordWalletOwnerId(lane.record);
+    const owner = resolveRuntimeWalletOwnerId(lane.runtime);
     ownersByKey.set(walletBudgetOwnerKey(owner), owner);
   }
   return [...ownersByKey.values()];
@@ -563,8 +516,7 @@ function resolveApplicableSigningGrantStatusOverride(args: {
   const freshActiveLane = args.lanes.find((lane) => {
     const thresholdSessionId = normalizeNonEmpty(lane.thresholdSessionId);
     if (args.override.thresholdSessionIds.has(thresholdSessionId)) return false;
-    const recordUpdatedAtMs = Math.floor(Number(lane.record.updatedAtMs) || 0);
-    if (recordUpdatedAtMs <= args.override.updatedAtMs) return false;
+    if (lane.runtime.sealedRecord.updatedAtMs <= args.override.updatedAtMs) return false;
     const claim = args.claimsByThresholdSessionId.get(thresholdSessionId) || null;
     return claim?.state === 'warm';
   });
@@ -572,7 +524,7 @@ function resolveApplicableSigningGrantStatusOverride(args: {
     for (const lane of args.lanes) {
       args.statusOverrides?.delete(
         walletOwnerSigningSessionStatusOverrideKey(
-          resolveRecordWalletOwnerId(lane.record),
+          resolveRuntimeWalletOwnerId(lane.runtime),
           args.override.signingGrantId,
         ),
       );
@@ -623,58 +575,16 @@ export async function readClaimsForLanes(args: {
   lanes: DiscoveredSigningSessionLane[];
 }): Promise<Map<string, WarmSessionPrfClaim | null>> {
   const claims = new Map<string, WarmSessionPrfClaim | null>();
-  for (const lane of args.lanes.filter((candidate) => candidate.backing === 'record_policy')) {
-    const record = lane.record;
-    if (!('chainTarget' in record)) {
-      claims.set(lane.thresholdSessionId, null);
-      continue;
-    }
+  for (const lane of args.lanes) {
     claims.set(
       lane.thresholdSessionId,
       warmClaimFromRecordPolicy({
         sessionId: lane.thresholdSessionId,
-        remainingUses: record.remainingUses,
-        expiresAtMs: record.expiresAtMs,
+        remainingUses: lane.runtime.remainingUses,
+        expiresAtMs: lane.runtime.expiresAtMs,
       }),
     );
   }
-  const touchConfirm = normalizeWarmSessionReadPorts(args.deps.touchConfirm);
-  const touchConfirmLanes = args.lanes.filter((lane) => lane.backing === 'touch_confirm');
-  const touchConfirmClaims = await readWarmSessionClaims({
-    touchConfirm,
-    sessionIds: touchConfirmLanes.map((lane) => lane.backingMaterialSessionId),
-  });
-  for (const lane of touchConfirmLanes) {
-    const backingClaim = touchConfirmClaims.get(lane.backingMaterialSessionId) || null;
-    claims.set(
-      lane.thresholdSessionId,
-      backingClaim ? { ...backingClaim, sessionId: lane.thresholdSessionId } : null,
-    );
-  }
-
-  await Promise.all(
-    args.lanes
-      .filter((lane) => lane.backing === 'email_otp_worker')
-      .map(async (lane) => {
-        if (typeof args.deps.getEmailOtpWarmSessionStatus !== 'function') {
-          claims.set(lane.thresholdSessionId, null);
-          return;
-        }
-        const status = await args.deps
-          .getEmailOtpWarmSessionStatus(lane.backingMaterialSessionId)
-          .catch(() => null);
-        claims.set(
-          lane.thresholdSessionId,
-          status
-            ? toWarmSessionClaimFromStatusResult({
-                sessionId: lane.thresholdSessionId,
-                status,
-              })
-            : null,
-        );
-      }),
-  );
-
   return claims;
 }
 
@@ -683,7 +593,7 @@ export async function readWalletScopedLaneClaimsForWallet(args: {
   walletId: WalletId;
   statusOverrides?: Map<string, SigningGrantStatusOverride>;
 }): Promise<Map<string, WarmSessionPrfClaim | null>> {
-  const lanes = discoverLanesForWallet(args.deps, args.walletId);
+  const lanes = await discoverLanesForWallet(args.deps, args.walletId);
   return readWalletScopedLaneClaimsForLanes({
     deps: args.deps,
     lanes,
@@ -761,19 +671,14 @@ export function statusFromClaim(args: {
   lanes: DiscoveredSigningSessionLane[];
   claim: WarmSessionPrfClaim | null;
 }): SigningSessionStatus {
-  const emailOtpLane = args.lanes.find((lane) => lane.source === SIGNER_AUTH_METHODS.emailOtp);
-  const emailOtpAuthContext =
-    emailOtpLane?.record.source === SIGNER_AUTH_METHODS.emailOtp
-      ? emailOtpLane.record.emailOtpAuthContext
-      : null;
-  const emailOtpRetention = emailOtpAuthContext
-    ? emailOtpAuthContextRetention(emailOtpAuthContext)
-    : null;
+  const hasEmailOtpLane = args.lanes.some(
+    (lane) => lane.source === SIGNER_AUTH_METHODS.emailOtp,
+  );
   return toSigningSessionStatus({
     sessionId: args.signingGrantId,
     claim: args.claim,
     authMethod: authMethodForSigningSessionLanes(args.lanes),
-    retention: emailOtpRetention,
+    retention: hasEmailOtpLane ? 'session' : null,
   });
 }
 
@@ -781,20 +686,15 @@ export function statusFromConsumedLanes(args: {
   signingGrantId: string;
   lanes: DiscoveredSigningSessionLane[];
 }): SigningSessionStatus {
-  const emailOtpLane = args.lanes.find((lane) => lane.source === SIGNER_AUTH_METHODS.emailOtp);
-  const emailOtpAuthContext =
-    emailOtpLane?.record.source === SIGNER_AUTH_METHODS.emailOtp
-      ? emailOtpLane.record.emailOtpAuthContext
-      : null;
-  const emailOtpRetention = emailOtpAuthContext
-    ? emailOtpAuthContextRetention(emailOtpAuthContext)
-    : null;
+  const hasEmailOtpLane = args.lanes.some(
+    (lane) => lane.source === SIGNER_AUTH_METHODS.emailOtp,
+  );
   return {
     sessionId: args.signingGrantId,
     status: 'exhausted',
     remainingUses: 0,
     authMethod: authMethodForSigningSessionLanes(args.lanes),
-    ...(emailOtpRetention ? { retention: emailOtpRetention } : {}),
+    ...(hasEmailOtpLane ? { retention: 'session' as const } : {}),
   };
 }
 
@@ -1061,7 +961,7 @@ export async function consumeSigningGrantUse(args: {
   const budgetTargets = targetSessionSetsForBudgetStatusCheck(input.budgetStatusCheck);
   const targetBacking = budgetTargets.backingMaterialSessionIds;
   const targetThreshold = budgetTargets.thresholdSessionIds;
-  const lanes = getLanesForWalletSession({
+  const lanes = await getLanesForWalletSession({
     deps: args.deps,
     walletId,
     signingGrantId,
@@ -1144,7 +1044,7 @@ export async function consumeSigningGrantUse(args: {
         });
         break;
       }
-      case 'record_policy':
+      case 'record_policy': {
         if (!statusRead) {
           status = (await args.readStatus(input.budgetStatusCheck)) || null;
           statusRead = true;
@@ -1159,25 +1059,12 @@ export async function consumeSigningGrantUse(args: {
           laneIsExplicitTarget,
         });
         break;
+      }
     }
     consumedBacking.add(lane.backingMaterialSessionId);
   }
 
   const consumedOrTargetedLanes = hasExplicitTarget ? targetLanes : lanes;
-  const ed25519EmailOtpLane = consumedOrTargetedLanes.find(
-    (lane) =>
-      lane.curve === 'ed25519' &&
-      lane.source === 'email_otp' &&
-      !alreadyConsumedThreshold.has(lane.thresholdSessionId),
-  );
-  if (ed25519EmailOtpLane && input.owner.curve === 'ed25519') {
-    args.deps.markThresholdEd25519EmailOtpSessionConsumedForWallet?.({
-      walletId: input.owner.walletId,
-      thresholdSessionId: ed25519EmailOtpLane.thresholdSessionId,
-      uses,
-    });
-  }
-
   if (!statusRead) {
     status = await args.readStatus(input.budgetStatusCheck);
     statusRead = true;
@@ -1210,7 +1097,6 @@ export async function consumeSigningGrantUse(args: {
     lanes,
     status: resolvedStatus,
     updatePolicy: args.deps.updateExactSealedSessionPolicy,
-    deleteRecord: args.deps.deleteExactSealedSession,
   });
   return resolvedStatus;
 }
@@ -1235,7 +1121,7 @@ export async function clearSigningGrant(args: {
   walletId: WalletId;
   signingGrantId: string;
 }): Promise<SigningGrantClearResult> {
-  const lanes = getLanesForWalletSession({
+  const lanes = await getLanesForWalletSession({
     deps: args.deps,
     walletId: args.walletId,
     signingGrantId: args.signingGrantId,
@@ -1254,15 +1140,7 @@ export async function clearSigningGrant(args: {
   );
   const cleared = new Set<string>();
   const failures = new Set<SigningGrantClearFailure>();
-  const ed25519LaneKeysToClear = new Map<string, ThresholdEd25519SessionRecordKey>();
   for (const lane of lanes) {
-    const ed25519LaneKey = ed25519LaneKeyFromDiscoveredLane(lane);
-    if (ed25519LaneKey) {
-      ed25519LaneKeysToClear.set(
-        serializeThresholdEd25519SessionLaneKey(ed25519LaneKey),
-        ed25519LaneKey,
-      );
-    }
     if (cleared.has(lane.backingMaterialSessionId)) continue;
     cleared.add(lane.backingMaterialSessionId);
     if (lane.backing === 'record_policy') continue;
@@ -1284,9 +1162,6 @@ export async function clearSigningGrant(args: {
       failures.add('touch_confirm_material');
     }
   }
-  for (const laneKey of ed25519LaneKeysToClear.values()) {
-    clearStoredThresholdEd25519SessionRecordForLaneKey(laneKey);
-  }
   if (failures.size > 0) {
     return {
       kind: 'unavailable',
@@ -1301,7 +1176,7 @@ function expiredEd25519SealedPolicyExpiresAtMs(args: {
   statusExpiresAtMs: number;
   nowMs: number;
 }): number {
-  const laneExpiresAtMs = Math.floor(Number(args.lane.record.expiresAtMs) || 0);
+  const laneExpiresAtMs = args.lane.runtime.expiresAtMs;
   return Math.min(
     args.nowMs,
     args.statusExpiresAtMs > 0 ? args.statusExpiresAtMs : args.nowMs,
@@ -1313,7 +1188,6 @@ export async function syncSealedRefreshPolicyForLanes(args: {
   lanes: DiscoveredSigningSessionLane[];
   status: SigningSessionStatus;
   updatePolicy?: typeof updateExactSealedSessionPolicy;
-  deleteRecord?: typeof deleteExactSealedSession;
 }): Promise<void> {
   const seen = new Set<string>();
   const filterForLane = (
@@ -1332,14 +1206,13 @@ export async function syncSealedRefreshPolicyForLanes(args: {
     });
   if (!sealedLanes.length) return;
   const updatePolicy = args.updatePolicy;
-  const deleteRecord = args.deleteRecord;
-  if (!updatePolicy || !deleteRecord) return;
+  if (!updatePolicy) return;
   const remainingUses = Math.floor(Number(args.status.remainingUses) || 0);
   const expiresAtMs = Math.floor(Number(args.status.expiresAtMs) || 0);
   const nowMs = Date.now();
   const laneExpiresAtMs = Math.min(
     ...sealedLanes
-      .map((lane) => Math.floor(Number(lane.record.expiresAtMs) || 0))
+      .map((lane) => lane.runtime.expiresAtMs)
       .filter((value) => value > 0),
   );
   const policyExpiresAtMs =
@@ -1350,25 +1223,19 @@ export async function syncSealedRefreshPolicyForLanes(args: {
         : 0;
   if (args.status.status === 'expired' || (expiresAtMs > 0 && expiresAtMs <= nowMs)) {
     await Promise.all(
-      sealedLanes.map((lane) => {
-        if (lane.curve === 'ed25519') {
-          // Expired Ed25519 material remains the exact passkey/email lane for reauthentication.
-          return updatePolicy({
-            thresholdSessionId: lane.thresholdSessionId,
-            filter: filterForLane(lane)!,
-            remainingUses,
-            expiresAtMs: expiredEd25519SealedPolicyExpiresAtMs({
-              lane,
-              statusExpiresAtMs: expiresAtMs,
-              nowMs,
-            }),
-            updatedAtMs: nowMs,
-          }).catch(() => undefined);
-        }
-        return deleteRecord(lane.thresholdSessionId, filterForLane(lane)!, {
-          deleteResolvedIdentity: false,
-        }).catch(() => undefined);
-      }),
+      sealedLanes.map((lane) =>
+        updatePolicy({
+          thresholdSessionId: lane.thresholdSessionId,
+          filter: filterForLane(lane)!,
+          remainingUses,
+          expiresAtMs: expiredEd25519SealedPolicyExpiresAtMs({
+            lane,
+            statusExpiresAtMs: expiresAtMs,
+            nowMs,
+          }),
+          updatedAtMs: nowMs,
+        }).catch(() => undefined),
+      ),
     );
     return;
   }

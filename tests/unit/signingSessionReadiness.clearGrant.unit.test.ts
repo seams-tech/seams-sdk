@@ -1,253 +1,56 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import {
   clearSigningGrant,
   discoverLanesForWallet,
 } from '@/core/signingEngine/session/availability/readiness';
+import type { ClearVolatileWarmSessionMaterialCommand } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import {
-  buildThresholdEd25519SessionRecordKey,
-  clearAllStoredThresholdEd25519SessionRecords,
-  clearStoredThresholdEd25519SessionRecordForLaneKey,
-  getStoredThresholdEd25519SessionRecordForLane,
-  upsertThresholdEd25519SessionFact,
-} from '@/core/signingEngine/session/persistence/records';
+  buildPasskeyEd25519SealedSessionRecordFixture,
+} from './helpers/sealedSigningSession.fixtures';
 
-const SPLIT_WALLET_ID = toWalletId('frost-clear-grant-k7p9m2');
-const SPLIT_NEAR_ACCOUNT_ID = toAccountId('b'.repeat(64));
-const PRIMARY_NEAR_ED25519_SIGNING_KEY_ID = 'near-ed25519-clear-grant-primary';
-const SIBLING_NEAR_ED25519_SIGNING_KEY_ID = 'near-ed25519-clear-grant-sibling';
-const PRIMARY_SIGNING_GRANT_ID = 'grant-clear-split-ed25519-primary';
-const SIBLING_SIGNING_GRANT_ID = 'grant-clear-split-ed25519-sibling';
-const MISMATCH_WALLET_ID = toWalletId('valid-wallet.testnet');
-const MISMATCH_NEAR_ACCOUNT_ID = toAccountId('target.testnet');
-const MISMATCH_NEAR_ED25519_SIGNING_KEY_ID = 'near-ed25519-clear-mismatch';
-const MISMATCH_SIGNING_GRANT_ID = 'grant-clear-mismatch';
-const MISMATCH_THRESHOLD_SESSION_ID = 'tsess-clear-mismatch';
+const WALLET_ID = toWalletId('frost-clear-grant-k7p9m2');
+const PRIMARY_GRANT_ID = 'grant-clear-split-ed25519-primary';
+const SIBLING_GRANT_ID = 'grant-clear-split-ed25519-sibling';
+const primaryRecord = buildPasskeyEd25519SealedSessionRecordFixture({
+  walletId: WALLET_ID,
+  nearAccountId: 'primary.testnet',
+  nearEd25519SigningKeyId: 'near-ed25519-clear-grant-primary',
+  thresholdSessionId: 'tsess-clear-split-ed25519-primary',
+  signingGrantId: PRIMARY_GRANT_ID,
+});
+const siblingRecord = buildPasskeyEd25519SealedSessionRecordFixture({
+  walletId: WALLET_ID,
+  nearAccountId: 'sibling.testnet',
+  nearEd25519SigningKeyId: 'near-ed25519-clear-grant-sibling',
+  thresholdSessionId: 'tsess-clear-split-ed25519-sibling',
+  signingGrantId: SIBLING_GRANT_ID,
+});
 
-function ed25519RouterAbNormalSigning(signingWorkerId: string) {
-  return {
-    kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-    signingWorkerId,
+test('clears the grant projection without treating durable seals as live worker bindings', async () => {
+  const durableRecords = [primaryRecord, siblingRecord];
+  const clearCommands: ClearVolatileWarmSessionMaterialCommand[] = [];
+  const deps = {
+    listExactSealedSessionsForWallet: async () => durableRecords,
+    touchConfirm: {
+      clearVolatileWarmSessionMaterial: async (
+        command: ClearVolatileWarmSessionMaterialCommand,
+      ) => {
+        clearCommands.push(command);
+      },
+    },
   };
-}
 
-function seedSplitEd25519GrantRecords(): void {
-  upsertThresholdEd25519SessionFact({
-    walletId: SPLIT_WALLET_ID,
-    nearAccountId: SPLIT_NEAR_ACCOUNT_ID,
-    nearEd25519SigningKeyId: PRIMARY_NEAR_ED25519_SIGNING_KEY_ID,
-    rpId: 'localhost',
-    relayerUrl: 'https://relay.example',
-    relayerKeyId: 'rk-1',
-    participantIds: [1, 2],
-    signerSlot: 1,
-    routerAbNormalSigning: ed25519RouterAbNormalSigning('clear-grant-primary-worker'),
-    thresholdSessionKind: 'jwt',
-    thresholdSessionId: 'tsess-clear-split-ed25519-primary',
-    signingGrantId: PRIMARY_SIGNING_GRANT_ID,
-    passkeyCredentialIdB64u: 'credential-clear-split-ed25519-primary',
-    walletSessionJwt: 'jwt-clear-split-ed25519-primary',
-    expiresAtMs: Date.now() + 60_000,
-    remainingUses: 1,
-    signingRootId: 'proj_local:dev',
-    signingRootVersion: 'default',
-    source: 'login',
-  });
-  upsertThresholdEd25519SessionFact({
-    walletId: SPLIT_WALLET_ID,
-    nearAccountId: SPLIT_NEAR_ACCOUNT_ID,
-    nearEd25519SigningKeyId: SIBLING_NEAR_ED25519_SIGNING_KEY_ID,
-    rpId: 'localhost',
-    relayerUrl: 'https://relay.example',
-    relayerKeyId: 'rk-1',
-    participantIds: [1, 2],
-    signerSlot: 2,
-    routerAbNormalSigning: ed25519RouterAbNormalSigning('clear-grant-sibling-worker'),
-    thresholdSessionKind: 'jwt',
-    thresholdSessionId: 'tsess-clear-split-ed25519-sibling',
-    signingGrantId: SIBLING_SIGNING_GRANT_ID,
-    passkeyCredentialIdB64u: 'credential-clear-split-ed25519-sibling',
-    walletSessionJwt: 'jwt-clear-split-ed25519-sibling',
-    expiresAtMs: Date.now() + 60_000,
-    remainingUses: 1,
-    signingRootId: 'proj_local:dev',
-    signingRootVersion: 'default',
-    source: 'login',
-  });
-}
-
-function seedMismatchFixtureRecord(): void {
-  upsertThresholdEd25519SessionFact({
-    walletId: MISMATCH_WALLET_ID,
-    nearAccountId: MISMATCH_NEAR_ACCOUNT_ID,
-    nearEd25519SigningKeyId: MISMATCH_NEAR_ED25519_SIGNING_KEY_ID,
-    rpId: 'localhost',
-    relayerUrl: 'https://relay.example',
-    relayerKeyId: 'rk-1',
-    participantIds: [1, 2],
-    signerSlot: 1,
-    routerAbNormalSigning: ed25519RouterAbNormalSigning('clear-grant-mismatch-worker'),
-    thresholdSessionKind: 'jwt',
-    thresholdSessionId: MISMATCH_THRESHOLD_SESSION_ID,
-    signingGrantId: MISMATCH_SIGNING_GRANT_ID,
-    passkeyCredentialIdB64u: 'credential-clear-mismatch',
-    walletSessionJwt: 'jwt-clear-mismatch',
-    expiresAtMs: Date.now() + 60_000,
-    remainingUses: 1,
-    signingRootId: 'proj_local:dev',
-    signingRootVersion: 'default',
-    source: 'login',
-  });
-}
-
-function expectMismatchFixtureRecordPresent(): void {
-  expect(getStoredThresholdEd25519SessionRecordForLane({
-    walletId: MISMATCH_WALLET_ID,
-    nearAccountId: MISMATCH_NEAR_ACCOUNT_ID,
-    nearEd25519SigningKeyId: MISMATCH_NEAR_ED25519_SIGNING_KEY_ID,
-    authMethod: 'passkey',
-    signingGrantId: MISMATCH_SIGNING_GRANT_ID,
-    thresholdSessionId: MISMATCH_THRESHOLD_SESSION_ID,
-    signerSlot: 1,
-  })).toMatchObject({
-    walletId: MISMATCH_WALLET_ID,
-    nearAccountId: MISMATCH_NEAR_ACCOUNT_ID,
-    nearEd25519SigningKeyId: MISMATCH_NEAR_ED25519_SIGNING_KEY_ID,
-    signingGrantId: MISMATCH_SIGNING_GRANT_ID,
-  });
-}
-
-test.describe('signing-session readiness grant clearing', () => {
-  test.afterEach(() => {
-    clearAllStoredThresholdEd25519SessionRecords();
-  });
-
-  test('clears split Ed25519 grant records by exact lane key', async () => {
-    clearAllStoredThresholdEd25519SessionRecords();
-    seedSplitEd25519GrantRecords();
-
-    expect(getStoredThresholdEd25519SessionRecordForLane({
-      walletId: SPLIT_WALLET_ID,
-      nearAccountId: SPLIT_NEAR_ACCOUNT_ID,
-      nearEd25519SigningKeyId: PRIMARY_NEAR_ED25519_SIGNING_KEY_ID,
-      authMethod: 'passkey',
-      signingGrantId: PRIMARY_SIGNING_GRANT_ID,
-      thresholdSessionId: 'tsess-clear-split-ed25519-primary',
-      signerSlot: 1,
-    })).toMatchObject({
-      walletId: SPLIT_WALLET_ID,
-      nearAccountId: SPLIT_NEAR_ACCOUNT_ID,
-      nearEd25519SigningKeyId: PRIMARY_NEAR_ED25519_SIGNING_KEY_ID,
-      signingGrantId: PRIMARY_SIGNING_GRANT_ID,
-    });
-    expect(discoverLanesForWallet({}, SPLIT_WALLET_ID)).toHaveLength(2);
-
-    await clearSigningGrant({
-      deps: {},
+  await expect(discoverLanesForWallet(deps, WALLET_ID)).resolves.toHaveLength(2);
+  await expect(
+    clearSigningGrant({
+      deps,
       statusOverrides: new Map(),
-      walletId: SPLIT_WALLET_ID,
-      signingGrantId: PRIMARY_SIGNING_GRANT_ID,
-    });
+      walletId: WALLET_ID,
+      signingGrantId: PRIMARY_GRANT_ID,
+    }),
+  ).resolves.toEqual({ kind: 'cleared' });
 
-    expect(getStoredThresholdEd25519SessionRecordForLane({
-      walletId: SPLIT_WALLET_ID,
-      nearAccountId: SPLIT_NEAR_ACCOUNT_ID,
-      nearEd25519SigningKeyId: PRIMARY_NEAR_ED25519_SIGNING_KEY_ID,
-      authMethod: 'passkey',
-      signingGrantId: PRIMARY_SIGNING_GRANT_ID,
-      thresholdSessionId: 'tsess-clear-split-ed25519-primary',
-      signerSlot: 1,
-    })).toBeNull();
-    expect(getStoredThresholdEd25519SessionRecordForLane({
-      walletId: SPLIT_WALLET_ID,
-      nearAccountId: SPLIT_NEAR_ACCOUNT_ID,
-      nearEd25519SigningKeyId: SIBLING_NEAR_ED25519_SIGNING_KEY_ID,
-      authMethod: 'passkey',
-      signingGrantId: SIBLING_SIGNING_GRANT_ID,
-      thresholdSessionId: 'tsess-clear-split-ed25519-sibling',
-      signerSlot: 2,
-    })).toMatchObject({
-      walletId: SPLIT_WALLET_ID,
-      nearAccountId: SPLIT_NEAR_ACCOUNT_ID,
-      nearEd25519SigningKeyId: SIBLING_NEAR_ED25519_SIGNING_KEY_ID,
-      signingGrantId: SIBLING_SIGNING_GRANT_ID,
-    });
-    expect(discoverLanesForWallet({}, SPLIT_WALLET_ID)).toHaveLength(1);
-  });
-
-  test('does not clear when a wallet id is used as the NEAR account lane field', () => {
-    clearAllStoredThresholdEd25519SessionRecords();
-    seedMismatchFixtureRecord();
-
-    const wrongLaneKey = buildThresholdEd25519SessionRecordKey({
-      walletId: MISMATCH_WALLET_ID,
-      nearAccountId: String(MISMATCH_WALLET_ID),
-      nearEd25519SigningKeyId: MISMATCH_NEAR_ED25519_SIGNING_KEY_ID,
-      authMethod: 'passkey',
-      signingGrantId: MISMATCH_SIGNING_GRANT_ID,
-      thresholdSessionId: MISMATCH_THRESHOLD_SESSION_ID,
-      signerSlot: 1,
-    });
-
-    expect(clearStoredThresholdEd25519SessionRecordForLaneKey(wrongLaneKey)).toEqual({
-      ok: true,
-      cleared: false,
-    });
-    expectMismatchFixtureRecordPresent();
-  });
-
-  test('does not clear records with mismatched exact lane fields', () => {
-    clearAllStoredThresholdEd25519SessionRecords();
-    seedMismatchFixtureRecord();
-
-    const mismatchedLaneKeys = [
-      buildThresholdEd25519SessionRecordKey({
-        walletId: MISMATCH_WALLET_ID,
-        nearAccountId: MISMATCH_NEAR_ACCOUNT_ID,
-        nearEd25519SigningKeyId: 'near-ed25519-clear-mismatch-other',
-        authMethod: 'passkey',
-        signingGrantId: MISMATCH_SIGNING_GRANT_ID,
-        thresholdSessionId: MISMATCH_THRESHOLD_SESSION_ID,
-        signerSlot: 1,
-      }),
-      buildThresholdEd25519SessionRecordKey({
-        walletId: MISMATCH_WALLET_ID,
-        nearAccountId: MISMATCH_NEAR_ACCOUNT_ID,
-        nearEd25519SigningKeyId: MISMATCH_NEAR_ED25519_SIGNING_KEY_ID,
-        authMethod: 'passkey',
-        signingGrantId: 'grant-clear-mismatch-other',
-        thresholdSessionId: MISMATCH_THRESHOLD_SESSION_ID,
-        signerSlot: 1,
-      }),
-      buildThresholdEd25519SessionRecordKey({
-        walletId: MISMATCH_WALLET_ID,
-        nearAccountId: MISMATCH_NEAR_ACCOUNT_ID,
-        nearEd25519SigningKeyId: MISMATCH_NEAR_ED25519_SIGNING_KEY_ID,
-        authMethod: 'passkey',
-        signingGrantId: MISMATCH_SIGNING_GRANT_ID,
-        thresholdSessionId: 'tsess-clear-mismatch-other',
-        signerSlot: 1,
-      }),
-      buildThresholdEd25519SessionRecordKey({
-        walletId: MISMATCH_WALLET_ID,
-        nearAccountId: MISMATCH_NEAR_ACCOUNT_ID,
-        nearEd25519SigningKeyId: MISMATCH_NEAR_ED25519_SIGNING_KEY_ID,
-        authMethod: 'passkey',
-        signingGrantId: MISMATCH_SIGNING_GRANT_ID,
-        thresholdSessionId: MISMATCH_THRESHOLD_SESSION_ID,
-        signerSlot: 2,
-      }),
-    ];
-
-    for (const laneKey of mismatchedLaneKeys) {
-      expect(clearStoredThresholdEd25519SessionRecordForLaneKey(laneKey)).toEqual({
-        ok: true,
-        cleared: false,
-      });
-    }
-    expectMismatchFixtureRecordPresent();
-  });
-
+  expect(clearCommands).toEqual([]);
+  expect(durableRecords).toEqual([primaryRecord, siblingRecord]);
 });
