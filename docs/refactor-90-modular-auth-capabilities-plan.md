@@ -1116,6 +1116,11 @@ the replacement and legacy MPC paths must not ship together.
         lookup/storage keys, shared TypeScript parser, dev adapter, fixtures,
         and protocol documentation. Lifecycle and ceremony `session_id`
         fields remain unchanged (`d91498b2c`).
+  - [x] Carry ECDSA normal-signing state explicitly in the server bootstrap
+        response, persist and reject malformed/old D1 rows at the boundary,
+        validate the state before Wallet Session JWT signing, and require the
+        client response field. Delete the JWT-derived reconstruction helper;
+        the JWT remains a bearer credential (`d2128b7d9`).
   - [ ] Remove Wallet Session bearer/grant state from durable Ed25519 and
         active ECDSA sealed-material restore metadata. Recovery and signing
         must receive reusable authorization or a one-operation grant through

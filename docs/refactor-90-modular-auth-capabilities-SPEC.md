@@ -289,6 +289,10 @@ implementing commit SHA as the evidence.
     Router A/B wire (`material_activation_id`) and validates it against the
     activation scope; lifecycle and ceremony `session_id` fields remain
     distinct (`d91498b2c`).
+  - [x] ECDSA registration bootstrap carries a required explicit
+    normal-signing state through the server/D1/client boundaries; route JWT
+    signing validates that state, and the client no longer derives signing
+    control facts from the bearer JWT (`d2128b7d9`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
   - [x] Concrete ECDSA availability excludes the retired `restorable` state;
