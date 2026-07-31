@@ -11,6 +11,7 @@ import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/op
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import type {
   NearAuthorizedEd25519SigningSessionState,
+  NearEd25519YaoOperationMaterialFacts,
   NearResolvedEd25519SigningSessionState,
 } from '@/core/signingEngine/interfaces/near';
 import {
@@ -30,6 +31,20 @@ export type ResolvedRouterAbEd25519WalletSessionState = NearResolvedEd25519Signi
 
 export type AuthorizedRouterAbEd25519WalletSessionState =
   ResolvedRouterAbEd25519WalletSessionState & NearAuthorizedEd25519SigningSessionState;
+
+export function nearEd25519YaoOperationMaterialFacts(
+  state: ResolvedRouterAbEd25519WalletSessionState,
+): NearEd25519YaoOperationMaterialFacts {
+  return {
+    thresholdSessionId: state.thresholdSessionId,
+    signer: state.signingLane.identity.signer,
+    signingRootId: state.signingRootId,
+    signingRootVersion: state.signingRootVersion,
+    routerAbNormalSigning: state.routerAbNormalSigning,
+    runtimePolicyScope: state.runtimePolicyScope,
+    relayerUrl: state.relayerUrl,
+  };
+}
 
 export function authorizeRouterAbEd25519WalletSessionState(args: {
   state: ResolvedRouterAbEd25519WalletSessionState;

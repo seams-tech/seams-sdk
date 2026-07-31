@@ -110,7 +110,10 @@ import {
   type PreparedThresholdSigningOperation,
   type ThresholdSigningReadinessInput,
 } from '../../session/operationState/preparedOperation';
-import type { ResolvedRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
+import {
+  nearEd25519YaoOperationMaterialFacts,
+  type ResolvedRouterAbEd25519WalletSessionState,
+} from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   receiveTransactionIntent,
   recordAvailableSigningLanesRead,
@@ -694,9 +697,9 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
         preparation: args.preparation,
         executor: args.materialExecutor,
       });
-      const walletSessionState = material.walletSessionState;
+      const materialFacts = material.facts;
       const signer = selectedLane.identity.signer;
-      const thresholdSessionId = String(walletSessionState.thresholdSessionId || '').trim();
+      const thresholdSessionId = String(materialFacts.thresholdSessionId || '').trim();
       const signingGrantId = `operation-step-up:${args.operationId}`;
       if (!thresholdSessionId || !signingGrantId) {
         throw new Error(
@@ -712,9 +715,9 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
         nearAccountId: signer.account.nearAccountId,
         nearEd25519SigningKeyId: String(signer.nearEd25519SigningKeyId),
         authority,
-        relayerKeyId: walletSessionState.routerAbNormalSigning.signingWorkerId,
-        runtimePolicyScope: walletSessionState.runtimePolicyScope,
-        routerAbNormalSigning: walletSessionState.routerAbNormalSigning,
+        relayerKeyId: materialFacts.routerAbNormalSigning.signingWorkerId,
+        runtimePolicyScope: materialFacts.runtimePolicyScope,
+        routerAbNormalSigning: materialFacts.routerAbNormalSigning,
         participantIds: [...material.participantIds],
         thresholdSessionId,
         signingGrantId,
@@ -734,7 +737,7 @@ async function resolveNearPasskeyStepUpPolicyMaterial(args: {
   preparation: NearEd25519YaoSigningPreparation;
   executor: NearEd25519YaoMaterialExecutor;
 }): Promise<{
-  walletSessionState: NearEd25519YaoSigningCapability['walletSessionState'];
+  facts: ReturnType<typeof nearEd25519YaoOperationMaterialFacts>;
   participantIds: readonly number[];
 }> {
   switch (args.preparation.hydration.kind) {
@@ -742,14 +745,14 @@ async function resolveNearPasskeyStepUpPolicyMaterial(args: {
       const capability = await args.executor.resolve(args.preparation);
       const metadata = capability.activeClient.metadata();
       return {
-        walletSessionState: capability.walletSessionState,
+        facts: nearEd25519YaoOperationMaterialFacts(capability.walletSessionState),
         participantIds: [...metadata.participantIds],
       };
     }
     case 'rehydrate_material_activation': {
       const prepared = await args.executor.preparePasskeyOperationStepUp(args.preparation);
       return {
-        walletSessionState: prepared.walletSessionState,
+        facts: prepared.facts,
         participantIds: prepared.participantIds,
       };
     }

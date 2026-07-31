@@ -4,8 +4,8 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/interfaces/near';
 import type { PreparedNearOperationStepUp } from './operationStepUpPreparation';
 import {
-  resolveNearSignatureOnlyOperationStepUpCapability,
-  type NearSignatureOnlyOperationStepUpMaterial,
+  resolveNearOperationStepUpMaterial,
+  type NearOperationStepUpMaterial,
 } from './ed25519YaoCapabilityResolution';
 
 declare const prepare: RouterAbNormalSigningPrepareRequestV2BuildResult;
@@ -38,30 +38,30 @@ const invalidSignatureOnlyPreparation: PreparedNearOperationStepUp = {
 };
 
 declare const sealedPasskeyMaterial: Extract<
-  NearSignatureOnlyOperationStepUpMaterial,
+  NearOperationStepUpMaterial,
   { kind: 'passkey_sealed' }
 >;
 declare const emailOtpMaterial: Extract<
-  NearSignatureOnlyOperationStepUpMaterial,
+  NearOperationStepUpMaterial,
   { kind: 'email_otp_live' }
 >;
 
-void resolveNearSignatureOnlyOperationStepUpCapability({
+void resolveNearOperationStepUpMaterial({
   kind: 'passkey',
   material: sealedPasskeyMaterial,
   expectedActivation: materialActivation,
   credential,
 });
 
-void resolveNearSignatureOnlyOperationStepUpCapability({
-  kind: 'email_otp',
+void resolveNearOperationStepUpMaterial({
+  kind: 'email_otp_live',
   material: emailOtpMaterial,
   expectedActivation: materialActivation,
 });
 
 // @ts-expect-error Email OTP cannot authorize sealed Passkey material.
-void resolveNearSignatureOnlyOperationStepUpCapability({
-  kind: 'email_otp',
+void resolveNearOperationStepUpMaterial({
+  kind: 'email_otp_live',
   material: sealedPasskeyMaterial,
   expectedActivation: materialActivation,
 });
