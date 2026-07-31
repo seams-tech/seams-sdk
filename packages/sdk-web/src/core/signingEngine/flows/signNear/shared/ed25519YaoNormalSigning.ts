@@ -96,7 +96,10 @@ import {
   type Ed25519OperationStepUpProof,
 } from '@/core/signingEngine/threshold/ed25519/walletSession';
 import type { NearEd25519YaoSigningPreparation } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
-import type { SelectedEd25519Lane } from '@/core/signingEngine/session/identity/laneIdentity';
+import {
+  selectedEd25519Lane,
+  type SelectedEd25519Lane,
+} from '@/core/signingEngine/session/identity/laneIdentity';
 import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import type {
   NearEd25519StepUpAuthorization,
@@ -105,6 +108,32 @@ import type {
 } from '@/core/signingEngine/interfaces/near';
 
 const ROUTER_AB_NORMAL_SIGNING_REQUEST_TTL_MS = 120_000;
+
+export function selectedNearEd25519LaneFromOperationStepUp(args: {
+  materialFacts: NearEd25519YaoOperationMaterialFacts;
+  auth: SigningLaneAuthBinding;
+  prepared: Extract<PreparedNearOperationStepUp, { kind: 'near_signature_only' }>;
+  issuedGrant: NearEd25519OperationStepUpGrant;
+}): SelectedEd25519Lane {
+  const authorization = args.prepared.prepare.request.scope.authorization;
+  if (authorization.kind !== 'operation_step_up') {
+    throw new Error('[SigningEngine][near] operation step-up grant scope is missing');
+  }
+  const signingGrantId = SigningSessionIds.signingGrant(authorization.grant_id);
+  if (args.issuedGrant.grantId !== signingGrantId) {
+    throw new Error('[SigningEngine][near] operation step-up grant changed identity');
+  }
+  const signer = args.materialFacts.signer;
+  return selectedEd25519Lane({
+    walletId: signer.account.wallet.walletId,
+    nearAccountId: signer.account.nearAccountId,
+    nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+    signerSlot: signer.signerSlot,
+    auth: args.auth,
+    signingGrantId,
+    thresholdSessionId: args.materialFacts.thresholdSessionId,
+  });
+}
 
 export type RouterAbEd25519SignatureOnlyIntentWire =
   | {
@@ -132,12 +161,22 @@ export type RouterAbEd25519NearTransactionNormalSigningResult = {
   transactionHash: string;
 };
 
-export type RouterAbEd25519SignatureOnlyNormalSigningResult = {
-  kind: 'router_ab_ed25519_signature_only_normal_signing_result_v1';
-  operationId: string;
-  signatureB64u: string;
-  signerPublicKey: string;
-};
+export type RouterAbEd25519SignatureOnlyNormalSigningResult =
+  | {
+      kind: 'router_ab_ed25519_signature_only_normal_signing_result_v1';
+      authorization: 'operation_step_up';
+      operationId: string;
+      signatureB64u: string;
+      signerPublicKey: string;
+      issuedGrant: NearEd25519OperationStepUpGrant;
+    }
+  | {
+      kind: 'router_ab_ed25519_signature_only_normal_signing_result_v1';
+      authorization: 'reusable_wallet_session';
+      operationId: string;
+      signatureB64u: string;
+      signerPublicKey: string;
+    };
 
 type RouterAbEd25519NormalSigningFinalized = {
   signatureB64u: string;
@@ -978,7 +1017,9 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(
     });
     return {
       kind: 'router_ab_ed25519_signature_only_normal_signing_result_v1',
+      authorization: 'operation_step_up',
       operationId: args.operationId,
+      issuedGrant: issued,
       ...finalized,
     };
   }
@@ -1047,6 +1088,7 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(
   requireSignatureOnlyBudgetFinalizationResult(await budgetFinalizer.recordSuccess());
   return {
     kind: 'router_ab_ed25519_signature_only_normal_signing_result_v1',
+    authorization: 'reusable_wallet_session',
     operationId: args.operationId,
     ...finalized,
   };

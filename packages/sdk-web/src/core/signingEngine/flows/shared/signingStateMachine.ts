@@ -602,7 +602,8 @@ function signingOperationTransitionForCommand(
     case SigningOperationCommandKind.PreparePayload:
       return {
         from:
-          plan.kind === SigningSessionPlanKind.WarmSession
+          plan.kind === SigningSessionPlanKind.WarmSession ||
+          plan.kind === SigningSessionPlanKind.OperationStepUp
             ? SigningOperationStateKind.AuthReady
             : SigningOperationStateKind.ThresholdConnected,
         to: SigningOperationStateKind.PayloadPrepared,

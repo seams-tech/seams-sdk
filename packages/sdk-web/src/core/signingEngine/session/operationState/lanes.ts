@@ -338,5 +338,7 @@ function signingSessionOriginFromStorageSource(
       return 'manual_connect';
     case 'bootstrap':
       return 'bootstrap';
+    case 'sealed_restore':
+      return 'sealed_restore';
   }
 }

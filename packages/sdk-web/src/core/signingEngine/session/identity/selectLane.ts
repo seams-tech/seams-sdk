@@ -55,7 +55,7 @@ type AuthorizedEd25519LaneCandidate = Extract<
   Ed25519LaneCandidate,
   { authorizationState: 'authorized' }
 >;
-type AuthorizationRequiredEd25519LaneCandidate = Extract<
+export type AuthorizationRequiredEd25519LaneCandidate = Extract<
   Ed25519LaneCandidate,
   { authorizationState: 'authorization_required' }
 >;

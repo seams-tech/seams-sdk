@@ -455,6 +455,28 @@ export function exactSigningLaneIdentityKey(
   ) as ExactSigningLaneIdentityKey;
 }
 
+export function deferredEd25519MaterialIdentityKey(input: {
+  signer: NearEd25519SignerBinding;
+  auth: SigningLaneAuthBinding;
+  thresholdSessionId: ThresholdEd25519SessionId;
+}): ExactSigningLaneIdentityKey {
+  return alphabetizeStringify({
+    kind: 'deferred_ed25519_material_identity',
+    signer: {
+      kind: input.signer.kind,
+      account: {
+        kind: input.signer.account.kind,
+        walletId: String(input.signer.account.wallet.walletId),
+        nearAccountId: String(input.signer.account.nearAccountId),
+      },
+      nearEd25519SigningKeyId: String(input.signer.nearEd25519SigningKeyId),
+      signerSlot: Number(input.signer.signerSlot),
+    },
+    auth: canonicalAuthBinding(input.auth),
+    thresholdSessionId: String(input.thresholdSessionId),
+  }) as ExactSigningLaneIdentityKey;
+}
+
 export function exactEd25519SigningLaneIdentity<A extends SigningLaneAuthBinding>(
   lane: ExactEd25519SigningLaneIdentityInput<A>,
 ): ExactEd25519SigningLaneIdentity<A> {
