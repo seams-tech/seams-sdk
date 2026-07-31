@@ -1,18 +1,17 @@
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
+import type { ThresholdEcdsaEmailOtpSessionAuthContext } from '../identity/laneIdentity';
 import type { EmailOtpEcdsaSealedRecoveryRecord } from '../sealedRecovery/recoveryRecord';
 import type { EmailOtpEcdsaRestoreSource } from './ecdsaRecovery';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 declare const sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
 declare const chainTarget: ThresholdEcdsaChainTarget;
-declare const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+declare const emailOtpAuthContext: ThresholdEcdsaEmailOtpSessionAuthContext;
 declare const authorization: ActiveWalletSessionAuthorizationProjection;
 const restoreSourceCommon = {
   emailOtpAuthContext,
   authorization,
   thresholdSessionId: 'threshold-session-id',
-  signingGrantId: 'signing-grant-id',
   relayerUrl: 'https://relay.example',
   chainTarget,
   keyHandle: 'key-handle',

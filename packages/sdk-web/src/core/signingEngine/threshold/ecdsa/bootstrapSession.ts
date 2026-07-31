@@ -10,7 +10,7 @@ import {
 import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
-  EvmFamilyEcdsaSessionLanePolicy,
+  EvmFamilyEcdsaActivationLanePolicy,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform/types';
@@ -122,7 +122,7 @@ type BootstrapEcdsaExactSessionArgsBase = BootstrapEcdsaSessionBaseArgs &
   BootstrapEcdsaSessionAuthArgs & {
     keyHandle: EvmFamilyEcdsaKeyHandle;
     key: EvmFamilyEcdsaKeyIdentity;
-    lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+    lanePolicy: EvmFamilyEcdsaActivationLanePolicy;
     publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
     existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
     evmFamilySigningKeySlotId?: never;

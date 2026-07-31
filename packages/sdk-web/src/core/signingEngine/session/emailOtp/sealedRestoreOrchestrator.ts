@@ -140,7 +140,6 @@ export class EmailOtpSealedRestoreOrchestrator {
     try {
       console.debug('[EmailOtpSession] sealed refresh restore started', {
         thresholdSessionId,
-        signingGrantId: sealedRecord.signingGrantId,
       });
       const restored = await this.ports
         .restoreEcdsaSigningSessionMaterialFromSealedRecord({
@@ -328,16 +327,12 @@ export class EmailOtpSealedRestoreOrchestrator {
     ) {
       return 'deferred';
     }
-    if (args.record.signingGrantId !== args.purpose.signingGrantId) {
-      return 'deferred';
-    }
     const restoreKey = [
       args.walletId,
       args.purpose.authMethod,
       args.purpose.curve,
       thresholdEcdsaChainTargetKey(args.purpose.chainTarget),
       materialActivationKey(args.purpose.materialActivation),
-      args.purpose.signingGrantId,
       thresholdSessionId,
     ].join(':');
     if (this.restoreAttempts.hasCompleted(restoreKey)) return 'ready';
@@ -357,10 +352,11 @@ export class EmailOtpSealedRestoreOrchestrator {
         await this.ports.recordSessionMaterialRestored(
           { thresholdSessionId, chainTarget: args.record.chainTarget },
           {
-          ok: true,
-          remainingUses: restored.remainingUses,
-          expiresAtMs: restored.expiresAtMs,
-        });
+            ok: true,
+            remainingUses: restored.remainingUses,
+            expiresAtMs: restored.expiresAtMs,
+          },
+        );
         this.restoreAttempts.rememberCompleted(restoreKey);
         restoreResult = 'restored';
       }
@@ -369,7 +365,6 @@ export class EmailOtpSealedRestoreOrchestrator {
         console.warn('[EmailOtpSession] wallet-scoped sealed ECDSA restore failed', {
           walletId: args.walletId,
           thresholdSessionId,
-          signingGrantId: args.purpose.signingGrantId,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });
       })
@@ -380,5 +375,4 @@ export class EmailOtpSealedRestoreOrchestrator {
     await task;
     return restoreResult;
   }
-
 }

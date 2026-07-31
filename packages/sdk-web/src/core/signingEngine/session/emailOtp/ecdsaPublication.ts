@@ -597,7 +597,6 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     sealedSecretB64u,
     curve: 'ecdsa' as const,
     authMethod: 'email_otp' as const,
-    signingGrantId: readyPersistenceInput.signingGrantId,
     thresholdSessionIds: { ecdsa: readyPersistenceInput.thresholdSessionId },
     walletId: String(args.walletId || '').trim(),
     relayerUrl,
@@ -674,7 +673,6 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     persisted.authMethod !== 'email_otp' ||
     persisted.secretKind !== 'signing_session_secret32' ||
     persisted.thresholdSessionIds.ecdsa !== thresholdSessionId ||
-    persisted.signingGrantId !== signingGrantId ||
     persisted.sealedSecretB64u !== sealedSecretB64u ||
     alphabetizeStringify(persisted.ecdsaRestore?.roleLocalMaterialRef) !==
       alphabetizeStringify(roleLocalMaterialRef) ||

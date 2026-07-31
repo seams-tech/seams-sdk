@@ -15,9 +15,7 @@ import {
 } from '../session/persistence/sealedSessionStore';
 import { thresholdEcdsaChainTargetKey } from '../interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetsEqual } from '../interfaces/ecdsaChainTarget';
-import {
-  SIGNING_SESSION_SEAL_GROUP_ID,
-} from '@shared/utils/signingSessionSeal';
+import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import {
   normalizeRuntimePolicyScope,
   signingRootScopeFromRuntimePolicyScope,
@@ -145,20 +143,13 @@ function persistenceSingleFlightKey(args: {
       material?.bindingDigest || '',
     ].join('|');
   }
-  return [
-    'persist',
-    'passkey',
-    'ed25519',
-    args.thresholdSessionId,
-  ].join('|');
+  return ['persist', 'passkey', 'ed25519', args.thresholdSessionId].join('|');
 }
 
-function buildCurrentRecordInput(args: {
+type BuildCurrentRecordInputArgs = {
   thresholdSessionId: string;
-  transport: PasskeyWarmSessionSealTransportInput;
   metadata: PasskeySealedRecordAccountMetadata;
   sealedSecretB64u: string;
-  signingGrantId: string;
   relayerUrl: string;
   keyVersion: string;
   groupId: typeof SIGNING_SESSION_SEAL_GROUP_ID;
@@ -167,8 +158,30 @@ function buildCurrentRecordInput(args: {
   remainingUses: number;
   updatedAtMs: number;
   existing?: CurrentSealedSessionRecord;
-}): BuildCurrentSealedSessionRecordInput {
-  if (args.transport.curve === 'ecdsa') {
+} & (
+  | {
+      transport: Extract<PasskeyWarmSessionSealTransportInput, { curve: 'ed25519' }>;
+      signingGrantId: string;
+    }
+  | {
+      transport: Extract<PasskeyWarmSessionSealTransportInput, { curve: 'ecdsa' }>;
+      signingGrantId?: never;
+    }
+);
+
+function isEd25519BuildCurrentRecordInputArgs(
+  args: BuildCurrentRecordInputArgs,
+): args is BuildCurrentRecordInputArgs & {
+  transport: Extract<PasskeyWarmSessionSealTransportInput, { curve: 'ed25519' }>;
+  signingGrantId: string;
+} {
+  return args.transport.curve === 'ed25519';
+}
+
+function buildCurrentRecordInput(
+  args: BuildCurrentRecordInputArgs,
+): BuildCurrentSealedSessionRecordInput {
+  if (!isEd25519BuildCurrentRecordInputArgs(args)) {
     const walletId = String(args.metadata.walletId || '').trim();
     if (!walletId || !args.metadata.ecdsaRestore) {
       throw new Error('[SigningSessionSealedStore] missing Passkey ECDSA seal metadata');
@@ -182,16 +195,13 @@ function buildCurrentRecordInput(args: {
       sealedSecretB64u: args.sealedSecretB64u,
       curve: 'ecdsa',
       authMethod: 'passkey',
-      signingGrantId: args.signingGrantId,
       thresholdSessionIds,
       walletId,
       relayerUrl: args.relayerUrl,
       keyVersion: args.keyVersion,
       groupId: args.groupId,
       ecdsaRestore: args.metadata.ecdsaRestore,
-      ...(args.metadata.ed25519Restore
-        ? { ed25519Restore: args.metadata.ed25519Restore }
-        : {}),
+      ...(args.metadata.ed25519Restore ? { ed25519Restore: args.metadata.ed25519Restore } : {}),
       issuedAtMs: args.issuedAtMs,
       expiresAtMs: args.expiresAtMs,
       remainingUses: args.remainingUses,
@@ -230,9 +240,33 @@ function buildCurrentRecordInput(args: {
   };
 }
 
-async function writeCurrentRecord(
-  input: BuildCurrentSealedSessionRecordInput,
-): Promise<void> {
+type PersistExactRecordArgs = {
+  thresholdSessionId: string;
+  metadata: PasskeySealedRecordAccountMetadata;
+  purpose: SigningSessionSealedRecordFilter;
+  relayerUrl: string;
+  diagnostics?: WarmSessionMaterialWriteDiagnostics;
+} & (
+  | {
+      transport: Extract<PasskeyWarmSessionSealTransportInput, { curve: 'ed25519' }>;
+      signingGrantId: string;
+    }
+  | {
+      transport: Extract<PasskeyWarmSessionSealTransportInput, { curve: 'ecdsa' }>;
+      signingGrantId?: never;
+    }
+);
+
+function isEd25519PersistExactRecordArgs(
+  args: PersistExactRecordArgs,
+): args is PersistExactRecordArgs & {
+  transport: Extract<PasskeyWarmSessionSealTransportInput, { curve: 'ed25519' }>;
+  signingGrantId: string;
+} {
+  return args.transport.curve === 'ed25519';
+}
+
+async function writeCurrentRecord(input: BuildCurrentSealedSessionRecordInput): Promise<void> {
   const record = buildCurrentSealedSessionRecord(input);
   if (!record) {
     throw new Error('[SigningSessionSealedStore] invalid sealed session record write input');
@@ -317,9 +351,7 @@ function existingRecordMetadata(
     : {
         walletId: existing.walletId,
         ...(existing.signingRootId ? { signingRootId: existing.signingRootId } : {}),
-        ...(existing.signingRootVersion
-          ? { signingRootVersion: existing.signingRootVersion }
-          : {}),
+        ...(existing.signingRootVersion ? { signingRootVersion: existing.signingRootVersion } : {}),
         ...(existing.ecdsaRestore ? { ecdsaRestore: existing.ecdsaRestore } : {}),
         ed25519Restore: existing.ed25519Restore,
       };
@@ -355,13 +387,12 @@ export class PasskeyMpcSessionDurableState {
     if (!thresholdSessionId) {
       return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
     }
-    const signingGrantId = String(args.transport.signingGrantId || '').trim();
     const relayerUrl = String(args.transport.relayerUrl || '').trim();
-    if (!signingGrantId || !relayerUrl) {
+    if (!relayerUrl) {
       return {
         ok: false,
         code: 'invalid_args',
-        message: 'Passkey seal persistence requires signingGrantId and relayerUrl',
+        message: 'Passkey seal persistence requires relayerUrl',
       };
     }
     const metadata = buildPasskeySealedRecordAccountMetadata({
@@ -382,15 +413,36 @@ export class PasskeyMpcSessionDurableState {
     const inFlight = signingSessionSealPersistSingleFlight.get(singleFlightKey);
     if (inFlight) return await inFlight;
 
-    const task = this.persistExactRecord({
-      thresholdSessionId,
-      transport: args.transport,
-      metadata,
-      purpose,
-      signingGrantId,
-      relayerUrl,
-      diagnostics: args.diagnostics,
-    }).finally(() => {
+    let persistTask: Promise<WarmSessionSealAndPersistResult>;
+    if (args.transport.curve === 'ed25519') {
+      const signingGrantId = String(args.transport.signingGrantId || '').trim();
+      if (!signingGrantId) {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: 'Passkey Ed25519 seal persistence requires signingGrantId',
+        };
+      }
+      persistTask = this.persistExactRecord({
+        thresholdSessionId,
+        transport: args.transport,
+        metadata,
+        purpose,
+        signingGrantId,
+        relayerUrl,
+        diagnostics: args.diagnostics,
+      });
+    } else {
+      persistTask = this.persistExactRecord({
+        thresholdSessionId,
+        transport: args.transport,
+        metadata,
+        purpose,
+        relayerUrl,
+        diagnostics: args.diagnostics,
+      });
+    }
+    const task = persistTask.finally(() => {
       signingSessionSealPersistSingleFlight.delete(singleFlightKey);
     });
     signingSessionSealPersistSingleFlight.set(singleFlightKey, task);
@@ -439,15 +491,9 @@ export class PasskeyMpcSessionDurableState {
     await this.writePolicy(existing, args.expiresAtMs, args.remainingUses);
   }
 
-  private async persistExactRecord(args: {
-    thresholdSessionId: string;
-    transport: PasskeyWarmSessionSealTransportInput;
-    metadata: PasskeySealedRecordAccountMetadata;
-    purpose: SigningSessionSealedRecordFilter;
-    signingGrantId: string;
-    relayerUrl: string;
-    diagnostics?: WarmSessionMaterialWriteDiagnostics;
-  }): Promise<WarmSessionSealAndPersistResult> {
+  private async persistExactRecord(
+    args: PersistExactRecordArgs,
+  ): Promise<WarmSessionSealAndPersistResult> {
     const existingReadStartedAt = performance.now();
     let existing: CurrentSealedSessionRecord | null;
     try {
@@ -523,23 +569,37 @@ export class PasskeyMpcSessionDurableState {
         return policy;
       }
       const registerStartedAt = performance.now();
-      await writeCurrentRecord(
-        buildCurrentRecordInput({
-          thresholdSessionId: args.thresholdSessionId,
-          transport: args.transport,
-          metadata,
-          sealedSecretB64u: existing.sealedSecretB64u,
-          signingGrantId: args.signingGrantId,
-          relayerUrl: existing.relayerUrl,
-          keyVersion: existing.keyVersion,
-          groupId: existing.groupId,
-          issuedAtMs: existing.issuedAtMs,
-          expiresAtMs: policyExpiresAtMs,
-          remainingUses: policyRemainingUses,
-          updatedAtMs: Date.now(),
-          existing,
-        }),
-      );
+      const currentRecordInput = isEd25519PersistExactRecordArgs(args)
+        ? buildCurrentRecordInput({
+            thresholdSessionId: args.thresholdSessionId,
+            transport: args.transport,
+            metadata,
+            sealedSecretB64u: existing.sealedSecretB64u,
+            signingGrantId: args.signingGrantId,
+            relayerUrl: existing.relayerUrl,
+            keyVersion: existing.keyVersion,
+            groupId: existing.groupId,
+            issuedAtMs: existing.issuedAtMs,
+            expiresAtMs: policyExpiresAtMs,
+            remainingUses: policyRemainingUses,
+            updatedAtMs: Date.now(),
+            existing,
+          })
+        : buildCurrentRecordInput({
+            thresholdSessionId: args.thresholdSessionId,
+            transport: args.transport,
+            metadata,
+            sealedSecretB64u: existing.sealedSecretB64u,
+            relayerUrl: existing.relayerUrl,
+            keyVersion: existing.keyVersion,
+            groupId: existing.groupId,
+            issuedAtMs: existing.issuedAtMs,
+            expiresAtMs: policyExpiresAtMs,
+            remainingUses: policyRemainingUses,
+            updatedAtMs: Date.now(),
+            existing,
+          });
+      await writeCurrentRecord(currentRecordInput);
       recordDiagnosticDuration({
         diagnostics: args.diagnostics,
         bucket: 'sealed_record_register',
@@ -585,9 +645,7 @@ export class PasskeyMpcSessionDurableState {
       };
     }
 
-    const requestedGroupId = String(
-      args.transport.groupId || SIGNING_SESSION_SEAL_GROUP_ID,
-    ).trim();
+    const requestedGroupId = String(args.transport.groupId || SIGNING_SESSION_SEAL_GROUP_ID).trim();
     if (requestedGroupId !== SIGNING_SESSION_SEAL_GROUP_ID) {
       return {
         ok: false,
@@ -621,22 +679,35 @@ export class PasskeyMpcSessionDurableState {
     }
     const persistedAtMs = Date.now();
     const registerStartedAt = performance.now();
-    await writeCurrentRecord(
-      buildCurrentRecordInput({
-        thresholdSessionId: args.thresholdSessionId,
-        transport: args.transport,
-        metadata: args.metadata,
-        sealedSecretB64u: sealed.sealedSecretB64u,
-        signingGrantId: args.signingGrantId,
-        relayerUrl: args.relayerUrl,
-        keyVersion,
-        groupId,
-        issuedAtMs: persistedAtMs,
-        expiresAtMs: sealed.expiresAtMs,
-        remainingUses: sealed.remainingUses,
-        updatedAtMs: persistedAtMs,
-      }),
-    );
+    const currentRecordInput = isEd25519PersistExactRecordArgs(args)
+      ? buildCurrentRecordInput({
+          thresholdSessionId: args.thresholdSessionId,
+          transport: args.transport,
+          metadata: args.metadata,
+          sealedSecretB64u: sealed.sealedSecretB64u,
+          signingGrantId: args.signingGrantId,
+          relayerUrl: args.relayerUrl,
+          keyVersion,
+          groupId,
+          issuedAtMs: persistedAtMs,
+          expiresAtMs: sealed.expiresAtMs,
+          remainingUses: sealed.remainingUses,
+          updatedAtMs: persistedAtMs,
+        })
+      : buildCurrentRecordInput({
+          thresholdSessionId: args.thresholdSessionId,
+          transport: args.transport,
+          metadata: args.metadata,
+          sealedSecretB64u: sealed.sealedSecretB64u,
+          relayerUrl: args.relayerUrl,
+          keyVersion,
+          groupId,
+          issuedAtMs: persistedAtMs,
+          expiresAtMs: sealed.expiresAtMs,
+          remainingUses: sealed.remainingUses,
+          updatedAtMs: persistedAtMs,
+        });
+    await writeCurrentRecord(currentRecordInput);
     recordDiagnosticDuration({
       diagnostics: args.diagnostics,
       bucket: 'sealed_record_register',

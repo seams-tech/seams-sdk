@@ -19,6 +19,7 @@ import {
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 
 export type StepUpRuntime = {
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
@@ -49,11 +50,11 @@ export function createStepUpRuntime(args: {
     signerWorkerManager: args.signerWorkerManager,
     getRpId: () => args.touchIdPrompt.getRpId(),
     getSignerWorkerContext: args.getSignerWorkerContext,
-    readActiveWalletSessionAuthorization:
-      walletSessionAuthorizations.readActiveForWallet.bind(walletSessionAuthorizations),
+    readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
+      walletSessionAuthorizations,
+    ),
     provisionThresholdEcdsaSession: args.provisionThresholdEcdsaSession,
-    provisionEmailOtpEcdsaExplicitExportSession:
-      args.provisionEmailOtpEcdsaExplicitExportSession,
+    provisionEmailOtpEcdsaExplicitExportSession: args.provisionEmailOtpEcdsaExplicitExportSession,
     commitEvmFamilyThresholdEcdsaSessions: (commitArgs) =>
       commitEvmFamilyThresholdEcdsaSessions(
         {
@@ -70,6 +71,7 @@ export function createStepUpRuntime(args: {
       ),
     listActiveEcdsaCapabilityManifestsForWallet: (walletId) =>
       args.listActiveEcdsaCapabilityManifestsForWallet(String(walletId)),
+    resolveCurrentEcdsaCapabilityRuntime: resolveActiveEcdsaCapabilityRuntime,
     writeExactSealedSession: args.sealedSessionStore.writeExactSealedSession,
     readExactSealedSession: args.sealedSessionStore.readExactSealedSession,
     listExactSealedSessionsForWallet: args.sealedSessionStore.listExactSealedSessionsForWallet,

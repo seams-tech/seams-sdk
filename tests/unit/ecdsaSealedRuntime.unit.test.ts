@@ -135,12 +135,10 @@ test.describe('exact ECDSA sealed runtime resolution', () => {
     const manifest = activeManifest();
     const first = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
       manifest,
-      signingGrantId: 'wallet-session-a',
       thresholdSessionId: 'ec-session-a',
     });
     const second = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
       manifest,
-      signingGrantId: 'wallet-session-b',
       thresholdSessionId: 'ec-session-b',
     });
     expect(resolve(manifest, [first, second])).toEqual({

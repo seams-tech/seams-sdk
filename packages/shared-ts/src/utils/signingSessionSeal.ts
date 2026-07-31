@@ -186,7 +186,6 @@ type SealedSigningSessionRecordBase = {
   authMethod: SigningSessionSealAuthMethod;
   secretKind: typeof SIGNING_SESSION_SECRET_KIND;
   storeKey: string;
-  signingGrantId: string;
   sealedSecretB64u: string;
   walletId: string;
   relayerUrl: string;
@@ -201,6 +200,7 @@ type SealedSigningSessionRecordBase = {
 export type SealedSigningSessionRecord =
   | (SealedSigningSessionRecordBase & {
       curve: 'ed25519';
+      signingGrantId: string;
       thresholdSessionIds: {
         ed25519: string;
         ecdsa?: string;
@@ -212,6 +212,7 @@ export type SealedSigningSessionRecord =
     })
   | (SealedSigningSessionRecordBase & {
       curve: 'ecdsa';
+      signingGrantId?: never;
       thresholdSessionIds: {
         ed25519?: string;
         ecdsa: string;

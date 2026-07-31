@@ -1,6 +1,4 @@
-import type {
-  EmailOtpWorkerIssuedSessionHandle,
-} from '@/core/platform';
+import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { RouterAbNormalSigningConfig } from '@/core/types/seams';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManagerContext } from '../../workerManager/SignerWorkerManager';
@@ -41,7 +39,7 @@ import {
   toEvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
-  type EvmFamilyEcdsaSessionLanePolicy,
+  type EvmFamilyEcdsaActivationLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { PasskeyEcdsaReadyPersistInput } from '../warmCapabilities/persistencePorts';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
@@ -83,7 +81,7 @@ type EcdsaBootstrapTargetIdentity = {
 type EcdsaBootstrapExactIdentity = {
   keyHandle: EvmFamilyEcdsaKeyHandle | string;
   key: EvmFamilyEcdsaKeyIdentity;
-  lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  lanePolicy: EvmFamilyEcdsaActivationLanePolicy;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
   walletId?: never;
@@ -181,11 +179,10 @@ type EcdsaExplicitExportBootstrapRequestBase = {
   readonly authorization: EcdsaExplicitExportOperationAuthorization;
 };
 
-export type PasskeyEcdsaExportBootstrapRequest =
-  EcdsaExplicitExportBootstrapRequestBase & {
-    kind: 'passkey_ecdsa_export_bootstrap';
-    purpose: 'explicit_key_export';
-  };
+export type PasskeyEcdsaExportBootstrapRequest = EcdsaExplicitExportBootstrapRequestBase & {
+  kind: 'passkey_ecdsa_export_bootstrap';
+  purpose: 'explicit_key_export';
+};
 
 export type PasskeyExchangeEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase &
   PasskeyPrfCredentialBootstrapAuth & {
@@ -227,9 +224,9 @@ export type EmailOtpEcdsaBootstrapRequest = EmailOtpEcdsaBootstrapRequestBase &
 
 export type EmailOtpEcdsaExplicitExportBootstrapRequest =
   EcdsaExplicitExportBootstrapRequestBase & {
-  kind: 'email_otp_ecdsa_export_bootstrap';
-  purpose: 'explicit_key_export';
-};
+    kind: 'email_otp_ecdsa_export_bootstrap';
+    purpose: 'explicit_key_export';
+  };
 
 export type EmailOtpEcdsaExplicitExportBootstrapResult =
   ThresholdEcdsaExplicitKeyExportActivationResult;
@@ -295,15 +292,6 @@ export function ecdsaBootstrapChainTarget(
   return hasExactEcdsaBootstrapIdentity(request)
     ? request.lanePolicy.chainTarget
     : request.chainTarget;
-}
-
-function ecdsaBootstrapSessionIdentityFromLanePolicy(
-  lanePolicy: EvmFamilyEcdsaSessionLanePolicy,
-): EcdsaSessionIdentity {
-  return buildEcdsaSessionIdentity({
-    thresholdSessionId: lanePolicy.thresholdSessionId,
-    signingGrantId: lanePolicy.signingGrantId,
-  });
 }
 
 function passkeyEcdsaBootstrapCredential(
@@ -549,7 +537,6 @@ export async function bootstrapEcdsaSessionValue(
     walletId: String(walletId),
     chainTarget,
     relayerUrl,
-    signingGrantId: activation.session.signingGrantId,
     walletSessionJwt,
   };
   const canonicalBootstrap = activation;

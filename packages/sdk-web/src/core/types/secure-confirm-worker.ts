@@ -54,9 +54,7 @@ export interface UiConfirmManagerConfig {
   signingSessionSealGroupId?: string;
 }
 
-export type UserConfirmWorkerMessageType =
-  | 'PING'
-  | 'SECURE_CONFIRM_REQUEST';
+export type UserConfirmWorkerMessageType = 'PING' | 'SECURE_CONFIRM_REQUEST';
 
 export type PasskeyMpcSessionWorkerMessageType =
   | 'PING'
@@ -92,6 +90,7 @@ export type WarmSessionSealTransportInput =
   | (EmailOtpWarmSessionSealTransportCommon & {
       curve: 'ecdsa';
       authMethod: 'email_otp';
+      signingGrantId?: never;
       chainTarget: ThresholdEcdsaChainTarget;
       ecdsaRestore?: never;
       ed25519Restore?: never;
@@ -100,6 +99,7 @@ export type WarmSessionSealTransportInput =
   | (PasskeyWarmSessionSealTransportCommon & {
       curve: 'ecdsa';
       authMethod?: 'passkey';
+      signingGrantId?: never;
       chainTarget: ThresholdEcdsaChainTarget;
       ecdsaRestore?: Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }>;
       ed25519Restore?: never;

@@ -104,6 +104,7 @@ export class EmailOtpWalletSessionRuntime {
         readActiveWalletSessionAuthorization: deps.readActiveWalletSessionAuthorization,
         provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
         commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,
+        resolveCurrentEcdsaCapabilityRuntime: deps.resolveCurrentEcdsaCapabilityRuntime,
       });
     const warmSessionWorkerClient = createEmailOtpWarmSessionWorkerClient({
       worker: deps.signerWorkerManager,
