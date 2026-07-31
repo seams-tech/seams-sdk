@@ -1137,6 +1137,9 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete the zero-caller Passkey Ed25519 Wallet Session JWT fallback;
         active authorization remains canonical and sealed-runtime-owned
         (`563909459`).
+  - [x] Delete the zero-caller duplicate Email OTP ECDSA publication target
+        planner; live publication uses the canonical chain-target planner
+        (`b6b691bce`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
