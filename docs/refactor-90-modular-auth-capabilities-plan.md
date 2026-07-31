@@ -1118,6 +1118,9 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete the redundant signing-status dependency, EVM-family readiness,
         and Email OTP restore-root input aliases; consumers use their canonical
         dependency and input types directly (`272812bf2`).
+  - [x] Delete the empty EVM-family session-reader dependency and its
+        forwarding pre-confirm/confirmed/step-up aliases, plus the local
+        Passkey bootstrap route-auth alias (`46f0d07e7`).
   - [x] Rename the active SigningWorker wire field from `session_id` to
         `material_activation_id` across the Router A/B Rust schema, Cloudflare
         lookup/storage keys, shared TypeScript parser, dev adapter, fixtures,
