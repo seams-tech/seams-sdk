@@ -926,6 +926,8 @@ the replacement and legacy MPC paths must not ship together.
       server-unsealed ciphertext, remove the client seal, import and correlate
       the exact material, zeroize/dispose temporary secrets, and return the
       active material beside the issued grant (`126df7138`).
+      The focused supersession, exact-owner queue, operation-material, and
+      Email OTP unseal/step-up suites pass 37/37 at the current checkpoint.
 - [x] Replace the five public NEAR factor-specific preparation, Passkey
       rehydration, and Email OTP recovery ports with one Browser-owned
       `{ preparation, executor }` material boundary. Exact factor, signer,

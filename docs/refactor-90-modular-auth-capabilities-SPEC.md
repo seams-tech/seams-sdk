@@ -417,6 +417,9 @@ implementing commit SHA as the evidence.
     correlates the exact activation/session/public key, zeroizes temporary
     secrets, and returns the active material beside the issued grant without
     creating or rereading a reusable Wallet Session (`126df7138`).
+  - [x] Supersession, exact-owner queue, operation-material, and Email OTP
+    unseal/step-up focused suites pass 37/37; retryable supersession remains
+    distinct from terminal failure.
   - [x] The record-backed Email OTP Ed25519 routine-signing lane and its
     active-material recovery path are deleted. Cold login/unlock recovery,
     sealed refresh, and export recovery remain, and the focused retained
