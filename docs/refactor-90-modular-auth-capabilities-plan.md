@@ -627,7 +627,12 @@ the replacement and legacy MPC paths must not ship together.
       binding; selection no longer depends on record-backed or pre-hydrated
       material state.
 - [x] Demonstrate Passkey and Email OTP normal signing through canonical
-      hydration and worker binding using current shared factories.
+      hydration and worker binding using current shared factories. The
+      canonical ECDSA operating-path proof completes persisted hydration,
+      dedicated worker binding, pooled prepare/finalize, and verifies the
+      resulting 65-byte signature; its endpoint fixture and prepare-response
+      parser agree on the required operation-claim fields (`7c20fe644`,
+      `e75d2bcfb`).
 - [x] Move the remaining registration and explicit-unlock entry points to
       capability-owned state: Passkey unlock plans from active signer and
       capability facts, while Email OTP registration/unlock resolves existing
@@ -751,6 +756,11 @@ the replacement and legacy MPC paths must not ship together.
       canonical material independently, consume one operation grant, and keep
       reusable Wallet Session creation and quota use out of the step-up branch
       (`069db2326`).
+- [x] Replace the five public NEAR factor-specific preparation, Passkey
+      rehydration, and Email OTP recovery ports with one Browser-owned
+      `{ preparation, executor }` material boundary. Exact factor, signer,
+      session, and activation correlation now occurs before any active client
+      crosses into generic signing orchestration (`fe33b405a`).
 
 ### Worker, WASM, and bundle boundary
 
@@ -991,7 +1001,9 @@ the minimal local broker/gateway adapter.
       vault-specific authorization framework.
 - [x] Prove native session exchange → operation-bound Passkey evidence → exact
       one-use grant → atomic claim/use → real persisted/routed
-      `vault.proxy_use` → audit readback.
+      `vault.proxy_use` → audit readback. The persisted D1 vertical is covered
+      by `vaultProxyUse.unit.test.ts` and passes at the current checkpoint
+      (`5db9ad87e`).
 - [x] Keep broad vault product UI, recovery, rotation, sharing, and future
       capability kinds in the Satyr plan.
 - [x] Delete each concrete replaced vault target in the change that replaces it.
