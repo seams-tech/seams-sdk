@@ -3,6 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 import { seedEmailOtpEcdsaSealedRestorePayload } from './helpers/sealedSigningSession.fixtures';
 import {
+  buildMpcMaterialActivationRefFixture,
   buildEcdsaRoleLocalPersistedMaterialRefFixture,
   buildWalletAuthAuthorityRefFixture,
 } from './helpers/ecdsaMaterialRef.fixtures';
@@ -96,6 +97,7 @@ const EMAIL_OTP_ED25519_RESTORE = {
   provider: 'google',
   providerSubjectId: 'email-otp-subject',
   emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
+  materialActivation: buildMpcMaterialActivationRefFixture('sealed-store-ed25519-email'),
   sessionKind: 'jwt',
   walletSessionJwt: 'threshold-session-jwt',
 } as const;

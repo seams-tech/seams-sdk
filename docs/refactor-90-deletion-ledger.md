@@ -665,6 +665,16 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~forwarding-only Ed25519 recovery runtime locator and wrapper interface~~ —
   deleted by `868ba6dee`; the recovery service directly implements the narrow
   installation and lookup ports
+- ~~zero-caller ECDSA activation-journal id projection~~ — deleted by
+  `c51134bba`; journal owners read the required journal id directly
+- ~~zero-caller budget owner, availability, and unknown-status adapters~~ —
+  deleted by `20f1bcfca`, `1ce066cf9`, and `69b0e6b30`; live admission and
+  status readers retain their direct budget paths
+- ~~zero-caller network-only ECDSA chain-target adapter~~ — deleted by
+  `4250a8871`; configured-request and chain-family boundary builders remain
+- ~~zero-caller dual-PRF registration credential helper and allow-list adapter~~
+  — deleted by `93958f9a6`; the canonical credential collector remains the sole
+  registration boundary
 
 ## 6e gate — composite ECDSA record family (measured 2026-07-28, at `3b904b63a`)
 
@@ -758,3 +768,8 @@ Also note for 4a scope: `buildEcdsaMaterialStateForCandidate` already returns
 `EcdsaMaterialState`. The EVM-family ECDSA signing path is currently
 fail-closed, so 4a is a rebuild of that path on manifest + sealed runtime, not
 a signature-only move.
+
+Resolution: the shared sealed-session fixture now supplies a canonical
+Ed25519 Email OTP material activation and a valid `project:environment` signing
+root. The collection guard reports **1,975 tests in 349 files** again, and the
+stale-record test that exposed the fixture defect passes (`e5cb737c8`).

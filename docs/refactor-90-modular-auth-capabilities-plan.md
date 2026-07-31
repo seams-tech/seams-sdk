@@ -423,6 +423,8 @@ removes.
 - [x] Reject cross-chain mismatch before worker open or material use.
 - [x] Confine any transitional `activeState` shape to its boundary and schedule
       its same-unit deletion.
+- [x] Delete the zero-caller ECDSA activation-journal id projection; journal
+      owners read the required id directly (`c51134bba`).
 
 ### Unit 1 exit
 
@@ -1253,6 +1255,15 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Repoint the EVM key-slot branding guard at the live provisioning,
         worker, Router validation, and registration/recovery boundaries
         (`fc048026f`).
+  - [x] Restore unit-suite collection through the shared sealed-session factory:
+        Email OTP Ed25519 fixtures now carry canonical material activation and
+        valid runtime-policy scope; 1,975 tests collect in 349 files
+        (`e5cb737c8`).
+  - [x] Delete zero-caller budget owner, availability, and unknown-status
+        adapters; live admission and status readers remain unchanged
+        (`20f1bcfca`, `1ce066cf9`, `69b0e6b30`).
+  - [x] Delete the zero-caller network-only ECDSA chain-target adapter;
+        configured-request and chain-family builders remain (`4250a8871`).
 
 ### Unit 3a exit
 
@@ -1358,6 +1369,9 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
   - [x] Delete the zero-caller available-lane reauth-anchor fallback and its
         lane-selection/version/source helpers; retain canonical operation-state
         freshness and lane admission (`acb368888`).
+  - [x] Delete the zero-caller dual-PRF registration credential helper and its
+        allow-list adapter; the canonical credential collector remains live
+        (`93958f9a6`).
 
 ### Unit 4 exit
 
