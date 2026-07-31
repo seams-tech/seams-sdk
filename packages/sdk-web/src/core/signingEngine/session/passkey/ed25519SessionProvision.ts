@@ -13,6 +13,10 @@ import type {
 } from '../warmCapabilities/types';
 import type { PasskeyEd25519SessionPolicyAuthority } from '../../threshold/sessionPolicy';
 import { nearProtocolProjectionFromExactLane } from '../identity/exactSigningLaneIdentity';
+import {
+  buildPasskeyEd25519RestoreMetadata,
+} from './ed25519YaoSealedSession';
+import type { PasskeyEd25519SealRestoreMetadata } from '@/core/types/secure-confirm-worker';
 
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 
@@ -50,13 +54,16 @@ function sealTransportForProvisionedEd25519Session(args: {
   relayerUrl: string;
   signingGrantId: string;
   walletSessionJwt: string;
+  ed25519Restore: PasskeyEd25519SealRestoreMetadata;
 }): WarmSessionSealTransportInput {
   return {
     curve: 'ed25519',
+    authMethod: 'passkey',
     walletId: args.walletId,
     relayerUrl: args.relayerUrl,
     signingGrantId: args.signingGrantId,
-    ...(args.walletSessionJwt ? { walletSessionJwt: args.walletSessionJwt } : {}),
+    walletSessionJwt: args.walletSessionJwt,
+    ed25519Restore: args.ed25519Restore,
   };
 }
 
@@ -203,13 +210,14 @@ export async function provisionThresholdEd25519Session(
   }
 
   const persist = deps.persistWarmSessionEd25519Capability || persistWarmSessionEd25519Capability;
+  const rpId = deps.touchIdPrompt.getRpId();
   if (args.source === 'email_otp') {
     persist({
       kind: 'jwt_email_otp',
       walletId: protocol.walletId,
       nearAccountId,
       nearEd25519SigningKeyId: protocol.nearEd25519SigningKeyId,
-      rpId: deps.touchIdPrompt.getRpId(),
+      rpId,
       relayerUrl,
       relayerKeyId: args.relayerKeyId,
       runtimePolicyScope,
@@ -230,7 +238,7 @@ export async function provisionThresholdEd25519Session(
       walletId: protocol.walletId,
       nearAccountId,
       nearEd25519SigningKeyId: protocol.nearEd25519SigningKeyId,
-      rpId: deps.touchIdPrompt.getRpId(),
+      rpId,
       relayerUrl,
       relayerKeyId: args.relayerKeyId,
       runtimePolicyScope,
@@ -248,11 +256,32 @@ export async function provisionThresholdEd25519Session(
   }
 
   if (prfFirstB64u) {
+    if (args.source === 'email_otp') {
+      return {
+        ok: false,
+        code: 'invalid_result',
+        message: 'Passkey PRF material cannot seal an Email OTP Ed25519 session',
+      };
+    }
+    const credentialIdB64u = passkeyCredentialIdB64uFromAuthority(args.authority);
+    const ed25519Restore = buildPasskeyEd25519RestoreMetadata({
+      rpId,
+      nearAccountId: String(nearAccountId),
+      nearEd25519SigningKeyId: protocol.nearEd25519SigningKeyId,
+      relayerKeyId: args.relayerKeyId,
+      participantIds,
+      runtimePolicyScope,
+      signerSlot: protocol.signerSlot,
+      routerAbNormalSigning: args.routerAbNormalSigning,
+      credentialIdB64u,
+      walletSessionJwt: jwt,
+    });
     const transport = sealTransportForProvisionedEd25519Session({
       walletId: protocol.walletId,
       relayerUrl,
       signingGrantId,
       walletSessionJwt: jwt,
+      ed25519Restore,
     });
     try {
       await cacheCredentialBoundarySetupExportPrfFirst(deps.touchConfirm, {
