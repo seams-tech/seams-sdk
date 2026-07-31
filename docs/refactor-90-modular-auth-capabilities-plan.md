@@ -833,6 +833,10 @@ the replacement and legacy MPC paths must not ship together.
       step-up, and local-material rehydration from the exact sealed Ed25519
       runtime. Delete the sealed-record-to-composite-record signing adapter
       (`7a97a1363`).
+- [x] Project persisted Ed25519 available lanes and their local/server budget
+      advisory directly from exact sealed runtimes. Delete the inert
+      in-memory-record inventory and the sealed-record-to-composite-record
+      conversion (`06f22ac7d`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
