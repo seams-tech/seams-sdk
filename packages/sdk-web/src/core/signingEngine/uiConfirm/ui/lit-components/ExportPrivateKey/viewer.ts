@@ -16,9 +16,11 @@ export type ExportViewerVariant = 'drawer' | 'modal';
 
 const HEX_REEL_ALPHABET = '0123456789abcdef';
 const BASE58_REEL_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-const REEL_GLYPH_INTERVAL_MS = 72;
-const REEL_SETTLE_STAGGER_MS = 700;
-const REEL_SETTLE_SPIN_MS = 300;
+const REEL_GLYPH_INTERVAL_MS = 84;
+const REEL_GLYPH_PHASE_COUNT = 3;
+const REEL_SETTLE_REVEAL_DELAY_MS = 220;
+const REEL_SETTLE_CROSSFADE_MS = 140;
+const PRIVATE_KEY_MASKED_CHARACTER_COUNT = 24;
 
 type PrivateKeyRevealState =
   | {
@@ -27,7 +29,7 @@ type PrivateKeyRevealState =
       prefix: string;
       alphabet: string;
       slots: string[];
-      lastGlyphAtMs: number;
+      lastGlyphTick: number;
     }
   | {
       kind: 'settling';
@@ -38,7 +40,7 @@ type PrivateKeyRevealState =
       targetSlots: string[];
       lockedSlots: number;
       startedAtMs: number;
-      lastGlyphAtMs: number;
+      lastGlyphTick: number;
     }
   | { kind: 'settled'; entryKey: string };
 
@@ -67,6 +69,10 @@ function randomReelGlyph(alphabet: string): string {
   return alphabet[Math.floor(Math.random() * alphabet.length)] ?? alphabet[0] ?? 'x';
 }
 
+function reelGlyphTick(now: number): number {
+  return Math.floor(now / REEL_GLYPH_INTERVAL_MS);
+}
+
 function createReelSlots(definition: ReelDefinition, reducedMotion: boolean): string[] {
   return Array.from({ length: definition.slotCount }, () =>
     reducedMotion ? 'x' : randomReelGlyph(definition.alphabet),
@@ -77,6 +83,7 @@ function createSpinningState(
   entryKey: string,
   scheme: ExportPrivateKeyScheme,
   reducedMotion: boolean,
+  now: number,
 ): PrivateKeyRevealState {
   const definition = reelDefinition(scheme);
   return {
@@ -85,19 +92,43 @@ function createSpinningState(
     prefix: definition.prefix,
     alphabet: definition.alphabet,
     slots: createReelSlots(definition, reducedMotion),
-    lastGlyphAtMs: 0,
+    lastGlyphTick: reelGlyphTick(now) - 1,
   };
 }
 
 function maskedPrivateKey(privateKey: string): string {
   if (!privateKey) return '';
-  const prefix = 'ed25519:';
-  const prefixLength = privateKey.startsWith(prefix) ? prefix.length : 0;
-  const visibleStartLength = prefixLength + 6;
-  const hiddenEnd = Math.max(visibleStartLength, privateKey.length - 6);
-  return `${privateKey.slice(0, visibleStartLength)}${'x'.repeat(
-    hiddenEnd - visibleStartLength,
-  )}${privateKey.slice(hiddenEnd)}`;
+  const prefix = privateKey.startsWith('ed25519:')
+    ? 'ed25519:'
+    : privateKey.startsWith('0x')
+      ? '0x'
+      : '';
+  const keyBody = privateKey.slice(prefix.length);
+  const maskedCharacterCount = Math.min(PRIVATE_KEY_MASKED_CHARACTER_COUNT, keyBody.length);
+  const visibleCharacterCount = keyBody.length - maskedCharacterCount;
+  const visibleStartLength = Math.ceil(visibleCharacterCount / 2);
+  const maskedEnd = visibleStartLength + maskedCharacterCount;
+  return `${prefix}${keyBody.slice(0, visibleStartLength)}${'x'.repeat(
+    maskedCharacterCount,
+  )}${keyBody.slice(maskedEnd)}`;
+}
+
+function renderCopyStatusIcon() {
+  return html`
+    <span class="copy-icon" aria-hidden="true">
+      <span class="copy-icon-check">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M20 6 9 17l-5-5"></path>
+        </svg>
+      </span>
+      <span class="copy-icon-copy">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
+          <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+        </svg>
+      </span>
+    </span>
+  `;
 }
 
 function settlingState(
@@ -120,66 +151,85 @@ function settlingState(
     targetSlots,
     lockedSlots: 0,
     startedAtMs,
-    lastGlyphAtMs: state.lastGlyphAtMs,
+    lastGlyphTick: state.lastGlyphTick,
   };
 }
 
-function lockedSlotCount(state: Extract<PrivateKeyRevealState, { kind: 'settling' }>, now: number) {
-  const lastIndex = Math.max(1, state.targetSlots.length - 1);
-  let count = 0;
-  for (let index = 0; index < state.targetSlots.length; index += 1) {
-    const stagger = (index / lastIndex) * REEL_SETTLE_STAGGER_MS;
-    if (now >= state.startedAtMs + stagger + REEL_SETTLE_SPIN_MS) count += 1;
-  }
-  return count;
+function lockedSlotCount(
+  state: Extract<PrivateKeyRevealState, { kind: 'settling' }>,
+  now: number,
+): number {
+  return now >= state.startedAtMs + REEL_SETTLE_REVEAL_DELAY_MS ? state.targetSlots.length : 0;
+}
+
+function settlingCompleteAtMs(state: Extract<PrivateKeyRevealState, { kind: 'settling' }>): number {
+  return state.startedAtMs + REEL_SETTLE_REVEAL_DELAY_MS + REEL_SETTLE_CROSSFADE_MS;
 }
 
 function shouldCycleSettlingSlot(
   state: Extract<PrivateKeyRevealState, { kind: 'settling' }>,
   index: number,
   now: number,
+  tick: number,
 ): boolean {
-  const lastIndex = Math.max(1, state.targetSlots.length - 1);
-  const stagger = (index / lastIndex) * REEL_SETTLE_STAGGER_MS;
-  const slotStartedAtMs = state.startedAtMs + stagger;
-  if (now <= slotStartedAtMs) return true;
-  const progress = Math.min(1, (now - slotStartedAtMs) / REEL_SETTLE_SPIN_MS);
-  const updateStride = progress < 0.34 ? 1 : progress < 0.67 ? 2 : 3;
-  const tick = Math.floor((now - state.startedAtMs) / REEL_GLYPH_INTERVAL_MS);
+  const remainingMs = state.startedAtMs + REEL_SETTLE_REVEAL_DELAY_MS - now;
+  if (remainingMs <= 0) return false;
+  const progress = Math.max(0, Math.min(1, 1 - remainingMs / REEL_SETTLE_REVEAL_DELAY_MS));
+  const updateStride = progress < 0.34 ? 3 : progress < 0.67 ? 4 : 6;
   return (tick + index) % updateStride === 0;
+}
+
+function cycleSpinningSlots(slots: string[], alphabet: string, tick: number): string[] {
+  const nextSlots = [...slots];
+  for (let index = 0; index < nextSlots.length; index += 1) {
+    if ((tick + index) % REEL_GLYPH_PHASE_COUNT === 0) {
+      nextSlots[index] = randomReelGlyph(alphabet);
+    }
+  }
+  return nextSlots;
+}
+
+function cycleSettlingSlots(
+  state: Extract<PrivateKeyRevealState, { kind: 'settling' }>,
+  lockedSlots: number,
+  now: number,
+  tick: number,
+): string[] {
+  const nextSlots = [...state.slots];
+  for (let index = lockedSlots; index < nextSlots.length; index += 1) {
+    if (shouldCycleSettlingSlot(state, index, now, tick)) {
+      nextSlots[index] = randomReelGlyph(state.alphabet);
+    }
+  }
+  return nextSlots;
 }
 
 function advanceRevealState(
   state: Exclude<PrivateKeyRevealState, { kind: 'settled' }>,
   now: number,
 ): PrivateKeyRevealState {
+  const tick = reelGlyphTick(now);
   if (state.kind === 'spinning') {
-    if (now - state.lastGlyphAtMs < REEL_GLYPH_INTERVAL_MS) return state;
+    if (tick === state.lastGlyphTick) return state;
     return {
       ...state,
-      slots: state.slots.map(() => randomReelGlyph(state.alphabet)),
-      lastGlyphAtMs: now,
+      slots: cycleSpinningSlots(state.slots, state.alphabet, tick),
+      lastGlyphTick: tick,
     };
   }
 
   if (state.kind === 'settling') {
-    const nextLockedSlots = lockedSlotCount(state, now);
-    if (nextLockedSlots >= state.targetSlots.length) {
+    if (now >= settlingCompleteAtMs(state)) {
       return { kind: 'settled', entryKey: state.entryKey };
     }
-    const shouldCycle = now - state.lastGlyphAtMs >= REEL_GLYPH_INTERVAL_MS;
+    const nextLockedSlots = lockedSlotCount(state, now);
+    const shouldCycle = tick !== state.lastGlyphTick;
     if (!shouldCycle && nextLockedSlots === state.lockedSlots) return state;
-    const slots = state.slots.map((slot, index) => {
-      if (index < nextLockedSlots) return state.targetSlots[index] ?? slot;
-      return shouldCycle && shouldCycleSettlingSlot(state, index, now)
-        ? randomReelGlyph(state.alphabet)
-        : slot;
-    });
     return {
       ...state,
-      slots,
+      slots: shouldCycle ? cycleSettlingSlots(state, nextLockedSlots, now, tick) : state.slots,
       lockedSlots: nextLockedSlots,
-      lastGlyphAtMs: shouldCycle ? now : state.lastGlyphAtMs,
+      lastGlyphTick: shouldCycle ? tick : state.lastGlyphTick,
     };
   }
 
@@ -194,6 +244,23 @@ function prefersReducedMotion(ownerDocument: Document | undefined): boolean {
   return (
     ownerDocument?.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
   );
+}
+
+function renderReelSlot(liveGlyph: string, targetGlyph: string | null, settled: boolean) {
+  return html`<span class="reel-slot ${settled ? 'settled' : ''}">
+    <span class="reel-glyph-live">${liveGlyph}</span>
+    ${targetGlyph === null ? null : html`<span class="reel-glyph-target">${targetGlyph}</span>`}
+  </span>`;
+}
+
+function renderReelSlots(state: Extract<PrivateKeyRevealState, { kind: 'spinning' | 'settling' }>) {
+  const slots = [];
+  for (let index = 0; index < state.slots.length; index += 1) {
+    const targetGlyph = state.kind === 'settling' ? (state.targetSlots[index] ?? '') : null;
+    const settled = state.kind === 'settling' && index < state.lockedSlots;
+    slots.push(renderReelSlot(state.slots[index] ?? '', targetGlyph, settled));
+  }
+  return slots;
 }
 
 export class ExportPrivateKeyViewer extends LitElementWithProps {
@@ -385,6 +452,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
     }
 
     const reducedMotion = prefersReducedMotion(this.ownerDocument);
+    const now = this.ownerDocument?.defaultView?.performance.now() ?? performance.now();
     const entries = this.resolveKeyEntries();
     const activeEntryKeys = new Set<string>();
     for (const [index, entry] of entries.entries()) {
@@ -395,7 +463,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
         if (!currentState || currentState.kind === 'settled') {
           this.revealStates.set(
             entryKey,
-            createSpinningState(entryKey, entry.scheme, reducedMotion),
+            createSpinningState(entryKey, entry.scheme, reducedMotion, now),
           );
         }
         continue;
@@ -407,7 +475,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
           entryKey,
           reducedMotion
             ? { kind: 'settled', entryKey }
-            : settlingState(currentState, maskedPrivateKey(privateKey), performance.now()),
+            : settlingState(currentState, maskedPrivateKey(privateKey), now),
         );
       } else if (!privateKey) {
         this.revealStates.delete(entryKey);
@@ -497,14 +565,10 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
   }
 
   private renderReel(state: Extract<PrivateKeyRevealState, { kind: 'spinning' | 'settling' }>) {
-    const lockedSlots = state.kind === 'settling' ? state.lockedSlots : 0;
     return html`
-      <span class="private-key-reel" aria-hidden="true">
-        <span class="reel-prefix">${state.prefix}</span>${state.slots.map(
-          (slot, index) =>
-            html`<span class="reel-slot ${index < lockedSlots ? 'settled' : ''}">${slot}</span>`,
-        )}
-      </span>
+      <span class="private-key-reel" aria-hidden="true"
+        ><span class="reel-prefix">${state.prefix}</span>${renderReelSlots(state)}</span
+      >
       <span class="w3a-sr-only" role="status">Decrypting private key</span>
     `;
   }
@@ -589,7 +653,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
           ${showAccountId
             ? html`
                 <div class="field">
-                  <div class="field-label">Account ID</div>
+                  <div class="field-label">Near Account ID</div>
                   <div class="field-value">
                     <span class="value">
                       ${this.accountId ? this.accountId : html`<span class="muted">—</span>`}
@@ -622,44 +686,48 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
                       : null}
                     ${showPublicKey
                       ? html`
-                          <div class="field">
+                          <button
+                            type="button"
+                            class="field copy-field ${this.isCopied(index, 'publicKey')
+                              ? 'copied'
+                              : ''}"
+                            aria-label=${this.isCopied(index, 'publicKey')
+                              ? 'Public key copied'
+                              : 'Copy public key'}
+                            title=${this.isCopied(index, 'publicKey')
+                              ? 'Copied'
+                              : 'Copy public key'}
+                            ?disabled=${!publicKey}
+                            @click=${() => this.copy('publicKey', publicKey, index)}
+                          >
                             <div class="field-label">Public Key</div>
                             <div class="field-value">
                               <span class="value">
                                 ${publicKey ? publicKey : html`<span class="muted">—</span>`}
                               </span>
-                              <button
-                                class="btn btn-surface ${this.isCopied(index, 'publicKey')
-                                  ? 'copied'
-                                  : ''}"
-                                title="Copy"
-                                ?disabled=${!publicKey}
-                                @click=${() => this.copy('publicKey', publicKey, index)}
-                              >
-                                ${this.isCopied(index, 'publicKey') ? 'Copied!' : 'Copy'}
-                              </button>
+                              ${renderCopyStatusIcon()}
                             </div>
-                          </div>
+                          </button>
                         `
                       : null}
-                    <div class="field">
+                    <button
+                      type="button"
+                      class="field copy-field ${this.isCopied(index, 'privateKey') ? 'copied' : ''}"
+                      aria-label=${this.isCopied(index, 'privateKey')
+                        ? 'Private key copied'
+                        : 'Copy private key'}
+                      title=${this.isCopied(index, 'privateKey') ? 'Copied' : 'Copy private key'}
+                      ?disabled=${this.privateKeyCopyDisabled(index, entry, privateKey)}
+                      @click=${() => this.copy('privateKey', privateKey, index)}
+                    >
                       <div class="field-label">Private Key</div>
                       <div class="field-value">
                         <span class="value private-key">
                           ${this.renderPrivateKey(index, entry, privateKey)}
                         </span>
-                        <button
-                          class="btn btn-surface ${this.isCopied(index, 'privateKey')
-                            ? 'copied'
-                            : ''}"
-                          title="Copy"
-                          ?disabled=${this.privateKeyCopyDisabled(index, entry, privateKey)}
-                          @click=${() => this.copy('privateKey', privateKey, index)}
-                        >
-                          ${this.isCopied(index, 'privateKey') ? 'Copied!' : 'Copy'}
-                        </button>
+                        ${renderCopyStatusIcon()}
                       </div>
-                    </div>
+                    </button>
                   </div>
                 `;
               })
