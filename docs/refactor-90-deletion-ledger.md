@@ -595,6 +595,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   `151110bd8`; consumers narrow the canonical signer binding directly
 - ~~local `routePlanSessionAuth` Email OTP worker wrapper~~ — deleted by
   `e90c3f09a`; callers use the canonical auth-lane projection directly
+- ~~zero-caller `buildReauthAnchorIdentityFromEcdsaLaneCandidate` fallback and
+  its candidate-only freshness helpers~~ — deleted by `24e0c2335`; live
+  reauth uses the canonical available-lane builder
 - ~~zero-caller `BaseEcdsaWalletId`, bootstrap route-auth/session-id helpers,
   and sealed-record auth-lane wrapper~~ — deleted by `6207cea1f`
 - ~~exact aliases for ECDSA signing authorization, activation request/result,
