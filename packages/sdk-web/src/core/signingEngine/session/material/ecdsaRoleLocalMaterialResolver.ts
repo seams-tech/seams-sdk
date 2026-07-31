@@ -1,9 +1,7 @@
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
-import { buildRouterAbEcdsaDerivationActiveStateIdV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   mpcMaterialActivationRefsEqual,
   parseMpcMaterialActivationRef,
-  type EcdsaActiveStateId,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import {
@@ -86,17 +84,6 @@ export type EcdsaRoleLocalMaterialResolution =
       readonly liveHandle?: never;
       readonly materialRef?: never;
     };
-
-export function ecdsaRoleLocalActiveStateId(
-  publicFacts: EcdsaRoleLocalPublicFacts,
-): EcdsaActiveStateId {
-  return buildRouterAbEcdsaDerivationActiveStateIdV1({
-    ecdsaThresholdKeyId: String(publicFacts.ecdsaThresholdKeyId),
-    signingRootId: String(publicFacts.signingRootId),
-    signingRootVersion: String(publicFacts.signingRootVersion),
-    activationEpoch: publicFacts.publicCapability.activation_epoch,
-  });
-}
 
 function materialRefMatchesPublicFacts(
   materialRef: EcdsaRoleLocalPersistedMaterialRef,
@@ -204,13 +191,6 @@ export function ecdsaRoleLocalPersistedMaterialSource(
     authority: persistedMaterial.authority,
     materialActivation: persistedMaterial.materialActivation,
     publicFacts: persistedMaterial.publicFacts,
-  };
-}
-
-export function unavailableEcdsaRoleLocalMaterialSource(): EcdsaRoleLocalMaterialSource {
-  return {
-    kind: 'unavailable',
-    reason: 'missing_local_material',
   };
 }
 

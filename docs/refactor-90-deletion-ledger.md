@@ -611,6 +611,15 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   deleted with the two live README entrypoint references; canonical
   `EmailOtpSigningSessionAuthLane` is the active authority boundary
   (`4f11a1211`)
+- ~~zero-caller `ecdsaRoleLocalActiveStateId` and
+  `unavailableEcdsaRoleLocalMaterialSource` constructors~~ — deleted by
+  `01521c796`; active-state builders and explicit unavailable branches remain
+- ~~zero-caller `resolveActiveEcdsaCapabilityRuntimeForSealedRecord` wrapper~~ —
+  deleted by `3f251b7cb`; active resolution uses canonical wallet/target or
+  chain-kind selectors
+- ~~stale registration/key-brand source-guard blocks for deleted persistence,
+  lifecycle, and Shamir-seal paths~~ — retired by `703fa1d95`; remaining guard
+  checks target live registration, branding, and WebAuthn boundaries
 - ~~zero-caller `buildReauthAnchorIdentityFromEcdsaLaneCandidate` fallback and
   its candidate-only freshness helpers~~ — deleted by `24e0c2335`; live
   reauth uses the canonical available-lane builder
