@@ -16,11 +16,9 @@ export type ExportViewerVariant = 'drawer' | 'modal';
 
 const HEX_REEL_ALPHABET = '0123456789abcdef';
 const BASE58_REEL_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-const REEL_GLYPH_INTERVAL_MS = 84;
-const REEL_GLYPH_PHASE_COUNT = 3;
-const REEL_SETTLE_REVEAL_DELAY_MS = 220;
-const REEL_SETTLE_CROSSFADE_MS = 140;
-const PRIVATE_KEY_MASKED_CHARACTER_COUNT = 24;
+const REEL_GLYPH_INTERVAL_MS = 72;
+const REEL_SETTLE_STAGGER_MS = 700;
+const REEL_SETTLE_SPIN_MS = 300;
 
 type PrivateKeyRevealState =
   | {
@@ -29,7 +27,7 @@ type PrivateKeyRevealState =
       prefix: string;
       alphabet: string;
       slots: string[];
-      lastGlyphTick: number;
+      lastGlyphAtMs: number;
     }
   | {
       kind: 'settling';
@@ -40,7 +38,7 @@ type PrivateKeyRevealState =
       targetSlots: string[];
       lockedSlots: number;
       startedAtMs: number;
-      lastGlyphTick: number;
+      lastGlyphAtMs: number;
     }
   | { kind: 'settled'; entryKey: string };
 
@@ -69,10 +67,6 @@ function randomReelGlyph(alphabet: string): string {
   return alphabet[Math.floor(Math.random() * alphabet.length)] ?? alphabet[0] ?? 'x';
 }
 
-function reelGlyphTick(now: number): number {
-  return Math.floor(now / REEL_GLYPH_INTERVAL_MS);
-}
-
 function createReelSlots(definition: ReelDefinition, reducedMotion: boolean): string[] {
   return Array.from({ length: definition.slotCount }, () =>
     reducedMotion ? 'x' : randomReelGlyph(definition.alphabet),
@@ -83,7 +77,6 @@ function createSpinningState(
   entryKey: string,
   scheme: ExportPrivateKeyScheme,
   reducedMotion: boolean,
-  now: number,
 ): PrivateKeyRevealState {
   const definition = reelDefinition(scheme);
   return {
@@ -92,25 +85,19 @@ function createSpinningState(
     prefix: definition.prefix,
     alphabet: definition.alphabet,
     slots: createReelSlots(definition, reducedMotion),
-    lastGlyphTick: reelGlyphTick(now) - 1,
+    lastGlyphAtMs: 0,
   };
 }
 
 function maskedPrivateKey(privateKey: string): string {
   if (!privateKey) return '';
-  const prefix = privateKey.startsWith('ed25519:')
-    ? 'ed25519:'
-    : privateKey.startsWith('0x')
-      ? '0x'
-      : '';
-  const keyBody = privateKey.slice(prefix.length);
-  const maskedCharacterCount = Math.min(PRIVATE_KEY_MASKED_CHARACTER_COUNT, keyBody.length);
-  const visibleCharacterCount = keyBody.length - maskedCharacterCount;
-  const visibleStartLength = Math.ceil(visibleCharacterCount / 2);
-  const maskedEnd = visibleStartLength + maskedCharacterCount;
-  return `${prefix}${keyBody.slice(0, visibleStartLength)}${'x'.repeat(
-    maskedCharacterCount,
-  )}${keyBody.slice(maskedEnd)}`;
+  const prefix = 'ed25519:';
+  const prefixLength = privateKey.startsWith(prefix) ? prefix.length : 0;
+  const visibleStartLength = prefixLength + 6;
+  const hiddenEnd = Math.max(visibleStartLength, privateKey.length - 6);
+  return `${privateKey.slice(0, visibleStartLength)}${'x'.repeat(
+    hiddenEnd - visibleStartLength,
+  )}${privateKey.slice(hiddenEnd)}`;
 }
 
 function renderCopyStatusIcon() {
@@ -151,85 +138,66 @@ function settlingState(
     targetSlots,
     lockedSlots: 0,
     startedAtMs,
-    lastGlyphTick: state.lastGlyphTick,
+    lastGlyphAtMs: state.lastGlyphAtMs,
   };
 }
 
-function lockedSlotCount(
-  state: Extract<PrivateKeyRevealState, { kind: 'settling' }>,
-  now: number,
-): number {
-  return now >= state.startedAtMs + REEL_SETTLE_REVEAL_DELAY_MS ? state.targetSlots.length : 0;
-}
-
-function settlingCompleteAtMs(state: Extract<PrivateKeyRevealState, { kind: 'settling' }>): number {
-  return state.startedAtMs + REEL_SETTLE_REVEAL_DELAY_MS + REEL_SETTLE_CROSSFADE_MS;
+function lockedSlotCount(state: Extract<PrivateKeyRevealState, { kind: 'settling' }>, now: number) {
+  const lastIndex = Math.max(1, state.targetSlots.length - 1);
+  let count = 0;
+  for (let index = 0; index < state.targetSlots.length; index += 1) {
+    const stagger = (index / lastIndex) * REEL_SETTLE_STAGGER_MS;
+    if (now >= state.startedAtMs + stagger + REEL_SETTLE_SPIN_MS) count += 1;
+  }
+  return count;
 }
 
 function shouldCycleSettlingSlot(
   state: Extract<PrivateKeyRevealState, { kind: 'settling' }>,
   index: number,
   now: number,
-  tick: number,
 ): boolean {
-  const remainingMs = state.startedAtMs + REEL_SETTLE_REVEAL_DELAY_MS - now;
-  if (remainingMs <= 0) return false;
-  const progress = Math.max(0, Math.min(1, 1 - remainingMs / REEL_SETTLE_REVEAL_DELAY_MS));
-  const updateStride = progress < 0.34 ? 3 : progress < 0.67 ? 4 : 6;
+  const lastIndex = Math.max(1, state.targetSlots.length - 1);
+  const stagger = (index / lastIndex) * REEL_SETTLE_STAGGER_MS;
+  const slotStartedAtMs = state.startedAtMs + stagger;
+  if (now <= slotStartedAtMs) return true;
+  const progress = Math.min(1, (now - slotStartedAtMs) / REEL_SETTLE_SPIN_MS);
+  const updateStride = progress < 0.34 ? 1 : progress < 0.67 ? 2 : 3;
+  const tick = Math.floor((now - state.startedAtMs) / REEL_GLYPH_INTERVAL_MS);
   return (tick + index) % updateStride === 0;
-}
-
-function cycleSpinningSlots(slots: string[], alphabet: string, tick: number): string[] {
-  const nextSlots = [...slots];
-  for (let index = 0; index < nextSlots.length; index += 1) {
-    if ((tick + index) % REEL_GLYPH_PHASE_COUNT === 0) {
-      nextSlots[index] = randomReelGlyph(alphabet);
-    }
-  }
-  return nextSlots;
-}
-
-function cycleSettlingSlots(
-  state: Extract<PrivateKeyRevealState, { kind: 'settling' }>,
-  lockedSlots: number,
-  now: number,
-  tick: number,
-): string[] {
-  const nextSlots = [...state.slots];
-  for (let index = lockedSlots; index < nextSlots.length; index += 1) {
-    if (shouldCycleSettlingSlot(state, index, now, tick)) {
-      nextSlots[index] = randomReelGlyph(state.alphabet);
-    }
-  }
-  return nextSlots;
 }
 
 function advanceRevealState(
   state: Exclude<PrivateKeyRevealState, { kind: 'settled' }>,
   now: number,
 ): PrivateKeyRevealState {
-  const tick = reelGlyphTick(now);
   if (state.kind === 'spinning') {
-    if (tick === state.lastGlyphTick) return state;
+    if (now - state.lastGlyphAtMs < REEL_GLYPH_INTERVAL_MS) return state;
     return {
       ...state,
-      slots: cycleSpinningSlots(state.slots, state.alphabet, tick),
-      lastGlyphTick: tick,
+      slots: state.slots.map(() => randomReelGlyph(state.alphabet)),
+      lastGlyphAtMs: now,
     };
   }
 
   if (state.kind === 'settling') {
-    if (now >= settlingCompleteAtMs(state)) {
+    const nextLockedSlots = lockedSlotCount(state, now);
+    if (nextLockedSlots >= state.targetSlots.length) {
       return { kind: 'settled', entryKey: state.entryKey };
     }
-    const nextLockedSlots = lockedSlotCount(state, now);
-    const shouldCycle = tick !== state.lastGlyphTick;
+    const shouldCycle = now - state.lastGlyphAtMs >= REEL_GLYPH_INTERVAL_MS;
     if (!shouldCycle && nextLockedSlots === state.lockedSlots) return state;
+    const slots = state.slots.map((slot, index) => {
+      if (index < nextLockedSlots) return state.targetSlots[index] ?? slot;
+      return shouldCycle && shouldCycleSettlingSlot(state, index, now)
+        ? randomReelGlyph(state.alphabet)
+        : slot;
+    });
     return {
       ...state,
-      slots: shouldCycle ? cycleSettlingSlots(state, nextLockedSlots, now, tick) : state.slots,
+      slots,
       lockedSlots: nextLockedSlots,
-      lastGlyphTick: shouldCycle ? tick : state.lastGlyphTick,
+      lastGlyphAtMs: shouldCycle ? now : state.lastGlyphAtMs,
     };
   }
 
@@ -244,23 +212,6 @@ function prefersReducedMotion(ownerDocument: Document | undefined): boolean {
   return (
     ownerDocument?.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
   );
-}
-
-function renderReelSlot(liveGlyph: string, targetGlyph: string | null, settled: boolean) {
-  return html`<span class="reel-slot ${settled ? 'settled' : ''}">
-    <span class="reel-glyph-live">${liveGlyph}</span>
-    ${targetGlyph === null ? null : html`<span class="reel-glyph-target">${targetGlyph}</span>`}
-  </span>`;
-}
-
-function renderReelSlots(state: Extract<PrivateKeyRevealState, { kind: 'spinning' | 'settling' }>) {
-  const slots = [];
-  for (let index = 0; index < state.slots.length; index += 1) {
-    const targetGlyph = state.kind === 'settling' ? (state.targetSlots[index] ?? '') : null;
-    const settled = state.kind === 'settling' && index < state.lockedSlots;
-    slots.push(renderReelSlot(state.slots[index] ?? '', targetGlyph, settled));
-  }
-  return slots;
 }
 
 export class ExportPrivateKeyViewer extends LitElementWithProps {
@@ -452,7 +403,6 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
     }
 
     const reducedMotion = prefersReducedMotion(this.ownerDocument);
-    const now = this.ownerDocument?.defaultView?.performance.now() ?? performance.now();
     const entries = this.resolveKeyEntries();
     const activeEntryKeys = new Set<string>();
     for (const [index, entry] of entries.entries()) {
@@ -463,7 +413,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
         if (!currentState || currentState.kind === 'settled') {
           this.revealStates.set(
             entryKey,
-            createSpinningState(entryKey, entry.scheme, reducedMotion, now),
+            createSpinningState(entryKey, entry.scheme, reducedMotion),
           );
         }
         continue;
@@ -475,7 +425,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
           entryKey,
           reducedMotion
             ? { kind: 'settled', entryKey }
-            : settlingState(currentState, maskedPrivateKey(privateKey), now),
+            : settlingState(currentState, maskedPrivateKey(privateKey), performance.now()),
         );
       } else if (!privateKey) {
         this.revealStates.delete(entryKey);
@@ -565,10 +515,14 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
   }
 
   private renderReel(state: Extract<PrivateKeyRevealState, { kind: 'spinning' | 'settling' }>) {
+    const lockedSlots = state.kind === 'settling' ? state.lockedSlots : 0;
     return html`
-      <span class="private-key-reel" aria-hidden="true"
-        ><span class="reel-prefix">${state.prefix}</span>${renderReelSlots(state)}</span
-      >
+      <span class="private-key-reel" aria-hidden="true">
+        <span class="reel-prefix">${state.prefix}</span>${state.slots.map(
+          (slot, index) =>
+            html`<span class="reel-slot ${index < lockedSlots ? 'settled' : ''}">${slot}</span>`,
+        )}
+      </span>
       <span class="w3a-sr-only" role="status">Decrypting private key</span>
     `;
   }
@@ -694,9 +648,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
                             aria-label=${this.isCopied(index, 'publicKey')
                               ? 'Public key copied'
                               : 'Copy public key'}
-                            title=${this.isCopied(index, 'publicKey')
-                              ? 'Copied'
-                              : 'Copy public key'}
+                            title=${this.isCopied(index, 'publicKey') ? 'Copied' : 'Copy public key'}
                             ?disabled=${!publicKey}
                             @click=${() => this.copy('publicKey', publicKey, index)}
                           >
@@ -712,7 +664,9 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
                       : null}
                     <button
                       type="button"
-                      class="field copy-field ${this.isCopied(index, 'privateKey') ? 'copied' : ''}"
+                      class="field copy-field ${this.isCopied(index, 'privateKey')
+                        ? 'copied'
+                        : ''}"
                       aria-label=${this.isCopied(index, 'privateKey')
                         ? 'Private key copied'
                         : 'Copy private key'}
