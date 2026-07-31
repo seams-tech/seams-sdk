@@ -680,8 +680,11 @@ the replacement and legacy MPC paths must not ship together.
         signing and export, re-resolves before rehydration, persists before
         releasing the owner, and verifies the durable activation afterward
         (`b78210618`).
-  - [ ] Route the remaining Passkey recovery and Ed25519 refresh consuming
-        paths through their exact material owner fence.
+  - [x] Email OTP Ed25519 direct login and unlock activation persist under the
+        same exact-owner queue and reject an activation replaced during commit
+        (`fbf4be6a4`).
+  - [ ] Route Passkey login hydration and sync/unlock recovery through their
+        exact material owner fence.
 - [x] Bind live worker material to the exact material activation.
 - [x] Give a server-side expiry race at most one retry after same-method
       step-up.

@@ -347,8 +347,10 @@ implementing commit SHA as the evidence.
     signing and export, re-resolves before worker rehydration, persists before
     releasing the owner, and verifies durable activation afterward
     (`b78210618`).
-  - [ ] Passkey recovery and the remaining Ed25519 refresh consuming paths
-    still require the equivalent exact-owner fence.
+  - [x] Email OTP Ed25519 direct login and unlock activation persist under that
+    exact-owner queue and reject replacement during commit (`fbf4be6a4`).
+  - [ ] Passkey login hydration and sync/unlock recovery still require the
+    equivalent exact-owner fence.
 - [x] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
   applicable quota once; existing claims consume neither again. Reusable Near
   claims, operation-step-up Near claims, and one-use ECDSA export claims commit
