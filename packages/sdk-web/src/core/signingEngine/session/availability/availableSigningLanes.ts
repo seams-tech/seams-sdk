@@ -816,47 +816,6 @@ export function buildReauthAnchorIdentityFromAvailableLane(args: {
   });
 }
 
-export function buildReauthAnchorIdentityFromEcdsaLaneCandidate(args: {
-  walletId: WalletId | string;
-  operationId: SigningOperationId;
-  operationFingerprint: SigningOperationFingerprint;
-  candidate: EcdsaLaneCandidate;
-}): ReauthAnchorIdentity | null {
-  if (args.candidate.state !== 'expired' && args.candidate.state !== 'exhausted') return null;
-  if (args.candidate.authorizationState !== 'authorized') return null;
-  const walletId = toWalletId(args.walletId);
-  if (String(args.candidate.walletId) !== String(walletId)) {
-    throw new Error('[SigningEngine][ecdsa] reauth candidate wallet mismatch');
-  }
-  const selectedLane = selectedEcdsaLane({
-    key: args.candidate.key,
-    materialActivation: args.candidate.materialActivation,
-    keyHandle: args.candidate.keyHandle,
-    walletId,
-    auth: args.candidate.auth,
-    authorization: args.candidate.authorization,
-    chainTarget: args.candidate.chainTarget,
-  });
-  const freshness = buildFreshStepUpRequired({
-    walletId,
-    operationId: args.operationId,
-    operationFingerprint: args.operationFingerprint,
-    laneIdentity: exactSigningLaneIdentityFromSelectedLane(selectedLane),
-    projection: { kind: 'unavailable', reason: 'restored_record_has_no_projection' },
-    expiry: laneCandidateExpiry(args.candidate),
-    provenance: {
-      kind: 'restored_sealed_record_status',
-      recordVersion: ecdsaCandidateRecordVersion(args.candidate),
-      updatedAtMs: laneCandidateUpdatedAtMs(args.candidate),
-    },
-    reason: laneCandidateStepUpReason(args.candidate),
-  });
-  return buildReauthAnchorIdentity({
-    freshness,
-    sourceState: sourceStateFromEcdsaLaneCandidate(args.candidate, freshness),
-  });
-}
-
 function emptyEd25519Lane(): AvailableEd25519SigningLane {
   return {
     curve: 'ed25519',
@@ -904,15 +863,6 @@ function availableLaneRecordVersion(lane: ConcreteAvailableSigningLane): string 
   ].join(':');
 }
 
-function ecdsaCandidateRecordVersion(candidate: EcdsaLaneCandidate): string {
-  return [
-    candidate.curve,
-    candidate.source || 'unknown',
-    materialActivationKey(candidate.materialActivation),
-    candidate.authorizationState,
-  ].join(':');
-}
-
 function sourceStateFromAvailableLane(
   lane: ConcreteAvailableSigningLane,
   freshness: FreshStepUpRequired,
@@ -925,28 +875,6 @@ function sourceStateFromAvailableLane(
     storeSource: authState.storeSource,
     retention: authState.retention,
     remainingUses: nullableNonNegativeInteger(lane.remainingUses),
-    expiry: freshness.expiry,
-    projection: freshness.projection,
-  };
-}
-
-function sourceStateFromEcdsaLaneCandidate(
-  candidate: EcdsaLaneCandidate,
-  freshness: FreshStepUpRequired,
-): ReauthAnchorSourceState {
-  if (candidate.authorizationState !== 'authorized') {
-    throw new Error('[SigningSession] ECDSA reauth source requires active authorization');
-  }
-  const authMethod = signingLaneAuthMethod(candidate.auth);
-  const authState = reauthAnchorSourceStateForSignerAuthMethod(authMethod);
-  const remainingUses =
-    candidate.state === 'exhausted' ? 0 : candidate.authorization.status.remainingUses;
-  return {
-    kind: 'reauth_anchor_source_state',
-    availabilitySource: candidate.source,
-    storeSource: authState.storeSource,
-    retention: authState.retention,
-    remainingUses,
     expiry: freshness.expiry,
     projection: freshness.projection,
   };
