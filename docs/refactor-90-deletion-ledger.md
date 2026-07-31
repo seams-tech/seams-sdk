@@ -623,9 +623,18 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~zero-caller `ThresholdSessionSealTransportAuthMaterial` and
   `WalletSessionJwtAuthSource` record aliases~~ — deleted by `6dc24c395`; live
   sealed-recovery transports own their protocol-specific shapes
+- ~~zero-caller threshold status error constants, formatters, and
+  `normalizeUsesNeeded` in `warmCapabilities/statusReader.ts`~~ — deleted by
+  `308910932`; the read model owns the live status mapping
 - ~~stale registration/key-brand source-guard blocks for deleted persistence,
   lifecycle, and Shamir-seal paths~~ — retired by `703fa1d95`; remaining guard
   checks target live registration, branding, and WebAuthn boundaries
+- ~~obsolete signing-session seal default-key source guard~~ — retired by
+  `2744c6c02`; active seal configuration is checked through the current
+  root/current/accepted-version boundary
+- ~~stale EVM key-slot branding guard paths~~ — rewritten by `fc048026f` to
+  cover the live provisioning, worker, Router validation, and
+  registration/recovery boundaries
 - ~~zero-caller `buildReauthAnchorIdentityFromEcdsaLaneCandidate` fallback and
   its candidate-only freshness helpers~~ — deleted by `24e0c2335`; live
   reauth uses the canonical available-lane builder
