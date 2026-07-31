@@ -219,6 +219,11 @@ implementing commit SHA as the evidence.
     zero-consumer bootstrap relayer port family is deleted (`a843d8dbc`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
+  - [x] The canonical ECDSA operating-path proof completes persisted hydration,
+    dedicated worker binding, pooled prepare/finalize, and verifies the
+    resulting 65-byte signature. The endpoint fixture and prepare-response
+    parser agree on every required operation-claim field (`7c20fe644`,
+    `e75d2bcfb`).
   - [x] NEAR sealed-material hydration no longer implies authorization-budget
     readmission; only an actual authorization/session replacement refreshes
     that identity (`30b52879b`).

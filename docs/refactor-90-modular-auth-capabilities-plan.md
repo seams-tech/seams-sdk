@@ -627,7 +627,12 @@ the replacement and legacy MPC paths must not ship together.
       binding; selection no longer depends on record-backed or pre-hydrated
       material state.
 - [x] Demonstrate Passkey and Email OTP normal signing through canonical
-      hydration and worker binding using current shared factories.
+      hydration and worker binding using current shared factories. The
+      canonical ECDSA operating-path proof completes persisted hydration,
+      dedicated worker binding, pooled prepare/finalize, and verifies the
+      resulting 65-byte signature; its endpoint fixture and prepare-response
+      parser agree on the required operation-claim fields (`7c20fe644`,
+      `e75d2bcfb`).
 - [x] Move the remaining registration and explicit-unlock entry points to
       capability-owned state: Passkey unlock plans from active signer and
       capability facts, while Email OTP registration/unlock resolves existing
