@@ -33,6 +33,18 @@ ed25519-yao-fv-parity:
 ed25519-yao-fv-anti-drift:
   cargo yao-fv anti-drift
 
+# Run production-linked activation/export cases against the clear oracle.
+ed25519-yao-fv-runtime-conformance:
+  cargo yao-fv runtime-conformance-check
+
+# Run the passive Deriver public-shape and cross-session replay boundary check.
+ed25519-yao-fv-passive-public-shape:
+  cargo yao-fv passive-public-shape-check
+
+# Check production public views and conditional passive hybrid bounds.
+ed25519-yao-fv-passive-security:
+  cargo yao-fv passive-security-check
+
 # Build the named Ed25519 Yao Lean model target.
 ed25519-yao-fv-lean:
   cargo yao-fv lean-check

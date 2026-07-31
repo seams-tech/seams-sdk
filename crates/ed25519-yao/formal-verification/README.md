@@ -98,12 +98,29 @@ Ed25519 Yao that exist today. The checked surface is deliberately narrow:
 - the clear generator's `wrapping_add_le_256` and `clamp_rfc8032` boundaries;
 - executable production-to-mirror anti-drift checks.
 
-There is no garbled-circuit engine, streaming protocol, active-security suite,
-ticket state machine, or privacy theorem in this scaffold. A passing command
-does not establish Yao security.
+The formal track does not yet contain a garbled-circuit security theorem,
+streaming noninterference theorem, active-security suite, ticket state machine,
+or computational privacy proof. A passing command does not establish Yao
+security.
+
+The runtime-linked checks now exercise the implemented 128 KiB local protocol
+through its public role façade. `runtime-conformance-check` runs activation and
+export through OT, Half-Gates, streaming, transcript, and recipient-package
+combination, then compares the combined outputs with the clear oracle over
+twelve committed boundary and deterministic generated cases. The inputs cover
+independent nonzero tau contributions, little-endian carries, full-width
+wrapping, the scalar-order boundary, and endianness sentinels.
+
+`passive-public-shape-check` records each Deriver's sent and received direction,
+message kind, and exact payload length. It compares those role-local views with
+the fixed activation/export public-shape model across the same twelve cases.
+It also rejects foreign-session `BaseOtOffer` and `BaseOtChoices` messages for
+both protocol families. These are finite production-linkage checks. They do
+not quantify over all inputs and do not establish noninterference, a simulator,
+or real/ideal indistinguishability.
 
 The post-attachment baseline contains 27 reference specifications, 21 committed
-corpora, 418 generator Rust tests, 186 independent Python tests, and 158 Lean
+corpora, 418 generator Rust tests, 186 independent Python tests, and 169 Lean
 theorems. Six attached Rust and four passing Python tests belong to
 reconciliation; three concurrent Rust tests freeze circuit field order and LSB0
 bit layout. Twelve host-only Rust tests exercise the external-evidence readiness
@@ -132,11 +149,14 @@ The certificate freezes this exact ordered nonclaim list:
 - [`lean-model/`](lean-model/README.md) contains model-only manifest-shape,
   output-view, accepted-evaluation input/coin custody, lifecycle, and role-
   pinned export-authorization, registration-admission, recovery-admission, and
-  refresh-admission and semantic-frame party-view policy theorems. Its exact
-  FV1 count is 158 and it has no production anti-
-  drift bridge.
+  refresh-admission, semantic-frame party-view policy, and a conditional
+  passive-security composition scaffold. Its exact FV1 count is 169. The
+  export-A simulator has typed leakage and a generated production public-view
+  bridge; payload semantics and transition bounds remain abstract.
 - [`tasks/`](tasks/Cargo.toml) owns host-only command orchestration. Production
-  crates have no dependency on this task runner or on the clear oracle.
+  crates have no dependency on this task runner or on the clear oracle. The
+  task runner enables the local protocol feature only for its runtime-linked
+  verification commands.
 - `tools/ed25519-yao-generator/src/authenticated_store.rs` owns the move-only
   strictly verified registered-store resolution. Its companion specification
   is committed by the fixed-reference golden block; production parsing,
@@ -178,6 +198,9 @@ cargo yao-fv phase2b-review-approval-check
 cargo yao-fv cross-language-check
 cargo yao-fv parity
 cargo yao-fv anti-drift
+cargo yao-fv runtime-conformance-check
+cargo yao-fv passive-public-shape-check
+cargo yao-fv passive-security-check
 cargo yao-fv lean-check
 cargo yao-fv aeneas-check
 cargo yao-fv verus-check

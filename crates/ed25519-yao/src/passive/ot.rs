@@ -368,6 +368,18 @@ impl<F: OtFamily> BaseChoices<F> {
             family: PhantomData,
         })
     }
+
+    /// Decodes base choices and requires the surrounding ceremony's exact OT domain.
+    pub(super) fn decode_for_session(
+        encoded: &[u8],
+        expected_session: OtSessionId,
+    ) -> Result<Self, OtError> {
+        let choices = Self::decode(encoded)?;
+        if choices.session != expected_session {
+            return Err(OtError::SessionMismatch);
+        }
+        Ok(choices)
+    }
 }
 
 /// Flight 3: B's family-sized IKNP correction matrix.

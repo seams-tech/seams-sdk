@@ -200,7 +200,7 @@ The reconciliation certificate's exact ordered nonclaim vocabulary is
 ## Frozen post-attachment baseline
 
 The post-attachment baseline contains 27 documents, 21 corpora, 418 generator
-Rust tests, 186 Python tests, and 158 Lean theorems. The counted reconciliation
+Rust tests, 186 Python tests, and 169 Lean theorems. The counted reconciliation
 gate passes six focused Rust tests, four focused Python tests, and direct
 five-case verification. A separate host-only readiness gate passes twenty Rust
 tests, the fixed-subject builder passes eleven Rust tests, and the change-
@@ -235,7 +235,7 @@ control readiness gate passes thirteen stdlib-Python tests.
   ceremony, provenance, input/output/lifecycle, delivery, recipient, transition,
   promotion, and abort attachments;
 - the post-reconciliation aggregate evidence counts of 186 independent
-  Python verifier tests, 418 generator Rust tests, and 158 Lean model theorems;
+  Python verifier tests, 418 generator Rust tests, and 169 Lean model theorems;
   the reconciliation slice contributes six Rust and four Python tests, while
   three concurrent Rust tests freeze circuit field order and LSB0 bit layout
   and one additional Python test freezes Phase 5 stream-KAT regeneration;
