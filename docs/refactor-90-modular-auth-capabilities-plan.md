@@ -820,6 +820,15 @@ the replacement and legacy MPC paths must not ship together.
       worker claim. Missing authorization preserves material as
       `authorization_required`; the read model no longer embeds or derives its
       bearer credential from the composite session record (`cdd9cc2b8`).
+- [x] Make Ed25519 session status wallet, account, and signing-key qualified.
+      Resolve the exact sealed runtime first, validate the independent active
+      authorization and its bearer claims, preserve expiry-before-exhaustion,
+      and derive budget identity from the runtime rather than a composite
+      record (`4ea6eccb7`).
+- [x] Hydrate Passkey Ed25519 local material after login from the exact sealed
+      runtime correlated to the returned Wallet Session and active JWT. Wallet
+      lock now clears volatile material without clearing the retired composite
+      record cache (`5a582a992`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
@@ -1109,6 +1118,10 @@ the replacement and legacy MPC paths must not ship together.
       capability envelope and its transition/provision readback consumers.
       Exact sealed runtime, active authorization, and worker claim now remain
       separate typed inputs (`cdd9cc2b8`).
+- [x] Delete the record-backed Ed25519 authorization parser, its 303-line
+      record-era unit suite, and the dead manager convenience status port.
+      Login postconditions and the public status surface now consume the exact
+      runtime plus active authorization (`4ea6eccb7`).
 - [x] Delete the forwarding-only selected-lane auth-method selector; prepared
       signing now reads the canonical auth binding directly, and its focused
       auth-neutral preparation suite passes 7/7 (`0983a94ec`).

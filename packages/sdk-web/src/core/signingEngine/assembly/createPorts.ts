@@ -1,7 +1,6 @@
 import {
   createEmailOtpWarmSessionStatusReader,
   createSigningSessionCoordinatorPort,
-  createWarmThresholdEd25519SessionStatusReader,
 } from './ports/emailOtp';
 import { createEvmFamilySigningDeps } from './ports/evmFamily';
 import { createNearSigningDeps } from './ports/near';
@@ -40,11 +39,6 @@ export function createSigningEnginePorts(args: CreateSigningEnginePortsArgs): Si
   const getWorkerResourceWarmupDeps = createWorkerResourceWarmupDepsFactory(args, {
     warmupStore: args.stores.warmup.store,
   });
-  const getWarmThresholdEd25519SessionStatus = createWarmThresholdEd25519SessionStatusReader({
-    createArgs: args,
-    getEmailOtpWarmSessionStatus,
-  });
-
   return {
     ed25519YaoActiveClients,
     nearSigningDeps: createNearSigningDeps({
@@ -80,7 +74,6 @@ export function createSigningEnginePorts(args: CreateSigningEnginePortsArgs): Si
       createArgs: args,
       getWorkerResourceWarmupDeps,
       getEmailOtpWarmSessionStatus,
-      getWarmThresholdEd25519SessionStatus,
     }),
   };
 }

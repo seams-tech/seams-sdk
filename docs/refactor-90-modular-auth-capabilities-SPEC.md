@@ -315,6 +315,15 @@ implementing commit SHA as the evidence.
     and the worker claim. Missing authorization produces
     `authorization_required` without discarding durable material; no composite
     record supplies the bearer or capability state (`cdd9cc2b8`).
+  - [x] Ed25519 status resolution is wallet, account, and signing-key qualified;
+    exact sealed runtime owns material/session facts, the active projection
+    owns the bearer, and expiry is classified before exhaustion. The
+    record-backed authorization parser and duplicate manager status port are
+    deleted (`4ea6eccb7`).
+  - [x] Passkey Ed25519 login hydration resolves the exact sealed runtime for
+    the wallet, account, and signing key, correlates it with the returned
+    Wallet Session and active JWT, and no longer reads or clears the composite
+    session cache (`5a582a992`).
   - [x] Zero-caller Ed25519 account/session record readers, record-derived
     Email OTP authority resolution, per-session status, and record auth
     predicates are deleted from the warm capability surface (`94aa9b344`).

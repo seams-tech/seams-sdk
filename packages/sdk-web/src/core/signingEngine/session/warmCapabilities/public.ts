@@ -1,4 +1,3 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { WarmSessionMaterialWriteDiagnostics } from './types';
@@ -13,7 +12,6 @@ import {
   type WalletSigningBudgetAvailableStatusDeps,
 } from '../budget/budgetStatusReader';
 import { ed25519WalletBudgetOwner } from '../budget/budget';
-import { getStoredThresholdEd25519SessionRecordForAccount as getStoredThresholdEd25519SessionRecordForAccountValue } from '../persistence/records';
 import {
   scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill as scheduleRouterAbEcdsaDerivationLoginPresignaturePrefillValue,
   type RouterAbEcdsaDerivationLoginPresignaturePrefillResult,
@@ -23,6 +21,8 @@ import type { ThresholdEcdsaBootstrapSignerAuth } from './ecdsaBootstrapPersiste
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '../material/ecdsaCapabilityManifest';
 import type { ThresholdWarmSessionStatusReader } from './types';
+import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type PersistThresholdEcdsaBootstrapForWalletTargetInput = {
   walletId: WalletId;
@@ -71,19 +71,17 @@ export async function persistThresholdEcdsaBootstrapForWalletTarget(
 
 export async function getWarmThresholdEd25519SessionStatus(
   deps: WarmCapabilitiesPublicDeps,
-  nearAccountId: AccountId,
-): Promise<SigningSessionStatus | null> {
-  const status = await deps.statusReader.getEd25519SigningSessionStatus(nearAccountId);
-  const record = getStoredThresholdEd25519SessionRecordForAccountValue(nearAccountId);
-  const signingGrantId = String(record?.signingGrantId || '').trim();
-  const recordWalletId = String(record?.walletId || '').trim();
-  const budgetStatusCheck =
-    signingGrantId && recordWalletId
-      ? buildWalletBudgetStatusCheckForSession({
-          owner: ed25519WalletBudgetOwner(recordWalletId),
-          signingGrantId,
-        })
-      : null;
+  args: {
+    runtime: ExactEd25519SealedSessionRuntime;
+    authorization: ActiveWalletSessionAuthorizationProjection | null;
+    nowMs: number;
+  },
+): Promise<SigningSessionStatus> {
+  const status = await deps.statusReader.getEd25519SigningSessionStatus(args);
+  const budgetStatusCheck = buildWalletBudgetStatusCheckForSession({
+    owner: ed25519WalletBudgetOwner(args.runtime.walletId),
+    signingGrantId: String(args.runtime.signingGrantId),
+  });
   const walletBudgetStatus = budgetStatusCheck
     ? await getWalletSigningBudgetAvailableStatusValue(
         {
@@ -92,7 +90,6 @@ export async function getWarmThresholdEd25519SessionStatus(
         budgetStatusCheck,
       )
     : null;
-  if (!status) return walletBudgetStatus;
   return mergeWalletSigningBudgetStatus(status, walletBudgetStatus);
 }
 

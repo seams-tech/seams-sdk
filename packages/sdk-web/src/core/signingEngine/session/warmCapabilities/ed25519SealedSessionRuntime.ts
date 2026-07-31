@@ -349,6 +349,15 @@ export async function resolveExactEd25519SealedSessionRuntimeForWalletWithResolv
   walletId: WalletId,
   resolver: Ed25519SealedSessionRuntimeResolver,
 ): Promise<Ed25519WalletSealedSessionRuntimeResolution> {
+  return resolveOneEd25519SealedSessionRuntime(
+    await listEd25519SealedSessionRecordsForWallet(walletId, resolver),
+  );
+}
+
+async function listEd25519SealedSessionRecordsForWallet(
+  walletId: WalletId,
+  resolver: Ed25519SealedSessionRuntimeResolver,
+): Promise<CurrentEd25519SealedSessionRecord[]> {
   const listedRecords = await Promise.all([
     resolver.listExactSealedSessionsForWallet({
       walletId,
@@ -371,6 +380,12 @@ export async function resolveExactEd25519SealedSessionRuntimeForWalletWithResolv
       if (record.curve === 'ed25519') records.push(record);
     }
   }
+  return records;
+}
+
+function resolveOneEd25519SealedSessionRuntime(
+  records: CurrentEd25519SealedSessionRecord[],
+): Ed25519WalletSealedSessionRuntimeResolution {
   if (records.length === 0) return { kind: 'missing' };
   if (records.length > 1) return { kind: 'conflict' };
   const runtime = parseExactEd25519SealedSessionRuntime(records[0]);
@@ -383,4 +398,42 @@ export async function resolveExactEd25519SealedSessionRuntimeForWallet(
   return await resolveExactEd25519SealedSessionRuntimeForWalletWithResolver(walletId, {
     listExactSealedSessionsForWallet,
   });
+}
+
+export async function resolveExactEd25519SealedSessionRuntimeForWalletSubjectWithResolver(
+  args: {
+    walletId: WalletId;
+    nearAccountId: AccountId;
+    nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  },
+  resolver: Ed25519SealedSessionRuntimeResolver,
+): Promise<Ed25519WalletSealedSessionRuntimeResolution> {
+  const records = await listEd25519SealedSessionRecordsForWallet(
+    args.walletId,
+    resolver,
+  );
+  const matches: CurrentEd25519SealedSessionRecord[] = [];
+  for (const record of records) {
+    if (
+      record.ed25519Restore.nearAccountId === args.nearAccountId &&
+      record.ed25519Restore.nearEd25519SigningKeyId ===
+        args.nearEd25519SigningKeyId
+    ) {
+      matches.push(record);
+    }
+  }
+  return resolveOneEd25519SealedSessionRuntime(matches);
+}
+
+export async function resolveExactEd25519SealedSessionRuntimeForWalletSubject(args: {
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+}): Promise<Ed25519WalletSealedSessionRuntimeResolution> {
+  return await resolveExactEd25519SealedSessionRuntimeForWalletSubjectWithResolver(
+    args,
+    {
+      listExactSealedSessionsForWallet,
+    },
+  );
 }
