@@ -278,6 +278,11 @@ implementing commit SHA as the evidence.
     exact operation before confirmation and consume one operation grant when
     canonical material is already live. They never create or spend a reusable
     Wallet Session in the step-up branch (`069db2326`).
+  - [x] Transaction, delegate, and NEP-413 signing share one
+    authorization-neutral operation-material carrier across live and sealed
+    Passkey/Email OTP branches. Preparation precedes confirmation; exact
+    activation and factor survive resolution; the one-use grant stays beside
+    material without a reusable Wallet Session (`2b585ed38`).
   - [ ] Sealed Email OTP operation step-up restores material inside its worker,
     correlates the exact activation/session/public key, zeroizes temporary
     secrets, and returns the active material beside the issued grant without
