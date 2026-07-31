@@ -600,7 +600,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Make the bootstrap `session` branch the sole owner of threshold-session
       and signing-grant identity. Delete key-reference copies, precedence and
       rewrite helpers, and fail when the worker-issued grant disagrees with the
-      requested grant (`3fdeba8b7`).
+      requested grant (`3fdeba8b7`). Its remaining policy scope, Wallet Session
+      bearer, and client verifying share are required; the dead optional
+      success base, `sessionId`, budget-projection alias, and inert login
+      reconstruction are deleted (`04221828c`).
 - [x] Cut ECDSA export over atomically across the client, Gateway, Router,
       SigningWorker, sealed-share AAD, and Rust protocol mirrors so requests
       carry discriminated authorization plus the exact material activation.
