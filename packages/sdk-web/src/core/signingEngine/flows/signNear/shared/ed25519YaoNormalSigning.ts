@@ -97,6 +97,7 @@ import {
 } from '@/core/signingEngine/threshold/ed25519/walletSession';
 import type { NearEd25519YaoSigningPreparation } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
 import type { SelectedEd25519Lane } from '@/core/signingEngine/session/identity/laneIdentity';
+import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import type {
   NearEd25519StepUpAuthorization,
   NearEd25519OperationStepUpGrant,
@@ -839,24 +840,25 @@ export async function prepareRouterAbEd25519SignatureOnlyOperationStepUp(args: {
 
 export function buildNearEmailOtpEd25519OperationStepUpProof(args: {
   preparation: NearEd25519YaoSigningPreparation;
-  lane: SelectedEd25519Lane;
+  auth: SigningLaneAuthBinding;
+  walletId: string;
   challengeId: string;
   otpCode: string;
 }): Extract<Ed25519OperationStepUpProof, { kind: 'email_otp' }> {
-  if (args.lane.auth.kind !== 'email_otp') {
-    throw new Error('[SigningEngine][near] Email OTP step-up requires an Email OTP lane');
+  if (args.auth.kind !== 'email_otp') {
+    throw new Error('[SigningEngine][near] Email OTP step-up requires an Email OTP auth binding');
   }
   const authorityRef = args.preparation.hydration.authority;
   if (
     !authorityRef ||
-    String(authorityRef.walletId) !== String(args.lane.identity.signer.account.wallet.walletId)
+    String(authorityRef.walletId) !== String(args.walletId)
   ) {
     throw new Error('[SigningEngine][near] Email OTP material authority changed');
   }
   return {
     kind: 'email_otp',
     authorityRef,
-    providerSubjectId: args.lane.auth.providerSubjectId,
+    providerSubjectId: args.auth.providerSubjectId,
     challengeId: args.challengeId,
     otpCode: args.otpCode,
   };
@@ -865,7 +867,8 @@ export function buildNearEmailOtpEd25519OperationStepUpProof(args: {
 export function buildNearEd25519OperationStepUpProof(args: {
   authorization: Exclude<NearEd25519StepUpAuthorization, { kind: 'warm_session' }>;
   preparation: NearEd25519YaoSigningPreparation;
-  lane: SelectedEd25519Lane;
+  auth: SigningLaneAuthBinding;
+  walletId: string;
 }): Ed25519OperationStepUpProof {
   switch (args.authorization.kind) {
     case 'passkey':
@@ -877,7 +880,8 @@ export function buildNearEd25519OperationStepUpProof(args: {
     case 'email_otp':
       return buildNearEmailOtpEd25519OperationStepUpProof({
         preparation: args.preparation,
-        lane: args.lane,
+        auth: requireEmailOtpAuth(args.auth),
+        walletId: args.walletId,
         challengeId: args.authorization.challengeId,
         otpCode: args.authorization.otpCode,
       });
@@ -885,6 +889,15 @@ export function buildNearEd25519OperationStepUpProof(args: {
       args.authorization satisfies never;
       throw new Error('[SigningEngine][near] unsupported operation step-up authorization');
   }
+}
+
+function requireEmailOtpAuth(
+  auth: SigningLaneAuthBinding,
+): Extract<SigningLaneAuthBinding, { kind: 'email_otp' }> {
+  if (auth.kind !== 'email_otp') {
+    throw new Error('[SigningEngine][near] Email OTP step-up requires an Email OTP auth binding');
+  }
+  return auth;
 }
 
 export function requireNearEd25519OperationStepUpProof(

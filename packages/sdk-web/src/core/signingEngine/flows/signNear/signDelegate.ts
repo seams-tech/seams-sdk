@@ -462,7 +462,8 @@ export async function runNearDelegateActionSigning({
       : buildNearEd25519OperationStepUpProof({
           authorization: stepUpAuthorization,
           preparation: yaoSigningPreparation,
-          lane: selectedLane,
+          auth: selectedLane.auth,
+          walletId: commandSubject.walletSession.walletId,
         });
   const preparedOperationStepUp =
     stepUpAuthorization.kind === 'warm_session'
