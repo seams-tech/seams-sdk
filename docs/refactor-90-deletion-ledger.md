@@ -614,6 +614,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~zero-caller `ecdsaRoleLocalActiveStateId` and
   `unavailableEcdsaRoleLocalMaterialSource` constructors~~ — deleted by
   `01521c796`; active-state builders and explicit unavailable branches remain
+- ~~zero-caller `resolveActiveEcdsaCapabilityRuntimeForSealedRecord` wrapper~~ —
+  deleted by `3f251b7cb`; active resolution uses canonical wallet/target or
+  chain-kind selectors
 - ~~stale registration/key-brand source-guard blocks for deleted persistence,
   lifecycle, and Shamir-seal paths~~ — retired by `703fa1d95`; remaining guard
   checks target live registration, branding, and WebAuthn boundaries

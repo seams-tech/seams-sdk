@@ -1154,6 +1154,9 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete the zero-caller role-local active-state projection and
         unavailable-material constructor; callers use canonical active-state
         builders and explicit unavailable branches (`01521c796`).
+  - [x] Delete the zero-caller sealed-record runtime wrapper; active runtime
+        resolution uses the wallet/target or chain-kind canonical selectors
+        (`3f251b7cb`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
