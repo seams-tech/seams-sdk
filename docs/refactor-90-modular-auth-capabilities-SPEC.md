@@ -549,6 +549,10 @@ implementing commit SHA as the evidence.
     `signingGrantId`; current reusable authorization is resolved independently
     and exact material activation remains stable through rehydration
     (`ec050a05d`).
+  - [x] Durable Ed25519 sealed state carries no `signingGrantId`; its store key
+    is stable material identity, legacy grant-keyed rows and restore leases
+    migrate atomically, and current reusable authorization is obtained through
+    the authenticated warm-bootstrap boundary (`d91e4bc9d`).
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.
