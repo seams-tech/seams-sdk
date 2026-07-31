@@ -67,10 +67,3 @@ export async function cacheCredentialBoundarySetupExportPrfFirst(
     ...(args.diagnostics ? { diagnostics: args.diagnostics } : {}),
   });
 }
-
-export async function cacheCredentialBoundarySetupExportPrfFirstBestEffort(
-  writer: SigningSessionPrfCacheWriter,
-  args: SigningSessionCacheEntry,
-): Promise<void> {
-  await cacheCredentialBoundarySetupExportPrfFirst(writer, args).catch(() => undefined);
-}
