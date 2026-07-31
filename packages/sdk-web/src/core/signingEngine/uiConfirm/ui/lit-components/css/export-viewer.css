@@ -239,6 +239,16 @@ w3a-export-key-viewer {
 
 .reel-slot.settled {
   opacity: 1;
+  animation: reel-slot-settle 96ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes reel-slot-settle {
+  from {
+    opacity: 0.24;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .w3a-sr-only {
@@ -260,6 +270,7 @@ w3a-export-key-viewer {
 @media (prefers-reduced-motion: reduce) {
   .reel-slot {
     opacity: 0.72;
+    animation: none;
   }
 
   .copy-field,

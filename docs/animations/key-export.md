@@ -50,7 +50,7 @@ The currently staged loading flow is secp256k1. Keep the implementation scheme-a
 
 ## Motion and accessibility
 
-- Drive the reels from one `requestAnimationFrame` loop. Throttle glyph changes to roughly 12–18 frames per second so the effect reads as discrete mechanical steps and avoids a noisy blur.
+- Drive the reels from one `requestAnimationFrame` loop. Give each slot an independent change deadline and hold loading glyphs for 90–150 ms. During settling, lengthen those holds gradually toward 180–240 ms. This keeps the field active without flashing the complete key scaffold on every update. Fade each final glyph into place over 96 ms so the staggered landing remains legible.
 - Keep the animated glyph container `aria-hidden="true"`. Expose one stable screen-reader status such as `Decrypting private key` while loading and `Private key ready` after settling. Frequent glyph updates must not enter a live region.
 - Under `prefers-reduced-motion: reduce`, show a stable key-shaped masked placeholder during loading and switch immediately to the final masked value when ready.
 - Pause visual updates while the document is hidden. Resume from elapsed time without extending or replaying a completed settle.
@@ -61,25 +61,28 @@ The currently staged loading flow is secp256k1. Keep the implementation scheme-a
 Represent the presentation lifecycle as a discriminated union local to the viewer:
 
 ```ts
+type ReelSlot = {
+  glyph: string;
+  nextChangeAtMs: number;
+};
+
 type PrivateKeyRevealState =
   | {
       kind: 'spinning';
       entryKey: string;
       prefix: string;
       alphabet: string;
-      slots: string[];
-      lastGlyphAtMs: number;
+      slots: ReelSlot[];
     }
   | {
       kind: 'settling';
       entryKey: string;
       prefix: string;
       alphabet: string;
-      slots: string[];
+      slots: ReelSlot[];
       targetSlots: string[];
       lockedSlots: number;
       startedAtMs: number;
-      lastGlyphAtMs: number;
     }
   | { kind: 'settled'; entryKey: string };
 ```
