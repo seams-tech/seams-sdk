@@ -541,8 +541,14 @@ implementing commit SHA as the evidence.
     facts; this map no longer publishes grant/session identity (`71d061d6d`).
   - [x] Sealed-recovery purposes carry the exact `MpcMaterialActivationRef`;
     lookup, passkey restore, Email OTP restore, and restore caches correlate
-    that reference before rehydration (`5c8e8c92b`). Durable ECDSA store-key
-    migration remains a separate cutover.
+    that reference before rehydration (`5c8e8c92b`).
+  - [x] Legacy grant-keyed ECDSA sealed rows migrate atomically to the exact
+    activation-derived store key, with the legacy row and restore lease deleted
+    in the same IndexedDB transaction (`e824bfda2`).
+  - [x] Durable ECDSA sealed state and recovered-material activation carry no
+    `signingGrantId`; current reusable authorization is resolved independently
+    and exact material activation remains stable through rehydration
+    (`ec050a05d`).
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.

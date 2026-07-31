@@ -1155,9 +1155,16 @@ the replacement and legacy MPC paths must not ship together.
           purposes, correlate both restore callers against the record's role
           local material, and include it in restore cache/single-flight keys
           (`5c8e8c92b`).
-    - [ ] Complete the separate operation-authorization cutover for any
+    - [x] Atomically migrate legacy grant-keyed ECDSA sealed rows to canonical
+          activation-keyed rows in one IndexedDB transaction, deleting the
+          legacy row and its restore lease only after the canonical write
+          succeeds (`e824bfda2`).
+    - [x] Complete the separate operation-authorization cutover for any
           remaining record-level `signingGrantId` protocol/lease identity; do
-          not treat it as sealed restore bearer state.
+          not treat it as sealed restore bearer state. Durable ECDSA sealed
+          records, restore sources, cache keys, worker transports, and
+          recovered-material activation requests are grant-free; live reusable
+          authorization remains an independent carrier (`ec050a05d`).
   - [x] Require canonical JWT `sid` at the Cloudflare Router boundary and
         delete the legacy `session_id` claim fallback and selector
         (`af6dc1514`).
