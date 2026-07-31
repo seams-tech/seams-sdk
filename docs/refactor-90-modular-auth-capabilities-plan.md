@@ -1277,6 +1277,10 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete the zero-caller ECDSA lane-specific presignature retirement
         helper; global pool clearing and live worker retirement remain
         (`814616909`).
+  - [x] Replace the record-era ECDSA export-lane fixture with the shared
+        canonical-capability builder, retain exact selection and ambiguity
+        coverage, and delete tests for retired runtime/sealed/shared-key lane
+        sources (`79bd0e00b`; 16/16 focused tests).
 
 ### Unit 3a exit
 
@@ -1407,8 +1411,13 @@ This is a validation gate, not a deferred cleanup phase.
       follow-on plan outside Refactor 90 scope.
 - [ ] Prohibited legacy symbols, routes, imports, exports, aliases, record
       families, and obsolete source guards are absent.
-- [ ] Required factor-neutral, worker/WASM, import, and bundle guards pass.
-- [ ] Public export and dependency-direction checks pass.
+- [x] Required factor-neutral, worker/WASM, import, and bundle guards pass.
+      Key-export custody, ECDSA worker ownership, signing-engine architecture
+      and identity, and static-wallet-asset checks pass after the latest
+      `dev` merge.
+- [x] Public export and dependency-direction checks pass. The SeamsWeb public
+      surface and workspace-package boundary checks pass after the latest
+      `dev` merge.
 - [ ] Shared, SDK, server, worker, intended-test, and Rust type/build checks
       pass.
   - [x] Repository SDK/server/app type checks pass at the local acceptance
