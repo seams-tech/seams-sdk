@@ -530,6 +530,11 @@ implementing commit SHA as the evidence.
   canonical operating-path, challenge-binding, auth-neutral prepared-signing,
   and Email OTP auth-lane suites. Commits 847ded366, 96612453b, dc1fda487,
   440e3dd10.)
+  - [x] Restore coordination leases carry only the exact sealed-store key,
+    owner/attempt, and lease timing. They do not carry `signingGrantId`; old
+    grant-bearing lease rows are rejected at the persistence boundary
+    (`2d56e3a58`). The ECDSA sealed-record store key remains a separate,
+    follow-on activation re-key task.
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.

@@ -1143,6 +1143,10 @@ the replacement and legacy MPC paths must not ship together.
           remains separate (`22ccd0c26`). The remaining record-level
           `signingGrantId` is a separate grant/lease identity that still needs
           a coordinated re-key; it is not a bearer credential.
+    - [x] Remove `signingGrantId` from restore-lease payloads and validation;
+          leases are coordination records keyed by the sealed-store key and
+          owner/attempt, and old grant-bearing lease rows are rejected
+          (`2d56e3a58`).
     - [ ] Complete the separate operation-authorization cutover for any
           remaining record-level `signingGrantId` protocol/lease identity; do
           not treat it as sealed restore bearer state.
