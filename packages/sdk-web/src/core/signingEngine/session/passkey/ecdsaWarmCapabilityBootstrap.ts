@@ -17,42 +17,8 @@ import {
   provisionThresholdEcdsaSessionFromBootstrapArgs,
   type ProvisionThresholdEcdsaSessionDeps,
 } from './ecdsaSessionProvision';
-import type { WarmSessionCapabilityReader, WarmSessionEnvelope } from '../warmCapabilities/types';
+import type { WarmSessionCapabilityReader } from '../warmCapabilities/types';
 import { walletSessionFailureFromError } from '../lifecycle/walletSessionFailure';
-
-type SharedEd25519WalletSessionGrant = {
-  kind: 'shared_ed25519_wallet_session_grant_v1';
-  signingGrantId: string;
-  walletSessionJwt: string;
-  remainingUses: number;
-  expiresAtMs: number;
-};
-
-function resolveSharedEd25519WalletSessionGrant(
-  warmSession: WarmSessionEnvelope,
-): SharedEd25519WalletSessionGrant | null {
-  const ed25519 = warmSession.capabilities.ed25519;
-  const record = ed25519.record;
-  const auth = ed25519.auth;
-  const prfClaim = ed25519.prfClaim;
-  const signingGrantId = String(record?.signingGrantId || '').trim();
-  const walletSessionJwt =
-    auth && 'walletSessionJwt' in auth ? String(auth.walletSessionJwt || '').trim() : '';
-  if (!record || !signingGrantId || !walletSessionJwt || prfClaim?.state !== 'warm') {
-    return null;
-  }
-  const remainingUses = Math.floor(Number(prfClaim.remainingUses));
-  const expiresAtMs = Math.floor(Number(prfClaim.expiresAtMs));
-  if (!Number.isFinite(remainingUses) || remainingUses <= 0) return null;
-  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) return null;
-  return {
-    kind: 'shared_ed25519_wallet_session_grant_v1',
-    signingGrantId,
-    walletSessionJwt,
-    remainingUses,
-    expiresAtMs,
-  };
-}
 
 export type BootstrapWarmEcdsaCapabilityDeps = {
   ensureSealedRefreshStartupParity: () => Promise<void>;
@@ -241,8 +207,7 @@ export async function bootstrapReuseWarmEcdsaCapabilityNoPrompt(
   const chainTarget = request.chainTarget;
   const chainTargetKey = thresholdEcdsaChainTargetKey(chainTarget);
   const warmSession = await deps.getWarmSession(walletId);
-  const sharedGrant = resolveSharedEd25519WalletSessionGrant(warmSession);
-  if (!sharedGrant) {
+  if (warmSession.capabilities.ed25519.state !== 'ready') {
     return {
       ok: false,
       code: 'missing_exact_material',

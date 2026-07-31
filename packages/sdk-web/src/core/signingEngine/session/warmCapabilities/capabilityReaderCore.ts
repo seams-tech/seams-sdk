@@ -12,26 +12,25 @@ import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/r
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import {
-  readWarmSessionCapabilityRecordsForWallet,
-} from './store';
-import {
   deriveEcdsaCapabilityState,
   deriveEd25519CapabilityState,
   resolveEcdsaSealTransport,
-  resolveEd25519AuthMaterial,
-  type WarmSessionReadPorts,
 } from './readModel';
 import { assertWarmSessionEnvelopeInvariant } from './types';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { warmClaimFromRecordPolicy } from '../availability/readiness';
 import type {
   WarmSessionEcdsaCapabilityState,
-  WarmSessionEd25519AuthMaterial,
   WarmSessionEd25519CapabilityState,
   WarmSessionEnvelope,
   WarmSessionPrfClaim,
 } from './types';
 import type { WarmSigningStatusReader } from './statusReader';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  resolveExactEd25519SealedSessionRuntimeForWallet,
+  type Ed25519WalletSealedSessionRuntimeResolution,
+} from './ed25519SealedSessionRuntime';
 
 export type WarmSessionCapabilityReaderSealConfigured = {
   seal: 'configured';
@@ -48,7 +47,6 @@ export type WarmSessionCapabilityReaderSeal =
   | WarmSessionCapabilityReaderSealUnavailable;
 
 export type WarmSessionCapabilityReaderCoreDeps = {
-  touchConfirm: WarmSessionReadPorts | null;
   statusReader: Pick<
     WarmSigningStatusReader,
     'readEd25519WarmSessionClaim'
@@ -60,6 +58,9 @@ export type WarmSessionCapabilityReaderCoreDeps = {
   resolveActiveEcdsaWalletSessionAuthorization?: (
     walletId: WalletId,
   ) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
+  resolveActiveEd25519WalletSessionAuthorization?: (
+    walletId: WalletId,
+  ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
 };
 
 export type WarmSessionCapabilityReaderCore = {
@@ -113,73 +114,71 @@ export function createWarmSessionCapabilityReaderCore(
     }
   }
 
+  async function resolveEd25519AuthorizationForWallet(
+    walletId: WalletId,
+  ): Promise<ActiveWalletSessionAuthorizationProjection | null> {
+    const resolve = deps.resolveActiveEd25519WalletSessionAuthorization;
+    if (!resolve) return null;
+    try {
+      return await resolve(walletId);
+    } catch {
+      return null;
+    }
+  }
+
   function buildEd25519CapabilityState(args: {
-    record: WarmSessionEd25519CapabilityState['record'];
-    auth: WarmSessionEd25519AuthMaterial | null;
+    resolution: Ed25519WalletSealedSessionRuntimeResolution;
+    auth: ActiveWalletSessionAuthorizationProjection | null;
     prfClaim: WarmSessionEd25519CapabilityState['prfClaim'];
   }): WarmSessionEd25519CapabilityState {
-    const state = deriveEd25519CapabilityState(args);
-    if (!args.record) {
+    if (args.resolution.kind === 'missing') {
       return {
         capability: 'ed25519',
-        record: null,
+        runtime: null,
         auth: null,
         prfClaim: null,
         state: 'missing',
       };
     }
-    if (state === 'missing') {
+    if (args.resolution.kind === 'conflict' || args.resolution.kind === 'corrupt') {
+      return {
+        capability: 'ed25519',
+        runtime: null,
+        auth: null,
+        prfClaim: null,
+        invalidReason:
+          args.resolution.kind === 'conflict' ? 'exact_record_conflict' : 'corrupt',
+        state: 'invalid',
+      };
+    }
+    const runtime = args.resolution.runtime;
+    const state = deriveEd25519CapabilityState({
+      runtime,
+      auth: args.auth,
+      prfClaim: args.prfClaim,
+    });
+    if (state === 'authorization_required') {
+      return {
+        capability: 'ed25519',
+        runtime,
+        auth: null,
+        prfClaim: args.prfClaim,
+        state,
+      };
+    }
+    if (state === 'missing' || state === 'invalid') {
       throw new Error(
-        '[WarmSessionStore] Ed25519 capability state cannot be missing with a record',
+        `[WarmSessionStore] Ed25519 capability state=${state} with resolved material`,
       );
     }
-    if (args.record.source === 'email_otp') {
-      if (!args.record.emailOtpAuthContext) {
-        throw new Error(
-          '[WarmSessionStore] Email OTP Ed25519 capability requires emailOtpAuthContext',
-        );
-      }
-      if (state === 'auth_missing') {
-        return {
-          capability: 'ed25519',
-          record: args.record,
-          auth: args.auth?.walletSessionJwtSource === 'none' ? args.auth : null,
-          prfClaim: args.prfClaim,
-          emailOtpAuthContext: args.record.emailOtpAuthContext,
-          state,
-        };
-      }
-      if (!args.auth || args.auth.walletSessionJwtSource !== 'ed25519_record') {
-        throw new Error(
-          `[WarmSessionStore] Ed25519 capability state=${state} requires Wallet Session JWT auth`,
-        );
-      }
-      return {
-        capability: 'ed25519',
-        record: args.record,
-        auth: args.auth,
-        prfClaim: args.prfClaim,
-        emailOtpAuthContext: args.record.emailOtpAuthContext,
-        state,
-      };
-    }
-    if (state === 'auth_missing') {
-      return {
-        capability: 'ed25519',
-        record: args.record,
-        auth: args.auth?.walletSessionJwtSource === 'none' ? args.auth : null,
-        prfClaim: args.prfClaim,
-        state,
-      };
-    }
-    if (!args.auth || args.auth.walletSessionJwtSource !== 'ed25519_record') {
+    if (!args.auth) {
       throw new Error(
-        `[WarmSessionStore] Ed25519 capability state=${state} requires Wallet Session JWT auth`,
+        `[WarmSessionStore] Ed25519 capability state=${state} requires active authorization`,
       );
     }
     return {
       capability: 'ed25519',
-      record: args.record,
+      runtime,
       auth: args.auth,
       prfClaim: args.prfClaim,
       state,
@@ -324,15 +323,19 @@ export function createWarmSessionCapabilityReaderCore(
 
   async function getWarmSession(walletId: WalletId): Promise<WarmSessionEnvelope> {
     const normalizedWalletId = toWalletId(walletId);
-    const records = readWarmSessionCapabilityRecordsForWallet(normalizedWalletId);
-
-    const ed25519Auth = resolveEd25519AuthMaterial(records.ed25519);
     // Material and authorization are resolved independently: authorization is
     // read unconditionally, so a wallet with durable material and no active
     // Wallet Session reaches authorization_required instead of being gated out
     // by a material precondition.
-    const [ed25519Claim, ecdsaAuthorization, evmResolution, tempoResolution] = await Promise.all([
-      deps.statusReader.readEd25519WarmSessionClaim(records.ed25519),
+    const [
+      ed25519Resolution,
+      ed25519Authorization,
+      ecdsaAuthorization,
+      evmResolution,
+      tempoResolution,
+    ] = await Promise.all([
+      resolveExactEd25519SealedSessionRuntimeForWallet(normalizedWalletId),
+      resolveEd25519AuthorizationForWallet(normalizedWalletId),
       resolveEcdsaAuthorizationForWallet(normalizedWalletId),
       resolveActiveEcdsaCapabilityRuntimeForChain({
         walletId: normalizedWalletId,
@@ -343,12 +346,16 @@ export function createWarmSessionCapabilityReaderCore(
         chain: 'tempo',
       }),
     ]);
+    const ed25519Claim =
+      ed25519Resolution.kind === 'resolved'
+        ? await deps.statusReader.readEd25519WarmSessionClaim(ed25519Resolution.runtime)
+        : null;
     return assertWarmSessionEnvelopeInvariant({
       walletId: normalizedWalletId,
       capabilities: {
         ed25519: buildEd25519CapabilityState({
-          record: records.ed25519,
-          auth: ed25519Auth,
+          resolution: ed25519Resolution,
+          auth: ed25519Authorization,
           prfClaim: ed25519Claim,
         }),
         ecdsa: {

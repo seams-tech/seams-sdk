@@ -39,6 +39,7 @@ import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touch
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import type { DurableRecordStore } from '@/core/platform';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type EcdsaExportArtifactStorePorts = {
   exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
@@ -48,6 +49,10 @@ type WarmSigningAuthorizationResolver = (
   walletId: import('../../interfaces/ecdsaChainTarget').WalletId,
 ) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
 
+type WarmSigningEd25519AuthorizationResolver = (
+  walletId: import('../../interfaces/ecdsaChainTarget').WalletId,
+) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
+
 type WarmSigningPortsArgs = {
   touchConfirm: UiConfirmRuntimeBridgePort;
   passkeyMpcSession: PasskeyMpcSessionPort;
@@ -55,6 +60,7 @@ type WarmSigningPortsArgs = {
   signingSessionSeal: SeamsConfigsReadonly['signing']['sessionSeal'];
   ecdsaExportArtifacts: EcdsaExportArtifactStorePorts;
   resolveActiveEcdsaWalletSessionAuthorization?: WarmSigningAuthorizationResolver;
+  resolveActiveEd25519WalletSessionAuthorization?: WarmSigningEd25519AuthorizationResolver;
 };
 
 export type WarmSigningPorts = {
@@ -91,6 +97,12 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
       ? {
           resolveActiveEcdsaWalletSessionAuthorization:
             args.resolveActiveEcdsaWalletSessionAuthorization,
+        }
+      : {}),
+    ...(args.resolveActiveEd25519WalletSessionAuthorization
+      ? {
+          resolveActiveEd25519WalletSessionAuthorization:
+            args.resolveActiveEd25519WalletSessionAuthorization,
         }
       : {}),
   });

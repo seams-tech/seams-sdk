@@ -12,6 +12,11 @@ import {
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { canonicalEcdsaSealedRuntimeFixture } from './helpers/ecdsaOperationStepUp.fixtures';
 import { activeEvmFamilyWalletSessionAuthorizationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
+import {
+  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyEd25519SealedSessionRecordFixture,
+} from './helpers/sealedSigningSession.fixtures';
+import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 
 async function createEnvelope(): Promise<WarmSessionEnvelope> {
   const { fixture, runtime } = await canonicalEcdsaSealedRuntimeFixture('passkey');
@@ -48,27 +53,28 @@ async function createEnvelope(): Promise<WarmSessionEnvelope> {
     authorization,
     chainTarget: runtime.chainTarget,
   });
-  return {
+  const ed25519Record = buildPasskeyEd25519SealedSessionRecordFixture({
     walletId: runtime.walletId,
+    expiresAtMs: 1_900_000_000_000,
+  });
+  const ed25519Runtime = parseExactEd25519SealedSessionRuntime(ed25519Record);
+  if (!ed25519Runtime) {
+    throw new Error('transition fixture requires exact Ed25519 sealed runtime');
+  }
+  const ed25519Authorization =
+    buildPasskeyEd25519AuthorizationProjectionFixture(ed25519Record);
+  return {
+    walletId: ed25519Runtime.walletId,
     capabilities: {
       ed25519: {
         capability: 'ed25519',
-        record: {
-          nearAccountId: 'transition-summary.testnet',
-          thresholdSessionId: 'ed25519-session',
-          thresholdSessionKind: 'jwt',
-        } as any,
-        auth: {
-          capability: 'ed25519',
-          record: {} as any,
-          walletSessionJwt: 'jwt:ed25519-session',
-          walletSessionJwtSource: 'ed25519_record',
-        },
+        runtime: ed25519Runtime,
+        auth: ed25519Authorization,
         prfClaim: {
           state: 'warm',
-          sessionId: 'ed25519-session',
+          sessionId: ed25519Runtime.thresholdSessionId,
           remainingUses: 4,
-          expiresAtMs: 1234,
+          expiresAtMs: ed25519Runtime.expiresAtMs,
         },
         state: 'ready',
       },
@@ -112,11 +118,11 @@ test.describe('warmSessionTransitions', () => {
       capabilities: {
         ed25519: {
           state: 'ready',
-          thresholdSessionId: 'ed25519-session',
+          thresholdSessionId: 'ed25519-sealed-runtime-session',
           authState: 'present',
           prfClaimState: 'warm',
           remainingUses: 4,
-          expiresAtMs: 1234,
+          expiresAtMs: 1_900_000_000_000,
         },
         ecdsa: {
           tempo: {

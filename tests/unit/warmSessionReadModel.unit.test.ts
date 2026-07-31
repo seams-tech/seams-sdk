@@ -5,23 +5,22 @@ import {
   normalizeWarmSessionReadPorts,
   readWarmSessionClaims,
   resolveEcdsaSealTransport,
-  resolveEd25519AuthMaterial,
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
 } from '@/core/signingEngine/session/warmCapabilities/readModel';
-
-import {
-  resetWarmSessionFixtureState,
-  seedEd25519WarmSessionRecord,
-} from './helpers/signingSessionRecord.fixtures';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
   activeEvmFamilyWalletSessionAuthorizationFixture,
   ecdsaCapabilityHydrationLookupFixture,
 } from './helpers/ecdsaCapabilityManifest.fixtures';
-import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
+import {
+  buildEmailOtpEcdsaSealedRuntimeRecordFixture,
+  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyEd25519SealedSessionRecordFixture,
+} from './helpers/sealedSigningSession.fixtures';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 
 /** Manifest plus the sealed record that correlates with it, resolved through
  * production correlation rather than assembled by hand. */
@@ -135,105 +134,47 @@ test.describe('warmSessionReadModel', () => {
     });
   });
 
-  // Ed25519 auth material stays record-owned. The ECDSA half of this pairing is
-  // gone: ECDSA authorization is the reusable Wallet Session, not a record
-  // field, so there is no ECDSA auth material to resolve from a record and no
-  // cross-curve fallback left to rule out.
-  test('resolves Ed25519 auth material from its own record', () => {
-    resetWarmSessionFixtureState();
-
-    const ed25519Record = seedEd25519WarmSessionRecord({
-      nearAccountId: 'auth.testnet',
-      thresholdSessionId: 'ed-wallet-session',
-      walletSessionJwt: 'jwt:ed-wallet-session',
-    });
-
-    expect(resolveEd25519AuthMaterial(ed25519Record)).toMatchObject({
-      capability: 'ed25519',
-      walletSessionJwt: ed25519Record.walletSessionJwt,
-      walletSessionJwtSource: 'ed25519_record',
-    });
-  });
-
-  test('derives ready state from runtime-validated material before claim state', () => {
-    const ed25519Record = seedEd25519WarmSessionRecord({
-      nearAccountId: 'derive.testnet',
-      thresholdSessionId: 'derive-ed25519-session',
-      walletSessionJwt: 'jwt:derive-ed25519-session',
-    });
-    const unavailableRecord = seedEd25519WarmSessionRecord({
-      nearAccountId: 'derive-unavailable.testnet',
-      thresholdSessionId: 'derive-unavailable-ed25519-session',
-      walletSessionJwt: 'jwt:derive-unavailable-ed25519-session',
-    });
+  test('derives Ed25519 state from exact runtime, independent authorization, and claim', () => {
+    const record = buildPasskeyEd25519SealedSessionRecordFixture();
+    const runtime = parseExactEd25519SealedSessionRuntime(record);
+    if (!runtime) throw new Error('expected exact Ed25519 runtime fixture');
+    const auth = buildPasskeyEd25519AuthorizationProjectionFixture(record);
 
     expect(
       deriveEd25519CapabilityState({
-        record: ed25519Record,
-        auth: resolveEd25519AuthMaterial(ed25519Record),
+        runtime,
+        auth,
         prfClaim: {
           state: 'warm',
-          sessionId: ed25519Record.thresholdSessionId,
+          sessionId: runtime.thresholdSessionId,
           remainingUses: 4,
-          expiresAtMs: ed25519Record.expiresAtMs,
+          expiresAtMs: runtime.expiresAtMs,
         },
       }),
     ).toBe('ready');
-
     expect(
       deriveEd25519CapabilityState({
-        record: unavailableRecord,
-        auth: resolveEd25519AuthMaterial(unavailableRecord),
+        runtime,
+        auth,
         prfClaim: {
           state: 'unavailable',
-          sessionId: unavailableRecord.thresholdSessionId,
+          sessionId: runtime.thresholdSessionId,
           code: 'worker_error',
         },
       }),
-    ).toBe('ready');
-  });
-
-  test('derives invalid for Ed25519 records missing Router A/B state', () => {
-    const ed25519Record = seedEd25519WarmSessionRecord({
-      nearAccountId: 'missing-router-ab-ed25519.testnet',
-      thresholdSessionId: 'missing-router-ab-ed25519-session',
-      walletSessionJwt: 'jwt:missing-router-ab-ed25519-session',
-    });
-    delete ed25519Record.routerAbNormalSigning;
-
+    ).toBe('prf_unavailable');
     expect(
       deriveEd25519CapabilityState({
-        record: ed25519Record,
-        auth: resolveEd25519AuthMaterial(ed25519Record),
+        runtime,
+        auth: null,
         prfClaim: {
           state: 'warm',
-          sessionId: ed25519Record.thresholdSessionId,
+          sessionId: runtime.thresholdSessionId,
           remainingUses: 4,
-          expiresAtMs: ed25519Record.expiresAtMs,
+          expiresAtMs: runtime.expiresAtMs,
         },
       }),
-    ).toBe('invalid');
-  });
-
-  test('derives auth_missing for cookie passkey Ed25519 state without Wallet Session auth', () => {
-    resetWarmSessionFixtureState();
-
-    const ed25519Record = seedEd25519WarmSessionRecord({
-      nearAccountId: 'cookie-record-backed.testnet',
-      thresholdSessionId: 'cookie-record-backed-session',
-      thresholdSessionKind: 'cookie',
-    });
-
-    expect(
-      deriveEd25519CapabilityState({
-        record: ed25519Record,
-        auth: resolveEd25519AuthMaterial(ed25519Record),
-        prfClaim: {
-          state: 'missing',
-          sessionId: ed25519Record.thresholdSessionId,
-        },
-      }),
-    ).toBe('auth_missing');
+    ).toBe('authorization_required');
   });
 
   test('resolves ECDSA seal transport from the sealed runtime and active authorization', () => {

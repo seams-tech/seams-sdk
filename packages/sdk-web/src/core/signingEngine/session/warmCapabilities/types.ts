@@ -10,7 +10,6 @@ import type { ActiveEcdsaCapabilityManifest } from '../material/ecdsaCapabilityM
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import type {
-  ThresholdEd25519SessionRecord,
   ThresholdSessionSealTransportAuthMaterial,
 } from '../persistence/records';
 import type {
@@ -21,8 +20,6 @@ import type {
 } from '../identity/laneIdentity';
 import {
   laneCandidateStateFromRuntimePolicy,
-  emailOtpAuthContextConsumedAtMs,
-  emailOtpAuthContextRetention,
 } from '../identity/laneIdentity';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import type { EmailOtpEcdsaSigningSessionAuthority } from '../emailOtp/ecdsaSigningSessionAuthority';
@@ -48,10 +45,8 @@ import type {
   ExactEcdsaSigningLaneIdentity,
   ExactEd25519SigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
-
-import {
-  classifyRouterAbEd25519PersistedSigningRecord,
-} from '../routerAbSigningWalletSession';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
 
 function authMethodForThresholdEcdsaSessionSource(
   source: ThresholdEcdsaSessionStoreSource,
@@ -141,28 +136,10 @@ export type WarmSessionPrfClaim =
   | WarmSessionExpiredPrfClaim
   | WarmSessionExhaustedPrfClaim;
 
-export type WarmSessionEd25519AuthMaterialWithToken = {
-  capability: 'ed25519';
-  record: ThresholdEd25519SessionRecord;
-  walletSessionJwt: string;
-  walletSessionJwtSource: 'ed25519_record';
-};
-
-export type WarmSessionEd25519AuthMaterialWithoutToken = {
-  capability: 'ed25519';
-  record: ThresholdEd25519SessionRecord;
-  walletSessionJwt?: never;
-  walletSessionJwtSource: 'none';
-};
-
-export type WarmSessionEd25519AuthMaterial =
-  | WarmSessionEd25519AuthMaterialWithToken
-  | WarmSessionEd25519AuthMaterialWithoutToken;
-
 type WarmSessionEd25519CapabilityStateValue =
   | 'missing'
   | 'ready'
-  | 'auth_missing'
+  | 'authorization_required'
   | 'invalid'
   | 'prf_missing'
   | 'prf_unavailable';
@@ -189,45 +166,52 @@ export type WarmSessionEcdsaInvalidReason =
 
 type WarmSessionMissingEd25519CapabilityState = {
   capability: 'ed25519';
-  record: null;
+  runtime: null;
   auth: null;
   prfClaim: null;
-  emailOtpAuthContext?: never;
+  invalidReason?: never;
   state: 'missing';
 };
 
-type WarmSessionEmailOtpEd25519CapabilityFields = {
+export type WarmSessionEd25519InvalidReason =
+  | 'exact_record_conflict'
+  | 'corrupt';
+
+type WarmSessionInvalidEd25519CapabilityState = {
   capability: 'ed25519';
-  record: ThresholdEd25519SessionRecord;
-  prfClaim: WarmSessionPrfClaim | null;
-  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  runtime: null;
+  auth: null;
+  prfClaim: null;
+  invalidReason: WarmSessionEd25519InvalidReason;
+  state: 'invalid';
 };
 
-type WarmSessionNonEmailOtpEd25519CapabilityFields = {
+type WarmSessionEd25519AuthorizationRequiredState = {
   capability: 'ed25519';
-  record: ThresholdEd25519SessionRecord;
+  runtime: ExactEd25519SealedSessionRuntime;
+  auth: null;
   prfClaim: WarmSessionPrfClaim | null;
-  emailOtpAuthContext?: never;
+  invalidReason?: never;
+  state: 'authorization_required';
 };
 
-type WarmSessionEd25519CapabilityFields =
-  | WarmSessionEmailOtpEd25519CapabilityFields
-  | WarmSessionNonEmailOtpEd25519CapabilityFields;
-
-type WarmSessionEd25519AuthMissingState = WarmSessionEd25519CapabilityFields & {
-  auth: WarmSessionEd25519AuthMaterialWithoutToken | null;
-  state: 'auth_missing';
-};
-
-type WarmSessionEd25519AuthenticatedState = WarmSessionEd25519CapabilityFields & {
-  auth: WarmSessionEd25519AuthMaterialWithToken;
-  state: Exclude<WarmSessionEd25519PresentCapabilityStateValue, 'auth_missing'>;
+type WarmSessionEd25519AuthorizedState = {
+  capability: 'ed25519';
+  runtime: ExactEd25519SealedSessionRuntime;
+  auth: ActiveWalletSessionAuthorizationProjection;
+  prfClaim: WarmSessionPrfClaim | null;
+  invalidReason?: never;
+  state: Exclude<
+    WarmSessionEd25519PresentCapabilityStateValue,
+    'authorization_required' | 'invalid'
+  >;
 };
 
 export type WarmSessionEd25519CapabilityState =
   | WarmSessionMissingEd25519CapabilityState
-  | WarmSessionEd25519AuthMissingState
-  | WarmSessionEd25519AuthenticatedState;
+  | WarmSessionInvalidEd25519CapabilityState
+  | WarmSessionEd25519AuthorizationRequiredState
+  | WarmSessionEd25519AuthorizedState;
 
 type WarmSessionMissingEcdsaCapabilityState = {
   capability: 'ecdsa';
@@ -360,21 +344,24 @@ function expectedPresentCapabilityState(args: {
   emailOtpSingleUseConsumed: boolean;
 }): WarmSessionEd25519CapabilityState['state'] | WarmSessionEcdsaCapabilityState['state'] {
   const { capability } = args;
-  if (!capability.auth || !args.hasWalletSessionJwt) return 'auth_missing';
+  if (!capability.auth || !args.hasWalletSessionJwt) {
+    return capability.capability === 'ed25519'
+      ? 'authorization_required'
+      : 'auth_missing';
+  }
   if (args.emailOtpSingleUseConsumed) return 'prf_missing';
   const prfClaim = capability.prfClaim;
   if (capability.capability === 'ed25519') {
-    const persistedState = classifyRouterAbEd25519PersistedSigningRecord(capability.record);
-    if (persistedState.kind === 'ready') return 'ready';
-    if (
-      persistedState.kind === 'non_signing' ||
-      persistedState.reason === 'missing_wallet_session_jwt'
-    ) {
-      return 'auth_missing';
+    const runtimeState = laneCandidateStateFromRuntimePolicy({
+      remainingUses: capability.runtime.remainingUses,
+      expiresAtMs: capability.runtime.expiresAtMs,
+    });
+    if (runtimeState === 'expired' || runtimeState === 'exhausted') {
+      return 'authorization_required';
     }
-    if (persistedState.kind === 'invalid') return 'invalid';
     if (prfClaim?.state === 'unavailable') return 'prf_unavailable';
-    return 'prf_missing';
+    if (prfClaim?.state !== 'warm') return 'prf_missing';
+    return 'ready';
   }
   // Allowance and expiry are classified by the shared Refactor 92 rule before
   // any worker or PRF state is considered: a warm claim over an expired or
@@ -400,57 +387,50 @@ function assertEd25519CapabilityStateInvariant(args: {
   capability: WarmSessionEd25519CapabilityState;
 }): void {
   const { capability } = args;
-  const record = capability.record;
+  const runtime = capability.runtime;
   const auth = capability.auth;
   const prfClaim = capability.prfClaim;
-  const emailOtpAuthContext =
-    'emailOtpAuthContext' in capability ? capability.emailOtpAuthContext : null;
-  const sessionId = String(record?.thresholdSessionId || '').trim();
+  const sessionId = String(runtime?.thresholdSessionId || '').trim();
 
-  if (!record) {
-    if (capability.state !== 'missing') {
+  if (!runtime) {
+    if (capability.state !== 'missing' && capability.state !== 'invalid') {
       throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: missing record must have state=missing`,
+        `[WarmSessionStore] invalid ${args.label} capability: missing runtime must be missing or invalid`,
       );
     }
     if (auth) {
       throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: missing record cannot have auth`,
+        `[WarmSessionStore] invalid ${args.label} capability: missing runtime cannot have auth`,
       );
     }
     if (prfClaim) {
       throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: missing record cannot have warm-session status`,
-      );
-    }
-    if (emailOtpAuthContext) {
-      throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: missing record cannot have email-otp auth context`,
+        `[WarmSessionStore] invalid ${args.label} capability: missing runtime cannot have warm-session status`,
       );
     }
     return;
   }
 
-  if (String(capability.record.walletId) !== String(args.walletId)) {
+  if (String(runtime.walletId) !== String(args.walletId)) {
     throw new Error(
-      `[WarmSessionStore] invalid ${args.label} capability: record wallet does not match envelope wallet`,
+      `[WarmSessionStore] invalid ${args.label} capability: runtime wallet does not match envelope wallet`,
     );
   }
   if (!sessionId) {
     throw new Error(
-      `[WarmSessionStore] invalid ${args.label} capability: record is missing thresholdSessionId`,
+      `[WarmSessionStore] invalid ${args.label} capability: runtime is missing thresholdSessionId`,
     );
   }
 
   if (auth) {
-    if (auth.record !== record) {
+    if (String(auth.walletId) !== String(runtime.walletId)) {
       throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: auth.record must reference the capability record`,
+        `[WarmSessionStore] invalid ${args.label} capability: authorization wallet does not match runtime`,
       );
     }
-    if (auth.capability !== capability.capability) {
+    if (auth.authMethod !== runtime.factor.kind) {
       throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: auth capability does not match capability state`,
+        `[WarmSessionStore] invalid ${args.label} capability: authorization factor does not match runtime`,
       );
     }
   }
@@ -486,27 +466,11 @@ function assertEd25519CapabilityStateInvariant(args: {
     }
   }
 
-  if (record.source === 'email_otp' && !emailOtpAuthContext) {
-    throw new Error(
-      `[WarmSessionStore] invalid ${args.label} capability: email_otp record requires explicit email-otp auth context`,
-    );
-  }
-  if (record.source !== 'email_otp' && emailOtpAuthContext) {
-    throw new Error(
-      `[WarmSessionStore] invalid ${args.label} capability: non-email_otp record cannot carry email-otp auth context`,
-    );
-  }
-
   const hasWalletSessionJwt = Boolean(String(auth?.walletSessionJwt || '').trim());
-  const emailOtpSingleUseConsumed =
-    record.source === 'email_otp' &&
-    emailOtpAuthContext &&
-    emailOtpAuthContextRetention(emailOtpAuthContext) === 'single_use' &&
-    Number(emailOtpAuthContextConsumedAtMs(emailOtpAuthContext)) > 0;
   const expectedState = expectedPresentCapabilityState({
     capability,
     hasWalletSessionJwt,
-    emailOtpSingleUseConsumed: Boolean(emailOtpSingleUseConsumed),
+    emailOtpSingleUseConsumed: false,
   });
   if (capability.state !== expectedState) {
     throw new Error(

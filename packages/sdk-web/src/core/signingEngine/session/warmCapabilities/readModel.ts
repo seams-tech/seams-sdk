@@ -13,7 +13,6 @@ import type {
 import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
 import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import type {
-  WarmSessionEd25519AuthMaterial,
   WarmSessionEcdsaCapabilityState,
   WarmSessionEd25519CapabilityState,
   WarmSessionPrfClaim,
@@ -23,10 +22,8 @@ import {
   emailOtpAuthContextRetention,
 } from '../identity/laneIdentity';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
-import {
-  classifyRouterAbEd25519PersistedSigningRecord,
-  parseRouterAbEd25519WalletSessionAuthorityFromRecord,
-} from '../routerAbSigningWalletSession';
+import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type WarmSessionReadPortsInput =
   | Partial<
@@ -194,58 +191,31 @@ export async function readWarmSessionClaims(args: {
   return out;
 }
 
-export function resolveEd25519AuthMaterial(
-  record: WarmSessionEd25519CapabilityState['record'],
-): WarmSessionEd25519AuthMaterial | null {
-  if (!record) return null;
-  const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
-  if (authority.ok) {
-    return {
-      capability: 'ed25519',
-      record,
-      walletSessionJwt: authority.value.auth.walletSessionJwt,
-      walletSessionJwtSource: 'ed25519_record',
-    };
-  }
-  return {
-    capability: 'ed25519',
-    record,
-    walletSessionJwtSource: 'none',
-  };
-}
-
 export function deriveEd25519CapabilityState(args: {
-  record: WarmSessionEd25519CapabilityState['record'];
-  auth: WarmSessionEd25519AuthMaterial | null;
+  runtime: ExactEd25519SealedSessionRuntime;
+  auth: ActiveWalletSessionAuthorizationProjection | null;
   prfClaim: WarmSessionPrfClaim | null;
 }): WarmSessionEd25519CapabilityState['state'] {
-  if (!args.record) return 'missing';
-  if (!args.auth || !args.auth.walletSessionJwt) {
-    return 'auth_missing';
-  }
-  const ed25519EmailOtpAuthContext =
-    args.record.source === 'email_otp' ? args.record.emailOtpAuthContext : null;
   if (
-    ed25519EmailOtpAuthContext &&
-    emailOtpAuthContextRetention(ed25519EmailOtpAuthContext) === 'single_use' &&
-    Number(emailOtpAuthContextConsumedAtMs(ed25519EmailOtpAuthContext)) > 0
+    !args.auth ||
+    String(args.auth.walletId) !== String(args.runtime.walletId) ||
+    args.auth.authMethod !== args.runtime.factor.kind
   ) {
-    return 'prf_missing';
+    return 'authorization_required';
   }
-  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
-  if (persistedState.kind === 'ready') return 'ready';
-  if (
-    persistedState.kind === 'non_signing' ||
-    persistedState.reason === 'missing_wallet_session_jwt'
-  ) {
-    return 'auth_missing';
+  const runtimeState = laneCandidateStateFromRuntimePolicy({
+    remainingUses: args.runtime.remainingUses,
+    expiresAtMs: args.runtime.expiresAtMs,
+  });
+  if (runtimeState === 'expired' || runtimeState === 'exhausted') {
+    return 'authorization_required';
   }
-  if (persistedState.kind === 'invalid') return 'invalid';
   if (!args.prfClaim) return 'prf_missing';
   switch (args.prfClaim.state) {
     case 'unavailable':
       return 'prf_unavailable';
     case 'warm':
+      return 'ready';
     case 'missing':
     case 'expired':
     case 'exhausted':
