@@ -1028,6 +1028,12 @@ the replacement and legacy MPC paths must not ship together.
       its active-material recovery path. Retain cold login/unlock recovery,
       sealed refresh, and export recovery; the focused retained recovery suite
       passes 12/12 (`069db2326`).
+- [x] Delete zero-caller Ed25519 composite-record rejection, commit,
+      runtime-reseed, broad-list, exact-clear, and recovered-session retirement
+      helpers (`7886fd39f`).
+- [x] Delete the forwarding-only selected-lane auth-method selector; prepared
+      signing now reads the canonical auth binding directly, and its focused
+      auth-neutral preparation suite passes 7/7 (`0983a94ec`).
 - [ ] Delete obsolete tests, handwritten records, mocks, guards, and fixtures
       that encode pre-cutover behavior.
   - [x] Delete the route-wrapper-only test and the stale public route-catalog

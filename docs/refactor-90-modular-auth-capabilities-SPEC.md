@@ -140,6 +140,9 @@ implementing commit SHA as the evidence.
   (ECDSA canonical outcomes are covered by `ecdsaCapabilityHydration`; Near's
   matching seven-state matrix uses the shared canonical fixture. Commits
   `6ecdc5d5c`, `fd50aa7b5`.)
+- [x] `R90-INV-003` — prepared ECDSA signing reads the auth method from the
+  canonical lane binding directly; the forwarding-only selected-lane selector
+  is deleted and the auth-neutral preparation suite passes 7/7 (`0983a94ec`).
 - [x] `R90-INV-005` — ECDSA activation finalization atomically writes material,
   manifest, replacement retirement, and journal deletion.
 - [x] `R90-INV-006` — ECDSA journal types contain no runtime-publication,
@@ -316,6 +319,9 @@ implementing commit SHA as the evidence.
     active-material recovery path are deleted. Cold login/unlock recovery,
     sealed refresh, and export recovery remain, and the focused retained
     recovery suite passes 12/12 (`069db2326`).
+  - [x] Zero-caller Ed25519 composite-record rejection, commit, runtime-reseed,
+    broad-list, exact-clear, and recovered-session retirement helpers are
+    deleted (`7886fd39f`).
   - [x] NEAR factor-specific preparation, Passkey rehydration, and Email OTP
     recovery ports are private to one Browser-owned material boundary. Generic
     transaction, delegate, and NEP-413 orchestration receives only the shared
