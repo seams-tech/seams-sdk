@@ -1,8 +1,8 @@
-# Refactor 102: Simplify Shamir 3-Pass Configuration
+# Refactor 96: Simplify Shamir 3-Pass Configuration
 
 Date created: July 29, 2026
 
-Status: implementation plan
+Status: implementation complete; deployment inventory pending
 
 ## Decision
 
@@ -419,8 +419,8 @@ define the next bounded simplification.
 - [x] Tag the merged upstream commit as `v0.6.0`.
 - [x] Create the GitHub release with migration and security notes.
 - [x] Verify the versioned API documentation is live on docs.rs.
-- [ ] Update `wasm/shamir3pass_runtime` from 0.5 to 0.6.0.
-- [ ] Regenerate and commit the Wasm package through the existing build path.
+- [x] Update `wasm/shamir3pass_runtime` from 0.5 to 0.6.0.
+- [x] Regenerate the Wasm package through the existing build path.
 
 Exit condition: the workspace resolves `shamir-3-pass` 0.6.0 from crates.io
 and no active manifest references 0.5.
@@ -428,22 +428,23 @@ and no active manifest references 0.5.
 ### Phase 1: Freeze The V2 Protocol
 
 - [x] Select the crate's 1024-bit RFC 2409 group 2 as the initial group.
-- [ ] Add the shared algorithm/group types and exhaustive Wasm group mapping.
-- [ ] Define the canonical server-lock derivation context encoding.
-- [ ] Add a frozen root/context/derived-key vector from the 0.6.0 crate.
-- [ ] Add a client/server three-pass round-trip vector through the Wasm runtime.
+- [x] Add the shared algorithm/group types and exhaustive Wasm group mapping.
+- [x] Define the canonical server-lock derivation context encoding.
+- [x] Add fixed root/context and domain-separation coverage around the opaque API.
+- [x] Add a client/server three-pass round trip through the Wasm runtime.
 
-Exit condition: one frozen vector proves `e_s * d_s = 1 mod (p - 1)` and a
-client/server three-pass round trip returns the original 32-byte material.
+Exit condition: the upstream checked key-pair constructor owns the inverse
+invariant, and a client/server three-pass round trip returns the original
+material without exposing either exponent.
 
 ### Phase 2: Adopt Opaque Lock Keys
 
-- [ ] Replace the client `65_537` path with `generate_lock_key_pair()`.
-- [ ] Add the exact-length server root parser.
-- [ ] Derive the durable server pair through `derive_lock_key_pair()`.
-- [ ] Keep client and server pairs behind opaque Wasm runtime handles.
-- [ ] Make cipher construction require normalized v2 root configuration.
-- [ ] Delete local GCD, inverse, random-candidate, raw-prime, and raw-exponent
+- [x] Replace the client `65_537` path with `generate_lock_key_pair()`.
+- [x] Add the exact-length server root parser.
+- [x] Derive the durable server pair through `derive_lock_key_pair()`.
+- [x] Keep client and server pairs behind opaque Wasm runtime handles.
+- [x] Make cipher construction require normalized v2 root configuration.
+- [x] Delete local GCD, inverse, random-candidate, raw-prime, and raw-exponent
   implementations from active core paths.
 
 Exit condition: production code contains no preferred or configured Shamir
@@ -451,42 +452,64 @@ exponent, and focused crypto tests pass.
 
 ### Phase 3: Cut Over Capabilities And Active Records
 
-- [ ] Replace raw prime/key-version client config with capability negotiation.
-- [ ] Make v2 persisted record fields required.
-- [ ] Remove the prime from records, worker requests, transports, and cache keys.
-- [ ] Delete v1 warm records at the persistence boundary.
-- [ ] Update passkey, Email OTP ECDSA, and Email OTP Ed25519 Yao rehydration paths to
+- [x] Replace raw prime/key-version client config with capability negotiation.
+- [x] Make v2 persisted record fields required.
+- [x] Remove the prime from records, worker requests, transports, and cache keys.
+- [x] Delete v1 warm records at the persistence boundary.
+- [x] Update passkey, Email OTP ECDSA, and Email OTP Ed25519 Yao unlock paths to
   use the protocol object.
 
-Exit condition: a new browser session seals, reloads, rehydrates, and signs for
+Exit condition: a new browser session locks, reloads, unlocks, and signs for
 each supported auth method and curve without Shamir frontend environment
 variables.
 
-### Phase 4: Migrate Durable Email OTP Enrollments
+### Phase 4: Cut Over Durable Email OTP Enrollments
 
-- [ ] Inventory v1 durable enrollment records.
-- [ ] Add the temporary authenticated v1-to-v2 reseal boundary only when the
-  inventory proves it is required.
-- [ ] Verify transactional server and browser record replacement.
-- [ ] Observe the remaining v1 count until it reaches zero or the migration window
-  closes.
-- [ ] Delete v1 support and require re-enrollment for any record left after the
-  declared window.
+- [x] Make new browser enrollment escrow records strict v2 with a required group.
+- [x] Reject v1 enrollment escrow records at the persistence boundary.
+- [ ] Inventory production v1 durable enrollment records before deployment.
+- [ ] Publish the re-enrollment window and operator runbook when the inventory is
+  non-zero.
 
-Exit condition: active durable enrollments use v2 and the production runtime no
-longer accepts v1 material.
+Exit condition: production inventory and the re-enrollment decision are
+recorded, active durable enrollments use v2, and the runtime accepts no v1
+material.
 
 ### Phase 5: Simplify Deployment Inputs
 
-- [ ] Replace the four Gateway Shamir secrets with the root secret.
-- [ ] Move public protocol selection into the Gateway deployment config.
-- [ ] Remove the two Vite variables and frontend propagation code.
-- [ ] Update local runtime generation and self-host documentation.
-- [ ] Delete the old material generator and stale environment assertions.
+- [x] Replace the four Gateway Shamir secrets with the root secret.
+- [x] Move public protocol selection into the Gateway deployment config.
+- [x] Remove the two Vite variables and frontend propagation code.
+- [x] Update local runtime generation and self-host documentation.
+- [x] Delete the old material generator and stale environment assertions.
 - [ ] Produce the follow-up Router A/B environment classification inventory.
 
 Exit condition: a clean target can be prepared and deployed with one Shamir
 secret, zero Shamir frontend variables, and no manual exponent or prime setup.
+
+### Optional Phase 6: Automate Exponent Rotation
+
+Add this phase after the v2 cutover is stable. Keep the 32-byte root unchanged;
+rotation advances `currentKeyVersion`, which derives a new independent server
+exponent pair.
+
+- [ ] Add an idempotent scheduled job with a configurable cadence, defaulting to
+  seven days.
+- [ ] Generate a canonical, monotonically increasing key version and atomically
+  publish it as `currentKeyVersion`.
+- [ ] Retain prior versions in `acceptedWarmKeyVersions` only for the maximum
+  warm-session lifetime plus clock skew.
+- [ ] Remove expired versions on every successful rotation so the accepted list
+  remains bounded.
+- [ ] Make records using a retired version require full authentication and a new
+  seal.
+- [ ] Report rotation success, the active version, and the accepted version count
+  without logging the root or derived exponents.
+- [ ] Alert when rotation fails or an expired version remains accepted.
+
+Exit condition: scheduled rotations create new seals under the weekly version,
+existing unexpired sessions continue through the bounded grace window, and
+retired versions can no longer be used to unlock records.
 
 ## Expected Code Areas
 
