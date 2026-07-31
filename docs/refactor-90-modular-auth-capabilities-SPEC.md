@@ -210,6 +210,14 @@ implementing commit SHA as the evidence.
     claims, allowance, expiry, signing root, and signer identity; Browser and
     SeamsWeb receive the activated lane's signer without constructing or
     returning a composite session record (`f5062fc13`).
+  - [x] Email OTP Ed25519 recovery preparation resolves one exact sealed record
+    by wallet, factor subject, account, signer slot, and material activation.
+    Browser derives the recoverable session and runtime policy from that
+    durable owner without consulting the composite session cache
+    (`e4322bd15`).
+  - [x] The NEAR unlock wrapper resolves its wallet from the active user
+    binding; composite signing state no longer acts as a wallet-directory
+    lookup (`2cdfea541`).
   - [x] Email OTP runtime wallet-key projections, worker handles, and sealed
     rehydration correlate by exact key handle. Provisioning slots remain
     confined to registration handle branches (`6113b36bb`).
