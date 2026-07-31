@@ -6,7 +6,6 @@ import {
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  publishResolvedIdentity,
   type acquireSigningSessionRestoreLease,
   type listExactSealedSessionsForWallet,
   type readExactSealedSession,
@@ -163,20 +162,6 @@ export class EmailOtpSealedRestoreOrchestrator {
         remainingUses: restored.remainingUses,
         expiresAtMs: restored.expiresAtMs,
       } satisfies RestoredWarmSessionStatus;
-      const chainTarget = sealedRecord.chainTarget;
-      const walletId = String(sealedRecord.walletId || '').trim();
-      if (walletId && chainTarget) {
-        const restoredAtMs = Date.now();
-        publishResolvedIdentity({
-          walletId,
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-          chainTarget,
-          signingGrantId: sealedRecord.signingGrantId,
-          thresholdSessionId,
-          updatedAtMs: restoredAtMs,
-        });
-      }
       await this.ports.recordSessionMaterialRestored(
         { thresholdSessionId, chainTarget: sealedRecord.chainTarget },
         result,

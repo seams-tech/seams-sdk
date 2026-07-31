@@ -10,7 +10,6 @@ declare const transport: WarmSessionSealTransportInput;
 declare const status: WarmSessionStatusResult;
 
 void restorePasskeyEcdsaSealedRecordForWallet({
-  walletId: 'wallet.testnet',
   // @ts-expect-error raw sealed store records must be normalized before passkey ECDSA recovery
   record: rawRecord,
   purpose,

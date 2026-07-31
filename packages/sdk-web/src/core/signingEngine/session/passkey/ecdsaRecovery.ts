@@ -1,6 +1,3 @@
-import {
-  type ThresholdEcdsaChainTarget,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { RestorePersistedSessionPurpose } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import {
@@ -8,7 +5,6 @@ import {
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   parseSigningSessionSealKeyVersion,
   type SigningSessionSealKeyVersion,
@@ -31,26 +27,7 @@ function shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(
   }
 }
 
-async function publishPasskeyEcdsaSealedRecordForWallet(args: {
-  walletId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionId: string;
-  signingGrantId: string;
-}): Promise<void> {
-  const updatedAtMs = Date.now();
-  publishResolvedIdentity({
-    walletId: args.walletId,
-    authMethod: 'passkey',
-    curve: 'ecdsa',
-    chainTarget: args.chainTarget,
-    signingGrantId: args.signingGrantId,
-    thresholdSessionId: args.thresholdSessionId,
-    updatedAtMs,
-  });
-}
-
 export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
-  walletId: string;
   record: PasskeyEcdsaSealedRecoveryRecord;
   purpose: RestorePersistedSessionPurpose & { authMethod: 'passkey' };
   transport: WarmSessionSealTransportInput;
@@ -76,24 +53,8 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     return null;
   }
   const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
-  const signingGrantId = String(args.purpose.signingGrantId || '').trim();
-  if (!thresholdSessionId || !signingGrantId || !args.groupId) {
+  if (!thresholdSessionId || !args.groupId) {
     return null;
-  }
-
-  try {
-    await publishPasskeyEcdsaSealedRecordForWallet({
-      walletId: args.walletId,
-      chainTarget: args.purpose.chainTarget,
-      thresholdSessionId,
-      signingGrantId,
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'invalid_role_local_durable_restore',
-      message: error instanceof Error ? error.message : String(error),
-    };
   }
 
   const rehydrated = await args.rehydrateWarmSessionMaterial({
@@ -108,14 +69,6 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     },
   });
   if (!rehydrated.ok) {
-    if (rehydrated.code === 'exhausted') {
-      await publishPasskeyEcdsaSealedRecordForWallet({
-        walletId: args.walletId,
-        chainTarget: args.purpose.chainTarget,
-        thresholdSessionId,
-        signingGrantId,
-      }).catch(() => undefined);
-    }
     if (shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(rehydrated)) {
       await args.deletePersistedRecord().catch(() => undefined);
     }
@@ -123,20 +76,6 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     return rehydrated;
   }
 
-  try {
-    await publishPasskeyEcdsaSealedRecordForWallet({
-      walletId: args.walletId,
-      chainTarget: args.purpose.chainTarget,
-      thresholdSessionId,
-      signingGrantId,
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'invalid_role_local_durable_restore',
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
   await args.recordSessionMaterialRestored(rehydrated);
   const parsed = await args.readWarmSessionStatusFromWorker(thresholdSessionId);
   if (!parsed) {
@@ -147,12 +86,6 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     };
   }
   if (parsed.ok) {
-    await publishPasskeyEcdsaSealedRecordForWallet({
-      walletId: args.walletId,
-      chainTarget: args.purpose.chainTarget,
-      thresholdSessionId,
-      signingGrantId,
-    }).catch(() => undefined);
     await args
       .updatePersistedPolicy({
         expiresAtMs: parsed.expiresAtMs,
@@ -161,14 +94,6 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
       })
       .catch(() => undefined);
   } else {
-    if (parsed.code === 'exhausted') {
-      await publishPasskeyEcdsaSealedRecordForWallet({
-        walletId: args.walletId,
-        chainTarget: args.purpose.chainTarget,
-        thresholdSessionId,
-        signingGrantId,
-      });
-    }
     if (shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(parsed)) {
       await args.deletePersistedRecord().catch(() => undefined);
     }

@@ -586,7 +586,6 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
         ecdsaRestore,
       };
       return await restorePasskeyEcdsaSealedRecordForWallet({
-        walletId: args.walletId,
         record: args.record,
         purpose: args.purpose,
         transport,

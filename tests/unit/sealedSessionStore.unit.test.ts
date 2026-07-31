@@ -1826,7 +1826,7 @@ test.describe('signing session sealed store', () => {
     expect(result.byExport).toBeNull();
   });
 
-  test('owns durable sealed identity by exact signing purpose', async ({ page }) => {
+  test('owns durable sealed records by exact signing purpose', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths, identityEmailOtpEcdsaRestore }) => {
         const mod = await import(paths.sealedSessionStore);
@@ -1879,15 +1879,6 @@ test.describe('signing session sealed store', () => {
             curve: 'ed25519',
           },
         );
-        const published = mod.publishResolvedIdentity({
-          walletId: 'identity.testnet',
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-          chainTarget: ECDSA_RESTORE.chainTarget,
-          signingGrantId: 'identity-wallet-session',
-          thresholdSessionId: 'identity-ecdsa-session',
-          updatedAtMs: 22_222,
-        });
         await mod.clearAllSealedSessions();
         const ecdsaAfterClear = await mod.readExactSealedSession('identity-ecdsa-session', {
           authMethod: 'email_otp',
@@ -1900,7 +1891,6 @@ test.describe('signing session sealed store', () => {
           ecdsaAfterWrite,
           wrongChainRecord,
           companionEd25519Record,
-          published,
           ecdsaAfterClear,
         };
       },
@@ -1919,7 +1909,6 @@ test.describe('signing session sealed store', () => {
     expect(result.companionEd25519Record?.thresholdSessionIds.ed25519).toBe(
       'identity-ed25519-session',
     );
-    expect(result.published?.updatedAtMs).toBe(22_222);
     expect(result.ecdsaAfterClear).toBeNull();
   });
 
