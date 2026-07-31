@@ -46,7 +46,7 @@ import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/sign
 import type {
   ActiveEvmFamilyWalletSessionAuthorization,
   CanonicalEvmFamilyEcdsaSigningCapability,
-} from './ecdsaSigningCapability';
+} from '../../session/material/ecdsaSigningCapability';
 import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
 
 function signerAuthMethodForWalletAuthority(authority: WalletAuthAuthority): SignerAuthMethod {

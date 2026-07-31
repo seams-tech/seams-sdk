@@ -6,7 +6,7 @@ import {
   type ExactEcdsaSigningLaneIdentity,
   type ExactEd25519SigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import { exactSigningLaneWalletId } from '../identity/exactSigningLaneIdentity';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';

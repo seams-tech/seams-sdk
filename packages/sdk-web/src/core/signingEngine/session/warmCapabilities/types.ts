@@ -8,7 +8,7 @@ import {
 import type { EcdsaSessionProvisionPlan } from './ecdsaProvisionPlan';
 import type { ActiveEcdsaCapabilityManifest } from '../material/ecdsaCapabilityManifest';
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type {
   EcdsaSealTransportAuthMaterial,
 } from '../persistence/sealedSessionTransportAuth';

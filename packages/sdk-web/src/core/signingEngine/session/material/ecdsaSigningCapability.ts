@@ -1,16 +1,8 @@
-import type {
-  ActiveEcdsaCapabilityManifest,
-} from '../../session/material/ecdsaCapabilityManifest';
-import type {
-  PersistedEcdsaRoleLocalMaterial,
-} from '../../session/material/ecdsaRoleLocalMaterialResolver';
+import type { ActiveEcdsaCapabilityManifest } from './ecdsaCapabilityManifest';
+import type { PersistedEcdsaRoleLocalMaterial } from './ecdsaRoleLocalMaterialResolver';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
-import type {
-  ReusableWalletSessionStatus,
-} from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
-import type {
-  ActiveWalletSessionAuthorizationProjection,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ReusableWalletSessionStatus } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   walletAuthAuthorityRef,
   type WalletAuthAuthority,

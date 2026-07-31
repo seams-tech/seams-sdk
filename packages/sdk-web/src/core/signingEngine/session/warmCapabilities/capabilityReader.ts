@@ -13,7 +13,7 @@ import {
   type WarmSessionReadPortsInput,
 } from './readModel';
 import type { WarmSessionCapabilityReader } from './types';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 

@@ -24,7 +24,7 @@ import {
   type EmailOtpWalletAuthAuthority,
   type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
-import type { CanonicalEvmFamilyEcdsaSigningCapability } from './ecdsaSigningCapability';
+import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
 import {
   buildVerifiedEcdsaPublicFacts,
   toEvmFamilyEcdsaKeyHandle,

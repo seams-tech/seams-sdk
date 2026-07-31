@@ -1,5 +1,5 @@
 import { laneCandidateStateFromRuntimePolicy } from '../identity/laneIdentity';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type {
   SigningSessionRetention,
   SigningSessionStatus,

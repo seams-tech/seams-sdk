@@ -38,7 +38,7 @@ import {
   parseSdkEcdsaDerivationSigningRootId,
   parseSdkEcdsaDerivationSigningRootVersion,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import {
   buildActiveWalletSessionAuthorizationProjection,
@@ -84,7 +84,7 @@ import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/sessi
 import {
   buildCanonicalEvmFamilyEcdsaSigningCapability,
   type CanonicalEvmFamilyEcdsaSigningCapability,
-} from '@/core/signingEngine/flows/signEvmFamily/ecdsaSigningCapability';
+} from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,

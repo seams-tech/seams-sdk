@@ -48,7 +48,7 @@ export type {
   SigningGrantId,
 } from '@shared/utils/domainIds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 
 export type Brand<TValue, TBrand extends string> = TValue & { readonly __brand: TBrand };
 

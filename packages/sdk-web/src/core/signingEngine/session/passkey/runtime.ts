@@ -3,7 +3,7 @@ import {
   thresholdEcdsaChainTargetKey,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
-import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type {
   WarmSessionSealPersister,
 } from '../../uiConfirm/uiConfirm.types';
