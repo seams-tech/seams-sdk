@@ -8,7 +8,6 @@ import type {
   WalletEmailOtpTransactionSignOperation,
 } from '@shared/utils/emailOtpDomain';
 import {
-  authLaneToRouteAuth,
   buildEmailOtpRoutePlan,
   routeFamilyForAuthLane,
   toMintedSigningGrantId,
@@ -142,12 +141,6 @@ export function buildEmailOtpSigningSessionRoutePlan(args: {
     authLane: args.authLane,
     operation: args.operation,
   });
-}
-
-export function routeAuthFromEmailOtpRoutePlan(
-  routePlan: EmailOtpRoutePlan,
-): AppOrWalletSessionAuth | undefined {
-  return authLaneToRouteAuth(routePlan.authLane);
 }
 
 export function emailOtpEcdsaBootstrapRouteAuthFromAuthLane(
