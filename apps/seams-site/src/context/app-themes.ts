@@ -294,6 +294,67 @@ const GREENHOUSE_LIGHT_COLORS: Record<string, string> = {
   highlightAmount: '#308970',
 };
 
+// "Sage" — the Andon Labs store palette (andonlabs.com/store): the muted
+// sage hero gradient (#919690 → #c7d0cf) over zinc neutrals, ink CTAs, and
+// their deep evergreen (chart-1, oklch 35% chroma .07 hue 171 ≈ #004737)
+// carrying links and highlights.
+const SAGE_LIGHT_COLORS: Record<string, string> = {
+  primary: '#004737',
+  primaryHover: '#0b5a48',
+  secondary: '#18181b',
+  secondaryHover: '#004737',
+  accent: '#9bc4cb',
+
+  textPrimary: '#09090b',
+  textSecondary: '#71717a',
+  textMuted: '#a1a1aa',
+  textButton: '#fafafa',
+
+  buttonBackground: '#18181b',
+  buttonHoverBackground: '#27272a',
+  // quiet bordered-white secondary (Google SSO): one ink CTA per card, the
+  // same button hierarchy Andon uses on the store page
+  secondaryButtonBackground: '#ffffff',
+  secondaryButtonHoverBackground: '#f4f4f5',
+  secondaryButtonBorder: '#e4e4e7',
+  secondaryButtonText: '#18181b',
+
+  colorBackground: '#ffffff',
+  surface: '#fafafa',
+  passkeyHaloBackground: '#f4f4f5',
+  surface2: '#f4f4f5',
+  surface3: '#e4e4e7',
+  surface4: '#d4d4d8',
+  txDetailsBackground: '#f4f4f5',
+
+  hover: '#f4f4f5',
+  active: '#e4e4e7',
+  focus: '#004737',
+
+  success: '#004737',
+  warning: '#b45309',
+  error: '#dc2626',
+  info: '#4c7f88',
+
+  borderPrimary: '#e4e4e7',
+  borderSecondary: '#f4f4f5',
+  borderHover: '#d4d4d8',
+
+  // the store hero gradient, verbatim, plus derived companions
+  gradientPrimary: 'linear-gradient(160deg, #919690 0%, #c7d0cf 100%)',
+  gradientSecondary: 'linear-gradient(160deg, #004737 0%, #919690 100%)',
+  gradientTertiary: 'linear-gradient(160deg, #fafafa 0%, #c7d0cf 100%)',
+
+  highlightPrimary: '#004737',
+  highlightRow: 'rgba(0, 71, 55, 0.08)',
+  highlightHalo: '#9bc4cb',
+  // Andon-style accent discipline: the receiver carries the evergreen,
+  // method names and amounts read in ink.
+  highlightReceiver: '#004737',
+  highlightMethodName: '#09090b',
+  highlightAmount: '#09090b',
+};
+
 // "Pastel Dark" — the Pastel Rainbow palette on charcoal (Outlander-dashboard
 // style): plum-charcoal layers, mint carrying the CTAs with dark ink, and the
 // remaining pastels as status/highlight tones (pastels are light, so they
@@ -412,6 +473,7 @@ export type DemoThemeId =
   | 'rose-pine-dark'
   | 'rose-pine-light'
   | 'greenhouse'
+  | 'sage'
   | 'pastel'
   | 'pastel-dark';
 
@@ -450,6 +512,13 @@ export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
     mode: 'light',
     swatch: '#308970',
     colors: GREENHOUSE_LIGHT_COLORS,
+  },
+  {
+    id: 'sage',
+    label: 'Sage',
+    mode: 'light',
+    swatch: '#919690',
+    colors: SAGE_LIGHT_COLORS,
   },
   {
     id: 'pastel',
