@@ -1148,6 +1148,9 @@ the replacement and legacy MPC paths must not ship together.
         identity builders remain the canonical construction path (`19ec99d94`).
   - [x] Delete the zero-caller silent PRF-cache fallback; strict cache setup
         remains the sole writer path (`5a619687a`).
+  - [x] Delete the zero-caller Email OTP Ed25519 signing-session authority
+        module; canonical `EmailOtpSigningSessionAuthLane` remains the active
+        authority boundary (`4f11a1211`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
