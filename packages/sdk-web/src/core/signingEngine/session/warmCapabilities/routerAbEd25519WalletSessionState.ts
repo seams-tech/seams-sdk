@@ -117,17 +117,14 @@ export function buildEmailOtpRouterAbEd25519WalletSessionState(
   };
 }
 
-export function buildPasskeyRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
+export function buildRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
   runtime: ExactEd25519SealedSessionRuntime;
   walletSessionJwt: string;
   nowMs: number;
 }): ResolvedRouterAbEd25519WalletSessionState {
   const runtime = args.runtime;
-  if (runtime.factor.kind !== 'passkey' || runtime.auth.kind !== 'passkey') {
-    throw new Error('Passkey Ed25519 Wallet Session state requires passkey-bound runtime');
-  }
   if (runtime.walletSessionJwt !== args.walletSessionJwt) {
-    throw new Error('Passkey Ed25519 Wallet Session authorization changed after provisioning');
+    throw new Error('Ed25519 Wallet Session authorization changed after runtime persistence');
   }
   const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
     walletId: runtime.walletId,
@@ -146,23 +143,42 @@ export function buildPasskeyRouterAbEd25519WalletSessionStateFromExactRuntime(ar
   });
   if (!signingWalletSession.ok) {
     throw new Error(
-      `Passkey Ed25519 Wallet Session runtime is invalid: ${signingWalletSession.reason}`,
+      `Ed25519 Wallet Session runtime is invalid: ${signingWalletSession.reason}`,
     );
+  }
+  const signingLane =
+    runtime.factor.kind === 'passkey' && runtime.auth.kind === 'passkey'
+      ? buildNearTransactionSigningLane({
+          walletId: runtime.walletId,
+          nearAccountId: runtime.nearAccountId,
+          nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
+          signerSlot: runtime.signerSlot,
+          auth: runtime.auth,
+          signingGrantId: runtime.signingGrantId,
+          thresholdSessionId: runtime.thresholdSessionId,
+          storageSource: 'login',
+        })
+      : runtime.factor.kind === 'email_otp' && runtime.auth.kind === 'email_otp'
+        ? buildNearTransactionSigningLane({
+            walletId: runtime.walletId,
+            nearAccountId: runtime.nearAccountId,
+            nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
+            signerSlot: runtime.signerSlot,
+            auth: runtime.auth,
+            signingGrantId: runtime.signingGrantId,
+            thresholdSessionId: runtime.thresholdSessionId,
+            retention: 'session',
+            sessionOrigin: 'login',
+          })
+        : null;
+  if (!signingLane) {
+    throw new Error('Ed25519 sealed runtime factor and auth binding disagree');
   }
   return {
     walletSessionAuth: signingWalletSession.value.auth,
     thresholdSessionId: runtime.thresholdSessionId,
     signingGrantId: runtime.signingGrantId,
-    signingLane: buildNearTransactionSigningLane({
-      walletId: runtime.walletId,
-      nearAccountId: runtime.nearAccountId,
-      nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
-      signerSlot: runtime.signerSlot,
-      auth: runtime.auth,
-      signingGrantId: runtime.signingGrantId,
-      thresholdSessionId: runtime.thresholdSessionId,
-      storageSource: 'login',
-    }),
+    signingLane,
     remainingUses: runtime.remainingUses,
     signingRootId: runtime.signingRootId,
     signingRootVersion: runtime.signingRootVersion,

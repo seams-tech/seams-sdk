@@ -4,7 +4,7 @@ import {
   resolveExactEd25519SealedSessionRuntimeForWalletWithResolver,
   resolveExactEd25519SealedSessionRuntimeForWalletSubjectWithResolver,
 } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
-import { buildPasskeyRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
+import { buildRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { buildEd25519PasskeySigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -70,7 +70,7 @@ test('builds passkey hydration state from the exact sealed runtime and active JW
   expect(resolution.kind).toBe('resolved');
   if (resolution.kind !== 'resolved') return;
 
-  const state = buildPasskeyRouterAbEd25519WalletSessionStateFromExactRuntime({
+  const state = buildRouterAbEd25519WalletSessionStateFromExactRuntime({
     runtime: resolution.runtime,
     walletSessionJwt: resolution.runtime.walletSessionJwt,
     nowMs: resolution.runtime.expiresAtMs - 1,

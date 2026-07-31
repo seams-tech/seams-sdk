@@ -194,7 +194,7 @@ import {
   type PasskeyEd25519YaoLocalMaterialLocatorV1,
 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
 import {
-  buildPasskeyRouterAbEd25519WalletSessionStateFromExactRuntime,
+  buildRouterAbEd25519WalletSessionStateFromExactRuntime,
   type ResolvedRouterAbEd25519WalletSessionState,
 } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { resolveExactEd25519SealedSessionRuntimeForWalletSubject } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
@@ -3142,7 +3142,7 @@ async function primeThresholdLoginWarmSigners(args: {
             throw new Error('[login] local Ed25519 material requires its exact sealed runtime');
           }
           const walletSessionState =
-            buildPasskeyRouterAbEd25519WalletSessionStateFromExactRuntime({
+            buildRouterAbEd25519WalletSessionStateFromExactRuntime({
               runtime: runtimeResolution.runtime,
               walletSessionJwt: connectedJwt,
               nowMs: Date.now(),

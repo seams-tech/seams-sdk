@@ -363,65 +363,6 @@ function ed25519LaneAuthFromRecord(
   return candidate.auth;
 }
 
-function signingLaneAuthBindingsEqual(
-  left: SigningLaneAuthBinding,
-  right: SigningLaneAuthBinding,
-): boolean {
-  switch (left.kind) {
-    case 'passkey':
-      return (
-        right.kind === 'passkey' &&
-        left.rpId === right.rpId &&
-        left.credentialIdB64u === right.credentialIdB64u
-      );
-    case 'email_otp':
-      return right.kind === 'email_otp' && left.providerSubjectId === right.providerSubjectId;
-  }
-}
-
-function sealedEd25519RecordMatchesLane(args: {
-  record: ThresholdEd25519SessionRecord;
-  laneIdentity: ExactEd25519SigningLaneIdentity;
-}): boolean {
-  const signer = args.laneIdentity.signer;
-  const recordAuth = thresholdEd25519LaneCandidateFromSessionRecord({
-    record: args.record,
-  })?.auth;
-  if (!recordAuth) return false;
-  return (
-    String(args.record.walletId) === String(signer.account.wallet.walletId) &&
-    String(args.record.nearAccountId) === String(signer.account.nearAccountId) &&
-    String(args.record.nearEd25519SigningKeyId) === String(signer.nearEd25519SigningKeyId) &&
-    args.record.signerSlot === signer.signerSlot &&
-    signingLaneAuthBindingsEqual(recordAuth, args.laneIdentity.auth) &&
-    String(args.record.signingGrantId) === String(args.laneIdentity.signingGrantId) &&
-    args.record.thresholdSessionId === args.laneIdentity.thresholdSessionId
-  );
-}
-
-export async function readPersistedEd25519SessionRecordForSigning(args: {
-  walletId: string;
-  laneIdentity: ExactEd25519SigningLaneIdentity;
-}): Promise<ThresholdEd25519SessionRecord | null> {
-  const sealedRecords = await listExactSealedSessionsForWallet({
-    walletId: args.walletId,
-    filter: { authMethod: signingLaneAuthMethod(args.laneIdentity.auth), curve: 'ed25519' },
-  });
-  const candidates: ThresholdEd25519SessionRecord[] = [];
-  for (const sealedRecord of sealedRecords) {
-    if (sealedRecord.curve !== 'ed25519') continue;
-    const record = ed25519SessionRecordFromSealedRecord(sealedRecord);
-    if (!record || !sealedEd25519RecordMatchesLane({ record, laneIdentity: args.laneIdentity })) {
-      continue;
-    }
-    candidates.push(record);
-  }
-  if (candidates.length > 1) {
-    throw new Error('[SigningEngine][near] exact persisted Ed25519 lane is ambiguous');
-  }
-  return candidates[0] || null;
-}
-
 function applyWalletBudgetStatusToAdvisory(args: {
   localAdvisory: AvailableLaneStateAdvisory | null;
   walletBudgetStatus: SigningSessionStatus | null;
