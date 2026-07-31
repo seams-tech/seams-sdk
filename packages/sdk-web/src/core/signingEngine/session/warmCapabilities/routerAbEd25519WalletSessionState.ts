@@ -24,6 +24,9 @@ import {
   parseRouterAbEd25519SigningWalletSessionFromRecord,
   type RouterAbEd25519SigningWalletSession,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { AccountId } from '@/core/types/accountIds';
+import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 
 export type ResolvedRouterAbEd25519WalletSessionState = NearResolvedEd25519SigningSessionState & {
   signingWalletSession: RouterAbEd25519SigningWalletSession;
@@ -31,6 +34,86 @@ export type ResolvedRouterAbEd25519WalletSessionState = NearResolvedEd25519Signi
 
 export type AuthorizedRouterAbEd25519WalletSessionState =
   ResolvedRouterAbEd25519WalletSessionState & NearAuthorizedEd25519SigningSessionState;
+
+export type BuildEmailOtpRouterAbEd25519WalletSessionStateInput = {
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  providerSubjectId: string;
+  signerSlot: number;
+  relayerUrl: string;
+  signingWalletSession: RouterAbEd25519SigningWalletSession;
+};
+
+function requireNonEmptyStateValue(value: string, label: string): string {
+  const normalized = String(value).trim();
+  if (!normalized) throw new Error(`${label} is required for Ed25519 Wallet Session state`);
+  return normalized;
+}
+
+function requirePositiveStateInteger(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`${label} must be positive for Ed25519 Wallet Session state`);
+  }
+  return value;
+}
+
+export function buildEmailOtpRouterAbEd25519WalletSessionState(
+  input: BuildEmailOtpRouterAbEd25519WalletSessionStateInput,
+): ResolvedRouterAbEd25519WalletSessionState {
+  const thresholdSessionId = requireNonEmptyStateValue(
+    input.signingWalletSession.thresholdSessionId,
+    'thresholdSessionId',
+  );
+  const signingGrantId = requireNonEmptyStateValue(
+    input.signingWalletSession.signingGrantId,
+    'signingGrantId',
+  );
+  const walletSessionJwt = requireNonEmptyStateValue(
+    input.signingWalletSession.auth.walletSessionJwt,
+    'walletSessionJwt',
+  );
+  const relayerUrl = requireNonEmptyStateValue(input.relayerUrl, 'relayerUrl');
+  const providerSubjectId = requireNonEmptyStateValue(
+    input.providerSubjectId,
+    'providerSubjectId',
+  );
+  const signerSlot = requirePositiveStateInteger(input.signerSlot, 'signerSlot');
+  const remainingUses = requirePositiveStateInteger(
+    input.signingWalletSession.remainingUses,
+    'remainingUses',
+  );
+  const walletSessionAuth = {
+    kind: 'wallet_session_jwt' as const,
+    walletSessionJwt,
+  };
+  return {
+    walletSessionAuth,
+    thresholdSessionId,
+    signingGrantId,
+    signingLane: buildNearTransactionSigningLane({
+      walletId: input.walletId,
+      nearAccountId: input.nearAccountId,
+      nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+      signerSlot,
+      auth: {
+        kind: 'email_otp',
+        providerSubjectId,
+      },
+      signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
+      retention: 'session',
+      sessionOrigin: 'login',
+    }),
+    remainingUses,
+    signingRootId: input.signingWalletSession.signingRootId,
+    signingRootVersion: input.signingWalletSession.signingRootVersion,
+    routerAbNormalSigning: input.signingWalletSession.routerAbNormalSigning,
+    runtimePolicyScope: input.signingWalletSession.runtimePolicyScope,
+    relayerUrl,
+    signingWalletSession: input.signingWalletSession,
+  };
+}
 
 export function nearEd25519YaoOperationMaterialFacts(
   state: ResolvedRouterAbEd25519WalletSessionState,

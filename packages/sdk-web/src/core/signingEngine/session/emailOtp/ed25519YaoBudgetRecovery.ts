@@ -7,11 +7,12 @@ import type {
 } from '@/core/signingEngine/workerManager/workerTypes';
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
 import { base58Encode } from '@shared/utils/base58';
-import { registrationNearEd25519BranchKey } from '@shared/utils/registrationIntent';
-import type { ThresholdEd25519SessionRecord } from '../persistence/records';
+import {
+  nearEd25519SigningKeyIdFromString,
+  registrationNearEd25519BranchKey,
+} from '@shared/utils/registrationIntent';
 import type { ThresholdEd25519SessionId } from '../operationState/types';
-import { resolveRouterAbEd25519WalletSessionStateFromRecord } from '../warmCapabilities/routerAbEd25519WalletSessionState';
-import { persistWarmSessionEd25519Capability } from '../warmCapabilities/persistence';
+import { buildEmailOtpRouterAbEd25519WalletSessionState } from '../warmCapabilities/routerAbEd25519WalletSessionState';
 import type {
   Ed25519YaoActiveClientIdentityV1,
   Ed25519YaoActiveClientLookupScopeV1,
@@ -35,10 +36,10 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import type { EmailOtpEd25519YaoPublicationContext } from './ed25519YaoPublication';
+import { buildRouterAbEd25519SigningWalletSession } from '../routerAbSigningWalletSession';
 
 export type EmailOtpEd25519YaoBudgetRecoveryResult = {
   sessionId: string;
-  record: ThresholdEd25519SessionRecord;
   publicationContext: EmailOtpEd25519YaoPublicationContext;
 } & NearEd25519YaoSigningCapability;
 
@@ -138,8 +139,8 @@ function sameBytes(
 }
 
 function sameRuntimePolicyScope(
-  left: NonNullable<ThresholdEd25519SessionRecord['runtimePolicyScope']>,
-  right: NonNullable<ThresholdEd25519SessionRecord['runtimePolicyScope']>,
+  left: ThresholdRuntimePolicyScope,
+  right: ThresholdRuntimePolicyScope,
 ): boolean {
   return (
     left.orgId === right.orgId &&
@@ -258,46 +259,47 @@ async function assertColdBootstrapContinuityOrDisposePending(args: {
   }
 }
 
-function persistColdRecoveredSession(args: {
+function buildColdRecoveredWalletSessionState(args: {
   prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
   bootstrap: EmailOtpEd25519YaoUnlockBootstrapV1;
-}): ThresholdEd25519SessionRecord {
+}) {
   const session = args.bootstrap.session;
-  const signerSlot = requirePositiveInteger(
-    args.bootstrap.capability.applicationBinding.key_creation_signer_slot,
-    'server capability signerSlot',
-  );
   if (session.authorityScope.kind !== 'email_otp') {
     throw new Error('Email OTP Ed25519 Yao recovery returned another authority kind');
   }
-  const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
-    policy: args.prepared.authPolicy,
-    walletId: session.walletId,
-    emailHashHex: args.prepared.emailHashHex,
-    retention: 'session',
-    reason: 'login',
-    provider: session.authorityScope.provider,
-    providerUserId: session.authorityScope.providerUserId,
-  });
-  return persistWarmSessionEd25519Capability({
-    kind: 'jwt_email_otp',
+  const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
     walletId: String(session.walletId),
-    nearAccountId: toAccountId(session.nearAccountId),
+    nearAccountId: session.nearAccountId,
     nearEd25519SigningKeyId: session.nearEd25519SigningKeyId,
-    rpId: args.prepared.rpId,
-    relayerUrl: args.prepared.relayerUrl,
-    relayerKeyId: session.routerAbNormalSigning.signingWorkerId,
-    runtimePolicyScope: session.runtimePolicyScope,
-    participantIds: session.participantIds,
-    sessionId: session.thresholdSessionId,
+    thresholdSessionId: session.thresholdSessionId,
     signingGrantId: session.signingGrantId,
-    expiresAtMs: session.expiresAtMs,
     remainingUses: session.remainingUses,
-    signerSlot,
+    expiresAtMs: session.expiresAtMs,
+    runtimePolicyScope: session.runtimePolicyScope,
+    signingRootId: session.signingRootId,
+    signingRootVersion: session.signingRootVersion,
     routerAbNormalSigning: session.routerAbNormalSigning,
-    jwt: session.walletSessionJwt,
-    source: 'email_otp',
-    emailOtpAuthContext,
+    walletSessionJwt: session.walletSessionJwt,
+    nowMs: Date.now(),
+  });
+  if (!signingWalletSession.ok) {
+    throw new Error(
+      `Email OTP Ed25519 Yao recovery returned unusable Wallet Session state (${signingWalletSession.reason})`,
+    );
+  }
+  return buildEmailOtpRouterAbEd25519WalletSessionState({
+    walletId: session.walletId,
+    nearAccountId: toAccountId(session.nearAccountId),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
+      session.nearEd25519SigningKeyId,
+    ),
+    providerSubjectId: session.authorityScope.providerUserId,
+    signerSlot: requirePositiveInteger(
+      args.bootstrap.capability.applicationBinding.key_creation_signer_slot,
+      'server capability signerSlot',
+    ),
+    relayerUrl: args.prepared.relayerUrl,
+    signingWalletSession: signingWalletSession.value,
   });
 }
 
@@ -319,14 +321,7 @@ export async function activateColdEmailOtpEd25519YaoLocalSessionV1(args: {
       args.metadata,
     );
   try {
-    const record = persistColdRecoveredSession({
-      prepared: args.prepared,
-      bootstrap: args.bootstrap,
-    });
-    const walletSessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(record);
-    if (!walletSessionState) {
-      throw new Error('Email OTP Ed25519 local custody returned unusable Wallet Session state');
-    }
+    const walletSessionState = buildColdRecoveredWalletSessionState(args);
     const capability: NearEd25519YaoSigningCapability = { activeClient, walletSessionState };
     const identity = await args.activateCapability(capability);
     if (
@@ -342,7 +337,6 @@ export async function activateColdEmailOtpEd25519YaoLocalSessionV1(args: {
     activeClient = null;
     return {
       sessionId: walletSessionState.thresholdSessionId,
-      record,
       publicationContext: buildEmailOtpEd25519YaoPublicationContext(args),
       ...capability,
     };
@@ -388,14 +382,7 @@ export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
   });
   let activeClient: NearEd25519YaoSigningCapability['activeClient'] | null = recovered.activeClient;
   try {
-    const record = persistColdRecoveredSession({
-      prepared: args.prepared,
-      bootstrap: args.bootstrap,
-    });
-    const walletSessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(record);
-    if (!walletSessionState) {
-      throw new Error('Email OTP Ed25519 Yao recovery returned unusable Wallet Session state');
-    }
+    const walletSessionState = buildColdRecoveredWalletSessionState(args);
     const capability: NearEd25519YaoSigningCapability = { activeClient, walletSessionState };
     const activatedIdentity = await args.activateCapability(capability);
     if (
@@ -411,7 +398,6 @@ export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
     activeClient = null;
     return {
       sessionId: walletSessionState.thresholdSessionId,
-      record,
       publicationContext: buildEmailOtpEd25519YaoPublicationContext(args),
       ...capability,
     };

@@ -180,6 +180,93 @@ export function parseRouterAbEd25519WalletSessionIdentityClaims(
   };
 }
 
+export type BuildRouterAbEd25519SigningWalletSessionInput = {
+  walletId: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  remainingUses: number;
+  expiresAtMs: number;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  signingRootId: string;
+  signingRootVersion: string;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  walletSessionJwt: string;
+  nowMs: number;
+};
+
+export function buildRouterAbEd25519SigningWalletSession(
+  input: BuildRouterAbEd25519SigningWalletSessionInput,
+): RouterAbSigningWalletSessionResult<RouterAbEd25519SigningWalletSession> {
+  const auth = buildWalletSessionJwtAuth(input.walletSessionJwt);
+  if (!auth) return { ok: false, reason: 'missing_wallet_session_jwt' };
+  const walletId = nonEmptyString(input.walletId);
+  const nearAccountId = nonEmptyString(input.nearAccountId);
+  const nearEd25519SigningKeyId = nonEmptyString(input.nearEd25519SigningKeyId);
+  const thresholdSessionId = nonEmptyString(input.thresholdSessionId);
+  const signingGrantId = nonEmptyString(input.signingGrantId);
+  if (!thresholdSessionId) return { ok: false, reason: 'missing_threshold_session_id' };
+  if (!signingGrantId) return { ok: false, reason: 'missing_signing_grant_id' };
+  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(auth.walletSessionJwt);
+  if (
+    !claims ||
+    claims.walletId !== walletId ||
+    claims.nearAccountId !== nearAccountId ||
+    claims.nearEd25519SigningKeyId !== nearEd25519SigningKeyId ||
+    claims.thresholdSessionId !== thresholdSessionId ||
+    claims.signingGrantId !== signingGrantId
+  ) {
+    return { ok: false, reason: 'wallet_binding_mismatch' };
+  }
+  const operationNowMs = normalizeActiveSessionNowMs(input.nowMs);
+  const remainingUses = positiveInteger(input.remainingUses);
+  const expiresAtMs = positiveInteger(input.expiresAtMs);
+  if (
+    operationNowMs == null ||
+    !Number.isSafeInteger(input.remainingUses) ||
+    !Number.isSafeInteger(input.expiresAtMs) ||
+    input.remainingUses < 0 ||
+    input.expiresAtMs <= 0
+  ) {
+    return { ok: false, reason: 'invalid_budget' };
+  }
+  const lifecycle = inactiveSigningSessionState({
+    remainingUses: Math.max(0, Math.floor(input.remainingUses)),
+    expiresAtMs: Math.max(0, Math.floor(input.expiresAtMs)),
+    nowMs: operationNowMs,
+  });
+  if (lifecycle?.kind === 'expired') return { ok: false, reason: 'expired' };
+  if (lifecycle?.kind === 'exhausted') return { ok: false, reason: 'exhausted' };
+  let signingRoot: { signingRootId: string; signingRootVersion?: string };
+  try {
+    signingRoot = signingRootScopeFromRuntimePolicyScope(input.runtimePolicyScope);
+  } catch {
+    return { ok: false, reason: 'missing_signing_root' };
+  }
+  if (
+    signingRoot.signingRootId !== nonEmptyString(input.signingRootId) ||
+    signingRoot.signingRootVersion !== nonEmptyString(input.signingRootVersion)
+  ) {
+    return { ok: false, reason: 'signing_root_mismatch' };
+  }
+  return {
+    ok: true,
+    value: {
+      curve: 'ed25519',
+      auth,
+      thresholdSessionId,
+      signingGrantId,
+      remainingUses,
+      expiresAtMs,
+      runtimePolicyScope: input.runtimePolicyScope,
+      signingRootId: signingRoot.signingRootId,
+      signingRootVersion: nonEmptyString(signingRoot.signingRootVersion),
+      routerAbNormalSigning: input.routerAbNormalSigning,
+    },
+  };
+}
+
 function routerAbEd25519WalletSessionClaimsMatchRecord(args: {
   record: ThresholdEd25519SessionRecord;
   claims: RouterAbEd25519WalletSessionIdentityClaims | null;

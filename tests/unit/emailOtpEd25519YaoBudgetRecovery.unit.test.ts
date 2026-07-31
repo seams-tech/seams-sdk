@@ -162,6 +162,7 @@ function recoveryBootstrap(args: {
   substitutePublicKey: boolean;
   substituteParticipantIds: boolean;
   substituteSignerSetId: boolean;
+  walletSessionJwt?: string;
 }): EmailOtpEd25519YaoRecoveryBootstrapV1 {
   const registeredPublicKey = args.substitutePublicKey
     ? new Array<number>(32).fill(9)
@@ -171,7 +172,8 @@ function recoveryBootstrap(args: {
     kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
     session: {
       sessionKind: 'jwt',
-      walletSessionJwt: walletSessionJwt('recovered', RECOVERED_SIGNING_GRANT_ID),
+      walletSessionJwt:
+        args.walletSessionJwt ?? walletSessionJwt('recovered', RECOVERED_SIGNING_GRANT_ID),
       walletId: WALLET_ID,
       nearAccountId: String(NEAR_ACCOUNT_ID),
       nearEd25519SigningKeyId: String(NEAR_ED25519_SIGNING_KEY_ID),
@@ -601,8 +603,8 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
       THRESHOLD_SESSION_ID,
     );
     if (result.kind === 'recovered') {
-      expect(result.recovery.record.remainingUses).toBe(3);
-      expect(result.recovery.record.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
+      expect(result.recovery.walletSessionState.remainingUses).toBe(3);
+      expect(result.recovery.walletSessionState.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
     }
   });
 
@@ -889,14 +891,57 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     expect(worker.operations).toEqual(['bindEmailOtpEd25519YaoRoot', 'recoverEmailOtpEd25519Yao']);
     expect(activation.activateCalls).toBe(1);
     expect(result.sessionId).toBe(THRESHOLD_SESSION_ID);
-    expect(result.record.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
-    expect(result.record.signingGrantId).toBe(RECOVERED_SIGNING_GRANT_ID);
-    expect(result.record.remainingUses).toBe(3);
-    expect(result.record.signerSlot).toBe(
+    expect(result.walletSessionState.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
+    expect(result.walletSessionState.signingGrantId).toBe(RECOVERED_SIGNING_GRANT_ID);
+    expect(result.walletSessionState.remainingUses).toBe(3);
+    expect(result.walletSessionState.signingLane.identity.signer.signerSlot).toBe(
       result.activeClient.metadata().applicationBinding.key_creation_signer_slot,
     );
-    expect(result.record.source).toBe('email_otp');
+    expect(result.walletSessionState.signingLane.storageSource).toBe('email_otp');
     expect(result.activeClient.metadata().registeredPublicKey).toEqual(REGISTERED_PUBLIC_KEY);
+  });
+
+  test('cold activation rejects a Wallet Session bearer bound to another grant', async () => {
+    const priorMetadata = activeMetadata();
+    const worker = new RecoveryWorkerFixture({
+      prior: priorMetadata,
+      substitutePublicKey: false,
+    });
+    const activation = new RecoveryActivationHarness(null);
+    const prepared = prepareColdEmailOtpEd25519YaoRecoveryV1({
+      identity: publicCapabilityReference(),
+      thresholdSessionId: unwrapDomainId(
+        parseThresholdEd25519SessionId(THRESHOLD_SESSION_ID),
+      ),
+      signerSlot: 1,
+      expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
+      providerSubject: PROVIDER_SUBJECT,
+      emailHashHex: '11'.repeat(32),
+      rpId: 'localhost',
+      relayerUrl: RELAYER_URL,
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+      authPolicy: 'session',
+      remainingUses: 3,
+      resolveActiveCapability: resolveNoActiveCapability,
+    });
+
+    await expect(
+      activateColdEmailOtpEd25519YaoUnlockedRecoveryV1({
+        prepared,
+        bootstrap: recoveryBootstrap({
+          remainingUses: 3,
+          prior: priorMetadata,
+          substitutePublicKey: false,
+          substituteParticipantIds: false,
+          substituteSignerSetId: false,
+          walletSessionJwt: walletSessionJwt('wrong-grant', 'substituted-signing-grant'),
+        }),
+        pendingFactorHandle: pendingFactorHandle(),
+        workerContext: worker.context(),
+        activateCapability: activation.activate.bind(activation),
+      }),
+    ).rejects.toThrow('wallet_binding_mismatch');
+    expect(activation.activateCalls).toBe(0);
   });
 
   test('cold activation disposes its pending factor when the public key is substituted', async () => {

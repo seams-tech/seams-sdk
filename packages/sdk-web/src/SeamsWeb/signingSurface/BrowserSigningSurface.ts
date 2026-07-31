@@ -67,7 +67,6 @@ import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/mater
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import {
   getStoredThresholdEd25519SessionRecordForAccount,
-  type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import {
@@ -186,6 +185,7 @@ import {
   type PreparedColdEmailOtpEd25519YaoRecoveryV1,
 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
 import type { EmailOtpEd25519YaoPublicationInput } from '@/core/signingEngine/session/emailOtp/ed25519YaoPublication';
+import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
 import type {
   EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
@@ -2298,7 +2298,7 @@ export class BrowserSigningSurface {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
-  }): Promise<ThresholdEd25519SessionRecord> {
+  }): Promise<NearEd25519SignerBinding> {
     return await withThresholdEd25519CommitQueue({
       queueByKey: this.thresholdEd25519CommitQueueByKey,
       queueKey: resolveThresholdEd25519CommitQueueKey({
@@ -2314,7 +2314,7 @@ export class BrowserSigningSurface {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
-  }): Promise<ThresholdEd25519SessionRecord> {
+  }): Promise<NearEd25519SignerBinding> {
     const recovered = await activateColdEmailOtpEd25519YaoUnlockedRecoveryV1({
       prepared: args.prepared,
       bootstrap: args.bootstrap,
@@ -2329,7 +2329,7 @@ export class BrowserSigningSurface {
       publicationContext: recovered.publicationContext,
     });
     this.requireCurrentEmailOtpEd25519Activation(args.prepared);
-    return recovered.record;
+    return recovered.walletSessionState.signingLane.identity.signer;
   }
 
   async activateEmailOtpEd25519YaoLocalSessionInternal(args: {
@@ -2337,7 +2337,7 @@ export class BrowserSigningSurface {
     bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
     activeClientHandle: string;
     metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-  }): Promise<ThresholdEd25519SessionRecord> {
+  }): Promise<NearEd25519SignerBinding> {
     return await withThresholdEd25519CommitQueue({
       queueByKey: this.thresholdEd25519CommitQueueByKey,
       queueKey: resolveThresholdEd25519CommitQueueKey({
@@ -2354,7 +2354,7 @@ export class BrowserSigningSurface {
     bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
     activeClientHandle: string;
     metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-  }): Promise<ThresholdEd25519SessionRecord> {
+  }): Promise<NearEd25519SignerBinding> {
     const activated = await activateColdEmailOtpEd25519YaoLocalSessionV1({
       prepared: args.prepared,
       bootstrap: args.bootstrap,
@@ -2370,12 +2370,12 @@ export class BrowserSigningSurface {
       publicationContext: activated.publicationContext,
     });
     this.requireCurrentEmailOtpEd25519Activation(args.prepared);
-    return activated.record;
+    return activated.walletSessionState.signingLane.identity.signer;
   }
 
   async loginWithEmailOtpEd25519YaoCapabilityInternal(
     args: LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
-  ): Promise<ThresholdEd25519SessionRecord> {
+  ): Promise<NearEd25519SignerBinding> {
     const prepared = await this.prepareEmailOtpEd25519YaoLoginRecoveryInternal({
       walletSession: args.walletSession,
       remainingUses: args.remainingUses,
@@ -2401,7 +2401,7 @@ export class BrowserSigningSurface {
   private async runEmailOtpEd25519YaoCapabilityLogin(input: {
     args: LoginWithEmailOtpEd25519YaoCapabilityInternalArgs;
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
-  }): Promise<ThresholdEd25519SessionRecord> {
+  }): Promise<NearEd25519SignerBinding> {
     const recovered = await recoverColdEmailOtpEd25519CapabilityForLoginV1({
       prepared: input.prepared,
       challengeId: input.args.challengeId,
@@ -2418,7 +2418,7 @@ export class BrowserSigningSurface {
       publicationContext: recovered.publicationContext,
     });
     this.requireCurrentEmailOtpEd25519Activation(input.prepared);
-    return recovered.record;
+    return recovered.walletSessionState.signingLane.identity.signer;
   }
 
   private requireCurrentEmailOtpEd25519Activation(
