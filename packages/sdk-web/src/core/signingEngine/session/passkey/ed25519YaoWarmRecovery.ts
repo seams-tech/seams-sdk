@@ -1,7 +1,4 @@
-import type {
-  CurrentEd25519SealedSessionRecord,
-  CurrentEd25519RestoreMetadata,
-} from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import type { CurrentEd25519SealedSessionRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { listExactSealedSessionsForWallet } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
@@ -35,9 +32,18 @@ import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import {
+  walletSessionAuthorizations,
+  type ActiveWalletSessionAuthorizationProjection,
+  type WalletSessionAuthorizationReadResult,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 
 export type PasskeyEd25519RecordRuntimePorts = {
   readonly listExactSealedSessionsForWallet: typeof listExactSealedSessionsForWallet;
+  readonly readActiveWalletSessionAuthorization: (
+    walletId: WalletId,
+  ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
   readonly nowMs: () => number;
 };
 
@@ -209,11 +215,33 @@ function unavailableReasonForWarmMaterialCode(
   }
 }
 
-function passkeyWalletSessionJwt(restore: CurrentEd25519RestoreMetadata): string {
-  if (restore.sessionKind !== 'jwt') {
-    throw new Error('passkey Ed25519 warm recovery requires a JWT Wallet Session');
+export async function requirePasskeyEd25519RestoreAuthorization(args: {
+  readonly record: CurrentEd25519SealedSessionRecord;
+  readonly authorizationRead: WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>;
+  readonly nowMs: number;
+}): Promise<ActiveWalletSessionAuthorizationProjection | null> {
+  if (args.authorizationRead.kind !== 'found') return null;
+  const restore = args.record.ed25519Restore;
+  const authority = await walletAuthAuthorityRef({
+    authority: buildPasskeyWalletAuthAuthority({
+      walletId: args.record.walletId,
+      rpId: restore.rpId,
+      credentialIdB64u: requireString(
+        restore.credentialIdB64u,
+        'ed25519Restore.credentialIdB64u',
+      ),
+    }),
+  });
+  const authorization = args.authorizationRead.projection;
+  if (
+    authorization.authMethod !== 'passkey' ||
+    String(authorization.walletId) !== args.record.walletId ||
+    authorization.authority.authorityDigest !== authority.authorityDigest ||
+    authorization.expiresAtMs <= args.nowMs
+  ) {
+    return null;
   }
-  return requireString(restore.walletSessionJwt, 'ed25519Restore.walletSessionJwt');
+  return authorization;
 }
 
 function warmRecoveryBootstrapRequest(
@@ -237,6 +265,7 @@ function warmRecoveryBootstrapRequest(
 
 async function fetchWarmRecoveryBootstrap(args: {
   readonly record: CurrentEd25519SealedSessionRecord;
+  readonly authorization: ActiveWalletSessionAuthorizationProjection;
   readonly relayerUrl: string;
   readonly fetch: typeof fetch;
 }): Promise<WarmRecoveryBootstrapResult> {
@@ -245,7 +274,7 @@ async function fetchWarmRecoveryBootstrap(args: {
     {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${passkeyWalletSessionJwt(args.record.ed25519Restore)}`,
+        Authorization: `Bearer ${args.authorization.walletSessionJwt}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(warmRecoveryBootstrapRequest(args.record)),
@@ -289,6 +318,7 @@ function sameRuntimePolicyScope(
 
 async function parseWarmRecoveryDescriptor(args: {
   readonly record: CurrentEd25519SealedSessionRecord;
+  readonly authorization: ActiveWalletSessionAuthorizationProjection;
   readonly response: Record<string, unknown>;
 }): Promise<ParsedPasskeyEd25519YaoRecoveryDescriptorV1> {
   const record = args.record;
@@ -352,6 +382,9 @@ async function parseWarmRecoveryDescriptor(args: {
     authorityScope.kind !== 'passkey_rp' ||
     !walletSessionId.ok ||
     !quotaId.ok ||
+    String(walletSessionId.value) !== String(args.authorization.walletSessionId) ||
+    String(quotaId.value) !== String(args.authorization.quotaId) ||
+    authorityRef.authorityDigest !== args.authorization.authority.authorityDigest ||
     authorityScope.rpId !== restore.rpId ||
     !routerAbNormalSigning ||
     walletId !== record.walletId ||
@@ -383,7 +416,7 @@ async function parseWarmRecoveryDescriptor(args: {
     relayerKeyId: signingWorkerId,
     credentialIdB64u,
     session: {
-      walletSessionJwt: passkeyWalletSessionJwt(restore),
+      walletSessionJwt: args.authorization.walletSessionJwt,
       thresholdSessionId,
       signingGrantId,
       walletSessionId: walletSessionId.value,
@@ -405,6 +438,8 @@ export async function resolvePasskeyEd25519YaoExportContextV1(input: {
 }): Promise<PasskeyEd25519YaoExportContextResolutionV1> {
   return await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(input, {
     listExactSealedSessionsForWallet,
+    readActiveWalletSessionAuthorization:
+      walletSessionAuthorizations.readActiveForWallet.bind(walletSessionAuthorizations),
     nowMs: Date.now,
   });
 }
@@ -424,8 +459,25 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
       reason: exactRecord.reason,
     };
   }
+  const walletId = parseWalletId(exactRecord.record.walletId);
+  if (!walletId.ok) {
+    throw new Error('[SigningEngine][near] sealed Ed25519 wallet identity is invalid');
+  }
+  const authorizationRead = await runtime.readActiveWalletSessionAuthorization(walletId.value);
+  const authorization = await requirePasskeyEd25519RestoreAuthorization({
+    record: exactRecord.record,
+    authorizationRead,
+    nowMs: runtime.nowMs(),
+  });
+  if (!authorization) {
+    return {
+      kind: 'capability_recovery_required',
+      reason: 'wallet_session_expired',
+    };
+  }
   const bootstrap = await fetchWarmRecoveryBootstrap({
     record: exactRecord.record,
+    authorization,
     relayerUrl: input.relayerUrl,
     fetch: input.fetch,
   });
@@ -437,6 +489,7 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
   }
   const descriptor = await parseWarmRecoveryDescriptor({
     record: exactRecord.record,
+    authorization,
     response: bootstrap.response,
   });
   assertEd25519YaoRecoveryDescriptorContinuity(descriptor);
