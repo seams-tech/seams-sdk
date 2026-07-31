@@ -7,7 +7,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { EmailOtpEd25519YaoActiveCapabilityDescriptorV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import type { ResolvedEmailOtpEd25519YaoExportV1 } from './ed25519YaoSealedRecovery';
 import { throwEmailOtpSigningSessionAuthStateError } from './routePlan';
 import {
   walletAuthAuthorityRef,
@@ -222,22 +222,11 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
     | 'getSignerWorkerContext'
     | 'requireRelayUrl'
     | 'requireSigningSessionSealGroupId'
-    | 'buildSigningSessionRoutePlan'
   >,
   args: {
-    walletSession: WalletSessionRef;
     challengeId: string;
     otpCode: string;
-    providerSubjectId: string;
-    walletSessionJwt: string;
-    nearAccountId: string;
-    nearEd25519SigningKeyId: string;
-    signerSlot: number;
-    thresholdSessionId: string;
-    signingGrantId: string;
-    authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
-    runtimePolicyScope: ThresholdRuntimePolicyScope;
-    capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
+    exportContext: ResolvedEmailOtpEd25519YaoExportV1;
   },
 ): Promise<{ artifactKind: 'near-ed25519-seed-v1'; publicKey: string; privateKey: string }> {
   const workerCtx = ports.getSignerWorkerContext();
@@ -245,10 +234,6 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
     throw new Error('Email OTP Ed25519 Yao export requires the dedicated emailOtp worker');
   }
   const relayUrl = ports.requireRelayUrl();
-  const routePlan = ports.buildSigningSessionRoutePlan({
-    authLane: args.authLane,
-    operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
-  });
   return await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
@@ -256,20 +241,24 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
       timeoutMs: 60_000,
       payload: {
         relayUrl,
-        walletId: args.walletSession.walletId,
-        userId: args.providerSubjectId,
         challengeId: args.challengeId,
         otpCode: args.otpCode,
         groupId: ports.requireSigningSessionSealGroupId(),
-        routePlan,
-        walletSessionJwt: args.walletSessionJwt,
-        nearAccountId: args.nearAccountId,
-        nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
-        signerSlot: args.signerSlot,
-        thresholdSessionId: args.thresholdSessionId,
-        signingGrantId: args.signingGrantId,
-        runtimePolicyScope: args.runtimePolicyScope,
-        capability: args.capability,
+        lane: {
+          walletId: String(args.exportContext.lane.signer.account.wallet.walletId),
+          providerSubjectId: args.exportContext.lane.auth.providerSubjectId,
+          nearAccountId: String(args.exportContext.lane.signer.account.nearAccountId),
+          nearEd25519SigningKeyId: String(
+            args.exportContext.lane.signer.nearEd25519SigningKeyId,
+          ),
+          signerSlot: args.exportContext.lane.signer.signerSlot,
+          thresholdSessionId: String(args.exportContext.lane.thresholdSessionId),
+          signingGrantId: String(args.exportContext.lane.signingGrantId),
+        },
+        authorization: {
+          walletSessionJwt: args.exportContext.authorization.walletSessionJwt,
+        },
+        material: args.exportContext.material,
       },
     },
   });

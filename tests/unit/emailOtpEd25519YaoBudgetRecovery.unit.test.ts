@@ -36,7 +36,6 @@ import {
   walletAuthAuthorityRef,
 } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
-  parseSigningGrantId,
   parseThresholdEd25519SessionId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import {
@@ -47,6 +46,13 @@ import {
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import { buildActiveWalletSessionAuthorizationProjection } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { resolveThresholdEd25519CommitQueueKey } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/commitQueue';
+import { exactEd25519SigningLaneIdentity } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import {
+  buildImplicitNearAccountBinding,
+  buildNearEd25519SignerBinding,
+  buildWalletIdentity,
+} from '../../packages/shared-ts/src/utils/walletCapabilityBindings';
+import { parseImplicitNearAccountId } from '../../packages/shared-ts/src/utils/near';
 
 const WALLET_ID = walletIdFromString('email-otp-ed25519-budget.testnet');
 const NEAR_ACCOUNT_ID = toAccountId('ab'.repeat(32));
@@ -77,6 +83,24 @@ const ROUTER_AB_NORMAL_SIGNING = {
 } as const;
 const REGISTERED_PUBLIC_KEY = new Uint8Array(32).fill(7);
 const PRIOR_CAPABILITY_BINDING = new Array<number>(32).fill(1);
+
+function exportLaneIdentity() {
+  const account = parseImplicitNearAccountId(NEAR_ACCOUNT_ID);
+  if (!account.ok) throw new Error(account.message);
+  return exactEd25519SigningLaneIdentity({
+    signer: buildNearEd25519SignerBinding({
+      account: buildImplicitNearAccountBinding({
+        wallet: buildWalletIdentity({ walletId: WALLET_ID }),
+        nearAccountId: account.value,
+      }),
+      nearEd25519SigningKeyId: NEAR_ED25519_SIGNING_KEY_ID,
+      signerSlot: 1,
+    }),
+    auth: { kind: 'email_otp', providerSubjectId: PROVIDER_SUBJECT },
+    signingGrantId: SIGNING_GRANT_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
+  });
+}
 
 function unwrapDomainId<T>(
   result: { ok: true; value: T } | { ok: false; error: { message: string } },
@@ -771,15 +795,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     let bootstrapRequests = 0;
 
     const context = await resolveEmailOtpEd25519YaoExportContextV1({
-      subject: {
-        walletId: WALLET_ID,
-        nearAccountId: NEAR_ACCOUNT_ID,
-        nearEd25519SigningKeyId: NEAR_ED25519_SIGNING_KEY_ID,
-        signerSlot: 1,
-        thresholdSessionId: unwrapDomainId(parseThresholdEd25519SessionId(THRESHOLD_SESSION_ID)),
-        signingGrantId: unwrapDomainId(parseSigningGrantId(SIGNING_GRANT_ID)),
-        providerSubjectId: PROVIDER_SUBJECT,
-      },
+      subject: exportLaneIdentity(),
       relayerUrl: RELAYER_URL,
       ports: {
         readExactSealedSession: async () => sealedRecord,
@@ -802,18 +818,20 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     expect(bootstrapRequests).toBe(1);
     expect(context).toMatchObject({
       kind: 'email_otp_ed25519_yao_export_context_v1',
-      authLane: {
-        kind: 'signing_session',
-        curve: 'ed25519',
+      lane: {
         thresholdSessionId: THRESHOLD_SESSION_ID,
-        authorizingSigningGrantId: SIGNING_GRANT_ID,
+        signingGrantId: SIGNING_GRANT_ID,
       },
-      walletSessionJwt: sealedRecord.ed25519Restore.walletSessionJwt,
-      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-      capability: {
+      authorization: {
+        walletSessionJwt: sealedRecord.ed25519Restore.walletSessionJwt,
+      },
+      material: {
+        materialActivation: publicCapabilityReference().materialActivation,
+        capability: {
         lifecycle: {
           lifecycleId: prior.scope.lifecycle_id,
           thresholdSessionId: THRESHOLD_SESSION_ID,
+        },
         },
       },
     });

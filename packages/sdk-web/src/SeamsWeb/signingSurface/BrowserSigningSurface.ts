@@ -204,8 +204,7 @@ import {
   recoverEmailOtpEd25519YaoFromSealedSessionV1,
   resolveEmailOtpEd25519YaoHydrationPlanForSigningV1,
   resolveEmailOtpEd25519YaoExportContextV1,
-  type EmailOtpEd25519YaoExportContextV1,
-  type EmailOtpEd25519YaoExportSubjectV1,
+  type ResolvedEmailOtpEd25519YaoExportV1,
   type EmailOtpEd25519YaoSilentRecoveryResultV1,
 } from '@/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery';
 import { rehydrateEmailOtpEd25519YaoOperationMaterialV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient';
@@ -1756,8 +1755,8 @@ export class BrowserSigningSurface {
   }
 
   private async resolveEmailOtpEd25519YaoExportContext(
-    subject: EmailOtpEd25519YaoExportSubjectV1,
-  ): Promise<EmailOtpEd25519YaoExportContextV1> {
+    subject: Parameters<typeof resolveEmailOtpEd25519YaoExportContextV1>[0]['subject'],
+  ): Promise<ResolvedEmailOtpEd25519YaoExportV1> {
     const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
     if (!relayerUrl) {
       throw new Error('[SigningEngine][ed25519-export] Email OTP export requires relayerUrl');

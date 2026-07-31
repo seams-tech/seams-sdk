@@ -57,10 +57,6 @@ import {
   type SigningGrantId,
   type ThresholdEd25519SessionId,
 } from '../operationState/types';
-import {
-  resolveEmailOtpAuthLane,
-  type EmailOtpSigningSessionAuthLane,
-} from '../../stepUpConfirmation/otpPrompt/authLane';
 import type {
   ActiveWalletSessionAuthorizationProjection,
   WalletSessionAuthorizationReadResult,
@@ -76,6 +72,8 @@ import {
 } from '../material/mpcCapabilityHydration';
 import { buildRestorableMpcMaterialRefInternal } from '../material/restorableMpcMaterialRef.internal';
 import { resolveThresholdEd25519CommitQueueKey } from '../../threshold/ed25519/commitQueue';
+import type { ExactEd25519SigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 
 export type EmailOtpEd25519YaoSilentRecoveryUnavailableReason =
   | 'sealed_session_missing'
@@ -108,32 +106,16 @@ export type EmailOtpEd25519YaoPublicLocatorObservationV1 =
     >
   | Exclude<NearEd25519YaoPublicLocatorObservationV1, { kind: 'available' }>;
 
-export type EmailOtpEd25519YaoExportSubjectV1 = {
-  walletId: WalletId;
-  nearAccountId: AccountId;
-  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-  signerSlot: number;
-  thresholdSessionId: ThresholdEd25519SessionId;
-  signingGrantId: SigningGrantId;
-  providerSubjectId: string;
-};
-
-export type EmailOtpEd25519YaoExportContextV1 = {
+export type ResolvedEmailOtpEd25519YaoExportV1 = {
   kind: 'email_otp_ed25519_yao_export_context_v1';
-  authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
-  walletSessionJwt: string;
-  runtimePolicyScope: EmailOtpEd25519YaoRecoveryBootstrapV1['session']['runtimePolicyScope'];
-  capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
-};
-
-export type EmailOtpEd25519YaoExportContextPorts = {
-  readExactSealedSession: typeof readExactSealedSession;
-  readActiveWalletSessionAuthorization: (
-    walletId: WalletId,
-  ) => Promise<
-    WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>
+  lane: ExactEd25519SigningLaneIdentity<
+    Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>
   >;
-  fetch: typeof fetch;
+  authorization: ActiveWalletSessionAuthorizationProjection;
+  material: {
+    materialActivation: MpcMaterialActivationRef;
+    capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
+  };
 };
 
 export type EmailOtpEd25519YaoSilentRecoveryPorts = {
@@ -371,20 +353,22 @@ export async function resolveEmailOtpEd25519YaoHydrationPlanForSigningV1(input: 
 
 function sealedRecordMatchesExportSubject(
   record: CurrentEd25519SealedSessionRecord,
-  subject: EmailOtpEd25519YaoExportSubjectV1,
+  subject: ExactEd25519SigningLaneIdentity<
+    Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>
+  >,
 ): boolean {
   const restore = record.ed25519Restore;
   return (
     sealedRecordMatchesSubject(record, {
-      walletId: subject.walletId,
-      nearAccountId: subject.nearAccountId,
-      signerSlot: subject.signerSlot,
+      walletId: subject.signer.account.wallet.walletId,
+      nearAccountId: subject.signer.account.nearAccountId,
+      signerSlot: subject.signer.signerSlot,
       thresholdSessionId: String(subject.thresholdSessionId),
     }) &&
-    restore.nearEd25519SigningKeyId === String(subject.nearEd25519SigningKeyId) &&
+    restore.nearEd25519SigningKeyId === String(subject.signer.nearEd25519SigningKeyId) &&
     record.signingGrantId === String(subject.signingGrantId) &&
     'providerSubjectId' in restore &&
-    restore.providerSubjectId === subject.providerSubjectId
+    restore.providerSubjectId === subject.auth.providerSubjectId
   );
 }
 
@@ -845,10 +829,20 @@ export async function recoverEmailOtpEd25519YaoFromSealedSessionV1(
 }
 
 export async function resolveEmailOtpEd25519YaoExportContextV1(input: {
-  subject: EmailOtpEd25519YaoExportSubjectV1;
+  subject: ExactEd25519SigningLaneIdentity<
+    Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>
+  >;
   relayerUrl: string;
-  ports: EmailOtpEd25519YaoExportContextPorts;
-}): Promise<EmailOtpEd25519YaoExportContextV1> {
+  ports: {
+    readExactSealedSession: typeof readExactSealedSession;
+    readActiveWalletSessionAuthorization: (
+      walletId: WalletId,
+    ) => Promise<
+      WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>
+    >;
+    fetch: typeof fetch;
+  };
+}): Promise<ResolvedEmailOtpEd25519YaoExportV1> {
   const record = await input.ports.readExactSealedSession(
     String(input.subject.thresholdSessionId),
     {
@@ -866,7 +860,7 @@ export async function resolveEmailOtpEd25519YaoExportContextV1(input: {
     );
   }
   const authorization = await activeEmailOtpWalletSessionAuthorization({
-    walletId: input.subject.walletId,
+    walletId: input.subject.signer.account.wallet.walletId,
     nowMs: Date.now(),
     read: input.ports.readActiveWalletSessionAuthorization,
   });
@@ -892,30 +886,19 @@ export async function resolveEmailOtpEd25519YaoExportContextV1(input: {
     response: bootstrapResponse.response,
     expiresAtMs: record.expiresAtMs,
   });
-  if (bootstrap.session.authorityScope.providerUserId !== input.subject.providerSubjectId) {
+  if (bootstrap.session.authorityScope.providerUserId !== input.subject.auth.providerSubjectId) {
     throw new Error(
       '[SigningEngine][ed25519-export] durable Email OTP authority changed before export',
     );
   }
-  const authLane = resolveEmailOtpAuthLane({
-    routeAuth: {
-      kind: 'wallet_session',
-      jwt: bootstrap.session.walletSessionJwt,
-    },
-    thresholdSessionId: String(input.subject.thresholdSessionId),
-    authorizingSigningGrantId: String(input.subject.signingGrantId),
-    curve: 'ed25519',
-  });
-  if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
-    throw new Error(
-      '[SigningEngine][ed25519-export] durable Email OTP signing-session authority is invalid',
-    );
-  }
+  const material = emailOtpRestoreMetadata(record);
   return {
     kind: 'email_otp_ed25519_yao_export_context_v1',
-    authLane,
-    walletSessionJwt: bootstrap.session.walletSessionJwt,
-    runtimePolicyScope: bootstrap.session.runtimePolicyScope,
-    capability: bootstrap.capability,
+    lane: input.subject,
+    authorization,
+    material: {
+      materialActivation: material.materialActivation,
+      capability: bootstrap.capability,
+    },
   };
 }

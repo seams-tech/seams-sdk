@@ -30,10 +30,12 @@ import {
   showEd25519ExportViewer,
 } from './keyExportConfirmation';
 import type {
-  EmailOtpEd25519YaoExportContextV1,
-  EmailOtpEd25519YaoExportSubjectV1,
+  ResolvedEmailOtpEd25519YaoExportV1,
 } from '../../session/emailOtp/ed25519YaoSealedRecovery';
-import type { EmailOtpEd25519YaoActiveCapabilityDescriptorV1 } from '../../workerManager/workerTypes';
+import {
+  resolveEmailOtpAuthLane,
+  type EmailOtpSigningSessionAuthLane,
+} from '../../stepUpConfirmation/otpPrompt/authLane';
 import type {
   PasskeyEd25519YaoExportContextResolutionV1,
   PasskeyEd25519YaoExportContextV1,
@@ -63,22 +65,12 @@ export type Ed25519YaoExportFlowDeps = {
   emailOtp: {
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     resolveExportContext: (
-      subject: EmailOtpEd25519YaoExportSubjectV1,
-    ) => Promise<EmailOtpEd25519YaoExportContextV1>;
+      laneIdentity: ExactEd25519SigningLaneIdentity<EmailOtpEd25519LaneAuth>,
+    ) => Promise<ResolvedEmailOtpEd25519YaoExportV1>;
     exportSeedWithFreshAuthorization: (args: {
-      walletSession: ReturnType<typeof walletSessionRefFromSession>;
       challengeId: string;
       otpCode: string;
-      providerSubjectId: string;
-      walletSessionJwt: string;
-      nearAccountId: string;
-      nearEd25519SigningKeyId: string;
-      signerSlot: number;
-      thresholdSessionId: string;
-      signingGrantId: string;
-      authLane: Extract<EmailOtpEd25519YaoExportContextV1['authLane'], { curve: 'ed25519' }>;
-      runtimePolicyScope: NearEd25519YaoSigningCapability['walletSessionState']['runtimePolicyScope'];
-      capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
+      exportContext: ResolvedEmailOtpEd25519YaoExportV1;
     }) => Promise<{
       artifactKind: 'near-ed25519-seed-v1';
       publicKey: string;
@@ -108,6 +100,24 @@ function safeStateEpoch(value: bigint): number {
   return epoch;
 }
 
+function emailOtpExportAuthLane(
+  context: ResolvedEmailOtpEd25519YaoExportV1,
+): Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }> {
+  const authLane = resolveEmailOtpAuthLane({
+    routeAuth: {
+      kind: 'wallet_session',
+      jwt: context.authorization.walletSessionJwt,
+    },
+    thresholdSessionId: String(context.lane.thresholdSessionId),
+    authorizingSigningGrantId: String(context.lane.signingGrantId),
+    curve: 'ed25519',
+  });
+  if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
+    throw new Error('[SigningEngine][ed25519-export] canonical Email OTP auth lane is invalid');
+  }
+  return authLane;
+}
+
 type ResolvedPasskeyEd25519YaoExportContext = {
   laneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
   relayerUrl: string;
@@ -129,16 +139,9 @@ function passkeyEd25519ExportMaterialActivation(
 }
 
 function emailOtpEd25519ExportMaterialActivation(
-  context: EmailOtpEd25519YaoExportContextV1,
+  context: ResolvedEmailOtpEd25519YaoExportV1,
 ) {
-  return nearEd25519YaoMaterialActivationFromPublicFacts({
-    activationId: context.capability.lifecycle.thresholdSessionId,
-    activeCapabilityBinding: context.capability.activeCapabilityBinding,
-    walletId: context.capability.applicationBinding.wallet_id,
-    registeredPublicKey: context.capability.registeredPublicKey,
-    lifecycleId: context.capability.lifecycle.lifecycleId,
-    signingWorkerId: context.capability.lifecycle.signingWorkerId,
-  });
+  return context.material.materialActivation;
 }
 
 type PasskeyEd25519LaneAuth = Extract<
@@ -363,19 +366,11 @@ async function resolveExactEmailOtpExportContext(
   deps: Ed25519YaoExportFlowDeps,
   args: ExportEd25519YaoKeyArgs,
 ): Promise<{
-  context: EmailOtpEd25519YaoExportContextV1;
+  context: ResolvedEmailOtpEd25519YaoExportV1;
   laneIdentity: ExactEd25519SigningLaneIdentity<EmailOtpEd25519LaneAuth>;
 }> {
   const laneIdentity = requireEmailOtpExportLaneIdentity(args);
-  const context = await deps.emailOtp.resolveExportContext({
-    walletId: laneIdentity.signer.account.wallet.walletId,
-    nearAccountId: laneIdentity.signer.account.nearAccountId,
-    nearEd25519SigningKeyId: laneIdentity.signer.nearEd25519SigningKeyId,
-    signerSlot: laneIdentity.signer.signerSlot,
-    thresholdSessionId: laneIdentity.thresholdSessionId,
-    signingGrantId: laneIdentity.signingGrantId,
-    providerSubjectId: laneIdentity.auth.providerSubjectId,
-  });
+  const context = await deps.emailOtp.resolveExportContext(laneIdentity);
   return { context, laneIdentity };
 }
 
@@ -534,7 +529,7 @@ async function exportEd25519YaoKeyWithFreshEmailOtp(
 ): Promise<{ accountId: string; exportedSchemes: Array<'ed25519'> }> {
   const resolved = await resolveExactEmailOtpExportContext(deps, args);
   const publicKey = `ed25519:${base58Encode(
-    Uint8Array.from(resolved.context.capability.registeredPublicKey),
+    Uint8Array.from(resolved.context.material.capability.registeredPublicKey),
   )}`;
   const authorization = await requestEmailOtpEd25519KeyExportAuthorization(
     {
@@ -552,7 +547,7 @@ async function exportEd25519YaoKeyWithFreshEmailOtp(
       signerSlot: resolved.laneIdentity.signer.signerSlot,
       thresholdSessionId: String(resolved.laneIdentity.thresholdSessionId),
       signingGrantId: String(resolved.laneIdentity.signingGrantId),
-      authLane: resolved.context.authLane,
+      authLane: emailOtpExportAuthLane(resolved.context),
       publicKey,
       curve: 'ed25519',
       chain: 'near',
@@ -574,24 +569,11 @@ async function exportEd25519YaoKeyWithFreshEmailOtp(
     }),
     nearAccountId: args.nearAccountId,
     enabled: true,
-    task: () =>
-      deps.emailOtp.exportSeedWithFreshAuthorization({
-        walletSession: walletSessionRefFromSession({
-          walletId: args.walletId,
-          walletSessionUserId: args.walletId,
-        }),
+      task: () =>
+        deps.emailOtp.exportSeedWithFreshAuthorization({
         challengeId: authorization.challengeId,
         otpCode: authorization.otpCode,
-        providerSubjectId: resolved.laneIdentity.auth.providerSubjectId,
-        walletSessionJwt: resolved.context.walletSessionJwt,
-        nearAccountId: String(args.nearAccountId),
-        nearEd25519SigningKeyId: String(resolved.laneIdentity.signer.nearEd25519SigningKeyId),
-        signerSlot: resolved.laneIdentity.signer.signerSlot,
-        thresholdSessionId: String(resolved.laneIdentity.thresholdSessionId),
-        signingGrantId: String(resolved.laneIdentity.signingGrantId),
-        authLane: resolved.context.authLane,
-        runtimePolicyScope: resolved.context.runtimePolicyScope,
-        capability: resolved.context.capability,
+        exportContext: resolved.context,
       }),
   });
   emitKeyExportEvent(args.onEvent, {
