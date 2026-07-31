@@ -340,11 +340,15 @@ function testConfigs(): SeamsConfigsReadonly {
 class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   readonly credential = passkeyCredential();
   readonly activatedCapabilities: NearEd25519YaoSigningCapability[] = [];
+  readonly activationQueueStates: boolean[] = [];
   readonly authenticatedWalletIds: string[] = [];
   readonly clearWalletIds: string[] = [];
   readonly hydratedSessionIds: string[] = [];
   readonly lastUserWalletIds: string[] = [];
   readonly sealedSessionIds: string[] = [];
+  readonly sealedQueueStates: boolean[] = [];
+  readonly queuedActivationIds: string[] = [];
+  private insideMaterialOwnerQueue = false;
   failAuthenticatedWalletActivation = false;
   storedUser: ClientUserData | null = null;
 
@@ -408,12 +412,28 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
     nearAccountId: ReturnType<typeof toAccountId>;
     thresholdSessionId: string;
   }> {
+    this.activationQueueStates.push(this.insideMaterialOwnerQueue);
     this.activatedCapabilities.push(capability);
     return {
       walletId: toWalletId(DISCOVERED_WALLET_ID),
       nearAccountId: toAccountId(NEAR_ACCOUNT_ID),
       thresholdSessionId: capability.walletSessionState.thresholdSessionId,
     };
+  }
+
+  async withExactEd25519MaterialOwner<T>(
+    args: Parameters<AccountSyncSigningSurface['withExactEd25519MaterialOwner']>[0],
+  ): Promise<T> {
+    this.queuedActivationIds.push(String(args.materialActivation.activationId));
+    if (this.insideMaterialOwnerQueue) {
+      throw new Error('syncAccount fixture entered the material owner recursively');
+    }
+    this.insideMaterialOwnerQueue = true;
+    try {
+      return await args.task();
+    } finally {
+      this.insideMaterialOwnerQueue = false;
+    }
   }
 
   async clearVolatileWarmSigningMaterial(
@@ -433,6 +453,7 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   async persistSigningSessionSealForThresholdSession(
     input: Parameters<AccountSyncSigningSurface['persistSigningSessionSealForThresholdSession']>[0],
   ): ReturnType<AccountSyncSigningSurface['persistSigningSessionSealForThresholdSession']> {
+    this.sealedQueueStates.push(this.insideMaterialOwnerQueue);
     this.sealedSessionIds.push(input.sessionId);
     return {
       ok: true,
@@ -535,8 +556,11 @@ test.describe('public syncAccount Yao orchestration', () => {
       webauthn_authentication: { clientExtensionResults: null },
     });
     expect(surface.activatedCapabilities).toHaveLength(1);
+    expect(surface.queuedActivationIds).toEqual([THRESHOLD_SESSION_ID]);
+    expect(surface.activationQueueStates).toEqual([true]);
     expect(surface.hydratedSessionIds).toEqual([THRESHOLD_SESSION_ID]);
     expect(surface.sealedSessionIds).toEqual([THRESHOLD_SESSION_ID]);
+    expect(surface.sealedQueueStates).toEqual([true]);
     expect(surface.authenticatedWalletIds).toEqual([DISCOVERED_WALLET_ID, DISCOVERED_WALLET_ID]);
     expect(surface.lastUserWalletIds).toEqual([DISCOVERED_WALLET_ID]);
     expect(surface.clearWalletIds).toEqual([]);

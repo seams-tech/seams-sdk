@@ -38,6 +38,7 @@ import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoA
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { ProductEd25519YaoCapabilityActivationPortV1 } from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
 import type { AccountId } from '@/core/types/accountIds';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
   ClientAuthenticatorData,
   ClientUserData,
@@ -305,6 +306,14 @@ export interface EcdsaRegistrationSurface {
 
 export type Ed25519YaoRegistrationActivationSurface = ProductEd25519YaoCapabilityActivationPortV1;
 
+export interface Ed25519MaterialOwnerQueueSurface {
+  withExactEd25519MaterialOwner<T>(args: {
+    materialActivation: MpcMaterialActivationRef;
+    nearAccountId: AccountId;
+    task: () => Promise<T>;
+  }): Promise<T>;
+}
+
 export interface SigningSessionSurface {
   hydrateSigningSession(input: HydrateWarmSigningSessionInput): Promise<void>;
   persistSigningSessionSealForThresholdSession(input: {
@@ -340,6 +349,7 @@ export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   UserAccountLookupSurface &
   LoginWarmSigningSurface &
   Ed25519YaoRegistrationActivationSurface &
+  Ed25519MaterialOwnerQueueSurface &
   EcdsaLoginSessionSurface &
   Pick<
     SigningSessionSurface,
@@ -370,6 +380,7 @@ export type LocalLoginStateSurface = WalletSessionReadSurface &
 
 export type AccountSyncSigningSurface = LocalLoginStateSurface &
   Ed25519YaoRegistrationActivationSurface &
+  Ed25519MaterialOwnerQueueSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
   Pick<
     SigningSessionSurface,

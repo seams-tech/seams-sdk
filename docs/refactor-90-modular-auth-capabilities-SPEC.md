@@ -347,8 +347,15 @@ implementing commit SHA as the evidence.
     signing and export, re-resolves before worker rehydration, persists before
     releasing the owner, and verifies durable activation afterward
     (`b78210618`).
-  - [ ] Passkey recovery and the remaining Ed25519 refresh consuming paths
-    still require the equivalent exact-owner fence.
+  - [x] Email OTP Ed25519 direct login and unlock activation persist under that
+    exact-owner queue and reject replacement during commit (`fbf4be6a4`).
+  - [x] Passkey login hydration and sync/unlock recovery use one shared exact
+    material-owner runner. Login rereads the locator before hydration; sync
+    keeps recovery, durable promotion, sealed refresh persistence, and registry
+    activation in one queued commit (`26c3cedf2`, `5f3d52bab`).
+  - [ ] The Passkey sync/unlock queue-state operating test still requires an
+    IndexedDB-capable unit or intended environment; the current Node worker
+    fails before recovery with `indexedDB is not defined`.
 - [x] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
   applicable quota once; existing claims consume neither again. Reusable Near
   claims, operation-step-up Near claims, and one-use ECDSA export claims commit
