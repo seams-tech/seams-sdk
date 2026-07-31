@@ -341,8 +341,7 @@ removes.
       using the current worker-open request fixture.
 - [x] Keep warm ECDSA Email OTP context explicit at the read-model boundary:
       require a nullable context value, preserve `never` exclusion branches,
-      and repair the identity guard's protocol-owned allowlist (current
-      checkpoint).
+      and repair the identity guard's protocol-owned allowlist (`e9ed27172`).
 
 ### 1D. Slim material references
 
