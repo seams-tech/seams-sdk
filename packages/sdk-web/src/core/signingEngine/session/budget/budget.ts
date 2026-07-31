@@ -1013,12 +1013,6 @@ export function walletBudgetOwnerKey(owner: WalletBudgetOwner): string {
   return `${owner.curve}:${walletBudgetOwnerId(owner)}`;
 }
 
-export function ownerForBudgetStatusCheck(
-  args: SigningSessionBudgetStatusCheck,
-): WalletBudgetOwner {
-  return args.owner;
-}
-
 export function thresholdSessionIdsForBudgetStatusCheck(
   args: SigningSessionBudgetStatusCheck,
 ): string[] {
