@@ -1111,6 +1111,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete `active_state_session_id` from production types and wire shapes.
 - [ ] Delete remaining generic wire session aliases and
       authorization/material-scope aliases owned by this cutover.
+  - [x] Delete the generic threshold-session claim aliases and the one-use
+        signing coordinator, PRF writer, and Passkey MPC manager aliases;
+        consumers now name their canonical protocol or port types directly
+        (`544f3934c`).
   - [x] Rename the active SigningWorker wire field from `session_id` to
         `material_activation_id` across the Router A/B Rust schema, Cloudflare
         lookup/storage keys, shared TypeScript parser, dev adapter, fixtures,
