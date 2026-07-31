@@ -643,6 +643,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Serialize export by exact material owner after user interaction; re-resolve
       the canonical manifest and sealed runtime after the queue wait and reject
       a superseded activation before provisioning or worker export.
+  - [x] Route NEAR Ed25519-Yao transaction, delegate, NEP-413, Passkey export,
+        and Email OTP export through the same exact-material activation queue
+        instead of keying signing by threshold session identity
+        (`10c8a61da`).
 - [x] Add canonical activation re-resolution immediately before recovery and
       refresh worker use and commit. Keep their existing secure-owner lease and
       worker singleflight; add no duplicate client queue.
@@ -742,6 +746,11 @@ the replacement and legacy MPC paths must not ship together.
       consume the exact OTP challenge, persist factor evidence, and issue a
       one-use operation grant without minting a reusable Wallet Session or
       consuming its quota (`007416714`).
+- [x] Complete NEAR Email OTP operation step-up for transaction, delegate, and
+      NEP-413 signing. Prepare the exact operation before confirmation, hydrate
+      canonical material independently, consume one operation grant, and keep
+      reusable Wallet Session creation and quota use out of the step-up branch
+      (`069db2326`).
 
 ### Worker, WASM, and bundle boundary
 
@@ -933,6 +942,10 @@ the replacement and legacy MPC paths must not ship together.
       duplicate two-slot committed-lane selector.
 - [x] Delete the dead in-place ECDSA lane-identity updater, its record-era unit
       test, and the source-range guard whose remaining subject it owned.
+- [x] Delete the dead record-backed Email OTP Ed25519 routine-signing lane and
+      its active-material recovery path. Retain cold login/unlock recovery,
+      sealed refresh, and export recovery; the focused retained recovery suite
+      passes 12/12 (`069db2326`).
 - [ ] Delete obsolete tests, handwritten records, mocks, guards, and fixtures
       that encode pre-cutover behavior.
   - [x] Delete the route-wrapper-only test and the stale public route-catalog
@@ -1000,6 +1013,8 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
       exhaustively.
 - [x] Discard and re-resolve stale state on `superseded` across the direct SDK,
       React, iframe, and demo-wallet projections without locking the wallet.
+      A bounded React reread that is still `superseded` preserves the current
+      login until the next typed lifecycle event (`c258b94fb`).
 - [x] Terminate confirmation immediately on the typed expiry result.
 - [x] Wait for secure-origin initialization and consume typed state/events.
 - [x] Stop inferring unlocked state from optional IDs, JWT presence, or auth

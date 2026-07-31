@@ -40,6 +40,7 @@ import type {
 } from '../../session/passkey/ed25519YaoWarmRecovery';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { nearEd25519YaoMaterialActivationFromPublicFacts } from '../../session/material/nearEd25519YaoMaterialActivation';
+import { resolveThresholdEd25519CommitQueueKey } from '../../threshold/ed25519/commitQueue';
 
 export type Ed25519YaoExportFlowDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'initialize' | 'requestUserConfirmation'>;
@@ -53,6 +54,12 @@ export type Ed25519YaoExportFlowDeps = {
   resolvePasskeyExportContext: (
     laneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>,
   ) => Promise<PasskeyEd25519YaoExportContextResolutionV1>;
+  withThresholdEd25519CommitQueue: <T>(args: {
+    queueKey: string;
+    nearAccountId: AccountId;
+    enabled: boolean;
+    task: () => Promise<T>;
+  }) => Promise<T>;
   emailOtp: {
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     resolveExportContext: (
@@ -107,6 +114,32 @@ type ResolvedPasskeyEd25519YaoExportContext = {
   walletSessionJwt: string;
   capability: RouterAbEd25519YaoExportWorkerPayloadV1['capability'];
 };
+
+function passkeyEd25519ExportMaterialActivation(
+  resolved: ResolvedPasskeyEd25519YaoExportContext,
+) {
+  return nearEd25519YaoMaterialActivationFromPublicFacts({
+    activationId: resolved.capability.scope.wallet_session_id,
+    activeCapabilityBinding: resolved.capability.activeCapabilityBinding,
+    walletId: resolved.capability.applicationBinding.wallet_id,
+    registeredPublicKey: resolved.capability.registeredPublicKey,
+    lifecycleId: resolved.capability.scope.lifecycle_id,
+    signingWorkerId: resolved.capability.scope.signing_worker_id,
+  });
+}
+
+function emailOtpEd25519ExportMaterialActivation(
+  context: EmailOtpEd25519YaoExportContextV1,
+) {
+  return nearEd25519YaoMaterialActivationFromPublicFacts({
+    activationId: context.capability.lifecycle.thresholdSessionId,
+    activeCapabilityBinding: context.capability.activeCapabilityBinding,
+    walletId: context.capability.applicationBinding.wallet_id,
+    registeredPublicKey: context.capability.registeredPublicKey,
+    lifecycleId: context.capability.lifecycle.lifecycleId,
+    signingWorkerId: context.capability.lifecycle.signingWorkerId,
+  });
+}
 
 type PasskeyEd25519LaneAuth = Extract<
   ExactEd25519SigningLaneIdentity['auth'],
@@ -367,14 +400,7 @@ function buildWorkerPayload(args: {
       credentialIdB64u: args.resolved.laneIdentity.auth.credentialIdB64u,
       signingGrantId: String(args.resolved.laneIdentity.signingGrantId),
       thresholdSessionId: String(args.resolved.laneIdentity.thresholdSessionId),
-      materialActivation: nearEd25519YaoMaterialActivationFromPublicFacts({
-        activationId: args.resolved.capability.scope.wallet_session_id,
-        activeCapabilityBinding: args.resolved.capability.activeCapabilityBinding,
-        walletId: args.resolved.capability.applicationBinding.wallet_id,
-        registeredPublicKey: args.resolved.capability.registeredPublicKey,
-        lifecycleId: args.resolved.capability.scope.lifecycle_id,
-        signingWorkerId: args.resolved.capability.scope.signing_worker_id,
-      }),
+      materialActivation: passkeyEd25519ExportMaterialActivation(args.resolved),
     },
     capability: args.resolved.capability,
     variant: args.input.options.variant,
@@ -458,15 +484,23 @@ export async function exportEd25519YaoKeyWithFreshAuthorization(
     interaction: { kind: 'none', overlay: 'none' },
     data: { chain: 'near', curve: 'ed25519' },
   });
-  const result = await deps.passkeyMpcExport.exportPrivateKeysWithUi(
-    buildWorkerPayload({
-      resolved,
-      viewerSessionId,
-      input: args,
-      theme: deps.theme,
+  const result = await deps.withThresholdEd25519CommitQueue({
+    queueKey: resolveThresholdEd25519CommitQueueKey({
+      materialActivation: passkeyEd25519ExportMaterialActivation(resolved),
     }),
-    { onViewerLifecycle },
-  );
+    nearAccountId: args.nearAccountId,
+    enabled: true,
+    task: () =>
+      deps.passkeyMpcExport.exportPrivateKeysWithUi(
+        buildWorkerPayload({
+          resolved,
+          viewerSessionId,
+          input: args,
+          theme: deps.theme,
+        }),
+        { onViewerLifecycle },
+      ),
+  });
   if (
     !result.ok ||
     result.exportedSchemes.length !== 1 ||
@@ -534,23 +568,31 @@ async function exportEd25519YaoKeyWithFreshEmailOtp(
     interaction: { kind: 'none', overlay: 'none' },
     data: { chain: 'near', curve: 'ed25519' },
   });
-  const artifact = await deps.emailOtp.exportSeedWithFreshAuthorization({
-    walletSession: walletSessionRefFromSession({
-      walletId: args.walletId,
-      walletSessionUserId: args.walletId,
+  const artifact = await deps.withThresholdEd25519CommitQueue({
+    queueKey: resolveThresholdEd25519CommitQueueKey({
+      materialActivation: emailOtpEd25519ExportMaterialActivation(resolved.context),
     }),
-    challengeId: authorization.challengeId,
-    otpCode: authorization.otpCode,
-    providerSubjectId: resolved.laneIdentity.auth.providerSubjectId,
-    walletSessionJwt: resolved.context.walletSessionJwt,
-    nearAccountId: String(args.nearAccountId),
-    nearEd25519SigningKeyId: String(resolved.laneIdentity.signer.nearEd25519SigningKeyId),
-    signerSlot: resolved.laneIdentity.signer.signerSlot,
-    thresholdSessionId: String(resolved.laneIdentity.thresholdSessionId),
-    signingGrantId: String(resolved.laneIdentity.signingGrantId),
-    authLane: resolved.context.authLane,
-    runtimePolicyScope: resolved.context.runtimePolicyScope,
-    capability: resolved.context.capability,
+    nearAccountId: args.nearAccountId,
+    enabled: true,
+    task: () =>
+      deps.emailOtp.exportSeedWithFreshAuthorization({
+        walletSession: walletSessionRefFromSession({
+          walletId: args.walletId,
+          walletSessionUserId: args.walletId,
+        }),
+        challengeId: authorization.challengeId,
+        otpCode: authorization.otpCode,
+        providerSubjectId: resolved.laneIdentity.auth.providerSubjectId,
+        walletSessionJwt: resolved.context.walletSessionJwt,
+        nearAccountId: String(args.nearAccountId),
+        nearEd25519SigningKeyId: String(resolved.laneIdentity.signer.nearEd25519SigningKeyId),
+        signerSlot: resolved.laneIdentity.signer.signerSlot,
+        thresholdSessionId: String(resolved.laneIdentity.thresholdSessionId),
+        signingGrantId: String(resolved.laneIdentity.signingGrantId),
+        authLane: resolved.context.authLane,
+        runtimePolicyScope: resolved.context.runtimePolicyScope,
+        capability: resolved.context.capability,
+      }),
   });
   emitKeyExportEvent(args.onEvent, {
     phase: KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_SUCCEEDED,

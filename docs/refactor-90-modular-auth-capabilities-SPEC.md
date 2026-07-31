@@ -249,6 +249,14 @@ implementing commit SHA as the evidence.
     consumes its OTP challenge, persists factor evidence, and issues a one-use
     operation grant without creating a reusable Wallet Session or spending its
     quota (`007416714`).
+  - [x] NEAR Email OTP transaction, delegate, and NEP-413 signing prepare the
+    exact operation before confirmation, hydrate canonical material
+    independently, consume one operation grant, and never create or spend a
+    reusable Wallet Session in the step-up branch (`069db2326`).
+  - [x] The record-backed Email OTP Ed25519 routine-signing lane and its
+    active-material recovery path are deleted. Cold login/unlock recovery,
+    sealed refresh, and export recovery remain, and the focused retained
+    recovery suite passes 12/12 (`069db2326`).
 - [x] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.
@@ -266,6 +274,10 @@ implementing commit SHA as the evidence.
   resumes the abandoned parent operation (`51b738d2a`).
 - [ ] `R90-INV-008` — concurrent recovery, signing, refresh, and export serialize
   by exact owner and reject stale generations/fences.
+  - [x] NEAR transaction, delegate, NEP-413, Passkey export, and Email OTP
+    export share one queue keyed by canonical material activation rather than
+    threshold session identity (`10c8a61da`). Recovery/refresh fence coverage
+    remains open.
 - [x] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
   applicable quota once; existing claims consume neither again. Reusable Near
   claims, operation-step-up Near claims, and one-use ECDSA export claims commit
@@ -285,7 +297,9 @@ implementing commit SHA as the evidence.
   adapter — direct SDK, iframe boundary, React login refresh, iframe
   lifecycle, demo lock — to keep the wallet unlocked and re-resolve. Covered by
   `ecdsaMaterialSupersession` and `walletSessionSuperseded` unit suites.
-  Commits 53632c8c6, 4c418cde7, dc1fda487.)
+  A bounded React reread that remains `superseded` preserves the current login
+  until the next typed lifecycle event. Commits 53632c8c6, 4c418cde7,
+  dc1fda487, c258b94fb.)
 - [x] `R90-INV-011` — Near post-commit verification creates no durable readback
   stage; readback converges through the two-state journal and direct
   recovery-source tests (`5db9ad87e`, `51b738d2a`).

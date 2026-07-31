@@ -4,8 +4,8 @@ import type { SeamsWeb } from '@/SeamsWeb';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState, SeamsContextType } from '../types';
 import {
-  isWalletSessionReadUnavailable,
   isWalletSessionReadyForUi,
+  shouldPreserveReactLoginForWalletSessionRead,
 } from './walletSessionReadiness';
 import {
   buildReactLoggedInLoginStateFromSession,
@@ -83,7 +83,7 @@ export function useLoginStateRefresher(args: {
         }
 
         const session = await seams.auth.getWalletSession(exactWalletId);
-        if (isWalletSessionReadUnavailable(session)) return;
+        if (shouldPreserveReactLoginForWalletSessionRead(session)) return;
         if (!isWalletSessionReadyForUi({ session })) {
           setLoginState(buildReactLoggedOutLoginState());
           return;

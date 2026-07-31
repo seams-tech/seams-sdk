@@ -176,16 +176,25 @@ class EmailOtpEd25519ExportRefreshHarness {
     };
   }
 
+  async withThresholdEd25519CommitQueue<T>(
+    args: Parameters<Ed25519YaoExportFlowDeps['withThresholdEd25519CommitQueue']>[0],
+  ): Promise<T> {
+    return await args.task();
+  }
+
   deps(): Ed25519YaoExportFlowDeps {
     return {
       touchConfirm: {
         requestUserConfirmation: this.requestUserConfirmation.bind(this),
-        exportPrivateKeysWithUi: this.unexpectedPasskeyExport.bind(this),
         initialize: this.initialize.bind(this),
+      },
+      passkeyMpcExport: {
+        exportPrivateKeysWithUi: this.unexpectedPasskeyExport.bind(this),
       },
       resolveActiveCapability: this.resolveActiveCapability.bind(this),
       recoverPasskeyCapability: this.recoverPasskeyCapability.bind(this),
       resolvePasskeyExportContext: this.resolvePasskeyExportContext.bind(this),
+      withThresholdEd25519CommitQueue: this.withThresholdEd25519CommitQueue.bind(this),
       emailOtp: {
         requestExportChallenge: this.requestExportChallenge.bind(this),
         resolveExportContext: this.resolveExportContext.bind(this),

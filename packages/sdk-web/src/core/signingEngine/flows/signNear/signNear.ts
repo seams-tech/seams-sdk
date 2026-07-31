@@ -40,6 +40,7 @@ import {
 import type { NearSigningApiDeps } from '../../interfaces/operationDeps';
 import { signNearWithUiConfirm } from './nearSigningFlow';
 import { resolveThresholdEd25519CommitQueueKey } from '../../threshold/ed25519/commitQueue';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   rememberPersistedThresholdEd25519RuntimeRecord,
@@ -1100,11 +1101,11 @@ async function prepareNearAdHocSigningSession(args: {
 async function withThresholdEd25519CommitQueue<T>(args: {
   deps: NearSigningApiDeps;
   nearAccountId: AccountId;
-  thresholdSessionId: string;
+  materialActivation: MpcMaterialActivationRef;
   task: () => Promise<T>;
 }): Promise<T> {
   const queueKey = resolveThresholdEd25519CommitQueueKey({
-    thresholdSessionId: args.thresholdSessionId,
+    materialActivation: args.materialActivation,
   });
   return await args.deps.withThresholdEd25519CommitQueue({
     queueKey,
@@ -1112,6 +1113,26 @@ async function withThresholdEd25519CommitQueue<T>(args: {
     enabled: true,
     task: args.task,
   });
+}
+
+function requireNearEd25519CommitMaterialActivation(
+  preparation: NearEd25519YaoSigningPreparation,
+): MpcMaterialActivationRef {
+  switch (preparation.hydration.kind) {
+    case 'use_live_runtime':
+    case 'rehydrate_material_activation':
+      return preparation.hydration.materialActivation;
+    case 'reauthorize_public_anchor':
+      throw new Error(
+        '[SigningEngine][near] retired public material cannot enter the material commit queue',
+      );
+    case 'blocked':
+      throw new Error(
+        `[SigningEngine][near] blocked material cannot enter the material commit queue: ${preparation.hydration.reason}`,
+      );
+  }
+  preparation.hydration satisfies never;
+  throw new Error('[SigningEngine][near] unsupported material hydration plan');
 }
 
 function authMethodForThresholdEd25519Record(
@@ -1615,7 +1636,9 @@ export async function signTransactionWithActions(
     return await withThresholdEd25519CommitQueue({
       deps,
       nearAccountId,
-      thresholdSessionId: resolvedSessionId,
+      materialActivation: requireNearEd25519CommitMaterialActivation(
+        preparedSigningSession.preparation,
+      ),
       task: async () => {
         const ctx = deps.getSignerWorkerContext();
         const materialBoundary = await prepareNearEd25519YaoMaterialBoundary({
@@ -1833,7 +1856,9 @@ async function executeNearDelegateSigningAttempt(
     return await withThresholdEd25519CommitQueue({
       deps: args.deps,
       nearAccountId,
-      thresholdSessionId: prepared.selectedLane.thresholdSessionId,
+      materialActivation: requireNearEd25519CommitMaterialActivation(
+        prepared.yaoSigningPreparation,
+      ),
       task: runPreparedNearDelegateSigning.bind(undefined, {
         deps: args.deps,
         input: args.input,
@@ -1968,7 +1993,9 @@ async function executeNearNep413SigningAttempt(
     return await withThresholdEd25519CommitQueue({
       deps: args.deps,
       nearAccountId,
-      thresholdSessionId: prepared.selectedLane.thresholdSessionId,
+      materialActivation: requireNearEd25519CommitMaterialActivation(
+        prepared.yaoSigningPreparation,
+      ),
       task: runPreparedNearNep413Signing.bind(undefined, {
         deps: args.deps,
         input: args.input,

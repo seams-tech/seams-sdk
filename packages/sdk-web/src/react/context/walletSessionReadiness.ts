@@ -1,9 +1,22 @@
 import type { WalletSession } from '@/core/types/seams';
 
-export function isWalletSessionReadUnavailable(
+export function shouldPreserveReactLoginForWalletSessionRead(
   session: Pick<WalletSession, 'reusableWalletSession'>,
 ): boolean {
-  return session.reusableWalletSession.kind === 'unavailable';
+  switch (session.reusableWalletSession.kind) {
+    case 'unavailable':
+    case 'superseded':
+      return true;
+    case 'not_requested':
+    case 'active':
+    case 'exhausted':
+    case 'expired':
+    case 'missing':
+    case 'invalid':
+      return false;
+  }
+  session.reusableWalletSession satisfies never;
+  return false;
 }
 
 export function isWalletSessionReadyForUi(args: {
