@@ -81,19 +81,6 @@ export const TEMPO_ECDSA_CHAIN_TARGET: ThresholdEcdsaTempoChainTarget = {
   networkSlug: 'tempo-moderato',
 };
 
-function buildWalletBudgetProjectionVersion(args: {
-  signingGrantId: string;
-  expiresAtMs: number;
-  remainingUses: number;
-}): string {
-  return [
-    'wallet-budget',
-    args.signingGrantId,
-    args.expiresAtMs,
-    Math.max(0, Math.floor(Number(args.remainingUses) || 0)),
-  ].join(':');
-}
-
 export type ThresholdEcdsaActivatedKeyFacts = {
   readonly ok: true;
   readonly keygenSessionId: string;
@@ -108,19 +95,12 @@ export type ThresholdEcdsaActivatedKeyFacts = {
   readonly chainId: number;
   readonly evmFamilySigningKeySlotId?: never;
 };
-type EcdsaSessionSuccess = {
-  ok: true;
-  sessionId?: string;
-  expiresAtMs?: number;
-  remainingUses?: number;
-  jwt?: string;
-  clientVerifyingShareB64u?: string;
-};
 
 export type ThresholdEcdsaSessionBootstrapResult = {
   thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
   keygen: ThresholdEcdsaActivatedKeyFacts;
-  session: EcdsaSessionSuccess & {
+  session: {
+    ok: true;
     thresholdSessionId: string;
     signingGrantId: string;
     authorizationSessionId: SeamsSessionId;
@@ -128,8 +108,9 @@ export type ThresholdEcdsaSessionBootstrapResult = {
     quotaId: MpcWalletSigningQuotaId;
     expiresAtMs: number;
     remainingUses: number;
-    runtimePolicyScope?: ThresholdRuntimePolicyScope;
-    projectionVersion?: string;
+    runtimePolicyScope: ThresholdRuntimePolicyScope;
+    jwt: string;
+    clientVerifyingShareB64u: string;
   };
   passkeyPrfFirstB64u?: string;
   passkeyCredentialIdB64u?: string;
@@ -635,12 +616,7 @@ async function activateEcdsaSessionByPurpose(
     quotaId: bootstrap.quotaId,
     expiresAtMs,
     remainingUses,
-    ...(bootstrap.runtimePolicyScope ? { runtimePolicyScope: bootstrap.runtimePolicyScope } : {}),
-    projectionVersion: buildWalletBudgetProjectionVersion({
-      signingGrantId,
-      expiresAtMs,
-      remainingUses,
-    }),
+    runtimePolicyScope: bootstrap.runtimePolicyScope,
     jwt: walletSessionJwt,
     clientVerifyingShareB64u,
   };

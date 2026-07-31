@@ -4515,6 +4515,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     signingRootId: SigningRootId;
     signingRootVersion: SigningRootVersion;
     relayerKeyId: string;
+    runtimePolicyScope: ThresholdRuntimePolicyScope;
   }): Promise<EmailOtpThresholdEcdsaBootstrapResult> => {
     args.onProgress?.('signer.ecdsa.bootstrap.started');
     const applicationBindingDigestB64u =
@@ -4581,7 +4582,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       ...bootstrapIdentity,
       auth: routeAuth,
       clientRootProof,
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+      runtimePolicyScope: roleLocalArgs.runtimePolicyScope,
     } satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest;
     const bootstrap = await thresholdEcdsaDerivationRoleLocalBootstrap(
       relayerUrl,
@@ -4682,9 +4683,11 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       kind: 'email_otp_worker_session' as const,
       sessionId: value.thresholdSessionId,
     };
-    const walletSessionJwt =
+    const walletSessionJwt = readString(
       readOptionalString(value.jwt) ||
-      (routeAuth.kind === 'wallet_session' ? readOptionalString(routeAuth.jwt) : undefined);
+        (routeAuth.kind === 'wallet_session' ? readOptionalString(routeAuth.jwt) : undefined),
+      'walletSessionJwt',
+    );
     return {
       thresholdEcdsaKeyRef: {
         type: 'threshold-ecdsa-secp256k1',
@@ -4728,8 +4731,8 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
         quotaId: value.quotaId,
         expiresAtMs: value.expiresAtMs,
         remainingUses: value.remainingUses,
-        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-        ...(walletSessionJwt ? { jwt: walletSessionJwt } : {}),
+        runtimePolicyScope: roleLocalArgs.runtimePolicyScope,
+        jwt: walletSessionJwt,
         clientVerifyingShareB64u,
       },
       emailOtpClientAdditiveShare32,
@@ -4769,6 +4772,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
         signingRootId,
         signingRootVersion,
       }),
+      runtimePolicyScope,
     });
   }
 
