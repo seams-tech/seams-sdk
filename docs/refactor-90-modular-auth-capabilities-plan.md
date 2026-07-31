@@ -807,6 +807,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Clear wallet-scoped volatile Ed25519 material by enumerating exact
       Passkey and Email OTP sealed sessions. Runtime cleanup no longer needs a
       composite record to discover material-session IDs (`b9638246a`).
+- [x] Make Ed25519 key-export lifecycle preflight read the canonical active
+      Wallet Session authorization projection asynchronously. Missing,
+      corrupt, unavailable, mismatched, active, and expired states no longer
+      depend on the composite record cache (`47fbe2cbc`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
@@ -1086,6 +1090,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete composite-record discovery from wallet-scoped volatile Ed25519
       cleanup; exact sealed records own the material-session IDs
       (`b9638246a`).
+- [x] Delete the composite-record authorization lookup from Ed25519 key-export
+      preflight; the canonical Wallet Session projection owns lifecycle expiry
+      and factor correlation (`47fbe2cbc`).
 - [x] Delete the forwarding-only selected-lane auth-method selector; prepared
       signing now reads the canonical auth binding directly, and its focused
       auth-neutral preparation suite passes 7/7 (`0983a94ec`).

@@ -302,6 +302,10 @@ implementing commit SHA as the evidence.
   - [x] The zero-caller operation-usable Ed25519 record and current-generation
     commit/supersession branch are deleted with their obsolete fixtures
     (`f5c6ec6d9`).
+  - [x] Ed25519 key-export lifecycle preflight reads the canonical active
+    Wallet Session authorization projection and preserves typed missing,
+    unavailable, invalid, active, and expired outcomes without consulting the
+    composite session cache (`47fbe2cbc`).
   - [x] Non-iframe implicit NEAR funding reads the bearer credential from the
     canonical active Wallet Session authorization projection and fails before
     fetch when that authorization is absent or expired; no composite MPC record
