@@ -1471,8 +1471,13 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
       projections.
 - [x] Delete Patch 2 tactical UI/provisioning bridges after their last caller
       moves.
-- [ ] Delete obsolete loading heuristics, fallback lane selection, and
-      pre-cutover fixtures in the same change.
+- [x] Delete obsolete loading heuristics, fallback lane selection, and
+      pre-cutover fixtures in the same change. The inert deferred-seal
+      registry and restore wait were deleted in `c72cbf31f`; the remaining
+      fallback selectors and composite/pre-cutover fixtures were already
+      removed by `ae8f7b72d`, `24e0c2335`, `acb368888`, `a62080152`,
+      `e501d0231`, and `69313bcdf`. Remaining migration fixtures are boundary
+      coverage and stay in place.
 - [x] Delete the Ed25519 updated-at fallback lane and select directly from the
       canonicalized, priority-sorted candidates.
   - [x] Delete the zero-caller ECDSA reauth-anchor candidate fallback and its
