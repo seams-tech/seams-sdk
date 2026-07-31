@@ -732,7 +732,9 @@ the replacement and legacy MPC paths must not ship together.
       forbid `signingGrantId` and `thresholdSessionId` on canonical availability
       records and their type fixtures.
 - [x] Carry export authorization beside the exact export material lane instead
-      of reading it from material identity.
+      of reading it from material identity; Email OTP Ed25519 export now sends
+      only selected lane, authorization, activation, and capability facts to
+      the worker (`f20403de5`).
 - [x] Flatten the one-arm `ExactEcdsaExportSession` wrapper into the exact
       export lane so export state, target, factor, and material availability
       have one required-field carrier (`643dde348`).
@@ -912,11 +914,11 @@ the replacement and legacy MPC paths must not ship together.
       Passkey/Email OTP branches prepare before confirmation, preserve exact
       activation and factor, attach the issued one-use grant beside material,
       and never construct or reread a reusable Wallet Session (`2b585ed38`).
-- [ ] Complete sealed Email OTP operation-material recovery inside the worker:
+- [x] Complete sealed Email OTP operation-material recovery inside the worker:
       apply the ephemeral client seal, request the one-operation grant and
       server-unsealed ciphertext, remove the client seal, import and correlate
       the exact material, zeroize/dispose temporary secrets, and return the
-      active material beside the issued grant.
+      active material beside the issued grant (`126df7138`).
 - [x] Replace the five public NEAR factor-specific preparation, Passkey
       rehydration, and Email OTP recovery ports with one Browser-owned
       `{ preparation, executor }` material boundary. Exact factor, signer,
