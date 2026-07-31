@@ -676,8 +676,12 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Email OTP ECDSA signing-session refresh enters the exact activation
         queue, re-resolves before the consuming login call and after refresh,
         and rejects disappearance or replacement (`71c67e3dc`).
-  - [ ] Route the remaining Ed25519 recovery/refresh consuming paths through
-        their exact material owner fence.
+  - [x] Email OTP Ed25519 silent sealed recovery uses the queue shared by NEAR
+        signing and export, re-resolves before rehydration, persists before
+        releasing the owner, and verifies the durable activation afterward
+        (`b78210618`).
+  - [ ] Route the remaining Passkey recovery and Ed25519 refresh consuming
+        paths through their exact material owner fence.
 - [x] Bind live worker material to the exact material activation.
 - [x] Give a server-side expiry race at most one retry after same-method
       step-up.
