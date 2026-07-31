@@ -331,6 +331,9 @@ implementing commit SHA as the evidence.
   - [x] Persisted Ed25519 lane discovery and budget advisory parse exact sealed
     runtimes once. The inventory no longer scans the inert composite-record
     maps or rebuilds a composite record from a seal (`06f22ac7d`).
+  - [x] Passkey recovery and provisioning build Wallet Session state from exact
+    response/runtime facts and publish the resolved identity without writing
+    or reconstructing a composite Ed25519 record (`98a595709`).
   - [x] Zero-caller Ed25519 account/session record readers, record-derived
     Email OTP authority resolution, per-session status, and record auth
     predicates are deleted from the warm capability surface (`94aa9b344`).

@@ -837,6 +837,10 @@ the replacement and legacy MPC paths must not ship together.
       advisory directly from exact sealed runtimes. Delete the inert
       in-memory-record inventory and the sealed-record-to-composite-record
       conversion (`06f22ac7d`).
+- [x] Build Passkey recovery and provisioning Wallet Session state from exact
+      response/runtime facts and publish only the resolved identity. These
+      operating paths no longer write or rebuild the composite Ed25519 record
+      (`98a595709`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
