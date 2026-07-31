@@ -22,9 +22,6 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { parseRouterAbEd25519WalletSessionIdentityClaims } from '../routerAbSigningWalletSession';
 
-export const SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR =
-  '[chains] signingSession auth is unavailable; reconnect signing session before signing';
-
 function ed25519SessionMetadata(runtime: ExactEd25519SealedSessionRuntime): {
   authMethod: SignerAuthMethod;
   retention?: 'session';
