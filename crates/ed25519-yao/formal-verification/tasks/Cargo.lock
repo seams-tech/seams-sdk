@@ -181,6 +181,7 @@ name = "ed25519-yao-formal-verification-tasks"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
+ "ed25519-yao",
  "ed25519-yao-generator",
  "serde",
  "serde_json",

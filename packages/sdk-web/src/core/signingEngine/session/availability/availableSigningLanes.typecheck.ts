@@ -116,6 +116,13 @@ const invalidCanonicalLaneWithGrantAlias: ConcreteAvailableEcdsaSigningLane = {
 };
 void invalidCanonicalLaneWithGrantAlias;
 
+const invalidRestorableCanonicalEcdsaLane: ConcreteAvailableEcdsaSigningLane = {
+  ...canonicalAuthorizationRequiredLane,
+  // @ts-expect-error ECDSA hydration uses explicit outcomes; restorable remains Ed25519-only.
+  state: 'restorable',
+};
+void invalidRestorableCanonicalEcdsaLane;
+
 // @ts-expect-error authorization-required canonical material is always deferred.
 const invalidReadyCanonicalLaneWithoutAuthorization: ConcreteAvailableEcdsaSigningLane = {
   ...canonicalAuthorizationRequiredLane,

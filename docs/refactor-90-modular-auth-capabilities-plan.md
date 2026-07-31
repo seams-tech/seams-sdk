@@ -435,6 +435,8 @@ removes.
 - [x] Fourteen state cases cover the seven canonical states for both
       capabilities.
 - [x] Required-field and invalid-state type fixtures pass.
+- [x] Reject the retired `restorable` label on concrete ECDSA lanes while
+      retaining it for Ed25519 durable sealed material.
 - [x] IndexedDB crash tests prove atomic activation finalization.
 - [ ] Focused intended-behavior tests preserve refresh allowance and exact
       material rehydration.
@@ -539,8 +541,9 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 
 ### Unit 2 exit
 
-- [ ] Every deletion-ledger entry assigned to Unit 2 is closed; ownership
-      corrections are recorded before implementation.
+- [x] Every deletion-ledger entry assigned to Unit 2 is closed; the historical
+      Phase 9 carryover rows were confirmed absent and the ledger records the
+      retained request-scoped registration boundaries (`5d3518c98` audit).
 - [x] Shared/session/server type checks pass.
 - [x] Concurrent identical and conflicting claim tests prove exactly-once
       grant/quota consumption.
@@ -1116,6 +1119,9 @@ the replacement and legacy MPC paths must not ship together.
         requiring the independent authorizing grant on Ed25519. The worker
         boundary accepts the canonical ECDSA lane and rejects the retired
         grant alias (`440e3dd10`).
+  - [x] Delete the zero-caller ECDSA Wallet Session transport-auth wrapper and
+        its wrapper-only type fixtures; active authorization and route
+        boundaries carry the bearer credential directly.
 - [x] Inline the canonical bootstrap and exact/missing Wallet Session payload
       types in the iframe envelope and delete their one-use wire aliases.
 - [x] Delete the unread duplicate ECDSA export operation-authorization carrier;
@@ -1387,6 +1393,10 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 - [x] UI type fixtures reject incomplete lifecycle states.
 - [ ] Existing Refactor 92 contracts still prove expiry/exhaustion separation,
       refresh allowance, step-up behavior, and Passkey/OTP parity.
+  - [x] The local Refactor 92 boundary, retry, invalidation, planning, demo,
+        persistence, and policy set passes 38/38 and proves typed
+        expiry/exhaustion separation plus same-method step-up. Refresh
+        allowance and cross-factor parity remain environment-backed gates.
 - [x] Registration and provisioning expose no partial legacy capability shape.
 
 ## Final Conformance Gate
@@ -1401,8 +1411,15 @@ This is a validation gate, not a deferred cleanup phase.
 - [ ] Public export and dependency-direction checks pass.
 - [ ] Shared, SDK, server, worker, intended-test, and Rust type/build checks
       pass.
+  - [x] Repository SDK/server/app type checks pass at the local acceptance
+        checkpoint; Rust normal-signing vectors pass 3/3 and the ECDSA client
+        protocol passes 9/9.
 - [ ] Focused unit, crash, concurrency, host-adapter, worker/WASM, and vector
       tests pass.
+  - [x] Focused Refactor 92 lifecycle tests pass 38/38; hosted-recovery,
+        activation-pair, escrow, and operation-material tests pass 18/18; key
+        export, branding, Email OTP isolation, signing architecture, and ECDSA
+        client-worker boundary checks pass.
 - [ ] `pnpm test:intended` passes against a healthy environment.
 - [ ] `git diff --check` passes.
 

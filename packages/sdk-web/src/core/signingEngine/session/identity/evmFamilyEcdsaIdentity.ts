@@ -181,11 +181,6 @@ export type ResolvedEvmFamilyEcdsaKey<
   rpId?: never;
 };
 
-export type WalletSessionJwtTransportAuth = {
-  kind: 'wallet_session_jwt';
-  walletSessionJwt: VerifiedWalletSessionJwt;
-};
-
 export type EmailOtpWorkerShareHandle = {
   kind: 'email_otp_worker_session';
   sessionId: string;
@@ -324,11 +319,6 @@ export type BuildResolvedEvmFamilyEcdsaKeyInput<
   walletId: unknown;
   publicFacts: VerifiedEcdsaPublicFacts;
   authBinding: TAuthBinding;
-};
-
-export type BuildEcdsaWalletSessionTransportAuthInput = {
-  kind: 'wallet_session_jwt';
-  walletSessionJwt: unknown;
 };
 
 export type BuildHydratedEcdsaSignerMaterialInput = {
@@ -703,25 +693,6 @@ export function buildResolvedEvmFamilyEcdsaKey<TAuthBinding extends EvmFamilyEcd
     walletId: toWalletId(input.walletId),
     publicFacts: input.publicFacts,
     authBinding: input.authBinding,
-  };
-}
-
-export function buildEcdsaWalletSessionTransportAuth(input: {
-  kind: 'wallet_session_jwt';
-  walletSessionJwt: unknown;
-}): WalletSessionJwtTransportAuth;
-export function buildEcdsaWalletSessionTransportAuth(
-  input: BuildEcdsaWalletSessionTransportAuthInput,
-): WalletSessionJwtTransportAuth;
-export function buildEcdsaWalletSessionTransportAuth(
-  input: BuildEcdsaWalletSessionTransportAuthInput,
-): WalletSessionJwtTransportAuth {
-  return {
-    kind: 'wallet_session_jwt',
-    walletSessionJwt: requiredString(
-      input.walletSessionJwt,
-      'walletSessionJwt',
-    ) as VerifiedWalletSessionJwt,
   };
 }
 

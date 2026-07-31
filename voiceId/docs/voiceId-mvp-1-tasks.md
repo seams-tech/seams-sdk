@@ -183,6 +183,12 @@ terminal computation across multiple workers.
       `consented_human_capture` and `synthetic_generation` branches. Require
       generator, model, voice identity, seed, license, request hash, and
       optional conditioning-consent metadata for synthetic entries.
+- [x] Add a plan-bound, crash-safe ElevenLabs runner with atomic checkpointing,
+      verified resume, pending-WAV recovery, and fail-closed manual
+      reconciliation for ambiguous remote outcomes.
+- [x] Add an immutable consented-capture importer that validates canonical WAV
+      media and emits a benchmark-manifest fragment without overwriting an
+      existing audio or manifest artifact.
 - [ ] Generate the solo MVP corpus with subject-disjoint stable synthetic
       identities, challenge errors, generic attacks, and owner-conditioned
       cloning attacks split across Dia2 and ElevenLabs families.
@@ -195,11 +201,13 @@ terminal computation across multiple workers.
 - [ ] Collect consented, subject-disjoint recordings across days, microphones,
       rooms, distances, codecs, sample rates, accents, and noise conditions.
 - [ ] Freeze subject-disjoint development, calibration, and evaluation splits.
-- [ ] Extend the inventory command to run the selected model adapters and emit
+- [x] Extend the inventory command to run the pinned candidate adapters and emit
       machine-readable measurement results and a human report from the same
-      run.
+      run. The suite binds both corpus and model manifests by SHA-256 and runs
+      Moonshine, ECAPA, and AASIST from the validated corpus.
 - [ ] Measure speaker FAR, FRR, EER, uncertainty, and retry rate with confidence
-      intervals.
+      intervals on a qualifying human population. Keep synthetic-impostor and
+      owner-conditioned results in separately labeled non-human cohorts.
 - [ ] Measure phrase substitution, omission, insertion, reordering, and
       ambiguity outcomes.
 - [ ] Measure semantic approve, reject, cancel, repeat, and unrelated-intent
@@ -210,6 +218,12 @@ terminal computation across multiple workers.
       time, and failure rate.
 - [ ] Freeze explicit latency and resource budgets for server GPU, embedded
       NVIDIA, embedded CPU, and iOS research profiles.
+
+Current external execution blockers (2026-07-27): the synthetic-generation
+plans, resumable ElevenLabs runner, Dia2 runner, consented-capture importer,
+freeze tooling, and model adapters exist. No corpus is frozen. ElevenLabs still
+returns HTTP 401, Google GPU quota remains zero, and replay, voice-conversion,
+splice, relay, and digital-injection fixture pipelines remain incomplete.
 
 Exit gate: every optimization and model change can be compared against one
 reproducible accuracy, latency, and resource baseline.
@@ -222,38 +236,50 @@ reproducible accuracy, latency, and resource baseline.
       for audio quality and enrollment-template construction.
 - [x] Reuse one verifier-owned canonical PCM decode for verification phrase,
       intent, and speaker analysis through `analyze-verification`.
-- [ ] Feed the same accepted VAD windows into speaker and PAD models and extend
+- [x] Feed the same accepted VAD windows into speaker and PAD models and extend
       the shared decode to enrollment template processing.
 - [x] Preserve independent typed phrase, intent, speaker, quality, and PAD
       decisions.
-- [ ] Run phrase, intent, speaker, and PAD inference concurrently after common
+- [x] Run phrase, intent, speaker, and PAD inference concurrently after common
       quality gates accept.
-- [x] Replace request-scoped model startup with a persistent HTTP sidecar that
-      loads each model once and reports exact runtime readiness. Delete the
-      request-scoped Python subprocess transport.
+- [x] Replace request-scoped Python process startup with a persistent HTTP
+      sidecar that reports exact runtime readiness. ECAPA, AASIST, and the
+      closed intent runtime remain warm. Moonshine 0.0.71 uses a fresh
+      request-owned native `Transcriber` handle because reused handles failed
+      A-B-A isolation.
 - [x] Add bounded sidecar inference admission, configurable queue wait, and a
       deterministic overload response.
+- [x] Cap the current request-owned Moonshine profile at one admitted
+      verification. Require a measured recognizer or process pool before
+      raising this limit.
 - [x] Claim verification before the combined phrase, intent, and speaker
       analysis begins; the split-provider adapter remains only for fake and
       non-Moonshine research modes.
-- [x] Add persistent workers for the selected phrase and intent models
-      that load each model once and report readiness.
-- [ ] Add bounded queues, backpressure, per-stage deadlines, cancellation, and
+- [x] Cache the closed Moonshine intent vocabulary once and isolate each
+      transcription behind a closed request-owned native handle.
+- [x] Add bounded queues, backpressure, per-stage deadlines, cancellation, and
       deterministic overload results.
 - [x] Zero current sidecar PCM, speech-window, template, and speaker-embedding
       buffers after the terminal decision.
-- [ ] Extend terminal buffer zeroing to the selected phrase, intent, and PAD
-      feature buffers.
+- [x] Zero exposed request-owned Moonshine PCM, ECAPA waveform and embedding
+      tensors, and AASIST PCM, feature, logits, probability, and input tensors.
+- [ ] Prove or enforce erasure of opaque buffers owned by native Moonshine,
+      ONNX, and PyTorch allocators. Use stronger process isolation where strict
+      erasure is required.
 - [x] Prove the canonical baseline pipeline produces stable templates, quality
       evidence, and speaker scores across repeated runs.
-- [ ] Extend the repeated-run regression to each selected phrase, intent,
-      speaker, and PAD model adapter.
+- [x] Extend the repeated-run regression to the pinned candidate phrase,
+      intent, speaker, and PAD adapters. Moonshine, ECAPA, and AASIST passed
+      A-A-A, A-B-A, and A-FAIL-A in
+      [the 2026-07-27 stability check](../verifier-spike/reports/candidate-adapter-stability-2026-07-27.md).
 
 Exit gate: one bounded preprocessing pass feeds warm concurrent inference with
-no duplicate decode, resample, VAD, or model initialization. The current
-verification route satisfies the single-decode boundary for the Python /
-Moonshine profile; PAD concurrency, shared VAD windows, and enrollment reuse
-remain open.
+no duplicate decode, resample, or VAD. The Python profile runs Moonshine,
+ECAPA, and AASIST concurrently from one decode/VAD pass. ECAPA, AASIST, and
+closed-set intent state stay warm; Moonshine transcription has a deliberate
+request-owned handle boundary. Timed-out queued stages are cancelled. Running
+native calls finish on bounded workers and zero exposed private buffers before
+their slots are reused.
 
 ## Gate E: Moonshine-First Intent, Phrase, And Speaker Model Selection
 
@@ -272,7 +298,7 @@ remain open.
 - [x] Run the native Tiny-then-Small streaming smoke benchmark over an
       ephemeral synthetic speech corpus and record load, warm latency, phrase,
       intent, cohort, and human-metric-suppression outcomes.
-- [ ] Compare exact normalized phrase matching with a hybrid policy that
+- [x] Compare exact normalized phrase matching with a hybrid policy that
       requires unpredictable challenge-token coverage in any order and accepts
       natural-language variations of the requested intent.
 - [x] Keep speaker identity, semantic intent, challenge freshness, phrase
@@ -294,9 +320,13 @@ remain open.
       end-of-utterance latency, complete capture latency, peak memory, and CPU
       use first on Apple Silicon macOS, then iPhone 16/Core ML. Linux x86 and
       robot-class CPU follow after the Apple profiles are reproducible.
-- [ ] Pin the Moonshine release, model hashes, architecture, quantization, ONNX
+- [x] Pin the Moonshine release, model hashes, architecture, quantization, ONNX
       Runtime providers, preprocessing, and transcript normalization in the
       experiment manifest.
+- [x] Cache closed-set intent embeddings and use request-isolated Moonshine
+      transcription. The 1,042 ms Apple Silicon smoke sample measured
+      254.085 ms p50, 264.268 ms p95, and 268.937 ms p99 in
+      [the 2026-07-27 check](../verifier-spike/reports/moonshine-intent-cache-2026-07-27.md).
 - [ ] Restrict the first product-shaped spike to MIT-licensed English models.
       Keep non-English models in research until their commercial license is
       approved.
@@ -311,8 +341,9 @@ remain open.
       warm latency, memory, and quantization loss.
 - [ ] Select the smallest intent, phrase, and speaker models that meet each
       approved platform profile's frozen budgets.
-- [ ] Version model weights, preprocessing, adapters, intent and phrase
-      thresholds, challenge grammar, and calibration as one immutable manifest.
+- [x] Add an immutable calibration-manifest generator that binds model weights,
+      preprocessing, adapters, intent and phrase thresholds, challenge grammar,
+      and calibration.
 - [ ] Return `uncertain` for unsupported capture profiles and scores outside the
       calibrated region.
 
@@ -323,8 +354,9 @@ frozen accuracy and runtime budgets on held-out subjects.
 
 - [x] Add a strict subject-disjoint PAD manifest parser and fail-closed report
       generator with confidence intervals and attack/capture-profile grouping.
-- [ ] Integrate an AASIST-style PAD baseline behind a typed verifier boundary.
-- [ ] Feed PAD from the shared canonical PCM and speech windows.
+- [x] Integrate the pinned upstream AASIST ASVspoof2019-LA baseline behind a
+      typed verifier boundary.
+- [x] Feed PAD from the shared canonical PCM and accepted speech windows.
 - [ ] Build separate replay, synthesis, voice conversion, splice, relay, and
       digital-injection evaluation sets.
 - [ ] Use pinned
@@ -342,24 +374,24 @@ frozen accuracy and runtime budgets on held-out subjects.
 - [ ] Generate correct-intent attacks containing fresh challenge tokens in
       varied order, then exercise direct digital injection, acoustic replay,
       codec conversion, noise, and room-response transformations.
-- [ ] Record the Dia2 repository revision, weight hashes, architecture,
+- [x] Record the Dia2 repository revision, weight hashes, architecture,
       reference-audio consent handle and duration, script, challenge tokens,
       seed, sampling configuration, output duration, generation latency, and
       transformation chain in the attack manifest.
 - [ ] Include multiple unrelated current text-to-speech and voice-conversion
       systems, attacks tuned against the selected speaker model and PAD, and
       held-out generators unavailable during calibration.
-- [ ] Keep Dia2 and every attack-generation tool in the offline fixture
+- [x] Keep Dia2 and every attack-generation tool in the offline fixture
       pipeline and outside production VoiceID packages, verifier images, and
       runtime dependencies.
-- [ ] Report APCER, BPCER, uncertainty, and latency by attack class and capture
-      profile.
+- [x] Add held-out reporting for APCER, BPCER, uncertainty, latency, confidence
+      intervals, attack class, and capture profile.
 - [ ] Report whether prompt-targeted generation completes within the challenge
       validity window and include that timing in combined unauthorized-
       acceptance analysis.
-- [ ] Calibrate accepted, uncertain, and rejected regions without folding PAD
+- [x] Calibrate accepted, uncertain, and rejected regions without folding PAD
       into the speaker score.
-- [ ] Run PAD concurrently with phrase and speaker inference.
+- [x] Run PAD concurrently with phrase and speaker inference.
 
 Exit gate: PAD meets its frozen per-attack accuracy and latency budgets on the
 held-out attack set and fails closed outside measured profiles.
@@ -372,14 +404,14 @@ held-out attack set and fails closed outside measured profiles.
       aggregation.
 - [ ] Measure same-speaker template stability across days, microphones, rooms,
       and vocal variation.
-- [ ] Reject enrollment when internal windows lack sufficient diversity or
+- [x] Reject enrollment when internal windows lack sufficient diversity or
       produce unstable leave-one-window-out scores.
 - [ ] Tune one quality-only retry without reintroducing repeated enrollment
       uploads.
 - [ ] Evaluate quarantined high-confidence template adaptation for drift and
       poisoning resistance; keep automatic adaptation disabled until it passes.
-- [ ] Version the aggregation rule and template format with the selected speaker
-      model manifest.
+- [x] Version the aggregation rule and template format with the pinned candidate
+      speaker-model manifest.
 
 Exit gate: one continuous enrollment produces a compact template that meets
 cross-session stability and impostor-separation budgets.
@@ -392,14 +424,26 @@ cross-session stability and impostor-separation budgets.
       decision regression suite.
 - [ ] Add timeout, forced-worker-crash, response-loss, model-load-failure, and
       automatic-worker-replacement tests.
-- [ ] Fuzz malformed media and exercise decoder limits, truncated input,
-      unsupported codecs, and oversized captures.
+- [x] Add deterministic malformed-media boundary tests for truncated containers,
+      invalid payloads, mismatched codecs, and oversized sidecar requests.
+- [x] Run a seeded generative malformed-media campaign. The 64-case macOS
+      campaign at seed `20260726` produced zero unexpected failures with
+      103.726 ms p99 decoder latency.
+- [x] Exercise decoder duration and timeout failure boundaries.
+- [x] Align each server's stage capacity with HTTP admission, preserve slots
+      for timed-out native calls until completion, return an exact HTTP 503
+      overload response, recover capacity, and shut down the server-owned
+      executor.
+- [ ] Run decoder duration and timeout campaigns under sustained load.
 - [ ] Load test bounded concurrency, queue saturation, cancellation, and retry
       behavior.
 - [ ] Run long soak tests that detect memory, file-descriptor, process, and GPU
       resource growth.
-- [ ] Reject a release when accuracy, p95/p99 latency, memory, or failure-rate
-      budgets regress.
+- [x] Add a strict release-budget checker for frozen accuracy, p95/p99 latency,
+      memory, retry/uncertainty, failure-rate, dataset, model-manifest, corpus
+      readiness, and PAD attack-class readiness.
+- [ ] Connect the budget checker to release automation after the first complete
+      corpus report freezes its platform budgets.
 
 Exit gate: each supported runtime profile passes the same frozen decisions,
 fault campaigns, soak tests, and performance budgets.
@@ -426,7 +470,6 @@ pnpm -C voiceId type-check
 pnpm -C voiceId test
 pnpm -C voiceId signing-architecture:guard
 pnpm -C voiceId verifier:test
-pnpm -C voiceId pad:test
 pnpm -C voiceId benchmark:test
 ```
 

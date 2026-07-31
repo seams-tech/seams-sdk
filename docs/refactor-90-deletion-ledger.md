@@ -48,15 +48,19 @@ replacement.
   newest-record selection~~
 - ~~`recordsByLane` and module-level record maps as persistence or selection
   authority~~ (manifest-keyed hot observations remain independent)
-- ECDSA `restorable` as a core lifecycle label (use the hydration outcomes)
+- ~~ECDSA `restorable` as a core lifecycle label~~ — rejected by the concrete
+  ECDSA lane type; ECDSA uses explicit hydration outcomes while Ed25519 retains
+  `restorable` for its durable sealed-material state
 - authority/lifecycle inference from `source`, provider identity, optional
   field presence, record timestamps, or diagnostics
-- registration-only and unlock-only capability publication paths (both call the
-  canonical activation commit port)
+- ~~registration-only and unlock-only capability publication paths~~ — absent
+  at the `5d3518c98` audit; registration, unlock, and refresh publish through
+  the canonical manifest/activation boundary
 - ~~the orphaned bootstrap-era `ecdsaCapabilityReadiness.ts` classifier~~ —
   deleted by `18850e9d4`
-- obsolete IndexedDB ECDSA session records (reject and clear at the boundary;
-  no dual-schema reader)
+- ~~obsolete IndexedDB ECDSA composite session records~~ — absent at the
+  `5d3518c98` audit; the manifest and sealed-runtime stores are the canonical
+  current schema and are retained
 - ~~`IndexedDbEcdsaRoleLocalSessionMaterialStore` and
   `ecdsaRoleLocalSessionMaterialStore.ts`~~ — deleted by `ab510dab8`
 - ~~`ecdsa_role_local_sealing_keys` and
@@ -72,25 +76,31 @@ replacement.
   selection cutover (`f6ce0651e`).
 - ~~`EvmFamilySharedEcdsaState`~~ — removed with the auth-neutral ECDSA state
   cutover (`5db9ad87e`).
-- Near material-inspection unions superseded by the shared outcomes
+- ~~Near tactical material-inspection unions superseded by the shared
+  outcomes~~ — absent at the `5d3518c98` audit; protocol-local observation
+  unions remain valid boundary inputs to the shared outcomes
 
 ## Phase 1 boundary residue — registration modes
 
 - `ed25519_only`, `ecdsa_only`, `ed25519_and_ecdsa` in core registration,
   quota, session, and signing state (quota data shapes die in Phase 18/20)
-- `combined_registration` D1 ceremony state outside any named temporary
-  boundary parser
+- ~~`combined_registration` D1 ceremony state outside any named temporary
+  boundary parser~~ — absent from production at the `5d3518c98` audit
 
 ## Phase 3 delete-candidate carryover
 
-- AuthService-era wallet registration authority branches → D1 registration
-  route services (Phase 9 / Refactor 82B)
-- Passkey-only Ed25519 authority checks inside shared session paths →
-  `WalletAuthAuthorityRef` boundary parsers (Phase 17)
-- AuthService generic registration bootstrap/finalize surfaces used by
-  Cloudflare D1 routes (Phase 9)
-- parallel wallet-ID allocation copy in the D1 registration intent service
-  beside `walletRegistrationPlanning.ts` (Phase 9)
+- ~~AuthService-era wallet registration authority branches → D1 registration
+  route services (Phase 9 / Refactor 82B)~~ — absent at the `5d3518c98` audit;
+  the request-scoped registration route service is canonical
+- ~~Passkey-only Ed25519 authority checks inside shared session paths →
+  `WalletAuthAuthorityRef` boundary parsers (Phase 17)~~ — implicit shared-path
+  checks are absent at the `5d3518c98` audit; explicit Passkey protocol
+  branches remain
+- ~~AuthService generic registration bootstrap/finalize surfaces used by
+  Cloudflare D1 routes (Phase 9)~~ — absent at the `5d3518c98` audit
+- ~~parallel wallet-ID allocation copy in the D1 registration intent service
+  beside `walletRegistrationPlanning.ts` (Phase 9)~~ — absent at the
+  `5d3518c98` audit; one server-allocation path remains
 
 ## Phase 4 — subject and session-read residue
 
@@ -104,10 +114,11 @@ replacement.
   remains
 - ~~the `login.publicKey ? 'passkey' : null` auth-method inference fallback~~ —
   deleted by the exact wallet-subject restoration in `5d0465e7c`
-- silent signer-slot defaults in restore/session-read paths (boundary parse
-  failures instead)
-- fallback paths inferring a wallet from `nearAccountId` outside explicit
-  boundary parsers
+- ~~silent signer-slot defaults in restore/session-read paths~~ — absent at the
+  `5d3518c98` audit; boundary parsers reject missing or invalid slots
+- ~~fallback paths inferring a wallet from `nearAccountId` outside explicit
+  boundary parsers~~ — absent at the `5d3518c98` audit; exact subject
+  resolution requires wallet, account, and slot
 - ~~the missing-`ClientUserData.authMethod` → Passkey fallback during NEAR
   unlock~~ — deleted by `4f51048c5`; malformed stored projections now fail
   before a prompt
@@ -185,15 +196,18 @@ replacement.
 - ~~`clientVerifyingShareB64u` inside `EcdsaRoleLocalMaterialBinding`, its
   digest, and material handle~~ — replaced by the strict
   `EcdsaClientVerifyingPublicKey33B64u` fact in `fcdf0ad3c`
-- `clientVerifyingShareB64u` on remaining ECDSA role-local persistence, worker,
-  and wire surfaces (rename where it represents the role-local public-key fact;
-  Ed25519 out of scope)
+- ~~`clientVerifyingShareB64u` as an internal ECDSA material-identity field~~ —
+  internal material identity uses the branded
+  `clientVerifyingPublicKey33B64u`; protocol and generated worker/wire field
+  names remain boundary-owned and are not deletion targets
 - ~~`chainTarget`, `thresholdSessionId`, `activeStateId`, and `signingGrantId`
   inside `EcdsaRoleLocalMaterialBinding`, its binding digest, and material
   handle~~ — deleted in `fcdf0ad3c`
-- `routerAbStateSessionId`, `CapabilityGrantId`, `MpcWalletSigningQuotaId`, and
-  remaining-use/expiry fields inside role-local material identity if found by
-  the remaining runtime audit
+- ~~`routerAbStateSessionId`, `CapabilityGrantId`,
+  `MpcWalletSigningQuotaId`, and remaining-use/expiry fields inside role-local
+  material identity~~ — forbidden by the canonical material-handle and
+  manifest types at the `5d3518c98` audit; these identifiers remain only in
+  their authorization, quota, or protocol-boundary domains
 - ~~`ecdsaRoleLocalSigningMaterialHandleFromReadySignerSession`~~ — deleted in
   favor of constructing the exact handle from material facts in `fcdf0ad3c`
 - ~~the legacy regression expectation that Tempo and ARC produce different

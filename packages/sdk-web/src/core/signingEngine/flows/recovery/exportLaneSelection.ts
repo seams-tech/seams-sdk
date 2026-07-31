@@ -171,7 +171,6 @@ function exactEcdsaExportLaneStateFromAvailableLane(args: {
         '[SigningEngine][ecdsa-export] expired export lane requires durable public reauth authority',
       );
     case 'ready':
-    case 'restorable':
     case 'deferred':
       return {
         chainTarget: args.chainTarget,

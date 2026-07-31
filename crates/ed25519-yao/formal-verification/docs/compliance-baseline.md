@@ -5,7 +5,7 @@ specification-only contracts. It is not a protocol audit.
 
 The post-attachment baseline contains 27 normative reference documents, 21
 committed corpora, 418 generator Rust tests, 186 independent Python tests, and
-158 Lean theorems. The counted reconciliation gate passes six Rust tests and
+169 Lean theorems. The counted reconciliation gate passes six Rust tests and
 four Python tests. The separate exit-evidence readiness gate passes twenty
 host-only Rust tests, and its fixed-subject builder gate passes eleven more.
 Three additional generator Rust tests freeze circuit field order and LSB0 bit

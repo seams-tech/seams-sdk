@@ -1,0 +1,247 @@
+{
+  "schemaVersion": "voice_id_elevenlabs_generation_plan_v1",
+  "datasetVersion": "voiceid-solo-elevenlabs-2026-07-v1",
+  "ttsModelId": "eleven_flash_v2_5",
+  "settings": {
+    "stability": 0.55,
+    "similarityBoost": 0.75,
+    "style": 0.0,
+    "speed": 1.0,
+    "useSpeakerBoost": true
+  },
+  "capture": {
+    "platform": "server",
+    "microphone": "digital_generation",
+    "room": "none",
+    "distanceCm": 0,
+    "codec": "pcm_s16le",
+    "channelCount": 1,
+    "language": "en",
+    "accent": "synthetic",
+    "noiseProfile": "none"
+  },
+  "voices": [
+    {
+      "kind": "voice_design",
+      "voiceKey": "eleven_dev_voice",
+      "name": "VoiceID development identity",
+      "description": "A calm adult English speaker with a clear neutral accent and measured pace.",
+      "previewText": "This is a stable development identity for a reproducible voice security evaluation.",
+      "previewIndex": 0,
+      "modelId": "eleven_multilingual_ttv_v2"
+    },
+    {
+      "kind": "voice_design",
+      "voiceKey": "eleven_cal_voice",
+      "name": "VoiceID calibration identity",
+      "description": "An energetic adult English speaker with a light regional accent and crisp articulation.",
+      "previewText": "This is a stable calibration identity for a reproducible voice security evaluation.",
+      "previewIndex": 0,
+      "modelId": "eleven_multilingual_ttv_v2"
+    },
+    {
+      "kind": "voice_design",
+      "voiceKey": "eleven_eval_voice",
+      "name": "VoiceID evaluation identity",
+      "description": "A warm adult English speaker with a low register, natural rhythm, and careful diction.",
+      "previewText": "This is a held out evaluation identity for a reproducible voice security evaluation.",
+      "previewIndex": 0,
+      "modelId": "eleven_multilingual_ttv_v2"
+    },
+    {
+      "kind": "owner_clone",
+      "voiceKey": "eleven_owner_clone",
+      "name": "VoiceID authorized owner attack clone",
+      "description": "Owner-authorized clone used only for offline presentation-attack evaluation.",
+      "referenceAudioFileName": "owner-reference.wav",
+      "sourceSubjectId": "owner_eval",
+      "consentReference": "voiceid-owner-consent-2026-07",
+      "retentionClass": "project_indefinite"
+    }
+  ],
+  "jobs": [
+    {
+      "fixtureId": "eleven_dev_enrollment",
+      "audioFileName": "eleven_dev_enrollment.wav",
+      "subjectId": "eleven_dev_target",
+      "sessionId": "eleven_dev_enrollment_session",
+      "partition": "development",
+      "case": {
+        "kind": "enrollment"
+      },
+      "expectedIntent": null,
+      "challengeTokens": [],
+      "voiceKey": "eleven_dev_voice",
+      "text": "Cedar compass guides us toward a calm harbor at sunrise. River lantern glows beside a quiet path through the meadow. Silver meadow opens beneath a clear and cloudless morning sky. Harbor sunrise marks the beginning of a careful and deliberate journey.",
+      "seed": 4101
+    },
+    {
+      "fixtureId": "eleven_dev_reject",
+      "audioFileName": "eleven_dev_reject.wav",
+      "subjectId": "eleven_dev_target",
+      "sessionId": "eleven_dev_reject_session",
+      "partition": "development",
+      "case": {
+        "kind": "genuine_verification"
+      },
+      "expectedIntent": "reject",
+      "challengeTokens": [
+        "violet",
+        "three",
+        "cloud"
+      ],
+      "voiceKey": "eleven_dev_voice",
+      "text": "Please reject this request. Violet three cloud.",
+      "seed": 4102
+    },
+    {
+      "fixtureId": "eleven_dev_substitution",
+      "audioFileName": "eleven_dev_substitution.wav",
+      "subjectId": "eleven_dev_target",
+      "sessionId": "eleven_dev_substitution_session",
+      "partition": "development",
+      "case": {
+        "kind": "challenge_error",
+        "errorKind": "substitution"
+      },
+      "expectedIntent": "reject",
+      "challengeTokens": [
+        "violet",
+        "three",
+        "cloud"
+      ],
+      "voiceKey": "eleven_dev_voice",
+      "text": "Please reject this request. Violet five cloud.",
+      "seed": 4103
+    },
+    {
+      "fixtureId": "eleven_cal_enrollment",
+      "audioFileName": "eleven_cal_enrollment.wav",
+      "subjectId": "eleven_cal_target",
+      "sessionId": "eleven_cal_enrollment_session",
+      "partition": "calibration",
+      "case": {
+        "kind": "enrollment"
+      },
+      "expectedIntent": null,
+      "challengeTokens": [],
+      "voiceKey": "eleven_cal_voice",
+      "text": "Cedar compass guides us toward a calm harbor at sunrise. River lantern glows beside a quiet path through the meadow. Silver meadow opens beneath a clear and cloudless morning sky. Harbor sunrise marks the beginning of a careful and deliberate journey.",
+      "seed": 4201
+    },
+    {
+      "fixtureId": "eleven_cal_cancel",
+      "audioFileName": "eleven_cal_cancel.wav",
+      "subjectId": "eleven_cal_target",
+      "sessionId": "eleven_cal_cancel_session",
+      "partition": "calibration",
+      "case": {
+        "kind": "genuine_verification"
+      },
+      "expectedIntent": "cancel",
+      "challengeTokens": [
+        "copper",
+        "nine",
+        "lake"
+      ],
+      "voiceKey": "eleven_cal_voice",
+      "text": "Cancel this request. Copper nine lake.",
+      "seed": 4202
+    },
+    {
+      "fixtureId": "eleven_cal_insertion",
+      "audioFileName": "eleven_cal_insertion.wav",
+      "subjectId": "eleven_cal_target",
+      "sessionId": "eleven_cal_insertion_session",
+      "partition": "calibration",
+      "case": {
+        "kind": "challenge_error",
+        "errorKind": "insertion"
+      },
+      "expectedIntent": "cancel",
+      "challengeTokens": [
+        "copper",
+        "nine",
+        "lake"
+      ],
+      "voiceKey": "eleven_cal_voice",
+      "text": "Cancel this request. Copper silver nine lake.",
+      "seed": 4203
+    },
+    {
+      "fixtureId": "eleven_eval_enrollment",
+      "audioFileName": "eleven_eval_enrollment.wav",
+      "subjectId": "eleven_eval_target",
+      "sessionId": "eleven_eval_enrollment_session",
+      "partition": "evaluation",
+      "case": {
+        "kind": "enrollment"
+      },
+      "expectedIntent": null,
+      "challengeTokens": [],
+      "voiceKey": "eleven_eval_voice",
+      "text": "Cedar compass guides us toward a calm harbor at sunrise. River lantern glows beside a quiet path through the meadow. Silver meadow opens beneath a clear and cloudless morning sky. Harbor sunrise marks the beginning of a careful and deliberate journey.",
+      "seed": 4301
+    },
+    {
+      "fixtureId": "eleven_eval_repeat",
+      "audioFileName": "eleven_eval_repeat.wav",
+      "subjectId": "eleven_eval_target",
+      "sessionId": "eleven_eval_repeat_session",
+      "partition": "evaluation",
+      "case": {
+        "kind": "genuine_verification"
+      },
+      "expectedIntent": "repeat",
+      "challengeTokens": [
+        "willow",
+        "one",
+        "dawn"
+      ],
+      "voiceKey": "eleven_eval_voice",
+      "text": "Repeat the challenge. Willow one dawn.",
+      "seed": 4302
+    },
+    {
+      "fixtureId": "eleven_eval_unrelated",
+      "audioFileName": "eleven_eval_unrelated.wav",
+      "subjectId": "eleven_eval_target",
+      "sessionId": "eleven_eval_unrelated_session",
+      "partition": "evaluation",
+      "case": {
+        "kind": "genuine_verification"
+      },
+      "expectedIntent": "unrelated",
+      "challengeTokens": [
+        "willow",
+        "one",
+        "dawn"
+      ],
+      "voiceKey": "eleven_eval_voice",
+      "text": "The weather is pleasant today. Willow one dawn.",
+      "seed": 4303
+    },
+    {
+      "fixtureId": "eleven_eval_owner_clone_attack",
+      "audioFileName": "eleven_eval_owner_clone_attack.wav",
+      "subjectId": "eleven_eval_owner_clone",
+      "sessionId": "eleven_eval_owner_clone_attack_session",
+      "partition": "evaluation",
+      "case": {
+        "kind": "presentation_attack",
+        "targetSubjectId": "owner_eval",
+        "attackClass": "synthesis",
+        "attackTool": "elevenlabs-owner-authorized-ivc"
+      },
+      "expectedIntent": "approve",
+      "challengeTokens": [
+        "maple",
+        "eight",
+        "star"
+      ],
+      "voiceKey": "eleven_owner_clone",
+      "text": "I confirm and approve this request. Star maple eight.",
+      "seed": 4401
+    }
+  ]
+}

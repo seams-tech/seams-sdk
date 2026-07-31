@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import struct
 from dataclasses import dataclass
 from typing import Literal
@@ -19,6 +20,7 @@ MINIMUM_PROMPT_DURATION_MS = 3000
 MINIMUM_SPEECH_PER_PROMPT_MS = 2000
 MINIMUM_WINDOW_COHERENCE = 0.45
 MULTI_SPEAKER_COHERENCE = 0.15
+MINIMUM_LEAVE_ONE_OUT_STABILITY = 0.98
 
 EnrollmentFailureReason = Literal[
     "decoder_failure",
@@ -72,6 +74,13 @@ class RejectedEnrollment:
 EnrollmentResult = BuiltEnrollment | RejectedEnrollment
 
 
+@dataclass(frozen=True)
+class TemplateAggregation:
+    embedding: list[float]
+    weights: tuple[float, ...]
+    minimum_leave_one_out_similarity: float
+
+
 def build_continuous_enrollment(
     *,
     runtime: VerifierRuntime,
@@ -110,8 +119,15 @@ def build_continuous_enrollment(
             coherence_failure = failure_for_embedding_coherence(embeddings)
             if coherence_failure is not None:
                 return RejectedEnrollment(kind="rejected", reason=coherence_failure)
-            weights = normalized_window_weights(windows)
-            template_embedding = weighted_average_embedding(embeddings, weights)
+            aggregation = aggregate_template(windows, embeddings)
+            template_embedding = aggregation.embedding
+            weights = aggregation.weights
+            if (
+                aggregation.minimum_leave_one_out_similarity
+                < MINIMUM_LEAVE_ONE_OUT_STABILITY
+            ):
+                zero_float_sequence(template_embedding)
+                return RejectedEnrollment(kind="rejected", reason="incoherent_windows")
             try:
                 encrypted_template = encode_template(
                     runtime=runtime,
@@ -212,6 +228,95 @@ def normalized_window_weights(windows: tuple[SpeechWindow, ...]) -> tuple[float,
     return tuple(weight / total for weight in raw_weights)
 
 
+def aggregate_template(
+    windows: tuple[SpeechWindow, ...],
+    embeddings: list[ExtractedSpeakerEmbedding],
+) -> TemplateAggregation:
+    if len(windows) != len(embeddings) or len(embeddings) < 3:
+        raise EmbeddingExtractionError(
+            "robust enrollment aggregation requires at least three aligned windows"
+        )
+    weights = robust_window_weights(windows, embeddings)
+    embedding = normalized_embedding(weighted_average_embedding(embeddings, weights))
+    try:
+        stability = minimum_leave_one_out_similarity(
+            full_template=embedding,
+            windows=windows,
+            embeddings=embeddings,
+        )
+    except Exception:
+        zero_float_sequence(embedding)
+        raise
+    return TemplateAggregation(
+        embedding=embedding,
+        weights=weights,
+        minimum_leave_one_out_similarity=stability,
+    )
+
+
+def robust_window_weights(
+    windows: tuple[SpeechWindow, ...],
+    embeddings: list[ExtractedSpeakerEmbedding],
+) -> tuple[float, ...]:
+    quality_weights = normalized_window_weights(windows)
+    medoid = embeddings[embedding_medoid_index(embeddings)].vector
+    raw_weights = tuple(
+        quality_weight * max(0.01, cosine_score(medoid, embedding.vector)) ** 2
+        for quality_weight, embedding in zip(quality_weights, embeddings, strict=True)
+    )
+    total = sum(raw_weights)
+    if not math.isfinite(total) or total <= 0:
+        raise EmbeddingExtractionError("robust enrollment weights are invalid")
+    return tuple(weight / total for weight in raw_weights)
+
+
+def embedding_medoid_index(embeddings: list[ExtractedSpeakerEmbedding]) -> int:
+    if len(embeddings) == 0:
+        raise EmbeddingExtractionError("embedding medoid requires enrollment embeddings")
+    selected_index = 0
+    selected_centrality = float("-inf")
+    for index, candidate in enumerate(embeddings):
+        centrality = sum(
+            cosine_score(candidate.vector, other.vector)
+            for other_index, other in enumerate(embeddings)
+            if other_index != index
+        )
+        if not math.isfinite(centrality):
+            raise EmbeddingExtractionError("enrollment embedding centrality is invalid")
+        if centrality > selected_centrality:
+            selected_index = index
+            selected_centrality = centrality
+    return selected_index
+
+
+def minimum_leave_one_out_similarity(
+    *,
+    full_template: list[float],
+    windows: tuple[SpeechWindow, ...],
+    embeddings: list[ExtractedSpeakerEmbedding],
+) -> float:
+    similarities: list[float] = []
+    for omitted_index in range(len(embeddings)):
+        retained_windows = tuple(
+            window for index, window in enumerate(windows) if index != omitted_index
+        )
+        retained_embeddings = [
+            embedding for index, embedding in enumerate(embeddings) if index != omitted_index
+        ]
+        weights = robust_window_weights(retained_windows, retained_embeddings)
+        retained_template = normalized_embedding(
+            weighted_average_embedding(retained_embeddings, weights)
+        )
+        try:
+            similarities.append(cosine_score(full_template, retained_template))
+        finally:
+            zero_float_sequence(retained_template)
+    minimum = min(similarities)
+    if not math.isfinite(minimum):
+        raise EmbeddingExtractionError("leave-one-out template stability is invalid")
+    return minimum
+
+
 def weighted_average_embedding(
     embeddings: list[ExtractedSpeakerEmbedding],
     weights: tuple[float, ...],
@@ -224,6 +329,16 @@ def weighted_average_embedding(
         for index, value in enumerate(embedding.vector):
             totals[index] += value * weight
     return totals
+
+
+def normalized_embedding(vector: list[float]) -> list[float]:
+    magnitude = math.sqrt(sum(value * value for value in vector))
+    if not math.isfinite(magnitude) or magnitude == 0:
+        zero_float_sequence(vector)
+        raise EmbeddingExtractionError("enrollment template magnitude is invalid")
+    normalized = [value / magnitude for value in vector]
+    zero_float_sequence(vector)
+    return normalized
 
 
 def encode_template(

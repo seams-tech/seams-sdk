@@ -8,7 +8,6 @@ import {
   buildEvmFamilyEcdsaWalletKey,
   buildEvmFamilyEcdsaSessionLanePolicy,
   buildEmailOtpEcdsaAuthBinding,
-  buildEcdsaWalletSessionTransportAuth,
   buildPasskeyEcdsaAuthBinding,
   buildResolvedEvmFamilyEcdsaKey,
   deriveBaseEcdsaSubjectIdFromWalletId,
@@ -22,7 +21,6 @@ import {
   type EvmFamilyEcdsaWalletKey,
   type HydratedEcdsaSignerMaterial,
   type EmailOtpEcdsaAuthBinding,
-  type WalletSessionJwtTransportAuth,
   type PasskeyEcdsaAuthBinding,
   type ResolvedEvmFamilyEcdsaKey,
   type ThresholdEcdsaPublicKeyB64u,
@@ -283,28 +281,6 @@ const invalidEmailOtpBindingWithParticipants: EmailOtpEcdsaAuthBinding = {
   participantIds: key.participantIds,
 };
 void invalidEmailOtpBindingWithParticipants;
-
-const walletSessionJwtTransportAuth = buildEcdsaWalletSessionTransportAuth({
-  kind: 'wallet_session_jwt',
-  walletSessionJwt: 'wallet-session-jwt',
-});
-void walletSessionJwtTransportAuth;
-const validWalletSessionJwtTransportAuth: WalletSessionJwtTransportAuth =
-  walletSessionJwtTransportAuth;
-void validWalletSessionJwtTransportAuth;
-
-// @ts-expect-error Wallet Session JWT auth requires a token.
-const invalidWalletSessionJwtTransportAuth: WalletSessionJwtTransportAuth = {
-  kind: 'wallet_session_jwt',
-};
-void invalidWalletSessionJwtTransportAuth;
-
-const invalidCookieTransportAuth: WalletSessionJwtTransportAuth = {
-  // @ts-expect-error ECDSA Wallet Session transport auth is bearer-JWT only.
-  kind: 'browser_cookie',
-  walletSessionJwt: walletSessionJwtTransportAuth.walletSessionJwt,
-};
-void invalidCookieTransportAuth;
 
 const invalidResolvedKeyWithSharedIdentity: ResolvedEvmFamilyEcdsaKey = {
   ...resolvedPasskeyKey,

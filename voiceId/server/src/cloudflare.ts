@@ -369,9 +369,9 @@ function parseCloudflareTranscriptConfig(
 }
 
 function parseMoonshineIntentName(value: string | undefined): string {
-  const intentName = value?.trim() ?? 'expected_phrase';
-  if (intentName.length === 0) {
-    throw new Error('VOICEID_MOONSHINE_INTENT_NAME must be a non-empty string');
+  const intentName = value?.trim() ?? 'approve';
+  if (!['approve', 'reject', 'cancel', 'repeat', 'unrelated'].includes(intentName)) {
+    throw new Error('VOICEID_MOONSHINE_INTENT_NAME is invalid');
   }
   return intentName;
 }

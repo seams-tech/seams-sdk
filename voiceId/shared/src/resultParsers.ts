@@ -342,6 +342,9 @@ function parseEvidenceObservedObject(
     throw new Error('experimental capture freshness must remain unverified');
   }
   const pad = parseExperimentalPad(checks.pad);
+  if (pad.kind === 'rejected' || pad.kind === 'uncertain') {
+    throw new Error('observed evidence requires accepted or unavailable PAD evidence');
+  }
   const captureProfile = parseJsonObject(checks.captureProfile, 'capture profile');
   assertExactObjectKeys(
     captureProfile,
@@ -384,10 +387,82 @@ function parseEvidenceObservedObject(
 
 function parseExperimentalPad(value: unknown): VoiceIdExperimentalPad {
   const pad = parseJsonObject(value, 'pad result');
-  assertExactObjectKeys(pad, ['kind', 'reason'], 'pad result');
-  assertKind(pad.kind, 'pad_unavailable', 'pad result');
-  assertKind(pad.reason, 'ordinary_browser_capture', 'pad reason');
-  return { kind: 'pad_unavailable', reason: 'ordinary_browser_capture' };
+  if (pad.kind === 'pad_unavailable') {
+    assertExactObjectKeys(pad, ['kind', 'reason'], 'pad result');
+    assertKind(pad.reason, 'ordinary_browser_capture', 'pad reason');
+    return { kind: 'pad_unavailable', reason: 'ordinary_browser_capture' };
+  }
+  const common = parseExperimentalPadEvidence(pad);
+  if (pad.kind === 'accepted') {
+    assertExactObjectKeys(
+      pad,
+      [
+        'kind',
+        'score',
+        'rejectThreshold',
+        'acceptThreshold',
+        'modelVersion',
+        'calibrationVersion',
+        'latencyMs',
+      ],
+      'pad result',
+    );
+    return { kind: 'accepted', ...common };
+  }
+  assertExactObjectKeys(
+    pad,
+    [
+      'kind',
+      'reason',
+      'score',
+      'rejectThreshold',
+      'acceptThreshold',
+      'modelVersion',
+      'calibrationVersion',
+      'latencyMs',
+    ],
+    'pad result',
+  );
+  if (pad.kind === 'rejected') {
+    assertKind(pad.reason, 'presentation_attack', 'pad reason');
+    return { kind: 'rejected', reason: 'presentation_attack', ...common };
+  }
+  if (pad.kind === 'uncertain') {
+    return {
+      kind: 'uncertain',
+      reason: parseOneOf(
+        pad.reason,
+        [
+          'model_low_confidence',
+          'model_unavailable',
+          'deadline_exceeded',
+          'overloaded',
+          'low_audio_quality',
+        ],
+        'pad reason',
+      ),
+      ...common,
+    };
+  }
+  throw new Error('pad result kind is invalid');
+}
+
+function parseExperimentalPadEvidence(
+  pad: JsonObject,
+): Omit<Extract<VoiceIdExperimentalPad, { kind: 'accepted' }>, 'kind'> {
+  const rejectThreshold = parseProbability(pad.rejectThreshold, 'pad reject threshold');
+  const acceptThreshold = parseProbability(pad.acceptThreshold, 'pad accept threshold');
+  if (rejectThreshold >= acceptThreshold) {
+    throw new Error('pad reject threshold must be less than accept threshold');
+  }
+  return {
+    score: parseProbability(pad.score, 'pad score'),
+    rejectThreshold,
+    acceptThreshold,
+    modelVersion: parseString(pad.modelVersion, 'pad model version'),
+    calibrationVersion: parseString(pad.calibrationVersion, 'pad calibration version'),
+    latencyMs: parseNonNegativeNumber(pad.latencyMs, 'pad latency'),
+  };
 }
 
 function parseRejectedObject(
@@ -404,7 +479,13 @@ function parseRejectedObject(
     verificationId: parseVerificationId(result.verificationId),
     reason: parseOneOf(
       result.reason,
-      ['phrase_mismatch', 'intent_mismatch', 'speaker_mismatch', 'low_audio_quality'],
+      [
+        'phrase_mismatch',
+        'intent_mismatch',
+        'speaker_mismatch',
+        'presentation_attack',
+        'low_audio_quality',
+      ],
       'rejection reason',
     ),
     checks: parseVoiceIdVerificationChecks(result.checks),
@@ -474,6 +555,13 @@ function parseNullableString(value: unknown, fieldName: string): string | null {
 function parsePositiveNumber(value: unknown, fieldName: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     throw new Error(`${fieldName} must be positive`);
+  }
+  return value;
+}
+
+function parseNonNegativeNumber(value: unknown, fieldName: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${fieldName} must be non-negative`);
   }
   return value;
 }
