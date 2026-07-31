@@ -27,7 +27,9 @@ async function viewerSnapshot(page: Page): Promise<ViewerSnapshot> {
       (field) => field.querySelector('.field-label')?.textContent?.trim() === 'Private Key',
     );
     if (!privateKeyField) throw new Error('private key field not found');
-    const copyButton = privateKeyField.querySelector('button') as HTMLButtonElement | null;
+    const copyButton = privateKeyField.matches('button')
+      ? (privateKeyField as HTMLButtonElement)
+      : (privateKeyField.querySelector('button') as HTMLButtonElement | null);
     const reel = privateKeyField.querySelector('.private-key-reel');
     return {
       copyDisabled: copyButton?.disabled ?? true,
@@ -195,5 +197,50 @@ test.describe('Export private key slot reveal', () => {
     expect(ready.reelSlots).toBe(0);
     expect(ready.copyDisabled).toBe(false);
     expect(ready.innerHtml).not.toContain(PRIVATE_KEY);
+  });
+
+  test('copies from the full key field and transitions the copy icon to a check', async ({
+    page,
+  }) => {
+    await mountReadyViewer(page);
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: async () => undefined },
+      });
+    });
+
+    const state = await page.evaluate(async (tagName) => {
+      const viewer = document.querySelector(tagName) as HTMLElement & {
+        updateComplete?: Promise<void>;
+      };
+      const root = viewer.shadowRoot || viewer;
+      const privateKeyField = Array.from(root.querySelectorAll('.field')).find(
+        (field) => field.querySelector('.field-label')?.textContent?.trim() === 'Private Key',
+      ) as HTMLButtonElement | undefined;
+      if (!privateKeyField) throw new Error('private key field not found');
+
+      const copied = new Promise<void>((resolve) => {
+        viewer.addEventListener('lit-copy', () => resolve(), { once: true });
+      });
+      privateKeyField.click();
+      await copied;
+      await viewer.updateComplete;
+      return {
+        ariaLabel: privateKeyField.getAttribute('aria-label'),
+        copied: privateKeyField.classList.contains('copied'),
+        hasCheckIcon: privateKeyField.querySelector('.copy-icon-check') !== null,
+        hasCopyIcon: privateKeyField.querySelector('.copy-icon-copy') !== null,
+        isWholeFieldButton: privateKeyField.matches('button.copy-field'),
+      };
+    }, EXPORT_VIEWER_TAG);
+
+    expect(state).toEqual({
+      ariaLabel: 'Private key copied',
+      copied: true,
+      hasCheckIcon: true,
+      hasCopyIcon: true,
+      isWholeFieldButton: true,
+    });
   });
 });

@@ -100,6 +100,24 @@ function maskedPrivateKey(privateKey: string): string {
   )}${privateKey.slice(hiddenEnd)}`;
 }
 
+function renderCopyStatusIcon() {
+  return html`
+    <span class="copy-icon" aria-hidden="true">
+      <span class="copy-icon-check">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M20 6 9 17l-5-5"></path>
+        </svg>
+      </span>
+      <span class="copy-icon-copy">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
+          <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+        </svg>
+      </span>
+    </span>
+  `;
+}
+
 function settlingState(
   state: Extract<PrivateKeyRevealState, { kind: 'spinning' }>,
   maskedTarget: string,
@@ -589,7 +607,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
           ${showAccountId
             ? html`
                 <div class="field">
-                  <div class="field-label">Account ID</div>
+                  <div class="field-label">Near Account ID</div>
                   <div class="field-value">
                     <span class="value">
                       ${this.accountId ? this.accountId : html`<span class="muted">—</span>`}
@@ -622,44 +640,48 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
                       : null}
                     ${showPublicKey
                       ? html`
-                          <div class="field">
+                          <button
+                            type="button"
+                            class="field copy-field ${this.isCopied(index, 'publicKey')
+                              ? 'copied'
+                              : ''}"
+                            aria-label=${this.isCopied(index, 'publicKey')
+                              ? 'Public key copied'
+                              : 'Copy public key'}
+                            title=${this.isCopied(index, 'publicKey') ? 'Copied' : 'Copy public key'}
+                            ?disabled=${!publicKey}
+                            @click=${() => this.copy('publicKey', publicKey, index)}
+                          >
                             <div class="field-label">Public Key</div>
                             <div class="field-value">
                               <span class="value">
                                 ${publicKey ? publicKey : html`<span class="muted">—</span>`}
                               </span>
-                              <button
-                                class="btn btn-surface ${this.isCopied(index, 'publicKey')
-                                  ? 'copied'
-                                  : ''}"
-                                title="Copy"
-                                ?disabled=${!publicKey}
-                                @click=${() => this.copy('publicKey', publicKey, index)}
-                              >
-                                ${this.isCopied(index, 'publicKey') ? 'Copied!' : 'Copy'}
-                              </button>
+                              ${renderCopyStatusIcon()}
                             </div>
-                          </div>
+                          </button>
                         `
                       : null}
-                    <div class="field">
+                    <button
+                      type="button"
+                      class="field copy-field ${this.isCopied(index, 'privateKey')
+                        ? 'copied'
+                        : ''}"
+                      aria-label=${this.isCopied(index, 'privateKey')
+                        ? 'Private key copied'
+                        : 'Copy private key'}
+                      title=${this.isCopied(index, 'privateKey') ? 'Copied' : 'Copy private key'}
+                      ?disabled=${this.privateKeyCopyDisabled(index, entry, privateKey)}
+                      @click=${() => this.copy('privateKey', privateKey, index)}
+                    >
                       <div class="field-label">Private Key</div>
                       <div class="field-value">
                         <span class="value private-key">
                           ${this.renderPrivateKey(index, entry, privateKey)}
                         </span>
-                        <button
-                          class="btn btn-surface ${this.isCopied(index, 'privateKey')
-                            ? 'copied'
-                            : ''}"
-                          title="Copy"
-                          ?disabled=${this.privateKeyCopyDisabled(index, entry, privateKey)}
-                          @click=${() => this.copy('privateKey', privateKey, index)}
-                        >
-                          ${this.isCopied(index, 'privateKey') ? 'Copied!' : 'Copy'}
-                        </button>
+                        ${renderCopyStatusIcon()}
                       </div>
-                    </div>
+                    </button>
                   </div>
                 `;
               })
