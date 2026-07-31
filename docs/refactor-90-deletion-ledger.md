@@ -8,8 +8,8 @@ Rules:
 
 - Delete an entry in the same change that replaces its behavior
   (no third implementation, no compatibility alias).
-- When an entry is deleted, strike it here and record the commit in the
-  [journal](./refactor-90-journal.md).
+- When an entry is deleted, strike it here and record the commit in the plan
+  tracker or the applicable commit message.
 - Execution units add newly discovered targets here instead of growing prose
   in the [plan](./refactor-90-modular-auth-capabilities-plan.md).
 
@@ -68,8 +68,10 @@ replacement.
 - ~~`ExactEcdsaExportSession` (the `current session | public reauth authority`
   union)~~ — deleted by `643dde348`; its sole canonical branch is flattened
   into the required-field exact export lane
-- `EcdsaPublicReauthLane`
-- `EvmFamilySharedEcdsaState`
+- ~~`EcdsaPublicReauthLane`~~ — removed with the public-reauthorization
+  selection cutover (`f6ce0651e`).
+- ~~`EvmFamilySharedEcdsaState`~~ — removed with the auth-neutral ECDSA state
+  cutover (`5db9ad87e`).
 - Near material-inspection unions superseded by the shared outcomes
 
 ## Phase 1 boundary residue — registration modes
@@ -641,7 +643,10 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   registration/recovery boundaries
 - ~~zero-caller `buildReauthAnchorIdentityFromEcdsaLaneCandidate` fallback and
   its candidate-only freshness helpers~~ — deleted by `24e0c2335`; live
-  reauth uses the canonical available-lane builder
+  reauth uses the canonical operation-state builder
+- ~~zero-caller `buildReauthAnchorIdentityFromAvailableLane` fallback and its
+  lane-selection/version/source helpers~~ — deleted by `acb368888`; live
+  reauth uses canonical operation-state freshness and lane admission
 - ~~zero-caller `BaseEcdsaWalletId`, bootstrap route-auth/session-id helpers,
   and sealed-record auth-lane wrapper~~ — deleted by `6207cea1f`
 - ~~exact aliases for ECDSA signing authorization, activation request/result,

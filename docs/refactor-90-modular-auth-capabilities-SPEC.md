@@ -132,6 +132,10 @@ implementing commit SHA as the evidence.
 
 - [ ] `R90-INV-001` — hydration and ECDSA persistence boundaries parse raw
   records once and expose only precise internal branches.
+  - [x] Warm ECDSA read-model authorization-required states carry an explicit
+    nullable Email OTP context; negative `never` branches remain closed, and
+    the identity-boundary guard tracks only live protocol-owned constructors
+    (`e9ed27172`).
 - [ ] `R90-INV-002` — Near and ECDSA each have one durable material owner and one
   volatile runtime owner.
   - [x] The exact ECDSA runtime no longer reconstructs or owns an unbranded

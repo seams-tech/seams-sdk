@@ -290,7 +290,7 @@ type WarmSessionEcdsaAuthorizationRequiredState = {
   auth: null;
   prfClaim: WarmSessionPrfClaim | null;
   invalidReason?: never;
-  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext | null;
   state: 'authorization_required';
 };
 

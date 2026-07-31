@@ -10,9 +10,6 @@ import {
   toEvmFamilyEcdsaKeyHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  buildReauthAnchorIdentityFromAvailableLane,
-} from '../../packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes';
-import {
   exactSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
@@ -235,44 +232,6 @@ test.describe('step-up freshness identity', () => {
       laneIdentityKey: required.laneIdentityKey,
       reason: 'threshold_session_exhausted',
       projection: { kind: 'unavailable', reason: 'budget_status_unavailable' },
-    });
-  });
-
-  test('builds an Ed25519 reauth anchor from an expired available lane', () => {
-    const anchor = buildReauthAnchorIdentityFromAvailableLane({
-      walletId: NEAR_WALLET_ID,
-      ...makeOperation(),
-      lane: {
-        auth: PASSKEY_AUTH,
-        curve: 'ed25519',
-        chain: 'near',
-        walletId: NEAR_WALLET_ID,
-        nearAccountId: NEAR_ACCOUNT_ID,
-        nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
-        signerSlot: 1,
-        state: 'expired',
-        source: 'durable_sealed_record',
-        signingGrantId: 'wallet-session-near',
-        thresholdSessionId: 'threshold-session-near',
-        remainingUses: 1,
-        expiresAtMs: 1_700_000_000_000,
-        updatedAtMs: 1_700_000_000_001,
-      },
-      nowMs: 1_800_000_000_000,
-    });
-
-    expect(anchor).toMatchObject({
-      kind: 'reauth_anchor_identity',
-      sourceState: {
-        availabilitySource: 'durable_sealed_record',
-        storeSource: 'login',
-        retention: 'session',
-        remainingUses: 1,
-      },
-      freshness: {
-        kind: 'fresh_step_up_required',
-        reason: 'threshold_session_expired',
-      },
     });
   });
 

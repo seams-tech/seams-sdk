@@ -197,22 +197,6 @@ function checkEcdsaWalletScopedFilesRejectNearAccountProjection() {
     }
   }
 
-  const reauthSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts',
-  );
-  const reauthStart = reauthSource.indexOf(
-    'export function buildReauthAnchorIdentityFromAvailableLane',
-  );
-  const reauthEnd = reauthSource.indexOf('\nfunction emptyEd25519Lane', reauthStart);
-  assert.ok(reauthStart >= 0, 'missing buildReauthAnchorIdentityFromAvailableLane');
-  assert.ok(reauthEnd > reauthStart, 'missing buildReauthAnchorIdentityFromAvailableLane body end');
-  const reauthBody = reauthSource.slice(reauthStart, reauthEnd);
-  if (/toAccountId\s*\([^)]*walletId[^)]*\)/.test(reauthBody)) {
-    violations.push(
-      'availableSigningLanes.ts projects walletId through toAccountId in reauth body',
-    );
-  }
-
   assertNoViolations('ECDSA wallet-scoped files must reject NEAR account projection', violations);
 }
 

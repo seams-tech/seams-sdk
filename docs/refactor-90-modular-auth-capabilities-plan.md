@@ -13,7 +13,6 @@ and the SPEC diverge, the SPEC controls.
 
 Operational records:
 
-- [implementation journal](./refactor-90-journal.md)
 - [deletion ledger](./refactor-90-deletion-ledger.md)
 - [signer-state inventory](./signer-state-inventory.md)
 
@@ -215,7 +214,8 @@ SPEC and Satyr plan are amended together.
 5. Use one enforcement per failure mode: a type fixture for invalid state, a
    boundary parser for untrusted data, a behavior test for lifecycle behavior,
    and a source guard only for an architectural boundary types cannot express.
-6. Record stable checkpoints and genuine blockers in the journal.
+6. Record stable checkpoints and genuine blockers in the commit history and
+   the applicable plan or deletion-ledger entry.
 
 ## Completed Baseline
 
@@ -339,6 +339,9 @@ removes.
       boundary; add no dual-schema core reader, alias, or fallback.
 - [x] Prove persisted hydration → worker bind → sign through the shared path
       using the current worker-open request fixture.
+- [x] Keep warm ECDSA Email OTP context explicit at the read-model boundary:
+      require a nullable context value, preserve `never` exclusion branches,
+      and repair the identity guard's protocol-owned allowlist (`e9ed27172`).
 
 ### 1D. Slim material references
 
@@ -1169,6 +1172,9 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete zero-caller warm-claim sufficiency and error-formatting
         helpers; claim/status mapping remains the sole read-model boundary
         (`9427bc746`).
+  - [x] Delete the superseded `EcdsaPublicReauthLane` and
+        `EvmFamilySharedEcdsaState` unions; canonical selection and hydration
+        outcomes own those branches (`f6ce0651e`, `5db9ad87e`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
@@ -1347,8 +1353,11 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 - [x] Delete the Ed25519 updated-at fallback lane and select directly from the
       canonicalized, priority-sorted candidates.
   - [x] Delete the zero-caller ECDSA reauth-anchor candidate fallback and its
-        candidate-only freshness helpers; retain the live available-lane
+        candidate-only freshness helpers; retain the canonical operation-state
         builder (`24e0c2335`).
+  - [x] Delete the zero-caller available-lane reauth-anchor fallback and its
+        lane-selection/version/source helpers; retain canonical operation-state
+        freshness and lane admission (`acb368888`).
 
 ### Unit 4 exit
 
@@ -1375,7 +1384,6 @@ This is a validation gate, not a deferred cleanup phase.
       tests pass.
 - [ ] `pnpm test:intended` passes against a healthy environment.
 - [ ] `git diff --check` passes.
-- [ ] The journal records the final implementation and validation state.
 
 ## Verification Budgets
 
@@ -1447,7 +1455,6 @@ unit-owned validation after reconciliation before continuing.
 
 - [Refactor 90 SPEC](./refactor-90-modular-auth-capabilities-SPEC.md)
 - [Refactor 90 deletion ledger](./refactor-90-deletion-ledger.md)
-- [Refactor 90 journal](./refactor-90-journal.md)
 - [Refactor 90A patches](./refactor-90A-patches.md)
 - [Email OTP local rehydration](./refactor-patch-2-email-otp-local-rehydration.md)
 - [Refactor 91](./refactor-91.md)

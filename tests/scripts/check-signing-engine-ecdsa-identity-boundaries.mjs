@@ -825,10 +825,14 @@ function checkRestorableMpcMaterialConstructionStaysProtocolOwned() {
   const allowedConstructorFiles = new Set([
     'packages/sdk-web/src/core/signingEngine/session/material/restorableMpcMaterialRef.internal.ts',
     'packages/sdk-web/src/core/signingEngine/session/material/ecdsaCapabilityHydration.ts',
+    'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery.ts',
+    'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoLocalMaterial.ts',
   ]);
   const allowedInternalImports = new Set([
     'packages/sdk-web/src/core/signingEngine/session/material/mpcCapabilityHydration.ts',
     'packages/sdk-web/src/core/signingEngine/session/material/ecdsaCapabilityHydration.ts',
+    'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery.ts',
+    'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoLocalMaterial.ts',
   ]);
   for (const relativePath of listTsFiles('packages/sdk-web/src')) {
     const source = readRepoFile(relativePath);
@@ -851,7 +855,6 @@ function checkStrictActivationSessionBuildersAvoidBroadSpreadShortcuts() {
   const pattern = /\.\.\.(?:baseArgs|args\.signingAuthPlan|activation|effectivePlan)\b/;
   for (const relativePath of [
     'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts',
-    'packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsaSession.ts',
     'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/requireEvmFamilyStepUpAuth.ts',
     'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
   ]) {
