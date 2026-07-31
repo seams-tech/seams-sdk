@@ -2583,7 +2583,7 @@ function resolveLoginThresholdEcdsaBootstrapKey(args: {
       ecdsaThresholdKeyId,
       signingRootId: String(signingRootBinding.signingRootId),
       signingRootVersion: String(signingRootBinding.signingRootVersion),
-      participantIds: keyRef.participantIds || bootstrap.keygen.participantIds,
+      participantIds: keyRef.participantIds,
       thresholdOwnerAddress: String(args.thresholdOwnerAddress || '').trim(),
     }),
   };
@@ -3150,9 +3150,7 @@ async function primeThresholdLoginWarmSigners(args: {
           bootstrap: ThresholdEcdsaSessionBootstrapResult;
         }): ConfiguredTargetThresholdEcdsaWarmKey => {
           const keyRef = input.bootstrap.thresholdEcdsaKeyRef;
-          const thresholdOwnerAddress = String(
-            input.bootstrap.keygen.ethereumAddress || keyRef.ethereumAddress || '',
-          ).trim();
+          const thresholdOwnerAddress = keyRef.ethereumAddress;
           const resolved = resolveLoginThresholdEcdsaBootstrapKey({
             bootstrap: input.bootstrap,
             walletId: args.walletIdentity.walletId,
