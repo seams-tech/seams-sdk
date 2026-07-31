@@ -288,6 +288,10 @@ implementing commit SHA as the evidence.
     resulting 65-byte signature. The endpoint fixture and prepare-response
     parser agree on every required operation-claim field (`7c20fe644`,
     `e75d2bcfb`).
+  - [x] ECDSA presignature bridge, pool-policy, and browser pool-hit fixtures
+    use the current activation and authorization identities; the retired
+    `wallet_key_id` fixture field and zero-caller lane cleanup helper are gone
+    (`917439856`, `814616909`).
   - [x] NEAR sealed-material hydration no longer implies authorization-budget
     readmission; only an actual authorization/session replacement refreshes
     that identity (`30b52879b`).

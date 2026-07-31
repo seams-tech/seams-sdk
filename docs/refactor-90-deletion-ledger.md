@@ -675,6 +675,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~zero-caller dual-PRF registration credential helper and allow-list adapter~~
   — deleted by `93958f9a6`; the canonical credential collector remains the sole
   registration boundary
+- ~~zero-caller `clearRouterAbEcdsaDerivationClientPresignaturesForLane`~~ —
+  deleted by `814616909`; the live global pool clear and worker retirement
+  paths remain
 
 ## 6e gate — composite ECDSA record family (measured 2026-07-28, at `3b904b63a`)
 
