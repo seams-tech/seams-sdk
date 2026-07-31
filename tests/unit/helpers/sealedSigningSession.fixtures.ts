@@ -146,6 +146,8 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
       walletId: record.walletId,
       nearAccountId: record.ed25519Restore.nearAccountId,
       nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
+      walletSessionId: `wallet-session:${record.thresholdSessionIds.ed25519}`,
+      quotaId: `quota:${record.thresholdSessionIds.ed25519}`,
       thresholdSessionId: record.thresholdSessionIds.ed25519,
       signingGrantId: `grant:${record.thresholdSessionIds.ed25519}`,
     }),
