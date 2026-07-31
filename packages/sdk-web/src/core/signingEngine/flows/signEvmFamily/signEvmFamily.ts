@@ -67,7 +67,6 @@ import {
 import type {
   EcdsaSigningListLookupArgs,
   EcdsaSigningLookupArgs,
-  EvmFamilyEcdsaSessionReaderDeps,
   EvmFamilySigningDeps,
   PasskeyEcdsaSigningLookupArgs,
 } from '../../interfaces/operationDeps';
@@ -87,7 +86,7 @@ import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { resolveEvmFamilyTransactionWalletAuth } from './accountAuth';
 import {
   resolveEvmFamilyTransactionStepUp,
-  type EvmFamilyConfirmedSigningDeps,
+  type EvmFamilyConfirmedEmailOtpDeps,
 } from './authPlanning';
 import {
   prepareEvmFamilyEcdsaSigningSession,
@@ -452,15 +451,11 @@ async function signEvmFamilyAttempt(
 
   const requestEmailOtpTransactionSigningChallenge =
     deps.requestEmailOtpTransactionSigningChallenge;
-  const confirmedSigningDeps: EvmFamilyConfirmedSigningDeps = {
+  const confirmedSigningDeps: EvmFamilyConfirmedEmailOtpDeps = {
     ...deps,
     requestEmailOtpTransactionSigningChallenge,
   };
   const authPlanningArgsBase = {
-    deps: {
-      ...deps,
-      signingSessionCoordinator,
-    },
     confirmedDeps: confirmedSigningDeps,
     walletSession: args.walletSession,
     chain: requestChain,

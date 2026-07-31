@@ -67,7 +67,6 @@ import {
   type ReadyEvmFamilyEcdsaSigningSelection,
 } from './ecdsaSelection';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { EvmFamilyPreConfirmSigningDeps } from './authPlanning';
 import type { EvmFamilySigningTarget } from './types';
 
 export function buildEvmFamilyTransactionSigningIntent(args: {
@@ -393,8 +392,7 @@ export type PreparedEvmFamilyEcdsaSigningSession =
   | AuthorizedEvmFamilyEcdsaSigningSession
   | AuthorizationRequiredEvmFamilyEcdsaSigningSession;
 
-export type PrepareEvmFamilyEcdsaSigningDeps = EvmFamilyEcdsaSigningSelectionDeps &
-  EvmFamilyPreConfirmSigningDeps & {
+export type PrepareEvmFamilyEcdsaSigningDeps = EvmFamilyEcdsaSigningSelectionDeps & {
     readAvailableSigningLanesForSigning: (
       args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ecdsa' }>,
     ) => Promise<AvailableSigningLanes>;

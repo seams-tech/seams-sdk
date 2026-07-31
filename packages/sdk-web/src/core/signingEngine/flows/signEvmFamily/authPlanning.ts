@@ -15,7 +15,6 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
-import type { EvmFamilyEcdsaSessionReaderDeps } from '../../interfaces/operationDeps';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import {
   createEmailOtpEcdsaTransactionSigningBridge,
@@ -36,8 +35,6 @@ import type {
   EvmFamilyLifecycleEventCallback,
   EvmFamilySenderSignatureAlgorithm,
 } from './types';
-
-export type EvmFamilyPreConfirmSigningDeps = EvmFamilyEcdsaSessionReaderDeps;
 
 export type EvmFamilyConfirmedEmailOtpDeps = {
   requestEmailOtpTransactionSigningChallenge?: (args: {
@@ -65,13 +62,8 @@ function emailOtpStepUpAuthorityForSelection(
     : undefined;
 }
 
-export type EvmFamilyConfirmedSigningDeps = EvmFamilyConfirmedEmailOtpDeps;
-
-export type EvmFamilyTransactionStepUpDeps = EvmFamilyPreConfirmSigningDeps;
-
 type ResolveEvmFamilyTransactionStepUpBaseArgs = {
-  deps: EvmFamilyTransactionStepUpDeps;
-  confirmedDeps: EvmFamilyConfirmedSigningDeps;
+  confirmedDeps: EvmFamilyConfirmedEmailOtpDeps;
   walletSession: WalletSessionRef;
   chain: EvmFamilyChain;
   chainTarget: ThresholdEcdsaChainTarget;

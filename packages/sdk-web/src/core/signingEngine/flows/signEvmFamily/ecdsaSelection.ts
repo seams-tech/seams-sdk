@@ -26,10 +26,7 @@ import {
   summarizeEvmFamilyEcdsaLane,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
-import type {
-  DurableEmailOtpEcdsaSigningSessionAuthorityResolver,
-  EvmFamilyEcdsaSessionReaderDeps,
-} from '../../interfaces/operationDeps';
+import type { DurableEmailOtpEcdsaSigningSessionAuthorityResolver } from '../../interfaces/operationDeps';
 import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 import { exactEcdsaSigningLaneIdentityFromSelectedLane } from '../../session/identity/exactSigningLaneIdentity';
 import type { EvmFamilySenderSignatureAlgorithm } from './types';
@@ -41,7 +38,6 @@ import {
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 
 export type EvmFamilyEcdsaSigningSelectionDeps = EvmFamilyAccountMetadataDeps &
-  EvmFamilyEcdsaSessionReaderDeps &
   DurableEmailOtpEcdsaSigningSessionAuthorityResolver;
 
 type EcdsaSelectionLaneCandidateDiagnosticsBase = {
