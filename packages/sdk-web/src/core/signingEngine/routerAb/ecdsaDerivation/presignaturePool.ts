@@ -551,33 +551,6 @@ export function clearAllRouterAbEcdsaDerivationClientPresignatures(): void {
   clientPresignaturePoolGenerationByPoolKey.clear();
 }
 
-export async function clearRouterAbEcdsaDerivationClientPresignaturesForLane(args: {
-  relayerUrl: string;
-  scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
-  materialActivation: RouterAbMpcMaterialActivationRefWire;
-  workerCtx: WorkerOperationContext;
-  retireClientPresignaturePool: RouterAbEcdsaDerivationClientSigningMaterialSource['retireClientPresignaturePool'];
-}): Promise<void> {
-  const poolKey = makePresignaturePoolKey({
-    relayerUrl: args.relayerUrl,
-    scope: args.scope,
-    materialActivation: args.materialActivation,
-  });
-  bumpClientPresignaturePoolGeneration(poolKey);
-  await args.retireClientPresignaturePool({
-    poolIdentity: makeClientPresignPoolIdentity({
-      relayerUrl: args.relayerUrl,
-      scope: args.scope,
-      materialActivation: args.materialActivation,
-    }),
-    reason: 'activation_epoch_retired',
-    workerCtx: args.workerCtx,
-  });
-  zeroizeRouterAbEcdsaDerivationClientPresignatureList(clientPresignaturePool.get(poolKey));
-  clientPresignaturePool.delete(poolKey);
-  clientPresignatureRefillInFlightByPoolKey.delete(poolKey);
-}
-
 export function getRouterAbEcdsaDerivationClientPresignaturePoolDepth(args: {
   relayerUrl: string;
   scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
