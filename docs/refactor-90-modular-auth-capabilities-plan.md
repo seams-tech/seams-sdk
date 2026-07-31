@@ -996,7 +996,9 @@ the minimal local broker/gateway adapter.
       vault-specific authorization framework.
 - [x] Prove native session exchange → operation-bound Passkey evidence → exact
       one-use grant → atomic claim/use → real persisted/routed
-      `vault.proxy_use` → audit readback.
+      `vault.proxy_use` → audit readback. The persisted D1 vertical is covered
+      by `vaultProxyUse.unit.test.ts` and passes at the current checkpoint
+      (`5db9ad87e`).
 - [x] Keep broad vault product UI, recovery, rotation, sharing, and future
       capability kinds in the Satyr plan.
 - [x] Delete each concrete replaced vault target in the change that replaces it.

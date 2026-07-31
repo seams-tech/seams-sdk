@@ -160,10 +160,14 @@ implementing commit SHA as the evidence.
   - [x] Ed25519 recovery installation and active-capability lookup use the
     recovery service directly; the forwarding-only runtime locator is deleted
     (`868ba6dee`).
-- [ ] `R90-INV-009` — the minimal vault operation uses a stable fingerprint and
-  one atomic absent-claim grant-use transaction.
-- [ ] `R90-INV-012` — the real minimal vault vertical proves session → Passkey
+- [x] `R90-INV-009` — the minimal vault operation uses a stable fingerprint and
+  one atomic absent-claim grant-use transaction. The persisted D1 vertical
+  passes in `vaultProxyUse.unit.test.ts` (`5db9ad87e`).
+- [x] `R90-INV-012` — the real minimal vault vertical proves session → Passkey
   evidence → grant → operation → audit without future-provider scaffolding.
+  The same persisted D1 vertical exercises the native session exchange,
+  operation-bound Passkey evidence, exact one-use grant, routed secret use, and
+  audit readback (`5db9ad87e`).
 
 ### Units 1, 3a, and 4 — MPC cutover and consumers
 
