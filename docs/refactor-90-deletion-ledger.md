@@ -643,7 +643,10 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   registration/recovery boundaries
 - ~~zero-caller `buildReauthAnchorIdentityFromEcdsaLaneCandidate` fallback and
   its candidate-only freshness helpers~~ — deleted by `24e0c2335`; live
-  reauth uses the canonical available-lane builder
+  reauth uses the canonical operation-state builder
+- ~~zero-caller `buildReauthAnchorIdentityFromAvailableLane` fallback and its
+  lane-selection/version/source helpers~~ — deleted by `acb368888`; live
+  reauth uses canonical operation-state freshness and lane admission
 - ~~zero-caller `BaseEcdsaWalletId`, bootstrap route-auth/session-id helpers,
   and sealed-record auth-lane wrapper~~ — deleted by `6207cea1f`
 - ~~exact aliases for ECDSA signing authorization, activation request/result,

@@ -1350,8 +1350,11 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 - [x] Delete the Ed25519 updated-at fallback lane and select directly from the
       canonicalized, priority-sorted candidates.
   - [x] Delete the zero-caller ECDSA reauth-anchor candidate fallback and its
-        candidate-only freshness helpers; retain the live available-lane
+        candidate-only freshness helpers; retain the canonical operation-state
         builder (`24e0c2335`).
+  - [x] Delete the zero-caller available-lane reauth-anchor fallback and its
+        lane-selection/version/source helpers; retain canonical operation-state
+        freshness and lane admission (`acb368888`).
 
 ### Unit 4 exit
 
