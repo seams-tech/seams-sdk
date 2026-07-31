@@ -11,7 +11,7 @@ import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import type {
   ThresholdSessionSealTransportAuthMaterial,
-} from '../persistence/records';
+} from '../persistence/sealedSessionTransportAuth';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   SelectedEcdsaLane,

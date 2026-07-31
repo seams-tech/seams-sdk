@@ -8,7 +8,7 @@ import {
   toRpId,
 } from '../identity/evmFamilyEcdsaIdentity';
 import { selectedEcdsaLane } from '../identity/laneIdentity';
-import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
+import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/signEvmFamily/ecdsaSigningCapability';
 import {
