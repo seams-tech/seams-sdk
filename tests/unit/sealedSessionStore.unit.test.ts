@@ -22,7 +22,6 @@ const ECDSA_RESTORE_BOOTSTRAP = createThresholdEcdsaBootstrapFixture({
   keyHandle: 'key-handle-ecdsa',
   ecdsaThresholdKeyId: 'ecdsa-threshold-key-sealed-store',
   relayerKeyId: 'relayer-key',
-  sessionKind: 'cookie',
   signingRootId: 'sealed-store:local',
   signingRootVersion: 'v1',
   ethereumAddress: `0x${'33'.repeat(20)}`,

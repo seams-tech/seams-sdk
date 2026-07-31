@@ -43,7 +43,7 @@ import {
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import { testEcdsaChainId, testEcdsaChainTarget } from './ecdsaChainTarget.fixtures';
+import { testEcdsaChainTarget } from './ecdsaChainTarget.fixtures';
 
 const VALID_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -212,7 +212,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   ecdsaThresholdKeyId?: string;
   sessionId?: string;
   walletSessionJwt?: string;
-  sessionKind?: 'jwt' | 'cookie';
   relayerUrl?: string;
   relayerKeyId?: string;
   clientVerifyingShareB64u?: string;
@@ -234,7 +233,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   );
   const keyHandle = String(args.keyHandle || `ederivation-key-${ecdsaThresholdKeyId}`).trim();
   const sessionId = String(args.sessionId || `sess-${chainLabel}-1`).trim();
-  const sessionKind = args.sessionKind || 'jwt';
   const relayerUrl = String(args.relayerUrl || 'https://relay.example').trim();
   const rpId = String(args.rpId || 'localhost').trim();
   const relayerKeyId = String(args.relayerKeyId || `rk-${chainLabel}-1`).trim();
@@ -257,6 +255,9 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   const runtimePolicyScope =
     args.runtimePolicyScope ||
     fixtureRuntimePolicyScopeFromSigningRoot(signingRootId, signingRootVersion);
+  if (!runtimePolicyScope) {
+    throw new Error('ECDSA bootstrap fixture requires a runtime policy scope');
+  }
   const chainTarget = testEcdsaChainTarget(args.chain);
   const roleLocalAuthMethod =
     args.roleLocalAuthMethod === 'email_otp'
@@ -309,19 +310,19 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     bindingDigest: ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
     materialOwner: args.nearAccountId,
   });
-  const walletSessionJwt =
-    sessionKind === 'jwt'
-      ? toFixtureWalletSessionJwt(String(args.walletSessionJwt || `jwt:${sessionId}`).trim(), {
-          nearAccountId: args.nearAccountId,
-          sessionId,
-          signingGrantId,
-          relayerKeyId,
-          ecdsaThresholdKeyId,
-          participantIds,
-          chainTarget,
-          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-        })
-      : '';
+  const walletSessionJwt = toFixtureWalletSessionJwt(
+    String(args.walletSessionJwt || `jwt:${sessionId}`).trim(),
+    {
+      nearAccountId: args.nearAccountId,
+      sessionId,
+      signingGrantId,
+      relayerKeyId,
+      ecdsaThresholdKeyId,
+      participantIds,
+      chainTarget,
+      runtimePolicyScope,
+    },
+  );
 
   return {
     thresholdEcdsaKeyRef: {
@@ -362,29 +363,12 @@ export function createThresholdEcdsaBootstrapFixture(args: {
               publicFacts: ecdsaRoleLocalReadyRecord.publicFacts,
               authMethod: ecdsaRoleLocalReadyRecord.authMethod,
             },
-      thresholdSessionKind: sessionKind,
-      thresholdSessionId: sessionId,
-      signingGrantId,
-      ...(walletSessionJwt ? { walletSessionJwt } : {}),
       routerAbEcdsaDerivationNormalSigning: normalSigning,
       ethereumAddress,
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
     },
     passkeyCredentialIdB64u,
-    keygen: {
-      ok: true,
-      keygenSessionId: `keygen-${sessionId}`,
-      keyHandle,
-      ecdsaThresholdKeyId,
-      clientVerifyingShareB64u,
-      relayerKeyId,
-      participantIds: [...participantIds],
-      chainId: testEcdsaChainId(args.chain),
-      ethereumAddress,
-      thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-      relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
-    },
     session: {
       ok: true,
       thresholdSessionId: sessionId,
@@ -400,11 +384,31 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       ),
       expiresAtMs: args.expiresAtMs ?? Date.now() + 120_000,
       remainingUses: args.remainingUses ?? 5,
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-      ...(walletSessionJwt ? { jwt: walletSessionJwt } : {}),
+      runtimePolicyScope,
+      jwt: walletSessionJwt,
       clientVerifyingShareB64u,
     },
   };
+}
+
+export function thresholdEcdsaBootstrapPublicFactsFixture(
+  bootstrap: ThresholdEcdsaSessionBootstrapResult,
+) {
+  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  switch (binding.materialKind) {
+    case 'role_local_worker_handle':
+    case 'role_local_durable_sealed_ref':
+    case 'role_local_durable_public_anchor':
+      return binding.publicFacts;
+    case 'email_otp_worker_handle':
+    case 'role_local_ready_state_blob':
+      return binding.ecdsaRoleLocalReadyRecord.publicFacts;
+    case 'metadata_only':
+      throw new Error('ECDSA bootstrap fixture requires role-local public facts');
+    default:
+      binding satisfies never;
+      throw new Error('ECDSA bootstrap fixture has an unsupported material binding');
+  }
 }
 
 export function createEcdsaSessionActivationFixture(args: {
@@ -532,8 +536,7 @@ export function toWorkerOwnedPasskeyEcdsaBootstrapFixture(
   if (!binding || binding.materialKind !== 'role_local_ready_state_blob') {
     return bootstrap;
   }
-  const sessionId =
-    String(bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '').trim() || 'fixture-session';
+  const sessionId = String(bootstrap.session.thresholdSessionId).trim() || 'fixture-session';
   const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef(`role-local:${sessionId}`);
   const bindingDigest = parseEcdsaRoleLocalBindingDigest(
     binding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,

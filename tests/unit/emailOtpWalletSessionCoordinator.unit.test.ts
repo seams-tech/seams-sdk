@@ -567,10 +567,6 @@ function emailOtpWorkerEcdsaBootstrapFixture(args: {
         thresholdSessionId,
       }),
     },
-    keygen: {
-      ok: true,
-      evmFamilySigningKeySlotId,
-    },
     session: {
       ok: true,
       thresholdSessionId,
@@ -826,10 +822,6 @@ function createCoordinator(overrides?: {
               thresholdSessionId: call.request.payload.restore.sessionId,
               signingGrantId: call.request.payload.restore.signingGrantId,
               walletSessionJwt: call.request.payload.transport.walletSessionJwt,
-            },
-            keygen: {
-              ok: true,
-              evmFamilySigningKeySlotId: call.request.payload.restore.provisioningKeySlotId,
             },
             session: {
               ok: true,
@@ -1591,10 +1583,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                 signingGrantId: call.request.payload.restore.signingGrantId,
                 walletSessionJwt: call.request.payload.transport.walletSessionJwt,
               },
-              keygen: {
-                ok: true,
-                evmFamilySigningKeySlotId: call.request.payload.restore.provisioningKeySlotId,
-              },
               session: {
                 ok: true,
                 sessionId: call.request.payload.restore.sessionId,
@@ -1793,10 +1781,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                 thresholdSessionId: call.request.payload.restore.sessionId,
                 signingGrantId: call.request.payload.restore.signingGrantId,
                 walletSessionJwt: call.request.payload.transport.walletSessionJwt,
-              },
-              keygen: {
-                ok: true,
-                evmFamilySigningKeySlotId: call.request.payload.restore.provisioningKeySlotId,
               },
               session: {
                 ok: true,

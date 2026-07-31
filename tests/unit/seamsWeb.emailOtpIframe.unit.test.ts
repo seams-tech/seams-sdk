@@ -130,10 +130,6 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 3,
     },
-    keygen: {
-      clientAdditiveShare32B64u: secretSentinel,
-      clientRootShare32B64u: secretSentinel,
-    },
   };
 
   const warmCapability = {

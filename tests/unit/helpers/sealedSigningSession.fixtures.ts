@@ -115,13 +115,13 @@ function emailOtpEcdsaSealedFixtureParts(
   if (!routerAbEcdsaDerivationNormalSigning) {
     throw new Error('Sealed-session fixture requires Router A/B ECDSA normal-signing state');
   }
-  if (!keyRef.walletSessionJwt || !keyRef.keyHandle || !keyRef.ethereumAddress) {
+  if (!bootstrap.session.jwt || !keyRef.keyHandle || !keyRef.ethereumAddress) {
     throw new Error('Sealed-session fixture requires JWT wallet-session bootstrap facts');
   }
   return {
     walletId,
     signingGrantId,
-    thresholdSessionId: keyRef.thresholdSessionId,
+    thresholdSessionId: bootstrap.session.thresholdSessionId,
     relayerUrl: keyRef.relayerUrl,
     restore: {
       chainTarget: keyRef.chainTarget,
@@ -134,7 +134,7 @@ function emailOtpEcdsaSealedFixtureParts(
       authority: buildWalletAuthAuthorityRefForAuthorityFixture(emailOtpAuthority),
       emailOtpAuthority,
       sessionKind: 'jwt',
-      walletSessionJwt: keyRef.walletSessionJwt,
+      walletSessionJwt: bootstrap.session.jwt,
       keyHandle: keyRef.keyHandle,
       ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
       ethereumAddress: keyRef.ethereumAddress,

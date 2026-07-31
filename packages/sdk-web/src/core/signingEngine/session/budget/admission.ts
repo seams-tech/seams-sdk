@@ -3,7 +3,6 @@ import {
   SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
   type SigningSessionBudgetReservation,
 } from './budget';
-import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import type { SelectedLane } from '../identity/laneIdentity';
 import type { BudgetAdmittedOperation } from '../operationState/transactionState';
 
@@ -227,28 +226,6 @@ export function buildOperationAuthorizationQueueKey(args: {
     normalizeQueueKeyPart(args.authorityKey, 'authority'),
     normalizeQueueKeyPart(args.targetKey, 'target'),
   ].join(':') as OperationAuthorizationQueueKey;
-}
-
-export function signingGrantAdmissionAuthorityKeyFromAuth(
-  auth: SigningLaneAuthBinding,
-): string {
-  switch (auth.kind) {
-    case 'passkey': {
-      const rpId = normalizeQueueKeyPart(String(auth.rpId), 'passkey rpId');
-      const credentialId = normalizeQueueKeyPart(
-        auth.credentialIdB64u,
-        'passkey credential',
-      );
-      return ['passkey', rpId, credentialId].join(':');
-    }
-    case 'email_otp': {
-      const providerSubjectId = normalizeQueueKeyPart(
-        auth.providerSubjectId,
-        'email otp provider subject',
-      );
-      return ['email_otp', providerSubjectId].join(':');
-    }
-  }
 }
 
 export async function waitForSigningGrantAdmissionRetry(retryAfterMs: number): Promise<void> {

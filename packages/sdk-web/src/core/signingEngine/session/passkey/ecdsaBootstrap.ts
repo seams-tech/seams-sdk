@@ -22,7 +22,6 @@ import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
 } from '../identity/laneIdentity';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
@@ -37,7 +36,6 @@ import {
   buildEcdsaSessionIdentity,
   type EcdsaSessionIdentity,
 } from '../warmCapabilities/ecdsaProvisionPlan';
-import { parseEcdsaThresholdKeyId } from '../keyMaterialBrands';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
   toEvmFamilyEcdsaKeyHandle,
@@ -264,22 +262,6 @@ export type WalletSessionActivationDeps = {
     signerAuth: ThresholdEcdsaBootstrapSignerAuth;
   }) => Promise<void>;
 };
-
-function requireCanonicalThresholdEcdsaKeyRefIdentity(
-  keyRef: ThresholdEcdsaSecp256k1KeyRef,
-): ThresholdEcdsaSecp256k1KeyRef {
-  const ecdsaThresholdKeyIdRaw = String(keyRef.ecdsaThresholdKeyId || '').trim();
-  if (!ecdsaThresholdKeyIdRaw) {
-    throw new Error(
-      '[SigningEngine] threshold-ecdsa bootstrap did not provide canonical ecdsaThresholdKeyId',
-    );
-  }
-  const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(ecdsaThresholdKeyIdRaw);
-  return {
-    ...keyRef,
-    ecdsaThresholdKeyId,
-  };
-}
 
 function resolveRelayerUrl(
   relayerUrlOverride: string | undefined,
@@ -570,13 +552,7 @@ export async function bootstrapEcdsaSessionValue(
     signingGrantId: activation.session.signingGrantId,
     walletSessionJwt,
   };
-  const thresholdEcdsaKeyRef = requireCanonicalThresholdEcdsaKeyRefIdentity(
-    activation.thresholdEcdsaKeyRef,
-  );
-  const canonicalBootstrap: ThresholdEcdsaSessionBootstrapResult = {
-    ...activation,
-    thresholdEcdsaKeyRef,
-  };
+  const canonicalBootstrap = activation;
 
   const signerAuth = ecdsaBootstrapSignerAuth(request);
   await deps.persistThresholdEcdsaBootstrapForWalletTarget({

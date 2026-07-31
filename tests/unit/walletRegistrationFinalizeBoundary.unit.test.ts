@@ -4,7 +4,10 @@ import {
   type WalletRegistrationEcdsaWalletKey,
 } from '@/core/rpcClients/relayer/walletRegistration';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import {
+  createThresholdEcdsaBootstrapFixture,
+  thresholdEcdsaBootstrapPublicFactsFixture,
+} from './helpers/ecdsaBootstrap.fixtures';
 
 const WALLET_ID = 'registration-finalize-boundary';
 const RP_ID = 'wallet.example.test';
@@ -18,10 +21,7 @@ function registrationFinalizeEcdsaWalletKey(): WalletRegistrationEcdsaWalletKey 
     ethereumAddress: OWNER_ADDRESS,
   });
   const backendBinding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
-  if (!backendBinding || backendBinding.materialKind !== 'role_local_ready_state_blob') {
-    throw new Error('registration finalize fixture requires role-local public facts');
-  }
-  const publicFacts = backendBinding.ecdsaRoleLocalReadyRecord.publicFacts;
+  const publicFacts = thresholdEcdsaBootstrapPublicFactsFixture(bootstrap);
   const publicIdentity = publicFacts.publicCapability.public_identity;
   return {
     keyScope: 'evm-family',
@@ -32,10 +32,10 @@ function registrationFinalizeEcdsaWalletKey(): WalletRegistrationEcdsaWalletKey 
     ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
     signingRootId: publicFacts.signingRootId,
     signingRootVersion: publicFacts.signingRootVersion,
-    thresholdEcdsaPublicKeyB64u: bootstrap.keygen.thresholdEcdsaPublicKeyB64u,
+    thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaKeyRef.thresholdEcdsaPublicKeyB64u,
     thresholdOwnerAddress: OWNER_ADDRESS,
     relayerKeyId: backendBinding.relayerKeyId,
-    relayerVerifyingShareB64u: bootstrap.keygen.relayerVerifyingShareB64u,
+    relayerVerifyingShareB64u: bootstrap.thresholdEcdsaKeyRef.relayerVerifyingShareB64u,
     contextBinding32B64u: publicIdentity.context_binding_b64u,
     derivationClientSharePublicKey33B64u: publicIdentity.derivation_client_share_public_key33_b64u,
     clientShareRetryCounter: publicIdentity.client_share_retry_counter,

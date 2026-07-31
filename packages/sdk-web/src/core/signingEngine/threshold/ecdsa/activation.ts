@@ -81,24 +81,25 @@ export const TEMPO_ECDSA_CHAIN_TARGET: ThresholdEcdsaTempoChainTarget = {
   networkSlug: 'tempo-moderato',
 };
 
-export type ThresholdEcdsaActivatedKeyFacts = {
-  readonly ok: true;
-  readonly keygenSessionId: string;
-  readonly keyHandle: string;
-  readonly ecdsaThresholdKeyId: string;
-  readonly clientVerifyingShareB64u: string;
-  readonly thresholdEcdsaPublicKeyB64u: string;
-  readonly ethereumAddress: string;
-  readonly relayerKeyId: string;
-  readonly relayerVerifyingShareB64u: string;
-  readonly participantIds: readonly number[];
-  readonly chainId: number;
-  readonly evmFamilySigningKeySlotId?: never;
+export type ThresholdEcdsaBootstrapKeyRef = Omit<
+  ThresholdEcdsaSecp256k1KeyRef,
+  | 'keyHandle'
+  | 'backendBinding'
+  | 'participantIds'
+  | 'thresholdEcdsaPublicKeyB64u'
+  | 'ethereumAddress'
+  | 'relayerVerifyingShareB64u'
+> & {
+  keyHandle: string;
+  backendBinding: NonNullable<ThresholdEcdsaSecp256k1KeyRef['backendBinding']>;
+  participantIds: number[];
+  thresholdEcdsaPublicKeyB64u: string;
+  ethereumAddress: string;
+  relayerVerifyingShareB64u: string;
 };
 
 export type ThresholdEcdsaSessionBootstrapResult = {
-  thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
-  keygen: ThresholdEcdsaActivatedKeyFacts;
+  thresholdEcdsaKeyRef: ThresholdEcdsaBootstrapKeyRef;
   session: {
     ok: true;
     thresholdSessionId: string;
@@ -593,20 +594,6 @@ async function activateEcdsaSessionByPurpose(
     bootstrap,
   });
 
-  const keygen: ThresholdEcdsaActivatedKeyFacts = {
-    ok: true,
-    keygenSessionId: bootstrap.keygenSessionId,
-    keyHandle,
-    ecdsaThresholdKeyId,
-    clientVerifyingShareB64u,
-    relayerKeyId,
-    thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u,
-    ethereumAddress: thresholdOwnerAddress,
-    relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
-    participantIds,
-    chainId: bootstrap.chainId,
-  };
-
   const session: ThresholdEcdsaSessionBootstrapResult['session'] = {
     ok: true,
     thresholdSessionId: sessionId,
@@ -621,12 +608,12 @@ async function activateEcdsaSessionByPurpose(
     clientVerifyingShareB64u,
   };
 
-  const thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef = {
+  const thresholdEcdsaKeyRef: ThresholdEcdsaBootstrapKeyRef = {
     type: 'threshold-ecdsa-secp256k1',
     userId: walletId,
     chainTarget,
     relayerUrl: args.relayerUrl,
-    ...(bootstrap.keyHandle ? { keyHandle: bootstrap.keyHandle } : {}),
+    keyHandle,
     ecdsaThresholdKeyId,
     backendBinding: {
       materialKind: 'role_local_worker_handle',
@@ -638,21 +625,14 @@ async function activateEcdsaSessionByPurpose(
       authMethod: roleLocalAuthMethod,
     },
     participantIds,
-    ...(typeof bootstrap.thresholdEcdsaPublicKeyB64u === 'string' &&
-    bootstrap.thresholdEcdsaPublicKeyB64u.trim()
-      ? { thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u.trim() }
-      : {}),
-    ...(thresholdOwnerAddress ? { ethereumAddress: thresholdOwnerAddress } : {}),
-    ...(typeof bootstrap.relayerVerifyingShareB64u === 'string' &&
-    bootstrap.relayerVerifyingShareB64u.trim()
-      ? { relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u.trim() }
-      : {}),
+    thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u,
+    ethereumAddress: thresholdOwnerAddress,
+    relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
     routerAbEcdsaDerivationNormalSigning,
   };
 
   const activationResultBase = {
     thresholdEcdsaKeyRef,
-    keygen,
     session,
   };
   if (bootstrap.secretSourceKind === 'passkey') {

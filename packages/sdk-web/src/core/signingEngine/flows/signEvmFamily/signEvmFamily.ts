@@ -42,9 +42,9 @@ import {
 import { computeSigningOperationFingerprint } from '../../session/planning/operationFingerprint';
 import {
   buildOperationAuthorizationQueueKey,
-  signingGrantAdmissionAuthorityKeyFromAuth,
   type OperationAuthorizationQueueKey,
 } from '../../session/budget/admission';
+import { signingLaneAuthBindingKey } from '../../session/identity/signingLaneAuthBinding';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import { ensureSealedRefreshStartupParityForTransactionSigning } from '../../session/warmCapabilities/sealedRefreshParity';
@@ -188,7 +188,7 @@ function ecdsaOperationAuthorizationQueueKey(args: {
     walletId: args.walletId,
     materialActivationId: args.prepared.signingLane.materialActivation.activationId,
     authorizationId: authorization.projection.walletSessionId,
-    authorityKey: signingGrantAdmissionAuthorityKeyFromAuth(args.prepared.signingLane.auth),
+    authorityKey: signingLaneAuthBindingKey(args.prepared.signingLane.auth),
     targetKey: thresholdEcdsaChainTargetKey(args.prepared.signingLane.chainTarget),
   });
 }
