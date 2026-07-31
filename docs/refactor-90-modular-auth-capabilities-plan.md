@@ -683,8 +683,14 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Email OTP Ed25519 direct login and unlock activation persist under the
         same exact-owner queue and reject an activation replaced during commit
         (`fbf4be6a4`).
-  - [ ] Route Passkey login hydration and sync/unlock recovery through their
-        exact material owner fence.
+  - [x] Route Passkey login hydration and sync/unlock recovery through the
+        shared exact material-owner runner. Login rereads the locator before
+        hydration; sync parses once and keeps recovery, durable promotion,
+        sealed refresh persistence, and registry activation in one queued
+        commit (`26c3cedf2`, `5f3d52bab`).
+  - [ ] Run the Passkey sync/unlock queue-state operating test in a unit or
+        intended environment with IndexedDB available; the current Node worker
+        fails before recovery with `indexedDB is not defined`.
 - [x] Bind live worker material to the exact material activation.
 - [x] Give a server-side expiry race at most one retry after same-method
       step-up.
