@@ -10,10 +10,8 @@ import type { RouterAbEcdsaPresignRuntime } from '../../core/routerAbSigning/Rou
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';
 import type { RouterAbEcdsaStrictRegistrationPort } from '../routerAbEcdsaStrictRegistration';
 import type { RouterAbWalletBudgetGrantProvisionerV1 } from '../routerAbPrivateSigningWorker';
-import {
-  parseSigningSessionSealRootConfig,
-  type SigningSessionSealShamir3PassRootConfig,
-} from '../../threshold/session/signingSessionSeal';
+import type { SigningSessionSealShamir3PassRootConfig } from '../../threshold/session/signingSessionSeal/crypto/cipher';
+import { parseSigningSessionSealRootConfig } from '../../threshold/session/signingSessionSeal/options';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import {
   normalizeOidcExchangeConfig,
