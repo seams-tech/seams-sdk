@@ -266,6 +266,10 @@ implementing commit SHA as the evidence.
     active-material recovery path are deleted. Cold login/unlock recovery,
     sealed refresh, and export recovery remain, and the focused retained
     recovery suite passes 12/12 (`069db2326`).
+  - [x] NEAR factor-specific preparation, Passkey rehydration, and Email OTP
+    recovery ports are private to one Browser-owned material boundary. Generic
+    transaction, delegate, and NEP-413 orchestration receives only the shared
+    preparation plus an exact-activation-checked executor (`fe33b405a`).
 - [x] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.

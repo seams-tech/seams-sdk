@@ -756,6 +756,11 @@ the replacement and legacy MPC paths must not ship together.
       canonical material independently, consume one operation grant, and keep
       reusable Wallet Session creation and quota use out of the step-up branch
       (`069db2326`).
+- [x] Replace the five public NEAR factor-specific preparation, Passkey
+      rehydration, and Email OTP recovery ports with one Browser-owned
+      `{ preparation, executor }` material boundary. Exact factor, signer,
+      session, and activation correlation now occurs before any active client
+      crosses into generic signing orchestration (`fe33b405a`).
 
 ### Worker, WASM, and bundle boundary
 
