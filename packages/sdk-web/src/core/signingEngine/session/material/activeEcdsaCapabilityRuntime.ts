@@ -218,30 +218,6 @@ export async function resolveActiveEcdsaCapabilityRuntime(args: {
     : { kind: 'blocked', reason: resolution.reason };
 }
 
-/** Compose the runtime from a sealed record the caller already holds exactly.
- * The wallet is read from that record, its active manifest is resolved, and the
- * single known record is correlated -- no second listing, and no selection of
- * material by session id. */
-export async function resolveActiveEcdsaCapabilityRuntimeForSealedRecord(args: {
-  readonly record: CurrentEcdsaSealedSessionRecord;
-}): Promise<ActiveEcdsaCapabilityRuntimeResolution> {
-  const walletId = toWalletId(String(args.record.walletId));
-  const chainTarget = args.record.ecdsaRestore.chainTarget;
-  const manifests = await listActiveManifestsForTarget({ walletId, chainTarget });
-  if (manifests.length === 0) return { kind: 'blocked', reason: 'missing_capability' };
-  if (manifests.length > 1) return { kind: 'blocked', reason: 'exact_record_conflict' };
-  const manifest = manifests[0]!;
-  const resolution = resolveExactEcdsaSealedRuntime({
-    manifest,
-    walletId,
-    chainTarget,
-    sealedRecords: [args.record],
-  });
-  return resolution.kind === 'resolved'
-    ? { kind: 'resolved', manifest, runtime: resolution.runtime }
-    : { kind: 'blocked', reason: resolution.reason };
-}
-
 /** Resolve by chain kind, taking the exact chain target from the manifest's own
  * target memberships. The warm-session envelope is keyed by kind (evm/tempo)
  * while correlation needs a full target, and the manifest is the authority on
