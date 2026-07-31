@@ -11,6 +11,7 @@ import type {
   RestorePersistedSessionWorkItem,
 } from './sealedRecovery.types';
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 
 type EcdsaRestoreRecord = Extract<SealedRecoveryRecord, { curve: 'ecdsa' }>;
 
@@ -160,6 +161,14 @@ function exactPurposeForAcceptedRecord(
   ) {
     return null;
   }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      record.roleLocalMaterialRef.materialActivation,
+      lane.signer.materialActivation,
+    )
+  ) {
+    return null;
+  }
   return {
     record,
     purpose: {
@@ -167,6 +176,7 @@ function exactPurposeForAcceptedRecord(
       authMethod: input.authMethod,
       curve: 'ecdsa',
       chainTarget: input.chainTarget,
+      materialActivation: record.roleLocalMaterialRef.materialActivation,
       signingGrantId: record.signingGrantId,
       thresholdSessionId: record.thresholdSessionId,
       reason: input.reason,
@@ -206,6 +216,7 @@ function listedPurposeForAcceptedRecord(args: {
         authMethod: args.record.authMethod,
         curve: 'ecdsa',
         chainTarget: args.requestedChainTarget,
+        materialActivation: args.record.roleLocalMaterialRef.materialActivation,
         signingGrantId: args.record.signingGrantId,
         thresholdSessionId: args.record.thresholdSessionId,
         reason: args.reason,

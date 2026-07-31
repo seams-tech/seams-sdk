@@ -44,10 +44,12 @@ import type {
   RestorePersistedSessionPurpose,
   RestoreSealedRecordResult,
 } from '../session/sealedRecovery/sealedRecovery.types';
+import { materialActivationKey } from '../session/sealedRecovery/sealedRecovery.types';
 import type { SealedRecoveryRecord } from '../session/sealedRecovery/recoveryRecord';
 import { restorePasskeyEcdsaSealedRecordForWallet } from '../session/passkey/ecdsaRecovery';
 import { parseSigningSessionSealKeyVersion } from '../session/keyMaterialBrands';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import {
   thresholdEcdsaChainTargetKey,
@@ -84,6 +86,7 @@ const signingSessionDeleteSingleFlight = new Map<string, Promise<void>>();
 function restoreSingleFlightKey(args: {
   thresholdSessionId: string;
   chainTarget: RestorePersistedSessionPurpose['chainTarget'];
+  materialActivation: RestorePersistedSessionPurpose['materialActivation'];
   signingGrantId: string;
 }): string {
   return [
@@ -91,6 +94,7 @@ function restoreSingleFlightKey(args: {
     'passkey',
     'ecdsa',
     thresholdEcdsaChainTargetKey(args.chainTarget),
+    materialActivationKey(args.materialActivation),
     String(args.signingGrantId || '').trim(),
     String(args.thresholdSessionId || '').trim(),
   ].join('|');
@@ -512,13 +516,18 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
     if (
       !thresholdSessionId ||
       args.record.curve !== 'ecdsa' ||
-      !thresholdEcdsaChainTargetsEqual(args.record.chainTarget, chainTarget)
+      !thresholdEcdsaChainTargetsEqual(args.record.chainTarget, chainTarget) ||
+      !mpcMaterialActivationRefsEqual(
+        args.record.roleLocalMaterialRef.materialActivation,
+        args.purpose.materialActivation,
+      )
     ) {
       return 'deferred';
     }
     const singleFlightKey = restoreSingleFlightKey({
       thresholdSessionId,
       chainTarget,
+      materialActivation: args.purpose.materialActivation,
       signingGrantId: args.purpose.signingGrantId,
     });
     const inFlight = signingSessionRehydrateSingleFlight.get(singleFlightKey);

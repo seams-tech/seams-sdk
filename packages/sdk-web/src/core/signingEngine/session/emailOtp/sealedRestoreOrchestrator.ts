@@ -28,6 +28,8 @@ import type {
   SigningSessionRestoreAttemptRegistry,
   SigningSessionRestoreCache,
 } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
+import { materialActivationKey } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import {
   normalizeSealedRecoveryRecord,
   type EmailOtpEcdsaSealedRecoveryRecord,
@@ -318,6 +320,14 @@ export class EmailOtpSealedRestoreOrchestrator {
     if (!thresholdEcdsaChainTargetsEqual(args.record.chainTarget, args.purpose.chainTarget)) {
       return 'deferred';
     }
+    if (
+      !mpcMaterialActivationRefsEqual(
+        args.record.roleLocalMaterialRef.materialActivation,
+        args.purpose.materialActivation,
+      )
+    ) {
+      return 'deferred';
+    }
     if (args.record.signingGrantId !== args.purpose.signingGrantId) {
       return 'deferred';
     }
@@ -326,6 +336,7 @@ export class EmailOtpSealedRestoreOrchestrator {
       args.purpose.authMethod,
       args.purpose.curve,
       thresholdEcdsaChainTargetKey(args.purpose.chainTarget),
+      materialActivationKey(args.purpose.materialActivation),
       args.purpose.signingGrantId,
       thresholdSessionId,
     ].join(':');
