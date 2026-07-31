@@ -765,3 +765,8 @@ Also note for 4a scope: `buildEcdsaMaterialStateForCandidate` already returns
 `EcdsaMaterialState`. The EVM-family ECDSA signing path is currently
 fail-closed, so 4a is a rebuild of that path on manifest + sealed runtime, not
 a signature-only move.
+
+Resolution: the shared sealed-session fixture now supplies a canonical
+Ed25519 Email OTP material activation and a valid `project:environment` signing
+root. The collection guard reports **1,975 tests in 349 files** again, and the
+stale-record test that exposed the fixture defect passes (`e5cb737c8`).

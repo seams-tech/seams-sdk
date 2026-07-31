@@ -1255,6 +1255,10 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Repoint the EVM key-slot branding guard at the live provisioning,
         worker, Router validation, and registration/recovery boundaries
         (`fc048026f`).
+  - [x] Restore unit-suite collection through the shared sealed-session factory:
+        Email OTP Ed25519 fixtures now carry canonical material activation and
+        valid runtime-policy scope; 1,975 tests collect in 349 files
+        (`e5cb737c8`).
   - [x] Delete zero-caller budget owner, availability, and unknown-status
         adapters; live admission and status readers remain unchanged
         (`20f1bcfca`, `1ce066cf9`, `69b0e6b30`).
