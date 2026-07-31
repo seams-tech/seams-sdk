@@ -21,6 +21,7 @@ import type { EmailOtpWorkerProgressEvent } from '../../workerManager/workerType
 import type { EmailOtpEcdsaBootstrapAuthorization } from '../../session/emailOtp/routePlan';
 import {
   requestEmailOtpSigningSessionChallenge as requestEmailOtpSigningSessionChallengeValue,
+  resolveEmailOtpEcdsaSigningSessionAuth,
   refreshEmailOtpSigningSession as refreshEmailOtpSigningSessionValue,
 } from './emailOtpSigningSession';
 import type {
@@ -123,6 +124,9 @@ export type EmailOtpPublicDeps = {
   relayerUrl: string;
   groupId: string;
   getSignerWorkerContext: () => WorkerOperationContext;
+  withThresholdEcdsaSigningQueue: Parameters<
+    typeof refreshEmailOtpSigningSessionValue
+  >[0]['withThresholdEcdsaSigningQueue'];
   emailOtpSessions: {
     requestTransactionSigningChallenge: Parameters<
       typeof requestEmailOtpSigningSessionChallengeValue
@@ -228,6 +232,8 @@ export async function requestEmailOtpSigningSessionChallenge(
 ): Promise<{ challengeId: string; emailHint?: string }> {
   return await requestEmailOtpSigningSessionChallengeValue(
     {
+      resolveSigningSessionAuth: resolveEmailOtpEcdsaSigningSessionAuth,
+      withThresholdEcdsaSigningQueue: deps.withThresholdEcdsaSigningQueue,
       emailOtpSessions: {
         requestTransactionSigningChallenge: (challengeArgs) =>
           deps.emailOtpSessions.requestTransactionSigningChallenge(challengeArgs),
@@ -263,6 +269,8 @@ export async function refreshEmailOtpSigningSession(
 ): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult> {
   const refreshed = await refreshEmailOtpSigningSessionValue(
     {
+      resolveSigningSessionAuth: resolveEmailOtpEcdsaSigningSessionAuth,
+      withThresholdEcdsaSigningQueue: deps.withThresholdEcdsaSigningQueue,
       emailOtpSessions: {
         requestTransactionSigningChallenge: (challengeArgs) =>
           deps.emailOtpSessions.requestTransactionSigningChallenge(challengeArgs),

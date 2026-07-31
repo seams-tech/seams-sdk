@@ -142,6 +142,7 @@ import {
 } from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
 import {
   clearThresholdEcdsaSigningQueue,
+  withThresholdEcdsaSigningQueue,
   type ThresholdEcdsaSigningQueueByKey,
 } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
 import { type ThresholdEd25519CommitQueueByKey } from '@/core/signingEngine/threshold/ed25519/commitQueue';
@@ -665,6 +666,11 @@ export class BrowserSigningSurface {
       groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       getSignerWorkerContext: () =>
         this.enginePorts.walletSessionActivationDeps.getSignerWorkerContext(),
+      withThresholdEcdsaSigningQueue: (queueArgs) =>
+        withThresholdEcdsaSigningQueue({
+          queueByKey: this.thresholdEcdsaSigningQueueByKey,
+          ...queueArgs,
+        }),
       emailOtpSessions: this.emailOtpSessions,
     };
     this.recoveryPublicDeps = createBrowserRecoveryPublicDeps({

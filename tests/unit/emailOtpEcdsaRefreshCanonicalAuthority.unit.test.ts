@@ -4,6 +4,11 @@ import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/mat
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { ecdsaCapabilityHydrationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
+import {
+  refreshEmailOtpSigningSession,
+  type EmailOtpEcdsaSigningSessionDeps,
+} from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
+import { resolveThresholdEcdsaSigningQueueKey } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
 
 // Email OTP refresh renews authorization over material that already exists. It
 // resolves the exact manifest plus sealed runtime, takes the Email OTP binding
@@ -51,10 +56,10 @@ test.describe('Email OTP ECDSA refresh canonical authority', () => {
     const authLane = resolution.authority.authLane;
     expect(authLane.kind).toBe('signing_session');
     expect(authLane.curve).toBe('ecdsa');
-    // Session identity is the sealed record's, authorization identity is the
-    // reusable Wallet Session's; they are separate proofs.
+    // The Email OTP lane names the sealed threshold session. Reusable Wallet
+    // Session identity remains on the independent authorization projection.
     expect(authLane.thresholdSessionId).toBe(runtime.sealedRecord.thresholdSessionId);
-    expect(String(authLane.authorizingSigningGrantId)).toBe('wallet-session-refresh');
+    expect(authLane.authorizingSigningGrantId).toBeUndefined();
     expect(authLane.jwt).toBe('wallet-session-jwt');
   });
 
@@ -83,5 +88,65 @@ test.describe('Email OTP ECDSA refresh canonical authority', () => {
     expect(String(after.runtime.roleLocalMaterialRef.durableMaterialRef)).toBe(
       String(before.runtime.roleLocalMaterialRef.durableMaterialRef),
     );
+  });
+
+  test('rechecks the exact activation inside its owner queue before consuming refresh', async () => {
+    const initial = resolvedRuntime();
+    const authorityResolution = resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime({
+      runtime: initial.runtime,
+      authorization: activeAuthorization('wallet-session-refresh'),
+    });
+    if (authorityResolution.kind !== 'ready') {
+      throw new Error('refresh fixture requires an active Email OTP authority');
+    }
+    let resolutionCalls = 0;
+    let queueCalls = 0;
+    let loginCalls = 0;
+    const deps: EmailOtpEcdsaSigningSessionDeps = {
+      resolveSigningSessionAuth: async () => {
+        resolutionCalls += 1;
+        if (resolutionCalls === 1) {
+          return {
+            manifest: initial.manifest,
+            runtime: initial.runtime,
+            authority: authorityResolution.authority,
+          };
+        }
+        throw new Error('capability disappeared while queued');
+      },
+      withThresholdEcdsaSigningQueue: async (queueArgs) => {
+        queueCalls += 1;
+        expect(queueArgs.queueKey).toBe(
+          resolveThresholdEcdsaSigningQueueKey({
+            materialActivation: initial.runtime.materialActivation,
+          }),
+        );
+        return await queueArgs.task();
+      },
+      emailOtpSessions: {
+        requestTransactionSigningChallenge: async () => {
+          throw new Error('challenge is not part of refresh fencing');
+        },
+        loginWithEcdsaCapabilityInternal: async () => {
+          loginCalls += 1;
+          throw new Error('refresh must not consume after supersession');
+        },
+      },
+    };
+
+    await expect(
+      refreshEmailOtpSigningSession(deps, {
+        walletSession: {
+          walletId: initial.walletId,
+          walletSessionUserId: String(initial.walletId),
+        },
+        chainTarget: initial.runtime.chainTarget,
+        challengeId: 'challenge-refresh-fence',
+        otpCode: '123456',
+      }),
+    ).rejects.toThrow('superseded before use');
+    expect(queueCalls).toBe(1);
+    expect(resolutionCalls).toBe(2);
+    expect(loginCalls).toBe(0);
   });
 });

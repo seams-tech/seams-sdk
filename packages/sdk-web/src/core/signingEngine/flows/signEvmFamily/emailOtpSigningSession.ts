@@ -52,6 +52,7 @@ import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOt
 import type { EcdsaCommittedLane } from './ecdsaSelection';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDelivery';
+import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
 
 type WalletSessionEmailOtpChallengeArgs = Extract<
   RequestEmailOtpChallengeArgs,
@@ -59,6 +60,13 @@ type WalletSessionEmailOtpChallengeArgs = Extract<
 >;
 
 export type EmailOtpEcdsaSigningSessionDeps = {
+  resolveSigningSessionAuth: typeof resolveEmailOtpEcdsaSigningSessionAuth;
+  withThresholdEcdsaSigningQueue: <T>(args: {
+    queueKey: string;
+    walletId: WalletId;
+    enabled: boolean;
+    task: () => Promise<T>;
+  }) => Promise<T>;
   emailOtpSessions: {
     requestTransactionSigningChallenge: (
       args: WalletSessionEmailOtpChallengeArgs,
@@ -287,7 +295,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
  * must land on the same material activation it started from, so the caller
  * checks that before and after; nothing here invokes Yao recovery or device
  * linking. */
-async function resolveEmailOtpEcdsaSigningSessionAuth(args: {
+export async function resolveEmailOtpEcdsaSigningSessionAuth(args: {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
 }): Promise<{
@@ -339,7 +347,7 @@ export async function requestEmailOtpSigningSessionChallenge(
     chainTarget: ThresholdEcdsaChainTarget;
   },
 ): Promise<EmailOtpTransactionSigningChallenge> {
-  const { authority } = await resolveEmailOtpEcdsaSigningSessionAuth({
+  const { authority } = await deps.resolveSigningSessionAuth({
     walletId: args.walletSession.walletId,
     chainTarget: args.chainTarget,
   });
@@ -351,22 +359,58 @@ export async function requestEmailOtpSigningSessionChallenge(
   });
 }
 
-export async function refreshEmailOtpSigningSession(
-  deps: EmailOtpEcdsaSigningSessionDeps,
-  args: {
-    walletSession: WalletSessionRef;
-    chainTarget: ThresholdEcdsaChainTarget;
-    challengeId: string;
-    otpCode: string;
-    ttlMs?: number;
-    remainingUses?: number;
-  },
-): Promise<EmailOtpThresholdEcdsaLoginResult> {
-  const { manifest, runtime, authority } = await resolveEmailOtpEcdsaSigningSessionAuth({
-    walletId: args.walletSession.walletId,
-    chainTarget: args.chainTarget,
+type RefreshEmailOtpSigningSessionArgs = {
+  walletSession: WalletSessionRef;
+  chainTarget: ThresholdEcdsaChainTarget;
+  challengeId: string;
+  otpCode: string;
+  ttlMs?: number;
+  remainingUses?: number;
+};
+
+async function resolveFencedEmailOtpSigningSessionAuth(input: {
+  deps: EmailOtpEcdsaSigningSessionDeps;
+  args: RefreshEmailOtpSigningSessionArgs;
+  activationBeforeRefresh: MpcMaterialActivationRef;
+  phase: 'before use' | 'during refresh';
+}): ReturnType<EmailOtpEcdsaSigningSessionDeps['resolveSigningSessionAuth']> {
+  let current: Awaited<
+    ReturnType<EmailOtpEcdsaSigningSessionDeps['resolveSigningSessionAuth']>
+  >;
+  try {
+    current = await input.deps.resolveSigningSessionAuth({
+      walletId: input.args.walletSession.walletId,
+      chainTarget: input.args.chainTarget,
+    });
+  } catch {
+    throw new Error(
+      `[SigningEngine][ecdsa] Email OTP signing-session refresh material was superseded ${input.phase}`,
+    );
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      current.runtime.materialActivation,
+      input.activationBeforeRefresh,
+    )
+  ) {
+    throw new Error(
+      `[SigningEngine][ecdsa] Email OTP signing-session refresh material was superseded ${input.phase}`,
+    );
+  }
+  return current;
+}
+
+async function runFencedEmailOtpSigningSessionRefresh(input: {
+  deps: EmailOtpEcdsaSigningSessionDeps;
+  args: RefreshEmailOtpSigningSessionArgs;
+  activationBeforeRefresh: MpcMaterialActivationRef;
+}): Promise<EmailOtpThresholdEcdsaLoginResult> {
+  const { manifest, runtime, authority } = await resolveFencedEmailOtpSigningSessionAuth({
+    deps: input.deps,
+    args: input.args,
+    activationBeforeRefresh: input.activationBeforeRefresh,
+    phase: 'before use',
   });
-  const activationBeforeRefresh = runtime.materialActivation;
   const routePlan = buildEmailOtpRoutePlan({
     routeFamily: 'signing_session',
     authLane: authority.authLane,
@@ -385,13 +429,13 @@ export async function refreshEmailOtpSigningSession(
   if (emailOtpBinding.kind !== 'email_otp') {
     throw new Error('Email OTP signing-session refresh requires an Email OTP sealed runtime');
   }
-  const refreshed = await deps.emailOtpSessions.loginWithEcdsaCapabilityInternal({
-    walletSession: args.walletSession,
-    chainTarget: args.chainTarget,
+  const refreshed = await input.deps.emailOtpSessions.loginWithEcdsaCapabilityInternal({
+    walletSession: input.args.walletSession,
+    chainTarget: input.args.chainTarget,
     emailOtpAuthPolicy: 'session',
     emailOtpAuthReason: 'sign',
-    challengeId: args.challengeId,
-    otpCode: args.otpCode,
+    challengeId: input.args.challengeId,
+    otpCode: input.args.otpCode,
     operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
     routePlan,
     publicFacts,
@@ -401,26 +445,42 @@ export async function refreshEmailOtpSigningSession(
       providerUserId: emailOtpBinding.providerSubjectId,
     },
     emailHashHex: emailOtpBinding.emailHashHex,
-    ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
-    ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
+    ...(typeof input.args.ttlMs === 'number' ? { ttlMs: input.args.ttlMs } : {}),
+    ...(typeof input.args.remainingUses === 'number'
+      ? { remainingUses: input.args.remainingUses }
+      : {}),
     ...(runtime.runtimePolicyScope ? { runtimePolicyScope: runtime.runtimePolicyScope } : {}),
   });
   // Refresh renews authorization over the same material; it must never land on
   // a different activation, and it never invokes recovery or device linking.
-  const activationAfterRefresh = await resolveActiveEcdsaCapabilityRuntime({
+  await resolveFencedEmailOtpSigningSessionAuth({
+    deps: input.deps,
+    args: input.args,
+    activationBeforeRefresh: input.activationBeforeRefresh,
+    phase: 'during refresh',
+  });
+  return refreshed;
+}
+
+export async function refreshEmailOtpSigningSession(
+  deps: EmailOtpEcdsaSigningSessionDeps,
+  args: RefreshEmailOtpSigningSessionArgs,
+): Promise<EmailOtpThresholdEcdsaLoginResult> {
+  const initial = await deps.resolveSigningSessionAuth({
     walletId: args.walletSession.walletId,
     chainTarget: args.chainTarget,
   });
-  if (
-    activationAfterRefresh.kind === 'resolved' &&
-    !mpcMaterialActivationRefsEqual(
-      activationAfterRefresh.runtime.materialActivation,
+  const activationBeforeRefresh = initial.runtime.materialActivation;
+  return await deps.withThresholdEcdsaSigningQueue({
+    queueKey: resolveThresholdEcdsaSigningQueueKey({
+      materialActivation: activationBeforeRefresh,
+    }),
+    walletId: args.walletSession.walletId,
+    enabled: true,
+    task: runFencedEmailOtpSigningSessionRefresh.bind(undefined, {
+      deps,
+      args,
       activationBeforeRefresh,
-    )
-  ) {
-    throw new Error(
-      '[SigningEngine][ecdsa] Email OTP signing-session refresh changed the material activation',
-    );
-  }
-  return refreshed;
+    }),
+  });
 }
