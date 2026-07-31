@@ -24,6 +24,8 @@ import {
   type ExactEcdsaSealedRuntimeResolution,
 } from './ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from './ecdsaCapabilityManifest';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
+import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 
 // Async composition over the pure correlation in ecdsaSealedRuntime: select the
 // wallet's active capability for a chain target, read that wallet's exact
@@ -100,7 +102,7 @@ async function listActiveManifestsForTarget(args: {
 async function listSealedEcdsaRecordsForWallet(args: {
   readonly walletId: WalletId;
   readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly authMethod?: 'passkey' | 'email_otp';
+  readonly authMethod?: SigningSessionSealAuthMethod;
 }): Promise<readonly CurrentEcdsaSealedSessionRecord[]> {
   const records: CurrentEcdsaSealedSessionRecord[] = [];
   const authMethods = args.authMethod
@@ -120,7 +122,7 @@ async function listSealedEcdsaRecordsForWallet(args: {
 
 async function listInactiveEcdsaRecordsForWallet(args: {
   readonly walletId: WalletId;
-  readonly authMethod: 'passkey' | 'email_otp';
+  readonly authMethod: SigningSessionSealAuthMethod;
 }): Promise<readonly EcdsaInactiveSealedMaterialRecord[]> {
   const found = await listEcdsaSealedSessionsForWallet({
     walletId: String(args.walletId),
@@ -139,7 +141,7 @@ async function listInactiveEcdsaRecordsForWallet(args: {
 export async function resolveExactInactiveEcdsaCapabilityMaterial(args: {
   readonly manifest: ActiveEcdsaCapabilityManifest;
   readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly authMethod: 'passkey' | 'email_otp';
+  readonly authMethod: SignerAuthMethod;
 }): Promise<InactiveEcdsaCapabilityMaterialResolution> {
   if (!manifestCoversTarget({ manifest: args.manifest, chainTarget: args.chainTarget })) {
     return { kind: 'blocked', reason: 'chain_mismatch' };
@@ -164,7 +166,7 @@ export async function resolveExactInactiveEcdsaCapabilityMaterial(args: {
 export async function resolveExactEcdsaCapabilityRuntime(args: {
   readonly manifest: ActiveEcdsaCapabilityManifest;
   readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly authMethod: 'passkey' | 'email_otp';
+  readonly authMethod: SignerAuthMethod;
 }): Promise<
   | ActiveEcdsaCapabilityRuntimeResolution
   | {

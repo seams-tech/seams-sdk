@@ -167,6 +167,12 @@ implementing commit SHA as the evidence.
   - [x] Ed25519 recovery installation and active-capability lookup use the
     recovery service directly; the forwarding-only runtime locator is deleted
     (`868ba6dee`).
+  - [x] Generic signing, hydration, export, sealed-runtime, and step-up
+    functions accept the canonical auth-method domains and project factor
+    unions exhaustively. Binary fallbacks, ad hoc two-factor unions, the
+    duplicate runtime-postcondition auth alias, and their stale guard
+    allowances are removed; the auth-domain guard passes (`157eb7562`,
+    `732802dc9`, `40fb0203f`, `bdf6cc5da`).
 - [x] `R90-INV-009` — the minimal vault operation uses a stable fingerprint and
   one atomic absent-claim grant-use transaction. The persisted D1 vertical
   passes in `vaultProxyUse.unit.test.ts` (`5db9ad87e`).

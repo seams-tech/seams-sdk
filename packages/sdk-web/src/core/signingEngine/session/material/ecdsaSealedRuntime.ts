@@ -19,11 +19,13 @@ import type {
 } from '../persistence/sealedSessionStore';
 import {
   parseEcdsaRoleLocalPersistedMaterialRef,
+  type EcdsaClientVerifyingPublicKey33B64u,
   type EcdsaRoleLocalPersistedMaterialRef,
 } from '../keyMaterialBrands';
 import type { MpcCapabilityHydrationBlockedReason } from './mpcCapabilityHydration';
 import type { ActiveEcdsaCapabilityManifest } from './ecdsaCapabilityManifest';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 
 // The manifest and the sealed store own complementary halves of one capability:
 // the manifest selects the exact capability, its public facts, and the material
@@ -56,7 +58,7 @@ export type ExactEcdsaSealedRuntimeAuthBinding =
 export type ExactEcdsaSealedRecordIdentity = {
   readonly storeKey: string;
   readonly thresholdSessionId: string;
-  readonly authMethod: 'passkey' | 'email_otp';
+  readonly authMethod: SigningSessionSealAuthMethod;
 };
 
 export type ExactEcdsaMaterialRuntime = {
@@ -66,7 +68,7 @@ export type ExactEcdsaMaterialRuntime = {
   readonly normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
   readonly relayerUrl: string;
   readonly relayerKeyId: string;
-  readonly clientVerifyingShareB64u: string;
+  readonly clientVerifyingPublicKey33B64u: EcdsaClientVerifyingPublicKey33B64u;
   readonly participantIds: readonly [number, number];
   readonly ecdsaThresholdKeyId: string;
   readonly thresholdEcdsaPublicKeyB64u: string;
@@ -93,7 +95,7 @@ export type ExactInactiveEcdsaMaterialRuntime = ExactEcdsaMaterialRuntime & {
   readonly kind: 'exact_inactive_ecdsa_material_runtime_v1';
   readonly inactiveMaterialRecord: {
     readonly storeKey: string;
-    readonly authMethod: 'passkey' | 'email_otp';
+    readonly authMethod: SigningSessionSealAuthMethod;
     readonly authorizationRetirementReason: 'expired' | 'exhausted';
   };
   readonly expiresAtMs?: never;
@@ -338,16 +340,8 @@ function materialRuntimeFromRecord(args: {
   const authBinding = authBindingFromRestore(restore);
   const relayerUrl = normalizedNonEmpty(args.record.relayerUrl).replace(/\/+$/g, '');
   const relayerKeyId = normalizedNonEmpty(restore.relayerKeyId);
-  const clientVerifyingShareB64u =
-    'recordKind' in args.record
-      ? normalizedNonEmpty(
-          args.manifest.durableMaterial.roleLocalBinding.clientVerifyingPublicKey33B64u,
-        )
-      : normalizedNonEmpty(restore.clientVerifyingShareB64u) ||
-        normalizedNonEmpty(
-          restore.routerAbEcdsaDerivationNormalSigning.scope.public_identity
-            .derivation_client_share_public_key33_b64u,
-        );
+  const clientVerifyingPublicKey33B64u =
+    args.manifest.durableMaterial.roleLocalBinding.clientVerifyingPublicKey33B64u;
   const ecdsaThresholdKeyId =
     normalizedNonEmpty(restore.ecdsaThresholdKeyId) ||
     normalizedNonEmpty(restore.routerAbEcdsaDerivationNormalSigning.scope.ecdsa_threshold_key_id);
@@ -379,7 +373,7 @@ function materialRuntimeFromRecord(args: {
     !authBinding ||
     !relayerUrl ||
     !relayerKeyId ||
-    !clientVerifyingShareB64u ||
+    !clientVerifyingPublicKey33B64u ||
     !ecdsaThresholdKeyId ||
     !thresholdEcdsaPublicKeyB64u ||
     !keyHandle ||
@@ -394,7 +388,7 @@ function materialRuntimeFromRecord(args: {
     normalSigning: restore.routerAbEcdsaDerivationNormalSigning,
     relayerUrl,
     relayerKeyId,
-    clientVerifyingShareB64u,
+    clientVerifyingPublicKey33B64u,
     participantIds,
     ecdsaThresholdKeyId,
     thresholdEcdsaPublicKeyB64u,
@@ -502,7 +496,7 @@ export function resolveExactInactiveEcdsaMaterialRuntime(input: {
   readonly manifest: ActiveEcdsaCapabilityManifest;
   readonly walletId: WalletId;
   readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly authMethod: 'passkey' | 'email_otp';
+  readonly authMethod: SigningSessionSealAuthMethod;
   readonly inactiveRecords: readonly EcdsaInactiveSealedMaterialRecord[];
 }): ExactInactiveEcdsaMaterialRuntimeResolution {
   const matches = input.inactiveRecords.filter(

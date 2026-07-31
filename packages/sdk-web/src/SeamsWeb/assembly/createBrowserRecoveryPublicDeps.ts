@@ -31,13 +31,14 @@ import {
   withThresholdEd25519CommitQueue,
   type ThresholdEd25519CommitQueueByKey,
 } from '@/core/signingEngine/threshold/ed25519/commitQueue';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 
 async function resolvePasskeyEcdsaExportRouteAuth(
   emailOtpSessions: EmailOtpWalletSessionCoordinator,
   relayerUrl: string,
   walletId: string,
   chainTarget: ThresholdEcdsaChainTarget,
-  authMethod: 'passkey' | 'email_otp',
+  authMethod: SignerAuthMethod,
 ): Promise<EcdsaExplicitExportSessionAuth> {
   switch (authMethod) {
     case 'passkey':

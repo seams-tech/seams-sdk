@@ -462,7 +462,11 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 - [x] Make SDK capability selection exhaustive and reject implicit fallbacks.
 - [x] Make disabled capability requests fail early with a typed result.
 - [x] Keep protocol, auth method, capability, and lifecycle as separate unions.
-- [ ] Remove duplicate aliases and direct string comparisons from generic code.
+- [x] Remove duplicate aliases and direct string comparisons from generic code.
+      Generic signing, hydration, export, sealed-runtime, and step-up surfaces
+      now use the canonical auth-method domains and exhaustive factor
+      projection; the auth-domain guard passes with the stale allowances
+      removed (`157eb7562`, `732802dc9`, `40fb0203f`, `bdf6cc5da`).
 - [x] Delete the restore-purpose, bootstrap-request, ECDSA transport-auth, and
       ready-session-policy aliases after their consumers adopt the canonical
       types directly.
@@ -1094,6 +1098,11 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete legacy recovery microstates and compensation branches.
 - [ ] Delete duplicate signing-lane selectors, auth-method fallbacks, direct
       protocol dispatch, and superseded export coordinators.
+  - [x] Replace binary Passkey/Email OTP fallbacks and ad hoc two-factor unions
+        across signing, hydration, export, sealed-runtime, and step-up
+        boundaries with exhaustive canonical-domain control flow; remove the
+        duplicate runtime-postcondition auth alias and shrink the guard
+        allowlists (`157eb7562`, `732802dc9`, `40fb0203f`, `bdf6cc5da`).
   - [x] Delete the zero-caller duplicate ECDSA material-key selector
         (`5cc54814d`).
   - [x] Delete the zero-caller private-key export coordinator and its dead

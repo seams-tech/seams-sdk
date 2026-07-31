@@ -10,6 +10,7 @@ import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../../../session/material/nearEd25519YaoMaterialActivation';
 import { requireNearOperationStepUpMaterialActivation } from './operationStepUpPreparation';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 
 export type NearEd25519AuthorizationResult = {
   sessionId: string;
@@ -99,7 +100,7 @@ export async function resolvePreparedNearEd25519YaoMaterial(
 }
 
 export async function prepareNearOperationStepUpMaterial(args: {
-  method: 'passkey' | 'email_otp';
+  method: SignerAuthMethod;
   preparation: NearEd25519YaoSigningPreparation;
   executor: NearEd25519YaoMaterialExecutor;
 }): Promise<NearOperationStepUpMaterial> {

@@ -12,6 +12,7 @@ import {
 import type { EcdsaExplicitExportSessionAuth } from '../../threshold/ecdsa/activation';
 import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import {
@@ -103,7 +104,7 @@ export type EcdsaExportFlowDeps = {
   resolvePasskeyEcdsaExportRouteAuth: (
     walletId: string,
     chainTarget: ThresholdEcdsaChainTarget,
-    authMethod: 'passkey' | 'email_otp',
+    authMethod: SignerAuthMethod,
   ) => Promise<EcdsaExplicitExportSessionAuth>;
   getSignerWorkerContext: () => WorkerOperationContext;
   withThresholdEcdsaSigningQueue: <T>(args: {
@@ -123,7 +124,7 @@ async function resolvePasskeyEcdsaExportRouteAuth(args: {
   deps: Pick<EcdsaExportFlowDeps, 'resolvePasskeyEcdsaExportRouteAuth'>;
   walletId: string;
   chainTarget: ThresholdEcdsaChainTarget;
-  authMethod: 'passkey' | 'email_otp';
+  authMethod: SignerAuthMethod;
 }): Promise<EcdsaExplicitExportSessionAuth> {
   return await args.deps.resolvePasskeyEcdsaExportRouteAuth(
     args.walletId,

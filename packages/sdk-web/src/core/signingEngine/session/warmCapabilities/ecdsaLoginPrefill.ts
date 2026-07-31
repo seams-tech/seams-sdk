@@ -128,7 +128,7 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
     // participant ids still parse as a Router A/B 2-of-2 set.
     const runtime = args.runtime;
     const relayerUrl = runtime.relayerUrl;
-    const clientVerifyingShareB64u = runtime.clientVerifyingShareB64u;
+    const clientVerifyingPublicKey33B64u = runtime.clientVerifyingPublicKey33B64u;
     const participantIds = parseThresholdSecp256k1Ecdsa2pParticipantIdsV1(runtime.participantIds);
     if (!participantIds.ok) {
       return {
@@ -234,7 +234,9 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
     const schedule = scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill({
       relayerUrl,
       ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(runtime.ecdsaThresholdKeyId),
-      clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(clientVerifyingShareB64u),
+      clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(
+        clientVerifyingPublicKey33B64u,
+      ),
       clientSigningMaterial,
       thresholdEcdsaPublicKeyB64u: runtime.thresholdEcdsaPublicKeyB64u,
       relayerVerifyingShareB64u:

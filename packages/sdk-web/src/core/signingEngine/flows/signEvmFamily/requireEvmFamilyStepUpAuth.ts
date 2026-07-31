@@ -19,6 +19,7 @@ import type { OperationDigestSet } from '@shared/authorization/operationFingerpr
 import type { ReadySecp256k1SigningMaterial } from './signers/secp256k1';
 import type { PreparedEcdsaOperationStepUp } from '../../threshold/ecdsa/operationStepUp';
 import type { HydratedEcdsaSignerMaterial } from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 
 export type EvmFamilyEmailOtpStepUpRuntime = {
   prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
@@ -47,7 +48,7 @@ export type EvmFamilyOperationStepUpRuntime = {
  * same-method by construction rather than by the confirmation's preference. */
 export type EvmFamilyReusableAuthorizationState =
   | { kind: 'active' }
-  | { kind: 'absent'; requiredFactor: 'passkey' | 'email_otp' };
+  | { kind: 'absent'; requiredFactor: SignerAuthMethod };
 
 export type EvmFamilyThresholdEcdsaStepUpRuntime = {
   emailOtpSigning?: EvmFamilyEmailOtpStepUpRuntime;
@@ -197,7 +198,7 @@ function resolveEvmFamilyStepUpLane(args: {
   hasThresholdEcdsaRequest: boolean;
   needsWebAuthn: boolean;
   reusableAuthorization: EvmFamilyReusableAuthorizationState;
-}): { authMethod: 'passkey' | 'email_otp' } | null {
+}): { authMethod: SignerAuthMethod } | null {
   // An auth-neutral candidate is authorized by its own factor. The plan's
   // preference cannot select a different one, and cannot select warm session.
   if (args.reusableAuthorization.kind === 'absent') {
