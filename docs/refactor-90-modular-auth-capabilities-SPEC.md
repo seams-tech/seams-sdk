@@ -296,6 +296,9 @@ implementing commit SHA as the evidence.
   - [x] NEAR wallet-unlock subjects resolve from canonical active signer
     profile rows; the inert runtime-record subject duplicate and provenance
     branch are deleted (`8c2aeb3ac`).
+  - [x] Wallet-scoped volatile Ed25519 cleanup enumerates exact Passkey and
+    Email OTP sealed sessions, so material-session discovery no longer reads
+    the composite session cache (`b9638246a`).
   - [x] Non-iframe implicit NEAR funding reads the bearer credential from the
     canonical active Wallet Session authorization projection and fails before
     fetch when that authorization is absent or expired; no composite MPC record

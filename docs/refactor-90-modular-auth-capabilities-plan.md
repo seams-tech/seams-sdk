@@ -804,6 +804,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Resolve NEAR wallet-unlock subjects solely from canonical active signer
       profile rows. Delete the inert runtime-record subject duplicate and its
       diagnostic provenance branch (`8c2aeb3ac`).
+- [x] Clear wallet-scoped volatile Ed25519 material by enumerating exact
+      Passkey and Email OTP sealed sessions. Runtime cleanup no longer needs a
+      composite record to discover material-session IDs (`b9638246a`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
@@ -1077,6 +1080,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the composite-record NEAR wallet-unlock subject and runtime-record
       provenance branch; active signer profile rows own the exact subject
       projection (`8c2aeb3ac`).
+- [x] Delete composite-record discovery from wallet-scoped volatile Ed25519
+      cleanup; exact sealed records own the material-session IDs
+      (`b9638246a`).
 - [x] Delete the forwarding-only selected-lane auth-method selector; prepared
       signing now reads the canonical auth binding directly, and its focused
       auth-neutral preparation suite passes 7/7 (`0983a94ec`).
