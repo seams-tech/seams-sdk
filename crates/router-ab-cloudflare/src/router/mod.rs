@@ -1475,8 +1475,7 @@ struct CloudflareRouterJwtClaimsPayloadV1 {
     exp: u64,
     nbf: Option<u64>,
     iat: Option<u64>,
-    sid: Option<String>,
-    session_id: Option<String>,
+    sid: String,
     #[serde(rename = "walletSessionId")]
     wallet_session_id: Option<String>,
     #[serde(rename = "thresholdSessionId")]
@@ -1661,7 +1660,8 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
                 ));
             }
         };
-        let authorization_session_id = select_router_jwt_session_id_v1(self.sid, self.session_id)?;
+        require_non_empty("jwt sid", &self.sid)?;
+        let authorization_session_id = self.sid;
         let wallet_session_id = self.wallet_session_id.ok_or_else(|| {
             RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::MalformedWirePayload,
@@ -1748,7 +1748,8 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
                 ));
             }
         }
-        let session_id = select_router_jwt_session_id_v1(self.sid, self.session_id)?;
+        require_non_empty("jwt sid", &self.sid)?;
+        let session_id = self.sid;
         let claims = CloudflareRouterVerifiedJwtClaimsV1::new(
             self.sub,
             session_id,
