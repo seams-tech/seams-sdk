@@ -3191,7 +3191,7 @@ pub fn validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_mate
     active_signing_worker.validate()?;
     material.validate()?;
     if active_signing_worker.account_id != scope.wallet_id
-        || active_signing_worker.session_id
+        || active_signing_worker.material_activation_id
             != cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1(scope)?
         || active_signing_worker.signing_worker != scope.signing_worker
         || material.transcript_digest != active_signing_worker.activation_transcript_digest

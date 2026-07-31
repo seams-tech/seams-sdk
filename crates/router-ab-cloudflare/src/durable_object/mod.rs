@@ -652,7 +652,7 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
                 let lifecycle = activation_context.lifecycle();
                 let selected_server = &activation_context.signer_set().selected_server;
                 if active_signing_worker_state.account_id != lifecycle.account_id
-                    || active_signing_worker_state.session_id != lifecycle.session_id
+                    || active_signing_worker_state.material_activation_id != lifecycle.session_id
                     || active_signing_worker_state.signing_worker != *selected_server
                     || active_signing_worker_state.activation_transcript_digest
                         != activation_context.transcript_digest()
@@ -686,7 +686,7 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
                     || receipt.signing_worker_verifying_share
                         != receipt.joined_signing_worker_commitment
                     || active_signing_worker_state.account_id != binding.lifecycle.account_id
-                    || active_signing_worker_state.session_id != binding.lifecycle.session_id
+                    || active_signing_worker_state.material_activation_id != binding.lifecycle.session_id
                     || active_signing_worker_state.signing_worker.server_id
                         != binding.lifecycle.selected_server_id
                     || active_signing_worker_state.activation_transcript_digest
@@ -711,13 +711,13 @@ fn invalid_signing_worker_activation_record(message: &'static str) -> RouterAbPr
     )
 }
 
-/// Account/session/SigningWorker lookup for active SigningWorker state.
+/// Account/material-activation/SigningWorker lookup for active SigningWorker state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareActiveSigningWorkerStateLookupV1 {
     /// Canonical account or wallet id.
     pub account_id: String,
-    /// Canonical session id.
-    pub session_id: String,
+    /// Exact activated MPC material identity.
+    pub material_activation_id: String,
     /// Active SigningWorker id.
     pub signing_worker_id: String,
 }
@@ -726,12 +726,12 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
     /// Creates a validated active SigningWorker lookup.
     pub fn new(
         account_id: impl Into<String>,
-        session_id: impl Into<String>,
+        material_activation_id: impl Into<String>,
         signing_worker_id: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let lookup = Self {
             account_id: account_id.into(),
-            session_id: session_id.into(),
+            material_activation_id: material_activation_id.into(),
             signing_worker_id: signing_worker_id.into(),
         };
         lookup.validate()?;
@@ -763,7 +763,10 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
     /// Validates lookup identity fields.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty("active signing worker lookup account_id", &self.account_id)?;
-        require_non_empty("active signing worker lookup session_id", &self.session_id)?;
+        require_non_empty(
+            "active signing worker lookup material_activation_id",
+            &self.material_activation_id,
+        )?;
         require_non_empty(
             "active signing worker lookup signing_worker_id",
             &self.signing_worker_id,
@@ -778,7 +781,7 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
         self.validate()?;
         active_signing_worker_state.validate()?;
         if active_signing_worker_state.account_id == self.account_id
-            && active_signing_worker_state.session_id == self.session_id
+            && active_signing_worker_state.material_activation_id == self.material_activation_id
             && active_signing_worker_state.signing_worker.server_id == self.signing_worker_id
         {
             return Ok(());
@@ -1492,7 +1495,7 @@ impl CloudflareSigningWorkerPrivateD1RequestV1 {
             ),
             Self::ActiveStateGet { lookup } => format!(
                 "active-signing-worker/{}/{}/{}",
-                lookup.account_id, lookup.session_id, lookup.signing_worker_id
+                lookup.account_id, lookup.material_activation_id, lookup.signing_worker_id
             ),
             Self::OutputMaterialGet { lookup } => lookup
                 .active_signing_worker_state
@@ -1501,14 +1504,14 @@ impl CloudflareSigningWorkerPrivateD1RequestV1 {
             Self::Round1Put { record } => format!(
                 "signing-worker-round1/{}/{}/{}/{}",
                 record.active_signing_worker_state.account_id,
-                record.active_signing_worker_state.session_id,
+                record.active_signing_worker_state.material_activation_id,
                 record.active_signing_worker_state.signing_worker.server_id,
                 record.server_round1_handle
             ),
             Self::Round1Take { lookup } => format!(
                 "signing-worker-round1/{}/{}/{}/{}",
                 lookup.active_signing_worker_state.account_id,
-                lookup.active_signing_worker_state.session_id,
+                lookup.active_signing_worker_state.material_activation_id,
                 lookup.active_signing_worker_state.signing_worker.server_id,
                 lookup.server_round1_handle
             ),
@@ -1541,7 +1544,7 @@ impl CloudflareSigningWorkerPrivateD1RequestV1 {
             }
             Self::ActiveStateGet { lookup } => Ok(format!(
                 "active-signing-worker/{}/{}/{}",
-                lookup.account_id, lookup.session_id, lookup.signing_worker_id
+                lookup.account_id, lookup.material_activation_id, lookup.signing_worker_id
             )),
             Self::OutputMaterialGet { lookup } => Ok(lookup
                 .active_signing_worker_state

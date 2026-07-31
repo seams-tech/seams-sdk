@@ -127,7 +127,7 @@ requests. SigningWorker does not parse browser Wallet Session credentials.
 
 SigningWorker may open only material addressed to the active SigningWorker
 identity. It must reject output packages for clients, derivation workers, stale
-activation epochs, wrong public identity, or wrong active-state session ids.
+activation epochs, wrong public identity, or wrong material activation ids.
 
 ### 2.4 Browser SDK And WASM Workers
 
@@ -1356,14 +1356,14 @@ Router A/B ECDSA derivation active-state binding covers:
 - SigningWorker id
 - Wallet Session JWT
 
-Canonical active-state session id:
+Canonical active-state material activation id:
 
 ```text
 {ecdsa_threshold_key_id}:{signing_root_id}:{signing_root_version}:{activation_epoch}
 ```
 
-This value is the Wallet Session `session_id` for Router A/B ECDSA derivation normal signing and a
-SigningWorker active-state lookup component. It prevents one wallet, key id, and
+This value is the `MpcMaterialActivationRef.activation_id` for Router A/B ECDSA derivation normal
+signing and a SigningWorker active-state lookup component. It prevents one wallet, key id, and
 worker from colliding across signing root versions or activation epochs.
 
 ### 8.2 ECDSA Public Identity
@@ -1521,7 +1521,7 @@ stateDiagram-v2
 
 Any state can terminate as failed, expired, or abandoned before activation or
 client output. Activated state replacement requires a newer activation
-timestamp for the same account, active-state session id, and SigningWorker.
+timestamp for the same account, material activation id, and SigningWorker.
 
 Router A/B ECDSA derivation transcript domains are protocol-specific:
 
@@ -1550,14 +1550,14 @@ signing binds the active normal-signing scope digest, request id, selected
 client presignature id, signing digest, expiry, prepare digest, and finalize
 client signature share.
 
-The active-state session id is:
+The active-state material activation id is:
 
 ```text
 {ecdsa_threshold_key_id}:{signing_root_id}:{signing_root_version}:{activation_epoch}
 ```
 
-That value is the Wallet Session `session_id` for Router A/B ECDSA derivation normal signing and
-the SigningWorker active-state lookup key component. This prevents one wallet,
+That value is the `MpcMaterialActivationRef.activation_id` for Router A/B ECDSA derivation normal
+signing and the SigningWorker active-state lookup key component. This prevents one wallet,
 key id, and worker from colliding across signing root versions or activation
 epochs.
 

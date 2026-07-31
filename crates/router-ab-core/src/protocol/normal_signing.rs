@@ -1813,8 +1813,8 @@ impl NormalSigningEd25519TwoPartyFrostFinalizeV1 {
 pub struct ActiveSigningWorkerStateV1 {
     /// Canonical account or wallet id.
     pub account_id: String,
-    /// Canonical session id.
-    pub session_id: String,
+    /// Exact activated MPC material identity used by normal signing.
+    pub material_activation_id: String,
     /// Account public key bound into the activation transcript.
     pub account_public_key: String,
     /// Active SigningWorker identity.
@@ -1834,7 +1834,7 @@ impl ActiveSigningWorkerStateV1 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         account_id: impl Into<String>,
-        session_id: impl Into<String>,
+        material_activation_id: impl Into<String>,
         account_public_key: impl Into<String>,
         signing_worker: ServerIdentityV1,
         activation_transcript_digest: PublicDigest32,
@@ -1844,7 +1844,7 @@ impl ActiveSigningWorkerStateV1 {
     ) -> RouterAbProtocolResult<Self> {
         let state = Self {
             account_id: account_id.into(),
-            session_id: session_id.into(),
+            material_activation_id: material_activation_id.into(),
             account_public_key: account_public_key.into(),
             signing_worker,
             activation_transcript_digest,
@@ -1859,7 +1859,10 @@ impl ActiveSigningWorkerStateV1 {
     /// Validates active SigningWorker identity fields.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty("active signing worker account_id", &self.account_id)?;
-        require_non_empty("active signing worker session_id", &self.session_id)?;
+        require_non_empty(
+            "active signing worker material_activation_id",
+            &self.material_activation_id,
+        )?;
         require_non_empty(
             "active signing worker account_public_key",
             &self.account_public_key,
@@ -1883,7 +1886,7 @@ impl ActiveSigningWorkerStateV1 {
         self.validate()?;
         scope.validate()?;
         if self.account_id != scope.account_id
-            || self.session_id != scope.material_activation.activation_id
+            || self.material_activation_id != scope.material_activation.activation_id
             || self.signing_worker.server_id != scope.signing_worker_id
         {
             return Err(RouterAbProtocolError::new(

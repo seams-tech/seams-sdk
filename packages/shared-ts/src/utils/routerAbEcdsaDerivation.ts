@@ -533,7 +533,7 @@ export type RouterAbPublicDigest32V1Wire = {
 
 export type RouterAbActiveSigningWorkerStateV1 = {
   account_id: string;
-  session_id: string;
+  material_activation_id: string;
   account_public_key: string;
   signing_worker: RouterAbServerIdentityV1;
   activation_transcript_digest: RouterAbPublicDigest32V1Wire;
@@ -3682,7 +3682,7 @@ function parseActiveSigningWorkerState(value: unknown): RouterAbActiveSigningWor
   const record = requireRecord(value, 'receipt.active_signing_worker_state');
   requireExactKeys(record, 'receipt.active_signing_worker_state', [
     'account_id',
-    'session_id',
+    'material_activation_id',
     'account_public_key',
     'signing_worker',
     'activation_transcript_digest',
@@ -3695,9 +3695,9 @@ function parseActiveSigningWorkerState(value: unknown): RouterAbActiveSigningWor
       record.account_id,
       'receipt.active_signing_worker_state.account_id',
     ),
-    session_id: requireAsciiNonEmptyString(
-      record.session_id,
-      'receipt.active_signing_worker_state.session_id',
+    material_activation_id: requireAsciiNonEmptyString(
+      record.material_activation_id,
+      'receipt.active_signing_worker_state.material_activation_id',
     ),
     account_public_key: requireAsciiNonEmptyString(
       record.account_public_key,

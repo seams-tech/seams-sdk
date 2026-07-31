@@ -1026,7 +1026,9 @@ pub async fn put_cloudflare_signing_worker_output_activation_record_v1(
     let material_key = active_state.signing_worker_material_handle.clone();
     let active_key = format!(
         "active-signing-worker/{}/{}/{}",
-        active_state.account_id, active_state.session_id, active_state.signing_worker.server_id
+        active_state.account_id,
+        active_state.material_activation_id,
+        active_state.signing_worker.server_id
     );
     let database = signing_worker_private_d1_from_env_v1(env)?;
     let session = database
