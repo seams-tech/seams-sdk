@@ -182,7 +182,7 @@ async function showEcdsaExportArtifact(
     {
       state: 'ready',
       walletId: args.walletId,
-      chainTarget: args.exportLane.session.chainTarget,
+      chainTarget: args.exportLane.chainTarget,
       publicKeyHex: String(args.artifact.publicKeyHex || '').trim(),
       privateKeyHex: String(args.artifact.privateKeyHex || '').trim(),
       ethereumAddress: String(args.artifact.ethereumAddress || '').trim(),
@@ -213,7 +213,7 @@ async function showEcdsaExportLoadingViewer(
     {
       state: 'loading',
       walletId: args.walletId,
-      chainTarget: args.exportLane.session.chainTarget,
+      chainTarget: args.exportLane.chainTarget,
       publicKeyHex: String(args.publicKey || '').trim(),
       ethereumAddress: String(args.ethereumAddress || '').trim(),
       variant: args.options.variant,
@@ -264,7 +264,7 @@ async function prepareAndShowEcdsaExportArtifact(
       task: async () => {
         const current = await resolveActiveEcdsaCapabilityRuntime({
           walletId: args.exportLane.key.walletId,
-          chainTarget: args.exportLane.session.chainTarget,
+          chainTarget: args.exportLane.chainTarget,
         });
         if (current.kind !== 'resolved') {
           throw new Error(
@@ -490,7 +490,7 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
   const requestId = createExportUiRequestId('tecdsa-export');
   const prepared = await prepareExplicitEcdsaExportOperation({
     walletId: args.walletId,
-    chainTarget: args.exportLane.session.chainTarget,
+    chainTarget: args.exportLane.chainTarget,
     requestId,
     persistedMaterial: args.material.existingRoleLocalMaterial,
   });
@@ -499,7 +499,7 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
     {
       walletSessionUserId: args.walletId,
       publicKey: args.exportPublicKey,
-      chainTarget: args.exportLane.session.chainTarget,
+      chainTarget: args.exportLane.chainTarget,
       challengeB64u: prepared.challengeB64u,
       flowId: args.flowId,
       onEvent: args.onEvent,
@@ -508,7 +508,7 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
   const sessionAuth = await resolvePasskeyEcdsaExportRouteAuth({
     deps,
     walletId: args.walletId,
-    chainTarget: args.exportLane.session.chainTarget,
+    chainTarget: args.exportLane.chainTarget,
     authMethod: 'passkey',
   });
   const authorization = await issueExplicitEcdsaExportAuthorization({
@@ -612,11 +612,11 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
   const challengeAuthority = emailOtpEcdsaExportChallengeAuthority(args.material);
   const exactMaterial = await resolveEmailOtpExplicitExportMaterial({
     walletId: args.walletId,
-    chainTarget: args.exportLane.session.chainTarget,
+    chainTarget: args.exportLane.chainTarget,
   });
   const prepared = await prepareExplicitEcdsaExportOperation({
     walletId: args.walletId,
-    chainTarget: args.exportLane.session.chainTarget,
+    chainTarget: args.exportLane.chainTarget,
     requestId: createExportUiRequestId('tecdsa-email-otp-export'),
     persistedMaterial: exactMaterial.persistedMaterial,
   });
@@ -642,7 +642,7 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
   const sessionAuth = await resolvePasskeyEcdsaExportRouteAuth({
     deps,
     walletId: args.walletId,
-    chainTarget: args.exportLane.session.chainTarget,
+    chainTarget: args.exportLane.chainTarget,
     authMethod: 'email_otp',
   });
   const explicitExportAuthorization = await issueExplicitEcdsaExportAuthorization({
@@ -684,7 +684,7 @@ export async function exportThresholdEcdsaKeyWithFreshPasskeyAuthorization(
     onEvent?: KeyExportEventCallback;
   },
 ): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
-  if (args.exportLane.session.authMethod !== 'passkey') {
+  if (args.exportLane.authMethod !== 'passkey') {
     throw new Error('[SigningEngine][ecdsa-export] fresh passkey export requires passkey lane');
   }
   const exportPublicKey = String(args.material.publicFacts.publicKeyB64u);

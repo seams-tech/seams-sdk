@@ -29,7 +29,6 @@ import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
 import {
   isConcreteEcdsaExportLane,
   type ExactEcdsaExportLane,
-  type ExactEcdsaExportSession,
 } from './ecdsaExportMaterial';
 import type {
   SigningEngineResolveExactKeyExportLaneInput,
@@ -159,10 +158,10 @@ function ecdsaExportMaterialAvailabilityForLane(lane: ConcreteEcdsaExportAvailab
   return { kind: 'sealed_worker_material' as const };
 }
 
-function exactEcdsaExportSessionFromAvailableLane(args: {
+function exactEcdsaExportLaneStateFromAvailableLane(args: {
   lane: ConcreteEcdsaExportAvailableLane;
   chainTarget: ThresholdEcdsaChainTarget;
-}): ExactEcdsaExportSession {
+}): Pick<ExactEcdsaExportLane, 'authMethod' | 'chainTarget' | 'material' | 'source' | 'state'> {
   const authMethod = availableEcdsaSigningLaneAuthMethod(args.lane);
   const material = ecdsaExportMaterialAvailabilityForLane(args.lane);
   switch (args.lane.state) {
@@ -237,7 +236,7 @@ async function resolveEcdsaExportLane(
     authorization: selected.authorization,
     key: selected.key,
     publicFacts: selected.publicFacts,
-    session: exactEcdsaExportSessionFromAvailableLane({
+    ...exactEcdsaExportLaneStateFromAvailableLane({
       lane: selected,
       chainTarget: selected.chainTarget,
     }),
@@ -357,12 +356,12 @@ export async function resolveEcdsaSessionForExport(
     signingTarget: args.signingTarget,
     laneIdentity: args.laneIdentity,
   });
-  switch (restoreLane.session.material.kind) {
+  switch (restoreLane.material.kind) {
     case 'loaded_worker_material':
     case 'material_pending':
     case 'sealed_worker_material':
       return restoreLane;
   }
-  restoreLane.session.material satisfies never;
+  restoreLane.material satisfies never;
   throw new Error('[SigningEngine][ecdsa-export] unsupported material availability');
 }

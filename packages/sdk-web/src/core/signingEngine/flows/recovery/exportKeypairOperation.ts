@@ -163,7 +163,7 @@ function emitEcdsaExportFailureDiagnostics(args: {
   try {
     console.warn('[SigningEngine][ecdsa-export][failure]', {
       operationId: args.flowId,
-      authMethod: args.exportLane?.session.authMethod,
+      authMethod: args.exportLane?.authMethod,
       ...(keyFingerprint ? { evmFamilyKeyFingerprint: keyFingerprint } : {}),
       ...(publicFacts ? { keyHandle: String(publicFacts.keyHandle) } : {}),
       chainTargetKey: thresholdEcdsaChainTargetKey(args.input.chainTarget),

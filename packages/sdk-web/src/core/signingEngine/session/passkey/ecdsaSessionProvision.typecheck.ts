@@ -34,6 +34,12 @@ const sessionIdentity = buildEcdsaSessionIdentity({
   signingGrantId: 'signing-grant-1',
 });
 const runtimePolicy = { kind: 'default_policy' } as const;
+const runtimePolicyScope = {
+  orgId: 'org-1',
+  projectId: 'project-1',
+  envId: 'env-1',
+  signingRootVersion: 'default',
+};
 const passkeyCredentialIdB64u = 'passkey-credential-id';
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
@@ -100,6 +106,7 @@ const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
   thresholdSessionKind: 'jwt',
   ttlMs: 60_000,
   remainingUses: 1,
+  runtimePolicyScope,
 });
 
 const broadActivationCommon = {

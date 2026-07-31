@@ -39,30 +39,23 @@ export type EcdsaExportMaterialAvailability =
   | { kind: 'sealed_worker_material' }
   | { kind: 'material_pending'; reason: 'email_otp_route_auth' };
 
-type ExactEcdsaExportSessionBase = {
-  chainTarget: ThresholdEcdsaChainTarget;
-  authMethod: 'email_otp' | 'passkey';
-  material: EcdsaExportMaterialAvailability;
-  ecdsaThresholdKeyId?: never;
-  signingRootId?: never;
-  signingRootVersion?: never;
-  participantIds?: never;
-  thresholdOwnerAddress?: never;
-};
-
-export type ExactEcdsaExportSession = ExactEcdsaExportSessionBase & {
-  state: Exclude<ConcreteAvailableEcdsaSigningLane['state'], 'expired' | 'exhausted'>;
-  source: 'canonical_capability';
-  publicReauthAuthority?: never;
-};
-
 export type ExactEcdsaExportLane = {
   curve: 'ecdsa';
   laneIdentity: ExactEcdsaSigningLaneIdentity;
   authorization: ActiveEvmFamilyWalletSessionAuthorization;
   key: EvmFamilyEcdsaKeyIdentity;
   publicFacts: VerifiedEcdsaPublicFacts;
-  session: ExactEcdsaExportSession;
+  chainTarget: ThresholdEcdsaChainTarget;
+  authMethod: 'email_otp' | 'passkey';
+  material: EcdsaExportMaterialAvailability;
+  state: Exclude<ConcreteAvailableEcdsaSigningLane['state'], 'expired' | 'exhausted'>;
+  source: 'canonical_capability';
+  ecdsaThresholdKeyId?: never;
+  signingRootId?: never;
+  signingRootVersion?: never;
+  participantIds?: never;
+  thresholdOwnerAddress?: never;
+  publicReauthAuthority?: never;
 };
 
 export type EcdsaExportSessionStoreDeps = {
@@ -104,7 +97,7 @@ export type EcdsaExportMaterial =
   | FreshPasskeyEcdsaExportMaterial;
 
 export function ecdsaExportBoundaryChain(lane: ExactEcdsaExportLane): 'evm' | 'tempo' {
-  return lane.session.chainTarget.kind;
+  return lane.chainTarget.kind;
 }
 
 export function ecdsaSigningTargetFromChainTarget(
@@ -134,12 +127,12 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
   _deps: EcdsaExportSessionStoreDeps,
   exportLane: ExactEcdsaExportLane,
 ): Promise<FreshEmailOtpEcdsaExportMaterial> {
-  if (exportLane.session.authMethod !== 'email_otp') {
+  if (exportLane.authMethod !== 'email_otp') {
     throw new Error('[SigningEngine][ecdsa-export] fresh Email OTP export requires Email OTP lane');
   }
   const resolution = await resolveActiveEcdsaCapabilityRuntime({
     walletId: exportLane.key.walletId,
-    chainTarget: exportLane.session.chainTarget,
+    chainTarget: exportLane.chainTarget,
   });
   if (resolution.kind !== 'resolved') {
     throw new Error(
@@ -169,7 +162,7 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
   }
   return {
     kind: 'fresh_email_otp_route_auth_ready',
-    chainTarget: exportLane.session.chainTarget,
+    chainTarget: exportLane.chainTarget,
     publicFacts: exportLane.publicFacts,
     runtimePolicyScope,
     authorization: {
@@ -183,12 +176,12 @@ export async function resolveEcdsaExportMaterialForLane(
   deps: EcdsaExportSessionStoreDeps,
   exportLane: ExactEcdsaExportLane,
 ): Promise<EcdsaExportMaterial> {
-  if (exportLane.session.authMethod === 'email_otp') {
+  if (exportLane.authMethod === 'email_otp') {
     return await resolveFreshEmailOtpEcdsaExportMaterialForLane(deps, exportLane);
   }
   const resolution = await resolveActiveEcdsaCapabilityRuntime({
     walletId: exportLane.key.walletId,
-    chainTarget: exportLane.session.chainTarget,
+    chainTarget: exportLane.chainTarget,
   });
   if (resolution.kind !== 'resolved') {
     throw new Error(
@@ -220,7 +213,7 @@ export async function resolveEcdsaExportMaterialForLane(
   }
   return {
     kind: 'fresh_passkey_needs_authorization',
-    chainTarget: exportLane.session.chainTarget,
+    chainTarget: exportLane.chainTarget,
     publicFacts,
     runtimePolicyScope,
     publicCapability: resolution.manifest.durableMaterial.roleLocalPublicFacts.publicCapability,

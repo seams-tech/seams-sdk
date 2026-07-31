@@ -591,6 +591,9 @@ the replacement and legacy MPC paths must not ship together.
       kind, and budget; remove authorization-session/grant identity from the
       reconnect key, delete record/lane fallback paths, and reject rehydration
       that changes the activation.
+- [x] Require exact runtime policy scope on every ECDSA session-lane policy;
+      reject missing scope before strict activation and pin omission as a
+      compile-time error (`ff6464baf`).
 - [x] Cut ECDSA export over atomically across the client, Gateway, Router,
       SigningWorker, sealed-share AAD, and Rust protocol mirrors so requests
       carry discriminated authorization plus the exact material activation.
@@ -689,6 +692,9 @@ the replacement and legacy MPC paths must not ship together.
       records and their type fixtures.
 - [x] Carry export authorization beside the exact export material lane instead
       of reading it from material identity.
+- [x] Flatten the one-arm `ExactEcdsaExportSession` wrapper into the exact
+      export lane so export state, target, factor, and material availability
+      have one required-field carrier (`643dde348`).
 - [x] Delete the redundant Passkey ECDSA export bootstrap identity after the
       exact export lane owns material identity; retain only the relayer URL
       required by the fresh-authorization operation.
@@ -736,6 +742,11 @@ the replacement and legacy MPC paths must not ship together.
       preparation's active-status proof. Delete the record-backed warm-capability
       reader, record-to-lane reconstruction, and obsolete handwritten
       session-selection suite (`5a8ce9090`, `70ef2a420`).
+- [x] Remove the final composite-session-record read and cache reseeding from
+      NEAR transaction, delegate, and NEP-413 preparation. Expiry cleanup reads
+      the independent reusable-authorization status; signing preparation now
+      succeeds from canonical material plus authorization after refresh
+      (`4f089b483`).
 - [x] Delete the unread record-derived Wallet Session bearer projection from
       NEAR transaction admission. Canonical preparation and the admitted
       operation-claim receipt remain the authorization inputs (`5173ad50b`).

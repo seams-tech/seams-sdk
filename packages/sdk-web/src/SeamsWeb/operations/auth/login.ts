@@ -3275,6 +3275,10 @@ async function primeThresholdLoginWarmSigners(args: {
             : resolveThresholdLoginWarmEcdsaSigningGrantId({
                 sharedState: ecdsaSigningGrantState,
               });
+          const runtimePolicyScope = activeCanonicalEcdsaContext.runtimePolicyScope;
+          if (!runtimePolicyScope) {
+            throw new Error('[login] ECDSA session lane requires runtimePolicyScope');
+          }
           const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
             chainTarget: target.chainTarget,
             thresholdSessionId,
@@ -3282,9 +3286,7 @@ async function primeThresholdLoginWarmSigners(args: {
             thresholdSessionKind: 'jwt',
             ttlMs: args.ttlMs,
             remainingUses: unlockRemainingUses,
-            ...(activeCanonicalEcdsaContext.runtimePolicyScope
-              ? { runtimePolicyScope: activeCanonicalEcdsaContext.runtimePolicyScope }
-              : {}),
+            runtimePolicyScope,
           });
           const existingRoleLocalMaterial = targetEcdsaKey.existingRoleLocalMaterial;
           if (!existingRoleLocalMaterial) {

@@ -278,7 +278,7 @@ export type EvmFamilyEcdsaSessionLanePolicy = {
   thresholdSessionKind: ThresholdSessionKind;
   ttlMs: number;
   remainingUses: number;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
   ecdsaThresholdKeyId?: never;
   signingRootId?: never;
   signingRootVersion?: never;
@@ -351,7 +351,7 @@ export type BuildEvmFamilyEcdsaSessionLanePolicyInput = {
   thresholdSessionKind: ThresholdSessionKind;
   ttlMs: unknown;
   remainingUses: unknown;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
 };
 
 function requiredString(value: unknown, field: string): string {
@@ -758,7 +758,7 @@ export function buildEvmFamilyEcdsaSessionLanePolicy(
     thresholdSessionKind: input.thresholdSessionKind,
     ttlMs,
     remainingUses,
-    ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
+    runtimePolicyScope: input.runtimePolicyScope,
   };
 }
 

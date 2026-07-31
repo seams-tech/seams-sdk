@@ -36,6 +36,12 @@ const evmTarget = {
   chainId: 5042002,
   networkSlug: 'arc-testnet',
 } as const;
+const runtimePolicyScope = {
+  orgId: 'org-1',
+  projectId: 'project-1',
+  envId: 'env-1',
+  signingRootVersion: 'default',
+};
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
   ecdsaThresholdKeyId: 'ederivation-shared-key',
@@ -46,6 +52,17 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
 });
 
 const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
+  chainTarget: evmTarget,
+  thresholdSessionId: 'threshold-session-1',
+  signingGrantId: 'signing-grant-1',
+  thresholdSessionKind: 'jwt',
+  ttlMs: 60_000,
+  remainingUses: 1,
+  runtimePolicyScope,
+});
+
+// @ts-expect-error a session lane policy requires its exact runtime policy scope.
+buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget: evmTarget,
   thresholdSessionId: 'threshold-session-1',
   signingGrantId: 'signing-grant-1',
