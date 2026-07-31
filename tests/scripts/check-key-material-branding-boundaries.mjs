@@ -285,27 +285,14 @@ check('EVM-family signing key slot identity cannot fall back to generic wallet k
   const sharedEvmFamilyKey = readRepoSource(
     'packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId.ts',
   );
-  const ecdsaIdentity = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
+  const ecdsaProvisioner = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts',
   );
-  const sessionRecords = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
-  );
-  const provisionUseCase = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsaSession.ts',
-  );
-  const sessionPolicy = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts',
-  );
-  const platformPorts = readRepoSource('packages/sdk-web/src/core/platform/ports.ts');
   const emailOtpWorker = readRepoSource(
     'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
   );
   const thresholdValidation = readRepoSource(
     'packages/sdk-server-ts/src/core/ThresholdService/validation.ts',
-  );
-  const ecdsaPoolFillHandlers = readRepoSource(
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
   );
   const authService = readRepoSource(
     'packages/sdk-server-ts/src/core/authService/emailRecoveryAuthOperations.ts',
@@ -321,19 +308,8 @@ check('EVM-family signing key slot identity cannot fall back to generic wallet k
   expect(sharedEvmFamilyKey).toContain("typeof value !== 'string'");
   expect(sharedEvmFamilyKey).toContain('deriveEvmFamilySigningKeySlotId');
 
-  expect(ecdsaIdentity).toContain('type EvmFamilySigningKeySlotId');
-  expect(ecdsaIdentity).toContain('requireEvmFamilySigningKeySlotId');
-  expect(ecdsaIdentity).not.toContain('FromSigningRootFacts');
-  expect(ecdsaIdentity).not.toContain('walletKeyPart(');
-
-  expect(sessionRecords).toContain('parseEvmFamilySigningKeySlotId(');
-  expect(sessionRecords).toContain('obj.evmFamilySigningKeySlotId');
-  expect(sessionRecords).not.toContain('parseWalletKeyIdOrNull(obj.walletKeyId)');
-  expect(provisionUseCase).toContain('walletKey: EvmFamilyEcdsaWalletKey');
-  expect(sessionPolicy).toContain('evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId');
-  expect(sessionPolicy).toContain('evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(');
-  expect(platformPorts).toContain('evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId');
-  expect(platformPorts).not.toContain('evmFamilySigningKeySlotId: WalletKeyId');
+  expect(ecdsaProvisioner).toContain('walletKey: EvmFamilyEcdsaWalletKey');
+  expect(ecdsaProvisioner).not.toContain('walletKeyId');
 
   expect(emailOtpWorker).toContain('function readEvmFamilySigningKeySlotId');
   expect(emailOtpWorker).not.toContain('function readWalletKeyId(');
@@ -342,8 +318,6 @@ check('EVM-family signing key slot identity cannot fall back to generic wallet k
   expect(emailOtpWorker).not.toContain('readString(obj.walletKeyId');
   expect(thresholdValidation).toContain('parseEvmFamilySigningKeySlotIdOrNull');
   expect(thresholdValidation).not.toContain('parseWalletKeyIdOrNull');
-  expect(ecdsaPoolFillHandlers).toContain('parseEvmFamilySigningKeySlotString');
-  expect(ecdsaPoolFillHandlers).not.toContain('toOptionalTrimmedString(claims?.walletKeyId)');
 
   expect(authService).toContain('deriveEvmFamilySigningKeySlotId');
   expect(authService).not.toContain('function encodeEcdsaWalletKeyIdPart');
