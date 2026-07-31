@@ -65,9 +65,6 @@ import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey
 import { type ThresholdEcdsaBootstrapStorePort } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
-import {
-  getStoredThresholdEd25519SessionRecordForAccount,
-} from '@/core/signingEngine/session/persistence/records';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import {
   type ThresholdEcdsaChainTarget,
@@ -192,7 +189,12 @@ import type {
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
-import { readExactSealedSession } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import {
+  listExactSealedSessionsForWallet,
+  readExactSealedSession,
+  type CurrentSealedSessionRecord,
+} from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import { normalizeThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   recoverEmailOtpEd25519YaoFromSealedSessionV1,
   resolveEmailOtpEd25519YaoHydrationPlanForSigningV1,
@@ -361,6 +363,25 @@ type EmailOtpEd25519YaoSilentRecoveryInput = {
   thresholdSessionId: string;
   materialActivation: MpcMaterialActivationRef;
 };
+
+function isExactEmailOtpEd25519RecoveryRecord(args: {
+  record: CurrentSealedSessionRecord;
+  providerSubjectId: string;
+  nearAccountId: string;
+  signerSlot: number;
+  materialActivation: MpcMaterialActivationRef;
+}): boolean {
+  const record = args.record;
+  if (record.curve !== 'ed25519') return false;
+  const restore = record.ed25519Restore;
+  return (
+    restore.providerSubjectId === args.providerSubjectId &&
+    restore.nearAccountId === args.nearAccountId &&
+    restore.signerSlot === args.signerSlot &&
+    restore.materialActivation !== undefined &&
+    mpcMaterialActivationRefsEqual(restore.materialActivation, args.materialActivation)
+  );
+}
 
 type PreparedNearEd25519YaoMaterialContext = {
   input: PrepareNearEd25519YaoMaterialBoundaryInput;
@@ -2250,18 +2271,39 @@ export class BrowserSigningSurface {
       args.walletSession,
     );
     if (!resolved) return null;
-    const authorizationRecord = getStoredThresholdEd25519SessionRecordForAccount(
-      resolved.user.nearAccountId,
-    );
-    if (
-      !authorizationRecord ||
-      String(authorizationRecord.walletId) !== String(resolved.identity.walletId)
-    ) {
+    const sealedRecords = await listExactSealedSessionsForWallet({
+      walletId: String(resolved.identity.walletId),
+      filter: { authMethod: 'email_otp', curve: 'ed25519' },
+    });
+    const exactRecords: CurrentSealedSessionRecord[] = [];
+    for (const record of sealedRecords) {
+      if (
+        isExactEmailOtpEd25519RecoveryRecord({
+          record,
+          providerSubjectId: resolved.providerSubject,
+          nearAccountId: String(resolved.user.nearAccountId),
+          signerSlot: resolved.user.signerSlot,
+          materialActivation: resolved.identity.materialActivation,
+        })
+      ) {
+        exactRecords.push(record);
+      }
+    }
+    if (exactRecords.length !== 1) {
       throw new Error(
         'Email OTP Ed25519 Yao login requires an exact persisted authorization session',
       );
     }
-    const runtimePolicyScope = authorizationRecord.runtimePolicyScope;
+    const authorizationRecord = exactRecords[0];
+    const authorizationRestore = authorizationRecord.ed25519Restore;
+    if (authorizationRecord.curve !== 'ed25519' || !authorizationRestore) {
+      throw new Error(
+        'Email OTP Ed25519 Yao login requires exact Ed25519 restore metadata',
+      );
+    }
+    const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
+      authorizationRestore.runtimePolicyScope,
+    );
     if (!runtimePolicyScope) {
       throw new Error(
         'Email OTP Ed25519 Yao login requires an exact persisted runtime policy scope',
@@ -2270,7 +2312,7 @@ export class BrowserSigningSurface {
     return prepareColdEmailOtpEd25519YaoRecoveryV1({
       identity: resolved.identity,
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
-        authorizationRecord.thresholdSessionId,
+        authorizationRecord.thresholdSessionIds.ed25519,
       ),
       signerSlot: resolved.user.signerSlot,
       expectedOperationalPublicKey: resolved.user.operationalPublicKey,
