@@ -1114,8 +1114,12 @@ the replacement and legacy MPC paths must not ship together.
     - [x] Email OTP ECDSA sealed rehydration reads and correlates the current
           reusable authorization independently; its persisted bearer is no
           longer trusted or transported (`17f0a622f`).
-    - [ ] Migrate the remaining Ed25519 restore consumers, then delete bearer
-          and grant fields from sealed restore metadata and its boundary parser.
+    - [x] Passkey Ed25519 export, hydration, availability, and sealed-runtime
+          reads correlate current authorization independently; sealed runtime
+          state no longer carries or validates a persisted bearer
+          (`7a2ad4bca`, `3d05abca5`).
+    - [ ] Migrate the passkey MPC session manager, then delete bearer and grant
+          fields from sealed restore metadata and its boundary parser.
   - [x] Require canonical JWT `sid` at the Cloudflare Router boundary and
         delete the legacy `session_id` claim fallback and selector
         (`af6dc1514`).
