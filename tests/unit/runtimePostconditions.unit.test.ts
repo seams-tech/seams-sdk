@@ -277,10 +277,11 @@ test.describe('wallet runtime postconditions', () => {
   });
 
   test('accepts canonical exact lanes after page refresh', async () => {
-    const lanes = availableLanes('page-refresh', 'email_otp', {
-      state: 'restorable',
-      source: 'durable_sealed_record',
-    });
+    const lanes = availableLanes('page-refresh');
+    const ed25519 = lanes.lanes.ed25519.near;
+    if (ed25519.state === 'missing') throw new Error('expected concrete Ed25519 lane');
+    ed25519.state = 'restorable';
+    ed25519.source = 'durable_sealed_record';
     moveLanePolicyToDurableHint(lanes);
 
     const inventory = await assertWalletRuntimePostconditions({
@@ -296,11 +297,11 @@ test.describe('wallet runtime postconditions', () => {
       material: { kind: 'durable_sealed_record' },
     });
     expect(inventory.ecdsaByTarget.get(TARGET_KEY)).toMatchObject({
-      state: 'restorable',
+      state: 'ready',
       material: { kind: 'canonical_capability' },
     });
     expect(inventory.ecdsaByTarget.get(ARC_TARGET_KEY)).toMatchObject({
-      state: 'restorable',
+      state: 'ready',
       material: { kind: 'canonical_capability' },
     });
   });

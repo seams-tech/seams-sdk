@@ -435,6 +435,8 @@ removes.
 - [x] Fourteen state cases cover the seven canonical states for both
       capabilities.
 - [x] Required-field and invalid-state type fixtures pass.
+- [x] Reject the retired `restorable` label on concrete ECDSA lanes while
+      retaining it for Ed25519 durable sealed material.
 - [x] IndexedDB crash tests prove atomic activation finalization.
 - [ ] Focused intended-behavior tests preserve refresh allowance and exact
       material rehydration.

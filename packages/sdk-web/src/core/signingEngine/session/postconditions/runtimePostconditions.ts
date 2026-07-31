@@ -234,7 +234,7 @@ function readEcdsaUseCaseReadyLane(args: {
   if (availableEcdsaSigningLaneAuthMethod(lane) !== args.authMethod) {
     return 'auth_method_route_mismatch';
   }
-  if (lane.state !== 'ready' && lane.state !== 'restorable') return 'ecdsa_lane_missing';
+  if (lane.state !== 'ready') return 'ecdsa_lane_missing';
   const remainingSignatureUses = laneRemainingUses(lane);
   const expiresAtMs = laneExpiresAtMs(lane, args.nowMs);
   if (!lane.authorization || !remainingSignatureUses || !expiresAtMs) {

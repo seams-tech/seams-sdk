@@ -48,7 +48,9 @@ replacement.
   newest-record selection~~
 - ~~`recordsByLane` and module-level record maps as persistence or selection
   authority~~ (manifest-keyed hot observations remain independent)
-- ECDSA `restorable` as a core lifecycle label (use the hydration outcomes)
+- ~~ECDSA `restorable` as a core lifecycle label~~ — rejected by the concrete
+  ECDSA lane type; ECDSA uses explicit hydration outcomes while Ed25519 retains
+  `restorable` for its durable sealed-material state
 - authority/lifecycle inference from `source`, provider identity, optional
   field presence, record timestamps, or diagnostics
 - ~~registration-only and unlock-only capability publication paths~~ — absent

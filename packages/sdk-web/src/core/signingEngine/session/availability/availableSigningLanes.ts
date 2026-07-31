@@ -95,7 +95,7 @@ type ConcreteAvailableEcdsaSigningLaneBase = {
   publicFacts: VerifiedEcdsaPublicFacts;
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
-  state: AvailableSigningLaneState;
+  state: Exclude<AvailableSigningLaneState, 'restorable'>;
   policyHint?: AvailableSigningLanePolicyHint;
   updatedAtMs?: number;
 } & ConcreteAvailableEcdsaSigningLaneAuth;
