@@ -215,6 +215,9 @@ implementing commit SHA as the evidence.
     Browser derives the recoverable session and runtime policy from that
     durable owner without consulting the composite session cache
     (`e4322bd15`).
+  - [x] The NEAR unlock wrapper resolves its wallet from the active user
+    binding; composite signing state no longer acts as a wallet-directory
+    lookup (`2cdfea541`).
   - [x] Email OTP runtime wallet-key projections, worker handles, and sealed
     rehydration correlate by exact key handle. Provisioning slots remain
     confined to registration handle branches (`6113b36bb`).

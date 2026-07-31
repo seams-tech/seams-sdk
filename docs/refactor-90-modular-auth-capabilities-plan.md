@@ -798,6 +798,9 @@ the replacement and legacy MPC paths must not ship together.
       correlated by wallet, factor subject, account, signer slot, and material
       activation. Browser no longer reads the composite session cache to choose
       the recovery session or runtime policy (`e4322bd15`).
+- [x] Resolve the legacy NEAR unlock wrapper's wallet from the active user
+      binding it already owns, instead of consulting the composite signing
+      record solely for `walletId` (`2cdfea541`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
@@ -1066,6 +1069,8 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete Browser's composite-record lookup from Email OTP Ed25519 recovery
       preparation; exact sealed state now owns its recoverable session identity
       and runtime policy (`e4322bd15`).
+- [x] Delete the NEAR unlock wrapper's composite-record wallet lookup; the
+      active user binding owns wallet selection (`2cdfea541`).
 - [x] Delete the forwarding-only selected-lane auth-method selector; prepared
       signing now reads the canonical auth binding directly, and its focused
       auth-neutral preparation suite passes 7/7 (`0983a94ec`).
