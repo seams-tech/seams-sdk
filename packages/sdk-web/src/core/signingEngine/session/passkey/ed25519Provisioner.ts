@@ -99,7 +99,8 @@ export async function provisionWarmEd25519Capability(
   assertPersistedEd25519WarmSessionRecord({
     walletId,
     expectedSessionId,
-    persistedSessionIdRaw: afterWarmSession.capabilities.ed25519.record?.thresholdSessionId,
+    persistedSessionIdRaw:
+      afterWarmSession.capabilities.ed25519.runtime?.thresholdSessionId,
   });
   emitWarmSessionTransition({
     onTransition: deps.onTransition,

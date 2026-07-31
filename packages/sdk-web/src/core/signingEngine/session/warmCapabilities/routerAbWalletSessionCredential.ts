@@ -2,10 +2,8 @@ import type { RouterAbWalletSessionCredential } from '@/core/rpcClients/relayer/
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '@/core/signingEngine/threshold/ed25519/routerAbNormalSigningState';
-import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { ResolvedRouterAbEd25519WalletSessionState } from './routerAbEd25519WalletSessionState';
 import {
-  parseRouterAbEd25519WalletSessionAuthorityFromRecord,
   parseRouterAbEd25519WalletSessionIdentityClaims,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 
@@ -54,11 +52,6 @@ function requirePositiveInteger(value: unknown, label: string): number {
     throw new Error(`Router A/B Ed25519 normal-signing ready state ${label} is exhausted`);
   }
   return parsed;
-}
-
-export function hasRouterAbEd25519SigningAuth(record: ThresholdEd25519SessionRecord): boolean {
-  const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
-  return Boolean(record.routerAbNormalSigning) && authority.ok;
 }
 
 export function requireRouterAbEd25519NormalSigningReadyState(args: {

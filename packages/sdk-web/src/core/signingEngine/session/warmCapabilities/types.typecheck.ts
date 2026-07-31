@@ -9,10 +9,8 @@ import type {
   WarmSessionEd25519CapabilityState,
   WarmSessionPrfClaim,
 } from './types';
-import type {
-  ThresholdEd25519SessionRecord,
-} from '../persistence/records';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
+import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
 
 type FreshEcdsaSessionProvisionPlan = Extract<
   EcdsaSessionProvisionPlan,
@@ -43,7 +41,7 @@ declare const freshPlan: FreshEcdsaSessionProvisionPlan;
 declare const passkeyFreshPlan: PasskeyEcdsaSessionProvisionPlan;
 declare const emailOtpFreshPlan: EmailOtpEcdsaSessionProvisionPlan;
 declare const reconnectPlan: ReconnectEcdsaSessionProvisionPlan;
-declare const selectedEd25519Record: ThresholdEd25519SessionRecord;
+declare const exactEd25519Runtime: ExactEd25519SealedSessionRuntime;
 declare const keyRef: ThresholdEcdsaSecp256k1KeyRef;
 declare const presentEcdsaCapability: PresentWarmSessionEcdsaCapabilityState;
 declare const activeEcdsaManifest: NonNullable<PresentWarmSessionEcdsaCapabilityState['manifest']>;
@@ -149,15 +147,11 @@ void invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithKeyRef;
 
 const invalidReadyEd25519CapabilityWithoutJwt = {
   capability: 'ed25519',
-  record: selectedEd25519Record,
-  auth: {
-    capability: 'ed25519',
-    record: selectedEd25519Record,
-    walletSessionJwtSource: 'none',
-  },
+  runtime: exactEd25519Runtime,
+  auth: null,
   prfClaim: warmPrfClaim,
   state: 'ready',
-  // @ts-expect-error ready Ed25519 warm-session capability requires bearer Wallet Session auth.
+  // @ts-expect-error ready Ed25519 warm-session capability requires active authorization.
 } satisfies WarmSessionEd25519CapabilityState;
 void invalidReadyEd25519CapabilityWithoutJwt;
 

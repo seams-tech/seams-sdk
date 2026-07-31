@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   resolveExactEd25519SealedSessionRuntimeForLaneWithResolver,
+  resolveExactEd25519SealedSessionRuntimeForWalletWithResolver,
 } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import { buildEd25519PasskeySigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
@@ -69,4 +70,42 @@ test('keeps missing and conflicting sealed Ed25519 sessions distinct', async () 
       listExactSealedSessionsForWallet: async () => [RECORD, RECORD],
     }),
   ).resolves.toEqual({ kind: 'conflict' });
+});
+
+test('resolves wallet-scoped Ed25519 material across factor stores', async () => {
+  const walletId = toWalletId(RECORD.walletId);
+  const resolution =
+    await resolveExactEd25519SealedSessionRuntimeForWalletWithResolver(
+      walletId,
+      {
+        listExactSealedSessionsForWallet: async ({ filter }) =>
+          filter.authMethod === 'passkey' ? [RECORD] : [],
+      },
+    );
+
+  expect(resolution.kind).toBe('resolved');
+  if (resolution.kind !== 'resolved') return;
+  expect(resolution.runtime.thresholdSessionId).toBe(
+    RECORD.thresholdSessionIds.ed25519,
+  );
+});
+
+test('reports wallet-scoped Ed25519 conflicts and corruption explicitly', async () => {
+  const walletId = toWalletId(RECORD.walletId);
+  await expect(
+    resolveExactEd25519SealedSessionRuntimeForWalletWithResolver(walletId, {
+      listExactSealedSessionsForWallet: async () => [RECORD],
+    }),
+  ).resolves.toEqual({ kind: 'conflict' });
+
+  const corruptRecord = {
+    ...RECORD,
+    expiresAtMs: 0,
+  };
+  await expect(
+    resolveExactEd25519SealedSessionRuntimeForWalletWithResolver(walletId, {
+      listExactSealedSessionsForWallet: async ({ filter }) =>
+        filter.authMethod === 'passkey' ? [corruptRecord] : [],
+    }),
+  ).resolves.toEqual({ kind: 'corrupt' });
 });

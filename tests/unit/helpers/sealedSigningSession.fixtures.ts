@@ -22,7 +22,10 @@ import type { ExactEd25519SigningLaneIdentity } from '@/core/signingEngine/sessi
 import { createThresholdEcdsaBootstrapFixture } from './ecdsaBootstrap.fixtures';
 import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './ecdsaMaterialRef.fixtures';
 import { buildWalletAuthAuthorityRefForAuthorityFixture } from './ecdsaMaterialRef.fixtures';
-import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import {
   buildEcdsaInactiveMaterialPublicRestore,
@@ -34,6 +37,19 @@ import {
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { parseEcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+
+function requireFixtureDomainId<T>(
+  result: { ok: true; value: T } | { ok: false; error: unknown },
+): T {
+  if (!result.ok) throw new Error('invalid sealed-session fixture domain id');
+  return result.value;
+}
 
 function encodeFixtureJwtPart(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -114,6 +130,35 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
     throw new Error('Failed to build Passkey Ed25519 sealed-session fixture');
   }
   return record;
+}
+
+export function buildPasskeyEd25519AuthorizationProjectionFixture(
+  record: CurrentEd25519SealedSessionRecord,
+) {
+  if (!('credentialIdB64u' in record.ed25519Restore)) {
+    throw new Error('passkey Ed25519 authorization fixture requires passkey restore metadata');
+  }
+  const authority = buildPasskeyWalletAuthAuthority({
+    walletId: record.walletId,
+    rpId: record.ed25519Restore.rpId,
+    credentialIdB64u: record.ed25519Restore.credentialIdB64u,
+  });
+  return buildActiveWalletSessionAuthorizationProjection({
+    walletId: authority.walletId,
+    authorizationSessionId: requireFixtureDomainId(
+      parseSeamsSessionId(`authorization:${record.thresholdSessionIds.ed25519}`),
+    ),
+    walletSessionId: requireFixtureDomainId(
+      parseWalletSessionId(`wallet-session:${record.thresholdSessionIds.ed25519}`),
+    ),
+    quotaId: requireFixtureDomainId(
+      parseMpcWalletSigningQuotaId(`quota:${record.thresholdSessionIds.ed25519}`),
+    ),
+    walletSessionJwt: record.ed25519Restore.walletSessionJwt,
+    authMethod: 'passkey',
+    authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),
+    expiresAtMs: record.expiresAtMs,
+  });
 }
 
 export type EmailOtpEcdsaSealedSigningSessionRecord = Extract<

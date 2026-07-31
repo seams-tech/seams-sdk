@@ -250,6 +250,13 @@ import type {
   ReservedRegistrationWebAuthnPrompt,
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 
+async function resolveActiveEd25519WalletSessionAuthorization(
+  walletId: WalletId,
+): Promise<ActiveWalletSessionAuthorizationProjection | null> {
+  const read = await walletSessionAuthorizations.readActiveForWallet(walletId);
+  return read.kind === 'found' ? read.projection : null;
+}
+
 type NearEd25519CapabilityRehydrationSubject =
   | {
       readonly kind: 'account_signer';
@@ -672,6 +679,7 @@ export class BrowserSigningSurface {
           emailOtpSessions: this.emailOtpSessions,
           sealedSigningSessionStore: deps.sealedSigningSessionStore,
         }),
+      resolveActiveEd25519WalletSessionAuthorization,
     });
     this.sessionPublicDeps = createSessionPublicDeps({
       seamsWebConfigs: this.seamsWebConfigs,

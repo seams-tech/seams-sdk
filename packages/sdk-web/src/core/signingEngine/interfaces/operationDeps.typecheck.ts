@@ -57,10 +57,6 @@ signingDeps.resolveDurableEmailOtpEcdsaSigningSessionAuthority({
   chain: 'tempo',
 });
 
-nearSigningDeps.getWarmThresholdEd25519SessionStatusForSession?.({
-  nearAccountId,
-  thresholdSessionId: 'threshold-session-id',
-});
 nearSigningDeps.prepareNearEd25519YaoMaterialBoundary({
   walletId,
   nearAccountId,

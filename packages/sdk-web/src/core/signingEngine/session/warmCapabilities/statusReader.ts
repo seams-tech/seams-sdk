@@ -8,12 +8,9 @@ import {
 } from '../persistence/records';
 import { emailOtpAuthContextRetention } from '../identity/laneIdentity';
 import {
-  buildDiscoveredLaneForRecord,
-  readWalletScopedLaneClaimsForLanes,
-} from '../availability/readiness';
-import { readWarmSessionEd25519RecordByThresholdSessionId } from './store';
-import {
   normalizeWarmSessionReadPorts,
+  readWarmSessionClaim,
+  toWarmSessionClaimFromStatusResult,
   toSigningSessionStatus,
   type WarmSessionReadPortsInput,
 } from './readModel';
@@ -25,6 +22,7 @@ import type {
   ThresholdWarmSessionStatusReader,
   WarmSessionPrfClaim,
 } from './types';
+import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
 
 export const THRESHOLD_SESSION_MISSING_ERROR =
   '[chains] Missing threshold signingSessionId; reconnect threshold session before signing';
@@ -81,13 +79,12 @@ function assertNeverEd25519StoreSource(value: never): never {
 
 export type WarmSessionStatusReaderDeps = {
   touchConfirm?: WarmSessionReadPortsInput;
-  readWalletScopedLaneClaimsForLanes?: typeof readWalletScopedLaneClaimsForLanes;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
 };
 
 export type WarmSigningStatusReader = ThresholdWarmSessionStatusReader & {
   readEd25519WarmSessionClaim: (
-    record: ThresholdEd25519SessionRecord | null,
+    runtime: ExactEd25519SealedSessionRuntime,
   ) => Promise<WarmSessionPrfClaim | null>;
 };
 
@@ -95,21 +92,35 @@ export function createWarmSessionStatusReader(
   deps: WarmSessionStatusReaderDeps,
 ): WarmSigningStatusReader {
   const touchConfirm = normalizeWarmSessionReadPorts(deps.touchConfirm);
-  const readWalletScopedClaims =
-    deps.readWalletScopedLaneClaimsForLanes || readWalletScopedLaneClaimsForLanes;
-  const claimReaderDeps = {
-    touchConfirm,
-    getEmailOtpWarmSessionStatus: deps.getEmailOtpWarmSessionStatus,
-  };
 
   async function readEd25519WarmSessionClaim(
-    record: ThresholdEd25519SessionRecord | null,
+    runtime: ExactEd25519SealedSessionRuntime,
   ): Promise<WarmSessionPrfClaim | null> {
-    if (!record) return null;
-    const lane = buildDiscoveredLaneForRecord(record);
-    if (!lane) return null;
-    const claims = await readWalletScopedClaims({ deps: claimReaderDeps, lanes: [lane] });
-    return claims.get(String(record.thresholdSessionId).trim()) || null;
+    const sessionId = String(runtime.thresholdSessionId);
+    return await readEd25519WarmSessionClaimByMethod({
+      authMethod: runtime.factor.kind,
+      sessionId,
+    });
+  }
+
+  async function readEd25519WarmSessionClaimByMethod(args: {
+    authMethod: SignerAuthMethod;
+    sessionId: string;
+  }): Promise<WarmSessionPrfClaim | null> {
+    if (args.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
+      const status = await deps
+        .getEmailOtpWarmSessionStatus(args.sessionId)
+        .catch(() => ({
+          ok: false as const,
+          code: 'worker_error',
+          message: 'worker_error',
+        }));
+      return toWarmSessionClaimFromStatusResult({
+        sessionId: args.sessionId,
+        status,
+      });
+    }
+    return await readWarmSessionClaim(touchConfirm, args.sessionId);
   }
 
   function toRecordBackedEd25519StatusIfReady(
@@ -166,7 +177,11 @@ export function createWarmSessionStatusReader(
           : {}),
       };
     }
-    const claim = await readEd25519WarmSessionClaim(record);
+    const claim = await readEd25519WarmSessionClaimByMethod({
+      authMethod:
+        authMethodForEd25519Record(record) ?? SIGNER_AUTH_METHODS.passkey,
+      sessionId: thresholdSessionId,
+    });
     const status = toSigningSessionStatus({
       sessionId: thresholdSessionId,
       claim,
@@ -189,26 +204,8 @@ export function createWarmSessionStatusReader(
     );
   }
 
-  async function getEd25519SigningSessionStatusForSession(args: {
-    nearAccountId: AccountId;
-    thresholdSessionId: string;
-  }): Promise<SigningSessionStatus | null> {
-    const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-    if (!thresholdSessionId) {
-      throw new Error(
-        '[WarmSessionStatusReader] thresholdSessionId is required for Ed25519 status',
-      );
-    }
-    const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
-    if (!record || String(record.nearAccountId) !== String(args.nearAccountId)) {
-      return { sessionId: thresholdSessionId, status: 'not_found' };
-    }
-    return await getEd25519SigningSessionStatusForRecord(record);
-  }
-
   return {
     getEd25519SigningSessionStatus,
-    getEd25519SigningSessionStatusForSession,
     readEd25519WarmSessionClaim,
   };
 }

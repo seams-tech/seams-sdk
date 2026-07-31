@@ -93,6 +93,24 @@ export type Ed25519SealedSessionRuntimeResolver = {
   readonly listExactSealedSessionsForWallet: typeof listExactSealedSessionsForWallet;
 };
 
+export type Ed25519WalletSealedSessionRuntimeResolution =
+  | {
+      readonly kind: 'resolved';
+      readonly runtime: ExactEd25519SealedSessionRuntime;
+    }
+  | {
+      readonly kind: 'missing';
+      readonly runtime?: never;
+    }
+  | {
+      readonly kind: 'conflict';
+      readonly runtime?: never;
+    }
+  | {
+      readonly kind: 'corrupt';
+      readonly runtime?: never;
+    };
+
 function nonEmptyString(value: unknown): string | null {
   const normalized = String(value ?? '').trim();
   return normalized || null;
@@ -323,6 +341,46 @@ export async function resolveExactEd25519SealedSessionRuntimeForLane(args: {
   readonly laneIdentity: ExactEd25519SigningLaneIdentity;
 }): Promise<Ed25519SealedSessionRuntimeResolution> {
   return await resolveExactEd25519SealedSessionRuntimeForLaneWithResolver(args, {
+    listExactSealedSessionsForWallet,
+  });
+}
+
+export async function resolveExactEd25519SealedSessionRuntimeForWalletWithResolver(
+  walletId: WalletId,
+  resolver: Ed25519SealedSessionRuntimeResolver,
+): Promise<Ed25519WalletSealedSessionRuntimeResolution> {
+  const listedRecords = await Promise.all([
+    resolver.listExactSealedSessionsForWallet({
+      walletId,
+      filter: {
+        authMethod: SIGNER_AUTH_METHODS.passkey,
+        curve: 'ed25519',
+      },
+    }),
+    resolver.listExactSealedSessionsForWallet({
+      walletId,
+      filter: {
+        authMethod: SIGNER_AUTH_METHODS.emailOtp,
+        curve: 'ed25519',
+      },
+    }),
+  ]);
+  const records: CurrentEd25519SealedSessionRecord[] = [];
+  for (const listed of listedRecords) {
+    for (const record of listed) {
+      if (record.curve === 'ed25519') records.push(record);
+    }
+  }
+  if (records.length === 0) return { kind: 'missing' };
+  if (records.length > 1) return { kind: 'conflict' };
+  const runtime = parseExactEd25519SealedSessionRuntime(records[0]);
+  return runtime ? { kind: 'resolved', runtime } : { kind: 'corrupt' };
+}
+
+export async function resolveExactEd25519SealedSessionRuntimeForWallet(
+  walletId: WalletId,
+): Promise<Ed25519WalletSealedSessionRuntimeResolution> {
+  return await resolveExactEd25519SealedSessionRuntimeForWalletWithResolver(walletId, {
     listExactSealedSessionsForWallet,
   });
 }
