@@ -204,7 +204,8 @@ replacement.
 
 ## Phase 17 — interim authority adapters
 
-- `signingGrantAdmissionAuthorityKeyFromAuth`
+- ~~`signingGrantAdmissionAuthorityKeyFromAuth`~~ — deleted in `07016a7cb`;
+  every lane uses the central exact auth-binding key builder
 - the branch-specific queue-key helper covered by Refactor 82B Phase 10D tests
 
 ## Phase 18 — durable restore fields and shared-type residue
@@ -446,7 +447,8 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - `BudgetCoordinator`, `budgetProjection`, `budgetFinalizer`,
   `budgetStatusReader`
 - `signingEngine/session/budget/**`
-- `DelegatedBudgetReservationStore`
+- ~~`DelegatedBudgetReservationStore`~~ — deleted in `20bd2297e`; it had no
+  production consumer
 - router reserve/commit/release budget methods
 - old development `signingGrantId` budget rows (reject and clear at the
   persistence boundary; never fan one remaining-use count into multiple
@@ -582,6 +584,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   budget-projection alias, and `ecdsaOnlySigningSessionStatus` reconstruction~~
   — deleted by `04221828c`; the exact bootstrap session requires its runtime
   policy, Wallet Session bearer, and client verifying share
+- ~~the duplicate bootstrap `keygen` result branch and its hand-written fixture
+  copies~~ — deleted by `118f5c882` and `7d1e31bbd`; the exact key reference is
+  the sole bootstrap material-facts owner
 - ~~duplicate persisted Ed25519 capability fallback service locator~~ — deleted
   by `729ad4cdd`; the request-scoped product runtime owns persisted load,
   correlation, installation, and reread

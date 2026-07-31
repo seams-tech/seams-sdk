@@ -339,8 +339,12 @@ implementing commit SHA as the evidence.
   by exact owner and reject stale generations/fences.
   - [x] NEAR transaction, delegate, NEP-413, Passkey export, and Email OTP
     export share one queue keyed by canonical material activation rather than
-    threshold session identity (`10c8a61da`). Recovery/refresh fence coverage
-    remains open.
+    threshold session identity (`10c8a61da`).
+  - [x] Email OTP ECDSA signing-session refresh enters that exact-owner queue,
+    re-resolves before its consuming login call and after refresh, and rejects
+    disappearance or replacement (`71c67e3dc`).
+  - [ ] Ed25519 recovery/refresh consuming paths still require the equivalent
+    exact-owner fence.
 - [x] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
   applicable quota once; existing claims consume neither again. Reusable Near
   claims, operation-step-up Near claims, and one-use ECDSA export claims commit
