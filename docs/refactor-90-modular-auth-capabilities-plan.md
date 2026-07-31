@@ -1061,6 +1061,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete zero-caller Ed25519 composite-record rejection, commit,
       runtime-reseed, broad-list, exact-clear, and recovered-session retirement
       helpers (`7886fd39f`).
+- [x] Delete the remaining zero-caller operation-usable Ed25519 record,
+      current-generation commit/supersession branch, and its obsolete unit and
+      type fixtures (`f5c6ec6d9`).
 - [x] Delete the Passkey durable-state composite-record reverse lookup and its
       record-to-restore parsers after exact Ed25519 restore metadata becomes a
       required seal-transport field (`0f5d7e6b6`).

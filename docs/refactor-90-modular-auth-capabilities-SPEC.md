@@ -299,6 +299,9 @@ implementing commit SHA as the evidence.
   - [x] Wallet-scoped volatile Ed25519 cleanup enumerates exact Passkey and
     Email OTP sealed sessions, so material-session discovery no longer reads
     the composite session cache (`b9638246a`).
+  - [x] The zero-caller operation-usable Ed25519 record and current-generation
+    commit/supersession branch are deleted with their obsolete fixtures
+    (`f5c6ec6d9`).
   - [x] Non-iframe implicit NEAR funding reads the bearer credential from the
     canonical active Wallet Session authorization projection and fails before
     fetch when that authorization is absent or expired; no composite MPC record
