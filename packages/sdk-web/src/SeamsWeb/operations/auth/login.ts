@@ -22,7 +22,7 @@ import type {
 } from '@/core/types/seams';
 import type {
   EcdsaLoginSessionSurface,
-  Ed25519YaoRegistrationActivationSurface,
+  LoginUnlockSigningSurface,
   LoginWebContext,
   LoginWarmSigningSurface,
   RecentUnlocksWebContext,
@@ -46,6 +46,7 @@ import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject } from '@shared/utils/validation';
 import {
+  mpcMaterialActivationRefsEqual,
   parseSigningGrantId,
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
@@ -2884,9 +2885,92 @@ function buildLoginEd25519WalletSessionMintAuthorization(args: {
   }
 }
 
+type PasskeyEd25519LoginHydrationInput = {
+  signingEngine: LoginUnlockSigningSurface;
+  walletSessionState: NonNullable<
+    ReturnType<typeof resolveRouterAbEd25519WalletSessionStateFromRecord>
+  >;
+  walletId: string;
+  nearAccountId: AccountId;
+  signerSlot: number;
+  rpId: string;
+  credentialIdB64u: string;
+  passkeyPrfFirstB64u: string;
+  expectedMaterialActivation: PasskeyEd25519YaoLocalMaterialLocatorV1['materialActivation'];
+};
+
+async function hydrateAndActivatePasskeyEd25519LoginMaterial(
+  input: PasskeyEd25519LoginHydrationInput,
+): Promise<void> {
+  const current = await readPasskeyEd25519YaoLocalMaterialLocatorV1({
+    store: IndexedDBManager,
+    walletId: input.walletId,
+    nearAccountId: input.nearAccountId,
+    nearEd25519SigningKeyId: String(
+      input.walletSessionState.signingLane.identity.signer.nearEd25519SigningKeyId,
+    ),
+    signerSlot: input.signerSlot,
+    rpId: input.rpId,
+    credentialIdB64u: input.credentialIdB64u,
+  });
+  if (
+    current.kind !== 'available' ||
+    !mpcMaterialActivationRefsEqual(
+      current.locator.materialActivation,
+      input.expectedMaterialActivation,
+    )
+  ) {
+    throw new Error('[login] local Ed25519 material activation was superseded before hydration');
+  }
+  const hydrated = await hydratePasskeyEd25519YaoLocalMaterialV1({
+    store: IndexedDBManager,
+    walletSessionState: input.walletSessionState,
+    rpId: input.rpId,
+    credentialIdB64u: input.credentialIdB64u,
+    publicLocator: {
+      kind: 'available',
+      walletId: input.walletId,
+      nearAccountId: String(input.nearAccountId),
+      signerSlot: input.signerSlot,
+      materialActivation: input.expectedMaterialActivation,
+    },
+    unlockSource: {
+      kind: 'available',
+      passkeyPrfFirstB64u: input.passkeyPrfFirstB64u,
+    },
+    liveCapability: null,
+  });
+  if (hydrated.kind === 'blocked') {
+    throw new Error(
+      `[login] local threshold Ed25519 hydration blocked: ${hydrated.plan.reason}`,
+    );
+  }
+  if (hydrated.kind === 'live') {
+    throw new Error('[login] cleared Ed25519 runtime unexpectedly remained live');
+  }
+  try {
+    const activated =
+      await input.signingEngine.activateVerifiedNearEd25519YaoSigningCapability({
+        activeClient: hydrated.activeClient,
+        walletSessionState: input.walletSessionState,
+      });
+    if (
+      !mpcMaterialActivationRefsEqual(
+        activated.materialActivation,
+        input.expectedMaterialActivation,
+      )
+    ) {
+      throw new Error('[login] local Ed25519 activation changed during hydration');
+    }
+  } catch (error) {
+    hydrated.activeClient.dispose();
+    throw error;
+  }
+}
+
 async function primeThresholdLoginWarmSigners(args: {
   context: LoginWebContext;
-  signingEngine: LoginWarmSigningSurface & Ed25519YaoRegistrationActivationSurface;
+  signingEngine: LoginUnlockSigningSurface;
   walletIdentity: ResolvedLoginWalletIdentity;
   signerSlot: number;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial | null;
@@ -3070,41 +3154,21 @@ async function primeThresholdLoginWarmSigners(args: {
           if (localMaterial.kind !== 'available') {
             throw new Error('[login] local Ed25519 material activation is unavailable');
           }
-          const hydrated = await hydratePasskeyEd25519YaoLocalMaterialV1({
-            store: IndexedDBManager,
-            walletSessionState,
-            rpId: args.signingEngine.getRpId(),
-            credentialIdB64u: localPasskeyCredentialIdB64u,
-            publicLocator: {
-              kind: 'available',
-              walletId: String(walletBinding.walletId),
-              nearAccountId: String(walletBinding.nearAccountId),
-              signerSlot: args.signerSlot,
-              materialActivation: localMaterial.locator.materialActivation,
-            },
-            unlockSource: {
-              kind: 'available',
-              passkeyPrfFirstB64u,
-            },
-            liveCapability: null,
-          });
-          if (hydrated.kind === 'blocked') {
-            throw new Error(
-              `[login] local threshold Ed25519 hydration blocked: ${hydrated.plan.reason}`,
-            );
-          }
-          if (hydrated.kind === 'live') {
-            throw new Error('[login] cleared Ed25519 runtime unexpectedly remained live');
-          }
-          try {
-            await args.signingEngine.activateVerifiedNearEd25519YaoSigningCapability({
-              activeClient: hydrated.activeClient,
+          await args.signingEngine.withExactEd25519MaterialOwner({
+            materialActivation: localMaterial.locator.materialActivation,
+            nearAccountId: walletBinding.nearAccountId,
+            task: hydrateAndActivatePasskeyEd25519LoginMaterial.bind(undefined, {
+              signingEngine: args.signingEngine,
               walletSessionState,
-            });
-          } catch (error) {
-            hydrated.activeClient.dispose();
-            throw error;
-          }
+              walletId: String(walletBinding.walletId),
+              nearAccountId: walletBinding.nearAccountId,
+              signerSlot: args.signerSlot,
+              rpId: args.signingEngine.getRpId(),
+              credentialIdB64u: localPasskeyCredentialIdB64u,
+              passkeyPrfFirstB64u,
+              expectedMaterialActivation: localMaterial.locator.materialActivation,
+            }),
+          });
         }
 
         warmState.sessionId = connectedSessionId;

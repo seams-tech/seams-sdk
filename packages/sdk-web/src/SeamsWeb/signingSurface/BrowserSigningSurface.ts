@@ -2088,6 +2088,22 @@ export class BrowserSigningSurface {
     return await this.enginePorts.ed25519YaoActiveClients.activate(capability);
   }
 
+  async withExactEd25519MaterialOwner<T>(args: {
+    materialActivation: MpcMaterialActivationRef;
+    nearAccountId: AccountId;
+    task: () => Promise<T>;
+  }): Promise<T> {
+    return await withThresholdEd25519CommitQueue({
+      queueByKey: this.thresholdEd25519CommitQueueByKey,
+      queueKey: resolveThresholdEd25519CommitQueueKey({
+        materialActivation: args.materialActivation,
+      }),
+      nearAccountId: args.nearAccountId,
+      enabled: true,
+      task: args.task,
+    });
+  }
+
   storeWalletEmailOtpEcdsaRegistrationData(
     input: Parameters<typeof registrationPublic.storeWalletEmailOtpEcdsaRegistrationData>[1],
   ): ReturnType<typeof registrationPublic.storeWalletEmailOtpEcdsaRegistrationData> {
