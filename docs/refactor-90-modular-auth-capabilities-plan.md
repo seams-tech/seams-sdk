@@ -591,6 +591,9 @@ the replacement and legacy MPC paths must not ship together.
       kind, and budget; remove authorization-session/grant identity from the
       reconnect key, delete record/lane fallback paths, and reject rehydration
       that changes the activation.
+- [x] Require exact runtime policy scope on every ECDSA session-lane policy;
+      reject missing scope before strict activation and pin omission as a
+      compile-time error (`ff6464baf`).
 - [x] Cut ECDSA export over atomically across the client, Gateway, Router,
       SigningWorker, sealed-share AAD, and Rust protocol mirrors so requests
       carry discriminated authorization plus the exact material activation.

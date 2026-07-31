@@ -228,6 +228,9 @@ implementing commit SHA as the evidence.
   - [x] The one-arm `ExactEcdsaExportSession` wrapper is deleted; exact ECDSA
     export lanes directly carry their required state, target, factor, and
     material-availability facts (`643dde348`).
+  - [x] ECDSA session-lane policy requires the exact runtime policy scope;
+    strict activation cannot receive a policy with absent scope, and type
+    fixtures reject omission (`ff6464baf`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
   - [x] The canonical ECDSA operating-path proof completes persisted hydration,
