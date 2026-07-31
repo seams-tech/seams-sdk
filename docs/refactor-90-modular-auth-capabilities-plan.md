@@ -1122,9 +1122,14 @@ the replacement and legacy MPC paths must not ship together.
           correlates wallet, factor, authority, and expiry before rehydration;
           neither worker transport nor reconstructed metadata trusts the
           persisted bearer (`a39e90add`).
-    - [ ] Delete bearer and grant fields from sealed restore metadata and its
-          boundary parser after the remaining persistence writers stop storing
-          them.
+    - [x] Delete persisted `sessionKind` and `walletSessionJwt` fields from
+          Ed25519/ECDSA sealed restore metadata, recovery records, boundary
+          parsers, writers, and fixtures. Current authorization remains an
+          independent transport input; record-level protocol/session identity
+          remains separate (`22ccd0c26`).
+    - [ ] Complete the separate operation-authorization cutover for any
+          remaining record-level `signingGrantId` protocol/lease identity; do
+          not treat it as sealed restore bearer state.
   - [x] Require canonical JWT `sid` at the Cloudflare Router boundary and
         delete the legacy `session_id` claim fallback and selector
         (`af6dc1514`).
