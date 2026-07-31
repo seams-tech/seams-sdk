@@ -139,28 +139,6 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
   return targets;
 }
 
-export async function requireEmailOtpExistingEcdsaPublicCapability(args: {
-  walletId: WalletId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
-  keyHandle: string;
-  listActiveEcdsaCapabilityManifestsForWallet: EmailOtpEcdsaPublicationPorts['listActiveEcdsaCapabilityManifestsForWallet'];
-}): Promise<RouterAbEcdsaDerivationPublicCapabilityV1> {
-  const existing = await resolveEmailOtpExistingEcdsaKey({
-    walletId: args.walletId,
-    chainTarget: args.chainTarget,
-    runtimePolicyScope: args.runtimePolicyScope,
-    keyHandle: args.keyHandle,
-    listActiveEcdsaCapabilityManifestsForWallet: args.listActiveEcdsaCapabilityManifestsForWallet,
-  });
-  if (!existing) {
-    throw new Error(
-      `Email OTP ECDSA requires one persisted public capability for ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
-    );
-  }
-  return existing.publicCapability;
-}
-
 type EmailOtpEcdsaPersistedIdentity = {
   signingRootId: string;
   signingRootVersion: string;
