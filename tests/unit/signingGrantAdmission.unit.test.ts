@@ -5,8 +5,8 @@ import {
   decideSigningGrantAdmissionError,
   routerAbNormalSigningAdmissionErrorFromPayload,
   SigningGrantAdmissionError,
-  signingGrantAdmissionAuthorityKeyFromAuth,
 } from '../../packages/sdk-web/src/core/signingEngine/session/budget/admission';
+import { signingLaneAuthBindingKey } from '../../packages/sdk-web/src/core/signingEngine/session/identity/signingLaneAuthBinding';
 import {
   SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
   SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
@@ -71,7 +71,7 @@ test.describe('signing grant admission boundary', () => {
         curve: 'ecdsa',
         signingGrantId: 'grant-1',
         projectionVersion: 'projection-1',
-        authorityKey: signingGrantAdmissionAuthorityKeyFromAuth({
+        authorityKey: signingLaneAuthBindingKey({
           kind: 'passkey',
           rpId: 'localhost',
           credentialIdB64u: 'credential-1',

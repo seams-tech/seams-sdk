@@ -36,6 +36,7 @@ import {
 } from '../identity/laneIdentity';
 import { exactSigningLaneIdentityFromSelectedLane } from '../identity/exactSigningLaneIdentity';
 import {
+  signingLaneAuthBindingKey,
   signingLaneAuthMethod,
   type SigningLaneAuthBinding,
 } from '../identity/signingLaneAuthBinding';
@@ -677,9 +678,8 @@ export function ecdsaAvailableLaneIdentityKey(
   if (!('key' in lane) || !lane.key) return null;
   if (!('auth' in lane) || !lane.auth) return null;
   const authMethod = signingLaneAuthMethod(lane.auth);
-  const authKey = ecdsaAvailableLaneAuthKey(lane.auth);
-  if (!authMethod || !authKey) return null;
   try {
+    const authKey = signingLaneAuthBindingKey(lane.auth);
     return [
       authMethod,
       'ecdsa',
@@ -691,20 +691,6 @@ export function ecdsaAvailableLaneIdentityKey(
   } catch {
     return null;
   }
-}
-
-export function ecdsaAvailableLaneAuthKey(auth: SigningLaneAuthBinding): string | null {
-  return signingLaneAuthBindingKey(auth);
-}
-
-function signingLaneAuthBindingKey(auth: SigningLaneAuthBinding): string | null {
-  if (auth.kind === 'passkey') {
-    const rpId = String(auth.rpId || '').trim();
-    const credentialIdB64u = String(auth.credentialIdB64u || '').trim();
-    return rpId && credentialIdB64u ? ['passkey', rpId, credentialIdB64u].join(':') : null;
-  }
-  const providerSubjectId = String(auth.providerSubjectId || '').trim();
-  return providerSubjectId ? ['email_otp', providerSubjectId].join(':') : null;
 }
 
 function deriveAvailableEcdsaLaneFingerprint(args: {
@@ -1503,8 +1489,7 @@ function ecdsaLaneRecordFactSource(
 }
 
 function ecdsaLaneGroupKey(lane: ConcreteAvailableEcdsaSigningLane): EcdsaLaneGroupKey | null {
-  const authKey = ecdsaAvailableLaneAuthKey(lane.auth);
-  if (!authKey) return null;
+  const authKey = signingLaneAuthBindingKey(lane.auth);
   return {
     walletId: String(lane.key.walletId),
     authKey,
@@ -1540,8 +1525,7 @@ function ecdsaLaneRecordFact(lane: ConcreteAvailableEcdsaSigningLane): EcdsaLane
 }
 
 function ecdsaLaneFamilyGroupKeyString(lane: ConcreteAvailableEcdsaSigningLane): string | null {
-  const authKey = ecdsaAvailableLaneAuthKey(lane.auth);
-  if (!authKey) return null;
+  const authKey = signingLaneAuthBindingKey(lane.auth);
   return [
     String(lane.key.walletId),
     authKey,

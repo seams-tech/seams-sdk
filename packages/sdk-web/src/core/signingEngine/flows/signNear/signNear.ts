@@ -82,9 +82,9 @@ import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinat
 import {
   buildSigningGrantAdmissionQueueKey,
   decideSigningGrantAdmissionError,
-  signingGrantAdmissionAuthorityKeyFromAuth,
   waitForSigningGrantAdmissionRetry,
 } from '../../session/budget/admission';
+import { signingLaneAuthBindingKey } from '../../session/identity/signingLaneAuthBinding';
 import type { SigningSessionBudgetStatusAuth } from '../../session/budget/budget';
 import {
   normalizeStepUpOperationId,
@@ -639,7 +639,7 @@ function nearEd25519SigningGrantAdmissionQueueKey(args: {
     curve: 'ed25519',
     signingGrantId: String(args.prepared.signingLane.signingGrantId),
     projectionVersion,
-    authorityKey: signingGrantAdmissionAuthorityKeyFromAuth(args.prepared.signingLane.auth),
+    authorityKey: signingLaneAuthBindingKey(args.prepared.signingLane.auth),
     targetKey: `near:${String(args.nearAccountId)}`,
   });
 }
@@ -654,7 +654,7 @@ function nearAdHocEd25519SigningGrantAdmissionQueueKey(args: {
     curve: 'ed25519',
     signingGrantId: String(args.prepared.selectedLane.signingGrantId),
     projectionVersion: 'projection-unadmitted',
-    authorityKey: signingGrantAdmissionAuthorityKeyFromAuth(args.prepared.selectedLane.auth),
+    authorityKey: signingLaneAuthBindingKey(args.prepared.selectedLane.auth),
     targetKey: `near:${String(args.nearAccountId)}`,
   });
 }
