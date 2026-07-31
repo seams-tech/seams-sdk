@@ -9,9 +9,12 @@ const PRIVATE_KEY = `0x${'1'.repeat(64)}`;
 type ViewerSnapshot = {
   copyDisabled: boolean;
   innerHtml: string;
+  interSlotWhitespaceNodes: number;
   prefix: string;
   reelSlots: number;
   reelText: string;
+  settledSlots: number;
+  targetGlyphs: number;
   text: string;
 };
 
@@ -34,9 +37,17 @@ async function viewerSnapshot(page: Page): Promise<ViewerSnapshot> {
     return {
       copyDisabled: copyButton?.disabled ?? true,
       innerHtml: privateKeyField.innerHTML,
+      interSlotWhitespaceNodes:
+        reel === null
+          ? 0
+          : Array.from(reel.childNodes).filter(
+              (node) => node.nodeType === Node.TEXT_NODE && /\s/.test(node.textContent ?? ''),
+            ).length,
       prefix: reel?.querySelector('.reel-prefix')?.textContent ?? '',
       reelSlots: reel?.querySelectorAll('.reel-slot').length ?? 0,
       reelText: reel?.textContent ?? '',
+      settledSlots: reel?.querySelectorAll('.reel-slot.settled').length ?? 0,
+      targetGlyphs: reel?.querySelectorAll('.reel-glyph-target').length ?? 0,
       text: privateKeyField.textContent ?? '',
     };
   }, EXPORT_VIEWER_TAG);
@@ -142,19 +153,27 @@ test.describe('Export private key slot reveal', () => {
     expect(loading.text).not.toContain('Decrypting…');
     expect(loading.prefix).toBe('0x');
     expect(loading.reelSlots).toBe(64);
+    expect(loading.interSlotWhitespaceNodes).toBe(0);
     expect(loading.copyDisabled).toBe(true);
 
     await updateViewerToReady(page);
 
     const settling = await viewerSnapshot(page);
     expect(settling.reelSlots).toBe(64);
+    expect(settling.targetGlyphs).toBe(64);
     expect(settling.copyDisabled).toBe(true);
     expect(settling.innerHtml).not.toContain(PRIVATE_KEY);
 
+    await expect
+      .poll(async () => (await viewerSnapshot(page)).settledSlots, {
+        intervals: [25],
+        timeout: 2_000,
+      })
+      .toBe(64);
     await expect.poll(async () => (await viewerSnapshot(page)).reelSlots).toBe(0);
     const settled = await viewerSnapshot(page);
     expect(settled.copyDisabled).toBe(false);
-    expect(settled.text).toContain(`0x1111${'x'.repeat(54)}111111`);
+    expect(settled.text).toContain(`0x${'1'.repeat(20)}${'x'.repeat(24)}${'1'.repeat(20)}`);
     expect(settled.innerHtml).not.toContain(PRIVATE_KEY);
   });
 

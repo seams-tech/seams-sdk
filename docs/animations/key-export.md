@@ -2,7 +2,7 @@
 
 ## Goal
 
-Replace the `Decrypting…` text in the Exported Keys viewer with a restrained, slot-machine-style key reveal. Each character occupies a fixed monospace slot. The slots cycle independently while key material is being prepared, then decelerate and settle from left to right when the real key arrives.
+Replace the `Decrypting…` text in the Exported Keys viewer with a restrained, slot-machine-style key reveal. Each character occupies a fixed monospace slot. The slots cycle independently while key material is being prepared, then decelerate and settle together when the real key arrives.
 
 The effect should communicate hidden computation becoming visible. It should feel precise and mechanical, without casino styling, glow, flashing, bounce, or layout movement.
 
@@ -21,15 +21,16 @@ The loading glyphs are cosmetic random data. They must never be derived from par
 
 ### Settling
 
-When the viewer receives the ready payload, stop the slots in a short left-to-right wave:
+When the viewer receives the ready payload, settle every slot together:
 
-1. The first slot begins decelerating immediately.
-2. Following slots begin at a small stagger, with several nearby slots allowed to overlap.
-3. Each slot makes two or three slower glyph changes before landing.
-4. Settled slots remain still while later slots continue cycling.
-5. The complete wave lasts approximately 900–1,300 ms.
+1. Every slot begins decelerating immediately.
+2. Each slot makes two or three slower glyph changes before landing.
+3. All final masked glyphs crossfade into view at the same time.
+4. The complete transition lasts approximately 360 ms after the ready payload arrives.
 
-The final target is the same masked value the viewer renders today: the visible prefix and suffix settle to their real characters, while the protected middle settles to `x` characters. This change must preserve the current key-display policy. It must not briefly render the unmasked middle or place it in per-character DOM attributes. Copy continues to use the complete private key already supplied to the viewer.
+The final target masks exactly the middle 24 key characters. The remaining leading and trailing characters are split evenly and settle to their real values, while the protected middle settles to `x` characters. The key prefix remains visible and is excluded from the split. The animation must never render the unmasked middle or place it in per-character DOM attributes. Copy continues to use the complete private key already supplied to the viewer.
+
+Each settling slot layers its current cosmetic glyph beneath the final masked glyph. Crossfade every slot over the same 140 ms interval, and keep the slot structure stable until the crossfade completes.
 
 Once the last slot lands, enable Copy and leave the final masked value static. The animation must run once for a loading-to-ready transition and must not replay on unrelated Lit updates, theme changes, or copy-state updates.
 
@@ -88,7 +89,7 @@ Use a stable entry identity derived from the entry index and scheme. Keep transi
 
 - `loading + export entry` starts or continues `spinning`.
 - `spinning + ready private key` starts `settling` toward the masked display string.
-- `settling + final slot landed` becomes `settled` and enables Copy.
+- `settling + synchronized crossfade complete` becomes `settled` and enables Copy.
 - error, disconnect, entry replacement, or a return to loading resets the state.
 
 Do not infer animation state from CSS classes or diagnostics. Normalize the display scaffold once, then pass the narrow state required by each renderer.
@@ -96,7 +97,7 @@ Do not infer animation state from CSS classes or diagnostics. Normalize the disp
 ## Implementation plan
 
 1. In `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/viewer.ts`, extract the existing masking calculation into a standalone function that returns a plain display string. Reuse that result for both static rendering and the settle target.
-2. Add standalone helpers for scheme-specific reel alphabets, loading scaffolds, cosmetic glyph selection, stagger timing, and exhaustive state transitions. Keep animation lifecycle methods on the element small and avoid nested function declarations.
+2. Add standalone helpers for scheme-specific reel alphabets, loading scaffolds, cosmetic glyph selection, reveal timing, and exhaustive state transitions. Keep animation lifecycle methods on the element small and avoid nested function declarations.
 3. Start the spinning state for each loading key row. Detect the existing `loading: true` to `loading: false` transition after the ready `keys` payload has arrived, then begin settling. Ready-on-mount entries stay static.
 4. Schedule all reel updates through a single animation-frame owner on `ExportPrivateKeyViewer`. Request a Lit update only when one or more visible glyphs change. Cancel the frame on completion, error, reset, and `disconnectedCallback`.
 5. Render one fixed-width span per visual slot, with the stable prefix outside the moving slot group. Keep animation output inaccessible to assistive technology and add a stable status label for the row.
@@ -128,9 +129,9 @@ pnpm check
 
 - No visible `Decrypting…` placeholder remains in a Private Key row.
 - Loading looks like fixed character reels cycling independently.
-- Ready key material triggers a single left-to-right slot settle lasting about one second.
+- Ready key material triggers one synchronized crossfade lasting approximately 360 ms.
 - The rendered final value and copied value retain their current security behavior.
-- Copy cannot run before the last slot settles.
+- Copy cannot run before the synchronized crossfade completes.
 - The drawer does not resize or shift during the transition.
 - Reduced-motion, error, replacement, and disconnect paths leave no running animation.
 - No protocol, persistence, worker, or export-domain compatibility path is introduced for this presentation change.
