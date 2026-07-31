@@ -1173,6 +1173,13 @@ the replacement and legacy MPC paths must not ship together.
           authorization is absent, then attach the current grant only after
           same-method step-up. Availability must not drop durable material
           merely because the Wallet Session is absent or expired.
+      - [x] Ed25519 availability and lane candidates use explicit `authorized`
+            and `authorization_required` branches; the deferred branch retains
+            exact durable material identity and forbids `signingGrantId`
+            (`6ac506d57`).
+      - [ ] Carry the deferred candidate through NEAR signing confirmation and
+            construct `SelectedEd25519Lane` only after reusable authorization
+            or same-method operation step-up supplies the current grant.
   - [x] Require canonical JWT `sid` at the Cloudflare Router boundary and
         delete the legacy `session_id` claim fallback and selector
         (`af6dc1514`).
