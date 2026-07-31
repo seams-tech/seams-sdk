@@ -15,6 +15,7 @@ import type {
   ExactEd25519SigningLaneIdentity,
 } from '../session/identity/exactSigningLaneIdentity';
 import type { SigningLaneAuthBinding } from '../session/identity/signingLaneAuthBinding';
+import type { NearEd25519MaterialIdentity } from './operationDeps';
 
 declare const nearAccountId: AccountId;
 declare const walletId: WalletId;
@@ -61,6 +62,31 @@ nearSigningDeps.prepareNearEd25519YaoMaterialBoundary({
   walletId,
   nearAccountId,
   laneIdentity: exactEd25519Lane,
+  auth: ed25519Auth,
+});
+const nearEd25519MaterialIdentity: NearEd25519MaterialIdentity = {
+  kind: 'near_ed25519_material_identity',
+  signer: exactEd25519Lane.signer,
+  auth: exactEd25519Lane.auth,
+  thresholdSessionId: exactEd25519Lane.thresholdSessionId,
+};
+nearSigningDeps.prepareNearEd25519YaoMaterialBoundary({
+  walletId,
+  nearAccountId,
+  materialIdentity: nearEd25519MaterialIdentity,
+});
+// @ts-expect-error material identity and an authorized lane cannot coexist.
+nearSigningDeps.prepareNearEd25519YaoMaterialBoundary({
+  walletId,
+  nearAccountId,
+  laneIdentity: exactEd25519Lane,
+  auth: ed25519Auth,
+  materialIdentity: nearEd25519MaterialIdentity,
+});
+// @ts-expect-error material preparation requires an authorized lane or material identity.
+nearSigningDeps.prepareNearEd25519YaoMaterialBoundary({
+  walletId,
+  nearAccountId,
   auth: ed25519Auth,
 });
 // @ts-expect-error Factor-specific material preparation is private to the capability owner.
