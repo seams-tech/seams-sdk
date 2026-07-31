@@ -339,6 +339,10 @@ removes.
       boundary; add no dual-schema core reader, alias, or fallback.
 - [x] Prove persisted hydration → worker bind → sign through the shared path
       using the current worker-open request fixture.
+- [x] Keep warm ECDSA Email OTP context explicit at the read-model boundary:
+      require a nullable context value, preserve `never` exclusion branches,
+      and repair the identity guard's protocol-owned allowlist (current
+      checkpoint).
 
 ### 1D. Slim material references
 

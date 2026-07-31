@@ -205,6 +205,7 @@ const authorizationRequiredEcdsaCapabilityState = {
   lane: null,
   auth: null,
   prfClaim: warmPrfClaim,
+  emailOtpAuthContext: null,
   state: 'authorization_required',
 } satisfies WarmSessionEcdsaCapabilityState;
 void authorizationRequiredEcdsaCapabilityState;
@@ -219,6 +220,7 @@ const invalidAuthorizationRequiredWithLane = {
   lane: ecdsaCapabilityLane,
   auth: null,
   prfClaim: warmPrfClaim,
+  emailOtpAuthContext: null,
   state: 'authorization_required',
   // @ts-expect-error authorization_required cannot carry a selected lane.
 } satisfies WarmSessionEcdsaCapabilityState;

@@ -261,6 +261,7 @@ export function createWarmSessionCapabilityReaderCore(
       runtime,
       auth: args.authorization,
       prfClaim: args.prfClaim,
+      emailOtpAuthContext: null,
     });
     // Derived before the lane, because a SelectedEcdsaLane embeds the
     // authorization it signs under. An absent Wallet Session and a spent one
@@ -274,6 +275,7 @@ export function createWarmSessionCapabilityReaderCore(
         lane: null,
         auth: null,
         prfClaim: args.prfClaim,
+        emailOtpAuthContext: null,
         state,
       };
     }

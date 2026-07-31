@@ -227,7 +227,7 @@ export function deriveEcdsaCapabilityState(args: {
   runtime: NonNullable<WarmSessionEcdsaCapabilityState['runtime']>;
   auth: ActiveEvmFamilyWalletSessionAuthorization | null;
   prfClaim: WarmSessionPrfClaim | null;
-  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext | null;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext | null;
 }): WarmSessionEcdsaCapabilityState['state'] {
   // The reusable Wallet Session authorization is the independent second proof:
   // without it the capability is not signable regardless of material, and no
@@ -243,7 +243,7 @@ export function deriveEcdsaCapabilityState(args: {
   if (runtimeState === 'expired' || runtimeState === 'exhausted') {
     return 'authorization_required';
   }
-  const ecdsaEmailOtpAuthContext = args.emailOtpAuthContext ?? null;
+  const ecdsaEmailOtpAuthContext = args.emailOtpAuthContext;
   if (
     ecdsaEmailOtpAuthContext &&
     emailOtpAuthContextRetention(ecdsaEmailOtpAuthContext) === 'single_use' &&
