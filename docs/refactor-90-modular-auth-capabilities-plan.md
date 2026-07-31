@@ -1235,6 +1235,9 @@ the replacement and legacy MPC paths must not ship together.
         typed hooks (`70ef2a420`).
   - [x] Retire source-guard blocks whose guarded paths were deleted or moved;
         active registration and key-brand checks remain (`703fa1d95`).
+  - [x] Retire the obsolete signing-session seal default-key guard; current
+        Cloudflare seal configuration uses root/current/accepted key-version
+        fields (`2744c6c02`).
 
 ### Unit 3a exit
 

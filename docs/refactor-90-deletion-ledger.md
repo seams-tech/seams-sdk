@@ -626,6 +626,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~stale registration/key-brand source-guard blocks for deleted persistence,
   lifecycle, and Shamir-seal paths~~ — retired by `703fa1d95`; remaining guard
   checks target live registration, branding, and WebAuthn boundaries
+- ~~obsolete signing-session seal default-key source guard~~ — retired by
+  `2744c6c02`; active seal configuration is checked through the current
+  root/current/accepted-version boundary
 - ~~zero-caller `buildReauthAnchorIdentityFromEcdsaLaneCandidate` fallback and
   its candidate-only freshness helpers~~ — deleted by `24e0c2335`; live
   reauth uses the canonical available-lane builder
