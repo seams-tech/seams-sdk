@@ -1,10 +1,8 @@
 import {
   chainFamilyFromNetwork,
-  isEvmChainNetwork,
-  isTempoChainNetwork,
 } from '@/core/config/chains';
 import type { AccountId } from '@/core/types/accountIds';
-import type { SeamsChainConfig, SeamsChainNetwork } from '@/core/types/seams';
+import type { SeamsChainConfig } from '@/core/types/seams';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import type {
   EvmEip155ChainTarget,
@@ -218,25 +216,4 @@ export function thresholdEcdsaChainTargetFromConfiguredRequest(args: {
     chainId: explicitChainId,
     networkSlug: args.networkSlug,
   });
-}
-
-export function thresholdEcdsaChainTargetFromNetwork(args: {
-  network: SeamsChainNetwork;
-  chainId: unknown;
-}): ThresholdEcdsaChainTarget {
-  if (isTempoChainNetwork(args.network)) {
-    return thresholdEcdsaChainTargetFromChainFamily({
-      chain: 'tempo',
-      chainId: args.chainId,
-      networkSlug: args.network,
-    });
-  }
-  if (isEvmChainNetwork(args.network)) {
-    return thresholdEcdsaChainTargetFromChainFamily({
-      chain: 'evm',
-      chainId: args.chainId,
-      networkSlug: args.network,
-    });
-  }
-  throw new Error(`[threshold-ecdsa] ${args.network} is not an ECDSA chain target`);
 }
