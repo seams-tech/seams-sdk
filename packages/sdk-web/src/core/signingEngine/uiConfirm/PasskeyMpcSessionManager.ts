@@ -69,8 +69,6 @@ type PendingPasskeyMpcSessionRequest = {
   reject: (error: Error) => void;
 };
 
-export type PasskeyMpcSessionManagerPort = PasskeyMpcSessionPort;
-
 type PasskeyMpcSessionManagerDeps = {
   signingSessionPersistenceMode: 'none' | 'sealed_refresh_v1';
 };
@@ -338,7 +336,7 @@ function recordDiagnosticDuration(args: {
   args.diagnostics?.recordDuration(args.bucket, roundDurationMs(args.startedAt));
 }
 
-class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
+class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
   private worker: Worker | null = null;
   private initializationPromise: Promise<void> | null = null;
   private workerBaseOrigin: string | undefined;
@@ -898,6 +896,6 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
 
 export function createPasskeyMpcSessionManager(
   deps: PasskeyMpcSessionManagerDeps,
-): PasskeyMpcSessionManagerPort {
+): PasskeyMpcSessionPort {
   return new PasskeyMpcSessionManagerImpl(deps);
 }

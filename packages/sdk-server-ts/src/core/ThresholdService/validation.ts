@@ -1472,8 +1472,6 @@ export type RouterAbEd25519WalletSessionClaims = Ed25519WalletSessionClaimsForKi
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
-export type ThresholdEd25519SessionClaims = RouterAbEd25519WalletSessionClaims;
-
 function parseRuntimePolicyScope(raw: unknown): RuntimePolicyScope | null {
   try {
     return normalizeRuntimePolicyScope(raw as Record<string, unknown>);
@@ -1758,8 +1756,6 @@ export type RouterAbEcdsaDerivationWalletSessionClaims = EcdsaWalletSessionClaim
 > & {
   routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
-
-export type ThresholdEcdsaSessionClaims = RouterAbEcdsaDerivationWalletSessionClaims;
 
 function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaimKind>(
   raw: unknown,

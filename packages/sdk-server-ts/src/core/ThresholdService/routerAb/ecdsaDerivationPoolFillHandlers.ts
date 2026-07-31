@@ -24,7 +24,7 @@ import {
   stepRouterAbEcdsaPresignSession,
   type RouterAbEcdsaDerivationPresignaturePoolFillAuth,
 } from './ecdsaDerivationPresignBridge';
-import type { ThresholdEcdsaSessionClaims } from '../validation';
+import type { RouterAbEcdsaDerivationWalletSessionClaims } from '../validation';
 import { parseEcdsaKeyHandle, type EcdsaKeyHandle } from '../../keyMaterialBrands';
 
 type ParseOk<T> = { ok: true; value: T };
@@ -33,7 +33,7 @@ type ParseResult<T> = ParseOk<T> | ParseErr;
 const PRESIGN_SESSION_ID_PREFIX = 'ecdsa-presign-v2';
 
 type RouterAbEcdsaDerivationPoolFillInitClaims = Pick<
-  ThresholdEcdsaSessionClaims,
+  RouterAbEcdsaDerivationWalletSessionClaims,
   | 'walletId'
   | 'relayerKeyId'
   | 'keyHandle'
@@ -44,7 +44,7 @@ type RouterAbEcdsaDerivationPoolFillInitClaims = Pick<
 >;
 
 type RouterAbEcdsaDerivationPoolFillStepClaims = Pick<
-  ThresholdEcdsaSessionClaims,
+  RouterAbEcdsaDerivationWalletSessionClaims,
   | 'walletId'
   | 'relayerKeyId'
   | 'keyHandle'

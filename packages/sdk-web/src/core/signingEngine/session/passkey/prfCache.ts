@@ -17,8 +17,6 @@ export type SigningSessionCacheEntry = {
   diagnostics?: WarmSessionMaterialWriteDiagnostics;
 };
 
-type SigningSessionPrfCacheWriter = WarmSessionMaterialWriter;
-
 function toNonNegativeInt(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined;
   return Math.floor(value);
@@ -54,7 +52,7 @@ function normalizeSigningSessionCacheEntry(
 }
 
 export async function cacheCredentialBoundarySetupExportPrfFirst(
-  writer: SigningSessionPrfCacheWriter,
+  writer: WarmSessionMaterialWriter,
   args: SigningSessionCacheEntry,
 ): Promise<void> {
   const normalized = normalizeSigningSessionCacheEntry(args);
