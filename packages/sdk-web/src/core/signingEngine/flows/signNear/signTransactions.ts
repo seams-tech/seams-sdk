@@ -60,6 +60,7 @@ import {
   type TransactionReadiness,
 } from '../../session/operationState/transactionState';
 import type { NonceLeaseRef } from '../../interfaces/nonceLease';
+import type { NearTransactionReadiness } from '../../nonce/nearTransactionReadiness';
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
@@ -117,9 +118,15 @@ import {
   type PreparedNearOperationStepUp,
 } from './shared/operationStepUpPreparation';
 import type { NearOperationStepUpPreparationRef } from '../../interfaces/operationStepUpPreparation';
-import type { NearTransactionSigningConfirmationResult } from '../../stepUpConfirmation/confirmOperation';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../../session/material/nearEd25519YaoMaterialActivation';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+
+type NearTransactionSigningConfirmationResult = {
+  sessionId: string;
+  intentDigest: string;
+  readiness: NearTransactionReadiness;
+  operationStepUpPreparation?: NearOperationStepUpPreparationRef;
+};
 
 function requireNearOperationStepUpPreparation(
   value: NearOperationStepUpPreparationRef | undefined,
