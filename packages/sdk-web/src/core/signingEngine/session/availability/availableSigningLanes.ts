@@ -45,6 +45,8 @@ import {
 } from './canonicalLaneInventory';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { SigningSessionIds } from '../operationState/types';
 
 export type AvailableSigningLaneState =
   | 'ready'
@@ -209,7 +211,7 @@ export type MissingAvailableEd25519SigningLane = {
   source?: never;
 };
 
-export type ConcreteAvailableEd25519SigningLane = {
+type ConcreteAvailableEd25519SigningLaneBase = {
   auth: SigningLaneAuthBinding;
   curve: 'ed25519';
   chain: 'near';
@@ -217,8 +219,6 @@ export type ConcreteAvailableEd25519SigningLane = {
   nearAccountId: AccountId;
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signerSlot: number;
-  state: AvailableSigningLaneState;
-  signingGrantId: string;
   thresholdSessionId: string;
   remainingUses?: number;
   expiresAtMs?: number;
@@ -226,6 +226,23 @@ export type ConcreteAvailableEd25519SigningLane = {
   updatedAtMs?: number;
   source?: 'durable_sealed_record' | 'runtime_session_record';
 };
+
+export type ConcreteAvailableEd25519SigningLane =
+  ConcreteAvailableEd25519SigningLaneBase &
+    (
+      | {
+          authorizationState: 'authorized';
+          authorization: ActiveWalletSessionAuthorizationProjection;
+          signingGrantId: string;
+          state: Exclude<AvailableSigningLaneState, 'deferred'>;
+        }
+      | {
+          authorizationState: 'authorization_required';
+          authorization?: never;
+          signingGrantId?: never;
+          state: 'deferred';
+        }
+    );
 
 export type AvailableEd25519SigningLane =
   | MissingAvailableEd25519SigningLane
@@ -321,7 +338,7 @@ export function durableRecordPolicyAdvisory(args: {
   };
 }
 
-export type AvailableSigningLanesRuntimeEd25519Record = {
+type AvailableSigningLanesRuntimeEd25519RecordBase = {
   auth: SigningLaneAuthBinding;
   curve: 'ed25519';
   chain: 'near';
@@ -331,12 +348,26 @@ export type AvailableSigningLanesRuntimeEd25519Record = {
   signerSlot: number;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   thresholdSessionId: string;
-  signingGrantId: string;
   source: 'durable_sealed_record' | 'runtime_session_record';
   remainingUses?: number;
   expiresAtMs?: number;
   updatedAtMs?: number;
 };
+
+export type AvailableSigningLanesRuntimeEd25519Record =
+  AvailableSigningLanesRuntimeEd25519RecordBase &
+    (
+      | {
+          authorizationState: 'authorized';
+          authorization: ActiveWalletSessionAuthorizationProjection;
+          signingGrantId: string;
+        }
+      | {
+          authorizationState: 'authorization_required';
+          authorization?: never;
+          signingGrantId?: never;
+        }
+    );
 
 function durableEd25519AuthBinding(
   record: Extract<SigningSessionSealedStoreRecord, { curve: 'ed25519' }>,
@@ -366,12 +397,11 @@ function recordToEd25519Lane(
 ): ConcreteAvailableEd25519SigningLane | null {
   if (record.curve !== 'ed25519') return null;
   const thresholdSessionId = String(record.thresholdSessionIds.ed25519 || '').trim();
-  const signingGrantId = String(record.signingGrantId || '').trim();
   const walletId = String(record.walletId || '').trim();
   const restore = record.ed25519Restore;
   const signerSlot = parseSignerSlot(restore.signerSlot);
   const auth = durableEd25519AuthBinding(record);
-  if (!thresholdSessionId || !signingGrantId || !walletId || signerSlot === null || !auth) {
+  if (!thresholdSessionId || !walletId || signerSlot === null || !auth) {
     return null;
   }
   const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
@@ -391,9 +421,9 @@ function recordToEd25519Lane(
       nearAccountId: toAccountId(restore.nearAccountId),
       nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(restore.nearEd25519SigningKeyId),
       signerSlot,
-      state,
+      state: 'deferred',
       source: 'durable_sealed_record',
-      signingGrantId,
+      authorizationState: 'authorization_required',
       thresholdSessionId,
       remainingUses,
       ...(expiresAtMs > 0 ? { expiresAtMs } : {}),
@@ -516,10 +546,13 @@ export function isConcreteAvailableSigningLane(
   if (lane.state === 'missing') return false;
   if (lane.curve !== 'ecdsa') {
     const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
-    const signingGrantId = String(lane.signingGrantId || '').trim();
     if (lane.thresholdSessionId !== thresholdSessionId) return false;
-    if (lane.signingGrantId !== signingGrantId) return false;
-    if (!thresholdSessionId || !signingGrantId) return false;
+    if (!thresholdSessionId) return false;
+    if (lane.authorizationState === 'authorization_required') {
+      return lane.state === 'deferred' && lane.signingGrantId === undefined;
+    }
+    const signingGrantId = String(lane.signingGrantId || '').trim();
+    if (lane.signingGrantId !== signingGrantId || !signingGrantId) return false;
     return lane.auth.kind === 'email_otp' || lane.auth.kind === 'passkey';
   }
   if (lane.auth.kind !== 'email_otp' && lane.auth.kind !== 'passkey') return false;
@@ -584,7 +617,7 @@ export function ed25519LaneCandidateFromAvailableLane(args: {
   }
   const state = laneCandidateStateFromAvailableLaneState(args.lane.state);
   if (!state) return null;
-  return {
+  const base = {
     kind: 'lane_candidate',
     walletId: args.lane.walletId,
     nearAccountId: args.lane.nearAccountId,
@@ -593,13 +626,25 @@ export function ed25519LaneCandidateFromAvailableLane(args: {
     auth: args.lane.auth,
     curve: 'ed25519',
     chain: 'near',
-    signingGrantId: args.lane.signingGrantId,
     thresholdSessionId: args.lane.thresholdSessionId,
     state,
     remainingUses: nullableNonNegativeInteger(args.lane.remainingUses),
     expiresAtMs: nullablePositiveInteger(args.lane.expiresAtMs),
     updatedAtMs: nullablePositiveInteger(args.lane.updatedAtMs),
     source: laneCandidateSourceFromAvailableLaneSource(args.lane.source),
+  } as const;
+  if (args.lane.authorizationState === 'authorization_required') {
+    return {
+      ...base,
+      authorizationState: 'authorization_required',
+      state: 'deferred',
+    };
+  }
+  return {
+    ...base,
+    authorizationState: 'authorized',
+    authorization: args.lane.authorization,
+    signingGrantId: SigningSessionIds.signingGrant(args.lane.signingGrantId),
   };
 }
 
@@ -709,7 +754,6 @@ export function ed25519AvailableLaneIdentityKey(
   const nearAccountId = String(lane.nearAccountId || '').trim();
   const nearEd25519SigningKeyId = String(lane.nearEd25519SigningKeyId || '').trim();
   const signerSlot = String(lane.signerSlot || '').trim();
-  const signingGrantId = String(lane.signingGrantId || '').trim();
   const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
   if (
     !authMethod ||
@@ -717,7 +761,6 @@ export function ed25519AvailableLaneIdentityKey(
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
     !signerSlot ||
-    !signingGrantId ||
     !thresholdSessionId
   ) {
     return null;
@@ -730,7 +773,6 @@ export function ed25519AvailableLaneIdentityKey(
     authMethod,
     'ed25519',
     'near',
-    signingGrantId,
     thresholdSessionId,
   ].join(':');
 }
@@ -887,8 +929,7 @@ function runtimeRecordToEd25519Lane(args: {
   advisory: AvailableLaneStateAdvisory | null;
 }): ConcreteAvailableEd25519SigningLane | null {
   const thresholdSessionId = String(args.record.thresholdSessionId || '').trim();
-  const signingGrantId = String(args.record.signingGrantId || '').trim();
-  if (!thresholdSessionId || !signingGrantId) return null;
+  if (!thresholdSessionId) return null;
   const advisory = args.advisory;
   const remainingUses = nullableNonNegativeInteger(
     advisoryRemainingUses(advisory) ?? args.record.remainingUses,
@@ -902,7 +943,7 @@ function runtimeRecordToEd25519Lane(args: {
   const signerSlot = parseSignerSlot(args.record.signerSlot);
   if (signerSlot == null) return null;
 
-  return {
+  const base = {
     auth: args.record.auth,
     curve: 'ed25519',
     chain: 'near',
@@ -910,13 +951,26 @@ function runtimeRecordToEd25519Lane(args: {
     nearAccountId: args.record.nearAccountId,
     nearEd25519SigningKeyId: args.record.nearEd25519SigningKeyId,
     signerSlot,
-    state: advisoryToLaneState(advisory, undefined, recordPolicyState),
     source: args.record.source,
-    signingGrantId,
     thresholdSessionId,
     ...(remainingUses == null ? {} : { remainingUses }),
     ...(expiresAtMs == null ? {} : { expiresAtMs }),
     ...(updatedAtMs > 0 ? { updatedAtMs } : {}),
+  } as const;
+  if (args.record.authorizationState === 'authorization_required') {
+    return {
+      ...base,
+      authorizationState: 'authorization_required',
+      state: 'deferred',
+    };
+  }
+  const state = advisoryToLaneState(advisory, undefined, recordPolicyState);
+  return {
+    ...base,
+    authorizationState: 'authorized',
+    authorization: args.record.authorization,
+    signingGrantId: args.record.signingGrantId,
+    state: state === 'deferred' ? 'restorable' : state,
   };
 }
 

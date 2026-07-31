@@ -19,6 +19,7 @@ import { toAccountId } from '../../../types/accountIds';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 const chainTarget = {
   kind: 'evm',
@@ -49,6 +50,7 @@ const emailOtpAuth = {
 
 declare const keyHandle: EvmFamilyEcdsaKeyHandle;
 declare const materialActivation: MpcMaterialActivationRef;
+declare const ed25519Authorization: ActiveWalletSessionAuthorizationProjection;
 declare const ed25519RouterAbNormalSigning: AvailableSigningLanesRuntimeEd25519Record['routerAbNormalSigning'];
 
 const publicFacts = buildVerifiedEcdsaPublicFacts({
@@ -243,6 +245,8 @@ const ed25519Lane: ConcreteAvailableEd25519SigningLane = {
   nearAccountId: ed25519NearAccountId,
   nearEd25519SigningKeyId,
   signerSlot: 1,
+  authorizationState: 'authorized',
+  authorization: ed25519Authorization,
   state: 'ready',
   signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
@@ -266,6 +270,8 @@ const runtimeEd25519Record: AvailableSigningLanesRuntimeEd25519Record = {
   signerSlot: 1,
   routerAbNormalSigning: ed25519RouterAbNormalSigning,
   thresholdSessionId: 'threshold-session-1',
+  authorizationState: 'authorized',
+  authorization: ed25519Authorization,
   signingGrantId: 'signing-grant-1',
   source: 'runtime_session_record',
 };
@@ -285,12 +291,26 @@ const readyEd25519LaneWithStoredAuthMethod: ConcreteAvailableEd25519SigningLane 
 };
 void readyEd25519LaneWithStoredAuthMethod;
 
+// @ts-expect-error authorized Ed25519 lanes require a signing grant id.
 const readyEd25519LaneMissingSigningGrantId: ConcreteAvailableEd25519SigningLane = {
   ...ed25519Lane,
-  // @ts-expect-error ready Ed25519 lanes require a signing grant id.
   signingGrantId: undefined,
 };
 void readyEd25519LaneMissingSigningGrantId;
+
+const deferredEd25519Lane: ConcreteAvailableEd25519SigningLane = {
+  auth: passkeyAuth,
+  curve: 'ed25519',
+  chain: 'near',
+  walletId: ed25519WalletId,
+  nearAccountId: ed25519NearAccountId,
+  nearEd25519SigningKeyId,
+  signerSlot: 1,
+  authorizationState: 'authorization_required',
+  state: 'deferred',
+  thresholdSessionId: 'threshold-session-1',
+};
+void deferredEd25519Lane;
 
 const readyEd25519LaneMissingThresholdSessionId: ConcreteAvailableEd25519SigningLane = {
   ...ed25519Lane,
