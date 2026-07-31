@@ -41,7 +41,7 @@ import { walletSessionFailureFromError } from '../../session/lifecycle/walletSes
 export type KeyExportWalletSessionLifecycleDeps = {
   readonly readAuthorization: (
     args: ReadClientWalletSessionAuthorizationRequest,
-  ) => WalletSessionAuthorizationState;
+  ) => Promise<WalletSessionAuthorizationState>;
   readonly invalidateExpiredAuthorization: (args: {
     readonly state: ExpiredWalletSessionAuthorizationState;
     readonly source:
@@ -104,7 +104,7 @@ async function readAndInvalidateExpiredExportAuthorization(args: {
   readonly deps: ExportKeypairWithUIDeps;
   readonly request: ReadClientWalletSessionAuthorizationRequest;
 }): Promise<WalletSessionAuthorizationState> {
-  const state = args.deps.sessionLifecycle.readAuthorization(args.request);
+  const state = await args.deps.sessionLifecycle.readAuthorization(args.request);
   if (state.kind === 'expired') {
     await invalidateExpiredExportAuthorization({
       deps: args.deps,

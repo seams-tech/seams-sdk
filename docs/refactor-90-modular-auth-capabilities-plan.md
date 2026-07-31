@@ -807,6 +807,14 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Clear wallet-scoped volatile Ed25519 material by enumerating exact
       Passkey and Email OTP sealed sessions. Runtime cleanup no longer needs a
       composite record to discover material-session IDs (`b9638246a`).
+- [x] Make Ed25519 key-export lifecycle preflight read the canonical active
+      Wallet Session authorization projection asynchronously. Missing,
+      corrupt, unavailable, mismatched, active, and expired states no longer
+      depend on the composite record cache (`47fbe2cbc`).
+- [x] Add one exact Ed25519 sealed-session runtime boundary that validates
+      persisted signer, factor, JWT, policy, signing-root, participant, worker,
+      allowance, and expiry facts and returns distinct resolved, missing,
+      conflict, and corrupt outcomes (`2733f7960`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
@@ -1061,6 +1069,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete zero-caller Ed25519 composite-record rejection, commit,
       runtime-reseed, broad-list, exact-clear, and recovered-session retirement
       helpers (`7886fd39f`).
+- [x] Delete the remaining zero-caller operation-usable Ed25519 record,
+      current-generation commit/supersession branch, and its obsolete unit and
+      type fixtures (`f5c6ec6d9`).
 - [x] Delete the Passkey durable-state composite-record reverse lookup and its
       record-to-restore parsers after exact Ed25519 restore metadata becomes a
       required seal-transport field (`0f5d7e6b6`).
@@ -1083,6 +1094,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete composite-record discovery from wallet-scoped volatile Ed25519
       cleanup; exact sealed records own the material-session IDs
       (`b9638246a`).
+- [x] Delete the composite-record authorization lookup from Ed25519 key-export
+      preflight; the canonical Wallet Session projection owns lifecycle expiry
+      and factor correlation (`47fbe2cbc`).
 - [x] Delete the forwarding-only selected-lane auth-method selector; prepared
       signing now reads the canonical auth binding directly, and its focused
       auth-neutral preparation suite passes 7/7 (`0983a94ec`).

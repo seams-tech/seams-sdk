@@ -16,7 +16,8 @@ import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../flows/sign
 
 export type WalletSessionAuthorizationUnavailableReason =
   | 'network'
-  | 'server_unavailable';
+  | 'server_unavailable'
+  | 'persistence_unavailable';
 
 export type WalletSessionAuthorizationInvalidReason =
   | 'malformed'
