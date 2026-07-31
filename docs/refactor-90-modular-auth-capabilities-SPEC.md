@@ -205,6 +205,11 @@ implementing commit SHA as the evidence.
     active-client metadata, the exact activation, Wallet Session state, and
     factor identity before durable write; the publication, registry, and
     silent-recovery port accept no composite session record (`93ae1e20a`).
+  - [x] Email OTP Ed25519 cold login and unlock build canonical Wallet Session
+    state directly from the exact bootstrap. The boundary correlates bearer
+    claims, allowance, expiry, signing root, and signer identity; Browser and
+    SeamsWeb receive the activated lane's signer without constructing or
+    returning a composite session record (`f5062fc13`).
   - [x] Email OTP runtime wallet-key projections, worker handles, and sealed
     rehydration correlate by exact key handle. Provisioning slots remain
     confined to registration handle branches (`6113b36bb`).

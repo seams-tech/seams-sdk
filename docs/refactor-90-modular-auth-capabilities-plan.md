@@ -789,6 +789,11 @@ the replacement and legacy MPC paths must not ship together.
       boundary, sealed-session registry, and silent-recovery persistence port
       no longer accept a composite session record; the focused recovery suite
       passes 13/13 (`93ae1e20a`).
+- [x] Build Email OTP Ed25519 cold login/unlock state directly from the exact
+      bootstrap. Correlate JWT claims, active allowance, expiry, signing root,
+      and signer identity at the boundary; return the activated lane's signer
+      through Browser and SeamsWeb without creating or returning a composite
+      session record. The focused recovery suite passes 14/14 (`f5062fc13`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
@@ -1050,6 +1055,10 @@ the replacement and legacy MPC paths must not ship together.
       publication. Correlate the active-client metadata, exact activation,
       canonical Wallet Session state, and factor publication context before
       writing the sealed record (`93ae1e20a`).
+- [x] Delete composite-record construction and record-to-signer conversion
+      from Email OTP Ed25519 cold login/unlock. The exact bootstrap now builds
+      the Wallet Session state and private SDK activation surfaces return the
+      canonical signer directly (`f5062fc13`).
 - [x] Delete the forwarding-only selected-lane auth-method selector; prepared
       signing now reads the canonical auth binding directly, and its focused
       auth-neutral preparation suite passes 7/7 (`0983a94ec`).
