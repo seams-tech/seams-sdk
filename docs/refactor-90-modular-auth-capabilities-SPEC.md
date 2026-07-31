@@ -149,8 +149,12 @@ implementing commit SHA as the evidence.
 
 ### Units 2 and 3b — authorization core and vault proving vertical
 
-- [ ] `R90-INV-001` — session, evidence, grant, claim, vault, and audit requests
-  and rows normalize at their owning boundaries.
+- [x] `R90-INV-001` — session, evidence, grant, claim, vault, and audit requests
+  and rows normalize at their owning boundaries. The persisted authorization
+  vertical exercises the normalized session, evidence, one-use grant, atomic
+  claim, vault operation, and audit records; current route-owned ECDSA refresh
+  and Ed25519 capability/recovery inputs have no duplicate adapter
+  (`5db9ad87e`, `a89ede462`, `df478bfed`, `729ad4cdd`, `868ba6dee`).
   - [x] ECDSA refresh HTTP input is owned by the canonical route-definition
     boundary; the duplicate standalone adapter and wrapper-only test are
     deleted (`a89ede462`, `df478bfed`).

@@ -451,9 +451,9 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 
 ### Closed vocabulary and selection
 
-- [ ] Adopt the existing closed capability vocabulary in production SDK,
+- [x] Adopt the existing closed capability vocabulary in production SDK,
       server, UI, and persistence boundaries.
-- [ ] Include only the tenant, principal, session, factor, capability,
+- [x] Include only the tenant, principal, session, factor, capability,
       operation, grant, and evidence references required by current verticals.
 - [x] Use named or flat `all | any` evidence requirements; add no recursive
       policy grammar or speculative factor/provider taxonomy.
@@ -531,7 +531,10 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 - [x] Shared/session/server type checks pass.
 - [x] Concurrent identical and conflicting claim tests prove exactly-once
       grant/quota consumption.
-- [ ] SDK and each host adapter pass the same capability-selection contract.
+- [x] SDK and each host adapter pass the same capability-selection contract.
+      Cloudflare, Express/Node, local D1, and self-hosted assembly use the same
+      static `RouterApiServiceBag`; the focused route-surface and self-host
+      parity suites pass 15/15.
 
 ## Unit 3a — MPC Cutover, No Release
 
