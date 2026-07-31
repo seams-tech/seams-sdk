@@ -329,9 +329,10 @@ implementing commit SHA as the evidence.
     unavailable, invalid, active, and expired outcomes without consulting the
     composite session cache (`47fbe2cbc`).
   - [x] The exact Ed25519 sealed-session runtime boundary validates persisted
-    signer, factor, JWT, policy, signing-root, participant, worker, allowance,
-    and expiry facts once and distinguishes missing, conflict, and corrupt
-    state (`2733f7960`).
+    signer, factor, policy, signing-root, participant, worker, allowance, and
+    expiry facts once and distinguishes missing, conflict, and corrupt state;
+    Wallet Session bearer validation remains on the independent authorization
+    projection (`2733f7960`, `22ccd0c26`).
   - [x] The wallet-scoped Ed25519 warm-capability envelope is composed from the
     exact sealed runtime, an independent active Wallet Session authorization,
     and the worker claim. Missing authorization produces
@@ -366,6 +367,10 @@ implementing commit SHA as the evidence.
   - [x] Sealed transport authorization is isolated as an ECDSA-only boundary;
     the unused Ed25519 arm, grant alias, and source discriminator are deleted
     (`d82cda777`, `2e28e741f`).
+  - [x] Durable Ed25519/ECDSA sealed restore metadata and normalized recovery
+    records carry no `sessionKind` or `walletSessionJwt`; persistence rejects
+    obsolete bearer-bearing payloads and current authorization remains an
+    independent transport input (`22ccd0c26`).
   - [x] Obsolete composite-record browser rehydrate and Email OTP inventory
     tests are deleted, while valid seal and export coverage uses current
     builders (`a62080152`).

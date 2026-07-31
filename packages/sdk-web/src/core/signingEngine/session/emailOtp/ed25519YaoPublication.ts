@@ -174,8 +174,6 @@ export async function persistEmailOtpEd25519YaoSessionForRefresh(
       runtimePolicyScope,
       signerSlot: requirePositiveInteger(signer.signerSlot, 'signerSlot'),
       routerAbNormalSigning: state.routerAbNormalSigning,
-      walletSessionJwt,
-      sessionKind: 'jwt',
     },
   });
   const persisted = await ports.readExactSealedSession(thresholdSessionId, {

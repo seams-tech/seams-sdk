@@ -99,14 +99,6 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
     remainingUses: args.remainingUses ?? 3,
     updatedAtMs: 2,
     ed25519Restore: {
-      sessionKind: 'jwt',
-      walletSessionJwt: fixtureJwt(ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND, {
-        walletId,
-        nearAccountId,
-        nearEd25519SigningKeyId,
-        thresholdSessionId,
-        signingGrantId,
-      }),
       nearAccountId,
       nearEd25519SigningKeyId,
       rpId: 'wallet.example.test',
@@ -154,7 +146,13 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
     quotaId: requireFixtureDomainId(
       parseMpcWalletSigningQuotaId(`quota:${record.thresholdSessionIds.ed25519}`),
     ),
-    walletSessionJwt: record.ed25519Restore.walletSessionJwt,
+    walletSessionJwt: fixtureJwt(ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND, {
+      walletId: record.walletId,
+      nearAccountId: record.ed25519Restore.nearAccountId,
+      nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
+      thresholdSessionId: record.thresholdSessionIds.ed25519,
+      signingGrantId: record.signingGrantId,
+    }),
     authMethod: 'passkey',
     authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),
     expiresAtMs: record.expiresAtMs,
@@ -178,11 +176,7 @@ type EmailOtpEcdsaSealedFixtureParts = {
   restore: EmailOtpEcdsaSealedRestorePayload;
 };
 
-/**
- * Wallet Session JWT accepted by the sealed store's current-record
- * classification (`isCurrentThresholdEcdsaSessionJwt` requires the Router A/B
- * ECDSA kind plus matching `walletId` and `keyHandle` claims).
- */
+/** ECDSA bootstrap still needs a transport JWT; restore metadata does not. */
 function fixtureSealedEcdsaWalletSessionJwt(args: {
   walletId: string;
   keyHandle: string;
@@ -247,8 +241,8 @@ function emailOtpEcdsaSealedFixtureParts(
   if (!routerAbEcdsaDerivationNormalSigning) {
     throw new Error('Sealed-session fixture requires Router A/B ECDSA normal-signing state');
   }
-  if (!bootstrap.session.jwt || !keyRef.keyHandle || !keyRef.ethereumAddress) {
-    throw new Error('Sealed-session fixture requires JWT wallet-session bootstrap facts');
+  if (!keyRef.keyHandle || !keyRef.ethereumAddress) {
+    throw new Error('Sealed-session fixture requires ECDSA bootstrap facts');
   }
   return {
     walletId,
@@ -265,8 +259,6 @@ function emailOtpEcdsaSealedFixtureParts(
       emailHashHex: 'email-hash',
       authority: buildWalletAuthAuthorityRefForAuthorityFixture(emailOtpAuthority),
       emailOtpAuthority,
-      sessionKind: 'jwt',
-      walletSessionJwt: bootstrap.session.jwt,
       keyHandle: keyRef.keyHandle,
       ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
       ethereumAddress: keyRef.ethereumAddress,
@@ -445,13 +437,6 @@ export function buildEmailOtpEcdsaSealedRuntimeRecordFixture(args: {
       emailHashHex: 'email-hash',
       authority: manifest.signer.authority,
       emailOtpAuthority,
-      sessionKind: 'jwt',
-      walletSessionJwt: fixtureSealedEcdsaWalletSessionJwt({
-        walletId,
-        keyHandle: String(binding.keyHandle),
-        thresholdSessionId,
-        signingGrantId,
-      }),
       keyHandle: binding.keyHandle,
       ecdsaThresholdKeyId: binding.ecdsaThresholdKeyId,
       ethereumAddress: publicFacts.ethereumAddress,
@@ -599,13 +584,6 @@ export function buildPasskeyEcdsaSealedRuntimeRecordFixture(args: {
       rpId: 'example.localhost',
       credentialIdB64u: 'credential-passkey-fixture',
       authority: manifest.signer.authority,
-      sessionKind: 'jwt',
-      walletSessionJwt: fixtureSealedEcdsaWalletSessionJwt({
-        walletId,
-        keyHandle: String(binding.keyHandle),
-        thresholdSessionId,
-        signingGrantId,
-      }),
       keyHandle: binding.keyHandle,
       ecdsaThresholdKeyId: binding.ecdsaThresholdKeyId,
       ethereumAddress: publicFacts.ethereumAddress,

@@ -245,7 +245,6 @@ export async function provisionThresholdEd25519Session(
       signerSlot: protocol.signerSlot,
       routerAbNormalSigning: args.routerAbNormalSigning,
       credentialIdB64u,
-      walletSessionJwt: jwt,
     });
     const transport = sealTransportForProvisionedEd25519Session({
       walletId: protocol.walletId,

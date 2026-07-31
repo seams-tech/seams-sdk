@@ -258,7 +258,6 @@ function emailOtpRestoreMetadata(record: CurrentEd25519SealedSessionRecord): {
   provider: 'google' | 'email';
   providerSubjectId: string;
   emailHashHex: string;
-  walletSessionJwt: string;
   materialActivation: MpcMaterialActivationRef;
 } {
   const restore = record.ed25519Restore;
@@ -267,8 +266,7 @@ function emailOtpRestoreMetadata(record: CurrentEd25519SealedSessionRecord): {
     !('provider' in restore) ||
     !restore.provider ||
     !restore.providerSubjectId ||
-    !restore.emailHashHex ||
-    restore.sessionKind !== 'jwt'
+    !restore.emailHashHex
   ) {
     throw new Error('Email OTP Ed25519 sealed recovery requires exact Email OTP restore metadata');
   }
@@ -276,7 +274,6 @@ function emailOtpRestoreMetadata(record: CurrentEd25519SealedSessionRecord): {
     provider: restore.provider,
     providerSubjectId: requireString(restore.providerSubjectId, 'providerSubjectId'),
     emailHashHex: requireString(restore.emailHashHex, 'emailHashHex'),
-    walletSessionJwt: requireString(restore.walletSessionJwt, 'walletSessionJwt'),
     materialActivation: restore.materialActivation,
   };
 }
@@ -664,8 +661,6 @@ function exactLocalSessionFromSealedRecord(args: {
     throw new Error('Email OTP Ed25519 sealed local session identity is inconsistent');
   }
   return {
-    sessionKind: 'jwt',
-    walletSessionJwt: args.authorization.walletSessionJwt,
     walletId: walletIdFromString(record.walletId),
     nearAccountId: requireString(restore.nearAccountId, 'ed25519Restore.nearAccountId'),
     nearEd25519SigningKeyId: requireString(
@@ -682,6 +677,8 @@ function exactLocalSessionFromSealedRecord(args: {
       'thresholdSessionIds.ed25519',
     ),
     signingGrantId: requireString(record.signingGrantId, 'signingGrantId'),
+    sessionKind: 'jwt',
+    walletSessionJwt: args.authorization.walletSessionJwt,
     walletSessionId: args.authorization.walletSessionId,
     quotaId: args.authorization.quotaId,
     expiresAtMs: requirePositiveInteger(record.expiresAtMs, 'expiresAtMs'),

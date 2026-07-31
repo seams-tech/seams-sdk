@@ -47,8 +47,6 @@ const validEcdsaSealedSessionRecord = {
     emailHashHex: 'email-hash',
     authority,
     emailOtpAuthority,
-    sessionKind: 'jwt',
-    walletSessionJwt: 'wallet-session-jwt',
     keyHandle: 'key-handle',
     ecdsaThresholdKeyId: 'ecdsa-key',
     ethereumAddress: `0x${'11'.repeat(20)}`,
@@ -91,7 +89,6 @@ const validEd25519SealedSessionRecord = {
     credentialIdB64u: 'credential-id',
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2],
-    sessionKind: 'cookie',
     signerSlot: 1,
   },
   issuedAtMs: 1,
@@ -162,20 +159,6 @@ const invalidEcdsaRestoreMissingProvider: SealedSigningSessionEcdsaRestoreMetada
   ecdsaRestoreMissingProvider;
 void invalidEcdsaRestoreMissingProvider;
 
-const { walletSessionJwt: _ecdsaRestoreJwt, ...ecdsaRestoreMissingJwt } =
-  validEcdsaSealedSessionRecord.ecdsaRestore;
-// @ts-expect-error JWT sealed restore auth requires walletSessionJwt.
-const invalidEcdsaRestoreMissingJwt: SealedSigningSessionEcdsaRestoreMetadata =
-  ecdsaRestoreMissingJwt;
-void invalidEcdsaRestoreMissingJwt;
-
-// @ts-expect-error cookie sealed restore auth rejects walletSessionJwt.
-const invalidEcdsaRestoreCookieWithJwt: SealedSigningSessionEcdsaRestoreMetadata = {
-  ...validEcdsaSealedSessionRecord.ecdsaRestore,
-  sessionKind: 'cookie',
-  walletSessionJwt: 'wallet-session-jwt',
-};
-void invalidEcdsaRestoreCookieWithJwt;
 
 const { walletId: _ecdsaWalletId, ...ecdsaSealedSessionRecordWithoutWallet } =
   validEcdsaSealedSessionRecord;
@@ -204,17 +187,3 @@ const { ed25519Restore: _ed25519Restore, ...ed25519SealedSessionRecordWithoutRes
 const invalidEd25519SealedSessionRecordWithoutRestore: SealedSigningSessionRecord =
   ed25519SealedSessionRecordWithoutRestore;
 void invalidEd25519SealedSessionRecordWithoutRestore;
-
-// @ts-expect-error JWT sealed restore auth requires walletSessionJwt.
-const invalidEd25519RestoreMissingJwt: SealedSigningSessionEd25519RestoreMetadata = {
-  ...validEd25519SealedSessionRecord.ed25519Restore,
-  sessionKind: 'jwt',
-};
-void invalidEd25519RestoreMissingJwt;
-
-// @ts-expect-error cookie sealed restore auth rejects walletSessionJwt.
-const invalidEd25519RestoreCookieWithJwt: SealedSigningSessionEd25519RestoreMetadata = {
-  ...validEd25519SealedSessionRecord.ed25519Restore,
-  walletSessionJwt: 'wallet-session-jwt',
-};
-void invalidEd25519RestoreCookieWithJwt;

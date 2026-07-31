@@ -1118,8 +1118,18 @@ the replacement and legacy MPC paths must not ship together.
           reads correlate current authorization independently; sealed runtime
           state no longer carries or validates a persisted bearer
           (`7a2ad4bca`, `3d05abca5`).
-    - [ ] Migrate the passkey MPC session manager, then delete bearer and grant
-          fields from sealed restore metadata and its boundary parser.
+    - [x] Passkey MPC sealed ECDSA restore reads current authorization and
+          correlates wallet, factor, authority, and expiry before rehydration;
+          neither worker transport nor reconstructed metadata trusts the
+          persisted bearer (`a39e90add`).
+    - [x] Delete persisted `sessionKind` and `walletSessionJwt` fields from
+          Ed25519/ECDSA sealed restore metadata, recovery records, boundary
+          parsers, writers, and fixtures. Current authorization remains an
+          independent transport input; record-level protocol/session identity
+          remains separate (`22ccd0c26`).
+    - [ ] Complete the separate operation-authorization cutover for any
+          remaining record-level `signingGrantId` protocol/lease identity; do
+          not treat it as sealed restore bearer state.
   - [x] Require canonical JWT `sid` at the Cloudflare Router boundary and
         delete the legacy `session_id` claim fallback and selector
         (`af6dc1514`).

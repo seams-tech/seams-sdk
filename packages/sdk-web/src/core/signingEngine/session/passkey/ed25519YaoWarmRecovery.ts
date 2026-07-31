@@ -162,7 +162,7 @@ function sealedRecordMatchesSubject(
 ): boolean {
   if (record.authMethod !== 'passkey') return false;
   const restore = record.ed25519Restore;
-  if (!restore.credentialIdB64u || restore.sessionKind !== 'jwt') return false;
+  if (!restore.credentialIdB64u) return false;
   return (
     record.walletId === subject.walletId &&
     restore.nearAccountId === subject.nearAccountId &&

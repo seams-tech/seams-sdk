@@ -317,7 +317,6 @@ async function recoverAndCommitPasskeyEd25519Unlock(
         signerSlot: recovery.parsed.signerSlot,
         routerAbNormalSigning: recovery.parsed.session.routerAbNormalSigning,
         credentialIdB64u: recovery.parsed.credentialIdB64u,
-        walletSessionJwt: recovery.parsed.session.walletSessionJwt,
       }),
     });
     const activated = await input.activateCapability({

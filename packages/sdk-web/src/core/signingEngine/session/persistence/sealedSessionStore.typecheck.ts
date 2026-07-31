@@ -145,7 +145,6 @@ const invalidEd25519WriteInput: BuildCurrentEd25519SealedSessionRecordInput = {
     credentialIdB64u: 'credential-id',
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2, 3],
-    sessionKind: 'cookie',
     signerSlot: 1,
     // @ts-expect-error current Ed25519 sealed writes do not accept raw client-base material.
     xClientBaseB64u: 'raw-client-base',
@@ -191,7 +190,6 @@ const invalidEmailOtpEd25519RestoreWithoutProviderSubject = {
   rpId: 'wallet.example.localhost',
   relayerKeyId: 'relayer-key',
   participantIds: [1, 2, 3],
-  sessionKind: 'jwt',
   signerSlot: 1,
   // @ts-expect-error Ed25519 sealed restore metadata requires an auth identity branch.
 } satisfies SealedSigningSessionEd25519RestoreMetadata;
@@ -206,7 +204,6 @@ const invalidEmailOtpEd25519RestoreWithAuthSubjectAlias = {
   authSubjectId: 'google:legacy-alias',
   relayerKeyId: 'relayer-key',
   participantIds: [1, 2, 3],
-  sessionKind: 'jwt',
   signerSlot: 1,
 } satisfies SealedSigningSessionEd25519RestoreMetadata;
 void invalidEmailOtpEd25519RestoreWithAuthSubjectAlias;
@@ -219,7 +216,6 @@ const invalidEd25519RestoreWithMixedAuthBranches = {
   providerSubjectId: 'google:alice',
   relayerKeyId: 'relayer-key',
   participantIds: [1, 2, 3],
-  sessionKind: 'jwt',
   signerSlot: 1,
   // @ts-expect-error Ed25519 sealed restore metadata requires exactly one auth branch.
 } satisfies SealedSigningSessionEd25519RestoreMetadata;
@@ -271,7 +267,6 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
     signingRootVersion: 'default',
     rpId: 'wallet.example.localhost',
     credentialIdB64u: 'credential-id',
-    sessionKind: 'cookie',
     keyHandle: 'key-handle-ecdsa',
     ethereumAddress: `0x${'11'.repeat(20)}`,
     relayerKeyId: 'relayer-key',
@@ -358,7 +353,6 @@ const invalidEmailOtpEcdsaRestoreWithoutProviderSubject = {
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   provider: 'google',
-  sessionKind: 'jwt',
   keyHandle: 'key-handle-ecdsa',
   ethereumAddress: `0x${'11'.repeat(20)}`,
   relayerKeyId: 'relayer-key',
@@ -376,7 +370,6 @@ const invalidEmailOtpEcdsaRestoreWithAuthSubjectAlias = {
   providerSubjectId: 'google:alice',
   // @ts-expect-error Email OTP ECDSA sealed restore metadata rejects authSubjectId.
   authSubjectId: 'google:legacy-alias',
-  sessionKind: 'jwt',
   keyHandle: 'key-handle-ecdsa',
   ethereumAddress: `0x${'11'.repeat(20)}`,
   relayerKeyId: 'relayer-key',

@@ -45,7 +45,6 @@ import type {
   RestoreSealedRecordResult,
 } from '../session/sealedRecovery/sealedRecovery.types';
 import type { SealedRecoveryRecord } from '../session/sealedRecovery/recoveryRecord';
-import { sealedRecoveryWalletSessionJwt } from '../session/sealedRecovery/recoveryRecord';
 import { restorePasskeyEcdsaSealedRecordForWallet } from '../session/passkey/ecdsaRecovery';
 import { parseSigningSessionSealKeyVersion } from '../session/keyMaterialBrands';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
@@ -55,6 +54,11 @@ import {
   thresholdEcdsaChainTargetsEqual,
 } from '../interfaces/ecdsaChainTarget';
 import { PasskeyMpcSessionDurableState } from './PasskeyMpcSessionDurableState';
+import {
+  walletSessionAuthorizations,
+  type ActiveWalletSessionAuthorizationProjection,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { toWalletId } from '../interfaces/ecdsaChainTarget';
 
 type PendingPasskeyMpcSessionRequest = {
   id: string;
@@ -107,6 +111,7 @@ function requirePasskeyEcdsaRestoreOutcome(
 
 async function passkeyEcdsaRestoreMetadataFromRecoveryRecord(
   record: Extract<SealedRecoveryRecord, { authMethod: 'passkey' }>,
+  authorization: ActiveWalletSessionAuthorizationProjection,
 ): Promise<Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }>> {
   return {
     chainTarget: record.chainTarget,
@@ -117,8 +122,6 @@ async function passkeyEcdsaRestoreMetadataFromRecoveryRecord(
     roleLocalMaterialRef: record.roleLocalMaterialRef,
     rpId: record.authority.verifier.rpId,
     credentialIdB64u: record.authority.factor.credentialIdB64u,
-    sessionKind: 'jwt',
-    walletSessionJwt: record.walletSessionAuth.walletSessionJwt,
     keyHandle: record.keyHandle,
     ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
     ethereumAddress: record.ethereumAddress,
@@ -549,8 +552,25 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
     });
     if (!lease) return null;
     try {
-      const ecdsaRestore = await passkeyEcdsaRestoreMetadataFromRecoveryRecord(args.record);
-      const walletSessionJwt = sealedRecoveryWalletSessionJwt(args.record.walletSessionAuth);
+      const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
+        toWalletId(args.walletId),
+      );
+      const expectedAuthority = await walletAuthAuthorityRef({ authority: args.record.authority });
+      if (
+        authorizationRead.kind !== 'found' ||
+        authorizationRead.projection.authMethod !== 'passkey' ||
+        authorizationRead.projection.walletId !== toWalletId(args.walletId) ||
+        authorizationRead.projection.authority.authorityDigest !==
+          expectedAuthority.authorityDigest ||
+        authorizationRead.projection.expiresAtMs <= Date.now()
+      ) {
+        return null;
+      }
+      const authorization = authorizationRead.projection;
+      const ecdsaRestore = await passkeyEcdsaRestoreMetadataFromRecoveryRecord(
+        args.record,
+        authorization,
+      );
       const groupId = String(args.record.groupId || '').trim();
       if (!groupId) return null;
       const transport: WarmSessionSealTransportInput = {
@@ -562,7 +582,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionManagerPort {
         signingGrantId: args.purpose.signingGrantId,
         signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(args.record.keyVersion),
         groupId,
-        ...(walletSessionJwt ? { walletSessionJwt } : {}),
+        walletSessionJwt: authorization.walletSessionJwt,
         ecdsaRestore,
       };
       return await restorePasskeyEcdsaSealedRecordForWallet({

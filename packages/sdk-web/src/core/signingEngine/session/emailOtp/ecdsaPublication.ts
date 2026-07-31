@@ -639,8 +639,6 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
       emailHashHex,
       authority,
       emailOtpAuthority: args.emailOtpAuthContext.authority,
-      walletSessionJwt,
-      sessionKind: 'jwt',
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       keyHandle,
       ecdsaThresholdKeyId,
