@@ -172,13 +172,11 @@ export type SigningSessionStatusPort = {
   clear(args: { walletId: WalletId | string; signingGrantId: string }): Promise<void>;
 };
 
-export type SigningSessionStatusDeps = SigningGrantReadinessDeps;
-
 export type SigningSessionStatusState = {
   statusOverrides: Map<string, SigningGrantStatusOverride>;
 };
 
-export type SigningSessionCoordinatorDeps = SigningSessionStatusDeps &
+export type SigningSessionCoordinatorDeps = SigningGrantReadinessDeps &
   SigningSessionBudgetDeps &
   ClientWalletSessionInvalidationReadinessDeps & {
     onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
@@ -239,7 +237,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   private readonly onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
   private readonly onWalletBudgetTrace?: SigningSessionBudgetDeps['onTrace'];
   private readonly walletBudgetStatusReader?: SigningSessionBudgetStatusReader;
-  private readonly walletSessionDeps: SigningSessionStatusDeps;
+  private readonly walletSessionDeps: SigningGrantReadinessDeps;
   private readonly walletSessionState: SigningSessionStatusState;
   private readonly walletBudget: BudgetCoordinator;
   private readonly operationIdBindings: SigningOperationIdBindingRegistry;
