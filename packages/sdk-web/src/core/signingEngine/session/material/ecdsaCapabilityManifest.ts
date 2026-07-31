@@ -1005,18 +1005,6 @@ export function buildReplacedEcdsaCapabilityManifest(
   });
 }
 
-export function ecdsaActivationJournalId(
-  journal: EcdsaCapabilityActivationCommitJournal,
-): CorrelationId {
-  switch (journal.kind) {
-    case 'activation_prepared':
-    case 'server_activation_committed':
-      return journal.journalId;
-    default:
-      return assertNever(journal);
-  }
-}
-
 function assertUniqueEcdsaTargetMemberships(
   targetMemberships: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]],
 ): void {
