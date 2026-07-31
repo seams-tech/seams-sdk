@@ -1065,7 +1065,7 @@ the replacement and legacy MPC paths must not ship together.
       stateless; forbid ceremony-wide Router ledgers, tenant-wide Gateway
       runtime state, tenant runtime/cutover selectors, direct Deriver origins,
       direct Gateway role calls, and Gateway-owned SigningWorker delivery.
-- [ ] Remove obsolete route handlers, service locators, and direct host-role
+- [x] Remove obsolete route handlers, service locators, and direct host-role
       access with their last caller.
   - [x] Delete the forwarding-only wallet-unlock service locator; Cloudflare
         unlock routes use the request-scoped `ctx.service.walletUnlock`
@@ -1107,6 +1107,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete `active_state_session_id` from production types and wire shapes.
 - [ ] Delete remaining generic wire session aliases and
       authorization/material-scope aliases owned by this cutover.
+  - [ ] Remove Wallet Session bearer/grant state from durable Ed25519 and
+        active ECDSA sealed-material restore metadata. Recovery and signing
+        must receive reusable authorization or a one-operation grant through
+        an independent operation carrier.
   - [x] Require canonical JWT `sid` at the Cloudflare Router boundary and
         delete the legacy `session_id` claim fallback and selector
         (`af6dc1514`).
@@ -1129,7 +1133,7 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete legacy recovery microstates and compensation branches.
   - [x] Delete the zero-producer Passkey ECDSA warm-seal pending registry, its
         restore wait, and its obsolete unit suite (`c72cbf31f`).
-- [ ] Delete duplicate signing-lane selectors, auth-method fallbacks, direct
+- [x] Delete duplicate signing-lane selectors, auth-method fallbacks, direct
       protocol dispatch, and superseded export coordinators.
   - [x] Replace binary Passkey/Email OTP fallbacks and ad hoc two-factor unions
         across signing, hydration, export, sealed-runtime, and step-up
@@ -1242,7 +1246,7 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the forwarding-only selected-lane auth-method selector; prepared
       signing now reads the canonical auth binding directly, and its focused
       auth-neutral preparation suite passes 7/7 (`0983a94ec`).
-- [ ] Delete obsolete tests, handwritten records, mocks, guards, and fixtures
+- [x] Delete obsolete tests, handwritten records, mocks, guards, and fixtures
       that encode pre-cutover behavior.
   - [x] Delete the route-wrapper-only test and the stale public route-catalog
         assertion for the private 94C ECDSA bootstrap plane.
@@ -1277,6 +1281,10 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete the zero-caller ECDSA lane-specific presignature retirement
         helper; global pool clearing and live worker retirement remain
         (`814616909`).
+  - [x] Replace the record-era ECDSA export-lane fixture with the shared
+        canonical-capability builder, retain exact selection and ambiguity
+        coverage, and delete tests for retired runtime/sealed/shared-key lane
+        sources (`79bd0e00b`; 16/16 focused tests).
 
 ### Unit 3a exit
 
@@ -1407,8 +1415,13 @@ This is a validation gate, not a deferred cleanup phase.
       follow-on plan outside Refactor 90 scope.
 - [ ] Prohibited legacy symbols, routes, imports, exports, aliases, record
       families, and obsolete source guards are absent.
-- [ ] Required factor-neutral, worker/WASM, import, and bundle guards pass.
-- [ ] Public export and dependency-direction checks pass.
+- [x] Required factor-neutral, worker/WASM, import, and bundle guards pass.
+      Key-export custody, ECDSA worker ownership, signing-engine architecture
+      and identity, and static-wallet-asset checks pass after the latest
+      `dev` merge.
+- [x] Public export and dependency-direction checks pass. The SeamsWeb public
+      surface and workspace-package boundary checks pass after the latest
+      `dev` merge.
 - [ ] Shared, SDK, server, worker, intended-test, and Rust type/build checks
       pass.
   - [x] Repository SDK/server/app type checks pass at the local acceptance

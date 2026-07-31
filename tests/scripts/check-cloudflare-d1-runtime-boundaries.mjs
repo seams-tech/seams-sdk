@@ -625,7 +625,6 @@ const activeRouterApiTextPaths = [
     'packages/console-server-ts/src/router/cloudflare/d1ConsoleServices.ts',
     'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyStore.ts',
     'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts',
-    'packages/sdk-server-ts/src/router/cloudflare/d1RouterAbSigningRuntime.ts',
     'docs/saas/bring-you-own-auth.md',
     'tests/unit/cloudflareD1ConsoleServices.unit.test.ts',
     'tests/unit/cloudflareD1RouterApiEmailOtp.unit.test.ts',
@@ -1789,7 +1788,6 @@ function routerApiStagingWorkerSignerCustodyViolations() {
     const source = readSource(cloudflareD1RouterApiStagingWorkerPath);
     const required = [
         'SIGNER_DB',
-        'THRESHOLD_STORE',
         'createCloudflareSecretsStoreKekProviderFromEnv',
         'resolveSponsoredEvmWorkerExecutionAdapter',
     ];

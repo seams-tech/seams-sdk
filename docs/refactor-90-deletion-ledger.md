@@ -222,7 +222,10 @@ replacement.
 
 - ~~`signingGrantAdmissionAuthorityKeyFromAuth`~~ — deleted in `07016a7cb`;
   every lane uses the central exact auth-binding key builder
-- the branch-specific queue-key helper covered by Refactor 82B Phase 10D tests
+- ~~the branch-specific queue-key helper covered by Refactor 82B Phase 10D
+  tests~~ — the retired auth-derived helper is absent; the two live branded
+  queue keys serialize canonical reusable-grant admission and independent
+  operation authorization respectively
 
 ## Phase 18 — durable restore fields and shared-type residue
 
@@ -234,8 +237,9 @@ replacement.
 - every `signingGrantId` occurrence (classify: delete, map to operation grant,
   or map to `MpcWalletSigningQuotaId`; never a mechanical rename, never
   material identity)
-- `WalletSessionId = SigningGrantId`; replace it atomically with a distinct
-  branded `WalletSessionId` and boundary parser
+- ~~`WalletSessionId = SigningGrantId`; replace it atomically with a distinct
+  branded `WalletSessionId` and boundary parser~~ — `WalletSessionId` is an
+  independent `DomainId<'WalletSessionId'>`; no alias remains
 - interim shared exports of `SignerAuthMethod` / `WalletAuthMethod` only if a
   capability-local move ships both halves in one cut (Refactor 91's stable leaf
   module stays until then)
@@ -246,10 +250,10 @@ Replacement: branded `MpcMaterialActivationId`, exact
 `MpcMaterialActivationRef`, and an operation scope that carries an independent
 discriminated `MpcOperationAuthorizationRef`.
 
-- `ActiveMpcMaterialSessionRef`
-- `ActiveEcdsaMaterialSession`
-- `rehydrate_active_session`
-- `active_state_session_id`
+- ~~`ActiveMpcMaterialSessionRef`~~ — absent
+- ~~`ActiveEcdsaMaterialSession`~~ — absent
+- ~~`rehydrate_active_session`~~ — absent
+- ~~`active_state_session_id`~~ — absent
 - ambiguous normal-signing `session_id` fields that represent authorization;
   the replacement wire field is the discriminated `authorization` branch
 - ~~`evm_family_signing_key_slot_id` duplicated beside
@@ -558,7 +562,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 
 ## Phase 27 — final sweep
 
-- `SigningAuthPlan` and remaining signer-auth aliases
+- ~~`SigningAuthPlan` and remaining signer-auth aliases~~ — compatibility
+  aliases are absent; `SigningAuthPlan` remains as the canonical exhaustive UI
+  confirmation plan for warm-session, Passkey step-up, and Email OTP step-up
 - ~~pure `SigningAuthMethod = SignerAuthMethod` alias and its lane-identity
   re-export~~ — consumers use canonical `SignerAuthMethod`
 - remaining `signing-session` terminology and old route planes
