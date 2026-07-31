@@ -347,6 +347,8 @@ implementing commit SHA as the evidence.
   - [x] Obsolete composite-record browser rehydrate and Email OTP inventory
     tests are deleted, while valid seal and export coverage uses current
     builders (`a62080152`).
+  - [x] Cloudflare Router JWT parsing requires canonical `sid`; the legacy
+    `session_id` claim fallback and selector are deleted (`af6dc1514`).
   - [x] Zero-caller Ed25519 account/session record readers, record-derived
     Email OTP authority resolution, per-session status, and record auth
     predicates are deleted from the warm capability surface (`94aa9b344`).
