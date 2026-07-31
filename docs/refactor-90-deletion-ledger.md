@@ -605,6 +605,12 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   `45a4222b2`; the canonical sealed-session filter remains the boundary
 - ~~zero-caller `ecdsaCapabilityManifestIdentity` projection~~ — deleted by
   `19ec99d94`; manifest identity builders remain the canonical path
+- ~~zero-caller `cacheCredentialBoundarySetupExportPrfFirstBestEffort` silent
+  fallback~~ — deleted by `5a619687a`; strict cache setup remains live
+- ~~zero-caller `EmailOtpEd25519SigningSessionAuthority` and its builder~~ —
+  deleted with the two live README entrypoint references; canonical
+  `EmailOtpSigningSessionAuthLane` is the active authority boundary
+  (`4f11a1211`)
 - ~~zero-caller `buildReauthAnchorIdentityFromEcdsaLaneCandidate` fallback and
   its candidate-only freshness helpers~~ — deleted by `24e0c2335`; live
   reauth uses the canonical available-lane builder
