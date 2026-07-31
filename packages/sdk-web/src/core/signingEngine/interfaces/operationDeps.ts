@@ -36,13 +36,10 @@ import type {
 } from '../uiConfirm/uiConfirm.types';
 import type { SignerWorkerManagerContext } from '../workerManager/SignerWorkerManager';
 import type {
-  NearEd25519YaoSigningCapability,
-  NearPasskeyEd25519OperationStepUpCapabilityPreparation,
+  NearEd25519YaoPreparedMaterialBoundary,
 } from './near';
-import type { NearEd25519YaoSigningPreparation } from '../session/material/nearEd25519YaoSigningPreparation';
 import type { SigningLaneAuthBinding } from '../session/identity/signingLaneAuthBinding';
 import type { ExactEd25519SigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
-import type { EmailOtpEd25519YaoSilentRecoveryResultV1 } from '../session/emailOtp/ed25519YaoSealedRecovery';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
   ActiveEvmFamilyWalletSessionAuthorization,
@@ -85,36 +82,16 @@ export type EcdsaOperationStepUpSessionAuthResolver = {
 
 export type NearSigningApiDeps = {
   nearRpcUrl: string;
-  resolveActiveEd25519YaoSigningCapability: (args: {
-    walletId: WalletId;
-    nearAccountId: AccountId;
-  }) => NearEd25519YaoSigningCapability | null;
   readPersistedEd25519SessionRecordForSigning: (args: {
     walletId: WalletId;
     laneIdentity: ExactEd25519SigningLaneIdentity;
   }) => Promise<ThresholdEd25519SessionRecord | null>;
-  prepareNearEd25519YaoSigning: (args: {
+  prepareNearEd25519YaoMaterialBoundary: (args: {
     walletId: WalletId;
     nearAccountId: AccountId;
     laneIdentity: ExactEd25519SigningLaneIdentity;
     auth: SigningLaneAuthBinding;
-  }) => Promise<NearEd25519YaoSigningPreparation>;
-  rehydratePasskeyEd25519YaoCapabilityForSigning: (args: {
-    walletId: WalletId;
-    nearAccountId: AccountId;
-    laneIdentity: ExactEd25519SigningLaneIdentity;
-  }) => Promise<NearEd25519YaoSigningCapability>;
-  preparePasskeyEd25519YaoOperationStepUpForSigning: (args: {
-    walletId: WalletId;
-    nearAccountId: AccountId;
-    laneIdentity: ExactEd25519SigningLaneIdentity;
-  }) => Promise<NearPasskeyEd25519OperationStepUpCapabilityPreparation>;
-  recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning: (args: {
-    walletId: WalletId;
-    nearAccountId: AccountId;
-    signerSlot: number;
-    thresholdSessionId: string;
-  }) => Promise<EmailOtpEd25519YaoSilentRecoveryResultV1>;
+  }) => Promise<NearEd25519YaoPreparedMaterialBoundary>;
   requestEmailOtpEd25519SigningChallenge?: (args: {
     walletSession: WalletSessionRef;
   }) => Promise<EmailOtpTransactionSigningChallenge>;

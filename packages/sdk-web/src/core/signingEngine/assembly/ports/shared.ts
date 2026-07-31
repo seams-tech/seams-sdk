@@ -67,13 +67,8 @@ type RequestEmailOtpTransactionSigningChallengeArgs = Parameters<
 type RequestEmailOtpEd25519SigningChallengeArgs = Parameters<
   NonNullable<NearSigningApiDeps['requestEmailOtpEd25519SigningChallenge']>
 >[0];
-type RehydratePasskeyEd25519YaoCapabilityForSigning =
-  NearSigningApiDeps['rehydratePasskeyEd25519YaoCapabilityForSigning'];
-type PrepareNearEd25519YaoSigning = NearSigningApiDeps['prepareNearEd25519YaoSigning'];
-type PreparePasskeyEd25519YaoOperationStepUpForSigning =
-  NearSigningApiDeps['preparePasskeyEd25519YaoOperationStepUpForSigning'];
-type RecoverEmailOtpEd25519YaoCapabilitySilentlyForSigning =
-  NearSigningApiDeps['recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning'];
+type PrepareNearEd25519YaoMaterialBoundary =
+  NearSigningApiDeps['prepareNearEd25519YaoMaterialBoundary'];
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
 import {
   prewarmSignerWorkers as prewarmSignerWorkersValue,
@@ -155,10 +150,7 @@ export type CreateSigningEnginePortsArgs = {
   requestEmailOtpEd25519SigningChallenge?: (
     args: RequestEmailOtpEd25519SigningChallengeArgs,
   ) => Promise<EmailOtpTransactionSigningChallenge>;
-  rehydratePasskeyEd25519YaoCapabilityForSigning: RehydratePasskeyEd25519YaoCapabilityForSigning;
-  prepareNearEd25519YaoSigning: PrepareNearEd25519YaoSigning;
-  preparePasskeyEd25519YaoOperationStepUpForSigning: PreparePasskeyEd25519YaoOperationStepUpForSigning;
-  recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning: RecoverEmailOtpEd25519YaoCapabilitySilentlyForSigning;
+  prepareNearEd25519YaoMaterialBoundary: PrepareNearEd25519YaoMaterialBoundary;
   provisionThresholdEd25519Session: (
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;

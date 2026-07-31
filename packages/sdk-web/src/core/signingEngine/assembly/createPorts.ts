@@ -52,7 +52,6 @@ export function createSigningEnginePorts(args: CreateSigningEnginePortsArgs): Si
       nearRpcUrl,
       signingSessionCoordinator,
       getEmailOtpWarmSessionStatus,
-      ed25519YaoActiveClients,
     }),
     tempoSigningDeps: createEvmFamilySigningDeps({
       createArgs: args,

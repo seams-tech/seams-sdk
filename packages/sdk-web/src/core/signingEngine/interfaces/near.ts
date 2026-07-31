@@ -110,6 +110,11 @@ export type NearEd25519YaoMaterialExecutor = {
   ) => Promise<NearPasskeyEd25519OperationStepUpCapabilityPreparation>;
 };
 
+export type NearEd25519YaoPreparedMaterialBoundary = {
+  preparation: NearEd25519YaoSigningPreparation;
+  executor: NearEd25519YaoMaterialExecutor;
+};
+
 export type NearPasskeyEd25519OperationStepUpHook = {
   prepare: (args: { requiredSignatureUses: number }) => Promise<{
     sessionId: string;

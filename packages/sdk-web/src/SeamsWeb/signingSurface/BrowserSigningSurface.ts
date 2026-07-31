@@ -29,7 +29,11 @@ import {
   type ExactEd25519SigningLaneIdentity,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '@/core/signingEngine/interfaces/signing';
-import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/interfaces/near';
+import type {
+  NearEd25519YaoPreparedMaterialBoundary,
+  NearEd25519YaoSigningCapability,
+  NearPasskeyEd25519OperationStepUpCapabilityPreparation,
+} from '@/core/signingEngine/interfaces/near';
 import type { NearSigningApiDeps } from '@/core/signingEngine/interfaces/operationDeps';
 import type { Ed25519YaoActiveClientIdentityV1 } from '@/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
 import { Ed25519YaoPageLifecycleOwner } from '@/core/signingEngine/threshold/ed25519/yaoPageLifecycleOwner';
@@ -76,7 +80,6 @@ import {
   type NearSignIntentResult,
 } from '@/core/signingEngine/flows/signNear/signNear';
 import {
-  availableEd25519SigningLaneAuthMethod,
   isConcreteAvailableSigningLane,
   type AvailableEd25519SigningLane,
   type ConcreteAvailableEd25519SigningLane,
@@ -99,6 +102,7 @@ import {
   buildActiveNearEd25519WalletSessionAuthorization,
   buildAuthorizationRequiredNearEd25519YaoSigningPreparation,
   buildAuthorizedNearEd25519YaoSigningPreparation,
+  type NearEd25519YaoSigningPreparation,
 } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
 import type { MpcCapabilityHydrationPlan } from '@/core/signingEngine/session/material/mpcCapabilityHydration';
 import {
@@ -106,7 +110,6 @@ import {
   nearEd25519YaoRuntimeRef,
   type NearEd25519YaoRuntimeObservationV1,
 } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
-import { classifyRouterAbEd25519PersistedSigningRecord } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
 import {
   mpcMaterialActivationRefsEqual,
@@ -251,24 +254,8 @@ type NearEd25519CapabilityRehydrationSubject =
       readonly laneIdentity: ExactEd25519SigningLaneIdentity;
     };
 
-function assertNeverNearWalletAuthMethod(value: never): never {
-  throw new Error(`[SigningEngine][near] unsupported wallet auth method: ${String(value)}`);
-}
-
 function fetchWithGlobalThis(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   return globalThis.fetch(input, init);
-}
-
-function nearEd25519CapabilityRehydrationSubjectFromRequest(
-  request: NearSignIntentRequest,
-): NearEd25519CapabilityRehydrationSubject {
-  const signerSlot = request.args.signerSlot;
-  return {
-    kind: 'account_signer',
-    walletId: request.args.commandSubject.walletSession.walletId,
-    nearAccountId: request.args.commandSubject.nearAccount.accountId,
-    signerSlot: typeof signerSlot === 'number' ? signerSlot : null,
-  };
 }
 
 function nearEd25519LaneMatchesCapabilityRehydrationSubject(
@@ -351,6 +338,118 @@ function nearEd25519YaoRuntimeObservation(
     runtime: nearEd25519YaoRuntimeRef(materialActivation),
     materialActivation,
   };
+}
+
+type PrepareNearEd25519YaoMaterialBoundaryInput = Parameters<
+  NearSigningApiDeps['prepareNearEd25519YaoMaterialBoundary']
+>[0];
+
+type EmailOtpEd25519YaoSilentRecoveryInput = {
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  signerSlot: number;
+  thresholdSessionId: string;
+};
+
+type PreparedNearEd25519YaoMaterialContext = {
+  input: PrepareNearEd25519YaoMaterialBoundaryInput;
+  materialActivation: MpcMaterialActivationRef | null;
+};
+
+function assertNearEd25519YaoMaterialBoundaryAuth(
+  input: PrepareNearEd25519YaoMaterialBoundaryInput,
+): void {
+  const expected = input.laneIdentity.auth;
+  const actual = input.auth;
+  if (expected.kind !== actual.kind) {
+    throw new Error('[SigningEngine][near] prepared material factor changed');
+  }
+  switch (actual.kind) {
+    case WALLET_AUTH_METHODS.passkey:
+      if (
+        expected.kind !== WALLET_AUTH_METHODS.passkey ||
+        expected.rpId !== actual.rpId ||
+        expected.credentialIdB64u !== actual.credentialIdB64u
+      ) {
+        throw new Error('[SigningEngine][near] prepared Passkey material binding changed');
+      }
+      return;
+    case WALLET_AUTH_METHODS.emailOtp:
+      if (
+        expected.kind !== WALLET_AUTH_METHODS.emailOtp ||
+        expected.providerSubjectId !== actual.providerSubjectId
+      ) {
+        throw new Error('[SigningEngine][near] prepared Email OTP material binding changed');
+      }
+      return;
+    default:
+      actual satisfies never;
+      throw new Error('[SigningEngine][near] unsupported Ed25519 material authority');
+  }
+}
+
+function validateExactNearEd25519YaoSigningCapability(args: {
+  capability: NearEd25519YaoSigningCapability;
+  input: PrepareNearEd25519YaoMaterialBoundaryInput;
+  expectedActivation: MpcMaterialActivationRef;
+}): NearEd25519YaoSigningCapability {
+  const sessionState = args.capability.walletSessionState;
+  const metadata = args.capability.activeClient.metadata();
+  const thresholdSessionId = String(args.input.laneIdentity.thresholdSessionId);
+  const expectedSigner = args.input.laneIdentity.signer;
+  const actualSigner = sessionState.signingLane.identity.signer;
+  if (
+    String(sessionState.thresholdSessionId) !== thresholdSessionId ||
+    String(sessionState.signingLane.thresholdSessionId) !== thresholdSessionId
+  ) {
+    throw new Error('[SigningEngine][near] active Ed25519 Yao capability session mismatch');
+  }
+  if (
+    metadata.scope.account_id !== String(args.input.walletId) ||
+    metadata.applicationBinding.wallet_id !== String(args.input.walletId)
+  ) {
+    throw new Error('[SigningEngine][near] active Ed25519 Yao capability subject mismatch');
+  }
+  if (
+    String(actualSigner.account.wallet.walletId) !==
+      String(expectedSigner.account.wallet.walletId) ||
+    String(actualSigner.account.nearAccountId) !==
+      String(expectedSigner.account.nearAccountId) ||
+    actualSigner.signerSlot !== expectedSigner.signerSlot ||
+    String(actualSigner.nearEd25519SigningKeyId) !==
+      String(expectedSigner.nearEd25519SigningKeyId)
+  ) {
+    throw new Error('[SigningEngine][near] active Ed25519 Yao capability signer mismatch');
+  }
+  const materialActivation = nearEd25519YaoMaterialActivationFromMetadata(metadata);
+  if (!mpcMaterialActivationRefsEqual(args.expectedActivation, materialActivation)) {
+    throw new Error('[SigningEngine][near] active Ed25519 Yao capability activation mismatch');
+  }
+  return args.capability;
+}
+
+function requireNearEd25519YaoPreparationActivation(
+  preparation: NearEd25519YaoSigningPreparation,
+): MpcMaterialActivationRef {
+  const materialActivation = preparation.hydration.materialActivation;
+  if (!materialActivation) {
+    throw new Error('[SigningEngine][near] prepared material has no activation');
+  }
+  return materialActivation;
+}
+
+function requireBoundNearEd25519YaoPreparationActivation(args: {
+  context: PreparedNearEd25519YaoMaterialContext;
+  preparation: NearEd25519YaoSigningPreparation;
+}): MpcMaterialActivationRef {
+  const materialActivation = requireNearEd25519YaoPreparationActivation(args.preparation);
+  if (
+    !args.context.materialActivation ||
+    !mpcMaterialActivationRefsEqual(args.context.materialActivation, materialActivation)
+  ) {
+    throw new Error('[SigningEngine][near] prepared material boundary changed activation');
+  }
+  return materialActivation;
 }
 
 type RuntimePortsRef = {
@@ -617,14 +716,8 @@ export class BrowserSigningSurface {
       ensureSealedRefreshStartupParity: () => this.ensureSealedRefreshStartupParity(),
       getEnginePorts: () => this.enginePorts,
       getRegistrationPublicDeps: () => this.registrationPublicDeps,
-      rehydratePasskeyEd25519YaoCapabilityForSigning:
-        this.rehydrateExactPasskeyEd25519YaoCapabilityForSigning.bind(this),
-      prepareNearEd25519YaoSigning:
-        this.prepareExactNearEd25519YaoSigning.bind(this),
-      preparePasskeyEd25519YaoOperationStepUpForSigning:
-        this.prepareExactPasskeyEd25519YaoOperationStepUpForSigning.bind(this),
-      recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning:
-        this.recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning.bind(this),
+      prepareNearEd25519YaoMaterialBoundary:
+        this.prepareExactNearEd25519YaoMaterialBoundary.bind(this),
     });
     this.signingSessionLifecycleSubscription =
       this.enginePorts.signingSessionCoordinator.subscribeLifecycle(
@@ -911,33 +1004,7 @@ export class BrowserSigningSurface {
   async signNear<TRequest extends NearSignIntentRequest>(
     request: TRequest,
   ): Promise<NearSignIntentResult<TRequest>> {
-    if (request.kind !== 'transactionWithActions') {
-      await this.prepareNearEd25519YaoCapabilityForSigning(request);
-    }
     return await signNearOperation(this.enginePorts.nearSigningDeps, request);
-  }
-
-  private async prepareNearEd25519YaoCapabilityForSigning(
-    request: Exclude<NearSignIntentRequest, { kind: 'transactionWithActions' }>,
-  ): Promise<void> {
-    const subject = nearEd25519CapabilityRehydrationSubjectFromRequest(request);
-    const lane = await this.resolveNearEd25519YaoSigningLane(subject);
-    if (!lane) {
-      throw new Error('[SigningEngine][near] wallet auth method is unavailable');
-    }
-    const authMethod = availableEd25519SigningLaneAuthMethod(lane);
-    switch (authMethod) {
-      case WALLET_AUTH_METHODS.emailOtp:
-        return;
-      case WALLET_AUTH_METHODS.passkey:
-        if (await this.nearEd25519AuthorizationRequiresRepair(subject)) return;
-        await this.ensureNearEd25519YaoCapabilityForSigning(subject);
-        return;
-      case null:
-        throw new Error('[SigningEngine][near] wallet auth method is unavailable');
-      default:
-        assertNeverNearWalletAuthMethod(authMethod);
-    }
   }
 
   private async ensureNearEd25519YaoCapabilityForSigning(
@@ -966,41 +1033,8 @@ export class BrowserSigningSurface {
     throw new Error('[SigningEngine][near] local material rehydration did not publish a lane');
   }
 
-  private async nearEd25519AuthorizationRequiresRepair(
-    subject: NearEd25519CapabilityRehydrationSubject,
-  ): Promise<boolean> {
-    const lane = await this.resolveNearEd25519YaoSigningLane(subject);
-    if (!lane) {
-      throw new Error('[SigningEngine][near] local Ed25519 material lane is unavailable');
-    }
-    const laneIdentity =
-      subject.kind === 'exact_lane'
-        ? subject.laneIdentity
-        : exactEd25519LaneIdentityFromAvailableLane(lane);
-    const record = await readPersistedEd25519SessionRecordForSigning({
-      walletId: String(subject.walletId),
-      laneIdentity,
-    });
-    const classified = classifyRouterAbEd25519PersistedSigningRecord(record || undefined);
-    switch (classified.kind) {
-      case 'ready':
-        return false;
-      case 'expired':
-      case 'exhausted':
-        return true;
-      case 'invalid':
-      case 'non_signing':
-        throw new Error(
-          `[SigningEngine][near] persisted Ed25519 Wallet Session is ${classified.kind}`,
-        );
-      default:
-        classified satisfies never;
-        throw new Error('[SigningEngine][near] invalid Wallet Session classification');
-    }
-  }
-
   private async rehydrateExactPasskeyEd25519YaoCapabilityForSigning(
-    args: Parameters<NearSigningApiDeps['rehydratePasskeyEd25519YaoCapabilityForSigning']>[0],
+    args: PrepareNearEd25519YaoMaterialBoundaryInput,
   ): Promise<NearEd25519YaoSigningCapability> {
     return await this.ensureNearEd25519YaoCapabilityForSigning({
       kind: 'exact_lane',
@@ -1013,8 +1047,8 @@ export class BrowserSigningSurface {
   }
 
   private async prepareExactNearEd25519YaoSigning(
-    args: Parameters<NearSigningApiDeps['prepareNearEd25519YaoSigning']>[0],
-  ): ReturnType<NearSigningApiDeps['prepareNearEd25519YaoSigning']> {
+    args: PrepareNearEd25519YaoMaterialBoundaryInput,
+  ): Promise<NearEd25519YaoSigningPreparation> {
     const record = await readPersistedEd25519SessionRecordForSigning({
       walletId: String(args.walletId),
       laneIdentity: args.laneIdentity,
@@ -1092,8 +1126,161 @@ export class BrowserSigningSurface {
     }
   }
 
+  private async prepareExactNearEd25519YaoMaterialBoundary(
+    args: PrepareNearEd25519YaoMaterialBoundaryInput,
+  ): Promise<NearEd25519YaoPreparedMaterialBoundary> {
+    assertNearEd25519YaoMaterialBoundaryAuth(args);
+    let preparation = await this.prepareExactNearEd25519YaoSigning(args);
+    if (
+      args.auth.kind === WALLET_AUTH_METHODS.emailOtp &&
+      preparation.hydration.kind === 'rehydrate_material_activation'
+    ) {
+      const expectedActivation = requireNearEd25519YaoPreparationActivation(preparation);
+      const recovery = await this.recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning({
+        walletId: args.walletId,
+        nearAccountId: args.nearAccountId,
+        signerSlot: args.laneIdentity.signer.signerSlot,
+        thresholdSessionId: String(args.laneIdentity.thresholdSessionId),
+      });
+      switch (recovery.kind) {
+        case 'recovered':
+          validateExactNearEd25519YaoSigningCapability({
+            capability: recovery.recovery,
+            input: args,
+            expectedActivation,
+          });
+          preparation = await this.prepareExactNearEd25519YaoSigning(args);
+          if (
+            !mpcMaterialActivationRefsEqual(
+              expectedActivation,
+              requireNearEd25519YaoPreparationActivation(preparation),
+            )
+          ) {
+            throw new Error(
+              '[SigningEngine][near] Email OTP recovery changed prepared material activation',
+            );
+          }
+          break;
+        case 'reauth_required':
+          preparation = buildAuthorizationRequiredNearEd25519YaoSigningPreparation({
+            hydration: preparation.hydration,
+            requirement: args.auth,
+          });
+          break;
+        default:
+          recovery satisfies never;
+          throw new Error('[SigningEngine][near] unsupported Email OTP recovery result');
+      }
+    }
+    const context: PreparedNearEd25519YaoMaterialContext = {
+      input: args,
+      materialActivation: preparation.hydration.materialActivation || null,
+    };
+    return {
+      preparation,
+      executor: {
+        resolve: this.resolveExactNearEd25519YaoPreparedMaterial.bind(this, context),
+        preparePasskeyOperationStepUp:
+          this.prepareExactNearEd25519YaoOperationStepUpAtBoundary.bind(this, context),
+      },
+    };
+  }
+
+  private async resolveExactNearEd25519YaoPreparedMaterial(
+    context: PreparedNearEd25519YaoMaterialContext,
+    preparation: NearEd25519YaoSigningPreparation,
+  ): Promise<NearEd25519YaoSigningCapability> {
+    const args = context.input;
+    const expectedActivation = requireBoundNearEd25519YaoPreparationActivation({
+      context,
+      preparation,
+    });
+    switch (preparation.hydration.kind) {
+      case 'use_live_runtime': {
+        const capability = this.enginePorts.ed25519YaoActiveClients.resolve({
+          walletId: args.walletId,
+          nearAccountId: args.nearAccountId,
+          materialActivation: expectedActivation,
+        });
+        if (!capability) {
+          throw new Error('[SigningEngine][near] active Ed25519 Yao capability is unavailable');
+        }
+        return validateExactNearEd25519YaoSigningCapability({
+          capability,
+          input: args,
+          expectedActivation,
+        });
+      }
+      case 'rehydrate_material_activation':
+        switch (args.auth.kind) {
+          case WALLET_AUTH_METHODS.passkey:
+            return validateExactNearEd25519YaoSigningCapability({
+              capability:
+                await this.rehydrateExactPasskeyEd25519YaoCapabilityForSigning(args),
+              input: args,
+              expectedActivation,
+            });
+          case WALLET_AUTH_METHODS.emailOtp: {
+            const recovery =
+              await this.recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning({
+                walletId: args.walletId,
+                nearAccountId: args.nearAccountId,
+                signerSlot: args.laneIdentity.signer.signerSlot,
+                thresholdSessionId: String(args.laneIdentity.thresholdSessionId),
+              });
+            switch (recovery.kind) {
+              case 'recovered':
+                return validateExactNearEd25519YaoSigningCapability({
+                  capability: recovery.recovery,
+                  input: args,
+                  expectedActivation,
+                });
+              case 'reauth_required':
+                throw new Error(
+                  `[SigningEngine][near] Email OTP material requires reauthorization: ${recovery.reason}`,
+                );
+              default:
+                recovery satisfies never;
+                throw new Error('[SigningEngine][near] unsupported Email OTP recovery result');
+            }
+          }
+          default:
+            args.auth satisfies never;
+            throw new Error('[SigningEngine][near] unsupported Ed25519 material authority');
+        }
+      case 'reauthorize_public_anchor':
+        throw new Error('[SigningEngine][near] retired material requires reauthorization');
+      case 'blocked':
+        throw new Error(
+          `[SigningEngine][near] prepared material is blocked: ${preparation.hydration.reason}`,
+        );
+      default:
+        preparation.hydration satisfies never;
+        throw new Error('[SigningEngine][near] unsupported prepared material hydration');
+    }
+  }
+
+  private async prepareExactNearEd25519YaoOperationStepUpAtBoundary(
+    context: PreparedNearEd25519YaoMaterialContext,
+    preparation: NearEd25519YaoSigningPreparation,
+  ): Promise<NearPasskeyEd25519OperationStepUpCapabilityPreparation> {
+    const args = context.input;
+    if (args.auth.kind !== WALLET_AUTH_METHODS.passkey) {
+      throw new Error('[SigningEngine][near] Email OTP material cannot use Passkey rehydration');
+    }
+    const expectedActivation = requireBoundNearEd25519YaoPreparationActivation({
+      context,
+      preparation,
+    });
+    const prepared = await this.prepareExactPasskeyEd25519YaoOperationStepUpForSigning(args);
+    if (!mpcMaterialActivationRefsEqual(expectedActivation, prepared.materialActivation)) {
+      throw new Error('[SigningEngine][near] operation step-up changed material activation');
+    }
+    return prepared;
+  }
+
   private async resolveExactNearEd25519YaoSigningHydration(input: {
-    args: Parameters<NearSigningApiDeps['prepareNearEd25519YaoSigning']>[0];
+    args: PrepareNearEd25519YaoMaterialBoundaryInput;
     walletSessionState: NearEd25519YaoSigningCapability['walletSessionState'];
     publicLocator: PasskeyEd25519YaoPublicLocatorObservationV1;
     runtime: NearEd25519YaoRuntimeObservationV1;
@@ -1152,8 +1339,8 @@ export class BrowserSigningSurface {
   }
 
   private async prepareExactPasskeyEd25519YaoOperationStepUpForSigning(
-    args: Parameters<NearSigningApiDeps['preparePasskeyEd25519YaoOperationStepUpForSigning']>[0],
-  ): ReturnType<NearSigningApiDeps['preparePasskeyEd25519YaoOperationStepUpForSigning']> {
+    args: PrepareNearEd25519YaoMaterialBoundaryInput,
+  ): Promise<NearPasskeyEd25519OperationStepUpCapabilityPreparation> {
     const lane = await this.resolveNearEd25519YaoSigningLane({
       kind: 'exact_lane',
       walletId: args.walletId,
@@ -1267,9 +1454,7 @@ export class BrowserSigningSurface {
   }
 
   private async recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning(
-    args: Parameters<
-      NearSigningApiDeps['recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning']
-    >[0],
+    args: EmailOtpEd25519YaoSilentRecoveryInput,
   ): Promise<EmailOtpEd25519YaoSilentRecoveryResultV1> {
     const recoveryKey = JSON.stringify([
       String(args.walletId),
@@ -1291,9 +1476,7 @@ export class BrowserSigningSurface {
   }
 
   private async runExactEmailOtpEd25519YaoSilentRecovery(
-    args: Parameters<
-      NearSigningApiDeps['recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning']
-    >[0],
+    args: EmailOtpEd25519YaoSilentRecoveryInput,
   ): Promise<EmailOtpEd25519YaoSilentRecoveryResultV1> {
     const user = await this.getUserBySignerSlot(args.nearAccountId, args.signerSlot);
     if (!user || String(user.walletId) !== String(args.walletId)) {

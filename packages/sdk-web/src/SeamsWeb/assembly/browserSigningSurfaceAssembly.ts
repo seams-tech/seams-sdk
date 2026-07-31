@@ -491,18 +491,9 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
   ensureSealedRefreshStartupParity: () => Promise<void>;
   getEnginePorts: () => SigningEnginePorts;
   getRegistrationPublicDeps: () => registrationPublic.RegistrationPublicDeps;
-  rehydratePasskeyEd25519YaoCapabilityForSigning: Parameters<
+  prepareNearEd25519YaoMaterialBoundary: Parameters<
     typeof createSigningEnginePorts
-  >[0]['rehydratePasskeyEd25519YaoCapabilityForSigning'];
-  prepareNearEd25519YaoSigning: Parameters<
-    typeof createSigningEnginePorts
-  >[0]['prepareNearEd25519YaoSigning'];
-  preparePasskeyEd25519YaoOperationStepUpForSigning: Parameters<
-    typeof createSigningEnginePorts
-  >[0]['preparePasskeyEd25519YaoOperationStepUpForSigning'];
-  recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning: Parameters<
-    typeof createSigningEnginePorts
-  >[0]['recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning'];
+  >[0]['prepareNearEd25519YaoMaterialBoundary'];
 };
 
 export function createBrowserSigningSurfaceEnginePorts(
@@ -580,13 +571,8 @@ export function createBrowserSigningSurfaceEnginePorts(
         walletSession: challengeArgs.walletSession,
         chain: 'near',
       }),
-    rehydratePasskeyEd25519YaoCapabilityForSigning:
-      args.rehydratePasskeyEd25519YaoCapabilityForSigning,
-    prepareNearEd25519YaoSigning: args.prepareNearEd25519YaoSigning,
-    preparePasskeyEd25519YaoOperationStepUpForSigning:
-      args.preparePasskeyEd25519YaoOperationStepUpForSigning,
-    recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning:
-      args.recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning,
+    prepareNearEd25519YaoMaterialBoundary:
+      args.prepareNearEd25519YaoMaterialBoundary,
     provisionThresholdEd25519Session: (provisionArgs) =>
       provisionThresholdEd25519SessionOperation(
         {
