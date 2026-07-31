@@ -396,9 +396,10 @@ ports, and the two-state recovery journal.
 - `hasNearEd25519YaoPublicReference`
 - `recoverNearEd25519YaoCapabilityFromSealedSession`
 - `recoverNearEd25519YaoCapabilityWithPasskey`
-- `readNearEd25519RuntimeRecordForSelectedLane`
-- `publishNearEd25519RuntimeIdentityForRecord`
-- `resolveNearTransactionPlannerReadiness`
+- ~~`readNearEd25519RuntimeRecordForSelectedLane`~~ — deleted by `4f089b483`
+- ~~`publishNearEd25519RuntimeIdentityForRecord`~~ — deleted by `4f089b483`
+- ~~`resolveNearTransactionPlannerReadiness`~~ — absent after the canonical
+  preparation cut, verified by `4f089b483`
 - control-flow use of `getWarmThresholdEd25519SessionStatusForSession`
 - `resolveThresholdEd25519SessionIdForNearAccount`
 - the broad `resolveActiveEd25519YaoSigningCapability` port

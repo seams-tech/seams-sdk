@@ -244,6 +244,10 @@ implementing commit SHA as the evidence.
     authoritative active status. Delegate and NEP-413 planning consume that
     canonical proof directly and no longer reconstruct authorization, lanes,
     or readiness from a composite session record (`5a8ce9090`, `70ef2a420`).
+  - [x] NEAR transaction, delegate, and NEP-413 preparation no longer read or
+    reseed the composite session-record cache. Canonical hydration plus the
+    independent reusable-authorization status own signing and expiry behavior
+    after refresh (`4f089b483`).
   - [x] NEAR transaction admission carries no unread record-derived Wallet
     Session bearer projection; canonical preparation and the admitted
     operation-claim receipt own authorization (`5173ad50b`).
