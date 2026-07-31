@@ -1510,9 +1510,3 @@ export function routerApiEmailOtpRouteService(
 ): RouterApiEmailOtpRouteService {
   return service.emailOtp;
 }
-
-export function routerApiWalletUnlockRouteService(
-  service: RouterApiServiceBag,
-): RouterApiWalletUnlockService {
-  return service.walletUnlock;
-}

@@ -23,7 +23,6 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   routerApiEmailOtpRouteService,
-  routerApiWalletUnlockRouteService,
   type EmailOtpChallengeDelivery,
 } from '../../authServicePort';
 import {
@@ -1703,7 +1702,7 @@ export async function handleWalletUnlockChallenge(
   const body = await readJson(ctx.request);
   const response = await handleWalletUnlockChallengeRoute({
     body,
-    service: routerApiWalletUnlockRouteService(ctx.service),
+    service: ctx.service.walletUnlock,
   });
   return json(response.body, { status: response.status });
 }
@@ -1780,7 +1779,7 @@ export async function handleWalletUnlockVerify(
   const response = await handleWalletUnlockVerifyRoute({
     body,
     origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
-    service: routerApiWalletUnlockRouteService(ctx.service),
+    service: ctx.service.walletUnlock,
     ed25519YaoSession,
     ecdsaSession,
     emitRouterApiWebhook: async (event) => {
