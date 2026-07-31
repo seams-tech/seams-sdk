@@ -283,6 +283,10 @@ implementing commit SHA as the evidence.
     (`04221828c`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
+  - [x] Concrete ECDSA availability excludes the retired `restorable` state;
+    export and runtime postconditions accept only canonical ready/deferred
+    hydration outcomes, while Ed25519 retains its durable restorable state
+    (`5f6592534`).
   - [x] The canonical ECDSA operating-path proof completes persisted hydration,
     dedicated worker binding, pooled prepare/finalize, and verifies the
     resulting 65-byte signature. The endpoint fixture and prepare-response
@@ -524,6 +528,10 @@ implementing commit SHA as the evidence.
     anchor shape. Both factors correlate that record with the active manifest,
     hydrate auth-neutral material, and attach only a same-method one-operation
     grant. Commits `fe07fea5b` and `fa1f21657`.
+  - [x] The local Refactor 92 boundary, retry, invalidation, planning, demo,
+    persistence, and policy set passes 38/38. It proves typed
+    expiry/exhaustion separation and same-method step-up; deployed refresh
+    allowance and cross-factor parity remain open (`5d3518c98`).
 
 ### Final conformance
 

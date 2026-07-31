@@ -1411,8 +1411,15 @@ This is a validation gate, not a deferred cleanup phase.
 - [ ] Public export and dependency-direction checks pass.
 - [ ] Shared, SDK, server, worker, intended-test, and Rust type/build checks
       pass.
+  - [x] Repository SDK/server/app type checks pass at the local acceptance
+        checkpoint; Rust normal-signing vectors pass 3/3 and the ECDSA client
+        protocol passes 9/9.
 - [ ] Focused unit, crash, concurrency, host-adapter, worker/WASM, and vector
       tests pass.
+  - [x] Focused Refactor 92 lifecycle tests pass 38/38; hosted-recovery,
+        activation-pair, escrow, and operation-material tests pass 18/18; key
+        export, branding, Email OTP isolation, signing architecture, and ECDSA
+        client-worker boundary checks pass.
 - [ ] `pnpm test:intended` passes against a healthy environment.
 - [ ] `git diff --check` passes.
 
