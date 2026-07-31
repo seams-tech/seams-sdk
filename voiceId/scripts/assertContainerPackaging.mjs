@@ -39,6 +39,7 @@ const checks = [
       { name: 'setuptools build backend', pattern: /build-backend = "setuptools\.build_meta"/ },
       { name: 'package finder config', pattern: /\[tool\.setuptools\.packages\.find\]/ },
       { name: 'SpeechBrain ECAPA dependency', pattern: /"speechbrain>=1\.0\.0"/ },
+      { name: 'AASIST PAD dependency extra', pattern: /pad = \[/ },
       { name: 'pinned Torch dependency', pattern: /"torch==2\.6\.\*"/ },
       { name: 'pinned Torchaudio dependency', pattern: /"torchaudio==2\.6\.\*"/ },
     ],
@@ -51,6 +52,7 @@ const checks = [
       { name: 'container verifier URL env', pattern: /VOICEID_PYTHON_VERIFIER_URL/ },
       { name: 'browser origin allowlist env', pattern: /VOICEID_ALLOWED_ORIGINS/ },
       { name: 'preload build arg docs', pattern: /PRELOAD_ECAPA_MODEL=1/ },
+      { name: 'AASIST mount documentation', pattern: /VOICEID_PAD_AASIST_CHECKPOINT_PATH/ },
       {
         name: 'component-only authority boundary',
         pattern:

@@ -107,7 +107,7 @@ export function createVoiceIdAnalysisProviderFromEnv(input: {
   if (input.verifierMode === 'python-http' && input.transcriptProviderMode === 'python-moonshine') {
     return new PythonMoonshineAnalysisProvider(
       new PythonHttpVoiceIdVerifierTransport(pythonHttpConfigFromEnv()),
-      process.env.VOICEID_MOONSHINE_INTENT_NAME ?? 'expected_phrase',
+      process.env.VOICEID_MOONSHINE_INTENT_NAME ?? 'approve',
     );
   }
   return new SplitVoiceIdAnalysisProvider(input.transcriptProvider, input.verifier);
@@ -178,7 +178,7 @@ export function createVoiceIdTranscriptProviderFromEnv(
     case 'python-moonshine':
       return new PythonMoonshineTranscriptProvider(
         new PythonHttpVoiceIdVerifierTransport(pythonHttpConfigFromEnv()),
-        process.env.VOICEID_MOONSHINE_INTENT_NAME ?? 'expected_phrase',
+        process.env.VOICEID_MOONSHINE_INTENT_NAME ?? 'approve',
       );
     default:
       return assertNever(mode);

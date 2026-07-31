@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "arc-wallets:generate": "node ./scripts/arc-test-wallets.mjs generate",
+    "arc-wallets:addresses": "node ./scripts/arc-test-wallets.mjs addresses",
+    "arc-wallets:sweep": "node ./scripts/arc-test-wallets.mjs sweep",
     "install-all": "pnpm -r install",
     "generate:signer-core-types": "UPDATE_SIGNER_CORE_TYPES=1 cargo test --manifest-path crates/signer-core/Cargo.toml --features ecdsa-role-local-client,typescript-bindings --test export_typescript_schemas -- --nocapture",
     "generate:router-ab-ed25519-yao-types": "UPDATE_ROUTER_AB_ED25519_YAO_TYPES=1 cargo test --manifest-path crates/router-ab-core/Cargo.toml --features typescript-bindings --test export_typescript_bindings -- --nocapture",
@@ -105,6 +108,7 @@
     "globals": "^16.0.0",
     "prettier": "^3.0.0",
     "typescript-eslint": "^8.0.0",
+    "viem": "^2.38.6",
     "vitepress": "^1.5.0"
   },
   "packageManager": "pnpm@11.11.0+sha512.4463f65fd80ed80d69bc1d4bf163ee94f605c7380fc318bb5b2ebe15f8cd12d49c51a4d59e951b401e764d3b6ca751cbf51bc50ed7001a6bcb4935e684c34882"

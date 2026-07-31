@@ -147,6 +147,12 @@ class BenchmarkInventoryReport:
 
 
 def load_benchmark_manifest(path: Path) -> BenchmarkManifest:
+    manifest = load_benchmark_manifest_fragment(path)
+    enforce_evaluable_subjects(manifest.entries)
+    return manifest
+
+
+def load_benchmark_manifest_fragment(path: Path) -> BenchmarkManifest:
     manifest_path = path.expanduser().resolve()
     value = read_json_object(manifest_path)
     require_exact_keys(
@@ -161,7 +167,6 @@ def load_benchmark_manifest(path: Path) -> BenchmarkManifest:
         raise BenchmarkManifestError("entries must be a non-empty array")
     entries = parse_entries(raw_entries, manifest_path.parent)
     enforce_subject_disjoint_partitions(entries)
-    enforce_evaluable_subjects(entries)
     return BenchmarkManifest(
         manifest_path=manifest_path,
         dataset_version=require_string(value, "datasetVersion"),

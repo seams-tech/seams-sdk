@@ -152,16 +152,17 @@ At minimum, the server should own:
 
 ## Preferred Endpoint Shape
 
-The clean endpoint shape is to replace the old atomic bootstrap with a staged
-`router-ab-ecdsa-derivation` bootstrap flow, informed by the former Ed25519 HSS pattern.
+The endpoint shape is the three-route registration flow. Deferred NEAR
+provisioning completes independently after the wallet is durable.
 
 ### New Staged Bootstrap Endpoints
 
-Introduce:
+The public routes are:
 
-- `POST /wallets/register/start`
-- `POST /wallets/register/derivation/respond`
-- `POST /wallets/register/finalize`
+- `POST /wallets/register/setup`
+- `POST /wallets/register/respond`
+- `POST /wallets/register/activate`
+- `POST /wallets/register/near-provisioning` for asynchronous Ed25519 completion
 
 These endpoints should become the only public bootstrap path for new EVM
 threshold keys.
@@ -303,8 +304,9 @@ Todo:
 - [x] freeze the new public threshold ECDSA identity as:
       `ecdsaThresholdKeyId`, `thresholdEcdsaPublicKeyB64u`, `ethereumAddress`,
       `participantIds`
-- [x] freeze the staged endpoint set:
-      `/wallets/register/start`, `/derivation/respond`, `/finalize`
+- [x] freeze the endpoint set:
+      `/wallets/register/setup`, `/respond`, `/activate`, with asynchronous
+      `/near-provisioning`
 - [x] decide which existing sign-time endpoints keep their paths and which get
       request-shape changes
 - [x] define the server-owned `router-ab-ecdsa-derivation` EVM key record shape in

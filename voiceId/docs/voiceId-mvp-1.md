@@ -273,15 +273,38 @@ browser never supplies the expected phrase or intent policy. The
 `analyze-verification` route extends that same decode to ECAPA speaker scoring
 against the server-held template and returns the independent phrase, intent,
 speaker, quality, and PAD decisions in one typed response. The Python /
-Moonshine deployment profile uses this route for verification; the PAD result
-is explicitly unavailable until a PAD model is calibrated.
+Moonshine deployment profile uses this route for verification. When the pinned
+AASIST source/config/checkpoint and calibrated thresholds are configured, PAD
+consumes the same accepted VAD region as ECAPA and runs concurrently with
+Moonshine and speaker scoring. Unconfigured PAD remains explicit unavailable
+research evidence.
 
 Enrollment audio and internal embeddings remain inside one atomic sidecar
 operation. The transport has no embedding export or separate template-build
 operation. The production-shaped model transport is the persistent HTTP
-sidecar; request-scoped Python process startup is absent. The sidecar loads the
-configured runtime before serving, publishes model readiness, and rejects
-bounded-queue saturation deterministically.
+sidecar; request-scoped Python process startup is absent. ECAPA, AASIST, and
+the closed-set intent runtime remain warm. Moonshine 0.0.71 creates and closes
+a native `Transcriber` for each request because reused handles failed
+cross-input isolation. The adapter emits one canonical normalized transcript
+for intent and challenge evaluation.
+
+The sidecar loads configured candidate runtimes before serving, publishes
+readiness, and rejects bounded-queue saturation deterministically. Independent
+speech, speaker, and PAD deadlines cancel queued work and fail closed; native
+calls already running finish on bounded workers. The current Moonshine profile
+enforces one admitted verification at a time; higher sidecar concurrency
+requires a measured recognizer or process pool. Request-owned Moonshine PCM,
+ECAPA waveform and embedding tensors, and AASIST PCM and inference tensors are
+zeroed before their slots are reused. Opaque buffers inside Moonshine, ONNX,
+and PyTorch allocators do not have a proven erasure contract. Profiles
+requiring strict erasure must add a stronger process-isolation boundary.
+
+Enrollment templates use a versioned medoid-weighted aggregation rule. Window
+quality weights are adjusted by embedding centrality, the result is normalized,
+and enrollment fails when any leave-one-window-out template falls below the
+frozen stability floor. The sidecar rejects oversized JSON bodies before
+reading them and treats malformed or truncated media as terminal decoder
+failure.
 
 ## Persistence And Privacy
 
@@ -326,22 +349,23 @@ retention decision does not relax the production diagnostic-media TTL.
 
 ## Active Engine Milestones
 
+The single-decode and shared-VAD handoff is implemented for verification,
+enrollment templates, and PAD input.
+
 1. Produce one subject-disjoint synthetic-first benchmark for pipeline
    accuracy, stage latency, memory, resource use, uncertainty, and failure
    rate. Label generated identities and owner-conditioned attacks precisely;
    defer human population FAR, FRR, and EER claims until real subjects exist.
-2. Complete the single-decode worker handoff so phrase, intent, speaker, PAD,
-   and template processing consume one canonical decode and shared VAD result.
-3. Test Moonshine Tiny Streaming and Small Streaming first for flexible
+2. Test Moonshine Tiny Streaming and Small Streaming first for flexible
    challenge-token coverage and semantic-intent verification, then select and
    calibrate the phrase, intent, speaker, and PAD models on held-out subjects
    and attacks. Exercise the selected pipeline against pinned Dia2 1B and 2B
    prompt-targeted synthesis fixtures, ElevenLabs generated and owner-cloned
    voices, plus unrelated held-out text-to-speech and voice-conversion
    generators.
-4. Improve continuous-enrollment aggregation and cross-session template
+3. Improve continuous-enrollment aggregation and cross-session template
    stability.
-5. Qualify Apple Silicon macOS first and iPhone 16 second with decision
+4. Qualify Apple Silicon macOS first and iPhone 16 second with decision
    regressions, crash tests, overload tests, fuzzing, and soak tests. Server and
    embedded profiles follow the reproducible Apple baseline.
 

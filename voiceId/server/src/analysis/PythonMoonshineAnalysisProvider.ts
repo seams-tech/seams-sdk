@@ -37,7 +37,7 @@ export class PythonMoonshineAnalysisProvider implements VoiceIdAnalysisProvider 
       return parseVerificationAnalysisResponse(
         response,
         input.expectedPhrase,
-        resolveIntentName(this.intentName, input.expectedPhrase),
+        this.intentName,
       );
     } catch {
       return unavailableVerificationAnalysis(
@@ -80,7 +80,8 @@ export function buildAnalyzeVerificationRequest(
     },
     threshold,
     expectedPhrase,
-    intentName: resolveIntentName(intentName, expectedPhrase),
+    intentName,
+    challengeTokens: extractVerificationChallengeTokens(expectedPhrase),
   };
 }
 
@@ -147,17 +148,89 @@ function parseIntent(
 
 function parsePad(value: unknown): VoiceIdExperimentalPad {
   const data = requireRecord(value, 'pad');
-  requireExactKeys(data, ['kind', 'reason']);
-  if (data.kind !== 'pad_unavailable' || data.reason !== 'ordinary_browser_capture') {
-    throw new Error('verification analysis PAD result is invalid');
+  if (data.kind === 'pad_unavailable') {
+    requireExactKeys(data, ['kind', 'reason']);
+    if (data.reason !== 'ordinary_browser_capture') {
+      throw new Error('verification analysis PAD unavailable reason is invalid');
+    }
+    return { kind: 'pad_unavailable', reason: 'ordinary_browser_capture' };
   }
-  return { kind: 'pad_unavailable', reason: 'ordinary_browser_capture' };
+  const common = parsePadEvidence(data);
+  if (data.kind === 'accepted') {
+    requireExactKeys(data, [
+      'kind',
+      'score',
+      'rejectThreshold',
+      'acceptThreshold',
+      'modelVersion',
+      'calibrationVersion',
+      'latencyMs',
+    ]);
+    return { kind: 'accepted', ...common };
+  }
+  requireExactKeys(data, [
+    'kind',
+    'reason',
+    'score',
+    'rejectThreshold',
+    'acceptThreshold',
+    'modelVersion',
+    'calibrationVersion',
+    'latencyMs',
+  ]);
+  if (data.kind === 'rejected' && data.reason === 'presentation_attack') {
+    return { kind: 'rejected', reason: 'presentation_attack', ...common };
+  }
+  if (data.kind === 'uncertain') {
+    const reason = requirePadUncertainReason(data.reason);
+    return { kind: 'uncertain', reason, ...common };
+  }
+  throw new Error('verification analysis PAD result is invalid');
 }
 
-function resolveIntentName(configuredIntentName: string, expectedPhrase: VoiceIdPromptPhrase): string {
-  return configuredIntentName === 'expected_phrase'
-    ? normalizePromptPhrase(expectedPhrase)
-    : configuredIntentName;
+function parsePadEvidence(
+  data: Record<string, unknown>,
+): Omit<Extract<VoiceIdExperimentalPad, { kind: 'accepted' }>, 'kind'> {
+  const rejectThreshold = requireProbability(data.rejectThreshold, 'pad.rejectThreshold');
+  const acceptThreshold = requireProbability(data.acceptThreshold, 'pad.acceptThreshold');
+  if (rejectThreshold >= acceptThreshold) {
+    throw new Error('PAD reject threshold must be less than accept threshold');
+  }
+  return {
+    score: requireProbability(data.score, 'pad.score'),
+    rejectThreshold,
+    acceptThreshold,
+    modelVersion: requireString(data.modelVersion, 'pad.modelVersion'),
+    calibrationVersion: requireString(data.calibrationVersion, 'pad.calibrationVersion'),
+    latencyMs: requireNonNegativeNumber(data.latencyMs, 'pad.latencyMs'),
+  };
+}
+
+function requirePadUncertainReason(
+  value: unknown,
+): Extract<VoiceIdExperimentalPad, { kind: 'uncertain' }>['reason'] {
+  const reasons = [
+    'model_low_confidence',
+    'model_unavailable',
+    'deadline_exceeded',
+    'overloaded',
+    'low_audio_quality',
+  ] as const;
+  for (const reason of reasons) {
+    if (value === reason) return reason;
+  }
+  throw new Error('PAD uncertainty reason is invalid');
+}
+
+export function extractVerificationChallengeTokens(
+  expectedPhrase: VoiceIdPromptPhrase,
+): readonly string[] {
+  const tokens = normalizePromptPhrase(expectedPhrase).split(' ');
+  const challengeTokens = tokens.slice(-6);
+  if (challengeTokens.length !== 6 || challengeTokens.some((token) => token.length !== 1)) {
+    throw new Error('verification prompt must end with six single-character challenge tokens');
+  }
+  return challengeTokens;
 }
 
 function unavailableVerificationAnalysis(
@@ -230,6 +303,20 @@ function requireString(value: unknown, fieldName: string): string {
     throw new Error(`${fieldName} must be a non-empty string`);
   }
   return value.trim();
+}
+
+function requireProbability(value: unknown, fieldName: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`${fieldName} must be a probability`);
+  }
+  return value;
+}
+
+function requireNonNegativeNumber(value: unknown, fieldName: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${fieldName} must be non-negative`);
+  }
+  return value;
 }
 
 function assertNever(value: never): never {
