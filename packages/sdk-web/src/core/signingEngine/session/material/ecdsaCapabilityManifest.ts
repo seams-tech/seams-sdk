@@ -1005,18 +1005,6 @@ export function buildReplacedEcdsaCapabilityManifest(
   });
 }
 
-export function ecdsaCapabilityManifestIdentity(
-  manifest: EcdsaCapabilityManifest,
-): EcdsaManifestIdentity {
-  switch (manifest.kind) {
-    case 'active_ecdsa_capability_manifest':
-    case 'replaced_ecdsa_capability_manifest':
-      return manifest.identity;
-    default:
-      return assertNever(manifest);
-  }
-}
-
 export function ecdsaActivationJournalId(
   journal: EcdsaCapabilityActivationCommitJournal,
 ): CorrelationId {
