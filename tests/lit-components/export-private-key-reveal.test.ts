@@ -7,14 +7,11 @@ const EXPORT_VIEWER_TAG = 'w3a-export-key-viewer';
 const PRIVATE_KEY = `0x${'1'.repeat(64)}`;
 
 type ViewerSnapshot = {
-  accentColor: string;
   copyDisabled: boolean;
-  hasRippleTarget: boolean;
   innerHtml: string;
-  rippleTargetText: string;
-  tileAnimationName: string;
-  tileColor: string;
-  rippleTiles: number;
+  prefix: string;
+  reelSlots: number;
+  reelText: string;
   text: string;
 };
 
@@ -33,23 +30,13 @@ async function viewerSnapshot(page: Page): Promise<ViewerSnapshot> {
     const copyButton = privateKeyField.matches('button')
       ? (privateKeyField as HTMLButtonElement)
       : (privateKeyField.querySelector('button') as HTMLButtonElement | null);
-    const rippleTarget = privateKeyField.querySelector('.private-key-ripple-target');
-    const firstTile = privateKeyField.querySelector('.ripple-tile');
-    const tileStyle = firstTile ? getComputedStyle(firstTile) : null;
-    const accentProbe = document.createElement('span');
-    accentProbe.style.backgroundColor = 'var(--w3a-colors-accent)';
-    privateKeyField.append(accentProbe);
-    const accentColor = getComputedStyle(accentProbe).backgroundColor;
-    accentProbe.remove();
+    const reel = privateKeyField.querySelector('.private-key-reel');
     return {
-      accentColor,
       copyDisabled: copyButton?.disabled ?? true,
-      hasRippleTarget: rippleTarget !== null,
       innerHtml: privateKeyField.innerHTML,
-      rippleTargetText: rippleTarget?.textContent ?? '',
-      rippleTiles: privateKeyField.querySelectorAll('.ripple-tile').length,
-      tileAnimationName: tileStyle?.animationName ?? '',
-      tileColor: tileStyle?.backgroundColor ?? '',
+      prefix: reel?.querySelector('.reel-prefix')?.textContent ?? '',
+      reelSlots: reel?.querySelectorAll('.reel-slot').length ?? 0,
+      reelText: reel?.textContent ?? '',
       text: privateKeyField.textContent ?? '',
     };
   }, EXPORT_VIEWER_TAG);
@@ -139,7 +126,7 @@ async function mountReadyViewer(page: Page): Promise<void> {
   await waitForPrivateKeyField(page);
 }
 
-test.describe('Export private key tile reveal', () => {
+test.describe('Export private key slot reveal', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page);
     await ensureComponentModule(page, {
@@ -148,36 +135,26 @@ test.describe('Export private key tile reveal', () => {
     });
   });
 
-  test('ripples a tile field and settles before enabling Copy', async ({ page }) => {
+  test('spins a fixed key scaffold and settles before enabling Copy', async ({ page }) => {
     await mountLoadingViewer(page);
 
     const loading = await viewerSnapshot(page);
     expect(loading.text).not.toContain('Decrypting…');
-    expect(loading.rippleTiles).toBe(128);
-    expect(loading.hasRippleTarget).toBe(false);
-    expect(loading.tileAnimationName).toBe('private-key-tile-ripple');
-    expect(loading.tileColor).toBe(loading.accentColor);
+    expect(loading.prefix).toBe('0x');
+    expect(loading.reelSlots).toBe(64);
     expect(loading.copyDisabled).toBe(true);
 
     await updateViewerToReady(page);
 
     const settling = await viewerSnapshot(page);
-    expect(settling.rippleTiles).toBe(128);
-    expect(settling.hasRippleTarget).toBe(true);
-    expect(settling.rippleTargetText).toBe(`0x${'1'.repeat(20)}${'x'.repeat(24)}${'1'.repeat(20)}`);
+    expect(settling.reelSlots).toBe(64);
     expect(settling.copyDisabled).toBe(true);
     expect(settling.innerHtml).not.toContain(PRIVATE_KEY);
 
-    await expect
-      .poll(async () => (await viewerSnapshot(page)).copyDisabled, {
-        intervals: [25],
-        timeout: 2_000,
-      })
-      .toBe(false);
-    await expect.poll(async () => (await viewerSnapshot(page)).rippleTiles).toBe(0);
+    await expect.poll(async () => (await viewerSnapshot(page)).reelSlots).toBe(0);
     const settled = await viewerSnapshot(page);
     expect(settled.copyDisabled).toBe(false);
-    expect(settled.text).toContain(`0x${'1'.repeat(20)}${'x'.repeat(24)}${'1'.repeat(20)}`);
+    expect(settled.text).toContain(`0x1111${'x'.repeat(54)}111111`);
     expect(settled.innerHtml).not.toContain(PRIVATE_KEY);
   });
 
@@ -188,14 +165,13 @@ test.describe('Export private key tile reveal', () => {
     const firstLoading = await viewerSnapshot(page);
     await page.waitForTimeout(150);
     const secondLoading = await viewerSnapshot(page);
-    expect(firstLoading.innerHtml).toBe(secondLoading.innerHtml);
-    expect(firstLoading.rippleTiles).toBe(128);
+    expect(firstLoading.reelText).toBe(secondLoading.reelText);
     expect(firstLoading.copyDisabled).toBe(true);
 
     await updateViewerToReady(page);
 
     const ready = await viewerSnapshot(page);
-    expect(ready.rippleTiles).toBe(0);
+    expect(ready.reelSlots).toBe(0);
     expect(ready.copyDisabled).toBe(false);
     expect(ready.innerHtml).not.toContain(PRIVATE_KEY);
   });
@@ -212,13 +188,13 @@ test.describe('Export private key tile reveal', () => {
     }, EXPORT_VIEWER_TAG);
 
     const failed = await viewerSnapshot(page);
-    expect(failed.rippleTiles).toBe(0);
+    expect(failed.reelSlots).toBe(0);
     expect(failed.copyDisabled).toBe(true);
 
     await mountReadyViewer(page);
 
     const ready = await viewerSnapshot(page);
-    expect(ready.rippleTiles).toBe(0);
+    expect(ready.reelSlots).toBe(0);
     expect(ready.copyDisabled).toBe(false);
     expect(ready.innerHtml).not.toContain(PRIVATE_KEY);
   });
