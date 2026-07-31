@@ -199,7 +199,6 @@ test.describe('warmSessionReadModel', () => {
       chainTarget: runtime.chainTarget,
       relayerUrl: runtime.relayerUrl,
       walletSessionJwt: String(authorization.projection.walletSessionJwt),
-      walletSessionJwtSource: 'ecdsa',
       signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
         'signing-session-seal-kek-2026-02-r1',
       ),
