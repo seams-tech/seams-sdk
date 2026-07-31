@@ -218,13 +218,15 @@ function emailOtpEcdsaSealedFixtureParts(
     emailHashHex: 'email-hash',
   });
   const signingGrantId = 'wallet-session-1';
+  const signingRootId = 'root:dev';
+  const signingRootVersion = 'v1';
   const bootstrap = createThresholdEcdsaBootstrapFixture({
     nearAccountId: walletId,
     chain: 'tempo',
     roleLocalAuthMethod: 'email_otp',
     emailOtpAuthSubjectId: providerSubjectId,
-    signingRootId: 'root',
-    signingRootVersion: 'v1',
+    signingRootId,
+    signingRootVersion,
     keyHandle: 'key-handle',
     relayerKeyId: 'relayer-key',
     sessionId: 'ec-session',
@@ -256,8 +258,8 @@ function emailOtpEcdsaSealedFixtureParts(
     restore: {
       chainTarget: keyRef.chainTarget,
       source: 'email_otp',
-      signingRootId: 'root',
-      signingRootVersion: 'v1',
+      signingRootId,
+      signingRootVersion,
       provider: 'google',
       providerSubjectId,
       emailHashHex: 'email-hash',
