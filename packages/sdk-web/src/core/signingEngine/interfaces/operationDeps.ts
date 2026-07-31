@@ -16,7 +16,6 @@ import type {
 import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
 import type { ThresholdEcdsaSessionStoreSource } from '../session/identity/laneIdentity';
 import type { ExactEcdsaSigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
-import type { ThresholdEd25519SessionRecord } from '../session/persistence/records';
 import type { RestorePersistedSessionForSigningInput } from '../session/sealedRecovery/sealedRecovery.types';
 import type {
   ThresholdEcdsaChainTarget,
@@ -82,10 +81,6 @@ export type EcdsaOperationStepUpSessionAuthResolver = {
 
 export type NearSigningApiDeps = {
   nearRpcUrl: string;
-  readPersistedEd25519SessionRecordForSigning: (args: {
-    walletId: WalletId;
-    laneIdentity: ExactEd25519SigningLaneIdentity;
-  }) => Promise<ThresholdEd25519SessionRecord | null>;
   prepareNearEd25519YaoMaterialBoundary: (args: {
     walletId: WalletId;
     nearAccountId: AccountId;

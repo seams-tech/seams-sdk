@@ -4,7 +4,6 @@ import { createWarmSessionStatusReader } from '../../session/warmCapabilities/st
 import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
-import { readPersistedEd25519SessionRecordForSigning } from '../../session/availability/persistedAvailableSigningLanes';
 
 export function createNearSigningDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
@@ -15,7 +14,6 @@ export function createNearSigningDeps(args: {
   const { createArgs, nearRpcUrl, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
   return {
     nearRpcUrl,
-    readPersistedEd25519SessionRecordForSigning,
     prepareNearEd25519YaoMaterialBoundary:
       createArgs.prepareNearEd25519YaoMaterialBoundary,
     createSigningSessionId: (prefix: string): string => generateSessionIdValue(prefix),
