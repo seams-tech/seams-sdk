@@ -2,7 +2,7 @@
 
 ## Owns
 
-Signing-session identity, record normalization, lane selection, readiness,
+Signing-session identity, lane selection, readiness,
 planning, budget, sealed recovery, sealed persistence, and warm-session state.
 
 ## May Import
@@ -18,7 +18,7 @@ chain operation modules.
 ## Entrypoints
 
 `public.ts` owns the generic session-facing facade methods for mixed wallet /
-NEAR restore, available-lane reads, and ECDSA session-record admin methods.
+NEAR restore and available-lane reads.
 
 Current child owners are explicit folders:
 `identity/*`, `availability/*`, `planning/*`, `budget/*`, `persistence/*`,
@@ -43,7 +43,7 @@ Current child owners are explicit folders:
 - Sealed recovery and persistence: `sealedRecovery/restoreCoordinator.ts`,
   `sealedRecovery/sealedRecovery.types.ts`, `sealedRecovery/exactRecordLookup.ts`,
   `sealedRecovery/readback.ts`,
-  `persistence/sealedSessionStore.ts`, `persistence/records.ts`, and
+  `persistence/sealedSessionStore.ts` and
   persistence-specific normalization.
 - `sealedRecovery/*` owns only restore-boundary work:
   raw/current readback normalization into `SealedRecoveryRecord`,
@@ -87,5 +87,4 @@ Current child owners are explicit folders:
 
 Selected-lane construction belongs to `identity/selectLane.ts` and
 `identity/laneIdentity.ts`.
-Persistence record normalization belongs to `persistence/records.ts` and
-`persistence/sealedSessionStore.ts`.
+Sealed persistence normalization belongs to `persistence/sealedSessionStore.ts`.

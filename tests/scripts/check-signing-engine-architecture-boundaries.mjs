@@ -797,24 +797,6 @@ function checkThresholdProtocolEntrypointsTakeProtocolMaterial() {
   }
 }
 
-function checkThresholdSessionIdentityTypesLiveOutsidePersistenceRecords() {
-  const records = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
-  );
-  const activation = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
-  );
-
-  for (const marker of [
-    'export type ThresholdEcdsaSessionStoreSource',
-    'export type ThresholdEd25519SessionStoreSource',
-    'export type ThresholdEcdsaEmailOtpAuthContext',
-  ]) {
-    assertNotContains(records, marker, 'session/persistence/records.ts');
-  }
-  assertNotContains(activation, 'session/records', 'passkey/ecdsaBootstrap.ts');
-}
-
 function checkEd25519WalletSessionMintHelperHasNoLifecycleCache() {
   const source = readRepoSource(
     'packages/sdk-web/src/core/signingEngine/threshold/ed25519/walletSession.ts',
@@ -1285,7 +1267,6 @@ function runChecks() {
   checkDeletedDuplicateLaneNamesStayDeleted();
   checkThresholdSessionKindHasOneSigningEngineOwner();
   checkThresholdProtocolEntrypointsTakeProtocolMaterial();
-  checkThresholdSessionIdentityTypesLiveOutsidePersistenceRecords();
   checkEd25519WalletSessionMintHelperHasNoLifecycleCache();
   checkEd25519ConnectSessionLeavesPersistenceToCallers();
   checkThresholdModulesAvoidSessionLifecycleImports();

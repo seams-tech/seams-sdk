@@ -6053,10 +6053,13 @@ fn router_ab_ecdsa_derivation_normal_signing_scope_binds_active_material_to_iden
             .expect("Router A/B ECDSA derivation active-state lookup");
 
     assert_eq!(
-        active_state.session_id,
+        active_state.material_activation_id,
         router_ab_ecdsa_derivation_material_activation_id(&root_epoch())
     );
-    assert_eq!(lookup.session_id, active_state.session_id);
+    assert_eq!(
+        lookup.material_activation_id,
+        active_state.material_activation_id
+    );
     lookup
         .validate_active_state(&active_state)
         .expect("Router A/B ECDSA derivation lookup matches active state");
@@ -6815,7 +6818,7 @@ fn router_ab_ecdsa_derivation_normal_signing_request_rejects_active_state_drift(
         TEST_ACTIVATED_AT_MS,
     )
     .expect("Router A/B ECDSA derivation active state");
-    active_state.session_id = "different-ecdsa-key".to_owned();
+    active_state.material_activation_id = "different-ecdsa-key".to_owned();
     let material_activation = router_ab_ecdsa_derivation_material_activation(&scope);
     let request = RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
         scope,

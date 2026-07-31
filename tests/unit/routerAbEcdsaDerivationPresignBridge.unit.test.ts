@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1,
   parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1,
   parseRouterAbEcdsaDerivationNormalSigningScopeV1,
   type CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1Wire,
@@ -118,7 +119,7 @@ function receipt(
   return {
     active_signing_worker_state: {
       account_id: scope.wallet_id,
-      session_id: 'session-1',
+      material_activation_id: 'material-activation-1',
       account_public_key: scope.public_identity.threshold_public_key33_b64u,
       signing_worker: scope.signing_worker,
       activation_transcript_digest: digest(9),
@@ -305,6 +306,28 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
     expect(
       parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1(poolFillRequest),
     ).toEqual(poolFillRequest);
+  });
+
+  test('requires the active Worker receipt to name material activation explicitly', () => {
+    const validReceipt = receipt(request(), true);
+    const parsed = parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1(
+      validReceipt,
+    );
+    expect(parsed.active_signing_worker_state.material_activation_id).toBe(
+      'material-activation-1',
+    );
+
+    const legacyState = {
+      ...validReceipt,
+      active_signing_worker_state: {
+        ...validReceipt.active_signing_worker_state,
+        session_id: 'legacy-session-id',
+      },
+    };
+    delete (legacyState.active_signing_worker_state as { material_activation_id?: string })
+      .material_activation_id;
+    expect(() => parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1(legacyState))
+      .toThrow('receipt.active_signing_worker_state.session_id is not a supported field');
   });
 
   test('rejects loose Router A/B scope shapes before private pool-fill construction', () => {

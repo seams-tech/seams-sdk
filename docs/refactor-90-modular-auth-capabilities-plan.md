@@ -1101,6 +1101,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the complete production `ThresholdEcdsaSessionRecord*` family,
       public APIs, runtime maps, readers, writers, parsers, and adapters after
       Unit 2 supplies the narrow authorization/session/quota projection.
+- [x] Prove the remaining Ed25519 in-memory session-record module has no
+      production or retained-test consumers, then retire it with only its
+      stale architecture/documentation references. Keep the server-side
+      persisted-record parser, which remains a live boundary (`a84f92b37`).
 - [x] Remove legacy-only composite-record fixtures and move retained Email OTP
       coordinator setup to canonical manifest, authorization, and sealed-runtime
       factories.
@@ -1126,7 +1130,9 @@ the replacement and legacy MPC paths must not ship together.
           Ed25519/ECDSA sealed restore metadata, recovery records, boundary
           parsers, writers, and fixtures. Current authorization remains an
           independent transport input; record-level protocol/session identity
-          remains separate (`22ccd0c26`).
+          remains separate (`22ccd0c26`). The remaining record-level
+          `signingGrantId` is a separate grant/lease identity that still needs
+          a coordinated re-key; it is not a bearer credential.
     - [ ] Complete the separate operation-authorization cutover for any
           remaining record-level `signingGrantId` protocol/lease identity; do
           not treat it as sealed restore bearer state.

@@ -281,6 +281,10 @@ implementing commit SHA as the evidence.
     scope, Wallet Session bearer, and client verifying share are required; the
     dead optional success base and its session/budget aliases are deleted
     (`04221828c`).
+  - [x] The write-dead client Ed25519 in-memory session-record family, its
+    lane/cache helpers, stale architecture check, and ownership documentation
+    are deleted; the independent server persisted-record parser remains the
+    live boundary (`a84f92b37`, `5486df295`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
   - [x] Concrete ECDSA availability excludes the retired `restorable` state;
