@@ -89,7 +89,6 @@ import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
-  getStoredThresholdEd25519SessionRecordForAccount,
   getStoredThresholdEd25519SessionRecordForWallet,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
 } from '@/core/signingEngine/session/persistence/records';
@@ -1539,13 +1538,13 @@ export async function unlock(
   nearAccountId: AccountId,
   options?: LoginHooksOptions,
 ): Promise<LoginAndCreateSessionResult> {
-  const record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
-  if (!record) {
-    throw new Error('[login] NEAR unlock requires a persisted wallet binding');
+  const lastUser = await context.signingEngine.getLastUser();
+  if (!lastUser || String(lastUser.nearAccountId) !== String(nearAccountId)) {
+    throw new Error('[login] NEAR unlock requires the active wallet binding');
   }
   const selection = resolveLoginWalletUnlockSelection(options?.unlockSelection);
   const subjectSet = await resolveWalletUnlockSubjectSet({
-    walletId: String(record.walletId),
+    walletId: String(lastUser.walletId),
     requestedCapabilityFamilies:
       selection.mode === 'ed25519_only'
         ? { kind: 'near_ed25519_only' }
