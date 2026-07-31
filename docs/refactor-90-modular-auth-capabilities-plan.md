@@ -1368,6 +1368,9 @@ the replacement and legacy MPC paths must not ship together.
         canonical-capability builder, retain exact selection and ambiguity
         coverage, and delete tests for retired runtime/sealed/shared-key lane
         sources (`79bd0e00b`; 16/16 focused tests).
+  - [x] Reconcile the Email OTP coordinator with activation-owned ECDSA session
+        identity and response-owned seal key versions; all 14 focused
+        coordinator scenarios pass (`cf705f212`, `19d402075`).
 
 ### Unit 3a exit
 
