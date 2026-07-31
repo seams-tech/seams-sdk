@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   resolveExactEd25519SealedSessionRuntimeForLaneWithResolver,
   resolveExactEd25519SealedSessionRuntimeForWalletWithResolver,
+  resolveExactEd25519SealedSessionRuntimeForWalletSubjectWithResolver,
 } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import { buildEd25519PasskeySigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
@@ -108,4 +109,34 @@ test('reports wallet-scoped Ed25519 conflicts and corruption explicitly', async 
         filter.authMethod === 'passkey' ? [corruptRecord] : [],
     }),
   ).resolves.toEqual({ kind: 'corrupt' });
+});
+
+test('selects an exact Ed25519 wallet subject when a wallet has multiple signers', async () => {
+  const sibling = buildPasskeyEd25519SealedSessionRecordFixture({
+    walletId: RECORD.walletId,
+    nearAccountId: 'ed25519-sealed-runtime-sibling.testnet',
+    nearEd25519SigningKeyId: 'ed25519-sealed-runtime-sibling-key',
+    thresholdSessionId: 'ed25519-sealed-runtime-sibling-session',
+    signingGrantId: 'ed25519-sealed-runtime-sibling-grant',
+  });
+  const resolution =
+    await resolveExactEd25519SealedSessionRuntimeForWalletSubjectWithResolver(
+      {
+        walletId: toWalletId(RECORD.walletId),
+        nearAccountId: toAccountId(RECORD.ed25519Restore.nearAccountId),
+        nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
+          RECORD.ed25519Restore.nearEd25519SigningKeyId,
+        ),
+      },
+      {
+        listExactSealedSessionsForWallet: async ({ filter }) =>
+          filter.authMethod === 'passkey' ? [RECORD, sibling] : [],
+      },
+    );
+
+  expect(resolution.kind).toBe('resolved');
+  if (resolution.kind !== 'resolved') return;
+  expect(resolution.runtime.nearAccountId).toBe(
+    RECORD.ed25519Restore.nearAccountId,
+  );
 });

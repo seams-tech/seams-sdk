@@ -89,11 +89,9 @@ import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
-  getStoredThresholdEd25519SessionRecordForWallet,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
 } from '@/core/signingEngine/session/persistence/records';
 import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
-import { parseWarmEd25519SigningSessionAuthorizationFromRecord } from '@/core/signingEngine/session/warmCapabilities/ed25519Authorization';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
@@ -1252,21 +1250,18 @@ async function assertPasskeyUnlockRuntimePostconditions(args: {
 }): Promise<void> {
   if (args.signersWarmed.includes('ed25519')) {
     const walletBinding = requireNearLoginWalletBinding(args.walletIdentity);
-    const record = getStoredThresholdEd25519SessionRecordForWallet(walletBinding.walletId);
     const signingSessionStatus = await args.context.signingEngine
-      .getWarmThresholdEd25519SessionStatus(walletBinding.nearAccountId)
+      .getWarmThresholdEd25519SessionStatus({
+        walletId: walletBinding.walletId,
+        nearAccountId: walletBinding.nearAccountId,
+        nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
+      })
       .catch(() => null);
-    const authorization = parseWarmEd25519SigningSessionAuthorizationFromRecord({
-      record,
-      walletId: String(walletBinding.walletId),
-      nearAccountId: walletBinding.nearAccountId,
-      nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
-      authMethod: 'passkey',
-      signingSessionStatus,
-    });
-    if (!authorization.ok) {
+    if (signingSessionStatus?.status !== 'active') {
       throw new Error(
-        `[login] Ed25519 warm-session authorization postcondition failed: ${authorization.reason}`,
+        `[login] Ed25519 warm-session authorization postcondition failed: ${
+          signingSessionStatus?.status || 'missing'
+        }`,
       );
     }
   }
@@ -1966,7 +1961,12 @@ async function unlockInternal(
       if (warmupPlan.signersToWarm.includes('ed25519')) {
         const exactNearWalletBinding = requireNearLoginWalletBinding(walletIdentity);
         const warmStatus = await signingEngine
-          .getWarmThresholdEd25519SessionStatus(exactNearWalletBinding.nearAccountId)
+          .getWarmThresholdEd25519SessionStatus({
+            walletId: exactNearWalletBinding.walletId,
+            nearAccountId: exactNearWalletBinding.nearAccountId,
+            nearEd25519SigningKeyId:
+              exactNearWalletBinding.nearEd25519SigningKeyId,
+          })
           .catch(() => null);
         signingSession = warmStatus || signingSession;
       }

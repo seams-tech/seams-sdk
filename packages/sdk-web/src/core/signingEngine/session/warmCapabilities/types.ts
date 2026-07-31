@@ -733,8 +733,12 @@ export type WarmSessionCapabilityReader = {
 
 export type ThresholdWarmSessionStatusReader = {
   getEd25519SigningSessionStatus: (
-    nearAccountId: AccountId,
-  ) => Promise<SigningSessionStatus | null>;
+    args: {
+      runtime: ExactEd25519SealedSessionRuntime;
+      authorization: ActiveWalletSessionAuthorizationProjection | null;
+      nowMs: number;
+    },
+  ) => Promise<SigningSessionStatus>;
 };
 
 export type WarmSessionProvisioner = {

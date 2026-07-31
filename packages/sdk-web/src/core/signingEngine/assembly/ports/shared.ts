@@ -89,9 +89,6 @@ export type SigningEngineConveniencePorts = {
   warmCriticalResources: (
     accountContext?: WorkerResourceWarmupAccountContext,
   ) => Promise<WorkerResourceWarmupDiagnostics>;
-  getWarmThresholdEd25519SessionStatus: (
-    nearAccountId: AccountId | string,
-  ) => Promise<SigningSessionStatus | null>;
 };
 
 export type SigningEngineStorePorts = {
@@ -246,14 +243,12 @@ export function createManagerConveniencePortsFactory(args: {
   createArgs: CreateSigningEnginePortsArgs;
   getWorkerResourceWarmupDeps: () => WorkerResourceWarmupDeps;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  getWarmThresholdEd25519SessionStatus: SigningEngineConveniencePorts['getWarmThresholdEd25519SessionStatus'];
 }): () => SigningEngineConveniencePorts {
-  const { createArgs, getWorkerResourceWarmupDeps, getWarmThresholdEd25519SessionStatus } = args;
+  const { createArgs, getWorkerResourceWarmupDeps } = args;
   return () => ({
     signTempo: createArgs.signTempo,
     prewarmSignerWorkers: () => prewarmSignerWorkersValue(getWorkerResourceWarmupDeps()),
     warmCriticalResources: (accountContext?: WorkerResourceWarmupAccountContext) =>
       warmCriticalResourcesValue(getWorkerResourceWarmupDeps(), accountContext),
-    getWarmThresholdEd25519SessionStatus,
   });
 }

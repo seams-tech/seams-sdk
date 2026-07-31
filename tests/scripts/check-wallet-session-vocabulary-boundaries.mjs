@@ -138,8 +138,6 @@ const classifiedSessionIdPublicSurfaceFiles = {
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/passkey/warmSessionHydration.ts':
     'rename_later_agent_b_signing_or_wasm',
-  'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ed25519Authorization.ts':
-    'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/public.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.ts':

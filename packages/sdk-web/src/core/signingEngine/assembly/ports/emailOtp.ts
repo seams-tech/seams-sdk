@@ -1,5 +1,4 @@
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
 
@@ -28,14 +27,4 @@ export function createSigningSessionCoordinatorPort(args: {
     markThresholdEd25519EmailOtpSessionConsumedForWallet:
       createArgs.markThresholdEd25519EmailOtpSessionConsumedForWallet,
   });
-}
-
-export function createWarmThresholdEd25519SessionStatusReader(args: {
-  createArgs: CreateSigningEnginePortsArgs;
-  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
-}) {
-  return createWarmSessionStatusReader({
-    touchConfirm: args.createArgs.passkeyMpcSession,
-    getEmailOtpWarmSessionStatus: args.getEmailOtpWarmSessionStatus,
-  }).getEd25519SigningSessionStatus;
 }

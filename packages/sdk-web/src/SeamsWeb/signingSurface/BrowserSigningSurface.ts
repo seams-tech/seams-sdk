@@ -67,6 +67,7 @@ import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/mater
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import {
+  toWalletId,
   type ThresholdEcdsaChainTarget,
   type WalletId,
   type WalletSessionRef,
@@ -183,6 +184,8 @@ import {
 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
 import type { EmailOtpEd25519YaoPublicationInput } from '@/core/signingEngine/session/emailOtp/ed25519YaoPublication';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
+import { resolveExactEd25519SealedSessionRuntimeForWalletSubject } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import type {
   EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
@@ -2556,12 +2559,36 @@ export class BrowserSigningSurface {
     );
   }
 
-  getWarmThresholdEd25519SessionStatus(
-    nearAccountId: AccountId | string,
-  ): Promise<SigningSessionStatus | null> {
-    return warmCapabilitiesPublic.getWarmThresholdEd25519SessionStatus(
+  async getWarmThresholdEd25519SessionStatus(args: {
+    walletId: WalletId | string;
+    nearAccountId: AccountId | string;
+    nearEd25519SigningKeyId: string;
+  }): Promise<SigningSessionStatus | null> {
+    const walletId = toWalletId(args.walletId);
+    const nearAccountId = toAccountId(args.nearAccountId);
+    const resolution =
+      await resolveExactEd25519SealedSessionRuntimeForWalletSubject({
+        walletId,
+        nearAccountId,
+        nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
+          args.nearEd25519SigningKeyId,
+        ),
+      });
+    if (resolution.kind === 'missing') return null;
+    if (resolution.kind !== 'resolved') {
+      throw new Error(
+        `[WarmSessionStore] Ed25519 sealed runtime is ${resolution.kind}`,
+      );
+    }
+    const authorization =
+      await resolveActiveEd25519WalletSessionAuthorization(walletId);
+    return await warmCapabilitiesPublic.getWarmThresholdEd25519SessionStatus(
       this.warmCapabilitiesPublicDeps,
-      toAccountId(nearAccountId),
+      {
+        runtime: resolution.runtime,
+        authorization,
+        nowMs: Date.now(),
+      },
     );
   }
 

@@ -330,9 +330,11 @@ export interface SigningSessionSurface {
 }
 
 export interface WarmSessionStatusSurface {
-  getWarmThresholdEd25519SessionStatus(
-    nearAccountId: AccountId | string,
-  ): Promise<SigningSessionStatus | null>;
+  getWarmThresholdEd25519SessionStatus(args: {
+    walletId: WalletId | string;
+    nearAccountId: AccountId | string;
+    nearEd25519SigningKeyId: string;
+  }): Promise<SigningSessionStatus | null>;
 }
 
 export type WalletSessionReadSurface = RuntimeStartupSurface &
