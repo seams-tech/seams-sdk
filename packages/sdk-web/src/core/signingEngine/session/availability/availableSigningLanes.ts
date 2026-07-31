@@ -30,28 +30,11 @@ import {
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  selectedEcdsaLane,
-  selectedEd25519Lane,
-  type SelectedLane,
-} from '../identity/laneIdentity';
-import { exactSigningLaneIdentityFromSelectedLane } from '../identity/exactSigningLaneIdentity';
-import {
   signingLaneAuthBindingKey,
   signingLaneAuthMethod,
   type SigningLaneAuthBinding,
 } from '../identity/signingLaneAuthBinding';
-import {
-  buildFreshStepUpRequired,
-  buildStepUpFreshnessFromRestoredSealedRecord,
-  type FreshStepUpRequired,
-  type StepUpExpiryState,
-} from '../operationState/stepUpFreshness';
-import {
-  buildReauthAnchorIdentity,
-  type ReauthAnchorIdentity,
-  type ReauthAnchorSourceState,
-} from '../operationState/transactionState';
-import type { SigningOperationFingerprint, SigningOperationId } from '../operationState/types';
+import { type FreshStepUpRequired, type StepUpExpiryState } from '../operationState/stepUpFreshness';
 import {
   canonicalizeLaneFacts,
   serverIssuedGenerationFromNumber,
@@ -60,7 +43,6 @@ import {
   type CanonicalTieBreakOrder,
   type ServerIssuedGeneration,
 } from './canonicalLaneInventory';
-import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 
@@ -785,112 +767,12 @@ export function ecdsaAvailableLaneCandidatesForTarget(
   return availableLanes.ecdsa.candidatesByTarget[targetKey] || [];
 }
 
-export function buildReauthAnchorIdentityFromAvailableLane(args: {
-  walletId: WalletId | string;
-  operationId: SigningOperationId;
-  operationFingerprint: SigningOperationFingerprint;
-  lane: AvailableEcdsaSigningLane | AvailableEd25519SigningLane;
-  nowMs?: number;
-}): ReauthAnchorIdentity | null {
-  if (!isConcreteAvailableSigningLane(args.lane)) return null;
-  if (args.lane.state !== 'expired' && args.lane.state !== 'exhausted') return null;
-  const selectedLane = selectedLaneFromConcreteAvailableLane({
-    walletId: args.walletId,
-    lane: args.lane,
-  });
-  const freshness = buildStepUpFreshnessFromRestoredSealedRecord({
-    walletId: toWalletId(args.walletId),
-    operationId: args.operationId,
-    operationFingerprint: args.operationFingerprint,
-    laneIdentity: exactSigningLaneIdentityFromSelectedLane(selectedLane),
-    recordVersion: availableLaneRecordVersion(args.lane),
-    updatedAtMs: availableLaneUpdatedAtMs(args.lane),
-    remainingUses: args.lane.remainingUses ?? null,
-    expiresAtMs: args.lane.expiresAtMs ?? null,
-    ...(args.nowMs ? { nowMs: args.nowMs } : {}),
-  });
-  if (freshness.kind !== 'fresh_step_up_required') return null;
-  return buildReauthAnchorIdentity({
-    freshness,
-    sourceState: sourceStateFromAvailableLane(args.lane, freshness),
-  });
-}
-
 function emptyEd25519Lane(): AvailableEd25519SigningLane {
   return {
     curve: 'ed25519',
     chain: 'near',
     state: 'missing',
   };
-}
-
-function selectedLaneFromConcreteAvailableLane(args: {
-  walletId: WalletId | string;
-  lane: ConcreteAvailableSigningLane;
-}): SelectedLane {
-  if (args.lane.curve === 'ed25519') {
-    return selectedEd25519Lane({
-      walletId: args.lane.walletId,
-      nearAccountId: args.lane.nearAccountId,
-      nearEd25519SigningKeyId: args.lane.nearEd25519SigningKeyId,
-      signerSlot: args.lane.signerSlot,
-      auth: args.lane.auth,
-      signingGrantId: args.lane.signingGrantId,
-      thresholdSessionId: args.lane.thresholdSessionId,
-    });
-  }
-  if (args.lane.source !== 'canonical_capability' || !args.lane.authorization) {
-    throw new Error('[SigningSession] selected ECDSA lane requires canonical authorization');
-  }
-  return selectedEcdsaLane({
-    key: args.lane.key,
-    materialActivation: args.lane.materialActivation,
-    keyHandle: args.lane.publicFacts.keyHandle,
-    walletId: toWalletId(String(args.lane.key.walletId)),
-    auth: args.lane.auth,
-    authorization: args.lane.authorization,
-    chainTarget: args.lane.chainTarget,
-  });
-}
-
-function availableLaneRecordVersion(lane: ConcreteAvailableSigningLane): string {
-  return [
-    lane.curve,
-    'source' in lane ? lane.source || 'unknown' : 'unknown',
-    String(lane.signingGrantId),
-    String(lane.thresholdSessionId),
-    String(availableLaneUpdatedAtMs(lane)),
-  ].join(':');
-}
-
-function sourceStateFromAvailableLane(
-  lane: ConcreteAvailableSigningLane,
-  freshness: FreshStepUpRequired,
-): ReauthAnchorSourceState {
-  const authMethod = signingLaneAuthMethod(lane.auth);
-  const authState = reauthAnchorSourceStateForSignerAuthMethod(authMethod);
-  return {
-    kind: 'reauth_anchor_source_state',
-    availabilitySource: 'source' in lane && lane.source ? lane.source : 'runtime_session_record',
-    storeSource: authState.storeSource,
-    retention: authState.retention,
-    remainingUses: nullableNonNegativeInteger(lane.remainingUses),
-    expiry: freshness.expiry,
-    projection: freshness.projection,
-  };
-}
-
-function reauthAnchorSourceStateForSignerAuthMethod(
-  authMethod: SignerAuthMethod,
-): Pick<ReauthAnchorSourceState, 'storeSource' | 'retention'> {
-  switch (authMethod) {
-    case SIGNER_AUTH_METHODS.emailOtp:
-      return { storeSource: 'email_otp', retention: 'single_use' };
-    case SIGNER_AUTH_METHODS.passkey:
-      return { storeSource: 'login', retention: 'session' };
-  }
-  authMethod satisfies never;
-  throw new Error('[SigningSession] unsupported signer auth method');
 }
 
 function durablePolicyHint(record: {

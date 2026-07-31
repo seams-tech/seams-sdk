@@ -13,7 +13,6 @@ and the SPEC diverge, the SPEC controls.
 
 Operational records:
 
-- [implementation journal](./refactor-90-journal.md)
 - [deletion ledger](./refactor-90-deletion-ledger.md)
 - [signer-state inventory](./signer-state-inventory.md)
 
@@ -215,7 +214,8 @@ SPEC and Satyr plan are amended together.
 5. Use one enforcement per failure mode: a type fixture for invalid state, a
    boundary parser for untrusted data, a behavior test for lifecycle behavior,
    and a source guard only for an architectural boundary types cannot express.
-6. Record stable checkpoints and genuine blockers in the journal.
+6. Record stable checkpoints and genuine blockers in the commit history and
+   the applicable plan or deletion-ledger entry.
 
 ## Completed Baseline
 
@@ -1378,7 +1378,6 @@ This is a validation gate, not a deferred cleanup phase.
       tests pass.
 - [ ] `pnpm test:intended` passes against a healthy environment.
 - [ ] `git diff --check` passes.
-- [ ] The journal records the final implementation and validation state.
 
 ## Verification Budgets
 
@@ -1450,7 +1449,6 @@ unit-owned validation after reconciliation before continuing.
 
 - [Refactor 90 SPEC](./refactor-90-modular-auth-capabilities-SPEC.md)
 - [Refactor 90 deletion ledger](./refactor-90-deletion-ledger.md)
-- [Refactor 90 journal](./refactor-90-journal.md)
 - [Refactor 90A patches](./refactor-90A-patches.md)
 - [Email OTP local rehydration](./refactor-patch-2-email-otp-local-rehydration.md)
 - [Refactor 91](./refactor-91.md)
