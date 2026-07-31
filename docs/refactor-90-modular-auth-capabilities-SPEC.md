@@ -258,6 +258,10 @@ implementing commit SHA as the evidence.
     consumes its OTP challenge, persists factor evidence, and issues a one-use
     operation grant without creating a reusable Wallet Session or spending its
     quota (`007416714`).
+  - [x] The NEAR operation-grant request and response parse an exact
+    discriminated material-recovery branch. Passkey forbids recovery; Email OTP
+    removes the exact enrollment server seal after OTP consumption and before
+    grant issuance, and key-version mismatch fails closed (`7dea7838a`).
   - [x] NEAR Email OTP transaction, delegate, and NEP-413 signing prepare the
     exact operation before confirmation, hydrate canonical material
     independently, consume one operation grant, and never create or spend a

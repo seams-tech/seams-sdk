@@ -751,6 +751,11 @@ the replacement and legacy MPC paths must not ship together.
       consume the exact OTP challenge, persist factor evidence, and issue a
       one-use operation grant without minting a reusable Wallet Session or
       consuming its quota (`007416714`).
+- [x] Extend the NEAR operation-grant boundary with a strict discriminated
+      material-recovery request and mirrored response. Passkey admits no
+      recovery branch; Email OTP removes the exact enrollment server seal after
+      OTP consumption and before grant issuance, and rejects key-version
+      substitution (`7dea7838a`).
 - [x] Complete NEAR Email OTP operation step-up for transaction, delegate, and
       NEP-413 signing. Prepare the exact operation before confirmation, hydrate
       canonical material independently, consume one operation grant, and keep
