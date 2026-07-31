@@ -643,6 +643,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Serialize export by exact material owner after user interaction; re-resolve
       the canonical manifest and sealed runtime after the queue wait and reject
       a superseded activation before provisioning or worker export.
+  - [x] Route NEAR Ed25519-Yao transaction, delegate, NEP-413, Passkey export,
+        and Email OTP export through the same exact-material activation queue
+        instead of keying signing by threshold session identity
+        (`10c8a61da`).
 - [x] Add canonical activation re-resolution immediately before recovery and
       refresh worker use and commit. Keep their existing secure-owner lease and
       worker singleflight; add no duplicate client queue.
