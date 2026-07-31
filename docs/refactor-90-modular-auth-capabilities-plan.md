@@ -1369,6 +1369,9 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
   - [x] Delete the zero-caller available-lane reauth-anchor fallback and its
         lane-selection/version/source helpers; retain canonical operation-state
         freshness and lane admission (`acb368888`).
+  - [x] Delete the zero-caller dual-PRF registration credential helper and its
+        allow-list adapter; the canonical credential collector remains live
+        (`93958f9a6`).
 
 ### Unit 4 exit
 

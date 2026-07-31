@@ -672,6 +672,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   status readers retain their direct budget paths
 - ~~zero-caller network-only ECDSA chain-target adapter~~ — deleted by
   `4250a8871`; configured-request and chain-family boundary builders remain
+- ~~zero-caller dual-PRF registration credential helper and allow-list adapter~~
+  — deleted by `93958f9a6`; the canonical credential collector remains the sole
+  registration boundary
 
 ## 6e gate — composite ECDSA record family (measured 2026-07-28, at `3b904b63a`)
 
