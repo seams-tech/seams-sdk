@@ -12,11 +12,8 @@ import type {
   RouterAbEd25519NormalSigningState,
   SealedSigningSessionEcdsaRestoreMetadata,
   SealedSigningSessionEd25519RestoreMetadata,
-  SigningSessionSealAuthMethod,
 } from '@shared/utils/signingSessionSeal';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-
-export type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 
 type WarmSessionSealTransportCommon = {
   walletId?: string;
@@ -42,7 +39,7 @@ type PasskeyWarmSessionSealTransportCommon = WarmSessionSealTransportCommon & {
 
 export type PasskeyEd25519SealRestoreMetadata = Extract<
   SealedSigningSessionEd25519RestoreMetadata,
-  { credentialIdB64u: string; sessionKind: 'jwt' }
+  { credentialIdB64u: string }
 > & {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;

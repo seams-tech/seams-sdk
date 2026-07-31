@@ -18,14 +18,12 @@ export function buildPasskeyEd25519RestoreMetadata(args: {
   signerSlot: number;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   credentialIdB64u: string;
-  walletSessionJwt: string;
 }): PasskeyEd25519SealRestoreMetadata {
   const rpId = String(args.rpId).trim();
   const nearAccountId = String(args.nearAccountId).trim();
   const nearEd25519SigningKeyId = String(args.nearEd25519SigningKeyId).trim();
   const relayerKeyId = String(args.relayerKeyId).trim();
   const credentialIdB64u = String(args.credentialIdB64u).trim();
-  const walletSessionJwt = String(args.walletSessionJwt).trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
   const signerSlot = Math.floor(Number(args.signerSlot));
   if (
@@ -34,7 +32,6 @@ export function buildPasskeyEd25519RestoreMetadata(args: {
     !nearEd25519SigningKeyId ||
     !relayerKeyId ||
     !credentialIdB64u ||
-    !walletSessionJwt ||
     !participantIds ||
     !Number.isSafeInteger(signerSlot) ||
     signerSlot < 1
@@ -42,8 +39,6 @@ export function buildPasskeyEd25519RestoreMetadata(args: {
     throw new Error('Passkey Ed25519 sealed restore metadata is incomplete');
   }
   return {
-    sessionKind: 'jwt',
-    walletSessionJwt,
     rpId,
     nearAccountId,
     nearEd25519SigningKeyId,
@@ -107,7 +102,6 @@ export async function persistPasskeyEd25519YaoSessionForRefresh(
     input.ed25519Restore.signerSlot !== signer.signerSlot ||
     input.ed25519Restore.rpId !== String(laneAuth.rpId) ||
     input.ed25519Restore.credentialIdB64u !== laneAuth.credentialIdB64u ||
-    input.ed25519Restore.walletSessionJwt !== walletSessionJwt ||
     input.ed25519Restore.routerAbNormalSigning?.signingWorkerId !==
       input.session.routerAbNormalSigning.signingWorkerId
   ) {

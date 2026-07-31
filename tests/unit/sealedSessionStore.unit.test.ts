@@ -52,7 +52,6 @@ const ECDSA_RESTORE = {
   roleLocalMaterialRef: ECDSA_RESTORE_MATERIAL_REF,
   rpId: 'wallet.example.localhost',
   credentialIdB64u: 'passkey-ecdsa-credential',
-  sessionKind: 'cookie',
   signingRootId: ECDSA_RESTORE_PUBLIC_FACTS.signingRootId,
   signingRootVersion: ECDSA_RESTORE_PUBLIC_FACTS.signingRootVersion,
   keyHandle: ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.keyHandle,
@@ -79,7 +78,6 @@ const ED25519_RESTORE_BASE = {
   rpId: 'wallet.example.localhost',
   relayerKeyId: 'relayer-key',
   participantIds: [1, 2, 3],
-  sessionKind: 'cookie',
   signerSlot: 1,
   routerAbNormalSigning: {
     kind: 'router_ab_ed25519_normal_signing_v1',
@@ -98,8 +96,6 @@ const EMAIL_OTP_ED25519_RESTORE = {
   providerSubjectId: 'email-otp-subject',
   emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
   materialActivation: buildMpcMaterialActivationRefFixture('sealed-store-ed25519-email'),
-  sessionKind: 'jwt',
-  walletSessionJwt: 'threshold-session-jwt',
 } as const;
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
@@ -393,7 +389,7 @@ test.describe('signing session sealed store', () => {
     expect(result.rawHasJwt).toBe(false);
   });
 
-  test('accepts Router A/B ECDSA derivation Wallet Session JWTs in passkey sealed restore records', async ({
+  test('rejects Wallet Session bearer fields in sealed restore records', async ({
     page,
   }) => {
     const walletId = 'sealed-store-router-ab.testnet';
@@ -436,25 +432,22 @@ test.describe('signing session sealed store', () => {
           remainingUses: 3,
           updatedAtMs: Date.now(),
         });
-        if (record) {
-          await mod.writeExactSealedSession(record);
-        }
         return {
           built: Boolean(record),
-          persisted: Boolean(
-            await mod.readExactSealedSession('router-ab-ecdsa-session', {
-              authMethod: 'passkey',
-              curve: 'ecdsa',
-              chain: 'tempo',
-              chainTarget: ECDSA_RESTORE.chainTarget,
-            }),
-          ),
+          persisted: record
+            ? await mod.readExactSealedSession('router-ab-ecdsa-session', {
+                authMethod: 'passkey',
+                curve: 'ecdsa',
+                chain: 'tempo',
+                chainTarget: ECDSA_RESTORE.chainTarget,
+              })
+            : null,
         };
       },
       { paths: IMPORT_PATHS, walletId, walletSessionJwt },
     );
 
-    expect(result).toEqual({ built: true, persisted: true });
+    expect(result).toEqual({ built: false, persisted: null });
   });
 
   test('fails closed on malformed plaintext record payloads', async ({ page }) => {
@@ -966,7 +959,7 @@ test.describe('signing session sealed store', () => {
 
     expect(result.classification).toMatchObject({
       kind: 'delete_required',
-      reason: 'missing_wallet_session_jwt',
+      reason: 'invalid_identity',
     });
     expect(result.built).toBeNull();
   });

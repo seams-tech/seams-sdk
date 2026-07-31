@@ -57,16 +57,6 @@ export type SealedSigningSessionEcdsaRestoreSource =
   | 'manual-bootstrap'
   | 'email_otp';
 
-export type SealedSigningSessionWalletSessionAuth =
-  | {
-      sessionKind: 'jwt';
-      walletSessionJwt: string;
-    }
-  | {
-      sessionKind: 'cookie';
-      walletSessionJwt?: never;
-    };
-
 export type RouterAbEd25519NormalSigningState = {
   kind: typeof ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND;
   signingWorkerId: string;
@@ -116,7 +106,7 @@ export type SealedSigningSessionEcdsaChainTarget =
       networkSlug: string;
     };
 
-type SealedSigningSessionEcdsaRestoreMetadataBase = SealedSigningSessionWalletSessionAuth & {
+type SealedSigningSessionEcdsaRestoreMetadataBase = {
   chainTarget: SealedSigningSessionEcdsaChainTarget;
   signingRootId: string;
   signingRootVersion: string;
@@ -162,7 +152,7 @@ export type SealedSigningSessionEcdsaRestoreMetadata =
       credentialIdB64u?: never;
     });
 
-type SealedSigningSessionEd25519RestoreMetadataBase = SealedSigningSessionWalletSessionAuth & {
+type SealedSigningSessionEd25519RestoreMetadataBase = {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   rpId: string;

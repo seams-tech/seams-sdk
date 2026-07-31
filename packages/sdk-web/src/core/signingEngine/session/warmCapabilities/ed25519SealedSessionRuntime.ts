@@ -186,7 +186,6 @@ export function parseExactEd25519SealedSessionRuntime(
   record: CurrentEd25519SealedSessionRecord,
 ): ExactEd25519SealedSessionRuntime | null {
   const restore = record.ed25519Restore;
-  if (restore.sessionKind !== 'jwt') return null;
   const thresholdSessionIdRaw = nonEmptyString(record.thresholdSessionIds.ed25519);
   const signingGrantIdRaw = nonEmptyString(record.signingGrantId);
   const relayerUrl = nonEmptyString(record.relayerUrl);

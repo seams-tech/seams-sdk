@@ -608,11 +608,10 @@ async function roleLocalEcdsaKeyHandle(args: {
   );
 }
 
-/** The jwt-session Email OTP arm of the sealed ECDSA restore union — the only
- * variant this file's sealed-record fixture builds. */
+/** The Email OTP arm of the sealed ECDSA restore union used by this fixture. */
 type EmailOtpJwtEcdsaSealedRestore = Extract<
   BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore'],
-  { source: 'email_otp'; sessionKind: 'jwt' }
+  { source: 'email_otp' }
 >;
 
 type EcdsaSealedRecordFixtureArgs = {
@@ -678,17 +677,6 @@ function buildEcdsaSealedRecordFixture(
     signingRootVersion: args.signingRootVersion || 'root-v1',
     providerSubjectId: args.ecdsaRestore?.providerSubjectId || 'google:subject',
     emailHashHex: args.ecdsaRestore?.emailHashHex || 'email-hash',
-    walletSessionJwt:
-      args.ecdsaRestore?.walletSessionJwt ||
-      thresholdEcdsaSessionJwt({
-        walletId,
-        keyHandle,
-        thresholdSessionId,
-        signingGrantId,
-        chainTarget,
-        runtimePolicyScope: args.ecdsaRestore?.runtimePolicyScope || runtimePolicyScope,
-      }),
-    sessionKind: args.ecdsaRestore?.sessionKind || 'jwt',
     keyHandle,
     ecdsaThresholdKeyId: args.ecdsaRestore?.ecdsaThresholdKeyId || 'ecdsa-key',
     ethereumAddress: args.ecdsaRestore?.ethereumAddress || `0x${'33'.repeat(20)}`,

@@ -122,8 +122,6 @@ async function passkeyEcdsaRestoreMetadataFromRecoveryRecord(
     roleLocalMaterialRef: record.roleLocalMaterialRef,
     rpId: record.authority.verifier.rpId,
     credentialIdB64u: record.authority.factor.credentialIdB64u,
-    sessionKind: 'jwt',
-    walletSessionJwt: authorization.walletSessionJwt,
     keyHandle: record.keyHandle,
     ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
     ethereumAddress: record.ethereumAddress,
