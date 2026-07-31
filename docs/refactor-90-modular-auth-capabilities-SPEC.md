@@ -405,10 +405,10 @@ implementing commit SHA as the evidence.
     Passkey/Email OTP branches. Preparation precedes confirmation; exact
     activation and factor survive resolution; the one-use grant stays beside
     material without a reusable Wallet Session (`2b585ed38`).
-  - [ ] Sealed Email OTP operation step-up restores material inside its worker,
+  - [x] Sealed Email OTP operation step-up restores material inside its worker,
     correlates the exact activation/session/public key, zeroizes temporary
     secrets, and returns the active material beside the issued grant without
-    creating or rereading a reusable Wallet Session.
+    creating or rereading a reusable Wallet Session (`126df7138`).
   - [x] The record-backed Email OTP Ed25519 routine-signing lane and its
     active-material recovery path are deleted. Cold login/unlock recovery,
     sealed refresh, and export recovery remain, and the focused retained
