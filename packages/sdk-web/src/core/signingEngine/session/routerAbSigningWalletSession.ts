@@ -207,6 +207,3 @@ export function buildRouterAbEd25519SigningWalletSession(
     },
   };
 }
-
-export function clearRouterAbEcdsaDerivationWorkerMaterialRuntimeValidation(): void {
-}

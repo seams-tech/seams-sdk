@@ -846,6 +846,15 @@ the replacement and legacy MPC paths must not ship together.
       consume only against trusted server budget, and survive grant clear,
       expiry, and exhaustion; delete the duplicate composite-record mutation
       port (`e3a562ed3`).
+- [x] Delete the zero-caller composite Ed25519 store, persistence adapter,
+      Wallet Session parsing, and state adapters; retain only exact-runtime
+      builders and the JWT boundary parser (`40e9c34fc`).
+- [x] Isolate and narrow sealed transport authorization to its live ECDSA
+      domain. Remove the unused Ed25519 arm, grant alias, and source
+      discriminator (`d82cda777`, `2e28e741f`).
+- [x] Retire composite-record browser rehydrate and Email OTP inventory tests,
+      migrate valid seal/export coverage to current builders, and remove
+      obsolete record resets from unrelated suites (`a62080152`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC

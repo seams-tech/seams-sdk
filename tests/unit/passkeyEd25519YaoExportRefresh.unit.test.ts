@@ -11,11 +11,8 @@ import {
   nearEd25519SignerBindingFromBoundaryFields,
   type ExactEd25519SigningLaneIdentity,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
-import {
-  clearAllStoredThresholdEd25519SessionRecords,
-  upsertThresholdEd25519SessionFact,
-} from '@/core/signingEngine/session/persistence/records';
-import { resolveRouterAbEd25519WalletSessionStateFromRecord } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
+import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { buildPasskeyRouterAbEd25519WalletSessionState } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import type {
   RouterAbEd25519YaoActiveClientMetadataV1,
   RouterAbEd25519YaoActiveClientV1,
@@ -87,31 +84,35 @@ function passkeyLaneIdentity(signingGrantId: string): ExactEd25519SigningLaneIde
 }
 
 function currentWalletSessionState(credentialIdB64u: string) {
-  const record = upsertThresholdEd25519SessionFact({
+  const expiresAtMs = Date.now() + 60_000;
+  const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-    rpId: RP_ID,
-    passkeyCredentialIdB64u: credentialIdB64u,
-    relayerUrl: RELAYER_URL,
-    relayerKeyId: RELAYER_KEY_ID,
-    participantIds: [...PARTICIPANT_IDS],
-    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-    routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
-    signerSlot: 1,
-    thresholdSessionKind: 'jwt',
     thresholdSessionId: THRESHOLD_SESSION_ID,
     signingGrantId: CURRENT_SIGNING_GRANT_ID,
-    walletSessionJwt: fixtureJwt(CURRENT_SIGNING_GRANT_ID),
-    expiresAtMs: Date.now() + 60_000,
     remainingUses: 3,
-    updatedAtMs: Date.now(),
-    source: 'login',
+    expiresAtMs,
+    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    signingRootId: 'project-passkey-export-refresh:test',
+    signingRootVersion: 'root-v1',
+    routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
+    walletSessionJwt: fixtureJwt(CURRENT_SIGNING_GRANT_ID),
+    nowMs: expiresAtMs - 1,
   });
-  if (!record) throw new Error('expected current Ed25519 export session record');
-  const state = resolveRouterAbEd25519WalletSessionStateFromRecord(record);
-  if (!state) throw new Error('expected current Ed25519 export Wallet Session state');
-  return state;
+  if (!signingWalletSession.ok) {
+    throw new Error(`expected current Ed25519 export Wallet Session: ${signingWalletSession.reason}`);
+  }
+  return buildPasskeyRouterAbEd25519WalletSessionState({
+    walletId: WALLET_ID,
+    nearAccountId: NEAR_ACCOUNT_ID,
+    nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
+    signerSlot: 1,
+    rpId: toRpId(RP_ID),
+    credentialIdB64u,
+    relayerUrl: RELAYER_URL,
+    signingWalletSession: signingWalletSession.value,
+  });
 }
 
 class ActiveYaoClientFixture implements RouterAbEd25519YaoActiveClientV1 {
@@ -295,73 +296,58 @@ class DurablePasskeyEd25519ExportRefreshHarness extends PasskeyEd25519ExportRefr
 }
 
 test('page-refresh passkey export prompts from durable context without activating a signing client', async () => {
-  clearAllStoredThresholdEd25519SessionRecords();
-  try {
-    const harness = new DurablePasskeyEd25519ExportRefreshHarness(CREDENTIAL_ID);
-    const result = await exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
+  const harness = new DurablePasskeyEd25519ExportRefreshHarness(CREDENTIAL_ID);
+  const result = await exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
+    walletId: WALLET_ID,
+    nearAccountId: NEAR_ACCOUNT_ID,
+    laneIdentity: passkeyLaneIdentity(STALE_SIGNING_GRANT_ID),
+    options: {},
+    flowId: 'flow-passkey-export-durable-context',
+  });
+
+  expect(result).toEqual({
+    accountId: String(NEAR_ACCOUNT_ID),
+    exportedSchemes: ['ed25519'],
+  });
+  expect(harness.recoveryCalls).toBe(0);
+  expect(harness.workerPayload?.exactLane.signingGrantId).toBe(CURRENT_SIGNING_GRANT_ID);
+  expect(harness.workerPayload?.walletSessionJwt).toBe(fixtureJwt(CURRENT_SIGNING_GRANT_ID));
+});
+
+test('page-refresh passkey export uses the Wallet Session issued by cold Yao recovery', async () => {
+  const harness = new PasskeyEd25519ExportRefreshHarness(CREDENTIAL_ID);
+  const selectedLane = passkeyLaneIdentity(STALE_SIGNING_GRANT_ID);
+  const result = await exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
+    walletId: WALLET_ID,
+    nearAccountId: NEAR_ACCOUNT_ID,
+    laneIdentity: selectedLane,
+    options: {},
+    flowId: 'flow-passkey-export-refresh',
+  });
+
+  expect(result).toEqual({
+    accountId: String(NEAR_ACCOUNT_ID),
+    exportedSchemes: ['ed25519'],
+  });
+  expect(harness.recoveredLane).toEqual(selectedLane);
+  expect(harness.workerPayload?.exactLane).toMatchObject({
+    signingGrantId: CURRENT_SIGNING_GRANT_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
+    credentialIdB64u: CREDENTIAL_ID,
+  });
+  expect(harness.workerPayload?.walletSessionJwt).toBe(fixtureJwt(CURRENT_SIGNING_GRANT_ID));
+});
+
+test('page-refresh passkey export rejects recovered authenticator drift', async () => {
+  const harness = new PasskeyEd25519ExportRefreshHarness('different-passkey-credential');
+  await expect(
+    exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
       laneIdentity: passkeyLaneIdentity(STALE_SIGNING_GRANT_ID),
       options: {},
-      flowId: 'flow-passkey-export-durable-context',
-    });
-
-    expect(result).toEqual({
-      accountId: String(NEAR_ACCOUNT_ID),
-      exportedSchemes: ['ed25519'],
-    });
-    expect(harness.recoveryCalls).toBe(0);
-    expect(harness.workerPayload?.exactLane.signingGrantId).toBe(CURRENT_SIGNING_GRANT_ID);
-    expect(harness.workerPayload?.walletSessionJwt).toBe(fixtureJwt(CURRENT_SIGNING_GRANT_ID));
-  } finally {
-    clearAllStoredThresholdEd25519SessionRecords();
-  }
-});
-
-test('page-refresh passkey export uses the Wallet Session issued by cold Yao recovery', async () => {
-  clearAllStoredThresholdEd25519SessionRecords();
-  try {
-    const harness = new PasskeyEd25519ExportRefreshHarness(CREDENTIAL_ID);
-    const selectedLane = passkeyLaneIdentity(STALE_SIGNING_GRANT_ID);
-    const result = await exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
-      walletId: WALLET_ID,
-      nearAccountId: NEAR_ACCOUNT_ID,
-      laneIdentity: selectedLane,
-      options: {},
-      flowId: 'flow-passkey-export-refresh',
-    });
-
-    expect(result).toEqual({
-      accountId: String(NEAR_ACCOUNT_ID),
-      exportedSchemes: ['ed25519'],
-    });
-    expect(harness.recoveredLane).toEqual(selectedLane);
-    expect(harness.workerPayload?.exactLane).toMatchObject({
-      signingGrantId: CURRENT_SIGNING_GRANT_ID,
-      thresholdSessionId: THRESHOLD_SESSION_ID,
-      credentialIdB64u: CREDENTIAL_ID,
-    });
-    expect(harness.workerPayload?.walletSessionJwt).toBe(fixtureJwt(CURRENT_SIGNING_GRANT_ID));
-  } finally {
-    clearAllStoredThresholdEd25519SessionRecords();
-  }
-});
-
-test('page-refresh passkey export rejects recovered authenticator drift', async () => {
-  clearAllStoredThresholdEd25519SessionRecords();
-  try {
-    const harness = new PasskeyEd25519ExportRefreshHarness('different-passkey-credential');
-    await expect(
-      exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
-        walletId: WALLET_ID,
-        nearAccountId: NEAR_ACCOUNT_ID,
-        laneIdentity: passkeyLaneIdentity(STALE_SIGNING_GRANT_ID),
-        options: {},
-        flowId: 'flow-passkey-export-refresh-authenticator-drift',
-      }),
-    ).rejects.toThrow('Yao capability stable identity mismatch');
-    expect(harness.workerPayload).toBeNull();
-  } finally {
-    clearAllStoredThresholdEd25519SessionRecords();
-  }
+      flowId: 'flow-passkey-export-refresh-authenticator-drift',
+    }),
+  ).rejects.toThrow('Yao capability stable identity mismatch');
+  expect(harness.workerPayload).toBeNull();
 });

@@ -12,9 +12,6 @@ import {
   resetNearProvisioningRegistryForTests,
 } from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import { UserVerificationPolicy } from '../../packages/sdk-web/src/core/types/authenticatorOptions';
-import {
-  clearAllStoredThresholdEd25519SessionRecords,
-} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import { emailOtpRecoveryCodeBackupRepository } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups';
 import {
   computeAddSignerNearEd25519SigningKeyId,
@@ -1767,7 +1764,6 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
 }
 
 async function withMockedIndexedDb<T>(run: () => Promise<T>): Promise<T> {
-  clearAllStoredThresholdEd25519SessionRecords();
   const indexedDB = IndexedDBManager as unknown as Record<string, unknown>;
   const originalListProfileAuthenticators = indexedDB.listProfileAuthenticators;
   const originalResolveProfileAccountContext = indexedDB.resolveProfileAccountContext;
@@ -1795,7 +1791,6 @@ async function withMockedIndexedDb<T>(run: () => Promise<T>): Promise<T> {
     indexedDB.resolveProfileAccountContext = originalResolveProfileAccountContext;
     (IndexedDBManager as any).getKeyMaterial = originalGetKeyMaterial;
     (IndexedDBManager as any).storeKeyMaterial = originalStoreKeyMaterial;
-    clearAllStoredThresholdEd25519SessionRecords();
   }
 }
 test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {

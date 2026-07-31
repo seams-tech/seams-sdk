@@ -1,4 +1,4 @@
-import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
+import type { EcdsaSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type {
   DurableRecordStore,
@@ -72,7 +72,7 @@ export type ProvisionThresholdEcdsaSessionDeps = {
   resolveSealTransport: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
     authorization: ActiveEvmFamilyWalletSessionAuthorization;
-  }) => Promise<ThresholdSessionSealTransportAuthMaterial | null>;
+  }) => Promise<EcdsaSealTransportAuthMaterial | null>;
 };
 
 type ExactEcdsaSealLane = {

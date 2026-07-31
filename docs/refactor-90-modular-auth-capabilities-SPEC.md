@@ -338,6 +338,15 @@ implementing commit SHA as the evidence.
     record-policy anchors. Trusted server budget governs consumption, while
     clear, expiry, and exhaustion preserve the seal; the duplicate composite
     mutation port is deleted (`e3a562ed3`).
+  - [x] Zero-caller composite Ed25519 store, persistence adapter, Wallet
+    Session parsing, and state adapters are deleted; exact-runtime builders
+    and the JWT boundary parser remain (`40e9c34fc`).
+  - [x] Sealed transport authorization is isolated as an ECDSA-only boundary;
+    the unused Ed25519 arm, grant alias, and source discriminator are deleted
+    (`d82cda777`, `2e28e741f`).
+  - [x] Obsolete composite-record browser rehydrate and Email OTP inventory
+    tests are deleted, while valid seal and export coverage uses current
+    builders (`a62080152`).
   - [x] Zero-caller Ed25519 account/session record readers, record-derived
     Email OTP authority resolution, per-session status, and record auth
     predicates are deleted from the warm capability surface (`94aa9b344`).
