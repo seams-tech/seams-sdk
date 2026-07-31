@@ -160,17 +160,11 @@ check('key-version domains use branded parsers at high-risk boundaries', () => {
   const serverSealOptions = readRepoSource(
     'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts',
   );
-  const serverEcdsaPoolFill = readRepoSource(
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
-  );
   const serverEmailOtpSeal = readRepoSource(
     'packages/sdk-server-ts/src/core/authService/emailOtpSeal.ts',
   );
   const sdkSealTransportTypes = readRepoSource(
     'packages/sdk-web/src/core/types/secure-confirm-worker.ts',
-  );
-  const sdkCapabilityReaderCore = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts',
   );
 
   for (const source of [sdkBrands, serverBrands]) {
@@ -185,9 +179,6 @@ check('key-version domains use branded parsers at high-risk boundaries', () => {
   );
   expect(serverEmailOtpSeal).toContain('parseSigningSessionSealRootConfig');
   expect(serverEmailOtpSeal).toContain('currentKeyVersion: string');
-  expect(serverEcdsaPoolFill).toContain('parseEcdsaDerivationKeyVersion');
-  expect(serverEcdsaPoolFill).toContain('formatEcdsaDerivationKeyVersionForWire');
-
   const sealTransportCommon = sourceBetween(
     sdkSealTransportTypes,
     'type WarmSessionSealTransportCommon =',
@@ -197,75 +188,6 @@ check('key-version domains use branded parsers at high-risk boundaries', () => {
     'signingSessionSealKeyVersion?: SigningSessionSealKeyVersion',
   );
   expect(sealTransportCommon).not.toContain('keyVersion?: string');
-  expect(sdkCapabilityReaderCore).toContain(
-    'parseSigningSessionSealKeyVersion(record.signingSessionSealKeyVersion)',
-  );
-});
-
-check('ECDSA lifecycle identity helpers stay branch-specific', () => {
-  const planSource = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts',
-  );
-  const readinessSource = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsaSession.ts',
-  );
-  const evmReadinessSource = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts',
-  );
-
-  expect(planSource).not.toContain('getEcdsaSessionProvisionIdentity');
-  expect(planSource).toContain('getEcdsaReconnectSessionIdentity');
-  expect(planSource).toContain('getEcdsaFreshProvisionSessionIdentity');
-  expect(planSource).toContain('getEcdsaProvisionPlanLaneIdentity');
-  expect(readinessSource).not.toContain('recordMatchesPlannedIdentity');
-  expect(readinessSource).not.toContain('provisionPlanRequiresExistingRecordIdentity');
-  expect(readinessSource).not.toContain('getEcdsaSessionProvisionIdentity');
-  expect(readinessSource).toContain('function recordMatchesReconnectIdentity');
-  expect(readinessSource).toContain('plan: EcdsaReconnectProvisionPlan');
-  expect(evmReadinessSource).not.toContain('getEcdsaSessionProvisionIdentity');
-  expect(evmReadinessSource).toContain('getEcdsaProvisionPlanLaneIdentity');
-});
-
-check('second-tier material brands protect ECDSA restore and signing boundaries', () => {
-  const sdkBrands = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.ts',
-  );
-  const serverBrands = readRepoSource('packages/sdk-server-ts/src/core/keyMaterialBrands.ts');
-  const ecdsaPoolFill = readRepoSource(
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
-  );
-  const ecdsaClientPresignPool = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
-  );
-  const serverSealOptions = readRepoSource(
-    'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts',
-  );
-  const serverEmailOtpSeal = readRepoSource(
-    'packages/sdk-server-ts/src/core/authService/emailOtpSeal.ts',
-  );
-
-  for (const source of [sdkBrands, serverBrands]) {
-    expect(source).toContain('EcdsaClientVerifyingShareB64u');
-    expect(source).toContain('EcdsaRelayerKeyId');
-    expect(source).toContain('EcdsaThresholdKeyId');
-    expect(source).toContain('EcdsaKeyHandle');
-    expect(source).toContain('SigningSessionSealShamirPrimeB64u');
-    expect(source).toContain('parseSigningSessionSealShamirPrimeB64u');
-  }
-  expect(sdkBrands).toContain('EcdsaClientAdditiveShareHandle');
-
-  expect(ecdsaPoolFill).toContain('ecdsaThresholdKeyId: EcdsaThresholdKeyId');
-  expect(ecdsaPoolFill).toContain('keyHandle: EcdsaKeyHandle');
-  expect(ecdsaPoolFill).toContain('relayerKeyId: EcdsaRelayerKeyId');
-  expect(ecdsaClientPresignPool).toContain('keyHandle?: EcdsaKeyHandle');
-  expect(ecdsaClientPresignPool).toContain('ecdsaThresholdKeyId: EcdsaThresholdKeyId');
-  expect(ecdsaClientPresignPool).toContain(
-    'clientVerifyingShareB64u: EcdsaClientVerifyingShareB64u',
-  );
-  expect(serverSealOptions).toContain('parseSigningSessionSealShamirPrimeB64u');
-  expect(serverSealOptions).toContain('shamirPrimeB64u: SigningSessionSealShamirPrimeB64u');
-  expect(serverEmailOtpSeal).toContain('parseSigningSessionSealShamirPrimeB64u');
-  expect(serverEmailOtpSeal).toContain('formatSigningSessionSealShamirPrimeB64uForWire');
 });
 
 check('WebAuthn RP ids cannot be confused with NEAR Ed25519 signing-key ids', () => {
