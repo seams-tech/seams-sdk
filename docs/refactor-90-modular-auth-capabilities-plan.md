@@ -451,9 +451,9 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 
 ### Closed vocabulary and selection
 
-- [ ] Adopt the existing closed capability vocabulary in production SDK,
+- [x] Adopt the existing closed capability vocabulary in production SDK,
       server, UI, and persistence boundaries.
-- [ ] Include only the tenant, principal, session, factor, capability,
+- [x] Include only the tenant, principal, session, factor, capability,
       operation, grant, and evidence references required by current verticals.
 - [x] Use named or flat `all | any` evidence requirements; add no recursive
       policy grammar or speculative factor/provider taxonomy.
@@ -531,7 +531,10 @@ Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
 - [x] Shared/session/server type checks pass.
 - [x] Concurrent identical and conflicting claim tests prove exactly-once
       grant/quota consumption.
-- [ ] SDK and each host adapter pass the same capability-selection contract.
+- [x] SDK and each host adapter pass the same capability-selection contract.
+      Cloudflare, Express/Node, local D1, and self-hosted assembly use the same
+      static `RouterApiServiceBag`; the focused route-surface and self-host
+      parity suites pass 15/15.
 
 ## Unit 3a — MPC Cutover, No Release
 
@@ -770,13 +773,16 @@ the replacement and legacy MPC paths must not ship together.
       exact operation before confirmation, consume one operation grant, and
       keep reusable Wallet Session creation and quota use out of the step-up
       branch (`069db2326`).
+- [x] Route transaction, delegate, and NEP-413 signing through one
+      authorization-neutral operation-material carrier. Live and sealed
+      Passkey/Email OTP branches prepare before confirmation, preserve exact
+      activation and factor, attach the issued one-use grant beside material,
+      and never construct or reread a reusable Wallet Session (`2b585ed38`).
 - [ ] Complete sealed Email OTP operation-material recovery inside the worker:
       apply the ephemeral client seal, request the one-operation grant and
       server-unsealed ciphertext, remove the client seal, import and correlate
       the exact material, zeroize/dispose temporary secrets, and return the
-      active material beside the issued grant. Transaction, delegate, and
-      NEP-413 signing must use this path without creating or rereading a
-      reusable Wallet Session.
+      active material beside the issued grant.
 - [x] Replace the five public NEAR factor-specific preparation, Passkey
       rehydration, and Email OTP recovery ports with one Browser-owned
       `{ preparation, executor }` material boundary. Exact factor, signer,

@@ -1,5 +1,7 @@
 import type {
+  NearEmailOtpEd25519OperationStepUpCapabilityPreparation,
   NearEd25519YaoMaterialExecutor,
+  NearEd25519YaoOperationMaterial,
   NearEd25519StepUpAuthorization,
   NearEd25519YaoSigningCapability,
 } from '../../../interfaces/near';
@@ -14,30 +16,67 @@ export type NearEd25519AuthorizationResult = {
   capability: NearEd25519YaoSigningCapability;
 };
 
-export type NearSignatureOnlyOperationStepUpMaterial =
+export type NearOperationStepUpMaterial =
   | {
       kind: 'passkey_live';
       materialActivation: MpcMaterialActivationRef;
-      walletSessionState: NearEd25519YaoSigningCapability['walletSessionState'];
-      capability: NearEd25519YaoSigningCapability;
+      material: NearEd25519YaoOperationMaterial;
       rehydrate?: never;
+      authorizeAndRehydrate?: never;
     }
   | {
       kind: 'email_otp_live';
       materialActivation: MpcMaterialActivationRef;
-      walletSessionState: NearEd25519YaoSigningCapability['walletSessionState'];
-      capability: NearEd25519YaoSigningCapability;
+      material: NearEd25519YaoOperationMaterial;
       rehydrate?: never;
+      authorizeAndRehydrate?: never;
     }
   | {
       kind: 'passkey_sealed';
       materialActivation: MpcMaterialActivationRef;
-      walletSessionState: NearEd25519YaoSigningCapability['walletSessionState'];
-      capability?: never;
+      facts: NearEd25519YaoOperationMaterial['facts'];
+      material?: never;
+      authorizeAndRehydrate?: never;
       rehydrate: (
         credential: WebAuthnAuthenticationCredential,
-      ) => Promise<NearEd25519YaoSigningCapability>;
-    };
+      ) => Promise<NearEd25519YaoOperationMaterial>;
+    }
+  | ({
+      kind: 'email_otp_sealed';
+      material?: never;
+      rehydrate?: never;
+    } & Omit<
+      Extract<NearEmailOtpEd25519OperationStepUpCapabilityPreparation, { kind: 'sealed' }>,
+      'kind'
+    >);
+
+export type ResolvedNearOperationStepUpMaterial = {
+  material: NearEd25519YaoOperationMaterial;
+  issuedGrant: Awaited<
+    ReturnType<
+      Extract<
+        NearEmailOtpEd25519OperationStepUpCapabilityPreparation,
+        { kind: 'sealed' }
+      >['authorizeAndRehydrate']
+    >
+  >['issuedGrant'] | null;
+};
+
+export function nearOperationStepUpMaterialFacts(
+  material: NearOperationStepUpMaterial,
+): NearEd25519YaoOperationMaterial['facts'] {
+  switch (material.kind) {
+    case 'passkey_live':
+    case 'email_otp_live':
+      return material.material.facts;
+    case 'passkey_sealed':
+    case 'email_otp_sealed':
+      return material.facts;
+    default:
+      material satisfies never;
+      throw new Error('[SigningEngine][near] unsupported operation material');
+  }
+}
 
 export async function resolvePreparedNearEd25519YaoMaterial(
   preparation: NearEd25519YaoSigningPreparation,
@@ -59,11 +98,11 @@ export async function resolvePreparedNearEd25519YaoMaterial(
   }
 }
 
-export async function prepareNearSignatureOnlyOperationStepUpMaterial(args: {
+export async function prepareNearOperationStepUpMaterial(args: {
   method: 'passkey' | 'email_otp';
   preparation: NearEd25519YaoSigningPreparation;
   executor: NearEd25519YaoMaterialExecutor;
-}): Promise<NearSignatureOnlyOperationStepUpMaterial> {
+}): Promise<NearOperationStepUpMaterial> {
   if (
     args.method === 'passkey' &&
     args.preparation.hydration.kind === 'rehydrate_material_activation'
@@ -72,65 +111,137 @@ export async function prepareNearSignatureOnlyOperationStepUpMaterial(args: {
     return {
       kind: 'passkey_sealed',
       materialActivation: prepared.materialActivation,
-      walletSessionState: prepared.walletSessionState,
+      facts: prepared.facts,
       rehydrate: prepared.rehydrate,
     };
+  }
+  if (args.method === 'email_otp') {
+    const prepared = await args.executor.prepareEmailOtpOperationStepUp(args.preparation);
+    switch (prepared.kind) {
+      case 'live':
+        return {
+          kind: 'email_otp_live',
+          materialActivation: prepared.materialActivation,
+          material: prepared.material,
+        };
+      case 'sealed':
+        return {
+          kind: 'email_otp_sealed',
+          materialActivation: prepared.materialActivation,
+          facts: prepared.facts,
+          authorizeAndRehydrate: prepared.authorizeAndRehydrate,
+        };
+      default:
+        prepared satisfies never;
+        throw new Error('[SigningEngine][near] unsupported Email OTP operation material');
+    }
   }
   const capability = await resolvePreparedNearEd25519YaoMaterial(
     args.preparation,
     args.executor,
   );
   return {
-    kind: args.method === 'passkey' ? 'passkey_live' : 'email_otp_live',
+    kind: 'passkey_live',
     materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
       capability.activeClient.metadata(),
     ),
-    walletSessionState: capability.walletSessionState,
-    capability,
+    material: {
+      activeClient: capability.activeClient,
+      facts: {
+        thresholdSessionId: capability.walletSessionState.thresholdSessionId,
+        signer: capability.walletSessionState.signingLane.identity.signer,
+        signingRootId: capability.walletSessionState.signingRootId,
+        signingRootVersion: capability.walletSessionState.signingRootVersion,
+        routerAbNormalSigning: capability.walletSessionState.routerAbNormalSigning,
+        runtimePolicyScope: capability.walletSessionState.runtimePolicyScope,
+        relayerUrl: capability.walletSessionState.relayerUrl,
+      },
+    },
   };
 }
 
-type ResolveNearSignatureOnlyOperationStepUpCapabilityArgs =
+type ResolveNearOperationStepUpMaterialArgs =
   | {
       kind: 'passkey';
       material: Extract<
-        NearSignatureOnlyOperationStepUpMaterial,
+        NearOperationStepUpMaterial,
         { kind: 'passkey_live' | 'passkey_sealed' }
       >;
       expectedActivation: MpcMaterialActivationRef;
       credential: WebAuthnAuthenticationCredential;
+      normalSigningRequest?: never;
+      displayDigest?: never;
+      proof?: never;
     }
   | {
-      kind: 'email_otp';
-      material: Extract<NearSignatureOnlyOperationStepUpMaterial, { kind: 'email_otp_live' }>;
+      kind: 'email_otp_live';
+      material: Extract<NearOperationStepUpMaterial, { kind: 'email_otp_live' }>;
       expectedActivation: MpcMaterialActivationRef;
+      normalSigningRequest?: never;
+      displayDigest?: never;
+      proof?: never;
+      credential?: never;
+    }
+  | {
+      kind: 'email_otp_sealed';
+      material: Extract<NearOperationStepUpMaterial, { kind: 'email_otp_sealed' }>;
+      expectedActivation: MpcMaterialActivationRef;
+      normalSigningRequest: Parameters<
+        Extract<
+          NearEmailOtpEd25519OperationStepUpCapabilityPreparation,
+          { kind: 'sealed' }
+        >['authorizeAndRehydrate']
+      >[0]['normalSigningRequest'];
+      displayDigest: string;
+      proof: Parameters<
+        Extract<
+          NearEmailOtpEd25519OperationStepUpCapabilityPreparation,
+          { kind: 'sealed' }
+        >['authorizeAndRehydrate']
+      >[0]['proof'];
       credential?: never;
     };
 
-export async function resolveNearSignatureOnlyOperationStepUpCapability(
-  args: ResolveNearSignatureOnlyOperationStepUpCapabilityArgs,
-): Promise<NearEd25519YaoSigningCapability> {
+export async function resolveNearOperationStepUpMaterial(
+  args: ResolveNearOperationStepUpMaterialArgs,
+): Promise<ResolvedNearOperationStepUpMaterial> {
   requireNearOperationStepUpMaterialActivation({
     expected: args.expectedActivation,
     actual: args.material.materialActivation,
   });
-  let capability: NearEd25519YaoSigningCapability;
-  if (args.kind === 'email_otp') {
-    capability = args.material.capability;
+  let material: NearEd25519YaoOperationMaterial;
+  let issuedGrant: ResolvedNearOperationStepUpMaterial['issuedGrant'] = null;
+  if (args.kind === 'email_otp_live' || args.kind === 'email_otp_sealed') {
+    if (args.kind === 'email_otp_live') {
+      material = args.material.material;
+    } else {
+      const resolved = await args.material.authorizeAndRehydrate({
+        normalSigningRequest: args.normalSigningRequest,
+        displayDigest: args.displayDigest,
+        proof: args.proof,
+      });
+      material = resolved.material;
+      issuedGrant = resolved.issuedGrant;
+    }
   } else {
-    capability =
+    material =
       args.material.kind === 'passkey_live'
-        ? args.material.capability
+        ? args.material.material
         : await args.material.rehydrate(args.credential);
   }
   try {
     requireNearOperationStepUpMaterialActivation({
       expected: args.expectedActivation,
-      actual: nearEd25519YaoMaterialActivationFromMetadata(capability.activeClient.metadata()),
+      actual: nearEd25519YaoMaterialActivationFromMetadata(material.activeClient.metadata()),
     });
-    return capability;
+    return { material, issuedGrant };
   } catch (error) {
-    if (args.material.kind === 'passkey_sealed') capability.activeClient.dispose();
+    if (
+      args.material.kind === 'passkey_sealed' ||
+      args.material.kind === 'email_otp_sealed'
+    ) {
+      material.activeClient.dispose();
+    }
     throw error;
   }
 }

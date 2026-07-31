@@ -1,17 +1,48 @@
 import type { RouterAbNormalSigningPrepareRequestV2BuildResult } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/interfaces/near';
+import type {
+  NearEd25519YaoOperationMaterial,
+  NearEd25519YaoOperationMaterialFacts,
+  NearEd25519YaoSigningCapability,
+} from '@/core/signingEngine/interfaces/near';
 import type { PreparedNearOperationStepUp } from './operationStepUpPreparation';
 import {
-  resolveNearSignatureOnlyOperationStepUpCapability,
-  type NearSignatureOnlyOperationStepUpMaterial,
+  resolveNearOperationStepUpMaterial,
+  type NearOperationStepUpMaterial,
 } from './ed25519YaoCapabilityResolution';
 
 declare const prepare: RouterAbNormalSigningPrepareRequestV2BuildResult;
 declare const materialActivation: MpcMaterialActivationRef;
 declare const capability: NearEd25519YaoSigningCapability;
 declare const credential: WebAuthnAuthenticationCredential;
+declare const materialFacts: NearEd25519YaoOperationMaterialFacts;
+
+const operationMaterial: NearEd25519YaoOperationMaterial = {
+  activeClient: capability.activeClient,
+  facts: materialFacts,
+};
+
+const invalidAuthorizedOperationMaterial: NearEd25519YaoOperationMaterial = {
+  activeClient: capability.activeClient,
+  facts: materialFacts,
+  // @ts-expect-error Operation material cannot carry reusable Wallet Session state.
+  walletSessionState: capability.walletSessionState,
+};
+
+const invalidSessionOperationMaterial: NearEd25519YaoOperationMaterial = {
+  activeClient: capability.activeClient,
+  facts: materialFacts,
+  // @ts-expect-error Operation material cannot carry authorization-session identity.
+  walletSessionId: 'wallet-session',
+};
+
+const invalidGrantOperationMaterial: NearEd25519YaoOperationMaterial = {
+  activeClient: capability.activeClient,
+  facts: materialFacts,
+  // @ts-expect-error An issued grant belongs beside resolved material.
+  issuedGrant: null,
+};
 
 const transactionPreparation: PreparedNearOperationStepUp = {
   kind: 'near_transaction',
@@ -38,30 +69,41 @@ const invalidSignatureOnlyPreparation: PreparedNearOperationStepUp = {
 };
 
 declare const sealedPasskeyMaterial: Extract<
-  NearSignatureOnlyOperationStepUpMaterial,
+  NearOperationStepUpMaterial,
   { kind: 'passkey_sealed' }
 >;
 declare const emailOtpMaterial: Extract<
-  NearSignatureOnlyOperationStepUpMaterial,
+  NearOperationStepUpMaterial,
   { kind: 'email_otp_live' }
 >;
+declare const sealedEmailOtpMaterial: Extract<
+  NearOperationStepUpMaterial,
+  { kind: 'email_otp_sealed' }
+>;
 
-void resolveNearSignatureOnlyOperationStepUpCapability({
+void resolveNearOperationStepUpMaterial({
   kind: 'passkey',
   material: sealedPasskeyMaterial,
   expectedActivation: materialActivation,
   credential,
 });
 
-void resolveNearSignatureOnlyOperationStepUpCapability({
-  kind: 'email_otp',
+void resolveNearOperationStepUpMaterial({
+  kind: 'email_otp_live',
   material: emailOtpMaterial,
   expectedActivation: materialActivation,
 });
 
+// @ts-expect-error A sealed Email OTP branch requires confirmed proof and request facts.
+void resolveNearOperationStepUpMaterial({
+  kind: 'email_otp_sealed',
+  material: sealedEmailOtpMaterial,
+  expectedActivation: materialActivation,
+});
+
 // @ts-expect-error Email OTP cannot authorize sealed Passkey material.
-void resolveNearSignatureOnlyOperationStepUpCapability({
-  kind: 'email_otp',
+void resolveNearOperationStepUpMaterial({
+  kind: 'email_otp_live',
   material: sealedPasskeyMaterial,
   expectedActivation: materialActivation,
 });
@@ -69,4 +111,8 @@ void resolveNearSignatureOnlyOperationStepUpCapability({
 void transactionPreparation;
 void signatureOnlyPreparation;
 void invalidSignatureOnlyPreparation;
+void operationMaterial;
+void invalidAuthorizedOperationMaterial;
+void invalidSessionOperationMaterial;
+void invalidGrantOperationMaterial;
 void capability;

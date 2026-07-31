@@ -149,8 +149,12 @@ implementing commit SHA as the evidence.
 
 ### Units 2 and 3b — authorization core and vault proving vertical
 
-- [ ] `R90-INV-001` — session, evidence, grant, claim, vault, and audit requests
-  and rows normalize at their owning boundaries.
+- [x] `R90-INV-001` — session, evidence, grant, claim, vault, and audit requests
+  and rows normalize at their owning boundaries. The persisted authorization
+  vertical exercises the normalized session, evidence, one-use grant, atomic
+  claim, vault operation, and audit records; current route-owned ECDSA refresh
+  and Ed25519 capability/recovery inputs have no duplicate adapter
+  (`5db9ad87e`, `a89ede462`, `df478bfed`, `729ad4cdd`, `868ba6dee`).
   - [x] ECDSA refresh HTTP input is owned by the canonical route-definition
     boundary; the duplicate standalone adapter and wrapper-only test are
     deleted (`a89ede462`, `df478bfed`).
@@ -274,6 +278,11 @@ implementing commit SHA as the evidence.
     exact operation before confirmation and consume one operation grant when
     canonical material is already live. They never create or spend a reusable
     Wallet Session in the step-up branch (`069db2326`).
+  - [x] Transaction, delegate, and NEP-413 signing share one
+    authorization-neutral operation-material carrier across live and sealed
+    Passkey/Email OTP branches. Preparation precedes confirmation; exact
+    activation and factor survive resolution; the one-use grant stays beside
+    material without a reusable Wallet Session (`2b585ed38`).
   - [ ] Sealed Email OTP operation step-up restores material inside its worker,
     correlates the exact activation/session/public key, zeroizes temporary
     secrets, and returns the active material beside the issued grant without
