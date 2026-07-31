@@ -829,6 +829,10 @@ the replacement and legacy MPC paths must not ship together.
       runtime correlated to the returned Wallet Session and active JWT. Wallet
       lock now clears volatile material without clearing the retired composite
       record cache (`5a582a992`).
+- [x] Resolve NEAR signing preparation, Passkey and Email OTP operation
+      step-up, and local-material rehydration from the exact sealed Ed25519
+      runtime. Delete the sealed-record-to-composite-record signing adapter
+      (`7a97a1363`).
 - [x] Make non-iframe implicit NEAR funding read its bearer credential from the
       canonical active Wallet Session authorization projection; missing or
       expired authorization fails before network use, independently of MPC
