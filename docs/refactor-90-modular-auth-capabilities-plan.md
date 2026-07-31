@@ -1111,6 +1111,11 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete `active_state_session_id` from production types and wire shapes.
 - [ ] Delete remaining generic wire session aliases and
       authorization/material-scope aliases owned by this cutover.
+  - [x] Rename the active SigningWorker wire field from `session_id` to
+        `material_activation_id` across the Router A/B Rust schema, Cloudflare
+        lookup/storage keys, shared TypeScript parser, dev adapter, fixtures,
+        and protocol documentation. Lifecycle and ceremony `session_id`
+        fields remain unchanged (`d91498b2c`).
   - [ ] Remove Wallet Session bearer/grant state from durable Ed25519 and
         active ECDSA sealed-material restore metadata. Recovery and signing
         must receive reusable authorization or a one-operation grant through

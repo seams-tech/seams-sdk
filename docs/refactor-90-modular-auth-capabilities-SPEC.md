@@ -285,6 +285,10 @@ implementing commit SHA as the evidence.
     lane/cache helpers, stale architecture check, and ownership documentation
     are deleted; the independent server persisted-record parser remains the
     live boundary (`a84f92b37`, `5486df295`).
+  - [x] Active SigningWorker state names its exact material activation on the
+    Router A/B wire (`material_activation_id`) and validates it against the
+    activation scope; lifecycle and ceremony `session_id` fields remain
+    distinct (`d91498b2c`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
   - [x] Concrete ECDSA availability excludes the retired `restorable` state;
