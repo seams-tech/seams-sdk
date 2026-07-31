@@ -1160,6 +1160,9 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete the zero-caller recovery-record-to-session identity converter;
         recovery commands accept the canonical exact identity directly
         (`750138097`).
+  - [x] Delete the zero-caller composite seal-transport auth type and its
+        ECDSA/session aliases; sealed recovery owns the live transport shapes
+        (`6dc24c395`).
 - [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
       and delete the public Passkey/Email OTP-specific export entrypoints.
 - [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the

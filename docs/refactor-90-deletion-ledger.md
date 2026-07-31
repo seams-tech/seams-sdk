@@ -620,6 +620,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~zero-caller `exactSealedSessionIdentityFromRecoveryRecord` converter~~ —
   deleted by `750138097`; recovery commands use the canonical exact identity
   boundary directly
+- ~~zero-caller `ThresholdSessionSealTransportAuthMaterial` and
+  `WalletSessionJwtAuthSource` record aliases~~ — deleted by `6dc24c395`; live
+  sealed-recovery transports own their protocol-specific shapes
 - ~~stale registration/key-brand source-guard blocks for deleted persistence,
   lifecycle, and Shamir-seal paths~~ — retired by `703fa1d95`; remaining guard
   checks target live registration, branding, and WebAuthn boundaries
