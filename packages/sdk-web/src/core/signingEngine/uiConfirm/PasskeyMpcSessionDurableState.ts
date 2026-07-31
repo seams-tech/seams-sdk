@@ -221,7 +221,6 @@ function buildCurrentRecordInput(
     sealedSecretB64u: args.sealedSecretB64u,
     curve: 'ed25519',
     authMethod: 'passkey',
-    signingGrantId: args.signingGrantId,
     thresholdSessionIds,
     walletId,
     ...(args.metadata.signingRootId ? { signingRootId: args.metadata.signingRootId } : {}),

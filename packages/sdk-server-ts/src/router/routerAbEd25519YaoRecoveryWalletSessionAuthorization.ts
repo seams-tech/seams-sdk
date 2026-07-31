@@ -80,7 +80,6 @@ function claimsMatchBootstrap(
     claims.nearAccountId === body.nearAccountId &&
     claims.nearEd25519SigningKeyId === body.nearEd25519SigningKeyId &&
     claims.thresholdSessionId === body.thresholdSessionId &&
-    claims.signingGrantId === body.signingGrantId &&
     claims.relayerKeyId === body.signingWorkerId &&
     claims.routerAbNormalSigning.signingWorkerId === body.signingWorkerId &&
     exactParticipants(claims, body.participantIds)

@@ -94,7 +94,6 @@ export type RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1 = {
   readonly nearEd25519SigningKeyId: string;
   readonly signerSlot: number;
   readonly thresholdSessionId: string;
-  readonly signingGrantId: string;
   readonly signingWorkerId: string;
   readonly participantIds: readonly [number, number];
 };
@@ -1403,7 +1402,6 @@ function parseWarmRecoveryBootstrapRequestValue(
     'nearEd25519SigningKeyId',
     'signerSlot',
     'thresholdSessionId',
-    'signingGrantId',
     'signingWorkerId',
     'participantIds',
   ]);
@@ -1428,10 +1426,6 @@ function parseWarmRecoveryBootstrapRequestValue(
     thresholdSessionId: requireVisibleIdentifier(
       record.thresholdSessionId,
       'warm recovery bootstrap request.thresholdSessionId',
-    ),
-    signingGrantId: requireVisibleIdentifier(
-      record.signingGrantId,
-      'warm recovery bootstrap request.signingGrantId',
     ),
     signingWorkerId: requireVisibleIdentifier(
       record.signingWorkerId,

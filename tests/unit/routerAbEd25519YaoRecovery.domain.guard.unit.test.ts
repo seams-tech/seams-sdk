@@ -745,7 +745,6 @@ async function warmBootstrapReturnsExactActiveCapabilityWithoutMintingSession():
         nearEd25519SigningKeyId: 'ed25519ks_1',
         signerSlot: 1,
         thresholdSessionId: 'wallet-session-1',
-        signingGrantId: 'signing-grant-1',
         signingWorkerId: 'signing-worker-1',
         participantIds: [1, 2],
       }),

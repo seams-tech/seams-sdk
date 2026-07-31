@@ -255,7 +255,6 @@ function warmRecoveryBootstrapRequest(
     nearEd25519SigningKeyId: restore.nearEd25519SigningKeyId,
     signerSlot: restore.signerSlot,
     thresholdSessionId: record.thresholdSessionIds.ed25519,
-    signingGrantId: record.signingGrantId,
     signingWorkerId: restore.routerAbNormalSigning.signingWorkerId,
     participantIds: restore.participantIds,
   });
@@ -392,7 +391,6 @@ async function parseWarmRecoveryDescriptor(args: {
     nearEd25519SigningKeyId !== restore.nearEd25519SigningKeyId ||
     signerSlot !== restore.signerSlot ||
     thresholdSessionId !== record.thresholdSessionIds.ed25519 ||
-    signingGrantId !== record.signingGrantId ||
     signingWorkerId !== restore.relayerKeyId ||
     signingWorkerId !== restore.routerAbNormalSigning.signingWorkerId ||
     routerAbNormalSigning.signingWorkerId !== signingWorkerId ||

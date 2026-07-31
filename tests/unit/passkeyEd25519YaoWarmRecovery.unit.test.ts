@@ -4,19 +4,15 @@ import {
   requirePasskeyEd25519RestoreAuthorization,
   resolvePasskeyEd25519YaoExportContextWithRuntimeV1,
 } from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
-import { buildPasskeyEd25519SealedSessionRecordFixture } from './helpers/sealedSigningSession.fixtures';
-import { activeEvmFamilyWalletSessionAuthorizationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import {
-  buildPasskeyWalletAuthAuthority,
-  walletAuthAuthorityRef,
-} from '@shared/utils/walletAuthAuthority';
-import { walletIdFromString } from '@shared/utils/registrationIntent';
+  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyEd25519SealedSessionRecordFixture,
+} from './helpers/sealedSigningSession.fixtures';
 
 const NOW_MS = 1_900_000_000_000;
 const WALLET_ID = 'wallet-expiry-boundary';
 const NEAR_ACCOUNT_ID = 'wallet-expiry-boundary.testnet';
 const THRESHOLD_SESSION_ID = 'threshold-session-expiry-boundary';
-const SIGNING_GRANT_ID = 'signing-grant-expiry-boundary';
 const RELAYER_URL = 'https://relay.example.test';
 
 function buildSealedRecord(input: {
@@ -27,7 +23,6 @@ function buildSealedRecord(input: {
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     thresholdSessionId: THRESHOLD_SESSION_ID,
-    signingGrantId: SIGNING_GRANT_ID,
     expiresAtMs: input.expiresAtMs,
     remainingUses: input.remainingUses,
   });
@@ -88,20 +83,8 @@ test('unexpired passkey material with no uses remains distinct from expiry', asy
 
 test('passkey sealed restore uses the current active authorization bearer', async () => {
   const record = buildSealedRecord({ expiresAtMs: NOW_MS + 60_000, remainingUses: 1 });
-  const authority = await walletAuthAuthorityRef({
-    authority: buildPasskeyWalletAuthAuthority({
-      walletId: WALLET_ID,
-      rpId: record.ed25519Restore.rpId,
-      credentialIdB64u: record.ed25519Restore.credentialIdB64u,
-    }),
-  });
-  const currentJwt = `${record.ed25519Restore.walletSessionJwt.split('.').slice(0, 2).join('.')}.current`;
-  const authorization = activeEvmFamilyWalletSessionAuthorizationFixture({
-    walletId: walletIdFromString(WALLET_ID),
-    authority,
-    walletSessionJwt: currentJwt,
-    expiresAtMs: NOW_MS + 60_000,
-  }).projection;
+  const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(record);
+  const currentJwt = authorization.walletSessionJwt;
 
   const resolved = await requirePasskeyEd25519RestoreAuthorization({
     record,
@@ -109,6 +92,7 @@ test('passkey sealed restore uses the current active authorization bearer', asyn
     nowMs: NOW_MS,
   });
 
-  expect(record.ed25519Restore.walletSessionJwt).not.toBe(currentJwt);
+  expect(record).not.toHaveProperty('walletSessionJwt');
+  expect(record.ed25519Restore).not.toHaveProperty('walletSessionJwt');
   expect(resolved?.walletSessionJwt).toBe(currentJwt);
 });

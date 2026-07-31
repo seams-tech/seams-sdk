@@ -14,9 +14,11 @@ import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabiliti
 import { parseVolatileWarmSessionId } from '../warmCapabilities/volatileWarmSessionId';
 import type { WarmSessionPrfClaim } from '../warmCapabilities/types';
 import {
+  ed25519SigningGrantForAuthorization,
   parseExactEd25519SealedSessionRuntime,
   type ExactEd25519SealedSessionRuntime,
 } from '../warmCapabilities/ed25519SealedSessionRuntime';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   normalizeWarmSessionReadPorts,
   readWarmSessionClaim,
@@ -261,13 +263,14 @@ function addLane(
 
 export function buildDiscoveredLaneForRuntime(
   runtime: ExactEd25519SealedSessionRuntime,
+  signingGrantId: string,
 ): DiscoveredSigningSessionLane {
   return {
     curve: 'ed25519',
     chain: 'near',
     source: toLaneSource(runtime),
     thresholdSessionId: runtime.thresholdSessionId,
-    signingGrantId: runtime.signingGrantId,
+    signingGrantId,
     backingMaterialSessionId: runtime.thresholdSessionId,
     backing: 'record_policy',
     runtime,
@@ -297,9 +300,16 @@ export async function discoverLanesForWallet(
     if (record.curve !== 'ed25519') continue;
     const runtime = parseExactEd25519SealedSessionRuntime(record);
     if (!runtime || runtime.walletId !== walletId) continue;
+    const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(walletId);
+    if (authorizationRead.kind !== 'found') continue;
+    const signingGrantId = ed25519SigningGrantForAuthorization({
+      runtime,
+      authorization: authorizationRead.projection,
+    });
+    if (!signingGrantId) continue;
     if (seenThresholdSessionIds.has(runtime.thresholdSessionId)) continue;
     seenThresholdSessionIds.add(runtime.thresholdSessionId);
-    addLane(lanes, buildDiscoveredLaneForRuntime(runtime));
+    addLane(lanes, buildDiscoveredLaneForRuntime(runtime, signingGrantId));
   }
   return lanes;
 }

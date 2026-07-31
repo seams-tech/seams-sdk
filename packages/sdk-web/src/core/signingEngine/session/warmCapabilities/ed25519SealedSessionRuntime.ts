@@ -24,6 +24,8 @@ import {
   type SigningGrantId,
   type ThresholdEd25519SessionId,
 } from '../operationState/types';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { parseRouterAbEd25519WalletSessionIdentityClaims } from '../routerAbSigningWalletSession';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type { ExactEd25519SigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import {
@@ -61,7 +63,6 @@ export type ExactEd25519SealedSessionRuntime = {
   readonly factor: Ed25519SealedSessionFactor;
   readonly auth: SigningLaneAuthBinding;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
-  readonly signingGrantId: SigningGrantId;
   readonly remainingUses: number;
   readonly expiresAtMs: number;
   readonly relayerUrl: string;
@@ -187,7 +188,6 @@ export function parseExactEd25519SealedSessionRuntime(
 ): ExactEd25519SealedSessionRuntime | null {
   const restore = record.ed25519Restore;
   const thresholdSessionIdRaw = nonEmptyString(record.thresholdSessionIds.ed25519);
-  const signingGrantIdRaw = nonEmptyString(record.signingGrantId);
   const relayerUrl = nonEmptyString(record.relayerUrl);
   const relayerKeyId = nonEmptyString(restore.relayerKeyId);
   const expiresAtMs = positiveSafeInteger(record.expiresAtMs);
@@ -205,7 +205,6 @@ export function parseExactEd25519SealedSessionRuntime(
   const factor = sealedFactor(record);
   if (
     !thresholdSessionIdRaw ||
-    !signingGrantIdRaw ||
     !relayerUrl ||
     !relayerKeyId ||
     !expiresAtMs ||
@@ -240,7 +239,6 @@ export function parseExactEd25519SealedSessionRuntime(
       factor,
       auth: authBinding(factor),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionIdRaw),
-      signingGrantId: SigningSessionIds.signingGrant(signingGrantIdRaw),
       remainingUses,
       expiresAtMs,
       relayerUrl,
@@ -275,6 +273,27 @@ export async function ed25519SealedRuntimeAuthorityRef(
   return await walletAuthAuthorityRef({ authority });
 }
 
+export function ed25519SigningGrantForAuthorization(args: {
+  runtime: ExactEd25519SealedSessionRuntime;
+  authorization: ActiveWalletSessionAuthorizationProjection;
+}): SigningGrantId | null {
+  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(
+    args.authorization.walletSessionJwt,
+  );
+  if (
+    !claims ||
+    String(args.authorization.walletId) !== String(args.runtime.walletId) ||
+    args.authorization.authMethod !== args.runtime.factor.kind ||
+    claims.walletId !== args.runtime.walletId ||
+    claims.nearAccountId !== args.runtime.nearAccountId ||
+    claims.nearEd25519SigningKeyId !== args.runtime.nearEd25519SigningKeyId ||
+    claims.thresholdSessionId !== args.runtime.thresholdSessionId
+  ) {
+    return null;
+  }
+  return SigningSessionIds.signingGrant(claims.signingGrantId);
+}
+
 function authBindingsEqual(
   left: SigningLaneAuthBinding,
   right: SigningLaneAuthBinding,
@@ -302,8 +321,7 @@ function rawRecordMatchesLaneSubject(args: {
     restore.nearAccountId === signer.account.nearAccountId &&
     restore.nearEd25519SigningKeyId === signer.nearEd25519SigningKeyId &&
     restore.signerSlot === signer.signerSlot &&
-    args.record.thresholdSessionIds.ed25519 === args.laneIdentity.thresholdSessionId &&
-    args.record.signingGrantId === args.laneIdentity.signingGrantId
+    args.record.thresholdSessionIds.ed25519 === args.laneIdentity.thresholdSessionId
   );
 }
 

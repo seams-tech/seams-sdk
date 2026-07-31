@@ -183,8 +183,7 @@ export function buildRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
     claims.walletId !== runtime.walletId ||
     claims.nearAccountId !== runtime.nearAccountId ||
     claims.nearEd25519SigningKeyId !== runtime.nearEd25519SigningKeyId ||
-    claims.thresholdSessionId !== runtime.thresholdSessionId ||
-    claims.signingGrantId !== runtime.signingGrantId
+    claims.thresholdSessionId !== runtime.thresholdSessionId
   ) {
     throw new Error('Ed25519 Wallet Session authorization does not match sealed material');
   }
@@ -193,7 +192,7 @@ export function buildRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
     nearAccountId: runtime.nearAccountId,
     nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
     thresholdSessionId: runtime.thresholdSessionId,
-    signingGrantId: runtime.signingGrantId,
+    signingGrantId: claims.signingGrantId,
     remainingUses: runtime.remainingUses,
     expiresAtMs: runtime.expiresAtMs,
     runtimePolicyScope: runtime.runtimePolicyScope,
@@ -228,7 +227,7 @@ export function buildRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
             nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
             signerSlot: runtime.signerSlot,
             auth: runtime.auth,
-            signingGrantId: runtime.signingGrantId,
+            signingGrantId: SigningSessionIds.signingGrant(claims.signingGrantId),
             thresholdSessionId: runtime.thresholdSessionId,
             retention: 'session',
             sessionOrigin: 'login',
@@ -240,7 +239,7 @@ export function buildRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
   return {
     walletSessionAuth: signingWalletSession.value.auth,
     thresholdSessionId: runtime.thresholdSessionId,
-    signingGrantId: runtime.signingGrantId,
+    signingGrantId: claims.signingGrantId,
     signingLane,
     remainingUses: runtime.remainingUses,
     signingRootId: runtime.signingRootId,

@@ -488,7 +488,6 @@ function buildEmailOtpSealedRecord(args: {
     authMethod: 'email_otp',
     thresholdSessionId: THRESHOLD_SESSION_ID,
     thresholdSessionIds: { ed25519: THRESHOLD_SESSION_ID },
-    signingGrantId: SIGNING_GRANT_ID,
     walletId: String(WALLET_ID),
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
@@ -501,8 +500,6 @@ function buildEmailOtpSealedRecord(args: {
     remainingUses: args.remainingUses,
     updatedAtMs: Date.now(),
     ed25519Restore: {
-      sessionKind: 'jwt',
-      walletSessionJwt: walletSessionJwt('sealed-refresh'),
       nearAccountId: String(NEAR_ACCOUNT_ID),
       nearEd25519SigningKeyId: String(NEAR_ED25519_SIGNING_KEY_ID),
       rpId: 'localhost',
@@ -531,6 +528,10 @@ async function runEd25519CommitQueueTask<T>(args: {
 }
 
 async function persistRecoveredSessionForTest(): Promise<void> {}
+
+async function unexpectedWarmBootstrapFetch(): Promise<Response> {
+  throw new Error('warm bootstrap must not run for unavailable sealed material');
+}
 
 async function warmRecoveryBootstrapResponse(args: {
   expiresAtMs: number;
@@ -607,6 +608,17 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         persistRecoveredSession: async (input) => {
           publicationInput = input;
         },
+        fetch: async () =>
+          new Response(
+            JSON.stringify(
+              await warmRecoveryBootstrapResponse({
+                expiresAtMs,
+                thresholdExpiresAtMs: expiresAtMs,
+                prior,
+              }),
+            ),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
         nowMs: Date.now,
       },
     });
@@ -688,6 +700,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
             );
             return await queueArgs.task();
           },
+          fetch: unexpectedWarmBootstrapFetch,
           persistRecoveredSession: async () => {
             persistCalls += 1;
           },
@@ -727,11 +740,13 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
       authPolicy: 'session',
       ports: {
         readExactSealedSession: async () => sealedRecord,
+        readActiveWalletSessionAuthorization: readActiveEmailOtpWalletSessionAuthorization,
         workerContext: worker.context(),
         resolveActiveCapability: activation.resolve.bind(activation),
         activateCapability: activation.activate.bind(activation),
         withThresholdEd25519CommitQueue: runEd25519CommitQueueTask,
         persistRecoveredSession: persistRecoveredSessionForTest,
+        fetch: unexpectedWarmBootstrapFetch,
         nowMs: Date.now,
       },
     });
@@ -770,11 +785,13 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
       authPolicy: 'session',
       ports: {
         readExactSealedSession: async () => sealedRecord,
+        readActiveWalletSessionAuthorization: readActiveEmailOtpWalletSessionAuthorization,
         workerContext: worker.context(),
         resolveActiveCapability: activation.resolve.bind(activation),
         activateCapability: activation.activate.bind(activation),
         withThresholdEd25519CommitQueue: runEd25519CommitQueueTask,
         persistRecoveredSession: persistRecoveredSessionForTest,
+        fetch: unexpectedWarmBootstrapFetch,
         nowMs: () => nowMs,
       },
     });
@@ -823,7 +840,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         signingGrantId: SIGNING_GRANT_ID,
       },
       authorization: {
-        walletSessionJwt: sealedRecord.ed25519Restore.walletSessionJwt,
+        walletSessionJwt: walletSessionJwt('sealed-refresh'),
       },
       material: {
         materialActivation: publicCapabilityReference().materialActivation,

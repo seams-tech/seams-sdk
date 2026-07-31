@@ -150,7 +150,6 @@ function bootstrapRequestFixture(): RouterAbEd25519YaoWarmRecoveryBootstrapReque
       nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
       signerSlot: 1,
       thresholdSessionId: WALLET_SESSION_ID,
-      signingGrantId: 'signing-grant-recovery-1',
       signingWorkerId: SIGNING_WORKER_ID,
       participantIds: PARTICIPANT_IDS,
     }),
@@ -428,10 +427,6 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
       {
         label: 'Ed25519 key',
         claims: validClaimsFixture({ nearEd25519SigningKeyId: 'ed25519ks_substituted' }),
-      },
-      {
-        label: 'signing grant',
-        claims: validClaimsFixture({ signingGrantId: 'substituted-signing-grant' }),
       },
       {
         label: 'participants',

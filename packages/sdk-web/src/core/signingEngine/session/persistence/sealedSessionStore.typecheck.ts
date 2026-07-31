@@ -135,7 +135,6 @@ const invalidEd25519WriteInput: BuildCurrentEd25519SealedSessionRecordInput = {
   sealedSecretB64u: 'sealed-secret',
   curve: 'ed25519',
   authMethod: 'passkey',
-  signingGrantId: 'wsess-ed25519',
   walletId: 'wallet.testnet',
   relayerUrl: 'https://relay.example',
   ed25519Restore: {

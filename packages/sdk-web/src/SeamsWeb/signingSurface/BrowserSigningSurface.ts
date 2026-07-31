@@ -1728,6 +1728,7 @@ export class BrowserSigningSurface {
           }),
         persistRecoveredSession:
           this.persistEmailOtpEd25519YaoSessionForRefreshInternal.bind(this),
+        fetch: fetchWithGlobalThis,
         nowMs: Date.now,
       },
     });
