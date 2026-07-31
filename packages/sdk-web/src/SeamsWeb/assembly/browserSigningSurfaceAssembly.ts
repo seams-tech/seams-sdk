@@ -68,7 +68,11 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { parseAppSessionJwt } from '@shared/utils/domainIds';
-import { SIGNER_AUTH_METHODS, WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
+import {
+  SIGNER_AUTH_METHODS,
+  WALLET_AUTH_METHODS,
+  type SignerAuthMethod,
+} from '@shared/utils/signerDomain';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
@@ -339,7 +343,7 @@ export async function listBrowserEcdsaSigningCapabilitiesForWallet(
   input: {
     walletId: string;
     chainTargets: readonly ThresholdEcdsaChainTarget[];
-    authMethod?: 'email_otp' | 'passkey';
+    authMethod?: SignerAuthMethod;
   },
 ): Promise<readonly EvmFamilyEcdsaSigningCapabilityAvailability[]> {
   const walletId = toWalletId(input.walletId);
@@ -445,7 +449,7 @@ async function requestEmailOtpEcdsaStepUpChallenge(args: {
 async function resolveBrowserEcdsaOperationStepUpSessionAuth(args: {
   context: BrowserEcdsaCapabilityReaderContext;
   walletSession: WalletSessionRef;
-  authMethod: 'passkey' | 'email_otp';
+  authMethod: SignerAuthMethod;
 }) {
   switch (args.authMethod) {
     case 'passkey':

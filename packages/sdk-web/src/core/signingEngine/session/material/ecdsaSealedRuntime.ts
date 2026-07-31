@@ -24,6 +24,7 @@ import {
 import type { MpcCapabilityHydrationBlockedReason } from './mpcCapabilityHydration';
 import type { ActiveEcdsaCapabilityManifest } from './ecdsaCapabilityManifest';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 
 // The manifest and the sealed store own complementary halves of one capability:
 // the manifest selects the exact capability, its public facts, and the material
@@ -56,7 +57,7 @@ export type ExactEcdsaSealedRuntimeAuthBinding =
 export type ExactEcdsaSealedRecordIdentity = {
   readonly storeKey: string;
   readonly thresholdSessionId: string;
-  readonly authMethod: 'passkey' | 'email_otp';
+  readonly authMethod: SigningSessionSealAuthMethod;
 };
 
 export type ExactEcdsaMaterialRuntime = {
@@ -93,7 +94,7 @@ export type ExactInactiveEcdsaMaterialRuntime = ExactEcdsaMaterialRuntime & {
   readonly kind: 'exact_inactive_ecdsa_material_runtime_v1';
   readonly inactiveMaterialRecord: {
     readonly storeKey: string;
-    readonly authMethod: 'passkey' | 'email_otp';
+    readonly authMethod: SigningSessionSealAuthMethod;
     readonly authorizationRetirementReason: 'expired' | 'exhausted';
   };
   readonly expiresAtMs?: never;
@@ -502,7 +503,7 @@ export function resolveExactInactiveEcdsaMaterialRuntime(input: {
   readonly manifest: ActiveEcdsaCapabilityManifest;
   readonly walletId: WalletId;
   readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly authMethod: 'passkey' | 'email_otp';
+  readonly authMethod: SigningSessionSealAuthMethod;
   readonly inactiveRecords: readonly EcdsaInactiveSealedMaterialRecord[];
 }): ExactInactiveEcdsaMaterialRuntimeResolution {
   const matches = input.inactiveRecords.filter(

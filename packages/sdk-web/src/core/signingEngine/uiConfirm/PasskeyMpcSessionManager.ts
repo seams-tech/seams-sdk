@@ -11,6 +11,7 @@ import type {
 } from '../../types/secure-confirm-worker';
 import { resolveWorkerUrl } from '../../walletRuntimePaths';
 import type { WarmSessionLanePurpose } from '../session/emailOtp/sealedRuntimePurpose';
+import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 import type {
   WarmSessionMaterialWriteDiagnosticBucket,
   WarmSessionMaterialWriteDiagnostics,
@@ -163,7 +164,7 @@ async function deleteInvalidPasskeyEcdsaRecord(args: {
 
 async function listPasskeySealedSessionsForWallet(args: {
   walletId: string;
-  authMethod: 'email_otp' | 'passkey';
+  authMethod: SigningSessionSealAuthMethod;
   curve: 'ecdsa';
   chainTarget: RestorePersistedSessionPurpose['chainTarget'];
 }) {
