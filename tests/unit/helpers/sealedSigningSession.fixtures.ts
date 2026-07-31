@@ -6,7 +6,10 @@ import {
   SIGNING_SESSION_SECRET_KIND,
   type SealedSigningSessionRecord,
 } from '@shared/utils/signingSessionSeal';
-import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import {
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+} from '@shared/utils/sessionTokens';
 import {
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
   requireRouterAbEcdsaDerivationNormalSigningStateV1,
@@ -25,11 +28,93 @@ import {
   buildEcdsaInactiveMaterialPublicRestore,
   buildCurrentSealedSessionRecord,
   classifyRawSealedSessionRecord,
+  type CurrentEd25519SealedSessionRecord,
   type CurrentEcdsaSealedSessionRecord,
   type EcdsaInactiveSealedMaterialRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { parseEcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+
+function encodeFixtureJwtPart(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+
+function fixtureJwt(kind: string, claims: Record<string, unknown>): string {
+  return [
+    encodeFixtureJwtPart({ alg: 'none', typ: 'JWT' }),
+    encodeFixtureJwtPart({ kind, ...claims }),
+    'fixture',
+  ].join('.');
+}
+
+export function buildPasskeyEd25519SealedSessionRecordFixture(
+  args: {
+    walletId?: string;
+    nearAccountId?: string;
+    nearEd25519SigningKeyId?: string;
+    thresholdSessionId?: string;
+    signingGrantId?: string;
+    expiresAtMs?: number;
+    remainingUses?: number;
+  } = {},
+): CurrentEd25519SealedSessionRecord {
+  const walletId = args.walletId ?? 'ed25519-sealed-runtime-wallet';
+  const nearAccountId = args.nearAccountId ?? 'ed25519-sealed-runtime.testnet';
+  const nearEd25519SigningKeyId =
+    args.nearEd25519SigningKeyId ?? 'ed25519-sealed-runtime-key';
+  const thresholdSessionId =
+    args.thresholdSessionId ?? 'ed25519-sealed-runtime-session';
+  const signingGrantId = args.signingGrantId ?? 'ed25519-sealed-runtime-grant';
+  const record = buildCurrentSealedSessionRecord({
+    curve: 'ed25519',
+    authMethod: 'passkey',
+    thresholdSessionId,
+    thresholdSessionIds: { ed25519: thresholdSessionId },
+    signingGrantId,
+    walletId,
+    signingRootId: 'ed25519-sealed-runtime-project:test',
+    signingRootVersion: 'v1',
+    relayerUrl: 'https://relay.example.test',
+    sealedSecretB64u: 'ed25519-sealed-runtime-secret',
+    keyVersion: 'ed25519-sealed-runtime-kek',
+    groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+    issuedAtMs: 1,
+    expiresAtMs: args.expiresAtMs ?? 1_900_000_000_000,
+    remainingUses: args.remainingUses ?? 3,
+    updatedAtMs: 2,
+    ed25519Restore: {
+      sessionKind: 'jwt',
+      walletSessionJwt: fixtureJwt(ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND, {
+        walletId,
+        nearAccountId,
+        nearEd25519SigningKeyId,
+        thresholdSessionId,
+        signingGrantId,
+      }),
+      nearAccountId,
+      nearEd25519SigningKeyId,
+      rpId: 'wallet.example.test',
+      credentialIdB64u: 'ed25519-sealed-runtime-credential',
+      relayerKeyId: 'ed25519-sealed-runtime-worker',
+      participantIds: [1, 2],
+      runtimePolicyScope: {
+        orgId: 'ed25519-sealed-runtime-org',
+        projectId: 'ed25519-sealed-runtime-project',
+        envId: 'test',
+        signingRootVersion: 'v1',
+      },
+      signerSlot: 1,
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1',
+        signingWorkerId: 'ed25519-sealed-runtime-worker',
+      },
+    },
+  });
+  if (!record || record.curve !== 'ed25519') {
+    throw new Error('Failed to build Passkey Ed25519 sealed-session fixture');
+  }
+  return record;
+}
 
 export type EmailOtpEcdsaSealedSigningSessionRecord = Extract<
   SealedSigningSessionRecord,
