@@ -616,12 +616,6 @@ export function exactSigningLaneCurve(identity: ExactSigningLaneIdentity): Exact
   }
 }
 
-export function exactEcdsaSigningLaneSigner(
-  identity: ExactEcdsaSigningLaneIdentity,
-): EvmFamilyEcdsaSignerBinding {
-  return identity.signer;
-}
-
 export function requireEvmFamilyEcdsaSigner(
   identity: ExactSigningLaneIdentity,
   context: string,
@@ -680,12 +674,6 @@ export function evmFamilyProtocolProjectionFromExactLane(
     keyHandle: signer.keyHandle,
     key: signer.key,
   };
-}
-
-export function exactEd25519SigningLaneSigner(
-  identity: ExactEd25519SigningLaneIdentity,
-): NearEd25519SignerBinding {
-  return identity.signer;
 }
 
 export function thresholdSessionIdsFromExactSigningLaneIdentity(
