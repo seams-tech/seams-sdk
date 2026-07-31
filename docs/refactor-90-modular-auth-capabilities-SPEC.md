@@ -231,6 +231,10 @@ implementing commit SHA as the evidence.
   - [x] ECDSA session-lane policy requires the exact runtime policy scope;
     strict activation cannot receive a policy with absent scope, and type
     fixtures reject omission (`ff6464baf`).
+  - [x] ECDSA bootstrap material key references cannot carry session transport
+    kind, Wallet Session bearer credentials, or the unused MPC-session alias;
+    activation and worker producers no longer publish those projections
+    (`f32baab61`).
 - [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
   - [x] The canonical ECDSA operating-path proof completes persisted hydration,
@@ -254,6 +258,10 @@ implementing commit SHA as the evidence.
     reseed the composite session-record cache. Canonical hydration plus the
     independent reusable-authorization status own signing and expiry behavior
     after refresh (`4f089b483`).
+  - [x] Non-iframe implicit NEAR funding reads the bearer credential from the
+    canonical active Wallet Session authorization projection and fails before
+    fetch when that authorization is absent or expired; no composite MPC record
+    participates (`174c89600`).
   - [x] NEAR transaction admission carries no unread record-derived Wallet
     Session bearer projection; canonical preparation and the admitted
     operation-claim receipt own authorization (`5173ad50b`).
