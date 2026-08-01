@@ -128,6 +128,12 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
 
 export function buildPasskeyEd25519AuthorizationProjectionFixture(
   record: CurrentEd25519SealedSessionRecord,
+  args: {
+    authorizationSessionId?: string;
+    walletSessionId?: string;
+    quotaId?: string;
+    signingGrantId?: string;
+  } = {},
 ) {
   if (!('credentialIdB64u' in record.ed25519Restore)) {
     throw new Error('passkey Ed25519 authorization fixture requires passkey restore metadata');
@@ -137,25 +143,31 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
     rpId: record.ed25519Restore.rpId,
     credentialIdB64u: record.ed25519Restore.credentialIdB64u,
   });
+  const authorizationSessionId =
+    args.authorizationSessionId ?? `authorization:${record.thresholdSessionIds.ed25519}`;
+  const walletSessionId =
+    args.walletSessionId ?? `wallet-session:${record.thresholdSessionIds.ed25519}`;
+  const quotaId = args.quotaId ?? `quota:${record.thresholdSessionIds.ed25519}`;
+  const signingGrantId = args.signingGrantId ?? `grant:${record.thresholdSessionIds.ed25519}`;
   return buildActiveWalletSessionAuthorizationProjection({
     walletId: authority.walletId,
     authorizationSessionId: requireFixtureDomainId(
-      parseSeamsSessionId(`authorization:${record.thresholdSessionIds.ed25519}`),
+      parseSeamsSessionId(authorizationSessionId),
     ),
     walletSessionId: requireFixtureDomainId(
-      parseWalletSessionId(`wallet-session:${record.thresholdSessionIds.ed25519}`),
+      parseWalletSessionId(walletSessionId),
     ),
     quotaId: requireFixtureDomainId(
-      parseMpcWalletSigningQuotaId(`quota:${record.thresholdSessionIds.ed25519}`),
+      parseMpcWalletSigningQuotaId(quotaId),
     ),
     walletSessionJwt: fixtureJwt(ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND, {
       walletId: record.walletId,
       nearAccountId: record.ed25519Restore.nearAccountId,
       nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
-      walletSessionId: `wallet-session:${record.thresholdSessionIds.ed25519}`,
-      quotaId: `quota:${record.thresholdSessionIds.ed25519}`,
+      walletSessionId,
+      quotaId,
       thresholdSessionId: record.thresholdSessionIds.ed25519,
-      signingGrantId: `grant:${record.thresholdSessionIds.ed25519}`,
+      signingGrantId,
     }),
     authMethod: 'passkey',
     authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),

@@ -1035,6 +1035,11 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
     );
     expect(result.walletSessionState.signingLane.storageSource).toBe('email_otp');
     expect(result.activeClient.metadata().registeredPublicKey).toEqual(REGISTERED_PUBLIC_KEY);
+    const recoveredActivation = nearEd25519YaoMaterialActivationFromMetadata(
+      result.activeClient.metadata(),
+    );
+    expect(mpcMaterialActivationRefsEqual(recoveredActivation, priorMetadata.materialActivation))
+      .toBe(false);
   });
 
   test('cold activation rejects a Wallet Session bearer bound to another grant', async () => {

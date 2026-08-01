@@ -22,6 +22,7 @@ import {
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 
 const SEALED_RECORD = buildPasskeyEd25519SealedSessionRecordFixture();
 const WALLET_ID = SEALED_RECORD.walletId;
@@ -165,6 +166,55 @@ test('authorizes Ed25519 normal signing from the correlated Wallet Session proje
 
   expect(authorized?.walletSessionId).toBe(authorization.walletSessionId);
   expect(authorized?.walletSessionAuthorization).toBe(authorization);
+});
+
+test('renews Wallet Session authorization without changing Ed25519 material activation', () => {
+  const runtime = parseExactEd25519SealedSessionRuntime(SEALED_RECORD);
+  if (!runtime) throw new Error('failed to parse exact passkey Yao runtime fixture');
+  const originalAuthorization = buildPasskeyEd25519AuthorizationProjectionFixture(SEALED_RECORD);
+  const renewedAuthorization = buildPasskeyEd25519AuthorizationProjectionFixture(SEALED_RECORD, {
+    authorizationSessionId: 'authorization:ed25519-renewed',
+    walletSessionId: 'wallet-session:ed25519-renewed',
+    quotaId: 'quota:ed25519-renewed',
+    signingGrantId: 'grant:ed25519-renewed',
+  });
+  const originalState = buildRouterAbEd25519WalletSessionStateFromExactRuntime({
+    runtime,
+    walletSessionJwt: originalAuthorization.walletSessionJwt,
+    nowMs: runtime.expiresAtMs - 1,
+  });
+  const renewedState = buildRouterAbEd25519WalletSessionStateFromExactRuntime({
+    runtime,
+    walletSessionJwt: renewedAuthorization.walletSessionJwt,
+    nowMs: runtime.expiresAtMs - 1,
+  });
+
+  const original = authorizeRouterAbEd25519WalletSessionState({
+    state: originalState,
+    authorization: originalAuthorization,
+    nowMs: runtime.expiresAtMs - 1,
+  });
+  const renewed = authorizeRouterAbEd25519WalletSessionState({
+    state: renewedState,
+    authorization: renewedAuthorization,
+    nowMs: runtime.expiresAtMs - 1,
+  });
+
+  expect(original).not.toBeNull();
+  expect(renewed).not.toBeNull();
+  expect(renewedAuthorization.walletSessionId).not.toBe(originalAuthorization.walletSessionId);
+  expect(renewedAuthorization.authorizationSessionId).not.toBe(
+    originalAuthorization.authorizationSessionId,
+  );
+  expect(renewed?.thresholdSessionId).toBe(original?.thresholdSessionId);
+  expect(renewed?.remainingUses).toBe(original?.remainingUses);
+  expect(renewed?.remainingUses).toBe(SEALED_RECORD.remainingUses);
+  expect(
+    mpcMaterialActivationRefsEqual(
+      runtime.sealedRecord.ed25519Restore.materialActivation,
+      SEALED_RECORD.ed25519Restore.materialActivation,
+    ),
+  ).toBe(true);
 });
 
 test('rejects an Ed25519 Wallet Session projection with a different lifecycle', () => {
