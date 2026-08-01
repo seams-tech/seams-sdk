@@ -44,7 +44,7 @@ import type {
   RestorePersistedSessionPurpose,
   RestoreSealedRecordResult,
 } from '../session/sealedRecovery/sealedRecovery.types';
-import { materialActivationKey } from '../session/sealedRecovery/sealedRecovery.types';
+import { materialActivationKey } from '../session/sealedRecovery/materialActivationKey';
 import type { SealedRecoveryRecord } from '../session/sealedRecovery/recoveryRecord';
 import { restorePasskeyEcdsaSealedRecordForWallet } from '../session/passkey/ecdsaRecovery';
 import { parseSigningSessionSealKeyVersion } from '../session/keyMaterialBrands';
