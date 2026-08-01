@@ -542,7 +542,7 @@ export async function runNearDelegateActionSigning({
             }
           : {
               kind: 'operation_step_up' as const,
-              sessionId: nearOperationStepUpMaterialFacts(
+              thresholdSessionId: nearOperationStepUpMaterialFacts(
                 requireNearDelegateOperationStepUpMaterial(operationStepUpMaterial),
               ).thresholdSessionId,
               resolved: await resolveNearDelegateOperationStepUpCapability({
@@ -567,8 +567,8 @@ export async function runNearDelegateActionSigning({
 
       const canonicalThresholdSessionId =
         resolvedMaterial.kind === 'warm_session'
-          ? resolvedMaterial.resolved.sessionId
-          : resolvedMaterial.sessionId;
+          ? resolvedMaterial.resolved.thresholdSessionId
+          : resolvedMaterial.thresholdSessionId;
       emitNearSigningEvent(onEvent, nearAccountId, {
         phase: SigningEventPhase.STEP_08_SIGNER_PREPARE_SUCCEEDED,
         status: 'succeeded',

@@ -629,8 +629,8 @@ async function runAuthorizedNearTransactionWithActionsSigning({
       commandKind: args.commandKind,
       execute: args.execute,
     });
-  const providedSessionId = ed25519SigningBoundary.sessionId;
-  const sessionId = String(providedSessionId || '').trim();
+  const providedThresholdSessionId = ed25519SigningBoundary.thresholdSessionId;
+  const thresholdSessionId = String(providedThresholdSessionId || '').trim();
   const providedSigningAuthPlan = ed25519SigningBoundary.signingAuthPlan;
   const signingLane = ed25519SigningBoundary.signingLane;
   if (!transactionOperation) {
@@ -640,16 +640,16 @@ async function runAuthorizedNearTransactionWithActionsSigning({
   }
   if (
     isWarmSessionSigningAuthPlan(providedSigningAuthPlan) &&
-    providedSigningAuthPlan.sessionId !== providedSessionId
+    providedSigningAuthPlan.sessionId !== providedThresholdSessionId
   ) {
     throw new Error(
       '[SigningEngine][near] warm-session auth plan must match prepared session identity',
     );
   }
   const signingSessionAuthPlan = {
-    sessionId: isWarmSessionSigningAuthPlan(providedSigningAuthPlan)
+    thresholdSessionId: isWarmSessionSigningAuthPlan(providedSigningAuthPlan)
       ? providedSigningAuthPlan.sessionId
-      : providedSessionId,
+      : providedThresholdSessionId,
     lane: signingLane,
     signingAuthPlan: providedSigningAuthPlan,
     confirmationAuthPayload: { signingAuthPlan: providedSigningAuthPlan },
@@ -716,7 +716,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
         ? preparedStepUp.plannedPasskeyOperationStepUp.requestedGrantId
         : createNearOperationStepUpGrantId();
     registerNearOperationStepUpBuilder({
-      requestId: sessionId,
+      requestId: thresholdSessionId,
       build: async (preparation) => {
         if (preparation.kind !== 'near_transaction') {
           throw new Error('[SigningEngine][near] transaction step-up preparation kind changed');
@@ -749,7 +749,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
       runtime: touchConfirm,
       request: {
         ctx: { touchConfirm },
-        sessionId,
+        sessionId: thresholdSessionId,
         chain: 'near',
         kind: 'transaction',
         ...buildSigningConfirmationAuthParams({
@@ -781,7 +781,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
       },
     });
   } finally {
-    clearNearOperationStepUpBuilder(sessionId);
+    clearNearOperationStepUpBuilder(thresholdSessionId);
   }
   emitNearSigningEvent(onEvent, nearAccountId, {
     phase: SigningEventPhase.STEP_05_CONFIRMATION_APPROVED,
@@ -804,7 +804,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
   const preparedOperationStepUp =
     stepUpAuthorization.kind !== 'warm_session'
       ? consumePreparedNearOperationStepUp({
-          requestId: sessionId,
+          requestId: thresholdSessionId,
           ref: requireNearOperationStepUpPreparation(confirmation.operationStepUpPreparation),
         })
       : null;

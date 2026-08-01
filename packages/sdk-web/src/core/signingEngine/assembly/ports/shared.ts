@@ -1,4 +1,5 @@
 import type { WarmSessionMaterialOperationTarget } from '../../session/emailOtp/sealedRuntimePurpose';
+import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 import type { RuntimePorts } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
@@ -123,7 +124,9 @@ export type CreateSigningEnginePortsArgs = {
   touchConfirm: UiConfirmRuntimeBridgePort;
   passkeyMpcSession: PasskeyMpcSessionPort;
   passkeyMpcExport: PasskeyMpcExportPort;
-  getEmailOtpWarmSessionStatus?: PersistedAvailableSigningLanesDeps['getEmailOtpWarmSessionStatus'];
+  getEmailOtpWarmSessionStatus?: (
+    target: EmailOtpWarmMaterialTarget,
+  ) => Promise<WarmSessionStatusResult>;
   consumeEmailOtpWarmSessionUses?: (args: WarmSessionMaterialOperationTarget & {
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;

@@ -1,8 +1,6 @@
 import {
   readAvailableSigningLanes,
-  type AvailableLaneStateAdvisory,
   type ConcreteAvailableEcdsaSigningLane,
-  type AvailableSigningLanesRuntimeEd25519Record,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
@@ -322,8 +320,6 @@ export async function readAvailableLanesFixture(args: {
   sealedRecords?: SigningSessionSealedStoreRecord[];
   ecdsaChainTargets?: [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
   canonicalEcdsaLanes?: ConcreteAvailableEcdsaSigningLane[];
-  runtimeEd25519Records?: AvailableSigningLanesRuntimeEd25519Record[];
-  warmStatusAdvisories?: Map<string, AvailableLaneStateAdvisory>;
 }) {
   return await readAvailableSigningLanes(
     {
@@ -338,14 +334,6 @@ export async function readAvailableLanesFixture(args: {
           return true;
         }),
       listCanonicalEcdsaLanesForWallet: async () => args.canonicalEcdsaLanes || [],
-      listRuntimeEd25519RecordsForWallet: async () => args.runtimeEd25519Records || [],
-      readWarmStatusAdvisoriesForSessions: async (sessionIds) => {
-        const advisories = new Map<string, AvailableLaneStateAdvisory | null>();
-        for (const sessionId of sessionIds) {
-          advisories.set(sessionId, args.warmStatusAdvisories?.get(sessionId) || null);
-        }
-        return advisories;
-      },
     },
   );
 }

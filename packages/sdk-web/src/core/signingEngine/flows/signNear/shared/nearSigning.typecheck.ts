@@ -67,7 +67,7 @@ const exactOperationGrant: CapabilityGrantId = operationStepUpPlan.requestedGran
 void exactOperationGrant;
 
 const operationStepUpWithReusableGrant: NearPasskeyOperationStepUpPlan = {
-  sessionId: thresholdSessionId,
+  thresholdSessionId,
   // @ts-expect-error Reusable signing grants cannot authorize one-operation step-up.
   requestedGrantId: signingGrantId,
   authority: operationStepUpPlan.authority,
@@ -75,7 +75,7 @@ const operationStepUpWithReusableGrant: NearPasskeyOperationStepUpPlan = {
 void operationStepUpWithReusableGrant;
 
 const operationStepUpWithCapabilityGrant: NearPasskeyOperationStepUpPlan = {
-  sessionId: thresholdSessionId,
+  thresholdSessionId,
   requestedGrantId: capabilityGrantId,
   authority: operationStepUpPlan.authority,
 };

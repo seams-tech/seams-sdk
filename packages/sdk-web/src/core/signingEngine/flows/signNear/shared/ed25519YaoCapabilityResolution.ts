@@ -16,7 +16,7 @@ import { requireNearOperationStepUpMaterialActivation } from './operationStepUpP
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 
 export type NearEd25519AuthorizationResult = {
-  sessionId: ThresholdEd25519SessionId;
+  thresholdSessionId: ThresholdEd25519SessionId;
   material: NearEd25519YaoOperationMaterial;
   walletSessionState: NearResolvedEd25519SigningSessionState;
 };
@@ -250,7 +250,7 @@ export async function resolveConfirmedNearEd25519YaoCapability(args: {
     args.executor,
   );
   return {
-    sessionId: material.facts.thresholdSessionId,
+    thresholdSessionId: material.facts.thresholdSessionId,
     material,
     walletSessionState: await args.executor.resolveWalletSessionState(),
   };

@@ -12,8 +12,6 @@ import type {
   ConcreteAvailableEd25519SigningLane,
   EcdsaAvailableLaneIdentityInput,
   ReadAvailableSigningLanesInput,
-  AvailableLaneStateAdvisory,
-  AvailableSigningLanesRuntimeEd25519Record,
 } from './availableSigningLanes';
 import { toAccountId } from '../../../types/accountIds';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
@@ -51,7 +49,6 @@ const emailOtpAuth = {
 declare const keyHandle: EvmFamilyEcdsaKeyHandle;
 declare const materialActivation: MpcMaterialActivationRef;
 declare const ed25519Authorization: ActiveWalletSessionAuthorizationProjection;
-declare const ed25519RouterAbNormalSigning: AvailableSigningLanesRuntimeEd25519Record['routerAbNormalSigning'];
 
 const publicFacts = buildVerifiedEcdsaPublicFacts({
   keyHandle,
@@ -261,31 +258,6 @@ const invalidEd25519LaneWithMaterial: ConcreteAvailableEd25519SigningLane = {
 };
 void invalidEd25519LaneWithMaterial;
 
-const runtimeEd25519Record: AvailableSigningLanesRuntimeEd25519Record = {
-  auth: passkeyAuth,
-  curve: 'ed25519',
-  chain: 'near',
-  materialActivation,
-  walletId: ed25519WalletId,
-  nearAccountId: ed25519NearAccountId,
-  nearEd25519SigningKeyId,
-  signerSlot: 1,
-  routerAbNormalSigning: ed25519RouterAbNormalSigning,
-  thresholdSessionId: 'threshold-session-1',
-  authorizationState: 'authorized',
-  authorization: ed25519Authorization,
-  signingGrantId: 'signing-grant-1',
-  source: 'runtime_session_record',
-};
-void runtimeEd25519Record;
-
-const runtimeEd25519RecordWithMaterial: AvailableSigningLanesRuntimeEd25519Record = {
-  ...runtimeEd25519Record,
-  // @ts-expect-error Yao-backed runtime Ed25519 records reject worker material.
-  material: { kind: 'loaded_worker_material' },
-};
-void runtimeEd25519RecordWithMaterial;
-
 const readyEd25519LaneWithStoredAuthMethod: ConcreteAvailableEd25519SigningLane = {
   ...ed25519Lane,
   // @ts-expect-error Ed25519 lanes derive auth method from the auth binding.
@@ -321,49 +293,5 @@ const readyEd25519LaneMissingThresholdSessionId: ConcreteAvailableEd25519Signing
   thresholdSessionId: undefined,
 };
 void readyEd25519LaneMissingThresholdSessionId;
-
-const durablePolicyAdvisory: AvailableLaneStateAdvisory = {
-  kind: 'durable_policy',
-  remainingUses: 1,
-  expiresAtMs: 1_900_000_000_000,
-  state: 'restorable',
-};
-void durablePolicyAdvisory;
-
-const activeAdvisoryWithLaneState: AvailableLaneStateAdvisory = {
-  kind: 'warm_status',
-  status: 'active',
-  remainingUses: 1,
-  expiresAtMs: 1_900_000_000_000,
-  // @ts-expect-error active advisories are runtime-ready and cannot carry durable-policy lane state.
-  laneState: 'restorable',
-};
-void activeAdvisoryWithLaneState;
-
-const cacheMissAdvisoryWithLaneState: AvailableLaneStateAdvisory = {
-  kind: 'warm_status',
-  status: 'cache_miss',
-  // @ts-expect-error cache-miss advisories cannot choose a lane state by themselves.
-  laneState: 'deferred',
-};
-void cacheMissAdvisoryWithLaneState;
-
-// @ts-expect-error durable-policy advisories must state the durable lane they represent.
-const durablePolicyAdvisoryMissingState: AvailableLaneStateAdvisory = {
-  kind: 'durable_policy',
-  remainingUses: 1,
-  expiresAtMs: 1_900_000_000_000,
-};
-void durablePolicyAdvisoryMissingState;
-
-const durablePolicyAdvisoryWithLaneState: AvailableLaneStateAdvisory = {
-  kind: 'durable_policy',
-  remainingUses: 1,
-  expiresAtMs: 1_900_000_000_000,
-  state: 'restorable',
-  // @ts-expect-error durable-policy advisories use state, not the old laneState field.
-  laneState: 'restorable',
-};
-void durablePolicyAdvisoryWithLaneState;
 
 export {};

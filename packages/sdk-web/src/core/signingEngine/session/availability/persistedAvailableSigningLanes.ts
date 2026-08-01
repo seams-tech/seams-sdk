@@ -1,16 +1,9 @@
-import type { SigningSessionStatus } from '@/core/types/seams';
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
-import {
-  buildWalletSessionStatusCheck,
-  ed25519WalletSessionStatusOwner,
-  type SigningSessionStatusCheck,
-} from '../lifecycle/walletSessionStatus';
 import {
   listEcdsaSealedSessionsForWallet,
   listExactSealedSessionsForWallet,
@@ -21,14 +14,10 @@ import {
   ed25519AvailableLaneIdentityKey,
   ecdsaAvailableLaneIdentityKey,
   readAvailableSigningLanes,
-  durableRecordPolicyAdvisory,
-  warmStatusToAvailableLaneStateAdvisory,
   type ReadAvailableSigningLanesForSigningInput,
   type ReadAvailableSigningLanesInput,
   type AvailableSigningLanes,
-  type AvailableLaneStateAdvisory,
   type ConcreteAvailableEcdsaSigningLane,
-  type AvailableSigningLanesRuntimeEd25519Record,
 } from './availableSigningLanes';
 import type { EvmFamilyEcdsaSigningCapabilityAvailability } from '../material/ecdsaSigningCapability';
 import {
@@ -41,15 +30,6 @@ import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
-import {
-  ed25519SealedRuntimeAuthorityRef,
-  ed25519SigningGrantForAuthorization,
-  parseExactEd25519SealedSessionRuntime,
-  type ExactEd25519SealedSessionRuntime,
-} from '../warmCapabilities/ed25519SealedSessionRuntime';
-import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
-import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 
 export type PersistedAvailableSigningLanesDeps = {
   listEcdsaSigningCapabilitiesForWallet: (args: {
@@ -57,15 +37,6 @@ export type PersistedAvailableSigningLanesDeps = {
     chainTargets: readonly ThresholdEcdsaChainTarget[];
     authMethod?: SignerAuthMethod;
   }) => Promise<readonly EvmFamilyEcdsaSigningCapabilityAvailability[]>;
-  statusReader: {
-    getWarmSessionStatus: (args: { sessionId: string }) => Promise<WarmSessionStatusResult>;
-  };
-  getEmailOtpWarmSessionStatus: (
-    target: EmailOtpWarmMaterialTarget,
-  ) => Promise<WarmSessionStatusResult>;
-  getWalletSessionStatus?: (
-    args: SigningSessionStatusCheck,
-  ) => Promise<SigningSessionStatus | null>;
 };
 
 function canonicalEcdsaLaneFromCapability(args: {
@@ -147,143 +118,6 @@ function assertNeverPersistedEd25519AuthMethod(value: never): never {
   throw new Error(`Unsupported persisted Ed25519 auth method: ${String(value)}`);
 }
 
-function applyWalletSessionStatusToAdvisory(args: {
-  localAdvisory: AvailableLaneStateAdvisory | null;
-  walletSessionStatus: SigningSessionStatus | null;
-}): AvailableLaneStateAdvisory | null {
-  const sessionStatus = args.walletSessionStatus;
-  if (!sessionStatus) return args.localAdvisory;
-  if (sessionStatus.status === 'active') {
-    const sessionExpiresAtMs = Math.floor(Number(sessionStatus.expiresAtMs) || 0);
-    if (args.localAdvisory?.kind === 'runtime_material') {
-      return {
-        kind: 'runtime_material',
-        remainingUses: Math.max(0, Math.floor(Number(sessionStatus.remainingUses) || 0)),
-        expiresAtMs: sessionExpiresAtMs > 0 ? sessionExpiresAtMs : args.localAdvisory.expiresAtMs,
-      };
-    }
-    if (args.localAdvisory?.kind === 'durable_policy') {
-      return {
-        kind: 'durable_policy',
-        remainingUses: Math.max(0, Math.floor(Number(sessionStatus.remainingUses) || 0)),
-        expiresAtMs: sessionExpiresAtMs > 0 ? sessionExpiresAtMs : args.localAdvisory.expiresAtMs,
-        state: args.localAdvisory.state,
-      };
-    }
-    if (args.localAdvisory?.kind !== 'warm_status' || args.localAdvisory.status !== 'active') {
-      return args.localAdvisory;
-    }
-    return {
-      kind: 'warm_status',
-      status: 'active',
-      remainingUses: Math.max(0, Math.floor(Number(sessionStatus.remainingUses) || 0)),
-      expiresAtMs: sessionExpiresAtMs > 0 ? sessionExpiresAtMs : args.localAdvisory.expiresAtMs,
-    };
-  }
-  if (sessionStatus.status === 'not_found') {
-    return args.localAdvisory;
-  }
-  if (sessionStatus.status === 'expired') {
-    return { kind: 'warm_status', status: 'expired' };
-  }
-  if (sessionStatus.status === 'exhausted') {
-    return {
-      kind: 'warm_status',
-      status: 'exhausted',
-      remainingUses: 0,
-    };
-  }
-  return args.localAdvisory;
-}
-
-async function readSessionStatusOrNull(args: {
-  reader: NonNullable<PersistedAvailableSigningLanesDeps['getWalletSessionStatus']>;
-  check: SigningSessionStatusCheck;
-}): Promise<SigningSessionStatus | null> {
-  try {
-    return await args.reader(args.check);
-  } catch {
-    return null;
-  }
-}
-
-async function readEd25519WalletSessionStatusForRuntime(args: {
-  reader: NonNullable<PersistedAvailableSigningLanesDeps['getWalletSessionStatus']>;
-  runtime: ExactEd25519SealedSessionRuntime;
-  walletId: string;
-}): Promise<SigningSessionStatus | null> {
-  const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
-    args.runtime.walletId,
-  );
-  const expectedAuthority = await ed25519SealedRuntimeAuthorityRef(args.runtime);
-  if (
-    authorizationRead.kind !== 'found' ||
-    authorizationRead.projection.authMethod !== signingLaneAuthMethod(args.runtime.auth) ||
-    authorizationRead.projection.authority.authorityDigest !== expectedAuthority.authorityDigest ||
-    authorizationRead.projection.expiresAtMs <= Date.now()
-  ) {
-    return null;
-  }
-  return await readSessionStatusOrNull({
-    reader: args.reader,
-    check: buildWalletSessionStatusCheck({
-      owner: ed25519WalletSessionStatusOwner(args.walletId),
-      authorization: {
-        walletSessionId: authorizationRead.projection.walletSessionId,
-        quotaId: authorizationRead.projection.quotaId,
-      },
-    }),
-  });
-}
-
-async function readValidatedEd25519WarmClaim(args: {
-  deps: Pick<PersistedAvailableSigningLanesDeps, 'statusReader' | 'getEmailOtpWarmSessionStatus'>;
-  runtime: ExactEd25519SealedSessionRuntime;
-  sessionId: string;
-}): Promise<AvailableLaneStateAdvisory | null> {
-  const status =
-    args.runtime.factor.kind === SIGNER_AUTH_METHODS.emailOtp
-      ? await args.deps
-          .getEmailOtpWarmSessionStatus({
-            kind: 'ed25519_yao',
-            thresholdSessionId: args.sessionId,
-            materialActivation: args.runtime.sealedRecord.ed25519Restore.materialActivation,
-          })
-          .catch(() => null)
-      : await args.deps.statusReader
-          .getWarmSessionStatus({ sessionId: args.sessionId })
-          .catch(() => null);
-  if (!status) return null;
-  const advisory = warmStatusToAvailableLaneStateAdvisory({
-    status,
-  });
-  return advisory.kind === 'warm_status' &&
-    (advisory.status === 'cache_miss' || advisory.status === 'unavailable')
-    ? null
-    : advisory;
-}
-
-async function readEd25519StateAdvisoryForRuntime(args: {
-  deps: Pick<PersistedAvailableSigningLanesDeps, 'statusReader' | 'getEmailOtpWarmSessionStatus'>;
-  runtime: ExactEd25519SealedSessionRuntime;
-  sessionId: string;
-}): Promise<AvailableLaneStateAdvisory | null> {
-  const ready = args.runtime.expiresAtMs > Date.now() && args.runtime.remainingUses > 0;
-  if (ready) {
-    const warmAdvisory = await readValidatedEd25519WarmClaim({
-      deps: args.deps,
-      runtime: args.runtime,
-      sessionId: args.sessionId,
-    });
-    if (warmAdvisory) return warmAdvisory;
-  }
-  return durableRecordPolicyAdvisory({
-    remainingUses: args.runtime.remainingUses,
-    expiresAtMs: args.runtime.expiresAtMs,
-    state: ready ? 'ready' : 'deferred',
-  });
-}
-
 export async function readPersistedAvailableSigningLanes(
   deps: PersistedAvailableSigningLanesDeps,
   args: Omit<ReadAvailableSigningLanesInput, 'ecdsaChainTargets'>,
@@ -357,10 +191,6 @@ export async function readPersistedAvailableSigningLanesForTargets(
   },
 ): Promise<AvailableSigningLanes> {
   const walletId = String(toWalletId(args.walletId)).trim();
-  const persistedEd25519RuntimesBySessionId = new Map<
-    string,
-    ExactEd25519SealedSessionRuntime
-  >();
   return await readAvailableSigningLanes(
     {
       ...args,
@@ -424,110 +254,6 @@ export async function readPersistedAvailableSigningLanesForTargets(
           }
         }
         return lanes;
-      },
-      listRuntimeEd25519RecordsForWallet: async ({ walletId: recordWalletId }) => {
-        const records: AvailableSigningLanesRuntimeEd25519Record[] = [];
-        const seen = new Set<string>();
-        const pushRecord = (record: AvailableSigningLanesRuntimeEd25519Record): void => {
-          const identityKey = ed25519AvailableLaneIdentityKey(record);
-          if (!identityKey || seen.has(identityKey)) return;
-          seen.add(identityKey);
-          records.push(record);
-        };
-        const sealedRecords = args.authMethod
-          ? await listExactSealedSessionsForWallet({
-              walletId: recordWalletId,
-              filter: { authMethod: args.authMethod, curve: 'ed25519' },
-            })
-          : (
-              await Promise.all([
-                listExactSealedSessionsForWallet({
-                  walletId: recordWalletId,
-                  filter: { authMethod: SIGNER_AUTH_METHODS.emailOtp, curve: 'ed25519' },
-                }),
-                listExactSealedSessionsForWallet({
-                  walletId: recordWalletId,
-                  filter: { authMethod: SIGNER_AUTH_METHODS.passkey, curve: 'ed25519' },
-                }),
-              ])
-            ).flat();
-        for (const sealedRecord of sealedRecords) {
-          if (sealedRecord.curve !== 'ed25519') continue;
-          const runtime = parseExactEd25519SealedSessionRuntime(sealedRecord);
-          if (!runtime) continue;
-          const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
-            runtime.walletId,
-          );
-          const authorization =
-            authorizationRead.kind === 'found' ? authorizationRead.projection : null;
-          const signingGrantId = authorization
-            ? ed25519SigningGrantForAuthorization({ runtime, authorization })
-            : null;
-          persistedEd25519RuntimesBySessionId.set(runtime.thresholdSessionId, runtime);
-          const base = {
-            auth: runtime.auth,
-            curve: 'ed25519',
-            chain: 'near',
-            walletId: runtime.walletId,
-            nearAccountId: runtime.nearAccountId,
-            nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
-            signerSlot: runtime.signerSlot,
-            materialActivation: runtime.sealedRecord.ed25519Restore.materialActivation,
-            routerAbNormalSigning: runtime.routerAbNormalSigning,
-            thresholdSessionId: runtime.thresholdSessionId,
-            source: 'durable_sealed_record',
-            remainingUses: runtime.remainingUses,
-            expiresAtMs: runtime.expiresAtMs,
-            updatedAtMs: runtime.sealedRecord.updatedAtMs,
-          } as const;
-          pushRecord(
-            authorization && signingGrantId
-              ? {
-                  ...base,
-                  authorizationState: 'authorized',
-                  authorization,
-                  signingGrantId,
-                }
-              : {
-                  ...base,
-                  authorizationState: 'authorization_required',
-                },
-          );
-        }
-        return records;
-      },
-      readWarmStatusAdvisoriesForSessions: async (sessionIds) => {
-        const advisories = new Map<string, AvailableLaneStateAdvisory | null>();
-        await Promise.all(
-          sessionIds.map(async (sessionId) => {
-            const runtime = persistedEd25519RuntimesBySessionId.get(sessionId);
-            if (!runtime) {
-              advisories.set(sessionId, null);
-              return;
-            }
-            const localAdvisory = await readEd25519StateAdvisoryForRuntime({
-              deps,
-              runtime,
-              sessionId,
-            });
-            const walletSessionStatus =
-              deps.getWalletSessionStatus
-                ? await readEd25519WalletSessionStatusForRuntime({
-                    reader: deps.getWalletSessionStatus,
-                    runtime,
-                    walletId,
-                  })
-                : null;
-            advisories.set(
-              sessionId,
-              applyWalletSessionStatusToAdvisory({
-                localAdvisory,
-                walletSessionStatus,
-              }),
-            );
-          }),
-        );
-        return advisories;
       },
     },
   );
