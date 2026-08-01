@@ -65,18 +65,6 @@ export type Ed25519WalletSessionMintAuthorization =
       localPrfCredential?: never;
       webauthnAuthentication?: never;
       localPrfFirstB64u?: never;
-    }
-  | {
-      kind: 'router_ab_ed25519_yao_budget_refresh_v1';
-      policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
-      appSessionJwt?: never;
-      priorWalletSessionJwt?: never;
-      thresholdEcdsaSessionJwt?: never;
-      localSecretSource?: never;
-      useAppSessionCookie?: never;
-      localPrfCredential?: never;
-      webauthnAuthentication?: never;
-      localPrfFirstB64u?: never;
     };
 
 function requireNonEmptyEd25519SecretSourceString(value: unknown, field: string): string {
@@ -132,7 +120,6 @@ export function localPrfFirstForEd25519WalletSessionMintAuthorization(
     case 'app_session_cookie':
       return auth.localSecretSource.secretSource.prfFirstB64u;
     case 'threshold_session_policy_webauthn':
-    case 'router_ab_ed25519_yao_budget_refresh_v1':
       return auth.policySecretSource.secretSource.prfFirstB64u;
     default: {
       const exhaustive: never = auth;
@@ -188,8 +175,7 @@ export async function mintEd25519WalletSession(args: {
   }
 
   const webauthn_authentication =
-    args.auth.kind === 'threshold_session_policy_webauthn' ||
-    args.auth.kind === 'router_ab_ed25519_yao_budget_refresh_v1'
+    args.auth.kind === 'threshold_session_policy_webauthn'
       ? redactCredentialExtensionOutputs(args.auth.policySecretSource.credential)
       : undefined;
 
