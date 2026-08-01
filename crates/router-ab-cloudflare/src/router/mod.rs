@@ -824,12 +824,6 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
                 }
             }
         }
-        if self.threshold_session_id != request.scope.material_activation.lifecycle_binding {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session material lifecycle does not match normal-signing scope",
-            ));
-        }
         if self.signing_worker_id != request.scope.signing_worker_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
@@ -882,12 +876,6 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
                     ));
                 }
             }
-        }
-        if self.threshold_session_id != request.scope.material_activation.lifecycle_binding {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session material lifecycle does not match normal-signing finalize scope",
-            ));
         }
         if self.signing_worker_id != request.scope.signing_worker_id {
             return Err(RouterAbProtocolError::new(
