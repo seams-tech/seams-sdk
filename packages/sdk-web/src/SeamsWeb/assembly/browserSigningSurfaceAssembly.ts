@@ -8,7 +8,7 @@ import {
   type ReusableWalletSessionStatusAuth,
 } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningOperation } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
-import { readTrustedWalletSigningSessionStatus as readTrustedWalletSigningSessionStatusOperation } from '@/core/signingEngine/session/lifecycle/walletSessionStatus';
+import { createCanonicalWalletSessionStatusReader } from '@/core/signingEngine/session/lifecycle/canonicalWalletSessionStatus';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { BrowserSealedSigningSessionStorePorts } from './createBrowserSigningStores';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
@@ -137,6 +137,31 @@ async function resolveExactWalletAuthAuthority(
     return sealedRecord.ecdsaRestore.emailOtpAuthority;
   }
   throw new Error('Exact wallet authentication authority is unavailable');
+}
+
+export function createBrowserCanonicalWalletSessionStatusReader(
+  args: BrowserEcdsaCapabilityReaderContext,
+) {
+  return createCanonicalWalletSessionStatusReader({
+    relayerUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
+    readAuthorization: async (walletId) => {
+      const read = await walletSessionAuthorizations.readActiveForWallet(walletId);
+      return read.kind === 'found' ? read.projection : null;
+    },
+    resolveAppSessionJwt: async (projection) => {
+      const raw = await args.emailOtpSessions
+        .resolveAppSessionJwt({
+          walletSession: {
+            walletId: projection.walletId,
+            walletSessionUserId: String(projection.authority.authorityDigest),
+          },
+          relayUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
+        })
+        .catch(() => '');
+      const parsed = parseAppSessionJwt(raw);
+      return parsed.ok ? parsed.value : null;
+    },
+  });
 }
 
 export type BrowserWalletSessionAuthorizationResolution =
@@ -502,6 +527,7 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
 export function createBrowserSigningSurfaceEnginePorts(
   args: BrowserSigningSurfaceEnginePortsArgs,
 ): SigningEnginePorts {
+  const readCanonicalWalletSessionStatus = createBrowserCanonicalWalletSessionStatusReader(args);
   return createSigningEnginePorts({
     runtimePorts: args.runtimePorts,
     stores: args.stores,
@@ -525,12 +551,7 @@ export function createBrowserSigningSurfaceEnginePorts(
         thresholdSessionId: sessionId,
       }),
     getWalletSessionStatus: (statusArgs) =>
-      readTrustedWalletSigningSessionStatusOperation(
-        {
-          ecdsaSessions: args.warmSigning.ecdsaSessions,
-        },
-        statusArgs,
-      ),
+      readCanonicalWalletSessionStatus(statusArgs),
     resolveCanonicalEcdsaSigningCapability: (input) =>
       getBrowserCanonicalEcdsaSigningCapability(args, input),
     resolveAuthorizedEcdsaSigningCapability: (input) =>
@@ -605,7 +626,7 @@ export function createBrowserSigningSurfaceEnginePorts(
           getEmailOtpWarmSessionStatus: (target) =>
             args.emailOtpSessions.readWarmSessionStatusOnly(target),
           getWalletSessionStatus: (statusArgs) =>
-            args.getEnginePorts().signingSessionCoordinator.getAvailableStatus(statusArgs),
+            readCanonicalWalletSessionStatus(statusArgs),
         },
         readArgs,
         configuredThresholdEcdsaChainTargets(args.seamsWebConfigs.network.chains),

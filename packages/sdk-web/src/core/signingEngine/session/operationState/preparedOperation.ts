@@ -1,5 +1,5 @@
 import type { SensitiveOperationPolicy, SignerAuthMethod } from '@shared/utils/signerDomain';
-import type { WalletSessionStatusAuth } from '../lifecycle/walletSessionStatus';
+import type { WalletSessionStatusIdentity } from '../lifecycle/walletSessionStatus';
 import type {
   SigningPlannerDecisionTraceEvent,
   SigningSessionReadiness,
@@ -35,7 +35,7 @@ export type ThresholdSigningReadinessInput = {
   expiresAtMs?: number;
   remainingUses?: number;
   usesNeeded?: number;
-  trustedStatusAuth?: WalletSessionStatusAuth;
+  trustedStatusAuth?: WalletSessionStatusIdentity;
 };
 
 export type ThresholdSigningOperationCoordinator = {
@@ -46,7 +46,7 @@ export type ThresholdSigningOperationCoordinator = {
       expiresAtMs?: number;
       remainingUses?: number;
       usesNeeded?: number;
-      trustedStatusAuth?: WalletSessionStatusAuth;
+      trustedStatusAuth?: WalletSessionStatusIdentity;
       forceFreshAuth?: boolean;
       sensitiveOperationPolicy?: SensitiveOperationPolicy | null;
       missingWhenExpiresAtMissing?: boolean;
@@ -72,7 +72,7 @@ export type PreparedThresholdSigningOperation<
   readiness: SigningSessionReadiness;
   expiresAtMs: number;
   remainingUses: number;
-  trustedStatusAuth?: WalletSessionStatusAuth;
+  trustedStatusAuth?: WalletSessionStatusIdentity;
   availableLanesGeneration: number;
   metadata: TMetadata;
 };

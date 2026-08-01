@@ -30,7 +30,6 @@ import { unknownSigningSessionStatus } from '../lifecycle/walletSessionStatus';
 import {
   ed25519WalletSessionStatusOwner,
   normalizeSessionStatusRequired,
-  thresholdSessionIdsForSessionStatusCheck,
   walletSessionStatusOwnerKey,
   type SigningSessionStatusCheck,
   type WalletSessionStatusOwner,
@@ -596,25 +595,6 @@ export async function readWalletScopedLaneClaimsForLanes(args: {
     claimsByThresholdSessionId: rawClaims,
     statusOverrides: args.statusOverrides,
   });
-}
-
-function targetSessionSetsForSessionStatusCheck(check: SigningSessionStatusCheck): {
-  backingMaterialSessionIds: Set<string>;
-  thresholdSessionIds: Set<string>;
-} {
-  return {
-    backingMaterialSessionIds:
-      check.kind === 'backing_material_session_status_check'
-        ? new Set(check.targetBackingMaterialSessionIds.map(normalizeNonEmpty).filter(Boolean))
-        : new Set<string>(),
-    thresholdSessionIds:
-      check.kind === 'threshold_session_status_check' ||
-      check.kind === 'authenticated_threshold_session_status_check'
-        ? new Set(
-            thresholdSessionIdsForSessionStatusCheck(check).map(normalizeNonEmpty).filter(Boolean),
-          )
-        : new Set<string>(),
-  };
 }
 
 export async function readDirectSigningSessionStatusForTargets(args: {

@@ -7,9 +7,8 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import {
-  buildAuthenticatedThresholdSessionStatusCheck,
+  buildWalletSessionStatusCheck,
   ed25519WalletSessionStatusOwner,
-  type WalletSessionStatusAuth,
   type SigningSessionStatusCheck,
 } from '../lifecycle/walletSessionStatus';
 import {
@@ -197,33 +196,6 @@ function applyWalletSessionStatusToAdvisory(args: {
   return args.localAdvisory;
 }
 
-type PersistedSessionStatusAuthParseResult =
-  | {
-      kind: 'authenticated';
-      auth: WalletSessionStatusAuth;
-    }
-  | {
-      kind: 'unavailable';
-      auth?: never;
-    };
-
-function parsePersistedSessionStatusAuth(record: {
-  relayerUrl: unknown;
-  thresholdSessionId: unknown;
-  walletSessionJwt: unknown;
-}): PersistedSessionStatusAuthParseResult {
-  const relayerUrl = String(record.relayerUrl || '').trim();
-  const thresholdSessionId = String(record.thresholdSessionId || '').trim();
-  const walletSessionJwt = String(record.walletSessionJwt || '').trim();
-  if (!relayerUrl || !thresholdSessionId || !walletSessionJwt) {
-    return { kind: 'unavailable' };
-  }
-  return {
-    kind: 'authenticated',
-    auth: { relayerUrl, thresholdSessionId, walletSessionJwt },
-  };
-}
-
 async function readSessionStatusOrNull(args: {
   reader: NonNullable<PersistedAvailableSigningLanesDeps['getWalletSessionStatus']>;
   check: SigningSessionStatusCheck;
@@ -252,24 +224,14 @@ async function readEd25519WalletSessionStatusForRuntime(args: {
   ) {
     return null;
   }
-  const parsedAuth = parsePersistedSessionStatusAuth({
-    relayerUrl: args.runtime.relayerUrl,
-    thresholdSessionId: args.runtime.thresholdSessionId,
-    walletSessionJwt: authorizationRead.projection.walletSessionJwt,
-  });
-  if (parsedAuth.kind === 'unavailable') return null;
-  const signingGrantId = ed25519SigningGrantForAuthorization({
-    runtime: args.runtime,
-    authorization: authorizationRead.projection,
-  });
-  if (!signingGrantId) return null;
   return await readSessionStatusOrNull({
     reader: args.reader,
-    check: buildAuthenticatedThresholdSessionStatusCheck({
+    check: buildWalletSessionStatusCheck({
       owner: ed25519WalletSessionStatusOwner(args.walletId),
-      signingGrantId,
-      targetThresholdSessionIds: [args.runtime.thresholdSessionId],
-      trustedStatusAuth: parsedAuth.auth,
+      authorization: {
+        walletSessionId: authorizationRead.projection.walletSessionId,
+        quotaId: authorizationRead.projection.quotaId,
+      },
     }),
   });
 }

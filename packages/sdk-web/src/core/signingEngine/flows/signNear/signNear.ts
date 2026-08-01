@@ -90,7 +90,7 @@ import {
   waitForSigningGrantAdmissionRetry,
 } from '../../session/operationState/authorizationAdmission';
 import { signingLaneAuthBindingKey } from '../../session/identity/signingLaneAuthBinding';
-import type { WalletSessionStatusAuth } from '../../session/lifecycle/walletSessionStatus';
+import type { WalletSessionStatusIdentity } from '../../session/lifecycle/walletSessionStatus';
 import {
 } from '../../threshold/sessionPolicy';
 import { signingAuthPlanFromSigningSessionPlan } from '../shared/signingConfirmation';
@@ -443,22 +443,14 @@ function requireResolvedNearEd25519SigningLane(
   };
 }
 
-function trustedSessionStatusAuthFromNearPreparation(
+function walletSessionStatusIdentityFromNearPreparation(
   preparation: NearEd25519YaoSigningPreparation,
-  relayerUrlRaw: string,
-  thresholdSessionIdRaw: string,
-): WalletSessionStatusAuth | null {
+): WalletSessionStatusIdentity | null {
   if (preparation.authorization.kind !== 'authorized') return null;
-  const relayerUrl = String(relayerUrlRaw || '').trim();
-  const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
-  const walletSessionJwt = String(
-    preparation.authorization.authorization.projection.walletSessionJwt || '',
-  ).trim();
-  if (!relayerUrl || !thresholdSessionId || !walletSessionJwt) return null;
+  const projection = preparation.authorization.authorization.projection;
   return {
-    relayerUrl,
-    thresholdSessionId,
-    walletSessionJwt,
+    walletSessionId: projection.walletSessionId,
+    quotaId: projection.quotaId,
   };
 }
 
@@ -1209,11 +1201,7 @@ async function prepareNearEd25519TransactionOperation(args: {
   );
   const transactionOperation = prepareTransactionOperationFromReadiness(transactionReadinessState);
   const identity = requireResolvedNearEd25519SigningLane(lane);
-  const trustedStatusAuth = trustedSessionStatusAuthFromNearPreparation(
-    args.preparation,
-    args.deps.getSignerWorkerContext().relayerUrl,
-    selectedSessionLane.thresholdSessionId,
-  );
+  const trustedStatusAuth = walletSessionStatusIdentityFromNearPreparation(args.preparation);
   const readinessInput = {
     readiness: readiness.readiness,
     expiresAtMs: readiness.expiresAtMs,
