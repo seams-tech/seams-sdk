@@ -25,7 +25,6 @@ import {
 const SEALED_RECORD = buildPasskeyEd25519SealedSessionRecordFixture();
 const WALLET_ID = SEALED_RECORD.walletId;
 const THRESHOLD_SESSION_ID = SEALED_RECORD.thresholdSessionIds.ed25519;
-const SIGNING_GRANT_ID = `grant:${THRESHOLD_SESSION_ID}`;
 
 type SessionPersistenceCall = { kind: 'hydrate' | 'persist'; input: unknown };
 
@@ -137,7 +136,6 @@ test('persists and verifies a passkey Yao session seal for page refresh', async 
       curve: 'ed25519',
       authMethod: 'passkey',
       walletId: WALLET_ID,
-      signingGrantId: SIGNING_GRANT_ID,
       walletSessionJwt: fixture.walletSessionJwt,
       ed25519Restore: fixture.ed25519Restore,
     },

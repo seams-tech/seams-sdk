@@ -70,7 +70,6 @@ export async function persistPasskeyEd25519YaoSessionForRefresh(
   input: PersistPasskeyEd25519YaoSessionForRefreshInput,
 ): Promise<void> {
   const sessionId = String(input.session.thresholdSessionId || '').trim();
-  const signingGrantId = String(input.session.signingGrantId || '').trim();
   const walletSessionJwt = String(input.session.walletSessionAuth.walletSessionJwt || '').trim();
   const walletId = String(
     input.session.signingLane.identity.signer.account.wallet.walletId || '',
@@ -84,7 +83,6 @@ export async function persistPasskeyEd25519YaoSessionForRefresh(
   }
   if (
     !sessionId ||
-    !signingGrantId ||
     !walletSessionJwt ||
     !walletId ||
     !prfFirstB64u ||
@@ -112,7 +110,6 @@ export async function persistPasskeyEd25519YaoSessionForRefresh(
     authMethod: 'passkey',
     walletId,
     relayerUrl: input.session.relayerUrl,
-    signingGrantId,
     walletSessionJwt,
     ed25519Restore: input.ed25519Restore,
   } as const;
