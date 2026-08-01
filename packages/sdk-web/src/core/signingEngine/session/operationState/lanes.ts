@@ -18,7 +18,6 @@ import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdenti
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type {
-  BackingMaterialSessionId,
   SelectedEcdsaSigningSessionPlanningLane,
   SelectedSigningSessionPlanningLane,
   SigningSessionOrigin,
@@ -35,9 +34,7 @@ export type Ed25519PasskeySigningLaneSource = Exclude<
 export type EcdsaPasskeySigningLaneSource = Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
 
 type CommonSigningLaneInput = {
-  backingMaterialSessionId?: BackingMaterialSessionId;
   retention?: SigningSessionRetention;
-  activeSignerSlot?: number;
 };
 type BaseEd25519SigningLaneInput = CommonSigningLaneInput & {
   signingGrantId: SigningGrantId;
@@ -56,7 +53,7 @@ type BaseEcdsaSigningLaneInput = CommonSigningLaneInput & {
 export type NearTransactionSigningLane = SelectedEd25519Lane & SelectedSigningSessionPlanningLane;
 export type EcdsaTransactionSigningLane = SelectedEcdsaLane & SelectedSigningSessionPlanningLane;
 type OptionalRetention<TLane extends NearTransactionSigningLane | EcdsaTransactionSigningLane> =
-  Omit<TLane, 'retention' | 'runtimeState'> & {
+  Omit<TLane, 'retention'> & {
     retention?: SigningSessionRetention;
   };
 type BuildSigningLaneInput<TLane extends NearTransactionSigningLane | EcdsaTransactionSigningLane> =
@@ -127,10 +124,6 @@ export function buildEd25519PasskeySigningLane(
     storageSource: input.storageSource,
     sessionOrigin:
       input.sessionOrigin || signingSessionOriginFromStorageSource(input.storageSource),
-    ...(input.backingMaterialSessionId
-      ? { backingMaterialSessionId: input.backingMaterialSessionId }
-      : {}),
-    ...(input.activeSignerSlot ? { activeSignerSlot: input.activeSignerSlot } : {}),
     ...(input.retention ? { retention: input.retention } : {}),
   });
 }
@@ -153,10 +146,6 @@ export function buildEd25519EmailOtpSigningLane(
     chainFamily: 'near',
     storageSource: 'email_otp',
     sessionOrigin: input.sessionOrigin || 'per_operation',
-    ...(input.backingMaterialSessionId
-      ? { backingMaterialSessionId: input.backingMaterialSessionId }
-      : {}),
-    ...(input.activeSignerSlot ? { activeSignerSlot: input.activeSignerSlot } : {}),
     ...(input.retention ? { retention: input.retention } : {}),
   });
 }
@@ -180,10 +169,6 @@ export function buildEcdsaPasskeySigningLane(
     storageSource: input.storageSource,
     sessionOrigin:
       input.sessionOrigin || signingSessionOriginFromStorageSource(input.storageSource),
-    ...(input.backingMaterialSessionId
-      ? { backingMaterialSessionId: input.backingMaterialSessionId }
-      : {}),
-    ...(input.activeSignerSlot ? { activeSignerSlot: input.activeSignerSlot } : {}),
     ...(input.retention ? { retention: input.retention } : {}),
   });
 }
@@ -206,10 +191,6 @@ export function buildEcdsaEmailOtpSigningLane(
     chainFamily: input.chainTarget.kind,
     storageSource: 'email_otp',
     sessionOrigin: input.sessionOrigin || 'per_operation',
-    ...(input.backingMaterialSessionId
-      ? { backingMaterialSessionId: input.backingMaterialSessionId }
-      : {}),
-    ...(input.activeSignerSlot ? { activeSignerSlot: input.activeSignerSlot } : {}),
     ...(input.retention ? { retention: input.retention } : {}),
   });
 }
@@ -287,39 +268,8 @@ function buildSigningLane<TLane extends NearTransactionSigningLane | EcdsaTransa
 ): TLane {
   return {
     ...input,
-    ...runtimeStateFromLaneInput(input),
     retention: input.retention || 'session',
   } as TLane;
-}
-
-function runtimeStateFromLaneInput(input: {
-  backingMaterialSessionId?: BackingMaterialSessionId;
-  activeSignerSlot?: number;
-}):
-  | { runtimeState: 'no_runtime_material' }
-  | { runtimeState: 'backing_material'; backingMaterialSessionId: BackingMaterialSessionId }
-  | { runtimeState: 'active_signer'; activeSignerSlot: number }
-  | {
-      runtimeState: 'backing_material_with_active_signer';
-      backingMaterialSessionId: BackingMaterialSessionId;
-      activeSignerSlot: number;
-    } {
-  const backingMaterialSessionId = input.backingMaterialSessionId;
-  const activeSignerSlot = Math.floor(Number(input.activeSignerSlot) || 0);
-  if (backingMaterialSessionId && activeSignerSlot > 0) {
-    return {
-      runtimeState: 'backing_material_with_active_signer',
-      backingMaterialSessionId,
-      activeSignerSlot,
-    };
-  }
-  if (backingMaterialSessionId) {
-    return { runtimeState: 'backing_material', backingMaterialSessionId };
-  }
-  if (activeSignerSlot > 0) {
-    return { runtimeState: 'active_signer', activeSignerSlot };
-  }
-  return { runtimeState: 'no_runtime_material' };
 }
 
 function signingSessionOriginFromStorageSource(
