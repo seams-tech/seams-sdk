@@ -78,7 +78,7 @@ export type Ed25519YaoLocalMaterialIdentity = {
   signingWorkerId: string;
 };
 
-type Ed25519YaoLocalMaterialBindingV1 = {
+export type Ed25519YaoLocalMaterialBindingV1 = {
   kind: typeof ED25519_YAO_LOCAL_MATERIAL_KEY_KIND;
   walletId: string;
   nearAccountId: string;
@@ -446,7 +446,9 @@ function assertBindingIdentity(
   }
 }
 
-function parseStoredBindingValue(value: unknown): Ed25519YaoLocalMaterialBindingV1 {
+export function parsePasskeyEd25519YaoLocalMaterialBindingV1(
+  value: unknown,
+): Ed25519YaoLocalMaterialBindingV1 {
   const record = asRecord(value);
   if (!record || record.kind !== ED25519_YAO_LOCAL_MATERIAL_KEY_KIND) {
     throw new Error('Stored Ed25519 Client material binding is invalid');
@@ -494,10 +496,7 @@ function parseStoredBindingValue(value: unknown): Ed25519YaoLocalMaterialBinding
   };
   if (
     binding.materialActivation.materialOwner !== binding.walletId ||
-    binding.materialActivation.keyBinding !== binding.registeredPublicKeyB64u ||
-    binding.materialActivation.lifecycleBinding !== binding.lifecycleId ||
-    binding.materialActivation.signingWorker !== binding.signingWorkerId ||
-    binding.materialActivation.capability !== binding.activationCapabilityBindingB64u
+    binding.materialActivation.signingWorker !== binding.signingWorkerId
   ) {
     throw new Error('Stored Ed25519 Client material activation does not match its binding');
   }
@@ -508,7 +507,7 @@ function parseStoredBinding(
   value: unknown,
   identity: Ed25519YaoLocalMaterialIdentity,
 ): Ed25519YaoLocalMaterialBindingV1 {
-  const binding = parseStoredBindingValue(value);
+  const binding = parsePasskeyEd25519YaoLocalMaterialBindingV1(value);
   assertBindingIdentity(binding, identity);
   return binding;
 }
@@ -539,7 +538,7 @@ async function parseStoredLocalMaterialLocator(args: {
   if (!record) {
     throw new Error('Stored Ed25519 Client local material locator is invalid');
   }
-  const binding = parseStoredBindingValue(record.binding);
+  const binding = parsePasskeyEd25519YaoLocalMaterialBindingV1(record.binding);
   const expectedPublicKey = `ed25519:${base58Encode(base64UrlDecode(binding.registeredPublicKeyB64u))}`;
   const envelope = args.stored.payloadEnvelope;
   if (
