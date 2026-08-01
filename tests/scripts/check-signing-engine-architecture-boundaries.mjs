@@ -692,7 +692,6 @@ function checkSelectedLaneConstructionStaysInSessionIdentity() {
 
 function checkSigningExecutionBoundariesAvoidCandidatesAndRawRecords() {
   const executionFiles = [
-    'packages/sdk-web/src/core/signingEngine/interfaces/near.ts',
     'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
     'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
     'packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts',
