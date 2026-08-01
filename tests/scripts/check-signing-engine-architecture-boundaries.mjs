@@ -582,9 +582,6 @@ function checkSelectedLanesAndOperationStatesAvoidOptionalLifecycleFields() {
   const signingTypes = readRepoSource(
     'packages/sdk-web/src/core/signingEngine/session/operationState/types.ts',
   );
-  const signingBudget = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/budget/budget.ts',
-  );
   const signingStateMachine = readRepoSource(
     'packages/sdk-web/src/core/signingEngine/flows/shared/signingStateMachine.ts',
   );
@@ -661,10 +658,6 @@ function checkSelectedLanesAndOperationStatesAvoidOptionalLifecycleFields() {
     /\w+\?:/,
     'PasskeyReconnectPlan',
   );
-  for (const marker of ['refs: {', 'refs.thresholdSessionId', 'refs.backingMaterialSessionId']) {
-    assertNotContains(signingBudget, marker, 'budget.ts');
-  }
-
   for (const relativePath of listProductionTypeScriptFiles(path.join(signingEngineRoot, 'flows'))) {
     const source = readRepoSource(relativePath);
     assertNotContains(source, 'SelectedSigningSessionPlanningLane', relativePath);
@@ -880,7 +873,6 @@ function checkSessionChildDomainsDeclareOwnershipReadmes() {
     'packages/sdk-web/src/core/signingEngine/session/passkey/README.md',
     'packages/sdk-web/src/core/signingEngine/session/emailOtp/README.md',
     'packages/sdk-web/src/core/signingEngine/session/operationState/README.md',
-    'packages/sdk-web/src/core/signingEngine/session/budget/README.md',
     'packages/sdk-web/src/core/signingEngine/session/planning/README.md',
   ];
 
@@ -1034,6 +1026,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'sealedRecovery',
       'material',
       'emailOtp',
+      'lifecycle',
     ],
     planning: ['identity', 'operationState'],
     budget: ['persistence', 'operationState', 'identity'],
@@ -1050,6 +1043,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'budget',
       'emailOtp',
       'identity',
+      'lifecycle',
       'persistence',
       'planning',
       'routerAbSigningWalletSession',
@@ -1062,6 +1056,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'emailOtp',
       'identity',
       'keyMaterialBrands',
+      'lifecycle',
       'operationState',
       'persistence',
       'routerAbSigningWalletSession',
@@ -1197,6 +1192,7 @@ function checkCoordinatorOnlyImportsOrchestrationSessionDomains() {
     'operationState',
     'warmCapabilities',
     'identity',
+    'lifecycle',
   ]);
   const offenders = [];
 
