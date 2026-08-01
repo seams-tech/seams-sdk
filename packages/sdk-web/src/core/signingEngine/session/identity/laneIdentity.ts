@@ -481,6 +481,7 @@ type BaseEd25519LaneCandidate = BaseLaneCandidate & {
   nearAccountId: AccountId;
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signerSlot: number;
+  materialActivation: MpcMaterialActivationRef;
   accountId?: never;
   curve: 'ed25519';
   chain: 'near';
