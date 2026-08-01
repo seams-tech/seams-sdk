@@ -1,8 +1,23 @@
 import type { KeyMaterialRecord } from '../../../packages/sdk-web/src/core/indexedDB/keyMaterial.types';
+import type { RouterAbMpcMaterialActivationRefWire } from '../../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 
-export function buildActiveClientKeyMaterialRecord(source: KeyMaterialRecord): KeyMaterialRecord {
+function requireFixtureRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} is unavailable`);
+  }
+  return value as Record<string, unknown>;
+}
+
+export function buildActiveClientKeyMaterialRecord(
+  source: KeyMaterialRecord,
+  materialActivation: RouterAbMpcMaterialActivationRefWire,
+): KeyMaterialRecord {
   const envelope = source.payloadEnvelope;
   if (!envelope) throw new Error('recovery source fixture requires a payload envelope');
+  const sourceBinding = requireFixtureRecord(
+    source.payload?.binding,
+    'recovery source fixture binding',
+  );
 
   return {
     profileId: source.profileId,
@@ -14,7 +29,21 @@ export function buildActiveClientKeyMaterialRecord(source: KeyMaterialRecord): K
     publicKey: source.publicKey,
     signerId: source.signerId,
     wrapKeySalt: source.wrapKeySalt,
-    payload: source.payload,
+    payload: {
+      ...source.payload,
+      binding: {
+        ...sourceBinding,
+        materialActivation: {
+          kind: materialActivation.kind,
+          activationId: materialActivation.activation_id,
+          capability: materialActivation.capability,
+          materialOwner: materialActivation.material_owner,
+          keyBinding: materialActivation.key_binding,
+          lifecycleBinding: materialActivation.lifecycle_binding,
+          signingWorker: materialActivation.signing_worker,
+        },
+      },
+    },
     payloadEnvelope: {
       encVersion: envelope.encVersion,
       alg: envelope.alg,
