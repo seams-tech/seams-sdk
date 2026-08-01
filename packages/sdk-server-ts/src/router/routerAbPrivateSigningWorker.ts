@@ -224,6 +224,7 @@ type AcceptedRouteAdmission = {
   thresholdSessionId: string;
   requestId: string;
   expiresAtMs: number;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
 };
 
 type AcceptedEcdsaRouteAdmission = AcceptedRouteAdmission & {
@@ -1626,6 +1627,7 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
   readonly session: SessionAdapter | null | undefined;
   readonly authorizationClaims: RouterApiAuthorizationClaimService | null | undefined;
   readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
+  readonly resolveEd25519MaterialActivation: RouterApiWalletRegistrationService['resolveEd25519MaterialActivation'];
   readonly phase: RouterAbEd25519NormalSigningRoutePhase;
   readonly scope: RouterAbEd25519NormalSigningScopeV2;
 }): Promise<
@@ -1656,6 +1658,32 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
     authorizationSessions: input.authorizationSessions,
   });
   if (!authenticated.ok) return authenticated.error;
+
+  const activeMaterial = await input.resolveEd25519MaterialActivation({
+    walletId: authenticated.session.walletId,
+    materialActivation: input.scope.material_activation,
+  });
+  if (!activeMaterial.ok) {
+    return routerAbStepUpError(
+      activeMaterial.code === 'internal' ? 500 : 403,
+      activeMaterial.code === 'internal' ? 'internal' : 'scope_mismatch',
+      activeMaterial.code === 'internal'
+        ? activeMaterial.message
+        : 'Operation step-up material is no longer active',
+    );
+  }
+  if (
+    !sameRouterAbMpcMaterialActivationRef(
+      activeMaterial.materialActivation,
+      input.scope.material_activation,
+    )
+  ) {
+    return routerAbStepUpError(
+      403,
+      'scope_mismatch',
+      'Operation step-up scope does not name the active material',
+    );
+  }
 
   const expiresAtMs = Number(input.body.expires_at_ms);
   if (
@@ -2037,6 +2065,7 @@ export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
   authorizationClaims: RouterApiAuthorizationClaimService | null | undefined;
   authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
+  resolveEd25519MaterialActivation: RouterApiWalletRegistrationService['resolveEd25519MaterialActivation'];
   phase: RouterAbEd25519NormalSigningRoutePhase;
 }): Promise<RouterAbEd25519NormalSigningAuthorizationResult> {
   const invalidSessionKind = rejectRouterAbCookieSessionKind(
@@ -2068,6 +2097,7 @@ export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
         session: input.session,
         authorizationClaims: input.authorizationClaims,
         authorizationSessions: input.authorizationSessions,
+        resolveEd25519MaterialActivation: input.resolveEd25519MaterialActivation,
         phase: input.phase,
         scope,
       });
@@ -2100,6 +2130,38 @@ export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
     return {
       ok: false,
       result: { status: admission.error.status, body: admission.error.body },
+    };
+  }
+
+  const activeMaterial = await input.resolveEd25519MaterialActivation({
+    walletId: validated.walletSessionAuth.userId,
+    materialActivation: admission.materialActivation,
+  });
+  if (!activeMaterial.ok) {
+    return {
+      ok: false,
+      result: routerAbStepUpError(
+        activeMaterial.code === 'internal' ? 500 : 403,
+        activeMaterial.code === 'internal' ? 'internal' : 'wallet_session_scope_mismatch',
+        activeMaterial.code === 'internal'
+          ? activeMaterial.message
+          : 'Reusable Wallet Session material is no longer active',
+      ),
+    };
+  }
+  if (
+    !sameRouterAbMpcMaterialActivationRef(
+      activeMaterial.materialActivation,
+      admission.materialActivation,
+    )
+  ) {
+    return {
+      ok: false,
+      result: routerAbStepUpError(
+        403,
+        'wallet_session_scope_mismatch',
+        'Reusable Wallet Session material does not match the active material',
+      ),
     };
   }
 
@@ -2137,6 +2199,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
   authorizationClaims: RouterApiAuthorizationClaimService | null | undefined;
   authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
+  resolveEd25519MaterialActivation: RouterApiWalletRegistrationService['resolveEd25519MaterialActivation'];
   privatePath: RouterAbEd25519PrivateSigningPath;
   phase: RouterAbEd25519NormalSigningRoutePhase;
 }): Promise<RouterAbJsonRouteResult> {
@@ -2466,6 +2529,7 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
     thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
     requestId: scope.request_id,
     expiresAtMs,
+    materialActivation: scope.material_activation,
   };
 }
 

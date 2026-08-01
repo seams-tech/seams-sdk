@@ -1002,6 +1002,57 @@ export class D1WalletStore implements WalletStore {
     return parseWalletEd25519SignerRecord(parseD1JsonColumn(rows[0]?.record_json));
   }
 
+  async getEd25519SignerByMaterialActivation(input: {
+    walletId: WalletId;
+    materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<WalletEd25519SignerRecord | null> {
+    await this.ensureSchema();
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!walletId) return null;
+    const result = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_signers
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND signer_family = 'ed25519'
+            AND json_extract(
+              record_json,
+              '$.activeYaoCapability.admissionRequest.scope.material_activation.activation_id'
+            ) = ?
+          LIMIT 4`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        walletId,
+        input.materialActivation.activation_id,
+      )
+      .all<D1WalletRow>();
+    const matches = (result.results || [])
+      .map((row) => parseWalletEd25519SignerRecord(parseD1JsonColumn(row.record_json)))
+      .filter(
+        (record): record is WalletEd25519SignerRecord =>
+          record !== null &&
+          record.walletId === walletId &&
+          sameRouterAbMpcMaterialActivationRef(
+            record.activeYaoCapability.admissionRequest.scope.material_activation,
+            input.materialActivation,
+          ),
+      );
+    if (matches.length === 0) return null;
+    const signerId = matches[0]?.signerId;
+    if (!signerId || matches.some((record) => record.signerId !== signerId)) {
+      throw new Error('Wallet has conflicting Ed25519 material activations');
+    }
+    return matches[0] ?? null;
+  }
+
   async getEd25519SignerBySlot(input: {
     walletId: WalletId;
     signerSlot: number;
