@@ -1507,7 +1507,7 @@ export class CloudflareD1WalletAddSignerService {
           walletId: ceremony.intent.walletId,
           nearAccountId,
           nearEd25519SigningKeyId,
-          thresholdSessionId: activation.activation.admissionRequest.scope.wallet_session_id,
+          thresholdSessionId: activation.activation.admissionRequest.scope.threshold_session_id,
           signerSlot: selection.signerSlot,
           publicKey,
           signingWorkerId: yaoRuntime.signingWorkerId,
@@ -1546,7 +1546,7 @@ export class CloudflareD1WalletAddSignerService {
         signer.signerSlot !== response.ed25519.signerSlot ||
         signer.nearAccountId !== response.ed25519.nearAccountId ||
         signer.nearEd25519SigningKeyId !== response.ed25519.nearEd25519SigningKeyId ||
-        signer.thresholdSessionId !== activation.activation.admissionRequest.scope.wallet_session_id ||
+        signer.thresholdSessionId !== activation.activation.admissionRequest.scope.threshold_session_id ||
         signer.publicKey !== response.ed25519.publicKey ||
         signer.signingWorkerId !== response.ed25519.relayerKeyId ||
         signer.keyVersion !== response.ed25519.keyVersion ||

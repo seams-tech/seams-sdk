@@ -78,7 +78,7 @@ async function admissionRequest(
       lifecycle_id: 'wallet-add-signer-ceremony-1',
       root_share_epoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
       account_id: String(intent.walletId),
-      wallet_session_id: 'wallet-add-signer-ceremony-1',
+      threshold_session_id: 'wallet-add-signer-ceremony-1',
       signer_set_id: registrationNearEd25519BranchKey(selection.signerSlot),
       signing_worker_id: 'signing-worker-1',
     },

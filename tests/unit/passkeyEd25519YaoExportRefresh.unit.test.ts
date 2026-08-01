@@ -143,7 +143,7 @@ class ActiveYaoClientFixture implements RouterAbEd25519YaoActiveClientV1 {
         lifecycle_id: 'lifecycle-passkey-export-refresh',
         root_share_epoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
         account_id: String(WALLET_ID),
-        wallet_session_id: THRESHOLD_SESSION_ID,
+        threshold_session_id: THRESHOLD_SESSION_ID,
         signer_set_id: 'near-primary',
         signing_worker_id: RELAYER_KEY_ID,
         material_activation: routerAbMpcMaterialActivationRefToWire(MATERIAL_ACTIVATION),

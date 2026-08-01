@@ -374,7 +374,7 @@ function bindingFromActiveClient(args: {
     credentialIdB64u: args.identity.credentialIdB64u,
     lifecycleId: requireNonEmpty(metadata.scope.lifecycle_id, 'lifecycleId'),
     thresholdSessionId: requireNonEmpty(
-      metadata.scope.wallet_session_id,
+      metadata.scope.threshold_session_id,
       'thresholdSessionId',
     ),
     materialActivation: nearEd25519YaoMaterialActivationFromMetadata(metadata),
@@ -617,7 +617,7 @@ function metadataFromBinding(
       lifecycle_id: binding.lifecycleId,
       root_share_epoch: binding.signingRootVersion,
       account_id: binding.walletId,
-      wallet_session_id: binding.thresholdSessionId,
+      threshold_session_id: binding.thresholdSessionId,
       signer_set_id: binding.signerSetId,
       signing_worker_id: binding.signingWorkerId,
       material_activation: routerAbMpcMaterialActivationRefToWire(binding.materialActivation),

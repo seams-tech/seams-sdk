@@ -46,6 +46,9 @@ import {
 import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
+  buildMpcMaterialActivationRef,
+  parseMpcMaterialActivationId,
+  parseMpcLifecycleBindingRef,
   parseThresholdEd25519SessionId,
   parseMpcMaterialActivationRef,
   type MpcMaterialActivationRef,
@@ -389,19 +392,44 @@ function recoveryAdmissionRequest(
 ): RouterAbEd25519YaoRecoveryAdmissionRequestV1 {
   const replacementCapabilityBinding = new Uint8Array(32);
   globalThis.crypto.getRandomValues(replacementCapabilityBinding);
+  const lifecycleId = secureRandomId('ed25519-yao-recovery', 32, 'Ed25519 Yao recovery IDs');
+  const replacementActivationId = parseMpcMaterialActivationId(
+    secureRandomId(
+      'ed25519-yao-recovery-material-activation',
+      32,
+      'Ed25519 Yao recovery material activation IDs',
+    ),
+  );
+  const replacementLifecycleBinding = parseMpcLifecycleBindingRef(
+    `${lifecycleId}:material-activation`,
+  );
+  if (!replacementActivationId.ok || !replacementLifecycleBinding.ok) {
+    throw new Error('Ed25519 Yao recovery material activation identity is invalid');
+  }
+  const replacementMaterialActivation = buildMpcMaterialActivationRef({
+    activationId: replacementActivationId.value,
+    capability: parsed.capability.materialActivation.capability,
+    materialOwner: parsed.capability.materialActivation.materialOwner,
+    keyBinding: parsed.capability.materialActivation.keyBinding,
+    lifecycleBinding: replacementLifecycleBinding.value,
+    signingWorker: parsed.capability.materialActivation.signingWorker,
+  });
   try {
     const request = parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
       scope: {
-        lifecycle_id: secureRandomId('ed25519-yao-recovery', 32, 'Ed25519 Yao recovery IDs'),
+        lifecycle_id: lifecycleId,
         root_share_epoch: parsed.capability.lifecycle.rootShareEpoch,
         account_id: parsed.capability.lifecycle.accountId,
-        wallet_session_id: parsed.session.thresholdSessionId,
+        threshold_session_id: parsed.session.thresholdSessionId,
         signer_set_id: parsed.capability.lifecycle.signerSetId,
         signing_worker_id: parsed.capability.lifecycle.signingWorkerId,
         material_activation: routerAbMpcMaterialActivationRefToWire(
-          parsed.capability.materialActivation,
+          replacementMaterialActivation,
         ),
       },
+      active_material_activation: routerAbMpcMaterialActivationRefToWire(
+        parsed.capability.materialActivation,
+      ),
       application_binding: parsed.capability.applicationBinding,
       participant_ids: parsed.capability.participantIds,
       active_capability_binding: parsed.capability.activeCapabilityBinding,

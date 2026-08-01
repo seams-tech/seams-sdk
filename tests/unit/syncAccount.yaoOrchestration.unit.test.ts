@@ -282,7 +282,7 @@ function requirePromotionReceipt(request: RouterAbEd25519YaoRecoveryAdmissionReq
         primitive_request_kind: 'recovery',
         root_share_epoch: request.scope.root_share_epoch,
         account_id: request.scope.account_id,
-        session_id: request.scope.wallet_session_id,
+        session_id: request.scope.threshold_session_id,
         signer_set_id: request.scope.signer_set_id,
         selected_server_id: request.scope.signing_worker_id,
       },

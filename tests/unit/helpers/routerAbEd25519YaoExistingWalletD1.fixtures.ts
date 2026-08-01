@@ -95,7 +95,7 @@ export async function createRouterAbEd25519YaoExistingWalletD1Fixture(
         walletId: walletId.value,
         nearAccountId: input.capability.nearAccountId,
         nearEd25519SigningKeyId: application.near_ed25519_signing_key_id,
-        thresholdSessionId: input.capability.admissionRequest.scope.wallet_session_id,
+        thresholdSessionId: input.capability.admissionRequest.scope.threshold_session_id,
         signerSlot: application.key_creation_signer_slot,
         publicKey: ed25519NearPublicKeyFromBytes(
           input.capability.activationResult.public_receipt.registered_public_key,

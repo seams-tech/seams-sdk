@@ -828,7 +828,7 @@ function registrationResultMatchesAdmission(
     scope.lifecycle_id === lifecycle.lifecycle_id &&
     scope.root_share_epoch === lifecycle.root_share_epoch &&
     scope.account_id === lifecycle.account_id &&
-    scope.wallet_session_id === lifecycle.session_id &&
+    scope.threshold_session_id === lifecycle.session_id &&
     scope.signer_set_id === lifecycle.signer_set_id &&
     scope.signing_worker_id === lifecycle.selected_server_id &&
     sameRouterAbMpcMaterialActivationRef(
@@ -848,7 +848,7 @@ function recoveryResultMatchesAdmission(
     scope.lifecycle_id === lifecycle.lifecycle_id &&
     scope.root_share_epoch === lifecycle.root_share_epoch &&
     scope.account_id === lifecycle.account_id &&
-    scope.wallet_session_id === lifecycle.session_id &&
+    scope.threshold_session_id === lifecycle.session_id &&
     scope.signer_set_id === lifecycle.signer_set_id &&
     scope.signing_worker_id === lifecycle.selected_server_id &&
     sameRouterAbMpcMaterialActivationRef(
@@ -1043,14 +1043,14 @@ function recoveryRequestMatchesActiveCapabilityIdentity(
     equalBytes(request.registered_public_key, identity.registeredPublicKey) &&
     equalWire(request.application_binding, identity.applicationBinding) &&
     equalWire(request.participant_ids, identity.participantIds) &&
+    sameRouterAbMpcMaterialActivationRef(
+      request.active_material_activation,
+      identity.activationBinding.material_activation,
+    ) &&
     scope.root_share_epoch === activeLifecycle.root_share_epoch &&
     scope.account_id === activeLifecycle.account_id &&
     scope.signer_set_id === activeLifecycle.signer_set_id &&
-    scope.signing_worker_id === activeLifecycle.selected_server_id &&
-    sameRouterAbMpcMaterialActivationRef(
-      scope.material_activation,
-      identity.activationBinding.material_activation,
-    )
+    scope.signing_worker_id === activeLifecycle.selected_server_id
   );
 }
 
@@ -1065,7 +1065,7 @@ function recoveryAdmissionReceiptMatches(
     scope.lifecycle_id === lifecycle.lifecycle_id &&
     scope.root_share_epoch === lifecycle.root_share_epoch &&
     scope.account_id === lifecycle.account_id &&
-    scope.wallet_session_id === lifecycle.session_id &&
+    scope.threshold_session_id === lifecycle.session_id &&
     scope.signer_set_id === lifecycle.signer_set_id &&
     scope.signing_worker_id === lifecycle.selected_server_id &&
     sameRouterAbMpcMaterialActivationRef(

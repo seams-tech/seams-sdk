@@ -11,11 +11,18 @@ import {
   createTemporaryD1Database,
   listD1MigrationFiles,
 } from '../helpers/sqliteD1';
+import { parseMpcMaterialActivationId } from '../../packages/shared-ts/src/utils/domainIds';
 
 const BASE_EXPIRES_AT_MS = 10_000;
 
 type Ed25519AdmissionInput = Extract<RouterAbNormalSigningAdmissionInput, { curve: 'ed25519' }>;
 type EcdsaAdmissionInput = Extract<RouterAbNormalSigningAdmissionInput, { curve: 'ecdsa' }>;
+
+function materialActivationId(value: string) {
+  const parsed = parseMpcMaterialActivationId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 function ed25519AdmissionInput(
   overrides: Partial<Ed25519AdmissionInput> = {},

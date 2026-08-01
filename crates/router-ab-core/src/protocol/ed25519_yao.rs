@@ -469,7 +469,7 @@ pub struct RouterAbEd25519YaoLifecycleScopeV1 {
     lifecycle_id: String,
     root_share_epoch: RootShareEpoch,
     account_id: String,
-    wallet_session_id: String,
+    threshold_session_id: String,
     signer_set_id: String,
     signing_worker_id: String,
     material_activation: MpcMaterialActivationRefV1,
@@ -481,7 +481,7 @@ impl RouterAbEd25519YaoLifecycleScopeV1 {
         lifecycle_id: impl Into<String>,
         root_share_epoch: RootShareEpoch,
         account_id: impl Into<String>,
-        wallet_session_id: impl Into<String>,
+        threshold_session_id: impl Into<String>,
         signer_set_id: impl Into<String>,
         signing_worker_id: impl Into<String>,
         material_activation: MpcMaterialActivationRefV1,
@@ -490,14 +490,14 @@ impl RouterAbEd25519YaoLifecycleScopeV1 {
             lifecycle_id: lifecycle_id.into(),
             root_share_epoch,
             account_id: account_id.into(),
-            wallet_session_id: wallet_session_id.into(),
+            threshold_session_id: threshold_session_id.into(),
             signer_set_id: signer_set_id.into(),
             signing_worker_id: signing_worker_id.into(),
             material_activation,
         };
         validate_visible_identifier("lifecycle_id", &scope.lifecycle_id)?;
         validate_visible_identifier("account_id", &scope.account_id)?;
-        validate_visible_identifier("wallet_session_id", &scope.wallet_session_id)?;
+        validate_visible_identifier("threshold_session_id", &scope.threshold_session_id)?;
         validate_visible_identifier("signer_set_id", &scope.signer_set_id)?;
         validate_visible_identifier("signing_worker_id", &scope.signing_worker_id)?;
         scope.material_activation.validate()?;
@@ -526,7 +526,7 @@ impl RouterAbEd25519YaoLifecycleScopeV1 {
             operation.work_kind(),
             self.root_share_epoch,
             self.account_id,
-            self.wallet_session_id,
+            self.threshold_session_id,
             self.signer_set_id,
             self.signing_worker_id,
         )
@@ -539,7 +539,7 @@ struct RawRouterAbEd25519YaoLifecycleScopeV1 {
     lifecycle_id: String,
     root_share_epoch: RootShareEpoch,
     account_id: String,
-    wallet_session_id: String,
+    threshold_session_id: String,
     signer_set_id: String,
     signing_worker_id: String,
     material_activation: MpcMaterialActivationRefV1,
@@ -555,7 +555,7 @@ impl<'de> Deserialize<'de> for RouterAbEd25519YaoLifecycleScopeV1 {
             raw.lifecycle_id,
             raw.root_share_epoch,
             raw.account_id,
-            raw.wallet_session_id,
+            raw.threshold_session_id,
             raw.signer_set_id,
             raw.signing_worker_id,
             raw.material_activation,

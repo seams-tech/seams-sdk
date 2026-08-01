@@ -82,7 +82,7 @@ async function addSignerInput(
         lifecycle_id: CEREMONY_ID,
         root_share_epoch: 'root-share-epoch-9',
         account_id: WALLET_ID,
-        wallet_session_id: CEREMONY_ID,
+        threshold_session_id: CEREMONY_ID,
         signer_set_id: registrationNearEd25519BranchKey(selection.signerSlot),
         signing_worker_id: 'signing-worker-a',
         material_activation: {
@@ -129,7 +129,7 @@ const ADMISSION_MUTATIONS: readonly AdmissionMutation[] = [
     label: 'Wallet Session',
     expectedError: /Yao Wallet Session ID does not match/,
     mutate(input) {
-      input.admissionRequest.scope.wallet_session_id = 'substituted-wallet-session';
+      input.admissionRequest.scope.threshold_session_id = 'substituted-wallet-session';
     },
   },
   {

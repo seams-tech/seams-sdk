@@ -169,7 +169,7 @@ async function seedWalletSigner(database: D1DatabaseLike): Promise<D1WalletStore
       walletId,
       nearAccountId: fixture.nearAccountId,
       nearEd25519SigningKeyId: fixture.nearSigningKeyId,
-      thresholdSessionId: fixture.previous.admissionRequest.scope.wallet_session_id,
+      thresholdSessionId: fixture.previous.admissionRequest.scope.threshold_session_id,
       signerSlot: fixture.previous.admissionRequest.application_binding.key_creation_signer_slot,
       publicKey: ed25519NearPublicKeyFromBytes(
         fixture.previous.activationResult.public_receipt.registered_public_key,

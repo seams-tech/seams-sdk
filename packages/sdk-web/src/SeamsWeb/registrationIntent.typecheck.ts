@@ -77,7 +77,7 @@ const addSignerAdmissionRequestFixture = {
     lifecycle_id: 'add-signer-ceremony-1',
     root_share_epoch: 'root-share-epoch-1',
     account_id: 'alice.testnet',
-    wallet_session_id: 'wallet-session-1',
+    threshold_session_id: 'threshold-session-1',
     signer_set_id: 'signer-set-1',
     signing_worker_id: 'signing-worker-1',
     material_activation: materialActivation,

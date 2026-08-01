@@ -84,13 +84,17 @@ export function buildEcdsaRoleLocalPersistedMaterialRefFixture(args: {
 export function buildMpcMaterialActivationRefFixture(
   label: string,
   materialOwner?: string,
+  signingWorker?: string,
+  keyBinding?: string,
 ): MpcMaterialActivationRef {
   return buildMpcMaterialActivationRef({
     activationId: unwrapDomainId(parseMpcMaterialActivationId(`activation:${label}`)),
     capability: unwrapDomainId(parseCapabilityInstanceRef(`capability:${label}`)),
     materialOwner: unwrapDomainId(parseMpcMaterialOwnerRef(materialOwner ?? `owner:${label}`)),
-    keyBinding: unwrapDomainId(parseMpcKeyBindingRef(`key:${label}`)),
+    keyBinding: unwrapDomainId(parseMpcKeyBindingRef(keyBinding ?? `key:${label}`)),
     lifecycleBinding: unwrapDomainId(parseMpcLifecycleBindingRef(`lifecycle:${label}`)),
-    signingWorker: unwrapDomainId(parseMpcSigningWorkerRef(`worker:${label}`)),
+    signingWorker: unwrapDomainId(
+      parseMpcSigningWorkerRef(signingWorker ?? `worker:${label}`),
+    ),
   });
 }

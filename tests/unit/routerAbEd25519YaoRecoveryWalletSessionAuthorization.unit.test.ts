@@ -101,6 +101,18 @@ function requireParsed<T>(parsed: { ok: true; value: T } | { ok: false; message:
   return parsed.value;
 }
 
+function materialActivation(label: string) {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: `recovery-wallet-${label}-material-activation-1`,
+    capability: 'recovery-wallet-capability-1',
+    material_owner: WALLET_ID,
+    key_binding: 'recovery-wallet-key-1',
+    lifecycle_binding: `recovery-wallet-${label}-lifecycle-binding-1`,
+    signing_worker: SIGNING_WORKER_ID,
+  };
+}
+
 function parsedSessionFixture(result: SessionParseResult<SessionClaims>): SessionFixture {
   return new SessionFixture({ kind: 'parsed', result });
 }
@@ -123,10 +135,12 @@ function admissionRequestFixture(): RouterAbEd25519YaoRecoveryAdmissionRequestV1
         lifecycle_id: 'recovery-lifecycle-1',
         root_share_epoch: ROOT_SHARE_EPOCH,
         account_id: WALLET_ID,
-        wallet_session_id: WALLET_SESSION_ID,
+        threshold_session_id: WALLET_SESSION_ID,
         signer_set_id: 'signer-set-recovery-1',
         signing_worker_id: SIGNING_WORKER_ID,
+        material_activation: materialActivation('replacement'),
       },
+      active_material_activation: materialActivation('active'),
       application_binding: {
         wallet_id: WALLET_ID,
         near_ed25519_signing_key_id: NEAR_SIGNING_KEY_ID,
@@ -164,13 +178,14 @@ function recoveryBindingFixture(admission: RouterAbEd25519YaoRecoveryAdmissionRe
       primitive_request_kind: 'recovery' as const,
       root_share_epoch: admission.scope.root_share_epoch,
       account_id: admission.scope.account_id,
-      session_id: admission.scope.wallet_session_id,
+      session_id: admission.scope.threshold_session_id,
       signer_set_id: admission.scope.signer_set_id,
       selected_server_id: admission.scope.signing_worker_id,
     },
     operation: 'recovery' as const,
     session_id: bytes(7),
     stable_key_context_binding: bytes(8),
+    material_activation: admission.scope.material_activation,
   };
 }
 
@@ -215,6 +230,7 @@ function activationRequestFixture(
         joined_signing_worker_commitment: bytes(14),
         signing_worker_verifying_share: bytes(15),
         state_epoch: 2,
+        material_activation: execute.binding.material_activation,
       },
     }),
   );
@@ -299,10 +315,8 @@ async function authorizeWithClaims(
   return { result, session };
 }
 
-function claimsWithSubstitutedSessionForPhase(phase: AuthorizationPhase): SessionClaims {
-  return phase === 'admit'
-    ? validClaimsFixture({ walletSessionId: 'substituted-wallet-session' })
-    : validClaimsFixture({ thresholdSessionId: 'substituted-threshold-session' });
+function claimsWithSubstitutedThresholdSession(): SessionClaims {
+  return validClaimsFixture({ thresholdSessionId: 'substituted-threshold-session' });
 }
 
 test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', () => {
@@ -400,7 +414,7 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
         ...sharedSubstitutions,
         {
           label: 'session',
-          claims: claimsWithSubstitutedSessionForPhase(phase),
+          claims: claimsWithSubstitutedThresholdSession(),
         },
       ];
       for (const substitution of substitutions) {

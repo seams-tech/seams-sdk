@@ -312,7 +312,7 @@ function requireDurablePasskeyExportContext(args: {
         lifecycle_id: lifecycle.lifecycleId,
         root_share_epoch: lifecycle.rootShareEpoch,
         account_id: lifecycle.accountId,
-        wallet_session_id: lifecycle.thresholdSessionId,
+        threshold_session_id: lifecycle.thresholdSessionId,
         signer_set_id: lifecycle.signerSetId,
         signing_worker_id: lifecycle.signingWorkerId,
         material_activation: routerAbMpcMaterialActivationRefToWire(

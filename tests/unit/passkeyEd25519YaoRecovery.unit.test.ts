@@ -176,6 +176,7 @@ function syncResponseFixture(
           signingRootVersion: input.capabilityRuntimeRootShareEpoch,
         },
         participantIds: [...input.capabilityParticipantIds],
+        materialActivation: capabilityMaterialActivation(),
         lifecycle: {
           lifecycleId: 'passkey-recovery-capability-lifecycle',
           rootShareEpoch: input.capabilityRootShareEpoch,
@@ -196,10 +197,12 @@ function requireAdmissionRequest(): RouterAbEd25519YaoRecoveryAdmissionRequestV1
       lifecycle_id: 'recovery-lifecycle-transport-1',
       root_share_epoch: ROOT_SHARE_EPOCH,
       account_id: WALLET_ID,
-      wallet_session_id: THRESHOLD_SESSION_ID,
+      threshold_session_id: THRESHOLD_SESSION_ID,
       signer_set_id: 'signer-set-recovery-1',
       signing_worker_id: SIGNING_WORKER_ID,
+      material_activation: materialActivation('replacement'),
     },
+    active_material_activation: materialActivation('active'),
     application_binding: {
       wallet_id: WALLET_ID,
       near_ed25519_signing_key_id: NEAR_SIGNING_KEY_ID,
@@ -213,6 +216,30 @@ function requireAdmissionRequest(): RouterAbEd25519YaoRecoveryAdmissionRequestV1
   });
   if (!parsed.ok) throw new Error(parsed.message);
   return parsed.value;
+}
+
+function capabilityMaterialActivation() {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activationId: 'passkey-recovery-active-activation',
+    capability: 'passkey-recovery-capability',
+    materialOwner: WALLET_ID,
+    keyBinding: 'passkey-recovery-key',
+    lifecycleBinding: 'passkey-recovery-active-lifecycle-binding',
+    signingWorker: SIGNING_WORKER_ID,
+  };
+}
+
+function materialActivation(label: string) {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: `passkey-recovery-${label}-activation`,
+    capability: 'passkey-recovery-capability',
+    material_owner: WALLET_ID,
+    key_binding: 'passkey-recovery-key',
+    lifecycle_binding: `passkey-recovery-${label}-lifecycle-binding`,
+    signing_worker: SIGNING_WORKER_ID,
+  };
 }
 
 function resetTransportFetch(response: Response): void {

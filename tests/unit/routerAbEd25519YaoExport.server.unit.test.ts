@@ -88,6 +88,18 @@ const SIGNING_WORKER_ID = 'signing-worker-export-1';
 const PARTICIPANTS = [11, 29] as const;
 const CREDENTIAL_ID = 'ZXhwb3J0LWNyZWRlbnRpYWwtMQ';
 const RP_ID = 'router.example.test';
+
+function materialActivation(materialOwner = WALLET_ID, signingWorker = SIGNING_WORKER_ID) {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: 'export-material-activation-1',
+    capability: 'export-capability-1',
+    material_owner: materialOwner,
+    key_binding: 'export-key-1',
+    lifecycle_binding: 'export-lifecycle-binding-1',
+    signing_worker: signingWorker,
+  };
+}
 const ORIGIN = 'https://router.example.test';
 const RUNTIME_POLICY_SCOPE = {
   orgId: 'org-export',
@@ -127,7 +139,7 @@ type ReceiptScopeSubstitution =
   | 'none'
   | 'root'
   | 'account'
-  | 'wallet_session'
+  | 'threshold_session'
   | 'signer_set'
   | 'worker';
 
@@ -162,9 +174,10 @@ function exportIdentity(input: {
       lifecycle_id: input.lifecycleId,
       root_share_epoch: ROOT_SHARE_EPOCH,
       account_id: WALLET_ID,
-      wallet_session_id: THRESHOLD_SESSION_ID_RAW,
+      threshold_session_id: THRESHOLD_SESSION_ID_RAW,
       signer_set_id: 'signer-set-export-1',
       signing_worker_id: SIGNING_WORKER_ID,
+      material_activation: materialActivation(),
     },
     application_binding: {
       wallet_id: WALLET_ID,
@@ -233,13 +246,14 @@ function exportBinding(request: RouterAbEd25519YaoExportAdmissionRequestV1) {
         primitive_request_kind: 'export' as const,
         root_share_epoch: request.scope.root_share_epoch,
         account_id: request.scope.account_id,
-        session_id: request.scope.wallet_session_id,
+        session_id: request.scope.threshold_session_id,
         signer_set_id: request.scope.signer_set_id,
         selected_server_id: request.scope.signing_worker_id,
       },
       operation: 'export' as const,
-      session_id: bytes(request.authorization.nonce[0] ?? 71),
-      stable_key_context_binding: bytes(72),
+        session_id: bytes(request.authorization.nonce[0] ?? 71),
+        stable_key_context_binding: bytes(72),
+        material_activation: request.scope.material_activation,
     },
     registered_public_key: request.registered_public_key,
     state_epoch: request.state_epoch,
@@ -266,7 +280,9 @@ function exportReceipt(
           account_id:
             substitution === 'account' ? 'substituted-account.testnet' : lifecycle.account_id,
           session_id:
-            substitution === 'wallet_session' ? 'substituted-wallet-session' : lifecycle.session_id,
+            substitution === 'threshold_session'
+              ? 'substituted-threshold-session'
+              : lifecycle.session_id,
           signer_set_id:
             substitution === 'signer_set' ? 'substituted-signer-set' : lifecycle.signer_set_id,
           selected_server_id:
@@ -275,6 +291,17 @@ function exportReceipt(
         operation: binding.ceremony.operation,
         session_id: binding.ceremony.session_id,
         stable_key_context_binding: binding.ceremony.stable_key_context_binding,
+        material_activation: {
+          ...binding.ceremony.material_activation,
+          material_owner:
+            substitution === 'account'
+              ? 'substituted-account.testnet'
+              : binding.ceremony.material_activation.material_owner,
+          signing_worker:
+            substitution === 'worker'
+              ? 'substituted-worker'
+              : binding.ceremony.material_activation.signing_worker,
+        },
       },
       registered_public_key: binding.registered_public_key,
       state_epoch: binding.state_epoch,
@@ -386,6 +413,7 @@ class ActiveCapabilityFixture implements RouterAbEd25519YaoActiveCapabilityResol
       ok: true,
       capability: {
         kind: 'router_ab_ed25519_yao_active_capability_v1',
+        materialActivation: materialActivation(),
         activeCapabilityBinding: bytes(110),
         registeredPublicKey: bytes(12),
         nearAccountId: NEAR_ACCOUNT_ID,
@@ -838,9 +866,10 @@ async function admissionFixtureForActiveCapability(
       lifecycle_id: 'export-existing-recovered-1',
       root_share_epoch: capability.lifecycle.rootShareEpoch,
       account_id: capability.lifecycle.accountId,
-      wallet_session_id: capability.lifecycle.thresholdSessionId,
+      threshold_session_id: capability.lifecycle.thresholdSessionId,
       signer_set_id: capability.lifecycle.signerSetId,
       signing_worker_id: capability.lifecycle.signingWorkerId,
+      material_activation: capability.materialActivation,
     },
     application_binding: capability.applicationBinding,
     participant_ids: capability.participantIds,
@@ -1154,7 +1183,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     const substitutions: readonly ReceiptScopeSubstitution[] = [
       'root',
       'account',
-      'wallet_session',
+      'threshold_session',
       'signer_set',
       'worker',
     ];
