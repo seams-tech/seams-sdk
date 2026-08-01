@@ -1164,6 +1164,81 @@ test.describe('signing session sealed store', () => {
     });
   });
 
+  test('reads Email OTP Ed25519 sealed material by the full activation and rejects conflicts', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.sealedSessionStore);
+        await mod.clearAllSealedSessions();
+        const activation = EMAIL_OTP_ED25519_RESTORE.materialActivation;
+        const missingActivation = {
+          ...activation,
+          lifecycleBinding: 'missing-material-lifecycle-binding',
+        };
+        const first = mod.buildCurrentSealedSessionRecord({
+          thresholdSessionId: 'email-otp-ed25519-activation-a',
+          signingGrantId: 'email-otp-ed25519-grant-a',
+          thresholdSessionIds: { ed25519: 'email-otp-ed25519-activation-a' },
+          curve: 'ed25519',
+          authMethod: 'email_otp',
+          walletId: 'alice.testnet',
+          ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
+          relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
+          sealedSecretB64u: 'sealed-email-otp-ed25519-activation-a',
+          issuedAtMs: Date.now(),
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 4,
+          updatedAtMs: Date.now(),
+        });
+        if (!first) throw new Error('expected first Email OTP Ed25519 sealed record');
+        await mod.writeExactSealedSession(first);
+        const missing =
+          await mod.readExactEmailOtpEd25519SealedSessionByMaterialActivation(
+            missingActivation,
+          );
+        const exact = await mod.readExactEmailOtpEd25519SealedSessionByMaterialActivation(
+          activation,
+        );
+
+        const second = mod.buildCurrentSealedSessionRecord({
+          thresholdSessionId: 'email-otp-ed25519-activation-b',
+          signingGrantId: 'email-otp-ed25519-grant-b',
+          thresholdSessionIds: { ed25519: 'email-otp-ed25519-activation-b' },
+          curve: 'ed25519',
+          authMethod: 'email_otp',
+          walletId: 'bob.testnet',
+          ed25519Restore: {
+            ...EMAIL_OTP_ED25519_RESTORE,
+            nearAccountId: 'bob.testnet',
+          },
+          relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
+          sealedSecretB64u: 'sealed-email-otp-ed25519-activation-b',
+          issuedAtMs: Date.now(),
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 4,
+          updatedAtMs: Date.now(),
+        });
+        if (!second) throw new Error('expected second Email OTP Ed25519 sealed record');
+        await mod.writeExactSealedSession(second);
+        const conflict = await mod
+          .readExactEmailOtpEd25519SealedSessionByMaterialActivation(activation)
+          .then(() => 'resolved')
+          .catch((error: unknown) => String((error as Error)?.message || error));
+        return { missing, exact, conflict };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.missing).toBeNull();
+    expect(result.exact?.sealedSecretB64u).toBe('sealed-email-otp-ed25519-activation-a');
+    expect(result.conflict).toContain('material activation is ambiguous');
+  });
+
   test('replaces stale same-purpose sealed records before snapshot selection sees them', async ({
     page,
   }) => {

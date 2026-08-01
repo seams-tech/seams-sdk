@@ -206,6 +206,7 @@ import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEng
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import {
   listExactSealedSessionsForWallet,
+  readExactEmailOtpEd25519SealedSessionByMaterialActivation,
   readExactSealedSession,
   type CurrentSealedSessionRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
@@ -2014,11 +2015,24 @@ export class BrowserSigningSurface {
     if (!relayerUrl) {
       throw new Error('[SigningEngine][ed25519-export] Email OTP export requires relayerUrl');
     }
+    const signer = subject.signer;
+    const publicLocator = nearEd25519PublicLocatorObservation({
+      references: await this.ed25519YaoPublicCapabilityReferences.list(),
+      walletId: signer.account.wallet.walletId,
+      nearAccountId: signer.account.nearAccountId,
+      signerSlot: signer.signerSlot,
+    });
+    if (publicLocator.kind !== 'available') {
+      throw new Error(
+        '[SigningEngine][ed25519-export] exact durable Email OTP Yao context is unavailable',
+      );
+    }
     return await resolveEmailOtpEd25519YaoExportContextV1({
       subject,
+      expectedMaterialActivation: publicLocator.materialActivation,
       relayerUrl,
       ports: {
-        readExactSealedSession,
+        readExactEmailOtpEd25519SealedSessionByMaterialActivation,
         readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
           walletSessionAuthorizations,
         ),
