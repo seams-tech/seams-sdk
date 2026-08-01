@@ -62,7 +62,7 @@ export function buildEd25519YaoCapabilityFixture(input: {
       lifecycle_id: lifecycleId,
       root_share_epoch: input.runtimePolicyScope.signingRootVersion,
       account_id: input.walletId,
-      wallet_session_id: input.thresholdSessionId,
+      threshold_session_id: input.thresholdSessionId,
       signer_set_id: signerSetId,
       signing_worker_id: input.signingWorkerId,
       material_activation: {

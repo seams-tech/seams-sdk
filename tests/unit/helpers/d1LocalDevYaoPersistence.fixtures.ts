@@ -72,9 +72,9 @@ function localMaterialActivation(lifecycleBinding: string) {
   return {
     kind: 'mpc_material_activation_ref' as const,
     activation_id: `activation:${lifecycleBinding}`,
-    capability: `capability:${lifecycleBinding}`,
+    capability: 'capability:local-existing-yao',
     material_owner: localWalletId(),
-    key_binding: localNearSigningKeyId(),
+    key_binding: 'key:local-existing-yao',
     lifecycle_binding: lifecycleBinding,
     signing_worker: SIGNING_WORKER_ID,
   };
@@ -329,7 +329,7 @@ export function buildLocalYaoRegistrationFixture(lifecycleId: string) {
       lifecycle_id: lifecycleId,
       root_share_epoch: ROOT_SHARE_EPOCH,
       account_id: walletId,
-      wallet_session_id: `wallet-session-${lifecycleId}`,
+      threshold_session_id: `wallet-session-${lifecycleId}`,
       signer_set_id: 'ed25519:1',
       signing_worker_id: SIGNING_WORKER_ID,
     },
@@ -393,7 +393,7 @@ export async function buildLocalYaoExistingWalletFixture(input: {
         nearEd25519SigningKeyId:
           capability.admissionRequest.application_binding.near_ed25519_signing_key_id,
         signerSlot: capability.admissionRequest.application_binding.key_creation_signer_slot,
-        thresholdSessionId: capability.admissionRequest.scope.wallet_session_id,
+        thresholdSessionId: capability.admissionRequest.scope.threshold_session_id,
         signingGrantId: localSigningGrantId(),
         signingWorkerId: capability.admissionRequest.scope.signing_worker_id,
         participantIds: capability.admissionRequest.participant_ids,
@@ -403,7 +403,7 @@ export async function buildLocalYaoExistingWalletFixture(input: {
     exportAdmission: {
       protocol: exportAdmission,
       authorizationIdentity: {
-        thresholdSessionId: capability.admissionRequest.scope.wallet_session_id,
+        thresholdSessionId: capability.admissionRequest.scope.threshold_session_id,
         signingGrantId: localSigningGrantId(),
       },
       authorization: {
@@ -567,7 +567,7 @@ async function buildLocalRegistrationCapability(): Promise<WalletEd25519YaoActiv
         lifecycle_id: 'registration-local-existing-wallet',
         root_share_epoch: ROOT_SHARE_EPOCH,
         account_id: localWalletId(),
-        wallet_session_id: localWalletSessionId(),
+        threshold_session_id: localWalletSessionId(),
         signer_set_id: 'ed25519:1',
         signing_worker_id: SIGNING_WORKER_ID,
         material_activation: localMaterialActivation('registration-local-existing-wallet'),
@@ -588,7 +588,7 @@ async function buildLocalRegistrationCapability(): Promise<WalletEd25519YaoActiv
       primitive_request_kind: 'registration',
       root_share_epoch: admissionRequest.scope.root_share_epoch,
       account_id: admissionRequest.scope.account_id,
-      session_id: admissionRequest.scope.wallet_session_id,
+      session_id: admissionRequest.scope.threshold_session_id,
       signer_set_id: admissionRequest.scope.signer_set_id,
       selected_server_id: admissionRequest.scope.signing_worker_id,
     },
@@ -635,7 +635,7 @@ async function persistLocalCapability(
       nearAccountId: capability.nearAccountId,
       nearEd25519SigningKeyId:
         capability.admissionRequest.application_binding.near_ed25519_signing_key_id,
-      thresholdSessionId: capability.admissionRequest.scope.wallet_session_id,
+      thresholdSessionId: capability.admissionRequest.scope.threshold_session_id,
       signerSlot: capability.admissionRequest.application_binding.key_creation_signer_slot,
       publicKey: ed25519NearPublicKeyFromBytes(
         capability.activationResult.public_receipt.registered_public_key,
@@ -668,7 +668,7 @@ async function issueLocalWalletSessionToken(
     nearAccountId: capability.nearAccountId,
     nearEd25519SigningKeyId:
       capability.admissionRequest.application_binding.near_ed25519_signing_key_id,
-    thresholdSessionId: capability.admissionRequest.scope.wallet_session_id,
+    thresholdSessionId: capability.admissionRequest.scope.threshold_session_id,
     signingGrantId: localSigningGrantId(),
     relayerKeyId: SIGNING_WORKER_ID,
     authority,
@@ -699,11 +699,12 @@ function localRecoveryAdmission(
         lifecycle_id: lifecycleId,
         root_share_epoch: ROOT_SHARE_EPOCH,
         account_id: localWalletId(),
-        wallet_session_id: localWalletSessionId(),
+        threshold_session_id: localWalletSessionId(),
         signer_set_id: 'ed25519:1',
         signing_worker_id: SIGNING_WORKER_ID,
-        material_activation: capability.admissionRequest.scope.material_activation,
+        material_activation: localMaterialActivation(`${lifecycleId}-replacement`),
       },
+      active_material_activation: capability.admissionRequest.scope.material_activation,
       application_binding: capability.admissionRequest.application_binding,
       participant_ids: capability.admissionRequest.participant_ids,
       active_capability_binding: capability.activeCapabilityBinding,
@@ -723,7 +724,7 @@ async function localExportAdmission(
       lifecycle_id: lifecycleId,
       root_share_epoch: ROOT_SHARE_EPOCH,
       account_id: localWalletId(),
-      wallet_session_id: localWalletSessionId(),
+      threshold_session_id: localWalletSessionId(),
       signer_set_id: 'ed25519:1',
       signing_worker_id: SIGNING_WORKER_ID,
       material_activation: capability.admissionRequest.scope.material_activation,

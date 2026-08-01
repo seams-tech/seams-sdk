@@ -7,6 +7,11 @@ import {
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { secureRandomId } from '@shared/utils/secureRandomId';
+import {
+  buildMpcMaterialActivationRef,
+  parseMpcMaterialActivationId,
+  parseMpcLifecycleBindingRef,
+} from '@shared/utils/domainIds';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import type {
@@ -149,7 +154,7 @@ export function buildEmailOtpEd25519YaoRecoveryContinuityMetadataV1(
       lifecycle_id: 'persisted-email-otp-recovery-anchor-v1',
       root_share_epoch: capability.lifecycle.rootShareEpoch,
       account_id: capability.lifecycle.accountId,
-      wallet_session_id: capability.lifecycle.thresholdSessionId,
+      threshold_session_id: capability.lifecycle.thresholdSessionId,
       signer_set_id: capability.lifecycle.signerSetId,
       signing_worker_id: capability.lifecycle.signingWorkerId,
       material_activation: {
@@ -188,7 +193,7 @@ function cloneMetadata(
       lifecycle_id: metadata.scope.lifecycle_id,
       root_share_epoch: metadata.scope.root_share_epoch,
       account_id: metadata.scope.account_id,
-      wallet_session_id: metadata.scope.wallet_session_id,
+      threshold_session_id: metadata.scope.threshold_session_id,
       signer_set_id: metadata.scope.signer_set_id,
       signing_worker_id: metadata.scope.signing_worker_id,
       material_activation: metadata.scope.material_activation,
@@ -273,7 +278,7 @@ function assertPriorRecoveryContinuity(
     !equalParticipants(prior.participantIds, capability.participantIds) ||
     prior.scope.root_share_epoch !== capability.lifecycle.rootShareEpoch ||
     prior.scope.account_id !== capability.lifecycle.accountId ||
-    prior.scope.wallet_session_id !== capability.lifecycle.thresholdSessionId ||
+    prior.scope.threshold_session_id !== capability.lifecycle.thresholdSessionId ||
     prior.scope.signer_set_id !== capability.lifecycle.signerSetId ||
     prior.scope.signing_worker_id !== capability.lifecycle.signingWorkerId ||
     prior.stateEpoch !== BigInt(capability.stateEpoch)
@@ -288,28 +293,59 @@ function recoveryAdmissionRequest(
   const capability = input.bootstrap.capability;
   const replacementCapabilityBinding = new Uint8Array(32);
   globalThis.crypto.getRandomValues(replacementCapabilityBinding);
+  const lifecycleId = secureRandomId(
+    'email-otp-ed25519-yao-recovery',
+    32,
+    'Email OTP Ed25519 Yao recovery lifecycle IDs',
+  );
+  const replacementActivationId = parseMpcMaterialActivationId(
+    secureRandomId(
+      'email-otp-ed25519-yao-recovery-material-activation',
+      32,
+      'Email OTP Ed25519 Yao recovery material activation IDs',
+    ),
+  );
+  const replacementLifecycleBinding = parseMpcLifecycleBindingRef(
+    `${lifecycleId}:material-activation`,
+  );
+  if (!replacementActivationId.ok || !replacementLifecycleBinding.ok) {
+    throw new Error('Email OTP Ed25519 Yao recovery material activation identity is invalid');
+  }
+  const replacementMaterialActivation = buildMpcMaterialActivationRef({
+    activationId: replacementActivationId.value,
+    capability: capability.materialActivation.capability,
+    materialOwner: capability.materialActivation.materialOwner,
+    keyBinding: capability.materialActivation.keyBinding,
+    lifecycleBinding: replacementLifecycleBinding.value,
+    signingWorker: capability.materialActivation.signingWorker,
+  });
   try {
     const parsed = parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
       scope: {
-        lifecycle_id: secureRandomId(
-          'email-otp-ed25519-yao-recovery',
-          32,
-          'Email OTP Ed25519 Yao recovery lifecycle IDs',
-        ),
+        lifecycle_id: lifecycleId,
         root_share_epoch: capability.lifecycle.rootShareEpoch,
         account_id: capability.lifecycle.accountId,
-        wallet_session_id: input.bootstrap.session.thresholdSessionId,
+        threshold_session_id: input.bootstrap.session.thresholdSessionId,
         signer_set_id: capability.lifecycle.signerSetId,
         signing_worker_id: capability.lifecycle.signingWorkerId,
         material_activation: {
-          kind: capability.materialActivation.kind,
-          activation_id: capability.materialActivation.activationId,
-          capability: capability.materialActivation.capability,
-          material_owner: capability.materialActivation.materialOwner,
-          key_binding: capability.materialActivation.keyBinding,
-          lifecycle_binding: capability.materialActivation.lifecycleBinding,
-          signing_worker: capability.materialActivation.signingWorker,
+          kind: replacementMaterialActivation.kind,
+          activation_id: replacementMaterialActivation.activationId,
+          capability: replacementMaterialActivation.capability,
+          material_owner: replacementMaterialActivation.materialOwner,
+          key_binding: replacementMaterialActivation.keyBinding,
+          lifecycle_binding: replacementMaterialActivation.lifecycleBinding,
+          signing_worker: replacementMaterialActivation.signingWorker,
         },
+      },
+      active_material_activation: {
+        kind: capability.materialActivation.kind,
+        activation_id: capability.materialActivation.activationId,
+        capability: capability.materialActivation.capability,
+        material_owner: capability.materialActivation.materialOwner,
+        key_binding: capability.materialActivation.keyBinding,
+        lifecycle_binding: capability.materialActivation.lifecycleBinding,
+        signing_worker: capability.materialActivation.signingWorker,
       },
       application_binding: capability.applicationBinding,
       participant_ids: capability.participantIds,
@@ -336,7 +372,7 @@ function assertRecoveredMetadataContinuity(args: {
     args.recovered.scope.lifecycle_id !== args.request.scope.lifecycle_id ||
     args.recovered.scope.root_share_epoch !== args.request.scope.root_share_epoch ||
     args.recovered.scope.account_id !== args.request.scope.account_id ||
-    args.recovered.scope.wallet_session_id !== args.request.scope.wallet_session_id ||
+    args.recovered.scope.threshold_session_id !== args.request.scope.threshold_session_id ||
     args.recovered.scope.signer_set_id !== args.request.scope.signer_set_id ||
     args.recovered.scope.signing_worker_id !== args.request.scope.signing_worker_id ||
     args.recovered.applicationBinding.wallet_id !== args.prior.applicationBinding.wallet_id ||
@@ -500,7 +536,7 @@ export async function rehydrateEmailOtpEd25519YaoOperationMaterialV1(
   const result = await requestRehydrateEmailOtpEd25519YaoOperationMaterial(input);
   const activation = nearEd25519YaoMaterialActivationFromMetadata(result.metadata);
   if (
-    result.metadata.scope.wallet_session_id !== input.expectedThresholdSessionId ||
+    result.metadata.scope.threshold_session_id !== input.expectedThresholdSessionId ||
     result.metadata.applicationBinding.wallet_id !== input.walletId ||
     result.metadata.applicationBinding.key_creation_signer_slot !== input.signerSlot ||
     `ed25519:${base58Encode(result.metadata.registeredPublicKey)}` !==

@@ -544,7 +544,7 @@ async function runLocalRegistrationTest(): Promise<void> {
         processes,
         walletId: admissionRequest.scope.account_id,
         nearAccountId: 'alice.testnet',
-        thresholdSessionId: admissionRequest.scope.wallet_session_id,
+        thresholdSessionId: admissionRequest.scope.threshold_session_id,
         signingGrantId: 'local-yao-signing-grant-1',
         signingWorkerId: admissionRequest.scope.signing_worker_id,
         expiresAtMs: Date.now() + 10 * 60_000,
@@ -594,7 +594,7 @@ async function signWithActivatedYaoShares(input: {
       account_id: input.admissionRequest.scope.account_id,
       authorization: {
         kind: 'reusable_wallet_session',
-        wallet_session_id: input.admissionRequest.scope.wallet_session_id,
+        threshold_session_id: input.admissionRequest.scope.threshold_session_id,
         grant_id: 'sdk-local-signing-grant-1',
       },
       material_activation: {
@@ -744,7 +744,7 @@ function registrationAdmissionRequest(
       lifecycle_id: 'sdk-local-registration-1',
       root_share_epoch: 'epoch-1',
       account_id: 'account-1',
-      wallet_session_id: 'wallet-session-1',
+      threshold_session_id: 'wallet-session-1',
       signer_set_id: 'signer-set-1',
       signing_worker_id: signingWorkerId,
     },

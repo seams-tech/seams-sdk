@@ -44,7 +44,7 @@ function activeMetadata(): RouterAbEd25519YaoActiveClientMetadataV1 {
       lifecycle_id: 'email-otp-operation-lifecycle',
       root_share_epoch: 'root-v1',
       account_id: WALLET_ID,
-      wallet_session_id: THRESHOLD_SESSION_ID,
+      threshold_session_id: THRESHOLD_SESSION_ID,
       signer_set_id: 'near_ed25519:slot:1',
       signing_worker_id: 'email-otp-operation-signing-worker',
     },

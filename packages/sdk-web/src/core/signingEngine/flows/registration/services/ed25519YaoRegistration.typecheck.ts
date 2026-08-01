@@ -46,7 +46,7 @@ buildProductEd25519YaoRegistrationRequestV1({
     lifecycle_id: 'registration-1',
     root_share_epoch: 'epoch-1',
     account_id: 'wallet-1',
-    wallet_session_id: 'wallet-session-1',
+    threshold_session_id: 'threshold-session-1',
     signer_set_id: 'signer-set-1',
     signing_worker_id: 'signing-worker-1',
     material_activation: {
@@ -76,7 +76,7 @@ buildProductEd25519YaoRegistrationRequestV1({
     lifecycle_id: 'registration-1',
     root_share_epoch: 'epoch-1',
     account_id: 'wallet-1',
-    wallet_session_id: 'wallet-session-1',
+    threshold_session_id: 'threshold-session-1',
     signer_set_id: 'signer-set-1',
     signing_worker_id: 'signing-worker-1',
     material_activation: {

@@ -292,8 +292,7 @@ test.describe('request-scoped recovery persistence', () => {
           nearEd25519SigningKeyId: capability.nearSigningKeyId,
           signerSlot:
             capability.previous.admissionRequest.application_binding.key_creation_signer_slot,
-          thresholdSessionId: capability.previous.admissionRequest.scope.wallet_session_id,
-          signingGrantId: 'signing-grant-recovery-1',
+          thresholdSessionId: capability.previous.admissionRequest.scope.threshold_session_id,
           signingWorkerId: capability.signingWorkerId,
           participantIds: capability.previous.admissionRequest.participant_ids,
         },
@@ -403,7 +402,6 @@ test.describe('request-scoped recovery persistence', () => {
         nearEd25519SigningKeyId: 'ed25519ks_recovery_1',
         signerSlot: 1,
         thresholdSessionId: 'wallet-session-recovery-1',
-        signingGrantId: 'signing-grant-recovery-1',
         signingWorkerId: 'signing-worker-recovery-1',
         participantIds: [1, 2],
       },

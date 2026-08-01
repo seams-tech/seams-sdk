@@ -3488,7 +3488,7 @@ export class CloudflareD1WalletRegistrationService {
           walletId: ceremony.intent.walletId,
           nearAccountId,
           nearEd25519SigningKeyId: activatedEd25519PublicResult.nearEd25519SigningKeyId,
-          thresholdSessionId: consumed.activation.admissionRequest.scope.wallet_session_id,
+          thresholdSessionId: consumed.activation.admissionRequest.scope.threshold_session_id,
           signerSlot: finalizeNearEd25519.signerSlot,
           publicKey,
           signingWorkerId: yaoRuntime.signingWorkerId,

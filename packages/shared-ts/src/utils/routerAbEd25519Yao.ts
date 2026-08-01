@@ -75,7 +75,7 @@ export type RouterAbEd25519YaoLifecycleScopeV1 = {
   lifecycle_id: string;
   root_share_epoch: string;
   account_id: string;
-  wallet_session_id: string;
+  threshold_session_id: string;
   signer_set_id: string;
   signing_worker_id: string;
   material_activation: RouterAbMpcMaterialActivationRefWire;
@@ -89,6 +89,7 @@ export type RouterAbEd25519YaoRegistrationAdmissionRequestV1 = {
 
 export type RouterAbEd25519YaoRecoveryAdmissionRequestV1 = {
   scope: RouterAbEd25519YaoLifecycleScopeV1;
+  active_material_activation: RouterAbMpcMaterialActivationRefWire;
   application_binding: RouterAbEd25519YaoApplicationBindingFactsV1;
   participant_ids: readonly [number, number];
   active_capability_binding: RouterAbEd25519YaoBytes32V1;
@@ -656,7 +657,7 @@ function exportIdentityFields(
     labeledField('lifecycleId', UTF8.encode(scope.lifecycle_id)),
     labeledField('rootShareEpoch', UTF8.encode(scope.root_share_epoch)),
     labeledField('accountId', UTF8.encode(scope.account_id)),
-    labeledField('walletSessionId', UTF8.encode(scope.wallet_session_id)),
+    labeledField('thresholdSessionId', UTF8.encode(scope.threshold_session_id)),
     labeledField('signerSetId', UTF8.encode(scope.signer_set_id)),
     labeledField('signingWorkerId', UTF8.encode(scope.signing_worker_id)),
     labeledField('walletId', UTF8.encode(application.wallet_id)),
@@ -836,7 +837,7 @@ function parsePublicLifecycleScope(value: unknown): RouterAbEd25519YaoLifecycleS
     'lifecycle_id',
     'root_share_epoch',
     'account_id',
-    'wallet_session_id',
+    'threshold_session_id',
     'signer_set_id',
     'signing_worker_id',
     'material_activation',
@@ -857,9 +858,9 @@ function parsePublicLifecycleScope(value: unknown): RouterAbEd25519YaoLifecycleS
     lifecycle_id: requireVisibleIdentifier(record.lifecycle_id, 'scope.lifecycle_id'),
     root_share_epoch: requireVisibleIdentifier(record.root_share_epoch, 'scope.root_share_epoch'),
     account_id: accountId,
-    wallet_session_id: requireVisibleIdentifier(
-      record.wallet_session_id,
-      'scope.wallet_session_id',
+    threshold_session_id: requireVisibleIdentifier(
+      record.threshold_session_id,
+      'scope.threshold_session_id',
     ),
     signer_set_id: requireVisibleIdentifier(record.signer_set_id, 'scope.signer_set_id'),
     signing_worker_id: signingWorkerId,
@@ -1378,6 +1379,7 @@ function parseRecoveryAdmissionRequestValue(
   const record = requireRecord(value, 'recovery admission request');
   requireExactKeys(record, 'recovery admission request', [
     'scope',
+    'active_material_activation',
     'application_binding',
     'participant_ids',
     'active_capability_binding',
@@ -1397,8 +1399,28 @@ function parseRecoveryAdmissionRequestValue(
   if (equalBytes(activeCapabilityBinding, replacementCapabilityBinding)) {
     throw new Error('recovery replacement capability binding must be fresh');
   }
+  const scope = parsePublicLifecycleScope(record.scope);
+  const activeMaterialActivation = parseRouterAbMpcMaterialActivationRef(
+    record.active_material_activation,
+  );
+  const replacementMaterialActivation = scope.material_activation;
+  if (
+    activeMaterialActivation.activation_id === replacementMaterialActivation.activation_id ||
+    activeMaterialActivation.lifecycle_binding === replacementMaterialActivation.lifecycle_binding
+  ) {
+    throw new Error('recovery replacement material activation identity must be fresh');
+  }
+  if (
+    activeMaterialActivation.capability !== replacementMaterialActivation.capability ||
+    activeMaterialActivation.material_owner !== replacementMaterialActivation.material_owner ||
+    activeMaterialActivation.key_binding !== replacementMaterialActivation.key_binding ||
+    activeMaterialActivation.signing_worker !== replacementMaterialActivation.signing_worker
+  ) {
+    throw new Error('recovery replacement material activation changed stable identity facts');
+  }
   return {
-    scope: parsePublicLifecycleScope(record.scope),
+    scope,
+    active_material_activation: activeMaterialActivation,
     application_binding: parseApplicationBinding(record.application_binding),
     participant_ids: parseParticipantIds(record.participant_ids),
     active_capability_binding: activeCapabilityBinding,

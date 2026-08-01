@@ -42,7 +42,7 @@ export function buildFixtureEd25519YaoRegistrationAdmissionRequest(
       lifecycle_id: lifecycleId,
       root_share_epoch: overrides.rootShareEpoch ?? 'root-share-epoch-9',
       account_id: walletId,
-      wallet_session_id: `${lifecycleId}-session`,
+      threshold_session_id: `${lifecycleId}-session`,
       signer_set_id: overrides.signerSetId ?? 'signer-set-fixture',
       signing_worker_id: overrides.signingWorkerId ?? 'signing-worker-a',
       material_activation: {

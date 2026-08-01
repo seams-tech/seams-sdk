@@ -853,7 +853,7 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
       ? incoming.application_binding.near_ed25519_signing_key_id
       : 'near-ed25519-finalize-convergence',
     thresholdSessionId: incoming
-      ? incoming.scope.wallet_session_id
+      ? incoming.scope.threshold_session_id
       : 'threshold-finalize-convergence',
     signerSlot: incoming
       ? incoming.application_binding.key_creation_signer_slot

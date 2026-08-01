@@ -11,6 +11,7 @@ import {
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
+import { routerAbMpcMaterialActivationRefToWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/d1WalletStore';
 import type { RouterApiWalletUnlockService } from '../../packages/sdk-server-ts/src/router/authServicePort';
@@ -59,6 +60,7 @@ import {
   FixtureRouterAbEcdsaStrictRegistrationPort,
 } from '../helpers/routerAbSigningRuntimeTestUtils';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import type { RouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 
 const WALLET_ID = walletIdFromString('wallet-email-yao-1.testnet');
@@ -77,6 +79,18 @@ const SIGNER_SLOT = 2;
 const REQUESTED_REMAINING_USES = 3;
 const REGISTERED_PUBLIC_KEY = new Array<number>(32).fill(47);
 const EMAIL_HASH_HEX = 'ab'.repeat(32);
+
+function materialActivationFixture(materialOwner = String(WALLET_ID)) {
+  return routerAbMpcMaterialActivationRefToWire(
+    buildMpcMaterialActivationRefFixture(
+      'wallet-unlock-email-yao',
+      materialOwner,
+      SIGNING_WORKER_ID,
+    ),
+  );
+}
+
+const MATERIAL_ACTIVATION = materialActivationFixture();
 
 function fixtureBytes(seed: number, length = 32): number[] {
   return new Array<number>(length).fill(seed);
@@ -120,9 +134,10 @@ function activeYaoCapabilityRecordFixture() {
       lifecycle_id: 'registration-email-yao-1',
       root_share_epoch: ROOT_VERSION,
       account_id: WALLET_ID,
-      wallet_session_id: THRESHOLD_SESSION_ID,
+      threshold_session_id: THRESHOLD_SESSION_ID,
       signer_set_id: String(registrationNearEd25519BranchKey(SIGNER_SLOT)),
       signing_worker_id: SIGNING_WORKER_ID,
+      material_activation: MATERIAL_ACTIVATION,
     },
     application_binding: {
       wallet_id: WALLET_ID,
@@ -147,6 +162,7 @@ function activeYaoCapabilityRecordFixture() {
     operation: 'registration',
     session_id: fixtureBytes(31),
     stable_key_context_binding: fixtureBytes(32),
+    material_activation: MATERIAL_ACTIVATION,
   };
   const activationResult = parseRouterAbEd25519YaoRegistrationActivationResultV1({
     binding,
@@ -159,6 +175,7 @@ function activeYaoCapabilityRecordFixture() {
       joined_signing_worker_commitment: fixtureBytes(40),
       signing_worker_verifying_share: fixtureBytes(40),
       state_epoch: 1,
+      material_activation: MATERIAL_ACTIVATION,
     },
   });
   if (!activationResult.ok) throw new Error(activationResult.message);
@@ -188,6 +205,7 @@ function activeCapabilityFixture(
   const capabilityWalletId = substitution === 'wallet' ? 'substituted-wallet.testnet' : WALLET_ID;
   return {
     kind: 'router_ab_ed25519_yao_active_capability_v1',
+    materialActivation: materialActivationFixture(capabilityWalletId),
     activeCapabilityBinding: new Array<number>(32).fill(31),
     registeredPublicKey: REGISTERED_PUBLIC_KEY,
     nearAccountId: NEAR_ACCOUNT_ID,

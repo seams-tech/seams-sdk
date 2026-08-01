@@ -373,7 +373,7 @@ function activeCapabilityIdentityMatchesExportScope(
     scope.account_id === request.application_binding.wallet_id &&
     lifecycle.rootShareEpoch === scope.root_share_epoch &&
     lifecycle.accountId === scope.account_id &&
-    lifecycle.thresholdSessionId === scope.wallet_session_id &&
+    lifecycle.thresholdSessionId === scope.threshold_session_id &&
     lifecycle.signerSetId === scope.signer_set_id &&
     lifecycle.signingWorkerId === scope.signing_worker_id &&
     sameRouterAbMpcMaterialActivationRef(capability.materialActivation, scope.material_activation)
@@ -393,7 +393,7 @@ function receiptMatchesAdmissionScope(
     lifecycle.lifecycle_id === scope.lifecycle_id &&
     lifecycle.root_share_epoch === scope.root_share_epoch &&
     lifecycle.account_id === scope.account_id &&
-    lifecycle.session_id === scope.wallet_session_id &&
+    lifecycle.session_id === scope.threshold_session_id &&
     lifecycle.signer_set_id === scope.signer_set_id &&
     lifecycle.selected_server_id === scope.signing_worker_id &&
     sameRouterAbMpcMaterialActivationRef(

@@ -323,7 +323,7 @@ function registrationScopeMatchesReceipt(
     scope.lifecycle_id === lifecycle.lifecycle_id &&
     scope.root_share_epoch === lifecycle.root_share_epoch &&
     scope.account_id === lifecycle.account_id &&
-    scope.wallet_session_id === lifecycle.session_id &&
+    scope.threshold_session_id === lifecycle.session_id &&
     scope.signer_set_id === lifecycle.signer_set_id &&
     scope.signing_worker_id === lifecycle.selected_server_id &&
     sameRouterAbMpcMaterialActivationRef(

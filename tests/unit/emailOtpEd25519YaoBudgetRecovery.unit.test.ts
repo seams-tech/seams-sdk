@@ -36,6 +36,8 @@ import {
   walletAuthAuthorityRef,
 } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
+  mpcMaterialActivationRefsEqual,
+  parseMpcMaterialActivationRef,
   parseThresholdEd25519SessionId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import {
@@ -53,6 +55,11 @@ import {
   buildWalletIdentity,
 } from '../../packages/shared-ts/src/utils/walletCapabilityBindings';
 import { parseImplicitNearAccountId } from '../../packages/shared-ts/src/utils/near';
+import {
+  parseRouterAbMpcMaterialActivationRef,
+  routerAbMpcMaterialActivationRefToWire,
+} from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const WALLET_ID = walletIdFromString('email-otp-ed25519-budget.testnet');
 const NEAR_ACCOUNT_ID = toAccountId('ab'.repeat(32));
@@ -83,6 +90,32 @@ const ROUTER_AB_NORMAL_SIGNING = {
 } as const;
 const REGISTERED_PUBLIC_KEY = new Uint8Array(32).fill(7);
 const PRIOR_CAPABILITY_BINDING = new Array<number>(32).fill(1);
+const MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'email-otp-ed25519-budget',
+  String(WALLET_ID),
+  SIGNING_WORKER_ID,
+);
+const RECOVERY_MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'email-otp-ed25519-recovery',
+  String(WALLET_ID),
+  SIGNING_WORKER_ID,
+  String(MATERIAL_ACTIVATION.keyBinding),
+);
+
+function materialActivationFromWire(value: unknown) {
+  const wire = parseRouterAbMpcMaterialActivationRef(value);
+  const parsed = parseMpcMaterialActivationRef({
+    kind: wire.kind,
+    activationId: wire.activation_id,
+    capability: wire.capability,
+    materialOwner: wire.material_owner,
+    keyBinding: wire.key_binding,
+    lifecycleBinding: wire.lifecycle_binding,
+    signingWorker: wire.signing_worker,
+  });
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 function exportLaneIdentity() {
   const account = parseImplicitNearAccountId(NEAR_ACCOUNT_ID);
@@ -163,9 +196,10 @@ function activeMetadata(): RouterAbEd25519YaoActiveClientMetadataV1 {
       lifecycle_id: 'email-otp-ed25519-registration-lifecycle',
       root_share_epoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
       account_id: String(WALLET_ID),
-      wallet_session_id: THRESHOLD_SESSION_ID,
+      threshold_session_id: THRESHOLD_SESSION_ID,
       signer_set_id: 'near_ed25519:slot:1',
       signing_worker_id: SIGNING_WORKER_ID,
+      material_activation: routerAbMpcMaterialActivationRefToWire(MATERIAL_ACTIVATION),
     },
     applicationBinding: {
       wallet_id: String(WALLET_ID),
@@ -179,6 +213,7 @@ function activeMetadata(): RouterAbEd25519YaoActiveClientMetadataV1 {
     stateEpoch: 1n,
     transcript: new Uint8Array(32),
     activeCapabilityBinding: [...PRIOR_CAPABILITY_BINDING],
+    materialActivation: MATERIAL_ACTIVATION,
   };
 }
 
@@ -189,6 +224,7 @@ function recoveryBootstrap(args: {
   substituteParticipantIds: boolean;
   substituteSignerSetId: boolean;
   walletSessionJwt?: string;
+  materialActivation?: typeof RECOVERY_MATERIAL_ACTIVATION;
 }): EmailOtpEd25519YaoRecoveryBootstrapV1 {
   const registeredPublicKey = args.substitutePublicKey
     ? new Array<number>(32).fill(9)
@@ -222,6 +258,7 @@ function recoveryBootstrap(args: {
     },
     capability: {
       kind: 'router_ab_ed25519_yao_active_capability_v1',
+      materialActivation: args.materialActivation ?? MATERIAL_ACTIVATION,
       activeCapabilityBinding: [...PRIOR_CAPABILITY_BINDING],
       registeredPublicKey,
       nearAccountId: String(NEAR_ACCOUNT_ID),
@@ -253,6 +290,7 @@ class RecoveryWorkerFixture {
   private readonly substituteSignerSetId: boolean;
   private readonly failRecoveryDispatch: boolean;
   private readonly disposeBoundRootResult: boolean;
+  private readonly requireFreshMaterialActivation: boolean;
 
   constructor(args: {
     prior: RouterAbEd25519YaoActiveClientMetadataV1;
@@ -261,6 +299,7 @@ class RecoveryWorkerFixture {
     substituteSignerSetId?: boolean;
     failRecoveryDispatch?: boolean;
     disposeBoundRootResult?: boolean;
+    requireFreshMaterialActivation?: boolean;
   }) {
     this.prior = args.prior;
     this.substitutePublicKey = args.substitutePublicKey;
@@ -268,6 +307,7 @@ class RecoveryWorkerFixture {
     this.substituteSignerSetId = args.substituteSignerSetId === true;
     this.failRecoveryDispatch = args.failRecoveryDispatch === true;
     this.disposeBoundRootResult = args.disposeBoundRootResult !== false;
+    this.requireFreshMaterialActivation = args.requireFreshMaterialActivation === true;
   }
 
   async requestWorkerOperation(args: any): Promise<any> {
@@ -347,6 +387,15 @@ class RecoveryWorkerFixture {
           throw new Error('injected recovery dispatch failure');
         }
         const admission = request.payload.admissionRequest;
+        const recoveredMaterialActivation = materialActivationFromWire(
+          admission.scope.material_activation,
+        );
+        if (
+          this.requireFreshMaterialActivation &&
+          mpcMaterialActivationRefsEqual(recoveredMaterialActivation, this.prior.materialActivation)
+        ) {
+          throw new Error('fixture recovery material activation did not advance');
+        }
         const recoveredMetadata: RouterAbEd25519YaoActiveClientMetadataV1 = {
           kind: 'router_ab_ed25519_yao_active_client_v1',
           scope: admission.scope,
@@ -357,6 +406,7 @@ class RecoveryWorkerFixture {
           stateEpoch: this.prior.stateEpoch + 1n,
           transcript: new Uint8Array(32),
           activeCapabilityBinding: [...admission.replacement_capability_binding],
+          materialActivation: recoveredMaterialActivation,
         };
         return {
           activeClientHandle: 'recovered-active-client-1',
@@ -370,6 +420,7 @@ class RecoveryWorkerFixture {
               joined_signing_worker_commitment: new Array<number>(32).fill(0),
               signing_worker_verifying_share: new Array<number>(32).fill(0),
               state_epoch: Number(this.prior.stateEpoch + 1n),
+              material_activation: admission.scope.material_activation,
             },
             active_capability_binding: [...admission.replacement_capability_binding],
             retired_capability_binding: [...admission.active_capability_binding],
@@ -650,6 +701,14 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     const expectedActivation = publicCapabilityReference().materialActivation;
     const replacementMetadata = activeMetadata();
     replacementMetadata.scope.lifecycle_id = 'email-otp-ed25519-replacement-lifecycle';
+    replacementMetadata.materialActivation = buildMpcMaterialActivationRefFixture(
+      'email-otp-ed25519-replacement-lifecycle',
+      String(WALLET_ID),
+      SIGNING_WORKER_ID,
+    );
+    replacementMetadata.scope.material_activation = routerAbMpcMaterialActivationRefToWire(
+      replacementMetadata.materialActivation,
+    );
     const replacementActivation =
       nearEd25519YaoMaterialActivationFromMetadata(replacementMetadata);
     const initialRecord = buildEmailOtpSealedRecord({
@@ -895,6 +954,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
     const worker = new RecoveryWorkerFixture({
       prior: priorMetadata,
       substitutePublicKey: false,
+      requireFreshMaterialActivation: true,
     });
     const activation = new RecoveryActivationHarness(null);
     const prepared = prepareColdEmailOtpEd25519YaoRecoveryV1({
@@ -919,6 +979,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         substitutePublicKey: false,
         substituteParticipantIds: false,
         substituteSignerSetId: false,
+        materialActivation: RECOVERY_MATERIAL_ACTIVATION,
       }),
       pendingFactorHandle: pendingFactorHandle(),
       workerContext: worker.context(),

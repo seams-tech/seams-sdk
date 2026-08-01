@@ -765,7 +765,7 @@ async function exportEmailOtpEd25519YaoSeed(args: {
       lifecycle_id: capability.lifecycle.lifecycleId,
       root_share_epoch: capability.lifecycle.rootShareEpoch,
       account_id: capability.lifecycle.accountId,
-      wallet_session_id: capability.lifecycle.thresholdSessionId,
+      threshold_session_id: capability.lifecycle.thresholdSessionId,
       signer_set_id: capability.lifecycle.signerSetId,
       signing_worker_id: capability.lifecycle.signingWorkerId,
       material_activation: routerAbMpcMaterialActivationRefToWire(
@@ -2687,7 +2687,7 @@ function assertEmailOtpEd25519YaoOperationMaterialContinuity(args: {
 }): void {
   const activation = nearEd25519YaoMaterialActivationFromMetadata(args.metadata);
   if (
-    args.metadata.scope.wallet_session_id !== String(args.expectedThresholdSessionId) ||
+    args.metadata.scope.threshold_session_id !== String(args.expectedThresholdSessionId) ||
     args.metadata.applicationBinding.wallet_id !== args.walletId ||
     args.metadata.applicationBinding.key_creation_signer_slot !== args.signerSlot ||
     `ed25519:${base58Encode(args.metadata.registeredPublicKey)}` !==
@@ -3748,7 +3748,7 @@ function metadataFromEmailOtpEd25519YaoLocalMaterial(args: {
       lifecycle_id: binding.lifecycleId,
       root_share_epoch: binding.rootShareEpoch,
       account_id: binding.walletId,
-      wallet_session_id: readString(args.expectedThresholdSessionId, 'expectedThresholdSessionId'),
+      threshold_session_id: readString(args.expectedThresholdSessionId, 'expectedThresholdSessionId'),
       signer_set_id: binding.signerSetId,
       signing_worker_id: binding.signingWorkerId,
       material_activation: {

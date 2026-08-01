@@ -136,7 +136,7 @@ function registrationInput(args: {
         lifecycle_id: 'registration-ceremony-42',
         root_share_epoch: 'root-share-epoch-9',
         account_id: 'near-account.testnet',
-        wallet_session_id: 'wallet-session-42',
+        threshold_session_id: 'wallet-session-42',
         signer_set_id: 'signer-set-42',
         signing_worker_id: 'signing-worker-a',
         material_activation: {
@@ -186,7 +186,7 @@ test.describe('verified passkey Ed25519 Yao registration orchestration', () => {
           lifecycle_id: 'registration-ceremony-42',
           root_share_epoch: 'root-share-epoch-9',
           account_id: 'near-account.testnet',
-          wallet_session_id: 'wallet-session-42',
+        threshold_session_id: 'wallet-session-42',
           signer_set_id: 'signer-set-42',
           signing_worker_id: 'signing-worker-a',
           material_activation: {

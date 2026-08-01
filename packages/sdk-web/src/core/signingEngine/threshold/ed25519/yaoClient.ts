@@ -722,7 +722,7 @@ function activationAdmissionMatchesScope(
     lifecycle.lifecycle_id === scope.lifecycle_id &&
     lifecycle.root_share_epoch === scope.root_share_epoch &&
     lifecycle.account_id === scope.account_id &&
-    lifecycle.session_id === scope.wallet_session_id &&
+    lifecycle.session_id === scope.threshold_session_id &&
     lifecycle.signer_set_id === scope.signer_set_id &&
     lifecycle.selected_server_id === scope.signing_worker_id &&
     sameRouterAbMpcMaterialActivationRef(
@@ -830,7 +830,7 @@ function exportAdmissionMatchesRequest(
     lifecycle.lifecycle_id === request.scope.lifecycle_id &&
     lifecycle.root_share_epoch === request.scope.root_share_epoch &&
     lifecycle.account_id === request.scope.account_id &&
-    lifecycle.session_id === request.scope.wallet_session_id &&
+    lifecycle.session_id === request.scope.threshold_session_id &&
     lifecycle.signer_set_id === request.scope.signer_set_id &&
     lifecycle.selected_server_id === request.scope.signing_worker_id &&
     sameRouterAbMpcMaterialActivationRef(
@@ -1178,7 +1178,7 @@ export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoS
         lifecycle_id: args.metadata.scope.lifecycle_id,
         root_share_epoch: args.metadata.scope.root_share_epoch,
         account_id: args.metadata.scope.account_id,
-        wallet_session_id: args.metadata.scope.wallet_session_id,
+        threshold_session_id: args.metadata.scope.threshold_session_id,
         signer_set_id: args.metadata.scope.signer_set_id,
         signing_worker_id: args.metadata.scope.signing_worker_id,
         material_activation: args.metadata.scope.material_activation,
@@ -1283,7 +1283,7 @@ export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoS
         lifecycle_id: this.activeMetadata.scope.lifecycle_id,
         root_share_epoch: this.activeMetadata.scope.root_share_epoch,
         account_id: this.activeMetadata.scope.account_id,
-        wallet_session_id: this.activeMetadata.scope.wallet_session_id,
+        threshold_session_id: this.activeMetadata.scope.threshold_session_id,
         signer_set_id: this.activeMetadata.scope.signer_set_id,
         signing_worker_id: this.activeMetadata.scope.signing_worker_id,
         material_activation: this.activeMetadata.scope.material_activation,

@@ -325,11 +325,12 @@ ports, and the two-state recovery journal.
   `signingGrantIdFromEcdsaBootstrap`, and
   `ecdsaBootstrapWithSigningGrantId`~~ — deleted by `3fdeba8b7`; bootstrap
   session identity now has one required owner and publication validates it
-- `EmailOtpUnlockMaterialPlan`
+- ~~`EmailOtpUnlockMaterialPlan`~~ — confirmed absent at `7495b5b44`
 - ~~every combined two-curve request/result/commit object~~ — replaced by one
   unlock envelope containing exact sibling ECDSA and Ed25519-Yao outcomes in
   `def400d94`
-- `EmailOtpEd25519YaoSessionMaterialRequestV1`
+- ~~`EmailOtpEd25519YaoSessionMaterialRequestV1`~~ — confirmed absent at
+  `7495b5b44`
 - `EmailOtpEd25519YaoExactLocalSessionBootstrapV1`
 - `WalletUnlockEmailOtpSessionIntentV1`
 - `RouterAbEd25519YaoEmailOtpSessionRequestV1`
@@ -348,8 +349,9 @@ ports, and the two-state recovery journal.
 
 ## Phase 19 — committed lanes, step-up, and resolvers
 
-- `PasskeyEcdsaCommittedLane`, `EmailOtpEcdsaCommittedLane`, their ready
-  aliases and method-specific builders
+- ~~`PasskeyEcdsaCommittedLane` and `EmailOtpEcdsaCommittedLane`~~ — confirmed
+  absent at `7495b5b44`; their ready aliases and method-specific builders were
+  deleted with the same lane family
 - ~~`EmailOtpEcdsaCommittedLaneStateError`~~ — deleted by `4962087ca`
 - ~~`EvmFamilyEcdsaAuthMethod` and its committed-lane method dispatch~~ —
   deleted by `1f1d5bb11`; the required authority factor is the discriminant
@@ -363,13 +365,17 @@ ports, and the two-state recovery journal.
 
 ## Phase 19 — Yao capability sources and reconnect hooks
 
-- `NearPasskeyEd25519ReconnectHook`, `NearEmailOtpEd25519ReconnectHook`
-- `NearEd25519PasskeyReconnect`, `NearEd25519EmailOtpReconnect`
-- `recoverPasskeyEd25519YaoCapabilityForSigning`
+- ~~`NearPasskeyEd25519ReconnectHook`, `NearEmailOtpEd25519ReconnectHook`~~ —
+  confirmed absent at `7495b5b44`
+- ~~`NearEd25519PasskeyReconnect`, `NearEd25519EmailOtpReconnect`~~ — confirmed
+  absent at `7495b5b44`
+- ~~`recoverPasskeyEd25519YaoCapabilityForSigning`~~ — confirmed absent at
+  `7495b5b44`
 - `NearEd25519YaoCapabilitySource`, `nearEd25519YaoCapabilitySource`
 - `NearEd25519YaoSigningCapability` (replace with the branded committed shape;
   no broad source aggregate)
-- `emailOtpNearEd25519LaneRequiresFreshAuth`
+- ~~`emailOtpNearEd25519LaneRequiresFreshAuth`~~ — confirmed absent at
+  `7495b5b44`
 - `RouterAbEd25519YaoClientRootFactorV1`
 - `RouterAbEd25519YaoBudgetRefreshAuthorizationV1`
 - factor-labelled Yao root/export transport unions
@@ -379,12 +385,15 @@ ports, and the two-state recovery journal.
 - `EmailOtpEd25519YaoSilentRecoveryResultV1`
 - `EmailOtpEd25519YaoSilentRecoveryPorts`
 - `EmailOtpEd25519YaoBudgetRecoveryResult`
-- `PreparedEmailOtpEd25519YaoRecoveryV1`, `PreparedColdEmailOtpEd25519YaoRecoveryV1`
+- ~~`PreparedEmailOtpEd25519YaoRecoveryV1`~~ — confirmed absent at `7495b5b44`
+- `PreparedColdEmailOtpEd25519YaoRecoveryV1`
 - `recoverEmailOtpEd25519YaoFromSealedSessionV1`
-- `recoverEmailOtpEd25519CapabilityForSigningV1`
+- ~~`recoverEmailOtpEd25519CapabilityForSigningV1`~~ — confirmed absent at
+  `7495b5b44`
 - `recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning`
-- `requestRehydrateEmailOtpEd25519YaoFactor` and the
-  `rehydrateEmailOtpEd25519YaoFactor` worker operation
+- ~~`requestRehydrateEmailOtpEd25519YaoFactor`~~ — confirmed absent at
+  `7495b5b44`
+- the `rehydrateEmailOtpEd25519YaoFactor` worker operation
 - Email-OTP-specific Yao root purpose/scope/handle shapes
 - method-specific Browser recovery singleflight maps
 
@@ -419,7 +428,8 @@ ports, and the two-state recovery journal.
 
 ## Phase 19 — factor-labelled assembly ports and Browser shortcuts
 
-- `refreshPasskeyEd25519CapabilityForSigning`
+- ~~`refreshPasskeyEd25519CapabilityForSigning`~~ — confirmed absent at
+  `7495b5b44`
 - `requestEmailOtpEd25519SigningChallenge`
 - `recoverEmailOtpEd25519CapabilityForSigning`
 - `resolveAccountAuthMethodForSigning`
