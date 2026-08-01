@@ -21,18 +21,6 @@ import type { TransactionContext } from '@/core/types/rpc';
 import { ActionType, fromActionArgsWasm, type ActionArgsWasm } from '@/core/types/actions';
 import type { NearSigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
-import type {
-  BudgetFinalizationSpend,
-  SigningBudgetFinalizationResult,
-  SigningSessionBudgetStatusAuth,
-  SigningSessionPreparedBudgetIdentity,
-} from '@/core/signingEngine/session/budget/budget';
-import { isSigningSessionBudgetReservation } from '@/core/signingEngine/session/budget/budget';
-import {
-  createSigningSessionBudgetFinalizer,
-  type SigningSessionBudgetFinalizer,
-} from '@/core/signingEngine/session/budget/budgetFinalizer';
 import {
   buildRouterAbEd25519DelegateActionPrepareRequestV2,
   buildRouterAbEd25519NearTransactionPrepareRequestV2,
@@ -54,13 +42,9 @@ import type {
   SigningOperationFingerprint,
   SigningOperationId,
 } from '@/core/signingEngine/session/operationState/types';
-import {
-  SigningOperationIntent,
-  SigningSessionIds,
-} from '@/core/signingEngine/session/operationState/types';
+import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import {
   requireRouterAbEd25519NormalSigningReadyState,
-  type RouterAbEd25519NormalSigningReadyState,
 } from '../../../session/warmCapabilities/routerAbWalletSessionCredential';
 import type {
   AuthorizedRouterAbEd25519WalletSessionState,
@@ -737,12 +721,10 @@ type RouterAbEd25519SignatureOnlyNormalSigningArgs =
   RouterAbEd25519SignatureOnlyNormalSigningBase &
     (
       | {
-          signingSessionCoordinator: SigningSessionCoordinator;
           walletSessionState: AuthorizedRouterAbEd25519WalletSessionState;
           authorization: { kind: 'reusable_wallet_session' };
         }
       | {
-          signingSessionCoordinator?: never;
           materialFacts: NearEd25519YaoOperationMaterialFacts;
           walletSessionState?: never;
           authorization: {
@@ -1059,173 +1041,30 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(
     signingDigestB64u: args.signingDigestB64u,
     intent: args.intent,
   });
-  const budgetFinalizer = await prepareRouterAbEd25519SignatureOnlyBudgetFinalizer({
-    signingSessionCoordinator: args.signingSessionCoordinator,
-    walletSessionState: args.walletSessionState,
+  const finalized = await tryFinalizeRouterAbEd25519NormalSigningSignature({
     thresholdSessionId: args.thresholdSessionId,
+    walletSessionState: args.walletSessionState,
     thresholdKeyMaterial: args.thresholdKeyMaterial,
     walletId: args.walletId,
     nearAccountId: args.nearAccountId,
-    operationId: args.operationId,
-    operationFingerprint: args.operationFingerprint,
-  });
-  const reservation = await budgetFinalizer.reserve();
-  if (reservation && !isSigningSessionBudgetReservation(reservation)) {
-    throw new Error('[SigningEngine][near] signature-only budget reservation identity mismatch');
-  }
-
-  let finalized: RouterAbEd25519NormalSigningFinalized;
-  try {
-    finalized = await tryFinalizeRouterAbEd25519NormalSigningSignature({
+    activeClient: args.activeClient,
+    signingDigestB64u: args.signingDigestB64u,
+    signingPayloadLabel: 'signature-only payload digest',
+    prepare,
+    credential: requireRouterAbEd25519NormalSigningReadyState({
+      state: args.walletSessionState,
       thresholdSessionId: args.thresholdSessionId,
-      walletSessionState: args.walletSessionState,
-      thresholdKeyMaterial: args.thresholdKeyMaterial,
-      walletId: args.walletId,
       nearAccountId: args.nearAccountId,
-      activeClient: args.activeClient,
-      signingDigestB64u: args.signingDigestB64u,
-      signingPayloadLabel: 'signature-only payload digest',
-      prepare,
-      credential: requireRouterAbEd25519NormalSigningReadyState({
-        state: args.walletSessionState,
-        thresholdSessionId: args.thresholdSessionId,
-        nearAccountId: args.nearAccountId,
-        thresholdKeyMaterial: args.thresholdKeyMaterial,
-      }).credential,
-      authorization: args.authorization.kind,
-    });
-  } catch (error) {
-    budgetFinalizer.recordZeroSpend(error);
-    throw error;
-  }
-  requireSignatureOnlyBudgetFinalizationResult(await budgetFinalizer.recordSuccess());
+      thresholdKeyMaterial: args.thresholdKeyMaterial,
+    }).credential,
+    authorization: args.authorization.kind,
+  });
   return {
     kind: 'router_ab_ed25519_signature_only_normal_signing_result_v1',
     authorization: 'reusable_wallet_session',
     operationId: args.operationId,
     ...finalized,
   };
-}
-
-function requireSignatureOnlyBudgetFinalizationResult(
-  result: SigningBudgetFinalizationResult | null,
-): void {
-  if (!result || result.kind === 'finalized' || result.kind === 'already_finalized') return;
-  switch (result.kind) {
-    case 'projection_mismatch':
-      throw new Error(
-        `[SigningEngine][near] signature-only budget finalization projection mismatch: expected ${result.expectedProjectionVersion}, got ${result.actualProjectionVersion}`,
-      );
-    case 'missing_reservation':
-      throw new Error(
-        '[SigningEngine][near] signature-only budget finalization missing reservation',
-      );
-    case 'reservation_identity_mismatch':
-      throw new Error(
-        '[SigningEngine][near] signature-only budget finalization reservation identity mismatch',
-      );
-    case 'budget_status_unavailable':
-      throw new Error(
-        `[SigningEngine][near] signature-only budget finalization status unavailable: ${result.status}`,
-      );
-    default:
-      assertNever(result satisfies never);
-  }
-}
-
-function assertNever(value: never): never {
-  throw new Error(`Unexpected signature-only budget finalization result: ${String(value)}`);
-}
-
-async function prepareRouterAbEd25519SignatureOnlyBudgetFinalizer(args: {
-  signingSessionCoordinator: SigningSessionCoordinator;
-  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
-  thresholdSessionId: string;
-  thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
-  walletId: WalletId;
-  nearAccountId: string;
-  operationId: SigningOperationId;
-  operationFingerprint: SigningOperationFingerprint;
-}): Promise<SigningSessionBudgetFinalizer> {
-  const routerAbReadyState = requireRouterAbEd25519NormalSigningReadyState({
-    state: args.walletSessionState,
-    thresholdSessionId: args.thresholdSessionId,
-    nearAccountId: args.nearAccountId,
-    thresholdKeyMaterial: args.thresholdKeyMaterial,
-  });
-  const trustedStatusAuth = budgetStatusAuthFromRouterAbReadyState(routerAbReadyState);
-  const budgetIdentity = await args.signingSessionCoordinator.prepareBudgetIdentity({
-    lane: args.walletSessionState.signingLane,
-    trustedStatusAuth,
-    operationUsesNeeded: 1,
-  });
-  return createRouterAbEd25519SignatureOnlyBudgetFinalizer({
-    signingSessionCoordinator: args.signingSessionCoordinator,
-    budgetIdentity,
-    finalization: {
-      kind: 'externally_consumed_success',
-      spend: {
-        operationId: args.operationId,
-        operationFingerprint: args.operationFingerprint,
-        lane: args.walletSessionState.signingLane,
-        backingMaterialSessionIds: [],
-        uses: 1,
-        reason: SigningOperationIntent.TransactionSign,
-      },
-      trustedStatusAuth,
-      alreadyConsumedThresholdSessionIds: [args.walletSessionState.signingLane.thresholdSessionId],
-    },
-    nearAccountId: args.nearAccountId,
-    signingGrantId: args.walletSessionState.signingGrantId,
-    thresholdSessionId: args.thresholdSessionId,
-  });
-}
-
-function budgetStatusAuthFromRouterAbReadyState(
-  state: RouterAbEd25519NormalSigningReadyState,
-): SigningSessionBudgetStatusAuth {
-  const thresholdSessionId = String(state.thresholdSessionId || '').trim();
-  const relayerUrl = String(state.relayerUrl || '').trim();
-  const walletSessionJwt = String(state.credential.walletSessionJwt || '').trim();
-  if (!thresholdSessionId || !relayerUrl || !walletSessionJwt) {
-    throw new Error('[SigningEngine][near] signature-only budget auth is incomplete');
-  }
-  return {
-    thresholdSessionId,
-    relayerUrl,
-    walletSessionJwt,
-  };
-}
-
-function createRouterAbEd25519SignatureOnlyBudgetFinalizer(args: {
-  signingSessionCoordinator: SigningSessionCoordinator;
-  budgetIdentity: SigningSessionPreparedBudgetIdentity;
-  finalization: BudgetFinalizationSpend;
-  nearAccountId: string;
-  signingGrantId: string;
-  thresholdSessionId: string;
-}): SigningSessionBudgetFinalizer {
-  return createSigningSessionBudgetFinalizer({
-    budgetMode: 'with_budget',
-    signingSessionBudget: args.signingSessionCoordinator,
-    budgetIdentity: args.budgetIdentity,
-    finalization: args.finalization,
-    onRecordSuccessError: (error) => {
-      console.warn('[SigningEngine][near] failed to update signature-only signing grant budget', {
-        nearAccountId: args.nearAccountId,
-        signingGrantId: args.signingGrantId,
-        thresholdSessionId: args.thresholdSessionId,
-        error: error instanceof Error ? error.message : String(error || 'unknown error'),
-      });
-    },
-    onRecordZeroSpendError: (error) => {
-      console.warn('[SigningEngine][near] failed to record signature-only zero spend', {
-        nearAccountId: args.nearAccountId,
-        thresholdSessionId: args.thresholdSessionId,
-        error: error instanceof Error ? error.message : String(error || 'unknown error'),
-      });
-    },
-  });
 }
 
 export async function prepareRouterAbEd25519NearTransactionOperationStepUp(args: {
