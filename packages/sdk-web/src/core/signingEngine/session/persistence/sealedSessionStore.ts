@@ -2047,6 +2047,28 @@ export async function updateExactSealedSessionPolicy(
   if (!thresholdSessionId) return;
   const existing = await readExactSealedSession(thresholdSessionId, purpose);
   if (!existing) return;
+  await writeUpdatedSealedSessionPolicy(existing, args);
+}
+
+export async function updateExactEd25519SealedSessionPolicy(args: {
+  locator: Ed25519DurableMaterialLocator;
+  expiresAtMs: number;
+  remainingUses: number;
+  updatedAtMs: number;
+}): Promise<void> {
+  const existing = await readExactEd25519SealedSession(args.locator);
+  if (!existing) return;
+  await writeUpdatedSealedSessionPolicy(existing, args);
+}
+
+async function writeUpdatedSealedSessionPolicy(
+  existing: CurrentSealedSessionRecord,
+  args: {
+    expiresAtMs?: number;
+    remainingUses?: number;
+    updatedAtMs: number;
+  },
+): Promise<void> {
   const expiresAtMs = normalizeInteger(args.expiresAtMs ?? existing.expiresAtMs);
   const remainingUses = normalizeInteger(args.remainingUses ?? existing.remainingUses);
   const updatedAtMs = normalizeInteger(args.updatedAtMs);
