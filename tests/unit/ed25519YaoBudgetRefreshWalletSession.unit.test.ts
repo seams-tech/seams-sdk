@@ -215,7 +215,7 @@ function refreshSessionPolicyFixture(): Ed25519SessionPolicy {
   };
 }
 
-test('Yao budget refresh uses environment auth with a PRF-redacted WebAuthn assertion', async () => {
+test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn assertion', async () => {
   const originalFetch = globalThis.fetch;
   const capture: RefreshFetchCapture = {
     authorization: '',
@@ -232,7 +232,7 @@ test('Yao budget refresh uses environment auth with a PRF-redacted WebAuthn asse
       relayerKeyId: 'ed25519:relayer-key',
       sessionPolicy: refreshSessionPolicyFixture(),
       auth: {
-        kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+        kind: 'threshold_session_policy_webauthn',
         policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
           credential: refreshCredentialFixture(),
           rpId: 'localhost',
