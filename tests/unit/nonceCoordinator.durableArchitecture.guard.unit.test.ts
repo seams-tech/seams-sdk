@@ -115,7 +115,6 @@ test.describe('nonce coordinator durable architecture guards', () => {
       'session/restoreCoordinator',
       'session/availableSigningLanes',
       'session/budget/budget',
-      'session/budget/BudgetCoordinator',
       'session/identity/laneResolution',
       'sealedSessionStore',
       'restoreCoordinator',

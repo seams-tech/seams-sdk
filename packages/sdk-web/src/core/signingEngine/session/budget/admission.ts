@@ -1,10 +1,7 @@
-import {
-  SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
-  SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
-  type SigningSessionBudgetReservation,
-} from './budget';
-import type { SelectedLane } from '../identity/laneIdentity';
-import type { BudgetAdmittedOperation } from '../operationState/transactionState';
+export const SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR =
+  '[SigningSessionBudget] signing grant budget is exhausted';
+export const SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR =
+  '[SigningSessionBudget] signing grant budget is reserved by in-flight operations';
 
 export type SigningGrantAdmissionFailureSource =
   | 'local_projection'
@@ -38,14 +35,6 @@ export type SigningGrantAdmissionFailure =
       serverProjectionVersion: string;
       retryAfterMs?: never;
     };
-
-export type SigningGrantAdmissionResult =
-  | {
-      kind: 'admitted';
-      operation: BudgetAdmittedOperation<SelectedLane>;
-      reservation: SigningSessionBudgetReservation | null;
-    }
-  | SigningGrantAdmissionFailure;
 
 export type SigningGrantAdmissionDecision =
   | {

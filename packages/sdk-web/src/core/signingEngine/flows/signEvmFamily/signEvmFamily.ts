@@ -108,10 +108,6 @@ type EvmFamilyTransactionSigningOperationContext = {
   operationFingerprint: SigningOperationFingerprint;
   intent: typeof SigningOperationIntent.TransactionSign;
 };
-import {
-  finalizeSignedTransactionOperation,
-  signPreparedTransactionOperation,
-} from '../../session/operationState/transactionState';
 import { createEvmFamilySigningFlowRuntime } from './signingFlowRuntime';
 import {
   resolveEvmFamilyWalletSessionExpiryContext,

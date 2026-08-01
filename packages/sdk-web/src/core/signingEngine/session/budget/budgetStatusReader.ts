@@ -7,7 +7,17 @@ import {
   type SigningSessionBudgetStatusCheck,
   type WalletBudgetOwner,
 } from './budget';
-import { budgetUnknownSigningSessionStatus } from './budgetProjection';
+
+export function budgetUnknownSigningSessionStatus(args: {
+  signingGrantId: string;
+  reason: string;
+}): SigningSessionStatus & { status: 'budget_unknown' } {
+  return {
+    sessionId: args.signingGrantId,
+    status: 'budget_unknown',
+    statusCode: args.reason,
+  };
+}
 
 export type WalletSigningBudgetAvailableStatusDeps = {
   getAvailableStatus: (
