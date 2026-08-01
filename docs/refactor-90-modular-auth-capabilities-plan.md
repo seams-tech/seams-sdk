@@ -1131,10 +1131,12 @@ the replacement and legacy MPC paths must not ship together.
         validate the state before Wallet Session JWT signing, and require the
         client response field. Delete the JWT-derived reconstruction helper;
         the JWT remains a bearer credential (`d2128b7d9`).
-  - [ ] Remove Wallet Session bearer/grant state from durable Ed25519 and
+  - [x] Remove Wallet Session bearer/grant state from durable Ed25519 and
         active ECDSA sealed-material restore metadata. Recovery and signing
         must receive reusable authorization or a one-operation grant through
-        an independent operation carrier.
+        an independent operation carrier. Canonical records now scrub stale
+        grant fields at the persistence boundary (`d91e4bc9d`, `04b774f04`);
+        full acceptance remains tracked under R90-INV-014.
     - [x] Email OTP ECDSA sealed rehydration reads and correlates the current
           reusable authorization independently; its persisted bearer is no
           longer trusted or transported (`17f0a622f`).
@@ -1182,7 +1184,7 @@ the replacement and legacy MPC paths must not ship together.
     - [x] Delete the write-only Ed25519 resolved-identity map and both grant-
           bearing publishers. Durable sealed records and current authorization
           remain the only material and grant owners (`fbe92c4ee`).
-    - [ ] Preserve a grant-free Ed25519 material candidate when reusable
+    - [x] Preserve a grant-free Ed25519 material candidate when reusable
           authorization is absent, then attach the current grant only after
           same-method step-up. Availability must not drop durable material
           merely because the Wallet Session is absent or expired.
@@ -1194,11 +1196,11 @@ the replacement and legacy MPC paths must not ship together.
             candidates as a typed `authorization_required` result, and runtime
             discovery no longer rejects that valid branch for lacking a grant
             (`dd4ce7942`, `9d643b5e5`).
-      - [x] Carry the deferred candidate through NEAR delegate and NEP-413
-            signing confirmation and construct `SelectedEd25519Lane` only
-            after same-method operation step-up supplies the relayer-issued
-            grant (`cd8f89760`). The transaction/deferred operating proof and
-            parent acceptance item remain open.
+      - [x] Carry the deferred candidate through NEAR delegate, NEP-413, and
+            transaction signing confirmation and construct
+            `SelectedEd25519Lane` only after same-method operation step-up
+            supplies the relayer-issued grant (`cd8f89760`, `e2467ea4c`).
+            Full lifecycle acceptance remains open under R90-INV-014.
   - [x] Require canonical JWT `sid` at the Cloudflare Router boundary and
         delete the legacy `session_id` claim fallback and selector
         (`af6dc1514`).
@@ -1214,6 +1216,9 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Delete the zero-caller ECDSA Wallet Session transport-auth wrapper and
         its wrapper-only type fixtures; active authorization and route
         boundaries carry the bearer credential directly.
+  - [x] Delete zero-caller Email OTP HKDF helpers whose tuple included
+        `signingGrantId`; restore-info derivation now uses material/session
+        facts without a grant-bound secret tuple (`47455581e`).
 - [x] Inline the canonical bootstrap and exact/missing Wallet Session payload
       types in the iframe envelope and delete their one-use wire aliases.
 - [x] Delete the unread duplicate ECDSA export operation-authorization carrier;

@@ -453,10 +453,10 @@ implementing commit SHA as the evidence.
     transaction, delegate, and NEP-413 orchestration receives only the shared
     preparation plus an exact-activation-checked executor (`fe33b405a`).
   - [x] Deferred NEAR Ed25519 material candidates remain grant-free through
-    delegate and NEP-413 confirmation; the selected lane is constructed only
-    from the relayer-issued operation grant after finalization
-    (`cd8f89760`). Transaction-path execution and full lifecycle acceptance
-    remain open under `R90-INV-014`.
+    delegate, NEP-413, and transaction confirmation; the selected lane is
+    constructed only from the relayer-issued operation grant after
+    finalization (`cd8f89760`, `e2467ea4c`). Full lifecycle acceptance remains
+    open under `R90-INV-014`.
 - [x] `R90-INV-004` — Near admission, acquisition, and promotion are independently
   idempotent and queryable by exact recovery ID, including Refactor 93 exact
   Router replay, role-local reconciliation, and injected crash cases.
