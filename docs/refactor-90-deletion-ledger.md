@@ -488,6 +488,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - `BudgetCoordinator`, `budgetProjection`, `budgetFinalizer`,
   `budgetStatusReader`
 - `signingEngine/session/budget/**`
+- ~~reusable NEAR transaction client admission, reservation, success/zero-spend
+  finalization, and prepared-boundary budget state~~ — removed by `cc4cf26ab`;
+  relayer operation claims and quota transactions own consumption
 - ~~`DelegatedBudgetReservationStore`~~ — deleted in `20bd2297e`; it had no
   production consumer
 - router reserve/commit/release budget methods

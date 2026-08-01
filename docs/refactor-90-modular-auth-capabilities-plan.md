@@ -600,6 +600,10 @@ the replacement and legacy MPC paths must not ship together.
       return `authorization_required` when authorization is absent.
 - [x] Delete the client-side ECDSA wallet-budget lane path; keep the remaining
       client budget subsystem Ed25519-only and fail closed for other curves.
+- [x] Remove reusable NEAR transaction admission and finalization from the
+      client budget subsystem. The relayer now owns the exact operation claim,
+      quota consumption, replay, and terminal completion for that path
+      (`cc4cf26ab`). Signature-only Ed25519 cleanup remains open.
 - [x] Select ECDSA signing lanes and live material by exact canonical material
       identity; delete the source-priority scan, record-candidate builders,
       `findExact`/`readSelected` readers, and obsolete budget-blocked lane kind.
@@ -1091,6 +1095,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the write-dead composite-record key-ref lookup, record-first
       probes, no-prompt reconnect path, and record-backed ECDSA
       selection/material branches.
+- [x] Collapse the inert server-internal Email OTP Ed25519 local/recovery
+      request variants into one required-field session request. Preserve the
+      public exact-local and missing-material route outcomes because they still
+      select local activation versus recovery (`18daabe77`).
 - [x] Restore current shared authorization/ECDSA factories, regenerate their
       current shapes through canonical builders, and delete obsolete
       record-store and pre-cutover export tests.
