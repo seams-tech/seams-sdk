@@ -39,8 +39,9 @@ import {
 } from '@shared/utils/routerAbPublicKeyset';
 import type {
   DerivationClientSharePublicKey33B64u,
-  EcdsaRelayerDerivationPublicKey33B64u,
+  EcdsaDerivationRelayerPublicKey33B64u,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { parseRootShareEpoch } from '@shared/utils/domainIds';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
@@ -53,6 +54,12 @@ const passkeyAuthority = buildPasskeyWalletAuthAuthority({
 });
 const evmFamilySigningKeySlotId =
   'wallet-key:evm-family:alice.testnet:signing-root:default';
+
+function fixtureRootShareEpoch(value: string) {
+  const parsed = parseRootShareEpoch(value);
+  if (!parsed.ok) throw new Error(`invalid fixture root-share epoch: ${value}`);
+  return parsed.value;
+}
 
 function baseEd25519Claims() {
   return {
@@ -110,6 +117,32 @@ const routerAbNormalSigning = {
   signingWorkerId: 'signing-worker-a',
 };
 
+const routerAbEd25519MaterialActivation = {
+  kind: 'mpc_material_activation_ref' as const,
+  activation_id: 'activation-ed25519-1',
+  capability: 'capability:ed25519:alice.testnet',
+  material_owner: 'alice.testnet',
+  key_binding: 'key-binding:ed25519:alice.testnet',
+  lifecycle_binding: 'lifecycle:ed25519:alice.testnet',
+  signing_worker: 'signing-worker-a',
+};
+
+const routerAbEcdsaMaterialActivation = {
+  kind: 'mpc_material_activation_ref' as const,
+  activation_id: 'activation-ecdsa-1',
+  capability: 'capability:ecdsa:alice.testnet',
+  material_owner: 'alice.testnet',
+  key_binding: 'ederivation-key-test',
+  lifecycle_binding: 'lifecycle:ecdsa:alice.testnet',
+  signing_worker: 'signing-worker-1',
+};
+
+const routerAbOperationDigests = {
+  lane_digest_b64u: b64u(Array.from({ length: 32 }, () => 1)),
+  intent_digest_b64u: b64u(Array.from({ length: 32 }, () => 1)),
+  display_digest_b64u: b64u(Array.from({ length: 32 }, () => 3)),
+};
+
 function routerAbEd25519Claims(overrides: Record<string, unknown> = {}) {
   return {
     ...baseEd25519Claims(),
@@ -139,12 +172,12 @@ function routerAbEcdsaIssuerBinding(overrides: Record<string, unknown> = {}) {
       relayerPublicKey33B64u: b64u([
         0x03,
         ...Array.from({ length: 32 }, () => 2),
-      ]) as EcdsaRelayerDerivationPublicKey33B64u,
+      ]) as EcdsaDerivationRelayerPublicKey33B64u,
       groupPublicKey33B64u: b64u([0x02, ...Array.from({ length: 32 }, () => 3)]),
       ethereumAddress: '0x1111111111111111111111111111111111111111',
     },
     signingWorkerId: 'signing-worker-1',
-    activationEpoch: 'activation-epoch-1',
+    activationEpoch: fixtureRootShareEpoch('activation-epoch-1'),
     ...overrides,
   };
 }
@@ -152,7 +185,7 @@ function routerAbEcdsaIssuerBinding(overrides: Record<string, unknown> = {}) {
 function routerAbEcdsaClaims(overrides: Record<string, unknown> = {}) {
   const normalSigning = buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
     bootstrap: routerAbEcdsaBootstrap(),
-    activationEpoch: 'activation-epoch-1',
+    activationEpoch: fixtureRootShareEpoch('activation-epoch-1'),
     routerAbPublicKeyset,
     signingWorkerId: 'signing-worker-1',
   });
@@ -215,6 +248,7 @@ function routerAbEcdsaBootstrap(): Omit<
     relayerVerifyingShareB64u: issuer.publicIdentity.relayerPublicKey33B64u,
     participantIds: [1, 2],
     thresholdSessionId: 'threshold-ecdsa-session',
+    activationEpoch: fixtureRootShareEpoch('activation-epoch-1'),
     signingGrantId: 'signing-grant-ecdsa',
     expiresAtMs: Date.now() + 60_000,
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -340,9 +374,10 @@ test.describe('Router A/B Wallet Session token claims', () => {
   test('Router A/B route validators reject missing Wallet Session bearer auth', async () => {
     const missingBearerSession: SessionAdapter = {
       signJwt: async () => 'unused',
+      verifyJwt: async () => ({ valid: false as const }),
       parse: async (headers) => {
         expect(headers.authorization || headers.Authorization).toBeUndefined();
-        return { ok: false };
+        return { ok: false, reason: 'missing' as const };
       },
       buildSetCookie: (token) => `session=${token}`,
       buildClearCookie: () => 'session=',
@@ -357,8 +392,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
       }),
     ).resolves.toMatchObject({
       ok: false,
-      code: 'unauthorized',
-      message: 'Missing or invalid Wallet Session JWT',
+      code: 'wallet_session_missing',
+      message: 'Wallet Session is missing',
     });
     await expect(
       validateRouterAbEcdsaDerivationWalletSessionInputs({
@@ -368,8 +403,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
       }),
     ).resolves.toMatchObject({
       ok: false,
-      code: 'unauthorized',
-      message: 'Missing or invalid Wallet Session token',
+      code: 'wallet_session_missing',
+      message: 'Wallet Session is missing',
     });
   });
 
@@ -380,7 +415,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
         signedPayloads.push({ sub, ...extra });
         return `signed-${signedPayloads.length}`;
       },
-      parse: async () => ({ ok: false }),
+      verifyJwt: async () => ({ valid: false as const }),
+      parse: async () => ({ ok: false, reason: 'missing' as const }),
       buildSetCookie: (token) => `session=${token}`,
       buildClearCookie: () => 'session=',
       refresh: async () => ({ ok: false }),
@@ -396,6 +432,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
           walletId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
           nearEd25519SigningKeyId: 'alice.testnet',
+          walletSessionId: 'wallet-session-ed25519',
+          quotaId: 'wallet-quota-ed25519',
           thresholdSessionId: 'threshold-ed25519-session',
           signingGrantId: 'signing-grant-ed25519',
           expiresAtMs: Date.now() + 60_000,
@@ -419,6 +457,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
           walletId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
           nearEd25519SigningKeyId: 'alice.testnet',
+          walletSessionId: 'wallet-session-ed25519',
+          quotaId: 'wallet-quota-ed25519',
           thresholdSessionId: 'threshold-ed25519-session',
           signingGrantId: 'signing-grant-ed25519',
           expiresAtMs: Date.now() + 60_000,
@@ -434,7 +474,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
     const ecdsaBootstrap = routerAbEcdsaBootstrap();
     const ecdsaNormalSigning = buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
       bootstrap: ecdsaBootstrap,
-      activationEpoch: 'activation-epoch-1',
+      activationEpoch: fixtureRootShareEpoch('activation-epoch-1'),
       routerAbPublicKeyset,
       signingWorkerId: 'signing-worker-1',
     });
@@ -458,7 +498,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
           runtimePolicyScope,
           keyHandle: ecdsaBootstrap.keyHandle,
           ...routerAbEcdsaIssuerBinding(),
-          activationEpoch: 'activation-epoch-1',
+          activationEpoch: fixtureRootShareEpoch('activation-epoch-1'),
           routerAbEcdsaDerivationNormalSigning: ecdsaNormalSigning.state,
         },
         requireJwtErrorMessage: 'jwt required',
@@ -475,11 +515,18 @@ test.describe('Router A/B Wallet Session token claims', () => {
     }
     const signedEcdsaWalletSessionAuth = buildVerifiedEcdsaWalletSessionAuth(signedEcdsaClaims);
     const prepareRequest = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
-      scope: ecdsaNormalSigning.state.scope,
-      requestId: 'router-ab-ecdsa-sign-test',
-      clientPresignatureId: 'client-presignature-test',
+        scope: ecdsaNormalSigning.state.scope,
+        requestId: 'router-ab-ecdsa-sign-test',
+        operationId: 'router-ab-ecdsa-operation-test',
+        operationDigests: routerAbOperationDigests,
+        authorization: {
+          kind: 'reusable_wallet_session',
+          wallet_session_id: 'wallet-session-1',
+        },
+        materialActivation: routerAbEcdsaMaterialActivation,
+        clientPresignatureId: 'client-presignature-test',
       expiresAtMs: ecdsaBootstrap.expiresAtMs,
-      signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index),
+      signingDigest32: new Uint8Array(32).fill(1),
       clientRerandomizationCommitment32: new Uint8Array(32).fill(0x31),
     });
     expect(
@@ -527,6 +574,9 @@ test.describe('Router A/B Wallet Session token claims', () => {
       ...routerAbEcdsaIssuerBinding(),
       routerAbEcdsaDerivationIssuerBinding: routerAbEcdsaIssuerBinding(),
       sessionKind: 'jwt' as const,
+      authorizationSessionId: 'authorization-session-1',
+      walletSessionId: 'wallet-session-1',
+      quotaId: 'wallet-quota-1',
       thresholdSessionId: ecdsaBootstrap.thresholdSessionId,
       signingGrantId: ecdsaBootstrap.signingGrantId,
       expiresAtMs: ecdsaBootstrap.expiresAtMs,
@@ -560,7 +610,12 @@ test.describe('Router A/B Wallet Session token claims', () => {
       scope: {
         request_id: 'router-ab-ed25519-private-validator-prepare',
         account_id: claims.walletId,
-        session_id: claims.thresholdSessionId,
+        authorization: {
+          kind: 'reusable_wallet_session',
+          wallet_session_id: claims.walletSessionId,
+          grant_id: claims.signingGrantId,
+        },
+        material_activation: routerAbEd25519MaterialActivation,
         signing_worker_id: claims.routerAbNormalSigning.signingWorkerId,
       },
       expires_at_ms: claims.thresholdExpiresAtMs,
@@ -592,8 +647,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
       error: {
         status: 403,
         body: {
-          code: 'forbidden',
-          message: 'Router A/B Ed25519 normal-signing scope does not match Wallet Session claims',
+          code: 'wallet_session_scope_mismatch',
+          message: 'Wallet Session scope does not match the request',
         },
       },
     });
@@ -603,7 +658,13 @@ test.describe('Router A/B Wallet Session token claims', () => {
         walletSessionAuth,
         body: {
           ...validBody,
-          scope: { ...validBody.scope, session_id: 'other-threshold-session' },
+          scope: {
+            ...validBody.scope,
+            authorization: {
+              ...validBody.scope.authorization,
+              grant_id: 'substituted-grant',
+            },
+          },
         },
       }),
     ).toMatchObject({
@@ -611,8 +672,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
       error: {
         status: 403,
         body: {
-          code: 'forbidden',
-          message: 'Router A/B Ed25519 normal-signing scope does not match Wallet Session claims',
+          code: 'wallet_session_scope_mismatch',
+          message: 'Wallet Session scope does not match the request',
         },
       },
     });
@@ -622,7 +683,14 @@ test.describe('Router A/B Wallet Session token claims', () => {
         walletSessionAuth,
         body: {
           ...validBody,
-          scope: { ...validBody.scope, signing_worker_id: 'signing-worker-b' },
+          scope: {
+            ...validBody.scope,
+            signing_worker_id: 'signing-worker-b',
+            material_activation: {
+              ...routerAbEd25519MaterialActivation,
+              signing_worker: 'signing-worker-b',
+            },
+          },
         },
       }),
     ).toMatchObject({
@@ -630,8 +698,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
       error: {
         status: 403,
         body: {
-          code: 'forbidden',
-          message: 'Router A/B Ed25519 normal-signing worker does not match Wallet Session claims',
+          code: 'wallet_session_scope_mismatch',
+          message: 'Wallet Session scope does not match the request',
         },
       },
     });
@@ -649,8 +717,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
       error: {
         status: 403,
         body: {
-          code: 'forbidden',
-          message: 'Router A/B Ed25519 normal-signing expiry exceeds Wallet Session expiry',
+          code: 'wallet_session_scope_mismatch',
+          message: 'Wallet Session scope does not match the request',
         },
       },
     });
@@ -686,18 +754,30 @@ test.describe('Router A/B Wallet Session token claims', () => {
     const prepareRequest = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
       scope,
       requestId: 'router-ab-ecdsa-private-validator-prepare',
+      operationId: 'router-ab-ecdsa-private-validator-operation',
+      operationDigests: routerAbOperationDigests,
+      authorization: {
+        kind: 'reusable_wallet_session',
+        wallet_session_id: claims.walletSessionId,
+      },
+      materialActivation: routerAbEcdsaMaterialActivation,
       clientPresignatureId: 'client-presignature-private-validator',
       expiresAtMs: claims.thresholdExpiresAtMs,
-      signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
+      signingDigest32: new Uint8Array(32).fill(1),
       clientRerandomizationCommitment32: new Uint8Array(32).fill(0x31),
     });
     const finalizeRequest = buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1({
       scope,
       requestId: prepareRequest.request_id,
-      budgetReservationId: 'router-ab-ecdsa-private-validator-budget-reservation',
-      budgetOperationId: 'router-ab-ecdsa-private-validator-budget-operation',
+      operationId: 'router-ab-ecdsa-private-validator-operation',
+      operationDigests: routerAbOperationDigests,
+      authorization: {
+        kind: 'reusable_wallet_session',
+        wallet_session_id: claims.walletSessionId,
+      },
+      materialActivation: routerAbEcdsaMaterialActivation,
       expiresAtMs: prepareRequest.expires_at_ms,
-      signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
+      signingDigest32: new Uint8Array(32).fill(1),
       serverPresignatureId: prepareRequest.client_presignature_id,
       clientSignatureShare32: Uint8Array.from({ length: 32 }, (_, index) => 255 - index),
       clientRerandomizationContribution32: new Uint8Array(32).fill(0x41),
@@ -742,8 +822,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
       error: {
         status: 403,
         body: {
-          code: 'forbidden',
-          message: 'Router A/B ECDSA derivation normal-signing scope does not match Wallet Session claims',
+          code: 'wallet_session_scope_mismatch',
+          message: 'Wallet Session scope does not match the request',
         },
       },
     });
@@ -758,8 +838,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
       error: {
         status: 403,
         body: {
-          code: 'forbidden',
-          message: 'Router A/B ECDSA derivation normal-signing scope does not match Wallet Session claims',
+          code: 'wallet_session_scope_mismatch',
+          message: 'Wallet Session scope does not match the request',
         },
       },
     });
@@ -774,8 +854,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
       error: {
         status: 403,
         body: {
-          code: 'forbidden',
-          message: 'Router A/B ECDSA derivation normal-signing expiry exceeds Wallet Session expiry',
+          code: 'wallet_session_scope_mismatch',
+          message: 'Wallet Session scope does not match the request',
         },
       },
     });
@@ -790,8 +870,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
       error: {
         status: 403,
         body: {
-          code: 'forbidden',
-          message: 'Router A/B ECDSA derivation normal-signing expiry exceeds Wallet Session expiry',
+          code: 'wallet_session_scope_mismatch',
+          message: 'Wallet Session scope does not match the request',
         },
       },
     });
