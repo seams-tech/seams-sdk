@@ -67,7 +67,7 @@ const materialActivation = {
   kind: 'mpc_material_activation_ref' as const,
   activation_id: 'activation-1',
   capability: 'capability-1',
-  material_owner: 'material-owner-1',
+  material_owner: 'wallet-1',
   key_binding: 'key-binding-1',
   lifecycle_binding: 'lifecycle-binding-1',
   signing_worker: 'signing-worker-1',
@@ -89,6 +89,7 @@ async function buildScope(): Promise<RouterAbEcdsaDerivationNormalSigningScopeV1
       client_share_retry_counter: 0,
       server_share_retry_counter: 1,
     },
+    material_activation: materialActivation,
     signing_worker: {
       server_id: 'signing-worker-1',
       key_epoch: 'worker-epoch-1',

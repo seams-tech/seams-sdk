@@ -1673,15 +1673,9 @@ fn local_active_router_ab_ecdsa_derivation_signing_worker_state_v1(
             "local Router A/B ECDSA derivation scope SigningWorker does not match local worker config",
         ));
     }
-    let material_activation_id = router_ab_ecdsa_derivation_material_activation_id_v1(
-        &scope.ecdsa_threshold_key_id,
-        &scope.signing_root_id,
-        &scope.signing_root_version,
-        &scope.activation_epoch,
-    )?;
     let state = ActiveSigningWorkerStateV1::new(
         scope.wallet_id.clone(),
-        material_activation_id,
+        scope.material_activation.clone(),
         scope.public_identity.threshold_public_key33_b64u.clone(),
         signing_worker,
         local_router_ab_ecdsa_derivation_digest_v1(b"activation-transcript"),

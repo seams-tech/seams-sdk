@@ -41,6 +41,15 @@ function publicCapability() {
       client_share_retry_counter: 0,
       server_share_retry_counter: 0,
     },
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'inventory-activation-ref',
+      capability: 'inventory-capability',
+      material_owner: WALLET_ID,
+      key_binding: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
+      lifecycle_binding: 'inventory-lifecycle',
+      signing_worker: 'inventory-signing-worker',
+    },
     signer_set: {
       signer_set_id: 'inventory-signer-set',
       policy: 'all_2',

@@ -39,6 +39,15 @@ function fixtureRegistrationEcdsaPublicCapability(args: {
       client_share_retry_counter: 0,
       server_share_retry_counter: 0,
     },
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'registration-activation-ref',
+      capability: 'registration-capability',
+      material_owner: args.walletId,
+      key_binding: args.ecdsaThresholdKeyId,
+      lifecycle_binding: 'registration-lifecycle',
+      signing_worker: 'signing-worker-registration-signer-fixture',
+    },
     signer_set: {
       signer_set_id: 'signer-set-registration-signer-fixture',
       policy: 'all_2',

@@ -222,6 +222,15 @@ const ecdsaScope = {
     client_share_retry_counter: 0,
     server_share_retry_counter: 0,
   },
+  material_activation: {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: 'activation-1',
+    capability: 'evm-ecdsa-capability-1',
+    material_owner: 'wallet-1',
+    key_binding: 'ecdsa-threshold-key-1',
+    lifecycle_binding: 'lifecycle-1',
+    signing_worker: 'signing-worker-a',
+  },
   signing_worker: {
     server_id: 'signing-worker-a',
     key_epoch: 'epoch-1',

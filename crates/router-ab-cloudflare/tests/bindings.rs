@@ -252,6 +252,7 @@ fn active_signing_worker_state_for_activation(
 ) -> ActiveSigningWorkerStateV1 {
     cloudflare_active_signing_worker_state_from_activation_request_v1(
         activation,
+        activation.material_activation.clone(),
         material_handle,
         TEST_ACTIVATED_AT_MS,
     )
@@ -389,7 +390,15 @@ fn active_signing_worker_state_for_normal_signing_account_public_key(
 ) -> ActiveSigningWorkerStateV1 {
     ActiveSigningWorkerStateV1::new(
         "account.near",
-        "session-1",
+        MpcMaterialActivationRefV1::new(
+            "session-1",
+            "ed25519-signing-capability-1",
+            "account.near",
+            "ed25519-public-key-1",
+            "ed25519-material-lifecycle-1",
+            "server-a",
+        )
+        .expect("active SigningWorker material activation"),
         account_public_key,
         signer_set().selected_server,
         digest(0x81),
@@ -1110,6 +1119,22 @@ fn router_ab_ecdsa_derivation_material_activation_id(epoch: &RootShareEpoch) -> 
     .expect("Router A/B ECDSA derivation material activation id")
 }
 
+fn router_ab_ecdsa_derivation_material_activation_for_epoch(
+    epoch: &str,
+) -> MpcMaterialActivationRefV1 {
+    MpcMaterialActivationRefV1::new(
+        router_ab_ecdsa_derivation_material_activation_id(
+            &RootShareEpoch::new(epoch).expect("root epoch"),
+        ),
+        "ecdsa-signing-capability-1",
+        ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
+        ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
+        "ecdsa-material-lifecycle-1",
+        "signing-worker-1",
+    )
+    .expect("ECDSA material activation")
+}
+
 fn router_ab_ecdsa_derivation_lifecycle_scope_for(
     lifecycle_id: &str,
     work_kind: ExpensiveWorkKindV1,
@@ -1340,6 +1365,9 @@ fn router_ab_ecdsa_derivation_activation_refresh_request_with_aad_bound_envelope
         refresh_nonce: "ecdsa-refresh-nonce-1".to_owned(),
         previous_activation_epoch: root_epoch().as_str().to_owned(),
         next_activation_epoch: next_root_epoch().as_str().to_owned(),
+        material_activation: router_ab_ecdsa_derivation_material_activation_for_epoch(
+            next_root_epoch().as_str(),
+        ),
         expires_at_ms: 2_000,
         deriver_a_refresh_envelope: role_envelope(Role::SignerA, 0x83),
         deriver_b_refresh_envelope: role_envelope(Role::SignerB, 0x93),
@@ -1424,6 +1452,7 @@ fn router_ab_ecdsa_derivation_activation_request(
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1::new(
         pending,
         client_activation,
+        router_ab_ecdsa_derivation_material_activation_for_epoch("epoch-1"),
     )
     .expect("Router A/B ECDSA derivation SigningWorker activation request")
 }
@@ -1449,6 +1478,7 @@ fn router_ab_ecdsa_derivation_activation_refresh_request(
         refresh_request,
         router_payload,
         activation,
+        router_ab_ecdsa_derivation_material_activation_for_epoch("epoch-2"),
     )
     .expect("Router A/B ECDSA derivation SigningWorker activation-refresh request")
 }
@@ -1492,6 +1522,7 @@ fn active_signing_worker_state_for_router_ab_ecdsa_derivation() -> ActiveSigning
         &activation
             .to_recipient_proof_bundle_activation_request()
             .expect("generic Router A/B ECDSA derivation activation request"),
+        activation.material_activation.clone(),
         "router-ab-ecdsa-derivation-material",
         TEST_ACTIVATED_AT_MS,
     )
@@ -1515,6 +1546,7 @@ fn router_ab_ecdsa_derivation_digest_signing_request(
             ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
+            router_ab_ecdsa_derivation_material_activation_for_epoch(&receipt.activation_epoch),
         )
         .expect("Router A/B ECDSA derivation normal-signing scope");
     let material_activation = router_ab_ecdsa_derivation_material_activation(&scope);
@@ -1566,15 +1598,7 @@ fn router_ab_ecdsa_derivation_operation_digests() -> RouterAbEcdsaDerivationOper
 fn router_ab_ecdsa_derivation_material_activation(
     scope: &router_ab_core::RouterAbEcdsaDerivationNormalSigningScopeV1,
 ) -> MpcMaterialActivationRefV1 {
-    MpcMaterialActivationRefV1::new(
-        scope.material_activation_id().expect("activation id"),
-        "ecdsa-signing-capability-1",
-        scope.wallet_id.clone(),
-        ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
-        "ecdsa-material-lifecycle-1",
-        scope.signing_worker.server_id.clone(),
-    )
-    .expect("ECDSA material activation")
+    scope.material_activation.clone()
 }
 
 fn router_ab_ecdsa_derivation_trusted_admission(
@@ -5811,6 +5835,20 @@ fn cloudflare_validated_mpc_prf_handler_returns_signer_responses_for_a_and_b() {
             strict_response_b.server_bundle.clone(),
         )
         .expect("strict SigningWorker activation"),
+        MpcMaterialActivationRefV1::new(
+            validated_a.router_payload().lifecycle().session_id.clone(),
+            "ed25519-yao-signing-capability",
+            validated_a.router_payload().lifecycle().account_id.clone(),
+            "ed25519-key-binding",
+            validated_a.router_payload().lifecycle().lifecycle_id.clone(),
+            validated_a
+                .router_payload()
+                .signer_set()
+                .selected_server
+                .server_id
+                .clone(),
+        )
+        .expect("Ed25519 material activation"),
     )
     .expect("strict SigningWorker activation request");
     let expected_active_signing_worker_state =
@@ -5922,12 +5960,14 @@ fn router_ab_ecdsa_derivation_activation_refresh_receipt_preserves_identity_for_
             ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
+            router_ab_ecdsa_derivation_material_activation_for_epoch(&receipt.activation_epoch),
         )
         .expect("refreshed Router A/B ECDSA derivation normal-signing scope");
     let active_state = cloudflare_active_signing_worker_state_from_activation_request_v1(
         &refresh
             .to_recipient_proof_bundle_activation_request()
             .expect("generic refresh activation request"),
+        refresh.material_activation.clone(),
         "router-ab-ecdsa-derivation-refresh-material",
         TEST_ACTIVATED_AT_MS + 1,
     )
@@ -5982,6 +6022,7 @@ fn router_ab_ecdsa_derivation_activation_refresh_public_admission_response_valid
             &refresh
                 .to_recipient_proof_bundle_activation_request()
                 .expect("generic refresh activation request"),
+            refresh.material_activation.clone(),
             "router-ab-ecdsa-derivation-refresh-material",
             TEST_ACTIVATED_AT_MS + 1,
         )
@@ -6038,12 +6079,14 @@ fn router_ab_ecdsa_derivation_normal_signing_scope_binds_active_material_to_iden
             ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
+            router_ab_ecdsa_derivation_material_activation_for_epoch(&receipt.activation_epoch),
         )
         .expect("Router A/B ECDSA derivation normal-signing scope");
     let active_state = cloudflare_active_signing_worker_state_from_activation_request_v1(
         &activation
             .to_recipient_proof_bundle_activation_request()
             .expect("generic activation request"),
+        activation.material_activation.clone(),
         "router-ab-ecdsa-derivation-material",
         TEST_ACTIVATED_AT_MS,
     )
@@ -6053,12 +6096,12 @@ fn router_ab_ecdsa_derivation_normal_signing_scope_binds_active_material_to_iden
             .expect("Router A/B ECDSA derivation active-state lookup");
 
     assert_eq!(
-        active_state.material_activation_id,
+        active_state.material_activation.activation_id,
         router_ab_ecdsa_derivation_material_activation_id(&root_epoch())
     );
     assert_eq!(
         lookup.material_activation_id,
-        active_state.material_activation_id
+        active_state.material_activation.activation_id
     );
     lookup
         .validate_active_state(&active_state)
@@ -6248,12 +6291,14 @@ fn router_ab_ecdsa_derivation_normal_signing_request_materializes_from_active_st
             ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
+            router_ab_ecdsa_derivation_material_activation_for_epoch(&receipt.activation_epoch),
         )
         .expect("Router A/B ECDSA derivation normal-signing scope");
     let active_state = cloudflare_active_signing_worker_state_from_activation_request_v1(
         &activation
             .to_recipient_proof_bundle_activation_request()
             .expect("generic activation request"),
+        activation.material_activation.clone(),
         "router-ab-ecdsa-derivation-material",
         TEST_ACTIVATED_AT_MS,
     )
@@ -6808,17 +6853,19 @@ fn router_ab_ecdsa_derivation_normal_signing_request_rejects_active_state_drift(
             ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
+            router_ab_ecdsa_derivation_material_activation_for_epoch(&receipt.activation_epoch),
         )
         .expect("Router A/B ECDSA derivation normal-signing scope");
     let mut active_state = cloudflare_active_signing_worker_state_from_activation_request_v1(
         &activation
             .to_recipient_proof_bundle_activation_request()
             .expect("generic activation request"),
+        activation.material_activation.clone(),
         "router-ab-ecdsa-derivation-material",
         TEST_ACTIVATED_AT_MS,
     )
     .expect("Router A/B ECDSA derivation active state");
-    active_state.material_activation_id = "different-ecdsa-key".to_owned();
+    active_state.material_activation.activation_id = "different-ecdsa-key".to_owned();
     let material_activation = router_ab_ecdsa_derivation_material_activation(&scope);
     let request = RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
         scope,
@@ -6870,6 +6917,7 @@ fn router_ab_ecdsa_derivation_normal_signing_scope_rejects_public_identity_drift
             ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
+            router_ab_ecdsa_derivation_material_activation_for_epoch(&receipt.activation_epoch),
         )
         .expect("Router A/B ECDSA derivation normal-signing scope");
     scope.public_identity.ethereum_address20_b64u = b64u(&[0x55; 20]);
@@ -6877,6 +6925,7 @@ fn router_ab_ecdsa_derivation_normal_signing_scope_rejects_public_identity_drift
         &activation
             .to_recipient_proof_bundle_activation_request()
             .expect("generic activation request"),
+        activation.material_activation.clone(),
         "router-ab-ecdsa-derivation-material",
         TEST_ACTIVATED_AT_MS,
     )

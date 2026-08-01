@@ -8,7 +8,10 @@ import {
   parseEcdsaRoleLocalMaterialHandle,
   parseEcdsaThresholdKeyId,
 } from '@/core/signingEngine/session/keyMaterialBrands';
-import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './ecdsaMaterialRef.fixtures';
+import {
+  buildEcdsaRoleLocalPersistedMaterialRefFixture,
+  buildMpcMaterialActivationRefFixture,
+} from './ecdsaMaterialRef.fixtures';
 import {
   parseMpcWalletSigningQuotaId,
   parseReusableWalletSessionMintId,
@@ -43,6 +46,7 @@ import {
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { testEcdsaChainTarget } from './ecdsaChainTarget.fixtures';
 
 const VALID_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -100,6 +104,12 @@ function fixtureRouterAbEcdsaDerivationNormalSigning(args: {
         client_share_retry_counter: 0,
         server_share_retry_counter: 0,
       },
+      material_activation: routerAbMpcMaterialActivationRefToWire(
+        buildMpcMaterialActivationRefFixture(
+          `router-ab-ecdsa:${args.walletId}:${args.ecdsaThresholdKeyId}:${args.sessionId}`,
+          args.walletId,
+        ),
+      ),
       signing_worker: {
         server_id: 'signing-worker-warm-session-fixture',
         key_epoch: 'epoch-warm-session-fixture',
@@ -120,6 +130,7 @@ export function fixtureRouterAbEcdsaDerivationPublicCapability(args: {
     kind: 'router_ab_ecdsa_derivation_public_capability_v1',
     context: args.normalSigning.scope.context,
     public_identity: args.normalSigning.scope.public_identity,
+    material_activation: args.normalSigning.scope.material_activation,
     signer_set: {
       signer_set_id: 'signer-set-warm-session-fixture',
       policy: 'all_2',

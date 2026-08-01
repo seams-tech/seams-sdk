@@ -1027,7 +1027,7 @@ pub async fn put_cloudflare_signing_worker_output_activation_record_v1(
     let active_key = format!(
         "active-signing-worker/{}/{}/{}",
         active_state.account_id,
-        active_state.material_activation_id,
+        active_state.material_activation.activation_id,
         active_state.signing_worker.server_id
     );
     let database = signing_worker_private_d1_from_env_v1(env)?;
@@ -1218,8 +1218,19 @@ async fn activate_output_v1(
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1ResponseV1> {
     let material_key = request.storage_key();
     let active_key = request.active_state_index_key()?;
+    let material_activation = match request {
+        CloudflareSigningWorkerPrivateD1RequestV1::OutputActivate {
+            material_activation, ..
+        } => material_activation.clone(),
+        _ => {
+            return Err(d1_error(
+                "SigningWorker activation request kind is invalid",
+            ))
+        }
+    };
     let active_state = cloudflare_active_signing_worker_state_from_activation_request_v1(
         activation,
+        material_activation,
         material_key.clone(),
         activated_at_ms,
     )?;
@@ -1659,6 +1670,7 @@ pub async fn execute_cloudflare_signing_worker_private_d1_request_v1(
             activation,
             material,
             activated_at_ms,
+            ..
         } => {
             activate_output_v1(
                 &db,

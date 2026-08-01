@@ -202,7 +202,8 @@ use router_ab_core::{
     CanonicalWireBytesV1, Clock, Csprng, DeriverAEngine, DeriverBEngine,
     EcdsaThresholdPrfProofBatchPayloadV1, EcdsaThresholdPrfRequestV1, EncryptedPayloadV1,
     ExpensiveWorkGateContextV1, ExpensiveWorkGateDecisionV1, ExpensiveWorkKindV1,
-    GateDeferReasonV1, GatePrincipalV1, GateRejectReasonV1, MpcPrfSigningRootShareWireV1,
+    GateDeferReasonV1, GatePrincipalV1, GateRejectReasonV1, MpcMaterialActivationRefV1,
+    MpcPrfSigningRootShareWireV1,
     MpcPrfThresholdSignerBatchOutputV1, NormalSigningAuthorizationV1,
     NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningResponseV1,
     NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1, NormalSigningSignatureSchemeV1,
@@ -2611,6 +2612,8 @@ pub struct CloudflareSigningWorkerRecipientProofBundleActivationRequestV1 {
     pub activation_context: SigningWorkerActivationContextV1,
     /// Opaque server proof bundles from Deriver A and Deriver B.
     pub activation: CloudflareSigningWorkerRecipientProofBundleActivationV1,
+    /// Canonical exact material activation owned by this SigningWorker.
+    pub material_activation: MpcMaterialActivationRefV1,
 }
 
 impl CloudflareSigningWorkerRecipientProofBundleActivationRequestV1 {
@@ -2618,6 +2621,7 @@ impl CloudflareSigningWorkerRecipientProofBundleActivationRequestV1 {
     pub fn new(
         router_payload: RouterToSignerPayloadV1,
         activation: CloudflareSigningWorkerRecipientProofBundleActivationV1,
+        material_activation: MpcMaterialActivationRefV1,
     ) -> RouterAbProtocolResult<Self> {
         router_payload.require_recipient_role(Role::SignerA)?;
         activation.validate_for_router_payload(&router_payload)?;
@@ -2626,6 +2630,7 @@ impl CloudflareSigningWorkerRecipientProofBundleActivationRequestV1 {
         let request = Self {
             activation_context,
             activation,
+            material_activation,
         };
         request.validate()?;
         Ok(request)
@@ -2634,6 +2639,16 @@ impl CloudflareSigningWorkerRecipientProofBundleActivationRequestV1 {
     /// Validates the activation context and opaque server bundles.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.activation_context.validate()?;
+        self.material_activation.validate()?;
+        if self.material_activation.material_owner != self.activation_context.lifecycle.account_id
+            || self.material_activation.signing_worker
+                != self.activation_context.signer_set.selected_server.server_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "SigningWorker material activation does not match activation context",
+            ));
+        }
         self.activation
             .validate_for_activation_context(&self.activation_context)
     }
@@ -2701,6 +2716,8 @@ pub struct CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1 {
     pub pending: CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1,
     /// Client public facts produced by the verified `XClientBase` finalizer.
     pub client_activation: EcdsaVerifiedClientActivationFactsV1,
+    /// Canonical exact material activation for this ECDSA capability.
+    pub material_activation: MpcMaterialActivationRefV1,
 }
 
 impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1 {
@@ -2708,10 +2725,12 @@ impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1 {
     pub fn new(
         pending: CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1,
         client_activation: EcdsaVerifiedClientActivationFactsV1,
+        material_activation: MpcMaterialActivationRefV1,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self {
             pending,
             client_activation,
+            material_activation,
         };
         request.validate()?;
         Ok(request)
@@ -2720,6 +2739,17 @@ impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1 {
     /// Validates client facts against the exact registration request and proof transcript.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.pending.validate()?;
+        self.material_activation.validate()?;
+        if self.material_activation.material_owner
+                != self.pending.activation_context.lifecycle.account_id
+            || self.material_activation.signing_worker
+                != self.pending.activation_context.signer_set.selected_server.server_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "ECDSA material activation does not match activation context",
+            ));
+        }
         self.client_activation.validate().map_err(|_| {
             RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::MalformedWirePayload,
@@ -2755,6 +2785,7 @@ impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1 {
         let activation = CloudflareSigningWorkerRecipientProofBundleActivationRequestV1 {
             activation_context: self.pending.activation_context.clone(),
             activation: self.pending.activation.clone(),
+            material_activation: self.material_activation.clone(),
         };
         activation.validate()?;
         Ok(activation)
@@ -2770,6 +2801,8 @@ pub struct CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshReques
     pub activation_context: SigningWorkerActivationContextV1,
     /// Opaque SigningWorker proof bundles from Deriver A and Deriver B.
     pub activation: CloudflareSigningWorkerRecipientProofBundleActivationV1,
+    /// Canonical exact material activation for the refreshed ECDSA capability.
+    pub material_activation: MpcMaterialActivationRefV1,
 }
 
 impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1 {
@@ -2778,6 +2811,7 @@ impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1 {
         refresh_request: RouterAbEcdsaDerivationActivationRefreshRequestV1,
         router_payload: RouterToSignerPayloadV1,
         activation: CloudflareSigningWorkerRecipientProofBundleActivationV1,
+        material_activation: MpcMaterialActivationRefV1,
     ) -> RouterAbProtocolResult<Self> {
         router_payload.require_recipient_role(Role::SignerA)?;
         activation.validate_for_router_payload(&router_payload)?;
@@ -2787,6 +2821,7 @@ impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1 {
             refresh_request,
             activation_context,
             activation,
+            material_activation,
         };
         request.validate()?;
         Ok(request)
@@ -2795,6 +2830,17 @@ impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1 {
     /// Validates typed refresh metadata against the generic Router A/B activation context.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.refresh_request.validate()?;
+        self.material_activation.validate()?;
+        if self.material_activation.material_owner
+                != self.activation_context.lifecycle.account_id
+            || self.material_activation.signing_worker
+                != self.activation_context.signer_set.selected_server.server_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "ECDSA refresh material activation does not match activation context",
+            ));
+        }
         self.activation_context.validate()?;
         self.activation
             .validate_for_activation_context(&self.activation_context)?;
@@ -2822,6 +2868,7 @@ impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1 {
         let activation = CloudflareSigningWorkerRecipientProofBundleActivationRequestV1 {
             activation_context: self.activation_context.clone(),
             activation: self.activation.clone(),
+            material_activation: self.material_activation.clone(),
         };
         activation.validate()?;
         Ok(activation)
@@ -3006,6 +3053,7 @@ pub fn cloudflare_router_ab_ecdsa_derivation_activation_receipt_from_material_v1
         context: request.pending.registration.context.clone(),
         public_identity,
         signing_worker: selected_worker,
+        material_activation: request.material_activation.clone(),
         activation_epoch,
         activation_digest_b64u: encode_base64url_bytes_v1(activation_digest.as_bytes()),
         activated_at_ms,
@@ -3046,6 +3094,7 @@ pub fn cloudflare_router_ab_ecdsa_derivation_activation_refresh_receipt_from_mat
         context: request.refresh_request.context.clone(),
         public_identity: request.refresh_request.public_identity.clone(),
         signing_worker: selected_worker,
+        material_activation: request.material_activation.clone(),
         activation_epoch: request.refresh_request.next_activation_epoch.clone(),
         activation_digest_b64u: encode_base64url_bytes_v1(activation_digest.as_bytes()),
         activated_at_ms,
@@ -3061,6 +3110,7 @@ pub fn cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activatio
     ecdsa_threshold_key_id: impl Into<String>,
     signing_root_id: impl Into<String>,
     signing_root_version: impl Into<String>,
+    material_activation: MpcMaterialActivationRefV1,
 ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationNormalSigningScopeV1> {
     receipt.validate()?;
     RouterAbEcdsaDerivationNormalSigningScopeV1::new(
@@ -3072,6 +3122,7 @@ pub fn cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activatio
         receipt.public_identity.clone(),
         receipt.signing_worker.clone(),
         receipt.activation_epoch.clone(),
+        material_activation,
     )
 }
 
@@ -3191,8 +3242,7 @@ pub fn validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_mate
     active_signing_worker.validate()?;
     material.validate()?;
     if active_signing_worker.account_id != scope.wallet_id
-        || active_signing_worker.material_activation_id
-            != cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1(scope)?
+        || active_signing_worker.material_activation != scope.material_activation
         || active_signing_worker.signing_worker != scope.signing_worker
         || material.transcript_digest != active_signing_worker.activation_transcript_digest
         || material.recipient_identity != active_signing_worker.signing_worker.server_id
@@ -3218,19 +3268,29 @@ pub fn validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_mate
 /// Builds the active SigningWorker state descriptor from a validated activation request.
 pub fn cloudflare_active_signing_worker_state_from_activation_request_v1(
     request: &CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
+    material_activation: MpcMaterialActivationRefV1,
     signing_worker_material_handle: impl Into<String>,
     activated_at_ms: u64,
 ) -> RouterAbProtocolResult<ActiveSigningWorkerStateV1> {
     request.validate()?;
+    material_activation.validate()?;
     let lifecycle = request.activation_context.lifecycle();
     let selected_server = request
         .activation_context
         .signer_set()
         .selected_server
         .clone();
+    if material_activation.material_owner != lifecycle.account_id
+        || material_activation.signing_worker != selected_server.server_id
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "material activation does not match SigningWorker activation context",
+        ));
+    }
     ActiveSigningWorkerStateV1::new(
         lifecycle.account_id.clone(),
-        lifecycle.session_id.clone(),
+        material_activation,
         request
             .activation_context
             .transcript_metadata
@@ -3239,6 +3299,49 @@ pub fn cloudflare_active_signing_worker_state_from_activation_request_v1(
         selected_server,
         request.activation_context.transcript_digest(),
         cloudflare_signing_worker_recipient_proof_bundle_activation_digest_v1(&request.activation)?,
+        signing_worker_material_handle,
+        activated_at_ms,
+    )
+}
+
+/// Builds an ECDSA active SigningWorker state from the canonical activation ref.
+pub fn cloudflare_router_ab_ecdsa_derivation_active_signing_worker_state_from_activation_request_v1(
+    request: &CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1,
+    material_activation: MpcMaterialActivationRefV1,
+    signing_worker_material_handle: impl Into<String>,
+    activated_at_ms: u64,
+) -> RouterAbProtocolResult<ActiveSigningWorkerStateV1> {
+    request.validate()?;
+    material_activation.validate()?;
+    let lifecycle = request.pending.activation_context.lifecycle();
+    let selected_server = request
+        .pending
+        .activation_context
+        .signer_set()
+        .selected_server
+        .clone();
+    if material_activation.material_owner != lifecycle.account_id
+        || material_activation.signing_worker != selected_server.server_id
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "ECDSA material activation does not match SigningWorker activation context",
+        ));
+    }
+    ActiveSigningWorkerStateV1::new(
+        lifecycle.account_id.clone(),
+        material_activation,
+        request
+            .pending
+            .activation_context
+            .transcript_metadata
+            .account_public_key
+            .clone(),
+        selected_server,
+        request.pending.activation_context.transcript_digest,
+        cloudflare_signing_worker_recipient_proof_bundle_activation_digest_v1(
+            &request.pending.activation,
+        )?,
         signing_worker_material_handle,
         activated_at_ms,
     )
@@ -3753,11 +3856,13 @@ impl CloudflareSigningWorkerRuntimeV1 {
     pub fn signing_worker_output_activate_request(
         &self,
         activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
+        material_activation: MpcMaterialActivationRefV1,
         material: CloudflareServerOutputMaterialRecordV1,
         activated_at_ms: u64,
     ) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1RequestV1> {
         let request = CloudflareSigningWorkerPrivateD1RequestV1::OutputActivate {
             activation,
+            material_activation,
             material,
             activated_at_ms,
         };
@@ -4428,7 +4533,7 @@ where
             response.validate_for_router_payload(&router_payload)?;
             let pending_activation =
                 CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1::new(
-                    request,
+                    request.clone(),
                     router_payload,
                     CloudflareSigningWorkerRecipientProofBundleActivationV1::new(
                         deriver_a_response.server_bundle,
@@ -4798,12 +4903,13 @@ where
             response.validate_for_router_payload(&router_payload)?;
             let activation =
                 CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1::new(
-                    request,
+                    request.clone(),
                     router_payload,
                     CloudflareSigningWorkerRecipientProofBundleActivationV1::new(
                         deriver_a_response.server_bundle,
                         deriver_b_response.server_bundle,
                     )?,
+                    request.material_activation.clone(),
                 )?;
             let signing_worker_activation =
                 execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_refresh_service_call_v1(
@@ -6303,8 +6409,12 @@ pub async fn activate_cloudflare_signing_worker_server_output_v1(
         &private_key_bytes,
     );
     private_key_bytes.zeroize();
-    let call =
-        runtime.signing_worker_output_activate_request(activation, material?, activated_at_ms)?;
+    let call = runtime.signing_worker_output_activate_request(
+        activation.clone(),
+        activation.material_activation.clone(),
+        material?,
+        activated_at_ms,
+    )?;
     let response = execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await?;
     require_signing_worker_output_activate_response_v1(&call, response)
 }
@@ -6345,6 +6455,7 @@ pub async fn activate_cloudflare_router_ab_ecdsa_derivation_signing_worker_outpu
     )?;
     let call = runtime.signing_worker_output_activate_request(
         generic_activation,
+        activation.material_activation.clone(),
         material,
         activated_at_ms,
     )?;
@@ -6393,6 +6504,7 @@ pub async fn refresh_cloudflare_router_ab_ecdsa_derivation_signing_worker_output
         )?;
     let call = runtime.signing_worker_output_activate_request(
         generic_activation,
+        activation.material_activation.clone(),
         material,
         activated_at_ms,
     )?;
@@ -8106,6 +8218,7 @@ pub fn handle_cloudflare_deriver_a_recipient_proof_bundle_activation_request_v1(
     let active_signing_worker_state =
         cloudflare_active_signing_worker_state_from_activation_request_v1(
             &request,
+            request.material_activation.clone(),
             signing_worker_material_handle,
             activated_at_ms,
         )?;

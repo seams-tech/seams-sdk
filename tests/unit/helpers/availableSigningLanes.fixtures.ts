@@ -43,6 +43,7 @@ import {
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 
 export const AVAILABLE_LANES_WALLET_ID = 'alice.testnet';
 export const AVAILABLE_LANES_ED25519_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
@@ -111,6 +112,12 @@ export function runtimeEcdsaRouterAbNormalSigningState(args: {
         client_share_retry_counter: 0,
         server_share_retry_counter: 0,
       },
+      material_activation: routerAbMpcMaterialActivationRefToWire(
+        buildMpcMaterialActivationRefFixture(
+          `available-lanes:${args.key.walletId}:${args.key.ecdsaThresholdKeyId}:${AVAILABLE_LANES_ROOT_SHARE_EPOCH}`,
+          args.key.walletId,
+        ),
+      ),
       signing_worker: {
         server_id: 'signing-worker-available-lanes',
         key_epoch: 'epoch-available-lanes',

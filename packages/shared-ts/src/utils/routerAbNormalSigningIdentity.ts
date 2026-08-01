@@ -186,3 +186,18 @@ export function canonicalRouterAbMpcMaterialActivationRefBytes(
   appendLen32(out, activation.signing_worker);
   return new Uint8Array(out);
 }
+
+export function sameRouterAbMpcMaterialActivationRef(
+  left: RouterAbMpcMaterialActivationRefWire,
+  right: RouterAbMpcMaterialActivationRefWire,
+): boolean {
+  return (
+    left.kind === right.kind &&
+    left.activation_id === right.activation_id &&
+    left.capability === right.capability &&
+    left.material_owner === right.material_owner &&
+    left.key_binding === right.key_binding &&
+    left.lifecycle_binding === right.lifecycle_binding &&
+    left.signing_worker === right.signing_worker
+  );
+}

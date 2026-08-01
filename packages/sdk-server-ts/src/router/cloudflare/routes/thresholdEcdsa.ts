@@ -486,6 +486,7 @@ async function authorizeEcdsaPoolFillOperationStepUp(input: {
   }
   const claimFailure = await claimRouterAbEcdsaOperationStepUp({
     operation: input.operation,
+    materialActivation: input.operation.normal_signing_scope.material_activation,
     grantId: input.authorization.grant_id,
     authenticated,
   });

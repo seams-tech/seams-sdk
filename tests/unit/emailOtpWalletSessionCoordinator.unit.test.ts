@@ -17,6 +17,7 @@ import {
   type CurrentSealedSessionRecord,
   type listExactSealedSessionsForWallet,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   thresholdEcdsaChainTargetKey,
@@ -471,6 +472,12 @@ function routerAbEcdsaDerivationNormalSigningFixture(args: {
         client_share_retry_counter: 0,
         server_share_retry_counter: 0,
       },
+      material_activation: routerAbMpcMaterialActivationRefToWire(
+        buildMpcMaterialActivationRefFixture(
+          `email-otp:${args.walletId}:${args.ecdsaThresholdKeyId}:${args.thresholdSessionId}`,
+          args.walletId,
+        ),
+      ),
       signing_worker: {
         server_id: 'signing-worker-test',
         key_epoch: 'worker-epoch-test',

@@ -11,6 +11,7 @@ import {
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { parseRootShareEpoch } from '../../packages/shared-ts/src/utils/domainIds';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { routerAbMpcMaterialActivationRefToWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 
 // The Passkey challenge must be the canonical digest of the exact prepared
 // operation, and the server recomputes it from the parsed preparation with the
@@ -52,6 +53,7 @@ const normalSigningScope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
     client_share_retry_counter: 0,
     server_share_retry_counter: 1,
   },
+  material_activation: routerAbMpcMaterialActivationRefToWire(materialActivation),
   signing_worker: {
     server_id: String(materialActivation.signingWorker),
     key_epoch: 'worker-epoch-1',

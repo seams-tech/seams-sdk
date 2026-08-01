@@ -219,6 +219,15 @@ fn activation_refresh_request() -> RouterAbEcdsaDerivationActivationRefreshReque
         refresh_nonce: "refresh-nonce-1".to_owned(),
         previous_activation_epoch: "root-epoch-1".to_owned(),
         next_activation_epoch: "root-epoch-2".to_owned(),
+        material_activation: MpcMaterialActivationRefV1::new(
+            "activation-refresh-2",
+            "capability-1",
+            ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
+            "key-binding-1",
+            "lifecycle-binding-1",
+            "signing-worker-1",
+        )
+        .expect("refresh material activation"),
         expires_at_ms: 1_900_000_000_000,
         deriver_a_refresh_envelope: envelope(Role::SignerA, b"refresh-a"),
         deriver_b_refresh_envelope: envelope(Role::SignerB, b"refresh-b"),
@@ -226,6 +235,21 @@ fn activation_refresh_request() -> RouterAbEcdsaDerivationActivationRefreshReque
 }
 
 fn normal_signing_scope() -> RouterAbEcdsaDerivationNormalSigningScopeV1 {
+    let material_activation = MpcMaterialActivationRefV1::new(
+        router_ab_ecdsa_derivation_material_activation_id_v1(
+            ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
+            ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
+            ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
+            "root-epoch-1",
+        )
+        .expect("material activation id"),
+        "capability-1",
+        ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
+        "key-binding-1",
+        "lifecycle-binding-1",
+        "signing-worker-1",
+    )
+    .expect("material activation");
     RouterAbEcdsaDerivationNormalSigningScopeV1::new(
         ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
         ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
@@ -235,6 +259,7 @@ fn normal_signing_scope() -> RouterAbEcdsaDerivationNormalSigningScopeV1 {
         public_identity(),
         server_identity(),
         "root-epoch-1",
+        material_activation,
     )
     .expect("normal signing scope")
 }
@@ -253,21 +278,7 @@ fn operation_digests() -> RouterAbEcdsaDerivationOperationDigestsV1 {
 }
 
 fn material_activation() -> MpcMaterialActivationRefV1 {
-    MpcMaterialActivationRefV1::new(
-        router_ab_ecdsa_derivation_material_activation_id_v1(
-            ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
-            ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
-            ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
-            "root-epoch-1",
-        )
-        .expect("material activation id"),
-        "capability-1",
-        ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
-        "key-binding-1",
-        "lifecycle-binding-1",
-        "signing-worker-1",
-    )
-    .expect("material activation")
+    normal_signing_scope().material_activation
 }
 
 fn normal_signing_request() -> RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {

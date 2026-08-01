@@ -43,6 +43,7 @@ const missingDeriverBEnvelope: RouterAbEcdsaDerivationActivationRefreshRequestV1
   refresh_nonce: exactRefreshRequest.refresh_nonce,
   previous_activation_epoch: exactRefreshRequest.previous_activation_epoch,
   next_activation_epoch: exactRefreshRequest.next_activation_epoch,
+  material_activation: exactRefreshRequest.material_activation,
   expires_at_ms: exactRefreshRequest.expires_at_ms,
   deriver_a_refresh_envelope: signerAEnvelope,
 };
