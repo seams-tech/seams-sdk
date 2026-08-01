@@ -51,7 +51,6 @@ export type NearResolvedEd25519WalletSessionAuth = {
 export type NearPasskeyOperationStepUpPlan = {
   sessionId: string;
   requestedGrantId: CapabilityGrantId;
-  sessionPolicyDigest32: string;
   authority: PasskeyWalletAuthAuthority;
 };
 
@@ -169,10 +168,9 @@ export type NearEd25519YaoPreparedMaterialBoundary = {
 };
 
 export type NearPasskeyEd25519OperationStepUpHook = {
-  prepare: (args: { requiredSignatureUses: number }) => Promise<{
+  prepare: () => Promise<{
     sessionId: string;
     requestedGrantId: CapabilityGrantId;
-    sessionPolicyDigest32: string;
     authority: PasskeyWalletAuthAuthority;
   }>;
 };

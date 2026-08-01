@@ -475,14 +475,6 @@ export async function runNearDelegateActionSigning({
         kind: 'delegate',
         ...buildSigningConfirmationAuthParams({
           signingAuthPlan: confirmationAuthPayload.signingAuthPlan,
-          webauthnChallenge:
-            preparedStepUp.kind === 'passkey' &&
-            preparedStepUp.plannedPasskeyOperationStepUp.sessionPolicyDigest32
-              ? {
-                  kind: 'threshold_session_policy' as const,
-                  digest32B64u: preparedStepUp.plannedPasskeyOperationStepUp.sessionPolicyDigest32,
-                }
-              : undefined,
         }),
         walletId: String(commandSubject.walletSession.walletId),
         nearAccountId,

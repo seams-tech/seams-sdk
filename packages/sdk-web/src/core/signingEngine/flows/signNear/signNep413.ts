@@ -387,14 +387,6 @@ export async function signNep413Message({
         kind: 'nep413',
         ...buildSigningConfirmationAuthParams({
           signingAuthPlan: preparedStepUp.confirmationAuthPayload.signingAuthPlan,
-          webauthnChallenge:
-            preparedStepUp.kind === 'passkey' &&
-            preparedStepUp.plannedPasskeyOperationStepUp.sessionPolicyDigest32
-              ? {
-                  kind: 'threshold_session_policy' as const,
-                  digest32B64u: preparedStepUp.plannedPasskeyOperationStepUp.sessionPolicyDigest32,
-                }
-              : undefined,
         }),
         walletId: String(commandSubject.walletSession.walletId),
         nearAccountId,

@@ -98,9 +98,7 @@ export async function requireNearStepUpAuth(args: {
               '[SigningEngine][near] Passkey operation step-up runner is unavailable',
             );
           }
-          plannedPasskeyOperationStepUp = await args.passkeyEd25519OperationStepUp.prepare({
-            requiredSignatureUses: args.requiredSignatureUses,
-          });
+          plannedPasskeyOperationStepUp = await args.passkeyEd25519OperationStepUp.prepare();
           return {};
         },
         complete: completeNearPasskeyPreparation,
