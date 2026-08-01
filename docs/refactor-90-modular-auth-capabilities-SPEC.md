@@ -502,6 +502,9 @@ implementing commit SHA as the evidence.
   - [x] The ECDSA prepare-response parser and endpoint fixture agree on all
     required budget claim fields, and the canonical operating-path proof
     reaches a verified 65-byte signature (`7c20fe644`, `e75d2bcfb`).
+  - [x] Reusable NEAR transaction signing no longer reserves or finalizes a
+    client budget projection. Its relayer prepare/finalize exchange owns the
+    exact operation claim and quota transaction (`cc4cf26ab`).
 - [x] `R90-INV-010` — authority/lifecycle replacement returns `superseded` and
   every SDK/UI adapter discards and re-resolves the stale lane.
   (Typed `superseded` with three supersession kinds through the material plan;
@@ -519,7 +522,7 @@ implementing commit SHA as the evidence.
 - [x] `R90-INV-011` — Near post-commit verification creates no durable readback
   stage; readback converges through the two-state journal and direct
   recovery-source tests (`5db9ad87e`, `51b738d2a`).
-- [x] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
+- [ ] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
   and export use an exact material-activation reference independently from the
   discriminated reusable-session or operation-step-up authority; step-up
   carries no `WalletSessionId`.
