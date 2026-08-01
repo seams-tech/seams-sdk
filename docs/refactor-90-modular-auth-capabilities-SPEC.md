@@ -560,6 +560,9 @@ implementing commit SHA as the evidence.
   - [x] Operation-step-up ECDSA prepare/finalize resolve current canonical
     material before admission, claim, audit, or proxy effects and derive
     admission and claim identity from the canonical ref (`dd68687d4`).
+  - [x] Pool-fill authorization resolves canonical active material before
+    step-up claims or SigningWorker runtime calls and compares the full ref
+    across operation, signed, and initialization scopes (`80aea5036`).
   - [x] Wallet Session claim and private-route validation uses current
     branch-specific authorization shapes, is enrolled in unit typecheck, and
     passes 9/9; branded identity fixtures reject cross-domain substitution
@@ -567,8 +570,8 @@ implementing commit SHA as the evidence.
   - [x] Near recovery journals correlate their outer material owner with both
     admitted activation refs and require replacement material to equal the
     promotion receipt before commit and atomic finalization (`aa5ceb318`).
-  - [ ] Canonicalize step-up prepare and finalize, pool fill, and export before
-    side effects; finish activation-owned Ed25519 storage/export identities.
+  - [ ] Canonicalize export before side effects; finish activation-owned
+    Ed25519 storage/export identities.
   - [x] Delete write-only ECDSA resolved-identity publication from passkey
     recovery, Email OTP restore, and sealed-store identity projections. ECDSA
     availability is resolved from canonical capability and sealed-runtime
