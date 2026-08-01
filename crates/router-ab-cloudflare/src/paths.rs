@@ -113,6 +113,9 @@ pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH: &st
 /// Private SigningWorker endpoint for one-time explicit-export share delivery.
 pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH: &str =
     "/router-ab/signing-worker/ecdsa-derivation/export-share";
+/// Private SigningWorker endpoint for validating active ECDSA export material without releasing a share.
+pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PREFLIGHT_PATH: &str =
+    "/router-ab/signing-worker/ecdsa-derivation/export-preflight";
 /// Private SigningWorker endpoint for filling the Router A/B ECDSA derivation presignature pool.
 pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH: &str =
     "/router-ab/signing-worker/ecdsa-derivation/presignature-pool/put";
@@ -204,6 +207,11 @@ const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_URL: &str = c
 const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_URL: &str = concat!(
     "https://router-ab-signing-worker.internal",
     "/router-ab/signing-worker/ecdsa-derivation/export-share"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PREFLIGHT_URL: &str = concat!(
+    "https://router-ab-signing-worker.internal",
+    "/router-ab/signing-worker/ecdsa-derivation/export-preflight"
 );
 #[cfg(feature = "workers-rs")]
 const CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_URL: &str = concat!(
@@ -357,6 +365,17 @@ pub(crate) fn cloudflare_router_ab_ecdsa_derivation_signing_worker_export_share_
         peer,
         CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_URL,
         "strict Router A/B ECDSA export-share redemption can target only SigningWorker",
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn cloudflare_router_ab_ecdsa_derivation_signing_worker_export_preflight_service_url(
+    peer: &CloudflarePeerBindingV1,
+) -> RouterAbProtocolResult<&'static str> {
+    cloudflare_signing_worker_url(
+        peer,
+        CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PREFLIGHT_URL,
+        "strict Router A/B ECDSA export preflight can target only SigningWorker",
     )
 }
 

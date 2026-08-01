@@ -1249,7 +1249,15 @@ fn router_ab_ecdsa_derivation_export_request_with_aad_bound_envelopes(
         client_ephemeral_public_key: "x25519:client-ephemeral-public-key".to_owned(),
         authorization: NormalSigningAuthorizationV1::reusable_wallet_session("session-1")
             .expect("export authorization"),
-        material_activation_id: "ecdsa-material-activation-1".to_owned(),
+        material_activation: MpcMaterialActivationRefV1::new(
+            "ecdsa-material-activation-1",
+            "ecdsa-signing-capability-1",
+            ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
+            ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
+            "ecdsa-material-lifecycle-1",
+            "server-a",
+        )
+        .expect("ECDSA export material activation"),
         export_authorization_digest_b64u: b64u(&[0x44; 32]),
         export_nonce: "ecdsa-export-nonce-1".to_owned(),
         expires_at_ms: 2_000,

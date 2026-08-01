@@ -1,4 +1,5 @@
 use base64ct::{Base64UrlUnpadded, Encoding};
+use serde::{Deserialize, Serialize};
 
 use super::registration::{
     push_bytes, push_signer_identity, push_signer_set, require_ascii_fields,
@@ -340,8 +341,19 @@ impl EcdsaPostRegistrationRecipientV1 {
 }
 
 /// Exact material activation identity carried by an activation refresh.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EcdsaMaterialActivationRefKindV1 {
+    /// Exact MPC material-activation reference.
+    MpcMaterialActivationRef,
+}
+
+/// Exact material activation identity carried by an export or activation refresh.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EcdsaMaterialActivationRefV1 {
+    /// Wire discriminant.
+    pub kind: EcdsaMaterialActivationRefKindV1,
     /// Stable activation identifier.
     pub activation_id: String,
     /// Canonical capability identifier.
@@ -357,7 +369,7 @@ pub struct EcdsaMaterialActivationRefV1 {
 }
 
 impl EcdsaMaterialActivationRefV1 {
-    fn validate(&self) -> Result<(), EcdsaClientProtocolError> {
+    pub(crate) fn validate(&self) -> Result<(), EcdsaClientProtocolError> {
         require_fields_non_empty(&[
             &self.activation_id,
             &self.capability,
@@ -368,7 +380,7 @@ impl EcdsaMaterialActivationRefV1 {
         ])
     }
 
-    fn canonical_bytes(&self) -> Result<Vec<u8>, EcdsaClientProtocolError> {
+    pub(crate) fn canonical_bytes(&self) -> Result<Vec<u8>, EcdsaClientProtocolError> {
         self.validate()?;
         let mut output = Vec::new();
         push_bytes(&mut output, b"mpc_material_activation_ref");
@@ -392,7 +404,7 @@ pub enum EcdsaPostRegistrationOperationV1 {
         /// Exact authorization identifier carried by the authorization branch.
         authorization_id: String,
         /// Exact material activation this export binds.
-        material_activation_id: String,
+        material_activation: EcdsaMaterialActivationRefV1,
         /// Fresh export authorization digest in unpadded base64url.
         authorization_digest_b64u: String,
         /// Export replay nonce.
@@ -506,7 +518,7 @@ impl EcdsaPostRegistrationHeaderV1 {
         decode_x25519_public_key(input.recipient.public_key())?;
         decode_fixed::<32>(input.operation.authorization_digest_b64u())?;
         validate_recipient_branch(input.lifecycle.ceremony, &input.recipient)?;
-        validate_export_authorization(&input.operation)?;
+        validate_export_authorization(&input.lifecycle, &input.operation)?;
         validate_refresh_epochs(&input.lifecycle, &input.operation)?;
         Ok(Self { input })
     }
@@ -575,13 +587,13 @@ impl EcdsaPostRegistrationHeaderV1 {
         if let EcdsaPostRegistrationOperationV1::ExplicitExport {
             authorization_kind,
             authorization_id,
-            material_activation_id,
+            material_activation,
             ..
         } = &self.input.operation
         {
             push_bytes(&mut output, authorization_kind.as_bytes());
             push_bytes(&mut output, authorization_id.as_bytes());
-            push_bytes(&mut output, material_activation_id.as_bytes());
+            output.extend_from_slice(&material_activation.canonical_bytes()?);
         }
         push_bytes(
             &mut output,
@@ -842,16 +854,23 @@ fn validate_recipient_branch(
 }
 
 fn validate_export_authorization(
+    lifecycle: &EcdsaPostRegistrationLifecycleV1,
     operation: &EcdsaPostRegistrationOperationV1,
 ) -> Result<(), EcdsaClientProtocolError> {
     match operation {
         EcdsaPostRegistrationOperationV1::ExplicitExport {
             authorization_kind,
             authorization_id,
-            material_activation_id,
+            material_activation,
             ..
         } => {
-            require_ascii_fields(&[authorization_id, material_activation_id])?;
+            require_ascii_fields(&[authorization_id])?;
+            material_activation.validate()?;
+            if material_activation.material_owner != lifecycle.account_id
+                || material_activation.signing_worker != lifecycle.selected_server_id
+            {
+                return Err(EcdsaClientProtocolError::InvalidShape);
+            }
             if authorization_kind != "reusable_wallet_session"
                 && authorization_kind != "operation_step_up"
             {

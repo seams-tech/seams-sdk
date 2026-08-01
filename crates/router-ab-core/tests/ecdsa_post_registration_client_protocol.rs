@@ -14,7 +14,7 @@ use router_ab_core::protocol::{
 use router_ab_ecdsa_client_protocol::{
     build_ecdsa_post_registration_request_v1, derive_ecdsa_client_ephemeral_keypair_v1,
     open_ecdsa_signer_envelope_v1, EcdsaClientProtocolError, EcdsaDeriverRoleV1,
-    EcdsaMaterialActivationRefV1,
+    EcdsaMaterialActivationRefKindV1, EcdsaMaterialActivationRefV1,
     EcdsaPostRegistrationCeremonyV1, EcdsaPostRegistrationHeaderInputV1,
     EcdsaPostRegistrationHeaderV1, EcdsaPostRegistrationLifecycleV1,
     EcdsaPostRegistrationLifecycleWireV1, EcdsaPostRegistrationOperationV1,
@@ -273,13 +273,25 @@ fn recipient_key(ceremony: EcdsaPostRegistrationCeremonyV1) -> String {
         .to_owned()
 }
 
+fn client_material_activation() -> EcdsaMaterialActivationRefV1 {
+    EcdsaMaterialActivationRefV1 {
+        kind: EcdsaMaterialActivationRefKindV1::MpcMaterialActivationRef,
+        activation_id: "material-activation-1".to_owned(),
+        capability: "capability-1".to_owned(),
+        material_owner: "wallet-1".to_owned(),
+        key_binding: "key-binding-1".to_owned(),
+        lifecycle_binding: "lifecycle-binding-1".to_owned(),
+        signing_worker: SERVER_ID.to_owned(),
+    }
+}
+
 fn operation(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistrationOperationV1 {
     match ceremony {
         EcdsaPostRegistrationCeremonyV1::ExplicitExport => {
             EcdsaPostRegistrationOperationV1::ExplicitExport {
                 authorization_kind: "reusable_wallet_session".to_owned(),
                 authorization_id: "wallet-session-1".to_owned(),
-                material_activation_id: "material-activation-1".to_owned(),
+                material_activation: client_material_activation(),
                 authorization_digest_b64u: b64u(&[0x51; 32]),
                 nonce: "export-nonce-1".to_owned(),
             }
@@ -295,6 +307,7 @@ fn operation(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistration
                 previous_activation_epoch: "root-epoch-1".to_owned(),
                 next_activation_epoch: "root-epoch-2".to_owned(),
                 material_activation: EcdsaMaterialActivationRefV1 {
+                    kind: EcdsaMaterialActivationRefKindV1::MpcMaterialActivationRef,
                     activation_id: "activation-refresh-2".to_owned(),
                     capability: "capability-1".to_owned(),
                     material_owner: "wallet-1".to_owned(),
@@ -417,7 +430,15 @@ fn core_request(
                     "wallet-session-1",
                 )
                 .expect("core export authorization"),
-                material_activation_id: "material-activation-1".to_owned(),
+                material_activation: MpcMaterialActivationRefV1::new(
+                    "material-activation-1",
+                    "capability-1",
+                    "wallet-1",
+                    "key-binding-1",
+                    "lifecycle-binding-1",
+                    SERVER_ID,
+                )
+                .expect("core material activation"),
                 export_authorization_digest_b64u: b64u(&[0x51; 32]),
                 export_nonce: "export-nonce-1".to_owned(),
                 expires_at_ms: common.7,
@@ -627,7 +648,7 @@ fn post_registration_rejects_lifecycle_output_authorization_nonce_epoch_and_reci
             operation: EcdsaPostRegistrationOperationV1::ExplicitExport {
                 authorization_kind: "reusable_wallet_session".to_owned(),
                 authorization_id: "wallet-session-1".to_owned(),
-                material_activation_id: "material-activation-1".to_owned(),
+                material_activation: client_material_activation(),
                 authorization_digest_b64u: b64u(&[0x11; 31]),
                 nonce: "export-nonce-1".to_owned(),
             },
@@ -649,7 +670,7 @@ fn post_registration_rejects_lifecycle_output_authorization_nonce_epoch_and_reci
         operation: EcdsaPostRegistrationOperationV1::ExplicitExport {
             authorization_kind: "reusable_wallet_session".to_owned(),
             authorization_id: "wallet-session-1".to_owned(),
-            material_activation_id: "material-activation-1".to_owned(),
+            material_activation: client_material_activation(),
             authorization_digest_b64u: b64u(&[0x51; 32]),
             nonce: String::new(),
         },
@@ -676,6 +697,7 @@ fn post_registration_rejects_lifecycle_output_authorization_nonce_epoch_and_reci
             previous_activation_epoch: "root-epoch-2".to_owned(),
             next_activation_epoch: "root-epoch-2".to_owned(),
             material_activation: EcdsaMaterialActivationRefV1 {
+                kind: EcdsaMaterialActivationRefKindV1::MpcMaterialActivationRef,
                 activation_id: "activation-refresh-2".to_owned(),
                 capability: "capability-1".to_owned(),
                 material_owner: "wallet-1".to_owned(),

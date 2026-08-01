@@ -45,7 +45,7 @@ pub struct EcdsaSigningWorkerExportShareBindingV1 {
     /// Exact authorization identifier carried by the authorization branch.
     pub authorization_id: String,
     /// Exact material activation this export redemption binds.
-    pub material_activation_id: String,
+    pub material_activation: EcdsaMaterialActivationRefV1,
     /// Exact export lifecycle identifier.
     pub lifecycle_id: String,
     /// Authorized browser recipient identity.
@@ -69,11 +69,16 @@ impl EcdsaSigningWorkerExportShareBindingV1 {
             &self.signing_worker_id,
             &self.export_nonce,
             &self.authorization_id,
-            &self.material_activation_id,
             &self.lifecycle_id,
             &self.recipient_identity,
         ] {
             require_non_empty(value)?;
+        }
+        self.material_activation.validate()?;
+        if self.material_activation.material_owner != self.wallet_id
+            || self.material_activation.signing_worker != self.signing_worker_id
+        {
+            return Err(EcdsaClientProtocolError::InvalidShape);
         }
         if self.authorization_kind != "reusable_wallet_session"
             && self.authorization_kind != "operation_step_up"
@@ -114,11 +119,11 @@ impl EcdsaSigningWorkerExportShareBindingV1 {
             &self.export_nonce,
             &self.authorization_kind,
             &self.authorization_id,
-            &self.material_activation_id,
-            &self.lifecycle_id,
-            &self.recipient_identity,
-            &self.recipient_public_key,
         ] {
+            push_bytes(&mut out, value.as_bytes());
+        }
+        out.extend_from_slice(&self.material_activation.canonical_bytes()?);
+        for value in [&self.lifecycle_id, &self.recipient_identity, &self.recipient_public_key] {
             push_bytes(&mut out, value.as_bytes());
         }
         out.extend_from_slice(&self.expires_at_ms.to_be_bytes());
