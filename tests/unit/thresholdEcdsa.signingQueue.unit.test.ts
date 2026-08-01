@@ -109,6 +109,42 @@ test.describe('threshold ECDSA signing operation queue', () => {
     await expect(first).resolves.toBe('tempo-ok');
   });
 
+  test('rejects a stale queued generation before its task can produce side effects', async () => {
+    const queueByKey: ThresholdEcdsaSigningQueueByKey = new Map();
+    const walletId = toWalletId('alice.testnet');
+    const materialActivation = buildMpcMaterialActivationRefFixture('stale', walletId);
+    const queueKey = resolveThresholdEcdsaSigningQueueKey({ materialActivation });
+    const blocker = deferred<void>();
+    let staleTaskRuns = 0;
+
+    const current = withThresholdEcdsaSigningQueue({
+      queueByKey,
+      queueKey,
+      walletId,
+      enabled: true,
+      task: async () => {
+        await blocker.promise;
+        return 'current-ok';
+      },
+    });
+    const stale = withThresholdEcdsaSigningQueue({
+      queueByKey,
+      queueKey,
+      walletId,
+      enabled: true,
+      shouldAbort: () => true,
+      task: async () => {
+        staleTaskRuns += 1;
+        return 'stale-should-not-run';
+      },
+    });
+
+    blocker.resolve();
+    await expect(current).resolves.toBe('current-ok');
+    await expect(stale).rejects.toMatchObject({ code: 'cancelled' });
+    expect(staleTaskRuns).toBe(0);
+  });
+
   test('continues queue processing after a failed request', async () => {
     const queueByKey: ThresholdEcdsaSigningQueueByKey = new Map();
     const walletId = toWalletId('alice.testnet');
