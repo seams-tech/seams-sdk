@@ -223,35 +223,6 @@ export type SealedSigningSessionRecord =
       ed25519Restore?: SealedSigningSessionEd25519RestoreMetadata;
     });
 
-export type EmailOtpEcdsaRestoreInfoInput = {
-  ecdsaThresholdSessionId: string;
-  ecdsaThresholdKeyId: string;
-  chainTarget: SealedSigningSessionEcdsaChainTarget;
-  derivationPath?: string;
-  participantIds: readonly number[] | string;
-  relayerKeyId: string;
-};
-
-export type EmailOtpEd25519RestoreInfoInput = {
-  ed25519ThresholdSessionId: string;
-  relayerKeyId: string;
-  participantIds: readonly number[] | string;
-};
-
-function trimString(value: unknown): string {
-  return String(value || '').trim();
-}
-
-function participantIdsField(value: readonly number[] | string): string {
-  if (typeof value === 'string') return trimString(value);
-  return value.map((participantId) => Math.floor(Number(participantId))).join(',');
-}
-
-function ecdsaChainTargetInfoField(target: SealedSigningSessionEcdsaChainTarget): string {
-  if (target.kind === 'tempo') return `tempo:${Math.floor(Number(target.chainId))}`;
-  return `${target.kind}:${target.namespace}:${Math.floor(Number(target.chainId))}`;
-}
-
 export function encodeSigningSessionHkdfTuple(fields: readonly string[]): Uint8Array {
   const encoder = new TextEncoder();
   const chunks = fields.map((field) => {
@@ -271,23 +242,4 @@ export function encodeSigningSessionHkdfTuple(fields: readonly string[]): Uint8A
     offset += chunk.bytes.length;
   }
   return out;
-}
-
-export function emailOtpEcdsaRestoreInfoFields(args: EmailOtpEcdsaRestoreInfoInput): string[] {
-  return [
-    trimString(args.ecdsaThresholdSessionId),
-    trimString(args.ecdsaThresholdKeyId),
-    ecdsaChainTargetInfoField(args.chainTarget),
-    trimString(args.derivationPath || 'evm-signing'),
-    participantIdsField(args.participantIds),
-    trimString(args.relayerKeyId),
-  ];
-}
-
-export function emailOtpEd25519RestoreInfoFields(args: EmailOtpEd25519RestoreInfoInput): string[] {
-  return [
-    trimString(args.ed25519ThresholdSessionId),
-    trimString(args.relayerKeyId),
-    participantIdsField(args.participantIds),
-  ];
 }
