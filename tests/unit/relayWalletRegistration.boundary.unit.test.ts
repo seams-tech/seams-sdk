@@ -281,7 +281,7 @@ function ed25519AddSignerAdmissionRequest() {
       lifecycle_id: 'wasc_1',
       root_share_epoch: 'root-share-epoch-1',
       account_id: 'wallet_alice',
-      wallet_session_id: 'wallet-session-add-signer-1',
+      threshold_session_id: 'threshold-session-add-signer-1',
       signer_set_id: 'signer-set-add-signer-1',
       signing_worker_id: 'signing-worker-test',
     },
