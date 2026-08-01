@@ -20,6 +20,10 @@ import {
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  sameRouterAbMpcMaterialActivationRef,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   WalletEcdsaPendingSessionActivationRecord,
   WalletEcdsaPostRegistrationPublicRequest,
@@ -717,6 +721,57 @@ export class D1WalletStore implements WalletStore {
     const keyHandle = matches[0]?.walletKey.keyHandle;
     if (!keyHandle || matches.some((record) => record.walletKey.keyHandle !== keyHandle)) {
       throw new Error('Wallet has conflicting ECDSA public capabilities');
+    }
+    return matches[0] ?? null;
+  }
+
+  async getEcdsaSignerByMaterialActivation(input: {
+    walletId: WalletId;
+    materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<WalletEcdsaSignerRecord | null> {
+    await this.ensureSchema();
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!walletId) return null;
+    const result = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_signers
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND signer_family = 'ecdsa'
+            AND json_extract(
+              record_json,
+              '$.walletKey.publicCapability.material_activation.activation_id'
+            ) = ?
+          LIMIT 4`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        walletId,
+        input.materialActivation.activation_id,
+      )
+      .all<D1WalletRow>();
+    const matches = (result.results || [])
+      .map((row) => parseWalletEcdsaSignerRecord(parseD1JsonColumn(row.record_json)))
+      .filter(
+        (record): record is WalletEcdsaSignerRecord =>
+          record !== null &&
+          record.walletId === walletId &&
+          sameRouterAbMpcMaterialActivationRef(
+            record.walletKey.publicCapability.material_activation,
+            input.materialActivation,
+          ),
+      );
+    if (matches.length === 0) return null;
+    const keyHandle = matches[0]?.walletKey.keyHandle;
+    if (!keyHandle || matches.some((record) => record.walletKey.keyHandle !== keyHandle)) {
+      throw new Error('Wallet has conflicting ECDSA material activations');
     }
     return matches[0] ?? null;
   }

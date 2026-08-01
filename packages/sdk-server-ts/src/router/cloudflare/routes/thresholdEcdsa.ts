@@ -114,6 +114,7 @@ import {
 } from '@shared/utils/emailOtpDomain';
 import { hashEmailOtpAppSessionClaims } from '../../emailOtpSessionRouteHelpers';
 import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
+import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 
 const NOT_IMPLEMENTED = {
   ok: false,
@@ -184,6 +185,35 @@ async function issueEcdsaOperationStepUpGrant(input: {
       { status: 403 },
     );
   }
+  const activeMaterial = await input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation({
+    walletId: authenticated.session.walletId,
+    materialActivation: operation.material_activation,
+  });
+  if (!activeMaterial.ok) {
+    return json(
+      {
+        ok: false,
+        code: activeMaterial.code,
+        message: activeMaterial.message,
+      },
+      { status: activeMaterial.code === 'internal' ? 500 : 403 },
+    );
+  }
+  if (
+    !sameRouterAbMpcMaterialActivationRef(
+      activeMaterial.materialActivation,
+      operation.normal_signing_scope.material_activation,
+    )
+  ) {
+    return json(
+      {
+        ok: false,
+        code: 'scope_mismatch',
+        message: 'ECDSA normal-signing scope does not name the active material',
+      },
+      { status: 403 },
+    );
+  }
   const proof = input.request.proof;
   const authority = proof.authority;
   const authorityRef = await walletAuthAuthorityRef({ authority });
@@ -204,7 +234,7 @@ async function issueEcdsaOperationStepUpGrant(input: {
       tenantId: authenticated.session.tenantId,
       principalId: authenticated.session.principalId,
       capabilityId: requireAuthorizationValue(
-        parseCapabilityId(operation.material_activation.capability),
+        parseCapabilityId(activeMaterial.materialActivation.capability),
       ),
       operationId: requireAuthorizationValue(parseCapabilityOperationId(operation.operation_id)),
       operation: buildEvmEcdsaMpcOperationRef(operation.operation_kind),

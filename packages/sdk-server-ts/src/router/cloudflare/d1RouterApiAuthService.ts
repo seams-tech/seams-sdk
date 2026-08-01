@@ -1189,6 +1189,10 @@ function createD1WalletRegistrationRouteService(
   assembly: D1WalletRegistrationRouteServiceAssembly,
 ): RouterApiServiceBag['walletRegistration'] {
   return {
+    resolveEcdsaMaterialActivation:
+      assembly.walletRegistrations.resolveEcdsaMaterialActivation.bind(
+        assembly.walletRegistrations,
+      ),
     listWalletEcdsaKeyFactsInventory:
       assembly.walletRegistrations.listWalletEcdsaKeyFactsInventory.bind(
         assembly.walletRegistrations,
