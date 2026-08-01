@@ -35,8 +35,8 @@ import type {
   RouterAbWalletBudgetGrantProvisionInputV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import type {
-  RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1,
-  RouterAbEd25519YaoEmailOtpRecoverySessionResponseV1,
+  RouterAbEd25519YaoEmailOtpSessionRequestV1,
+  RouterAbEd25519YaoEmailOtpSessionResponseV1,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoWalletSession';
 import {
   handleWalletUnlockVerifyRoute,
@@ -251,9 +251,8 @@ function unlockBodyFixture(
   };
 }
 
-function recoveryRequestFixture(): RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1 {
+function recoveryRequestFixture(): RouterAbEd25519YaoEmailOtpSessionRequestV1 {
   return {
-    kind: 'router_ab_ed25519_yao_email_otp_recovery_session_v1',
     walletId: WALLET_ID,
     orgId: ORG_ID,
     signerSlot: SIGNER_SLOT,
@@ -294,11 +293,11 @@ class VerifiedEmailOtpUnlockService implements RouterApiWalletUnlockService {
 }
 
 class RecordingRouteRecoveryService {
-  readonly calls: RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1[] = [];
+  readonly calls: RouterAbEd25519YaoEmailOtpSessionRequestV1[] = [];
 
   async recoverEd25519YaoEmailOtpWalletSession(
-    request: RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1,
-  ): Promise<RouterAbEd25519YaoEmailOtpRecoverySessionResponseV1> {
+    request: RouterAbEd25519YaoEmailOtpSessionRequestV1,
+  ): Promise<RouterAbEd25519YaoEmailOtpSessionResponseV1> {
     this.calls.push(request);
     const capability = activeCapabilityFixture('none');
     return {

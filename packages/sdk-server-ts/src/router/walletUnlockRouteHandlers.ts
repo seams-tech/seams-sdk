@@ -198,7 +198,6 @@ async function provisionEmailOtpEd25519YaoSession(input: {
   switch (input.context.kind) {
     case 'email_otp_exact_local_material': {
       const provisioned = await input.context.provisionWalletSession({
-        kind: 'router_ab_ed25519_yao_email_otp_local_session_v1',
         walletId: request.walletId,
         orgId: request.orgId,
         signerSlot: request.sessionIntent.signerSlot,
@@ -218,7 +217,6 @@ async function provisionEmailOtpEd25519YaoSession(input: {
     }
     case 'email_otp_missing_material_recovery': {
       const recovered = await input.context.recoverWalletSession({
-        kind: 'router_ab_ed25519_yao_email_otp_recovery_session_v1',
         walletId: request.walletId,
         orgId: request.orgId,
         signerSlot: request.sessionIntent.signerSlot,
