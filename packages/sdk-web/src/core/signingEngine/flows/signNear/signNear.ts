@@ -962,6 +962,77 @@ async function withThresholdEd25519CommitQueue<T>(args: {
   });
 }
 
+async function prepareNearAuthorizationRequiredTransaction(args: {
+  deps: NearSigningApiDeps;
+  input: SignTransactionWithActionsInput;
+  commandSubject: NearCommandSubject;
+  operationId: SigningOperationId;
+}): Promise<{
+  candidate: AuthorizationRequiredEd25519LaneCandidate;
+  preparation: NearEd25519YaoSigningPreparation;
+  executor: NearEd25519YaoMaterialExecutor;
+  passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
+  emailOtpEd25519StepUp: NearEmailOtpEd25519StepUpHook | null;
+} | null> {
+  const availableLanes = await readNearEd25519AvailableSigningLanes({
+    deps: args.deps,
+    commandSubject: args.commandSubject,
+    authMethod: null,
+  });
+  const materialSelection = selectNearEd25519MaterialCandidate({
+    availableLanes,
+    intent: nearEd25519TransactionSigningIntent({
+      commandSubject: args.commandSubject,
+      signerSlot: args.input.signerSlot,
+      authSelectionPolicy: { kind: 'any' },
+      operationUsesNeeded: requiredNearTransactionSignatureUses(args.input.transaction),
+    }),
+  });
+  if (!materialSelection.ok || materialSelection.kind !== 'authorization_required') {
+    return null;
+  }
+  const candidate = materialSelection.candidate;
+  const signer = nearEd25519SignerBindingFromBoundaryFields({
+    walletId: candidate.walletId,
+    nearAccountId: candidate.nearAccountId,
+    nearEd25519SigningKeyId: candidate.nearEd25519SigningKeyId,
+    signerSlot: candidate.signerSlot,
+  });
+  const materialIdentity: NearEd25519MaterialIdentity = {
+    kind: 'near_ed25519_material_identity',
+    signer,
+    auth: candidate.auth,
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(candidate.thresholdSessionId),
+  };
+  const materialBoundary = await prepareNearEd25519YaoMaterialBoundary({
+    deps: args.deps,
+    commandSubject: args.commandSubject,
+    materialIdentity,
+  });
+  return {
+    candidate,
+    preparation: materialBoundary.preparation,
+    executor: materialBoundary.executor,
+    passkeyEd25519OperationStepUp:
+      buildNearPasskeyEd25519OperationStepUp({
+        auth: candidate.auth,
+        signer,
+        preparation: materialBoundary.preparation,
+        materialExecutor: materialBoundary.executor,
+        operationId: args.operationId,
+      }) || null,
+    emailOtpEd25519StepUp:
+      buildNearEmailOtpEd25519StepUp({
+        deps: args.deps,
+        commandSubject: args.commandSubject,
+        auth: candidate.auth,
+        signer,
+        preparation: materialBoundary.preparation,
+        onEvent: args.input.onEvent,
+      }) || null,
+  };
+}
+
 function requireNearEd25519CommitMaterialActivation(
   preparation: NearEd25519YaoSigningPreparation,
 ): MpcMaterialActivationRef {
@@ -1326,6 +1397,48 @@ export async function signTransactionWithActions(
   const confirmationOperationId = ensureOperationId();
   const signingSessionCoordinator =
     attempt.signingSessionCoordinator || deps.signingSessionCoordinator;
+  const authorizationRequired = await prepareNearAuthorizationRequiredTransaction({
+    deps,
+    input: args,
+    commandSubject: args.commandSubject,
+    operationId: confirmationOperationId,
+  });
+  if (authorizationRequired) {
+    const ctx = deps.getSignerWorkerContext();
+    return await withThresholdEd25519CommitQueue({
+      deps,
+      nearAccountId,
+      materialActivation: requireNearEd25519CommitMaterialActivation(
+        authorizationRequired.preparation,
+      ),
+      task: async () =>
+        (await signNearWithUiConfirm({
+          chain: 'near',
+          kind: 'transactionWithActions',
+          payload: {
+            ctx,
+            commandSubject: args.commandSubject,
+            nearAccount,
+            transaction: args.transaction,
+            rpcCall: args.rpcCall,
+            signerSlot: publicOptions.signerSlot,
+            confirmationConfigOverride: publicOptions.confirmationConfigOverride,
+            title: publicOptions.title,
+            body: publicOptions.body,
+            onEvent: publicOptions.onEvent,
+            signingOperationId: confirmationOperationId,
+            signingSessionCoordinator,
+            selection: { kind: 'authorization_required', candidate: authorizationRequired.candidate },
+            passkeyEd25519OperationStepUp:
+              authorizationRequired.passkeyEd25519OperationStepUp || undefined,
+            emailOtpEd25519StepUp: authorizationRequired.emailOtpEd25519StepUp || undefined,
+            sensitivePolicy: args.sensitivePolicy,
+            yaoSigningPreparation: authorizationRequired.preparation,
+            yaoMaterialExecutor: authorizationRequired.executor,
+          },
+        })) as SignTransactionResult,
+    });
+  }
   const preparedSigningSession = await prepareNearEd25519TransactionSigningSession({
     deps,
     input: args,
@@ -1399,6 +1512,7 @@ export async function signTransactionWithActions(
           onEvent: publicOptions.onEvent,
           signingOperationId: confirmationOperationId,
           signingSessionCoordinator: executionState.signingSessionCoordinator,
+          selection: { kind: 'authorized', selectedLane: transactionLane },
           transactionOperation: executionState.transactionOperation,
           ed25519SigningBoundary,
           yaoSigningPreparation: materialBoundary.preparation,

@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '@/core/types/accountIds';
 import {
   buildPasskeyEd25519RestoreMetadata,
   persistPasskeyEd25519YaoSessionForRefresh,
@@ -18,14 +17,15 @@ import {
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
-import { buildPasskeyEd25519SealedSessionRecordFixture } from './helpers/sealedSigningSession.fixtures';
+import {
+  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyEd25519SealedSessionRecordFixture,
+} from './helpers/sealedSigningSession.fixtures';
 
 const SEALED_RECORD = buildPasskeyEd25519SealedSessionRecordFixture();
 const WALLET_ID = SEALED_RECORD.walletId;
-const NEAR_ACCOUNT_ID = toAccountId(SEALED_RECORD.ed25519Restore.nearAccountId);
-const NEAR_SIGNING_KEY_ID = SEALED_RECORD.ed25519Restore.nearEd25519SigningKeyId;
 const THRESHOLD_SESSION_ID = SEALED_RECORD.thresholdSessionIds.ed25519;
-const SIGNING_GRANT_ID = SEALED_RECORD.signingGrantId;
+const SIGNING_GRANT_ID = `grant:${THRESHOLD_SESSION_ID}`;
 
 type SessionPersistenceCall = { kind: 'hydrate' | 'persist'; input: unknown };
 
@@ -56,7 +56,7 @@ function sessionPersistenceCallKind(call: SessionPersistenceCall): SessionPersis
 
 function buildPasskeyWalletSessionAuthorization(args: {
   expiresAtMs: number;
-  walletSessionJwt?: string;
+  walletSessionJwt: string;
 }) {
   const authorizationSessionId = parseSeamsSessionId('seams-session-ed25519-refresh');
   const walletSessionId = parseWalletSessionId('wallet-session-ed25519-refresh');
@@ -74,7 +74,7 @@ function buildPasskeyWalletSessionAuthorization(args: {
     authorizationSessionId: authorizationSessionId.value,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
-    walletSessionJwt: args.walletSessionJwt || SEALED_RECORD.ed25519Restore.walletSessionJwt,
+    walletSessionJwt: args.walletSessionJwt,
     authMethod: 'passkey',
     authority,
     expiresAtMs: args.expiresAtMs,
@@ -84,7 +84,8 @@ function buildPasskeyWalletSessionAuthorization(args: {
 function buildPasskeyYaoWalletSession() {
   const runtime = parseExactEd25519SealedSessionRuntime(SEALED_RECORD);
   if (!runtime) throw new Error('failed to parse exact passkey Yao runtime fixture');
-  const currentWalletSessionJwt = `${SEALED_RECORD.ed25519Restore.walletSessionJwt
+  const authorizationFixture = buildPasskeyEd25519AuthorizationProjectionFixture(SEALED_RECORD);
+  const currentWalletSessionJwt = `${authorizationFixture.walletSessionJwt
     .split('.')
     .slice(0, 2)
     .join('.')}.current`;
@@ -170,6 +171,7 @@ test('rejects an Ed25519 Wallet Session projection with a different lifecycle', 
   const fixture = buildPasskeyYaoWalletSession();
   const authorization = buildPasskeyWalletSessionAuthorization({
     expiresAtMs: fixture.expiresAtMs + 1,
+    walletSessionJwt: `${fixture.walletSessionJwt}.different`,
   });
 
   expect(
