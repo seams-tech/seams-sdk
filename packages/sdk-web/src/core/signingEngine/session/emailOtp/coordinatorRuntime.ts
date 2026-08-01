@@ -35,7 +35,7 @@ import {
 import { EmailOtpRuntimeConfig } from './runtimeConfig';
 import { EmailOtpSealedSessionRegistry } from './sealedSessionRegistry';
 import { EmailOtpSealedRefreshPolicy } from './sealedRefreshPolicy';
-import type { WarmSessionLanePurpose } from './sealedRuntimePurpose';
+import type { WarmSessionMaterialOperationTarget } from './sealedRuntimePurpose';
 import { EmailOtpSealedRestoreOrchestrator } from './sealedRestoreOrchestrator';
 import {
   createEmailOtpWarmSessionWorkerClient,
@@ -175,8 +175,7 @@ export class EmailOtpWalletSessionRuntime {
     return await this.warmSessionRuntime.readWarmSessionStatusOnly(sessionId);
   }
 
-  async consumeWarmSessionUses(args: {
-    purpose: WarmSessionLanePurpose;
+  async consumeWarmSessionUses(args: WarmSessionMaterialOperationTarget & {
     uses?: number;
   }): Promise<WarmSessionStatusResult> {
     return await this.warmSessionRuntime.consumeWarmSessionUses(args);

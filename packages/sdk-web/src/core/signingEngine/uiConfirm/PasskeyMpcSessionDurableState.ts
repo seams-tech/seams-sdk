@@ -440,9 +440,10 @@ export class PasskeyMpcSessionDurableState {
 
   async recordPolicyResult(
     purpose: WarmSessionLanePurpose,
+    thresholdSessionId: string,
     result: WarmSessionStatusResult | WarmSessionClaimResult,
   ): Promise<void> {
-    const existing = await this.readRecordForPurpose(purpose);
+    const existing = await this.readRecordForPurpose(purpose, thresholdSessionId);
     if (!existing) return;
     if (result.ok) {
       await this.writePolicy(existing, result.expiresAtMs, Math.max(0, result.remainingUses));
@@ -467,7 +468,7 @@ export class PasskeyMpcSessionDurableState {
     expiresAtMs: number;
     remainingUses: number;
   }): Promise<void> {
-    const existing = await this.readRecordForPurpose(args.purpose);
+    const existing = await this.readRecordForPurpose(args.purpose, args.thresholdSessionId);
     if (
       !existing ||
       existing.curve !== 'ecdsa' ||
@@ -720,6 +721,7 @@ export class PasskeyMpcSessionDurableState {
 
   private async readRecordForPurpose(
     purpose: WarmSessionLanePurpose,
+    thresholdSessionId: string,
   ): Promise<CurrentSealedSessionRecord | null> {
     const filter: SigningSessionSealedRecordFilter =
       purpose.curve === 'ecdsa'
@@ -729,7 +731,7 @@ export class PasskeyMpcSessionDurableState {
             chainTarget: purpose.chainTarget,
           }
         : { authMethod: 'passkey', curve: 'ed25519' };
-    return await readExactSealedSession(purpose.thresholdSessionId, filter);
+    return await readExactSealedSession(thresholdSessionId, filter);
   }
 
   private async writePolicy(

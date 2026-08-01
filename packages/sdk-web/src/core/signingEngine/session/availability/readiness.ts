@@ -1,4 +1,4 @@
-import type { WarmSessionLanePurpose } from '../emailOtp/sealedRuntimePurpose';
+import type { WarmSessionMaterialOperationTarget } from '../emailOtp/sealedRuntimePurpose';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import type {
@@ -42,6 +42,7 @@ import type {
   Ed25519SigningSessionReadiness,
 } from '../planning/planner';
 import type { ThresholdEd25519SessionId } from '../operationState/types';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
   toWalletId,
   type WalletId,
@@ -54,6 +55,7 @@ export type SigningSessionLane = {
   thresholdSessionId: string;
   signingGrantId: string;
   backingMaterialSessionId: string;
+  materialActivation: MpcMaterialActivationRef;
 };
 
 export type DiscoveredSigningSessionLane = SigningSessionLane & {
@@ -81,8 +83,7 @@ export type SigningGrantReadinessDeps = {
     >
   >;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  consumeEmailOtpWarmSessionUses?: (args: {
-    purpose: WarmSessionLanePurpose;
+  consumeEmailOtpWarmSessionUses?: (args: WarmSessionMaterialOperationTarget & {
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
   clearEmailOtpWarmSessionMaterial?: (sessionId: string) => Promise<void>;
@@ -271,6 +272,7 @@ export function buildDiscoveredLaneForRuntime(
     thresholdSessionId: runtime.thresholdSessionId,
     signingGrantId,
     backingMaterialSessionId: runtime.thresholdSessionId,
+    materialActivation: runtime.sealedRecord.ed25519Restore.materialActivation,
     backing: 'record_policy',
     runtime,
   };
@@ -1029,7 +1031,8 @@ export async function consumeSigningGrantUse(args: {
     switch (lane.backing) {
       case 'email_otp_worker': {
         const result = await args.deps.consumeEmailOtpWarmSessionUses?.({
-          purpose: { curve: 'ed25519', thresholdSessionId: lane.backingMaterialSessionId },
+          purpose: { curve: 'ed25519', materialActivation: lane.materialActivation },
+          thresholdSessionId: lane.backingMaterialSessionId,
           uses,
         });
         if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });
@@ -1042,7 +1045,8 @@ export async function consumeSigningGrantUse(args: {
       }
       case 'touch_confirm': {
         const result = await args.deps.touchConfirm?.consumeWarmSessionUses?.({
-          purpose: { curve: 'ed25519', thresholdSessionId: lane.backingMaterialSessionId },
+          purpose: { curve: 'ed25519', materialActivation: lane.materialActivation },
+          thresholdSessionId: lane.backingMaterialSessionId,
           uses,
         });
         if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });

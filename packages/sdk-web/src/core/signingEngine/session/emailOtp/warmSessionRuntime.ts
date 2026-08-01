@@ -14,7 +14,8 @@ import {
 import type { EmailOtpSealedRefreshPolicy } from './sealedRefreshPolicy';
 import {
   ecdsaSealedRuntimePurpose,
-  type WarmSessionLanePurpose,
+  warmSessionProtocolSessionId,
+  type WarmSessionMaterialOperationTarget,
 } from './sealedRuntimePurpose';
 import type { EmailOtpSealedRestoreOrchestrator } from './sealedRestoreOrchestrator';
 
@@ -70,12 +71,11 @@ export class EmailOtpWarmSessionRuntime {
     });
   }
 
-  async consumeWarmSessionUses(args: {
-    purpose: WarmSessionLanePurpose;
+  async consumeWarmSessionUses(args: WarmSessionMaterialOperationTarget & {
     uses?: number;
   }): Promise<WarmSessionStatusResult> {
     return await consumeEmailOtpWarmSessionUses({
-      sessionId: args.purpose.thresholdSessionId,
+      sessionId: warmSessionProtocolSessionId(args),
       ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
       consumeWarmSessionUsesFromWorker: (consumeArgs) =>
         this.ports.workerClient.consumeUses(consumeArgs),

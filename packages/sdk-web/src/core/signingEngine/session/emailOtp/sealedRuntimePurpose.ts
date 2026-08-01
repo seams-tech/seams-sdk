@@ -1,18 +1,15 @@
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
-// A threshold-session id indexes runtime state; it never selects material. To
-// read the one sealed record a session refers to, the exact store API needs the
-// lane it belongs to as well, so the id is only ever carried alongside its lane
-// purpose. The lane policy that produced the session already owns that target.
+// A threshold-session id addresses runtime protocol state. Exact material
+// selection uses the activation reference carried by the Ed25519 branch.
 
 export type EmailOtpEcdsaSealedRuntimePurpose = {
   readonly thresholdSessionId: string;
   readonly chainTarget: ThresholdEcdsaChainTarget;
 };
 
-/** Discriminated warm-session lane purpose. ECDSA cannot be expressed without a
- * chain target and Ed25519 cannot be expressed without its Near identity, so a
- * cross-curve combination does not compile. */
+/** Discriminated warm-session lane purpose. */
 export type WarmSessionLanePurpose =
   | ({
       readonly curve: 'ecdsa';
@@ -20,9 +17,30 @@ export type WarmSessionLanePurpose =
     } & EmailOtpEcdsaSealedRuntimePurpose)
   | {
       readonly curve: 'ed25519';
-      readonly thresholdSessionId: string;
+      readonly materialActivation: MpcMaterialActivationRef;
+      readonly thresholdSessionId?: never;
       readonly chainTarget?: never;
     };
+
+export type WarmSessionMaterialOperationTarget =
+  | {
+      readonly purpose: Extract<WarmSessionLanePurpose, { curve: 'ecdsa' }>;
+      readonly thresholdSessionId?: never;
+    }
+  | {
+      readonly purpose: Extract<WarmSessionLanePurpose, { curve: 'ed25519' }>;
+      readonly thresholdSessionId: string;
+    };
+
+export function warmSessionProtocolSessionId(
+  target: WarmSessionMaterialOperationTarget,
+): string {
+  if (target.purpose.curve === 'ecdsa') return target.purpose.thresholdSessionId;
+  if (target.thresholdSessionId === undefined) {
+    throw new Error('Ed25519 warm material operation requires its protocol session id');
+  }
+  return target.thresholdSessionId;
+}
 
 export function ecdsaSealedRuntimePurpose(
   purpose: WarmSessionLanePurpose,
