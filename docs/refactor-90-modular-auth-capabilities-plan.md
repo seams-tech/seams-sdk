@@ -588,6 +588,12 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Email OTP Ed25519 hydration, recovery, publication readback, and export
         resolve sealed material by the complete activation ref; unavailable
         public locators fail before durable probing (`eeab81b5a`, `30c1a741a`).
+  - [x] Ed25519 sealed rows use the complete material activation as their
+        physical key, preserve that key across threshold-protocol-session
+        renewal, and reject legacy grant-key residue (`680c39f0e`).
+  - [x] Passkey Ed25519 export selection, browser/iframe transport, durable
+        recovery, and exact active-registry lookup carry and revalidate the
+        selected material activation (`2574fe239`).
   - [x] Cloudflare and local Rust normal-signing paths keep Wallet Session,
         threshold-session, activation, and lifecycle identities distinct; local
         registration takes explicit activation and refresh rejects substitution
@@ -777,9 +783,9 @@ the replacement and legacy MPC paths must not ship together.
       evidence, or grant writes; derive `CapabilityId` from that stored ref and
       reject every independently mutated activation field with zero side
       effects (`4a436aed7`).
-- [ ] Apply canonical active-material resolution before export authorization
+- [x] Apply canonical active-material resolution before export authorization
       side effects and replace the export activation-ID-only wire with the full
-      activation ref.
+      activation ref (`57845af73`).
   - [x] Reusable prepare/finalize re-resolve the complete active material before
         admission, operation claim, quota, or proxy effects and carry the
         canonical ref through accepted admission (`c7b259a5c`).
@@ -790,6 +796,11 @@ the replacement and legacy MPC paths must not ship together.
         operation-step-up claims or SigningWorker runtime calls and compares
         the full ref across operation, signed scope, and init scope
         (`80aea5036`).
+  - [x] Explicit export binds the complete activation ref through SDK, WASM,
+        Gateway, Router, SigningWorker, Derivers, and HPKE AAD; Gateway derives
+        claim capability from the authoritative active ref, and Router
+        preflights the no-secret SigningWorker owner before Deriver work
+        (`57845af73`).
 - [x] Separate hydrated ECDSA signer material from execution authorization;
       prepare step-up from neutral material and attach the reusable-session or
       one-operation grant only in the ready execution envelope.
