@@ -48,6 +48,7 @@ import {
   parseMpcRegisteredPublicKeyBindingRef,
   parseMpcSigningWorkerRef,
 } from './domainIds';
+import type { WalletSessionId } from '../authorization/capabilityKinds';
 
 declare const walletId: WalletId;
 declare const providerSubject: ProviderSubject;
@@ -59,6 +60,7 @@ declare const appSessionVersion: AppSessionVersion;
 declare const emailOtpChallengeId: EmailOtpChallengeId;
 declare const registrationAttemptId: EmailOtpRegistrationAttemptId;
 declare const signingGrantId: SigningGrantId;
+declare const walletSessionId: WalletSessionId;
 declare const thresholdEd25519SessionId: ThresholdEd25519SessionId;
 declare const thresholdEcdsaSessionId: ThresholdEcdsaSessionId;
 declare const ecdsaActiveStateId: EcdsaActiveStateId;
@@ -130,6 +132,10 @@ function acceptsAppSessionVersion(value: AppSessionVersion): void {
 }
 
 function acceptsSigningGrantId(value: SigningGrantId): void {
+  void value;
+}
+
+function acceptsWalletSessionId(value: WalletSessionId): void {
   void value;
 }
 
@@ -240,6 +246,7 @@ acceptsAppSessionVersion(appSessionVersion);
 acceptsEmailOtpChallengeId(emailOtpChallengeId);
 acceptsEmailOtpRegistrationAttemptId(registrationAttemptId);
 acceptsSigningGrantId(signingGrantId);
+acceptsWalletSessionId(walletSessionId);
 acceptsThresholdEd25519SessionId(thresholdEd25519SessionId);
 acceptsThresholdEcdsaSessionId(thresholdEcdsaSessionId);
 acceptsEcdsaActiveStateId(ecdsaActiveStateId);
@@ -323,6 +330,18 @@ acceptsEmailOtpRegistrationAttemptId(emailOtpChallengeId);
 
 // @ts-expect-error Signing grant ids are not threshold Ed25519 session ids.
 acceptsThresholdEd25519SessionId(signingGrantId);
+
+// @ts-expect-error Wallet Session ids are not threshold Ed25519 session ids.
+acceptsThresholdEd25519SessionId(walletSessionId);
+
+// @ts-expect-error Threshold Ed25519 session ids are not Wallet Session ids.
+acceptsWalletSessionId(thresholdEd25519SessionId);
+
+// @ts-expect-error Material activation ids are not threshold Ed25519 session ids.
+acceptsThresholdEd25519SessionId(mpcMaterialActivationId);
+
+// @ts-expect-error Threshold Ed25519 session ids are not material activation ids.
+acceptsMpcMaterialActivationId(thresholdEd25519SessionId);
 
 // @ts-expect-error Threshold Ed25519 and ECDSA session ids are curve-specific.
 acceptsThresholdEcdsaSessionId(thresholdEd25519SessionId);
