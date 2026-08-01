@@ -79,7 +79,8 @@ const validEd25519SealedSessionRecord = {
   storageScope: 'iframe_origin_indexeddb',
   authMethod: 'passkey',
   secretKind: 'signing_session_secret32',
-  storeKey: 'material:alice.testnet:passkey:ed25519:alice.testnet:alice.testnet:1',
+  storeKey:
+    'ed25519-material-v2:alice.testnet:passkey:ed25519:activation-key:capability-key:owner-key:key-binding:lifecycle-binding:worker-key',
   thresholdSessionIds: {
     ed25519: 'ed-session',
   },

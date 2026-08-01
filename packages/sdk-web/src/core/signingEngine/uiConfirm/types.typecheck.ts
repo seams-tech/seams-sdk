@@ -9,6 +9,7 @@ import type {
   DeleteDurableSealedSessionCommand,
   DurableSealedSessionDeleteReason,
 } from '../session/persistence/durableSealedSessionCommands';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import { createClearVolatileWarmSessionMaterialCommand } from '../session/warmCapabilities/volatileWarmMaterialCommands';
 import { parseVolatileWarmSessionId } from '../session/warmCapabilities/volatileWarmSessionId';
 
@@ -35,12 +36,14 @@ const volatileAllClearer: VolatileWarmSessionMaterialClearAll = {
   clearAllVolatileWarmSessionMaterial: async () => undefined,
 };
 
+declare const materialActivation: MpcMaterialActivationRef;
+
 const durableDeleteCommand: DeleteDurableSealedSessionCommand = {
   kind: 'delete_durable_sealed_session',
   durableRecord: {
     authMethod: 'passkey',
     curve: 'ed25519',
-    thresholdSessionId: 'threshold-session-1',
+    materialActivation,
   },
   deleteReason: 'trusted_persisted_delete',
   preserveResolvedIdentity: false,
@@ -90,7 +93,7 @@ const invalidDurableDeleteCommand: DeleteDurableSealedSessionCommand = {
   durableRecord: {
     authMethod: 'passkey',
     curve: 'ed25519',
-    thresholdSessionId: 'threshold-session-1',
+    materialActivation,
   },
   deleteReason: 'trusted_persisted_delete',
   preserveResolvedIdentity: false,
@@ -99,6 +102,20 @@ const invalidDurableDeleteCommand: DeleteDurableSealedSessionCommand = {
 };
 
 void invalidDurableDeleteCommand;
+
+const invalidEd25519DurableIdentity: DeleteDurableSealedSessionCommand = {
+  kind: 'delete_durable_sealed_session',
+  // @ts-expect-error Ed25519 durable identity is keyed by activation, never a threshold session.
+  durableRecord: {
+    authMethod: 'passkey',
+    curve: 'ed25519',
+    materialActivation,
+    thresholdSessionId: 'threshold-session-1',
+  },
+  deleteReason: 'trusted_persisted_delete',
+  preserveResolvedIdentity: false,
+};
+void invalidEd25519DurableIdentity;
 
 const invalidDurableEcdsaCommand: DeleteDurableSealedSessionCommand = {
   kind: 'delete_durable_sealed_session',
