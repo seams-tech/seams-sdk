@@ -574,6 +574,9 @@ implementing commit SHA as the evidence.
     session target; Email OTP hydration, recovery, publication, and export read
     sealed material by the full activation ref (`c619db902`, `eeab81b5a`,
     `30c1a741a`).
+  - [x] Passkey durable state and Email OTP worker material address Ed25519 by
+    complete activation; worker protocol-session identity remains a separate
+    correlation field (`c7472eb28`, `629c1da97`, `47f0cebfe`).
   - [x] Cloudflare and local Rust normal signing keep Wallet Session,
     threshold-session, activation, and lifecycle identities independent; local
     activation is explicit and refresh rejects substituted material
