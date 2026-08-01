@@ -275,9 +275,6 @@ export type RouterAbEd25519YaoNormalSigningBudgetRefreshInput = {
   readonly remainingUses: number;
 };
 
-export type RouterAbEd25519YaoNormalSigningBudgetRefreshResult =
-  RouterAbEd25519YaoNormalSigningSessionProvisionResult;
-
 export type RouterAbEcdsaNormalSigningSessionProvisionInput = {
   readonly kind: 'router_ab_ecdsa_normal_signing_session_v1';
   readonly walletId: string;
@@ -998,7 +995,7 @@ export class RouterAbNormalSigningRuntime {
 
   async refreshRouterAbEd25519YaoNormalSigningBudget(
     input: RouterAbEd25519YaoNormalSigningBudgetRefreshInput,
-  ): Promise<RouterAbEd25519YaoNormalSigningBudgetRefreshResult> {
+  ): Promise<RouterAbEd25519YaoNormalSigningSessionProvisionResult> {
     const walletId = parseWalletId(input.walletId);
     const nearAccountId = parseNearAccountId(input.nearAccountId);
     const authorityScope = parseThresholdEd25519AuthorityScope(input.authorityScope);
