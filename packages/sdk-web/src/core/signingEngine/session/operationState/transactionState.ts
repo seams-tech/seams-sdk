@@ -5,8 +5,6 @@ import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget'
 import type {
   LaneCandidate,
   SelectedLane,
-  ThresholdEcdsaSessionStoreSource,
-  ThresholdEd25519SessionStoreSource,
 } from '../identity/laneIdentity';
 import type {
   TransactionConcreteAvailableLane,
@@ -21,24 +19,7 @@ import {
   type SelectedSigningSessionPlanningLane,
   type SigningOperationContext,
   type SigningOperationId,
-  SigningSessionPlanKind,
 } from './types';
-import type {
-  SigningSessionBudgetStatusAuth,
-  SigningSessionPreparedBudgetIdentity,
-} from '../budget/budget';
-import type {
-  ExactSigningLaneIdentity,
-  ExactSigningLaneIdentityKey,
-} from '../identity/exactSigningLaneIdentity';
-import type {
-  FreshStepUpSatisfiedForAdmission,
-  FreshStepUpRequired,
-  StepUpExpiryState,
-  StepUpProjectionState,
-} from './stepUpFreshness';
-import { assertFreshnessMatchesLane } from './stepUpFreshness';
-import { exactSigningLaneIdentityFromSelectedLane } from '../identity/exactSigningLaneIdentity';
 import type { SigningPlannerDecisionTraceEvent } from '../planning/planner';
 import {
   prepareThresholdSigningOperation,
@@ -124,146 +105,11 @@ export type PreparedTransactionOperation<TLane extends TransactionLane = Transac
   readiness: TransactionReadiness;
 };
 
-export type TransactionBudgetAdmission = {
-  budgetIdentity: SigningSessionPreparedBudgetIdentity;
-};
-
-export type BudgetAdmittedOperation<TLane extends TransactionLane = TransactionLane> =
-  PreparedTransactionOperation<TLane> & {
-    budgetAdmission: TransactionBudgetAdmission;
-  };
-
-export type BudgetAdmittedTransactionOperation<
-  TLane extends TransactionLane = TransactionLane,
-  TAuthPlan = unknown,
-> = BudgetAdmittedOperation<TLane> & {
-  authPlan: TAuthPlan;
-};
-
 export type SignedTransactionOperation<
   TLane extends TransactionLane = TransactionLane,
   TResult = unknown,
-> = BudgetAdmittedOperation<TLane> & {
+> = PreparedTransactionOperation<TLane> & {
   result: TResult;
-};
-
-export type PreparedNoBudgetLifecycle<TLane extends TransactionLane = TransactionLane> = {
-  kind: 'PreparedNoBudget';
-  operation: PreparedTransactionOperation<TLane>;
-  reason: 'budget_identity_not_prepared';
-  state?: never;
-  authPlan?: never;
-  result?: never;
-  finalizedAtMs?: never;
-};
-
-export type BudgetAdmittedLifecycle<TLane extends TransactionLane = TransactionLane> = {
-  kind: 'BudgetAdmitted';
-  operation: BudgetAdmittedOperation<TLane>;
-  state: TransactionBudgetAdmittedState<TLane>;
-  reason?: never;
-  authPlan?: never;
-  result?: never;
-  finalizedAtMs?: never;
-};
-
-export type StepUpConfirmedLifecycle<
-  TLane extends TransactionLane = TransactionLane,
-  TAuthPlan = unknown,
-> = {
-  kind: 'StepUpConfirmed';
-  operation: BudgetAdmittedTransactionOperation<TLane, TAuthPlan>;
-  authPlan: TAuthPlan;
-  reason?: never;
-  state?: never;
-  result?: never;
-  finalizedAtMs?: never;
-};
-
-export type ReauthAdmittedLifecycle<
-  TLane extends TransactionLane = TransactionLane,
-  TAuthPlan = unknown,
-> = {
-  kind: 'ReauthAdmitted';
-  reauthAnchor: ReauthAnchorIdentity;
-  previousOperation: BudgetAdmittedOperation<TLane>;
-  operation: BudgetAdmittedTransactionOperation<TLane, TAuthPlan>;
-  authPlan: TAuthPlan;
-  reason?: never;
-  state?: never;
-  result?: never;
-  finalizedAtMs?: never;
-};
-
-export type ReauthAnchorSourceState = {
-  kind: 'reauth_anchor_source_state';
-  availabilitySource: 'canonical_capability' | 'durable_sealed_record' | 'runtime_session_record';
-  storeSource: ThresholdEcdsaSessionStoreSource | ThresholdEd25519SessionStoreSource;
-  retention: 'session' | 'single_use' | 'unknown';
-  remainingUses: number | null;
-  expiry: StepUpExpiryState;
-  projection: StepUpProjectionState;
-};
-
-export type ReauthAnchorIdentity = {
-  kind: 'reauth_anchor_identity';
-  laneIdentity: ExactSigningLaneIdentity;
-  laneIdentityKey: ExactSigningLaneIdentityKey;
-  sourceState: ReauthAnchorSourceState;
-  freshness: FreshStepUpRequired;
-  readyLane?: never;
-  budget?: never;
-};
-
-export type SignedWalletSigningBudgetLifecycle<
-  TLane extends TransactionLane = TransactionLane,
-  TResult = unknown,
-> = {
-  kind: 'Signed';
-  operation: SignedTransactionOperation<TLane, TResult>;
-  result: TResult;
-  reason?: never;
-  state?: never;
-  authPlan?: never;
-  finalizedAtMs?: never;
-};
-
-export type FinalizedWalletSigningBudgetLifecycle<
-  TLane extends TransactionLane = TransactionLane,
-  TResult = unknown,
-> = {
-  kind: 'Finalized';
-  operation: SignedTransactionOperation<TLane, TResult>;
-  result: TResult;
-  finalizedAtMs: number;
-  reason?: never;
-  state?: never;
-  authPlan?: never;
-};
-
-export type WalletSigningBudgetLifecycle<
-  TLane extends TransactionLane = TransactionLane,
-  TAuthPlan = unknown,
-  TResult = unknown,
-> =
-  | PreparedNoBudgetLifecycle<TLane>
-  | BudgetAdmittedLifecycle<TLane>
-  | StepUpConfirmedLifecycle<TLane, TAuthPlan>
-  | ReauthAdmittedLifecycle<TLane, TAuthPlan>
-  | SignedWalletSigningBudgetLifecycle<TLane, TResult>
-  | FinalizedWalletSigningBudgetLifecycle<TLane, TResult>;
-
-export type PreparedTransactionBudgetState<TLane extends TransactionLane = TransactionLane> =
-  | BudgetAdmittedLifecycle<TLane>
-  | PreparedNoBudgetLifecycle<TLane>;
-
-export type TransactionSigningExecutor<TLane extends TransactionLane, TPayload, TResult> = {
-  sign(operation: BudgetAdmittedOperation<TLane>, payload: TPayload): Promise<TResult>;
-};
-
-export type SignedTransactionFinalizer<TLane extends TransactionLane, TResult> = {
-  recordSuccess?: (operation: SignedTransactionOperation<TLane, TResult>) => Promise<void> | void;
-  cleanup?: (operation: SignedTransactionOperation<TLane, TResult>) => Promise<void> | void;
 };
 
 export type TransactionSigningLifecycleAdapter<
@@ -303,7 +149,6 @@ export type PreparedTransactionSigningOperation<
     TransactionPreparedThresholdMetadata<TLane, TMetadata>
   >;
   transactionOperation: PreparedTransactionOperation<TLane>;
-  budget: PreparedTransactionBudgetState<TLane>;
 };
 
 export type TransactionExactRestoreAttemptedState<
@@ -338,11 +183,6 @@ export type TransactionAuthPlannedState<TLane extends TransactionLane = Transact
   authPlan: unknown;
 };
 
-export type TransactionBudgetAdmittedState<TLane extends TransactionLane = TransactionLane> = {
-  tag: 'BudgetAdmitted';
-  operation: BudgetAdmittedOperation<TLane>;
-};
-
 export type TransactionSignedState<TLane extends TransactionLane = TransactionLane> = {
   tag: 'Signed';
   operation: SignedTransactionOperation<TLane>;
@@ -356,7 +196,6 @@ export type TransactionSigningState =
   | TransactionExactRestoreAttemptedState
   | TransactionReadinessClassifiedState
   | TransactionAuthPlannedState
-  | TransactionBudgetAdmittedState
   | TransactionSignedState;
 
 export function recordExactRestoreAttempt<
@@ -422,184 +261,6 @@ export function replacePreparedTransactionLane<TLane extends TransactionLane>(
   };
 }
 
-export function admitTransactionBudget<TLane extends TransactionLane>(
-  operation: PreparedTransactionOperation<TLane>,
-  budgetAdmission: TransactionBudgetAdmission,
-): BudgetAdmittedOperation<TLane> {
-  return {
-    ...operation,
-    budgetAdmission,
-  };
-}
-
-export function recordTransactionBudgetAdmission<TLane extends TransactionLane>(
-  operation: BudgetAdmittedOperation<TLane>,
-): TransactionBudgetAdmittedState<TLane> {
-  return {
-    tag: 'BudgetAdmitted',
-    operation,
-  };
-}
-
-export function recordPreparedTransactionBudgetAdmission<TLane extends TransactionLane>(
-  operation: BudgetAdmittedOperation<TLane>,
-): PreparedTransactionBudgetState<TLane> {
-  return {
-    kind: 'BudgetAdmitted',
-    operation,
-    state: recordTransactionBudgetAdmission(operation),
-  };
-}
-
-export function recordPreparedTransactionBudgetAdmissionFromFreshness<
-  TLane extends TransactionLane,
->(
-  operation: PreparedTransactionOperation<TLane>,
-  budgetAdmission: TransactionBudgetAdmission,
-  freshness: FreshStepUpSatisfiedForAdmission,
-): BudgetAdmittedLifecycle<TLane> {
-  assertFreshnessMatchesLane({
-    freshness,
-    laneIdentity: exactSigningLaneIdentityFromSelectedLane(operation.lane),
-  });
-  if (freshness.projection.version !== budgetAdmission.budgetIdentity.projectionVersion) {
-    throw new Error('[SigningSession] admission freshness projection does not match budget');
-  }
-  const admittedOperation = admitTransactionBudget(operation, budgetAdmission);
-  return {
-    kind: 'BudgetAdmitted',
-    operation: admittedOperation,
-    state: recordTransactionBudgetAdmission(admittedOperation),
-  };
-}
-
-export function recordPreparedTransactionNoBudget<TLane extends TransactionLane>(
-  operation: PreparedTransactionOperation<TLane>,
-  reason: PreparedNoBudgetLifecycle<TLane>['reason'],
-): PreparedNoBudgetLifecycle<TLane> {
-  return {
-    kind: 'PreparedNoBudget',
-    operation,
-    reason,
-  };
-}
-
-export function isPreparedTransactionBudgetAdmitted<TLane extends TransactionLane>(
-  budget: PreparedTransactionBudgetState<TLane>,
-): budget is BudgetAdmittedLifecycle<TLane> {
-  return budget.kind === 'BudgetAdmitted';
-}
-
-export function recordTransactionStepUpConfirmed<TLane extends TransactionLane, TAuthPlan>(
-  operation: BudgetAdmittedOperation<TLane>,
-  authPlan: TAuthPlan,
-): StepUpConfirmedLifecycle<TLane, TAuthPlan> {
-  return {
-    kind: 'StepUpConfirmed',
-    operation: {
-      ...operation,
-      authPlan,
-    },
-    authPlan,
-  };
-}
-
-export function recordTransactionReauthAdmitted<TLane extends TransactionLane, TAuthPlan>(
-  reauthAnchor: ReauthAnchorIdentity,
-  previousOperation: BudgetAdmittedOperation<TLane>,
-  operation: BudgetAdmittedOperation<TLane>,
-  authPlan: TAuthPlan,
-): ReauthAdmittedLifecycle<TLane, TAuthPlan> {
-  return {
-    kind: 'ReauthAdmitted',
-    reauthAnchor,
-    previousOperation,
-    operation: {
-      ...operation,
-      authPlan,
-    },
-    authPlan,
-  };
-}
-
-export function buildReauthAnchorIdentity(args: {
-  freshness: FreshStepUpRequired;
-  sourceState: ReauthAnchorSourceState;
-}): ReauthAnchorIdentity {
-  if (args.freshness.kind !== 'fresh_step_up_required') {
-    throw new Error('[SigningSession] reauth anchors require fresh-step-up-required state');
-  }
-  return {
-    kind: 'reauth_anchor_identity',
-    laneIdentity: args.freshness.laneIdentity,
-    laneIdentityKey: args.freshness.laneIdentityKey,
-    sourceState: args.sourceState,
-    freshness: args.freshness,
-  };
-}
-
-export function recordTransactionSigned<TLane extends TransactionLane>(
-  operation: BudgetAdmittedOperation<TLane>,
-  result: unknown,
-): SignedTransactionOperation<TLane> {
-  return {
-    ...operation,
-    result,
-  };
-}
-
-export function recordSignedWalletSigningBudgetLifecycle<TLane extends TransactionLane, TResult>(
-  operation: BudgetAdmittedOperation<TLane>,
-  result: TResult,
-): SignedWalletSigningBudgetLifecycle<TLane, TResult> {
-  return {
-    kind: 'Signed',
-    operation: recordTransactionSigned(operation, result) as SignedTransactionOperation<
-      TLane,
-      TResult
-    >,
-    result,
-  };
-}
-
-export function recordFinalizedWalletSigningBudgetLifecycle<TLane extends TransactionLane, TResult>(
-  operation: SignedTransactionOperation<TLane, TResult>,
-  finalizedAtMs: number,
-): FinalizedWalletSigningBudgetLifecycle<TLane, TResult> {
-  return {
-    kind: 'Finalized',
-    operation,
-    result: operation.result,
-    finalizedAtMs,
-  };
-}
-
-export async function signPreparedTransactionOperation<
-  TLane extends TransactionLane,
-  TPayload,
-  TResult,
->(
-  operation: BudgetAdmittedOperation<TLane>,
-  payload: TPayload,
-  executor: TransactionSigningExecutor<TLane, TPayload, TResult>,
-): Promise<SignedTransactionOperation<TLane, TResult>> {
-  return recordTransactionSigned(
-    operation,
-    await executor.sign(operation, payload),
-  ) as SignedTransactionOperation<TLane, TResult>;
-}
-
-export async function finalizeSignedTransactionOperation<TLane extends TransactionLane, TResult>(
-  operation: SignedTransactionOperation<TLane, TResult>,
-  finalizer: SignedTransactionFinalizer<TLane, TResult>,
-): Promise<void> {
-  if (typeof finalizer.recordSuccess !== 'function' && typeof finalizer.cleanup !== 'function') {
-    throw new Error('[SigningSession] signed transaction finalization requires a real finalizer');
-  }
-  await finalizer.recordSuccess?.(operation);
-  await finalizer.cleanup?.(operation);
-}
-
 export async function prepareTransactionSigningOperation<
   TLane extends TransactionLane,
   TSigningLane extends SelectedSigningSessionPlanningLane,
@@ -612,7 +273,6 @@ export async function prepareTransactionSigningOperation<
   forceFreshAuth?: boolean;
   sensitiveOperationPolicy?: SensitiveOperationPolicy | null;
   missingWhenExpiresAtMissing?: boolean;
-  prepareBudgetIdentity?: boolean;
   onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
 }): Promise<PreparedTransactionSigningOperation<TLane, TSigningLane, TMetadata>> {
   let transactionLane: TLane | null = null;
@@ -666,46 +326,10 @@ export async function prepareTransactionSigningOperation<
   };
   thresholdOperation.metadata.transactionOperation = transactionOperation;
 
-  const budgetIdentity =
-    args.prepareBudgetIdentity &&
-    thresholdOperation.signingSessionPlan.kind === SigningSessionPlanKind.WarmSession
-      ? await prepareEd25519BudgetIdentity({
-          coordinator: args.coordinator,
-          lane: thresholdOperation.lane,
-          operationUsesNeeded: args.intent.operationUsesNeeded,
-          trustedStatusAuth: thresholdOperation.trustedStatusAuth,
-        })
-      : undefined;
-
-  const budget = budgetIdentity
-    ? recordPreparedTransactionBudgetAdmission(
-        admitTransactionBudget(transactionOperation, {
-          budgetIdentity,
-        }),
-      )
-    : recordPreparedTransactionNoBudget(transactionOperation, 'budget_identity_not_prepared');
-
   return {
     thresholdOperation,
     transactionOperation,
-    budget,
   };
-}
-
-async function prepareEd25519BudgetIdentity(args: {
-  coordinator: ThresholdSigningOperationCoordinator;
-  lane: SelectedSigningSessionPlanningLane;
-  operationUsesNeeded: number;
-  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-}): Promise<SigningSessionPreparedBudgetIdentity> {
-  if (args.lane.curve !== 'ed25519') {
-    throw new Error('[SigningSession] reusable client budget admission requires an Ed25519 lane');
-  }
-  return await args.coordinator.prepareBudgetIdentity({
-    lane: args.lane,
-    operationUsesNeeded: args.operationUsesNeeded,
-    ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
-  });
 }
 
 function thresholdIntentFromTransactionIntent(intent: TransactionSigningIntent): {

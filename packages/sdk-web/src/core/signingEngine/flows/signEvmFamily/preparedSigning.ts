@@ -535,7 +535,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
     operation: args.signingOperation,
     forceFreshAuth: args.forceFreshAuth === true,
     missingWhenExpiresAtMissing: true,
-    prepareBudgetIdentity: false,
     onPlannerTrace: (event) => emitSigningPlannerDecisionTrace('evm-family', event),
     lifecycleAdapter: {
       prepare: async () => {

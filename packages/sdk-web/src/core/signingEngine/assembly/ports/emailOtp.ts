@@ -28,7 +28,6 @@ export function createSigningSessionCoordinatorPort(args: {
     touchConfirm: createArgs.passkeyMpcSession,
     getEmailOtpWarmSessionStatus: (sessionId) =>
       getEmailOtpWarmSessionStatus({ kind: 'ecdsa', thresholdSessionId: sessionId }),
-    consumeEmailOtpWarmSessionUses: createArgs.consumeEmailOtpWarmSessionUses,
     clearEmailOtpWarmSessionMaterial: createArgs.clearEmailOtpWarmSessionMaterial,
   });
 }

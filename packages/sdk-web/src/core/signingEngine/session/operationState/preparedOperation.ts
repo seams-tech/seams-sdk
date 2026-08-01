@@ -1,8 +1,5 @@
 import type { SensitiveOperationPolicy, SignerAuthMethod } from '@shared/utils/signerDomain';
-import type {
-  SigningSessionBudgetStatusAuth,
-  SigningSessionPreparedBudgetIdentity,
-} from '../budget/budget';
+import type { SigningSessionBudgetStatusAuth } from '../budget/budget';
 import type {
   SigningPlannerDecisionTraceEvent,
   SigningSessionReadiness,
@@ -61,11 +58,6 @@ export type ThresholdSigningOperationCoordinator = {
     expiresAtMs: number;
     remainingUses: number;
   }>;
-  prepareBudgetIdentity(input: {
-    lane: SelectedEd25519SigningSessionPlanningLane;
-    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-    operationUsesNeeded?: number;
-  }): Promise<SigningSessionPreparedBudgetIdentity>;
 };
 
 export type PreparedThresholdSigningOperation<

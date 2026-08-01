@@ -127,7 +127,6 @@ import {
   prepareTransactionOperationFromReadiness,
   prepareTransactionSigningOperation,
   type NearEd25519TransactionSigningIntent,
-  type PreparedTransactionBudgetState,
   type NearEd25519TransactionSignerSelection,
   type PreparedTransactionOperation,
   type TransactionAuthSelectionPolicy,
@@ -305,7 +304,6 @@ type PreparedNearEd25519TransactionSigningSession = {
   availableLanesGeneration: number;
   preparedOperation: PreparedNearEd25519Operation;
   transactionOperation: PreparedTransactionOperation<SelectedEd25519Lane>;
-  budget: PreparedTransactionBudgetState<SelectedEd25519Lane>;
 };
 
 type PreparedNearTransactionExecutionState = {
@@ -667,15 +665,11 @@ function nearEd25519SigningGrantAdmissionQueueKey(args: {
   nearAccountId: AccountId | string;
   prepared: PreparedNearEd25519TransactionSigningSession;
 }): ReturnType<typeof buildSigningGrantAdmissionQueueKey> {
-  const projectionVersion =
-    args.prepared.budget.kind === 'BudgetAdmitted'
-      ? args.prepared.budget.operation.budgetAdmission.budgetIdentity.projectionVersion
-      : 'projection-unadmitted';
   return buildSigningGrantAdmissionQueueKey({
     walletId: String(args.walletId),
     curve: 'ed25519',
     signingGrantId: String(args.prepared.signingLane.signingGrantId),
-    projectionVersion,
+    projectionVersion: 'server-owned',
     authorityKey: signingLaneAuthBindingKey(args.prepared.signingLane.auth),
     targetKey: `near:${String(args.nearAccountId)}`,
   });
@@ -1347,7 +1341,6 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     commandSubject: args.commandSubject,
     preparedOperation,
   });
-  const budget = preparedTransaction.budget;
   return {
     preparation: initialMaterialBoundary.preparation,
     signingAuthPlan,
@@ -1361,7 +1354,6 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     availableLanesGeneration: preparedOperation.availableLanesGeneration,
     preparedOperation,
     transactionOperation,
-    budget,
   };
 }
 

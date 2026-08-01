@@ -2,8 +2,8 @@
 
 ## Owns
 
-Signing grant budget status reads, admission classification, and trusted
-status normalization during the remaining server-status cutover.
+Signing grant status reads and admission classification for server-owned
+operation claims.
 
 ## May Import
 
@@ -17,7 +17,7 @@ entrypoints, or concrete confirmation/runtime modules.
 
 ## Entrypoints
 
-- `BudgetCoordinator.ts`
-- `budget.ts`
-- `budgetProjection.ts`
-- `budgetStatusReader.ts`
+- `budget.ts` — status-check identities and owner builders
+- `budgetStatusReader.ts` — trusted status reads and normalization
+- `admission.ts` — server admission error classification and retry keys
+- `policy.ts` — session policy defaults
