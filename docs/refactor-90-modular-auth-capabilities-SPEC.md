@@ -543,8 +543,20 @@ implementing commit SHA as the evidence.
   - [x] Restore coordination leases carry only the exact sealed-store key,
     owner/attempt, and lease timing. They do not carry `signingGrantId`; old
     grant-bearing lease rows are rejected at the persistence boundary
-    (`2d56e3a58`). The ECDSA sealed-record store key remains a separate,
-    follow-on activation re-key task.
+  (`2d56e3a58`). The ECDSA sealed-record store key remains a separate,
+  follow-on activation re-key task.
+  - [x] Passkey Ed25519 persistence accepts independently minted opaque
+    capability, key-binding, and lifecycle-binding refs while retaining exact
+    owner/SigningWorker checks; reusable NEAR signing validates authorization
+    against `WalletSessionId` rather than `ThresholdEd25519SessionId`
+    (`c98f56125`, `a55e393a8`).
+  - [x] ECDSA operation-step-up grant issuance resolves the complete canonical
+    active material from WalletStore before factor/proof consumption or any
+    evidence/grant write, and hostile mutations of all six activation fields
+    leave every side-effect counter at zero (`4a436aed7`).
+  - [ ] Canonicalize reusable/step-up prepare and finalize, pool fill, and
+    export before side effects; finish activation-owned Ed25519 storage/export
+    identities and recovery-journal correlation.
   - [x] Delete write-only ECDSA resolved-identity publication from passkey
     recovery, Email OTP restore, and sealed-store identity projections. ECDSA
     availability is resolved from canonical capability and sealed-runtime

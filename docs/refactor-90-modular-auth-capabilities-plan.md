@@ -570,6 +570,16 @@ the replacement and legacy MPC paths must not ship together.
       `ThresholdEd25519SessionId`; keep reusable `WalletSessionId` and quota
       identity on authorization only, and bind recovery admission to the
       threshold-material session.
+- [x] Accept opaque Ed25519 capability, key-binding, and lifecycle-binding
+      references at the sealed Passkey boundary while still rejecting a
+      foreign material owner or SigningWorker (`c98f56125`).
+- [x] Validate reusable NEAR normal-signing authorization against the active
+      Wallet Session ID independently from the threshold-material session ID
+      (`a55e393a8`).
+- [ ] Rekey the remaining Passkey, sealed-store, and Email OTP Ed25519 material
+      locators from threshold-session identity to the exact material activation;
+      remove threshold-session/grant identity from Ed25519 export context and
+      correlate recovery-journal activation facts at its persistence boundary.
 - [x] Persist one canonical Near public locator, sealed active-client record,
       and sealed recovery source; create no parallel D1/DO material owner.
 - [x] Parse Near persistence once with no dual-schema core reader or legacy
@@ -746,6 +756,14 @@ the replacement and legacy MPC paths must not ship together.
       `CapabilityGrantId` and forbid `WalletSessionId`.
 - [x] Require both authorization branches to carry the independent exact
       `MpcMaterialActivationRef`.
+- [x] Resolve ECDSA operation-step-up grant authority from the canonical active
+      WalletStore material before factor verification, OTP consumption,
+      evidence, or grant writes; derive `CapabilityId` from that stored ref and
+      reject every independently mutated activation field with zero side
+      effects (`4a436aed7`).
+- [ ] Apply the same canonical active-material resolution before reusable and
+      step-up prepare/finalize, pool fill, and export authorization side effects;
+      replace the export activation-ID-only wire with the full activation ref.
 - [x] Separate hydrated ECDSA signer material from execution authorization;
       prepare step-up from neutral material and attach the reusable-session or
       one-operation grant only in the ready execution envelope.
