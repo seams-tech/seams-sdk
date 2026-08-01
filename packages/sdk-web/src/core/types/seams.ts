@@ -798,7 +798,7 @@ export interface SigningSessionStatus {
     | 'unavailable'
     | 'status_unknown';
   statusCode?: string;
-  authMethod?: WalletAuthMethod | null;
+  authMethod?: SignerAuthMethod | null;
   retention?: SigningSessionRetention | null;
   availableUses?: number;
   inFlightReservedUses?: number;
