@@ -4,7 +4,9 @@ import type {
 } from '../../types/secure-confirm-worker';
 import {
   buildCurrentSealedSessionRecord,
+  readExactEd25519SealedSession,
   readExactSealedSession,
+  updateExactEd25519SealedSessionPolicy,
   updateExactSealedSessionPolicy,
   writeExactSealedSession,
   type BuildCurrentSealedSessionRecordInput,
@@ -31,6 +33,10 @@ import type {
   WarmSessionClaimResult,
   WarmSessionStatusResult,
 } from './uiConfirm.types';
+import {
+  ed25519DurableMaterialLocator,
+  materialActivationKey,
+} from '../session/sealedRecovery/materialActivationKey';
 
 type PasskeyMpcSessionDurableStateDeps = {
   signingSessionPersistenceMode: 'none' | 'sealed_refresh_v1';
@@ -152,7 +158,16 @@ function persistenceSingleFlightKey(args: {
       material.bindingDigest,
     ].join('|');
   }
-  return ['persist', 'passkey', 'ed25519', args.thresholdSessionId].join('|');
+  const locator = ed25519DurableMaterialLocator({
+    authMethod: 'passkey',
+    materialActivation: args.transport.ed25519Restore.materialActivation,
+  });
+  return [
+    'persist',
+    locator.kind,
+    locator.authMethod,
+    materialActivationKey(locator.materialActivation),
+  ].join('|');
 }
 
 type BuildCurrentRecordInputArgs = {
@@ -312,7 +327,6 @@ function ecdsaRestoreNamesSameMaterial(
 
 function existingRecordMatchesRequest(args: {
   existing: CurrentSealedSessionRecord;
-  thresholdSessionId: string;
   transport: PasskeyWarmSessionSealTransportInput;
   metadata: PasskeySealedRecordAccountMetadata;
 }): boolean {
@@ -320,7 +334,10 @@ function existingRecordMatchesRequest(args: {
   const requestedWalletId = String(args.transport.walletId || '').trim();
   if (requestedWalletId && requestedWalletId !== args.existing.walletId) return false;
   if (args.existing.curve === 'ed25519' && args.transport.curve === 'ed25519') {
-    return args.existing.thresholdSessionIds.ed25519 === args.thresholdSessionId;
+    return mpcMaterialActivationRefsEqual(
+      args.existing.ed25519Restore.materialActivation,
+      args.transport.ed25519Restore.materialActivation,
+    );
   }
   if (args.existing.curve !== 'ecdsa' || args.transport.curve !== 'ecdsa') return false;
   if (
@@ -363,6 +380,22 @@ function normalizedPasskeyTransport(
     return { ...transport, authMethod: 'passkey', groupId };
   }
   return { ...transport, authMethod: 'passkey', groupId };
+}
+
+async function readExactPasskeyRecord(args: {
+  thresholdSessionId: string;
+  transport: PasskeyWarmSessionSealTransportInput;
+  purpose: SigningSessionSealedRecordFilter;
+}): Promise<CurrentSealedSessionRecord | null> {
+  if (args.transport.curve === 'ed25519') {
+    return await readExactEd25519SealedSession(
+      ed25519DurableMaterialLocator({
+        authMethod: 'passkey',
+        materialActivation: args.transport.ed25519Restore.materialActivation,
+      }),
+    );
+  }
+  return await readExactSealedSession(args.thresholdSessionId, args.purpose);
 }
 
 export class PasskeyMpcSessionDurableState {
@@ -485,7 +518,7 @@ export class PasskeyMpcSessionDurableState {
     const existingReadStartedAt = performance.now();
     let existing: CurrentSealedSessionRecord | null;
     try {
-      existing = await readExactSealedSession(args.thresholdSessionId, args.purpose);
+      existing = await readExactPasskeyRecord(args);
     } catch (error) {
       recordDiagnosticDuration({
         diagnostics: args.diagnostics,
@@ -510,7 +543,6 @@ export class PasskeyMpcSessionDurableState {
       if (
         !existingRecordMatchesRequest({
           existing,
-          thresholdSessionId: args.thresholdSessionId,
           transport: args.transport,
           metadata: args.metadata,
         })
@@ -700,7 +732,7 @@ export class PasskeyMpcSessionDurableState {
     const verifyReadStartedAt = performance.now();
     let persisted: CurrentSealedSessionRecord | null;
     try {
-      persisted = await readExactSealedSession(args.thresholdSessionId, args.purpose);
+      persisted = await readExactPasskeyRecord(args);
     } catch {
       persisted = null;
     }
@@ -723,15 +755,19 @@ export class PasskeyMpcSessionDurableState {
     purpose: WarmSessionLanePurpose,
     thresholdSessionId: string,
   ): Promise<CurrentSealedSessionRecord | null> {
-    const filter: SigningSessionSealedRecordFilter =
-      purpose.curve === 'ecdsa'
-        ? {
-            authMethod: 'passkey',
-            curve: 'ecdsa',
-            chainTarget: purpose.chainTarget,
-          }
-        : { authMethod: 'passkey', curve: 'ed25519' };
-    return await readExactSealedSession(thresholdSessionId, filter);
+    if (purpose.curve === 'ed25519') {
+      return await readExactEd25519SealedSession(
+        ed25519DurableMaterialLocator({
+          authMethod: 'passkey',
+          materialActivation: purpose.materialActivation,
+        }),
+      );
+    }
+    return await readExactSealedSession(thresholdSessionId, {
+      authMethod: 'passkey',
+      curve: 'ecdsa',
+      chainTarget: purpose.chainTarget,
+    });
   }
 
   private async writePolicy(
@@ -739,20 +775,25 @@ export class PasskeyMpcSessionDurableState {
     expiresAtMs: number,
     remainingUses: number,
   ): Promise<void> {
-    const filter: SigningSessionSealedRecordFilter =
-      existing.curve === 'ecdsa'
-        ? {
-            authMethod: 'passkey',
-            curve: 'ecdsa',
-            chainTarget: existing.ecdsaRestore.chainTarget,
-          }
-        : { authMethod: 'passkey', curve: 'ed25519' };
+    if (existing.curve === 'ed25519') {
+      await updateExactEd25519SealedSessionPolicy({
+        locator: ed25519DurableMaterialLocator({
+          authMethod: 'passkey',
+          materialActivation: existing.ed25519Restore.materialActivation,
+        }),
+        expiresAtMs: Math.max(1, Math.floor(expiresAtMs)),
+        remainingUses: Math.max(0, Math.floor(remainingUses)),
+        updatedAtMs: Date.now(),
+      });
+      return;
+    }
     await updateExactSealedSessionPolicy({
-      thresholdSessionId:
-        existing.curve === 'ecdsa'
-          ? existing.thresholdSessionIds.ecdsa
-          : existing.thresholdSessionIds.ed25519,
-      filter,
+      thresholdSessionId: existing.thresholdSessionIds.ecdsa,
+      filter: {
+        authMethod: 'passkey',
+        curve: 'ecdsa',
+        chainTarget: existing.ecdsaRestore.chainTarget,
+      },
       expiresAtMs: Math.max(1, Math.floor(expiresAtMs)),
       remainingUses: Math.max(0, Math.floor(remainingUses)),
       updatedAtMs: Date.now(),
