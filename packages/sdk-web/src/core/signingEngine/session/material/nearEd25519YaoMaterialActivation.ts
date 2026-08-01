@@ -1,15 +1,7 @@
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
-import { base64UrlEncode } from '@shared/utils/base64';
 import {
-  buildMpcMaterialActivationRef,
   mpcMaterialActivationRefsEqual,
-  parseCapabilityInstanceRef,
   parseMpcCapabilityRuntimeRef,
-  parseMpcKeyBindingRef,
-  parseMpcLifecycleBindingRef,
-  parseMpcMaterialActivationId,
-  parseMpcMaterialOwnerRef,
-  parseMpcSigningWorkerRef,
   type CapabilityInstanceRef,
   type DomainIdParseResult,
   type MpcCapabilityRuntimeRef,
@@ -34,15 +26,7 @@ function requireParsedDomainId<T>(result: DomainIdParseResult<T>): T {
 export function nearEd25519YaoMaterialActivationFromMetadata(
   metadata: RouterAbEd25519YaoActiveClientMetadataV1,
 ): MpcMaterialActivationRef {
-  const sealedMaterialActivationId = metadata.scope.wallet_session_id;
-  return nearEd25519YaoMaterialActivationFromPublicFacts({
-    activationId: sealedMaterialActivationId,
-    activeCapabilityBinding: metadata.activeCapabilityBinding,
-    walletId: metadata.applicationBinding.wallet_id,
-    registeredPublicKey: metadata.registeredPublicKey,
-    lifecycleId: metadata.scope.lifecycle_id,
-    signingWorkerId: metadata.scope.signing_worker_id,
-  });
+  return metadata.materialActivation;
 }
 
 export type NearEd25519YaoPublicLocatorObservationV1 =
@@ -232,26 +216,4 @@ export function resolveNearEd25519YaoCapabilityHydrationV1(
       input.unlockSource satisfies never;
   }
   throw new Error('Unsupported Near Ed25519 unlock-source observation');
-}
-
-export function nearEd25519YaoMaterialActivationFromPublicFacts(input: {
-  activationId: string;
-  activeCapabilityBinding: ArrayLike<number>;
-  walletId: string;
-  registeredPublicKey: Uint8Array | readonly number[];
-  lifecycleId: string;
-  signingWorkerId: string;
-}): MpcMaterialActivationRef {
-  return buildMpcMaterialActivationRef({
-    activationId: requireParsedDomainId(parseMpcMaterialActivationId(input.activationId)),
-    capability: requireParsedDomainId(
-      parseCapabilityInstanceRef(base64UrlEncode(Uint8Array.from(input.activeCapabilityBinding))),
-    ),
-    materialOwner: requireParsedDomainId(parseMpcMaterialOwnerRef(input.walletId)),
-    keyBinding: requireParsedDomainId(
-      parseMpcKeyBindingRef(base64UrlEncode(Uint8Array.from(input.registeredPublicKey))),
-    ),
-    lifecycleBinding: requireParsedDomainId(parseMpcLifecycleBindingRef(input.lifecycleId)),
-    signingWorker: requireParsedDomainId(parseMpcSigningWorkerRef(input.signingWorkerId)),
-  });
 }

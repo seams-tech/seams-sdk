@@ -85,6 +85,15 @@ async function addSignerInput(
         wallet_session_id: CEREMONY_ID,
         signer_set_id: registrationNearEd25519BranchKey(selection.signerSlot),
         signing_worker_id: 'signing-worker-a',
+        material_activation: {
+          kind: 'mpc_material_activation_ref',
+          activation_id: 'add-signer-activation-42',
+          capability: 'add-signer-capability-42',
+          material_owner: WALLET_ID,
+          key_binding: 'add-signer-key-42',
+          lifecycle_binding: 'add-signer-lifecycle-binding-42',
+          signing_worker: 'signing-worker-a',
+        },
       },
       application_binding: {
         wallet_id: WALLET_ID,

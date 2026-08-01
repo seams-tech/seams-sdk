@@ -16,7 +16,7 @@ import {
 import { parseNamedNearAccountId } from '@shared/utils/near';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { resolveEmailOtpAuthLane } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
-import { nearEd25519YaoMaterialActivationFromPublicFacts } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const WALLET_ID = toWalletId('email-otp-export-refresh-wallet');
 const NEAR_ACCOUNT_ID = toAccountId('email-otp-export-refresh.testnet');
@@ -54,14 +54,10 @@ const CAPABILITY = {
   stateEpoch: 1,
 } as const;
 
-const MATERIAL_ACTIVATION = nearEd25519YaoMaterialActivationFromPublicFacts({
-  activationId: CAPABILITY.lifecycle.thresholdSessionId,
-  activeCapabilityBinding: CAPABILITY.activeCapabilityBinding,
-  walletId: CAPABILITY.applicationBinding.wallet_id,
-  registeredPublicKey: CAPABILITY.registeredPublicKey,
-  lifecycleId: CAPABILITY.lifecycle.lifecycleId,
-  signingWorkerId: CAPABILITY.lifecycle.signingWorkerId,
-});
+const MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'email-otp-export-refresh',
+  CAPABILITY.applicationBinding.wallet_id,
+);
 
 function durableEd25519AuthLane() {
   const authLane = resolveEmailOtpAuthLane({

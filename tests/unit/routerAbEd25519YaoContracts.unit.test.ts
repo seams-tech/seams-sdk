@@ -261,6 +261,15 @@ function registrationBinding(): Record<string, unknown> {
     operation: 'registration',
     session_id: bytes(7),
     stable_key_context_binding: bytes(8),
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'registration-activation-1',
+      capability: 'registration-capability-1',
+      material_owner: 'account-1',
+      key_binding: 'registration-key-1',
+      lifecycle_binding: 'registration-lifecycle-binding-1',
+      signing_worker: 'signing-worker-1',
+    },
   };
 }
 
@@ -273,6 +282,15 @@ function registrationAdmissionRequest(): Record<string, unknown> {
       wallet_session_id: 'wallet-session-1',
       signer_set_id: 'signer-set-1',
       signing_worker_id: 'signing-worker-1',
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: 'registration-activation-1',
+        capability: 'registration-capability-1',
+        material_owner: 'account-1',
+        key_binding: 'registration-key-1',
+        lifecycle_binding: 'registration-lifecycle-binding-1',
+        signing_worker: 'signing-worker-1',
+      },
     },
     application_binding: {
       wallet_id: 'wallet-1',
@@ -293,6 +311,15 @@ function recoveryAdmissionRequest(): Record<string, unknown> {
       wallet_session_id: 'wallet-session-1',
       signer_set_id: 'signer-set-1',
       signing_worker_id: 'signing-worker-1',
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: 'recovery-activation-1',
+        capability: 'recovery-capability-1',
+        material_owner: 'account-1',
+        key_binding: 'recovery-key-1',
+        lifecycle_binding: 'recovery-lifecycle-binding-1',
+        signing_worker: 'signing-worker-1',
+      },
     },
     application_binding: {
       wallet_id: 'wallet-1',
@@ -374,6 +401,7 @@ function activationResultForBinding(
       joined_signing_worker_commitment: bytes(15),
       signing_worker_verifying_share: bytes(15),
       state_epoch: binding.operation === 'recovery' ? 2 : 1,
+      material_activation: binding.material_activation,
     },
   };
 }
@@ -390,6 +418,7 @@ function registrationResult(): Record<string, unknown> {
       joined_signing_worker_commitment: bytes(14),
       signing_worker_verifying_share: bytes(15),
       state_epoch: 1,
+      material_activation: registrationBinding().material_activation,
     },
   };
 }

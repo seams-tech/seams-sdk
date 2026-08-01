@@ -22,6 +22,8 @@ import type {
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { RouterAbEd25519YaoExportWorkerPayloadV1 } from '@/core/types/secure-confirm-worker';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const WALLET_ID = toWalletId('passkey-export-refresh-wallet');
 const NEAR_ACCOUNT_ID = toAccountId('passkey-export-refresh.testnet');
@@ -45,6 +47,10 @@ const ROUTER_AB_NORMAL_SIGNING = {
   kind: 'router_ab_ed25519_normal_signing_v1',
   signingWorkerId: RELAYER_KEY_ID,
 } as const;
+const MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'passkey-export-refresh',
+  String(WALLET_ID),
+);
 
 function fixtureJwt(signingGrantId: string): string {
   const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
@@ -140,6 +146,7 @@ class ActiveYaoClientFixture implements RouterAbEd25519YaoActiveClientV1 {
         wallet_session_id: THRESHOLD_SESSION_ID,
         signer_set_id: 'near-primary',
         signing_worker_id: RELAYER_KEY_ID,
+        material_activation: routerAbMpcMaterialActivationRefToWire(MATERIAL_ACTIVATION),
       },
       applicationBinding: {
         wallet_id: String(WALLET_ID),
@@ -153,6 +160,7 @@ class ActiveYaoClientFixture implements RouterAbEd25519YaoActiveClientV1 {
       stateEpoch: 1n,
       transcript: new Uint8Array(32),
       activeCapabilityBinding: new Array<number>(32).fill(1),
+      materialActivation: MATERIAL_ACTIVATION,
     };
   }
 
@@ -272,6 +280,7 @@ class DurablePasskeyEd25519ExportRefreshHarness extends PasskeyEd25519ExportRefr
             routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
           },
           capability: {
+            materialActivation: MATERIAL_ACTIVATION,
             activeCapabilityBinding: new Array<number>(32).fill(1),
             registeredPublicKey: new Array<number>(32).fill(0),
             nearAccountId: NEAR_ACCOUNT_ID,

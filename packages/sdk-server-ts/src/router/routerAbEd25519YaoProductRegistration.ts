@@ -14,6 +14,10 @@ import {
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
+import {
+  routerAbMpcMaterialActivationRefToWire,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   RouterAbEd25519YaoActivationConsumerV1,
   RouterAbEd25519YaoActivationConsumptionRequestV1,
@@ -564,6 +568,27 @@ export function routerAbEd25519YaoPersistedCapabilityMatchesLookupV1(
 }
 
 /**
+ * Mints the explicit material identity at the registration boundary. None of
+ * its fields are derived from a wallet-session or ceremony identifier.
+ */
+export function createRouterAbEd25519YaoMaterialActivationRefV1(input: {
+  readonly walletId: WalletId;
+  readonly signingWorkerId: string;
+}): RouterAbMpcMaterialActivationRefWire {
+  const signingWorkerId = input.signingWorkerId.trim();
+  if (!signingWorkerId) throw new Error('Ed25519 Yao signing worker is required');
+  return routerAbMpcMaterialActivationRefToWire({
+    kind: 'mpc_material_activation_ref',
+    activationId: `mact_${secureRandomBase64Url(24)}`,
+    capability: `cap_${secureRandomBase64Url(24)}`,
+    materialOwner: String(input.walletId),
+    keyBinding: `key_${secureRandomBase64Url(24)}`,
+    lifecycleBinding: `life_${secureRandomBase64Url(24)}`,
+    signingWorker: signingWorkerId,
+  });
+}
+
+/**
  * Takes the authority *scope* rather than the authority because setup admits
  * before the proof exists (Refactor 94C). Callers holding a verified authority
  * pass `registrationEd25519AuthorityScopeFromAuthority(authority)`; setup
@@ -578,6 +603,7 @@ export async function buildRouterAbEd25519YaoProductAdmissionRequestV1(input: {
   readonly authorityScope: RegistrationEd25519AuthorityScope;
   readonly branch: RegistrationNearEd25519SignerPlan;
   readonly signingWorkerId: string;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
 }): Promise<RouterAbEd25519YaoRegistrationAdmissionRequestV1> {
   if (input.branch.participantIds.length !== 2) {
     throw new Error('Ed25519 Yao registration requires exactly two participant IDs');
@@ -609,6 +635,7 @@ export async function buildRouterAbEd25519YaoProductAdmissionRequestV1(input: {
       wallet_session_id: input.registrationCeremonyId,
       signer_set_id: input.branch.branchKey,
       signing_worker_id: input.signingWorkerId,
+      material_activation: input.materialActivation,
     },
     application_binding: {
       wallet_id: String(input.walletId),
@@ -629,6 +656,7 @@ export async function buildRouterAbEd25519YaoAddSignerAdmissionRequestV1(input: 
   readonly signingRootVersion: string;
   readonly selection: Extract<AddSignerIntentV1['signerSelection'], { mode: 'ed25519' }>;
   readonly signingWorkerId: string;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
 }): Promise<RouterAbEd25519YaoRegistrationAdmissionRequestV1> {
   const branch = input.selection.ed25519;
   if (branch.mode !== 'create_implicit_near_account') {
@@ -668,6 +696,7 @@ export async function buildRouterAbEd25519YaoAddSignerAdmissionRequestV1(input: 
       wallet_session_id: input.addSignerCeremonyId,
       signer_set_id: registrationNearEd25519BranchKey(branch.signerSlot),
       signing_worker_id: input.signingWorkerId,
+      material_activation: input.materialActivation,
     },
     application_binding: {
       wallet_id: String(input.walletId),

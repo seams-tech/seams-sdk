@@ -49,6 +49,15 @@ buildProductEd25519YaoRegistrationRequestV1({
     wallet_session_id: 'wallet-session-1',
     signer_set_id: 'signer-set-1',
     signing_worker_id: 'signing-worker-1',
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'registration-activation-1',
+      capability: 'registration-capability-1',
+      material_owner: 'wallet-1',
+      key_binding: 'ed25519-key-1',
+      lifecycle_binding: 'registration-1',
+      signing_worker: 'signing-worker-1',
+    },
   },
   applicationBinding: {
     wallet_id: 'wallet-1',
@@ -70,6 +79,15 @@ buildProductEd25519YaoRegistrationRequestV1({
     wallet_session_id: 'wallet-session-1',
     signer_set_id: 'signer-set-1',
     signing_worker_id: 'signing-worker-1',
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'registration-activation-1',
+      capability: 'registration-capability-1',
+      material_owner: 'wallet-1',
+      key_binding: 'ed25519-key-1',
+      lifecycle_binding: 'registration-1',
+      signing_worker: 'signing-worker-1',
+    },
   },
   applicationBinding: {
     wallet_id: 'wallet-1',

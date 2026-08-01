@@ -68,6 +68,18 @@ const LOCAL_SESSION_AUDIENCE = 'seams-local-d1';
 const LOCAL_ORIGIN = 'http://127.0.0.1:8787';
 const EMAIL_PROVIDER_SUBJECT_ID = 'google:local-yao-user';
 
+function localMaterialActivation(lifecycleBinding: string) {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: `activation:${lifecycleBinding}`,
+    capability: `capability:${lifecycleBinding}`,
+    material_owner: localWalletId(),
+    key_binding: localNearSigningKeyId(),
+    lifecycle_binding: lifecycleBinding,
+    signing_worker: SIGNING_WORKER_ID,
+  };
+}
+
 type LocalD1DevWorkerEnv = Parameters<typeof localD1DevWorker.fetch>[1];
 type RegistrationBinding = RouterAbEd25519YaoActivationBindingV1<'registration'>;
 type RegistrationExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
@@ -543,6 +555,7 @@ function activationResult(binding: RegistrationBinding | RecoveryBinding) {
       joined_signing_worker_commitment: bytes(64),
       signing_worker_verifying_share: bytes(64),
       state_epoch: stateEpoch,
+      material_activation: binding.material_activation,
     },
   };
 }
@@ -557,6 +570,7 @@ async function buildLocalRegistrationCapability(): Promise<WalletEd25519YaoActiv
         wallet_session_id: localWalletSessionId(),
         signer_set_id: 'ed25519:1',
         signing_worker_id: SIGNING_WORKER_ID,
+        material_activation: localMaterialActivation('registration-local-existing-wallet'),
       },
       application_binding: {
         wallet_id: localWalletId(),
@@ -579,11 +593,12 @@ async function buildLocalRegistrationCapability(): Promise<WalletEd25519YaoActiv
       selected_server_id: admissionRequest.scope.signing_worker_id,
     },
     operation: 'registration',
-    session_id: bytes(20),
-    stable_key_context_binding: await deriveRouterAbEd25519YaoStableContextBindingV1(
+      session_id: bytes(20),
+      stable_key_context_binding: await deriveRouterAbEd25519YaoStableContextBindingV1(
       admissionRequest.application_binding,
       admissionRequest.participant_ids,
-    ),
+      ),
+    material_activation: admissionRequest.scope.material_activation,
   };
   const registrationResult = requireParsed(
     parseRouterAbEd25519YaoRegistrationActivationResultV1(activationResult(binding)),
@@ -687,6 +702,7 @@ function localRecoveryAdmission(
         wallet_session_id: localWalletSessionId(),
         signer_set_id: 'ed25519:1',
         signing_worker_id: SIGNING_WORKER_ID,
+        material_activation: capability.admissionRequest.scope.material_activation,
       },
       application_binding: capability.admissionRequest.application_binding,
       participant_ids: capability.admissionRequest.participant_ids,
@@ -710,6 +726,7 @@ async function localExportAdmission(
       wallet_session_id: localWalletSessionId(),
       signer_set_id: 'ed25519:1',
       signing_worker_id: SIGNING_WORKER_ID,
+      material_activation: capability.admissionRequest.scope.material_activation,
     },
     application_binding: capability.admissionRequest.application_binding,
     participant_ids: capability.admissionRequest.participant_ids,

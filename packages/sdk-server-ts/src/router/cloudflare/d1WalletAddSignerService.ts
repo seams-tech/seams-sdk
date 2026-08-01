@@ -50,6 +50,7 @@ import { buildD1EvmFamilyEcdsaRegistrationPrepare } from './d1EvmFamilyEcdsaRegi
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
 import {
   buildRouterAbEd25519YaoAddSignerAdmissionRequestV1,
+  createRouterAbEd25519YaoMaterialActivationRefV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
 } from '../routerAbEd25519YaoProductRegistration';
 import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../routerAbEd25519YaoRecovery';
@@ -866,6 +867,10 @@ export class CloudflareD1WalletAddSignerService {
         signingRootVersion,
         selection,
         signingWorkerId: yaoRuntime.signingWorkerId,
+        materialActivation: createRouterAbEd25519YaoMaterialActivationRefV1({
+          walletId: input.walletId,
+          signingWorkerId: yaoRuntime.signingWorkerId,
+        }),
       });
       const bound = await yaoRuntime.bindVerifiedIntent({
         kind: 'verified_add_signer_intent',

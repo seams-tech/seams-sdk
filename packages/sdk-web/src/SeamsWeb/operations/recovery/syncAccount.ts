@@ -38,7 +38,6 @@ import {
 } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
 import {
   nearEd25519YaoMaterialActivationFromMetadata,
-  nearEd25519YaoMaterialActivationFromPublicFacts,
 } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 
@@ -377,16 +376,8 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
   const ownedPasskeyPrfFirst = base64UrlDecode(prfFirstB64u);
   try {
     const parsed = parsePasskeyEd25519YaoSyncResponseV1(verified);
-    const expectedMaterialActivation = nearEd25519YaoMaterialActivationFromPublicFacts({
-      activationId: parsed.session.thresholdSessionId,
-      activeCapabilityBinding: parsed.capability.activeCapabilityBinding,
-      walletId: String(parsed.walletId),
-      registeredPublicKey: parsed.capability.registeredPublicKey,
-      lifecycleId: parsed.capability.lifecycle.lifecycleId,
-      signingWorkerId: parsed.capability.lifecycle.signingWorkerId,
-    });
     const recovery = await input.withExactEd25519MaterialOwner({
-      materialActivation: expectedMaterialActivation,
+      materialActivation: parsed.capability.materialActivation,
       nearAccountId: parsed.nearAccountId,
       task: recoverAndCommitPasskeyEd25519Unlock.bind(undefined, {
         parsed,

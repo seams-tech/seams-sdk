@@ -47,6 +47,8 @@ import { walletIdFromString, type WalletId } from '@shared/utils/registrationInt
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
   parseThresholdEd25519SessionId,
+  parseMpcMaterialActivationRef,
+  type MpcMaterialActivationRef,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import {
@@ -84,6 +86,7 @@ export type ParsedYaoRecoverySessionV1 = {
 };
 
 export type ParsedYaoRecoveryCapabilityV1 = {
+  readonly materialActivation: MpcMaterialActivationRef;
   readonly activeCapabilityBinding: readonly number[];
   readonly registeredPublicKey: readonly number[];
   readonly nearAccountId: AccountId;
@@ -238,7 +241,12 @@ export function parseEd25519YaoRecoveryCapabilityV1(raw: unknown): ParsedYaoReco
   }
   const application = requireRecord(record.applicationBinding, 'capability.applicationBinding');
   const lifecycle = requireRecord(record.lifecycle, 'capability.lifecycle');
+  const materialActivation = parseMpcMaterialActivationRef(record.materialActivation);
+  if (!materialActivation.ok) {
+    throw new Error(`capability.materialActivation is invalid: ${materialActivation.error.message}`);
+  }
   return {
+    materialActivation: materialActivation.value,
     activeCapabilityBinding: requireBytes32(
       record.activeCapabilityBinding,
       'capability.activeCapabilityBinding',

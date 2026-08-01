@@ -138,6 +138,7 @@ export type EmailOtpEd25519YaoExactLocalSessionRequestV1 = {
 
 export type EmailOtpEd25519YaoActiveCapabilityDescriptorV1 = {
   readonly kind: 'router_ab_ed25519_yao_active_capability_v1';
+  readonly materialActivation: MpcMaterialActivationRef;
   readonly activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
   readonly registeredPublicKey: RouterAbEd25519YaoBytes32V1;
   readonly nearAccountId: string;

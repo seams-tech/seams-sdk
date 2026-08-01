@@ -55,7 +55,6 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import { normalizeThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import { normalizeAuthenticationCredential } from '../../webauthnAuth/credentials/helpers';
-import { nearEd25519YaoMaterialActivationFromPublicFacts } from '../../session/material/nearEd25519YaoMaterialActivation';
 
 type EcdsaDerivationThresholdExportWorkerPayload = Extract<
   ExportPrivateKeysWithUiWorkerPayload,
@@ -174,6 +173,9 @@ function parseEd25519YaoExportWorkerPayload(
   const signingGrantId = normalizeOptionalNonEmptyString(exactLane.signingGrantId);
   const thresholdSessionId = normalizeOptionalNonEmptyString(exactLane.thresholdSessionId);
   const materialActivationResult = parseMpcMaterialActivationRef(exactLane.materialActivation);
+  const capabilityMaterialActivationResult = parseMpcMaterialActivationRef(
+    capability.materialActivation,
+  );
   const signerSlot = normalizePositiveInteger(exactLane.signerSlot);
   const registeredPublicKey = parseWorkerBytes32(capability.registeredPublicKey);
   const activeCapabilityBinding = parseWorkerBytes32(capability.activeCapabilityBinding);
@@ -190,6 +192,7 @@ function parseEd25519YaoExportWorkerPayload(
     !signingGrantId ||
     !thresholdSessionId ||
     !materialActivationResult.ok ||
+    !capabilityMaterialActivationResult.ok ||
     signerSlot == null ||
     !registeredPublicKey ||
     !activeCapabilityBinding ||
@@ -216,6 +219,7 @@ function parseEd25519YaoExportWorkerPayload(
       materialActivation: materialActivationResult.value,
     },
     capability: {
+      materialActivation: capabilityMaterialActivationResult.value,
       scope: activationIdentity.value.scope,
       applicationBinding: activationIdentity.value.application_binding,
       participantIds: activationIdentity.value.participant_ids,
@@ -424,23 +428,15 @@ function assertExactEd25519ExportWorkerBinding(
   const capability = payload.capability;
   const application = capability.applicationBinding;
   const scope = capability.scope;
-  const expectedMaterialActivation = nearEd25519YaoMaterialActivationFromPublicFacts({
-    activationId: scope.wallet_session_id,
-    activeCapabilityBinding: capability.activeCapabilityBinding,
-    walletId: application.wallet_id,
-    registeredPublicKey: capability.registeredPublicKey,
-    lifecycleId: scope.lifecycle_id,
-    signingWorkerId: scope.signing_worker_id,
-  });
+  const scopeMaterialActivation = parseMpcMaterialActivationRef(scope.material_activation);
   if (
+    !scopeMaterialActivation.ok ||
     application.wallet_id !== payload.walletId ||
     application.near_ed25519_signing_key_id !== payload.exactLane.nearEd25519SigningKeyId ||
     application.key_creation_signer_slot !== payload.exactLane.signerSlot ||
     scope.account_id !== payload.walletId ||
-    !mpcMaterialActivationRefsEqual(
-      expectedMaterialActivation,
-      payload.exactLane.materialActivation,
-    )
+    !mpcMaterialActivationRefsEqual(capability.materialActivation, payload.exactLane.materialActivation) ||
+    !mpcMaterialActivationRefsEqual(scopeMaterialActivation.value, payload.exactLane.materialActivation)
   ) {
     throw new Error('Ed25519 Yao export capability does not match the exact requested lane');
   }

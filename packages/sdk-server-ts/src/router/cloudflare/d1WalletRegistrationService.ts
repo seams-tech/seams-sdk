@@ -184,6 +184,7 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import {
   buildRouterAbEd25519YaoProductAdmissionRequestV1,
+  createRouterAbEd25519YaoMaterialActivationRefV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
 } from '../routerAbEd25519YaoProductRegistration';
 import {
@@ -2560,6 +2561,10 @@ export class CloudflareD1WalletRegistrationService {
       authorityScope: registrationEd25519AuthorityScopeFromAuthority(input.authority),
       branch: input.branch,
       signingWorkerId: yaoRuntime.signingWorkerId,
+      materialActivation: createRouterAbEd25519YaoMaterialActivationRefV1({
+        walletId: input.ceremony.intent.walletId,
+        signingWorkerId: yaoRuntime.signingWorkerId,
+      }),
     });
     const admitted = await yaoRuntime.bindAndAdmitVerifiedRegistration({
       kind: 'verified_registration_intent',

@@ -8,6 +8,12 @@ import {
 } from '@/core/indexedDB/accountKeyMaterial';
 import { base58Encode } from '@shared/utils/base58';
 import { base64UrlDecode } from '@shared/utils/base64';
+import {
+  mpcMaterialActivationRefsEqual,
+  parseMpcMaterialActivationRef,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { isPlainObject } from '@shared/utils/validation';
 
 export const EMAIL_OTP_ED25519_YAO_LOCAL_MATERIAL_KEY_KIND =
@@ -46,6 +52,7 @@ export type EmailOtpEd25519YaoStableCustodyBindingV1 = {
   signerSetId: string;
   participantIds: readonly [number, number];
   signingWorkerId: string;
+  materialActivation: MpcMaterialActivationRef;
   registeredPublicKeyB64u: string;
   signingWorkerVerifyingShareB64u: string;
   stateEpoch: string;
@@ -233,6 +240,7 @@ function parseStableCustodyBinding(
       'signerSetId',
       'participantIds',
       'signingWorkerId',
+      'materialActivation',
       'registeredPublicKeyB64u',
       'signingWorkerVerifyingShareB64u',
       'stateEpoch',
@@ -261,6 +269,7 @@ function parseStableCustodyBinding(
   const signerSetId = readRequiredString(value.signerSetId);
   const participantIds = readParticipantIds(value.participantIds);
   const signingWorkerId = readRequiredString(value.signingWorkerId);
+  const materialActivationResult = parseMpcMaterialActivationRef(value.materialActivation);
   const registeredPublicKeyB64u = readBytes32B64u(value.registeredPublicKeyB64u);
   const signingWorkerVerifyingShareB64u = readBytes32B64u(value.signingWorkerVerifyingShareB64u);
   const stateEpoch = readRequiredString(value.stateEpoch);
@@ -285,6 +294,7 @@ function parseStableCustodyBinding(
     !signerSetId ||
     !participantIds ||
     !signingWorkerId ||
+    !materialActivationResult.ok ||
     !registeredPublicKeyB64u ||
     !signingWorkerVerifyingShareB64u ||
     !stateEpoch ||
@@ -323,6 +333,7 @@ function parseStableCustodyBinding(
     signerSetId,
     participantIds,
     signingWorkerId,
+    materialActivation: materialActivationResult.value,
     registeredPublicKeyB64u,
     signingWorkerVerifyingShareB64u,
     stateEpoch,
@@ -355,6 +366,7 @@ function stableBindingEquals(
     left.participantIds[0] === right.participantIds[0] &&
     left.participantIds[1] === right.participantIds[1] &&
     left.signingWorkerId === right.signingWorkerId &&
+    mpcMaterialActivationRefsEqual(left.materialActivation, right.materialActivation) &&
     left.registeredPublicKeyB64u === right.registeredPublicKeyB64u &&
     left.signingWorkerVerifyingShareB64u === right.signingWorkerVerifyingShareB64u &&
     left.stateEpoch === right.stateEpoch &&
@@ -392,6 +404,7 @@ export function encodeEmailOtpEd25519YaoStableCustodyBindingV1(
       binding.participantIds[0],
       binding.participantIds[1],
       binding.signingWorkerId,
+      routerAbMpcMaterialActivationRefToWire(binding.materialActivation),
       binding.registeredPublicKeyB64u,
       binding.signingWorkerVerifyingShareB64u,
       binding.stateEpoch,

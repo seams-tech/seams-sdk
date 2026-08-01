@@ -31,6 +31,7 @@ import {
 } from '@shared/utils/normalize';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 } from '@shared/utils/routerAbEd25519Yao';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   isAttachEmailOtpToPresignPort,
   type EmailOtpEcdsaSigningShareRequest,
@@ -525,6 +526,7 @@ function buildEmailOtpEd25519YaoStableCustodyBinding(args: {
     signerSetId: args.metadata.scope.signer_set_id,
     participantIds: args.metadata.participantIds,
     signingWorkerId: args.metadata.scope.signing_worker_id,
+    materialActivation: args.metadata.materialActivation,
     registeredPublicKeyB64u: base64UrlEncode(args.metadata.registeredPublicKey),
     signingWorkerVerifyingShareB64u: base64UrlEncode(args.metadata.signingWorkerVerifyingShare),
     stateEpoch: args.metadata.stateEpoch.toString(10),
@@ -636,6 +638,7 @@ function cloneEmailOtpEd25519YaoMetadata(
     scope: { ...metadata.scope },
     applicationBinding: { ...metadata.applicationBinding },
     participantIds: [metadata.participantIds[0], metadata.participantIds[1]],
+    materialActivation: metadata.materialActivation,
     registeredPublicKey: metadata.registeredPublicKey.slice(),
     signingWorkerVerifyingShare: metadata.signingWorkerVerifyingShare.slice(),
     stateEpoch: metadata.stateEpoch,
@@ -765,6 +768,9 @@ async function exportEmailOtpEd25519YaoSeed(args: {
       wallet_session_id: capability.lifecycle.thresholdSessionId,
       signer_set_id: capability.lifecycle.signerSetId,
       signing_worker_id: capability.lifecycle.signingWorkerId,
+      material_activation: routerAbMpcMaterialActivationRefToWire(
+        capability.materialActivation,
+      ),
     },
     application_binding: capability.applicationBinding,
     participant_ids: capability.participantIds,
@@ -2414,6 +2420,7 @@ function buildEmailOtpEd25519YaoExactLocalSessionBootstrap(args: {
     },
     runtimePolicyScope: session.runtimePolicyScope,
     participantIds: binding.participantIds,
+    materialActivation: binding.materialActivation,
     lifecycle: {
       lifecycleId: binding.lifecycleId,
       rootShareEpoch: binding.rootShareEpoch,
@@ -3744,6 +3751,15 @@ function metadataFromEmailOtpEd25519YaoLocalMaterial(args: {
       wallet_session_id: readString(args.expectedThresholdSessionId, 'expectedThresholdSessionId'),
       signer_set_id: binding.signerSetId,
       signing_worker_id: binding.signingWorkerId,
+      material_activation: {
+        kind: binding.materialActivation.kind,
+        activation_id: binding.materialActivation.activationId,
+        capability: binding.materialActivation.capability,
+        material_owner: binding.materialActivation.materialOwner,
+        key_binding: binding.materialActivation.keyBinding,
+        lifecycle_binding: binding.materialActivation.lifecycleBinding,
+        signing_worker: binding.materialActivation.signingWorker,
+      },
     },
     applicationBinding: {
       wallet_id: binding.applicationBinding.walletId,
@@ -3760,6 +3776,7 @@ function metadataFromEmailOtpEd25519YaoLocalMaterial(args: {
       Array.from(base64UrlDecode(binding.activeCapabilityBindingB64u)),
       'localMaterial.activeCapabilityBinding',
     ),
+    materialActivation: binding.materialActivation,
   };
 }
 
@@ -5452,6 +5469,7 @@ function parseEmailOtpEd25519YaoActiveCapability(
     [
       'kind',
       'activeCapabilityBinding',
+      'materialActivation',
       'registeredPublicKey',
       'nearAccountId',
       'applicationBinding',
@@ -5489,11 +5507,16 @@ function parseEmailOtpEd25519YaoActiveCapability(
   );
   const signerSlot = normalizePositiveInteger(application.key_creation_signer_slot);
   const stateEpoch = normalizePositiveInteger(obj.stateEpoch);
+  const materialActivation = parseMpcMaterialActivationRef(obj.materialActivation);
+  if (!materialActivation.ok) {
+    throw new Error(`Email OTP Ed25519 Yao active capability material activation is invalid: ${materialActivation.error.message}`);
+  }
   if (!signerSlot || !stateEpoch) {
     throw new Error('Email OTP Ed25519 Yao active capability epoch or signer slot is invalid');
   }
   return {
     kind: 'router_ab_ed25519_yao_active_capability_v1',
+    materialActivation: materialActivation.value,
     activeCapabilityBinding: parseEmailOtpEd25519YaoJsonBytes32(
       obj.activeCapabilityBinding,
       'capability.activeCapabilityBinding',
