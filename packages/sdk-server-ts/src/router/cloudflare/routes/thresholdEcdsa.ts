@@ -114,7 +114,10 @@ import {
 } from '@shared/utils/emailOtpDomain';
 import { hashEmailOtpAppSessionClaims } from '../../emailOtpSessionRouteHelpers';
 import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
-import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  sameRouterAbMpcMaterialActivationRef,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 
 const NOT_IMPLEMENTED = {
   ok: false,
@@ -463,6 +466,12 @@ type RouterAbEcdsaPoolFillAuthorizationResult =
       };
     };
 
+function poolFillMaterialActivation(
+  request: RouterAbEcdsaPoolFillInitRouteRequest | RouterAbEcdsaPoolFillStepRouteRequest,
+): RouterAbMpcMaterialActivationRefWire | null {
+  return 'poolFill' in request ? request.poolFill.scope.material_activation : null;
+}
+
 function validateEcdsaPoolFillOperationIdentity(
   operation: RouterAbEcdsaOperationStepUpPreparationV1Wire,
 ): boolean {
@@ -471,6 +480,10 @@ function validateEcdsaPoolFillOperationIdentity(
     operation.signing_worker_id === operation.normal_signing_scope.signing_worker.server_id &&
     operation.material_activation.material_owner === operation.wallet_id &&
     operation.material_activation.signing_worker === operation.signing_worker_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      operation.material_activation,
+      operation.normal_signing_scope.material_activation,
+    ) &&
     operation.expires_at_ms > Date.now()
   );
 }
@@ -482,6 +495,7 @@ async function authorizeEcdsaPoolFillOperationStepUp(input: {
     { readonly kind: 'operation_step_up' }
   >;
   readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+  readonly poolFillMaterialActivation: RouterAbMpcMaterialActivationRefWire | null;
 }): Promise<RouterAbEcdsaPoolFillAuthorizationResult> {
   if (!validateEcdsaPoolFillOperationIdentity(input.operation)) {
     return {
@@ -518,9 +532,56 @@ async function authorizeEcdsaPoolFillOperationStepUp(input: {
       },
     };
   }
+  const activeMaterial = await input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation({
+    walletId: authenticated.session.walletId,
+    materialActivation: input.operation.material_activation,
+  });
+  if (!activeMaterial.ok) {
+    return {
+      ok: false,
+      error: {
+        status: activeMaterial.code === 'internal' ? 500 : 403,
+        body: {
+          ok: false,
+          code: activeMaterial.code === 'internal' ? 'internal' : 'scope_mismatch',
+          message:
+            activeMaterial.code === 'internal'
+              ? activeMaterial.message
+              : 'ECDSA pool-fill material is no longer active',
+        },
+      },
+    };
+  }
+  if (
+    !sameRouterAbMpcMaterialActivationRef(
+      activeMaterial.materialActivation,
+      input.operation.material_activation,
+    ) ||
+    !sameRouterAbMpcMaterialActivationRef(
+      activeMaterial.materialActivation,
+      input.operation.normal_signing_scope.material_activation,
+    ) ||
+    (input.poolFillMaterialActivation !== null &&
+      !sameRouterAbMpcMaterialActivationRef(
+        activeMaterial.materialActivation,
+        input.poolFillMaterialActivation,
+      ))
+  ) {
+    return {
+      ok: false,
+      error: {
+        status: 403,
+        body: {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'ECDSA pool-fill scopes do not name the active material',
+        },
+      },
+    };
+  }
   const claimFailure = await claimRouterAbEcdsaOperationStepUp({
     operation: input.operation,
-    materialActivation: input.operation.normal_signing_scope.material_activation,
+    materialActivation: activeMaterial.materialActivation,
     grantId: input.authorization.grant_id,
     authenticated,
   });
@@ -580,6 +641,55 @@ async function authorizeEcdsaPoolFill(input: {
           },
         };
       }
+      const normalSigning = validated.claims.routerAbEcdsaDerivationNormalSigning;
+      const requestedPoolFillMaterial = poolFillMaterialActivation(input.request);
+      const activeMaterial =
+        await input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation({
+          walletId: validated.claims.walletId,
+          materialActivation: normalSigning.scope.material_activation,
+        });
+      if (!activeMaterial.ok) {
+        return {
+          ok: false,
+          error: {
+            status: activeMaterial.code === 'internal' ? 500 : 403,
+            body: {
+              ok: false,
+              code:
+                activeMaterial.code === 'internal'
+                  ? 'internal'
+                  : WALLET_SESSION_FAILURE_CODES.scopeMismatch,
+              message:
+                activeMaterial.code === 'internal'
+                  ? activeMaterial.message
+                  : 'Pool-fill Wallet Session material is no longer active',
+            },
+          },
+        };
+      }
+      if (
+        !sameRouterAbMpcMaterialActivationRef(
+          activeMaterial.materialActivation,
+          normalSigning.scope.material_activation,
+        ) ||
+        (requestedPoolFillMaterial !== null &&
+          !sameRouterAbMpcMaterialActivationRef(
+            activeMaterial.materialActivation,
+            requestedPoolFillMaterial,
+          ))
+      ) {
+        return {
+          ok: false,
+          error: {
+            status: 403,
+            body: {
+              ok: false,
+              code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
+              message: 'Pool-fill scopes do not match the active material',
+            },
+          },
+        };
+      }
       return {
         ok: true,
         claims: validated.claims,
@@ -604,6 +714,7 @@ async function authorizeEcdsaPoolFill(input: {
         ctx: input.ctx,
         authorization: input.request.authorization,
         operation,
+        poolFillMaterialActivation: poolFillMaterialActivation(input.request),
       });
     }
   }
