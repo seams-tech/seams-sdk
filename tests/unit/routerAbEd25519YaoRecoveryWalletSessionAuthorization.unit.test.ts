@@ -31,6 +31,7 @@ const WALLET_ID = 'recovery-wallet.testnet';
 const NEAR_SIGNING_KEY_ID = 'ed25519ks_recovery_wallet';
 const ROOT_SHARE_EPOCH = 'root-epoch-recovery-1';
 const WALLET_SESSION_ID = 'wallet-session-recovery-1';
+const THRESHOLD_SESSION_ID = 'threshold-session-recovery-1';
 const SIGNING_WORKER_ID = 'signing-worker-recovery-1';
 const PARTICIPANT_IDS = [1, 2] as const;
 
@@ -135,7 +136,7 @@ function admissionRequestFixture(): RouterAbEd25519YaoRecoveryAdmissionRequestV1
         lifecycle_id: 'recovery-lifecycle-1',
         root_share_epoch: ROOT_SHARE_EPOCH,
         account_id: WALLET_ID,
-        threshold_session_id: WALLET_SESSION_ID,
+        threshold_session_id: THRESHOLD_SESSION_ID,
         signer_set_id: 'signer-set-recovery-1',
         signing_worker_id: SIGNING_WORKER_ID,
         material_activation: materialActivation('replacement'),
@@ -163,7 +164,7 @@ function bootstrapRequestFixture(): RouterAbEd25519YaoWarmRecoveryBootstrapReque
       nearAccountId: WALLET_ID,
       nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
       signerSlot: 1,
-      thresholdSessionId: WALLET_SESSION_ID,
+      thresholdSessionId: THRESHOLD_SESSION_ID,
       signingWorkerId: SIGNING_WORKER_ID,
       participantIds: PARTICIPANT_IDS,
     }),
@@ -265,7 +266,7 @@ function validClaimsFixture(input?: Partial<ClaimsFixtureInput>): SessionClaims 
     nearEd25519SigningKeyId: input?.nearEd25519SigningKeyId ?? NEAR_SIGNING_KEY_ID,
     walletSessionId: input?.walletSessionId ?? WALLET_SESSION_ID,
     quotaId: input?.quotaId ?? 'quota-recovery-1',
-    thresholdSessionId: input?.thresholdSessionId ?? WALLET_SESSION_ID,
+    thresholdSessionId: input?.thresholdSessionId ?? THRESHOLD_SESSION_ID,
     signingGrantId: input?.signingGrantId ?? 'signing-grant-recovery-1',
     rootShareEpoch: input?.rootShareEpoch ?? ROOT_SHARE_EPOCH,
     participantIds: input?.participantIds ?? PARTICIPANT_IDS,
