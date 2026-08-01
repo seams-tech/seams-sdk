@@ -1,7 +1,16 @@
 import type { KeyMaterialRecord } from '@/core/indexedDB/keyMaterial.types';
 import { normalizeStoredPayloadRecord } from '@/core/indexedDB/keyMaterialEnvelope';
 import type { Ed25519YaoRecoverySourceLocatorV1 } from './ed25519YaoRecoverySource';
-import { parseMpcMaterialOwnerRef, type MpcMaterialOwnerRef } from '@shared/utils/domainIds';
+import {
+  parseMpcMaterialActivationRef,
+  parseMpcMaterialOwnerRef,
+  type MpcMaterialOwnerRef,
+} from '@shared/utils/domainIds';
+import {
+  routerAbMpcMaterialActivationRefToWire,
+  sameRouterAbMpcMaterialActivationRef,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseRouterAbEd25519YaoRecoveryActivationReceiptV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
@@ -151,6 +160,53 @@ function parseAuthorityAndOwner(record: Record<string, unknown>): {
   return { authority, materialOwner: materialOwner.value };
 }
 
+function assertJournalOwnerMatchesAdmission(
+  materialOwner: MpcMaterialOwnerRef,
+  admissionRequest: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+): void {
+  if (
+    String(materialOwner) !== admissionRequest.active_material_activation.material_owner ||
+    String(materialOwner) !== admissionRequest.scope.material_activation.material_owner
+  ) {
+    throw new Error('Near recovery journal material owner does not match its admission request');
+  }
+}
+
+function replacementMaterialActivation(
+  replacement: KeyMaterialRecord,
+): RouterAbMpcMaterialActivationRefWire {
+  const payload = requireRecord(replacement.payload, 'recovery replacement payload');
+  const binding = requireRecord(payload.binding, 'recovery replacement binding');
+  const parsed = parseMpcMaterialActivationRef(binding.materialActivation);
+  if (!parsed.ok) {
+    throw new Error('Near recovery replacement material activation is invalid');
+  }
+  return routerAbMpcMaterialActivationRefToWire(parsed.value);
+}
+
+function assertReplacementMatchesPromotion(
+  replacement: KeyMaterialRecord,
+  promotionReceipt: RouterAbEd25519YaoRecoveryActivationReceiptV1,
+): void {
+  if (
+    !sameRouterAbMpcMaterialActivationRef(
+      replacementMaterialActivation(replacement),
+      promotionReceipt.binding.material_activation,
+    )
+  ) {
+    throw new Error('Near recovery replacement material activation does not match promotion');
+  }
+}
+
+function assertJournalOwnerMatchesPromotion(
+  materialOwner: MpcMaterialOwnerRef,
+  promotionReceipt: RouterAbEd25519YaoRecoveryActivationReceiptV1,
+): void {
+  if (String(materialOwner) !== promotionReceipt.binding.material_activation.material_owner) {
+    throw new Error('Near recovery journal material owner does not match promotion');
+  }
+}
+
 export function parseNearEd25519YaoRecoveryCommitJournalV1(
   raw: unknown,
 ): NearEd25519YaoRecoveryCommitJournalV1 {
@@ -179,6 +235,7 @@ export function parseNearEd25519YaoRecoveryCommitJournalV1(
       ) {
         throw new Error('prepared Near recovery references do not match');
       }
+      assertJournalOwnerMatchesAdmission(identity.materialOwner, correlation.admissionRequest);
       return {
         kind: 'prepared',
         recoveryId,
@@ -218,6 +275,8 @@ export function parseNearEd25519YaoRecoveryCommitJournalV1(
       ) {
         throw new Error('committed Near recovery receipt or source does not match');
       }
+      assertJournalOwnerMatchesPromotion(identity.materialOwner, promotionReceipt.value);
+      assertReplacementMatchesPromotion(replacement, promotionReceipt.value);
       return {
         kind: 'promotion_committed',
         recoveryId,
@@ -243,6 +302,7 @@ export function buildPreparedNearEd25519YaoRecoveryJournalV1(input: {
   if (input.source.recoveryId !== input.request.scope.lifecycle_id) {
     throw new Error('Near recovery source does not match its admission request');
   }
+  assertJournalOwnerMatchesAdmission(input.materialOwner, input.request);
   return {
     kind: 'prepared',
     recoveryId: input.source.recoveryId,
@@ -313,6 +373,8 @@ export async function persistPromotionCommittedNearEd25519YaoRecoveryV1(input: {
   ) {
     throw new Error('Near recovery promotion receipt or source does not match the journal');
   }
+  assertJournalOwnerMatchesPromotion(input.prepared.materialOwner, input.promotionReceipt);
+  assertReplacementMatchesPromotion(input.replacement, input.promotionReceipt);
   const committed: Extract<NearEd25519YaoRecoveryCommitJournalV1, { kind: 'promotion_committed' }> =
     {
       kind: 'promotion_committed',
@@ -340,6 +402,11 @@ export async function finalizePromotionCommittedNearEd25519YaoRecoveryV1(input: 
   signerSlot: number;
   journal: Extract<NearEd25519YaoRecoveryCommitJournalV1, { kind: 'promotion_committed' }>;
 }): Promise<void> {
+  assertJournalOwnerMatchesPromotion(input.journal.materialOwner, input.journal.promotionReceipt);
+  assertReplacementMatchesPromotion(
+    input.journal.finalization.replacement,
+    input.journal.promotionReceipt,
+  );
   const source = input.journal.finalization.retireSource;
   await input.store.finalizeKeyMaterialRecovery({
     journalKey: journalKey(input),
@@ -369,6 +436,8 @@ export async function finalizeCancelledPromotedNearEd25519YaoRecoveryV1(input: {
   ) {
     throw new Error('Cancelled Near recovery promotion does not match the journal');
   }
+  assertJournalOwnerMatchesPromotion(input.journal.materialOwner, input.promotionReceipt);
+  assertReplacementMatchesPromotion(input.replacement, input.promotionReceipt);
   const source = input.journal.source;
   await input.store.finalizeKeyMaterialRecovery({
     journalKey: journalKey(input),

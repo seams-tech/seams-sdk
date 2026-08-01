@@ -13,6 +13,7 @@ import {
   buildPreparedNearEd25519YaoRecoveryJournalV1,
   finalizeCancelledPromotedNearEd25519YaoRecoveryV1,
   finalizePromotionCommittedNearEd25519YaoRecoveryV1,
+  parseNearEd25519YaoRecoveryCommitJournalV1,
   persistPreparedNearEd25519YaoRecoveryJournalV1,
   persistPromotionCommittedNearEd25519YaoRecoveryV1,
   readNearEd25519YaoRecoveryJournalV1,
@@ -239,6 +240,26 @@ function requireMaterialOwner() {
   return parsed.value;
 }
 
+function requireSubstitutedMaterialOwner() {
+  const parsed = parseMpcMaterialOwnerRef('wallet-recovery-source-substituted');
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function substituteReplacementActivation(record: KeyMaterialRecord): KeyMaterialRecord {
+  const substituted = structuredClone(record);
+  const binding = substituted.payload?.binding;
+  if (!binding || typeof binding !== 'object' || Array.isArray(binding)) {
+    throw new Error('active-client replacement fixture binding is unavailable');
+  }
+  const activation = binding.materialActivation;
+  if (!activation || typeof activation !== 'object' || Array.isArray(activation)) {
+    throw new Error('active-client replacement fixture activation is unavailable');
+  }
+  activation.activationId = 'substituted-material-activation';
+  return substituted;
+}
+
 function requirePromotionReceipt(request: RouterAbEd25519YaoRecoveryAdmissionRequestV1) {
   const parsed = parseRouterAbEd25519YaoRecoveryActivationReceiptV1({
     binding: {
@@ -334,6 +355,47 @@ test('seals and opens exact recovery entropy and rejects an admission binding mi
   prf.fill(0);
 });
 
+test('rejects a recovery journal whose outer material owner differs from its activation refs', async () => {
+  const store = new MemoryKeyMaterialStore();
+  const entropy = createRouterAbEd25519YaoActivationEntropyV1();
+  const prf = new Uint8Array(32).fill(18);
+  const request = requireAdmissionRequest();
+  const identity = {
+    walletId: 'wallet-recovery-source-1',
+    nearAccountId: toAccountId('wallet-recovery-source.testnet'),
+    nearEd25519SigningKeyId: 'near-signing-key-1',
+    signerSlot: 1,
+    operationalPublicKey: 'ed25519:public-key-1',
+    authority: requireAuthority(),
+    materialOwner: requireMaterialOwner(),
+  };
+  const source = await sealEd25519YaoRecoverySourceV1({
+    store,
+    identity,
+    request,
+    ownedPasskeyPrfFirst: prf,
+    entropy,
+  });
+
+  const prepared = buildPreparedNearEd25519YaoRecoveryJournalV1({
+    authority: identity.authority,
+    materialOwner: identity.materialOwner,
+    source,
+    request,
+  });
+  const substituted = {
+    ...prepared,
+    materialOwner: String(requireSubstitutedMaterialOwner()),
+  };
+
+  expect(() => parseNearEd25519YaoRecoveryCommitJournalV1(substituted)).toThrow(
+    'Near recovery journal material owner does not match its admission request',
+  );
+
+  zeroizeRouterAbEd25519YaoActivationEntropyV1(entropy);
+  prf.fill(0);
+});
+
 test('validates authoritative admitted status while resuming a recovery session', async () => {
   const request = requireAdmissionRequest();
   const transport = new AdmittedRecoveryStatusTransport(request);
@@ -421,7 +483,10 @@ test('preserves cancellation across reload and atomically finalizes its promoted
   if (!reloaded || reloaded.kind !== 'prepared' || !store.record?.payloadEnvelope) {
     throw new Error('prepared recovery fixture is unavailable');
   }
-  const replacement = buildActiveClientKeyMaterialRecord(store.record);
+  const replacement = buildActiveClientKeyMaterialRecord(
+    store.record,
+    request.scope.material_activation,
+  );
   await finalizeCancelledPromotedNearEd25519YaoRecoveryV1({
     store,
     walletId: identity.walletId,
@@ -478,7 +543,10 @@ test('atomically finalizes a promotion-committed journal', async () => {
   if (!store.record?.payloadEnvelope) {
     throw new Error('prepared recovery fixture is unavailable');
   }
-  const replacement = buildActiveClientKeyMaterialRecord(store.record);
+  const replacement = buildActiveClientKeyMaterialRecord(
+    store.record,
+    request.scope.material_activation,
+  );
   const committed = await persistPromotionCommittedNearEd25519YaoRecoveryV1({
     store,
     walletId: identity.walletId,
@@ -501,6 +569,83 @@ test('atomically finalizes a promotion-committed journal', async () => {
     }),
   ).toBeNull();
   expect(store.record?.keyKind).toBe('router_ab_ed25519_yao_active_client_v1');
+  zeroizeRouterAbEd25519YaoActivationEntropyV1(entropy);
+  prf.fill(0);
+});
+
+test('rejects replacement material activation substitution before atomic finalization', async () => {
+  const store = new MemoryRecoveryJournalStore();
+  const entropy = createRouterAbEd25519YaoActivationEntropyV1();
+  const prf = new Uint8Array(32).fill(30);
+  const identity = {
+    walletId: 'wallet-recovery-source-1',
+    nearAccountId: toAccountId('wallet-recovery-source.testnet'),
+    nearEd25519SigningKeyId: 'near-signing-key-1',
+    signerSlot: 1,
+    operationalPublicKey: 'ed25519:public-key-1',
+    authority: requireAuthority(),
+    materialOwner: requireMaterialOwner(),
+  };
+  const request = requireAdmissionRequest();
+  const source = await sealEd25519YaoRecoverySourceV1({
+    store,
+    identity,
+    request,
+    ownedPasskeyPrfFirst: prf,
+    entropy,
+  });
+  const prepared = buildPreparedNearEd25519YaoRecoveryJournalV1({
+    authority: identity.authority,
+    materialOwner: identity.materialOwner,
+    source,
+    request,
+  });
+  await persistPreparedNearEd25519YaoRecoveryJournalV1({
+    store,
+    walletId: identity.walletId,
+    signerSlot: identity.signerSlot,
+    journal: prepared,
+  });
+  if (!store.record?.payloadEnvelope) {
+    throw new Error('prepared recovery fixture is unavailable');
+  }
+  const replacement = buildActiveClientKeyMaterialRecord(
+    store.record,
+    request.scope.material_activation,
+  );
+  const committed = await persistPromotionCommittedNearEd25519YaoRecoveryV1({
+    store,
+    walletId: identity.walletId,
+    signerSlot: identity.signerSlot,
+    prepared,
+    promotionReceipt: requirePromotionReceipt(request),
+    replacement,
+  });
+  const substituted = {
+    ...committed,
+    finalization: {
+      ...committed.finalization,
+      replacement: substituteReplacementActivation(committed.finalization.replacement),
+    },
+  };
+
+  await expect(
+    finalizePromotionCommittedNearEd25519YaoRecoveryV1({
+      store,
+      walletId: identity.walletId,
+      signerSlot: identity.signerSlot,
+      journal: substituted,
+    }),
+  ).rejects.toThrow('Near recovery replacement material activation does not match promotion');
+  expect(store.record?.keyKind).toBe('router_ab_ed25519_yao_recovery_source_v1');
+  expect(
+    await readNearEd25519YaoRecoveryJournalV1({
+      store,
+      walletId: identity.walletId,
+      signerSlot: identity.signerSlot,
+    }),
+  ).toMatchObject({ kind: 'promotion_committed' });
+
   zeroizeRouterAbEd25519YaoActivationEntropyV1(entropy);
   prf.fill(0);
 });
@@ -550,7 +695,10 @@ test('survives crashes before recovery call, after readback, and during atomic f
   if (!store.record?.payloadEnvelope) {
     throw new Error('prepared recovery fixture is unavailable');
   }
-  const replacement = buildActiveClientKeyMaterialRecord(store.record);
+  const replacement = buildActiveClientKeyMaterialRecord(
+    store.record,
+    request.scope.material_activation,
+  );
   const committed = await persistPromotionCommittedNearEd25519YaoRecoveryV1({
     store,
     walletId: identity.walletId,
