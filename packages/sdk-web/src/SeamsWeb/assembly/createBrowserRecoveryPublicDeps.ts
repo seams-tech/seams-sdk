@@ -96,7 +96,16 @@ export function createBrowserRecoveryPublicDeps(args: {
     touchConfirm: args.touchConfirm,
     passkeyMpcSession: args.passkeyMpcSession,
     passkeyMpcExport: args.passkeyMpcExport,
-    emailOtpSessions: args.emailOtpSessions,
+    emailOtpSessions: {
+      readWarmSessionStatusOnly: (target) =>
+        args.emailOtpSessions.readWarmSessionStatusOnly(target),
+      requestExportChallenge: (request) =>
+        args.emailOtpSessions.requestExportChallenge(request),
+      exportEcdsaKeyWithDurableAuthorization: (request) =>
+        args.emailOtpSessions.exportEcdsaKeyWithDurableAuthorization(request),
+      exportEd25519YaoSeedWithFreshEmailOtpLane: (request) =>
+        args.emailOtpSessions.exportEd25519YaoSeedWithFreshEmailOtpLane(request),
+    },
     provisionPasskeyEcdsaExplicitExportSession: (provisionArgs) =>
       provisionPasskeyEcdsaExplicitExportSessionOperation(
         {

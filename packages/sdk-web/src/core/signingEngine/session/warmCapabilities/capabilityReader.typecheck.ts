@@ -6,10 +6,11 @@ import type {
 } from './capabilityReader';
 import type { WarmSessionCapabilityReaderSeal } from './capabilityReaderCore';
 import type { WarmSessionReadPorts } from './readModel';
+import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 
 declare const touchConfirm: WarmSessionReadPorts;
 declare const getEmailOtpWarmSessionStatus: (
-  sessionId: string,
+  target: EmailOtpWarmMaterialTarget,
 ) => Promise<WarmSessionStatusResult>;
 
 const configuredPorts: WarmCapabilityReaderPortsConfigured = {

@@ -591,6 +591,18 @@ export type EmailOtpEd25519YaoIssuedOperationGrantV1 = Omit<
   'materialRecovery'
 >;
 
+export type EmailOtpWarmMaterialTarget =
+  | {
+      readonly kind: 'ecdsa';
+      readonly thresholdSessionId: string;
+      readonly materialActivation?: never;
+    }
+  | {
+      readonly kind: 'ed25519_yao';
+      readonly thresholdSessionId: string;
+      readonly materialActivation: MpcMaterialActivationRef;
+    };
+
 export interface EmailOtpWorkerOperationMap {
   prewarmEmailOtpRegistrationCrypto: {
     payload: Record<string, never>;
@@ -935,7 +947,7 @@ export interface EmailOtpWorkerOperationMap {
   };
   getEmailOtpWarmSessionStatus: {
     payload: {
-      sessionId: string;
+      target: EmailOtpWarmMaterialTarget;
     };
     result:
       | { ok: true; remainingUses: number; expiresAtMs: number }
@@ -943,7 +955,7 @@ export interface EmailOtpWorkerOperationMap {
   };
   consumeEmailOtpWarmSessionUses: {
     payload: {
-      sessionId: string;
+      target: EmailOtpWarmMaterialTarget;
       uses?: number;
     };
     result:
@@ -952,7 +964,7 @@ export interface EmailOtpWorkerOperationMap {
   };
   sealEmailOtpWarmSessionMaterial: {
     payload: {
-      sessionId: string;
+      target: EmailOtpWarmMaterialTarget;
       transport: {
         relayerUrl: string;
         walletSessionJwt?: string;
@@ -981,6 +993,7 @@ export interface EmailOtpWorkerOperationMap {
   };
   rehydrateEmailOtpEcdsaWarmSessionMaterial: {
     payload: {
+      target: Extract<EmailOtpWarmMaterialTarget, { kind: 'ecdsa' }>;
       sealedSecretB64u: string;
       remainingUses: number;
       expiresAtMs: number;
@@ -1009,6 +1022,7 @@ export interface EmailOtpWorkerOperationMap {
   };
   rehydrateEmailOtpEd25519YaoLocalMaterial: {
     payload: {
+      target: Extract<EmailOtpWarmMaterialTarget, { kind: 'ed25519_yao' }>;
       sealedSecretB64u: string;
       remainingUses: number;
       expiresAtMs: number;
@@ -1036,7 +1050,7 @@ export interface EmailOtpWorkerOperationMap {
   };
   clearEmailOtpWarmSessionMaterial: {
     payload: {
-      sessionId: string;
+      target: EmailOtpWarmMaterialTarget;
     };
     result: {
       ok: true;

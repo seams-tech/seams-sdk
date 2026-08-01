@@ -1,16 +1,14 @@
 import type { NearSigningApiDeps } from '../../interfaces/operationDeps';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
-import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
 
 export function createNearSigningDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
   nearRpcUrl: string;
   signingSessionCoordinator: SigningSessionCoordinator;
-  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
 }): NearSigningApiDeps {
-  const { createArgs, nearRpcUrl, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
+  const { createArgs, nearRpcUrl, signingSessionCoordinator } = args;
   return {
     nearRpcUrl,
     prepareNearEd25519YaoMaterialBoundary:

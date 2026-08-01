@@ -45,7 +45,6 @@ export function createSigningEnginePorts(args: CreateSigningEnginePortsArgs): Si
       createArgs: args,
       nearRpcUrl,
       signingSessionCoordinator,
-      getEmailOtpWarmSessionStatus,
     }),
     tempoSigningDeps: createEvmFamilySigningDeps({
       createArgs: args,
@@ -73,7 +72,6 @@ export function createSigningEnginePorts(args: CreateSigningEnginePortsArgs): Si
     getManagerConveniencePorts: createManagerConveniencePortsFactory({
       createArgs: args,
       getWorkerResourceWarmupDeps,
-      getEmailOtpWarmSessionStatus,
     }),
   };
 }

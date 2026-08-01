@@ -73,7 +73,7 @@ async function clearEmailOtpWorkerSessionBestEffort(args: {
       request: {
         type: 'clearEmailOtpWarmSessionMaterial',
         timeoutMs: 5_000,
-        payload: { sessionId },
+        payload: { target: { kind: 'ecdsa', thresholdSessionId: sessionId } },
       },
     })
     .catch(() => undefined);

@@ -112,8 +112,10 @@ import type {
   EmailOtpWalletUnlockMaterialRequest,
   EmailOtpPrepareEcdsaClientBootstrapInput,
   EmailOtpEcdsaPublicationTargetPlan,
+  EmailOtpWarmMaterialTarget,
   EmailOtpWorkerOperationMap,
 } from '@/core/signingEngine/workerManager/workerTypes';
+import { materialActivationKey } from '@/core/signingEngine/session/sealedRecovery/materialActivationKey';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import {
   EmailOtpEd25519YaoRootVault,
@@ -375,6 +377,7 @@ type EmailOtpWarmSessionEntry = {
 
 type EmailOtpEd25519YaoWarmFactorEntry = {
   kind: 'ed25519_yao_factor';
+  thresholdSessionId: string;
   factorSecret32: Uint8Array;
   materialActivation: MpcMaterialActivationRef;
   expiresAtMs: number;
@@ -1330,6 +1333,7 @@ function parseSigningSessionSealRouteResult(value: unknown): SigningSessionSealR
 function makeSigningSessionSealSingleFlightKey(args: {
   operation: 'apply-server-seal' | 'remove-server-seal';
   sessionId: string;
+  materialIdentity: string;
   relayerUrl: string;
   keyVersion?: string;
   groupId?: string;
@@ -1340,6 +1344,7 @@ function makeSigningSessionSealSingleFlightKey(args: {
   return [
     operation,
     normalizeOptionalTrimmedString(args.sessionId) || '',
+    normalizeOptionalTrimmedString(args.materialIdentity) || '',
     normalizeOptionalTrimmedString(args.relayerUrl) || '',
     normalizeOptionalNonEmptyString(args.keyVersion) || '',
     normalizeOptionalNonEmptyString(args.groupId) || '',
@@ -1450,26 +1455,38 @@ function deleteEmailOtpWarmSession(sessionId: string): void {
   }
 }
 
-function deleteEmailOtpEd25519YaoWarmFactor(sessionId: string): void {
-  const entry = emailOtpEd25519YaoWarmFactors.get(sessionId);
+function deleteEmailOtpEd25519YaoWarmFactor(
+  materialActivation: MpcMaterialActivationRef,
+): void {
+  const activationKey = materialActivationKey(materialActivation);
+  const entry = emailOtpEd25519YaoWarmFactors.get(activationKey);
   if (!entry) return;
   zeroizeBytes(entry.factorSecret32);
-  emailOtpEd25519YaoWarmFactors.delete(sessionId);
+  emailOtpEd25519YaoWarmFactors.delete(activationKey);
 }
 
-function deleteEmailOtpWarmMaterial(sessionId: string): void {
-  deleteEmailOtpWarmSession(sessionId);
-  deleteEmailOtpEd25519YaoWarmFactor(sessionId);
+function deleteEmailOtpWarmMaterial(target: EmailOtpWarmMaterialTarget): void {
+  switch (target.kind) {
+    case 'ecdsa':
+      deleteEmailOtpWarmSession(target.thresholdSessionId);
+      return;
+    case 'ed25519_yao':
+      deleteEmailOtpEd25519YaoWarmFactor(target.materialActivation);
+      return;
+  }
 }
 
 function putEmailOtpEd25519YaoWarmFactor(args: {
-  sessionId: string;
+  target: Extract<EmailOtpWarmMaterialTarget, { kind: 'ed25519_yao' }>;
   factorSecret32: Uint8Array;
-  materialActivation: MpcMaterialActivationRef;
   expiresAtMs: number;
   remainingUses: number;
 }): void {
-  const sessionId = readString(args.sessionId, 'sessionId');
+  const thresholdSessionId = readString(
+    args.target.thresholdSessionId,
+    'target.thresholdSessionId',
+  );
+  const activationKey = materialActivationKey(args.target.materialActivation);
   const expiresAtMs = Math.floor(Number(args.expiresAtMs) || 0);
   const remainingUses = Math.floor(Number(args.remainingUses) || 0);
   if (args.factorSecret32.length !== 32) {
@@ -1478,14 +1495,12 @@ function putEmailOtpEd25519YaoWarmFactor(args: {
   if (expiresAtMs <= Date.now() || remainingUses <= 0) {
     throw new Error('Invalid Email OTP Ed25519 Yao warm-factor policy');
   }
-  if (emailOtpWarmSessions.has(sessionId)) {
-    throw new Error('Email OTP warm-session identity is ambiguous across curves');
-  }
-  deleteEmailOtpEd25519YaoWarmFactor(sessionId);
-  emailOtpEd25519YaoWarmFactors.set(sessionId, {
+  deleteEmailOtpEd25519YaoWarmFactor(args.target.materialActivation);
+  emailOtpEd25519YaoWarmFactors.set(activationKey, {
     kind: 'ed25519_yao_factor',
+    thresholdSessionId,
     factorSecret32: Uint8Array.from(args.factorSecret32),
-    materialActivation: args.materialActivation,
+    materialActivation: args.target.materialActivation,
     expiresAtMs,
     remainingUses,
   });
@@ -1497,9 +1512,12 @@ function bindEmailOtpEd25519YaoLocalSessionWarmFactor(args: {
   materialActivation: MpcMaterialActivationRef;
 }): void {
   putEmailOtpEd25519YaoWarmFactor({
-    sessionId: args.bootstrap.session.thresholdSessionId,
+    target: {
+      kind: 'ed25519_yao',
+      thresholdSessionId: args.bootstrap.session.thresholdSessionId,
+      materialActivation: args.materialActivation,
+    },
     factorSecret32: args.factorSecret32,
-    materialActivation: args.materialActivation,
     expiresAtMs: args.bootstrap.session.expiresAtMs,
     remainingUses: args.bootstrap.session.remainingUses,
   });
@@ -1941,15 +1959,25 @@ function prepareEcdsaClientBootstrapFromEmailOtpWorkerHandle(
   }
 }
 
-function resolveEmailOtpWarmMaterialEntry(sessionId: string): EmailOtpWarmMaterialEntry | null {
-  const ecdsa = emailOtpWarmSessions.get(sessionId);
-  const ed25519Yao = emailOtpEd25519YaoWarmFactors.get(sessionId);
-  if (ecdsa && ed25519Yao) {
-    throw new Error('Email OTP warm-session identity is ambiguous across curves');
+function resolveEmailOtpWarmMaterialEntry(
+  target: EmailOtpWarmMaterialTarget,
+): EmailOtpWarmMaterialEntry | null {
+  switch (target.kind) {
+    case 'ecdsa': {
+      const entry = emailOtpWarmSessions.get(target.thresholdSessionId);
+      return entry ? { kind: 'ecdsa', entry } : null;
+    }
+    case 'ed25519_yao': {
+      const entry = emailOtpEd25519YaoWarmFactors.get(
+        materialActivationKey(target.materialActivation),
+      );
+      if (!entry || entry.thresholdSessionId !== target.thresholdSessionId) return null;
+      if (!mpcMaterialActivationRefsEqual(entry.materialActivation, target.materialActivation)) {
+        return null;
+      }
+      return { kind: 'ed25519_yao', entry };
+    }
   }
-  if (ecdsa) return { kind: 'ecdsa', entry: ecdsa };
-  if (ed25519Yao) return { kind: 'ed25519_yao', entry: ed25519Yao };
-  return null;
 }
 
 function emailOtpWarmMaterialSecret32(entry: EmailOtpWarmMaterialEntry): Uint8Array {
@@ -1962,14 +1990,17 @@ function emailOtpWarmMaterialSecret32(entry: EmailOtpWarmMaterialEntry): Uint8Ar
 }
 
 function updateEmailOtpWarmMaterialPolicy(args: {
-  sessionId: string;
+  target: EmailOtpWarmMaterialTarget;
   material: EmailOtpWarmMaterialEntry;
   remainingUses: number;
   expiresAtMs: number;
 }): void {
   switch (args.material.kind) {
     case 'ecdsa':
-      emailOtpWarmSessions.set(args.sessionId, {
+      if (args.target.kind !== 'ecdsa') {
+        throw new Error('Email OTP warm ECDSA material target mismatch');
+      }
+      emailOtpWarmSessions.set(args.target.thresholdSessionId, {
         clientRootShare32: args.material.entry.clientRootShare32,
         signingSessionSecret32: args.material.entry.signingSessionSecret32,
         ...(args.material.entry.clientAdditiveShare32
@@ -1980,8 +2011,12 @@ function updateEmailOtpWarmMaterialPolicy(args: {
       });
       return;
     case 'ed25519_yao':
-      emailOtpEd25519YaoWarmFactors.set(args.sessionId, {
+      if (args.target.kind !== 'ed25519_yao') {
+        throw new Error('Email OTP warm Ed25519 material target mismatch');
+      }
+      emailOtpEd25519YaoWarmFactors.set(materialActivationKey(args.target.materialActivation), {
         kind: 'ed25519_yao_factor',
+        thresholdSessionId: args.material.entry.thresholdSessionId,
         factorSecret32: args.material.entry.factorSecret32,
         materialActivation: args.material.entry.materialActivation,
         remainingUses: args.remainingUses,
@@ -1991,21 +2026,10 @@ function updateEmailOtpWarmMaterialPolicy(args: {
   }
 }
 
-function readEmailOtpWarmSessionStatus(sessionIdRaw: unknown): EmailOtpWarmSessionStatusResult {
-  const sessionId = String(sessionIdRaw || '').trim();
-  if (!sessionId) {
-    return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
-  }
-  let material: EmailOtpWarmMaterialEntry | null;
-  try {
-    material = resolveEmailOtpWarmMaterialEntry(sessionId);
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'ambiguous_material',
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
+function readEmailOtpWarmSessionStatus(
+  target: EmailOtpWarmMaterialTarget,
+): EmailOtpWarmSessionStatusResult {
+  const material = resolveEmailOtpWarmMaterialEntry(target);
   if (!material) {
     return {
       ok: false,
@@ -2014,7 +2038,7 @@ function readEmailOtpWarmSessionStatus(sessionIdRaw: unknown): EmailOtpWarmSessi
     };
   }
   if (Date.now() >= material.entry.expiresAtMs) {
-    deleteEmailOtpWarmMaterial(sessionId);
+    deleteEmailOtpWarmMaterial(target);
     return {
       ok: false,
       code: 'expired',
@@ -2022,7 +2046,7 @@ function readEmailOtpWarmSessionStatus(sessionIdRaw: unknown): EmailOtpWarmSessi
     };
   }
   if (material.entry.remainingUses <= 0) {
-    deleteEmailOtpWarmMaterial(sessionId);
+    deleteEmailOtpWarmMaterial(target);
     return {
       ok: false,
       code: 'exhausted',
@@ -2101,7 +2125,10 @@ function bindEmailOtpEcdsaWarmSessionFromWorkerHandle(args: {
       expiresAtMs: args.expiresAtMs,
       remainingUses: args.remainingUses,
     });
-    return readEmailOtpWarmSessionStatus(args.thresholdSessionId);
+    return readEmailOtpWarmSessionStatus({
+      kind: 'ecdsa',
+      thresholdSessionId: args.thresholdSessionId,
+    });
   } catch (error: unknown) {
     return {
       ok: false,
@@ -2117,13 +2144,12 @@ function bindEmailOtpEcdsaWarmSessionFromWorkerHandle(args: {
 }
 
 function consumeEmailOtpWarmSessionUses(args: {
-  sessionId: string;
+  target: EmailOtpWarmMaterialTarget;
   uses?: number;
 }): EmailOtpWarmSessionConsumeResult {
-  const sessionId = String(args.sessionId || '').trim();
-  const status = readEmailOtpWarmSessionStatus(sessionId);
+  const status = readEmailOtpWarmSessionStatus(args.target);
   if (!status.ok) return status;
-  const material = resolveEmailOtpWarmMaterialEntry(sessionId);
+  const material = resolveEmailOtpWarmMaterialEntry(args.target);
   if (!material) {
     return {
       ok: false,
@@ -2143,9 +2169,14 @@ function consumeEmailOtpWarmSessionUses(args: {
   const remainingUses = material.entry.remainingUses;
   const expiresAtMs = material.entry.expiresAtMs;
   if (remainingUses <= 0) {
-    deleteEmailOtpWarmMaterial(sessionId);
+    deleteEmailOtpWarmMaterial(args.target);
   } else {
-    updateEmailOtpWarmMaterialPolicy({ sessionId, material, remainingUses, expiresAtMs });
+    updateEmailOtpWarmMaterialPolicy({
+      target: args.target,
+      material,
+      remainingUses,
+      expiresAtMs,
+    });
   }
   return {
     ok: true,
@@ -2155,13 +2186,10 @@ function consumeEmailOtpWarmSessionUses(args: {
 }
 
 async function sealEmailOtpWarmSessionMaterial(args: {
-  sessionId: string;
+  target: EmailOtpWarmMaterialTarget;
   transport: SigningSessionSealTransport;
 }): Promise<EmailOtpWarmSessionSealResult> {
-  const sessionId = String(args.sessionId || '').trim();
-  if (!sessionId) {
-    return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
-  }
+  const sessionId = args.target.thresholdSessionId;
   const groupId = normalizeOptionalNonEmptyString(args.transport.groupId);
   if (!groupId) {
     return {
@@ -2170,9 +2198,9 @@ async function sealEmailOtpWarmSessionMaterial(args: {
       message: 'Missing groupId for signing-session seal',
     };
   }
-  const status = readEmailOtpWarmSessionStatus(sessionId);
+  const status = readEmailOtpWarmSessionStatus(args.target);
   if (!status.ok) return status;
-  const material = resolveEmailOtpWarmMaterialEntry(sessionId);
+  const material = resolveEmailOtpWarmMaterialEntry(args.target);
   if (!material) {
     return {
       ok: false,
@@ -2185,6 +2213,10 @@ async function sealEmailOtpWarmSessionMaterial(args: {
   const singleFlightKey = makeSigningSessionSealSingleFlightKey({
     operation: 'apply-server-seal',
     sessionId,
+    materialIdentity:
+      args.target.kind === 'ecdsa'
+        ? args.target.thresholdSessionId
+        : materialActivationKey(args.target.materialActivation),
     relayerUrl: args.transport.relayerUrl,
     keyVersion: args.transport.keyVersion,
     groupId,
@@ -2223,11 +2255,11 @@ async function sealEmailOtpWarmSessionMaterial(args: {
           serverExpiresAtMs: applied.expiresAtMs,
         });
         if (!policy.ok) {
-          deleteEmailOtpWarmMaterial(sessionId);
+          deleteEmailOtpWarmMaterial(args.target);
           return policy;
         }
         updateEmailOtpWarmMaterialPolicy({
-          sessionId,
+          target: args.target,
           material,
           remainingUses: policy.remainingUses,
           expiresAtMs: policy.expiresAtMs,
@@ -2274,6 +2306,7 @@ async function sealEmailOtpWarmSessionMaterial(args: {
 }
 
 async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
+  target: Extract<EmailOtpWarmMaterialTarget, { kind: 'ecdsa' }>;
   sealedSecretB64u: string;
   remainingUses: number;
   expiresAtMs: number;
@@ -2286,6 +2319,13 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
     authSubjectId: string;
   };
 }): Promise<EmailOtpEcdsaWarmSessionRehydrateResult> {
+  if (args.target.thresholdSessionId !== args.restore.sessionId) {
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Email OTP ECDSA restore target does not match the restored session',
+    };
+  }
   const parsed = parseEmailOtpEcdsaWarmSessionRehydrateArgs(args);
   if (parsed.kind === 'error') return parsed.error;
   const {
@@ -2305,6 +2345,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
   const singleFlightKey = makeSigningSessionSealSingleFlightKey({
     operation: 'remove-server-seal',
     sessionId,
+    materialIdentity: sessionId,
     relayerUrl: transport.relayerUrl,
     keyVersion: transport.keyVersion,
     groupId: transport.groupId,
@@ -2463,6 +2504,7 @@ function buildEmailOtpEd25519YaoExactLocalSessionBootstrap(args: {
 }
 
 async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
+  target: Extract<EmailOtpWarmMaterialTarget, { kind: 'ed25519_yao' }>;
   sealedSecretB64u: string;
   remainingUses: number;
   expiresAtMs: number;
@@ -2500,6 +2542,13 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
       ok: false,
       code: 'invalid_args',
       message: 'Email OTP Ed25519 exact-local restore requires exact session identity',
+    };
+  }
+  if (args.target.thresholdSessionId !== sessionId) {
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Email OTP Ed25519 restore target does not match the restored session',
     };
   }
   const localRemainingUses = Math.max(0, Math.floor(Number(args.remainingUses) || 0));
@@ -2593,10 +2642,25 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
       bootstrap,
       expectedThresholdSessionId: sessionId,
     });
+    const restoredMaterialActivation = nearEd25519YaoMaterialActivationFromMetadata(
+      importedClient.metadata,
+    );
+    if (
+      !mpcMaterialActivationRefsEqual(
+        restoredMaterialActivation,
+        args.target.materialActivation,
+      )
+    ) {
+      return {
+        ok: false,
+        code: 'material_activation_mismatch',
+        message: 'Email OTP Ed25519 restored material activation does not match the target',
+      };
+    }
     bindEmailOtpEd25519YaoLocalSessionWarmFactor({
       bootstrap,
       factorSecret32,
-      materialActivation: nearEd25519YaoMaterialActivationFromMetadata(importedClient.metadata),
+      materialActivation: restoredMaterialActivation,
     });
     const activated = importedClient;
     importedClient = null;
@@ -2812,7 +2876,7 @@ function claimEmailOtpEcdsaSigningShare(
   sessionIdRaw: unknown,
 ): EmailOtpEcdsaSigningShareClaimResult {
   const sessionId = String(sessionIdRaw || '').trim();
-  const status = readEmailOtpWarmSessionStatus(sessionId);
+  const status = readEmailOtpWarmSessionStatus({ kind: 'ecdsa', thresholdSessionId: sessionId });
   if (!status.ok) return status;
   const entry = emailOtpWarmSessions.get(sessionId);
   if (!entry?.clientAdditiveShare32) {
@@ -5086,6 +5150,44 @@ function rejectUnknownEmailOtpYaoFields(
   }
 }
 
+function parseEmailOtpWarmMaterialTarget(value: unknown): EmailOtpWarmMaterialTarget {
+  const target = workerPayloadObject(value);
+  if (!target) throw new Error('Email OTP warm material target is required');
+  const kind = readString(target.kind, 'target.kind');
+  switch (kind) {
+    case 'ecdsa':
+      rejectUnknownEmailOtpYaoFields(target, ['kind', 'thresholdSessionId'], 'target');
+      return {
+        kind: 'ecdsa',
+        thresholdSessionId: readString(
+          target.thresholdSessionId,
+          'target.thresholdSessionId',
+        ),
+      };
+    case 'ed25519_yao': {
+      rejectUnknownEmailOtpYaoFields(
+        target,
+        ['kind', 'thresholdSessionId', 'materialActivation'],
+        'target',
+      );
+      const materialActivation = parseMpcMaterialActivationRef(target.materialActivation);
+      if (!materialActivation.ok) {
+        throw new Error(`Email OTP warm material activation is invalid: ${materialActivation.error.message}`);
+      }
+      return {
+        kind: 'ed25519_yao',
+        thresholdSessionId: readString(
+          target.thresholdSessionId,
+          'target.thresholdSessionId',
+        ),
+        materialActivation: materialActivation.value,
+      };
+    }
+    default:
+      throw new Error(`Unsupported Email OTP warm material target kind: ${kind}`);
+  }
+}
+
 function parseEmailOtpEd25519YaoFactorRequest(value: unknown): EmailOtpEd25519YaoFactorRequest {
   const obj = workerPayloadObject(value);
   if (!obj) throw new Error('Email OTP Ed25519 Yao factor request is required');
@@ -7203,14 +7305,14 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
       return {
         id,
         type,
-        payload: { sessionId: readString(payload.sessionId, 'sessionId') },
+        payload: { target: parseEmailOtpWarmMaterialTarget(payload.target) },
       };
     case 'consumeEmailOtpWarmSessionUses':
       return {
         id,
         type,
         payload: {
-          sessionId: readString(payload.sessionId, 'sessionId'),
+          target: parseEmailOtpWarmMaterialTarget(payload.target),
           ...(optionalWorkerPositiveInteger(payload.uses)
             ? { uses: optionalWorkerPositiveInteger(payload.uses)! }
             : {}),
@@ -7221,17 +7323,22 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         id,
         type,
         payload: {
-          sessionId: readString(payload.sessionId, 'sessionId'),
+          target: parseEmailOtpWarmMaterialTarget(payload.target),
           transport: parseWorkerSealTransport(payload.transport),
         },
       };
     case 'rehydrateEmailOtpEcdsaWarmSessionMaterial': {
       const restore = workerPayloadObject(payload.restore);
       if (!restore) throw new Error('Email OTP ECDSA rehydrate requires restore payload');
+      const target = parseEmailOtpWarmMaterialTarget(payload.target);
+      if (target.kind !== 'ecdsa') {
+        throw new Error('Email OTP ECDSA rehydrate requires an ECDSA target');
+      }
       return {
         id,
         type,
         payload: {
+          target,
           sealedSecretB64u: readString(payload.sealedSecretB64u, 'sealedSecretB64u'),
           remainingUses: normalizeNonNegativeInteger(payload.remainingUses) ?? 0,
           expiresAtMs: readNumber(payload.expiresAtMs, 'expiresAtMs'),
@@ -7249,11 +7356,15 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
     case 'rehydrateEmailOtpEd25519YaoLocalMaterial': {
       rejectUnknownEmailOtpYaoFields(
         payload,
-        ['sealedSecretB64u', 'remainingUses', 'expiresAtMs', 'transport', 'restore'],
+        ['target', 'sealedSecretB64u', 'remainingUses', 'expiresAtMs', 'transport', 'restore'],
         type,
       );
       const restore = workerPayloadObject(payload.restore);
       if (!restore) throw new Error('Email OTP Ed25519 Yao rehydrate requires restore payload');
+      const target = parseEmailOtpWarmMaterialTarget(payload.target);
+      if (target.kind !== 'ed25519_yao') {
+        throw new Error('Email OTP Ed25519 Yao rehydrate requires an Ed25519 Yao target');
+      }
       rejectUnknownEmailOtpYaoFields(
         restore,
         ['session', 'providerSubject', 'signerSlot', 'expectedOperationalPublicKey'],
@@ -7263,6 +7374,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         id,
         type,
         payload: {
+          target,
           sealedSecretB64u: readString(payload.sealedSecretB64u, 'sealedSecretB64u'),
           remainingUses: normalizeNonNegativeInteger(payload.remainingUses) ?? 0,
           expiresAtMs: readNumber(payload.expiresAtMs, 'expiresAtMs'),
@@ -7790,11 +7902,14 @@ self.addEventListener('message', async (event: MessageEvent) => {
             enrollmentSecret32: result.value.retainedFactorSecret32,
           });
           putEmailOtpEd25519YaoWarmFactor({
-            sessionId: msg.payload.sessionPolicy.thresholdSessionId,
+            target: {
+              kind: 'ed25519_yao',
+              thresholdSessionId: msg.payload.sessionPolicy.thresholdSessionId,
+              materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
+                activationResult.metadata,
+              ),
+            },
             factorSecret32: result.value.retainedFactorSecret32,
-            materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
-              activationResult.metadata,
-            ),
             expiresAtMs: msg.payload.sessionPolicy.expiresAtMs,
             remainingUses: msg.payload.sessionPolicy.remainingUses,
           });
@@ -8054,7 +8169,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
               if (result.ed25519Yao.kind === 'local_session') {
                 removeEmailOtpEd25519YaoActiveClient(result.ed25519Yao.activeClientHandle);
                 deleteEmailOtpEd25519YaoWarmFactor(
-                  result.ed25519Yao.bootstrap.session.thresholdSessionId,
+                  result.ed25519Yao.bootstrap.capability.materialActivation,
                 );
               }
               throw error;
@@ -8125,7 +8240,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             } catch (error) {
               removeEmailOtpEd25519YaoActiveClient(result.activeClientHandle);
               deleteEmailOtpEd25519YaoWarmFactor(
-                result.ed25519YaoSession.session.thresholdSessionId,
+                result.ed25519YaoSession.capability.materialActivation,
               );
               throw error;
             }
@@ -8210,7 +8325,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         postToMainThread({
           id: msg.id,
           ok: true,
-          result: readEmailOtpWarmSessionStatus(msg.payload.sessionId),
+          result: readEmailOtpWarmSessionStatus(msg.payload.target),
         });
         return;
       }
@@ -8219,7 +8334,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           id: msg.id,
           ok: true,
           result: consumeEmailOtpWarmSessionUses({
-            sessionId: readString(msg.payload.sessionId, 'sessionId'),
+            target: msg.payload.target,
             uses: msg.payload.uses,
           }),
         });
@@ -8229,7 +8344,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const transport = parseSigningSessionSealTransport(msg.payload.transport);
         const result = transport
           ? await sealEmailOtpWarmSessionMaterial({
-              sessionId: readString(msg.payload.sessionId, 'sessionId'),
+              target: msg.payload.target,
               transport,
             })
           : {
@@ -8248,6 +8363,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const transport = parseSigningSessionSealTransport(msg.payload.transport);
         const result = transport
           ? await rehydrateEmailOtpEcdsaWarmSessionMaterial({
+              target: msg.payload.target,
               sealedSecretB64u: readString(msg.payload.sealedSecretB64u, 'sealedSecretB64u'),
               remainingUses: Math.floor(Number(msg.payload.remainingUses) || 0),
               expiresAtMs: Math.floor(Number(msg.payload.expiresAtMs) || 0),
@@ -8270,6 +8386,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const transport = parseSigningSessionSealTransport(msg.payload.transport);
         const result = transport
           ? await rehydrateEmailOtpEd25519YaoLocalMaterial({
+              target: msg.payload.target,
               sealedSecretB64u: readString(msg.payload.sealedSecretB64u, 'sealedSecretB64u'),
               remainingUses: msg.payload.remainingUses,
               expiresAtMs: msg.payload.expiresAtMs,
@@ -8290,7 +8407,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         return;
       }
       case 'clearEmailOtpWarmSessionMaterial': {
-        deleteEmailOtpWarmMaterial(readString(msg.payload.sessionId, 'sessionId'));
+        deleteEmailOtpWarmMaterial(msg.payload.target);
         postToMainThread({
           id: msg.id,
           ok: true,

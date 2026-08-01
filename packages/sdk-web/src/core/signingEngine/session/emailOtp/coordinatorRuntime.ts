@@ -17,6 +17,7 @@ import {
   type EmailOtpAppSessionBinding,
 } from './appSessionJwtCache';
 import type { EmailOtpWalletSessionCoordinatorDeps } from './ports';
+import type { EmailOtpWarmMaterialTarget } from '@/core/signingEngine/workerManager/workerTypes';
 import type { EmailOtpTransactionSigningChallenge } from './publicTypes';
 import {
   type EmailOtpThresholdEcdsaLoginResult,
@@ -121,7 +122,11 @@ export class EmailOtpWalletSessionRuntime {
       readExactSealedSession: deps.readExactSealedSession,
       acquireSigningSessionRestoreLease: deps.acquireSigningSessionRestoreLease,
       releaseSigningSessionRestoreLease: deps.releaseSigningSessionRestoreLease,
-      readWarmSessionStatusFromWorker: (sessionId) => warmSessionWorkerClient.readStatus(sessionId),
+      readWarmSessionStatusFromWorker: (sessionId) =>
+        warmSessionWorkerClient.readStatus({
+          kind: 'ecdsa',
+          thresholdSessionId: sessionId,
+        }),
       restoreEcdsaSigningSessionMaterialFromSealedRecord: (restoreArgs) =>
         restoreEcdsaSigningSessionMaterialFromSealedRecord(restoreArgs),
       recordSessionMaterialRestored: (purpose, status) =>
@@ -172,8 +177,8 @@ export class EmailOtpWalletSessionRuntime {
     return await this.sealedRestoreOrchestrator.restorePersistedSessionForSigning(args);
   }
 
-  async readWarmSessionStatusOnly(sessionId: string): Promise<WarmSessionStatusResult> {
-    return await this.warmSessionRuntime.readWarmSessionStatusOnly(sessionId);
+  async readWarmSessionStatusOnly(target: EmailOtpWarmMaterialTarget): Promise<WarmSessionStatusResult> {
+    return await this.warmSessionRuntime.readWarmSessionStatusOnly(target);
   }
 
   async consumeWarmSessionUses(args: WarmSessionMaterialOperationTarget & {
@@ -182,8 +187,8 @@ export class EmailOtpWalletSessionRuntime {
     return await this.warmSessionRuntime.consumeWarmSessionUses(args);
   }
 
-  async clearVolatileWarmSessionMaterial(sessionId: string): Promise<void> {
-    await this.warmSessionRuntime.clearVolatileWarmSessionMaterial(sessionId);
+  async clearVolatileWarmSessionMaterial(target: EmailOtpWarmMaterialTarget): Promise<void> {
+    await this.warmSessionRuntime.clearVolatileWarmSessionMaterial(target);
   }
 
   rememberAppSessionJwt(args: { walletId: WalletId; appSessionJwt: string }): void {

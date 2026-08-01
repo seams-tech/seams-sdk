@@ -1,17 +1,18 @@
 import type { EmailOtpEcdsaSealedRuntimePurpose } from './sealedRuntimePurpose';
+import type { EmailOtpWarmMaterialTarget } from '@/core/signingEngine/workerManager/workerTypes';
 import type {
   WarmSessionStatusResult,
 } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 
 export async function readEmailOtpWarmSessionStatusOnly(args: {
-  sessionId: string;
-  readWarmSessionStatusFromWorker: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  target: EmailOtpWarmMaterialTarget;
+  readWarmSessionStatusFromWorker: (target: EmailOtpWarmMaterialTarget) => Promise<WarmSessionStatusResult>;
 }): Promise<WarmSessionStatusResult> {
-  const normalizedSessionId = String(args.sessionId || '').trim();
-  if (!normalizedSessionId) {
-    return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
+  const target = normalizedWarmMaterialTarget(args.target);
+  if (!target) {
+    return { ok: false, code: 'invalid_args', message: 'Missing thresholdSessionId' };
   }
-  return await args.readWarmSessionStatusFromWorker(normalizedSessionId).catch((error) => ({
+  return await args.readWarmSessionStatusFromWorker(target).catch((error) => ({
     ok: false as const,
     code: 'worker_error',
     message: error instanceof Error ? error.message : String(error || 'Email OTP worker error'),
@@ -19,10 +20,10 @@ export async function readEmailOtpWarmSessionStatusOnly(args: {
 }
 
 export async function consumeEmailOtpWarmSessionUses(args: {
-  sessionId: string;
+  target: EmailOtpWarmMaterialTarget;
   uses?: number;
   consumeWarmSessionUsesFromWorker: (args: {
-    sessionId: string;
+    target: EmailOtpWarmMaterialTarget;
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
   ecdsaPurpose: EmailOtpEcdsaSealedRuntimePurpose | null;
@@ -38,13 +39,13 @@ export async function consumeEmailOtpWarmSessionUses(args: {
     result: WarmSessionStatusResult,
   ) => Promise<void>;
 }): Promise<WarmSessionStatusResult> {
-  const normalizedSessionId = String(args.sessionId || '').trim();
-  if (!normalizedSessionId) {
-    return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
+  const target = normalizedWarmMaterialTarget(args.target);
+  if (!target) {
+    return { ok: false, code: 'invalid_args', message: 'Missing thresholdSessionId' };
   }
   try {
     const result = await args.consumeWarmSessionUsesFromWorker({
-      sessionId: normalizedSessionId,
+      target,
       ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
     });
     if (
@@ -57,7 +58,7 @@ export async function consumeEmailOtpWarmSessionUses(args: {
       );
       if (restored?.ok) {
         const retry = await args.consumeWarmSessionUsesFromWorker({
-          sessionId: normalizedSessionId,
+          target,
           ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
         });
         if (args.ecdsaPurpose) await args.recordSessionUseConsumed(args.ecdsaPurpose, retry);
@@ -80,10 +81,24 @@ export async function consumeEmailOtpWarmSessionUses(args: {
 }
 
 export async function clearEmailOtpWarmSessionMaterial(args: {
-  sessionId: string;
-  clearVolatileWarmSessionMaterialFromWorker: (sessionId: string) => Promise<void>;
+  target: EmailOtpWarmMaterialTarget;
+  clearVolatileWarmSessionMaterialFromWorker: (target: EmailOtpWarmMaterialTarget) => Promise<void>;
 }): Promise<void> {
-  const normalizedSessionId = String(args.sessionId || '').trim();
-  if (!normalizedSessionId) return;
-  await args.clearVolatileWarmSessionMaterialFromWorker(normalizedSessionId).catch(() => undefined);
+  const target = normalizedWarmMaterialTarget(args.target);
+  if (!target) return;
+  await args.clearVolatileWarmSessionMaterialFromWorker(target).catch(() => undefined);
+}
+
+function normalizedWarmMaterialTarget(
+  target: EmailOtpWarmMaterialTarget,
+): EmailOtpWarmMaterialTarget | null {
+  const thresholdSessionId = String(target.thresholdSessionId || '').trim();
+  if (!thresholdSessionId) return null;
+  return target.kind === 'ecdsa'
+    ? { kind: 'ecdsa', thresholdSessionId }
+    : {
+        kind: 'ed25519_yao',
+        thresholdSessionId,
+        materialActivation: target.materialActivation,
+      };
 }

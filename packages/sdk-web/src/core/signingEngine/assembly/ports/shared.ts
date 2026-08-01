@@ -24,6 +24,7 @@ import type {
 } from '../../session/availability/availableSigningLanes';
 import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
 import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
+import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { SigningSessionBudgetStatusCheck } from '../../session/budget/budget';
@@ -122,7 +123,7 @@ export type CreateSigningEnginePortsArgs = {
   touchConfirm: UiConfirmRuntimeBridgePort;
   passkeyMpcSession: PasskeyMpcSessionPort;
   passkeyMpcExport: PasskeyMpcExportPort;
-  getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  getEmailOtpWarmSessionStatus?: PersistedAvailableSigningLanesDeps['getEmailOtpWarmSessionStatus'];
   consumeEmailOtpWarmSessionUses?: (args: WarmSessionMaterialOperationTarget & {
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
@@ -236,7 +237,6 @@ export function createWorkerResourceWarmupDepsFactory(
 export function createManagerConveniencePortsFactory(args: {
   createArgs: CreateSigningEnginePortsArgs;
   getWorkerResourceWarmupDeps: () => WorkerResourceWarmupDeps;
-  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
 }): () => SigningEngineConveniencePorts {
   const { createArgs, getWorkerResourceWarmupDeps } = args;
   return () => ({

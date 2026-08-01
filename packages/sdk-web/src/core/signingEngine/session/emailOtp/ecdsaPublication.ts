@@ -562,7 +562,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   const sealStartedAtMs = nowMs();
   const sealed = await requestSealEmailOtpWarmSessionMaterial({
     workerCtx,
-    sessionId: emailOtpWorkerSessionId,
+    target: { kind: 'ecdsa', thresholdSessionId: emailOtpWorkerSessionId },
     transport: {
       relayerUrl,
       ...(walletSessionJwt ? { walletSessionJwt } : {}),
