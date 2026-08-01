@@ -17,9 +17,14 @@ import {
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
   ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
+  type RouterAbEcdsaDerivationNormalSigningScopeV1,
+  type RouterAbEcdsaOperationStepUpPreparationV1Wire,
 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { buildPasskeyAuthorizationSessionFixture } from './helpers/authorizationCore.fixtures';
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
+import { buildRouterAbEcdsaWalletSessionClaimsFixture } from './helpers/routerAbEcdsaWalletSessionClaims.fixtures';
 
 type MaterialActivationField = keyof RouterAbMpcMaterialActivationRefWire;
 
@@ -49,6 +54,23 @@ function corruptMaterialActivation(
   });
 }
 
+function normalSigningScopeWithMaterialActivation(
+  scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
+  materialActivation: RouterAbMpcMaterialActivationRefWire,
+): RouterAbEcdsaDerivationNormalSigningScopeV1 {
+  return {
+    wallet_id: scope.wallet_id,
+    ecdsa_threshold_key_id: scope.ecdsa_threshold_key_id,
+    signing_root_id: scope.signing_root_id,
+    signing_root_version: scope.signing_root_version,
+    context: scope.context,
+    public_identity: scope.public_identity,
+    material_activation: materialActivation,
+    signing_worker: scope.signing_worker,
+    activation_epoch: scope.activation_epoch,
+  };
+}
+
 type RouteSideEffects = {
   proofVerifications: number;
   otpConsumptions: number;
@@ -57,6 +79,7 @@ type RouteSideEffects = {
   claims: number;
   audits: number;
   quotaWrites: number;
+  runtimeCalls: number;
 };
 
 function emptyRouteSideEffects(): RouteSideEffects {
@@ -68,6 +91,7 @@ function emptyRouteSideEffects(): RouteSideEffects {
     claims: 0,
     audits: 0,
     quotaWrites: 0,
+    runtimeCalls: 0,
   };
 }
 
@@ -216,6 +240,20 @@ async function stepUpRouteFixture(input: {
         async consumeEmailOtpGrant() {
           input.sideEffects.otpConsumptions += 1;
           throw new Error('OTP consumption is not expected for a Passkey proof');
+        },
+      },
+      thresholdRuntime: {
+        getRouterAbEcdsaPresignRuntime() {
+          return {
+            async initializePoolFill() {
+              input.sideEffects.runtimeCalls += 1;
+              throw new Error('pool fill must not initialize before canonical material');
+            },
+            async advancePoolFill() {
+              input.sideEffects.runtimeCalls += 1;
+              throw new Error('pool fill must not advance before canonical material');
+            },
+          };
         },
       },
     },
@@ -384,5 +422,130 @@ test('operation step-up prepare and finalize reject superseded material before c
     const response = await handleThresholdEcdsa(ctx);
     expect(response?.status).toBe(403);
     expect(sideEffects).toEqual(emptyRouteSideEffects());
+  }
+});
+
+test('pool-fill rejects hostile material refs before claims or runtime calls', async () => {
+  const walletId = fixtureWalletId();
+  const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
+  const canonicalActivation = signer.walletKey.publicCapability.material_activation;
+  const supersededActivation = corruptMaterialActivation(canonicalActivation, 'activation_id');
+  const mismatchedPoolActivation = corruptMaterialActivation(
+    canonicalActivation,
+    'lifecycle_binding',
+  );
+
+  for (const testCase of [
+    {
+      name: 'operation-step-up init pool scope',
+      authorizationKind: 'operation_step_up' as const,
+      pathname: ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
+      operationActivation: canonicalActivation,
+      poolActivation: mismatchedPoolActivation,
+      claimsActivation: canonicalActivation,
+    },
+    {
+      name: 'operation-step-up step operation',
+      authorizationKind: 'operation_step_up' as const,
+      pathname: ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
+      operationActivation: supersededActivation,
+      poolActivation: canonicalActivation,
+      claimsActivation: canonicalActivation,
+    },
+    {
+      name: 'reusable init pool scope',
+      authorizationKind: 'reusable_wallet_session' as const,
+      pathname: ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
+      operationActivation: canonicalActivation,
+      poolActivation: mismatchedPoolActivation,
+      claimsActivation: canonicalActivation,
+    },
+    {
+      name: 'reusable step signed claims',
+      authorizationKind: 'reusable_wallet_session' as const,
+      pathname: ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
+      operationActivation: canonicalActivation,
+      poolActivation: canonicalActivation,
+      claimsActivation: supersededActivation,
+    },
+  ]) {
+    const sideEffects = emptyRouteSideEffects();
+    const ctx = await stepUpRouteFixture({
+      signer,
+      requestedActivation: testCase.operationActivation,
+      sideEffects,
+    });
+    const grantBody = (await ctx.request.clone().json()) as {
+      operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+    };
+    const operation = grantBody.operation;
+    const reusableScope = normalSigningScopeWithMaterialActivation(
+      operation.normal_signing_scope,
+      testCase.claimsActivation,
+    );
+    const authorization =
+      testCase.authorizationKind === 'operation_step_up'
+        ? { kind: 'operation_step_up' as const, grant_id: 'pool-fill-step-up-grant' }
+        : { kind: 'reusable_wallet_session' as const, wallet_session_id: 'wallet-session-pool' };
+    const body =
+      testCase.pathname === ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH
+        ? {
+            sessionKind: 'jwt',
+            count: 1,
+            poolFill: {
+              kind: 'router_ab_ecdsa_derivation_signing_worker_pool',
+              scope: normalSigningScopeWithMaterialActivation(
+                operation.normal_signing_scope,
+                testCase.poolActivation,
+              ),
+              expiresAtMs: Date.now() + 40_000,
+            },
+            authorization,
+            ...(testCase.authorizationKind === 'operation_step_up' ? { operation } : {}),
+          }
+        : {
+            sessionKind: 'jwt',
+            presignSessionId: 'presign-session-hostile',
+            stage: 'triples',
+            authorization,
+            ...(testCase.authorizationKind === 'operation_step_up' ? { operation } : {}),
+          };
+    if (testCase.authorizationKind === 'reusable_wallet_session') {
+      const claims = buildRouterAbEcdsaWalletSessionClaimsFixture({
+        walletId: String(walletId),
+        keyHandle: signer.walletKey.keyHandle,
+        relayerKeyId: signer.walletKey.relayerKeyId,
+        participantIds: signer.walletKey.participantIds,
+        thresholdExpiresAtMs: Date.now() + 50_000,
+        runtimePolicyScope: {
+          orgId: 'tenant-material-activation',
+          projectId: 'project-material-activation',
+          envId: 'env-material-activation',
+          signingRootVersion: signer.walletKey.signingRootVersion,
+        },
+        normalSigningScope: reusableScope,
+        authorizationSessionId: 'authorization-session-pool',
+        walletSessionId: 'wallet-session-pool',
+        quotaId: 'wallet-quota-pool',
+        thresholdSessionId: 'threshold-session-pool',
+        signingGrantId: 'signing-grant-pool',
+      });
+      ctx.opts.session = {
+        async parse() {
+          return { ok: true, claims };
+        },
+      };
+    }
+    ctx.request = new Request(`https://app.example.test${testCase.pathname}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      body: JSON.stringify(body),
+    });
+    ctx.url = new URL(ctx.request.url);
+    ctx.pathname = testCase.pathname;
+
+    const response = await handleThresholdEcdsa(ctx);
+    expect(response?.status, testCase.name).toBe(403);
+    expect(sideEffects, testCase.name).toEqual(emptyRouteSideEffects());
   }
 });
