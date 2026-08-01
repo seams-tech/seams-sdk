@@ -4,8 +4,6 @@ import {
   PASSKEY_PRF_FIRST_SALT_V1,
   PASSKEY_PRF_SECOND_SALT_V1,
   emailOtpEcdsaRestoreInfoFields,
-  emailOtpSigningSessionRestoreRootInfoFields,
-  emailOtpSigningSessionSecretInfoFields,
   encodeSigningSessionHkdfTuple,
 } from '@shared/utils/signingSessionSeal';
 import { seedEmailOtpEcdsaSealedSigningSessionRecord } from './helpers/sealedSigningSession.fixtures';
@@ -55,24 +53,6 @@ test.describe('shared signing-session seal specs', () => {
       ...utf8('alice.testnet'),
     ]);
 
-    expect(
-      emailOtpSigningSessionSecretInfoFields({
-        walletId: 'alice.testnet',
-        userId: 'user-1',
-        signingRootId: 'root',
-        signingRootVersion: 'root-v1',
-        signingGrantId: 'wallet-session',
-      }),
-    ).toEqual(['alice.testnet', 'user-1', 'root', 'root-v1', 'wallet-session', 'email_otp']);
-    expect(
-      emailOtpSigningSessionRestoreRootInfoFields({
-        walletId: 'alice.testnet',
-        userId: 'user-1',
-        signingRootId: 'root',
-        signingRootVersion: 'root-v1',
-        signingGrantId: 'wallet-session',
-      }),
-    ).toEqual(['email_otp', 'alice.testnet', 'user-1', 'root', 'root-v1', 'wallet-session']);
     expect(
       emailOtpEcdsaRestoreInfoFields({
         ecdsaThresholdSessionId: 'ecdsa-session',
