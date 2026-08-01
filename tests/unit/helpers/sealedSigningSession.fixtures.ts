@@ -46,6 +46,7 @@ import {
   parseSeamsSessionId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 function requireFixtureDomainId<T>(
   result: { ok: true; value: T } | { ok: false; error: unknown },
@@ -183,6 +184,7 @@ export function buildEmailOtpEd25519SealedSessionRecordFixture(
     thresholdSessionId?: string;
     expiresAtMs?: number;
     remainingUses?: number;
+    materialActivation?: MpcMaterialActivationRef;
   } = {},
 ): CurrentEd25519SealedSessionRecord {
   const walletId = args.walletId ?? 'email-otp-ed25519-sealed-runtime-wallet';
@@ -212,10 +214,9 @@ export function buildEmailOtpEd25519SealedSessionRecordFixture(
       provider: 'google',
       providerSubjectId: 'google:email-otp-ed25519-runtime',
       emailHashHex: 'email-otp-ed25519-runtime-hash',
-      materialActivation: buildMpcMaterialActivationRefFixture(
-        'email-otp-ed25519-runtime-material',
-        walletId,
-      ),
+      materialActivation:
+        args.materialActivation ??
+        buildMpcMaterialActivationRefFixture('email-otp-ed25519-runtime-material', walletId),
       relayerKeyId: 'email-otp-ed25519-runtime-worker',
       participantIds: [1, 2],
       runtimePolicyScope: {

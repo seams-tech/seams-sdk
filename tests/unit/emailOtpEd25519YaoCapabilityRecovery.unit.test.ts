@@ -23,10 +23,7 @@ import {
   walletIdFromString,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { base58Encode } from '../../packages/shared-ts/src/utils/base58';
-import {
-  buildCurrentSealedSessionRecord,
-  type CurrentEd25519SealedSessionRecord,
-} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
+import type { CurrentEd25519SealedSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   recoverEmailOtpEd25519YaoFromSealedSessionV1,
   resolveEmailOtpEd25519YaoExportContextV1,
@@ -45,44 +42,46 @@ import {
   parseSeamsSessionId,
   parseWalletSessionId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
-import { SIGNING_SESSION_SEAL_GROUP_ID } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import { buildActiveWalletSessionAuthorizationProjection } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { resolveThresholdEd25519CommitQueueKey } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/commitQueue';
 import { exactEd25519SigningLaneIdentity } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
-  buildImplicitNearAccountBinding,
+  buildNamedNearAccountBinding,
   buildNearEd25519SignerBinding,
   buildWalletIdentity,
 } from '../../packages/shared-ts/src/utils/walletCapabilityBindings';
-import { parseImplicitNearAccountId } from '../../packages/shared-ts/src/utils/near';
+import { parseNamedNearAccountId } from '../../packages/shared-ts/src/utils/near';
 import {
   parseRouterAbMpcMaterialActivationRef,
   routerAbMpcMaterialActivationRefToWire,
 } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { buildEmailOtpEd25519SealedSessionRecordFixture } from './helpers/sealedSigningSession.fixtures';
 
-const WALLET_ID = walletIdFromString('email-otp-ed25519-budget.testnet');
-const NEAR_ACCOUNT_ID = toAccountId('ab'.repeat(32));
+const WALLET_ID = walletIdFromString('email-otp-ed25519-sealed-runtime-wallet');
+const NEAR_ACCOUNT_ID = toAccountId('email-otp-ed25519-runtime.testnet');
 const NEAR_ED25519_SIGNING_KEY_ID = nearEd25519SigningKeyIdFromString(
-  'email-otp-ed25519-budget.testnet',
+  'email-otp-ed25519-runtime-key',
 );
-const THRESHOLD_SESSION_ID = 'email-otp-ed25519-threshold-session';
+const THRESHOLD_SESSION_ID = 'email-otp-ed25519-sealed-runtime-session';
 const WALLET_SESSION_ID = unwrapDomainId(parseWalletSessionId('email-otp-ed25519-wallet-session'));
 const WALLET_SESSION_QUOTA_ID = unwrapDomainId(
   parseMpcWalletSigningQuotaId('email-otp-ed25519-wallet-session-quota'),
 );
 const SIGNING_GRANT_ID = 'email-otp-ed25519-signing-grant';
 const RECOVERED_SIGNING_GRANT_ID = 'email-otp-ed25519-recovered-signing-grant';
-const PROVIDER_SUBJECT = 'google:email-otp-ed25519-budget-subject';
+const PROVIDER_SUBJECT = 'google:email-otp-ed25519-runtime';
+const EMAIL_HASH_HEX = 'email-otp-ed25519-runtime-hash';
+const RP_ID = 'wallet.example.test';
 const RELAYER_URL = 'https://relay.example.test';
-const SIGNING_WORKER_ID = 'email-otp-ed25519-signing-worker';
-const SIGNING_ROOT_ID = 'project-email-otp-ed25519:dev';
+const SIGNING_WORKER_ID = 'email-otp-ed25519-runtime-worker';
+const SIGNING_ROOT_ID = 'email-otp-ed25519-sealed-runtime-project:test';
 const PARTICIPANT_IDS = [1, 2] as const;
 const RUNTIME_POLICY_SCOPE = {
-  orgId: 'org-email-otp-ed25519',
-  projectId: 'project-email-otp-ed25519',
-  envId: 'dev',
-  signingRootVersion: 'root-v1',
+  orgId: 'email-otp-ed25519-runtime-org',
+  projectId: 'email-otp-ed25519-sealed-runtime-project',
+  envId: 'test',
+  signingRootVersion: 'v1',
 } as const;
 const ROUTER_AB_NORMAL_SIGNING = {
   kind: 'router_ab_ed25519_normal_signing_v1',
@@ -91,7 +90,7 @@ const ROUTER_AB_NORMAL_SIGNING = {
 const REGISTERED_PUBLIC_KEY = new Uint8Array(32).fill(7);
 const PRIOR_CAPABILITY_BINDING = new Array<number>(32).fill(1);
 const MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
-  'email-otp-ed25519-budget',
+  'email-otp-ed25519-runtime-material',
   String(WALLET_ID),
   SIGNING_WORKER_ID,
 );
@@ -118,11 +117,11 @@ function materialActivationFromWire(value: unknown) {
 }
 
 function exportLaneIdentity() {
-  const account = parseImplicitNearAccountId(NEAR_ACCOUNT_ID);
+  const account = parseNamedNearAccountId(NEAR_ACCOUNT_ID);
   if (!account.ok) throw new Error(account.message);
   return exactEd25519SigningLaneIdentity({
     signer: buildNearEd25519SignerBinding({
-      account: buildImplicitNearAccountBinding({
+      account: buildNamedNearAccountBinding({
         wallet: buildWalletIdentity({ walletId: WALLET_ID }),
         nearAccountId: account.value,
       }),
@@ -158,7 +157,7 @@ function walletSessionJwt(version: string, signingGrantId = SIGNING_GRANT_ID): s
     thresholdSessionId: THRESHOLD_SESSION_ID,
     signingGrantId,
     relayerKeyId: SIGNING_WORKER_ID,
-    rpId: 'localhost',
+    rpId: RP_ID,
     participantIds: [...PARTICIPANT_IDS],
     version,
   })}.fixture`;
@@ -169,7 +168,7 @@ async function readActiveEmailOtpWalletSessionAuthorization() {
     walletId: WALLET_ID,
     provider: 'google',
     providerUserId: PROVIDER_SUBJECT,
-    emailHashHex: '11'.repeat(32),
+    emailHashHex: EMAIL_HASH_HEX,
   });
   const authorizationSessionId = unwrapDomainId(
     parseSeamsSessionId('email-otp-ed25519-app-session'),
@@ -531,42 +530,15 @@ function buildEmailOtpSealedRecord(args: {
   remainingUses: number;
   materialActivation?: ReturnType<typeof nearEd25519YaoMaterialActivationFromMetadata>;
 }): CurrentEd25519SealedSessionRecord {
-  const record = buildCurrentSealedSessionRecord({
-    curve: 'ed25519',
-    authMethod: 'email_otp',
-    thresholdSessionId: THRESHOLD_SESSION_ID,
-    thresholdSessionIds: { ed25519: THRESHOLD_SESSION_ID },
+  return buildEmailOtpEd25519SealedSessionRecordFixture({
     walletId: String(WALLET_ID),
-    signingRootId: SIGNING_ROOT_ID,
-    signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
-    relayerUrl: RELAYER_URL,
-    sealedSecretB64u: 'sealed-email-otp-ed25519-factor',
-    keyVersion: 'seal-v1',
-    groupId: SIGNING_SESSION_SEAL_GROUP_ID,
-    issuedAtMs: Date.now() - 1_000,
+    nearAccountId: String(NEAR_ACCOUNT_ID),
+    nearEd25519SigningKeyId: String(NEAR_ED25519_SIGNING_KEY_ID),
+    thresholdSessionId: THRESHOLD_SESSION_ID,
     expiresAtMs: args.expiresAtMs,
     remainingUses: args.remainingUses,
-    updatedAtMs: Date.now(),
-    ed25519Restore: {
-      nearAccountId: String(NEAR_ACCOUNT_ID),
-      nearEd25519SigningKeyId: String(NEAR_ED25519_SIGNING_KEY_ID),
-      rpId: 'localhost',
-      provider: 'google',
-      providerSubjectId: PROVIDER_SUBJECT,
-      emailHashHex: '11'.repeat(32),
-      materialActivation:
-        args.materialActivation ?? publicCapabilityReference().materialActivation,
-      relayerKeyId: SIGNING_WORKER_ID,
-      participantIds: [...PARTICIPANT_IDS],
-      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-      signerSlot: 1,
-      routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
-    },
+    materialActivation: args.materialActivation ?? publicCapabilityReference().materialActivation,
   });
-  if (!record || record.curve !== 'ed25519') {
-    throw new Error('expected Email OTP Ed25519 sealed record');
-  }
-  return record;
 }
 
 async function runEd25519CommitQueueTask<T>(args: {
@@ -597,7 +569,7 @@ async function warmRecoveryBootstrapResponse(args: {
     walletId: WALLET_ID,
     provider: 'google',
     providerUserId: PROVIDER_SUBJECT,
-    emailHashHex: '11'.repeat(32),
+    emailHashHex: EMAIL_HASH_HEX,
   });
   return {
     kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
@@ -643,7 +615,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       },
       expectedMaterialActivation: publicCapabilityReference().materialActivation,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
-      rpId: 'localhost',
+      rpId: RP_ID,
       relayerUrl: RELAYER_URL,
       authPolicy: 'session',
       ports: {
@@ -678,10 +650,10 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
     expect(publicationInput).not.toBeNull();
     expect(publicationInput).not.toHaveProperty('record');
     expect(publicationInput?.publicationContext).toMatchObject({
-      rpId: 'localhost',
+      rpId: RP_ID,
       provider: 'google',
       providerSubjectId: PROVIDER_SUBJECT,
-      emailHashHex: '11'.repeat(32),
+      emailHashHex: EMAIL_HASH_HEX,
     });
     expect(publicationInput?.capability.walletSessionState.thresholdSessionId).toBe(
       THRESHOLD_SESSION_ID,
@@ -735,7 +707,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
         },
         expectedMaterialActivation: expectedActivation,
         expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
-        rpId: 'localhost',
+        rpId: RP_ID,
         relayerUrl: RELAYER_URL,
         authPolicy: 'session',
         ports: {
@@ -791,7 +763,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       },
       expectedMaterialActivation: publicCapabilityReference().materialActivation,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
-      rpId: 'localhost',
+      rpId: RP_ID,
       relayerUrl: RELAYER_URL,
       authPolicy: 'session',
       ports: {
@@ -836,7 +808,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       },
       expectedMaterialActivation: publicCapabilityReference().materialActivation,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
-      rpId: 'localhost',
+      rpId: RP_ID,
       relayerUrl: RELAYER_URL,
       authPolicy: 'session',
       ports: {
@@ -1001,8 +973,8 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       signerSlot: 1,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
       providerSubject: PROVIDER_SUBJECT,
-      emailHashHex: '11'.repeat(32),
-      rpId: 'localhost',
+      emailHashHex: EMAIL_HASH_HEX,
+      rpId: RP_ID,
       relayerUrl: RELAYER_URL,
       authPolicy: 'session',
       remainingUses: 3,
@@ -1057,8 +1029,8 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       signerSlot: 1,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
       providerSubject: PROVIDER_SUBJECT,
-      emailHashHex: '11'.repeat(32),
-      rpId: 'localhost',
+      emailHashHex: EMAIL_HASH_HEX,
+      rpId: RP_ID,
       relayerUrl: RELAYER_URL,
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       authPolicy: 'session',
@@ -1099,8 +1071,8 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       signerSlot: 1,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
       providerSubject: PROVIDER_SUBJECT,
-      emailHashHex: '11'.repeat(32),
-      rpId: 'localhost',
+      emailHashHex: EMAIL_HASH_HEX,
+      rpId: RP_ID,
       relayerUrl: RELAYER_URL,
       authPolicy: 'session',
       remainingUses: 3,
@@ -1142,8 +1114,8 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       signerSlot: 1,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
       providerSubject: PROVIDER_SUBJECT,
-      emailHashHex: '11'.repeat(32),
-      rpId: 'localhost',
+      emailHashHex: EMAIL_HASH_HEX,
+      rpId: RP_ID,
       relayerUrl: RELAYER_URL,
       authPolicy: 'session',
       remainingUses: 3,
