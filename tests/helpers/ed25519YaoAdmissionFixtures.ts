@@ -24,9 +24,12 @@ export function ed25519YaoFixtureBytes(seed: number): number[] {
 export function buildFixtureEd25519YaoRegistrationAdmissionRequest(
   overrides: {
     readonly lifecycleId?: string;
+    readonly rootShareEpoch?: string;
     readonly walletId?: string;
     readonly signerSetId?: string;
     readonly signingWorkerId?: string;
+    readonly nearEd25519SigningKeyId?: string;
+    readonly signingRootId?: string;
     readonly participantIds?: readonly [number, number];
     readonly signerSlot?: number;
   } = {},
@@ -37,7 +40,7 @@ export function buildFixtureEd25519YaoRegistrationAdmissionRequest(
   const parsed = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1({
     scope: {
       lifecycle_id: lifecycleId,
-      root_share_epoch: 'root-share-epoch-9',
+      root_share_epoch: overrides.rootShareEpoch ?? 'root-share-epoch-9',
       account_id: walletId,
       wallet_session_id: `${lifecycleId}-session`,
       signer_set_id: overrides.signerSetId ?? 'signer-set-fixture',
@@ -45,8 +48,9 @@ export function buildFixtureEd25519YaoRegistrationAdmissionRequest(
     },
     application_binding: {
       wallet_id: walletId,
-      near_ed25519_signing_key_id: 'ed25519ks_fixture',
-      signing_root_id: 'project_fixture:dev',
+      near_ed25519_signing_key_id:
+        overrides.nearEd25519SigningKeyId ?? 'ed25519ks_fixture',
+      signing_root_id: overrides.signingRootId ?? 'project_fixture:dev',
       key_creation_signer_slot: signerSlot,
     },
     participant_ids: overrides.participantIds ?? [11, 29],
@@ -58,6 +62,7 @@ export function buildFixtureEd25519YaoRegistrationAdmissionRequest(
 export function buildFixtureEd25519YaoRegistrationAdmissionReceipt(
   overrides: {
     readonly lifecycleId?: string;
+    readonly rootShareEpoch?: string;
     readonly walletId?: string;
     readonly signerSetId?: string;
     readonly signingWorkerId?: string;
@@ -70,7 +75,7 @@ export function buildFixtureEd25519YaoRegistrationAdmissionReceipt(
         lifecycle_id: lifecycleId,
         work_kind: 'registration_prepare',
         primitive_request_kind: 'registration',
-        root_share_epoch: 'root-share-epoch-9',
+        root_share_epoch: overrides.rootShareEpoch ?? 'root-share-epoch-9',
         account_id: overrides.walletId ?? 'near-account.testnet',
         session_id: `${lifecycleId}-session`,
         signer_set_id: overrides.signerSetId ?? 'signer-set-fixture',
