@@ -14,4 +14,3 @@ CREATE TABLE IF NOT EXISTS vault_proxy_secrets (
   CHECK (length(nonce_b64u) > 0),
   CHECK (created_at_ms > 0)
 );
-
