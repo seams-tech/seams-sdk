@@ -144,6 +144,10 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
     authorizationClaims: input.ctx.service.authorizationClaims,
     authorizationSessions: input.ctx.service.authorizationSessions,
     admissionAdapter: input.ctx.opts.routerAbNormalSigningAdmission,
+    resolveEcdsaMaterialActivation:
+      input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation.bind(
+        input.ctx.service.walletRegistration,
+      ),
     phase: input.phase,
   });
   if (!authorization.ok) {

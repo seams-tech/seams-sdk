@@ -49,6 +49,7 @@ import { walletSessionFailure, walletSessionFailureStatus } from './walletSessio
 import type {
   RouterApiAuthorizationClaimService,
   RouterApiAuthorizationSessionService,
+  RouterApiWalletRegistrationService,
 } from './authServicePort';
 import {
   buildEvmEcdsaMpcOperationRef,
@@ -211,7 +212,7 @@ type AcceptedRouteAdmission = {
 };
 
 type AcceptedEcdsaRouteAdmission = AcceptedRouteAdmission & {
-  readonly materialActivationId: MpcMaterialActivationId;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
 };
 
 type RejectedRouteAdmission = {
@@ -270,7 +271,7 @@ export type RouterAbEcdsaNormalSigningAuthorizationResult =
       readonly ok: true;
       readonly kind: 'reusable_wallet_session';
       readonly validated: RouterAbEcdsaWalletSessionValidationSuccess;
-      readonly admission: Extract<RouterAbNormalSigningRouteAdmission, { readonly ok: true }>;
+      readonly admission: AcceptedEcdsaRouteAdmission;
     }
   | { readonly ok: true; readonly kind: 'operation_step_up' }
   | { readonly ok: false; readonly result: RouterAbJsonRouteResult };
@@ -389,7 +390,9 @@ export async function evaluateRouterAbNormalSigningAdmission(
     curve: 'ecdsa',
     phase: input.phase,
     walletId: input.walletSessionAuth.userId,
-    materialActivationId: input.admission.materialActivationId,
+    materialActivationId: requireMpcMaterialActivationId(
+      input.admission.materialActivation.activation_id,
+    ),
     authorizationIdentity: {
       kind: 'reusable_wallet_session',
       walletSessionId: input.walletSessionAuth.walletSessionId,
@@ -2518,9 +2521,7 @@ export function validateRouterAbEcdsaDerivationNormalSigningPrepareRequest(input
     thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
     requestId: request.request_id,
     expiresAtMs: request.expires_at_ms,
-    materialActivationId: requireMpcMaterialActivationId(
-      request.material_activation.activation_id,
-    ),
+    materialActivation: request.material_activation,
   };
 }
 
@@ -2596,14 +2597,13 @@ export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(inpu
     thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
     requestId: request.request_id,
     expiresAtMs: request.expires_at_ms,
-    materialActivationId: requireMpcMaterialActivationId(
-      request.material_activation.activation_id,
-    ),
+    materialActivation: request.material_activation,
   };
 }
 
 async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
   request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire;
+  materialActivation: RouterAbMpcMaterialActivationRefWire;
   claims: RouterAbEcdsaDerivationWalletSessionClaims;
   authorizationClaims: RouterApiAuthorizationClaimService;
   authorizationSessions: RouterApiAuthorizationSessionService;
@@ -2659,7 +2659,7 @@ async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
       };
     }
     const capabilityId = requireAuthorizationValue(
-      parseCapabilityId(input.request.material_activation.capability),
+      parseCapabilityId(input.materialActivation.capability),
     );
     const operationId = requireAuthorizationValue(
       parseCapabilityOperationId(input.request.operation_id),
@@ -3025,6 +3025,7 @@ export async function authorizeRouterAbEcdsaDerivationNormalSigningRoute(input: 
   authorizationClaims: RouterApiAuthorizationClaimService | null | undefined;
   authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
+  resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
   phase: 'prepare' | 'finalize';
 }): Promise<RouterAbEcdsaNormalSigningAuthorizationResult> {
   const invalidSessionKind = rejectRouterAbCookieSessionKind(
@@ -3091,13 +3092,50 @@ export async function authorizeRouterAbEcdsaDerivationNormalSigningRoute(input: 
     };
   }
 
+  const activeMaterial = await input.resolveEcdsaMaterialActivation({
+    walletId: validated.walletSessionAuth.userId,
+    materialActivation: admission.materialActivation,
+  });
+  if (!activeMaterial.ok) {
+    return {
+      ok: false,
+      result: routerAbStepUpError(
+        activeMaterial.code === 'internal' ? 500 : 403,
+        activeMaterial.code === 'internal' ? 'internal' : 'wallet_session_scope_mismatch',
+        activeMaterial.code === 'internal'
+          ? activeMaterial.message
+          : 'Reusable Wallet Session material is no longer active',
+      ),
+    };
+  }
+  if (
+    !sameRouterAbMpcMaterialActivationRef(
+      activeMaterial.materialActivation,
+      admission.materialActivation,
+    )
+  ) {
+    return {
+      ok: false,
+      result: routerAbStepUpError(
+        403,
+        'wallet_session_scope_mismatch',
+        'Reusable Wallet Session material does not match the active material',
+      ),
+    };
+  }
+
+  const canonicalAdmission: AcceptedEcdsaRouteAdmission = {
+    ...admission,
+    materialActivation: activeMaterial.materialActivation,
+  };
+
   const admissionDecision = await evaluateRouterAbNormalSigningAdmission({
     adapter: input.admissionAdapter,
     curve: 'ecdsa',
     phase: input.phase,
     claims: validated.claims,
     walletSessionAuth: validated.walletSessionAuth,
-    admission,
+    admission: canonicalAdmission,
   });
   if (!admissionDecision.ok) {
     return {
@@ -3113,7 +3151,12 @@ export async function authorizeRouterAbEcdsaDerivationNormalSigningRoute(input: 
     };
   }
 
-  return { ok: true, kind: 'reusable_wallet_session', validated, admission };
+  return {
+    ok: true,
+    kind: 'reusable_wallet_session',
+    validated,
+    admission: canonicalAdmission,
+  };
 }
 
 export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input: {
@@ -3125,6 +3168,7 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
   authorizationClaims: RouterApiAuthorizationClaimService | null | undefined;
   authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
+  resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
   privatePath: RouterAbEcdsaDerivationPrivateSigningPath;
   phase: 'prepare' | 'finalize';
 }): Promise<RouterAbJsonRouteResult> {
@@ -3180,6 +3224,7 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
     const request = parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body);
     const claimed = await admitRouterAbEcdsaReusableWalletSessionOperation({
       request,
+      materialActivation: admission.materialActivation,
       claims: validated.claims,
       authorizationClaims: input.authorizationClaims,
       authorizationSessions: input.authorizationSessions,
