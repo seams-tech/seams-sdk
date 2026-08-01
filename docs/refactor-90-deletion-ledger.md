@@ -488,12 +488,16 @@ ports, and the two-state recovery journal.
   through the shared sealed-session fixture (`fc2383c93`). Current
   authorization grant/quota fields remain only where the live lane/JWT
   boundary requires them.
-- `emailOtpEd25519YaoExportRefresh.unit.test.ts` (migrate page-refresh,
-  zero-Passkey-callback, durable-context, continuity, and zeroization
-  assertions)
-- `passkeyEd25519YaoExportRefresh.unit.test.ts` (migrate stale-grant/
-  current-grant, current-credential, no-intervening-transaction, and
-  authenticator-drift assertions)
+- ~~`emailOtpEd25519YaoExportRefresh.unit.test.ts` migration~~ — retained as
+  current page-refresh, durable-context, continuity, zeroization, and
+  wrong-factor-callback coverage. Its lane and authorization use production
+  builders; the remaining inline value is the worker's plain capability
+  descriptor, for which no shared domain-record factory is appropriate.
+- ~~`passkeyEd25519YaoExportRefresh.unit.test.ts` migration~~ — retained as
+  current credential, no-intervening-transaction, continuity, and
+  authenticator-drift coverage. Lane, Wallet Session, and authorization use
+  production/shared builders; the remaining values are test doubles rather
+  than persisted lifecycle records.
 - ~~`ed25519YaoExportFlow.typecheck.ts` migration~~ — the retained fixture now
   rejects the wrong factor lane at the current authority/adapter boundary and
   carries no legacy grant or budget material.
