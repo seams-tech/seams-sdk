@@ -1204,8 +1204,12 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Require canonical JWT `sid` at the Cloudflare Router boundary and
         delete the legacy `session_id` claim fallback and selector
         (`af6dc1514`).
-  - [x] Delete the pure `SigningAuthMethod = SignerAuthMethod` alias and use
+    - [x] Delete the pure `SigningAuthMethod = SignerAuthMethod` alias and use
         canonical `SignerAuthMethod` throughout signing operation state.
+    - [x] Delete the unused threshold warm-session policy draft/request-envelope
+        API, its pre-cutover type fixture and unit coverage, and the source
+        guards that only enforced that retired surface. The live Router A/B
+        normal-signing policy builder remains (`4c60abd88`).
   - [x] Delete zero-caller wallet/session helpers and exact aliases for ECDSA
         authorization, activation requests/results, bootstrap args, and sealed
         resolved identity (`6207cea1f`, `dfee38d07`).
