@@ -62,6 +62,7 @@ import type {
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDelivery';
 import { buildPasskeyEd25519SessionPolicy } from '../../threshold/sessionPolicy';
+import { createNearOperationStepUpGrantId } from './shared/operationStepUpPreparation';
 import {
   walletSessionFailureFromError,
   type WalletSessionFailure,
@@ -675,7 +676,6 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
   signer: NearEd25519SignerBinding;
   preparation: NearEd25519YaoSigningPreparation;
   materialExecutor: NearEd25519YaoMaterialExecutor;
-  operationId: SigningOperationId;
 }): NearPasskeyEd25519OperationStepUpHook | undefined {
   if (args.auth.kind !== 'passkey') return undefined;
   const auth = args.auth;
@@ -688,8 +688,8 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
       const materialFacts = material.facts;
       const signer = args.signer;
       const thresholdSessionId = String(materialFacts.thresholdSessionId || '').trim();
-      const signingGrantId = `operation-step-up:${args.operationId}`;
-      if (!thresholdSessionId || !signingGrantId) {
+      const requestedGrantId = createNearOperationStepUpGrantId();
+      if (!thresholdSessionId) {
         throw new Error(
           '[SigningEngine] passkey Ed25519 budget refresh requires exact lifecycle identity',
         );
@@ -708,12 +708,12 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
         routerAbNormalSigning: materialFacts.routerAbNormalSigning,
         participantIds: [...material.participantIds],
         thresholdSessionId,
-        signingGrantId,
+        signingGrantId: requestedGrantId,
         remainingUses: requiredSignatureUses,
       });
       return {
         sessionId: policy.thresholdSessionId,
-        signingGrantId: policy.signingGrantId,
+        requestedGrantId,
         sessionPolicyDigest32,
         authority,
       };
@@ -853,7 +853,6 @@ async function prepareNearAdHocSigningSession(args: {
         signer,
         preparation: materialBoundary.preparation,
         materialExecutor: materialBoundary.executor,
-        operationId: args.operationId,
       }) || null;
     const emailOtpEd25519StepUp =
       buildNearEmailOtpEd25519StepUp({
@@ -890,7 +889,6 @@ async function prepareNearAdHocSigningSession(args: {
       signer: selectedLane.identity.signer,
       preparation: materialBoundary.preparation,
       materialExecutor: materialBoundary.executor,
-      operationId: args.operationId,
     }) || null;
   const emailOtpEd25519StepUp =
     buildNearEmailOtpEd25519StepUp({
@@ -986,7 +984,6 @@ async function prepareNearAuthorizationRequiredTransaction(args: {
         signer,
         preparation: materialBoundary.preparation,
         materialExecutor: materialBoundary.executor,
-        operationId: args.operationId,
       }) || null,
     emailOtpEd25519StepUp:
       buildNearEmailOtpEd25519StepUp({
@@ -1435,7 +1432,6 @@ export async function signTransactionWithActions(
           signer: transactionLane.identity.signer,
           preparation: materialBoundary.preparation,
           materialExecutor: materialBoundary.executor,
-          operationId: confirmationOperationId,
         });
         const emailOtpEd25519StepUp = buildNearEmailOtpEd25519StepUp({
           deps,

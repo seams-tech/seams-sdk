@@ -15,6 +15,12 @@ import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import {
+  parseCapabilityGrantId,
+  parseSeamsSessionId,
+  type CapabilityGrantId,
+  type SeamsSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 export type ThresholdEd25519WebAuthnPrfSecretSource = {
   kind: 'webauthn_prf_first_credential';
@@ -382,8 +388,8 @@ function serializeEd25519OperationStepUpProof(
 
 export type IssuedEd25519OperationStepUpGrant = {
   kind: 'operation_step_up';
-  grantId: string;
-  authorizationSessionId: string;
+  grantId: CapabilityGrantId;
+  authorizationSessionId: SeamsSessionId;
   expiresAtMs: number;
   materialRecovery: Ed25519OperationStepUpMaterialRecoveryResponse;
 };
@@ -420,6 +426,22 @@ function requireNormalizedEd25519OperationStepUpString(value: unknown, field: st
     throw new Error(`[threshold-ed25519] ${field} must be a non-empty normalized string`);
   }
   return value;
+}
+
+function requireEd25519OperationStepUpGrantId(value: unknown) {
+  const parsed = parseCapabilityGrantId(value);
+  if (!parsed.ok) {
+    throw new Error(`[threshold-ed25519] ${parsed.error.message}`);
+  }
+  return parsed.value;
+}
+
+function requireEd25519OperationStepUpAuthorizationSessionId(value: unknown) {
+  const parsed = parseSeamsSessionId(value);
+  if (!parsed.ok) {
+    throw new Error(`[threshold-ed25519] ${parsed.error.message}`);
+  }
+  return parsed.value;
 }
 
 function buildEd25519OperationStepUpMaterialRecoveryRequest(
@@ -531,10 +553,9 @@ function parseIssuedEd25519OperationStepUpGrant(args: {
   }
   return {
     kind: 'operation_step_up',
-    grantId: requireNormalizedEd25519OperationStepUpString(body.grantId, 'grantId'),
-    authorizationSessionId: requireNormalizedEd25519OperationStepUpString(
+    grantId: requireEd25519OperationStepUpGrantId(body.grantId),
+    authorizationSessionId: requireEd25519OperationStepUpAuthorizationSessionId(
       body.authorizationSessionId,
-      'authorizationSessionId',
     ),
     expiresAtMs: body.expiresAtMs,
     materialRecovery: parseEd25519OperationStepUpMaterialRecoveryResponse({

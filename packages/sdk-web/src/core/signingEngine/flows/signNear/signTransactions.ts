@@ -89,7 +89,7 @@ import {
   buildNearEmailOtpEd25519OperationStepUpProof,
   prepareRouterAbEd25519NearTransactionOperationStepUp,
   requireNearEd25519OperationStepUpProof,
-  selectedNearEd25519LaneFromOperationStepUp,
+  requireIssuedNearEd25519OperationStepUpGrant,
   tryFinalizeRouterAbEd25519NearTransactionNormalSigning,
 } from './shared/ed25519YaoNormalSigning';
 import { resolveConfirmedNearTransactionContext } from './implicitAccountFunding';
@@ -104,6 +104,7 @@ import {
 import {
   clearNearOperationStepUpBuilder,
   consumePreparedNearOperationStepUp,
+  createNearOperationStepUpGrantId,
   registerNearOperationStepUpBuilder,
   requireNearOperationStepUpMaterialActivation,
   type PreparedNearOperationStepUp,
@@ -383,6 +384,10 @@ async function runNearAuthorizationRequiredTransactionSigning(
   });
   const materialFacts = nearOperationStepUpMaterialFacts(operationStepUpMaterial);
   const signingOperationUses = requiredNearTransactionSignatureUses(transaction);
+  const requestedGrantId =
+    preparedStepUp.kind === 'passkey'
+      ? preparedStepUp.plannedPasskeyOperationStepUp.requestedGrantId
+      : createNearOperationStepUpGrantId();
   registerNearOperationStepUpBuilder({
     requestId: String(operationId),
     build: async (preparation) => {
@@ -398,10 +403,7 @@ async function runNearAuthorizationRequiredTransactionSigning(
         nearAccountId,
         materialActivation: operationStepUpMaterial.materialActivation,
         operationId,
-        grantId:
-          preparedStepUp.kind === 'passkey'
-            ? preparedStepUp.plannedPasskeyOperationStepUp.signingGrantId
-            : `operation-step-up:${operationId}`,
+        grantId: requestedGrantId,
         txSigningRequest,
         transactionContext: preparation.transactionContext,
         displayDigest: preparation.displayDigest,
@@ -507,9 +509,7 @@ async function runNearAuthorizationRequiredTransactionSigning(
     if (!result || result.authorization !== 'operation_step_up') {
       throw new Error('[SigningEngine][near] operation step-up transaction signing is unavailable');
     }
-    selectedNearEd25519LaneFromOperationStepUp({
-      materialFacts,
-      auth: candidate.auth,
+    requireIssuedNearEd25519OperationStepUpGrant({
       prepared: preparedTransactionStepUp,
       issuedGrant: result.issuedGrant,
     });
@@ -719,6 +719,10 @@ async function runAuthorizedNearTransactionWithActionsSigning({
     });
     const material = operationStepUpMaterial;
     const materialFacts = nearOperationStepUpMaterialFacts(material);
+    const requestedGrantId =
+      preparedStepUp.kind === 'passkey'
+        ? preparedStepUp.plannedPasskeyOperationStepUp.requestedGrantId
+        : createNearOperationStepUpGrantId();
     registerNearOperationStepUpBuilder({
       requestId: sessionId,
       build: async (preparation) => {
@@ -737,10 +741,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
           nearAccountId,
           materialActivation: material.materialActivation,
           operationId: signingOperation.operationId,
-          grantId:
-            preparedStepUp.kind === 'passkey'
-              ? preparedStepUp.plannedPasskeyOperationStepUp.signingGrantId
-              : `operation-step-up:${signingOperation.operationId}`,
+          grantId: requestedGrantId,
           txSigningRequest,
           transactionContext: preparation.transactionContext,
           displayDigest: preparation.displayDigest,

@@ -11,6 +11,8 @@ import type {
   ExactEcdsaSigningLaneIdentity,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
+import type { NearPasskeyOperationStepUpPlan } from '@/core/signingEngine/interfaces/near';
+import type { CapabilityGrantId } from '@shared/authorization/capabilityKinds';
 import type {
   SigningGrantId,
   ThresholdEd25519SessionId,
@@ -21,6 +23,7 @@ declare const nearAccountId: NamedNearAccountId;
 declare const nearEd25519SigningKeyId: NearEd25519SigningKeyId;
 declare const auth: SigningLaneAuthBinding;
 declare const signingGrantId: SigningGrantId;
+declare const capabilityGrantId: CapabilityGrantId;
 declare const thresholdSessionId: ThresholdEd25519SessionId;
 declare const ecdsaLane: ExactEcdsaSigningLaneIdentity;
 
@@ -58,5 +61,26 @@ const ed25519LaneWithLegacyAccountId: ExactEd25519SigningLaneIdentity = {
   accountId: nearAccountId,
 };
 void ed25519LaneWithLegacyAccountId;
+
+declare const operationStepUpPlan: NearPasskeyOperationStepUpPlan;
+const exactOperationGrant: CapabilityGrantId = operationStepUpPlan.requestedGrantId;
+void exactOperationGrant;
+
+const operationStepUpWithReusableGrant: NearPasskeyOperationStepUpPlan = {
+  sessionId: 'threshold-session',
+  // @ts-expect-error Reusable signing grants cannot authorize one-operation step-up.
+  requestedGrantId: signingGrantId,
+  sessionPolicyDigest32: 'digest',
+  authority: operationStepUpPlan.authority,
+};
+void operationStepUpWithReusableGrant;
+
+const operationStepUpWithCapabilityGrant: NearPasskeyOperationStepUpPlan = {
+  sessionId: 'threshold-session',
+  requestedGrantId: capabilityGrantId,
+  sessionPolicyDigest32: 'digest',
+  authority: operationStepUpPlan.authority,
+};
+void operationStepUpWithCapabilityGrant;
 
 export {};

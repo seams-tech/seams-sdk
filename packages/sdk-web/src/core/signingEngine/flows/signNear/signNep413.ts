@@ -53,7 +53,7 @@ import {
   buildNearEd25519OperationStepUpProof,
   prepareRouterAbEd25519SignatureOnlyOperationStepUp,
   requireNearEd25519OperationStepUpProof,
-  selectedNearEd25519LaneFromOperationStepUp,
+  requireIssuedNearEd25519OperationStepUpGrant,
   tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning,
 } from './shared/ed25519YaoNormalSigning';
 import { base64Encode, base64UrlDecode } from '@shared/utils/base64';
@@ -69,6 +69,7 @@ import {
 import {
   clearNearOperationStepUpBuilder,
   consumePreparedNearOperationStepUp,
+  createNearOperationStepUpGrantId,
   registerNearOperationStepUpBuilder,
   type PreparedNearOperationStepUp,
 } from './shared/operationStepUpPreparation';
@@ -344,6 +345,10 @@ export async function signNep413Message({
       workerCtx: ctx,
     });
     operationStepUpSigningDigestB64u = signingDigest.signingDigestB64u;
+    const requestedGrantId =
+      preparedStepUp.kind === 'passkey'
+        ? preparedStepUp.plannedPasskeyOperationStepUp.requestedGrantId
+        : createNearOperationStepUpGrantId();
     registerNearOperationStepUpBuilder({
       requestId: String(operationId),
       build: async (preparation) => {
@@ -362,10 +367,7 @@ export async function signNep413Message({
           materialActivation: material.materialActivation,
           operationId: signingOperation.operationId,
           operationFingerprint: signingOperation.operationFingerprint!,
-          grantId:
-            preparedStepUp.kind === 'passkey'
-              ? preparedStepUp.plannedPasskeyOperationStepUp.signingGrantId
-              : `operation-step-up:${signingOperation.operationId}`,
+          grantId: requestedGrantId,
           displayDigest: preparation.displayDigest,
           signingDigestB64u: signingDigest.signingDigestB64u,
           intent: signatureOnlyIntent,
@@ -532,9 +534,7 @@ export async function signNep413Message({
         preparedMaterial.kind === 'operation_step_up' &&
         routerAbNormalSigningResult.authorization === 'operation_step_up'
       ) {
-        selectedNearEd25519LaneFromOperationStepUp({
-          materialFacts: preparedMaterial.resolved.material.facts,
-          auth: selectionAuth,
+        requireIssuedNearEd25519OperationStepUpGrant({
           prepared: requirePreparedNearNep413OperationStepUp(preparedOperationStepUp),
           issuedGrant: routerAbNormalSigningResult.issuedGrant,
         });
