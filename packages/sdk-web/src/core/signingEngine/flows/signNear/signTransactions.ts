@@ -21,7 +21,6 @@ import type {
   NearEmailOtpEd25519StepUpHook,
   NearEd25519StepUpAuthorization,
   NearEd25519TransactionSigningBoundary,
-  NearPreparedSigningSessionFinalizer,
   NearPasskeyEd25519OperationStepUpHook,
   NearTransactionWithActionsPayload,
 } from '../../interfaces/near';
@@ -55,14 +54,7 @@ import {
 import { nearEd25519SignerBindingFromBoundaryFields } from '../../session/identity/exactSigningLaneIdentity';
 import type { NearTransactionSigningLane } from '../../session/operationState/lanes';
 import {
-  admitTransactionBudget,
-  finalizeSignedTransactionOperation,
-  replacePreparedTransactionLane,
-  signPreparedTransactionOperation,
-  type BudgetAdmittedOperation,
   type PreparedTransactionOperation,
-  type SignedTransactionOperation,
-  type TransactionReadiness,
 } from '../../session/operationState/transactionState';
 import type { NonceLeaseRef } from '../../interfaces/nonceLease';
 import {
@@ -70,16 +62,6 @@ import {
   emitSigningBoundaryTrace,
 } from '../../session/operationState/trace';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import type {
-  BudgetFinalizationSpend,
-  SigningBudgetFinalizationResult,
-  SigningSessionBudgetStatusAuth,
-  SigningSessionPreparedBudgetIdentity,
-} from '../../session/budget/budget';
-import {
-  createSigningSessionBudgetFinalizer,
-  type SigningSessionBudgetFinalizer,
-} from '../../session/budget/budgetFinalizer';
 import {
   parseThresholdEd25519NearTransaction,
   thresholdEd25519NearTransactionPlanningOperationFingerprint,
@@ -238,40 +220,6 @@ function emitNearSigningEvent(
   } catch {}
 }
 
-function remainingUsesFromNearBudgetFinalization(
-  result: SigningBudgetFinalizationResult | null,
-): number | null {
-  if (!result) return null;
-  switch (result.kind) {
-    case 'finalized':
-    case 'already_finalized':
-      return Math.max(0, Math.floor(Number(result.remainingUses) || 0));
-    case 'projection_mismatch':
-    case 'missing_reservation':
-    case 'reservation_identity_mismatch':
-    case 'budget_status_unavailable':
-      return null;
-  }
-  result satisfies never;
-  return null;
-}
-
-function budgetStatusAuthFromWalletSessionState(
-  state: ResolvedRouterAbEd25519WalletSessionState,
-): SigningSessionBudgetStatusAuth {
-  const thresholdSessionId = String(state.thresholdSessionId || '').trim();
-  const relayerUrl = String(state.relayerUrl || '').trim();
-  const walletSessionJwt = String(state.walletSessionAuth.walletSessionJwt || '').trim();
-  if (!thresholdSessionId || !relayerUrl || !walletSessionJwt) {
-    throw new Error('[SigningEngine][near] refreshed signing session is missing budget auth');
-  }
-  return {
-    thresholdSessionId,
-    relayerUrl,
-    walletSessionJwt,
-  };
-}
-
 async function requireActiveAuthorizedWalletSessionState(
   state: ResolvedRouterAbEd25519WalletSessionState | null,
 ) {
@@ -286,16 +234,6 @@ async function requireActiveAuthorizedWalletSessionState(
     throw new Error('[SigningEngine][near] reusable Wallet Session authorization is unavailable');
   }
   return authorized;
-}
-
-function readinessFromPreparedBudgetIdentity(
-  budgetIdentity: SigningSessionPreparedBudgetIdentity,
-): TransactionReadiness {
-  return {
-    status: 'ready',
-    remainingUses: Math.max(0, Math.floor(Number(budgetIdentity.status.remainingUses) || 0)),
-    expiresAtMs: Math.max(0, Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0)),
-  };
 }
 
 function createNearTransactionSigningOperationId(): SigningOperationId {
@@ -602,7 +540,6 @@ async function runAuthorizedNearTransactionWithActionsSigning({
   signingSessionCoordinator: sessionCoordinator,
   transactionOperation,
   ed25519SigningBoundary,
-  finalizePreparedSigningSession,
   passkeyEd25519OperationStepUp,
   emailOtpEd25519StepUp,
   yaoSigningPreparation,
@@ -911,9 +848,6 @@ async function runAuthorizedNearTransactionWithActionsSigning({
   }
 
   let thresholdSignatureCreated = false;
-  let walletSpendRecorded = false;
-  let signedTransactionOperation: SignedTransactionOperation<SelectedEd25519Lane> | null = null;
-
   const preparedPayload = await runSharedNearTransactionCommand({
     commandKind: SigningOperationCommandKind.PreparePayload,
     execute: async () => {
@@ -966,10 +900,6 @@ async function runAuthorizedNearTransactionWithActionsSigning({
                   '[SigningEngine][near] implicit-account funding requires a reusable Wallet Session',
                 );
               })();
-      const trustedBudgetStatusAuth =
-        activeWalletSessionState
-          ? budgetStatusAuthFromWalletSessionState(activeWalletSessionState)
-          : null;
       emitNearSigningEvent(onEvent, nearAccountId, {
         phase: SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE,
         status: 'succeeded',
@@ -1002,7 +932,6 @@ async function runAuthorizedNearTransactionWithActionsSigning({
           resolvedMaterial.kind === 'operation_step_up'
             ? resolvedMaterial.resolved.issuedGrant
             : null,
-        trustedBudgetStatusAuth,
         transactionContext: confirmedNearContext.transactionContext,
         nonceLeaseRefs: confirmedNearContext.nonceLeases,
       };
@@ -1019,153 +948,9 @@ async function runAuthorizedNearTransactionWithActionsSigning({
     walletSessionState,
     operationMaterialFacts,
     issuedGrant,
-    trustedBudgetStatusAuth,
     transactionContext,
     nonceLeaseRefs,
   } = preparedPayload;
-  const usesOperationStepUp = stepUpAuthorization.kind !== 'warm_session';
-  let activeBudgetAdmittedOperation = ed25519SigningBoundary.initialBudgetAdmittedOperation;
-  const buildBudgetSigningLane = (): NearTransactionSigningLane => {
-    if (!walletSessionState) {
-      throw new Error('[SigningEngine][near] reusable Wallet Session state is unavailable');
-    }
-    if (String(walletSessionState.thresholdSessionId) !== canonicalThresholdSessionId) {
-      throw new Error(
-        '[SigningEngine][near] budget signing lane session does not match worker session',
-      );
-    }
-    return walletSessionState.signingLane;
-  };
-  const admitSelectedNearTransactionLaneBudget = async (
-    lane: NearTransactionSigningLane,
-  ): Promise<BudgetAdmittedOperation<SelectedEd25519Lane>> => {
-    const budgetIdentity = await sessionCoordinator.prepareBudgetIdentity({
-      lane,
-      ...(trustedBudgetStatusAuth ? { trustedStatusAuth: trustedBudgetStatusAuth } : {}),
-      operationUsesNeeded: requiredSignatureUses,
-    });
-    const refreshedPreparedOperation = replacePreparedTransactionLane(transactionOperation, {
-      lane,
-      readiness: readinessFromPreparedBudgetIdentity(budgetIdentity),
-    });
-    return admitTransactionBudget(refreshedPreparedOperation, { budgetIdentity });
-  };
-  const createNearBudgetFinalizer = (
-    finalization: BudgetFinalizationSpend,
-    operationState: BudgetAdmittedOperation<SelectedEd25519Lane>,
-  ): SigningSessionBudgetFinalizer | undefined => {
-    if (!signingContext.threshold || !sessionCoordinator) return;
-    return createSigningSessionBudgetFinalizer({
-      budgetMode: 'with_budget',
-      signingSessionBudget: sessionCoordinator,
-      budgetIdentity: operationState.budgetAdmission.budgetIdentity,
-      finalization,
-      onRecordSuccessError: (error) => {
-        console.warn('[SigningEngine][near] failed to update signing grant budget', {
-          nearAccountId,
-          signingGrantId: String(operationState.lane.signingGrantId),
-          thresholdSessionId: String(operationState.lane.thresholdSessionId),
-          error: error instanceof Error ? error.message : String(error || 'unknown error'),
-        });
-      },
-      onRecordZeroSpendError: (ledgerError) => {
-        console.warn('[SigningEngine][near] failed to record signing grant zero spend', {
-          nearAccountId,
-          thresholdSessionId: String(operationState.lane.thresholdSessionId),
-          error:
-            ledgerError instanceof Error
-              ? ledgerError.message
-              : String(ledgerError || 'unknown error'),
-        });
-      },
-    });
-  };
-  const recordSuccessfulSigningGrantSpend = async (
-    operationState: SignedTransactionOperation<SelectedEd25519Lane>,
-  ): Promise<void> => {
-    if (walletSpendRecorded) return;
-    const spend = {
-      operationId: confirmationOperationId,
-      ...(operationFingerprint ? { operationFingerprint } : {}),
-      lane: buildBudgetSigningLane(),
-      backingMaterialSessionIds: [],
-      uses: requiredSignatureUses,
-      reason: SigningOperationIntent.TransactionSign,
-    };
-    const finalization: BudgetFinalizationSpend = {
-      kind: 'externally_consumed_success',
-      spend,
-      ...(trustedBudgetStatusAuth ? { trustedStatusAuth: trustedBudgetStatusAuth } : {}),
-      alreadyConsumedThresholdSessionIds: [operationState.lane.thresholdSessionId],
-    };
-    const finalizer = createNearBudgetFinalizer(finalization, operationState);
-    if (!finalizer) {
-      walletSpendRecorded = true;
-      return;
-    }
-    let finalizationResult: SigningBudgetFinalizationResult | null = null;
-    if (finalizePreparedSigningSession) {
-      await finalizePreparedSigningSession({
-        status: 'success',
-        hooks: {
-          recordSuccess: async () => {
-            finalizationResult = await finalizer.recordSuccess();
-          },
-          recordZeroSpend: (error: unknown) => finalizer.recordZeroSpend(error),
-        },
-      });
-    } else {
-      finalizationResult = await finalizer.recordSuccess();
-    }
-    const remainingUses = remainingUsesFromNearBudgetFinalization(finalizationResult);
-    if (remainingUses !== null) {
-      emitNearSigningEvent(onEvent, nearAccountId, {
-        phase: SigningEventPhase.STEP_11_REMAINING_SPEND_UPDATED,
-        status: 'succeeded',
-        interaction: { kind: 'none', overlay: 'none' },
-        data: {
-          chain: 'near',
-          remainingUses,
-          signingGrantId: String(operationState.lane.signingGrantId),
-          thresholdSessionId: String(operationState.lane.thresholdSessionId),
-        },
-      });
-    }
-    walletSpendRecorded = true;
-  };
-  const recordFailedSigningGrantSpend = async (error: unknown): Promise<void> => {
-    if (walletSpendRecorded || thresholdSignatureCreated) return;
-    const admittedOperation = activeBudgetAdmittedOperation;
-    if (!admittedOperation) return;
-    const finalizer = createNearBudgetFinalizer(
-      {
-        kind: 'zero_spend',
-        operationId: confirmationOperationId,
-        operationFingerprint,
-        lane: buildBudgetSigningLane(),
-        reason: 'signing_failed',
-        error,
-      },
-      admittedOperation,
-    );
-    if (!finalizer) return;
-    if (finalizePreparedSigningSession) {
-      await finalizePreparedSigningSession({
-        status: 'zero_spend',
-        error,
-        hooks: {
-          recordSuccess: async () => {
-            await finalizer.recordSuccess();
-          },
-          recordZeroSpend: (zeroSpendError: unknown) =>
-            finalizer.recordZeroSpend(zeroSpendError),
-        },
-      });
-    } else {
-      finalizer.recordZeroSpend(error);
-    }
-    walletSpendRecorded = true;
-  };
   const releaseUnsignedNonceLeases = async (error: unknown): Promise<void> => {
     if (thresholdSignatureCreated || !nonceLeaseRefs.length) return;
     await releaseNearNonceLeases(ctx, nonceLeaseRefs, 'signing_failed').catch((releaseError) => {
@@ -1176,51 +961,9 @@ async function runAuthorizedNearTransactionWithActionsSigning({
       });
     });
   };
-  const finalizeFailedSigningAttempt = async (error: unknown): Promise<void> => {
-    if (thresholdSignatureCreated) {
-      if (signedTransactionOperation) {
-        await recordSuccessfulSigningGrantSpend(signedTransactionOperation);
-      }
-      return;
-    }
-    await releaseUnsignedNonceLeases(error);
-    await recordFailedSigningGrantSpend(error);
-  };
-  const budgetAdmittedOperationForWorker = usesOperationStepUp
-    ? null
-    : await runSharedNearTransactionCommand({
-        commandKind: SigningOperationCommandKind.ReserveBudget,
-        execute: async () => {
-          if (!activeBudgetAdmittedOperation) {
-            // Confirmed-auth lanes can only become budget-admitted after confirmation
-            // has produced fresh auth material.
-            activeBudgetAdmittedOperation =
-              await admitSelectedNearTransactionLaneBudget(buildBudgetSigningLane());
-          }
-          if (
-            String(activeBudgetAdmittedOperation.lane.thresholdSessionId) !==
-            canonicalThresholdSessionId
-          ) {
-            throw new Error(
-              '[SigningEngine][near] budget-admitted transaction lane does not match worker session',
-            );
-          }
-          return activeBudgetAdmittedOperation;
-        },
-      });
-
   const executeSignRequest = async (
-    admittedOperation: BudgetAdmittedOperation<SelectedEd25519Lane> | null,
     yaoClient: NearEd25519YaoSigningCapability['activeClient'],
   ) => {
-    if (
-      admittedOperation &&
-      String(admittedOperation.lane.thresholdSessionId) !== canonicalThresholdSessionId
-    ) {
-      throw new Error(
-        '[SigningEngine][near] budget-admitted transaction lane does not match worker session',
-      );
-    }
     emitNearSigningEvent(onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_10_COMMIT_STARTED,
       status: 'running',
@@ -1290,45 +1033,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
     commandKind: SigningOperationCommandKind.Sign,
     execute: async () => {
       try {
-        if (usesOperationStepUp) {
-          const okResponse = await executeSignRequest(null, preparedActiveClient);
-          thresholdSignatureCreated = true;
-          await markNearNonceLeasesSigned(ctx, nonceLeaseRefs);
-          const signedResult = toSignedTransactionResult({
-            okResponse,
-            nearAccountId,
-            warnings,
-            nonceLeases: nonceLeaseRefs,
-          });
-          emitNearSigningEvent(onEvent, nearAccountId, {
-            phase: SigningEventPhase.STEP_11_TRANSACTION_SIGNED,
-            status: 'succeeded',
-            interaction: { kind: 'none', overlay: 'hide' },
-          });
-          emitNearSigningEvent(onEvent, nearAccountId, {
-            phase: SigningEventPhase.STEP_15_COMPLETED,
-            status: 'succeeded',
-            interaction: { kind: 'none', overlay: 'none' },
-            data: { operation: 'sign' },
-          });
-          disposeOwnedNearOperationStepUpMaterial({
-            resolved: resolvedOperationStepUpMaterial,
-            owned: ownsResolvedOperationStepUpMaterial,
-          });
-          return signedResult;
-        }
-        if (!budgetAdmittedOperationForWorker) {
-          throw new Error('[SigningEngine][near] reusable Wallet Session budget is missing');
-        }
-        // Ed25519 threshold signing consumes the wallet session on the server as
-        // part of the signing ceremony. Local finalization only reconciles status.
-        const signedOperation = await signPreparedTransactionOperation(
-          budgetAdmittedOperationForWorker,
-          preparedActiveClient,
-          { sign: executeSignRequest },
-        );
-        signedTransactionOperation = signedOperation;
-        const okResponse = signedOperation.result;
+        const okResponse = await executeSignRequest(preparedActiveClient);
         thresholdSignatureCreated = true;
         await markNearNonceLeasesSigned(ctx, nonceLeaseRefs);
         const signedResult = toSignedTransactionResult({
@@ -1336,9 +1041,6 @@ async function runAuthorizedNearTransactionWithActionsSigning({
           nearAccountId,
           warnings,
           nonceLeases: nonceLeaseRefs,
-        });
-        await finalizeSignedTransactionOperation(signedOperation, {
-          recordSuccess: async (operation) => await recordSuccessfulSigningGrantSpend(operation),
         });
         emitNearSigningEvent(onEvent, nearAccountId, {
           phase: SigningEventPhase.STEP_11_TRANSACTION_SIGNED,
@@ -1355,7 +1057,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
       } catch (e: unknown) {
         const err = e instanceof Error ? e : new Error(String(e));
 
-        await finalizeFailedSigningAttempt(err);
+        await releaseUnsignedNonceLeases(err);
         disposeOwnedNearOperationStepUpMaterial({
           resolved: resolvedOperationStepUpMaterial,
           owned: ownsResolvedOperationStepUpMaterial,

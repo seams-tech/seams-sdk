@@ -126,7 +126,6 @@ import {
   classifyTransactionReadiness,
   prepareTransactionOperationFromReadiness,
   prepareTransactionSigningOperation,
-  type BudgetAdmittedOperation,
   type NearEd25519TransactionSigningIntent,
   type PreparedTransactionBudgetState,
   type NearEd25519TransactionSignerSelection,
@@ -315,7 +314,6 @@ type PreparedNearTransactionExecutionState = {
   signingSessionPlan: PreparedNearEd25519Operation['signingSessionPlan'];
   signingAuthPlan: SigningAuthPlan;
   signingLane: NearTransactionSigningLane;
-  initialBudgetAdmittedOperation: BudgetAdmittedOperation<SelectedEd25519Lane> | null;
   signingSessionCoordinator: SigningSessionCoordinator;
   transactionOperation: PreparedTransactionOperation<SelectedEd25519Lane>;
   passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
@@ -651,14 +649,12 @@ function buildPreparedNearTransactionExecutionState(args: {
   passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
   emailOtpEd25519StepUp: NearEmailOtpEd25519StepUpHook | null;
 }): PreparedNearTransactionExecutionState {
-  const budget = args.preparedSigningSession.budget;
   return {
     kind: 'prepared_near_transaction_execution',
     sessionId: args.resolvedSessionId,
     signingSessionPlan: args.preparedSigningSession.preparedOperation.signingSessionPlan,
     signingAuthPlan: args.preparedSigningSession.signingAuthPlan,
     signingLane: args.preparedSigningSession.signingLane,
-    initialBudgetAdmittedOperation: budget.kind === 'BudgetAdmitted' ? budget.operation : null,
     signingSessionCoordinator: args.signingSessionCoordinator,
     transactionOperation: args.preparedSigningSession.transactionOperation,
     passkeyEd25519OperationStepUp: args.passkeyEd25519OperationStepUp,
@@ -1321,7 +1317,6 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     forceFreshAuth,
     sensitiveOperationPolicy:
       args.input.sensitivePolicy || SENSITIVE_OPERATION_POLICIES.inheritSessionPolicy,
-    prepareBudgetIdentity: true,
     onPlannerTrace: (event) => emitSigningPlannerDecisionTrace('near', event),
     lifecycleAdapter: {
       prepare: async () => {
@@ -1497,7 +1492,6 @@ export async function signTransactionWithActions(
           signingSessionPlan: executionState.signingSessionPlan,
           signingAuthPlan: executionState.signingAuthPlan,
           signingLane: executionState.signingLane,
-          initialBudgetAdmittedOperation: executionState.initialBudgetAdmittedOperation,
         };
         const payload: NearTransactionWithActionsPayload = {
           ctx,

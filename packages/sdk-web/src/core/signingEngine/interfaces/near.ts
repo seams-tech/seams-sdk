@@ -23,10 +23,7 @@ import type { SigningOperationId, SigningSessionPlan } from '../session/operatio
 import type { NearTransactionSigningLane } from '../session/operationState/lanes';
 import type { SelectedEd25519Lane } from '../session/identity/laneIdentity';
 import type { AuthorizationRequiredEd25519LaneCandidate } from '../session/identity/selectLane';
-import type {
-  BudgetAdmittedOperation,
-  PreparedTransactionOperation,
-} from '../session/operationState/transactionState';
+import type { PreparedTransactionOperation } from '../session/operationState/transactionState';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type { RouterAbEd25519SigningWalletSession } from '../session/routerAbSigningWalletSession';
@@ -181,24 +178,11 @@ export type NearEmailOtpEd25519StepUpHook = {
   resend?: () => Promise<EmailOtpTransactionSigningChallenge>;
 };
 
-export type NearSigningSessionFinalizationHook = {
-  recordSuccess: () => Promise<void>;
-  recordZeroSpend: (error: unknown) => Promise<void> | void;
-};
-
-export type NearPreparedSigningSessionFinalizer = (args: {
-  status: 'success' | 'zero_spend';
-  hooks: NearSigningSessionFinalizationHook;
-  result?: unknown;
-  error?: unknown;
-}) => Promise<void>;
-
 export type NearEd25519TransactionAdmissionBoundary = {
   sessionId: string;
   signingSessionPlan: SigningSessionPlan;
   signingAuthPlan: SigningAuthPlan;
   signingLane: NearTransactionSigningLane;
-  initialBudgetAdmittedOperation: BudgetAdmittedOperation<SelectedEd25519Lane> | null;
 };
 
 export type NearEd25519TransactionSigningBoundary = NearEd25519TransactionAdmissionBoundary;
@@ -216,7 +200,6 @@ type NearTransactionWithActionsPayloadBase = {
   signerSlot?: number;
   signingOperationId?: SigningOperationId;
   signingSessionCoordinator: SigningSessionCoordinator;
-  finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
   passkeyEd25519OperationStepUp?: NearPasskeyEd25519OperationStepUpHook;
   emailOtpEd25519StepUp?: NearEmailOtpEd25519StepUpHook;
   sensitivePolicy?: SensitiveOperationPolicy;
