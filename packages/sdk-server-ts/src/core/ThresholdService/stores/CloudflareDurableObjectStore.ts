@@ -57,8 +57,6 @@ import type {
   ThresholdClaimMpcSessionResult,
   ThresholdEd25519MpcSessionRecord,
   ThresholdReadMpcSessionResult,
-  ThresholdEd25519ClaimMpcSessionResult,
-  ThresholdEd25519ReadMpcSessionResult,
   ThresholdEd25519SessionStore,
   ThresholdEd25519SigningSessionRecord,
 } from './SessionStore';

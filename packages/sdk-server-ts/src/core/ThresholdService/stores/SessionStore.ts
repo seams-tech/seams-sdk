@@ -84,15 +84,6 @@ export type ThresholdClaimMpcSessionResult<TRecord extends ThresholdMpcSessionRe
   | { ok: true; record: TRecord }
   | { ok: false; code: 'not_found' | 'expired' | 'version_mismatch' | 'invalid_record' };
 
-export type ThresholdEd25519ReadMpcSessionResult =
-  ThresholdReadMpcSessionResult<ThresholdEd25519MpcSessionRecord>;
-export type ThresholdEcdsaReadMpcSessionResult =
-  ThresholdReadMpcSessionResult<ThresholdEcdsaMpcSessionRecord>;
-export type ThresholdEd25519ClaimMpcSessionResult =
-  ThresholdClaimMpcSessionResult<ThresholdEd25519MpcSessionRecord>;
-export type ThresholdEcdsaClaimMpcSessionResult =
-  ThresholdClaimMpcSessionResult<ThresholdEcdsaMpcSessionRecord>;
-
 export type ThresholdEd25519SigningSessionRecord = {
   expiresAtMs: number;
   mpcSessionId: string;
