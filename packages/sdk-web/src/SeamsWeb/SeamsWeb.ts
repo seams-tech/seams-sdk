@@ -51,6 +51,7 @@ import { ActionType } from '@/core/types/actions';
 import type { PreferencesChangedPayload } from '@/SeamsWeb/walletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancellationError, toError } from '@shared/utils/errors';
+import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import {
@@ -537,10 +538,15 @@ function normalizeResolveExactKeyExportLaneResult(
         laneIdentity: parseExactEcdsaSigningLaneIdentity(result.laneIdentity),
       };
     case 'ed25519':
+      {
+        const materialActivation = parseMpcMaterialActivationRef(result.materialActivation);
+        if (!materialActivation.ok) throw new Error(materialActivation.error.message);
       return {
         kind: 'ed25519',
         laneIdentity: parseExactEd25519SigningLaneIdentity(result.laneIdentity),
+        materialActivation: materialActivation.value,
       };
+      }
   }
 }
 
@@ -571,6 +577,8 @@ function normalizeExportKeypairWithUIInput(
     }
     case 'ed25519': {
       const laneIdentity = parseExactEd25519SigningLaneIdentity(input.laneIdentity);
+      const materialActivation = parseMpcMaterialActivationRef(input.materialActivation);
+      if (!materialActivation.ok) throw new Error(materialActivation.error.message);
       if (
         String(laneIdentity.signer.account.wallet.walletId) !== String(input.walletSession.walletId)
       ) {
@@ -586,6 +594,7 @@ function normalizeExportKeypairWithUIInput(
         nearAccount: nearAccountRefFromAccountId(input.nearAccount.accountId),
         walletSession: input.walletSession,
         laneIdentity,
+        materialActivation: materialActivation.value,
         options: resolvedOptions,
       };
     }

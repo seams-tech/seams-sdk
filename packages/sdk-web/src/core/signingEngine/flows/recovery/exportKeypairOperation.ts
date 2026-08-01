@@ -274,6 +274,7 @@ async function exportEd25519KeypairWithFlowId(
     walletId: args.walletSession.walletId,
     nearAccountId: args.nearAccount.accountId,
     laneIdentity: args.laneIdentity,
+    materialActivation: args.materialActivation,
     options: {
       variant: args.options.variant,
       theme: args.options.theme,

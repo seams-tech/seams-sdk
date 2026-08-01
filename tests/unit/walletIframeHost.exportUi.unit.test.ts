@@ -80,6 +80,10 @@ const EXPORT_WALLET_SESSION = walletSessionRefFromSession({
   walletSessionUserId: EXPORT_WALLET_ID,
 });
 const EXPORT_NEAR_ACCOUNT = nearAccountRefFromAccountId('wallet-export-host.testnet');
+const EXPORT_ED25519_MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'export-host-ed25519',
+  String(EXPORT_WALLET_ID),
+);
 const EXPORT_ED25519_LANE = exactEd25519SigningLaneIdentity({
   signer: nearEd25519SignerBindingFromBoundaryFields({
     walletId: EXPORT_WALLET_ID,
@@ -134,6 +138,7 @@ function makeEd25519ExportKeypairReq(requestId: string): any {
       walletSession: EXPORT_WALLET_SESSION,
       nearAccount: EXPORT_NEAR_ACCOUNT,
       laneIdentity: EXPORT_ED25519_LANE,
+      materialActivation: EXPORT_ED25519_MATERIAL_ACTIVATION,
       options: {
         variant: 'drawer',
         theme: 'dark',
@@ -171,6 +176,7 @@ test.describe('wallet iframe host export UI handlers', () => {
         walletSession: EXPORT_WALLET_SESSION,
         nearAccount: EXPORT_NEAR_ACCOUNT,
         laneIdentity: EXPORT_ED25519_LANE,
+        materialActivation: EXPORT_ED25519_MATERIAL_ACTIVATION,
       }),
     );
     expect(exportedInput.chainTarget).toBeUndefined();
@@ -221,13 +227,7 @@ test.describe('wallet iframe host export UI handlers', () => {
     await Promise.resolve();
 
     expect(exportCalls).toBe(1);
-    expect(exportedInput.laneIdentity).toEqual(
-      expect.objectContaining({
-        kind: 'exact_signing_lane',
-        signingGrantId: 'grant-export-host',
-        thresholdSessionId: 'threshold-export-host',
-      }),
-    );
+    expect(exportedInput.laneIdentity).toEqual(EXPORT_LANE);
     expect(progress).toEqual([
       expect.objectContaining({
         flow: 'key_export',

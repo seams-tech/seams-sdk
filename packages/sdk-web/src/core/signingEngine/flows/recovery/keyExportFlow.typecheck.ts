@@ -11,18 +11,21 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '../../interfaces/ecdsaChainTarget';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 declare const walletSession: WalletSessionRef;
 declare const nearAccount: NearAccountRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const ed25519Lane: ExactEd25519SigningLaneIdentity;
 declare const ecdsaLane: ExactEcdsaSigningLaneIdentity;
+declare const materialActivation: MpcMaterialActivationRef;
 
 const validEd25519Export: SigningEngineExportKeypairWithUIInput = {
   kind: 'ed25519',
   walletSession,
   nearAccount,
   laneIdentity: ed25519Lane,
+  materialActivation,
   options: {},
 };
 void validEd25519Export;

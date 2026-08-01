@@ -122,6 +122,7 @@ import {
   parseExactEcdsaSigningLaneIdentity,
   parseExactEd25519SigningLaneIdentity,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
   LinkDeviceResult,
   StartDevice2LinkingFlowArgs,
@@ -405,10 +406,15 @@ function parseResolveExactKeyExportLaneResult(
         laneIdentity: parseExactEcdsaSigningLaneIdentity(result.laneIdentity),
       };
     case 'ed25519':
+      {
+        const materialActivation = parseMpcMaterialActivationRef(result.materialActivation);
+        if (!materialActivation.ok) throw new Error(materialActivation.error.message);
       return {
         kind: 'ed25519',
         laneIdentity: parseExactEd25519SigningLaneIdentity(result.laneIdentity),
+        materialActivation: materialActivation.value,
       };
+      }
   }
 }
 
@@ -456,6 +462,7 @@ function walletIframeExportPayload(
         nearAccount: input.nearAccount,
         walletSession: input.walletSession,
         laneIdentity,
+        materialActivation: input.materialActivation,
         options,
       };
     }

@@ -15,7 +15,9 @@ import {
   nearEd25519SignerBindingFromBoundaryFields,
 } from '../../session/identity/exactSigningLaneIdentity';
 import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { Ed25519YaoActiveClientLookupScopeV1 } from '../../threshold/ed25519/yaoActiveClientRegistry';
+import type {
+  Ed25519YaoActiveClientIdentityV1,
+} from '../../threshold/ed25519/yaoActiveClientRegistry';
 import {
   createExportUiRequestId,
   emitKeyExportEvent,
@@ -43,18 +45,29 @@ import type {
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { resolveThresholdEd25519CommitQueueKey } from '../../threshold/ed25519/commitQueue';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  mpcMaterialActivationRefsEqual,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
+import { nearEd25519YaoMaterialActivationFromMetadata } from '../../session/material/nearEd25519YaoMaterialActivation';
 
 export type Ed25519YaoExportFlowDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'initialize' | 'requestUserConfirmation'>;
   passkeyMpcExport: PasskeyMpcExportPort;
   resolveActiveCapability: (
-    scope: Ed25519YaoActiveClientLookupScopeV1,
+    identity: Ed25519YaoActiveClientIdentityV1,
   ) => NearEd25519YaoSigningCapability | null;
   recoverPasskeyCapability: (
-    laneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>,
+    args: {
+      laneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
+      materialActivation: MpcMaterialActivationRef;
+    },
   ) => Promise<NearEd25519YaoSigningCapability>;
   resolvePasskeyExportContext: (
-    laneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>,
+    args: {
+      laneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
+      materialActivation: MpcMaterialActivationRef;
+    },
   ) => Promise<PasskeyEd25519YaoExportContextResolutionV1>;
   withThresholdEd25519CommitQueue: <T>(args: {
     queueKey: string;
@@ -65,7 +78,10 @@ export type Ed25519YaoExportFlowDeps = {
   emailOtp: {
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     resolveExportContext: (
-      laneIdentity: ExactEd25519SigningLaneIdentity<EmailOtpEd25519LaneAuth>,
+      args: {
+        laneIdentity: ExactEd25519SigningLaneIdentity<EmailOtpEd25519LaneAuth>;
+        materialActivation: MpcMaterialActivationRef;
+      },
     ) => Promise<ResolvedEmailOtpEd25519YaoExportV1>;
     exportSeedWithFreshAuthorization: (args: {
       challengeId: string;
@@ -84,6 +100,7 @@ export type ExportEd25519YaoKeyArgs = {
   walletId: WalletId;
   nearAccountId: AccountId;
   laneIdentity: ExactEd25519SigningLaneIdentity;
+  materialActivation: MpcMaterialActivationRef;
   options: {
     variant?: 'drawer' | 'modal';
     theme?: 'dark' | 'light';
@@ -191,10 +208,12 @@ function requireEmailOtpExportLaneIdentity(
 
 function activeCapabilityLookupScope(
   laneIdentity: ExactEd25519SigningLaneIdentity,
-): Ed25519YaoActiveClientLookupScopeV1 {
+  materialActivation: MpcMaterialActivationRef,
+): Ed25519YaoActiveClientIdentityV1 {
   return {
     walletId: laneIdentity.signer.account.wallet.walletId,
     nearAccountId: laneIdentity.signer.account.nearAccountId,
+    materialActivation,
   };
 }
 
@@ -221,6 +240,7 @@ function passkeyExportStableIdentityMatches(args: {
 function resolvePasskeyExportContextFromActiveCapability(args: {
   capability: NearEd25519YaoSigningCapability;
   selectedLaneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
+  selectedMaterialActivation: MpcMaterialActivationRef;
 }): ResolvedPasskeyEd25519YaoExportContext {
   const { capability } = args;
   if (capability.activeClient.status().kind !== 'active') {
@@ -241,12 +261,16 @@ function resolvePasskeyExportContextFromActiveCapability(args: {
     throw new Error('[SigningEngine][ed25519-export] Yao capability stable identity mismatch');
   }
   const metadata = capability.activeClient.metadata();
+  const materialActivation = nearEd25519YaoMaterialActivationFromMetadata(metadata);
+  if (!mpcMaterialActivationRefsEqual(args.selectedMaterialActivation, materialActivation)) {
+    throw new Error('[SigningEngine][ed25519-export] Yao capability activation mismatch');
+  }
   return {
     laneIdentity: currentLaneIdentity,
     relayerUrl: capability.walletSessionState.relayerUrl,
     walletSessionJwt: capability.walletSessionState.walletSessionAuth.walletSessionJwt,
     capability: {
-      materialActivation: metadata.materialActivation,
+      materialActivation,
       scope: metadata.scope,
       applicationBinding: metadata.applicationBinding,
       participantIds: metadata.participantIds,
@@ -290,6 +314,7 @@ function passkeyLaneIdentityFromExportContext(
 function requireDurablePasskeyExportContext(args: {
   context: PasskeyEd25519YaoExportContextV1;
   selectedLaneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
+  selectedMaterialActivation: MpcMaterialActivationRef;
 }): ResolvedPasskeyEd25519YaoExportContext {
   const currentLaneIdentity = passkeyLaneIdentityFromExportContext(args.context);
   if (
@@ -301,6 +326,14 @@ function requireDurablePasskeyExportContext(args: {
     throw new Error('[SigningEngine][ed25519-export] durable Yao context identity mismatch');
   }
   const descriptor = args.context.descriptor;
+  if (
+    !mpcMaterialActivationRefsEqual(
+      args.selectedMaterialActivation,
+      descriptor.capability.materialActivation,
+    )
+  ) {
+    throw new Error('[SigningEngine][ed25519-export] durable Yao context activation mismatch');
+  }
   const lifecycle = descriptor.capability.lifecycle;
   return {
     laneIdentity: currentLaneIdentity,
@@ -334,25 +367,36 @@ async function resolveExactPasskeyExportContext(
   args: ExportEd25519YaoKeyArgs,
 ): Promise<ResolvedPasskeyEd25519YaoExportContext> {
   const laneIdentity = requirePasskeyExportLaneIdentity(args);
-  const activeCapability = deps.resolveActiveCapability(activeCapabilityLookupScope(laneIdentity));
+  const activeCapability = deps.resolveActiveCapability(
+    activeCapabilityLookupScope(laneIdentity, args.materialActivation),
+  );
   if (activeCapability) {
     return resolvePasskeyExportContextFromActiveCapability({
       capability: activeCapability,
       selectedLaneIdentity: laneIdentity,
+      selectedMaterialActivation: args.materialActivation,
     });
   }
-  const durableContext = await deps.resolvePasskeyExportContext(laneIdentity);
+  const durableContext = await deps.resolvePasskeyExportContext({
+    laneIdentity,
+    materialActivation: args.materialActivation,
+  });
   switch (durableContext.kind) {
     case 'ready':
       return requireDurablePasskeyExportContext({
         context: durableContext.context,
         selectedLaneIdentity: laneIdentity,
+        selectedMaterialActivation: args.materialActivation,
       });
     case 'capability_recovery_required': {
-      const capability = await deps.recoverPasskeyCapability(laneIdentity);
+      const capability = await deps.recoverPasskeyCapability({
+        laneIdentity,
+        materialActivation: args.materialActivation,
+      });
       return resolvePasskeyExportContextFromActiveCapability({
         capability,
         selectedLaneIdentity: laneIdentity,
+        selectedMaterialActivation: args.materialActivation,
       });
     }
   }
@@ -368,7 +412,18 @@ async function resolveExactEmailOtpExportContext(
   laneIdentity: ExactEd25519SigningLaneIdentity<EmailOtpEd25519LaneAuth>;
 }> {
   const laneIdentity = requireEmailOtpExportLaneIdentity(args);
-  const context = await deps.emailOtp.resolveExportContext(laneIdentity);
+  const context = await deps.emailOtp.resolveExportContext({
+    laneIdentity,
+    materialActivation: args.materialActivation,
+  });
+  if (
+    !mpcMaterialActivationRefsEqual(
+      args.materialActivation,
+      context.material.materialActivation,
+    )
+  ) {
+    throw new Error('[SigningEngine][ed25519-export] Email OTP Yao context activation mismatch');
+  }
   return { context, laneIdentity };
 }
 
