@@ -30,7 +30,10 @@ import type { RouterAbEd25519SigningWalletSession } from '../session/routerAbSig
 import type { RouterAbEd25519YaoActiveClientV1 } from '../threshold/ed25519/yaoClient';
 import type { EmailOtpTransactionSigningChallenge } from '../session/emailOtp/publicTypes';
 import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type {
+  MpcMaterialActivationRef,
+  ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
   CapabilityGrantId,
@@ -49,7 +52,7 @@ export type NearResolvedEd25519WalletSessionAuth = {
 };
 
 export type NearPasskeyOperationStepUpPlan = {
-  sessionId: string;
+  sessionId: ThresholdEd25519SessionId;
   requestedGrantId: CapabilityGrantId;
   authority: PasskeyWalletAuthAuthority;
 };
@@ -76,7 +79,7 @@ export type NearEd25519StepUpAuthorization =
 
 export type NearResolvedEd25519SigningSessionState = {
   walletSessionAuth: NearResolvedEd25519WalletSessionAuth;
-  thresholdSessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   signingGrantId: string;
   signingLane: NearTransactionSigningLane;
   remainingUses: number;
@@ -95,7 +98,7 @@ export type NearAuthorizedEd25519SigningSessionState = NearResolvedEd25519Signin
 };
 
 export type NearEd25519YaoOperationMaterialFacts = {
-  thresholdSessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   signer: NearTransactionSigningLane['identity']['signer'];
   signingRootId: string;
   signingRootVersion: string;
@@ -165,7 +168,7 @@ export type NearEd25519YaoPreparedMaterialBoundary = {
 
 export type NearPasskeyEd25519OperationStepUpHook = {
   prepare: () => Promise<{
-    sessionId: string;
+    sessionId: ThresholdEd25519SessionId;
     requestedGrantId: CapabilityGrantId;
     authority: PasskeyWalletAuthAuthority;
   }>;

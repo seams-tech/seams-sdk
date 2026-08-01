@@ -6,14 +6,17 @@ import type {
   NearResolvedEd25519SigningSessionState,
 } from '../../../interfaces/near';
 import type { NearEd25519YaoSigningPreparation } from '../../../session/material/nearEd25519YaoSigningPreparation';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type {
+  MpcMaterialActivationRef,
+  ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../../../session/material/nearEd25519YaoMaterialActivation';
 import { requireNearOperationStepUpMaterialActivation } from './operationStepUpPreparation';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 
 export type NearEd25519AuthorizationResult = {
-  sessionId: string;
+  sessionId: ThresholdEd25519SessionId;
   material: NearEd25519YaoOperationMaterial;
   walletSessionState: NearResolvedEd25519SigningSessionState;
 };

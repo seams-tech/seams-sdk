@@ -7,7 +7,10 @@ import { nearEd25519SignerBindingFromBoundaryFields } from '@/core/signingEngine
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import {
+  parseThresholdEd25519SessionId,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import type { Ed25519OperationStepUpProof } from '@/core/signingEngine/threshold/ed25519/walletSession';
 
@@ -18,10 +21,12 @@ export function nearEd25519OperationMaterialFixture(args: {
   nearAccountId: string;
   signerSlot: number;
 }): NearEd25519YaoOperationMaterial {
+  const thresholdSessionId = parseThresholdEd25519SessionId(args.thresholdSessionId);
+  if (!thresholdSessionId.ok) throw new Error(thresholdSessionId.error.message);
   return {
     activeClient: args.activeClient,
     facts: {
-      thresholdSessionId: args.thresholdSessionId,
+      thresholdSessionId: thresholdSessionId.value,
       signer: nearEd25519SignerBindingFromBoundaryFields({
         walletId: toWalletId(args.walletId),
         nearAccountId: toAccountId(args.nearAccountId),

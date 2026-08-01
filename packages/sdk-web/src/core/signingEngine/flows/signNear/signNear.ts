@@ -684,13 +684,8 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
         executor: args.materialExecutor,
       });
       const signer = args.signer;
-      const thresholdSessionId = String(materialFacts.thresholdSessionId || '').trim();
+      const thresholdSessionId = materialFacts.thresholdSessionId;
       const requestedGrantId = createNearOperationStepUpGrantId();
-      if (!thresholdSessionId) {
-        throw new Error(
-          '[SigningEngine] passkey Ed25519 budget refresh requires exact lifecycle identity',
-        );
-      }
       const authority = buildPasskeyWalletAuthAuthority({
         walletId: signer.account.wallet.walletId,
         rpId: auth.rpId,
