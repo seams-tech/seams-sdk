@@ -32,7 +32,11 @@ import type { EmailOtpTransactionSigningChallenge } from '../session/emailOtp/pu
 import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
+import type {
+  CapabilityGrantId,
+  SeamsSessionId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { NearEd25519YaoSigningPreparation } from '../session/material/nearEd25519YaoSigningPreparation';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
@@ -46,7 +50,7 @@ export type NearResolvedEd25519WalletSessionAuth = {
 
 export type NearPasskeyOperationStepUpPlan = {
   sessionId: string;
-  signingGrantId: string;
+  requestedGrantId: CapabilityGrantId;
   sessionPolicyDigest32: string;
   authority: PasskeyWalletAuthAuthority;
 };
@@ -113,8 +117,8 @@ export type NearEd25519YaoOperationMaterial = {
 
 export type NearEd25519OperationStepUpGrant = {
   kind: 'operation_step_up';
-  grantId: string;
-  authorizationSessionId: string;
+  grantId: CapabilityGrantId;
+  authorizationSessionId: SeamsSessionId;
   expiresAtMs: number;
 };
 
@@ -167,7 +171,7 @@ export type NearEd25519YaoPreparedMaterialBoundary = {
 export type NearPasskeyEd25519OperationStepUpHook = {
   prepare: (args: { requiredSignatureUses: number }) => Promise<{
     sessionId: string;
-    signingGrantId: string;
+    requestedGrantId: CapabilityGrantId;
     sessionPolicyDigest32: string;
     authority: PasskeyWalletAuthAuthority;
   }>;

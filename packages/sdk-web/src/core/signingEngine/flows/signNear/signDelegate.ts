@@ -78,7 +78,7 @@ import {
   finalizeThresholdEd25519DelegateSignatureResult,
   prepareRouterAbEd25519SignatureOnlyOperationStepUp,
   requireNearEd25519OperationStepUpProof,
-  selectedNearEd25519LaneFromOperationStepUp,
+  requireIssuedNearEd25519OperationStepUpGrant,
   tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning,
 } from './shared/ed25519YaoNormalSigning';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
@@ -93,6 +93,7 @@ import type { NearPreparedStepUpAuth } from './requireNearStepUpAuth';
 import {
   clearNearOperationStepUpBuilder,
   consumePreparedNearOperationStepUp,
+  createNearOperationStepUpGrantId,
   registerNearOperationStepUpBuilder,
   type PreparedNearOperationStepUp,
 } from './shared/operationStepUpPreparation';
@@ -413,6 +414,10 @@ export async function runNearDelegateActionSigning({
       workerCtx: ctx,
     });
     operationStepUpSigningDigestB64u = signingDigest.signingDigestB64u;
+    const requestedGrantId =
+      preparedStepUp.kind === 'passkey'
+        ? preparedStepUp.plannedPasskeyOperationStepUp.requestedGrantId
+        : createNearOperationStepUpGrantId();
     registerNearOperationStepUpBuilder({
       requestId: String(operationId),
       build: async (preparation) => {
@@ -431,10 +436,7 @@ export async function runNearDelegateActionSigning({
           materialActivation: material.materialActivation,
           operationId: signingOperation.operationId,
           operationFingerprint: signingOperation.operationFingerprint!,
-          grantId:
-            preparedStepUp.kind === 'passkey'
-              ? preparedStepUp.plannedPasskeyOperationStepUp.signingGrantId
-              : `operation-step-up:${signingOperation.operationId}`,
+          grantId: requestedGrantId,
           displayDigest: preparation.displayDigest,
           signingDigestB64u: signingDigest.signingDigestB64u,
           intent: signatureOnlyIntent,
@@ -656,19 +658,18 @@ export async function runNearDelegateActionSigning({
             },
           });
     if (routerAbNormalSigningResult) {
-      const postGrantLane =
+      if (
         resolvedMaterial.kind === 'operation_step_up' &&
         routerAbNormalSigningResult.authorization === 'operation_step_up'
-          ? selectedNearEd25519LaneFromOperationStepUp({
-              materialFacts: resolvedMaterial.resolved.material.facts,
-              auth: selectionAuth,
-              prepared: requirePreparedNearDelegateOperationStepUp(preparedOperationStepUp),
-              issuedGrant: routerAbNormalSigningResult.issuedGrant,
-            })
-          : null;
+      ) {
+        requireIssuedNearEd25519OperationStepUpGrant({
+          prepared: requirePreparedNearDelegateOperationStepUp(preparedOperationStepUp),
+          issuedGrant: routerAbNormalSigningResult.issuedGrant,
+        });
+      }
       const delegateResult = await finalizeThresholdEd25519DelegateSignatureResult({
         ctx,
-        thresholdSessionId: postGrantLane?.thresholdSessionId || canonicalThresholdSessionId,
+        thresholdSessionId: canonicalThresholdSessionId,
         delegate: delegatePayload,
         signingDigestB64u,
         signatureB64u: routerAbNormalSigningResult.signatureB64u,
