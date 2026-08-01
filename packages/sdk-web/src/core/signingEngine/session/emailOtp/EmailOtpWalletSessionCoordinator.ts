@@ -21,10 +21,10 @@ export class EmailOtpWalletSessionCoordinator {
     this.runtime = new EmailOtpWalletSessionRuntime(deps);
   }
 
-  persistEd25519YaoSessionForRefresh(
-    args: Parameters<EmailOtpWalletSessionRuntime['persistEd25519YaoSessionForRefresh']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['persistEd25519YaoSessionForRefresh']> {
-    return this.runtime.persistEd25519YaoSessionForRefresh(args);
+  persistEd25519YaoCapabilityForRefresh(
+    args: Parameters<EmailOtpWalletSessionRuntime['persistEd25519YaoCapabilityForRefresh']>[0],
+  ): ReturnType<EmailOtpWalletSessionRuntime['persistEd25519YaoCapabilityForRefresh']> {
+    return this.runtime.persistEd25519YaoCapabilityForRefresh(args);
   }
 
   persistEcdsaSessionForRefresh(

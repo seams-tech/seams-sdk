@@ -13,7 +13,7 @@ import {
   handleWalletUnlockChallengeRoute,
   handleWalletUnlockVerifyRoute,
   type WalletUnlockEcdsaSessionContext,
-  type WalletUnlockEd25519YaoSessionContext,
+  type WalletUnlockCapabilityContext,
 } from '../../walletUnlockRouteHandlers';
 import { handleStrictEcdsaSessionActivation } from './thresholdEcdsa';
 import {
@@ -98,15 +98,6 @@ import {
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 
 const HOSTED_WALLET_SESSION_EXCHANGE_TTL_MS = 60_000;
-
-function walletUnlockContextWithoutEd25519Capability(
-  body: unknown,
-): WalletUnlockEd25519YaoSessionContext {
-  if (isPlainObject(body) && body.unlockBackend === EMAIL_OTP_CHANNEL) {
-    return { kind: 'email_otp_no_ed25519_session' };
-  }
-  return { kind: 'passkey_unlock' };
-}
 
 function walletUnlockEcdsaSessionContext(
   ctx: CloudflareRouterApiContext,
@@ -1730,29 +1721,21 @@ export async function handleWalletUnlockVerify(
   if (!parsedRequestedCapabilities.ok) {
     return json(parsedRequestedCapabilities.body, { status: parsedRequestedCapabilities.status });
   }
-  let ed25519YaoSession = walletUnlockContextWithoutEd25519Capability(body);
-  if (parsedRequestedCapabilities.request) {
-    if (parsedRequestedCapabilities.request.requestedCapabilities.kind === 'ed25519_yao') {
-      ed25519YaoSession = {
-        kind: 'email_otp_ed25519_yao',
-        request: {
-          walletId: parsedRequestedCapabilities.request.walletId,
-          orgId: parsedRequestedCapabilities.request.orgId,
-          challengeId: parsedRequestedCapabilities.request.challengeId,
-          requestedCapabilities: parsedRequestedCapabilities.request.requestedCapabilities,
-        },
+  const capabilityContext: WalletUnlockCapabilityContext = parsedRequestedCapabilities.request
+    ? {
+        kind: 'email_otp',
+        request: parsedRequestedCapabilities.request,
         provisionWalletSession:
           ctx.service.walletRegistration.provisionEd25519YaoWalletSession.bind(
             ctx.service.walletRegistration,
           ),
-      };
-    }
-  }
+      }
+    : { kind: 'passkey_unlock' };
   const response = await handleWalletUnlockVerifyRoute({
     body,
     origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
     service: ctx.service.walletUnlock,
-    ed25519YaoSession,
+    capabilityContext,
     ecdsaSession,
     emitRouterApiWebhook: async (event) => {
       await emitRouterApiWebhookEvent({

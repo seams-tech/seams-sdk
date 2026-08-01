@@ -96,7 +96,7 @@ export type TransactionReadiness =
   | { status: 'restore_failed'; reason: string }
   | { status: 'auth_unavailable'; reason: string }
   | { status: 'status_unavailable'; reason: string }
-  | { status: 'budget_unknown'; reason: string }
+  | { status: 'status_unknown'; reason: string }
   | { status: 'policy_blocked'; reason: string };
 
 export type PreparedTransactionOperation<TLane extends TransactionLane = TransactionLane> = {
@@ -371,8 +371,8 @@ function transactionReadinessFromThresholdOperation(
   if (status === 'status_unavailable') {
     return { status: 'status_unavailable', reason: 'status_unavailable' };
   }
-  if (status === 'budget_unknown') {
-    return { status: 'budget_unknown', reason: 'budget_unknown' };
+  if (status === 'status_unknown') {
+    return { status: 'status_unknown', reason: 'status_unknown' };
   }
   return { status: 'policy_blocked', reason: status };
 }

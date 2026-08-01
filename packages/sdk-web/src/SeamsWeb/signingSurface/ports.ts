@@ -93,7 +93,7 @@ import type { ConnectEd25519SessionArgs } from '@/core/signingEngine/session/pas
 import type { HydrateWarmSigningSessionInput } from '@/core/signingEngine/session/passkey/warmSessionHydration';
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type { LoginWithEmailOtpEd25519YaoCapabilityInternalArgs } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
-import type { PreparedColdEmailOtpEd25519YaoRecoveryV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
+import type { PreparedColdEmailOtpEd25519YaoRecoveryV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoCapabilityRecovery';
 import type {
   EmailOtpEd25519YaoRecoveryBootstrapV1,
 } from '@/core/signingEngine/workerManager/workerTypes';
@@ -440,7 +440,7 @@ export interface EmailOtpSigningSessionSurface {
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
   }): Promise<NearEd25519SignerBinding>;
-  activateEmailOtpEd25519YaoLocalSessionInternal(args: {
+  activateEmailOtpEd25519YaoLocalCapabilityInternal(args: {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     activeClientHandle: string;

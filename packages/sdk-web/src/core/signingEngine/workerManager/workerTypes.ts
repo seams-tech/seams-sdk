@@ -161,7 +161,7 @@ export type EmailOtpWalletUnlockMaterialRequest =
       readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
       readonly walletSessionAuth?: never;
       readonly ed25519YaoRecovery?: never;
-      readonly ed25519YaoSession?: never;
+      readonly ed25519YaoCapability?: never;
       readonly providerSubject?: never;
     } & (
       | {
@@ -190,7 +190,7 @@ export type EmailOtpWalletUnlockMaterialRequest =
       readonly walletSessionAuth?: never;
       readonly ecdsaClientRootHandleBinding?: never;
       readonly runtimePolicyScope?: never;
-      readonly ed25519YaoSession?: never;
+      readonly ed25519YaoCapability?: never;
     }
   | {
       readonly kind: 'wallet_unlock_capabilities';
@@ -235,10 +235,10 @@ export type EmailOtpWalletUnlockMaterialResult =
       readonly clientRootShareHandle?: never;
     }
   | {
-      readonly kind: 'ed25519_yao_local_session';
+      readonly kind: 'ed25519_yao_capability';
       readonly activeClientHandle: string;
       readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-      readonly ed25519YaoSession: EmailOtpEd25519YaoRecoveryBootstrapV1;
+      readonly ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
       readonly clientRootShareHandle?: never;
       readonly pendingFactorHandle?: never;
       readonly ed25519YaoRecovery?: never;
@@ -257,7 +257,7 @@ export type EmailOtpWalletUnlockMaterialResult =
             readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
           }
         | {
-            readonly kind: 'local_session';
+            readonly kind: 'capability';
             readonly activeClientHandle: string;
             readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
             readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
@@ -1018,7 +1018,7 @@ export interface EmailOtpWorkerOperationMap {
           ok: true;
           activeClientHandle: string;
           metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-          ed25519YaoSession: EmailOtpEd25519YaoRecoveryBootstrapV1;
+          ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
         }
       | { ok: false; code: string; message: string };
   };
@@ -1043,8 +1043,6 @@ export interface EmailOtpWorkerOperationMap {
         nearAccountId: string;
         nearEd25519SigningKeyId: string;
         signerSlot: number;
-        thresholdSessionId: string;
-        signingGrantId: string;
       };
       authorization: {
         walletSessionJwt: string;

@@ -796,7 +796,7 @@ export interface SigningSessionStatus {
     | 'expired'
     | 'not_found'
     | 'unavailable'
-    | 'budget_unknown';
+    | 'status_unknown';
   statusCode?: string;
   authMethod?: WalletAuthMethod | null;
   retention?: SigningSessionRetention | null;

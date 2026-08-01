@@ -114,7 +114,7 @@ const classifiedSessionIdPublicSurfaceFiles = {
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts':
     'rename_later_agent_b_signing_or_wasm',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery.ts':
+  'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoCapabilityRecovery.ts':
     'rename_to_threshold_session_id',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts':
     'rename_later_agent_b_signing_or_wasm',

@@ -10,14 +10,14 @@ import {
   prepareRouterAbNormalSigningV2,
 } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import {
-  isSigningSessionBudgetAdmissionBlockedError,
-  SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
-  SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
-} from '@/core/signingEngine/session/budget/budget';
+  isSigningGrantAdmissionError,
+  SIGNING_GRANT_EXHAUSTED_ERROR,
+  SIGNING_GRANT_IN_FLIGHT_ERROR,
+} from '@/core/signingEngine/session/operationState/authorizationAdmission';
 import {
   classifySigningGrantAdmissionFailure,
   SigningGrantAdmissionError,
-} from '@/core/signingEngine/session/budget/admission';
+} from '@/core/signingEngine/session/operationState/authorizationAdmission';
 import {
   requireRouterAbNormalSigningPrepareMatchesRequest,
   requireRouterAbNormalSigningResponseMatchesRequest,
@@ -249,12 +249,12 @@ async function mapsBudgetFailures(): Promise<void> {
 
   expect(exhausted).toBeInstanceOf(SigningGrantAdmissionError);
   expect(inFlight).toBeInstanceOf(SigningGrantAdmissionError);
-  expect(String((exhausted as Error).message)).toContain(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
-  expect(String((inFlight as Error).message)).toContain(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
+  expect(String((exhausted as Error).message)).toContain(SIGNING_GRANT_EXHAUSTED_ERROR);
+  expect(String((inFlight as Error).message)).toContain(SIGNING_GRANT_IN_FLIGHT_ERROR);
   expect(classifySigningGrantAdmissionFailure(exhausted)?.kind).toBe('exhausted');
   expect(classifySigningGrantAdmissionFailure(inFlight)?.kind).toBe('in_flight');
-  expect(isSigningSessionBudgetAdmissionBlockedError(exhausted)).toBe(true);
-  expect(isSigningSessionBudgetAdmissionBlockedError(inFlight)).toBe(true);
+  expect(isSigningGrantAdmissionError(exhausted)).toBe(true);
+  expect(isSigningGrantAdmissionError(inFlight)).toBe(true);
 }
 
 test(

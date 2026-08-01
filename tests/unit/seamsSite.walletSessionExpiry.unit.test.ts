@@ -127,7 +127,7 @@ test('a genuinely missing signing session locks the selected wallet', () => {
 });
 
 test('exhausted and unavailable states preserve the demo identity and wallet', () => {
-  const reasons = ['exhausted', 'unavailable', 'budget_unknown', 'invalid'] as const;
+  const reasons = ['exhausted', 'unavailable', 'status_unknown', 'invalid'] as const;
   for (const reason of reasons) {
     expect(
       new DemoWalletSessionLifecycleController().observeExactState(

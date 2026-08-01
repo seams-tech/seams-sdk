@@ -37,34 +37,44 @@ export type EmitWalletUnlockEmailOtpWebhook = (input: {
   walletId?: string;
 }) => Promise<void>;
 
-type WalletUnlockEd25519YaoSessionMaterialV1 = {
+type WalletUnlockProvisionedCapabilityMaterialV1 = {
   readonly session: WalletRegistrationEd25519YaoBootstrapSession;
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
 };
 
-type WalletUnlockEmailOtpEd25519YaoRequest = Omit<
-  WalletUnlockEmailOtpRequestedCapabilitiesRequestV1,
-  'requestedCapabilities'
-> & {
-  readonly requestedCapabilities: Extract<
-    WalletUnlockEmailOtpRequestedCapabilitiesV1,
-    { readonly kind: 'ed25519_yao' }
-  >;
-};
-
-export type WalletUnlockEd25519YaoSessionSuccessV1 =
-  | (WalletUnlockEd25519YaoSessionMaterialV1 & {
+export type WalletUnlockProvisionedCapabilityV1 =
+  | (WalletUnlockProvisionedCapabilityMaterialV1 & {
       readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1;
     });
 
-export type WalletUnlockEd25519YaoSessionContext =
+export type WalletUnlockCapabilityContext =
   | { readonly kind: 'passkey_unlock' }
-  | { readonly kind: 'email_otp_no_ed25519_session' }
   | {
-      readonly kind: 'email_otp_ed25519_yao';
-      readonly request: WalletUnlockEmailOtpEd25519YaoRequest;
+      readonly kind: 'email_otp';
+      readonly request: WalletUnlockEmailOtpRequestedCapabilitiesRequestV1;
       readonly provisionWalletSession: RouterApiWalletRegistrationService['provisionEd25519YaoWalletSession'];
     };
+
+type WalletUnlockEd25519YaoRequestedContext = Extract<
+  WalletUnlockCapabilityContext,
+  { readonly kind: 'email_otp' }
+> & {
+  readonly request: Omit<
+    WalletUnlockEmailOtpRequestedCapabilitiesRequestV1,
+    'requestedCapabilities'
+  > & {
+    readonly requestedCapabilities: Extract<
+      WalletUnlockEmailOtpRequestedCapabilitiesV1,
+      { readonly kind: 'ed25519_yao' }
+    >;
+  };
+};
+
+function isWalletUnlockEd25519YaoRequestedContext(
+  context: WalletUnlockCapabilityContext,
+): context is WalletUnlockEd25519YaoRequestedContext {
+  return context.kind === 'email_otp' && context.request.requestedCapabilities.kind === 'ed25519_yao';
+}
 
 export type WalletUnlockEcdsaSessionContext =
   | { readonly kind: 'no_ecdsa_session' }
@@ -90,8 +100,8 @@ type VerifiedEmailOtpUnlockResult = Extract<
   { readonly ok: true }
 >;
 
-type WalletUnlockEd25519YaoSessionResult =
-  | { readonly ok: true; readonly value: WalletUnlockEd25519YaoSessionSuccessV1 }
+type WalletUnlockProvisionedCapabilityResult =
+  | { readonly ok: true; readonly value: WalletUnlockProvisionedCapabilityV1 }
   | { readonly ok: false; readonly response: WalletUnlockRouteResponse };
 
 type WalletUnlockEcdsaSessionResult =
@@ -141,7 +151,7 @@ async function provisionFirstEcdsaWalletSession(input: {
   }
 }
 
-function walletUnlockScopeMismatchResponse(): WalletUnlockEd25519YaoSessionResult {
+function walletUnlockScopeMismatchResponse(): WalletUnlockProvisionedCapabilityResult {
   return {
     ok: false,
     response: {
@@ -157,7 +167,7 @@ function walletUnlockScopeMismatchResponse(): WalletUnlockEd25519YaoSessionResul
 
 function walletUnlockSessionFailureResponse(input: {
   readonly result: { readonly ok: false; readonly code: string; readonly message: string };
-}): WalletUnlockEd25519YaoSessionResult {
+}): WalletUnlockProvisionedCapabilityResult {
   return {
     ok: false,
     response: {
@@ -167,10 +177,10 @@ function walletUnlockSessionFailureResponse(input: {
   };
 }
 
-async function provisionEmailOtpEd25519YaoSession(input: {
-  readonly context: Extract<WalletUnlockEd25519YaoSessionContext, { kind: 'email_otp_ed25519_yao' }>;
+async function provisionEmailOtpEd25519YaoCapability(input: {
+  readonly context: WalletUnlockEd25519YaoRequestedContext;
   readonly verifiedUnlock: VerifiedEmailOtpUnlockResult;
-}): Promise<WalletUnlockEd25519YaoSessionResult> {
+}): Promise<WalletUnlockProvisionedCapabilityResult> {
   const request = input.context.request;
   if (
     input.verifiedUnlock.walletId !== request.walletId ||
@@ -320,7 +330,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
   service: RouterApiWalletUnlockService;
   emitRouterApiWebhook: EmitWalletUnlockRouterApiWebhook;
   emitEmailOtpWebhook: EmitWalletUnlockEmailOtpWebhook;
-  ed25519YaoSession: WalletUnlockEd25519YaoSessionContext;
+  capabilityContext: WalletUnlockCapabilityContext;
   ecdsaSession: WalletUnlockEcdsaSessionContext;
 }): Promise<WalletUnlockRouteResponse> {
   if (!input.body || typeof input.body !== 'object' || Array.isArray(input.body)) {
@@ -346,7 +356,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
   }
 
   if (unlockBackend === 'passkey') {
-    if (input.ed25519YaoSession.kind !== 'passkey_unlock') {
+    if (input.capabilityContext.kind !== 'passkey_unlock') {
       return {
         status: 400,
         body: { ok: false, code: 'invalid_body', message: 'Passkey unlock context is invalid' },
@@ -397,7 +407,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
     };
   }
 
-  if (input.ed25519YaoSession.kind === 'passkey_unlock') {
+  if (input.capabilityContext.kind === 'passkey_unlock') {
     return {
       status: 400,
       body: { ok: false, code: 'invalid_body', message: 'Email OTP unlock context is invalid' },
@@ -429,7 +439,10 @@ export async function handleWalletUnlockVerifyRoute(input: {
   });
   if (!ecdsaSession.ok) return ecdsaSession.response;
 
-  if (input.ed25519YaoSession.kind === 'email_otp_no_ed25519_session') {
+  if (
+    input.capabilityContext.kind === 'email_otp' &&
+    input.capabilityContext.request.requestedCapabilities.kind === 'none'
+  ) {
     await emitSuccessfulWalletUnlock({
       unlockBackend,
       challengeId,
@@ -449,11 +462,17 @@ export async function handleWalletUnlockVerifyRoute(input: {
       },
     };
   }
-  const sessionResult = await provisionEmailOtpEd25519YaoSession({
-    context: input.ed25519YaoSession,
+  if (!isWalletUnlockEd25519YaoRequestedContext(input.capabilityContext)) {
+    return {
+      status: 400,
+      body: { ok: false, code: 'invalid_body', message: 'Email OTP capability context is invalid' },
+    };
+  }
+  const capabilityResult = await provisionEmailOtpEd25519YaoCapability({
+    context: input.capabilityContext,
     verifiedUnlock: result,
   });
-  if (!sessionResult.ok) return sessionResult.response;
+  if (!capabilityResult.ok) return capabilityResult.response;
   await emitSuccessfulWalletUnlock({
     unlockBackend,
     challengeId,
@@ -469,7 +488,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
       unlocked: true,
       unlockBackend,
       userId: result.userId,
-      ed25519YaoSession: sessionResult.value,
+      ed25519YaoCapability: capabilityResult.value,
       ...(ecdsaSession.activation ? { ecdsaSession: ecdsaSession.activation } : {}),
     },
   };

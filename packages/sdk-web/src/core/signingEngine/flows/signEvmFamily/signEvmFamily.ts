@@ -43,7 +43,7 @@ import { computeSigningOperationFingerprint } from '../../session/planning/opera
 import {
   buildOperationAuthorizationQueueKey,
   type OperationAuthorizationQueueKey,
-} from '../../session/budget/admission';
+} from '../../session/operationState/authorizationAdmission';
 import { signingLaneAuthBindingKey } from '../../session/identity/signingLaneAuthBinding';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';

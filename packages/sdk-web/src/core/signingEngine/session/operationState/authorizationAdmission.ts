@@ -1,7 +1,7 @@
-export const SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR =
-  '[SigningSessionBudget] signing grant budget is exhausted';
-export const SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR =
-  '[SigningSessionBudget] signing grant budget is reserved by in-flight operations';
+export const SIGNING_GRANT_EXHAUSTED_ERROR =
+  '[SigningGrantAdmission] signing grant is exhausted';
+export const SIGNING_GRANT_IN_FLIGHT_ERROR =
+  '[SigningGrantAdmission] signing grant is reserved by an in-flight operation';
 
 export type SigningGrantAdmissionFailureSource =
   | 'local_projection'
@@ -83,41 +83,11 @@ export function signingGrantAdmissionFailureMessage(
 ): string {
   switch (failure.kind) {
     case 'exhausted':
-      return `${SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR}: ${failure.detail}`;
+      return `${SIGNING_GRANT_EXHAUSTED_ERROR}: ${failure.detail}`;
     case 'in_flight':
-      return `${SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR}: ${failure.detail}`;
+      return `${SIGNING_GRANT_IN_FLIGHT_ERROR}: ${failure.detail}`;
     case 'stale_projection':
-      return `${SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR}: stale projection ${failure.localProjectionVersion} -> ${failure.serverProjectionVersion}: ${failure.detail}`;
-  }
-}
-
-export function routerAbNormalSigningAdmissionErrorFromPayload(args: {
-  code: string;
-  message: string;
-  path: string;
-  status: number;
-}): SigningGrantAdmissionError | null {
-  const code = String(args.code || '').trim();
-  const detail = `Router A/B signing ${args.path} returned HTTP ${args.status}: ${
-    args.message || code || 'unknown admission failure'
-  }`;
-  switch (code) {
-    case 'wallet_budget_exhausted':
-      return new SigningGrantAdmissionError({
-        kind: 'exhausted',
-        source: 'server_prepare',
-        detail,
-      });
-    case 'wallet_budget_in_flight':
-    case 'wallet_budget_reserved':
-      return new SigningGrantAdmissionError({
-        kind: 'in_flight',
-        source: 'server_prepare',
-        detail,
-        retryAfterMs: 150,
-      });
-    default:
-      return null;
+      return `${SIGNING_GRANT_EXHAUSTED_ERROR}: stale projection ${failure.localProjectionVersion} -> ${failure.serverProjectionVersion}: ${failure.detail}`;
   }
 }
 
@@ -126,19 +96,19 @@ export function classifySigningGrantAdmissionFailure(
 ): SigningGrantAdmissionFailure | null {
   if (isSigningGrantAdmissionError(error)) return error.failure;
   const message = error instanceof Error ? error.message : String(error || '');
-  if (message.includes(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR)) {
+  if (message.includes(SIGNING_GRANT_IN_FLIGHT_ERROR)) {
     return {
       kind: 'in_flight',
       source: 'local_projection',
-      detail: message || SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
+      detail: message || SIGNING_GRANT_IN_FLIGHT_ERROR,
       retryAfterMs: 150,
     };
   }
-  if (message.includes(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR)) {
+  if (message.includes(SIGNING_GRANT_EXHAUSTED_ERROR)) {
     return {
       kind: 'exhausted',
       source: 'local_projection',
-      detail: message || SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
+      detail: message || SIGNING_GRANT_EXHAUSTED_ERROR,
     };
   }
   return null;

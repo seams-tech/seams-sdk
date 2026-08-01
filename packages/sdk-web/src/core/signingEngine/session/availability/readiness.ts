@@ -26,15 +26,15 @@ import {
   toWarmSessionClaimFromStatusResult,
   type WarmSessionReadPortsInput,
 } from '../warmCapabilities/readModel';
-import { budgetUnknownSigningSessionStatus } from '../budget/budgetStatusReader';
+import { unknownSigningSessionStatus } from '../lifecycle/walletSessionStatus';
 import {
-  ed25519WalletBudgetOwner,
-  normalizeRequired,
-  thresholdSessionIdsForBudgetStatusCheck,
-  walletBudgetOwnerKey,
-  type SigningSessionBudgetStatusCheck,
-  type WalletBudgetOwner,
-} from '../budget/budget';
+  ed25519WalletSessionStatusOwner,
+  normalizeSessionStatusRequired,
+  thresholdSessionIdsForSessionStatusCheck,
+  walletSessionStatusOwnerKey,
+  type SigningSessionStatusCheck,
+  type WalletSessionStatusOwner,
+} from '../lifecycle/walletSessionStatus';
 import type {
   Ed25519SigningSessionReadiness,
 } from '../planning/planner';
@@ -61,7 +61,7 @@ export type DiscoveredSigningSessionLane = SigningSessionLane & {
 };
 
 export type SigningGrantStatusOverride = {
-  owner: WalletBudgetOwner;
+  owner: WalletSessionStatusOwner;
   signingGrantId: string;
   status: SigningSessionStatus;
   thresholdSessionIds: Set<string>;
@@ -87,7 +87,7 @@ export type SigningGrantClaimReaderDeps = {
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
 };
 
-export type SigningSessionReadinessWithBudget = {
+export type SigningSessionReadinessWithStatus = {
   readiness: Ed25519SigningSessionReadiness;
   expiresAtMs: number;
   remainingUses: number;
@@ -115,48 +115,48 @@ export function warmClaimFromRecordPolicy(args: {
   };
 }
 
-export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
+export function applyWalletSessionStatusToSigningSessionReadiness(args: {
   status: Ed25519SigningSessionReadiness['status'];
   thresholdSessionId: ThresholdEd25519SessionId;
   expiresAtMs: number;
   remainingUses: number;
-  walletBudgetStatus?: SigningSessionStatus | null;
+  walletSessionStatus?: SigningSessionStatus | null;
   usesNeeded?: number;
   nowMs?: number;
   missingWhenExpiresAtMissing?: boolean;
-}): SigningSessionReadinessWithBudget {
+}): SigningSessionReadinessWithStatus {
   let status = args.status;
   let expiresAtMs = Math.floor(Number(args.expiresAtMs) || 0);
   let remainingUses = Math.max(0, Math.floor(Number(args.remainingUses) || 0));
-  const walletBudgetStatus = args.walletBudgetStatus;
-  if (walletBudgetStatus) {
-    if (walletBudgetStatus.status === 'not_found') {
+  const walletSessionStatus = args.walletSessionStatus;
+  if (walletSessionStatus) {
+    if (walletSessionStatus.status === 'not_found') {
       status = 'missing_session';
       remainingUses = 0;
-    } else if (walletBudgetStatus.status === 'budget_unknown' && status === 'ready') {
-      status = 'budget_unknown';
+    } else if (walletSessionStatus.status === 'status_unknown' && status === 'ready') {
+      status = 'status_unknown';
       remainingUses = 0;
-    } else if (walletBudgetStatus.status === 'unavailable') {
+    } else if (walletSessionStatus.status === 'unavailable') {
       status = 'status_unavailable';
       remainingUses = 0;
-    } else if (walletBudgetStatus.status === 'expired') {
+    } else if (walletSessionStatus.status === 'expired') {
       status = 'expired';
       remainingUses = 0;
-    } else if (walletBudgetStatus.status === 'exhausted') {
+    } else if (walletSessionStatus.status === 'exhausted') {
       status = 'exhausted';
       remainingUses = 0;
-    } else if (walletBudgetStatus.status === 'active') {
-      const budgetRemainingUses = Math.max(
+    } else if (walletSessionStatus.status === 'active') {
+      const sessionRemainingUses = Math.max(
         0,
-        Math.floor(Number(walletBudgetStatus.remainingUses) || 0),
+        Math.floor(Number(walletSessionStatus.remainingUses) || 0),
       );
-      const budgetExpiresAtMs = Math.floor(Number(walletBudgetStatus.expiresAtMs) || 0);
+      const sessionExpiresAtMs = Math.floor(Number(walletSessionStatus.expiresAtMs) || 0);
       // Local/session-store counters are availability hints after restore. The
-      // wallet budget service is the trusted source for terminal budget state.
+      // session status service is the trusted source for terminal budget state.
       // Same-projection local availability can gate admission, but it must not
       // turn a server-active session into step-up reauth.
-      remainingUses = budgetRemainingUses;
-      if (budgetExpiresAtMs > 0) expiresAtMs = budgetExpiresAtMs;
+      remainingUses = sessionRemainingUses;
+      if (sessionExpiresAtMs > 0) expiresAtMs = sessionExpiresAtMs;
       if (status === 'exhausted') {
         status = 'ready';
       }
@@ -219,8 +219,8 @@ function assertNeverSigningSessionLaneAuthMethod(value: never): never {
 
 function resolveRuntimeWalletOwnerId(
   runtime: ExactEd25519SealedSessionRuntime,
-): WalletBudgetOwner {
-  return ed25519WalletBudgetOwner(runtime.walletId);
+): WalletSessionStatusOwner {
+  return ed25519WalletSessionStatusOwner(runtime.walletId);
 }
 
 function addLane(
@@ -293,7 +293,7 @@ export async function getLanesForWalletSession(args: {
   walletId: WalletId;
   signingGrantId: string;
 }): Promise<DiscoveredSigningSessionLane[]> {
-  const signingGrantId = normalizeRequired(args.signingGrantId, 'signingGrantId');
+  const signingGrantId = normalizeSessionStatusRequired(args.signingGrantId, 'signingGrantId');
   return (await discoverLanesForWallet(args.deps, args.walletId)).filter(
     (lane) => lane.signingGrantId === signingGrantId,
   );
@@ -431,38 +431,38 @@ function resolveApplicableSigningGrantStatusOverrideForGroup(args: {
 
 function signingGrantStatusOverrideOwnersForLanes(
   lanes: DiscoveredSigningSessionLane[],
-): WalletBudgetOwner[] {
-  const ownersByKey = new Map<string, WalletBudgetOwner>();
+): WalletSessionStatusOwner[] {
+  const ownersByKey = new Map<string, WalletSessionStatusOwner>();
   for (const lane of lanes) {
     const owner = resolveRuntimeWalletOwnerId(lane.runtime);
-    ownersByKey.set(walletBudgetOwnerKey(owner), owner);
+    ownersByKey.set(walletSessionStatusOwnerKey(owner), owner);
   }
   return [...ownersByKey.values()];
 }
 
 export function walletOwnerSigningSessionStatusOverrideKey(
-  owner: WalletBudgetOwner,
+  owner: WalletSessionStatusOwner,
   signingGrantId: string,
 ): string {
-  return `${walletBudgetOwnerKey(owner)}:${normalizeNonEmpty(signingGrantId)}`;
+  return `${walletSessionStatusOwnerKey(owner)}:${normalizeNonEmpty(signingGrantId)}`;
 }
 
 function signingGrantStatusOverrideOwners(args: {
-  owner: WalletBudgetOwner;
+  owner: WalletSessionStatusOwner;
   lanes: DiscoveredSigningSessionLane[];
-}): WalletBudgetOwner[] {
-  const ownersByKey = new Map<string, WalletBudgetOwner>();
-  ownersByKey.set(walletBudgetOwnerKey(args.owner), args.owner);
+}): WalletSessionStatusOwner[] {
+  const ownersByKey = new Map<string, WalletSessionStatusOwner>();
+  ownersByKey.set(walletSessionStatusOwnerKey(args.owner), args.owner);
   for (const lane of args.lanes) {
     const owner = resolveRuntimeWalletOwnerId(lane.runtime);
-    ownersByKey.set(walletBudgetOwnerKey(owner), owner);
+    ownersByKey.set(walletSessionStatusOwnerKey(owner), owner);
   }
   return [...ownersByKey.values()];
 }
 
 export function rememberSigningGrantStatusOverride(args: {
   overrides: Map<string, SigningGrantStatusOverride>;
-  owner: WalletBudgetOwner;
+  owner: WalletSessionStatusOwner;
   signingGrantId: string;
   lanes: DiscoveredSigningSessionLane[];
   status: SigningSessionStatus;
@@ -598,20 +598,20 @@ export async function readWalletScopedLaneClaimsForLanes(args: {
   });
 }
 
-function targetSessionSetsForBudgetStatusCheck(check: SigningSessionBudgetStatusCheck): {
+function targetSessionSetsForSessionStatusCheck(check: SigningSessionStatusCheck): {
   backingMaterialSessionIds: Set<string>;
   thresholdSessionIds: Set<string>;
 } {
   return {
     backingMaterialSessionIds:
-      check.kind === 'backing_material_budget_status_check'
+      check.kind === 'backing_material_session_status_check'
         ? new Set(check.targetBackingMaterialSessionIds.map(normalizeNonEmpty).filter(Boolean))
         : new Set<string>(),
     thresholdSessionIds:
-      check.kind === 'threshold_budget_status_check' ||
-      check.kind === 'authenticated_threshold_budget_status_check'
+      check.kind === 'threshold_session_status_check' ||
+      check.kind === 'authenticated_threshold_session_status_check'
         ? new Set(
-            thresholdSessionIdsForBudgetStatusCheck(check).map(normalizeNonEmpty).filter(Boolean),
+            thresholdSessionIdsForSessionStatusCheck(check).map(normalizeNonEmpty).filter(Boolean),
           )
         : new Set<string>(),
   };
@@ -693,7 +693,7 @@ export async function clearSigningGrant(args: {
   });
   args.statusOverrides.delete(
     walletOwnerSigningSessionStatusOverrideKey(
-      ed25519WalletBudgetOwner(args.walletId),
+      ed25519WalletSessionStatusOwner(args.walletId),
       args.signingGrantId,
     ),
   );
@@ -800,7 +800,7 @@ export async function syncSealedRefreshPolicyForLanes(args: {
   }
   if (args.status.status !== 'active' || remainingUses <= 0) {
     if (policyExpiresAtMs <= nowMs) return;
-    // Exhaustion is a budget state, not a restore-identity lifecycle event.
+    // Exhaustion is an authorization state, not a restore-identity lifecycle event.
     // Keep durable lane identity so the next command can select the exact
     // step-up auth lane after page reload or worker-memory loss.
     await Promise.all(

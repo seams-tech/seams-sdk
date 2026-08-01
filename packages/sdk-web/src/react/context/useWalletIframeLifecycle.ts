@@ -43,7 +43,7 @@ async function applyExactWalletIframeSessionState(args: {
         case 'superseded':
           break;
         case 'unavailable':
-        case 'budget_unknown':
+        case 'status_unknown':
           return;
         case 'not_found':
         case 'invalid':

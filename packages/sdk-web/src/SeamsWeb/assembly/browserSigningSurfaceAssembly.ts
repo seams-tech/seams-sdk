@@ -8,7 +8,7 @@ import {
   type ReusableWalletSessionStatusAuth,
 } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningOperation } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
-import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusOperation } from '@/core/signingEngine/session/budget/budgetStatusReader';
+import { readTrustedWalletSigningSessionStatus as readTrustedWalletSigningSessionStatusOperation } from '@/core/signingEngine/session/lifecycle/walletSessionStatus';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { BrowserSealedSigningSessionStorePorts } from './createBrowserSigningStores';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
@@ -524,8 +524,8 @@ export function createBrowserSigningSurfaceEnginePorts(
         kind: 'ecdsa',
         thresholdSessionId: sessionId,
       }),
-    getWalletSigningBudgetStatus: (statusArgs) =>
-      readTrustedWalletSigningBudgetStatusOperation(
+    getWalletSessionStatus: (statusArgs) =>
+      readTrustedWalletSigningSessionStatusOperation(
         {
           ecdsaSessions: args.warmSigning.ecdsaSessions,
         },
@@ -604,7 +604,7 @@ export function createBrowserSigningSurfaceEnginePorts(
           statusReader: args.warmSigning.statusUiConfirm,
           getEmailOtpWarmSessionStatus: (target) =>
             args.emailOtpSessions.readWarmSessionStatusOnly(target),
-          getWalletSigningBudgetStatus: (statusArgs) =>
+          getWalletSessionStatus: (statusArgs) =>
             args.getEnginePorts().signingSessionCoordinator.getAvailableStatus(statusArgs),
         },
         readArgs,

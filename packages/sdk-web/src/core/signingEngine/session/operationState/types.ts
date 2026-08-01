@@ -326,7 +326,7 @@ export type SigningSessionNotReadyReason =
   | 'missing_session'
   | 'expired'
   | 'exhausted'
-  | 'budget_unknown'
+  | 'status_unknown'
   | 'auth_unavailable'
   | 'status_unavailable'
   | 'policy_blocked';

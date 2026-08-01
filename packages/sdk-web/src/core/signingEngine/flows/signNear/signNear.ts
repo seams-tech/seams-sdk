@@ -88,14 +88,11 @@ import {
   buildSigningGrantAdmissionQueueKey,
   decideSigningGrantAdmissionError,
   waitForSigningGrantAdmissionRetry,
-} from '../../session/budget/admission';
+} from '../../session/operationState/authorizationAdmission';
 import { signingLaneAuthBindingKey } from '../../session/identity/signingLaneAuthBinding';
-import type { SigningSessionBudgetStatusAuth } from '../../session/budget/budget';
+import type { WalletSessionStatusAuth } from '../../session/lifecycle/walletSessionStatus';
 import {
-  normalizeStepUpOperationId,
-  resolvePostExhaustionStepUpBudgetPolicy,
-  resolveSigningBudgetPolicyRemainingUses,
-} from '../../session/budget/policy';
+} from '../../threshold/sessionPolicy';
 import { signingAuthPlanFromSigningSessionPlan } from '../shared/signingConfirmation';
 import { resolveNearSigningSessionAuthContext } from './shared/signingSessionAuthMode';
 import {
@@ -257,18 +254,6 @@ export type NearSignIntentResult<TRequest extends NearSignIntentRequest> = TRequ
     : never
   : never;
 
-function resolveTransactionStepUpSessionUses(args: {
-  operationId: SigningOperationId;
-  requiredSignatureUses: number;
-}): number {
-  const requiredSignatureUses = Math.max(1, Math.floor(Number(args.requiredSignatureUses) || 1));
-  const budgetPolicy = resolvePostExhaustionStepUpBudgetPolicy({
-    operationId: normalizeStepUpOperationId(args.operationId),
-    requiredSignatureUses,
-  });
-  return Math.max(requiredSignatureUses, resolveSigningBudgetPolicyRemainingUses(budgetPolicy));
-}
-
 export async function signNear<TRequest extends NearSignIntentRequest>(
   deps: NearSigningApiDeps,
   request: TRequest,
@@ -421,8 +406,8 @@ function transactionReadinessFromPlannerInput(
       expiresAtMs: Math.max(0, Math.floor(Number(readiness.readiness.expiresAtMs) || 0)),
     };
   }
-  if (status === 'expired' || status === 'exhausted' || status === 'budget_unknown') {
-    return status === 'budget_unknown'
+  if (status === 'expired' || status === 'exhausted' || status === 'status_unknown') {
+    return status === 'status_unknown'
       ? { status, reason: 'trusted wallet budget status is unavailable' }
       : { status };
   }
@@ -458,11 +443,11 @@ function requireResolvedNearEd25519SigningLane(
   };
 }
 
-function trustedBudgetStatusAuthFromNearPreparation(
+function trustedSessionStatusAuthFromNearPreparation(
   preparation: NearEd25519YaoSigningPreparation,
   relayerUrlRaw: string,
   thresholdSessionIdRaw: string,
-): SigningSessionBudgetStatusAuth | null {
+): WalletSessionStatusAuth | null {
   if (preparation.authorization.kind !== 'authorized') return null;
   const relayerUrl = String(relayerUrlRaw || '').trim();
   const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
@@ -1224,7 +1209,7 @@ async function prepareNearEd25519TransactionOperation(args: {
   );
   const transactionOperation = prepareTransactionOperationFromReadiness(transactionReadinessState);
   const identity = requireResolvedNearEd25519SigningLane(lane);
-  const trustedStatusAuth = trustedBudgetStatusAuthFromNearPreparation(
+  const trustedStatusAuth = trustedSessionStatusAuthFromNearPreparation(
     args.preparation,
     args.deps.getSignerWorkerContext().relayerUrl,
     selectedSessionLane.thresholdSessionId,

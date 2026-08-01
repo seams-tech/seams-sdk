@@ -1,6 +1,6 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { configuredThresholdEcdsaChainTargets } from '../../interfaces/ecdsaChainTarget';
-import { readTrustedWalletSigningBudgetStatus } from '../../session/budget/budgetStatusReader';
+import { readTrustedWalletSigningSessionStatus } from '../../session/lifecycle/walletSessionStatus';
 import type { EmailOtpWalletSessionCoordinator } from '../../session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { SessionPublicDeps } from '../../session/public';
 import type {
@@ -29,8 +29,8 @@ export function createSessionPublicDeps(args: {
       statusReader: args.passkeyMpcSession,
       getEmailOtpWarmSessionStatus: (target) =>
         args.emailOtpSessions.readWarmSessionStatusOnly(target),
-      getWalletSigningBudgetStatus: (statusArgs) =>
-        readTrustedWalletSigningBudgetStatus({}, statusArgs),
+      getWalletSessionStatus: (statusArgs) =>
+        readTrustedWalletSigningSessionStatus({}, statusArgs),
     },
     signingSessionSeal:
       args.seamsWebConfigs.signing.sessionSeal.mode === 'sealed_refresh_v1'

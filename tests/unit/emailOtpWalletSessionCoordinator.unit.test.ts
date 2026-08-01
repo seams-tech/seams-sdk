@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import {
-  toAuthorizingSigningGrantId,
   type EmailOtpRoutePlan,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import {
@@ -1214,8 +1213,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       authLane: {
         kind: 'signing_session',
         jwt: walletSessionJwt,
-        thresholdSessionId: 'ed25519-session',
-        authorizingSigningGrantId: toAuthorizingSigningGrantId('signing-grant'),
         curve: 'ed25519',
       },
     });
@@ -1237,8 +1234,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
             authLane: {
               kind: 'signing_session',
               jwt: walletSessionJwt,
-              thresholdSessionId: 'ed25519-session',
-              authorizingSigningGrantId: 'signing-grant',
               curve: 'ed25519',
             },
             operation: 'transaction_sign',

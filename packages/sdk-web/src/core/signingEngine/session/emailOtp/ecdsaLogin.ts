@@ -89,12 +89,9 @@ import {
   type EmailOtpEcdsaBootstrapAuthorization,
 } from './routePlan';
 import {
-  DEV_DEFAULT_UNLOCK_REMAINING_USES,
-  normalizeStepUpOperationId,
-  resolvePostExhaustionStepUpBudgetPolicy,
-  resolveSigningBudgetPolicyRemainingUses,
-  resolveWalletUnlockBudgetPolicyFromRequestedUses,
-} from '../budget/policy';
+  DEFAULT_UNLOCK_REMAINING_USES,
+  resolveWalletUnlockSessionUsesFromRequestedUses,
+} from '../../threshold/sessionPolicy';
 import {
   parseEmailOtpEcdsaExportWorkerIssuedSessionHandle,
   parseEmailOtpWorkerIssuedSessionHandle,
@@ -148,7 +145,7 @@ type EmailOtpEd25519YaoLoginMaterial =
       bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     }
   | {
-      kind: 'local_session';
+      kind: 'capability';
       activeClientHandle: string;
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
       bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
@@ -178,12 +175,12 @@ function emailOtpEd25519YaoLoginMaterialFromWorkerResult(
         pendingFactorHandle: workerResult.pendingFactorHandle,
         bootstrap: workerResult.ed25519YaoRecovery,
       };
-    case 'ed25519_yao_local_session':
+    case 'ed25519_yao_capability':
       return {
-        kind: 'local_session',
+        kind: 'capability',
         activeClientHandle: workerResult.activeClientHandle,
         metadata: workerResult.metadata,
-        bootstrap: workerResult.ed25519YaoSession,
+        bootstrap: workerResult.ed25519YaoCapability,
       };
   }
   workerResult satisfies never;
@@ -206,7 +203,7 @@ async function disposeEmailOtpEd25519YaoWorkerResultAfterFailure(args: {
       }
       return;
     }
-    case 'ed25519_yao_local_session': {
+    case 'ed25519_yao_capability': {
       const removed = await disposeEmailOtpEd25519YaoActiveClientV1({
         workerContext: args.workerContext,
         activeClientHandle: args.workerResult.activeClientHandle,
@@ -467,7 +464,7 @@ function resolveEmailOtpLoginSigningBudget(args: {
       bootstrap:
         args.ed25519YaoResult.kind === 'ed25519_yao_recovery'
           ? args.ed25519YaoResult.ed25519YaoRecovery
-          : args.ed25519YaoResult.ed25519YaoSession,
+          : args.ed25519YaoResult.ed25519YaoCapability,
       expectedRemainingUses: args.requestedRemainingUses,
     });
   }
@@ -1051,33 +1048,26 @@ async function runEmailOtpEcdsaCapability(
       1,
       Math.floor(
         Number(
-          configuredRemainingUses ?? defaultRemainingUses ?? DEV_DEFAULT_UNLOCK_REMAINING_USES,
+          configuredRemainingUses ?? defaultRemainingUses ?? DEFAULT_UNLOCK_REMAINING_USES,
         ) || 1,
       ),
     ),
-    DEV_DEFAULT_UNLOCK_REMAINING_USES,
+    DEFAULT_UNLOCK_REMAINING_USES,
   );
   const requestedStepUpSignatureUses = Math.max(
     1,
     Math.floor(Number(configuredRemainingUses) || 1),
   );
-  const unlockBudgetPolicy =
-    resolveWalletUnlockBudgetPolicyFromRequestedUses({
+  const unlockRemainingUses =
+    resolveWalletUnlockSessionUsesFromRequestedUses({
       requestedRemainingUses,
-      ...(configuredRemainingUses == null && defaultRemainingUses == null
-        ? {}
-        : { policyVersion: 'sdk_email_otp_unlock_config_v1' }),
     }) ||
     (() => {
-      throw new Error('[SigningEngine][email-otp] unlock budget policy is required');
+      throw new Error('[SigningEngine][email-otp] unlock session uses are required');
     })();
-  const postExhaustionStepUpBudgetPolicy = resolvePostExhaustionStepUpBudgetPolicy({
-    operationId: normalizeStepUpOperationId(operation),
-    requiredSignatureUses: requestedStepUpSignatureUses,
-  });
   const remainingUses = isSigningStepUp
-    ? resolveSigningBudgetPolicyRemainingUses(postExhaustionStepUpBudgetPolicy)
-    : resolveSigningBudgetPolicyRemainingUses(unlockBudgetPolicy);
+    ? requestedStepUpSignatureUses
+    : unlockRemainingUses;
   const workerCtx = ports.getSignerWorkerContext();
   const routePlan = args.routePlan;
   const bootstrapRouteAuth =

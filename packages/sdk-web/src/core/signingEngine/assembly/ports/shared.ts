@@ -27,7 +27,7 @@ import type { RestorePersistedSessionForSigningInput } from '../../session/seale
 import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import type { SigningSessionBudgetStatusCheck } from '../../session/budget/budget';
+import type { SigningSessionStatusCheck } from '../../session/lifecycle/walletSessionStatus';
 import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
@@ -128,8 +128,8 @@ export type CreateSigningEnginePortsArgs = {
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
   clearEmailOtpWarmSessionMaterial: (sessionId: string) => Promise<void>;
-  getWalletSigningBudgetStatus: (
-    args: SigningSessionBudgetStatusCheck,
+  getWalletSessionStatus: (
+    args: SigningSessionStatusCheck,
   ) => Promise<SigningSessionStatus | null>;
   signerWorkerManager: SignerWorkerManager;
   getWorkerBaseOrigin: () => string;

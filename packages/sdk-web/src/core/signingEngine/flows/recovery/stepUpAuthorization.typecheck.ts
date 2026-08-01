@@ -20,8 +20,6 @@ void buildExportStepUpAuthorization({
   nearAccountId: 'alice.testnet',
   nearEd25519SigningKeyId: 'near-key-1',
   signerSlot: 1,
-  thresholdSessionId: 'threshold-ed25519-1',
-  signingGrantId: 'grant-ed25519-1',
 });
 
 void buildExportStepUpAuthorization({
@@ -42,8 +40,6 @@ void buildExportStepUpAuthorization({
   nearAccountId: 'alice.testnet',
   nearEd25519SigningKeyId: 'near-key-1',
   signerSlot: 1,
-  thresholdSessionId: 'threshold-ed25519-1',
-  signingGrantId: 'grant-ed25519-1',
 });
 
 const warmSigningAuthorization = {

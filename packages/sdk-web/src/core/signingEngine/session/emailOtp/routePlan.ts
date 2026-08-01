@@ -71,8 +71,6 @@ export type EmailOtpThresholdEd25519RouteAuth = {
   kind: 'threshold_ed25519_session';
   jwt: string;
   curve: 'ed25519';
-  thresholdSessionId: string;
-  signingGrantId: AuthorizingSigningGrantId;
   chainTarget?: never;
 };
 
@@ -197,7 +195,7 @@ export type EmailOtpEcdsaMintingSession =
 export function authorizingSigningGrantIdFromRoutePlan(
   routePlan: EmailOtpRoutePlan,
 ): AuthorizingSigningGrantId | undefined {
-  return routePlan.authLane.kind === 'signing_session'
+  return routePlan.authLane.kind === 'signing_session' && routePlan.authLane.curve === 'ecdsa'
     ? routePlan.authLane.authorizingSigningGrantId
     : undefined;
 }

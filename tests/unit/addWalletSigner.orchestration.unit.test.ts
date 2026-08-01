@@ -1355,8 +1355,8 @@ function createContext(captures: Record<string, unknown>): any {
         undefined,
         captures,
       ),
-      persistEmailOtpEd25519YaoSessionForRefreshInternal: async (input: unknown) => {
-        captures.persistedEmailOtpEd25519YaoSessionForRefresh = input;
+      persistEmailOtpEd25519YaoCapabilityForRefreshInternal: async (input: unknown) => {
+        captures.persistedEmailOtpEd25519YaoCapabilityForRefresh = input;
       },
       storeWalletEcdsaSignerRecords: async (input: Record<string, unknown>) => {
         captures.storedEcdsa = input;

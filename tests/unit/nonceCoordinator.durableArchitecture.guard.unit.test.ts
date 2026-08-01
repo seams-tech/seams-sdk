@@ -114,12 +114,10 @@ test.describe('nonce coordinator durable architecture guards', () => {
     const forbiddenImports = [
       'session/restoreCoordinator',
       'session/availableSigningLanes',
-      'session/budget/budget',
       'session/identity/laneResolution',
       'sealedSessionStore',
       'restoreCoordinator',
       'availableSigningLanes',
-      'WalletSigningBudget',
       'consumeSigningGrant',
     ];
     const offenders = listSourceFiles('packages/sdk-web/src/core/signingEngine/nonce').filter(
@@ -285,7 +283,6 @@ test.describe('nonce coordinator durable architecture guards', () => {
     expect(recoveryEnd).toBeGreaterThan(recoveryStart);
     const recoverySource = source.slice(recoveryStart, recoveryEnd);
 
-    expect(recoverySource).not.toContain('WalletSigningBudget');
     expect(recoverySource).not.toContain('consumeSigningGrant');
     expect(recoverySource).not.toContain('sendRawTransaction');
     expect(recoverySource).not.toContain('broadcastTransaction');

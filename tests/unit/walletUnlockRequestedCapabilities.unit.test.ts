@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { RouterApiWalletUnlockService } from '../../packages/sdk-server-ts/src/router/authServicePort';
 import {
   handleWalletUnlockVerifyRoute,
-  type WalletUnlockEd25519YaoSessionContext,
+  type WalletUnlockCapabilityContext,
 } from '../../packages/sdk-server-ts/src/router/walletUnlockRouteHandlers';
 import {
   EMAIL_OTP_ED25519_YAO_REQUESTED_CAPABILITIES_KIND,
@@ -52,11 +52,7 @@ function buildUnlockService(): RouterApiWalletUnlockService {
   };
 }
 
-function buildNoEd25519Context(): WalletUnlockEd25519YaoSessionContext {
-  return { kind: 'email_otp_no_ed25519_session' };
-}
-
-function buildEd25519Context(
+function buildEmailOtpContext(
   request: Extract<
     NonNullable<
       Extract<
@@ -67,9 +63,9 @@ function buildEd25519Context(
     { readonly requestedCapabilities: { readonly kind: 'ed25519_yao' } }
   >,
   onProvision: () => void,
-): WalletUnlockEd25519YaoSessionContext {
+): WalletUnlockCapabilityContext {
   return {
-    kind: 'email_otp_ed25519_yao',
+    kind: 'email_otp',
     request,
     provisionWalletSession: async () => {
       onProvision();
@@ -130,7 +126,15 @@ test.describe('wallet unlock requested capabilities boundary', () => {
         requestedCapabilities: { kind: 'none' },
       },
       service,
-      ed25519YaoSession: buildNoEd25519Context(),
+      capabilityContext: buildEmailOtpContext(
+        parseRequest({
+          ...BASE_BODY,
+          requestedCapabilities: { kind: EMAIL_OTP_NO_REQUESTED_CAPABILITIES_KIND },
+        }),
+        () => {
+          throw new Error('none must not provision');
+        },
+      ),
       ecdsaSession: { kind: 'no_ecdsa_session' },
       emitRouterApiWebhook: async () => undefined,
       emitEmailOtpWebhook: async () => undefined,
@@ -152,7 +156,7 @@ test.describe('wallet unlock requested capabilities boundary', () => {
         requestedCapabilities: ed25519Request.requestedCapabilities,
       },
       service,
-      ed25519YaoSession: buildEd25519Context(ed25519Request, () => {
+      capabilityContext: buildEmailOtpContext(ed25519Request, () => {
         ed25519ProvisionCalls += 1;
       }),
       ecdsaSession: { kind: 'no_ecdsa_session' },

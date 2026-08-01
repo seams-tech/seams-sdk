@@ -86,7 +86,7 @@ function assertPublicationCapabilityContinuity(
   }
 }
 
-export async function persistEmailOtpEd25519YaoSessionForRefresh(
+export async function persistEmailOtpEd25519YaoCapabilityForRefresh(
   args: EmailOtpEd25519YaoPublicationInput,
   ports: EmailOtpEd25519YaoPublicationPorts,
 ): Promise<void> {

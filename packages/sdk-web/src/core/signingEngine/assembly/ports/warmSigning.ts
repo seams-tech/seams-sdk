@@ -212,7 +212,7 @@ export function createWarmCapabilitiesPublicDeps(args: {
         },
         walletId,
       ),
-    getWalletSigningBudgetStatus: (statusArgs) =>
+    getWalletSessionStatus: (statusArgs) =>
       args.signingSessionCoordinator.getAvailableStatus(statusArgs),
     routerAbEcdsaDerivationPresignaturePoolPolicy: args.seamsWebConfigs.signing.routerAbEcdsaDerivation.presignaturePool,
     getSignerWorkerContext: () => args.walletSessionActivationDeps.getSignerWorkerContext(),
