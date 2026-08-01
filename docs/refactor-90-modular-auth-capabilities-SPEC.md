@@ -557,6 +557,9 @@ implementing commit SHA as the evidence.
   - [x] Reusable ECDSA prepare/finalize resolve current canonical material
     before admission and operation-claim/quota effects; accepted admission
     carries the full ref and derives capability identity from it (`c7b259a5c`).
+  - [x] Operation-step-up ECDSA prepare/finalize resolve current canonical
+    material before admission, claim, audit, or proxy effects and derive
+    admission and claim identity from the canonical ref (`dd68687d4`).
   - [x] Near recovery journals correlate their outer material owner with both
     admitted activation refs and require replacement material to equal the
     promotion receipt before commit and atomic finalization (`aa5ceb318`).
