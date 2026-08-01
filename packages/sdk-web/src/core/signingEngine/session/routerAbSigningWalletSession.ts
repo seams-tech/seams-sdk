@@ -16,6 +16,7 @@ export type RouterAbSigningWalletSessionAuth = {
 export type RouterAbEd25519SigningWalletSession = {
   curve: 'ed25519';
   auth: RouterAbSigningWalletSessionAuth;
+  walletSessionId: string;
   thresholdSessionId: string;
   signingGrantId: string;
   remainingUses: number;
@@ -133,6 +134,7 @@ export type BuildRouterAbEd25519SigningWalletSessionInput = {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
+  walletSessionId: string;
   thresholdSessionId: string;
   signingGrantId: string;
   remainingUses: number;
@@ -153,8 +155,10 @@ export function buildRouterAbEd25519SigningWalletSession(
   const walletId = nonEmptyString(input.walletId);
   const nearAccountId = nonEmptyString(input.nearAccountId);
   const nearEd25519SigningKeyId = nonEmptyString(input.nearEd25519SigningKeyId);
+  const walletSessionId = nonEmptyString(input.walletSessionId);
   const thresholdSessionId = nonEmptyString(input.thresholdSessionId);
   const signingGrantId = nonEmptyString(input.signingGrantId);
+  if (!walletSessionId) return { ok: false, reason: 'missing_session_identity' };
   if (!thresholdSessionId) return { ok: false, reason: 'missing_threshold_session_id' };
   if (!signingGrantId) return { ok: false, reason: 'missing_signing_grant_id' };
   const claims = parseRouterAbEd25519WalletSessionIdentityClaims(auth.walletSessionJwt);
@@ -163,6 +167,7 @@ export function buildRouterAbEd25519SigningWalletSession(
     claims.walletId !== walletId ||
     claims.nearAccountId !== nearAccountId ||
     claims.nearEd25519SigningKeyId !== nearEd25519SigningKeyId ||
+    claims.walletSessionId !== walletSessionId ||
     claims.thresholdSessionId !== thresholdSessionId ||
     claims.signingGrantId !== signingGrantId
   ) {
@@ -204,6 +209,7 @@ export function buildRouterAbEd25519SigningWalletSession(
     value: {
       curve: 'ed25519',
       auth,
+      walletSessionId,
       thresholdSessionId,
       signingGrantId,
       remainingUses,

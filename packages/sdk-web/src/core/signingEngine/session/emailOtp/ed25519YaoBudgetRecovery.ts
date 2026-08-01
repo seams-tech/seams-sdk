@@ -36,7 +36,10 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import type { EmailOtpEd25519YaoPublicationContext } from './ed25519YaoPublication';
-import { buildRouterAbEd25519SigningWalletSession } from '../routerAbSigningWalletSession';
+import {
+  buildRouterAbEd25519SigningWalletSession,
+  parseRouterAbEd25519WalletSessionIdentityClaims,
+} from '../routerAbSigningWalletSession';
 
 export type EmailOtpEd25519YaoBudgetRecoveryResult = {
   sessionId: string;
@@ -267,10 +270,13 @@ function buildColdRecoveredWalletSessionState(args: {
   if (session.authorityScope.kind !== 'email_otp') {
     throw new Error('Email OTP Ed25519 Yao recovery returned another authority kind');
   }
+  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(session.walletSessionJwt);
+  if (!claims) throw new Error('Email OTP Ed25519 Yao recovery returned invalid Wallet Session claims');
   const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
     walletId: String(session.walletId),
     nearAccountId: session.nearAccountId,
     nearEd25519SigningKeyId: session.nearEd25519SigningKeyId,
+    walletSessionId: claims.walletSessionId,
     thresholdSessionId: session.thresholdSessionId,
     signingGrantId: session.signingGrantId,
     remainingUses: session.remainingUses,

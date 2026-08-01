@@ -27,6 +27,7 @@ const WALLET_ID = toWalletId('passkey-export-refresh-wallet');
 const NEAR_ACCOUNT_ID = toAccountId('passkey-export-refresh.testnet');
 const NEAR_SIGNING_KEY_ID = nearEd25519SigningKeyIdFromString('passkey-export-refresh-key');
 const THRESHOLD_SESSION_ID = 'threshold-passkey-export-refresh';
+const WALLET_SESSION_ID = 'wallet-session-passkey-export-refresh';
 const STALE_SIGNING_GRANT_ID = 'grant-before-cold-recovery';
 const CURRENT_SIGNING_GRANT_ID = 'grant-after-cold-recovery';
 const CREDENTIAL_ID = 'passkey-export-refresh-credential';
@@ -54,6 +55,8 @@ function fixtureJwt(signingGrantId: string): string {
       walletId: String(WALLET_ID),
       nearAccountId: String(NEAR_ACCOUNT_ID),
       nearEd25519SigningKeyId: String(NEAR_SIGNING_KEY_ID),
+      walletSessionId: WALLET_SESSION_ID,
+      quotaId: 'quota-passkey-export-refresh',
       thresholdSessionId: THRESHOLD_SESSION_ID,
       signingGrantId,
       relayerKeyId: RELAYER_KEY_ID,
@@ -89,6 +92,7 @@ function currentWalletSessionState(credentialIdB64u: string) {
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
+    walletSessionId: WALLET_SESSION_ID,
     thresholdSessionId: THRESHOLD_SESSION_ID,
     signingGrantId: CURRENT_SIGNING_GRANT_ID,
     remainingUses: 3,

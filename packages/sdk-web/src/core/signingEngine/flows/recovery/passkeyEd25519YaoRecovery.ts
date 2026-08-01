@@ -21,7 +21,10 @@ import {
   type PasskeyEd25519YaoLocalMaterialTargetV1,
 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
 import { buildPasskeyRouterAbEd25519WalletSessionState } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
-import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import {
+  buildRouterAbEd25519SigningWalletSession,
+  parseRouterAbEd25519WalletSessionIdentityClaims,
+} from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
@@ -405,11 +408,14 @@ function buildRecoveredWalletSessionState(input: {
 }): NearResolvedEd25519SigningSessionState {
   const parsed = input.parsed;
   const session = parsed.session;
+  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(session.walletSessionJwt);
+  if (!claims) throw new Error('recovered Yao Wallet Session claims are invalid');
   const signingRoot = signingRootScopeFromRuntimePolicyScope(session.runtimePolicyScope);
   const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
     walletId: String(parsed.walletId),
     nearAccountId: String(parsed.nearAccountId),
     nearEd25519SigningKeyId: parsed.nearEd25519SigningKeyId,
+    walletSessionId: claims.walletSessionId,
     thresholdSessionId: session.thresholdSessionId,
     signingGrantId: session.signingGrantId,
     remainingUses: session.remainingUses,

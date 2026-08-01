@@ -191,6 +191,7 @@ export function buildRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
     walletId: runtime.walletId,
     nearAccountId: runtime.nearAccountId,
     nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
+    walletSessionId: claims.walletSessionId,
     thresholdSessionId: runtime.thresholdSessionId,
     signingGrantId: claims.signingGrantId,
     remainingUses: runtime.remainingUses,
