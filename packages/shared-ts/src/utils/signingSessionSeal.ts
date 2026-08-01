@@ -168,6 +168,7 @@ type SealedSigningSessionEd25519RestoreMetadataBase = {
 export type SealedSigningSessionEd25519RestoreMetadata =
   | (SealedSigningSessionEd25519RestoreMetadataBase & {
       credentialIdB64u: string;
+      materialActivation: MpcMaterialActivationRef;
       providerSubjectId?: never;
       authSubjectId?: never;
     })
