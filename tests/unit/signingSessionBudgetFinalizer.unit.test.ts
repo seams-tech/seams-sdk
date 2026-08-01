@@ -6,9 +6,6 @@ import type {
   BudgetFinalizationSpend,
   ExternallyConsumedBudgetFinalizationSpend,
   ReservedBudgetFinalizationSpend,
-  SigningBudgetFinalizationResult,
-  SigningSessionBudget,
-  SigningSessionPreparedBudgetIdentity,
   SigningSessionBudgetSuccessInput,
   SigningSessionBudgetStatusSync,
   SigningSessionBudgetTraceEvent,
@@ -21,7 +18,6 @@ import {
   buildSigningBudgetReservationIdentity,
   walletBudgetOwnerId,
 } from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
-import { createSigningSessionBudgetFinalizer } from '../../packages/sdk-web/src/core/signingEngine/session/budget/budgetFinalizer';
 import {
   createNonceCoordinator,
   NonceCoordinatorTraceEventName,
@@ -50,10 +46,6 @@ type ReservedSuccessInput = Extract<SigningSessionBudgetSuccessInput, { kind: 'r
 type UnreservedSuccessInput = Extract<
   SigningSessionBudgetSuccessInput,
   { kind: 'unreserved_success' }
->;
-type ExternallyConsumedSuccessInput = Extract<
-  SigningSessionBudgetSuccessInput,
-  { kind: 'externally_consumed_success' }
 >;
 
 const NEAR_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
@@ -185,20 +177,6 @@ function walletIdFromSpend(spend: WalletSigningSpendPlan): string {
   }
 }
 
-function makeBudgetIdentity(spend: WalletSigningSpendPlan): SigningSessionPreparedBudgetIdentity {
-  return {
-    signingGrantId: spend.lane.signingGrantId,
-    projectionVersion: 'projection-1',
-    status: {
-      sessionId: String(spend.lane.signingGrantId),
-      status: 'active',
-      projectionVersion: 'projection-1',
-      remainingUses: 2,
-      expiresAtMs: 1_900_000_000_000,
-    },
-  };
-}
-
 function withSuccessCommand<
   TInput extends
     | ReservedBudgetFinalizationSpend
@@ -245,15 +223,6 @@ function makeUnreservedSuccess(): UnreservedSuccessInput {
   });
 }
 
-function makeExternallyConsumedSuccess(): ExternallyConsumedSuccessInput {
-  const spend = makeSpend();
-  return withSuccessCommand({
-    kind: 'externally_consumed_success',
-    spend,
-    alreadyConsumedThresholdSessionIds: [spend.lane.thresholdSessionId],
-  });
-}
-
 function makeZeroSpend(): ZeroBudgetFinalizationSpend {
   return {
     kind: 'zero_spend',
@@ -284,134 +253,6 @@ function makeZeroWalletSpend(args?: {
     },
   };
 }
-
-function makeBudgetRecorder(): {
-  budget: SigningSessionBudget;
-  recordedSuccesses: SigningSessionBudgetSuccessInput[];
-  recordedZeroSpends: ZeroWalletBudgetSpend[];
-} {
-  const recordedSuccesses: SigningSessionBudgetSuccessInput[] = [];
-  const recordedZeroSpends: ZeroWalletBudgetSpend[] = [];
-  return {
-    recordedSuccesses,
-    recordedZeroSpends,
-    budget: {
-      async reserve() {
-        return null;
-      },
-      async reservePrepared() {
-        return null;
-      },
-      async getAvailableStatus() {
-        return null;
-      },
-      async recordSuccess(input) {
-        recordedSuccesses.push(input);
-        return makeFinalizedResult(input);
-      },
-      recordZeroSpend(input) {
-        recordedZeroSpends.push(input);
-      },
-      hasRecorded() {
-        return false;
-      },
-    },
-  };
-}
-
-function makeFinalizedResult(
-  input: SigningSessionBudgetSuccessInput,
-): SigningBudgetFinalizationResult {
-  return {
-    kind: 'finalized',
-    reservation: buildSigningBudgetReservationIdentity({
-      spend: input.spend,
-      projectionVersion:
-        input.kind === 'externally_consumed_success'
-          ? 'projection-1'
-          : input.expectedBudgetProjectionVersion,
-    }),
-    remainingUses: 1,
-    projectionVersion: 'projection-1',
-  };
-}
-
-test.describe('signing session budget finalizer', () => {
-  test('forwards reserved_success to the budget recorder', async () => {
-    const { budget, recordedSuccesses } = makeBudgetRecorder();
-    const finalization = makeReservedSuccess();
-    const finalizer = createSigningSessionBudgetFinalizer({
-      budgetMode: 'with_budget',
-      signingSessionBudget: budget,
-      budgetIdentity: makeBudgetIdentity(finalization.spend),
-      finalization,
-    });
-
-    await finalizer.recordSuccess();
-
-    expect(recordedSuccesses).toEqual([finalization]);
-  });
-
-  test('forwards unreserved_success to the budget recorder', async () => {
-    const { budget, recordedSuccesses } = makeBudgetRecorder();
-    const finalization = makeUnreservedSuccess();
-    const finalizer = createSigningSessionBudgetFinalizer({
-      budgetMode: 'with_budget',
-      signingSessionBudget: budget,
-      budgetIdentity: makeBudgetIdentity(finalization.spend),
-      finalization,
-    });
-
-    await finalizer.recordSuccess();
-
-    expect(recordedSuccesses).toEqual([finalization]);
-  });
-
-  test('forwards externally_consumed_success to the budget recorder', async () => {
-    const { budget, recordedSuccesses } = makeBudgetRecorder();
-    const finalization = makeExternallyConsumedSuccess();
-    const finalizer = createSigningSessionBudgetFinalizer({
-      budgetMode: 'with_budget',
-      signingSessionBudget: budget,
-      budgetIdentity: makeBudgetIdentity(finalization.spend),
-      finalization,
-    });
-
-    await finalizer.recordSuccess();
-
-    expect(recordedSuccesses).toEqual([finalization]);
-  });
-
-  test('uses the stored zero_spend branch when recording zero spend', () => {
-    const { budget, recordedZeroSpends } = makeBudgetRecorder();
-    const finalization = makeZeroSpend();
-    const finalizer = createSigningSessionBudgetFinalizer({
-      budgetMode: 'with_budget',
-      signingSessionBudget: budget,
-      budgetIdentity: makeBudgetIdentity(makeSpend()),
-      finalization,
-    });
-    const error = new Error('request cancelled by user');
-
-    finalizer.recordZeroSpend(error);
-
-    expect(recordedZeroSpends).toEqual([
-      expect.objectContaining({
-        ...finalization,
-        reason: 'confirmation_cancelled',
-        error,
-      }),
-    ]);
-    expect(recordedZeroSpends[0].finalizationCommand).toMatchObject({
-      kind: 'budget_reservation_finalization_command',
-      outcome: 'failed_before_sign',
-      reservation: {
-        operationId: finalization.operationId,
-        operationFingerprint: finalization.operationFingerprint,
-      },
-    });
-  });
-});
 
 test.describe('budget coordinator reserved success handling', () => {
   test('records a broadcast-failed signed operation once and releases the nonce lane', async () => {

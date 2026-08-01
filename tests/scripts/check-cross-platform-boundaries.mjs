@@ -59,11 +59,6 @@ const platformBoundaryFiles = guardBoundaryFiles([
     reason: 'checks browser persistence availability before reading lane state',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/session/budget/budgetFinalizer.ts',
-    owner: 'budget finalization diagnostics boundary',
-    reason: 'reads browser diagnostics storage while finalizing signing budgets',
-  },
-  {
     file: 'packages/sdk-web/src/core/signingEngine/session/operationState/trace.ts',
     owner: 'operation trace diagnostics boundary',
     reason: 'reads browser diagnostics storage for operation traces',
