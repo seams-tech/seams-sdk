@@ -1,4 +1,3 @@
-import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WalletBudgetOwner } from '../budget/budget';
 import {
@@ -10,16 +9,9 @@ import {
 } from './readiness';
 
 declare const walletId: WalletId;
-const accountId = toAccountId('owner.testnet');
 const ed25519WalletId = toWalletId('owner.testnet');
 declare const deps: SigningGrantReadinessDeps;
 declare const statusOverrides: Map<string, SigningGrantStatusOverride>;
-
-const validEcdsaOwner: WalletBudgetOwner = {
-  curve: 'ecdsa',
-  walletId,
-};
-void validEcdsaOwner;
 
 const validReadinessOverride: SigningGrantStatusOverride = {
   owner: {
@@ -55,14 +47,6 @@ const invalidReadinessOverrideWithWalletId: SigningGrantStatusOverride = {
   updatedAtMs: 1,
 };
 void invalidReadinessOverrideWithWalletId;
-
-const invalidEcdsaOwnerWithAccountId: WalletBudgetOwner = {
-  curve: 'ecdsa',
-  walletId,
-  // @ts-expect-error ECDSA owner cannot carry NEAR account identity.
-  accountId,
-};
-void invalidEcdsaOwnerWithAccountId;
 
 void discoverLanesForWallet(deps, walletId);
 

@@ -7,15 +7,7 @@ import type {
   TransactionBudgetAdmittedState,
   WalletSigningBudgetLifecycle,
 } from '../operationState/transactionState';
-import {
-  thresholdEcdsaChainTargetFromChainFamily,
-  toWalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  buildBaseEvmFamilyEcdsaKeyIdentity,
-  toEvmFamilyEcdsaKeyHandle,
-  toRpId,
-} from '../identity/evmFamilyEcdsaIdentity';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   AuthenticatedThresholdBudgetStatusCheck,
   ExternallyConsumedWalletBudgetSpend,
@@ -27,32 +19,8 @@ import type {
   ZeroBudgetFinalizationSpend,
   ZeroWalletBudgetSpend,
 } from './budget';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-
-const ecdsaChainTarget = thresholdEcdsaChainTargetFromChainFamily({
-  chain: 'tempo',
-  chainId: 42431,
-  networkSlug: 'tempo-moderato',
-});
-
-const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
-  walletId: 'wallet.testnet',
-  ecdsaThresholdKeyId: 'ecdsa-key-1',
-  signingRootId: 'project:dev',
-  signingRootVersion: 'default',
-  participantIds: [1, 2],
-  thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
-});
-declare const materialActivation: MpcMaterialActivationRef;
-const ecdsaKeyHandle = toEvmFamilyEcdsaKeyHandle('ecdsa-budget-key-handle');
-const ecdsaAuth = {
-  kind: 'passkey',
-  rpId: toRpId('localhost'),
-  credentialIdB64u: 'credential-id',
-} as const;
-
-const accountId = toAccountId('wallet.testnet');
 const walletId = toWalletId('wallet.testnet');
+const accountId = toAccountId('wallet.testnet');
 const ed25519Owner = {
   curve: 'ed25519',
   walletId,
@@ -84,18 +52,6 @@ const invalidWalletBudgetOwnerWithBothBranches: WalletBudgetStatusCheck = {
   signingGrantId: 'signing-grant-1',
 };
 void invalidWalletBudgetOwnerWithBothBranches;
-
-const invalidEcdsaOwnerWithAccountId: WalletBudgetStatusCheck = {
-  kind: 'wallet_budget_status_check',
-  owner: {
-    curve: 'ecdsa',
-    walletId: ecdsaKey.walletId,
-    // @ts-expect-error ECDSA budget owners cannot carry accountId.
-    accountId,
-  },
-  signingGrantId: 'signing-grant-1',
-};
-void invalidEcdsaOwnerWithAccountId;
 
 // @ts-expect-error shared wallet budget checks require owner identity.
 const invalidWalletBudgetCheckWithoutOwner: WalletBudgetStatusCheck = {

@@ -7,8 +7,6 @@ import {
   type SigningSessionBudgetStatusCheck,
   type WalletBudgetOwner,
 } from './budget';
-import { type ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
 import { budgetUnknownSigningSessionStatus } from './budgetProjection';
 
 export type WalletSigningBudgetAvailableStatusDeps = {
@@ -24,9 +22,6 @@ type ThresholdScopedBudgetStatusAuth = {
   relayerUrl: string;
   thresholdSessionId: string;
   walletSessionJwt: string;
-  curve?: 'ecdsa' | 'ed25519';
-  chainTarget?: ThresholdEcdsaChainTarget;
-  key?: EvmFamilyEcdsaKeyIdentity;
 };
 
 type TrustedBudgetStatusAuth = ThresholdScopedBudgetStatusAuth;

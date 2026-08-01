@@ -30,7 +30,6 @@ import {
 import { budgetUnknownSigningSessionStatus } from '../budget/budgetProjection';
 import {
   committedUsesForBudgetAdmission,
-  ecdsaWalletBudgetOwner,
   ed25519WalletBudgetOwner,
   normalizeRequired,
   thresholdSessionIdsForBudgetStatusCheck,
@@ -1136,12 +1135,6 @@ export async function clearSigningGrant(args: {
     walletId: args.walletId,
     signingGrantId: args.signingGrantId,
   });
-  args.statusOverrides.delete(
-    walletOwnerSigningSessionStatusOverrideKey(
-      ecdsaWalletBudgetOwner(args.walletId),
-      args.signingGrantId,
-    ),
-  );
   args.statusOverrides.delete(
     walletOwnerSigningSessionStatusOverrideKey(
       ed25519WalletBudgetOwner(args.walletId),

@@ -642,10 +642,6 @@ function signingPayloadDigestFromWire(value: unknown): string {
 }
 
 const ED25519_BUDGET_REQUEST_DIGEST_VERSION_V1 = 'router_ab_ed25519_budget_request_digest_v1';
-const ECDSA_DERIVATION_BUDGET_OPERATION_ID_VERSION_V1 =
-  'router_ab_ecdsa_derivation_budget_operation_id_v1';
-const ECDSA_DERIVATION_BUDGET_REQUEST_DIGEST_VERSION_V1 =
-  'router_ab_ecdsa_derivation_budget_request_digest_v1';
 
 async function ed25519SigningPayloadDigestB64u(value: unknown): Promise<string> {
   const payload = isPlainObject(value) ? value : null;
@@ -779,82 +775,8 @@ function ed25519FinalizeOperationId(body: Record<string, unknown>): string {
   return nonEmptyString(body.budget_operation_id);
 }
 
-export async function deriveRouterAbEcdsaDerivationBudgetOperationId(input: {
-  body:
-    | RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire
-    | RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
-  signingWorkerId: string;
-  thresholdSessionId: string;
-}): Promise<string> {
-  const publicIdentity = input.body.scope.public_identity;
-  const presignatureId =
-    'client_presignature_id' in input.body
-      ? input.body.client_presignature_id
-      : input.body.server_presignature_id;
-  const fields = [
-    ['threshold_session_id', input.thresholdSessionId],
-    ['wallet_id', input.body.scope.wallet_id],
-    ['ecdsa_threshold_key_id', input.body.scope.ecdsa_threshold_key_id],
-    ['signing_root_id', input.body.scope.signing_root_id],
-    ['signing_root_version', input.body.scope.signing_root_version],
-    ['material_activation_id', input.body.scope.material_activation.activation_id],
-    ['material_activation_capability', input.body.scope.material_activation.capability],
-    ['material_activation_owner', input.body.scope.material_activation.material_owner],
-    ['material_activation_key_binding', input.body.scope.material_activation.key_binding],
-    ['material_activation_lifecycle_binding', input.body.scope.material_activation.lifecycle_binding],
-    ['material_activation_signing_worker', input.body.scope.material_activation.signing_worker],
-    ['activation_epoch', input.body.scope.activation_epoch],
-    ['signing_worker_id', input.signingWorkerId],
-    ['scope_signing_worker_id', input.body.scope.signing_worker.server_id],
-    ['context_binding_b64u', publicIdentity.context_binding_b64u],
-    ['threshold_public_key33_b64u', publicIdentity.threshold_public_key33_b64u],
-    ['presignature_id', presignatureId],
-    ['expires_at_ms', String(input.body.expires_at_ms)],
-    ['signing_digest_b64u', input.body.signing_digest_b64u],
-  ] as const;
-  return hashBudgetFields({
-    version: ECDSA_DERIVATION_BUDGET_OPERATION_ID_VERSION_V1,
-    fields,
-    prefix: 'router-ab-ecdsa-derivation',
-  });
-}
-
-export async function deriveRouterAbEcdsaDerivationBudgetRequestDigest(input: {
-  body:
-    | RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire
-    | RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
-  signingWorkerId: string;
-  thresholdSessionId: string;
-}): Promise<string> {
-  const presignatureId =
-    'client_presignature_id' in input.body
-      ? input.body.client_presignature_id
-      : input.body.server_presignature_id;
-  const fields = [
-    ['threshold_session_id', input.thresholdSessionId],
-    ['signing_worker_id', input.signingWorkerId],
-    ['scope_signing_worker_id', input.body.scope.signing_worker.server_id],
-    ['presignature_id', presignatureId],
-    ['expires_at_ms', String(input.body.expires_at_ms)],
-    ['signing_digest_b64u', input.body.signing_digest_b64u],
-  ] as const;
-  return hashBudgetFields({
-    version: ECDSA_DERIVATION_BUDGET_REQUEST_DIGEST_VERSION_V1,
-    bytesFields: [
-      ['scope', routerAbEcdsaDerivationNormalSigningScopeCanonicalBytesV1(input.body.scope)],
-    ],
-    fields,
-  });
-}
-
 function ed25519BudgetSigningWorkerId(claims: RouterAbEd25519WalletSessionClaims): string {
   return nonEmptyString(claims.routerAbNormalSigning.signingWorkerId);
-}
-
-function ecdsaDerivationBudgetSigningWorkerId(
-  claims: RouterAbEcdsaDerivationWalletSessionClaims,
-): string {
-  return nonEmptyString(claims.routerAbEcdsaDerivationNormalSigning.scope.signing_worker.server_id);
 }
 
 function budgetReservationId(body: Record<string, unknown>): string {
