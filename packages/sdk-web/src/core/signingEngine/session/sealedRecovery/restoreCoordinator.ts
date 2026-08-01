@@ -15,7 +15,7 @@ import type {
   SigningSessionRestoreAttemptRegistry,
   SigningSessionRestoreCache,
 } from './sealedRecovery.types';
-import { materialActivationKey } from './sealedRecovery.types';
+import { materialActivationKey } from './materialActivationKey';
 import type { SealedRecoveryRecord } from './recoveryRecord';
 
 type RestorePersistedSessionCacheInput =

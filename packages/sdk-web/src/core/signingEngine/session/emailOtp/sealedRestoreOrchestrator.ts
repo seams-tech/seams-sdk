@@ -28,7 +28,7 @@ import type {
   SigningSessionRestoreAttemptRegistry,
   SigningSessionRestoreCache,
 } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
-import { materialActivationKey } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
+import { materialActivationKey } from '@/core/signingEngine/session/sealedRecovery/materialActivationKey';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import {
   normalizeSealedRecoveryRecord,

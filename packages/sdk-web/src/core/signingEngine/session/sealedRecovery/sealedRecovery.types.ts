@@ -2,19 +2,6 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import type { EcdsaThresholdKeyId } from '../keyMaterialBrands';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-
-export function materialActivationKey(activation: MpcMaterialActivationRef): string {
-  return [
-    activation.activationId,
-    activation.capability,
-    activation.materialOwner,
-    activation.keyBinding,
-    activation.lifecycleBinding,
-    activation.signingWorker,
-  ]
-    .map((part) => encodeURIComponent(String(part)))
-    .join(':');
-}
 import type {
   RawSigningSessionSealedStoreRecord,
   RejectedSealedRecoveryRecord,
