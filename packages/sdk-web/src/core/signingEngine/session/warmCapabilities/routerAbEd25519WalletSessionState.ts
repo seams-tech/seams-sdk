@@ -65,9 +65,11 @@ function requirePositiveStateInteger(value: number, label: string): number {
 export function buildEmailOtpRouterAbEd25519WalletSessionState(
   input: BuildEmailOtpRouterAbEd25519WalletSessionStateInput,
 ): ResolvedRouterAbEd25519WalletSessionState {
-  const thresholdSessionId = requireNonEmptyStateValue(
-    input.signingWalletSession.thresholdSessionId,
-    'thresholdSessionId',
+  const thresholdSessionId = SigningSessionIds.thresholdEd25519Session(
+    requireNonEmptyStateValue(
+      input.signingWalletSession.thresholdSessionId,
+      'thresholdSessionId',
+    ),
   );
   const signingGrantId = requireNonEmptyStateValue(
     input.signingWalletSession.signingGrantId,
@@ -105,7 +107,7 @@ export function buildEmailOtpRouterAbEd25519WalletSessionState(
         providerSubjectId,
       },
       signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
-      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
+      thresholdSessionId,
       retention: 'session',
       sessionOrigin: 'login',
     }),
@@ -122,9 +124,11 @@ export function buildEmailOtpRouterAbEd25519WalletSessionState(
 export function buildPasskeyRouterAbEd25519WalletSessionState(
   input: BuildPasskeyRouterAbEd25519WalletSessionStateInput,
 ): ResolvedRouterAbEd25519WalletSessionState {
-  const thresholdSessionId = requireNonEmptyStateValue(
-    input.signingWalletSession.thresholdSessionId,
-    'thresholdSessionId',
+  const thresholdSessionId = SigningSessionIds.thresholdEd25519Session(
+    requireNonEmptyStateValue(
+      input.signingWalletSession.thresholdSessionId,
+      'thresholdSessionId',
+    ),
   );
   const signingGrantId = requireNonEmptyStateValue(
     input.signingWalletSession.signingGrantId,
@@ -158,7 +162,7 @@ export function buildPasskeyRouterAbEd25519WalletSessionState(
         credentialIdB64u,
       },
       signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
-      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
+      thresholdSessionId,
       storageSource: 'login',
     }),
     remainingUses: input.signingWalletSession.remainingUses,
