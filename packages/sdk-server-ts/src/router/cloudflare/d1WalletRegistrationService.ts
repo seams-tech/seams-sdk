@@ -29,7 +29,10 @@ import {
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { parseSigningGrantId, type SigningGrantId } from '@shared/utils/domainIds';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
-import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  sameRouterAbMpcMaterialActivationRef,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   deriveSigningRootId,
@@ -1109,6 +1112,85 @@ export class CloudflareD1WalletRegistrationService {
     const ceremony = await store.getCeremony(registrationCeremonyId);
     if (!ceremony) return undefined;
     return registrationPreparedContextRuntimePolicyScope(ceremony.preparedContext);
+  }
+
+  async resolveEd25519MaterialActivation(input: {
+    readonly walletId: string;
+    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+        readonly nearAccountId: string;
+        readonly signerSlot: number;
+        readonly signingWorkerId: string;
+        readonly participantIds: readonly [number, number];
+      }
+    | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
+  > {
+    try {
+      const walletId = walletIdFromString(input.walletId);
+      const signer = await this.getWalletStore().getEd25519SignerByMaterialActivation({
+        walletId,
+        materialActivation: input.materialActivation,
+      });
+      if (!signer) {
+        return {
+          ok: false,
+          code: 'not_found',
+          message: 'Ed25519 material activation is not active for this wallet',
+        };
+      }
+      const yaoRuntime = this.getEd25519YaoProductRegistration();
+      if (!yaoRuntime) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Ed25519 Yao capability resolver is not configured',
+        };
+      }
+      const active = await yaoRuntime.resolveActiveCapability({
+        kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
+        walletId: input.walletId,
+        nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+        signerSlot: signer.signerSlot,
+        signingWorkerId: signer.signingWorkerId,
+        participantIds: signer.participantIds,
+      });
+      if (!active.ok) {
+        return {
+          ok: false,
+          code: active.code === 'unknown_capability' ? 'not_found' : 'internal',
+          message: active.message,
+        };
+      }
+      if (
+        !sameRouterAbMpcMaterialActivationRef(
+          active.capability.materialActivation,
+          input.materialActivation,
+        )
+      ) {
+        return {
+          ok: false,
+          code: 'not_found',
+          message: 'Ed25519 material activation does not match the active capability',
+        };
+      }
+      return {
+        ok: true,
+        materialActivation: active.capability.materialActivation,
+        nearAccountId: active.capability.nearAccountId,
+        signerSlot: signer.signerSlot,
+        signingWorkerId: signer.signingWorkerId,
+        participantIds: signer.participantIds,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: error instanceof Error ? error.message : 'Ed25519 material lookup failed',
+      };
+    }
   }
 
   async resolveEcdsaMaterialActivation(input: {

@@ -13,6 +13,7 @@ import {
 } from '../../packages/sdk-server-ts/src/router/commonRouterUtils';
 import {
   validateRouterAbEd25519NormalSigningRequestScope,
+  authorizeRouterAbEd25519NormalSigningRoute,
   validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest,
   validateRouterAbEcdsaDerivationNormalSigningPrepareRequest,
   authorizeRouterAbEcdsaDerivationNormalSigningRoute,
@@ -729,6 +730,106 @@ test.describe('Router A/B Wallet Session token claims', () => {
         },
       },
     });
+  });
+
+  test('Router A/B Ed25519 normal signing rejects substituted active material before admission', async () => {
+    const claims = parseRouterAbEd25519WalletSessionClaims(
+      routerAbEd25519Claims({ thresholdExpiresAtMs: Date.now() + 60 * 60 * 1000 }),
+    );
+    if (!claims) throw new Error('expected Router A/B Ed25519 Wallet Session claims');
+    const session: SessionAdapter = {
+      signJwt: async () => 'unused',
+      verifyJwt: async () => ({ valid: false as const }),
+      parse: async () => ({ ok: true as const, claims }),
+      buildSetCookie: (token) => `session=${token}`,
+      buildClearCookie: () => 'session=',
+      refresh: async () => ({ ok: false }),
+    };
+    let admissions = 0;
+    const admissionAdapter = {
+      async evaluate() {
+        admissions += 1;
+        return { ok: true as const };
+      },
+      async evaluatePolicy() {
+        admissions += 1;
+        return { ok: true as const };
+      },
+    };
+    const resolveEd25519MaterialActivation = async (input: {
+      readonly walletId: string;
+      readonly materialActivation: typeof routerAbEd25519MaterialActivation;
+    }) =>
+      input.walletId === claims.walletId &&
+      input.materialActivation.activation_id === routerAbEd25519MaterialActivation.activation_id &&
+      input.materialActivation.capability === routerAbEd25519MaterialActivation.capability &&
+      input.materialActivation.key_binding === routerAbEd25519MaterialActivation.key_binding &&
+      input.materialActivation.lifecycle_binding ===
+        routerAbEd25519MaterialActivation.lifecycle_binding
+        ? {
+            ok: true as const,
+            materialActivation: routerAbEd25519MaterialActivation,
+            nearAccountId: claims.nearAccountId,
+            signerSlot: 1,
+            signingWorkerId: claims.routerAbNormalSigning.signingWorkerId,
+            participantIds: [1, 2] as const,
+          }
+        : {
+            ok: false as const,
+            code: 'not_found' as const,
+            message: 'Ed25519 material activation is not active for this wallet',
+          };
+    const baseBody = {
+      scope: {
+        request_id: 'router-ab-ed25519-material-substitution',
+        account_id: claims.walletId,
+        authorization: {
+          kind: 'reusable_wallet_session' as const,
+          wallet_session_id: claims.walletSessionId,
+        },
+        material_activation: routerAbEd25519MaterialActivation,
+        signing_worker_id: claims.routerAbNormalSigning.signingWorkerId,
+      },
+      expires_at_ms: claims.thresholdExpiresAtMs,
+    };
+    const substitutions = [
+      { activation_id: 'activation-ed25519-substituted' },
+      { capability: 'capability:ed25519:substituted' },
+      { material_owner: 'mallory.testnet' },
+      { key_binding: 'key-binding:ed25519:substituted' },
+      { lifecycle_binding: 'lifecycle:ed25519:substituted' },
+      { signing_worker: 'signing-worker-substituted' },
+    ] as const;
+    for (const substitution of substitutions) {
+      const result = await authorizeRouterAbEd25519NormalSigningRoute({
+        body: {
+          ...baseBody,
+          scope: {
+            ...baseBody.scope,
+            material_activation: {
+              ...baseBody.scope.material_activation,
+              ...substitution,
+            },
+          },
+        },
+        rawBody: baseBody,
+        headers: {},
+        session,
+        authorizationClaims: null,
+        authorizationSessions: null,
+        admissionAdapter,
+        resolveEd25519MaterialActivation,
+        phase: 'prepare',
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        result: {
+          status: 403,
+          body: { code: 'wallet_session_scope_mismatch' },
+        },
+      });
+    }
+    expect(admissions).toBe(0);
   });
 
   test('Router A/B ECDSA derivation private validators reject canonical scope drift and expired requests', () => {

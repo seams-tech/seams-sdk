@@ -1125,6 +1125,20 @@ export interface RouterApiEmailOtpChallengeService {
 }
 
 export interface RouterApiWalletRegistrationService {
+  resolveEd25519MaterialActivation(input: {
+    readonly walletId: string;
+    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+        readonly nearAccountId: string;
+        readonly signerSlot: number;
+        readonly signingWorkerId: string;
+        readonly participantIds: readonly [number, number];
+      }
+    | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
+  >;
   resolveEcdsaMaterialActivation(input: {
     readonly walletId: string;
     readonly materialActivation: RouterAbMpcMaterialActivationRefWire;

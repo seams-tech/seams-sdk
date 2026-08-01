@@ -29,6 +29,7 @@ import {
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { isPlainObject } from '@shared/utils/validation';
+import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   parseAuthorizationAuditEventId,
@@ -935,6 +936,39 @@ async function issueEd25519OperationStepUpGrant(input: {
   if (!authenticated.ok) {
     return json(authenticated.error.body, { status: authenticated.error.status });
   }
+  const activeMaterial =
+    await input.ctx.service.walletRegistration.resolveEd25519MaterialActivation({
+      walletId: authenticated.session.walletId,
+      materialActivation: scope.material_activation,
+    });
+  if (!activeMaterial.ok) {
+    return json(
+      {
+        ok: false,
+        code: activeMaterial.code === 'internal' ? 'internal' : 'scope_mismatch',
+        message:
+          activeMaterial.code === 'internal'
+            ? activeMaterial.message
+            : 'Operation step-up scope does not name the active material',
+      },
+      { status: activeMaterial.code === 'internal' ? 500 : 403 },
+    );
+  }
+  if (
+    !sameRouterAbMpcMaterialActivationRef(
+      activeMaterial.materialActivation,
+      scope.material_activation,
+    )
+  ) {
+    return json(
+      {
+        ok: false,
+        code: 'scope_mismatch',
+        message: 'Operation step-up scope does not name the active material',
+      },
+      { status: 403 },
+    );
+  }
   let privateBody: Awaited<ReturnType<typeof buildRouterAbEd25519PrivateSigningWorkerBody>>;
   try {
     privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
@@ -1220,6 +1254,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
     authorizationClaims: input.ctx.service.authorizationClaims,
     authorizationSessions: input.ctx.service.authorizationSessions,
     admissionAdapter: input.ctx.opts.routerAbNormalSigningAdmission,
+    resolveEd25519MaterialActivation:
+      input.ctx.service.walletRegistration.resolveEd25519MaterialActivation.bind(
+        input.ctx.service.walletRegistration,
+      ),
     phase: input.phase,
   });
   if (!authorization.ok) {
