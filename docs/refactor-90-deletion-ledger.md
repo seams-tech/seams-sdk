@@ -651,6 +651,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~auto-signer registration paths~~ — no production occurrence remains at
   `f090ecde2`
 - public exports implying wallet-only auth/sessions/grants
+- ~~zero-caller generic `ThresholdSigningKeyOpsPort` export alias~~ — the
+  Ed25519-specific `ThresholdEd25519ClientShareDeriverPort` is the sole
+  signing-key operation contract
 - ~~one-use iframe aliases for ECDSA bootstrap and exact/missing Wallet Session
   payloads~~ — canonical payload types are used directly in the envelope
 - ~~zero-caller Cloudflare route-registration wrapper and its wrapper-only
