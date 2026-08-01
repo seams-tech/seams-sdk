@@ -28,7 +28,6 @@ import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedD
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   EmailOtpEd25519YaoRecoveryBootstrapV1,
-  EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
   EmailOtpEcdsaSessionBootstrapHandleBinding,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpWorkerProgressEvent,
@@ -152,7 +151,7 @@ type EmailOtpEd25519YaoLoginMaterial =
       kind: 'local_session';
       activeClientHandle: string;
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-      bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+      bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     };
 
 export type EmailOtpThresholdEcdsaLoginResult = {
@@ -433,7 +432,7 @@ function buildEmailOtpEcdsaOnlySigningBudget(args: {
 }
 
 function buildAuthoritativeEmailOtpMixedWalletSigningBudget(args: {
-  bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1 | EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+  bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   expectedRemainingUses: number;
 }): EmailOtpMixedWalletSigningBudgetV1 {
   const session = args.bootstrap.session;

@@ -170,7 +170,7 @@ function testEd25519WalletSessionBudget(
         expiresAtMs: input.expiresAtMs,
         remainingUses: input.remainingUses,
       };
-    case 'shared_email_otp_recovery_wallet_session_v1':
+    case 'verified_wallet_unlock_v1':
       return {
         signingGrantId: 'test-email-otp-recovery-signing-grant',
         expiresAtMs: Date.now() + 60_000,

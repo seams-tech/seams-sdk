@@ -102,6 +102,7 @@ export class EmailOtpWalletSessionRuntime {
     const restoreEcdsaSigningSessionMaterialFromSealedRecord =
       createEmailOtpEcdsaSigningSessionMaterialRestorer({
         configs: deps.configs,
+        withThresholdEcdsaSigningQueue: deps.withThresholdEcdsaSigningQueue,
         getSignerWorkerContext: deps.getSignerWorkerContext,
         readActiveWalletSessionAuthorization: deps.readActiveWalletSessionAuthorization,
         provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,

@@ -20,6 +20,10 @@ import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touch
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
+import {
+  withThresholdEcdsaSigningQueue,
+  type ThresholdEcdsaSigningQueueByKey,
+} from '../../threshold/ecdsa/signingQueue';
 
 export type StepUpRuntime = {
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
@@ -39,6 +43,7 @@ export function createStepUpRuntime(args: {
   provisionThresholdEcdsaSession: EmailOtpWalletSessionCoordinatorDeps['provisionThresholdEcdsaSession'];
   provisionEmailOtpEcdsaExplicitExportSession: EmailOtpWalletSessionCoordinatorDeps['provisionEmailOtpEcdsaExplicitExportSession'];
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
+  thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
   persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   listActiveEcdsaCapabilityManifestsForWallet: (
     walletId: string,
@@ -54,6 +59,11 @@ export function createStepUpRuntime(args: {
       walletSessionAuthorizations,
     ),
     provisionThresholdEcdsaSession: args.provisionThresholdEcdsaSession,
+    withThresholdEcdsaSigningQueue: (queueArgs) =>
+      withThresholdEcdsaSigningQueue({
+        queueByKey: args.thresholdEcdsaSigningQueueByKey,
+        ...queueArgs,
+      }),
     provisionEmailOtpEcdsaExplicitExportSession: args.provisionEmailOtpEcdsaExplicitExportSession,
     commitEvmFamilyThresholdEcdsaSessions: (commitArgs) =>
       commitEvmFamilyThresholdEcdsaSessions(

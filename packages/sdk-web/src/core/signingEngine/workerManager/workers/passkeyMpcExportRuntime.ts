@@ -16,11 +16,7 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
   mpcMaterialActivationRefsEqual,
   parseMpcMaterialActivationRef,
-  parseSigningGrantId,
-  parseThresholdEd25519SessionId,
   parseWalletId,
-  type SigningGrantId,
-  type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { base58Encode } from '@shared/utils/base58';
@@ -150,18 +146,19 @@ function parseEd25519YaoExportWorkerPayload(
   if (!parsedWalletId.ok) return null;
   const nearAccountId = normalizeOptionalNonEmptyString(payload.nearAccountId);
   const relayerUrl = normalizeOptionalNonEmptyString(payload.relayerUrl);
-  const walletSessionJwt = normalizeOptionalNonEmptyString(payload.walletSessionJwt);
   const flowId = normalizeOptionalNonEmptyString(payload.flowId);
   const viewerSessionId = normalizeOptionalNonEmptyString(payload.viewerSessionId);
   const exactLane = asRecord(payload.exactLane);
+  const authorization = asRecord(payload.authorization);
   const capability = asRecord(payload.capability);
   if (
     !nearAccountId ||
     !relayerUrl ||
-    !walletSessionJwt ||
     !flowId ||
     !viewerSessionId ||
     !exactLane ||
+    !authorization ||
+    authorization.kind !== 'wallet_session' ||
     !capability
   ) {
     return null;
@@ -170,8 +167,7 @@ function parseEd25519YaoExportWorkerPayload(
     exactLane.nearEd25519SigningKeyId,
   );
   const credentialIdB64u = normalizeOptionalNonEmptyString(exactLane.credentialIdB64u);
-  const signingGrantId = normalizeOptionalNonEmptyString(exactLane.signingGrantId);
-  const thresholdSessionId = normalizeOptionalNonEmptyString(exactLane.thresholdSessionId);
+  const walletSessionJwt = normalizeOptionalNonEmptyString(authorization.walletSessionJwt);
   const materialActivationResult = parseMpcMaterialActivationRef(exactLane.materialActivation);
   const capabilityMaterialActivationResult = parseMpcMaterialActivationRef(
     capability.materialActivation,
@@ -189,8 +185,7 @@ function parseEd25519YaoExportWorkerPayload(
   if (
     !nearEd25519SigningKeyId ||
     !credentialIdB64u ||
-    !signingGrantId ||
-    !thresholdSessionId ||
+    !walletSessionJwt ||
     !materialActivationResult.ok ||
     !capabilityMaterialActivationResult.ok ||
     signerSlot == null ||
@@ -207,15 +202,16 @@ function parseEd25519YaoExportWorkerPayload(
     walletId: String(parsedWalletId.value),
     nearAccountId,
     relayerUrl,
-    walletSessionJwt,
+    authorization: {
+      kind: 'wallet_session',
+      walletSessionJwt,
+    },
     flowId,
     viewerSessionId,
     exactLane: {
       nearEd25519SigningKeyId,
       signerSlot,
       credentialIdB64u,
-      signingGrantId,
-      thresholdSessionId,
       materialActivation: materialActivationResult.value,
     },
     capability: {
@@ -309,22 +305,6 @@ function requireExportWalletId(raw: string): string {
     throw new Error('ECDSA export requires wallet identity');
   }
   return String(parsed.value);
-}
-
-function requireExportThresholdSessionId(raw: string): ThresholdEd25519SessionId {
-  const parsed = parseThresholdEd25519SessionId(raw);
-  if (!parsed.ok) {
-    throw new Error('Ed25519 export requires a threshold session identity');
-  }
-  return parsed.value;
-}
-
-function requireExportSigningGrantId(raw: string): SigningGrantId {
-  const parsed = parseSigningGrantId(raw);
-  if (!parsed.ok) {
-    throw new Error('Ed25519 export requires a signing grant identity');
-  }
-  return parsed.value;
 }
 
 function localOnlyExportSubjectForTarget(args: {
@@ -532,8 +512,6 @@ async function runEd25519YaoExportWithUi(
       nonce: [...nonce],
       issuedAtMs,
       expiresAtMs,
-      thresholdSessionId: payload.exactLane.thresholdSessionId,
-      signingGrantId: payload.exactLane.signingGrantId,
       authority: {
         kind: 'passkey',
         credentialIdB64u: payload.exactLane.credentialIdB64u,
@@ -587,15 +565,11 @@ async function runEd25519YaoExportWithUi(
     const client = await RouterAbEd25519YaoClientV1.initializeBundled();
     const result = await client.exportSeed({
       request: request.value,
-      authorizationIdentity: {
-        thresholdSessionId: requireExportThresholdSessionId(payload.exactLane.thresholdSessionId),
-        signingGrantId: requireExportSigningGrantId(payload.exactLane.signingGrantId),
-      },
       factor: { kind: 'passkey_prf_first', ownedSecret32: prfFirst },
       authorization: { kind: 'passkey', webauthnAuthentication: credential },
       transport: new RouterAbEd25519YaoHttpActivationTransportV1({
         routerOrigin: new URL(payload.relayerUrl).origin,
-        authorization: `Bearer ${payload.walletSessionJwt}`,
+        authorization: `Bearer ${payload.authorization.walletSessionJwt}`,
         fetch: globalThis.fetch.bind(globalThis),
       }),
     });

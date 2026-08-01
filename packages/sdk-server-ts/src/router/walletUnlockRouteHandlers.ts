@@ -14,11 +14,10 @@ import {
 } from './emailOtpSessionRouteHelpers';
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from './routerAbEd25519YaoRecovery';
 import type { RouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import {
-  EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND,
-  EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND,
-  type WalletUnlockEmailOtpSessionRequestV1,
-} from './walletUnlockEd25519YaoRequestValidation';
+import type {
+  WalletUnlockEmailOtpRequestedCapabilitiesRequestV1,
+  WalletUnlockEmailOtpRequestedCapabilitiesV1,
+} from './walletUnlockRequestedCapabilitiesValidation';
 
 export type WalletUnlockRouteResponse = {
   status: number;
@@ -43,40 +42,28 @@ type WalletUnlockEd25519YaoSessionMaterialV1 = {
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
 };
 
+type WalletUnlockEmailOtpEd25519YaoRequest = Omit<
+  WalletUnlockEmailOtpRequestedCapabilitiesRequestV1,
+  'requestedCapabilities'
+> & {
+  readonly requestedCapabilities: Extract<
+    WalletUnlockEmailOtpRequestedCapabilitiesV1,
+    { readonly kind: 'ed25519_yao' }
+  >;
+};
+
 export type WalletUnlockEd25519YaoSessionSuccessV1 =
-  | (WalletUnlockEd25519YaoSessionMaterialV1 & {
-      readonly kind: typeof EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND;
-    })
   | (WalletUnlockEd25519YaoSessionMaterialV1 & {
       readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1;
     });
-
-type ExactLocalEmailOtpSessionRequest = WalletUnlockEmailOtpSessionRequestV1 & {
-  readonly sessionIntent: Extract<
-    WalletUnlockEmailOtpSessionRequestV1['sessionIntent'],
-    { readonly kind: typeof EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND }
-  >;
-};
-
-type MissingMaterialRecoveryRequest = WalletUnlockEmailOtpSessionRequestV1 & {
-  readonly sessionIntent: Extract<
-    WalletUnlockEmailOtpSessionRequestV1['sessionIntent'],
-    { readonly kind: typeof EMAIL_OTP_MISSING_ED25519_MATERIAL_RECOVERY_KIND }
-  >;
-};
 
 export type WalletUnlockEd25519YaoSessionContext =
   | { readonly kind: 'passkey_unlock' }
   | { readonly kind: 'email_otp_no_ed25519_session' }
   | {
-      readonly kind: 'email_otp_exact_local_material';
-      readonly request: ExactLocalEmailOtpSessionRequest;
-      readonly provisionWalletSession: RouterApiWalletRegistrationService['recoverEd25519YaoEmailOtpWalletSession'];
-    }
-  | {
-      readonly kind: 'email_otp_missing_material_recovery';
-      readonly request: MissingMaterialRecoveryRequest;
-      readonly recoverWalletSession: RouterApiWalletRegistrationService['recoverEd25519YaoEmailOtpWalletSession'];
+      readonly kind: 'email_otp_ed25519_yao';
+      readonly request: WalletUnlockEmailOtpEd25519YaoRequest;
+      readonly provisionWalletSession: RouterApiWalletRegistrationService['provisionEd25519YaoWalletSession'];
     };
 
 export type WalletUnlockEcdsaSessionContext =
@@ -181,10 +168,7 @@ function walletUnlockSessionFailureResponse(input: {
 }
 
 async function provisionEmailOtpEd25519YaoSession(input: {
-  readonly context: Extract<
-    WalletUnlockEd25519YaoSessionContext,
-    { kind: 'email_otp_exact_local_material' | 'email_otp_missing_material_recovery' }
-  >;
+  readonly context: Extract<WalletUnlockEd25519YaoSessionContext, { kind: 'email_otp_ed25519_yao' }>;
   readonly verifiedUnlock: VerifiedEmailOtpUnlockResult;
 }): Promise<WalletUnlockEd25519YaoSessionResult> {
   const request = input.context.request;
@@ -195,46 +179,28 @@ async function provisionEmailOtpEd25519YaoSession(input: {
     return walletUnlockScopeMismatchResponse();
   }
 
-  switch (input.context.kind) {
-    case 'email_otp_exact_local_material': {
-      const provisioned = await input.context.provisionWalletSession({
-        walletId: request.walletId,
-        orgId: request.orgId,
-        signerSlot: request.sessionIntent.signerSlot,
-        remainingUses: request.sessionIntent.remainingUses,
-        verifiedChallengeId: request.challengeId,
-        verifiedProviderUserId: input.verifiedUnlock.providerUserId,
-      });
-      if (!provisioned.ok) return walletUnlockSessionFailureResponse({ result: provisioned });
-      return {
-        ok: true,
-        value: {
-          kind: EMAIL_OTP_EXACT_LOCAL_MATERIAL_SESSION_KIND,
-          session: provisioned.session,
-          capability: provisioned.capability,
-        },
-      };
-    }
-    case 'email_otp_missing_material_recovery': {
-      const recovered = await input.context.recoverWalletSession({
-        walletId: request.walletId,
-        orgId: request.orgId,
-        signerSlot: request.sessionIntent.signerSlot,
-        remainingUses: request.sessionIntent.remainingUses,
-        verifiedChallengeId: request.challengeId,
-        verifiedProviderUserId: input.verifiedUnlock.providerUserId,
-      });
-      if (!recovered.ok) return walletUnlockSessionFailureResponse({ result: recovered });
-      return {
-        ok: true,
-        value: {
-          kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
-          session: recovered.session,
-          capability: recovered.capability,
-        },
-      };
-    }
+  const capabilities = request.requestedCapabilities;
+  if (capabilities.kind !== 'ed25519_yao') {
+    throw new Error('Ed25519 Yao unlock requires its requested capability');
   }
+
+  const provisioned = await input.context.provisionWalletSession({
+    walletId: request.walletId,
+    orgId: request.orgId,
+    signerSlot: capabilities.signerSlot,
+    remainingUses: capabilities.remainingUses,
+    verifiedChallengeId: request.challengeId,
+    verifiedProviderUserId: input.verifiedUnlock.providerUserId,
+  });
+  if (!provisioned.ok) return walletUnlockSessionFailureResponse({ result: provisioned });
+  return {
+    ok: true,
+    value: {
+      kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
+      session: provisioned.session,
+      capability: provisioned.capability,
+    },
+  };
 }
 
 export async function handleWalletUnlockChallengeRoute(input: {

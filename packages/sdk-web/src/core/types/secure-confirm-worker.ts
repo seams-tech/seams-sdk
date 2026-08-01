@@ -159,20 +159,24 @@ export type ThresholdEcdsaExportArtifactKind = 'ecdsa-derivation-secp256k1-expor
 export const ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1 =
   'router-ab-ed25519-yao-seed-export-v1' as const;
 
+/** Authorization is carried independently from the exact material lane. */
+export type RouterAbEd25519YaoExportWorkerAuthorizationV1 = {
+  readonly kind: 'wallet_session';
+  readonly walletSessionJwt: string;
+};
+
 export type RouterAbEd25519YaoExportWorkerPayloadV1 = ExportPrivateKeysWithUiWorkerPayloadBase & {
   walletId: string;
   nearAccountId: string;
   artifactKind: typeof ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1;
   relayerUrl: string;
-  walletSessionJwt: string;
+  authorization: RouterAbEd25519YaoExportWorkerAuthorizationV1;
   flowId: string;
   viewerSessionId: string;
   exactLane: {
     nearEd25519SigningKeyId: string;
     signerSlot: number;
     credentialIdB64u: string;
-    signingGrantId: string;
-    thresholdSessionId: string;
     materialActivation: MpcMaterialActivationRef;
   };
   capability: {

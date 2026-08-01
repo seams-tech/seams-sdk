@@ -67,6 +67,10 @@ import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSi
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import { resolveActiveEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
+import {
+  withThresholdEcdsaSigningQueue,
+  type ThresholdEcdsaSigningQueueByKey,
+} from '@/core/signingEngine/threshold/ecdsa/signingQueue';
 
 const TEST_SUBJECT_ID = toWalletId('alice.testnet');
 const TEST_SIGNING_SESSION_SEAL_KEY_VERSION = parseSigningSessionSealKeyVersion(
@@ -817,6 +821,7 @@ function createCoordinator(overrides?: {
   >;
   resolveCurrentEcdsaCapabilityRuntime?: typeof resolveActiveEcdsaCapabilityRuntime;
 }) {
+  const thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey = new Map();
   const workerCalls: any[] = [];
   const ecdsaProvisionCalls: any[] = [];
   let refreshCount = 0;
@@ -1005,6 +1010,11 @@ function createCoordinator(overrides?: {
     signerWorkerManager: worker as any,
     getRpId: overrides?.getRpId || (() => 'localhost'),
     getSignerWorkerContext: () => worker as any,
+    withThresholdEcdsaSigningQueue: (args) =>
+      withThresholdEcdsaSigningQueue({
+        queueByKey: thresholdEcdsaSigningQueueByKey,
+        ...args,
+      }),
     readActiveWalletSessionAuthorization:
       overrides?.readActiveWalletSessionAuthorization ||
       (async () => ({

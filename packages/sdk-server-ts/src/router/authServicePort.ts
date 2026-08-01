@@ -142,8 +142,8 @@ export type EmailOtpStrongAuthSubject = Readonly<{
 import type {
   RouterAbEd25519YaoBudgetRefreshRequestV1,
   RouterAbEd25519YaoBudgetRefreshResponseV1,
-  RouterAbEd25519YaoEmailOtpSessionRequestV1,
-  RouterAbEd25519YaoEmailOtpSessionResponseV1,
+  RouterAbEd25519YaoVerifiedWalletUnlockRequestV1,
+  RouterAbEd25519YaoVerifiedWalletUnlockResponseV1,
 } from './routerAbEd25519YaoWalletSession';
 import type {
   RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
@@ -1151,9 +1151,9 @@ export interface RouterApiWalletRegistrationService {
   refreshEd25519YaoWalletSession(
     input: RouterAbEd25519YaoBudgetRefreshRequestV1,
   ): Promise<RouterAbEd25519YaoBudgetRefreshResponseV1>;
-  recoverEd25519YaoEmailOtpWalletSession(
-    input: RouterAbEd25519YaoEmailOtpSessionRequestV1,
-  ): Promise<RouterAbEd25519YaoEmailOtpSessionResponseV1>;
+  provisionEd25519YaoWalletSession(
+    input: RouterAbEd25519YaoVerifiedWalletUnlockRequestV1,
+  ): Promise<RouterAbEd25519YaoVerifiedWalletUnlockResponseV1>;
   recordEcdsaPostRegistrationProof(
     input:
       | {

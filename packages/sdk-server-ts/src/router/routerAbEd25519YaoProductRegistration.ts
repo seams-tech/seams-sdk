@@ -96,7 +96,7 @@ type RouterAbEd25519YaoWalletSessionMintIdentityV1 = {
 
 export type RouterAbEd25519YaoWalletSessionMintInputV1 =
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
-      readonly kind: 'shared_email_otp_recovery_wallet_session_v1';
+      readonly kind: 'verified_wallet_unlock_v1';
       readonly signingGrantId?: never;
       readonly ttlMs?: never;
       readonly expiresAtMs: number;
@@ -282,7 +282,8 @@ function hasProductStateCollections(
     isStringMapWithStateKinds(recovery.recoveries, RECOVERY_STATE_KINDS) &&
     isStringMap(recovery.recoverySessions) &&
     isStringMapWithStateKinds(exportState.exports, EXPORT_STATE_KINDS) &&
-    isStringSet(exportState.authorizationNonces)
+    isStringSet(exportState.authorizationNonces) &&
+    isStringSet(exportState.authorizationUncertain)
   );
 }
 
@@ -380,9 +381,9 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
 ): Promise<RouterAbEd25519YaoWalletSessionTermsV1> {
   const nowMs = Date.now();
   switch (input.kind) {
-    case 'shared_email_otp_recovery_wallet_session_v1':
+    case 'verified_wallet_unlock_v1':
       if (!Number.isSafeInteger(input.expiresAtMs) || input.expiresAtMs <= nowMs) {
-        throw new Error('Email OTP Wallet Session expiry must follow issuance');
+        throw new Error('Verified wallet unlock expiry must follow issuance');
       }
       return {
         signingGrantId: `wss_${secureRandomBase64Url(24)}`,

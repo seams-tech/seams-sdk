@@ -228,6 +228,7 @@ test.describe('partitioned Gateway product-state composition', () => {
         recoveryIdentityCapabilities: state.recovery.identityCapabilities,
         recoverySessions: state.recovery.recoverySessions,
         exportAuthorizationNonces: state.export.authorizationNonces,
+        exportAuthorizationUncertain: state.export.authorizationUncertain,
       },
     };
     const ceremony = {

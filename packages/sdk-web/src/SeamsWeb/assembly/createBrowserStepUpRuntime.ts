@@ -16,6 +16,7 @@ import type { WarmSigningPorts } from '@/core/signingEngine/assembly/ports/warmS
 import type { createSigningEnginePorts } from '@/core/signingEngine/assembly/createPorts';
 import { provisionEmailOtpEcdsaExplicitExportSession } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
+import type { ThresholdEcdsaSigningQueueByKey } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 
@@ -30,6 +31,7 @@ export function createBrowserStepUpRuntime(args: {
   passkeyMpcSession: PasskeyMpcSessionPort;
   getEnginePorts: () => SigningEnginePorts;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
+  thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
   getWarmSigning: () => WarmSigningPorts;
   ensureSealedRefreshStartupParity: () => Promise<void>;
   listActiveEcdsaCapabilityManifestsForWallet: (
@@ -65,6 +67,7 @@ export function createBrowserStepUpRuntime(args: {
         request,
       ),
     thresholdEcdsaBootstrapQueueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
+    thresholdEcdsaSigningQueueByKey: args.thresholdEcdsaSigningQueueByKey,
     persistEcdsaRoleLocalReadyRecord: args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
     listActiveEcdsaCapabilityManifestsForWallet:
       args.listActiveEcdsaCapabilityManifestsForWallet,

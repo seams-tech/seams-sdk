@@ -24,6 +24,8 @@ const IMPORT_PATHS = {
   passkeyMpcExportManager:
     '/_test-sdk/esm/core/signingEngine/uiConfirm/PasskeyMpcExportManager.js',
   sealedSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
+  activeEcdsaCapabilityRuntime:
+    '/_test-sdk/esm/core/signingEngine/session/material/activeEcdsaCapabilityRuntime.js',
   availableSigningLanes:
     '/_test-sdk/esm/core/signingEngine/session/availability/availableSigningLanes.js',
   selectLane: '/_test-sdk/esm/core/signingEngine/session/identity/selectLane.js',
@@ -337,6 +339,11 @@ test.describe('UserConfirm worker router', () => {
         const mod = await import(paths.passkeyMpcSessionManager);
         const manager = mod.createPasskeyMpcSessionManager({
           signingSessionPersistenceMode: 'none',
+          thresholdEcdsaSigningQueueByKey: new Map(),
+          resolveCurrentEcdsaCapabilityRuntime: async () => ({
+            kind: 'blocked',
+            reason: 'missing_capability',
+          }),
           persistSigningSessionSealForThresholdSession: async () => null,
           onPolicyResult: async () => {},
         });
@@ -450,6 +457,11 @@ test.describe('UserConfirm worker router', () => {
         const sessionMod = await import(paths.passkeyMpcSessionManager);
         const sessionManager = sessionMod.createPasskeyMpcSessionManager({
           signingSessionPersistenceMode: 'none',
+          thresholdEcdsaSigningQueueByKey: new Map(),
+          resolveCurrentEcdsaCapabilityRuntime: async () => ({
+            kind: 'blocked',
+            reason: 'missing_capability',
+          }),
           persistSigningSessionSealForThresholdSession: async () => null,
           onPolicyResult: async () => {},
         });
@@ -624,6 +636,11 @@ test.describe('UserConfirm worker router', () => {
         const sealedStoreMod = await import(paths.sealedSessionStore);
         const sessionManager = sessionMod.createPasskeyMpcSessionManager({
           signingSessionPersistenceMode: 'sealed_refresh_v1',
+          thresholdEcdsaSigningQueueByKey: new Map(),
+          resolveCurrentEcdsaCapabilityRuntime: async () => ({
+            kind: 'blocked',
+            reason: 'missing_capability',
+          }),
           persistSigningSessionSealForThresholdSession: async () => null,
           onPolicyResult: async () => {},
         });
@@ -768,11 +785,20 @@ test.describe('UserConfirm worker router', () => {
     });
     const materialRestoreIdentity = materialRestoreIdentityFromPasskeyRecord(sealedRecord);
     const result = await page.evaluate(
-      async ({ paths, sealedRecord, materialRestoreIdentity }) => {
+      async ({ paths, sealedRecord, materialRestoreIdentity, manifest }) => {
         const sessionMod = await import(paths.passkeyMpcSessionManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
+        const runtimeMod = await import(paths.activeEcdsaCapabilityRuntime);
         const manager = sessionMod.createPasskeyMpcSessionManager({
           signingSessionPersistenceMode: 'sealed_refresh_v1',
+          thresholdEcdsaSigningQueueByKey: new Map(),
+          resolveCurrentEcdsaCapabilityRuntime: async ({ walletId, chainTarget }) =>
+            runtimeMod.resolveExactEcdsaSealedRuntime({
+              manifest,
+              walletId,
+              chainTarget,
+              sealedRecords: [sealedRecord],
+            }),
           persistSigningSessionSealForThresholdSession: async () => null,
           onPolicyResult: async () => {},
         });
@@ -886,7 +912,7 @@ test.describe('UserConfirm worker router', () => {
           },
         };
       },
-      { paths: IMPORT_PATHS, sealedRecord, materialRestoreIdentity },
+      { paths: IMPORT_PATHS, sealedRecord, materialRestoreIdentity, manifest: fixture.manifest },
     );
     expect(result.postedTypes).toEqual([
       'WARM_SESSION_REHYDRATE',
@@ -1229,11 +1255,20 @@ test.describe('UserConfirm worker router', () => {
     });
     const materialRestoreIdentity = materialRestoreIdentityFromPasskeyRecord(sealedRecord);
     const result = await page.evaluate(
-      async ({ paths, sealedRecord, materialRestoreIdentity }) => {
+      async ({ paths, sealedRecord, materialRestoreIdentity, manifest }) => {
         const sessionMod = await import(paths.passkeyMpcSessionManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
+        const runtimeMod = await import(paths.activeEcdsaCapabilityRuntime);
         const manager = sessionMod.createPasskeyMpcSessionManager({
           signingSessionPersistenceMode: 'sealed_refresh_v1',
+          thresholdEcdsaSigningQueueByKey: new Map(),
+          resolveCurrentEcdsaCapabilityRuntime: async ({ walletId, chainTarget }) =>
+            runtimeMod.resolveExactEcdsaSealedRuntime({
+              manifest,
+              walletId,
+              chainTarget,
+              sealedRecords: [sealedRecord],
+            }),
           persistSigningSessionSealForThresholdSession: async () => null,
           onPolicyResult: async () => {},
         });
@@ -1333,7 +1368,7 @@ test.describe('UserConfirm worker router', () => {
           r2,
         };
       },
-      { paths: IMPORT_PATHS, sealedRecord, materialRestoreIdentity },
+      { paths: IMPORT_PATHS, sealedRecord, materialRestoreIdentity, manifest: fixture.manifest },
     );
 
     expect(result.rehydrateMessageCount).toBe(1);
@@ -1354,11 +1389,20 @@ test.describe('UserConfirm worker router', () => {
     });
     const materialRestoreIdentity = materialRestoreIdentityFromPasskeyRecord(sealedRecord);
     const result = await page.evaluate(
-      async ({ paths, sealedRecord, materialRestoreIdentity }) => {
+      async ({ paths, sealedRecord, materialRestoreIdentity, manifest }) => {
         const sessionMod = await import(paths.passkeyMpcSessionManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
+        const runtimeMod = await import(paths.activeEcdsaCapabilityRuntime);
         const managerDeps = {
           signingSessionPersistenceMode: 'sealed_refresh_v1' as const,
+          thresholdEcdsaSigningQueueByKey: new Map(),
+          resolveCurrentEcdsaCapabilityRuntime: async ({ walletId, chainTarget }: any) =>
+            runtimeMod.resolveExactEcdsaSealedRuntime({
+              manifest,
+              walletId,
+              chainTarget,
+              sealedRecords: [sealedRecord],
+            }),
           persistSigningSessionSealForThresholdSession: async () => null,
           onPolicyResult: async () => {},
         };
@@ -1479,7 +1523,7 @@ test.describe('UserConfirm worker router', () => {
           r2,
         };
       },
-      { paths: IMPORT_PATHS, sealedRecord, materialRestoreIdentity },
+      { paths: IMPORT_PATHS, sealedRecord, materialRestoreIdentity, manifest: fixture.manifest },
     );
 
     expect(result.postedTypesA).toEqual(['WARM_SESSION_REHYDRATE', 'WARM_SESSION_STATUS_READ']);
@@ -1626,6 +1670,11 @@ test.describe('UserConfirm worker router', () => {
         const sessionMod = await import(paths.passkeyMpcSessionManager);
         const manager = sessionMod.createPasskeyMpcSessionManager({
           signingSessionPersistenceMode: 'none',
+          thresholdEcdsaSigningQueueByKey: new Map(),
+          resolveCurrentEcdsaCapabilityRuntime: async () => ({
+            kind: 'blocked',
+            reason: 'missing_capability',
+          }),
           persistSigningSessionSealForThresholdSession: async () => null,
           onPolicyResult: async () => {},
         });
@@ -1704,11 +1753,20 @@ test.describe('UserConfirm worker router', () => {
     });
     const materialRestoreIdentity = materialRestoreIdentityFromPasskeyRecord(sealedRecord);
     const result = await page.evaluate(
-      async ({ paths, sealedRecord, materialRestoreIdentity }) => {
+      async ({ paths, sealedRecord, materialRestoreIdentity, manifest }) => {
         const sessionMod = await import(paths.passkeyMpcSessionManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
+        const runtimeMod = await import(paths.activeEcdsaCapabilityRuntime);
         const manager = sessionMod.createPasskeyMpcSessionManager({
           signingSessionPersistenceMode: 'sealed_refresh_v1',
+          thresholdEcdsaSigningQueueByKey: new Map(),
+          resolveCurrentEcdsaCapabilityRuntime: async ({ walletId, chainTarget }) =>
+            runtimeMod.resolveExactEcdsaSealedRuntime({
+              manifest,
+              walletId,
+              chainTarget,
+              sealedRecords: [sealedRecord],
+            }),
           persistSigningSessionSealForThresholdSession: async () => null,
           onPolicyResult: async () => {},
         });
@@ -1793,7 +1851,7 @@ test.describe('UserConfirm worker router', () => {
           persistedAfter,
         };
       },
-      { paths: IMPORT_PATHS, sealedRecord, materialRestoreIdentity },
+      { paths: IMPORT_PATHS, sealedRecord, materialRestoreIdentity, manifest: fixture.manifest },
     );
 
     expect(result.postedTypes).toEqual(['WARM_SESSION_REHYDRATE']);

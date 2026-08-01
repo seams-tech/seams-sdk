@@ -39,6 +39,12 @@ export type EmailOtpCoordinatorRuntimePorts = {
 };
 
 export type EmailOtpEcdsaSessionPorts = {
+  withThresholdEcdsaSigningQueue: <T>(args: {
+    queueKey: string;
+    walletId: WalletId;
+    enabled: boolean;
+    task: () => Promise<T>;
+  }) => Promise<T>;
   provisionThresholdEcdsaSession: (
     request: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;

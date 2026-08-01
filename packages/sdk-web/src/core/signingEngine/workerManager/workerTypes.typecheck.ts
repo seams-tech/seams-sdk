@@ -363,10 +363,6 @@ type EmailOtpEd25519YaoWalletUnlockMaterial = Extract<
   EmailOtpWalletUnlockPayload['material'],
   { kind: 'ed25519_yao_recovery' }
 >;
-type EmailOtpEd25519YaoExactLocalWalletUnlockMaterial = Extract<
-  EmailOtpWalletUnlockPayload['material'],
-  { kind: 'ed25519_yao_exact_local_session' }
->;
 type EmailOtpYaoBindPayload = EmailOtpWorkerOperationMap['bindEmailOtpEd25519YaoRoot']['payload'];
 type EmailOtpYaoRootDisposalPayload =
   EmailOtpWorkerOperationMap['disposeEmailOtpEd25519YaoRoot']['payload'];
@@ -484,34 +480,6 @@ const retiredCombinedWalletUnlockKind: EmailOtpWalletUnlockPayload['material']['
   'ecdsa_and_ed25519_yao_recovery';
 void retiredCombinedWalletUnlockKind;
 
-const emailOtpEd25519YaoExactLocalWalletUnlockMaterial: EmailOtpEd25519YaoExactLocalWalletUnlockMaterial =
-  {
-    kind: 'ed25519_yao_exact_local_session',
-    providerSubject: 'google:subject',
-    nearAccountId: 'wallet.testnet',
-    expectedOperationalPublicKey: 'ed25519:11111111111111111111111111111111',
-    expectedThresholdSessionId: 'threshold-session',
-    ed25519YaoSession: {
-      kind: 'exact_local_material_session_v1',
-      signerSlot: 1,
-      remainingUses: 3,
-      orgId: 'org-test',
-    },
-  };
-void emailOtpEd25519YaoExactLocalWalletUnlockMaterial;
-
-const emailOtpEd25519YaoExactLocalWalletUnlockWithRecovery = {
-  ...emailOtpEd25519YaoExactLocalWalletUnlockMaterial,
-  // @ts-expect-error Exact-local requests cannot carry recovery augmentation.
-  ed25519YaoRecovery: {
-    kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
-    signerSlot: 1,
-    remainingUses: 3,
-    orgId: 'org-test',
-  },
-} satisfies EmailOtpEd25519YaoExactLocalWalletUnlockMaterial;
-void emailOtpEd25519YaoExactLocalWalletUnlockWithRecovery;
-
 const emailOtpEd25519YaoWalletUnlockWithoutThresholdIdentity = {
   kind: 'ed25519_yao_recovery',
   providerSubject: 'google:subject',
@@ -523,7 +491,7 @@ const emailOtpEd25519YaoWalletUnlockWithoutThresholdIdentity = {
     remainingUses: 3,
     orgId: 'org-test',
   },
-  // @ts-expect-error Exact local import requires its registered threshold lifecycle identity.
+  // @ts-expect-error Recovery requires its registered threshold lifecycle identity.
 } satisfies EmailOtpEd25519YaoWalletUnlockMaterial;
 void emailOtpEd25519YaoWalletUnlockWithoutThresholdIdentity;
 

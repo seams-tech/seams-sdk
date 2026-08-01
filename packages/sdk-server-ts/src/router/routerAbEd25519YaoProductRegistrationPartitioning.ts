@@ -23,6 +23,7 @@ export type RouterAbEd25519YaoProductRegistrationSharedStateV1 = {
   readonly recoveryIdentityCapabilities: Map<string, string>;
   readonly recoverySessions: Map<string, string>;
   readonly exportAuthorizationNonces: Set<string>;
+  readonly exportAuthorizationUncertain: Set<string>;
 };
 
 export type RouterAbEd25519YaoProductRegistrationCeremonyStateV1 = {
@@ -86,6 +87,7 @@ export function partitionRouterAbEd25519YaoProductRegistrationStateV1(
       recoveryIdentityCapabilities: new Map(state.recovery.identityCapabilities),
       recoverySessions: new Map(state.recovery.recoverySessions),
       exportAuthorizationNonces: new Set(state.export.authorizationNonces),
+      exportAuthorizationUncertain: new Set(state.export.authorizationUncertain),
     },
     ceremony: {
       kind: 'router_ab_ed25519_yao_product_registration_ceremony_state_v1',
@@ -182,6 +184,7 @@ export function mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1(
     export: {
       exports,
       authorizationNonces: new Set(partition.shared.exportAuthorizationNonces),
+      authorizationUncertain: new Set(partition.shared.exportAuthorizationUncertain),
     },
   };
 }

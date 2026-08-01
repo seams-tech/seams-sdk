@@ -129,13 +129,6 @@ export type EmailOtpEd25519YaoRecoveryAugmentationV1 = {
   readonly orgId: string;
 };
 
-export type EmailOtpEd25519YaoExactLocalSessionRequestV1 = {
-  readonly kind: 'exact_local_material_session_v1';
-  readonly signerSlot: number;
-  readonly remainingUses: number;
-  readonly orgId: string;
-};
-
 export type EmailOtpEd25519YaoActiveCapabilityDescriptorV1 = {
   readonly kind: 'router_ab_ed25519_yao_active_capability_v1';
   readonly materialActivation: MpcMaterialActivationRef;
@@ -158,12 +151,6 @@ export type EmailOtpEd25519YaoActiveCapabilityDescriptorV1 = {
 
 export type EmailOtpEd25519YaoRecoveryBootstrapV1 = {
   readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1;
-  readonly session: WalletRegistrationEd25519YaoBootstrapSession;
-  readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
-};
-
-export type EmailOtpEd25519YaoExactLocalSessionBootstrapV1 = {
-  readonly kind: 'exact_local_material_session_v1';
   readonly session: WalletRegistrationEd25519YaoBootstrapSession;
   readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
 };
@@ -192,19 +179,6 @@ export type EmailOtpWalletUnlockMaterialRequest =
           readonly ecdsaSessionActivation?: never;
         }
     ))
-  | {
-      readonly kind: 'ed25519_yao_exact_local_session';
-      readonly ed25519YaoSession: EmailOtpEd25519YaoExactLocalSessionRequestV1;
-      readonly providerSubject: string;
-      readonly nearAccountId: string;
-      readonly expectedOperationalPublicKey: string;
-      readonly expectedThresholdSessionId: string;
-      readonly ecdsaSessionActivation?: never;
-      readonly walletSessionAuth?: never;
-      readonly ecdsaClientRootHandleBinding?: never;
-      readonly runtimePolicyScope?: never;
-      readonly ed25519YaoRecovery?: never;
-    }
   | {
       readonly kind: 'ed25519_yao_recovery';
       readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryAugmentationV1;
@@ -264,7 +238,7 @@ export type EmailOtpWalletUnlockMaterialResult =
       readonly kind: 'ed25519_yao_local_session';
       readonly activeClientHandle: string;
       readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-      readonly ed25519YaoSession: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+      readonly ed25519YaoSession: EmailOtpEd25519YaoRecoveryBootstrapV1;
       readonly clientRootShareHandle?: never;
       readonly pendingFactorHandle?: never;
       readonly ed25519YaoRecovery?: never;
@@ -286,7 +260,7 @@ export type EmailOtpWalletUnlockMaterialResult =
             readonly kind: 'local_session';
             readonly activeClientHandle: string;
             readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-            readonly bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+            readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
           };
     };
 
@@ -1044,7 +1018,7 @@ export interface EmailOtpWorkerOperationMap {
           ok: true;
           activeClientHandle: string;
           metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-          ed25519YaoSession: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+          ed25519YaoSession: EmailOtpEd25519YaoRecoveryBootstrapV1;
         }
       | { ok: false; code: string; message: string };
   };

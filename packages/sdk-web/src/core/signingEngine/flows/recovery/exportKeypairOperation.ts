@@ -170,7 +170,6 @@ function emitEcdsaExportFailureDiagnostics(args: {
       walletSessionId: args.exportLane?.authorization.projection.walletSessionId,
       materialActivationId:
         args.exportLane?.laneIdentity.signer.materialActivation.activationId,
-      budgetProjectionVersion: undefined,
       freshAuthRetrySideEffectState: 'not_applicable',
       error:
         args.error instanceof Error ? args.error.message : String(args.error || 'unknown error'),

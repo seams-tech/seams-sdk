@@ -327,7 +327,7 @@ class RecoveryWorkerFixture {
           activeClientHandle: 'rehydrated-active-client-1',
           metadata: this.prior,
           ed25519YaoSession: {
-            kind: 'exact_local_material_session_v1',
+            kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
             session: request.payload.restore.session,
             capability: exactCapability,
           },
@@ -342,11 +342,6 @@ class RecoveryWorkerFixture {
         };
       case 'loginWithEmailOtpWallet': {
         this.loginPayload = request.payload;
-        if (request.payload.material.kind === 'ed25519_yao_exact_local_session') {
-          throw new Error(
-            '[SigningEngine][near] Email OTP local Ed25519 material is unavailable; explicit recovery or device linking is required',
-          );
-        }
         const remainingUses = Number(request.payload.material.ed25519YaoRecovery.remainingUses);
         return {
           kind: 'ed25519_yao_recovery',
