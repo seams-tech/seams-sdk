@@ -372,7 +372,8 @@ ports, and the two-state recovery journal.
   absent at `7495b5b44`
 - ~~`recoverPasskeyEd25519YaoCapabilityForSigning`~~ — confirmed absent at
   `7495b5b44`
-- `NearEd25519YaoCapabilitySource`, `nearEd25519YaoCapabilitySource`
+- ~~`NearEd25519YaoCapabilitySource`, `nearEd25519YaoCapabilitySource`~~ — no
+  production or retained-test occurrence remains.
 - `NearEd25519YaoSigningCapability` (replace with the branded committed shape;
   no broad source aggregate)
 - ~~`emailOtpNearEd25519LaneRequiresFreshAuth`~~ — confirmed absent at
@@ -393,10 +394,12 @@ ports, and the two-state recovery journal.
 - `recoverEmailOtpEd25519YaoFromSealedSessionV1`
 - ~~`recoverEmailOtpEd25519CapabilityForSigningV1`~~ — confirmed absent at
   `7495b5b44`
-- `recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning`
+- ~~`recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning`~~ — absent from
+  production and retained tests.
 - ~~`requestRehydrateEmailOtpEd25519YaoFactor`~~ — confirmed absent at
   `7495b5b44`
-- the `rehydrateEmailOtpEd25519YaoFactor` worker operation
+- ~~the `rehydrateEmailOtpEd25519YaoFactor` worker operation~~ — absent from
+  production and retained tests.
 - Email-OTP-specific Yao root purpose/scope/handle shapes
 - method-specific Browser recovery singleflight maps
 
@@ -434,24 +437,32 @@ ports, and the two-state recovery journal.
 - ~~`refreshPasskeyEd25519CapabilityForSigning`~~ — confirmed absent at
   `7495b5b44`
 - `requestEmailOtpEd25519SigningChallenge`
-- `recoverEmailOtpEd25519CapabilityForSigning`
-- `resolveAccountAuthMethodForSigning`
+- ~~`recoverEmailOtpEd25519CapabilityForSigning`~~ — absent from production and
+  retained tests.
+- ~~`resolveAccountAuthMethodForSigning`~~ — absent from production; the one
+  remaining source-guard literal asserts that assembly cannot recreate it.
 - `ensureNearEd25519YaoCapabilityForSigning`
 - `resolveActiveNearEd25519YaoSigningLane`
-- `hasPasskeyAuthenticatorForNearEd25519Subject`
-- `recoverNearEd25519YaoCapabilityForSigning`
-- `recoverExactPasskeyEd25519YaoCapabilityForSigning`
+- ~~`hasPasskeyAuthenticatorForNearEd25519Subject`~~ — absent from production
+  and retained tests.
+- ~~`recoverNearEd25519YaoCapabilityForSigning`~~ — absent from production and
+  retained tests.
+- ~~`recoverExactPasskeyEd25519YaoCapabilityForSigning`~~ — absent from
+  production and retained tests.
 - `recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning`
-- `recoverExactEd25519YaoCapability`
-- `hasNearEd25519YaoPublicReference`
-- `recoverNearEd25519YaoCapabilityFromSealedSession`
-- `recoverNearEd25519YaoCapabilityWithPasskey`
+- ~~`recoverExactEd25519YaoCapability`~~
+- ~~`hasNearEd25519YaoPublicReference`~~
+- ~~`recoverNearEd25519YaoCapabilityFromSealedSession`~~
+- ~~`recoverNearEd25519YaoCapabilityWithPasskey`~~ — all four obsolete Browser
+  shortcuts are absent from production and retained tests.
 - ~~`readNearEd25519RuntimeRecordForSelectedLane`~~ — deleted by `4f089b483`
 - ~~`publishNearEd25519RuntimeIdentityForRecord`~~ — deleted by `4f089b483`
 - ~~`resolveNearTransactionPlannerReadiness`~~ — absent after the canonical
   preparation cut, verified by `4f089b483`
-- control-flow use of `getWarmThresholdEd25519SessionStatusForSession`
-- `resolveThresholdEd25519SessionIdForNearAccount`
+- ~~control-flow use of `getWarmThresholdEd25519SessionStatusForSession`~~ — no
+  production occurrence remains.
+- ~~`resolveThresholdEd25519SessionIdForNearAccount`~~ — absent from production
+  and retained tests.
 - the broad `resolveActiveEd25519YaoSigningCapability` port
 - ~~the production-dead `thresholdSigningSessionReadiness.ts` classifier and
   its self-only unit test~~ — deleted by `18850e9d4`
