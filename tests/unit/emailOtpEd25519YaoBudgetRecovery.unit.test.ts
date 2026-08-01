@@ -652,7 +652,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
       relayerUrl: RELAYER_URL,
       authPolicy: 'session',
       ports: {
-        readExactSealedSession: async () => sealedRecord,
+        readExactEd25519SealedSession: async () => sealedRecord,
         readActiveWalletSessionAuthorization: readActiveEmailOtpWalletSessionAuthorization,
         workerContext: worker.context(),
         resolveActiveCapability: activation.resolve.bind(activation),
@@ -744,7 +744,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         relayerUrl: RELAYER_URL,
         authPolicy: 'session',
         ports: {
-          readExactSealedSession: async () => {
+          readExactEd25519SealedSession: async () => {
             recordReads += 1;
             return recordReads === 1 ? initialRecord : replacementRecord;
           },
@@ -800,7 +800,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
       relayerUrl: RELAYER_URL,
       authPolicy: 'session',
       ports: {
-        readExactSealedSession: async () => sealedRecord,
+        readExactEd25519SealedSession: async () => sealedRecord,
         readActiveWalletSessionAuthorization: readActiveEmailOtpWalletSessionAuthorization,
         workerContext: worker.context(),
         resolveActiveCapability: activation.resolve.bind(activation),
@@ -845,7 +845,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
       relayerUrl: RELAYER_URL,
       authPolicy: 'session',
       ports: {
-        readExactSealedSession: async () => sealedRecord,
+        readExactEd25519SealedSession: async () => sealedRecord,
         readActiveWalletSessionAuthorization: readActiveEmailOtpWalletSessionAuthorization,
         workerContext: worker.context(),
         resolveActiveCapability: activation.resolve.bind(activation),
@@ -877,10 +877,12 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
       expectedMaterialActivation: publicCapabilityReference().materialActivation,
       relayerUrl: RELAYER_URL,
       ports: {
-        readExactEmailOtpEd25519SealedSessionByMaterialActivation: async (
-          materialActivation,
-        ) => {
-          expect(materialActivation).toEqual(publicCapabilityReference().materialActivation);
+        readExactEd25519SealedSession: async (locator) => {
+          expect(locator).toEqual({
+            kind: 'ed25519_durable_material',
+            authMethod: 'email_otp',
+            materialActivation: publicCapabilityReference().materialActivation,
+          });
           return sealedRecord;
         },
         readActiveWalletSessionAuthorization: readActiveEmailOtpWalletSessionAuthorization,
@@ -940,7 +942,7 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         expectedMaterialActivation: supersededActivation,
         relayerUrl: RELAYER_URL,
         ports: {
-          readExactEmailOtpEd25519SealedSessionByMaterialActivation: async () => sealedRecord,
+          readExactEd25519SealedSession: async () => sealedRecord,
           readActiveWalletSessionAuthorization: async () => {
             authorizationReads += 1;
             return await readActiveEmailOtpWalletSessionAuthorization();

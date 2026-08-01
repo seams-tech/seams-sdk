@@ -73,6 +73,8 @@ export function createStepUpRuntime(args: {
       args.listActiveEcdsaCapabilityManifestsForWallet(String(walletId)),
     resolveCurrentEcdsaCapabilityRuntime: resolveActiveEcdsaCapabilityRuntime,
     writeExactSealedSession: args.sealedSessionStore.writeExactSealedSession,
+    readExactEd25519SealedSession:
+      args.sealedSessionStore.readExactEd25519SealedSession,
     readExactSealedSession: args.sealedSessionStore.readExactSealedSession,
     listExactSealedSessionsForWallet: args.sealedSessionStore.listExactSealedSessionsForWallet,
     acquireSigningSessionRestoreLease: args.sealedSessionStore.acquireSigningSessionRestoreLease,

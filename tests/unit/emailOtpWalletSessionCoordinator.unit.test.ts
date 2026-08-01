@@ -16,6 +16,7 @@ import {
   type BuildCurrentEcdsaSealedSessionRecordInput,
   type CurrentSealedSessionRecord,
   type listExactSealedSessionsForWallet,
+  type readExactEd25519SealedSession,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
@@ -803,6 +804,7 @@ function createCoordinator(overrides?: {
   getRpId?: () => string | null;
   configs?: Record<string, any>;
   writeExactSealedSession?: (args: any) => Promise<void>;
+  readExactEd25519SealedSession?: typeof readExactEd25519SealedSession;
   readExactSealedSession?: (thresholdSessionId: string, purpose?: any) => Promise<any>;
   listExactSealedSessionsForWallet?: typeof listExactSealedSessionsForWallet;
   provisionThresholdEcdsaSession?: (request: any) => Promise<any>;
@@ -1113,6 +1115,8 @@ function createCoordinator(overrides?: {
         await overrides.writeExactSealedSession(args);
       }
     },
+    readExactEd25519SealedSession:
+      overrides?.readExactEd25519SealedSession || (async () => null),
     readExactSealedSession: overrides?.readExactSealedSession || defaultReadExactSealedSession,
     listExactSealedSessionsForWallet:
       overrides?.listExactSealedSessionsForWallet || defaultListExactSealedSessionsForWallet,

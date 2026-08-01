@@ -1196,12 +1196,16 @@ test.describe('signing session sealed store', () => {
         if (!first) throw new Error('expected first Email OTP Ed25519 sealed record');
         await mod.writeExactSealedSession(first);
         const missing =
-          await mod.readExactEmailOtpEd25519SealedSessionByMaterialActivation(
-            missingActivation,
-          );
-        const exact = await mod.readExactEmailOtpEd25519SealedSessionByMaterialActivation(
-          activation,
-        );
+          await mod.readExactEd25519SealedSession({
+            kind: 'ed25519_durable_material',
+            authMethod: 'email_otp',
+            materialActivation: missingActivation,
+          });
+        const exact = await mod.readExactEd25519SealedSession({
+          kind: 'ed25519_durable_material',
+          authMethod: 'email_otp',
+          materialActivation: activation,
+        });
 
         const second = mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'email-otp-ed25519-activation-b',
@@ -1226,7 +1230,11 @@ test.describe('signing session sealed store', () => {
         if (!second) throw new Error('expected second Email OTP Ed25519 sealed record');
         await mod.writeExactSealedSession(second);
         const conflict = await mod
-          .readExactEmailOtpEd25519SealedSessionByMaterialActivation(activation)
+          .readExactEd25519SealedSession({
+            kind: 'ed25519_durable_material',
+            authMethod: 'email_otp',
+            materialActivation: activation,
+          })
           .then(() => 'resolved')
           .catch((error: unknown) => String((error as Error)?.message || error));
         return { missing, exact, conflict };

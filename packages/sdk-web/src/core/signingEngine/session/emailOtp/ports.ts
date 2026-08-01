@@ -18,6 +18,7 @@ import type {
   deleteDurableSealedSessionRecord,
   listExactSealedSessionsForWallet,
   releaseSigningSessionRestoreLease,
+  readExactEd25519SealedSession,
   readExactSealedSession,
   updateExactSealedSessionPolicy,
   writeExactSealedSession,
@@ -62,6 +63,7 @@ export type EmailOtpEcdsaSessionPorts = {
 
 export type EmailOtpSealedSessionStorePorts = {
   writeExactSealedSession: typeof writeExactSealedSession;
+  readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
   readExactSealedSession: typeof readExactSealedSession;
   listExactSealedSessionsForWallet: typeof listExactSealedSessionsForWallet;
   acquireSigningSessionRestoreLease: typeof acquireSigningSessionRestoreLease;

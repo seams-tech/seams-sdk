@@ -5,7 +5,7 @@ import {
   parseMpcMaterialActivationRef,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
-import { ed25519DurableMaterialLocator } from '../sealedRecovery/materialActivationKey';
+import type { Ed25519DurableMaterialLocator } from '../sealedRecovery/materialActivationKey';
 import {
   signingSessionSealsRepository,
   type StoredRawSealedRecordEntry,
@@ -1729,13 +1729,9 @@ export async function readExactSealedSession(
   return await readRecordByThresholdSessionId(thresholdSessionId, purpose, 'read');
 }
 
-export async function readExactEmailOtpEd25519SealedSessionByMaterialActivation(
-  materialActivation: MpcMaterialActivationRef,
+export async function readExactEd25519SealedSession(
+  locator: Ed25519DurableMaterialLocator,
 ): Promise<CurrentEd25519SealedSessionRecord | null> {
-  const locator = ed25519DurableMaterialLocator({
-    authMethod: 'email_otp',
-    materialActivation,
-  });
   const entries = await signingSessionSealsRepository.collectAllRawSealedRecordEntries();
   const deletePrimaryKeys: unknown[] = [];
   const matches: CurrentEd25519SealedSessionRecord[] = [];
@@ -1756,7 +1752,7 @@ export async function readExactEmailOtpEd25519SealedSessionByMaterialActivation(
       continue;
     }
     logSealedSessionClassification({
-      operation: 'read exact Email OTP Ed25519 material',
+      operation: 'read exact Ed25519 material',
       classification,
     });
     if (classification.kind === 'delete_required' || classification.kind === 'malformed') {
@@ -1770,7 +1766,7 @@ export async function readExactEmailOtpEd25519SealedSessionByMaterialActivation(
   await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
   if (matches.length > 1) {
     throw new Error(
-      '[SigningSessionSealedStore] exact Email OTP Ed25519 material activation is ambiguous',
+      '[SigningSessionSealedStore] exact Ed25519 material activation is ambiguous',
     );
   }
   return matches[0] ?? null;
