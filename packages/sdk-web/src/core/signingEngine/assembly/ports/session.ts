@@ -1,6 +1,6 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { configuredThresholdEcdsaChainTargets } from '../../interfaces/ecdsaChainTarget';
-import { readTrustedWalletSigningSessionStatus } from '../../session/lifecycle/walletSessionStatus';
+import type { SigningSessionStatusReader } from '../../session/lifecycle/walletSessionStatus';
 import type { EmailOtpWalletSessionCoordinator } from '../../session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { SessionPublicDeps } from '../../session/public';
 import type {
@@ -16,6 +16,7 @@ export function createSessionPublicDeps(args: {
   passkeyMpcSession: PasskeyMpcSessionPort;
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
+  getWalletSessionStatus: SigningSessionStatusReader;
 }): SessionPublicDeps {
   const sessionDiscovery: SessionPublicDeps['discovery'] = {
     emailOtp: (discoveryArgs) =>
@@ -29,8 +30,7 @@ export function createSessionPublicDeps(args: {
       statusReader: args.passkeyMpcSession,
       getEmailOtpWarmSessionStatus: (target) =>
         args.emailOtpSessions.readWarmSessionStatusOnly(target),
-      getWalletSessionStatus: (statusArgs) =>
-        readTrustedWalletSigningSessionStatus({}, statusArgs),
+      getWalletSessionStatus: args.getWalletSessionStatus,
     },
     signingSessionSeal:
       args.seamsWebConfigs.signing.sessionSeal.mode === 'sealed_refresh_v1'

@@ -247,6 +247,7 @@ import { createBrowserStepUpRuntime } from '../assembly/createBrowserStepUpRunti
 import { createBrowserWarmSessionPublicDeps } from '../assembly/createBrowserWarmSessionPublicDeps';
 import {
   createBrowserActiveEcdsaWalletSessionAuthorizationResolver,
+  createBrowserCanonicalWalletSessionStatusReader,
   createBrowserSigningSurfaceEnginePorts,
   listBrowserActiveEcdsaCapabilityManifestsForWallet,
   listBrowserEcdsaSigningCapabilitiesForWallet,
@@ -925,6 +926,11 @@ export class BrowserSigningSurface {
           },
           input,
         ),
+      getWalletSessionStatus: createBrowserCanonicalWalletSessionStatusReader({
+        seamsWebConfigs: this.seamsWebConfigs,
+        emailOtpSessions: this.emailOtpSessions,
+        sealedSigningSessionStore: deps.sealedSigningSessionStore,
+      }),
     });
     this.emailOtpPublicDeps = {
       relayerUrl: this.seamsWebConfigs.network.relayer?.url || '',
