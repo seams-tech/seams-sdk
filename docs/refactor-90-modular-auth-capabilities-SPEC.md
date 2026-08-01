@@ -562,6 +562,9 @@ implementing commit SHA as the evidence.
     authorization as an `authorization_required` candidate that cannot carry
     `signingGrantId`; authorized candidates correlate an independent active
     authorization projection (`6ac506d57`).
+  - [x] The unused threshold warm-session policy draft/request-envelope API,
+    its pre-cutover fixtures, and source guards were deleted; the live
+    Router A/B normal-signing policy builder remains (`4c60abd88`).
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.
