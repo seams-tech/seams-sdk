@@ -770,6 +770,9 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Reusable prepare/finalize re-resolve the complete active material before
         admission, operation claim, quota, or proxy effects and carry the
         canonical ref through accepted admission (`c7b259a5c`).
+  - [x] Operation-step-up prepare/finalize re-resolve the complete active
+        material before admission, claim, audit, or proxy effects and derive
+        admission and claim identity from the canonical ref (`dd68687d4`).
 - [x] Separate hydrated ECDSA signer material from execution authorization;
       prepare step-up from neutral material and attach the reusable-session or
       one-operation grant only in the ready execution envelope.
