@@ -121,6 +121,7 @@ import {
   parseWalletId,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
+import { materialActivationKey } from '@/core/signingEngine/session/sealedRecovery/materialActivationKey';
 import { retireWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   createRelayerReusableWalletSessionStatusPort,
@@ -210,6 +211,7 @@ import {
   readExactSealedSession,
   type CurrentSealedSessionRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import { ed25519DurableMaterialLocator } from '@/core/signingEngine/session/sealedRecovery/materialActivationKey';
 import { normalizeThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   recoverEmailOtpEd25519YaoFromSealedSessionV1,
@@ -288,6 +290,15 @@ type NearEd25519CapabilityRehydrationSubject =
       readonly laneIdentity: ExactEd25519SigningLaneIdentity;
     }
   | {
+      readonly kind: 'export_exact_lane';
+      readonly walletId: WalletId;
+      readonly nearAccountId: AccountId;
+      readonly signerSlot: number;
+      readonly thresholdSessionId: string;
+      readonly laneIdentity: ExactEd25519SigningLaneIdentity;
+      readonly materialActivation: MpcMaterialActivationRef;
+    }
+  | {
       readonly kind: 'material_identity';
       readonly walletId: WalletId;
       readonly nearAccountId: AccountId;
@@ -312,9 +323,11 @@ function nearEd25519LaneMatchesCapabilityRehydrationSubject(
     return false;
   }
   if (subject.signerSlot !== null && lane.signerSlot !== subject.signerSlot) return false;
-  return subject.kind === 'account_signer'
-    ? true
-    : String(lane.thresholdSessionId) === subject.thresholdSessionId;
+  if (subject.kind === 'account_signer') return true;
+  if (String(lane.thresholdSessionId) !== subject.thresholdSessionId) return false;
+  return subject.kind === 'export_exact_lane'
+    ? mpcMaterialActivationRefsEqual(lane.materialActivation, subject.materialActivation)
+    : true;
 }
 
 function nearEd25519CapabilityRehydrationKey(
@@ -325,6 +338,7 @@ function nearEd25519CapabilityRehydrationKey(
     String(subject.nearAccountId),
     subject.signerSlot,
     subject.kind === 'account_signer' ? null : subject.thresholdSessionId,
+    subject.kind === 'export_exact_lane' ? materialActivationKey(subject.materialActivation) : null,
   ]);
 }
 
@@ -377,6 +391,40 @@ async function requireExactEd25519SealedRuntimeForLane(args: {
     );
   }
   return resolution.runtime;
+}
+
+async function requireExactEd25519SealedRuntimeForExport(args: {
+  walletId: WalletId;
+  laneIdentity: ExactEd25519SigningLaneIdentity;
+  materialActivation: MpcMaterialActivationRef;
+}): Promise<ExactEd25519SealedSessionRuntime> {
+  const record = await readExactEd25519SealedSession(
+    ed25519DurableMaterialLocator({
+      authMethod: args.laneIdentity.auth.kind,
+      materialActivation: args.materialActivation,
+    }),
+  );
+  if (!record || record.curve !== 'ed25519') {
+    throw new Error('[SigningEngine][near] exact persisted Ed25519 runtime is missing');
+  }
+  const runtime = parseExactEd25519SealedSessionRuntime(record);
+  if (
+    !runtime ||
+    String(runtime.walletId) !== String(args.walletId) ||
+    String(runtime.nearAccountId) !== String(args.laneIdentity.signer.account.nearAccountId) ||
+    String(runtime.nearEd25519SigningKeyId) !==
+      String(args.laneIdentity.signer.nearEd25519SigningKeyId) ||
+    runtime.signerSlot !== args.laneIdentity.signer.signerSlot ||
+    String(runtime.thresholdSessionId) !== String(args.laneIdentity.thresholdSessionId) ||
+    !nearEd25519AuthBindingsEqual(runtime.auth, args.laneIdentity.auth) ||
+    !mpcMaterialActivationRefsEqual(
+      runtime.sealedRecord.ed25519Restore.materialActivation,
+      args.materialActivation,
+    )
+  ) {
+    throw new Error('[SigningEngine][near] exact persisted Ed25519 runtime identity mismatch');
+  }
+  return runtime;
 }
 
 async function requireExactEd25519SealedRuntimeForMaterialIdentity(args: {
@@ -902,8 +950,8 @@ export class BrowserSigningSurface {
       thresholdEcdsaSigningQueueByKey: this.thresholdEcdsaSigningQueueByKey,
       thresholdEd25519CommitQueueByKey: this.thresholdEd25519CommitQueueByKey,
       getWalletSessionActivationDeps: () => this.enginePorts.walletSessionActivationDeps,
-      resolveActiveEd25519YaoCapability: (scope) =>
-        this.enginePorts.ed25519YaoActiveClients.resolveForWalletAccount(scope),
+      resolveActiveEd25519YaoCapability: (identity) =>
+        this.enginePorts.ed25519YaoActiveClients.resolve(identity),
       recoverPasskeyEd25519YaoCapability:
         this.recoverExactPasskeyEd25519YaoCapabilityForExport.bind(this),
       resolvePasskeyEd25519YaoExportContext:
@@ -1977,20 +2025,21 @@ export class BrowserSigningSurface {
   }
 
   private async recoverExactPasskeyEd25519YaoCapabilityForExport(
-    laneIdentity: Parameters<RecoveryPublicDeps['ed25519Yao']['recoverPasskeyCapability']>[0],
+    args: Parameters<RecoveryPublicDeps['ed25519Yao']['recoverPasskeyCapability']>[0],
   ): Promise<NearEd25519YaoSigningCapability> {
     return await this.ensureNearEd25519YaoCapabilityForSigning({
-      kind: 'exact_lane',
-      walletId: laneIdentity.signer.account.wallet.walletId,
-      nearAccountId: laneIdentity.signer.account.nearAccountId,
-      signerSlot: laneIdentity.signer.signerSlot,
-      thresholdSessionId: String(laneIdentity.thresholdSessionId),
-      laneIdentity,
+      kind: 'export_exact_lane',
+      walletId: args.laneIdentity.signer.account.wallet.walletId,
+      nearAccountId: args.laneIdentity.signer.account.nearAccountId,
+      signerSlot: args.laneIdentity.signer.signerSlot,
+      thresholdSessionId: String(args.laneIdentity.thresholdSessionId),
+      laneIdentity: args.laneIdentity,
+      materialActivation: args.materialActivation,
     });
   }
 
   private async resolveExactPasskeyEd25519YaoExportContext(
-    laneIdentity: Parameters<RecoveryPublicDeps['ed25519Yao']['resolvePasskeyExportContext']>[0],
+    args: Parameters<RecoveryPublicDeps['ed25519Yao']['resolvePasskeyExportContext']>[0],
   ): ReturnType<RecoveryPublicDeps['ed25519Yao']['resolvePasskeyExportContext']> {
     const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
     if (!relayerUrl) {
@@ -1998,10 +2047,11 @@ export class BrowserSigningSurface {
     }
     return await resolvePasskeyEd25519YaoExportContextV1({
       subject: {
-        walletId: String(laneIdentity.signer.account.wallet.walletId),
-        nearAccountId: String(laneIdentity.signer.account.nearAccountId),
-        signerSlot: laneIdentity.signer.signerSlot,
-        thresholdSessionId: String(laneIdentity.thresholdSessionId),
+        walletId: String(args.laneIdentity.signer.account.wallet.walletId),
+        nearAccountId: String(args.laneIdentity.signer.account.nearAccountId),
+        signerSlot: args.laneIdentity.signer.signerSlot,
+        thresholdSessionId: String(args.laneIdentity.thresholdSessionId),
+        materialActivation: args.materialActivation,
       },
       relayerUrl,
       fetch: fetchWithGlobalThis,
@@ -2009,27 +2059,18 @@ export class BrowserSigningSurface {
   }
 
   private async resolveEmailOtpEd25519YaoExportContext(
-    subject: Parameters<typeof resolveEmailOtpEd25519YaoExportContextV1>[0]['subject'],
+    args: {
+      laneIdentity: Parameters<typeof resolveEmailOtpEd25519YaoExportContextV1>[0]['subject'];
+      materialActivation: MpcMaterialActivationRef;
+    },
   ): Promise<ResolvedEmailOtpEd25519YaoExportV1> {
     const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
     if (!relayerUrl) {
       throw new Error('[SigningEngine][ed25519-export] Email OTP export requires relayerUrl');
     }
-    const signer = subject.signer;
-    const publicLocator = nearEd25519PublicLocatorObservation({
-      references: await this.ed25519YaoPublicCapabilityReferences.list(),
-      walletId: signer.account.wallet.walletId,
-      nearAccountId: signer.account.nearAccountId,
-      signerSlot: signer.signerSlot,
-    });
-    if (publicLocator.kind !== 'available') {
-      throw new Error(
-        '[SigningEngine][ed25519-export] exact durable Email OTP Yao context is unavailable',
-      );
-    }
     return await resolveEmailOtpEd25519YaoExportContextV1({
-      subject,
-      expectedMaterialActivation: publicLocator.materialActivation,
+      subject: args.laneIdentity,
+      expectedMaterialActivation: args.materialActivation,
       relayerUrl,
       ports: {
         readExactEd25519SealedSession,
@@ -2046,10 +2087,17 @@ export class BrowserSigningSurface {
   ): Promise<NearEd25519YaoSigningCapability | null> {
     const lane = await this.resolveNearEd25519YaoSigningLane(subject);
     if (!lane) return null;
-    const capability = this.enginePorts.ed25519YaoActiveClients.resolveForWalletAccount({
-      walletId: subject.walletId,
-      nearAccountId: subject.nearAccountId,
-    });
+    const capability =
+      subject.kind === 'export_exact_lane'
+        ? this.enginePorts.ed25519YaoActiveClients.resolve({
+            walletId: subject.walletId,
+            nearAccountId: subject.nearAccountId,
+            materialActivation: subject.materialActivation,
+          })
+        : this.enginePorts.ed25519YaoActiveClients.resolveForWalletAccount({
+            walletId: subject.walletId,
+            nearAccountId: subject.nearAccountId,
+          });
     return capability?.activeClient.status().kind === 'active' ? capability : null;
   }
 
@@ -2081,13 +2129,20 @@ export class BrowserSigningSurface {
       throw new Error('[SigningEngine][near] local Ed25519 material lane is unavailable');
     }
     const laneIdentity =
-      subject.kind === 'exact_lane'
+      subject.kind === 'exact_lane' || subject.kind === 'export_exact_lane'
         ? subject.laneIdentity
         : exactEd25519LaneIdentityFromAvailableLane(lane);
-    const runtime = await requireExactEd25519SealedRuntimeForLane({
-      walletId: subject.walletId,
-      laneIdentity,
-    });
+    const runtime =
+      subject.kind === 'export_exact_lane'
+        ? await requireExactEd25519SealedRuntimeForExport({
+            walletId: subject.walletId,
+            laneIdentity,
+            materialActivation: subject.materialActivation,
+          })
+        : await requireExactEd25519SealedRuntimeForLane({
+            walletId: subject.walletId,
+            laneIdentity,
+          });
     const walletSessionState = await walletSessionStateFromExactEd25519Runtime(runtime);
     const credentialIdB64u =
       runtime.factor.kind === 'passkey' ? runtime.factor.credentialIdB64u : '';

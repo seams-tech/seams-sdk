@@ -13,7 +13,8 @@ declare const deps: Ed25519YaoExportFlowDeps;
 declare const passkeyLane: PasskeyEd25519Lane;
 declare const emailOtpLane: EmailOtpEd25519Lane;
 
-void deps.recoverPasskeyCapability(passkeyLane);
+declare const materialActivation: Parameters<Ed25519YaoExportFlowDeps['recoverPasskeyCapability']>[0]['materialActivation'];
+void deps.recoverPasskeyCapability({ laneIdentity: passkeyLane, materialActivation });
 
 // @ts-expect-error Email OTP export resolves durable context and cannot enter passkey recovery.
-void deps.recoverPasskeyCapability(emailOtpLane);
+void deps.recoverPasskeyCapability({ laneIdentity: emailOtpLane, materialActivation });

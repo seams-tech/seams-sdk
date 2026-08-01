@@ -34,6 +34,7 @@ import type {
   SigningEngineResolveExactKeyExportLaneInput,
   SigningEngineResolveExactKeyExportLaneResult,
 } from './keyExportFlow';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 
 type ConcreteEcdsaExportAvailableLane = ConcreteAvailableEcdsaSigningLane & {
   source: 'canonical_capability';
@@ -339,6 +340,7 @@ async function resolveExactEd25519KeyExportLane(
   return {
     kind: 'ed25519',
     laneIdentity: exactEd25519IdentityForExportLane(selectedLane),
+    materialActivation: selectedLane.materialActivation,
   };
 }
 

@@ -510,6 +510,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
             nearAccountId: runtime.nearAccountId,
             nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
             signerSlot: runtime.signerSlot,
+            materialActivation: runtime.sealedRecord.ed25519Restore.materialActivation,
             routerAbNormalSigning: runtime.routerAbNormalSigning,
             thresholdSessionId: runtime.thresholdSessionId,
             source: 'durable_sealed_record',

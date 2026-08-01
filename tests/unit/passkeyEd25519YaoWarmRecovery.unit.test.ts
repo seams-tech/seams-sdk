@@ -41,6 +41,7 @@ async function resolveRecord(record: CurrentEd25519SealedSessionRecord) {
         nearAccountId: NEAR_ACCOUNT_ID,
         signerSlot: 1,
         thresholdSessionId: THRESHOLD_SESSION_ID,
+        materialActivation: record.ed25519Restore.materialActivation,
       },
       relayerUrl: RELAYER_URL,
       fetch: async () => {
@@ -49,7 +50,7 @@ async function resolveRecord(record: CurrentEd25519SealedSessionRecord) {
       },
     },
     {
-      listExactSealedSessionsForWallet: async () => [record],
+      readExactEd25519SealedSession: async () => record,
       readActiveWalletSessionAuthorization: unexpectedAuthorizationRead,
       nowMs: () => NOW_MS,
     },

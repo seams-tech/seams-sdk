@@ -23,6 +23,7 @@ import {
 import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { canonicalEcdsaAvailableLane } from './helpers/availableSigningLanes.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
@@ -42,6 +43,10 @@ const TEMPO_TARGET: ThresholdEcdsaChainTarget = {
 };
 const NEAR_ACCOUNT = nearAccountRefFromAccountId('alice.testnet');
 const NEAR_ED25519_SIGNING_KEY_ID = nearEd25519SigningKeyIdFromString('ed25519ks_export_lane');
+const ED25519_MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'ed25519-export-lane',
+  WALLET_ID,
+);
 
 function passkeySigningAuth(rpId = toRpId(RP_ID)) {
   return {
@@ -115,6 +120,7 @@ function ed25519Lane(
     auth: passkeySigningAuth(),
     curve: 'ed25519',
     chain: 'near',
+    materialActivation: ED25519_MATERIAL_ACTIVATION,
     walletId: toWalletId(WALLET_ID),
     nearAccountId: NEAR_ACCOUNT.accountId,
     nearEd25519SigningKeyId: NEAR_ED25519_SIGNING_KEY_ID,
@@ -235,6 +241,7 @@ test.describe('Ed25519 export lane selection', () => {
         signingGrantId: lane.signingGrantId,
         thresholdSessionId: lane.thresholdSessionId,
       }),
+      materialActivation: lane.materialActivation,
     });
   });
 
@@ -260,6 +267,7 @@ test.describe('Ed25519 export lane selection', () => {
         signingGrantId: lane.signingGrantId,
         thresholdSessionId: lane.thresholdSessionId,
       }),
+      materialActivation: lane.materialActivation,
     });
   });
 
@@ -285,6 +293,7 @@ test.describe('Ed25519 export lane selection', () => {
         signingGrantId: lane.signingGrantId,
         thresholdSessionId: lane.thresholdSessionId,
       }),
+      materialActivation: lane.materialActivation,
     });
   });
 
@@ -311,6 +320,7 @@ test.describe('Ed25519 export lane selection', () => {
           signingGrantId: lane.signingGrantId,
           thresholdSessionId: lane.thresholdSessionId,
         }),
+        materialActivation: lane.materialActivation,
       });
     }
   });
@@ -338,6 +348,29 @@ test.describe('Ed25519 export lane selection', () => {
         }),
       ).rejects.toThrow('exact Yao lane selection failed');
     }
+  });
+
+  test('rejects same signer and session when material activation differs', async () => {
+    const supersededActivation = buildMpcMaterialActivationRefFixture(
+      'ed25519-export-lane-superseded',
+      WALLET_ID,
+    );
+    await expect(
+      resolveExactKeyExportLane(
+        depsForEd25519([
+          ed25519Lane(),
+          ed25519Lane({ materialActivation: supersededActivation }),
+        ]),
+        {
+          kind: 'ed25519',
+          walletSession: walletSessionRefFromSession({
+            walletId: WALLET_ID,
+            walletSessionUserId: WALLET_ID,
+          }),
+          nearAccount: NEAR_ACCOUNT,
+        },
+      ),
+    ).rejects.toThrow('ambiguous_material');
   });
 });
 

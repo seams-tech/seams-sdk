@@ -1,5 +1,8 @@
 import type { CurrentEd25519SealedSessionRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
-import { listExactSealedSessionsForWallet } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import {
+  readExactEd25519SealedSession,
+} from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import { ed25519DurableMaterialLocator } from '../sealedRecovery/materialActivationKey';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
   assertEd25519YaoRecoveryDescriptorContinuity,
@@ -40,11 +43,12 @@ import {
 import {
   mpcMaterialActivationRefsEqual,
   parseWalletId,
+  type MpcMaterialActivationRef,
   type WalletId,
 } from '@shared/utils/domainIds';
 
 export type PasskeyEd25519RecordRuntimePorts = {
-  readonly listExactSealedSessionsForWallet: typeof listExactSealedSessionsForWallet;
+  readonly readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
   readonly readActiveWalletSessionAuthorization: (
     walletId: WalletId,
   ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
@@ -56,6 +60,7 @@ export type PasskeyEd25519WarmRecoverySubject = {
   readonly nearAccountId: string;
   readonly signerSlot: number | null;
   readonly thresholdSessionId: string | null;
+  readonly materialActivation: MpcMaterialActivationRef;
 };
 
 export type PasskeyEd25519YaoWarmRecoveryUnavailableReason =
@@ -180,19 +185,23 @@ async function resolveExactWarmRecoveryRecord(
   subject: PasskeyEd25519WarmRecoverySubject,
   runtime: PasskeyEd25519RecordRuntimePorts,
 ): Promise<WarmRecoveryRecordResult> {
-  const records = await runtime.listExactSealedSessionsForWallet({
-    walletId: subject.walletId,
-    filter: { authMethod: 'passkey', curve: 'ed25519' },
-  });
-  const matches: CurrentEd25519SealedSessionRecord[] = [];
-  for (const record of records) {
-    if (record.curve !== 'ed25519' || !sealedRecordMatchesSubject(record, subject)) continue;
-    matches.push(record);
+  const record = await runtime.readExactEd25519SealedSession(
+    ed25519DurableMaterialLocator({
+      authMethod: 'passkey',
+      materialActivation: subject.materialActivation,
+    }),
+  );
+  if (
+    record &&
+    (record.curve !== 'ed25519' ||
+      !sealedRecordMatchesSubject(record, subject) ||
+      !mpcMaterialActivationRefsEqual(
+        record.ed25519Restore.materialActivation,
+        subject.materialActivation,
+      ))
+  ) {
+    return { kind: 'unavailable', reason: 'sealed_session_missing' };
   }
-  if (matches.length > 1) {
-    throw new Error('[SigningEngine][near] exact persisted Ed25519 warm recovery is ambiguous');
-  }
-  const record = matches[0];
   if (!record) return { kind: 'unavailable', reason: 'sealed_session_missing' };
   if (record.expiresAtMs <= runtime.nowMs()) {
     return { kind: 'unavailable', reason: 'sealed_session_expired' };
@@ -435,7 +444,7 @@ export async function resolvePasskeyEd25519YaoExportContextV1(input: {
   readonly fetch: typeof fetch;
 }): Promise<PasskeyEd25519YaoExportContextResolutionV1> {
   return await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(input, {
-    listExactSealedSessionsForWallet,
+    readExactEd25519SealedSession,
     readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
       walletSessionAuthorizations,
     ),

@@ -184,13 +184,13 @@ class PasskeyEd25519ExportRefreshHarness {
   }
 
   async recoverPasskeyCapability(
-    laneIdentity: ExactEd25519SigningLaneIdentity,
+    args: Parameters<Ed25519YaoExportFlowDeps['recoverPasskeyCapability']>[0],
   ): Promise<NearEd25519YaoSigningCapability> {
-    this.recoveredLane = laneIdentity;
+    this.recoveredLane = args.laneIdentity;
     return this.capability;
   }
 
-  async resolvePasskeyExportContext(): ReturnType<
+  async resolvePasskeyExportContext(_args: Parameters<Ed25519YaoExportFlowDeps['resolvePasskeyExportContext']>[0]): ReturnType<
     Ed25519YaoExportFlowDeps['resolvePasskeyExportContext']
   > {
     return {
@@ -314,6 +314,7 @@ test('page-refresh passkey export prompts from durable context without activatin
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     laneIdentity: passkeyLaneIdentity(STALE_SIGNING_GRANT_ID),
+    materialActivation: MATERIAL_ACTIVATION,
     options: {},
     flowId: 'flow-passkey-export-durable-context',
   });
@@ -334,6 +335,7 @@ test('page-refresh passkey export uses the Wallet Session issued by cold Yao rec
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     laneIdentity: selectedLane,
+    materialActivation: MATERIAL_ACTIVATION,
     options: {},
     flowId: 'flow-passkey-export-refresh',
   });
@@ -358,6 +360,7 @@ test('page-refresh passkey export rejects recovered authenticator drift', async 
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
       laneIdentity: passkeyLaneIdentity(STALE_SIGNING_GRANT_ID),
+      materialActivation: MATERIAL_ACTIVATION,
       options: {},
       flowId: 'flow-passkey-export-refresh-authenticator-drift',
     }),

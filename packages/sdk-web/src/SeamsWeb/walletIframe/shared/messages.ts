@@ -16,6 +16,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '@/core/types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
   RegistrationTimingSpanV1,
   SdkLifecycleEvent,
@@ -411,6 +412,7 @@ export type PMExportKeypairUiPayload =
       nearAccount: NearAccountRef;
       walletSession: WalletSessionRef;
       laneIdentity: unknown;
+      materialActivation: MpcMaterialActivationRef;
       chainTarget?: never;
       options: PMExportKeypairUiOptions;
     };

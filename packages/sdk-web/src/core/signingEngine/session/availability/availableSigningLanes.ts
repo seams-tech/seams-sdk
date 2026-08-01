@@ -215,6 +215,7 @@ type ConcreteAvailableEd25519SigningLaneBase = {
   auth: SigningLaneAuthBinding;
   curve: 'ed25519';
   chain: 'near';
+  materialActivation: MpcMaterialActivationRef;
   walletId: WalletId;
   nearAccountId: AccountId;
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
@@ -342,6 +343,7 @@ type AvailableSigningLanesRuntimeEd25519RecordBase = {
   auth: SigningLaneAuthBinding;
   curve: 'ed25519';
   chain: 'near';
+  materialActivation: MpcMaterialActivationRef;
   walletId: WalletId;
   nearAccountId: AccountId;
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
@@ -417,6 +419,7 @@ function recordToEd25519Lane(
       auth,
       curve: 'ed25519',
       chain: 'near',
+      materialActivation: restore.materialActivation,
       walletId: toWalletId(walletId),
       nearAccountId: toAccountId(restore.nearAccountId),
       nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(restore.nearEd25519SigningKeyId),
@@ -734,6 +737,7 @@ type Ed25519AvailableLaneIdentityInput = {
   auth?: SigningLaneAuthBinding;
   curve: 'ed25519';
   chain: 'near';
+  materialActivation?: MpcMaterialActivationRef;
   walletId?: unknown;
   nearAccountId?: unknown;
   nearEd25519SigningKeyId?: unknown;
@@ -755,13 +759,15 @@ export function ed25519AvailableLaneIdentityKey(
   const nearEd25519SigningKeyId = String(lane.nearEd25519SigningKeyId || '').trim();
   const signerSlot = String(lane.signerSlot || '').trim();
   const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
+  const activationKey = lane.materialActivation ? materialActivationKey(lane.materialActivation) : '';
   if (
     !authMethod ||
     !walletId ||
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
     !signerSlot ||
-    !thresholdSessionId
+    !thresholdSessionId ||
+    !activationKey
   ) {
     return null;
   }
@@ -774,6 +780,7 @@ export function ed25519AvailableLaneIdentityKey(
     'ed25519',
     'near',
     thresholdSessionId,
+    activationKey,
   ].join(':');
 }
 
@@ -947,6 +954,7 @@ function runtimeRecordToEd25519Lane(args: {
     auth: args.record.auth,
     curve: 'ed25519',
     chain: 'near',
+    materialActivation: args.record.materialActivation,
     walletId: args.record.walletId,
     nearAccountId: args.record.nearAccountId,
     nearEd25519SigningKeyId: args.record.nearEd25519SigningKeyId,
@@ -1077,6 +1085,7 @@ type Ed25519LaneGroupKey = {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   signerSlot: string;
+  materialActivationKey: string;
 };
 
 type Ed25519LaneRecordFact = {
@@ -1092,7 +1101,15 @@ function ed25519LaneGroupKey(
   const nearAccountId = String(lane.nearAccountId || '').trim();
   const nearEd25519SigningKeyId = String(lane.nearEd25519SigningKeyId || '').trim();
   const signerSlot = String(lane.signerSlot || '').trim();
-  if (!authKey || !walletId || !nearAccountId || !nearEd25519SigningKeyId || !signerSlot) {
+  const materialActivationKeyValue = materialActivationKey(lane.materialActivation);
+  if (
+    !authKey ||
+    !walletId ||
+    !nearAccountId ||
+    !nearEd25519SigningKeyId ||
+    !signerSlot ||
+    !materialActivationKeyValue
+  ) {
     return null;
   }
   return {
@@ -1101,11 +1118,19 @@ function ed25519LaneGroupKey(
     nearAccountId,
     nearEd25519SigningKeyId,
     signerSlot,
+    materialActivationKey: materialActivationKeyValue,
   };
 }
 
 function ed25519LaneGroupKeyString(key: Ed25519LaneGroupKey): string {
-  return [key.walletId, key.authKey, key.nearAccountId, key.nearEd25519SigningKeyId, key.signerSlot]
+  return [
+    key.walletId,
+    key.authKey,
+    key.nearAccountId,
+    key.nearEd25519SigningKeyId,
+    key.signerSlot,
+    key.materialActivationKey,
+  ]
     .map((part) => encodeURIComponent(part))
     .join('|');
 }
