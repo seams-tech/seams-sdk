@@ -7,6 +7,8 @@ import type { HydrateSigningSessionInput } from '../warmCapabilities/public';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 export function buildPasskeyEd25519RestoreMetadata(args: {
   rpId: string;
@@ -18,6 +20,7 @@ export function buildPasskeyEd25519RestoreMetadata(args: {
   signerSlot: number;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   credentialIdB64u: string;
+  materialActivation: MpcMaterialActivationRef;
 }): PasskeyEd25519SealRestoreMetadata {
   const rpId = String(args.rpId).trim();
   const nearAccountId = String(args.nearAccountId).trim();
@@ -48,6 +51,7 @@ export function buildPasskeyEd25519RestoreMetadata(args: {
     signerSlot,
     routerAbNormalSigning: args.routerAbNormalSigning,
     credentialIdB64u,
+    materialActivation: args.materialActivation,
   };
 }
 
@@ -64,6 +68,7 @@ export type PersistPasskeyEd25519YaoSessionForRefreshInput = {
   session: NearResolvedEd25519SigningSessionState;
   prfFirstB64u: string;
   ed25519Restore: PasskeyEd25519SealRestoreMetadata;
+  materialActivation: MpcMaterialActivationRef;
 };
 
 export async function persistPasskeyEd25519YaoSessionForRefresh(
@@ -100,6 +105,10 @@ export async function persistPasskeyEd25519YaoSessionForRefresh(
     input.ed25519Restore.signerSlot !== signer.signerSlot ||
     input.ed25519Restore.rpId !== String(laneAuth.rpId) ||
     input.ed25519Restore.credentialIdB64u !== laneAuth.credentialIdB64u ||
+    !mpcMaterialActivationRefsEqual(
+      input.ed25519Restore.materialActivation,
+      input.materialActivation,
+    ) ||
     input.ed25519Restore.routerAbNormalSigning?.signingWorkerId !==
       input.session.routerAbNormalSigning.signingWorkerId
   ) {

@@ -91,6 +91,7 @@ const ED25519_RESTORE_BASE = {
 const PASSKEY_ED25519_RESTORE = {
   ...ED25519_RESTORE_BASE,
   credentialIdB64u: 'passkey-credential-ed25519',
+  materialActivation: buildMpcMaterialActivationRefFixture('sealed-store-ed25519-passkey'),
 } as const;
 
 const EMAIL_OTP_ED25519_RESTORE = {

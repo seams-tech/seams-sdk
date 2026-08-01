@@ -96,6 +96,7 @@ type CurrentEd25519RestoreMetadataBase = {
 export type CurrentEd25519RestoreMetadata =
   | (CurrentEd25519RestoreMetadataBase & {
       credentialIdB64u: string;
+      materialActivation: MpcMaterialActivationRef;
       providerSubjectId?: never;
       emailHashHex?: never;
     })
@@ -722,8 +723,8 @@ function normalizeCurrentEd25519RestoreMetadata(
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(obj.routerAbNormalSigning);
   const materialActivation = parseMpcMaterialActivationRef(obj.materialActivation);
   const authBranch =
-    credentialIdB64u && !providerSubjectId
-      ? ({ credentialIdB64u } as const)
+    credentialIdB64u && !providerSubjectId && materialActivation.ok
+      ? ({ credentialIdB64u, materialActivation: materialActivation.value } as const)
       : provider && providerSubjectId && emailHashHex && !credentialIdB64u && materialActivation.ok
         ? ({
             provider,

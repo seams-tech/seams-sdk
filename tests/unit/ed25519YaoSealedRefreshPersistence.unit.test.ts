@@ -21,6 +21,7 @@ import {
   buildPasskeyEd25519AuthorizationProjectionFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const SEALED_RECORD = buildPasskeyEd25519SealedSessionRecordFixture();
 const WALLET_ID = SEALED_RECORD.walletId;
@@ -104,7 +105,7 @@ function buildPasskeyYaoWalletSession() {
       signerSlot: SEALED_RECORD.ed25519Restore.signerSlot,
       routerAbNormalSigning: SEALED_RECORD.ed25519Restore.routerAbNormalSigning,
       credentialIdB64u: SEALED_RECORD.ed25519Restore.credentialIdB64u,
-      walletSessionJwt: currentWalletSessionJwt,
+      materialActivation: SEALED_RECORD.ed25519Restore.materialActivation,
     }),
     expiresAtMs: runtime.expiresAtMs,
     walletSessionJwt: currentWalletSessionJwt,
@@ -126,6 +127,7 @@ test('persists and verifies a passkey Yao session seal for page refresh', async 
     session: fixture.session,
     prfFirstB64u: 'passkey-prf-first-ed25519-yao-sealed-refresh',
     ed25519Restore: fixture.ed25519Restore,
+    materialActivation: fixture.ed25519Restore.materialActivation,
   });
 
   expect(persistence.calls.map(sessionPersistenceCallKind)).toEqual(['hydrate', 'persist']);
@@ -195,6 +197,31 @@ test('fails the lifecycle when the durable Yao session seal is unavailable', asy
       session: fixture.session,
       prfFirstB64u: 'passkey-prf-first-ed25519-yao-sealed-refresh',
       ed25519Restore: fixture.ed25519Restore,
+      materialActivation: fixture.ed25519Restore.materialActivation,
     }),
   ).rejects.toThrow('Ed25519 Yao sealed refresh persistence failed (not_enabled)');
+});
+
+test('rejects refresh persistence when the material activation reference changes', async () => {
+  const fixture = buildPasskeyYaoWalletSession();
+  const persistence = new SessionPersistenceFixture({
+    ok: true,
+    sealedSecretB64u: 'sealed-session-refresh-secret',
+    remainingUses: 3,
+    expiresAtMs: fixture.expiresAtMs,
+  });
+
+  await expect(
+    persistPasskeyEd25519YaoSessionForRefresh({
+      persistence,
+      session: fixture.session,
+      prfFirstB64u: 'passkey-prf-first-ed25519-yao-sealed-refresh',
+      ed25519Restore: fixture.ed25519Restore,
+      materialActivation: buildMpcMaterialActivationRefFixture(
+        'ed25519-sealed-refresh-replacement',
+        WALLET_ID,
+      ),
+    }),
+  ).rejects.toThrow('Ed25519 Yao sealed refresh metadata does not match the exact session');
+  expect(persistence.calls).toEqual([]);
 });

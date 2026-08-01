@@ -9,12 +9,14 @@ import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
 } from './routerAbEcdsaDerivation';
 import type { EmailOtpWalletAuthAuthority, WalletAuthAuthorityRef } from './walletAuthAuthority';
+import type { MpcMaterialActivationRef } from './domainIds';
 
 declare const routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const roleLocalMaterialRef: SealedSigningSessionEcdsaRoleLocalMaterialRef;
 declare const authority: WalletAuthAuthorityRef;
 declare const emailOtpAuthority: EmailOtpWalletAuthAuthority;
+declare const materialActivation: MpcMaterialActivationRef;
 
 const validEcdsaSealedSessionRecord = {
   v: 2,
@@ -92,6 +94,7 @@ const validEd25519SealedSessionRecord = {
     nearEd25519SigningKeyId: 'alice.testnet',
     rpId: 'wallet.example.localhost',
     credentialIdB64u: 'credential-id',
+    materialActivation,
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2],
     signerSlot: 1,
@@ -102,6 +105,13 @@ const validEd25519SealedSessionRecord = {
   updatedAtMs: 4,
 } satisfies SealedSigningSessionRecord;
 void validEd25519SealedSessionRecord;
+
+const { materialActivation: _passkeyMaterialActivation, ...passkeyRestoreMissingActivation } =
+  validEd25519SealedSessionRecord.ed25519Restore;
+// @ts-expect-error passkey sealed restore metadata must retain the exact material activation reference.
+const invalidPasskeyRestoreMissingActivation: SealedSigningSessionEd25519RestoreMetadata =
+  passkeyRestoreMissingActivation;
+void invalidPasskeyRestoreMissingActivation;
 
 const { groupId: _groupId, ...recordMissingGroupId } = validEd25519SealedSessionRecord;
 // @ts-expect-error v2 sealed records require the crate-owned group identifier.

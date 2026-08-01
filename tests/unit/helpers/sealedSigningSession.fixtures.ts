@@ -38,6 +38,7 @@ import {
 import { parseEcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { ecdsaSealedRecordStoreKey } from '@/core/signingEngine/session/persistence/ecdsaSealedRecordKey';
+import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
 import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseMpcWalletSigningQuotaId,
@@ -99,6 +100,10 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
       nearEd25519SigningKeyId,
       rpId: 'wallet.example.test',
       credentialIdB64u: 'ed25519-sealed-runtime-credential',
+      materialActivation: buildMpcMaterialActivationRefFixture(
+        'ed25519-sealed-runtime-material',
+        walletId,
+      ),
       relayerKeyId: 'ed25519-sealed-runtime-worker',
       participantIds: [1, 2],
       runtimePolicyScope: {
