@@ -35,6 +35,7 @@ import {
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { buildActiveClientKeyMaterialRecord } from './helpers/ed25519YaoRecoverySource.fixtures';
 
 class MemoryKeyMaterialStore implements AccountKeyMaterialStorePort {
   record: KeyMaterialRecord | null = null;
@@ -399,17 +400,7 @@ test('preserves cancellation across reload and atomically finalizes its promoted
   if (!reloaded || reloaded.kind !== 'prepared' || !store.record?.payloadEnvelope) {
     throw new Error('prepared recovery fixture is unavailable');
   }
-  const replacement: KeyMaterialRecord = {
-    ...store.record,
-    keyKind: 'router_ab_ed25519_yao_active_client_v1',
-    payloadEnvelope: {
-      ...store.record.payloadEnvelope,
-      aad: {
-        ...store.record.payloadEnvelope.aad,
-        keyKind: 'router_ab_ed25519_yao_active_client_v1',
-      },
-    },
-  };
+  const replacement = buildActiveClientKeyMaterialRecord(store.record);
   await finalizeCancelledPromotedNearEd25519YaoRecoveryV1({
     store,
     walletId: identity.walletId,
@@ -466,17 +457,7 @@ test('atomically finalizes a promotion-committed journal', async () => {
   if (!store.record?.payloadEnvelope) {
     throw new Error('prepared recovery fixture is unavailable');
   }
-  const replacement: KeyMaterialRecord = {
-    ...store.record,
-    keyKind: 'router_ab_ed25519_yao_active_client_v1',
-    payloadEnvelope: {
-      ...store.record.payloadEnvelope,
-      aad: {
-        ...store.record.payloadEnvelope.aad,
-        keyKind: 'router_ab_ed25519_yao_active_client_v1',
-      },
-    },
-  };
+  const replacement = buildActiveClientKeyMaterialRecord(store.record);
   const committed = await persistPromotionCommittedNearEd25519YaoRecoveryV1({
     store,
     walletId: identity.walletId,
@@ -548,17 +529,7 @@ test('survives crashes before recovery call, after readback, and during atomic f
   if (!store.record?.payloadEnvelope) {
     throw new Error('prepared recovery fixture is unavailable');
   }
-  const replacement: KeyMaterialRecord = {
-    ...store.record,
-    keyKind: 'router_ab_ed25519_yao_active_client_v1',
-    payloadEnvelope: {
-      ...store.record.payloadEnvelope,
-      aad: {
-        ...store.record.payloadEnvelope.aad,
-        keyKind: 'router_ab_ed25519_yao_active_client_v1',
-      },
-    },
-  };
+  const replacement = buildActiveClientKeyMaterialRecord(store.record);
   const committed = await persistPromotionCommittedNearEd25519YaoRecoveryV1({
     store,
     walletId: identity.walletId,
