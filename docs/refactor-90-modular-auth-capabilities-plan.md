@@ -764,15 +764,19 @@ the replacement and legacy MPC paths must not ship together.
       evidence, or grant writes; derive `CapabilityId` from that stored ref and
       reject every independently mutated activation field with zero side
       effects (`4a436aed7`).
-- [ ] Apply the same canonical active-material resolution before step-up
-      prepare/finalize, pool fill, and export authorization side effects;
-      replace the export activation-ID-only wire with the full activation ref.
+- [ ] Apply canonical active-material resolution before export authorization
+      side effects and replace the export activation-ID-only wire with the full
+      activation ref.
   - [x] Reusable prepare/finalize re-resolve the complete active material before
         admission, operation claim, quota, or proxy effects and carry the
         canonical ref through accepted admission (`c7b259a5c`).
   - [x] Operation-step-up prepare/finalize re-resolve the complete active
         material before admission, claim, audit, or proxy effects and derive
         admission and claim identity from the canonical ref (`dd68687d4`).
+  - [x] Pool-fill authorization re-resolves canonical active material before
+        operation-step-up claims or SigningWorker runtime calls and compares
+        the full ref across operation, signed scope, and init scope
+        (`80aea5036`).
 - [x] Separate hydrated ECDSA signer material from execution authorization;
       prepare step-up from neutral material and attach the reusable-session or
       one-operation grant only in the ready execution envelope.
