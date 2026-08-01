@@ -35,8 +35,8 @@ Current child owners are explicit folders:
   `availability/readiness.ts`.
 - Planning: `planning/planner.ts`, `planning/operationFingerprint.ts`, and
   `planning/operationIdBinding.ts`.
-- Budget: `budget/budget.ts`, `budget/budgetProjection.ts`,
-  `budget/budgetFinalizer.ts`, and `budget/budgetStatusReader.ts`.
+- Budget: `budget/budget.ts`, `budget/budgetProjection.ts`, and
+  `budget/budgetStatusReader.ts`.
 - Signing operation state: `operationState/types.ts`,
   `operationState/preparedOperation.ts`, `operationState/postSignPolicy.ts`,
   `operationState/transactionState.ts`, and `operationState/trace.ts`.
