@@ -50,7 +50,6 @@ export type SigningSessionLane = {
   source: SignerAuthMethod;
   thresholdSessionId: string;
   signingGrantId: string;
-  backingMaterialSessionId: string;
   materialActivation: MpcMaterialActivationRef;
 };
 
@@ -227,7 +226,7 @@ function addLane(
   lane: DiscoveredSigningSessionLane | null,
 ): void {
   if (!lane) return;
-  if (!lane.thresholdSessionId || !lane.signingGrantId || !lane.backingMaterialSessionId) {
+  if (!lane.thresholdSessionId || !lane.signingGrantId) {
     return;
   }
   lanes.push(lane);
@@ -243,7 +242,6 @@ export function buildDiscoveredLaneForRuntime(
     source: toLaneSource(runtime),
     thresholdSessionId: runtime.thresholdSessionId,
     signingGrantId,
-    backingMaterialSessionId: runtime.thresholdSessionId,
     materialActivation: runtime.sealedRecord.ed25519Restore.materialActivation,
     backing: 'record_policy',
     runtime,
@@ -600,14 +598,13 @@ export async function readWalletScopedLaneClaimsForLanes(args: {
 export async function readDirectSigningSessionStatusForTargets(args: {
   deps: SigningGrantReadinessDeps;
   signingGrantId: string;
-  targetBackingMaterialSessionIds?: Iterable<string>;
   targetThresholdSessionIds?: Iterable<string>;
 }): Promise<SigningSessionStatus | null> {
   const signingGrantId = normalizeNonEmpty(args.signingGrantId);
   if (!signingGrantId) return null;
   const targetSessionIds = Array.from(
     new Set(
-      [...(args.targetBackingMaterialSessionIds || []), ...(args.targetThresholdSessionIds || [])]
+      [...(args.targetThresholdSessionIds || [])]
         .map(normalizeNonEmpty)
         .filter(Boolean),
     ),
@@ -680,18 +677,19 @@ export async function clearSigningGrant(args: {
   const cleared = new Set<string>();
   const failures = new Set<SigningGrantClearFailure>();
   for (const lane of lanes) {
-    if (cleared.has(lane.backingMaterialSessionId)) continue;
-    cleared.add(lane.backingMaterialSessionId);
     if (lane.backing === 'record_policy') continue;
+    const materialActivationId = String(lane.materialActivation.activationId);
+    if (cleared.has(materialActivationId)) continue;
+    cleared.add(materialActivationId);
     if (lane.backing === 'email_otp_worker') {
       try {
-        await args.deps.clearEmailOtpWarmSessionMaterial?.(lane.backingMaterialSessionId);
+        await args.deps.clearEmailOtpWarmSessionMaterial?.(lane.thresholdSessionId);
       } catch {
         failures.add('email_otp_material');
       }
       continue;
     }
-    const volatileSessionId = parseVolatileWarmSessionId(lane.backingMaterialSessionId);
+    const volatileSessionId = parseVolatileWarmSessionId(lane.thresholdSessionId);
     if (!volatileSessionId) continue;
     try {
       await args.deps.touchConfirm?.clearVolatileWarmSessionMaterial?.(

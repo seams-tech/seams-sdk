@@ -120,7 +120,6 @@ export type SigningSessionStatusPort = {
   getStatus(args: {
     walletId: WalletId | string;
     signingGrantId: string;
-    targetBackingMaterialSessionIds?: string[];
     targetThresholdSessionIds?: string[];
     trustedStatusAuth?: WalletSessionStatusIdentity;
     sessionStatusCheck?: SigningSessionStatusCheck;
@@ -334,22 +333,18 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
   ): ReturnType<SigningSessionStatusPort['getStatus']> {
     const walletId = toWalletId(args.walletId);
     const signingGrantId = normalizeSessionStatusRequired(args.signingGrantId, 'signingGrantId');
-    const targetBacking = new Set(
-      (args.targetBackingMaterialSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
-    );
     const targetThreshold = new Set(
       (args.targetThresholdSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
     );
-    const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
+    const hasExplicitTarget = targetThreshold.size > 0;
     const readDirectTargetStatus = async (): Promise<SigningSessionStatus | null> => {
       if (!hasExplicitTarget) return null;
-      // The status query carries the exact selected material ids. Use those
-      // ids directly so a missing volatile lane projection cannot hide a
+      // The status query carries the exact selected threshold-session ids. Use
+      // those ids directly so a missing volatile lane projection cannot hide a
       // restored, usable session.
       return await readDirectSigningSessionStatusForTargets({
         deps: this.walletSessionDeps,
         signingGrantId,
-        targetBackingMaterialSessionIds: targetBacking,
         targetThresholdSessionIds: targetThreshold,
       });
     };
@@ -359,9 +354,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     if (!lanes.length) return await readDirectTargetStatus();
     const statusLanes = hasExplicitTarget
       ? lanes.filter(
-          (lane) =>
-            targetBacking.has(lane.backingMaterialSessionId) ||
-            targetThreshold.has(lane.thresholdSessionId),
+          (lane) => targetThreshold.has(lane.thresholdSessionId),
         )
       : lanes;
     if (hasExplicitTarget && !statusLanes.length) {
