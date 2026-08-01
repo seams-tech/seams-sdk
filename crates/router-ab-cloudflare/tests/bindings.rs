@@ -1130,7 +1130,7 @@ fn router_ab_ecdsa_derivation_material_activation_for_epoch(
         ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
         ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
         "ecdsa-material-lifecycle-1",
-        "signing-worker-1",
+        signer_set().selected_server.server_id.clone(),
     )
     .expect("ECDSA material activation")
 }
