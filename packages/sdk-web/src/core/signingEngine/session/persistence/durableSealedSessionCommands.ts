@@ -2,12 +2,17 @@ import {
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  parseMpcMaterialActivationRef,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 
 export type ExactSealedSessionIdentity =
   | {
       authMethod: 'email_otp' | 'passkey';
       curve: 'ed25519';
-      thresholdSessionId: string;
+      materialActivation: MpcMaterialActivationRef;
+      thresholdSessionId?: never;
     }
   | {
       authMethod: 'email_otp' | 'passkey';
@@ -99,15 +104,18 @@ export function parseExactSealedSessionIdentity(value: unknown): ExactSealedSess
   const record = value as Record<string, unknown>;
   const authMethod = parseAuthMethod(record.authMethod);
   const curve = parseCurve(record.curve);
-  const thresholdSessionId = normalizeNonEmptyString(record.thresholdSessionId);
-  if (!authMethod || !curve || !thresholdSessionId) return null;
+  if (!authMethod || !curve) return null;
   if (curve === 'ed25519') {
+    const materialActivation = parseMpcMaterialActivationRef(record.materialActivation);
+    if (!materialActivation.ok) return null;
     return {
       authMethod,
       curve: 'ed25519',
-      thresholdSessionId,
+      materialActivation: materialActivation.value,
     };
   }
+  const thresholdSessionId = normalizeNonEmptyString(record.thresholdSessionId);
+  if (!thresholdSessionId) return null;
   const chainTarget = parseChainTarget(record.chainTarget);
   if (!chainTarget) return null;
   return {

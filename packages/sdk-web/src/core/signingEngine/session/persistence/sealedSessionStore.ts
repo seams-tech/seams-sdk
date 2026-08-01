@@ -770,13 +770,6 @@ type Ed25519SealedRecordStoreKeyInput = {
   restore: CurrentEd25519RestoreMetadata;
 };
 
-function legacyEd25519SealedRecordStoreKey(args: {
-  signingGrantId: string;
-  authMethod: 'passkey' | 'email_otp';
-}): string {
-  return [args.signingGrantId, args.authMethod, 'ed25519'].map(sealedStoreKeyPart).join(':');
-}
-
 function legacyEcdsaSealedRecordStoreKey(args: {
   signingGrantId: string;
   authMethod: 'passkey' | 'email_otp';
@@ -793,14 +786,18 @@ function legacyEcdsaSealedRecordStoreKey(args: {
 }
 
 function ed25519SealedRecordStoreKey(args: Ed25519SealedRecordStoreKeyInput): string {
+  const materialActivation = args.restore.materialActivation;
   return [
-    'material',
+    'ed25519-material-v2',
     args.walletId,
     args.authMethod,
     'ed25519',
-    args.restore.nearAccountId,
-    args.restore.nearEd25519SigningKeyId,
-    args.restore.signerSlot,
+    materialActivation.activationId,
+    materialActivation.capability,
+    materialActivation.materialOwner,
+    materialActivation.keyBinding,
+    materialActivation.lifecycleBinding,
+    materialActivation.signingWorker,
   ]
     .map(sealedStoreKeyPart)
     .join(':');
@@ -873,6 +870,12 @@ function sealedRecordsHaveSamePurpose(
 ): boolean {
   if (!sealedRecordsShareAccount(left, right)) return false;
   if (left.authMethod !== right.authMethod || left.curve !== right.curve) return false;
+  if (left.curve === 'ed25519' && right.curve === 'ed25519') {
+    return mpcMaterialActivationRefsEqual(
+      left.ed25519Restore.materialActivation,
+      right.ed25519Restore.materialActivation,
+    );
+  }
   if (left.curve === 'ecdsa') {
     const leftKeyHandle = normalizeOptionalNonEmptyString(left.ecdsaRestore?.keyHandle);
     const rightKeyHandle = normalizeOptionalNonEmptyString(right.ecdsaRestore?.keyHandle);
@@ -1100,11 +1103,8 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
     authMethod,
     restore: ed25519Restore,
   });
-  const legacyStoreKey = signingGrantId
-    ? legacyEd25519SealedRecordStoreKey({ signingGrantId, authMethod })
-    : null;
   const providedStoreKey = normalizeOptionalNonEmptyString(obj.storeKey);
-  if (providedStoreKey && providedStoreKey !== storeKey && providedStoreKey !== legacyStoreKey) {
+  if (providedStoreKey && providedStoreKey !== storeKey) {
     return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
   }
   return {
@@ -1156,28 +1156,21 @@ async function classifyPersistedSealedRecord(
   const raw = asRawSealedSessionRecord(payload);
   const rawRow = asRawSealedSessionRecord(entry.value);
   const hasGrantResidue = hasRawSigningGrantField(rawRow) || hasRawSigningGrantField(raw);
+  if (classification.record.curve === 'ed25519' && hasGrantResidue) {
+    return classifyNonCurrentRecord('delete_required', raw, 'invalid_identity');
+  }
   const persistedStoreKey = normalizeOptionalNonEmptyString(raw?.storeKey);
   if (!persistedStoreKey || persistedStoreKey === classification.record.storeKey) {
-    if (classification.record.curve === 'ed25519' && hasGrantResidue) {
-      await signingSessionSealsRepository.replaceSealedRecord({
-        row: sealedRecordStorageRow(classification.record),
-        staleStoreKeys: [String(entry.primaryKey)],
-      });
-    }
     return classification;
   }
+  if (classification.record.curve !== 'ecdsa') return classification;
   const legacySigningGrantId = normalizeStoredSigningGrantId(raw);
   if (!legacySigningGrantId) return classification;
-  const legacyStoreKey = classification.record.curve === 'ecdsa'
-    ? legacyEcdsaSealedRecordStoreKey({
-        signingGrantId: legacySigningGrantId,
-        authMethod: classification.record.authMethod,
-        chainTarget: classification.record.ecdsaRestore.chainTarget,
-      })
-    : legacyEd25519SealedRecordStoreKey({
-        signingGrantId: legacySigningGrantId,
-        authMethod: classification.record.authMethod,
-      });
+  const legacyStoreKey = legacyEcdsaSealedRecordStoreKey({
+    signingGrantId: legacySigningGrantId,
+    authMethod: classification.record.authMethod,
+    chainTarget: classification.record.ecdsaRestore.chainTarget,
+  });
   if (persistedStoreKey !== legacyStoreKey) return classification;
   await signingSessionSealsRepository.migrateSealedRecordStoreKey({
     row: sealedRecordStorageRow(classification.record),
@@ -2121,14 +2114,64 @@ export async function deleteExactSealedSession(
   }
 }
 
+export async function deleteExactEd25519SealedSession(
+  locator: Ed25519DurableMaterialLocator,
+  options: DeleteExactSealedSessionOptions,
+): Promise<void> {
+  const entries = await signingSessionSealsRepository.collectAllRawSealedRecordEntries();
+  const deletePrimaryKeys: unknown[] = [];
+  const restoreLeaseKeys: string[] = [];
+  for (const entry of entries) {
+    const classification = await classifyPersistedSealedRecord(entry);
+    if (classification.kind !== 'current') {
+      logSealedSessionClassification({
+        operation: 'delete exact Ed25519 material',
+        classification,
+      });
+      continue;
+    }
+    const record = classification.record;
+    if (
+      record.curve !== 'ed25519' ||
+      record.authMethod !== locator.authMethod ||
+      !mpcMaterialActivationRefsEqual(
+        record.ed25519Restore.materialActivation,
+        locator.materialActivation,
+      )
+    ) {
+      continue;
+    }
+    deletePrimaryKeys.push(entry.primaryKey);
+    if (options.deleteResolvedIdentity) restoreLeaseKeys.push(record.storeKey);
+  }
+  await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
+  if (options.deleteResolvedIdentity) {
+    for (const leaseKey of restoreLeaseKeys) {
+      await signingSessionSealsRepository.deleteRestoreLease(leaseKey);
+    }
+  }
+}
+
 export async function deleteDurableSealedSessionRecord(
   command: DeleteDurableSealedSessionCommand,
 ): Promise<void> {
+  const options: DeleteExactSealedSessionOptions = command.preserveResolvedIdentity
+    ? { deleteResolvedIdentity: false }
+    : { deleteResolvedIdentity: true, resolvedIdentityDeleteReason: 'durable_record_deleted' };
+  if (command.durableRecord.curve === 'ed25519') {
+    await deleteExactEd25519SealedSession(
+      {
+        kind: 'ed25519_durable_material',
+        authMethod: command.durableRecord.authMethod,
+        materialActivation: command.durableRecord.materialActivation,
+      },
+      options,
+    );
+    return;
+  }
   const filter = exactSealedSessionFilterForIdentity(command.durableRecord);
   const existingRecord =
-    command.durableRecord.curve === 'ecdsa'
-      ? await readExactSealedSessionOrNull(command.durableRecord.thresholdSessionId, filter)
-      : null;
+    await readExactSealedSessionOrNull(command.durableRecord.thresholdSessionId, filter);
   if (
     command.preserveResolvedIdentity &&
     command.durableRecord.curve === 'ecdsa' &&
@@ -2145,9 +2188,6 @@ export async function deleteDurableSealedSessionRecord(
     });
     return;
   }
-  const options: DeleteExactSealedSessionOptions = command.preserveResolvedIdentity
-    ? { deleteResolvedIdentity: false }
-    : { deleteResolvedIdentity: true, resolvedIdentityDeleteReason: 'durable_record_deleted' };
   await deleteExactSealedSession(command.durableRecord.thresholdSessionId, filter, options);
 }
 
