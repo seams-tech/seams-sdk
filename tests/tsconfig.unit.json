@@ -28,6 +28,7 @@
     "unit/signingSessionSeal.shared.unit.test.ts",
     "unit/thresholdEcdsa.bootstrapPersistence.unit.test.ts",
     "unit/thresholdEcdsa.persistedRecords.unit.test.ts",
+    "unit/thresholdSessionClaims.unit.test.ts",
     "unit/warmSessionEcdsaProvisioning.unit.test.ts",
     "unit/warmSessionTransitions.unit.test.ts"
   ],
