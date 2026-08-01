@@ -1,5 +1,5 @@
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WalletBudgetOwner } from '../budget/budget';
+import type { WalletSessionStatusOwner } from '../lifecycle/walletSessionStatus';
 import {
   clearSigningGrant,
   discoverLanesForWallet,

@@ -86,7 +86,7 @@ test.describe('SigningSessionCoordinator NEAR Ed25519 budget preflight', () => {
     const coordinator = new SigningSessionCoordinator({
       getStatus: async () => ({
         sessionId: lane.signingGrantId,
-        status: 'budget_unknown',
+        status: 'status_unknown',
         statusCode: 'status_unavailable',
       }),
     });

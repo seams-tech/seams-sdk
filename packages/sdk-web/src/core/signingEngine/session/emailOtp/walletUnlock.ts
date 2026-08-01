@@ -52,11 +52,11 @@ export type EmailOtpEd25519YaoUnlockResult =
       ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
     }
   | {
-      kind: 'ed25519_yao_local_session';
+      kind: 'ed25519_yao_capability';
       recovery: EmailOtpWalletUnlockRecovery;
       activeClientHandle: string;
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-      ed25519YaoSession: EmailOtpEd25519YaoRecoveryBootstrapV1;
+      ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
     };
 
 export type EmailOtpWalletUnlockCapabilityResults = {
@@ -163,7 +163,7 @@ export async function unlockEmailOtpWallet(
   };
 }
 
-export async function unlockEmailOtpEd25519YaoSession(
+export async function unlockEmailOtpEd25519YaoCapability(
   args: EmailOtpWalletUnlockBaseArgs & {
     providerSubject: string;
     signerSlot: number;
@@ -190,13 +190,13 @@ export async function unlockEmailOtpEd25519YaoSession(
       },
     },
   });
-  if (result.kind === 'ed25519_yao_local_session') {
+  if (result.kind === 'ed25519_yao_capability') {
     return {
       kind: result.kind,
       recovery: result.recovery,
       activeClientHandle: result.activeClientHandle,
       metadata: result.metadata,
-      ed25519YaoSession: result.ed25519YaoSession,
+      ed25519YaoCapability: result.ed25519YaoCapability,
     };
   }
   if (result.kind !== 'ed25519_yao_recovery') {
@@ -271,11 +271,11 @@ export async function unlockEmailOtpWalletCapabilities(
             ed25519YaoRecovery: result.ed25519Yao.bootstrap,
           }
         : {
-            kind: 'ed25519_yao_local_session',
+            kind: 'ed25519_yao_capability',
             recovery: result.recovery,
             activeClientHandle: result.ed25519Yao.activeClientHandle,
             metadata: result.ed25519Yao.metadata,
-            ed25519YaoSession: result.ed25519Yao.bootstrap,
+            ed25519YaoCapability: result.ed25519Yao.bootstrap,
           },
   };
 }

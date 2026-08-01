@@ -164,11 +164,9 @@ import {
 } from '@/core/signingEngine/session/passkey/unlockEcdsaWarmupPlanner';
 import type { ThresholdEcdsaKeyIdentityInventoryEntry } from '@/core/signingEngine/session/passkey/ecdsaKeyFactsInventory';
 import {
-  DEV_DEFAULT_UNLOCK_REMAINING_USES,
-  resolveSigningBudgetPolicyRemainingUses,
-  resolveWalletUnlockBudgetPolicyFromRequestedUses,
-  type WalletUnlockBudgetPolicy,
-} from '@/core/signingEngine/session/budget/policy';
+  DEFAULT_UNLOCK_REMAINING_USES,
+  resolveWalletUnlockSessionUsesFromRequestedUses,
+} from '@/core/signingEngine/threshold/sessionPolicy';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
 import {
@@ -1712,26 +1710,23 @@ async function unlockInternal(
       const configuredRemainingUses = options?.signingSession?.remainingUses;
       const defaultRemainingUses = context.configs?.signing.sessionDefaults?.remainingUses;
       const requestedRemainingUses =
-        configuredRemainingUses ?? defaultRemainingUses ?? DEV_DEFAULT_UNLOCK_REMAINING_USES;
+        configuredRemainingUses ?? defaultRemainingUses ?? DEFAULT_UNLOCK_REMAINING_USES;
       const ttlMs =
         typeof ttlMsRaw === 'number' ? Math.floor(ttlMsRaw) : Math.floor(Number(ttlMsRaw) || 0);
-      const unlockBudgetPolicy = resolveWalletUnlockBudgetPolicyFromRequestedUses({
+      const unlockRemainingUses = resolveWalletUnlockSessionUsesFromRequestedUses({
         requestedRemainingUses,
-        ...(configuredRemainingUses == null && defaultRemainingUses == null
-          ? {}
-          : { policyVersion: 'sdk_unlock_config_v1' }),
       });
       return {
         ttlMs: Math.max(0, ttlMs),
-        unlockBudgetPolicy,
+        unlockRemainingUses,
       };
     })();
 
     // Updated by warmup branches, then copied into the public result.
     let signingSession: LoginAndCreateSessionResult['signingSession'] | undefined;
-    // Warm sessions are enabled when policy budgets are non-zero.
+    // Warm sessions are enabled when the unlock policy has remaining uses.
     const shouldWarmThresholdSigningSession =
-      signingSessionPolicy.ttlMs > 0 && signingSessionPolicy.unlockBudgetPolicy != null;
+      signingSessionPolicy.ttlMs > 0 && signingSessionPolicy.unlockRemainingUses != null;
     const requireThresholdWarmup = shouldWarmThresholdSigningSession;
     let preparedPasskeyExchangeEcdsaActivation: PreparedPasskeyExchangeEcdsaActivation | null =
       null;
@@ -1959,7 +1954,7 @@ async function unlockInternal(
         relayerKeyId: thresholdKeyMaterial?.relayerKeyId || '',
         participantIds,
         ttlMs: signingSessionPolicy.ttlMs,
-        unlockBudgetPolicy: requireLoginUnlockBudgetPolicy(signingSessionPolicy.unlockBudgetPolicy),
+        unlockRemainingUses: requireLoginUnlockSessionUses(signingSessionPolicy.unlockRemainingUses),
         ecdsaContextResolution: warmupPlan.ecdsaContextResolution,
         credentialState,
         runtimeScopeBootstrapState,
@@ -2134,8 +2129,8 @@ async function unlockInternal(
                 walletIdentity,
                 selection: walletUnlockSelection,
                 ttlMs: signingSessionPolicy.ttlMs,
-                remainingUses: resolveSigningBudgetPolicyRemainingUses(
-                  requireLoginUnlockBudgetPolicy(signingSessionPolicy.unlockBudgetPolicy),
+                remainingUses: requireLoginUnlockSessionUses(
+                  signingSessionPolicy.unlockRemainingUses,
                 ),
               })
             : null;
@@ -2990,7 +2985,7 @@ async function primeThresholdLoginWarmSigners(args: {
   relayerKeyId: string;
   participantIds: number[];
   ttlMs: number;
-  unlockBudgetPolicy: WalletUnlockBudgetPolicy;
+  unlockRemainingUses: number;
   ecdsaContextResolution: ThresholdLoginWarmEcdsaContextResolution;
   credentialState: LoginWarmupCredentialState;
   runtimeScopeBootstrapState: LoginWarmupRuntimeScopeBootstrapState;
@@ -3029,7 +3024,7 @@ async function primeThresholdLoginWarmSigners(args: {
     generatedThresholdSessionId:
       args.passkeyExchangeEcdsaActivation?.request.session_policy.threshold_session_id || '',
   };
-  const unlockRemainingUses = resolveSigningBudgetPolicyRemainingUses(args.unlockBudgetPolicy);
+  const unlockRemainingUses = args.unlockRemainingUses;
   const ecdsaBootstraps: ThresholdEcdsaSessionBootstrapResult[] = [];
   let ecdsaAuthorizedEd25519Mint: ThresholdEcdsaAuthorizedEd25519Mint | null = null;
 
@@ -3907,13 +3902,11 @@ function requireThresholdLoginWalletSessionMintId(value: string) {
   return parsed.value;
 }
 
-function requireLoginUnlockBudgetPolicy(
-  policy: WalletUnlockBudgetPolicy | null,
-): WalletUnlockBudgetPolicy {
-  if (!policy) {
-    throw new Error('[login] unlock warm-up requires a wallet unlock budget policy');
+function requireLoginUnlockSessionUses(remainingUses: number | null): number {
+  if (remainingUses == null || remainingUses <= 0) {
+    throw new Error('[login] unlock warm-up requires positive unlock session uses');
   }
-  return policy;
+  return remainingUses;
 }
 
 function createThresholdEcdsaDeviceLinkRequiredError(targetKey: string): Error & {

@@ -27,8 +27,6 @@ type Ed25519ExportAuthorizationIdentity = {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   signerSlot: number;
-  thresholdSessionId: string;
-  signingGrantId: string;
 };
 
 type ExportAuthorizationIdentity =
@@ -120,16 +118,12 @@ function normalizeExportAuthorizationIdentity(
         nearAccountId: String(args.nearAccountId || '').trim(),
         nearEd25519SigningKeyId: String(args.nearEd25519SigningKeyId || '').trim(),
         signerSlot: Number(args.signerSlot),
-        thresholdSessionId: String(args.thresholdSessionId || '').trim(),
-        signingGrantId: String(args.signingGrantId || '').trim(),
       };
       if (
         !identity.nearAccountId ||
         !identity.nearEd25519SigningKeyId ||
         !Number.isSafeInteger(identity.signerSlot) ||
-        identity.signerSlot < 1 ||
-        !identity.thresholdSessionId ||
-        !identity.signingGrantId
+        identity.signerSlot < 1
       ) {
         throw new Error('[SigningEngine][export] Ed25519 export authorization identity is invalid');
       }
@@ -180,8 +174,6 @@ function buildEmailOtpExportAuthorization(args: {
         nearAccountId: args.identity.nearAccountId,
         nearEd25519SigningKeyId: args.identity.nearEd25519SigningKeyId,
         signerSlot: args.identity.signerSlot,
-        thresholdSessionId: args.identity.thresholdSessionId,
-        signingGrantId: args.identity.signingGrantId,
         ...(emailHint ? { emailHint } : {}),
       };
     default:
@@ -222,8 +214,6 @@ function buildPasskeyExportAuthorization(args: {
         nearAccountId: args.identity.nearAccountId,
         nearEd25519SigningKeyId: args.identity.nearEd25519SigningKeyId,
         signerSlot: args.identity.signerSlot,
-        thresholdSessionId: args.identity.thresholdSessionId,
-        signingGrantId: args.identity.signingGrantId,
       };
     default:
       return assertNeverExportAuthorizationIdentity(args.identity);

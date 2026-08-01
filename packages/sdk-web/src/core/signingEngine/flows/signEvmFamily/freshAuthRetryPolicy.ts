@@ -7,7 +7,7 @@ import {
   decideSigningGrantAdmissionError,
   type OperationAuthorizationQueueKey,
   type SigningGrantAdmissionDecision,
-} from '../../session/budget/admission';
+} from '../../session/operationState/authorizationAdmission';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import { walletSessionFailureFromError } from '../../session/lifecycle/walletSessionFailure';
 import { isFreshEmailOtpReauthRequiredError } from './errors';

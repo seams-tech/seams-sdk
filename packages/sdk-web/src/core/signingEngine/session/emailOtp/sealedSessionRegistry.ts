@@ -19,7 +19,7 @@ import {
   type EmailOtpEcdsaPublicationPorts,
 } from './ecdsaPublication';
 import {
-  persistEmailOtpEd25519YaoSessionForRefresh,
+  persistEmailOtpEd25519YaoCapabilityForRefresh,
   type EmailOtpEd25519YaoPublicationPorts,
 } from './ed25519YaoPublication';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
@@ -71,10 +71,10 @@ export class EmailOtpSealedSessionRegistry {
     };
   }
 
-  async persistEd25519YaoSessionForRefresh(
-    args: Parameters<typeof persistEmailOtpEd25519YaoSessionForRefresh>[0],
+  async persistEd25519YaoCapabilityForRefresh(
+    args: Parameters<typeof persistEmailOtpEd25519YaoCapabilityForRefresh>[0],
   ): Promise<void> {
-    await persistEmailOtpEd25519YaoSessionForRefresh(args, this.ed25519YaoPublicationPorts());
+    await persistEmailOtpEd25519YaoCapabilityForRefresh(args, this.ed25519YaoPublicationPorts());
   }
 
   async persistEcdsaSessionForRefresh(args: {

@@ -12,7 +12,7 @@ import { provisionPasskeyEcdsaExplicitExportSession as provisionPasskeyEcdsaExpl
 import type { RuntimePorts } from '@/core/platform';
 import type { WalletSessionActivationDeps } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { RecoveryPublicDeps } from '@/core/signingEngine/flows/recovery/public';
-import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusOperation } from '@/core/signingEngine/session/budget/budgetStatusReader';
+import { readTrustedWalletSigningSessionStatus as readTrustedWalletSigningSessionStatusOperation } from '@/core/signingEngine/session/lifecycle/walletSessionStatus';
 import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
 import {
   walletSessionRefFromSession,
@@ -127,8 +127,8 @@ export function createBrowserRecoveryPublicDeps(args: {
       args.emailOtpSessions,
       String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
     ),
-    getWalletSigningBudgetStatus: (statusArgs) =>
-      readTrustedWalletSigningBudgetStatusOperation(
+    getWalletSessionStatus: (statusArgs) =>
+      readTrustedWalletSigningSessionStatusOperation(
         {
           ecdsaSessions: args.warmSigning.ecdsaSessions,
         },

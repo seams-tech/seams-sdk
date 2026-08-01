@@ -204,7 +204,7 @@ test('Refactor 92 leaves exhausted lanes eligible for step-up without conflating
   expect(emailOtpPlan.kind).toBe(SigningSessionPlanKind.EmailOtpReauth);
 });
 
-for (const reason of ['auth_unavailable', 'status_unavailable', 'budget_unknown'] as const) {
+for (const reason of ['auth_unavailable', 'status_unavailable', 'status_unknown'] as const) {
   test(`Refactor 92 preserves ${reason} as terminal readiness`, () => {
     const plan = planSigningSession({
       lane: NEAR_PASSKEY_LANE,

@@ -5,7 +5,7 @@ import type { NearEd25519YaoSigningCapability } from '../../packages/sdk-web/src
 import {
   activateColdEmailOtpEd25519YaoUnlockedRecoveryV1,
   prepareColdEmailOtpEd25519YaoRecoveryV1,
-} from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
+} from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoCapabilityRecovery';
 import { resolveEmailOtpEd25519YaoColdRecoveryV1 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoLogin';
 import { recoverEmailOtpEd25519YaoWorkerClientV1 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient';
 import type { EmailOtpEd25519YaoPublicationInput } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoPublication';
@@ -326,7 +326,7 @@ class RecoveryWorkerFixture {
           ok: true,
           activeClientHandle: 'rehydrated-active-client-1',
           metadata: this.prior,
-          ed25519YaoSession: {
+          ed25519YaoCapability: {
             kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
             session: request.payload.restore.session,
             capability: exactCapability,
@@ -625,7 +625,7 @@ async function warmRecoveryBootstrapResponse(args: {
   };
 }
 
-test.describe('Email OTP Ed25519 Yao budget recovery', () => {
+test.describe('Email OTP Ed25519 Yao capability recovery', () => {
   test('silently recovers a valid sealed Email OTP grant after page refresh', async () => {
     const expiresAtMs = Date.now() + 60_000;
     const sealedRecord = buildEmailOtpSealedRecord({ expiresAtMs, remainingUses: 3 });

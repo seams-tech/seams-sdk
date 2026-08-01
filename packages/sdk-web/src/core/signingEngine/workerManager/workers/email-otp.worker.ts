@@ -708,7 +708,6 @@ function assertEmailOtpEd25519YaoExportCapabilityContinuity(args: {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   signerSlot: number;
-  thresholdSessionId: string;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
 }): void {
@@ -727,7 +726,6 @@ function assertEmailOtpEd25519YaoExportCapabilityContinuity(args: {
     capability.applicationBinding.key_creation_signer_slot !== args.signerSlot ||
     capability.applicationBinding.signing_root_id !== signingRoot.signingRootId ||
     capability.lifecycle.accountId !== args.walletId ||
-    capability.lifecycle.thresholdSessionId !== args.thresholdSessionId ||
     capability.lifecycle.rootShareEpoch !== args.runtimePolicyScope.signingRootVersion ||
     !sameEmailOtpEd25519YaoRuntimePolicyScope(
       capability.runtimePolicyScope,
@@ -753,8 +751,6 @@ async function exportEmailOtpEd25519YaoSeed(args: {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   signerSlot: number;
-  thresholdSessionId: string;
-  signingGrantId: string;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
   clientSecret32: Uint8Array;
@@ -1491,7 +1487,7 @@ function putEmailOtpEd25519YaoWarmFactor(args: {
   });
 }
 
-function bindEmailOtpEd25519YaoLocalSessionWarmFactor(args: {
+function bindEmailOtpEd25519YaoCapabilityWarmFactor(args: {
   bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   factorSecret32: Uint8Array;
   materialActivation: MpcMaterialActivationRef;
@@ -2622,7 +2618,7 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
       expectedThresholdSessionId: sessionId,
       enrollmentSecret32: factorSecret32,
     });
-    assertEmailOtpEd25519YaoLocalMaterialSessionContinuity({
+    assertEmailOtpEd25519YaoCapabilityContinuity({
       material: localMaterial.material,
       bootstrap,
       expectedThresholdSessionId: sessionId,
@@ -2642,7 +2638,7 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
         message: 'Email OTP Ed25519 restored material activation does not match the target',
       };
     }
-    bindEmailOtpEd25519YaoLocalSessionWarmFactor({
+    bindEmailOtpEd25519YaoCapabilityWarmFactor({
       bootstrap,
       factorSecret32,
       materialActivation: restoredMaterialActivation,
@@ -2653,7 +2649,7 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
       ok: true,
       activeClientHandle: activated.activeClientHandle,
       metadata: activated.metadata,
-      ed25519YaoSession: bootstrap,
+      ed25519YaoCapability: bootstrap,
     };
   } catch (error: unknown) {
     return {
@@ -3645,10 +3641,10 @@ type EmailOtpUnlockCompletionMaterial =
       ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
     }
   | {
-      kind: 'ed25519_yao_local_session';
+      kind: 'ed25519_yao_capability';
       activeClientHandle: string;
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-      ed25519YaoSession: EmailOtpEd25519YaoRecoveryBootstrapV1;
+      ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
     }
   | {
       kind: 'wallet_unlock_capabilities';
@@ -3662,7 +3658,7 @@ type EmailOtpUnlockCompletionMaterial =
             bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
           }
         | {
-            kind: 'local_session';
+            kind: 'capability';
             activeClientHandle: string;
             metadata: RouterAbEd25519YaoActiveClientMetadataV1;
             bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
@@ -3815,7 +3811,7 @@ function metadataFromEmailOtpEd25519YaoLocalMaterial(args: {
   };
 }
 
-function assertEmailOtpEd25519YaoLocalMaterialSessionContinuity(args: {
+function assertEmailOtpEd25519YaoCapabilityContinuity(args: {
   material: EmailOtpEd25519YaoLocalMaterialV1;
   bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   expectedThresholdSessionId: string;
@@ -4015,19 +4011,19 @@ async function completeEmailOtpUnlockFromSecret32(args: {
         }
         const ownedClientRootShare32 = clientRootShare32;
         if (localEd25519Material.kind === 'exact_local_material') {
-          const ed25519YaoSession = parseEmailOtpEd25519YaoRecoveryBootstrap(
-            verified.ed25519YaoSession,
+          const ed25519YaoCapability = parseEmailOtpEd25519YaoRecoveryBootstrap(
+            verified.ed25519YaoCapability,
           );
-          assertEmailOtpEd25519YaoLocalMaterialSessionContinuity({
+          assertEmailOtpEd25519YaoCapabilityContinuity({
             material: localEd25519Material.material,
-            bootstrap: ed25519YaoSession,
+            bootstrap: ed25519YaoCapability,
             expectedThresholdSessionId: args.material.ed25519Yao.expectedThresholdSessionId,
           });
           if (!importedEd25519Client) {
             throw new Error('Email OTP Ed25519 local client was not imported');
           }
-          bindEmailOtpEd25519YaoLocalSessionWarmFactor({
-            bootstrap: ed25519YaoSession,
+          bindEmailOtpEd25519YaoCapabilityWarmFactor({
+            bootstrap: ed25519YaoCapability,
             factorSecret32: args.clientSecret32,
             materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
               importedEd25519Client.metadata,
@@ -4044,10 +4040,10 @@ async function completeEmailOtpUnlockFromSecret32(args: {
               session: requireEmailOtpWorkerEcdsaSessionResponse(ecdsaSession),
             },
             ed25519Yao: {
-              kind: 'local_session',
+              kind: 'capability',
               activeClientHandle: imported.activeClientHandle,
               metadata: imported.metadata,
-              bootstrap: ed25519YaoSession,
+              bootstrap: ed25519YaoCapability,
             },
           };
         }
@@ -4064,25 +4060,25 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           },
           ed25519Yao: {
             kind: 'recovery',
-            bootstrap: parseEmailOtpEd25519YaoRecoveryBootstrap(verified.ed25519YaoSession),
+            bootstrap: parseEmailOtpEd25519YaoRecoveryBootstrap(verified.ed25519YaoCapability),
           },
         };
       }
       case 'ed25519_yao_recovery':
         if (localEd25519Material.kind === 'exact_local_material') {
-          const ed25519YaoSession = parseEmailOtpEd25519YaoRecoveryBootstrap(
-            verified.ed25519YaoSession,
+          const ed25519YaoCapability = parseEmailOtpEd25519YaoRecoveryBootstrap(
+            verified.ed25519YaoCapability,
           );
-          assertEmailOtpEd25519YaoLocalMaterialSessionContinuity({
+          assertEmailOtpEd25519YaoCapabilityContinuity({
             material: localEd25519Material.material,
-            bootstrap: ed25519YaoSession,
+            bootstrap: ed25519YaoCapability,
             expectedThresholdSessionId: args.material.expectedThresholdSessionId,
           });
           if (!importedEd25519Client) {
             throw new Error('Email OTP Ed25519 local client was not imported');
           }
-          bindEmailOtpEd25519YaoLocalSessionWarmFactor({
-            bootstrap: ed25519YaoSession,
+          bindEmailOtpEd25519YaoCapabilityWarmFactor({
+            bootstrap: ed25519YaoCapability,
             factorSecret32: args.clientSecret32,
             materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
               importedEd25519Client.metadata,
@@ -4091,11 +4087,11 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           const imported = importedEd25519Client;
           importedEd25519Client = null;
           return {
-            kind: 'ed25519_yao_local_session',
+            kind: 'ed25519_yao_capability',
             ...commonResult,
             activeClientHandle: imported.activeClientHandle,
             metadata: imported.metadata,
-            ed25519YaoSession,
+            ed25519YaoCapability,
           };
         }
         if (localEd25519Material.kind !== 'material_absent') {
@@ -4104,7 +4100,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
         return {
           kind: 'ed25519_yao_recovery',
           ...commonResult,
-          ed25519YaoRecovery: parseEmailOtpEd25519YaoRecoveryBootstrap(verified.ed25519YaoSession),
+          ed25519YaoRecovery: parseEmailOtpEd25519YaoRecoveryBootstrap(verified.ed25519YaoCapability),
         };
       default:
         return assertNeverEmailOtpWorker(args.material);
@@ -4385,10 +4381,10 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
         clientRootShare32?: never;
       }
     | {
-        kind: 'ed25519_yao_local_session';
+        kind: 'ed25519_yao_capability';
         activeClientHandle: string;
         metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-        ed25519YaoSession: EmailOtpEd25519YaoRecoveryBootstrapV1;
+        ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
         clientRootShare32?: never;
         clientSecret32?: never;
         ed25519YaoRecovery?: never;
@@ -4406,7 +4402,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
               bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
             }
           | {
-              kind: 'local_session';
+              kind: 'capability';
               activeClientHandle: string;
               metadata: RouterAbEd25519YaoActiveClientMetadataV1;
               bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
@@ -4586,13 +4582,13 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
           ed25519YaoRecovery: unlocked.ed25519YaoRecovery,
         };
       }
-      case 'ed25519_yao_local_session':
+      case 'ed25519_yao_capability':
         return {
-          kind: 'ed25519_yao_local_session',
+          kind: 'ed25519_yao_capability',
           ...commonResult,
           activeClientHandle: unlocked.activeClientHandle,
           metadata: unlocked.metadata,
-          ed25519YaoSession: unlocked.ed25519YaoSession,
+          ed25519YaoCapability: unlocked.ed25519YaoCapability,
         };
       case 'wallet_unlock_capabilities':
         if (unlocked.ed25519Yao.kind === 'recovery') {
@@ -7314,8 +7310,6 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           'nearAccountId',
           'nearEd25519SigningKeyId',
           'signerSlot',
-          'thresholdSessionId',
-          'signingGrantId',
         ],
         `${type}.lane`,
       );
@@ -7345,11 +7339,6 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
               `${type}.lane.nearEd25519SigningKeyId`,
             ),
             signerSlot: normalizePositiveInteger(lane.signerSlot) || 0,
-            thresholdSessionId: readString(
-              lane.thresholdSessionId,
-              `${type}.lane.thresholdSessionId`,
-            ),
-            signingGrantId: readString(lane.signingGrantId, `${type}.lane.signingGrantId`),
           },
           authorization: {
             walletSessionJwt: readString(
@@ -8061,7 +8050,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
               if (ed25519YaoFactor?.kind === 'issued') {
                 rollbackEmailOtpEd25519YaoFactorResult(ed25519YaoFactor);
               }
-              if (result.ed25519Yao.kind === 'local_session') {
+              if (result.ed25519Yao.kind === 'capability') {
                 removeEmailOtpEd25519YaoActiveClient(result.ed25519Yao.activeClientHandle);
                 deleteEmailOtpEd25519YaoWarmFactor(
                   result.ed25519Yao.bootstrap.capability.materialActivation,
@@ -8112,7 +8101,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             }
             return;
           }
-          case 'ed25519_yao_local_session':
+          case 'ed25519_yao_capability':
             if (material.kind !== 'ed25519_yao_recovery') {
               removeEmailOtpEd25519YaoActiveClient(result.activeClientHandle);
               throw new Error('Email OTP wallet unlock material branch changed');
@@ -8122,17 +8111,17 @@ self.addEventListener('message', async (event: MessageEvent) => {
                 id: msg.id,
                 ok: true,
                 result: {
-                  kind: 'ed25519_yao_local_session',
+                  kind: 'ed25519_yao_capability',
                   recovery,
                   activeClientHandle: result.activeClientHandle,
                   metadata: result.metadata,
-                  ed25519YaoSession: result.ed25519YaoSession,
+                  ed25519YaoCapability: result.ed25519YaoCapability,
                 },
               });
             } catch (error) {
               removeEmailOtpEd25519YaoActiveClient(result.activeClientHandle);
               deleteEmailOtpEd25519YaoWarmFactor(
-                result.ed25519YaoSession.capability.materialActivation,
+                result.ed25519YaoCapability.capability.materialActivation,
               );
               throw error;
             }
@@ -8316,8 +8305,6 @@ self.addEventListener('message', async (event: MessageEvent) => {
             kind: 'wallet_session',
             jwt: msg.payload.authorization.walletSessionJwt,
           },
-          thresholdSessionId: msg.payload.lane.thresholdSessionId,
-          authorizingSigningGrantId: msg.payload.lane.signingGrantId,
           curve: 'ed25519',
         });
         if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
@@ -8351,8 +8338,6 @@ self.addEventListener('message', async (event: MessageEvent) => {
             nearAccountId: msg.payload.lane.nearAccountId,
             nearEd25519SigningKeyId: msg.payload.lane.nearEd25519SigningKeyId,
             signerSlot: msg.payload.lane.signerSlot,
-            thresholdSessionId: msg.payload.lane.thresholdSessionId,
-            signingGrantId: msg.payload.lane.signingGrantId,
             runtimePolicyScope: msg.payload.material.capability.runtimePolicyScope,
             capability: msg.payload.material.capability,
             clientSecret32: recovered.clientSecret32,

@@ -20,8 +20,6 @@ export type EmailOtpSigningSessionAuthLane =
   | {
       kind: 'signing_session';
       jwt: string;
-      thresholdSessionId: string;
-      authorizingSigningGrantId: AuthorizingSigningGrantId;
       curve: 'ed25519';
     }
   | {
@@ -89,7 +87,7 @@ function buildEmailOtpSigningSessionAuthLane(args: {
   const authorizingSigningGrantId = nonEmptyString(
     args.authorizingSigningGrantId,
   );
-  if (!jwt || !thresholdSessionId) {
+  if (!jwt) {
     console.warn('[EmailOtpAuthLane] rejected incomplete signing-session auth lane', {
       hasAuthToken: !!jwt,
       thresholdSessionId,
@@ -99,23 +97,13 @@ function buildEmailOtpSigningSessionAuthLane(args: {
     return undefined;
   }
   if (args.curve === 'ed25519') {
-    if (!authorizingSigningGrantId) {
-      console.warn('[EmailOtpAuthLane] rejected Ed25519 auth lane without a signing grant', {
-        thresholdSessionId,
-      });
-      return undefined;
-    }
     return {
       kind: 'signing_session',
       jwt,
-      thresholdSessionId,
-      authorizingSigningGrantId: toAuthorizingSigningGrantId(
-        authorizingSigningGrantId,
-      ),
       curve: 'ed25519',
     };
   }
-  if (args.curve === 'ecdsa' && args.chainTarget && !authorizingSigningGrantId) {
+  if (args.curve === 'ecdsa' && args.chainTarget && thresholdSessionId && !authorizingSigningGrantId) {
     return {
       kind: 'signing_session',
       jwt,

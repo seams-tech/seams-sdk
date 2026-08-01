@@ -7,11 +7,11 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import {
-  buildAuthenticatedThresholdBudgetStatusCheck,
-  ed25519WalletBudgetOwner,
-  type SigningSessionBudgetStatusAuth,
-  type SigningSessionBudgetStatusCheck,
-} from '../budget/budget';
+  buildAuthenticatedThresholdSessionStatusCheck,
+  ed25519WalletSessionStatusOwner,
+  type WalletSessionStatusAuth,
+  type SigningSessionStatusCheck,
+} from '../lifecycle/walletSessionStatus';
 import {
   listEcdsaSealedSessionsForWallet,
   listExactSealedSessionsForWallet,
@@ -64,8 +64,8 @@ export type PersistedAvailableSigningLanesDeps = {
   getEmailOtpWarmSessionStatus: (
     target: EmailOtpWarmMaterialTarget,
   ) => Promise<WarmSessionStatusResult>;
-  getWalletSigningBudgetStatus?: (
-    args: SigningSessionBudgetStatusCheck,
+  getWalletSessionStatus?: (
+    args: SigningSessionStatusCheck,
   ) => Promise<SigningSessionStatus | null>;
 };
 
@@ -148,26 +148,26 @@ function assertNeverPersistedEd25519AuthMethod(value: never): never {
   throw new Error(`Unsupported persisted Ed25519 auth method: ${String(value)}`);
 }
 
-function applyWalletBudgetStatusToAdvisory(args: {
+function applyWalletSessionStatusToAdvisory(args: {
   localAdvisory: AvailableLaneStateAdvisory | null;
-  walletBudgetStatus: SigningSessionStatus | null;
+  walletSessionStatus: SigningSessionStatus | null;
 }): AvailableLaneStateAdvisory | null {
-  const budgetStatus = args.walletBudgetStatus;
-  if (!budgetStatus) return args.localAdvisory;
-  if (budgetStatus.status === 'active') {
-    const budgetExpiresAtMs = Math.floor(Number(budgetStatus.expiresAtMs) || 0);
+  const sessionStatus = args.walletSessionStatus;
+  if (!sessionStatus) return args.localAdvisory;
+  if (sessionStatus.status === 'active') {
+    const sessionExpiresAtMs = Math.floor(Number(sessionStatus.expiresAtMs) || 0);
     if (args.localAdvisory?.kind === 'runtime_material') {
       return {
         kind: 'runtime_material',
-        remainingUses: Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0)),
-        expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localAdvisory.expiresAtMs,
+        remainingUses: Math.max(0, Math.floor(Number(sessionStatus.remainingUses) || 0)),
+        expiresAtMs: sessionExpiresAtMs > 0 ? sessionExpiresAtMs : args.localAdvisory.expiresAtMs,
       };
     }
     if (args.localAdvisory?.kind === 'durable_policy') {
       return {
         kind: 'durable_policy',
-        remainingUses: Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0)),
-        expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localAdvisory.expiresAtMs,
+        remainingUses: Math.max(0, Math.floor(Number(sessionStatus.remainingUses) || 0)),
+        expiresAtMs: sessionExpiresAtMs > 0 ? sessionExpiresAtMs : args.localAdvisory.expiresAtMs,
         state: args.localAdvisory.state,
       };
     }
@@ -177,17 +177,17 @@ function applyWalletBudgetStatusToAdvisory(args: {
     return {
       kind: 'warm_status',
       status: 'active',
-      remainingUses: Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0)),
-      expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localAdvisory.expiresAtMs,
+      remainingUses: Math.max(0, Math.floor(Number(sessionStatus.remainingUses) || 0)),
+      expiresAtMs: sessionExpiresAtMs > 0 ? sessionExpiresAtMs : args.localAdvisory.expiresAtMs,
     };
   }
-  if (budgetStatus.status === 'not_found') {
+  if (sessionStatus.status === 'not_found') {
     return args.localAdvisory;
   }
-  if (budgetStatus.status === 'expired') {
+  if (sessionStatus.status === 'expired') {
     return { kind: 'warm_status', status: 'expired' };
   }
-  if (budgetStatus.status === 'exhausted') {
+  if (sessionStatus.status === 'exhausted') {
     return {
       kind: 'warm_status',
       status: 'exhausted',
@@ -197,21 +197,21 @@ function applyWalletBudgetStatusToAdvisory(args: {
   return args.localAdvisory;
 }
 
-type PersistedBudgetStatusAuthParseResult =
+type PersistedSessionStatusAuthParseResult =
   | {
       kind: 'authenticated';
-      auth: SigningSessionBudgetStatusAuth;
+      auth: WalletSessionStatusAuth;
     }
   | {
       kind: 'unavailable';
       auth?: never;
     };
 
-function parsePersistedBudgetStatusAuth(record: {
+function parsePersistedSessionStatusAuth(record: {
   relayerUrl: unknown;
   thresholdSessionId: unknown;
   walletSessionJwt: unknown;
-}): PersistedBudgetStatusAuthParseResult {
+}): PersistedSessionStatusAuthParseResult {
   const relayerUrl = String(record.relayerUrl || '').trim();
   const thresholdSessionId = String(record.thresholdSessionId || '').trim();
   const walletSessionJwt = String(record.walletSessionJwt || '').trim();
@@ -224,9 +224,9 @@ function parsePersistedBudgetStatusAuth(record: {
   };
 }
 
-async function readBudgetStatusOrNull(args: {
-  reader: NonNullable<PersistedAvailableSigningLanesDeps['getWalletSigningBudgetStatus']>;
-  check: SigningSessionBudgetStatusCheck;
+async function readSessionStatusOrNull(args: {
+  reader: NonNullable<PersistedAvailableSigningLanesDeps['getWalletSessionStatus']>;
+  check: SigningSessionStatusCheck;
 }): Promise<SigningSessionStatus | null> {
   try {
     return await args.reader(args.check);
@@ -235,8 +235,8 @@ async function readBudgetStatusOrNull(args: {
   }
 }
 
-async function readEd25519WalletBudgetStatusForRuntime(args: {
-  reader: NonNullable<PersistedAvailableSigningLanesDeps['getWalletSigningBudgetStatus']>;
+async function readEd25519WalletSessionStatusForRuntime(args: {
+  reader: NonNullable<PersistedAvailableSigningLanesDeps['getWalletSessionStatus']>;
   runtime: ExactEd25519SealedSessionRuntime;
   walletId: string;
 }): Promise<SigningSessionStatus | null> {
@@ -252,7 +252,7 @@ async function readEd25519WalletBudgetStatusForRuntime(args: {
   ) {
     return null;
   }
-  const parsedAuth = parsePersistedBudgetStatusAuth({
+  const parsedAuth = parsePersistedSessionStatusAuth({
     relayerUrl: args.runtime.relayerUrl,
     thresholdSessionId: args.runtime.thresholdSessionId,
     walletSessionJwt: authorizationRead.projection.walletSessionJwt,
@@ -263,10 +263,10 @@ async function readEd25519WalletBudgetStatusForRuntime(args: {
     authorization: authorizationRead.projection,
   });
   if (!signingGrantId) return null;
-  return await readBudgetStatusOrNull({
+  return await readSessionStatusOrNull({
     reader: args.reader,
-    check: buildAuthenticatedThresholdBudgetStatusCheck({
-      owner: ed25519WalletBudgetOwner(args.walletId),
+    check: buildAuthenticatedThresholdSessionStatusCheck({
+      owner: ed25519WalletSessionStatusOwner(args.walletId),
       signingGrantId,
       targetThresholdSessionIds: [args.runtime.thresholdSessionId],
       trustedStatusAuth: parsedAuth.auth,
@@ -548,19 +548,19 @@ export async function readPersistedAvailableSigningLanesForTargets(
               runtime,
               sessionId,
             });
-            const walletBudgetStatus =
-              deps.getWalletSigningBudgetStatus
-                ? await readEd25519WalletBudgetStatusForRuntime({
-                    reader: deps.getWalletSigningBudgetStatus,
+            const walletSessionStatus =
+              deps.getWalletSessionStatus
+                ? await readEd25519WalletSessionStatusForRuntime({
+                    reader: deps.getWalletSessionStatus,
                     runtime,
                     walletId,
                   })
                 : null;
             advisories.set(
               sessionId,
-              applyWalletBudgetStatusToAdvisory({
+              applyWalletSessionStatusToAdvisory({
                 localAdvisory,
-                walletBudgetStatus,
+                walletSessionStatus,
               }),
             );
           }),

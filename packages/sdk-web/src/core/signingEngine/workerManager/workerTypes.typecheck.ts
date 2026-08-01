@@ -801,8 +801,6 @@ const emailOtpEd25519YaoExportPayload: EmailOtpEd25519YaoExportPayload = {
     nearAccountId: 'alice.testnet',
     nearEd25519SigningKeyId: 'near-key-1',
     signerSlot: 1,
-    thresholdSessionId: 'threshold-ed25519-export',
-    signingGrantId: 'grant-ed25519-export',
   },
   authorization: { walletSessionJwt: 'wallet-session-jwt' },
   material: { materialActivation, capability: emailOtpEd25519YaoActiveCapability },

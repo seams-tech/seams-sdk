@@ -68,8 +68,6 @@ const ed25519RouteAuth = {
   kind: 'threshold_ed25519_session',
   jwt: 'threshold-ed25519-session-jwt',
   curve: 'ed25519',
-  thresholdSessionId: 'ed25519-threshold-session',
-  signingGrantId: authorizingSigningGrantId,
 } satisfies EmailOtpThresholdEd25519RouteAuth;
 
 void ed25519RouteAuth;

@@ -252,8 +252,6 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
             args.exportContext.lane.signer.nearEd25519SigningKeyId,
           ),
           signerSlot: args.exportContext.lane.signer.signerSlot,
-          thresholdSessionId: String(args.exportContext.lane.thresholdSessionId),
-          signingGrantId: String(args.exportContext.lane.signingGrantId),
         },
         authorization: {
           walletSessionJwt: args.exportContext.authorization.walletSessionJwt,

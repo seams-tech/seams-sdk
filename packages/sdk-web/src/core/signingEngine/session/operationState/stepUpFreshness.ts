@@ -1,6 +1,6 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type { EmailOtpSessionRefreshResult } from '../emailOtp/appSessionJwtCache';
-import type { PositiveRemainingUses } from '../budget/policy';
+import type { PositiveRemainingUses } from '../../threshold/sessionPolicy';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
@@ -159,7 +159,7 @@ type StepUpFreshnessIdentityInput = Pick<
   'walletId' | 'operationId' | 'operationFingerprint' | 'laneIdentity'
 >;
 
-export type BuildStepUpFreshnessFromTrustedBudgetStatusInput = StepUpFreshnessIdentityInput & {
+export type BuildStepUpFreshnessFromTrustedSessionStatusInput = StepUpFreshnessIdentityInput & {
   status: SigningSessionStatus;
   observedAtMs: number;
 };
@@ -305,8 +305,8 @@ export function stepUpFreshnessDiagnostics(
   }
 }
 
-export function buildStepUpFreshnessFromTrustedBudgetStatus(
-  input: BuildStepUpFreshnessFromTrustedBudgetStatusInput,
+export function buildStepUpFreshnessFromTrustedSessionStatus(
+  input: BuildStepUpFreshnessFromTrustedSessionStatusInput,
 ): StepUpFreshnessState {
   const projection = trustedStatusProjection(input.status);
   const expiry = trustedStatusExpiry(input.status);

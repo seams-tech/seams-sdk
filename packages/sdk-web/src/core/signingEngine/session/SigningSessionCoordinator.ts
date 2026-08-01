@@ -16,26 +16,26 @@ import {
   type SigningSessionReadiness,
 } from './planning/planner';
 import {
-  buildAuthenticatedThresholdBudgetStatusCheck,
-  buildBackingMaterialBudgetStatusCheck,
-  buildThresholdBudgetStatusCheck,
-  buildWalletBudgetStatusCheck,
-  walletBudgetOwnerForLane,
-  normalizeRequired,
-  type SigningSessionBudgetStatusCheck,
-  type SigningSessionBudgetStatusReader,
-  type SigningSessionBudgetStatusAuth,
-} from './budget/budget';
-import type { SigningAdmissionQueueKey } from './budget/admission';
+  buildAuthenticatedThresholdSessionStatusCheck,
+  buildBackingMaterialSessionStatusCheck,
+  buildThresholdSessionStatusCheck,
+  buildWalletSessionStatusCheck,
+  walletSessionStatusOwnerForLane,
+  normalizeSessionStatusRequired,
+  type SigningSessionStatusCheck,
+  type SigningSessionStatusReader,
+  type WalletSessionStatusAuth,
+} from './lifecycle/walletSessionStatus';
+import type { SigningAdmissionQueueKey } from './operationState/authorizationAdmission';
 import { signingLaneAuthMethod } from './identity/signingLaneAuthBinding';
-import { budgetUnknownSigningSessionStatus } from './budget/budgetStatusReader';
+import { unknownSigningSessionStatus } from './lifecycle/walletSessionStatus';
 import {
   SigningOperationIdBindingRegistry,
 } from './planning/operationIdBinding';
 
-export type { SigningSessionBudgetStatusAuth } from './budget/budget';
+export type { WalletSessionStatusAuth } from './lifecycle/walletSessionStatus';
 import {
-  applyWalletBudgetStatusToSigningSessionReadiness,
+  applyWalletSessionStatusToSigningSessionReadiness,
   clearSigningGrant,
   discoverLanesForWallet,
   normalizeNonEmpty,
@@ -71,7 +71,7 @@ type ResolveSigningSessionAuthPlanFromReadinessOptions = {
   expiresAtMs?: number;
   remainingUses?: number;
   usesNeeded?: number;
-  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+  trustedStatusAuth?: WalletSessionStatusAuth;
   forceFreshAuth?: boolean;
   sensitiveOperationPolicy?: SigningSessionPlannerInput['sensitiveOperationPolicy'];
   missingWhenExpiresAtMissing?: boolean;
@@ -125,8 +125,8 @@ export type SigningSessionStatusPort = {
     signingGrantId: string;
     targetBackingMaterialSessionIds?: string[];
     targetThresholdSessionIds?: string[];
-    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-    budgetStatusCheck?: SigningSessionBudgetStatusCheck;
+    trustedStatusAuth?: WalletSessionStatusAuth;
+    sessionStatusCheck?: SigningSessionStatusCheck;
   }): Promise<SigningSessionStatus | null>;
   getLaneClaimsForWallet(
     walletId: WalletId | string,
@@ -140,7 +140,7 @@ export type SigningSessionStatusState = {
 
 export type SigningSessionCoordinatorDeps = SigningGrantReadinessDeps &
   ClientWalletSessionInvalidationReadinessDeps & {
-    getStatus?: SigningSessionBudgetStatusReader;
+    getStatus?: SigningSessionStatusReader;
     onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
   };
 
@@ -196,7 +196,7 @@ function mapWalletSessionExpiredEvent(args: {
 
 export class SigningSessionCoordinator implements SigningSessionStatusPort {
   private readonly onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
-  private readonly walletBudgetStatusReader?: SigningSessionBudgetStatusReader;
+  private readonly walletSessionStatusReader?: SigningSessionStatusReader;
   private readonly walletSessionDeps: SigningGrantReadinessDeps;
   private readonly walletSessionState: SigningSessionStatusState;
   private readonly operationIdBindings: SigningOperationIdBindingRegistry;
@@ -218,7 +218,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
       statusOverrides: this.walletSessionState.statusOverrides,
     });
     this.operationIdBindings = new SigningOperationIdBindingRegistry();
-    this.walletBudgetStatusReader = deps.getStatus;
+    this.walletSessionStatusReader = deps.getStatus;
   }
 
   subscribeLifecycle(listener: SdkLifecycleEventListener): SigningSessionLifecycleSubscription {
@@ -285,13 +285,13 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     onTrace?: (event: SigningPlannerDecisionTraceEvent) => void,
   ): Promise<ResolveSigningSessionAuthPlanFromReadinessResult> {
     if (isEd25519SigningSessionAuthPlanInput(input)) {
-      const budgetAware = await this.applyWalletBudgetToEd25519Readiness(input);
+      const sessionStatusAware = await this.applyWalletSessionStatusToEd25519Readiness(input);
       return {
-        ...budgetAware,
+        ...sessionStatusAware,
         signingSessionPlan: this.resolveAuthPlan(
           {
             lane: input.lane,
-            readiness: budgetAware.readiness,
+            readiness: sessionStatusAware.readiness,
             forceFreshAuth: input.forceFreshAuth,
             sensitiveOperationPolicy: input.sensitiveOperationPolicy,
           },
@@ -332,7 +332,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     args: Parameters<SigningSessionStatusPort['getStatus']>[0],
   ): ReturnType<SigningSessionStatusPort['getStatus']> {
     const walletId = toWalletId(args.walletId);
-    const signingGrantId = normalizeRequired(args.signingGrantId, 'signingGrantId');
+    const signingGrantId = normalizeSessionStatusRequired(args.signingGrantId, 'signingGrantId');
     const targetBacking = new Set(
       (args.targetBackingMaterialSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
     );
@@ -414,11 +414,11 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
   }
 
   async getAvailableStatus(
-    input: SigningSessionBudgetStatusCheck,
+    input: SigningSessionStatusCheck,
   ): Promise<SigningSessionStatus | null> {
-    const signingGrantId = normalizeRequired(input.signingGrantId, 'signingGrantId');
-    if (!this.walletBudgetStatusReader) return null;
-    return await this.walletBudgetStatusReader({
+    const signingGrantId = normalizeSessionStatusRequired(input.signingGrantId, 'signingGrantId');
+    if (!this.walletSessionStatusReader) return null;
+    return await this.walletSessionStatusReader({
       ...input,
       signingGrantId,
     });
@@ -431,26 +431,26 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     this.operationIdBindings.bindCallerProvidedOperationIdToFingerprint(args);
   }
 
-  private async readWalletBudgetStatus(
-    budgetStatusCheck: SigningSessionBudgetStatusCheck,
+  private async readWalletSessionStatus(
+    sessionStatusCheck: SigningSessionStatusCheck,
   ): Promise<SigningSessionStatus> {
-    const signingGrantId = budgetStatusCheck.signingGrantId;
-    if (!this.walletBudgetStatusReader) {
-      return budgetUnknownSigningSessionStatus({
+    const signingGrantId = sessionStatusCheck.signingGrantId;
+    if (!this.walletSessionStatusReader) {
+      return unknownSigningSessionStatus({
         signingGrantId,
         reason: 'adapter_unavailable',
       });
     }
-    const status = await this.walletBudgetStatusReader(budgetStatusCheck);
+    const status = await this.walletSessionStatusReader(sessionStatusCheck);
     if (!status) {
-      return budgetUnknownSigningSessionStatus({
+      return unknownSigningSessionStatus({
         signingGrantId,
         reason: 'missing_trusted_status',
       });
     }
     const projectionVersion = String(status.projectionVersion || '').trim();
     if (status.status === 'active' && !projectionVersion) {
-      return budgetUnknownSigningSessionStatus({
+      return unknownSigningSessionStatus({
         signingGrantId,
         reason: 'missing_trusted_status',
       });
@@ -481,7 +481,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     return await refreshPromise;
   }
 
-  private async applyWalletBudgetToEd25519Readiness(
+  private async applyWalletSessionStatusToEd25519Readiness(
     input: ResolveEd25519SigningSessionAuthPlanFromReadinessInput,
   ): Promise<{
     readiness: Ed25519SigningSessionReadiness;
@@ -489,8 +489,8 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     remainingUses: number;
   }> {
     const signingGrantId = String(input.lane.signingGrantId).trim();
-    const walletBudgetStatus = await this.readWalletBudgetStatus(
-      buildBudgetStatusCheckForLane({
+    const walletSessionStatus = await this.readWalletSessionStatus(
+      buildSessionStatusCheckForLane({
         lane: input.lane,
         trustedStatusAuth: input.trustedStatusAuth,
       }),
@@ -502,50 +502,50 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     const emailOtpEd25519PreflightUnavailable =
       signingLaneAuthMethod(input.lane.auth) === 'email_otp' &&
       input.lane.curve === 'ed25519' &&
-      (walletBudgetStatus?.status === 'budget_unknown' ||
-        walletBudgetStatus?.status === 'unavailable');
+      (walletSessionStatus?.status === 'status_unknown' ||
+        walletSessionStatus?.status === 'unavailable');
     const passkeyEd25519PreflightUnavailable =
       signingLaneAuthMethod(input.lane.auth) === 'passkey' &&
       input.readiness.status === 'ready' &&
-      (walletBudgetStatus?.status === 'budget_unknown' ||
-        walletBudgetStatus?.status === 'unavailable');
+      (walletSessionStatus?.status === 'status_unknown' ||
+        walletSessionStatus?.status === 'unavailable');
     // Email OTP can mint a fresh Ed25519 session at step-up. Treat an
     // unreadable preflight as reauthable so server-side authorize remains
-    // the budget enforcement point instead of failing before the prompt.
-    let budgetStatusForPlanning: SigningSessionStatus | null = walletBudgetStatus;
+    // the session-status enforcement point instead of failing before the prompt.
+    let sessionStatusForPlanning: SigningSessionStatus | null = walletSessionStatus;
     if (passkeyEd25519PreflightUnavailable) {
-      budgetStatusForPlanning = null;
+      sessionStatusForPlanning = null;
     } else if (emailOtpEd25519PreflightUnavailable) {
-      budgetStatusForPlanning = {
+      sessionStatusForPlanning = {
         sessionId: signingGrantId,
         status: 'not_found',
-        statusCode: walletBudgetStatus.status,
+        statusCode: walletSessionStatus.status,
       };
     }
     if (emailOtpEd25519PreflightUnavailable) {
-      console.warn('[SigningSessionCoordinator][email-otp-ed25519] budget preflight unavailable', {
+      console.warn('[SigningSessionCoordinator][email-otp-ed25519] session-status preflight unavailable', {
         signingGrantId,
         thresholdSessionId: input.lane.thresholdSessionId,
-        budgetStatus: walletBudgetStatus.status,
+        sessionStatus: walletSessionStatus.status,
         readiness: input.readiness.status,
         remainingUses: input.remainingUses,
         usesNeeded: input.usesNeeded,
       });
     }
     if (passkeyEd25519PreflightUnavailable) {
-      console.debug('[SigningSessionCoordinator][passkey-ed25519] budget preflight deferred', {
+      console.debug('[SigningSessionCoordinator][passkey-ed25519] session-status preflight deferred', {
         signingGrantId,
         thresholdSessionId: input.lane.thresholdSessionId,
-        budgetStatus: walletBudgetStatus.status,
+        sessionStatus: walletSessionStatus.status,
         readiness: input.readiness.status,
         remainingUses: input.remainingUses,
         usesNeeded: input.usesNeeded,
       });
     }
-    return applyWalletBudgetStatusToSigningSessionReadiness({
+    return applyWalletSessionStatusToSigningSessionReadiness({
       status: input.readiness.status,
       thresholdSessionId: input.readiness.thresholdSessionId,
-      walletBudgetStatus: budgetStatusForPlanning,
+      walletSessionStatus: sessionStatusForPlanning,
       expiresAtMs: Math.floor(Number(input.expiresAtMs) || 0),
       remainingUses: Math.floor(Number(input.remainingUses) || 0),
       usesNeeded: input.usesNeeded,
@@ -554,13 +554,13 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
   }
 }
 
-function buildBudgetStatusCheckForLane(args: {
+function buildSessionStatusCheckForLane(args: {
   lane: SelectedEd25519SigningSessionPlanningLane;
-  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-}): SigningSessionBudgetStatusCheck {
-  const owner = walletBudgetOwnerForLane(args.lane);
+  trustedStatusAuth?: WalletSessionStatusAuth;
+}): SigningSessionStatusCheck {
+  const owner = walletSessionStatusOwnerForLane(args.lane);
   if (args.trustedStatusAuth && args.lane.thresholdSessionId) {
-    return buildAuthenticatedThresholdBudgetStatusCheck({
+    return buildAuthenticatedThresholdSessionStatusCheck({
       owner,
       signingGrantId: args.lane.signingGrantId,
       targetThresholdSessionIds: [args.lane.thresholdSessionId],
@@ -568,20 +568,20 @@ function buildBudgetStatusCheckForLane(args: {
     });
   }
   if (args.lane.thresholdSessionId) {
-    return buildThresholdBudgetStatusCheck({
+    return buildThresholdSessionStatusCheck({
       owner,
       signingGrantId: args.lane.signingGrantId,
       targetThresholdSessionIds: [args.lane.thresholdSessionId],
     });
   }
   if (args.lane.backingMaterialSessionId) {
-    return buildBackingMaterialBudgetStatusCheck({
+    return buildBackingMaterialSessionStatusCheck({
       owner,
       signingGrantId: args.lane.signingGrantId,
       targetBackingMaterialSessionIds: [args.lane.backingMaterialSessionId],
     });
   }
-  return buildWalletBudgetStatusCheck({
+  return buildWalletSessionStatusCheck({
     owner,
     signingGrantId: args.lane.signingGrantId,
   });

@@ -156,7 +156,7 @@ import {
 } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 import { createServerAllocatedWalletId } from '@shared/utils/registrationIntent';
 import { isObject } from '@shared/utils/validation';
-import { DEV_DEFAULT_UNLOCK_REMAINING_USES } from '@/core/signingEngine/session/budget/policy';
+import { DEFAULT_UNLOCK_REMAINING_USES } from '@/core/signingEngine/threshold/sessionPolicy';
 
 type EmailOtpEd25519YaoLoginDomainArgs = Omit<
   LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
@@ -2015,10 +2015,10 @@ export class SeamsWeb {
               1,
               Math.floor(
                 Number(this.configs.signing.sessionDefaults?.remainingUses) ||
-                  DEV_DEFAULT_UNLOCK_REMAINING_USES,
+                  DEFAULT_UNLOCK_REMAINING_USES,
               ),
             ),
-            DEV_DEFAULT_UNLOCK_REMAINING_USES,
+            DEFAULT_UNLOCK_REMAINING_USES,
           ),
         });
       const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
@@ -2054,9 +2054,9 @@ export class SeamsWeb {
                 pendingFactorHandle: result.ed25519YaoRecovery.pendingFactorHandle,
               });
             break;
-          case 'local_session':
+          case 'capability':
             recoveredEd25519Signer =
-              await this.signingEngine.activateEmailOtpEd25519YaoLocalSessionInternal({
+              await this.signingEngine.activateEmailOtpEd25519YaoLocalCapabilityInternal({
                 prepared: preparedEd25519YaoRecovery,
                 bootstrap: result.ed25519YaoRecovery.bootstrap,
                 activeClientHandle: result.ed25519YaoRecovery.activeClientHandle,

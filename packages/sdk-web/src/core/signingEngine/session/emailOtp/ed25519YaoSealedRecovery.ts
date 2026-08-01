@@ -46,10 +46,10 @@ import {
 import { ed25519DurableMaterialLocator } from '../sealedRecovery/materialActivationKey';
 import { parseSigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import {
-  activateColdEmailOtpEd25519YaoLocalSessionV1,
+  activateEmailOtpEd25519YaoLocalCapabilityV1,
   prepareColdEmailOtpEd25519YaoRecoveryV1,
-  type EmailOtpEd25519YaoBudgetRecoveryResult,
-} from './ed25519YaoBudgetRecovery';
+  type EmailOtpEd25519YaoCapabilityRecoveryResult,
+} from './ed25519YaoCapabilityRecovery';
 import type { EmailOtpEd25519YaoPublicationInput } from './ed25519YaoPublication';
 import { requestRehydrateEmailOtpEd25519YaoLocalMaterial } from './workerRequests';
 import {
@@ -85,7 +85,7 @@ export type EmailOtpEd25519YaoSilentRecoveryUnavailableReason =
 export type EmailOtpEd25519YaoSilentRecoveryResultV1 =
   | {
       kind: 'recovered';
-      recovery: EmailOtpEd25519YaoBudgetRecoveryResult;
+      recovery: EmailOtpEd25519YaoCapabilityRecoveryResult;
     }
   | {
       kind: 'reauth_required';
@@ -655,7 +655,7 @@ function assertExactLocalSealedRecord(args: {
     (record.signingRootId !== undefined && record.signingRootId !== signingRoot.signingRootId) ||
     (record.signingRootVersion !== undefined && record.signingRootVersion !== signingRootVersion)
   ) {
-    throw new Error('Email OTP Ed25519 sealed local session identity is inconsistent');
+    throw new Error('Email OTP Ed25519 sealed capability identity is inconsistent');
   }
   void emailOtp;
   void participantIds;
@@ -764,9 +764,9 @@ async function runFencedEmailOtpEd25519YaoSealedRecovery(
       `[SigningEngine][near] Email OTP Ed25519 sealed factor restore failed (${rehydrated.code}): ${rehydrated.message}`,
     );
   }
-  const recovery = await activateColdEmailOtpEd25519YaoLocalSessionV1({
+  const recovery = await activateEmailOtpEd25519YaoLocalCapabilityV1({
     prepared,
-    bootstrap: rehydrated.ed25519YaoSession,
+    bootstrap: rehydrated.ed25519YaoCapability,
     activeClientHandle: rehydrated.activeClientHandle,
     metadata: rehydrated.metadata,
     workerContext: input.ports.workerContext,

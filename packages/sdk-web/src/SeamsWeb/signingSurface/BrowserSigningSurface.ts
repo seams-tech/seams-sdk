@@ -182,11 +182,11 @@ import {
 } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
 import {
   activateColdEmailOtpEd25519YaoUnlockedRecoveryV1,
-  activateColdEmailOtpEd25519YaoLocalSessionV1,
+  activateEmailOtpEd25519YaoLocalCapabilityV1,
   prepareColdEmailOtpEd25519YaoRecoveryV1,
   recoverColdEmailOtpEd25519CapabilityForLoginV1,
   type PreparedColdEmailOtpEd25519YaoRecoveryV1,
-} from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
+} from '@/core/signingEngine/session/emailOtp/ed25519YaoCapabilityRecovery';
 import type { EmailOtpEd25519YaoPublicationInput } from '@/core/signingEngine/session/emailOtp/ed25519YaoPublication';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
 import {
@@ -2017,7 +2017,7 @@ export class BrowserSigningSurface {
             ...queueArgs,
           }),
         persistRecoveredSession:
-          this.persistEmailOtpEd25519YaoSessionForRefreshInternal.bind(this),
+          this.persistEmailOtpEd25519YaoCapabilityForRefreshInternal.bind(this),
         fetch: fetchWithGlobalThis,
         nowMs: Date.now,
       },
@@ -2670,10 +2670,10 @@ export class BrowserSigningSurface {
     });
   }
 
-  async persistEmailOtpEd25519YaoSessionForRefreshInternal(
+  async persistEmailOtpEd25519YaoCapabilityForRefreshInternal(
     input: EmailOtpEd25519YaoPublicationInput,
   ): Promise<void> {
-    await this.emailOtpSessions.persistEd25519YaoSessionForRefresh(input);
+    await this.emailOtpSessions.persistEd25519YaoCapabilityForRefresh(input);
   }
 
   async activateEmailOtpEd25519YaoUnlockedRecoveryInternal(args: {
@@ -2706,7 +2706,7 @@ export class BrowserSigningSurface {
         this.enginePorts.ed25519YaoActiveClients,
       ),
     });
-    await this.persistEmailOtpEd25519YaoSessionForRefreshInternal({
+    await this.persistEmailOtpEd25519YaoCapabilityForRefreshInternal({
       capability: recovered,
       publicationContext: recovered.publicationContext,
     });
@@ -2714,7 +2714,7 @@ export class BrowserSigningSurface {
     return recovered.walletSessionState.signingLane.identity.signer;
   }
 
-  async activateEmailOtpEd25519YaoLocalSessionInternal(args: {
+  async activateEmailOtpEd25519YaoLocalCapabilityInternal(args: {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     activeClientHandle: string;
@@ -2727,17 +2727,17 @@ export class BrowserSigningSurface {
       }),
       nearAccountId: args.prepared.identity.nearAccountId,
       enabled: true,
-      task: this.runEmailOtpEd25519YaoLocalSessionActivation.bind(this, args),
+      task: this.runEmailOtpEd25519YaoLocalCapabilityActivation.bind(this, args),
     });
   }
 
-  private async runEmailOtpEd25519YaoLocalSessionActivation(args: {
+  private async runEmailOtpEd25519YaoLocalCapabilityActivation(args: {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     activeClientHandle: string;
     metadata: RouterAbEd25519YaoActiveClientMetadataV1;
   }): Promise<NearEd25519SignerBinding> {
-    const activated = await activateColdEmailOtpEd25519YaoLocalSessionV1({
+    const activated = await activateEmailOtpEd25519YaoLocalCapabilityV1({
       prepared: args.prepared,
       bootstrap: args.bootstrap,
       activeClientHandle: args.activeClientHandle,
@@ -2747,7 +2747,7 @@ export class BrowserSigningSurface {
         this.enginePorts.ed25519YaoActiveClients,
       ),
     });
-    await this.persistEmailOtpEd25519YaoSessionForRefreshInternal({
+    await this.persistEmailOtpEd25519YaoCapabilityForRefreshInternal({
       capability: activated,
       publicationContext: activated.publicationContext,
     });
@@ -2795,7 +2795,7 @@ export class BrowserSigningSurface {
         this.enginePorts.ed25519YaoActiveClients,
       ),
     });
-    await this.persistEmailOtpEd25519YaoSessionForRefreshInternal({
+    await this.persistEmailOtpEd25519YaoCapabilityForRefreshInternal({
       capability: recovered,
       publicationContext: recovered.publicationContext,
     });

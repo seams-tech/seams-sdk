@@ -7,7 +7,7 @@ import type {
   UiConfirmRuntimeBridgePort,
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
-import type { WalletSigningBudgetAvailableStatusDeps } from '../../session/budget/budgetStatusReader';
+import type { WalletSigningSessionStatusDeps } from '../../session/lifecycle/walletSessionStatus';
 import type {
   RecoveryPublicDeps,
   RecoveryPublicEcdsaSessionStoreDeps,
@@ -48,7 +48,7 @@ export function createRecoveryPublicDeps(args: {
   };
   provisionPasskeyEcdsaExplicitExportSession: RecoveryPublicDeps['ecdsa']['provisionPasskeyEcdsaExplicitExportSession'];
   resolvePasskeyEcdsaExportRouteAuth: RecoveryPublicDeps['ecdsa']['resolvePasskeyEcdsaExportRouteAuth'];
-  getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
+  getWalletSessionStatus: WalletSigningSessionStatusDeps['getAvailableStatus'];
   resolveActiveEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['resolveActiveCapability'];
   recoverPasskeyEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['recoverPasskeyCapability'];
   resolvePasskeyEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['resolvePasskeyExportContext'];
@@ -86,7 +86,7 @@ export function createRecoveryPublicDeps(args: {
             listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
             statusReader: args.passkeyMpcSession,
             getEmailOtpWarmSessionStatus,
-            getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
+            getWalletSessionStatus: args.getWalletSessionStatus,
           },
           completeConfiguredEcdsaTargets(availableLanesArgs),
         ),

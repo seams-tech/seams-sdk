@@ -24,6 +24,7 @@ import {
   toEcdsaDerivationSigningGrantId,
   type SigningGrantId,
 } from '../session/identity/emailOtpEcdsaDerivationIdentity';
+import type { SigningOperationId } from '../session/operationState/types';
 
 export type ThresholdRuntimePolicyScope = RuntimePolicyScope;
 export type ThresholdSessionKind = 'jwt' | 'cookie';
@@ -164,6 +165,28 @@ export const DEFAULT_THRESHOLD_SESSION_POLICY: Pick<
   ttlMs: DEFAULT_THRESHOLD_SESSION_TTL_MS,
   remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
 };
+
+export const DEFAULT_UNLOCK_REMAINING_USES = DEFAULT_WALLET_SESSION_REMAINING_USES;
+
+export type PositiveRemainingUses = number & {
+  readonly __brand: 'PositiveRemainingUses';
+};
+
+export function parsePositiveSessionUses(value: unknown, fieldName: string): PositiveRemainingUses {
+  const remainingUses = Math.floor(Number(value) || 0);
+  if (!Number.isFinite(remainingUses) || remainingUses <= 0) {
+    throw new Error(`[ThresholdSessionPolicy] ${fieldName} must be a positive integer`);
+  }
+  return remainingUses as PositiveRemainingUses;
+}
+
+export function resolveWalletUnlockSessionUsesFromRequestedUses(args: {
+  requestedRemainingUses: unknown;
+}): number | null {
+  const normalized = Math.floor(Number(args.requestedRemainingUses) || 0);
+  if (!Number.isFinite(normalized) || normalized <= 0) return null;
+  return Math.min(normalized, DEFAULT_UNLOCK_REMAINING_USES);
+}
 
 export function clampThresholdSessionPolicy(input: { ttlMs: number; remainingUses: number }): {
   ttlMs: number;

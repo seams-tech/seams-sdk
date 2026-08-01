@@ -69,8 +69,6 @@ type WalletSessionEd25519ExportAuthorizationArgs = {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   signerSlot: number;
-  thresholdSessionId: string;
-  signingGrantId: string;
   publicKey: string;
   curve: 'ed25519';
   chain: 'near';
@@ -259,8 +257,6 @@ export async function requestEmailOtpEd25519KeyExportAuthorization(
     nearAccountId: args.nearAccountId,
     nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     signerSlot: args.signerSlot,
-    thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId,
     emailOtpPrompt: { challengeId: authorization.challengeId },
     decision: {
       confirmed: true,

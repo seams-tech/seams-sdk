@@ -118,9 +118,9 @@ export function toManagedNonceReservationSnapshot(
   input: ManagedNonceReservation,
 ): ManagedNonceReservationSnapshot {
   const subjectId = toWalletId(input.subjectId);
-  const leaseId = normalizeRequiredString(input.leaseId, 'leaseId');
-  const operationId = normalizeRequiredString(input.operationId, 'operationId');
-  const operationFingerprint = normalizeRequiredString(
+  const leaseId = normalizeSessionStatusRequiredString(input.leaseId, 'leaseId');
+  const operationId = normalizeSessionStatusRequiredString(input.operationId, 'operationId');
+  const operationFingerprint = normalizeSessionStatusRequiredString(
     input.operationFingerprint,
     'operationFingerprint',
   );
@@ -160,9 +160,9 @@ export function fromManagedNonceReservationSnapshot(
   const nonce = normalizeBigint(snapshot.nonce, 'nonce');
   const parsedNonceKey =
     snapshot.nonceKey == null ? undefined : normalizeBigint(snapshot.nonceKey, 'nonceKey');
-  const leaseId = normalizeRequiredString(snapshot.leaseId, 'leaseId');
-  const operationId = normalizeRequiredString(snapshot.operationId, 'operationId');
-  const operationFingerprint = normalizeRequiredString(
+  const leaseId = normalizeSessionStatusRequiredString(snapshot.leaseId, 'leaseId');
+  const operationId = normalizeSessionStatusRequiredString(snapshot.operationId, 'operationId');
+  const operationFingerprint = normalizeSessionStatusRequiredString(
     snapshot.operationFingerprint,
     'operationFingerprint',
   );
@@ -538,7 +538,7 @@ function normalizeAccountId(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
-function normalizeRequiredString(value: unknown, label: string): string {
+function normalizeSessionStatusRequiredString(value: unknown, label: string): string {
   const normalized = String(value || '').trim();
   if (!normalized) {
     throw new Error(`[evmNonceBackend] invalid managed nonce snapshot: ${label}`);

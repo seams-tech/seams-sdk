@@ -55,7 +55,7 @@ export type WalletIframeSessionUnavailableReason =
   | 'exhausted'
   | 'not_found'
   | 'unavailable'
-  | 'budget_unknown'
+  | 'status_unknown'
   // Replaced rather than broken: the host discards what it holds and reads
   // current state again. Collapsing this into `invalid` sent a routine
   // replacement down an error path.
@@ -1281,7 +1281,7 @@ function requireUnavailableReason(value: unknown): WalletIframeSessionUnavailabl
     case 'exhausted':
     case 'not_found':
     case 'unavailable':
-    case 'budget_unknown':
+    case 'status_unknown':
     case 'invalid':
       return value;
     default:

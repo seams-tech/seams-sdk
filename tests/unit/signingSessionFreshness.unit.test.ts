@@ -25,7 +25,7 @@ import {
   buildFreshStepUpRequired,
   buildFreshStepUpSatisfied,
   buildStepUpFreshnessFromRestoredSealedRecord,
-  buildStepUpFreshnessFromTrustedBudgetStatus,
+  buildStepUpFreshnessFromTrustedSessionStatus,
   stepUpFreshnessDiagnostics,
 } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/stepUpFreshness';
 import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
@@ -170,7 +170,7 @@ test.describe('step-up freshness identity', () => {
     const laneIdentity = exactSigningLaneIdentityFromSelectedLane(lane);
     const operation = makeOperation();
 
-    const satisfied = buildStepUpFreshnessFromTrustedBudgetStatus({
+    const satisfied = buildStepUpFreshnessFromTrustedSessionStatus({
       walletId: NEAR_WALLET_ID,
       ...operation,
       laneIdentity,
@@ -183,7 +183,7 @@ test.describe('step-up freshness identity', () => {
         projectionVersion: 'projection-1',
       },
     });
-    const required = buildStepUpFreshnessFromTrustedBudgetStatus({
+    const required = buildStepUpFreshnessFromTrustedSessionStatus({
       walletId: NEAR_WALLET_ID,
       ...operation,
       laneIdentity,

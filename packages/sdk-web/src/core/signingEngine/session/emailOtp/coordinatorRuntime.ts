@@ -141,10 +141,10 @@ export class EmailOtpWalletSessionRuntime {
     });
   }
 
-  async persistEd25519YaoSessionForRefresh(
-    args: Parameters<EmailOtpSealedSessionRegistry['persistEd25519YaoSessionForRefresh']>[0],
+  async persistEd25519YaoCapabilityForRefresh(
+    args: Parameters<EmailOtpSealedSessionRegistry['persistEd25519YaoCapabilityForRefresh']>[0],
   ): Promise<void> {
-    await this.sealedSessionRegistry.persistEd25519YaoSessionForRefresh(args);
+    await this.sealedSessionRegistry.persistEd25519YaoCapabilityForRefresh(args);
   }
 
   async persistEcdsaSessionForRefresh(

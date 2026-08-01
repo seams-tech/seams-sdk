@@ -55,7 +55,7 @@ export function useLoginStateRefresher(args: {
                   exactWalletId = state.walletId;
                   break;
                 case 'unavailable':
-                case 'budget_unknown':
+                case 'status_unknown':
                   return;
                 case 'not_found':
                 case 'invalid':

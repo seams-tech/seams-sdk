@@ -6,12 +6,12 @@ import type {
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  buildWalletBudgetStatusCheckForSession,
-  getWalletSigningBudgetAvailableStatus as getWalletSigningBudgetAvailableStatusValue,
-  mergeWalletSigningBudgetStatus,
-  type WalletSigningBudgetAvailableStatusDeps,
-} from '../budget/budgetStatusReader';
-import { ed25519WalletBudgetOwner } from '../budget/budget';
+  buildWalletSessionStatusCheckForSession,
+  getWalletSessionStatus as getWalletSessionStatusValue,
+  mergeWalletSigningSessionStatus,
+  type WalletSigningSessionStatusDeps,
+} from '../lifecycle/walletSessionStatus';
+import { ed25519WalletSessionStatusOwner } from '../lifecycle/walletSessionStatus';
 import {
   scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill as scheduleRouterAbEcdsaDerivationLoginPresignaturePrefillValue,
   type RouterAbEcdsaDerivationLoginPresignaturePrefillResult,
@@ -53,7 +53,7 @@ export type WarmCapabilitiesPublicDeps = {
   ) => Promise<void>;
   hydrateSigningSession: (args: HydrateSigningSessionInput) => Promise<void>;
   clearVolatileWarmSigningMaterial: (walletId?: WalletId) => Promise<void>;
-  getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
+  getWalletSessionStatus: WalletSigningSessionStatusDeps['getAvailableStatus'];
   getSignerWorkerContext: Parameters<
     typeof scheduleRouterAbEcdsaDerivationLoginPresignaturePrefillValue
   >[0]['getSignerWorkerContext'];
@@ -87,21 +87,21 @@ export async function getWarmThresholdEd25519SessionStatus(
         authorization: args.authorization,
       })
     : null;
-  const budgetStatusCheck = signingGrantId
-    ? buildWalletBudgetStatusCheckForSession({
-        owner: ed25519WalletBudgetOwner(args.runtime.walletId),
+  const sessionStatusCheck = signingGrantId
+    ? buildWalletSessionStatusCheckForSession({
+        owner: ed25519WalletSessionStatusOwner(args.runtime.walletId),
         signingGrantId: String(signingGrantId),
       })
     : null;
-  const walletBudgetStatus = budgetStatusCheck
-    ? await getWalletSigningBudgetAvailableStatusValue(
+  const walletSessionStatus = sessionStatusCheck
+    ? await getWalletSessionStatusValue(
         {
-          getAvailableStatus: deps.getWalletSigningBudgetStatus,
+          getAvailableStatus: deps.getWalletSessionStatus,
         },
-        budgetStatusCheck,
+        sessionStatusCheck,
       )
     : null;
-  return mergeWalletSigningBudgetStatus(status, walletBudgetStatus);
+  return mergeWalletSigningSessionStatus(status, walletSessionStatus);
 }
 
 export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(

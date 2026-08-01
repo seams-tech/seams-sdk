@@ -125,8 +125,6 @@ function emailOtpExportAuthLane(
       kind: 'wallet_session',
       jwt: context.authorization.walletSessionJwt,
     },
-    thresholdSessionId: String(context.lane.thresholdSessionId),
-    authorizingSigningGrantId: String(context.lane.signingGrantId),
     curve: 'ed25519',
   });
   if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
@@ -599,8 +597,6 @@ async function exportEd25519YaoKeyWithFreshEmailOtp(
       nearAccountId: String(args.nearAccountId),
       nearEd25519SigningKeyId: String(resolved.laneIdentity.signer.nearEd25519SigningKeyId),
       signerSlot: resolved.laneIdentity.signer.signerSlot,
-      thresholdSessionId: String(resolved.laneIdentity.thresholdSessionId),
-      signingGrantId: String(resolved.laneIdentity.signingGrantId),
       authLane: emailOtpExportAuthLane(resolved.context),
       publicKey,
       curve: 'ed25519',

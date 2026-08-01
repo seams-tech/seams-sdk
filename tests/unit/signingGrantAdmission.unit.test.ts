@@ -3,14 +3,14 @@ import {
   buildSigningGrantAdmissionQueueKey,
   classifySigningGrantAdmissionFailure,
   decideSigningGrantAdmissionError,
-  routerAbNormalSigningAdmissionErrorFromPayload,
   SigningGrantAdmissionError,
-} from '../../packages/sdk-web/src/core/signingEngine/session/budget/admission';
+} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/authorizationAdmission';
+import { routerAbNormalSigningAdmissionErrorFromPayload } from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
 import { signingLaneAuthBindingKey } from '../../packages/sdk-web/src/core/signingEngine/session/identity/signingLaneAuthBinding';
 import {
-  SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
-  SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
-} from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
+  SIGNING_GRANT_EXHAUSTED_ERROR,
+  SIGNING_GRANT_IN_FLIGHT_ERROR,
+} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/authorizationAdmission';
 import { SigningSessionCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
 
 test.describe('signing grant admission boundary', () => {
@@ -29,7 +29,7 @@ test.describe('signing grant admission boundary', () => {
       detail:
         'Router A/B signing /router-ab/ecdsa-derivation/sign/prepare returned HTTP 409: signing grant exhausted',
     });
-    expect(error?.message).toContain(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
+    expect(error?.message).toContain(SIGNING_GRANT_EXHAUSTED_ERROR);
     expect(decideSigningGrantAdmissionError(error)).toEqual({
       kind: 'request_fresh_step_up',
       reason: 'exhausted',
@@ -46,7 +46,7 @@ test.describe('signing grant admission boundary', () => {
     });
 
     expect(error).toBeInstanceOf(SigningGrantAdmissionError);
-    expect(error?.message).toContain(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
+    expect(error?.message).toContain(SIGNING_GRANT_IN_FLIGHT_ERROR);
     expect(decideSigningGrantAdmissionError(error)).toEqual({
       kind: 'wait_and_retry_admission',
       retryAfterMs: 150,
@@ -56,11 +56,11 @@ test.describe('signing grant admission boundary', () => {
 
   test('classifies existing local admission errors at the shared boundary', () => {
     expect(
-      classifySigningGrantAdmissionFailure(new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR)),
+      classifySigningGrantAdmissionFailure(new Error(SIGNING_GRANT_EXHAUSTED_ERROR)),
     ).toEqual({
       kind: 'exhausted',
       source: 'local_projection',
-      detail: SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
+      detail: SIGNING_GRANT_EXHAUSTED_ERROR,
     });
   });
 
@@ -84,7 +84,7 @@ test.describe('signing grant admission boundary', () => {
   });
 
   test('queues concurrent fresh-admission retries behind the active refresh', async () => {
-    const coordinator = new SigningSessionCoordinator();
+    const coordinator = new SigningSessionCoordinator({});
     const queueKey = buildSigningGrantAdmissionQueueKey({
       walletId: 'wallet-1',
       curve: 'ecdsa',

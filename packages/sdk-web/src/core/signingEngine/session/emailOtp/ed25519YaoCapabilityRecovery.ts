@@ -19,7 +19,7 @@ import type {
 import { buildFreshEmailOtpRoutePlan } from './routePlan';
 import { resolveEmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from './ed25519YaoRootVault';
-import { unlockEmailOtpEd25519YaoSession } from './walletUnlock';
+import { unlockEmailOtpEd25519YaoCapability } from './walletUnlock';
 import {
   buildEmailOtpEd25519YaoRecoveryContinuityMetadataV1,
   disposeEmailOtpEd25519YaoPendingFactorV1,
@@ -40,7 +40,7 @@ import {
   parseRouterAbEd25519WalletSessionIdentityClaims,
 } from '../routerAbSigningWalletSession';
 
-export type EmailOtpEd25519YaoBudgetRecoveryResult = {
+export type EmailOtpEd25519YaoCapabilityRecoveryResult = {
   sessionId: string;
   publicationContext: EmailOtpEd25519YaoPublicationContext;
 } & NearEd25519YaoSigningCapability;
@@ -306,7 +306,7 @@ function buildColdRecoveredWalletSessionState(args: {
   });
 }
 
-export async function activateColdEmailOtpEd25519YaoLocalSessionV1(args: {
+export async function activateEmailOtpEd25519YaoLocalCapabilityV1(args: {
   prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
   bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   activeClientHandle: string;
@@ -315,7 +315,7 @@ export async function activateColdEmailOtpEd25519YaoLocalSessionV1(args: {
   activateCapability: (
     capability: NearEd25519YaoSigningCapability,
   ) => Promise<Ed25519YaoActiveClientIdentityV1>;
-}): Promise<EmailOtpEd25519YaoBudgetRecoveryResult> {
+}): Promise<EmailOtpEd25519YaoCapabilityRecoveryResult> {
   assertColdBootstrapContinuity(args);
   let activeClient: NearEd25519YaoSigningCapability['activeClient'] | null =
     new EmailOtpEd25519YaoWorkerActiveClientV1(
@@ -356,7 +356,7 @@ export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
   activateCapability: (
     capability: NearEd25519YaoSigningCapability,
   ) => Promise<Ed25519YaoActiveClientIdentityV1>;
-}): Promise<EmailOtpEd25519YaoBudgetRecoveryResult> {
+}): Promise<EmailOtpEd25519YaoCapabilityRecoveryResult> {
   await assertColdBootstrapContinuityOrDisposePending(args);
   const expectedPriorMetadata = args.prepared.previous
     ? args.prepared.previous.activeClient.metadata()
@@ -419,10 +419,10 @@ export async function recoverColdEmailOtpEd25519CapabilityForLoginV1(args: {
   activateCapability: (
     capability: NearEd25519YaoSigningCapability,
   ) => Promise<Ed25519YaoActiveClientIdentityV1>;
-}): Promise<EmailOtpEd25519YaoBudgetRecoveryResult> {
+}): Promise<EmailOtpEd25519YaoCapabilityRecoveryResult> {
   const appSessionJwt = requireNonEmpty(args.appSessionJwt, 'appSessionJwt');
   const runtimePolicyScope = args.prepared.runtimePolicyScope;
-  const unlocked = await unlockEmailOtpEd25519YaoSession({
+  const unlocked = await unlockEmailOtpEd25519YaoCapability({
     walletSession: {
       walletId: args.prepared.identity.walletId,
       walletSessionUserId: args.prepared.providerSubject,
@@ -441,10 +441,10 @@ export async function recoverColdEmailOtpEd25519CapabilityForLoginV1(args: {
     expectedOperationalPublicKey: args.prepared.expectedOperationalPublicKey,
     expectedThresholdSessionId: args.prepared.thresholdSessionId,
   });
-  if (unlocked.kind === 'ed25519_yao_local_session') {
-    return await activateColdEmailOtpEd25519YaoLocalSessionV1({
+  if (unlocked.kind === 'ed25519_yao_capability') {
+    return await activateEmailOtpEd25519YaoLocalCapabilityV1({
       prepared: args.prepared,
-      bootstrap: unlocked.ed25519YaoSession,
+      bootstrap: unlocked.ed25519YaoCapability,
       activeClientHandle: unlocked.activeClientHandle,
       metadata: unlocked.metadata,
       workerContext: args.workerContext,

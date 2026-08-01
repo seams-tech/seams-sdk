@@ -15,7 +15,7 @@ import {
   buildRelayerJsonPostRequestInit,
   normalizeRelayerBaseUrl,
 } from './relayerHttp';
-import { routerAbNormalSigningAdmissionErrorFromPayload } from '@/core/signingEngine/session/budget/admission';
+import { SigningGrantAdmissionError } from '@/core/signingEngine/session/operationState/authorizationAdmission';
 import { walletSessionFailureErrorFromPayload } from '@/core/signingEngine/session/lifecycle/walletSessionFailure';
 import {
   parseRouterAbMpcMaterialActivationRef,
@@ -32,6 +32,36 @@ type RouterAbSigningErrorPayload = {
   code: string;
   message: string;
 };
+
+export function routerAbNormalSigningAdmissionErrorFromPayload(args: {
+  code: string;
+  message: string;
+  path: string;
+  status: number;
+}): SigningGrantAdmissionError | null {
+  const code = String(args.code || '').trim();
+  const detail = `Router A/B signing ${args.path} returned HTTP ${args.status}: ${
+    args.message || code || 'unknown admission failure'
+  }`;
+  switch (code) {
+    case 'wallet_budget_exhausted':
+      return new SigningGrantAdmissionError({
+        kind: 'exhausted',
+        source: 'server_prepare',
+        detail,
+      });
+    case 'wallet_budget_in_flight':
+    case 'wallet_budget_reserved':
+      return new SigningGrantAdmissionError({
+        kind: 'in_flight',
+        source: 'server_prepare',
+        detail,
+        retryAfterMs: 150,
+      });
+    default:
+      return null;
+  }
+}
 
 export type RouterAbWalletSessionCredential = {
   kind: 'wallet_session_jwt';

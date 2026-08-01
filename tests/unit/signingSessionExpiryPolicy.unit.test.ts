@@ -4,7 +4,7 @@ import {
   PASSKEY_MANAGER_DEFAULT_CONFIGS,
 } from '../../packages/sdk-web/src/core/config/defaultConfigs';
 import {
-  applyWalletBudgetStatusToSigningSessionReadiness,
+  applyWalletSessionStatusToSigningSessionReadiness,
   warmClaimFromRecordPolicy,
 } from '../../packages/sdk-web/src/core/signingEngine/session/availability/readiness';
 import { durableRecordPolicyAdvisory } from '../../packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes';
@@ -53,7 +53,7 @@ test.describe('signing session expiry policy', () => {
 
   test('classifies elapsed sessions as expired before considering exhaustion', () => {
     expect(
-      applyWalletBudgetStatusToSigningSessionReadiness({
+      applyWalletSessionStatusToSigningSessionReadiness({
         status: 'ready',
         thresholdSessionId: THRESHOLD_SESSION_ID,
         expiresAtMs: NOW_MS,
@@ -71,7 +71,7 @@ test.describe('signing session expiry policy', () => {
   test('classifies a temporally valid depleted session as exhausted', () => {
     const expiresAtMs = NOW_MS + 60_000;
     expect(
-      applyWalletBudgetStatusToSigningSessionReadiness({
+      applyWalletSessionStatusToSigningSessionReadiness({
         status: 'ready',
         thresholdSessionId: THRESHOLD_SESSION_ID,
         expiresAtMs,
@@ -89,12 +89,12 @@ test.describe('signing session expiry policy', () => {
 
   test('keeps unavailable distinct from expiry and exhaustion', () => {
     expect(
-      applyWalletBudgetStatusToSigningSessionReadiness({
+      applyWalletSessionStatusToSigningSessionReadiness({
         status: 'ready',
         thresholdSessionId: THRESHOLD_SESSION_ID,
         expiresAtMs: NOW_MS + 60_000,
         remainingUses: 3,
-        walletBudgetStatus: {
+        walletSessionStatus: {
           sessionId: 'wallet-budget-session',
           status: 'unavailable',
           statusCode: 'service_unavailable',
