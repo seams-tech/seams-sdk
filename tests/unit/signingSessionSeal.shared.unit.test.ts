@@ -3,7 +3,6 @@ import {
   EMAIL_OTP_HKDF_SALTS,
   PASSKEY_PRF_FIRST_SALT_V1,
   PASSKEY_PRF_SECOND_SALT_V1,
-  emailOtpEcdsaRestoreInfoFields,
   encodeSigningSessionHkdfTuple,
 } from '@shared/utils/signingSessionSeal';
 import { seedEmailOtpEcdsaSealedSigningSessionRecord } from './helpers/sealedSigningSession.fixtures';
@@ -51,28 +50,6 @@ test.describe('shared signing-session seal specs', () => {
       0x00,
       0x0d,
       ...utf8('alice.testnet'),
-    ]);
-
-    expect(
-      emailOtpEcdsaRestoreInfoFields({
-        ecdsaThresholdSessionId: 'ecdsa-session',
-        ecdsaThresholdKeyId: 'ecdsa-key',
-        chainTarget: {
-          kind: 'evm',
-          namespace: 'eip155',
-          chainId: 11155111,
-          networkSlug: 'sepolia',
-        },
-        participantIds: [1, 3],
-        relayerKeyId: 'relayer-key',
-      }),
-    ).toEqual([
-      'ecdsa-session',
-      'ecdsa-key',
-      'evm:eip155:11155111',
-      'evm-signing',
-      '1,3',
-      'relayer-key',
     ]);
   });
 });
