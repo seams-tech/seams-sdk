@@ -71,23 +71,6 @@ export interface SignerWasmConfig {
   moduleOrPath?: SignerWasmModuleSupplier;
 }
 
-export type ThresholdEd25519BootstrapSession = {
-  sessionKind: 'jwt' | 'cookie';
-  walletId: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  authorityScope: ThresholdEd25519AuthorityScope;
-  thresholdSessionId: string;
-  signingGrantId: string;
-  expiresAtMs: number;
-  expiresAt?: string;
-  participantIds?: number[];
-  remainingUses?: number;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
-  jwt?: string;
-};
-
 // ================================
 // Threshold Ed25519 key persistence
 // ================================
