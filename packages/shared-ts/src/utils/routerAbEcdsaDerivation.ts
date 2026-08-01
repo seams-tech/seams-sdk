@@ -264,7 +264,7 @@ export type RouterAbEcdsaSigningWorkerExportShareBindingV1 = {
   export_nonce: string;
   authorization_kind: 'reusable_wallet_session' | 'operation_step_up';
   authorization_id: string;
-  material_activation_id: string;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   lifecycle_id: string;
   recipient_identity: string;
   recipient_public_key: string;
@@ -406,7 +406,7 @@ type RouterAbEcdsaDerivationExplicitExportRequestBaseV1 = {
   // The discriminated operation authority and the exact material activation
   // this export binds. Session and grant identifiers never re-enter this
   // request outside the authorization branch.
-  material_activation_id: string;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   export_authorization_digest_b64u: string;
   export_nonce: string;
   expires_at_ms: number;
@@ -1401,7 +1401,7 @@ function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
     'export_nonce',
     'authorization_kind',
     'authorization_id',
-    'material_activation_id',
+    'material_activation',
     'lifecycle_id',
     'recipient_identity',
     'recipient_public_key',
@@ -1409,6 +1409,13 @@ function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
   ]);
   if (!Array.isArray(record.ciphertext_and_tag) || record.ciphertext_and_tag.length <= 48) {
     throw new Error(`${label}.ciphertext_and_tag is invalid`);
+  }
+  const materialActivation = parseRouterAbMpcMaterialActivationRef(binding.material_activation);
+  if (
+    materialActivation.material_owner !== binding.wallet_id ||
+    materialActivation.signing_worker !== binding.signing_worker_id
+  ) {
+    throw new Error(`${bindingLabel}.material_activation is not bound to wallet and worker`);
   }
   return {
     version: 'router-ab-ecdsa-derivation/signing-worker-export-share-envelope/v1',
@@ -1467,10 +1474,7 @@ function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
         binding.authorization_id,
         `${bindingLabel}.authorization_id`,
       ),
-      material_activation_id: requireAsciiNonEmptyString(
-        binding.material_activation_id,
-        `${bindingLabel}.material_activation_id`,
-      ),
+      material_activation: materialActivation,
       lifecycle_id: requireAsciiNonEmptyString(
         binding.lifecycle_id,
         `${bindingLabel}.lifecycle_id`,
@@ -2150,7 +2154,7 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
     'client_id',
     'client_ephemeral_public_key',
     'authorization',
-    'material_activation_id',
+    'material_activation',
     'export_authorization_digest_b64u',
     'export_nonce',
     'expires_at_ms',
@@ -2173,6 +2177,15 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
   );
   const signerSet = parsePostRegistrationSignerSet(record.signer_set, `${label}.signer_set`);
   requirePostRegistrationBindings(label, lifecycle, signerSet);
+  const materialActivation = parseRouterAbMpcMaterialActivationRef(record.material_activation);
+  if (
+    materialActivation.material_owner !== lifecycle.account_id ||
+    materialActivation.signing_worker !== lifecycle.selected_server_id
+  ) {
+    throw new Error(
+      `${label}.material_activation is not bound to lifecycle owner and selected server`,
+    );
+  }
   const parsed = {
     context: parseStableKeyContext(record.context),
     lifecycle,
@@ -2184,10 +2197,7 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
       record.client_ephemeral_public_key,
       `${label}.client_ephemeral_public_key`,
     ),
-    material_activation_id: requireAsciiNonEmptyString(
-      record.material_activation_id,
-      `${label}.material_activation_id`,
-    ),
+    material_activation: materialActivation,
     export_authorization_digest_b64u: requireBase64UrlFixed(
       record.export_authorization_digest_b64u,
       `${label}.export_authorization_digest_b64u`,

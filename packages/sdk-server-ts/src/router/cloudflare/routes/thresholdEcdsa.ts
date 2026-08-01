@@ -1224,7 +1224,11 @@ function strictEcdsaExportScopeMatchesRequest(input: {
     input.scope.public_identity.threshold_public_key33_b64u ===
       input.request.public_identity.threshold_public_key33_b64u &&
     input.scope.signing_worker.server_id === input.request.lifecycle.selected_server_id &&
-    input.scope.activation_epoch === input.request.lifecycle.root_share_epoch
+    input.scope.activation_epoch === input.request.lifecycle.root_share_epoch &&
+    sameRouterAbMpcMaterialActivationRef(
+      input.scope.material_activation,
+      input.request.material_activation,
+    )
   );
 }
 
@@ -1238,6 +1242,7 @@ function strictEcdsaExportFailure(
 
 async function claimStrictEcdsaExportOperationStepUp(input: {
   readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   readonly grantId: string;
   readonly authenticated: Extract<
     Awaited<ReturnType<typeof authenticateRouterAbOperationStepUpAppSessionIdentity>>,
@@ -1262,9 +1267,7 @@ async function claimStrictEcdsaExportOperationStepUp(input: {
       ),
       authorizationSessionId: input.authenticated.session.sessionId,
       principalId: input.authenticated.session.principalId,
-      capabilityId: requireAuthorizationValue(
-        parseCapabilityId(input.operation.material_activation.capability),
-      ),
+      capabilityId: requireAuthorizationValue(parseCapabilityId(input.materialActivation.capability)),
       operationId,
       operation: buildEvmEcdsaMpcOperationRef('evm.export_key'),
       laneDigest: parseDigestB64u(input.operation.operation_digests.lane_digest_b64u),
@@ -1325,12 +1328,17 @@ async function authorizeStrictEcdsaExport(input: {
       operation.operation_kind !== 'evm.export_key' ||
       operation.wallet_id !== input.request.lifecycle.account_id ||
       operation.material_activation.material_owner !== input.request.lifecycle.account_id ||
-      operation.material_activation.activation_id !== input.request.material_activation_id ||
-      operation.material_activation.signing_worker !==
-        input.request.lifecycle.selected_server_id ||
+      !sameRouterAbMpcMaterialActivationRef(
+        operation.material_activation,
+        input.request.material_activation,
+      ) ||
+      operation.material_activation.signing_worker !== input.request.lifecycle.selected_server_id ||
       operation.signing_worker_id !== input.request.lifecycle.selected_server_id ||
       operation.expires_at_ms < input.request.expires_at_ms ||
-      !strictEcdsaExportScopeMatchesRequest({ request: input.request, scope: operation.normal_signing_scope })
+      !strictEcdsaExportScopeMatchesRequest({
+        request: input.request,
+        scope: operation.normal_signing_scope,
+      })
     ) {
       return strictEcdsaExportFailure(
         403,
@@ -1356,8 +1364,37 @@ async function authorizeStrictEcdsaExport(input: {
         'ECDSA export operation exceeds the app session lifetime',
       );
     }
+    const activeMaterial =
+      await input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation({
+        walletId: operation.wallet_id,
+        materialActivation: input.request.material_activation,
+      });
+    if (!activeMaterial.ok) {
+      return strictEcdsaExportFailure(
+        activeMaterial.code === 'internal' ? 500 : 403,
+        activeMaterial.code,
+        activeMaterial.message,
+      );
+    }
+    if (
+      !sameRouterAbMpcMaterialActivationRef(
+        activeMaterial.materialActivation,
+        operation.material_activation,
+      ) ||
+      !sameRouterAbMpcMaterialActivationRef(
+        activeMaterial.materialActivation,
+        operation.normal_signing_scope.material_activation,
+      )
+    ) {
+      return strictEcdsaExportFailure(
+        403,
+        'scope_mismatch',
+        'ECDSA export material is no longer active',
+      );
+    }
     const claimFailure = await claimStrictEcdsaExportOperationStepUp({
       operation,
+      materialActivation: activeMaterial.materialActivation,
       grantId: input.request.authorization.grant_id,
       authenticated,
     });
@@ -1407,9 +1444,36 @@ async function authorizeStrictEcdsaExport(input: {
     scope.public_identity.threshold_public_key33_b64u !==
       input.request.public_identity.threshold_public_key33_b64u ||
     scope.signing_worker.server_id !== input.request.lifecycle.selected_server_id ||
-    scope.activation_epoch !== input.request.lifecycle.root_share_epoch
+    scope.activation_epoch !== input.request.lifecycle.root_share_epoch ||
+    !sameRouterAbMpcMaterialActivationRef(
+      scope.material_activation,
+      input.request.material_activation,
+    )
   ) {
     return strictEcdsaExportFailure(403, 'scope_mismatch', 'ECDSA export scope is invalid');
+  }
+  const activeMaterial = await input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation({
+    walletId: input.request.lifecycle.account_id,
+    materialActivation: input.request.material_activation,
+  });
+  if (!activeMaterial.ok) {
+    return strictEcdsaExportFailure(
+      activeMaterial.code === 'internal' ? 500 : 403,
+      activeMaterial.code,
+      activeMaterial.message,
+    );
+  }
+  if (
+    !sameRouterAbMpcMaterialActivationRef(
+      activeMaterial.materialActivation,
+      scope.material_activation,
+    )
+  ) {
+    return strictEcdsaExportFailure(
+      403,
+      'scope_mismatch',
+      'ECDSA export material is no longer active',
+    );
   }
   return {
     ok: true,

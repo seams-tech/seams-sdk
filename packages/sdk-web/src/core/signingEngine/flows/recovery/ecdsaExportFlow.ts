@@ -384,6 +384,32 @@ async function prepareExplicitEcdsaExportOperation(args: {
   });
 }
 
+async function assertEcdsaExportMaterialStillActive(args: {
+  readonly walletId: string;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly expectedMaterialActivation: PersistedEcdsaRoleLocalMaterial['materialActivation'];
+}): Promise<void> {
+  const resolved = await resolveActiveEcdsaCapabilityRuntime({
+    walletId: toWalletId(args.walletId),
+    chainTarget: args.chainTarget,
+  });
+  if (resolved.kind !== 'resolved') {
+    throw new Error(
+      `[SigningEngine][ecdsa-export] active material unavailable after authorization: ${resolved.reason}`,
+    );
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      resolved.runtime.materialActivation,
+      args.expectedMaterialActivation,
+    )
+  ) {
+    throw new Error(
+      '[SigningEngine][ecdsa-export] active material changed after authorization confirmation',
+    );
+  }
+}
+
 function operationStepUpSessionAuth(
   sessionAuth: EcdsaExplicitExportSessionAuth,
 ): EcdsaOperationStepUpSessionAuth {
@@ -506,6 +532,11 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
       onEvent: args.onEvent,
     },
   );
+  await assertEcdsaExportMaterialStillActive({
+    walletId: args.walletId,
+    chainTarget: args.exportLane.chainTarget,
+    expectedMaterialActivation: args.material.existingRoleLocalMaterial.materialActivation,
+  });
   const sessionAuth = await resolvePasskeyEcdsaExportRouteAuth({
     deps,
     walletId: args.walletId,
@@ -640,6 +671,11 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
       onEvent: args.onEvent,
     },
   );
+  await assertEcdsaExportMaterialStillActive({
+    walletId: args.walletId,
+    chainTarget: args.exportLane.chainTarget,
+    expectedMaterialActivation: exactMaterial.persistedMaterial.materialActivation,
+  });
   const sessionAuth = await resolvePasskeyEcdsaExportRouteAuth({
     deps,
     walletId: args.walletId,

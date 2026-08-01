@@ -1165,7 +1165,7 @@ async function finalizeRouterAbEcdsaExplicitExport(
       export_nonce: active.request.export_nonce,
       authorization_kind: request.authorizationKind,
       authorization_id: request.authorizationId,
-      material_activation_id: request.materialActivationId,
+      material_activation: request.materialActivation,
       lifecycle_id: active.request.lifecycle.lifecycle_id,
       recipient_identity: active.request.client_id,
       recipient_public_key: active.request.client_ephemeral_public_key,

@@ -52,6 +52,7 @@ fn strict_router_ab_ecdsa_derivation_lifecycle_matrix_has_exact_owners() {
                 "handle_cloudflare_router_ab_ecdsa_derivation_explicit_export_authenticated_public_request_v1",
             required: &[
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1",
+                "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_export_preflight_service_call_v1",
                 "CloudflareRouterAbEcdsaDerivationExportAdmissionResponseV1::forwarded",
             ],
             forbidden: &[

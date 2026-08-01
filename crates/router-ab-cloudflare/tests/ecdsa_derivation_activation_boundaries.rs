@@ -36,6 +36,22 @@ fn router_ab_ecdsa_derivation_export_uses_client_only_deriver_path() {
         &lib_rs,
         "handle_cloudflare_router_ab_ecdsa_derivation_explicit_export_authenticated_public_request_v1",
     );
+    assert!(
+        export_body.contains(
+            "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_export_preflight_service_call_v1"
+        ),
+        "ECDSA explicit export must validate active material before Deriver forwarding"
+    );
+    let preflight_index = export_body
+        .find("execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_export_preflight_service_call_v1")
+        .expect("export preflight call");
+    let deriver_index = export_body
+        .find("execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1")
+        .expect("export Deriver call");
+    assert!(
+        preflight_index < deriver_index,
+        "ECDSA explicit export must preflight active material before Deriver side effects"
+    );
     for required in [
         "execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1",
         "CloudflareRouterAbEcdsaDerivationExportAdmissionResponseV1::forwarded",

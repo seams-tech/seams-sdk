@@ -15,6 +15,7 @@ import type {
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import type { EcdsaClientPresignPoolIdentity } from './ecdsaPresignPoolIdentity';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export const EcdsaClientWorkerControlKind = {
@@ -162,7 +163,7 @@ export type FinalizeRouterAbEcdsaExplicitExportRequestV1 = {
   readonly signingWorkerExport: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1;
   readonly authorizationKind: RouterAbEcdsaSigningWorkerExportShareBindingV1['authorization_kind'];
   readonly authorizationId: RouterAbEcdsaSigningWorkerExportShareBindingV1['authorization_id'];
-  readonly materialActivationId: RouterAbEcdsaSigningWorkerExportShareBindingV1['material_activation_id'];
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   readonly roleLocalMaterial: EcdsaRoleLocalWorkerHandle;
   readonly roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
   readonly publicFacts: EcdsaRoleLocalPublicFacts;

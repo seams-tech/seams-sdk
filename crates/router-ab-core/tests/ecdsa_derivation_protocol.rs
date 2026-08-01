@@ -133,6 +133,18 @@ fn public_identity() -> RouterAbEcdsaDerivationPublicIdentityV1 {
     .expect("public identity")
 }
 
+fn export_material_activation() -> MpcMaterialActivationRefV1 {
+    MpcMaterialActivationRefV1::new(
+        "material-activation-1",
+        "capability-1",
+        ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
+        "key-binding-1",
+        "lifecycle-binding-1",
+        "signing-worker-1",
+    )
+    .expect("material activation")
+}
+
 fn registration_request() -> RouterAbEcdsaDerivationRegistrationBootstrapRequestV1 {
     registration_request_for(RouterAbEcdsaDerivationRegistrationPurposeV1::WalletRegistration)
 }
@@ -170,13 +182,7 @@ fn export_request() -> RouterAbEcdsaDerivationExplicitExportRequestV1 {
         client_ephemeral_public_key: "client-ephemeral-public-key-1".to_owned(),
         authorization: NormalSigningAuthorizationV1::reusable_wallet_session("wallet-session-1")
             .expect("export authorization"),
-        material_activation_id: router_ab_ecdsa_derivation_material_activation_id_v1(
-            ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
-            ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
-            ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
-            "root-epoch-1",
-        )
-        .expect("export material activation id"),
+        material_activation: export_material_activation(),
         export_authorization_digest_b64u: digest_b64u(b"export authorization"),
         export_nonce: "export-nonce-1".to_owned(),
         expires_at_ms: 1_900_000_000_000,
@@ -791,6 +797,58 @@ fn router_ab_ecdsa_derivation_request_digests_bind_replay_nonces() {
 }
 
 #[test]
+fn router_ab_ecdsa_derivation_export_digest_binds_complete_material_activation_ref() {
+    let request = export_request();
+    let mut changed = request.clone();
+    changed.material_activation.capability = "capability-2".to_owned();
+    assert_ne!(
+        changed.request_header_digest().expect("changed header digest"),
+        request.request_header_digest().expect("header digest")
+    );
+    let mut changed = request.clone();
+    changed.material_activation.activation_id = "material-activation-2".to_owned();
+    assert_ne!(
+        changed.request_header_digest().expect("changed header digest"),
+        request.request_header_digest().expect("header digest")
+    );
+    let mut changed = request.clone();
+    changed.material_activation.key_binding = "key-binding-2".to_owned();
+    assert_ne!(
+        changed.request_header_digest().expect("changed header digest"),
+        request.request_header_digest().expect("header digest")
+    );
+    let mut changed = request.clone();
+    changed.material_activation.lifecycle_binding = "lifecycle-binding-2".to_owned();
+    assert_ne!(
+        changed.request_header_digest().expect("changed header digest"),
+        request.request_header_digest().expect("header digest")
+    );
+    let mut changed = request.clone();
+    changed.material_activation.material_owner = "wallet-2".to_owned();
+    changed.lifecycle.account_id = "wallet-2".to_owned();
+    assert_ne!(
+        changed.request_header_digest().expect("changed header digest"),
+        request.request_header_digest().expect("header digest")
+    );
+    let mut changed = request.clone();
+    changed.material_activation.signing_worker = "signing-worker-2".to_owned();
+    changed.lifecycle.selected_server_id = "signing-worker-2".to_owned();
+    changed.signer_set.selected_server.server_id = "signing-worker-2".to_owned();
+    assert_ne!(
+        changed.request_header_digest().expect("changed header digest"),
+        request.request_header_digest().expect("header digest")
+    );
+}
+
+#[test]
+fn router_ab_ecdsa_derivation_export_rejects_material_activation_scope_mismatch() {
+    let mut request = export_request();
+    request.material_activation.material_owner = "wallet-2".to_owned();
+    let err = request.validate().expect_err("owner mismatch rejects");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
+}
+
+#[test]
 fn router_ab_ecdsa_derivation_export_request_parses_and_binds_public_identity() {
     let request = export_request();
     let json = serde_json::to_vec(&request).expect("serialize");
@@ -832,6 +890,24 @@ fn router_ab_ecdsa_derivation_export_request_rejects_bad_authorization_digest() 
 
     let err = request.validate().expect_err("bad digest rejects");
     assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+}
+
+#[test]
+fn router_ab_ecdsa_derivation_export_request_rejects_activation_id_only_wire() {
+    let mut value = serde_json::to_value(export_request()).expect("serialize export request");
+    let object = value.as_object_mut().expect("export request object");
+    object.remove("material_activation");
+    object.insert(
+        "material_activation_id".to_owned(),
+        serde_json::json!("material-activation-1"),
+    );
+    let error = parse_router_ab_ecdsa_derivation_explicit_export_request_v1_json(
+        serde_json::to_string(&value)
+            .expect("legacy export request JSON")
+            .as_bytes(),
+    )
+    .expect_err("activation-id-only export wire must reject");
+    assert_eq!(error.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
 }
 
 #[test]

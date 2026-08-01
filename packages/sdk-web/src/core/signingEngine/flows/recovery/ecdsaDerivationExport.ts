@@ -8,6 +8,10 @@ import {
 } from '../../threshold/crypto/ecdsaDerivationClientWasm';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import {
+  routerAbMpcMaterialActivationRefToWire,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import { SigningSessionIds } from '../../session/operationState/types';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { ThresholdEcdsaExplicitKeyExportBootstrapResult } from '../../session/passkey/ecdsaSessionProvision';
@@ -33,9 +37,9 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 
 const ECDSA_DERIVATION_EXPORT_CONFIRMATION_DIGEST_VERSION =
-  'ecdsa-derivation:role-local:product-export-confirmation:v4';
+  'ecdsa-derivation:role-local:product-export-confirmation:v5';
 const ECDSA_DERIVATION_EXPORT_AUTHORIZATION_DIGEST_VERSION =
-  'ecdsa-derivation:role-local:product-export-authorization:v4';
+  'ecdsa-derivation:role-local:product-export-authorization:v5';
 const ECDSA_DERIVATION_EXPORT_AUTH_TTL_MS = 60_000;
 
 export type EcdsaDerivationExportDeps = {
@@ -103,7 +107,7 @@ type EcdsaDerivationExportAuthorizationDigestInput = {
   expiresAtUnixMs: number;
   authorizationKind: EcdsaExplicitExportOperationAuthorization['kind'];
   authorizationId: string;
-  materialActivationId: string;
+  materialActivation: RouterAbMpcMaterialActivationRefWire;
   participantIds: readonly number[];
 };
 
@@ -261,8 +265,8 @@ export function buildEcdsaDerivationExportAuthorizationDigestInput(args: {
     expiresAtUnixMs: args.expiresAtUnixMs,
     authorizationKind: authorization.authorizationKind,
     authorizationId: authorization.authorizationId,
-    materialActivationId: String(
-      args.material.persistedMaterial.materialActivation.activationId,
+    materialActivation: routerAbMpcMaterialActivationRefToWire(
+      args.material.persistedMaterial.materialActivation,
     ),
     participantIds: publicFacts.participantIds,
   };
@@ -277,7 +281,9 @@ async function executeEcdsaDerivationExport(
   ethereumAddress: string;
 }> {
   const publicFacts = material.persistedMaterial.publicFacts;
-  const materialActivationId = String(material.persistedMaterial.materialActivation.activationId);
+  const materialActivation = routerAbMpcMaterialActivationRefToWire(
+    material.persistedMaterial.materialActivation,
+  );
   switch (material.factorAuthorization.kind) {
     case 'passkey': {
       const authorizedCredentialId = String(
@@ -327,7 +333,7 @@ async function executeEcdsaDerivationExport(
     publicIdentity,
     authorizationKind: digestAuthorization.authorizationKind,
     authorizationId: digestAuthorization.authorizationId,
-    materialActivationId,
+    materialActivation,
     exportRequestNonce32B64u,
     issuedAtUnixMs,
     expiresAtUnixMs,
@@ -372,7 +378,7 @@ async function executeEcdsaDerivationExport(
         client_id: publicCapability.client_id,
         authorization: exportAuthorizationWire(material.operationAuthorization),
         operation: material.operationAuthorization.operation,
-        material_activation_id: materialActivationId,
+        material_activation: materialActivation,
         export_authorization_digest_b64u: authorizationDigest32B64u,
         export_nonce: exportRequestNonce32B64u,
         expires_at_ms: expiresAtUnixMs,
@@ -410,7 +416,7 @@ async function executeEcdsaDerivationExport(
         signingWorkerExport: forwarded.value.signing_worker_export,
         authorizationKind: digestAuthorization.authorizationKind,
         authorizationId: digestAuthorization.authorizationId,
-        materialActivationId,
+        materialActivation,
         roleLocalMaterial: material.liveMaterial.liveHandle,
         roleLocalMaterialRef: material.liveMaterial.materialRef,
         publicFacts,

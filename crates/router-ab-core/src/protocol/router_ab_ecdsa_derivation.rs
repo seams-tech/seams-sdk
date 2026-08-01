@@ -1225,7 +1225,7 @@ pub struct RouterAbEcdsaDerivationExplicitExportRequestV1 {
     /// never re-enter this request outside the authorization branch.
     pub authorization: NormalSigningAuthorizationV1,
     /// Exact material activation this export binds.
-    pub material_activation_id: String,
+    pub material_activation: MpcMaterialActivationRefV1,
     /// User-confirmed export authorization digest encoded as unpadded base64url.
     pub export_authorization_digest_b64u: String,
     /// Request-scoped export replay nonce.
@@ -1252,10 +1252,16 @@ impl RouterAbEcdsaDerivationExplicitExportRequestV1 {
             &self.client_ephemeral_public_key,
         )?;
         self.authorization.validate()?;
-        require_ascii_non_empty(
-            "export.material_activation_id",
-            &self.material_activation_id,
-        )?;
+        self.material_activation.validate()?;
+        if self.material_activation.material_owner != self.lifecycle.account_id
+            || self.material_activation.signing_worker != self.lifecycle.selected_server_id
+            || self.material_activation.signing_worker != self.signer_set.selected_server.server_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "export material activation does not match lifecycle and selected server",
+            ));
+        }
         validate_lifecycle_for_context("export.lifecycle", &self.lifecycle, &self.context)?;
         decode_base64url_fixed_32(
             "export.export_authorization_digest_b64u",
@@ -1309,7 +1315,7 @@ impl RouterAbEcdsaDerivationExplicitExportRequestV1 {
         push_len32(&mut out, self.client_id.as_bytes());
         push_len32(&mut out, self.client_ephemeral_public_key.as_bytes());
         push_normal_signing_authorization(&mut out, &self.authorization)?;
-        push_len32(&mut out, self.material_activation_id.as_bytes());
+        push_mpc_material_activation_ref(&mut out, &self.material_activation)?;
         push_len32(&mut out, self.export_authorization_digest_b64u.as_bytes());
         push_len32(&mut out, self.export_nonce.as_bytes());
         push_u64(&mut out, self.expires_at_ms);
