@@ -71,7 +71,8 @@ export type PasskeyEd25519YaoWarmRecoveryUnavailableReason =
 
 export type PasskeyEd25519YaoExportContextV1 = {
   readonly kind: 'passkey_ed25519_yao_export_context_v1';
-  readonly descriptor: ParsedPasskeyEd25519YaoRecoveryDescriptorV1;
+  readonly material: Omit<ParsedPasskeyEd25519YaoRecoveryDescriptorV1, 'session'>;
+  readonly authorization: ActiveWalletSessionAuthorizationProjection;
   readonly relayerUrl: string;
   readonly rpId: string;
 };
@@ -505,7 +506,18 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
     kind: 'ready',
     context: {
       kind: 'passkey_ed25519_yao_export_context_v1',
-      descriptor,
+      material: {
+        authority: descriptor.authority,
+        walletId: descriptor.walletId,
+        nearAccountId: descriptor.nearAccountId,
+        nearEd25519SigningKeyId: descriptor.nearEd25519SigningKeyId,
+        signerSlot: descriptor.signerSlot,
+        operationalPublicKey: descriptor.operationalPublicKey,
+        relayerKeyId: descriptor.relayerKeyId,
+        credentialIdB64u: descriptor.credentialIdB64u,
+        capability: descriptor.capability,
+      },
+      authorization,
       relayerUrl: input.relayerUrl,
       rpId: exactRecord.record.ed25519Restore.rpId,
     },
