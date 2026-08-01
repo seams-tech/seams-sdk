@@ -233,14 +233,18 @@ replacement.
 
 ## Phase 18 — durable restore fields and shared-type residue
 
-- `walletSessionJwt`, `providerSubjectId`, `emailHashHex`,
-  `registrationAuthorityId`, and `signingGrantId` in durable Ed25519 restore
-  records
+- ~~`walletSessionJwt` and `signingGrantId` in durable Ed25519 restore
+  records~~ — current records are grant-free and stale camel/snake-case grant
+  fields are scrubbed at the persistence boundary (`d91e4bc9d`, `04b774f04`).
+  `providerSubjectId` and `emailHashHex` remain required Email OTP material
+  binding facts, while `registrationAuthorityId` remains a boundary concern.
 - ambiguous `remainingUses` / `expiresAtMs` rows (classify each: branded
   recovery policy, quota, grant, session transport — never migrate ambiguously)
 - every `signingGrantId` occurrence (classify: delete, map to operation grant,
   or map to `MpcWalletSigningQuotaId`; never a mechanical rename, never
   material identity)
+- ~~zero-caller Email OTP HKDF tuples that included `signingGrantId`~~ — the
+  obsolete helpers and their test vectors were deleted (`47455581e`).
 - ~~`WalletSessionId = SigningGrantId`; replace it atomically with a distinct
   branded `WalletSessionId` and boundary parser~~ — `WalletSessionId` is an
   independent `DomainId<'WalletSessionId'>`; no alias remains
