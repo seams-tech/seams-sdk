@@ -351,6 +351,14 @@ impl Ed25519YaoCeremonyBindingV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.lifecycle.validate()?;
         self.material_activation.validate()?;
+        if self.material_activation.material_owner != self.lifecycle.account_id
+            || self.material_activation.signing_worker != self.lifecycle.selected_server_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "Ed25519 Yao material activation does not match the admitted lifecycle",
+            ));
+        }
         if self.lifecycle.work_kind != self.operation.work_kind() {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLifecycleState,
@@ -493,6 +501,14 @@ impl RouterAbEd25519YaoLifecycleScopeV1 {
         validate_visible_identifier("signer_set_id", &scope.signer_set_id)?;
         validate_visible_identifier("signing_worker_id", &scope.signing_worker_id)?;
         scope.material_activation.validate()?;
+        if scope.material_activation.material_owner != scope.account_id
+            || scope.material_activation.signing_worker != scope.signing_worker_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "Ed25519 Yao material activation does not match the requested owner and worker",
+            ));
+        }
         Ok(scope)
     }
 
@@ -1762,6 +1778,11 @@ impl RouterAbEd25519YaoActivationResultV1 {
                 "Ed25519 Yao activation result has the wrong operation",
             ));
         }
+        if public_receipt.material_activation != binding.material_activation {
+            return Err(invalid_yao_wire(
+                "Ed25519 Yao activation receipt material does not match the admitted binding",
+            ));
+        }
         validate_activation_client_package(
             &binding,
             &public_receipt,
@@ -2250,6 +2271,60 @@ mod tests {
             client_package(Ed25519YaoDeriverRoleV1::DeriverA, [19; 32]),
             client_package(Ed25519YaoDeriverRoleV1::DeriverB, receipt.transcript()),
             receipt,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn activation_boundaries_reject_material_identity_substitution() {
+        let wrong_owner = MpcMaterialActivationRefV1::new(
+            "activation-1",
+            "capability-1",
+            "other-account",
+            "key-1",
+            "lifecycle-1",
+            "signing-worker-1",
+        )
+        .expect("wrong-owner material activation");
+        assert!(Ed25519YaoCeremonyBindingV1::new(
+            lifecycle(ExpensiveWorkKindV1::RegistrationPrepare),
+            Ed25519YaoOperationV1::Registration,
+            Ed25519YaoSessionIdV1::new([7; 32]).expect("session"),
+            Ed25519YaoStableKeyContextBindingV1::new([8; 32]),
+            wrong_owner,
+        )
+        .is_err());
+
+        let binding = registration_binding();
+        let wrong_receipt = RouterAbEd25519YaoActivationPublicReceiptV1::new(
+            [11; 32],
+            [12; 32],
+            [13; 32],
+            [14; 32],
+            [15; 32],
+            Ed25519YaoStateEpochV1::new(1).expect("state epoch"),
+            MpcMaterialActivationRefV1::new(
+                "other-activation",
+                "capability-1",
+                "account-1",
+                "key-1",
+                "lifecycle-1",
+                "signing-worker-1",
+            )
+            .expect("substituted material activation"),
+        )
+        .expect("public receipt");
+        assert!(RouterAbEd25519YaoActivationResultV1::new(
+            binding,
+            client_package(
+                Ed25519YaoDeriverRoleV1::DeriverA,
+                wrong_receipt.transcript()
+            ),
+            client_package(
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                wrong_receipt.transcript()
+            ),
+            wrong_receipt,
         )
         .is_err());
     }

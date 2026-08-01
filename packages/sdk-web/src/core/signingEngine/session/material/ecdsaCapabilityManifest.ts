@@ -1,5 +1,6 @@
 import {
   buildMpcMaterialActivationRef,
+  mpcMaterialActivationRefsEqual,
   parseMpcKeyBindingRef,
   parseMpcLifecycleBindingRef,
   parseMpcSigningWorkerRef,
@@ -1181,10 +1182,7 @@ function assertRegisteredPublicFactsMatchBinding(
   }
 }
 
-function participantIdsMatch(
-  left: readonly number[],
-  right: readonly number[],
-): boolean {
+function participantIdsMatch(left: readonly number[], right: readonly number[]): boolean {
   if (left.length !== right.length) return false;
   return left.every((participantId, index) => Number(participantId) === Number(right[index]));
 }
@@ -1205,10 +1203,15 @@ function assertDurableMaterialMatchesActivation(
   serverActivation: EcdsaServerActivationCommit,
 ): void {
   const receipt = serverActivation.serverActivationReceipt;
+  const committedMaterialActivation = materialActivationFromCommit(
+    activationBinding,
+    receipt.protocolReceipt,
+  );
   if (
-    durableMaterial.materialActivation.activationId !== activationBinding.activationId ||
-    durableMaterial.materialActivation.capability !== activationBinding.signer.capability ||
-    durableMaterial.materialActivation.materialOwner !== activationBinding.signer.materialOwner ||
+    !mpcMaterialActivationRefsEqual(
+      durableMaterial.materialActivation,
+      committedMaterialActivation,
+    ) ||
     durableMaterial.roleLocalBinding !== activationBinding.roleLocalBinding ||
     durableMaterial.durableMaterialRef !== activationBinding.durableMaterialRef ||
     durableMaterial.bindingDigest !== activationBinding.bindingDigest ||

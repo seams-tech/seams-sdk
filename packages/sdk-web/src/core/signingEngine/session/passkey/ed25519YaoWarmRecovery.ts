@@ -37,7 +37,11 @@ import {
   type ActiveWalletSessionAuthorizationProjection,
   type WalletSessionAuthorizationReadResult,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+  parseWalletId,
+  type WalletId,
+} from '@shared/utils/domainIds';
 
 export type PasskeyEd25519RecordRuntimePorts = {
   readonly listExactSealedSessionsForWallet: typeof listExactSealedSessionsForWallet;
@@ -226,10 +230,7 @@ export async function requirePasskeyEd25519RestoreAuthorization(args: {
     authority: buildPasskeyWalletAuthAuthority({
       walletId: args.record.walletId,
       rpId: restore.rpId,
-      credentialIdB64u: requireString(
-        restore.credentialIdB64u,
-        'ed25519Restore.credentialIdB64u',
-      ),
+      credentialIdB64u: requireString(restore.credentialIdB64u, 'ed25519Restore.credentialIdB64u'),
     }),
   });
   const authorization = args.authorizationRead.projection;
@@ -368,9 +369,8 @@ async function parseWarmRecoveryDescriptor(args: {
   );
   const walletSessionId = parseWalletSessionId(response.walletSessionId);
   const quotaId = parseMpcWalletSigningQuotaId(response.quotaId);
-  const expectedAuthorityRef = authority
-    ? await walletAuthAuthorityRef({ authority })
-    : null;
+  const capability = parseEd25519YaoRecoveryCapabilityV1(response.capability);
+  const expectedAuthorityRef = authority ? await walletAuthAuthorityRef({ authority }) : null;
   if (
     !authority ||
     !authorityRef ||
@@ -397,11 +397,11 @@ async function parseWarmRecoveryDescriptor(args: {
     thresholdExpiresAtMs !== record.expiresAtMs ||
     participantIds[0] !== restore.participantIds[0] ||
     participantIds[1] !== restore.participantIds[1] ||
+    !mpcMaterialActivationRefsEqual(capability.materialActivation, restore.materialActivation) ||
     !sameRuntimePolicyScope(responseRuntimePolicyScope, sealedRuntimePolicyScope)
   ) {
     throw new Error('warm recovery bootstrap does not match the exact sealed Ed25519 lane');
   }
-  const capability = parseEd25519YaoRecoveryCapabilityV1(response.capability);
   const signingRoot = signingRootScopeFromRuntimePolicyScope(responseRuntimePolicyScope);
   if (!signingRoot) throw new Error('warm recovery bootstrap signing-root scope is invalid');
   return {
@@ -436,8 +436,9 @@ export async function resolvePasskeyEd25519YaoExportContextV1(input: {
 }): Promise<PasskeyEd25519YaoExportContextResolutionV1> {
   return await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(input, {
     listExactSealedSessionsForWallet,
-    readActiveWalletSessionAuthorization:
-      walletSessionAuthorizations.readActiveForWallet.bind(walletSessionAuthorizations),
+    readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
+      walletSessionAuthorizations,
+    ),
     nowMs: Date.now,
   });
 }

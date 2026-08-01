@@ -53,7 +53,10 @@ import {
   parseThresholdEd25519SessionId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
-import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  sameRouterAbMpcMaterialActivationRef,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 
 type RecoveryAdmissionReceipt = RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'>;
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
@@ -827,7 +830,11 @@ function registrationResultMatchesAdmission(
     scope.account_id === lifecycle.account_id &&
     scope.wallet_session_id === lifecycle.session_id &&
     scope.signer_set_id === lifecycle.signer_set_id &&
-    scope.signing_worker_id === lifecycle.selected_server_id
+    scope.signing_worker_id === lifecycle.selected_server_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      scope.material_activation,
+      result.binding.material_activation,
+    )
   );
 }
 
@@ -844,6 +851,10 @@ function recoveryResultMatchesAdmission(
     scope.wallet_session_id === lifecycle.session_id &&
     scope.signer_set_id === lifecycle.signer_set_id &&
     scope.signing_worker_id === lifecycle.selected_server_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      scope.material_activation,
+      result.binding.material_activation,
+    ) &&
     equalBytes(request.registered_public_key, result.public_receipt.registered_public_key) &&
     result.public_receipt.state_epoch > 1
   );
@@ -1035,7 +1046,11 @@ function recoveryRequestMatchesActiveCapabilityIdentity(
     scope.root_share_epoch === activeLifecycle.root_share_epoch &&
     scope.account_id === activeLifecycle.account_id &&
     scope.signer_set_id === activeLifecycle.signer_set_id &&
-    scope.signing_worker_id === activeLifecycle.selected_server_id
+    scope.signing_worker_id === activeLifecycle.selected_server_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      scope.material_activation,
+      identity.activationBinding.material_activation,
+    )
   );
 }
 
@@ -1053,6 +1068,10 @@ function recoveryAdmissionReceiptMatches(
     scope.wallet_session_id === lifecycle.session_id &&
     scope.signer_set_id === lifecycle.signer_set_id &&
     scope.signing_worker_id === lifecycle.selected_server_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      scope.material_activation,
+      receipt.binding.material_activation,
+    ) &&
     equalBytes(
       receipt.binding.stable_key_context_binding,
       identity.activationBinding.stable_key_context_binding,

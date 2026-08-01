@@ -99,17 +99,12 @@ export type EmailOtpEd25519YaoSilentRecoverySubject = {
 };
 
 export type EmailOtpEd25519YaoPublicLocatorObservationV1 =
-  | Omit<
-      Extract<NearEd25519YaoPublicLocatorObservationV1, { kind: 'available' }>,
-      'authority'
-    >
+  | Omit<Extract<NearEd25519YaoPublicLocatorObservationV1, { kind: 'available' }>, 'authority'>
   | Exclude<NearEd25519YaoPublicLocatorObservationV1, { kind: 'available' }>;
 
 export type ResolvedEmailOtpEd25519YaoExportV1 = {
   kind: 'email_otp_ed25519_yao_export_context_v1';
-  lane: ExactEd25519SigningLaneIdentity<
-    Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>
-  >;
+  lane: ExactEd25519SigningLaneIdentity<Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>>;
   authorization: ActiveWalletSessionAuthorizationProjection;
   material: {
     materialActivation: MpcMaterialActivationRef;
@@ -121,9 +116,7 @@ export type EmailOtpEd25519YaoSilentRecoveryPorts = {
   readExactSealedSession: typeof readExactSealedSession;
   readActiveWalletSessionAuthorization: (
     walletId: WalletId,
-  ) => Promise<
-    WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>
-  >;
+  ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
   workerContext: WorkerOperationContext;
   resolveActiveCapability: (
     scope: Ed25519YaoActiveClientLookupScopeV1,
@@ -350,9 +343,7 @@ export async function resolveEmailOtpEd25519YaoHydrationPlanForSigningV1(input: 
 
 function sealedRecordMatchesExportSubject(
   record: CurrentEd25519SealedSessionRecord,
-  subject: ExactEd25519SigningLaneIdentity<
-    Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>
-  >,
+  subject: ExactEd25519SigningLaneIdentity<Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>>,
 ): boolean {
   const restore = record.ed25519Restore;
   return (
@@ -529,6 +520,7 @@ async function parseWarmBootstrap(args: {
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
     response.routerAbNormalSigning,
   );
+  const capability = activeCapabilityDescriptor(response.capability);
   const signingRoot = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
   const expectedAuthorityRef = authority ? await walletAuthAuthorityRef({ authority }) : null;
   if (
@@ -564,6 +556,7 @@ async function parseWarmBootstrap(args: {
     args.expiresAtMs !== record.expiresAtMs ||
     participantIds[0] !== restore.participantIds[0] ||
     participantIds[1] !== restore.participantIds[1] ||
+    !mpcMaterialActivationRefsEqual(capability.materialActivation, emailOtp.materialActivation) ||
     !sameRuntimePolicyScope(runtimePolicyScope, sealedRuntimePolicyScope)
   ) {
     throw new Error('Email OTP Ed25519 warm recovery changed the exact sealed lane');
@@ -596,7 +589,7 @@ async function parseWarmBootstrap(args: {
       runtimePolicyScope,
       routerAbNormalSigning,
     },
-    capability: activeCapabilityDescriptor(response.capability),
+    capability,
   };
 }
 
@@ -680,10 +673,7 @@ async function runFencedEmailOtpEd25519YaoSealedRecovery(
   const record = sealedRecord.record;
   const emailOtp = emailOtpRestoreMetadata(record);
   if (
-    !mpcMaterialActivationRefsEqual(
-      emailOtp.materialActivation,
-      input.expectedMaterialActivation,
-    )
+    !mpcMaterialActivationRefsEqual(emailOtp.materialActivation, input.expectedMaterialActivation)
   ) {
     throw new Error(
       '[SigningEngine][near] Email OTP Ed25519 sealed recovery material was superseded before use',
@@ -722,9 +712,7 @@ async function runFencedEmailOtpEd25519YaoSealedRecovery(
       nearAccountId: input.subject.nearAccountId,
       materialActivation: emailOtp.materialActivation,
     },
-    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
-      session.thresholdSessionId,
-    ),
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(session.thresholdSessionId),
     signerSlot: input.subject.signerSlot,
     expectedOperationalPublicKey: input.expectedOperationalPublicKey,
     providerSubject: emailOtp.providerSubjectId,
@@ -810,17 +798,13 @@ export async function recoverEmailOtpEd25519YaoFromSealedSessionV1(
 }
 
 export async function resolveEmailOtpEd25519YaoExportContextV1(input: {
-  subject: ExactEd25519SigningLaneIdentity<
-    Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>
-  >;
+  subject: ExactEd25519SigningLaneIdentity<Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>>;
   relayerUrl: string;
   ports: {
     readExactSealedSession: typeof readExactSealedSession;
     readActiveWalletSessionAuthorization: (
       walletId: WalletId,
-    ) => Promise<
-      WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>
-    >;
+    ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
     fetch: typeof fetch;
   };
 }): Promise<ResolvedEmailOtpEd25519YaoExportV1> {

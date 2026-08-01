@@ -16,6 +16,7 @@ import {
 import { thresholdEcdsaChainTargetKey } from '../interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetsEqual } from '../interfaces/ecdsaChainTarget';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import {
   normalizeRuntimePolicyScope,
   signingRootScopeFromRuntimePolicyScope,
@@ -133,14 +134,22 @@ function persistenceSingleFlightKey(args: {
 }): string {
   if (args.transport.curve === 'ecdsa') {
     const material = args.transport.ecdsaRestore?.roleLocalMaterialRef;
+    if (!material) {
+      throw new Error('Passkey ECDSA persistence requires exact restore metadata');
+    }
     return [
       'persist',
       'passkey',
       'ecdsa',
       thresholdEcdsaChainTargetKey(args.transport.chainTarget),
-      material?.materialActivation.activationId || args.thresholdSessionId,
-      material?.durableMaterialRef || '',
-      material?.bindingDigest || '',
+      material.materialActivation.activationId,
+      material.materialActivation.capability,
+      material.materialActivation.materialOwner,
+      material.materialActivation.keyBinding,
+      material.materialActivation.lifecycleBinding,
+      material.materialActivation.signingWorker,
+      material.durableMaterialRef,
+      material.bindingDigest,
     ].join('|');
   }
   return ['persist', 'passkey', 'ed25519', args.thresholdSessionId].join('|');
@@ -284,8 +293,10 @@ function ecdsaRestoreNamesSameMaterial(
     left.relayerKeyId === right.relayerKeyId &&
     left.clientVerifyingShareB64u === right.clientVerifyingShareB64u &&
     left.thresholdEcdsaPublicKeyB64u === right.thresholdEcdsaPublicKeyB64u &&
-    left.roleLocalMaterialRef.materialActivation.activationId ===
-      right.roleLocalMaterialRef.materialActivation.activationId &&
+    mpcMaterialActivationRefsEqual(
+      left.roleLocalMaterialRef.materialActivation,
+      right.roleLocalMaterialRef.materialActivation,
+    ) &&
     left.roleLocalMaterialRef.durableMaterialRef ===
       right.roleLocalMaterialRef.durableMaterialRef &&
     left.roleLocalMaterialRef.bindingDigest === right.roleLocalMaterialRef.bindingDigest &&
@@ -317,12 +328,6 @@ function existingRecordMatchesRequest(args: {
       args.existing.ecdsaRestore.chainTarget,
       args.transport.chainTarget,
     )
-  ) {
-    return false;
-  }
-  if (
-    args.existing.ecdsaRestore.roleLocalMaterialRef.materialActivation.activationId !==
-    args.thresholdSessionId
   ) {
     return false;
   }
@@ -466,9 +471,7 @@ export class PasskeyMpcSessionDurableState {
     if (
       !existing ||
       existing.curve !== 'ecdsa' ||
-      existing.thresholdSessionIds.ecdsa !== args.thresholdSessionId ||
-      existing.ecdsaRestore.roleLocalMaterialRef.materialActivation.activationId !==
-        args.thresholdSessionId
+      existing.thresholdSessionIds.ecdsa !== args.thresholdSessionId
     ) {
       return;
     }
@@ -607,12 +610,10 @@ export class PasskeyMpcSessionDurableState {
     if (
       args.transport.curve === 'ecdsa' &&
       args.metadata.ecdsaRestore &&
-      (!thresholdEcdsaChainTargetsEqual(
+      !thresholdEcdsaChainTargetsEqual(
         args.transport.chainTarget,
         args.metadata.ecdsaRestore.chainTarget,
-      ) ||
-        args.metadata.ecdsaRestore.roleLocalMaterialRef.materialActivation.activationId !==
-          args.thresholdSessionId)
+      )
     ) {
       return {
         ok: false,

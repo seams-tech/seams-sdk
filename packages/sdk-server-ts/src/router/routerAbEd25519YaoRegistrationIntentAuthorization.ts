@@ -14,6 +14,7 @@ import {
   type RegistrationIntentV1,
 } from '@shared/utils/registrationIntent';
 import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
+import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   RouterAbEd25519YaoRegistrationAuthorizationAdapter,
   RouterAbEd25519YaoRegistrationAuthorizationInput,
@@ -328,7 +329,11 @@ function lifecycleMatchesAdmission(input: {
     lifecycle.account_id === scope.account_id &&
     lifecycle.session_id === scope.wallet_session_id &&
     lifecycle.signer_set_id === scope.signer_set_id &&
-    lifecycle.selected_server_id === scope.signing_worker_id
+    lifecycle.selected_server_id === scope.signing_worker_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      input.binding.material_activation,
+      scope.material_activation,
+    )
   );
 }
 

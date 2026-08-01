@@ -17,6 +17,7 @@ import {
   ROUTER_AB_TRACE_ID_HEADER_V1,
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
+import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import { json, readJson } from './cloudflare/http';
 import { createRouterApiModule, type RouterApiModule } from './modules';
 import { defineRoute, type RouteDefinition } from './routeDefinitions';
@@ -324,7 +325,11 @@ function registrationScopeMatchesReceipt(
     scope.account_id === lifecycle.account_id &&
     scope.wallet_session_id === lifecycle.session_id &&
     scope.signer_set_id === lifecycle.signer_set_id &&
-    scope.signing_worker_id === lifecycle.selected_server_id
+    scope.signing_worker_id === lifecycle.selected_server_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      scope.material_activation,
+      receipt.binding.material_activation,
+    )
   );
 }
 
