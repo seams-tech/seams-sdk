@@ -40,6 +40,7 @@ import type {
   Ed25519YaoActiveClientLookupScopeV1,
 } from '../../threshold/ed25519/yaoActiveClientRegistry';
 import {
+  readExactEmailOtpEd25519SealedSessionByMaterialActivation,
   readExactSealedSession,
   type CurrentEd25519SealedSessionRecord,
 } from '../persistence/sealedSessionStore';
@@ -799,26 +800,27 @@ export async function recoverEmailOtpEd25519YaoFromSealedSessionV1(
 
 export async function resolveEmailOtpEd25519YaoExportContextV1(input: {
   subject: ExactEd25519SigningLaneIdentity<Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>>;
+  expectedMaterialActivation: MpcMaterialActivationRef;
   relayerUrl: string;
   ports: {
-    readExactSealedSession: typeof readExactSealedSession;
+    readExactEmailOtpEd25519SealedSessionByMaterialActivation: typeof readExactEmailOtpEd25519SealedSessionByMaterialActivation;
     readActiveWalletSessionAuthorization: (
       walletId: WalletId,
     ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
     fetch: typeof fetch;
   };
 }): Promise<ResolvedEmailOtpEd25519YaoExportV1> {
-  const record = await input.ports.readExactSealedSession(
-    String(input.subject.thresholdSessionId),
-    {
-      authMethod: 'email_otp',
-      curve: 'ed25519',
-    },
+  const record = await input.ports.readExactEmailOtpEd25519SealedSessionByMaterialActivation(
+    input.expectedMaterialActivation,
   );
   if (
     !record ||
     record.curve !== 'ed25519' ||
-    !sealedRecordMatchesExportSubject(record, input.subject)
+    !sealedRecordMatchesExportSubject(record, input.subject) ||
+    !mpcMaterialActivationRefsEqual(
+      record.ed25519Restore.materialActivation,
+      input.expectedMaterialActivation,
+    )
   ) {
     throw new Error(
       '[SigningEngine][ed25519-export] exact durable Email OTP Yao context is unavailable',
@@ -856,13 +858,12 @@ export async function resolveEmailOtpEd25519YaoExportContextV1(input: {
       '[SigningEngine][ed25519-export] durable Email OTP authority changed before export',
     );
   }
-  const material = emailOtpRestoreMetadata(record);
   return {
     kind: 'email_otp_ed25519_yao_export_context_v1',
     lane: input.subject,
     authorization,
     material: {
-      materialActivation: material.materialActivation,
+      materialActivation: input.expectedMaterialActivation,
       capability: bootstrap.capability,
     },
   };

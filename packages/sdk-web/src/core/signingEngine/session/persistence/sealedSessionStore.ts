@@ -1,9 +1,11 @@
 import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import {
+  mpcMaterialActivationRefsEqual,
   parseMpcMaterialActivationRef,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
+import { ed25519DurableMaterialLocator } from '../sealedRecovery/materialActivationKey';
 import {
   signingSessionSealsRepository,
   type StoredRawSealedRecordEntry,
@@ -1725,6 +1727,53 @@ export async function readExactSealedSession(
   const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
   if (!thresholdSessionId) return null;
   return await readRecordByThresholdSessionId(thresholdSessionId, purpose, 'read');
+}
+
+export async function readExactEmailOtpEd25519SealedSessionByMaterialActivation(
+  materialActivation: MpcMaterialActivationRef,
+): Promise<CurrentEd25519SealedSessionRecord | null> {
+  const locator = ed25519DurableMaterialLocator({
+    authMethod: 'email_otp',
+    materialActivation,
+  });
+  const entries = await signingSessionSealsRepository.collectAllRawSealedRecordEntries();
+  const deletePrimaryKeys: unknown[] = [];
+  const matches: CurrentEd25519SealedSessionRecord[] = [];
+  for (const entry of entries) {
+    const classification = await classifyPersistedSealedRecord(entry);
+    if (classification.kind === 'current') {
+      const record = classification.record;
+      if (
+        record.curve === 'ed25519' &&
+        record.authMethod === locator.authMethod &&
+        mpcMaterialActivationRefsEqual(
+          record.ed25519Restore.materialActivation,
+          locator.materialActivation,
+        )
+      ) {
+        matches.push(record);
+      }
+      continue;
+    }
+    logSealedSessionClassification({
+      operation: 'read exact Email OTP Ed25519 material',
+      classification,
+    });
+    if (classification.kind === 'delete_required' || classification.kind === 'malformed') {
+      deletePrimaryKeys.push(entry.primaryKey);
+    }
+    if (classification.kind === 'user_action_required') {
+      await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
+      throw new SealedSessionRecordUserActionRequiredError(classification);
+    }
+  }
+  await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
+  if (matches.length > 1) {
+    throw new Error(
+      '[SigningSessionSealedStore] exact Email OTP Ed25519 material activation is ambiguous',
+    );
+  }
+  return matches[0] ?? null;
 }
 
 export async function listExactSealedSessionsForWallet(args: {

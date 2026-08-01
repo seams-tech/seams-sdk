@@ -874,9 +874,15 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
 
     const context = await resolveEmailOtpEd25519YaoExportContextV1({
       subject: exportLaneIdentity(),
+      expectedMaterialActivation: publicCapabilityReference().materialActivation,
       relayerUrl: RELAYER_URL,
       ports: {
-        readExactSealedSession: async () => sealedRecord,
+        readExactEmailOtpEd25519SealedSessionByMaterialActivation: async (
+          materialActivation,
+        ) => {
+          expect(materialActivation).toEqual(publicCapabilityReference().materialActivation);
+          return sealedRecord;
+        },
         readActiveWalletSessionAuthorization: readActiveEmailOtpWalletSessionAuthorization,
         fetch: async () => {
           bootstrapRequests += 1;
@@ -913,6 +919,41 @@ test.describe('Email OTP Ed25519 Yao budget recovery', () => {
         },
       },
     });
+  });
+
+  test('rejects a sealed export record whose full material activation differs from the canonical locator', async () => {
+    const expiresAtMs = Date.now() + 60_000;
+    const sealedRecord = buildEmailOtpSealedRecord({ expiresAtMs, remainingUses: 0 });
+    const canonicalActivation = publicCapabilityReference().materialActivation;
+    const supersededActivation = unwrapDomainId(
+      parseMpcMaterialActivationRef({
+        ...canonicalActivation,
+        lifecycleBinding: 'superseded-export-lifecycle-binding',
+      }),
+    );
+    let authorizationReads = 0;
+    let bootstrapRequests = 0;
+
+    await expect(
+      resolveEmailOtpEd25519YaoExportContextV1({
+        subject: exportLaneIdentity(),
+        expectedMaterialActivation: supersededActivation,
+        relayerUrl: RELAYER_URL,
+        ports: {
+          readExactEmailOtpEd25519SealedSessionByMaterialActivation: async () => sealedRecord,
+          readActiveWalletSessionAuthorization: async () => {
+            authorizationReads += 1;
+            return await readActiveEmailOtpWalletSessionAuthorization();
+          },
+          fetch: async () => {
+            bootstrapRequests += 1;
+            throw new Error('unexpected bootstrap request');
+          },
+        },
+      }),
+    ).rejects.toThrow('exact durable Email OTP Yao context is unavailable');
+    expect(authorizationReads).toBe(0);
+    expect(bootstrapRequests).toBe(0);
   });
 
   test('cold recovery resolves the exact durable public signer and capability projections', async () => {
