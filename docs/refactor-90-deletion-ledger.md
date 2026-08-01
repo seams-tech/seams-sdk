@@ -482,18 +482,24 @@ ports, and the two-state recovery journal.
   covered directly.
 - ~~`ed25519YaoSealedRefreshWiring.guard.unit.test.ts`~~ — deleted by
   `6d6002e3c`; it duplicated current recovery behavior through source markers.
-- `emailOtpEd25519YaoBudgetRecovery.unit.test.ts` (migrate continuity,
-  monotonic-policy, and cleanup assertions; delete grant/budget fixtures and
-  the tactical sealed-recovery typecheck fixture)
+- ~~`emailOtpEd25519YaoBudgetRecovery.unit.test.ts`~~ — renamed to the
+  capability-owned recovery suite in `82b439fc5`; its valid continuity,
+  lifecycle, export, and cleanup assertions now build the durable record
+  through the shared sealed-session fixture (`fc2383c93`). Current
+  authorization grant/quota fields remain only where the live lane/JWT
+  boundary requires them.
 - `emailOtpEd25519YaoExportRefresh.unit.test.ts` (migrate page-refresh,
   zero-Passkey-callback, durable-context, continuity, and zeroization
   assertions)
 - `passkeyEd25519YaoExportRefresh.unit.test.ts` (migrate stale-grant/
   current-grant, current-credential, no-intervening-transaction, and
   authenticator-drift assertions)
-- `ed25519YaoExportFlow.typecheck.ts` (replace with authority/adapter
-  substitution fixtures that name no factor lane)
-- obsolete positive capability-source fixtures in `nearSigning.typecheck.ts`
+- ~~`ed25519YaoExportFlow.typecheck.ts` migration~~ — the retained fixture now
+  rejects the wrong factor lane at the current authority/adapter boundary and
+  carries no legacy grant or budget material.
+- ~~obsolete positive capability-source fixtures in `nearSigning.typecheck.ts`~~
+  — absent; the retained exact-lane and reusable-vs-operation-grant negative
+  checks describe the current domain.
 
 ## Phase 20 — signing budget subsystem
 
