@@ -44,6 +44,11 @@ import type {
   MpcWalletSigningQuotaId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import {
+  parseSigningGrantId,
+  type SigningGrantId,
+  type ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { deriveSigningRootId, type RuntimePolicyScope } from '@shared/threshold/signingRootScope';
@@ -87,7 +92,7 @@ type RouterAbEd25519YaoWalletSessionMintIdentityV1 = {
   readonly nearAccountId: string;
   readonly nearEd25519SigningKeyId: string;
   readonly authority: WalletAuthAuthority;
-  readonly thresholdSessionId: string;
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly participantIds: readonly [number, number];
@@ -367,10 +372,16 @@ export function createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV
 }
 
 type RouterAbEd25519YaoWalletSessionTermsV1 = {
-  readonly signingGrantId: string;
+  readonly signingGrantId: SigningGrantId;
   readonly expiresAtMs: number;
   readonly remainingUses: number;
 };
+
+function requireSigningGrantId(value: string): SigningGrantId {
+  const parsed = parseSigningGrantId(value);
+  if (!parsed.ok) throw new Error('Ed25519 Yao signing grant identity is invalid');
+  return parsed.value;
+}
 
 function assertNeverWalletSessionMintInput(value: never): never {
   throw new Error(`Unexpected Ed25519 Yao Wallet Session mint kind: ${String(value)}`);
@@ -386,7 +397,7 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
         throw new Error('Verified wallet unlock expiry must follow issuance');
       }
       return {
-        signingGrantId: `wss_${secureRandomBase64Url(24)}`,
+        signingGrantId: requireSigningGrantId(`wss_${secureRandomBase64Url(24)}`),
         expiresAtMs: input.expiresAtMs,
         remainingUses: Math.min(
           DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -395,7 +406,7 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
       };
     case 'same_identity_budget_refresh_v1':
       return {
-        signingGrantId: `wss_${secureRandomBase64Url(24)}`,
+        signingGrantId: requireSigningGrantId(`wss_${secureRandomBase64Url(24)}`),
         expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
         remainingUses: Math.min(
           DEFAULT_WALLET_SESSION_REMAINING_USES,

@@ -15,6 +15,7 @@ import type {
   MpcWalletSigningQuotaId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type { SigningGrantId, ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 
 export type RouterAbEd25519YaoSessionPolicyV1 = {
   readonly version: 'threshold_session_v1';
@@ -22,8 +23,8 @@ export type RouterAbEd25519YaoSessionPolicyV1 = {
   readonly nearEd25519SigningKeyId: string;
   readonly authority: WalletAuthAuthority;
   readonly relayerKeyId: string;
-  readonly thresholdSessionId: string;
-  readonly signingGrantId: string;
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+  readonly signingGrantId: SigningGrantId;
   readonly runtimePolicyScope: RuntimePolicyScope;
   readonly routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   readonly participantIds: readonly [number, number];
