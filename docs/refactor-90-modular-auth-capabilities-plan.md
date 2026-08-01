@@ -1579,6 +1579,10 @@ This is a validation gate, not a deferred cleanup phase.
         protocol passes 9/9.
 - [ ] Focused unit, crash, concurrency, host-adapter, worker/WASM, and vector
       tests pass.
+  - [x] The current branch-specific Wallet Session claim and private-route
+        validation fixtures are enrolled in unit typecheck and pass 9/9;
+        branded identity fixtures reject Wallet Session, threshold-session,
+        activation, and grant substitution (`7efc569b7`).
   - [x] Focused Refactor 92 lifecycle tests pass 38/38; hosted-recovery,
         activation-pair, escrow, and operation-material tests pass 18/18; key
         export, branding, Email OTP isolation, signing architecture, and ECDSA
