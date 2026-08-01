@@ -560,6 +560,10 @@ implementing commit SHA as the evidence.
   - [x] Operation-step-up ECDSA prepare/finalize resolve current canonical
     material before admission, claim, audit, or proxy effects and derive
     admission and claim identity from the canonical ref (`dd68687d4`).
+  - [x] Wallet Session claim and private-route validation uses current
+    branch-specific authorization shapes, is enrolled in unit typecheck, and
+    passes 9/9; branded identity fixtures reject cross-domain substitution
+    (`7efc569b7`).
   - [x] Near recovery journals correlate their outer material owner with both
     admitted activation refs and require replacement material to equal the
     promotion receipt before commit and atomic finalization (`aa5ceb318`).
