@@ -19,10 +19,16 @@ import {
 } from '@server/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge';
 import { parseRouterAbNormalSigningRuntimeConfig } from '@server/core/routerAbSigning/RouterAbNormalSigningRuntime';
 import { RouterAbEcdsaDerivationPoolFillHandlers } from '@server/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 function b64u(byte: number, length: number): string {
   return Buffer.from(new Uint8Array(length).fill(byte)).toString('base64url');
 }
+
+const materialActivation = routerAbMpcMaterialActivationRefToWire(
+  buildMpcMaterialActivationRefFixture('presign-bridge'),
+);
 
 const scope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
   wallet_id: 'wallet-1',
@@ -41,6 +47,7 @@ const scope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
     client_share_retry_counter: 0,
     server_share_retry_counter: 1,
   },
+  material_activation: materialActivation,
   signing_worker: {
     server_id: 'signing-worker-1',
     key_epoch: 'worker-epoch-1',
@@ -119,7 +126,7 @@ function receipt(
   return {
     active_signing_worker_state: {
       account_id: scope.wallet_id,
-      material_activation_id: 'material-activation-1',
+      material_activation: materialActivation,
       account_public_key: scope.public_identity.threshold_public_key33_b64u,
       signing_worker: scope.signing_worker,
       activation_transcript_digest: digest(9),
@@ -313,21 +320,24 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
     const parsed = parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1(
       validReceipt,
     );
-    expect(parsed.active_signing_worker_state.material_activation_id).toBe(
-      'material-activation-1',
-    );
+    expect(parsed.active_signing_worker_state.material_activation).toEqual(materialActivation);
 
-    const legacyState = {
+    const activationIdOnlyState = {
       ...validReceipt,
       active_signing_worker_state: {
         ...validReceipt.active_signing_worker_state,
-        session_id: 'legacy-session-id',
+        material_activation_id: materialActivation.activation_id,
       },
     };
-    delete (legacyState.active_signing_worker_state as { material_activation_id?: string })
-      .material_activation_id;
-    expect(() => parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1(legacyState))
-      .toThrow('receipt.active_signing_worker_state.session_id is not a supported field');
+    delete (activationIdOnlyState.active_signing_worker_state as { material_activation?: unknown })
+      .material_activation;
+    expect(() =>
+      parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1(
+        activationIdOnlyState,
+      ),
+    ).toThrow(
+      'receipt.active_signing_worker_state.material_activation_id is not a supported field',
+    );
   });
 
   test('rejects loose Router A/B scope shapes before private pool-fill construction', () => {
