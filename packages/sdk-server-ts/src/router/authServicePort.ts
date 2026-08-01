@@ -1411,8 +1411,6 @@ export interface RouterApiWebAuthnService {
   ): Promise<RouterApiMethodTypes['verifyWebAuthnSyncAccount']['result']>;
 }
 
-export type RouterApiThresholdRuntimeService = RouterAbSigningRuntimeService;
-
 export interface RouterApiNearFundingService {
   fundImplicitNearAccount(
     input: FundImplicitNearAccountRequest,
@@ -1449,7 +1447,7 @@ export interface RouterApiServiceBag {
   sessionVersions: RouterApiSessionVersionService;
   authorizationSessions: RouterApiAuthorizationSessionService;
   authorizationClaims: RouterApiAuthorizationClaimService;
-  thresholdRuntime: RouterApiThresholdRuntimeService;
+  thresholdRuntime: RouterAbSigningRuntimeService;
   nearFunding: RouterApiNearFundingService;
   recovery: RouterApiRecoveryRouteService;
   router: RouterApiRouterAccountService;
