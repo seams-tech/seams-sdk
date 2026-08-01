@@ -579,6 +579,15 @@ the replacement and legacy MPC paths must not ship together.
 - [ ] Rekey the remaining Passkey, sealed-store, and Email OTP Ed25519 material
       locators from threshold-session identity to the exact material activation;
       remove threshold-session/grant identity from Ed25519 export context.
+  - [x] Warm-session purpose carries exact Ed25519 activation while worker
+        protocol session identity travels separately (`c619db902`).
+  - [x] Email OTP Ed25519 hydration, recovery, publication readback, and export
+        resolve sealed material by the complete activation ref; unavailable
+        public locators fail before durable probing (`eeab81b5a`, `30c1a741a`).
+  - [x] Cloudflare and local Rust normal-signing paths keep Wallet Session,
+        threshold-session, activation, and lifecycle identities distinct; local
+        registration takes explicit activation and refresh rejects substitution
+        (`c45dd8d3f`, `5498e37f9`).
 - [x] Correlate the recovery journal's outer material owner with its admitted
       active/replacement activation refs, and reject replacement material that
       differs from the promotion receipt before commit or either atomic

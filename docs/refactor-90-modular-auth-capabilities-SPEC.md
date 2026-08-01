@@ -570,6 +570,14 @@ implementing commit SHA as the evidence.
   - [x] Near recovery journals correlate their outer material owner with both
     admitted activation refs and require replacement material to equal the
     promotion receipt before commit and atomic finalization (`aa5ceb318`).
+  - [x] Ed25519 warm purpose separates exact activation from its protocol
+    session target; Email OTP hydration, recovery, publication, and export read
+    sealed material by the full activation ref (`c619db902`, `eeab81b5a`,
+    `30c1a741a`).
+  - [x] Cloudflare and local Rust normal signing keep Wallet Session,
+    threshold-session, activation, and lifecycle identities independent; local
+    activation is explicit and refresh rejects substituted material
+    (`c45dd8d3f`, `5498e37f9`).
   - [ ] Canonicalize export before side effects; finish activation-owned
     Ed25519 storage/export identities.
   - [x] Delete write-only ECDSA resolved-identity publication from passkey
