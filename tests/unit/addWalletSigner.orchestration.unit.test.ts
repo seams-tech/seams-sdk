@@ -1027,7 +1027,6 @@ function createContext(captures: Record<string, unknown>): any {
     registrationEvents(captures)?.push('emailOtpEnrollmentMaterialResolved');
     return material;
   };
-  const thresholdEcdsaSessionStore = { recordsByLane: new Map() };
   const emailOtpYaoWorkerContext = new EmailOtpEd25519YaoWorkerContextCapture(captures);
   const ecdsaRegistrationBootstrap = {
     preparePasskeyClientBootstrap: prepareWalletRegistrationEcdsaPreparedClientBootstrap,
@@ -1060,27 +1059,7 @@ function createContext(captures: Record<string, unknown>): any {
     captures.hydratedSession = input;
   };
   const finalizeWalletRegistrationEcdsaSessionsForTest = async (input: Record<string, unknown>) => {
-    await finalizeWalletRegistrationEcdsaSessionsOperation(
-      {
-        bootstrapStore: {
-          upsertProfile: async () => undefined,
-          activateAccountSigner: async (activationInput: any) => ({
-            signer: activationInput.signer,
-            signerSlot: 1,
-          }),
-        },
-        sessionStore: thresholdEcdsaSessionStore,
-        warmSessions: { hydrateSigningSession },
-        persistActivePasskeyEcdsaReauthAnchor: async (input: unknown) => {
-          captures.persistedActivePasskeyEcdsaReauthAnchor = input;
-        },
-        persistEmailOtpEcdsaRegistrationReauthAnchor: async (input: unknown) => {
-          captures.persistedEmailOtpEcdsaRegistrationReauthAnchor = input;
-        },
-        signingSessionSeal: {},
-      },
-      input as any,
-    );
+    await finalizeWalletRegistrationEcdsaSessionsOperation(input as any);
     captures.persistedEcdsaSessions = input;
   };
   return {
