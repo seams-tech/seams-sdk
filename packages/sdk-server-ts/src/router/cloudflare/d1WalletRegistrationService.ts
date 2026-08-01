@@ -1116,8 +1116,11 @@ export class CloudflareD1WalletRegistrationService {
     readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   }): Promise<
     | {
-        readonly ok: true;
-        readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+      readonly ok: true;
+      readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+      readonly keyHandle: string;
+      readonly relayerKeyId: string;
+      readonly participantIds: readonly [number, number];
       }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   > {
@@ -1136,6 +1139,9 @@ export class CloudflareD1WalletRegistrationService {
       return {
         ok: true,
         materialActivation: signer.walletKey.publicCapability.material_activation,
+        keyHandle: signer.walletKey.keyHandle,
+        relayerKeyId: signer.walletKey.relayerKeyId,
+        participantIds: signer.walletKey.participantIds,
       };
     } catch (error: unknown) {
       return {

@@ -979,6 +979,10 @@ test.describe('Router A/B Wallet Session token claims', () => {
       };
     };
     const admissionAdapter = {
+      async evaluatePolicy() {
+        admissions += 1;
+        return { ok: true as const };
+      },
       async evaluate() {
         admissions += 1;
         return { ok: true as const };

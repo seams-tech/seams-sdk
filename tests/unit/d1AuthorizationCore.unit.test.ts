@@ -4,6 +4,8 @@ import {
   type ReusableWalletSessionClaimInput,
 } from '../../packages/sdk-server-ts/src/authorization/service';
 import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1AuthorizationStore';
+import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/d1WalletStore';
+import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -21,6 +23,7 @@ import {
 import {
   buildActiveCapabilityGrant,
   buildCapabilityOperationCompletionClaimRef,
+  buildCapabilityOperationClaim,
   parseHostedWalletSeamsSessionExchangeNonce,
   parseSessionOrigin,
 } from '../../packages/sdk-server-ts/src/authorization/domain';
@@ -34,7 +37,14 @@ import { parseVerifiedGrantEvidenceSetFromPersistence } from '../../packages/sdk
 import { capabilityPolicyPort } from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
 import {
   parseReusableWalletSessionMintId,
+  parseCapabilityBindingId,
+  parseCapabilityGrantUseId,
+  parseAuthorizationAuditEventId,
+  parseMpcWalletSigningQuotaId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import { parseRouterAbMpcMaterialActivationRef } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
+import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
+import type { EcdsaMaterialActivationScope } from '../../packages/sdk-server-ts/src/authorization/service';
 
 const signerMigrations = listD1MigrationFiles('d1-signer');
 
@@ -801,6 +811,533 @@ test.describe('D1 authorization core', () => {
       cleanupTemporaryD1Database(temporary.tempDir);
     }
   });
+
+  test('commits ECDSA evidence and grants exactly once, then claims idempotently', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const namespace = 'ecdsa-atomic-success';
+      const service = createService(temporary.database, namespace);
+      const { authorization, material } = await buildEcdsaAtomicFixture(
+        temporary.database,
+        service,
+        namespace,
+      );
+
+      await expect(
+        service.putEcdsaEvidenceAndGrant({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          material,
+        }),
+      ).resolves.toEqual({ kind: 'committed' });
+      await expect(
+        service.putEcdsaEvidenceAndGrant({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          material,
+        }),
+      ).resolves.toEqual({ kind: 'committed' });
+      await expect(rowCount(temporary.database, 'verified_grant_evidence_sets')).resolves.toBe(1);
+      await expect(rowCount(temporary.database, 'capability_grants')).resolves.toBe(1);
+
+      await expect(
+        service.claimEcdsaReusableWalletSessionOperation({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          claim: authorization.claim,
+          material,
+        }),
+      ).resolves.toMatchObject({
+        claim: authorization.claim,
+        result: { kind: 'claimed' },
+      });
+      await expect(
+        service.claimEcdsaReusableWalletSessionOperation({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          claim: authorization.claim,
+          material,
+        }),
+      ).resolves.toMatchObject({
+        claim: null,
+        result: { kind: 'operation_in_progress' },
+      });
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_uses'),
+      ).resolves.toBe(1);
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_audit_events'),
+      ).resolves.toBe(1);
+      await expect(
+        readStoredMaterialActivationId(
+          temporary.database,
+          'reusable_wallet_session_operation_uses',
+        ),
+      ).resolves.toBe(material.materialActivation.activation_id);
+      await expect(
+        readRemainingUses(temporary.database, 'authorization_wallet_session_quotas'),
+      ).resolves.toBe(1);
+      await expect(
+        rowCount(temporary.database, 'ecdsa_authorization_atomic_guards'),
+      ).resolves.toBe(0);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('rejects hostile ECDSA activation and tenant scopes before any writes', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const namespace = 'ecdsa-atomic-boundary';
+      const service = createService(temporary.database, namespace);
+      const { authorization, material } = await buildEcdsaAtomicFixture(
+        temporary.database,
+        service,
+        namespace,
+      );
+      const hostileActivation = parseRouterAbMpcMaterialActivationRef({
+        ...material.materialActivation,
+        activation_id: 'hostile-activation',
+      });
+      const hostileMaterial = { ...material, materialActivation: hostileActivation };
+      const hostileCapability = parseRouterAbMpcMaterialActivationRef({
+        ...material.materialActivation,
+        capability: 'hostile-capability',
+      });
+      const hostileCapabilityMaterial = { ...material, materialActivation: hostileCapability };
+      const hostileKeyHandleMaterial = { ...material, keyHandle: 'hostile-key-handle' };
+      const hostileOwnerMaterial = {
+        ...material,
+        walletId: requiredWalletId('hostile-wallet-owner'),
+      };
+      const hostileTenantMaterial = {
+        ...material,
+        runtimePolicyScope: {
+          ...material.runtimePolicyScope,
+          orgId: 'tenant-hostile',
+        },
+      };
+
+      await expect(
+        service.putEcdsaEvidenceAndGrant({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          material: hostileMaterial,
+        }),
+      ).resolves.toEqual({ kind: 'material_mismatch' });
+      await expect(
+        service.claimEcdsaReusableWalletSessionOperation({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          claim: authorization.claim,
+          material: hostileMaterial,
+        }),
+      ).resolves.toMatchObject({ claim: null, result: { kind: 'material_mismatch' } });
+      await expect(
+        service.putEcdsaEvidenceAndGrant({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          material: hostileOwnerMaterial,
+        }),
+      ).resolves.toEqual({ kind: 'material_mismatch' });
+      await expect(
+        service.claimEcdsaReusableWalletSessionOperation({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          claim: authorization.claim,
+          material: hostileOwnerMaterial,
+        }),
+      ).resolves.toMatchObject({ claim: null, result: { kind: 'material_mismatch' } });
+
+      for (const field of [
+        'material_owner',
+        'key_binding',
+        'lifecycle_binding',
+        'signing_worker',
+      ] as const) {
+        const materialActivation = parseRouterAbMpcMaterialActivationRef({
+          ...material.materialActivation,
+          [field]: `hostile-${field}`,
+        });
+        await expect(
+          service.seedStore.putEcdsaEvidenceAndGrant({
+            evidenceSet: authorization.evidenceSet,
+            grant: authorization.grant,
+            material: { ...material, materialActivation },
+          }),
+          `${field} must be rejected by the D1 signer fence`,
+        ).resolves.toEqual({ kind: 'material_mismatch' });
+      }
+      await expect(
+        service.putEcdsaEvidenceAndGrant({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          material: hostileCapabilityMaterial,
+        }),
+      ).resolves.toEqual({ kind: 'material_mismatch' });
+      await expect(
+        service.claimEcdsaReusableWalletSessionOperation({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          claim: authorization.claim,
+          material: hostileCapabilityMaterial,
+        }),
+      ).resolves.toMatchObject({ claim: null, result: { kind: 'material_mismatch' } });
+      await expect(
+        service.putEcdsaEvidenceAndGrant({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          material: hostileKeyHandleMaterial,
+        }),
+      ).resolves.toEqual({ kind: 'material_mismatch' });
+      await expect(
+        service.claimEcdsaReusableWalletSessionOperation({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          claim: authorization.claim,
+          material: hostileKeyHandleMaterial,
+        }),
+      ).resolves.toMatchObject({ claim: null, result: { kind: 'material_mismatch' } });
+      await expect(
+        service.putEcdsaEvidenceAndGrant({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          material: hostileTenantMaterial,
+        }),
+      ).resolves.toEqual({ kind: 'material_mismatch' });
+      await expect(
+        service.claimEcdsaReusableWalletSessionOperation({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          claim: authorization.claim,
+          material: hostileTenantMaterial,
+        }),
+      ).resolves.toMatchObject({ claim: null, result: { kind: 'material_mismatch' } });
+
+      await expect(rowCount(temporary.database, 'verified_grant_evidence_sets')).resolves.toBe(0);
+      await expect(rowCount(temporary.database, 'capability_grants')).resolves.toBe(0);
+      await expect(
+        readRemainingUses(temporary.database, 'authorization_wallet_session_quotas'),
+      ).resolves.toBe(2);
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_uses'),
+      ).resolves.toBe(0);
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_audit_events'),
+      ).resolves.toBe(0);
+      await expect(rowCount(temporary.database, 'authorization_audit_events')).resolves.toBe(0);
+      await expect(
+        rowCount(temporary.database, 'ecdsa_authorization_atomic_guards'),
+      ).resolves.toBe(0);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('does not replay an ECDSA operation after signer activation rotates', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const namespace = 'ecdsa-atomic-activation-rotation';
+      const service = createService(temporary.database, namespace);
+      const { authorization, material } = await buildEcdsaAtomicFixture(
+        temporary.database,
+        service,
+        namespace,
+      );
+      await service.putEcdsaEvidenceAndGrant({
+        evidenceSet: authorization.evidenceSet,
+        grant: authorization.grant,
+        material,
+      });
+      await expect(
+        service.claimEcdsaReusableWalletSessionOperation({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          claim: authorization.claim,
+          material,
+        }),
+      ).resolves.toMatchObject({ claim: authorization.claim, result: { kind: 'claimed' } });
+
+      const rotatedSigner = createWalletEcdsaSignerRecord({
+        walletId: authorization.reusableWalletSession.walletId,
+        now: authorization.session.createdAtMs + 1,
+        materialActivationId: 'rotated-activation-ref',
+        materialActivationCapability: String(authorization.claim.operation.capabilityId),
+      });
+      const walletStore = new D1WalletStore({
+        database: temporary.database,
+        namespace,
+        orgId: material.runtimePolicyScope.orgId,
+        projectId: material.runtimePolicyScope.projectId,
+        envId: material.runtimePolicyScope.envId,
+      });
+      await walletStore.putSigner(rotatedSigner);
+      const rotatedMaterial = {
+        ...material,
+        keyHandle: rotatedSigner.walletKey.keyHandle,
+        materialActivation: rotatedSigner.walletKey.publicCapability.material_activation,
+      };
+
+      await expect(
+        service.claimEcdsaReusableWalletSessionOperation({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          claim: authorization.claim,
+          material: rotatedMaterial,
+        }),
+      ).resolves.toMatchObject({ claim: null, result: { kind: 'material_mismatch' } });
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_uses'),
+      ).resolves.toBe(1);
+      await expect(
+        readStoredMaterialActivationId(
+          temporary.database,
+          'reusable_wallet_session_operation_uses',
+        ),
+      ).resolves.toBe(material.materialActivation.activation_id);
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_audit_events'),
+      ).resolves.toBe(1);
+      await expect(
+        readRemainingUses(temporary.database, 'authorization_wallet_session_quotas'),
+      ).resolves.toBe(1);
+      await expect(rowCount(temporary.database, 'authorization_audit_events')).resolves.toBe(0);
+      await expect(
+        rowCount(temporary.database, 'ecdsa_authorization_atomic_guards'),
+      ).resolves.toBe(0);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('claims ECDSA operation-step-up grants with activation-bound replay', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const namespace = 'ecdsa-atomic-step-up';
+      const service = createService(temporary.database, namespace);
+      const authorization = await buildStepUpAuthorizationCoreFixture();
+      const walletId = requiredWalletId('wallet-authorization');
+      const signer = createWalletEcdsaSignerRecord({
+        walletId,
+        now: authorization.session.createdAtMs,
+        materialActivationCapability: String(authorization.claim.operation.capabilityId),
+      });
+      const runtimePolicyScope = {
+        orgId: authorization.session.tenantId,
+        projectId: 'project-a',
+        envId: 'env-a',
+        signingRootVersion: signer.walletKey.signingRootVersion,
+      } as const;
+      const walletStore = new D1WalletStore({
+        database: temporary.database,
+        namespace,
+        orgId: runtimePolicyScope.orgId,
+        projectId: runtimePolicyScope.projectId,
+        envId: runtimePolicyScope.envId,
+      });
+      await walletStore.putSigner(signer);
+      await service.recordActiveSession(authorization.session);
+      await service.recordVerifiedSessionEvidenceSet(authorization.sessionEvidenceInput);
+      await service.seedStore.putActiveGrant(authorization.grant);
+      const material: EcdsaMaterialActivationScope = {
+        walletId,
+        keyHandle: signer.walletKey.keyHandle,
+        runtimePolicyScope,
+        materialActivation: signer.walletKey.publicCapability.material_activation,
+      };
+
+      await expect(
+        service.claimEcdsaOperation({ claim: authorization.claim, material }),
+      ).resolves.toMatchObject({ kind: 'claimed' });
+      await expect(
+        service.claimEcdsaOperation({ claim: authorization.claim, material }),
+      ).resolves.toMatchObject({ kind: 'operation_in_progress' });
+      await expect(rowCount(temporary.database, 'capability_grant_uses')).resolves.toBe(1);
+      await expect(
+        readStoredMaterialActivationId(temporary.database, 'capability_grant_uses'),
+      ).resolves.toBe(material.materialActivation.activation_id);
+      await expect(rowCount(temporary.database, 'authorization_audit_events')).resolves.toBe(1);
+
+      const rotatedSigner = createWalletEcdsaSignerRecord({
+        walletId,
+        now: authorization.session.createdAtMs + 1,
+        materialActivationId: 'step-up-rotated-activation-ref',
+        materialActivationCapability: String(authorization.claim.operation.capabilityId),
+      });
+      await walletStore.putSigner(rotatedSigner);
+      await expect(
+        service.claimEcdsaOperation({
+          claim: authorization.claim,
+          material: {
+            ...material,
+            keyHandle: rotatedSigner.walletKey.keyHandle,
+            materialActivation: rotatedSigner.walletKey.publicCapability.material_activation,
+          },
+        }),
+      ).resolves.toEqual({ kind: 'material_mismatch' });
+      await expect(rowCount(temporary.database, 'capability_grant_uses')).resolves.toBe(1);
+      await expect(rowCount(temporary.database, 'authorization_audit_events')).resolves.toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('rolls back ECDSA evidence and grant writes on conflicting persisted rows', async () => {
+    const evidenceConflict = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(evidenceConflict.database, signerMigrations);
+      const namespace = 'ecdsa-atomic-evidence-conflict';
+      const service = createService(evidenceConflict.database, namespace);
+      const { authorization, material } = await buildEcdsaAtomicFixture(
+        evidenceConflict.database,
+        service,
+        namespace,
+      );
+      await service.recordVerifiedSessionEvidenceSet({
+        ...authorization.sessionEvidenceInput,
+        operation: operationWithIntentDigest(authorization.claim.operation, testDigest(91)),
+      });
+
+      await expect(
+        service.putEcdsaEvidenceAndGrant({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          material,
+        }),
+      ).resolves.toEqual({ kind: 'material_mismatch' });
+      await expect(
+        rowCount(evidenceConflict.database, 'verified_grant_evidence_sets'),
+      ).resolves.toBe(1);
+      await expect(rowCount(evidenceConflict.database, 'capability_grants')).resolves.toBe(0);
+      await expect(
+        readRemainingUses(evidenceConflict.database, 'authorization_wallet_session_quotas'),
+      ).resolves.toBe(2);
+      await expect(
+        rowCount(evidenceConflict.database, 'reusable_wallet_session_operation_uses'),
+      ).resolves.toBe(0);
+      await expect(
+        rowCount(evidenceConflict.database, 'reusable_wallet_session_operation_audit_events'),
+      ).resolves.toBe(0);
+    } finally {
+      cleanupTemporaryD1Database(evidenceConflict.tempDir);
+    }
+
+    const grantConflict = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(grantConflict.database, signerMigrations);
+      const namespace = 'ecdsa-atomic-grant-conflict';
+      const service = createService(grantConflict.database, namespace);
+      const { authorization, material } = await buildEcdsaAtomicFixture(
+        grantConflict.database,
+        service,
+        namespace,
+      );
+      await service.recordVerifiedSessionEvidenceSet(authorization.sessionEvidenceInput);
+      if (authorization.grant.authority.kind !== 'reusable_wallet_session') {
+        throw new Error('ECDSA atomic fixture must use reusable Wallet Session authority');
+      }
+      const conflictingGrant = buildActiveCapabilityGrant({
+        tenantId: authorization.grant.tenantId,
+        principalId: authorization.grant.principalId,
+        grantId: authorization.grant.grantId,
+        bindingId: requiredBindingId('binding-conflict'),
+        evidenceSetId: authorization.grant.evidenceSetId,
+        evidenceSetDigest: authorization.grant.evidenceSetDigest,
+        capabilityId: authorization.grant.capabilityId,
+        operationId: authorization.grant.operationId,
+        operation: authorization.grant.operation,
+        laneDigest: authorization.grant.laneDigest,
+        intentDigest: authorization.grant.intentDigest,
+        displayDigest: authorization.grant.displayDigest,
+        authority: authorization.grant.authority,
+        remainingUses: authorization.grant.remainingUses,
+        createdAtMs: authorization.grant.createdAtMs,
+        expiresAtMs: authorization.grant.expiresAtMs,
+      });
+      await service.seedStore.putActiveGrant(conflictingGrant);
+
+      await expect(
+        service.putEcdsaEvidenceAndGrant({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          material,
+        }),
+      ).resolves.toEqual({ kind: 'material_mismatch' });
+      await expect(rowCount(grantConflict.database, 'verified_grant_evidence_sets')).resolves.toBe(
+        1,
+      );
+      await expect(rowCount(grantConflict.database, 'capability_grants')).resolves.toBe(1);
+      await expect(
+        readRemainingUses(grantConflict.database, 'authorization_wallet_session_quotas'),
+      ).resolves.toBe(2);
+      await expect(
+        rowCount(grantConflict.database, 'reusable_wallet_session_operation_uses'),
+      ).resolves.toBe(0);
+      await expect(
+        rowCount(grantConflict.database, 'reusable_wallet_session_operation_audit_events'),
+      ).resolves.toBe(0);
+    } finally {
+      cleanupTemporaryD1Database(grantConflict.tempDir);
+    }
+  });
+
+  test('rolls back evidence and grant inserts when the combined ECDSA claim predicate fails', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const namespace = 'ecdsa-atomic-claim-predicate';
+      const service = createService(temporary.database, namespace);
+      const { authorization, material } = await buildEcdsaAtomicFixture(
+        temporary.database,
+        service,
+        namespace,
+      );
+      if (authorization.claim.authorization.kind !== 'reusable_wallet_session') {
+        throw new Error('ECDSA atomic fixture must use reusable Wallet Session authorization');
+      }
+      const conflictingClaim = await buildCapabilityOperationClaim({
+        tenantId: authorization.claim.tenantId,
+        useId: requiredGrantUseId('grant-use-conflicting-claim'),
+        auditEventId: requiredAuditEventId('audit-event-conflicting-claim'),
+        grantId: authorization.claim.grantId,
+        operation: authorization.claim.operation,
+        evidenceSetDigest: testDigest(92),
+        claimedAtMs: authorization.claim.claimedAtMs,
+        authorization: {
+          kind: 'reusable_wallet_session',
+          walletSessionId: authorization.claim.authorization.walletSessionId,
+          quotaId: requiredQuotaId('quota-conflicting-claim'),
+        },
+      });
+
+      await expect(
+        service.claimEcdsaReusableWalletSessionOperation({
+          evidenceSet: authorization.evidenceSet,
+          grant: authorization.grant,
+          claim: conflictingClaim,
+          material,
+        }),
+      ).resolves.toMatchObject({ claim: null, result: { kind: 'wallet_session_mismatch' } });
+      await expect(rowCount(temporary.database, 'verified_grant_evidence_sets')).resolves.toBe(0);
+      await expect(rowCount(temporary.database, 'capability_grants')).resolves.toBe(0);
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_uses'),
+      ).resolves.toBe(0);
+      await expect(
+        rowCount(temporary.database, 'reusable_wallet_session_operation_audit_events'),
+      ).resolves.toBe(0);
+      await expect(
+        readRemainingUses(temporary.database, 'authorization_wallet_session_quotas'),
+      ).resolves.toBe(2);
+      await expect(rowCount(temporary.database, 'authorization_audit_events')).resolves.toBe(0);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
 });
 
 function createService(
@@ -819,6 +1356,52 @@ function createService(
     audit: store,
   });
   return Object.assign(service, { seedStore: store });
+}
+
+type EcdsaAtomicFixture = {
+  readonly authorization: Awaited<ReturnType<typeof buildReusableAuthorizationCoreFixture>>;
+  readonly material: EcdsaMaterialActivationScope;
+};
+
+async function buildEcdsaAtomicFixture(
+  database: Parameters<typeof readRemainingUses>[0],
+  service: AuthorizationService & { readonly seedStore: CloudflareD1AuthorizationStore },
+  namespace: string,
+): Promise<EcdsaAtomicFixture> {
+  const authorization = await buildReusableAuthorizationCoreFixture();
+  const signer = createWalletEcdsaSignerRecord({
+    walletId: authorization.reusableWalletSession.walletId,
+    now: authorization.session.createdAtMs,
+    materialActivationCapability: String(authorization.claim.operation.capabilityId),
+  });
+  const runtimePolicyScope = {
+    orgId: authorization.session.tenantId,
+    projectId: 'project-a',
+    envId: 'env-a',
+    signingRootVersion: signer.walletKey.signingRootVersion,
+  } as const;
+  const walletStore = new D1WalletStore({
+    database,
+    namespace,
+    orgId: runtimePolicyScope.orgId,
+    projectId: runtimePolicyScope.projectId,
+    envId: runtimePolicyScope.envId,
+  });
+  await walletStore.putSigner(signer);
+  await service.recordActiveSession(authorization.session);
+  await service.seedStore.putActiveReusableWalletSession({
+    session: authorization.reusableWalletSession,
+    quota: authorization.quota,
+  });
+  return {
+    authorization,
+    material: {
+      walletId: signer.walletId,
+      keyHandle: signer.walletKey.keyHandle,
+      runtimePolicyScope,
+      materialActivation: signer.walletKey.publicCapability.material_activation,
+    },
+  };
 }
 
 function reusableWalletSessionClaimInput(
@@ -939,6 +1522,36 @@ function requiredMintId(value: string) {
   return parsed.value;
 }
 
+function requiredBindingId(value: string) {
+  const parsed = parseCapabilityBindingId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function requiredGrantUseId(value: string) {
+  const parsed = parseCapabilityGrantUseId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function requiredAuditEventId(value: string) {
+  const parsed = parseAuthorizationAuditEventId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function requiredQuotaId(value: string) {
+  const parsed = parseMpcWalletSigningQuotaId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function requiredWalletId(value: string) {
+  const parsed = parseWalletId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 async function readRemainingUses(
   database: import('../../packages/sdk-server-ts/src/storage/tenantRoute').D1DatabaseLike,
   table: 'capability_grants' | 'authorization_wallet_session_quotas',
@@ -947,6 +1560,16 @@ async function readRemainingUses(
     .prepare(`SELECT remaining_uses FROM ${table} LIMIT 1`)
     .first<{ readonly remaining_uses?: unknown }>();
   return Number(row?.remaining_uses);
+}
+
+async function readStoredMaterialActivationId(
+  database: import('../../packages/sdk-server-ts/src/storage/tenantRoute').D1DatabaseLike,
+  table: 'capability_grant_uses' | 'reusable_wallet_session_operation_uses',
+): Promise<string | null> {
+  const row = await database
+    .prepare(`SELECT material_activation_id FROM ${table} LIMIT 1`)
+    .first<{ readonly material_activation_id?: unknown }>();
+  return typeof row?.material_activation_id === 'string' ? row.material_activation_id : null;
 }
 
 async function rowCount(
@@ -958,6 +1581,7 @@ async function rowCount(
     | 'verified_grant_evidence_sets'
     | 'capability_grants'
     | 'capability_grant_uses'
+    | 'ecdsa_authorization_atomic_guards'
     | 'authorization_audit_events'
     | 'reusable_wallet_session_operation_uses'
     | 'reusable_wallet_session_operation_audit_events',
