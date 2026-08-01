@@ -331,21 +331,22 @@ ports, and the two-state recovery journal.
   `def400d94`
 - ~~`EmailOtpEd25519YaoSessionMaterialRequestV1`~~ — confirmed absent at
   `7495b5b44`
-- `EmailOtpEd25519YaoExactLocalSessionBootstrapV1`
-- `WalletUnlockEmailOtpSessionIntentV1`
-- `RouterAbEd25519YaoEmailOtpSessionRequestV1`
-- `RouterAbEd25519YaoEmailOtpLocalSessionRequestV1`
-- `RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1`
-- `activateColdEmailOtpEd25519YaoLocalSessionV1`
-- `recoverEd25519YaoEmailOtpWalletSession` (split into session-provisioning and
-  recovery ports)
-- `email_otp_exact_local_material`, `email_otp_no_ed25519_session`
-- `router_ab_ed25519_yao_email_otp_local_session_v1`
-- `router_ab_ed25519_yao_email_otp_recovery_session_v1`
-- `shared_email_otp_recovery_wallet_session_v1`
+- ~~`EmailOtpEd25519YaoExactLocalSessionBootstrapV1`~~
+- ~~`WalletUnlockEmailOtpSessionIntentV1`~~
+- ~~`RouterAbEd25519YaoEmailOtpSessionRequestV1`~~
+- ~~`RouterAbEd25519YaoEmailOtpLocalSessionRequestV1`~~
+- ~~`RouterAbEd25519YaoEmailOtpRecoverySessionRequestV1`~~
+- ~~`activateColdEmailOtpEd25519YaoLocalSessionV1`~~
+- ~~`recoverEd25519YaoEmailOtpWalletSession`~~
+- ~~`email_otp_exact_local_material`, `email_otp_no_ed25519_session`~~
+- ~~`router_ab_ed25519_yao_email_otp_local_session_v1`~~
+- ~~`router_ab_ed25519_yao_email_otp_recovery_session_v1`~~
+- ~~`shared_email_otp_recovery_wallet_session_v1`~~ — all tactical symbols in
+  this group are absent from production and retained tests at the final Unit 3a
+  symbol audit (`rg`, 2026-08-02).
 - ~~`ecdsa_and_ed25519_yao_local_session`~~ — deleted by `def400d94`
-- the implicit omitted-`sessionIntent` branch (explicit requested-capability
-  set instead)
+- ~~the implicit omitted-`sessionIntent` branch~~ — no production or retained
+  test occurrence remains; capability requests are explicit.
 
 ## Phase 19 — committed lanes, step-up, and resolvers
 
