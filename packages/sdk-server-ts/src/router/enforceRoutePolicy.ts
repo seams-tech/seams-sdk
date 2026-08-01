@@ -27,10 +27,10 @@ export interface RoutePolicyResolvers<TServices extends object = RouteServices> 
   apiCredentials?: (
     input: RoutePolicyResolverInput<TServices>,
   ) => Promise<RoutePolicyResolutionResult>;
-  thresholdSession?: (
+  capabilityGrant?: (
     input: RoutePolicyResolverInput<TServices>,
   ) => Promise<RoutePolicyResolutionResult>;
-  userSession?: (
+  sessionPrincipal?: (
     input: RoutePolicyResolverInput<TServices>,
   ) => Promise<RoutePolicyResolutionResult>;
 }
@@ -108,24 +108,24 @@ export async function enforceRoutePolicy<TServices extends object = RouteService
             message: 'API credential auth resolver is not configured',
           };
       break;
-    case 'threshold_session':
-      authResult = input.resolvers?.thresholdSession
-        ? await input.resolvers.thresholdSession(resolveInput)
+    case 'capability_grant':
+      authResult = input.resolvers?.capabilityGrant
+        ? await input.resolvers.capabilityGrant(resolveInput)
         : {
             ok: false,
             status: 500,
             code: 'route_auth_not_configured',
-            message: 'Threshold-session auth resolver is not configured',
+            message: 'Capability-grant auth resolver is not configured',
           };
       break;
-    case 'user_session':
-      authResult = input.resolvers?.userSession
-        ? await input.resolvers.userSession(resolveInput)
+    case 'session_principal':
+      authResult = input.resolvers?.sessionPrincipal
+        ? await input.resolvers.sessionPrincipal(resolveInput)
         : {
             ok: false,
             status: 500,
             code: 'route_auth_not_configured',
-            message: 'User-session auth resolver is not configured',
+            message: 'Session-principal auth resolver is not configured',
           };
       break;
     default: {

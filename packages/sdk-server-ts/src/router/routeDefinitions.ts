@@ -380,7 +380,7 @@ function publicRoute(
   });
 }
 
-function userSessionRoute(
+function sessionPrincipalRoute(
   id: string,
   method: RouteMethod,
   path: string,
@@ -394,14 +394,14 @@ function userSessionRoute(
     method,
     path,
     aliases,
-    auth: { plane: 'user_session' },
+    auth: { plane: 'session_principal' },
     metering: { kind: 'none' },
     requiredServices,
     summary,
   });
 }
 
-function thresholdSessionRoute(
+function capabilityGrantRoute(
   id: string,
   method: RouteMethod,
   path: string,
@@ -414,7 +414,7 @@ function thresholdSessionRoute(
     surface: 'relay',
     method,
     path,
-    auth: { plane: 'threshold_session', scheme },
+    auth: { plane: 'capability_grant', scheme },
     metering: { kind: 'none' },
     requiredServices,
     summary,
@@ -683,14 +683,14 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
       { kind: 'none' },
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_ecdsa_key_facts_inventory',
       'POST',
       '/wallets/:walletId/signers/ecdsa/key-facts/inventory',
       'Resolve wallet ECDSA key facts for explicit repair inventory',
       ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_near_implicit_account_fund',
       'POST',
       '/wallets/:walletId/near/implicit-account/fund',
@@ -759,7 +759,7 @@ export function createRouterApiRouteDefinitions(
       },
       ROUTER_API_ED25519_WALLET_SESSION_SERVICES,
     ),
-    thresholdSessionRoute(
+    capabilityGrantRoute(
       'router_ab_ed25519_sign_prepare',
       'POST',
       ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
@@ -767,7 +767,7 @@ export function createRouterApiRouteDefinitions(
       'ed25519',
       ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
-    thresholdSessionRoute(
+    capabilityGrantRoute(
       'router_ab_ed25519_sign_finalize',
       'POST',
       ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
@@ -786,7 +786,7 @@ export function createRouterApiRouteDefinitions(
       },
       ROUTER_API_THRESHOLD_RUNTIME_SERVICES,
     ),
-    thresholdSessionRoute(
+    capabilityGrantRoute(
       'router_ab_ecdsa_derivation_export',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
@@ -794,7 +794,7 @@ export function createRouterApiRouteDefinitions(
       'ecdsa',
       ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES,
     ),
-    thresholdSessionRoute(
+    capabilityGrantRoute(
       'router_ab_ecdsa_derivation_recovery',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
@@ -802,7 +802,7 @@ export function createRouterApiRouteDefinitions(
       'ecdsa',
       ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES,
     ),
-    thresholdSessionRoute(
+    capabilityGrantRoute(
       'router_ab_ecdsa_derivation_refresh',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
@@ -810,7 +810,7 @@ export function createRouterApiRouteDefinitions(
       'ecdsa',
       ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES,
     ),
-    thresholdSessionRoute(
+    capabilityGrantRoute(
       'router_ab_ecdsa_derivation_session_activate',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH,
@@ -818,7 +818,7 @@ export function createRouterApiRouteDefinitions(
       'ecdsa',
       ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
-    thresholdSessionRoute(
+    capabilityGrantRoute(
       'router_ab_ecdsa_derivation_sign_prepare',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
@@ -826,7 +826,7 @@ export function createRouterApiRouteDefinitions(
       'ecdsa',
       ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
-    thresholdSessionRoute(
+    capabilityGrantRoute(
       'router_ab_ecdsa_derivation_sign_finalize',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH,
@@ -834,7 +834,7 @@ export function createRouterApiRouteDefinitions(
       'ecdsa',
       ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
-    thresholdSessionRoute(
+    capabilityGrantRoute(
       'router_ab_ecdsa_derivation_presignature_pool_fill_init',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
@@ -842,7 +842,7 @@ export function createRouterApiRouteDefinitions(
       'ecdsa',
       ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
-    thresholdSessionRoute(
+    capabilityGrantRoute(
       'router_ab_ecdsa_derivation_presignature_pool_fill_step',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
@@ -850,21 +850,21 @@ export function createRouterApiRouteDefinitions(
       'ecdsa',
       ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'webauthn_authenticators',
       'GET',
       '/webauthn/authenticators',
       'List registered WebAuthn authenticators',
       ROUTER_API_WEBAUTHN_AUTHENTICATOR_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'near_public_keys',
       'GET',
       '/near/public-keys',
       'List NEAR public keys for current session',
       ROUTER_API_NEAR_PUBLIC_KEY_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'session_state',
       'GET',
       sessionStatePath,
@@ -885,21 +885,21 @@ export function createRouterApiRouteDefinitions(
       },
       ROUTER_API_SESSION_EXCHANGE_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'session_revoke',
       'POST',
       '/session/revoke',
       'Revoke current app session',
       ROUTER_API_SESSION_VERSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'session_refresh',
       'POST',
       '/session/refresh',
       'Refresh current app session',
       ROUTER_API_SESSION_VERSION_SERVICES,
     ),
-    thresholdSessionRoute(
+    capabilityGrantRoute(
       'session_signing_budget_status',
       'POST',
       '/router-ab/wallet-budget/status',
@@ -932,112 +932,112 @@ export function createRouterApiRouteDefinitions(
       },
       ROUTER_API_WALLET_UNLOCK_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_registration_challenge',
       'POST',
       '/wallet/email-otp/registration/challenge',
       'Create Email OTP registration challenge for the current app session',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_registration_seal',
       'POST',
       '/wallet/email-otp/registration/seal',
       'Apply the Email OTP server seal for a new registration blob',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_registration_finalize',
       'POST',
       '/wallet/email-otp/registration/finalize',
       'Finalize Email OTP registration challenge for the current app session',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_login_challenge',
       'POST',
       '/wallet/email-otp/login/challenge',
       'Create Email OTP login challenge for the current app session',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_signing_session_challenge',
       'POST',
       '/wallet/email-otp/signing-session/challenge',
       'Create Email OTP operation challenge for a restored signing session',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_recovery_challenge',
       'POST',
       '/wallet/email-otp/recovery-challenge',
       'Create Email OTP recovery challenge for restoring device-local enrollment escrow',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_login_verify',
       'POST',
       '/wallet/email-otp/login/verify',
       'Verify Email OTP login challenge for the current app session',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_login_verify_and_unseal',
       'POST',
       '/wallet/email-otp/login/verify-and-unseal',
       'Verify Email OTP login challenge and remove the server seal in one request',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_recovery_wrapped_escrows',
       'POST',
       '/wallet/email-otp/recovery-wrapped-escrows',
       'Verify recovery challenge and return recovery-wrapped Email OTP enrollment escrows',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_recovery_key_consume',
       'POST',
       '/wallet/email-otp/recovery-key/consume',
       'Mark an Email OTP recovery key consumed after device-local enrollment escrow restore',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_recovery_key_status',
       'POST',
       '/wallet/email-otp/recovery-key/status',
       'Read non-secret Email OTP recovery-code backup status metadata',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_recovery_key_rotate',
       'POST',
       '/wallet/email-otp/recovery-key/rotate',
       'Replace active Email OTP recovery codes after fresh account authentication',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_recovery_key_attempt_failed',
       'POST',
       '/wallet/email-otp/recovery-key/attempt-failed',
       'Record a failed Email OTP recovery-key unwrap attempt for server-side rate limiting',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_signing_session_verify',
       'POST',
       '/wallet/email-otp/signing-session/verify',
       'Verify Email OTP operation challenge for a restored signing session',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_unseal',
       'POST',
       '/wallet/email-otp/unseal',
       'Remove the server Shamir seal after Email OTP authorization',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_signing_session_unseal',
       'POST',
       '/wallet/email-otp/signing-session/unseal',
@@ -1057,42 +1057,42 @@ export function createRouterApiRouteDefinitions(
       },
       ROUTER_API_EMAIL_OTP_PUBLIC_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_email_otp_dev_otp_outbox',
       'GET',
       '/wallet/email-otp/dev/otp-outbox',
       'Read local development Email OTP outbox entry for the current app session',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_state',
       'GET',
       '/wallet/state',
       'Read wallet state',
       ROUTER_API_SESSION_VERSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'wallet_lock',
       'POST',
       '/wallet/lock',
       'Lock wallet',
       ROUTER_API_SESSION_VERSION_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'auth_identities',
       'GET',
       '/auth/identities',
       'List linked identities',
       ROUTER_API_AUTH_IDENTITY_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'auth_link',
       'POST',
       '/auth/link',
       'Link an additional identity',
       ROUTER_API_AUTH_IDENTITY_SERVICES,
     ),
-    userSessionRoute(
+    sessionPrincipalRoute(
       'auth_unlink',
       'POST',
       '/auth/unlink',
@@ -1137,14 +1137,14 @@ export function createRouterApiRouteDefinitions(
 
   if (options.enableSigningSessionSeal) {
     definitions.push(
-      userSessionRoute(
+      sessionPrincipalRoute(
         'signing_session_seal_apply_server_seal',
         'POST',
         buildSigningSessionSealApplyPath(signingSessionSealBasePath),
         'Apply signing session server seal',
         ['signingSessionSeal', 'session'],
       ),
-      userSessionRoute(
+      sessionPrincipalRoute(
         'signing_session_seal_remove_server_seal',
         'POST',
         buildSigningSessionSealRemovePath(signingSessionSealBasePath),
