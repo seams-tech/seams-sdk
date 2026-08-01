@@ -57,8 +57,7 @@ export function buildFixtureEd25519YaoRegistrationAdmissionRequest(
     },
     application_binding: {
       wallet_id: walletId,
-      near_ed25519_signing_key_id:
-        overrides.nearEd25519SigningKeyId ?? 'ed25519ks_fixture',
+      near_ed25519_signing_key_id: overrides.nearEd25519SigningKeyId ?? 'ed25519ks_fixture',
       signing_root_id: overrides.signingRootId ?? 'project_fixture:dev',
       key_creation_signer_slot: signerSlot,
     },
@@ -78,6 +77,8 @@ export function buildFixtureEd25519YaoRegistrationAdmissionReceipt(
   } = {},
 ): RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'> {
   const lifecycleId = overrides.lifecycleId ?? 'registration-ceremony-fixture';
+  const walletId = overrides.walletId ?? 'near-account.testnet';
+  const signingWorkerId = overrides.signingWorkerId ?? 'signing-worker-a';
   const parsed = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1({
     binding: {
       lifecycle: {
@@ -85,14 +86,23 @@ export function buildFixtureEd25519YaoRegistrationAdmissionReceipt(
         work_kind: 'registration_prepare',
         primitive_request_kind: 'registration',
         root_share_epoch: overrides.rootShareEpoch ?? 'root-share-epoch-9',
-        account_id: overrides.walletId ?? 'near-account.testnet',
+        account_id: walletId,
         session_id: `${lifecycleId}-session`,
         signer_set_id: overrides.signerSetId ?? 'signer-set-fixture',
-        selected_server_id: overrides.signingWorkerId ?? 'signing-worker-a',
+        selected_server_id: signingWorkerId,
       },
       operation: 'registration',
       session_id: ed25519YaoFixtureBytes(1),
       stable_key_context_binding: ed25519YaoFixtureBytes(33),
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: `${lifecycleId}-activation`,
+        capability: `${lifecycleId}-capability`,
+        material_owner: walletId,
+        key_binding: `${lifecycleId}-key`,
+        lifecycle_binding: `${lifecycleId}-lifecycle-binding`,
+        signing_worker: signingWorkerId,
+      },
     },
     keyset: {
       deriver_a_input_public_key: ed25519YaoFixtureBytes(65),

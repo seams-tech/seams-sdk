@@ -58,6 +58,7 @@ import {
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { isPlainObject } from '@shared/utils/validation';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { parseMpcMaterialOwnerRef, type MpcMaterialOwnerRef } from '@shared/utils/domainIds';
 import {
   parseWalletAuthAuthorityRef,
@@ -243,7 +244,9 @@ export function parseEd25519YaoRecoveryCapabilityV1(raw: unknown): ParsedYaoReco
   const lifecycle = requireRecord(record.lifecycle, 'capability.lifecycle');
   const materialActivation = parseMpcMaterialActivationRef(record.materialActivation);
   if (!materialActivation.ok) {
-    throw new Error(`capability.materialActivation is invalid: ${materialActivation.error.message}`);
+    throw new Error(
+      `capability.materialActivation is invalid: ${materialActivation.error.message}`,
+    );
   }
   return {
     materialActivation: materialActivation.value,
@@ -395,6 +398,9 @@ function recoveryAdmissionRequest(
         wallet_session_id: parsed.session.thresholdSessionId,
         signer_set_id: parsed.capability.lifecycle.signerSetId,
         signing_worker_id: parsed.capability.lifecycle.signingWorkerId,
+        material_activation: routerAbMpcMaterialActivationRefToWire(
+          parsed.capability.materialActivation,
+        ),
       },
       application_binding: parsed.capability.applicationBinding,
       participant_ids: parsed.capability.participantIds,
@@ -441,9 +447,7 @@ function buildRecoveredWalletSessionState(input: {
   return buildPasskeyRouterAbEd25519WalletSessionState({
     walletId: toWalletId(parsed.walletId),
     nearAccountId: parsed.nearAccountId,
-    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
-      parsed.nearEd25519SigningKeyId,
-    ),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(parsed.nearEd25519SigningKeyId),
     signerSlot: parsed.signerSlot,
     rpId: toRpId(input.rpId),
     credentialIdB64u: parsed.credentialIdB64u,

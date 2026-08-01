@@ -53,6 +53,7 @@ import type {
   RouterAbEd25519YaoActiveCapabilityDescriptorV1,
   RouterAbEd25519YaoActiveCapabilityResolverV1,
 } from './routerAbEd25519YaoRecovery';
+import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 
 const EXPORT_AUTH_MAX_TTL_MS = 60_000;
 const EXPORT_AUTH_CLOCK_SKEW_MS = 30_000;
@@ -374,7 +375,8 @@ function activeCapabilityIdentityMatchesExportScope(
     lifecycle.accountId === scope.account_id &&
     lifecycle.thresholdSessionId === scope.wallet_session_id &&
     lifecycle.signerSetId === scope.signer_set_id &&
-    lifecycle.signingWorkerId === scope.signing_worker_id
+    lifecycle.signingWorkerId === scope.signing_worker_id &&
+    sameRouterAbMpcMaterialActivationRef(capability.materialActivation, scope.material_activation)
   );
 }
 
@@ -393,7 +395,11 @@ function receiptMatchesAdmissionScope(
     lifecycle.account_id === scope.account_id &&
     lifecycle.session_id === scope.wallet_session_id &&
     lifecycle.signer_set_id === scope.signer_set_id &&
-    lifecycle.selected_server_id === scope.signing_worker_id
+    lifecycle.selected_server_id === scope.signing_worker_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      receipt.binding.ceremony.material_activation,
+      scope.material_activation,
+    )
   );
 }
 

@@ -11,6 +11,7 @@ import type {
 } from './generated/routerAbEd25519YaoCore';
 import {
   parseRouterAbMpcMaterialActivationRef,
+  sameRouterAbMpcMaterialActivationRef,
   type RouterAbMpcMaterialActivationRefWire,
 } from './routerAbNormalSigningIdentity';
 
@@ -31,10 +32,9 @@ export type {
   RouterAbEd25519YaoBytes32V1,
 } from './generated/routerAbEd25519YaoCore';
 
-export type RouterAbEd25519YaoCeremonyBindingV1 =
-  GeneratedRouterAbEd25519YaoCeremonyBindingV1 & {
-    material_activation: RouterAbMpcMaterialActivationRefWire;
-  };
+export type RouterAbEd25519YaoCeremonyBindingV1 = GeneratedRouterAbEd25519YaoCeremonyBindingV1 & {
+  material_activation: RouterAbMpcMaterialActivationRefWire;
+};
 
 export const ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1 =
   '/router-ab/ed25519/yao/registration/admit' as const;
@@ -841,20 +841,29 @@ function parsePublicLifecycleScope(value: unknown): RouterAbEd25519YaoLifecycleS
     'signing_worker_id',
     'material_activation',
   ]);
+  const accountId = requireVisibleIdentifier(record.account_id, 'scope.account_id');
+  const signingWorkerId = requireVisibleIdentifier(
+    record.signing_worker_id,
+    'scope.signing_worker_id',
+  );
+  const materialActivation = parseRouterAbMpcMaterialActivationRef(record.material_activation);
+  if (
+    materialActivation.material_owner !== accountId ||
+    materialActivation.signing_worker !== signingWorkerId
+  ) {
+    throw new Error('scope.material_activation does not match the lifecycle owner and worker');
+  }
   return {
     lifecycle_id: requireVisibleIdentifier(record.lifecycle_id, 'scope.lifecycle_id'),
     root_share_epoch: requireVisibleIdentifier(record.root_share_epoch, 'scope.root_share_epoch'),
-    account_id: requireVisibleIdentifier(record.account_id, 'scope.account_id'),
+    account_id: accountId,
     wallet_session_id: requireVisibleIdentifier(
       record.wallet_session_id,
       'scope.wallet_session_id',
     ),
     signer_set_id: requireVisibleIdentifier(record.signer_set_id, 'scope.signer_set_id'),
-    signing_worker_id: requireVisibleIdentifier(
-      record.signing_worker_id,
-      'scope.signing_worker_id',
-    ),
-    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
+    signing_worker_id: signingWorkerId,
+    material_activation: materialActivation,
   };
 }
 
@@ -956,6 +965,12 @@ function parseCeremonyBinding(value: unknown): RouterAbEd25519YaoCeremonyBinding
   }
   if (binding.operation === 'export' && binding.lifecycle.work_kind !== EXPORT_WORK_KIND) {
     throw new Error('binding operation does not match its lifecycle work kind');
+  }
+  if (
+    binding.material_activation.material_owner !== binding.lifecycle.account_id ||
+    binding.material_activation.signing_worker !== binding.lifecycle.selected_server_id
+  ) {
+    throw new Error('binding material activation does not match its lifecycle owner and worker');
   }
   return binding;
 }
@@ -1651,6 +1666,11 @@ function parseActivationResultValue(value: unknown): RouterAbEd25519YaoActivatio
   ]);
   const binding = requireActivationBinding(parseCeremonyBinding(record.binding));
   const receipt = parsePublicReceipt(record.public_receipt);
+  if (
+    !sameRouterAbMpcMaterialActivationRef(binding.material_activation, receipt.material_activation)
+  ) {
+    throw new Error('activation result receipt material does not match the admitted binding');
+  }
   const packageA = parseEncryptedPackage(
     record.deriver_a_client_package,
     'deriver_a_client_package',
@@ -1771,11 +1791,7 @@ function parseRecoveryStatusValue(value: unknown): RouterAbEd25519YaoRecoverySta
       requireExactKeys(record, 'recovery status', ['stage', 'lifecycle_id']);
       return { stage: 'missing', lifecycle_id: lifecycleId };
     case 'admitted':
-      requireExactKeys(record, 'recovery status', [
-        'stage',
-        'lifecycle_id',
-        'admission_receipt',
-      ]);
+      requireExactKeys(record, 'recovery status', ['stage', 'lifecycle_id', 'admission_receipt']);
       return {
         stage: 'admitted',
         lifecycle_id: lifecycleId,

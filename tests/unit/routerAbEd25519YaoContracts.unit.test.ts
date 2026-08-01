@@ -564,6 +564,44 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(parseRouterAbEd25519YaoRegistrationResultV1(wrongTranscript).ok).toBe(false);
   });
 
+  test('rejects owner, worker, and complete activation-reference substitution', () => {
+    const wrongOwner = registrationAdmissionRequest();
+    const wrongOwnerScope = requireRawRecord(wrongOwner.scope, 'scope');
+    const wrongOwnerActivation = requireRawRecord(
+      wrongOwnerScope.material_activation,
+      'scope.material_activation',
+    );
+    wrongOwnerActivation.material_owner = 'other-account';
+    expect(parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(wrongOwner).ok).toBe(false);
+
+    const wrongWorker = registrationAdmissionRequest();
+    const wrongWorkerScope = requireRawRecord(wrongWorker.scope, 'scope');
+    const wrongWorkerActivation = requireRawRecord(
+      wrongWorkerScope.material_activation,
+      'scope.material_activation',
+    );
+    wrongWorkerActivation.signing_worker = 'other-signing-worker';
+    expect(parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(wrongWorker).ok).toBe(false);
+
+    for (const field of [
+      'activation_id',
+      'capability',
+      'material_owner',
+      'key_binding',
+      'lifecycle_binding',
+      'signing_worker',
+    ] as const) {
+      const substitutedResult = registrationResult();
+      const receipt = requireRawRecord(substitutedResult.public_receipt, 'public_receipt');
+      const activation = requireRawRecord(
+        receipt.material_activation,
+        'public_receipt.material_activation',
+      );
+      activation[field] = `substituted-${field}`;
+      expect(parseRouterAbEd25519YaoRegistrationResultV1(substitutedResult).ok).toBe(false);
+    }
+  });
+
   test('caches exact activated retries and rejects payload substitution', async () => {
     const backend = new TestRegistrationBackend(registrationAdmissionReceipt(), {
       kind: 'success',

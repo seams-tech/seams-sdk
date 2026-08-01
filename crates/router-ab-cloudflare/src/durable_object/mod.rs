@@ -1,7 +1,6 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use router_ab_core::{
-    ActiveSigningWorkerStateV1, Ed25519YaoCeremonyBindingV1,
-    MpcMaterialActivationRefV1,
+    ActiveSigningWorkerStateV1, Ed25519YaoCeremonyBindingV1, MpcMaterialActivationRefV1,
     NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningScopeV1, PublicDigest32, Role,
     RootShareEpoch, RouterAbEcdsaDerivationNormalSigningScopeV1,
 };
@@ -653,7 +652,10 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
                 let lifecycle = activation_context.lifecycle();
                 let selected_server = &activation_context.signer_set().selected_server;
                 if active_signing_worker_state.account_id != lifecycle.account_id
-                    || active_signing_worker_state.material_activation.activation_id != lifecycle.session_id
+                    || active_signing_worker_state
+                        .material_activation
+                        .activation_id
+                        != lifecycle.session_id
                     || active_signing_worker_state.signing_worker != *selected_server
                     || active_signing_worker_state.activation_transcript_digest
                         != activation_context.transcript_digest()
@@ -687,7 +689,8 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
                     || receipt.signing_worker_verifying_share
                         != receipt.joined_signing_worker_commitment
                     || active_signing_worker_state.account_id != binding.lifecycle.account_id
-                    || active_signing_worker_state.material_activation.activation_id != binding.lifecycle.session_id
+                    || active_signing_worker_state.material_activation
+                        != *binding.material_activation()
                     || active_signing_worker_state.signing_worker.server_id
                         != binding.lifecycle.selected_server_id
                     || active_signing_worker_state.activation_transcript_digest
@@ -782,7 +785,10 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
         self.validate()?;
         active_signing_worker_state.validate()?;
         if active_signing_worker_state.account_id == self.account_id
-            && active_signing_worker_state.material_activation.activation_id == self.material_activation_id
+            && active_signing_worker_state
+                .material_activation
+                .activation_id
+                == self.material_activation_id
             && active_signing_worker_state.signing_worker.server_id == self.signing_worker_id
         {
             return Ok(());
@@ -1508,14 +1514,20 @@ impl CloudflareSigningWorkerPrivateD1RequestV1 {
             Self::Round1Put { record } => format!(
                 "signing-worker-round1/{}/{}/{}/{}",
                 record.active_signing_worker_state.account_id,
-                record.active_signing_worker_state.material_activation.activation_id,
+                record
+                    .active_signing_worker_state
+                    .material_activation
+                    .activation_id,
                 record.active_signing_worker_state.signing_worker.server_id,
                 record.server_round1_handle
             ),
             Self::Round1Take { lookup } => format!(
                 "signing-worker-round1/{}/{}/{}/{}",
                 lookup.active_signing_worker_state.account_id,
-                lookup.active_signing_worker_state.material_activation.activation_id,
+                lookup
+                    .active_signing_worker_state
+                    .material_activation
+                    .activation_id,
                 lookup.active_signing_worker_state.signing_worker.server_id,
                 lookup.server_round1_handle
             ),
