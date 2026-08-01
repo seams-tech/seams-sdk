@@ -64,7 +64,7 @@ import {
 } from '../../../core/ThresholdService/validation';
 import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
 import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/utils/domainIds';
-import { parseWalletUnlockEd25519YaoRequest } from '../../walletUnlockEd25519YaoRequestValidation';
+import { parseWalletUnlockRequestedCapabilitiesRequest } from '../../walletUnlockRequestedCapabilitiesValidation';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
@@ -99,7 +99,7 @@ import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 
 const HOSTED_WALLET_SESSION_EXCHANGE_TTL_MS = 60_000;
 
-function walletUnlockContextWithoutEd25519Intent(
+function walletUnlockContextWithoutEd25519Capability(
   body: unknown,
 ): WalletUnlockEd25519YaoSessionContext {
   if (isPlainObject(body) && body.unlockBackend === EMAIL_OTP_CHANNEL) {
@@ -1726,54 +1726,26 @@ export async function handleWalletUnlockVerify(
       { status: 400 },
     );
   }
-  const parsedSessionIntent = parseWalletUnlockEd25519YaoRequest(body);
-  if (!parsedSessionIntent.ok) {
-    return json(parsedSessionIntent.body, { status: parsedSessionIntent.status });
+  const parsedRequestedCapabilities = parseWalletUnlockRequestedCapabilitiesRequest(body);
+  if (!parsedRequestedCapabilities.ok) {
+    return json(parsedRequestedCapabilities.body, { status: parsedRequestedCapabilities.status });
   }
-  let ed25519YaoSession = walletUnlockContextWithoutEd25519Intent(body);
-  if (parsedSessionIntent.request) {
-    const yaoRuntime = ctx.opts.routerAbEd25519YaoProduct;
-    if (!yaoRuntime) {
-      return json(
-        {
-          ok: false,
-          code: 'not_configured',
-          message: 'Ed25519 Yao product registration is not configured',
+  let ed25519YaoSession = walletUnlockContextWithoutEd25519Capability(body);
+  if (parsedRequestedCapabilities.request) {
+    if (parsedRequestedCapabilities.request.requestedCapabilities.kind === 'ed25519_yao') {
+      ed25519YaoSession = {
+        kind: 'email_otp_ed25519_yao',
+        request: {
+          walletId: parsedRequestedCapabilities.request.walletId,
+          orgId: parsedRequestedCapabilities.request.orgId,
+          challengeId: parsedRequestedCapabilities.request.challengeId,
+          requestedCapabilities: parsedRequestedCapabilities.request.requestedCapabilities,
         },
-        { status: 500 },
-      );
-    }
-    switch (parsedSessionIntent.request.sessionIntent.kind) {
-      case 'exact_local_material_session_v1':
-        ed25519YaoSession = {
-          kind: 'email_otp_exact_local_material',
-          request: {
-            walletId: parsedSessionIntent.request.walletId,
-            orgId: parsedSessionIntent.request.orgId,
-            challengeId: parsedSessionIntent.request.challengeId,
-            sessionIntent: parsedSessionIntent.request.sessionIntent,
-          },
-          provisionWalletSession:
-            ctx.service.walletRegistration.recoverEd25519YaoEmailOtpWalletSession.bind(
-              ctx.service.walletRegistration,
-            ),
-        };
-        break;
-      case 'missing_ed25519_material_recovery_v1':
-        ed25519YaoSession = {
-          kind: 'email_otp_missing_material_recovery',
-          request: {
-            walletId: parsedSessionIntent.request.walletId,
-            orgId: parsedSessionIntent.request.orgId,
-            challengeId: parsedSessionIntent.request.challengeId,
-            sessionIntent: parsedSessionIntent.request.sessionIntent,
-          },
-          recoverWalletSession:
-            ctx.service.walletRegistration.recoverEd25519YaoEmailOtpWalletSession.bind(
-              ctx.service.walletRegistration,
-            ),
-        };
-        break;
+        provisionWalletSession:
+          ctx.service.walletRegistration.provisionEd25519YaoWalletSession.bind(
+            ctx.service.walletRegistration,
+          ),
+      };
     }
   }
   const response = await handleWalletUnlockVerifyRoute({

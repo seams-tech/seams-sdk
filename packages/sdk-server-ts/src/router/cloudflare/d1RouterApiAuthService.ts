@@ -1214,8 +1214,8 @@ function createD1WalletRegistrationRouteService(
       assembly.walletRegistrations.refreshEd25519YaoWalletSession.bind(
         assembly.walletRegistrations,
       ),
-    recoverEd25519YaoEmailOtpWalletSession:
-      assembly.walletRegistrations.recoverEd25519YaoEmailOtpWalletSession.bind(
+    provisionEd25519YaoWalletSession:
+      assembly.walletRegistrations.provisionEd25519YaoWalletSession.bind(
         assembly.walletRegistrations,
       ),
     recordEcdsaPostRegistrationProof:

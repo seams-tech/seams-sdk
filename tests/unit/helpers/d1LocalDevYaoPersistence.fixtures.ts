@@ -751,8 +751,6 @@ async function localExportAdmission(
     nonce,
     issuedAtMs,
     expiresAtMs,
-    thresholdSessionId: localWalletSessionId(),
-    signingGrantId: localSigningGrantId(),
     authority: { kind: 'email_otp', providerSubjectId: EMAIL_PROVIDER_SUBJECT_ID },
   });
   return requireParsed(

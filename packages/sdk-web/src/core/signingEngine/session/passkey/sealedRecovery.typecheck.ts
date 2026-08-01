@@ -3,6 +3,7 @@ import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiC
 import type { RestorePersistedSessionPurpose } from '../sealedRecovery/sealedRecovery.types';
 import type { RawSigningSessionSealedStoreRecord } from '../sealedRecovery/recoveryRecord';
 import { restorePasskeyEcdsaSealedRecordForWallet } from './ecdsaRecovery';
+import { resolveActiveEcdsaCapabilityRuntime } from '../material/activeEcdsaCapabilityRuntime';
 
 declare const rawRecord: RawSigningSessionSealedStoreRecord;
 declare const purpose: RestorePersistedSessionPurpose & { authMethod: 'passkey' };
@@ -19,6 +20,7 @@ void restorePasskeyEcdsaSealedRecordForWallet({
   deletePersistedRecord: async () => undefined,
   recordSessionMaterialRestored: async () => undefined,
   readWarmSessionStatusFromWorker: async () => status,
+  resolveCurrentEcdsaCapabilityRuntime: resolveActiveEcdsaCapabilityRuntime,
   loadEcdsaRoleLocalReadyRecord: async () => ({ ok: true, value: { kind: 'not_found' } }),
   updatePersistedPolicy: async () => undefined,
 });

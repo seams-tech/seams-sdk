@@ -116,11 +116,6 @@ export type RouterAbEd25519YaoExportAuthorizationV1 = {
   expires_at_ms: number;
 };
 
-export type RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 = {
-  readonly thresholdSessionId: ThresholdEd25519SessionId;
-  readonly signingGrantId: SigningGrantId;
-};
-
 export type RouterAbEd25519YaoExportAdmissionRequestV1 = {
   scope: RouterAbEd25519YaoLifecycleScopeV1;
   application_binding: RouterAbEd25519YaoApplicationBindingFactsV1;
@@ -698,8 +693,6 @@ export async function deriveRouterAbEd25519YaoExportAuthorizationDigestV1(input:
   readonly nonce: RouterAbEd25519YaoBytes32V1;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
-  readonly thresholdSessionId: string;
-  readonly signingGrantId: string;
   readonly authority: RouterAbEd25519YaoExportAuthorityBindingV1;
 }): Promise<number[]> {
   const confirmationDigest = requireBytes32(
@@ -715,14 +708,6 @@ export async function deriveRouterAbEd25519YaoExportAuthorizationDigestV1(input:
     labeledField('nonce', Uint8Array.from(nonce)),
     labeledField('issuedAtMs', u64BigEndian(input.issuedAtMs)),
     labeledField('expiresAtMs', u64BigEndian(input.expiresAtMs)),
-    labeledField(
-      'thresholdSessionId',
-      UTF8.encode(requireVisibleIdentifier(input.thresholdSessionId, 'thresholdSessionId')),
-    ),
-    labeledField(
-      'signingGrantId',
-      UTF8.encode(requireVisibleIdentifier(input.signingGrantId, 'signingGrantId')),
-    ),
     labeledField('authorityKind', UTF8.encode(input.authority.kind)),
     labeledField(
       'authoritySubject',
@@ -2042,4 +2027,3 @@ export function parseRouterAbEd25519YaoEncryptedPackageV1(
 function parseEncryptedPackageValue(value: unknown): RouterAbEd25519YaoEncryptedPackageV1 {
   return parseEncryptedPackage(value, 'encrypted_package');
 }
-import type { SigningGrantId, ThresholdEd25519SessionId } from './domainIds';

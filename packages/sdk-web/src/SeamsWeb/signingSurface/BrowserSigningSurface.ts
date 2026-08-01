@@ -200,7 +200,6 @@ import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/sig
 import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import type {
-  EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
@@ -851,6 +850,7 @@ export class BrowserSigningSurface {
       loadEcdsaRoleLocalReadyRecord,
       getTheme: () => this.appearance.theme.mode,
       getAppearance: () => this.appearance,
+      thresholdEcdsaSigningQueueByKey: this.thresholdEcdsaSigningQueueByKey,
     });
 
     this.touchIdPrompt = assembly.touchIdPrompt;
@@ -887,6 +887,7 @@ export class BrowserSigningSurface {
       passkeyMpcSession: assembly.passkeyMpcSession,
       getEnginePorts: () => this.enginePorts,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
+      thresholdEcdsaSigningQueueByKey: this.thresholdEcdsaSigningQueueByKey,
       getWarmSigning: () => this.warmSigning,
       ensureSealedRefreshStartupParity: () => this.ensureSealedRefreshStartupParity(),
       listActiveEcdsaCapabilityManifestsForWallet:
@@ -2715,7 +2716,7 @@ export class BrowserSigningSurface {
 
   async activateEmailOtpEd25519YaoLocalSessionInternal(args: {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
-    bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     activeClientHandle: string;
     metadata: RouterAbEd25519YaoActiveClientMetadataV1;
   }): Promise<NearEd25519SignerBinding> {
@@ -2732,7 +2733,7 @@ export class BrowserSigningSurface {
 
   private async runEmailOtpEd25519YaoLocalSessionActivation(args: {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
-    bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     activeClientHandle: string;
     metadata: RouterAbEd25519YaoActiveClientMetadataV1;
   }): Promise<NearEd25519SignerBinding> {

@@ -457,7 +457,6 @@ async function activateEcdsaSessionByPurpose(
     ecdsaThresholdKeyId: String(args.key.ecdsaThresholdKeyId),
     signingGrantId: requestedSigningGrantId || null,
     thresholdSessionId: requestedSessionId || null,
-    budgetProjectionVersion: undefined,
     freshAuthRetrySideEffectState: 'not_applicable',
     hasRequestedEcdsaThresholdKeyId: true,
     requestedSessionId: requestedSessionId || null,

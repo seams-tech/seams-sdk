@@ -20,6 +20,8 @@ import { type UserPreferencesStorePort, UserPreferencesManager } from '../sessio
 import type { NonceLaneCoordinationStore } from '../nonce/NonceCoordinator';
 import type { DurableRecordStore } from '@/core/platform';
 import { nearOperationStepUpPreparationPort } from '../flows/signNear/shared/operationStepUpPreparation';
+import type { ThresholdEcdsaSigningQueueByKey } from '../threshold/ecdsa/signingQueue';
+import { resolveActiveEcdsaCapabilityRuntime } from '../session/material/activeEcdsaCapabilityRuntime';
 
 export type ManagerAssembly = {
   touchIdPrompt: TouchIdPrompt;
@@ -46,6 +48,7 @@ export function createManagerAssembly(args: {
   loadEcdsaRoleLocalReadyRecord: DurableRecordStore['loadEcdsaRoleLocalReadyRecord'];
   getTheme: () => ThemeMode;
   getAppearance: () => AppearanceConfig;
+  thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
 }): ManagerAssembly {
   const touchIdPrompt = new TouchIdPrompt(args.seamsWebConfigs.wallet.iframe?.rpIdOverride, true);
   const userPreferencesManager = new UserPreferencesManager({
@@ -65,6 +68,8 @@ export function createManagerAssembly(args: {
   const evmExplorerUrl = resolvePrimaryExplorerUrl(chains, 'evm');
   const passkeyMpcSession = createPasskeyMpcSessionManager({
     signingSessionPersistenceMode: args.seamsWebConfigs.signing.sessionPersistenceMode,
+    thresholdEcdsaSigningQueueByKey: args.thresholdEcdsaSigningQueueByKey,
+    resolveCurrentEcdsaCapabilityRuntime: resolveActiveEcdsaCapabilityRuntime,
   });
   const touchConfirm = createUiConfirmManager(
     {},

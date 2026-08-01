@@ -169,7 +169,7 @@ export type RouterAbEd25519YaoBudgetRefreshResponseV1 =
     }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
-export type RouterAbEd25519YaoEmailOtpSessionRequestV1 = {
+export type RouterAbEd25519YaoVerifiedWalletUnlockRequestV1 = {
   readonly walletId: string;
   readonly orgId: string;
   readonly signerSlot: number;
@@ -178,7 +178,7 @@ export type RouterAbEd25519YaoEmailOtpSessionRequestV1 = {
   readonly verifiedProviderUserId: string;
 };
 
-export type RouterAbEd25519YaoEmailOtpSessionResponseV1 =
+export type RouterAbEd25519YaoVerifiedWalletUnlockResponseV1 =
   | {
       readonly ok: true;
       readonly session: WalletRegistrationEd25519YaoBootstrapSession;

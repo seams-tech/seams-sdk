@@ -324,8 +324,10 @@ test('page-refresh passkey export prompts from durable context without activatin
     exportedSchemes: ['ed25519'],
   });
   expect(harness.recoveryCalls).toBe(0);
-  expect(harness.workerPayload?.exactLane.signingGrantId).toBe(CURRENT_SIGNING_GRANT_ID);
-  expect(harness.workerPayload?.walletSessionJwt).toBe(fixtureJwt(CURRENT_SIGNING_GRANT_ID));
+  expect(harness.workerPayload?.exactLane.materialActivation).toEqual(MATERIAL_ACTIVATION);
+  expect(harness.workerPayload?.authorization.walletSessionJwt).toBe(
+    fixtureJwt(CURRENT_SIGNING_GRANT_ID),
+  );
 });
 
 test('page-refresh passkey export uses the Wallet Session issued by cold Yao recovery', async () => {
@@ -346,11 +348,12 @@ test('page-refresh passkey export uses the Wallet Session issued by cold Yao rec
   });
   expect(harness.recoveredLane).toEqual(selectedLane);
   expect(harness.workerPayload?.exactLane).toMatchObject({
-    signingGrantId: CURRENT_SIGNING_GRANT_ID,
-    thresholdSessionId: THRESHOLD_SESSION_ID,
     credentialIdB64u: CREDENTIAL_ID,
+    materialActivation: MATERIAL_ACTIVATION,
   });
-  expect(harness.workerPayload?.walletSessionJwt).toBe(fixtureJwt(CURRENT_SIGNING_GRANT_ID));
+  expect(harness.workerPayload?.authorization.walletSessionJwt).toBe(
+    fixtureJwt(CURRENT_SIGNING_GRANT_ID),
+  );
 });
 
 test('page-refresh passkey export rejects recovered authenticator drift', async () => {

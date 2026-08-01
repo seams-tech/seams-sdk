@@ -195,8 +195,8 @@ import {
 import type {
   RouterAbEd25519YaoBudgetRefreshRequestV1,
   RouterAbEd25519YaoBudgetRefreshResponseV1,
-  RouterAbEd25519YaoEmailOtpSessionRequestV1,
-  RouterAbEd25519YaoEmailOtpSessionResponseV1,
+  RouterAbEd25519YaoVerifiedWalletUnlockRequestV1,
+  RouterAbEd25519YaoVerifiedWalletUnlockResponseV1,
 } from '../routerAbEd25519YaoWalletSession';
 import {
   buildYaoEd25519WalletSignerRecord,
@@ -1576,15 +1576,9 @@ export class CloudflareD1WalletRegistrationService {
     }
   }
 
-  async recoverEd25519YaoEmailOtpWalletSession(
-    request: RouterAbEd25519YaoEmailOtpSessionRequestV1,
-  ): Promise<RouterAbEd25519YaoEmailOtpSessionResponseV1> {
-    return await this.provisionEd25519YaoEmailOtpWalletSession(request);
-  }
-
-  private async provisionEd25519YaoEmailOtpWalletSession(
-    request: RouterAbEd25519YaoEmailOtpSessionRequestV1,
-  ): Promise<RouterAbEd25519YaoEmailOtpSessionResponseV1> {
+  async provisionEd25519YaoWalletSession(
+    request: RouterAbEd25519YaoVerifiedWalletUnlockRequestV1,
+  ): Promise<RouterAbEd25519YaoVerifiedWalletUnlockResponseV1> {
     try {
       const walletId = toOptionalTrimmedString(request.walletId);
       const orgId = toOptionalTrimmedString(request.orgId);
@@ -1605,7 +1599,7 @@ export class CloudflareD1WalletRegistrationService {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'Email OTP Ed25519 Wallet Session request is invalid',
+          message: 'Verified Ed25519 Wallet Session request is invalid',
         };
       }
       const yaoRuntime = this.getEd25519YaoProductRegistration();
@@ -1614,7 +1608,7 @@ export class CloudflareD1WalletRegistrationService {
         return {
           ok: false,
           code: 'not_configured',
-          message: 'Email OTP Ed25519 Wallet Session provisioning is not configured',
+          message: 'Verified Ed25519 Wallet Session provisioning is not configured',
         };
       }
       const authorityResult =
@@ -1652,7 +1646,7 @@ export class CloudflareD1WalletRegistrationService {
         return {
           ok: false,
           code: 'not_found',
-          message: 'Registered Ed25519 Yao signer is unavailable for Email OTP unlock',
+          message: 'Registered Ed25519 Yao signer is unavailable for wallet unlock',
         };
       }
       const participantIds: readonly [number, number] = [firstParticipantId, secondParticipantId];
@@ -1716,7 +1710,7 @@ export class CloudflareD1WalletRegistrationService {
         expiresAtMs,
       });
       const minted = await yaoRuntime.mintWalletSession({
-        kind: 'shared_email_otp_recovery_wallet_session_v1',
+        kind: 'verified_wallet_unlock_v1',
         walletId: walletIdFromString(walletId),
         nearAccountId: signer.nearAccountId,
         nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
@@ -1754,7 +1748,7 @@ export class CloudflareD1WalletRegistrationService {
       return {
         ok: false,
         code: 'internal',
-        message: errorMessage(error) || 'Email OTP Ed25519 Wallet Session provisioning failed',
+        message: errorMessage(error) || 'Verified Ed25519 Wallet Session provisioning failed',
       };
     }
   }

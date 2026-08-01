@@ -132,7 +132,10 @@ class EmailOtpEd25519ExportRefreshHarness {
     subject: Parameters<Ed25519YaoExportFlowDeps['emailOtp']['resolveExportContext']>[0],
   ) {
     this.contextCalls += 1;
-    expect(subject).toEqual(buildLaneIdentity());
+    expect(subject).toEqual({
+      laneIdentity: buildLaneIdentity(),
+      materialActivation: MATERIAL_ACTIVATION,
+    });
     return {
       kind: 'email_otp_ed25519_yao_export_context_v1' as const,
       lane: buildLaneIdentity(),
@@ -209,6 +212,7 @@ test('page-refresh Email OTP Ed25519 export resolves durable context without pas
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     laneIdentity: buildLaneIdentity(),
+    materialActivation: MATERIAL_ACTIVATION,
     options: {},
     flowId: 'flow-email-otp-export-refresh',
   });

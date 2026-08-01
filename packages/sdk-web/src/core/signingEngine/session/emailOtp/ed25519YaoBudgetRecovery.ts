@@ -2,7 +2,6 @@ import { toAccountId } from '@/core/types/accountIds';
 import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/interfaces/near';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
-  EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
@@ -62,9 +61,7 @@ export type PreparedColdEmailOtpEd25519YaoRecoveryV1 = {
   previous: NearEd25519YaoSigningCapability | null;
 };
 
-type EmailOtpEd25519YaoUnlockBootstrapV1 =
-  | EmailOtpEd25519YaoRecoveryBootstrapV1
-  | EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+type EmailOtpEd25519YaoUnlockBootstrapV1 = EmailOtpEd25519YaoRecoveryBootstrapV1;
 
 function requirePositiveInteger(value: unknown, label: string): number {
   const parsed = Number(value);
@@ -311,7 +308,7 @@ function buildColdRecoveredWalletSessionState(args: {
 
 export async function activateColdEmailOtpEd25519YaoLocalSessionV1(args: {
   prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
-  bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+  bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   activeClientHandle: string;
   metadata: RouterAbEd25519YaoActiveClientMetadataV1;
   workerContext: WorkerOperationContext;

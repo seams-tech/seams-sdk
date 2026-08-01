@@ -4,7 +4,15 @@ import {
   type PasskeyEcdsaSealedRecoveryRecord,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
-import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetsEqual,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  resolveActiveEcdsaCapabilityRuntime,
+  type ActiveEcdsaCapabilityRuntimeResolution,
+} from '../material/activeEcdsaCapabilityRuntime';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import {
   parseSigningSessionSealKeyVersion,
   type SigningSessionSealKeyVersion,
@@ -27,6 +35,41 @@ function shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(
   }
 }
 
+type PasskeyEcdsaRestoreRuntimeCheck =
+  | {
+      kind: 'current';
+      resolution: Extract<ActiveEcdsaCapabilityRuntimeResolution, { kind: 'resolved' }>;
+    }
+  | { kind: 'superseded'; status: Extract<WarmSessionStatusResult, { ok: false }> };
+
+async function checkCurrentPasskeyEcdsaRuntime(args: {
+  record: PasskeyEcdsaSealedRecoveryRecord;
+  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
+}): Promise<PasskeyEcdsaRestoreRuntimeCheck> {
+  const resolution = await args.resolveCurrentEcdsaCapabilityRuntime({
+    walletId: toWalletId(args.record.walletId),
+    chainTarget: args.record.chainTarget,
+  });
+  if (
+    resolution.kind === 'resolved' &&
+    mpcMaterialActivationRefsEqual(
+      resolution.runtime.materialActivation,
+      args.record.roleLocalMaterialRef.materialActivation,
+    )
+  ) {
+    return { kind: 'current', resolution };
+  }
+  const reason = resolution.kind === 'blocked' ? resolution.reason : 'material_activation_mismatch';
+  return {
+    kind: 'superseded',
+    status: {
+      ok: false,
+      code: 'superseded',
+      message: `Passkey ECDSA sealed recovery was superseded (${reason})`,
+    },
+  };
+}
+
 export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   record: PasskeyEcdsaSealedRecoveryRecord;
   purpose: RestorePersistedSessionPurpose & { authMethod: 'passkey' };
@@ -43,6 +86,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   deletePersistedRecord: () => Promise<void>;
   recordSessionMaterialRestored: (status: WarmSessionStatusResult) => Promise<void>;
   readWarmSessionStatusFromWorker: (sessionId: string) => Promise<WarmSessionStatusResult | null>;
+  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
   updatePersistedPolicy: (args: {
     expiresAtMs: number;
     remainingUses: number;
@@ -57,18 +101,31 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     return null;
   }
 
+  const currentBeforeWorker = await checkCurrentPasskeyEcdsaRuntime({
+    record: args.record,
+    resolveCurrentEcdsaCapabilityRuntime: args.resolveCurrentEcdsaCapabilityRuntime,
+  });
+  if (currentBeforeWorker.kind === 'superseded') return currentBeforeWorker.status;
+
   const rehydrated = await args.rehydrateWarmSessionMaterial({
     sessionId: thresholdSessionId,
     sealedSecretB64u: args.record.sealedSecretB64u,
     signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(args.record.keyVersion),
     expiresAtMs: args.record.expiresAtMs,
-    remainingUses: Math.max(1_000_000, Math.floor(Number(args.record.remainingUses) || 0)),
+    remainingUses: args.record.remainingUses,
     transport: {
       ...args.transport,
       groupId: args.groupId,
     },
   });
   if (!rehydrated.ok) {
+    const currentBeforeFailureWrites = await checkCurrentPasskeyEcdsaRuntime({
+      record: args.record,
+      resolveCurrentEcdsaCapabilityRuntime: args.resolveCurrentEcdsaCapabilityRuntime,
+    });
+    if (currentBeforeFailureWrites.kind === 'superseded') {
+      return currentBeforeFailureWrites.status;
+    }
     if (shouldDeletePasskeyEcdsaSealedRecordAfterRestoreFailure(rehydrated)) {
       await args.deletePersistedRecord().catch(() => undefined);
     }
@@ -76,7 +133,6 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     return rehydrated;
   }
 
-  await args.recordSessionMaterialRestored(rehydrated);
   const parsed = await args.readWarmSessionStatusFromWorker(thresholdSessionId);
   if (!parsed) {
     return {
@@ -84,6 +140,13 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
       code: 'worker_error',
       message: 'Warm-session status read failed after rehydrate',
     };
+  }
+  const currentBeforeDurableWrites = await checkCurrentPasskeyEcdsaRuntime({
+    record: args.record,
+    resolveCurrentEcdsaCapabilityRuntime: args.resolveCurrentEcdsaCapabilityRuntime,
+  });
+  if (currentBeforeDurableWrites.kind === 'superseded') {
+    return currentBeforeDurableWrites.status;
   }
   if (parsed.ok) {
     await args
@@ -98,5 +161,6 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
       await args.deletePersistedRecord().catch(() => undefined);
     }
   }
+  await args.recordSessionMaterialRestored(parsed);
   return parsed;
 }

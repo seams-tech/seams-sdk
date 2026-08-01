@@ -65,6 +65,12 @@ import {
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { toWalletId } from '../interfaces/ecdsaChainTarget';
+import {
+  resolveThresholdEcdsaSigningQueueKey,
+  withThresholdEcdsaSigningQueue,
+  type ThresholdEcdsaSigningQueueByKey,
+} from '../threshold/ecdsa/signingQueue';
+import type { resolveActiveEcdsaCapabilityRuntime } from '../session/material/activeEcdsaCapabilityRuntime';
 
 type PendingPasskeyMpcSessionRequest = {
   id: string;
@@ -75,6 +81,8 @@ type PendingPasskeyMpcSessionRequest = {
 
 type PasskeyMpcSessionManagerDeps = {
   signingSessionPersistenceMode: 'none' | 'sealed_refresh_v1';
+  thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
+  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
 };
 
 const PASSKEY_MPC_SESSION_TIMEOUT_MS = 60_000;
@@ -497,18 +505,19 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
     record: SealedRecoveryRecord;
     purpose: RestorePersistedSessionPurpose;
   }): Promise<RestoreSealedRecordResult> => {
-    if (args.purpose.authMethod !== 'passkey' || args.record.authMethod !== 'passkey') {
+    const { record, purpose } = args;
+    if (purpose.authMethod !== 'passkey' || record.authMethod !== 'passkey') {
       return 'deferred';
     }
-    const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
-    const chainTarget = args.purpose.chainTarget;
+    const thresholdSessionId = String(purpose.thresholdSessionId || '').trim();
+    const chainTarget = purpose.chainTarget;
     if (
       !thresholdSessionId ||
-      args.record.curve !== 'ecdsa' ||
-      !thresholdEcdsaChainTargetsEqual(args.record.chainTarget, chainTarget) ||
+      record.curve !== 'ecdsa' ||
+      !thresholdEcdsaChainTargetsEqual(record.chainTarget, chainTarget) ||
       !mpcMaterialActivationRefsEqual(
-        args.record.roleLocalMaterialRef.materialActivation,
-        args.purpose.materialActivation,
+        record.roleLocalMaterialRef.materialActivation,
+        purpose.materialActivation,
       )
     ) {
       return 'deferred';
@@ -516,17 +525,27 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
     const singleFlightKey = restoreSingleFlightKey({
       thresholdSessionId,
       chainTarget,
-      materialActivation: args.purpose.materialActivation,
+      materialActivation: purpose.materialActivation,
     });
     const inFlight = signingSessionRehydrateSingleFlight.get(singleFlightKey);
     if (inFlight) {
       return requirePasskeyEcdsaRestoreOutcome(await inFlight, 'ready');
     }
 
-    const task = this.restorePasskeyEcdsaRecord({
-      walletId: args.walletId,
-      record: args.record,
-      purpose: { ...args.purpose, authMethod: 'passkey' },
+    const task = withThresholdEcdsaSigningQueue({
+      queueByKey:
+        this.deps.thresholdEcdsaSigningQueueByKey,
+      queueKey: resolveThresholdEcdsaSigningQueueKey({
+        materialActivation: record.roleLocalMaterialRef.materialActivation,
+      }),
+      walletId: toWalletId(args.walletId),
+      enabled: true,
+      task: async () =>
+        await this.restorePasskeyEcdsaRecord({
+          walletId: args.walletId,
+          record,
+          purpose: { ...purpose, authMethod: 'passkey' },
+        }),
     }).finally(() => {
       signingSessionRehydrateSingleFlight.delete(singleFlightKey);
     });
@@ -597,6 +616,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
           ),
         readWarmSessionStatusFromWorker: async (sessionId) =>
           await this.readWarmSessionStatus({ sessionId }),
+        resolveCurrentEcdsaCapabilityRuntime: this.deps.resolveCurrentEcdsaCapabilityRuntime,
         updatePersistedPolicy: async (policy) =>
           await this.durableState.updatePersistedPolicy({
             thresholdSessionId,

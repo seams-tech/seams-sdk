@@ -42,6 +42,7 @@ import { parseEmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import { buildEmailOtpRecoveredKeyActivation } from './ecdsaLogin';
 import type { ThresholdEcdsaActivationRequest } from '../passkey/ecdsaSessionProvision';
 import type { ResolvedEmailOtpExistingEcdsaKey } from './ecdsaPublication';
+import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
 import type {
   ActiveEcdsaCapabilityRuntimeResolution,
   resolveActiveEcdsaCapabilityRuntime,
@@ -55,12 +56,31 @@ export type EmailOtpThresholdEcdsaRehydrateResult = {
   expiresAtMs: number;
 };
 
+export type EmailOtpEcdsaSealedRestoreSupersededPhase =
+  | 'before_rehydrate'
+  | 'before_commit';
+
+export class EmailOtpEcdsaSealedRestoreSupersededError extends Error {
+  readonly code = 'material_activation_superseded' as const;
+
+  constructor(readonly phase: EmailOtpEcdsaSealedRestoreSupersededPhase) {
+    super(`Email OTP sealed refresh material activation was superseded ${phase.replace('_', ' ')}`);
+    this.name = 'EmailOtpEcdsaSealedRestoreSupersededError';
+  }
+}
+
 export type EmailOtpEcdsaSealedRecoveryRecordInput = {
   sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
 };
 
 export type EmailOtpEcdsaSealedRecoveryPorts = {
   configs: SeamsConfigsReadonly;
+  withThresholdEcdsaSigningQueue: <T>(args: {
+    queueKey: string;
+    walletId: WalletId;
+    enabled: boolean;
+    task: () => Promise<T>;
+  }) => Promise<T>;
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
   readActiveWalletSessionAuthorization: (
     walletId: WalletId,
@@ -267,6 +287,21 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   if (sealedRecord.authMethod !== 'email_otp' || sealedRecord.curve !== 'ecdsa') {
     return null;
   }
+  const materialActivation = sealedRecord.roleLocalMaterialRef.materialActivation;
+  return await args.withThresholdEcdsaSigningQueue({
+    queueKey: resolveThresholdEcdsaSigningQueueKey({ materialActivation }),
+    walletId: toWalletId(sealedRecord.walletId),
+    enabled: true,
+    task: async () =>
+      await restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue(args),
+  });
+}
+
+async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue(
+  args: EmailOtpEcdsaSealedRecoveryInput,
+): Promise<EmailOtpThresholdEcdsaRehydrateResult | null> {
+  const sealedRecord = args.sealedRecord;
+  const materialActivation = sealedRecord.roleLocalMaterialRef.materialActivation;
   const authorizationRead = await args.readActiveWalletSessionAuthorization(
     toWalletId(sealedRecord.walletId),
   );
@@ -293,7 +328,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   if (sealedRecord.remainingUses <= 0) {
     throw new Error('Email OTP sealed refresh exhausted sealed record');
   }
-  const expectedMaterialActivation = sealedRecord.roleLocalMaterialRef.materialActivation;
+  const expectedMaterialActivation = materialActivation;
   const currentBeforeRehydrate: ActiveEcdsaCapabilityRuntimeResolution =
     await args.resolveCurrentEcdsaCapabilityRuntime({
       walletId: toWalletId(sealedRecord.walletId),
@@ -306,7 +341,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
       expectedMaterialActivation,
     )
   ) {
-    throw new Error('Email OTP sealed refresh material activation was superseded');
+    throw new EmailOtpEcdsaSealedRestoreSupersededError('before_rehydrate');
   }
   const restored = await requestRehydrateEmailOtpEcdsaWarmSessionMaterial({
     workerCtx,
@@ -379,7 +414,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
       expectedMaterialActivation,
     )
   ) {
-    throw new Error('Email OTP sealed refresh material activation was superseded');
+    throw new EmailOtpEcdsaSealedRestoreSupersededError('before_commit');
   }
   const committed = await args.commitEvmFamilyThresholdEcdsaSessions({
     walletId: toWalletId(sealedRecord.walletId),

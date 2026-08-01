@@ -95,7 +95,6 @@ import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfi
 import type { LoginWithEmailOtpEd25519YaoCapabilityInternalArgs } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
 import type { PreparedColdEmailOtpEd25519YaoRecoveryV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
 import type {
-  EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
@@ -443,7 +442,7 @@ export interface EmailOtpSigningSessionSurface {
   }): Promise<NearEd25519SignerBinding>;
   activateEmailOtpEd25519YaoLocalSessionInternal(args: {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
-    bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     activeClientHandle: string;
     metadata: RouterAbEd25519YaoActiveClientMetadataV1;
   }): Promise<NearEd25519SignerBinding>;
