@@ -261,19 +261,6 @@ export type EcdsaSigningKeyRefIntent =
 
 export type SigningKeyRefIntent = Ed25519SigningKeyRefIntent | EcdsaSigningKeyRefIntent;
 
-export type Ed25519WalletSigningSpendPlan = {
-  operationId: SigningOperationId;
-  operationFingerprint?: SigningOperationFingerprint;
-  lane: SelectedEd25519SigningSessionPlanningLane;
-  uses: number;
-  reason: SigningOperationIntent;
-};
-
-// Client-side wallet signing budget is Ed25519-only. EVM-family ECDSA wallet
-// quota is consumed server-side against the reusable Wallet Session, so there is
-// no ECDSA spend plan to reserve or decrement locally.
-export type WalletSigningSpendPlan = Ed25519WalletSigningSpendPlan;
-
 export type EmailOtpChallengePlan = {
   challengeId?: EmailOtpChallengeId;
   chainFamily: SigningChainFamily;
@@ -480,47 +467,6 @@ export function assertSameSigningLaneIdentity(args: {
   throw new Error(
     `[SigningSession] signing lane identity changed before ${args.context}: ${mismatch}`,
   );
-}
-
-export function normalizeWalletSigningSpendPlan(
-  input: WalletSigningSpendPlan,
-): WalletSigningSpendPlan {
-  if (!input || typeof input !== 'object') {
-    throw new Error('[SigningSession] wallet signing spend plan is required');
-  }
-  const lane = input.lane;
-  if (!lane || typeof lane !== 'object') {
-    throw new Error('[SigningSession] wallet signing spend plan lane is required');
-  }
-  const operationId = SigningSessionIds.signingOperation(input.operationId);
-  const operationFingerprint =
-    input.operationFingerprint != null
-      ? SigningSessionIds.signingOperationFingerprint(input.operationFingerprint)
-      : undefined;
-  const signer = lane.identity.signer;
-  const uses = Math.floor(Number(input.uses) || 0);
-  if (!Number.isFinite(uses) || uses <= 0) {
-    throw new Error('[SigningSession] wallet signing spend uses must be a positive integer');
-  }
-  if (input.reason !== SigningOperationIntent.TransactionSign) {
-    throw new Error('[SigningSession] wallet signing spend reason is invalid');
-  }
-  if (signer.kind !== 'near_ed25519_signer' || lane.curve !== 'ed25519') {
-    throw new Error(
-      '[SigningSession] client wallet signing spend plans are Ed25519-only',
-    );
-  }
-  const normalizedLane: SelectedEd25519SigningSessionPlanningLane = {
-    ...lane,
-    signingGrantId: SigningSessionIds.signingGrant(lane.signingGrantId),
-  };
-  return {
-    operationId,
-    ...(operationFingerprint ? { operationFingerprint } : {}),
-    lane: normalizedLane,
-    uses,
-    reason: SigningOperationIntent.TransactionSign,
-  } as WalletSigningSpendPlan;
 }
 
 export function summarizeSigningSessionPlan(plan: SigningSessionPlan): SigningPlanSummary {
