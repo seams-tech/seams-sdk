@@ -1,4 +1,7 @@
-import type { WarmSessionLanePurpose } from '../session/emailOtp/sealedRuntimePurpose';
+import type {
+  WarmSessionLanePurpose,
+  WarmSessionMaterialOperationTarget,
+} from '../session/emailOtp/sealedRuntimePurpose';
 /**
  * UiConfirm specs (types + interfaces).
  */
@@ -109,16 +112,14 @@ export interface WarmSessionStatusBatchReader {
 }
 
 export interface WarmSessionMaterialClaimer {
-  claimWarmSessionMaterial(args: {
-    purpose: WarmSessionLanePurpose;
+  claimWarmSessionMaterial(args: WarmSessionMaterialOperationTarget & {
     uses?: number;
     consume?: boolean;
   }): Promise<WarmSessionClaimResult>;
 }
 
 export interface WarmSessionMaterialConsumer {
-  consumeWarmSessionUses(args: {
-    purpose: WarmSessionLanePurpose;
+  consumeWarmSessionUses(args: WarmSessionMaterialOperationTarget & {
     uses?: number;
   }): Promise<WarmSessionStatusResult>;
 }

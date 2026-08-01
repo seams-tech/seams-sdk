@@ -1,4 +1,4 @@
-import type { WarmSessionLanePurpose } from '../../session/emailOtp/sealedRuntimePurpose';
+import type { WarmSessionMaterialOperationTarget } from '../../session/emailOtp/sealedRuntimePurpose';
 import type { RuntimePorts } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
@@ -123,8 +123,7 @@ export type CreateSigningEnginePortsArgs = {
   passkeyMpcSession: PasskeyMpcSessionPort;
   passkeyMpcExport: PasskeyMpcExportPort;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  consumeEmailOtpWarmSessionUses?: (args: {
-    purpose: WarmSessionLanePurpose;
+  consumeEmailOtpWarmSessionUses?: (args: WarmSessionMaterialOperationTarget & {
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
   clearEmailOtpWarmSessionMaterial: (sessionId: string) => Promise<void>;

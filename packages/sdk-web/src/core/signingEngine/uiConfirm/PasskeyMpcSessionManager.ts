@@ -10,7 +10,11 @@ import type {
   WarmSessionStatusBatchResult,
 } from '../../types/secure-confirm-worker';
 import { resolveWorkerUrl } from '../../walletRuntimePaths';
-import type { WarmSessionLanePurpose } from '../session/emailOtp/sealedRuntimePurpose';
+import {
+  warmSessionProtocolSessionId,
+  type WarmSessionLanePurpose,
+  type WarmSessionMaterialOperationTarget,
+} from '../session/emailOtp/sealedRuntimePurpose';
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 import type {
   WarmSessionMaterialWriteDiagnosticBucket,
@@ -588,6 +592,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
         recordSessionMaterialRestored: async (status) =>
           await this.recordWarmSessionPolicyResult(
             { curve: 'ecdsa', thresholdSessionId, chainTarget },
+            thresholdSessionId,
             status,
           ),
         readWarmSessionStatusFromWorker: async (sessionId) =>
@@ -630,16 +635,16 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
     };
   };
 
-  claimWarmSessionMaterial = async (args: {
-    purpose: WarmSessionLanePurpose;
+  claimWarmSessionMaterial = async (args: WarmSessionMaterialOperationTarget & {
     uses?: number;
     consume?: boolean;
   }): Promise<WarmSessionClaimResult> => {
+    const thresholdSessionId = warmSessionProtocolSessionId(args);
     const response = await this.sendMessage({
       type: 'WARM_SESSION_MATERIAL_CLAIM',
       id: this.generateMessageId(),
       payload: {
-        sessionId: args.purpose.thresholdSessionId,
+        sessionId: thresholdSessionId,
         ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
         ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
         curve: args.purpose.curve,
@@ -653,19 +658,19 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
         message: String(response.error || 'Warm-session claim failed'),
       };
     }
-    await this.recordWarmSessionPolicyResult(args.purpose, parsed);
+    await this.recordWarmSessionPolicyResult(args.purpose, thresholdSessionId, parsed);
     return parsed;
   };
 
-  consumeWarmSessionUses = async (args: {
-    purpose: WarmSessionLanePurpose;
+  consumeWarmSessionUses = async (args: WarmSessionMaterialOperationTarget & {
     uses?: number;
   }): Promise<WarmSessionStatusResult> => {
+    const thresholdSessionId = warmSessionProtocolSessionId(args);
     const response = await this.sendMessage({
       type: 'WARM_SESSION_MATERIAL_CONSUME',
       id: this.generateMessageId(),
       payload: {
-        sessionId: args.purpose.thresholdSessionId,
+        sessionId: thresholdSessionId,
         ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
         curve: args.purpose.curve,
       },
@@ -678,7 +683,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
         message: String(response.error || 'Warm-session consume failed'),
       };
     }
-    await this.recordWarmSessionPolicyResult(args.purpose, parsed);
+    await this.recordWarmSessionPolicyResult(args.purpose, thresholdSessionId, parsed);
     return parsed;
   };
 
@@ -747,8 +752,10 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
 
   private readonly recordWarmSessionPolicyResult = async (
     purpose: WarmSessionLanePurpose,
+    thresholdSessionId: string,
     result: WarmSessionStatusResult | WarmSessionClaimResult,
-  ): Promise<void> => await this.durableState.recordPolicyResult(purpose, result);
+  ): Promise<void> =>
+    await this.durableState.recordPolicyResult(purpose, thresholdSessionId, result);
 
   async rehydrateWarmSessionMaterial(
     args: WarmSessionRehydratePayload,
