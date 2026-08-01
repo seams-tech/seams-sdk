@@ -1,6 +1,6 @@
 import type {
   RouterAbEd25519YaoAdmittedLifecycleV1,
-  RouterAbEd25519YaoCeremonyBindingV1,
+  RouterAbEd25519YaoCeremonyBindingV1 as GeneratedRouterAbEd25519YaoCeremonyBindingV1,
   RouterAbEd25519YaoCeremonyIdentityV1,
   RouterAbEd25519YaoInputPairBindingV1,
   RouterAbEd25519YaoOperationV1,
@@ -9,10 +9,13 @@ import type {
   RouterAbEd25519YaoWorkKindV1,
   RouterAbEd25519YaoBytes32V1,
 } from './generated/routerAbEd25519YaoCore';
+import {
+  parseRouterAbMpcMaterialActivationRef,
+  type RouterAbMpcMaterialActivationRefWire,
+} from './routerAbNormalSigningIdentity';
 
 export type {
   RouterAbEd25519YaoAdmittedLifecycleV1,
-  RouterAbEd25519YaoCeremonyBindingV1,
   RouterAbEd25519YaoCeremonyIdentityV1,
   RouterAbEd25519YaoCircuitFamilyV1,
   RouterAbEd25519YaoCircuitIdV1,
@@ -27,6 +30,11 @@ export type {
   RouterAbEd25519YaoWorkKindV1,
   RouterAbEd25519YaoBytes32V1,
 } from './generated/routerAbEd25519YaoCore';
+
+export type RouterAbEd25519YaoCeremonyBindingV1 =
+  GeneratedRouterAbEd25519YaoCeremonyBindingV1 & {
+    material_activation: RouterAbMpcMaterialActivationRefWire;
+  };
 
 export const ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1 =
   '/router-ab/ed25519/yao/registration/admit' as const;
@@ -70,6 +78,7 @@ export type RouterAbEd25519YaoLifecycleScopeV1 = {
   wallet_session_id: string;
   signer_set_id: string;
   signing_worker_id: string;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
 };
 
 export type RouterAbEd25519YaoRegistrationAdmissionRequestV1 = {
@@ -299,6 +308,7 @@ export type RouterAbEd25519YaoActivationPublicReceiptV1 = {
   joined_signing_worker_commitment: RouterAbEd25519YaoBytes32V1;
   signing_worker_verifying_share: RouterAbEd25519YaoBytes32V1;
   state_epoch: number;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
 };
 
 export type RouterAbEd25519YaoActivationResultV1<
@@ -829,6 +839,7 @@ function parsePublicLifecycleScope(value: unknown): RouterAbEd25519YaoLifecycleS
     'wallet_session_id',
     'signer_set_id',
     'signing_worker_id',
+    'material_activation',
   ]);
   return {
     lifecycle_id: requireVisibleIdentifier(record.lifecycle_id, 'scope.lifecycle_id'),
@@ -843,6 +854,7 @@ function parsePublicLifecycleScope(value: unknown): RouterAbEd25519YaoLifecycleS
       record.signing_worker_id,
       'scope.signing_worker_id',
     ),
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
   };
 }
 
@@ -920,6 +932,7 @@ function parseCeremonyBinding(value: unknown): RouterAbEd25519YaoCeremonyBinding
     'operation',
     'session_id',
     'stable_key_context_binding',
+    'material_activation',
   ]);
   const binding = {
     lifecycle: parseAdmittedLifecycle(record.lifecycle),
@@ -930,6 +943,7 @@ function parseCeremonyBinding(value: unknown): RouterAbEd25519YaoCeremonyBinding
       'binding.stable_key_context_binding',
       false,
     ),
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
   };
   if (
     binding.operation === 'registration' &&
@@ -969,6 +983,7 @@ function requireExportCeremonyBinding(value: unknown): RouterAbEd25519YaoExportC
     operation: 'export',
     session_id: binding.session_id,
     stable_key_context_binding: binding.stable_key_context_binding,
+    material_activation: binding.material_activation,
   };
 }
 
@@ -1027,6 +1042,7 @@ function requireActivationBinding(
         operation: 'registration',
         session_id: binding.session_id,
         stable_key_context_binding: binding.stable_key_context_binding,
+        material_activation: binding.material_activation,
       };
     case 'recovery':
       if (
@@ -1049,6 +1065,7 @@ function requireActivationBinding(
         operation: 'recovery',
         session_id: binding.session_id,
         stable_key_context_binding: binding.stable_key_context_binding,
+        material_activation: binding.material_activation,
       };
     case 'refresh':
     case 'export':
@@ -1230,6 +1247,7 @@ function parsePublicReceipt(value: unknown): RouterAbEd25519YaoActivationPublicR
     'joined_signing_worker_commitment',
     'signing_worker_verifying_share',
     'state_epoch',
+    'material_activation',
   ]);
   return {
     transcript: requireBytes32(record.transcript, 'public_receipt.transcript', true),
@@ -1254,6 +1272,7 @@ function parsePublicReceipt(value: unknown): RouterAbEd25519YaoActivationPublicR
       true,
     ),
     state_epoch: requirePositiveSafeInteger(record.state_epoch, 'public_receipt.state_epoch'),
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
   };
 }
 

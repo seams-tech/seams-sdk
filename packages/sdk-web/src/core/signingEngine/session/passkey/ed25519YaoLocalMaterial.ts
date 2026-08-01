@@ -26,6 +26,7 @@ import {
 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import { base58Encode } from '@shared/utils/base58';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   mpcMaterialActivationRefsEqual,
   parseMpcMaterialActivationRef,
@@ -50,7 +51,7 @@ import type { MpcCapabilityHydrationPlan } from '../material/mpcCapabilityHydrat
 
 export const ED25519_YAO_LOCAL_MATERIAL_KEY_KIND =
   'router_ab_ed25519_yao_active_client_v1' as const;
-const ED25519_YAO_LOCAL_MATERIAL_SCHEMA_VERSION = 2;
+const ED25519_YAO_LOCAL_MATERIAL_SCHEMA_VERSION = 3;
 const ED25519_YAO_LOCAL_MATERIAL_ALGORITHM = 'chacha20poly1305-hkdf-sha256-prf-first-v1';
 const ED25519_YAO_LOCAL_MATERIAL_NONCE_BYTES = 12;
 const MAX_U64 = (1n << 64n) - 1n;
@@ -86,6 +87,7 @@ type Ed25519YaoLocalMaterialBindingV1 = {
   rpId: string;
   credentialIdB64u: string;
   lifecycleId: string;
+  thresholdSessionId: string;
   materialActivation: MpcMaterialActivationRef;
   signingRootId: string;
   signingRootVersion: string;
@@ -371,6 +373,10 @@ function bindingFromActiveClient(args: {
     rpId: args.identity.rpId,
     credentialIdB64u: args.identity.credentialIdB64u,
     lifecycleId: requireNonEmpty(metadata.scope.lifecycle_id, 'lifecycleId'),
+    thresholdSessionId: requireNonEmpty(
+      metadata.scope.wallet_session_id,
+      'thresholdSessionId',
+    ),
     materialActivation: nearEd25519YaoMaterialActivationFromMetadata(metadata),
     signingRootId: args.identity.signingRootId,
     signingRootVersion: args.identity.signingRootVersion,
@@ -398,6 +404,7 @@ function bindingBytes(binding: Ed25519YaoLocalMaterialBindingV1): Uint8Array {
       binding.rpId,
       binding.credentialIdB64u,
       binding.lifecycleId,
+      binding.thresholdSessionId,
       binding.materialActivation.kind,
       binding.materialActivation.activationId,
       binding.materialActivation.capability,
@@ -460,6 +467,7 @@ function parseStoredBindingValue(value: unknown): Ed25519YaoLocalMaterialBinding
     rpId: requireNonEmpty(record.rpId, 'binding.rpId'),
     credentialIdB64u: requireNonEmpty(record.credentialIdB64u, 'binding.credentialIdB64u'),
     lifecycleId: requireNonEmpty(record.lifecycleId, 'binding.lifecycleId'),
+    thresholdSessionId: requireNonEmpty(record.thresholdSessionId, 'binding.thresholdSessionId'),
     materialActivation: materialActivation.value,
     signingRootId: requireNonEmpty(record.signingRootId, 'binding.signingRootId'),
     signingRootVersion: requireNonEmpty(record.signingRootVersion, 'binding.signingRootVersion'),
@@ -609,9 +617,10 @@ function metadataFromBinding(
       lifecycle_id: binding.lifecycleId,
       root_share_epoch: binding.signingRootVersion,
       account_id: binding.walletId,
-      wallet_session_id: binding.materialActivation.activationId,
+      wallet_session_id: binding.thresholdSessionId,
       signer_set_id: binding.signerSetId,
       signing_worker_id: binding.signingWorkerId,
+      material_activation: routerAbMpcMaterialActivationRefToWire(binding.materialActivation),
     },
     applicationBinding: {
       wallet_id: binding.walletId,
@@ -625,6 +634,7 @@ function metadataFromBinding(
     stateEpoch: BigInt(binding.stateEpoch),
     transcript: base64UrlDecode(binding.activationTranscriptB64u),
     activeCapabilityBinding: Array.from(base64UrlDecode(binding.activationCapabilityBindingB64u)),
+    materialActivation: binding.materialActivation,
   };
 }
 

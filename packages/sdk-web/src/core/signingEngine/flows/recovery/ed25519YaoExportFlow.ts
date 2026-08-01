@@ -41,8 +41,8 @@ import type {
   PasskeyEd25519YaoExportContextV1,
 } from '../../session/passkey/ed25519YaoWarmRecovery';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
-import { nearEd25519YaoMaterialActivationFromPublicFacts } from '../../session/material/nearEd25519YaoMaterialActivation';
 import { resolveThresholdEd25519CommitQueueKey } from '../../threshold/ed25519/commitQueue';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 
 export type Ed25519YaoExportFlowDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'initialize' | 'requestUserConfirmation'>;
@@ -128,14 +128,7 @@ type ResolvedPasskeyEd25519YaoExportContext = {
 function passkeyEd25519ExportMaterialActivation(
   resolved: ResolvedPasskeyEd25519YaoExportContext,
 ) {
-  return nearEd25519YaoMaterialActivationFromPublicFacts({
-    activationId: resolved.capability.scope.wallet_session_id,
-    activeCapabilityBinding: resolved.capability.activeCapabilityBinding,
-    walletId: resolved.capability.applicationBinding.wallet_id,
-    registeredPublicKey: resolved.capability.registeredPublicKey,
-    lifecycleId: resolved.capability.scope.lifecycle_id,
-    signingWorkerId: resolved.capability.scope.signing_worker_id,
-  });
+  return resolved.capability.materialActivation;
 }
 
 function emailOtpEd25519ExportMaterialActivation(
@@ -253,6 +246,7 @@ function resolvePasskeyExportContextFromActiveCapability(args: {
     relayerUrl: capability.walletSessionState.relayerUrl,
     walletSessionJwt: capability.walletSessionState.walletSessionAuth.walletSessionJwt,
     capability: {
+      materialActivation: metadata.materialActivation,
       scope: metadata.scope,
       applicationBinding: metadata.applicationBinding,
       participantIds: metadata.participantIds,
@@ -313,6 +307,7 @@ function requireDurablePasskeyExportContext(args: {
     relayerUrl: args.context.relayerUrl,
     walletSessionJwt: descriptor.session.walletSessionJwt,
     capability: {
+      materialActivation: descriptor.capability.materialActivation,
       scope: {
         lifecycle_id: lifecycle.lifecycleId,
         root_share_epoch: lifecycle.rootShareEpoch,
@@ -320,6 +315,9 @@ function requireDurablePasskeyExportContext(args: {
         wallet_session_id: lifecycle.thresholdSessionId,
         signer_set_id: lifecycle.signerSetId,
         signing_worker_id: lifecycle.signingWorkerId,
+        material_activation: routerAbMpcMaterialActivationRefToWire(
+          descriptor.capability.materialActivation,
+        ),
       },
       applicationBinding: descriptor.capability.applicationBinding,
       participantIds: descriptor.capability.participantIds,

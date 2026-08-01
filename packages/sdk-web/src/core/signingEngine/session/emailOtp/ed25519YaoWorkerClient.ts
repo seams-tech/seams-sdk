@@ -129,6 +129,7 @@ export type VerifiedEmailOtpEd25519YaoRecoveryWorkerInputV1 = {
     | 'participantIds'
     | 'registeredPublicKey'
     | 'stateEpoch'
+    | 'materialActivation'
   >;
   providerSubject: string;
   registrationAuthorityId: string;
@@ -151,11 +152,21 @@ export function buildEmailOtpEd25519YaoRecoveryContinuityMetadataV1(
       wallet_session_id: capability.lifecycle.thresholdSessionId,
       signer_set_id: capability.lifecycle.signerSetId,
       signing_worker_id: capability.lifecycle.signingWorkerId,
+      material_activation: {
+        kind: capability.materialActivation.kind,
+        activation_id: capability.materialActivation.activationId,
+        capability: capability.materialActivation.capability,
+        material_owner: capability.materialActivation.materialOwner,
+        key_binding: capability.materialActivation.keyBinding,
+        lifecycle_binding: capability.materialActivation.lifecycleBinding,
+        signing_worker: capability.materialActivation.signingWorker,
+      },
     },
     applicationBinding: capability.applicationBinding,
     participantIds: capability.participantIds,
     registeredPublicKey: Uint8Array.from(capability.registeredPublicKey),
     stateEpoch: BigInt(capability.stateEpoch),
+    materialActivation: capability.materialActivation,
   };
 }
 
@@ -180,6 +191,7 @@ function cloneMetadata(
       wallet_session_id: metadata.scope.wallet_session_id,
       signer_set_id: metadata.scope.signer_set_id,
       signing_worker_id: metadata.scope.signing_worker_id,
+      material_activation: metadata.scope.material_activation,
     },
     applicationBinding: {
       wallet_id: metadata.applicationBinding.wallet_id,
@@ -193,6 +205,7 @@ function cloneMetadata(
     stateEpoch: metadata.stateEpoch,
     transcript: metadata.transcript.slice(),
     activeCapabilityBinding: [...metadata.activeCapabilityBinding],
+    materialActivation: metadata.materialActivation,
   };
 }
 
@@ -288,6 +301,15 @@ function recoveryAdmissionRequest(
         wallet_session_id: input.bootstrap.session.thresholdSessionId,
         signer_set_id: capability.lifecycle.signerSetId,
         signing_worker_id: capability.lifecycle.signingWorkerId,
+        material_activation: {
+          kind: capability.materialActivation.kind,
+          activation_id: capability.materialActivation.activationId,
+          capability: capability.materialActivation.capability,
+          material_owner: capability.materialActivation.materialOwner,
+          key_binding: capability.materialActivation.keyBinding,
+          lifecycle_binding: capability.materialActivation.lifecycleBinding,
+          signing_worker: capability.materialActivation.signingWorker,
+        },
       },
       application_binding: capability.applicationBinding,
       participant_ids: capability.participantIds,

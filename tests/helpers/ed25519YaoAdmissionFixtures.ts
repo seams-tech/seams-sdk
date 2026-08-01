@@ -45,6 +45,15 @@ export function buildFixtureEd25519YaoRegistrationAdmissionRequest(
       wallet_session_id: `${lifecycleId}-session`,
       signer_set_id: overrides.signerSetId ?? 'signer-set-fixture',
       signing_worker_id: overrides.signingWorkerId ?? 'signing-worker-a',
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: `${lifecycleId}-activation`,
+        capability: `${lifecycleId}-capability`,
+        material_owner: walletId,
+        key_binding: `${lifecycleId}-key`,
+        lifecycle_binding: `${lifecycleId}-lifecycle-binding`,
+        signing_worker: overrides.signingWorkerId ?? 'signing-worker-a',
+      },
     },
     application_binding: {
       wallet_id: walletId,

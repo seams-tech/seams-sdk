@@ -7,6 +7,15 @@ import type {
 } from './routerAbEd25519Yao';
 
 const bytes32 = new Array<number>(32).fill(1);
+const materialActivation = {
+  kind: 'mpc_material_activation_ref' as const,
+  activation_id: 'activation-1',
+  capability: 'capability-1',
+  material_owner: 'owner-1',
+  key_binding: 'key-1',
+  lifecycle_binding: 'lifecycle-1',
+  signing_worker: 'signing-worker-1',
+};
 
 const registrationBinding: RouterAbEd25519YaoActivationBindingV1<'registration'> = {
   lifecycle: {
@@ -22,6 +31,7 @@ const registrationBinding: RouterAbEd25519YaoActivationBindingV1<'registration'>
   operation: 'registration',
   session_id: bytes32,
   stable_key_context_binding: bytes32,
+  material_activation: materialActivation,
 };
 
 const recoveryBinding: RouterAbEd25519YaoActivationBindingV1<'recovery'> = {
@@ -38,6 +48,7 @@ const recoveryBinding: RouterAbEd25519YaoActivationBindingV1<'recovery'> = {
   operation: 'recovery',
   session_id: bytes32,
   stable_key_context_binding: bytes32,
+  material_activation: materialActivation,
 };
 
 const registrationInputA: RouterAbEd25519YaoActivationEncryptedInputV1<

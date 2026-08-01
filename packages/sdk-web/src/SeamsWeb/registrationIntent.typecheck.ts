@@ -10,6 +10,16 @@ import {
   type ThresholdEd25519RegistrationSpec,
 } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+
+const materialActivation = {
+  kind: 'mpc_material_activation_ref' as const,
+  activation_id: 'registration-activation-1',
+  capability: 'registration-capability-1',
+  material_owner: 'wallet_alice',
+  key_binding: 'near-key-1',
+  lifecycle_binding: 'registration-lifecycle',
+  signing_worker: 'signing-worker-1',
+};
 import type {
   FinalizeWalletAddSignerArgs,
   WalletAddSignerFinalizeResponse,
@@ -70,6 +80,7 @@ const addSignerAdmissionRequestFixture = {
     wallet_session_id: 'wallet-session-1',
     signer_set_id: 'signer-set-1',
     signing_worker_id: 'signing-worker-1',
+    material_activation: materialActivation,
   },
   application_binding: {
     wallet_id: addSignerWalletId,

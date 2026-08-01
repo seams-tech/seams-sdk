@@ -47,6 +47,8 @@ import {
   type RouterAbEd25519YaoExportExecuteRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import { parseMpcMaterialActivationRef, type MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
   createRouterAbTraceContextV1,
@@ -229,6 +231,7 @@ export type RouterAbEd25519YaoActiveClientMetadataV1 = {
   stateEpoch: bigint;
   transcript: Uint8Array;
   activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
+  materialActivation: MpcMaterialActivationRef;
 };
 
 export type RouterAbEd25519YaoSealedLocalMaterialV1 = {
@@ -677,10 +680,18 @@ function parseCommitmentsJson(value: string): Readonly<{ hiding: string; binding
 
 function publicReceiptMetadata(
   receipt: RouterAbEd25519YaoActivationPublicReceiptV1,
-): Pick<RouterAbEd25519YaoActiveClientMetadataV1, 'signingWorkerVerifyingShare' | 'transcript'> {
+): Pick<
+  RouterAbEd25519YaoActiveClientMetadataV1,
+  'signingWorkerVerifyingShare' | 'transcript' | 'materialActivation'
+> {
+  const materialActivation = parseMpcMaterialActivationRef(receipt.material_activation);
+  if (!materialActivation.ok) {
+    throw new Error(`Invalid activation material reference: ${materialActivation.error.message}`);
+  }
   return {
     signingWorkerVerifyingShare: Uint8Array.from(receipt.signing_worker_verifying_share),
     transcript: Uint8Array.from(receipt.transcript),
+    materialActivation: materialActivation.value,
   };
 }
 
@@ -692,6 +703,10 @@ function recoveryActivationMatches(
   return (
     JSON.stringify(activation.binding) === JSON.stringify(result.binding) &&
     JSON.stringify(activation.public_receipt) === JSON.stringify(result.public_receipt) &&
+    sameRouterAbMpcMaterialActivationRef(
+      result.binding.material_activation,
+      request.scope.material_activation,
+    ) &&
     equalBytes(activation.active_capability_binding, request.replacement_capability_binding) &&
     equalBytes(activation.retired_capability_binding, request.active_capability_binding) &&
     equalBytes(activation.public_receipt.registered_public_key, request.registered_public_key)
@@ -709,7 +724,11 @@ function activationAdmissionMatchesScope(
     lifecycle.account_id === scope.account_id &&
     lifecycle.session_id === scope.wallet_session_id &&
     lifecycle.signer_set_id === scope.signer_set_id &&
-    lifecycle.selected_server_id === scope.signing_worker_id
+    lifecycle.selected_server_id === scope.signing_worker_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      receipt.binding.material_activation,
+      scope.material_activation,
+    )
   );
 }
 
@@ -814,6 +833,10 @@ function exportAdmissionMatchesRequest(
     lifecycle.session_id === request.scope.wallet_session_id &&
     lifecycle.signer_set_id === request.scope.signer_set_id &&
     lifecycle.selected_server_id === request.scope.signing_worker_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      receipt.binding.ceremony.material_activation,
+      request.scope.material_activation,
+    ) &&
     receipt.binding.state_epoch === request.state_epoch &&
     equalBytes(receipt.binding.registered_public_key, request.registered_public_key) &&
     equalBytes(receipt.binding.runtime_policy_binding, request.runtime_policy_binding) &&
@@ -1158,6 +1181,7 @@ export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoS
         wallet_session_id: args.metadata.scope.wallet_session_id,
         signer_set_id: args.metadata.scope.signer_set_id,
         signing_worker_id: args.metadata.scope.signing_worker_id,
+        material_activation: args.metadata.scope.material_activation,
       },
       applicationBinding: {
         wallet_id: args.metadata.applicationBinding.wallet_id,
@@ -1171,6 +1195,7 @@ export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoS
       stateEpoch: args.metadata.stateEpoch,
       transcript: args.metadata.transcript.slice(),
       activeCapabilityBinding: [...args.metadata.activeCapabilityBinding],
+      materialActivation: args.metadata.materialActivation,
     };
     this.lifecycle = {
       kind: 'active',
@@ -1261,6 +1286,7 @@ export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoS
         wallet_session_id: this.activeMetadata.scope.wallet_session_id,
         signer_set_id: this.activeMetadata.scope.signer_set_id,
         signing_worker_id: this.activeMetadata.scope.signing_worker_id,
+        material_activation: this.activeMetadata.scope.material_activation,
       },
       applicationBinding: {
         wallet_id: this.activeMetadata.applicationBinding.wallet_id,
@@ -1278,6 +1304,7 @@ export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoS
       stateEpoch: this.activeMetadata.stateEpoch,
       transcript: this.activeMetadata.transcript.slice(),
       activeCapabilityBinding: [...this.activeMetadata.activeCapabilityBinding],
+      materialActivation: this.activeMetadata.materialActivation,
     };
   }
 
@@ -1329,6 +1356,7 @@ function createVerifiedActiveClient(input: {
       stateEpoch: input.activated.state_epoch(),
       transcript: receipt.transcript,
       activeCapabilityBinding: [...input.activeCapabilityBinding],
+      materialActivation: receipt.materialActivation,
     },
     activated: input.activated,
   });

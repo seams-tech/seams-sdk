@@ -47,6 +47,7 @@ import type {
 } from '../identity/exactSigningLaneIdentity';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 function authMethodForThresholdEcdsaSessionSource(
   source: ThresholdEcdsaSessionStoreSource,
@@ -615,12 +616,14 @@ type ProvisionWarmEd25519CapabilityBaseArgs = {
 type ProvisionWarmEd25519PasskeyCapabilityArgs = ProvisionWarmEd25519CapabilityBaseArgs & {
   source: Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'>;
   authority: PasskeyEd25519SessionPolicyAuthority;
+  materialActivation: MpcMaterialActivationRef;
   emailOtpAuthContext?: never;
 };
 
 type ProvisionWarmEd25519EmailOtpCapabilityArgs = ProvisionWarmEd25519CapabilityBaseArgs & {
   source: 'email_otp';
   authority: EmailOtpEd25519SessionPolicyAuthority;
+  materialActivation?: never;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 };
 

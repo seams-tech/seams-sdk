@@ -599,7 +599,7 @@ async function signWithActivatedYaoShares(input: {
       },
       material_activation: {
         kind: 'mpc_material_activation_ref',
-        activation_id: activeMetadata.scope.wallet_session_id,
+        activation_id: activeMetadata.scope.material_activation.activation_id,
         capability: base64UrlEncode(
           Uint8Array.from(activeMetadata.activeCapabilityBinding),
         ),

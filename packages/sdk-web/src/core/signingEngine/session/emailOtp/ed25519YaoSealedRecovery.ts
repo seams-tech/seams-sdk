@@ -451,6 +451,7 @@ function activeCapabilityDescriptor(raw: unknown): EmailOtpEd25519YaoActiveCapab
   const parsed = parseEd25519YaoRecoveryCapabilityV1(raw);
   return {
     kind: 'router_ab_ed25519_yao_active_capability_v1',
+    materialActivation: parsed.materialActivation,
     activeCapabilityBinding: parsed.activeCapabilityBinding,
     registeredPublicKey: parsed.registeredPublicKey,
     nearAccountId: String(parsed.nearAccountId),

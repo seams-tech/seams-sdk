@@ -14,6 +14,7 @@ import {
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
   requireRouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   requireAuthoritativeExpiredWalletSessionAuthorizationBoundary,
   type ExpiredWalletSessionAuthorizationState,
@@ -413,6 +414,9 @@ export function buildEmailOtpEcdsaSealedRuntimeRecordFixture(args: {
       public_identity: publicCapability.public_identity,
       signing_worker: publicCapability.signer_set.selected_server,
       activation_epoch: publicCapability.activation_epoch,
+      material_activation: routerAbMpcMaterialActivationRefToWire(
+        manifest.durableMaterial.materialActivation,
+      ),
     },
   });
   const record = buildCurrentSealedSessionRecord({
@@ -554,6 +558,9 @@ export function buildPasskeyEcdsaSealedRuntimeRecordFixture(args: {
       public_identity: publicCapability.public_identity,
       signing_worker: publicCapability.signer_set.selected_server,
       activation_epoch: publicCapability.activation_epoch,
+      material_activation: routerAbMpcMaterialActivationRefToWire(
+        manifest.durableMaterial.materialActivation,
+      ),
     },
   });
   const record = buildCurrentSealedSessionRecord({

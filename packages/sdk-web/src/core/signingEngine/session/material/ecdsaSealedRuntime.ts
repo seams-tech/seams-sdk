@@ -26,6 +26,7 @@ import type { MpcCapabilityHydrationBlockedReason } from './mpcCapabilityHydrati
 import type { ActiveEcdsaCapabilityManifest } from './ecdsaCapabilityManifest';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 
 // The manifest and the sealed store own complementary halves of one capability:
 // the manifest selects the exact capability, its public facts, and the material
@@ -294,6 +295,9 @@ function sealedRecordBindsManifestFacts(args: {
       public_identity: publicFacts.publicCapability.public_identity,
       signing_worker: publicFacts.publicCapability.signer_set.selected_server,
       activation_epoch: publicFacts.publicCapability.activation_epoch,
+      material_activation: routerAbMpcMaterialActivationRefToWire(
+        durable.materialActivation,
+      ),
     })
   );
 }

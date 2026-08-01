@@ -50,6 +50,7 @@ import {
   parseSigningGrantId,
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
+  type MpcMaterialActivationRef,
   type SigningGrantId,
 } from '@shared/utils/domainIds';
 import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
@@ -712,6 +713,7 @@ type LoginWarmupEd25519MintPlan =
   | {
       kind: 'local_material';
       stableServerScope: PasskeyEd25519YaoLocalMaterialLocatorV1['stableServerScope'];
+      materialActivation: PasskeyEd25519YaoLocalMaterialLocatorV1['materialActivation'];
       sessionId?: never;
       signingGrantId?: never;
       authorization?: never;
@@ -960,9 +962,12 @@ function resolveLoginWarmEd25519ProvisioningIdentity(args: {
     case 'not_requested':
       throw new Error('[login] threshold Ed25519 mint plan is missing');
     case 'local_material':
-      return { kind: 'fresh_ed25519_provisioning' as const };
+      return {
+        kind: 'fresh_ed25519_provisioning' as const,
+        materialActivation: args.mintPlan.materialActivation,
+      };
     case 'fresh':
-      return { kind: 'fresh_ed25519_provisioning' as const };
+      throw new Error('[login] fresh Ed25519 passkey provisioning requires canonical material activation');
     case 'ecdsa_authorized':
       if (!args.ecdsaMint) {
         throw new Error(
@@ -981,6 +986,15 @@ function resolveLoginWarmEd25519ProvisioningIdentity(args: {
       };
   }
   return assertNeverLoginState(args.mintPlan);
+}
+
+function requireLoginPasskeyMaterialActivation(
+  identity: ReturnType<typeof resolveLoginWarmEd25519ProvisioningIdentity>,
+): MpcMaterialActivationRef {
+  if (identity.kind === 'fresh_ed25519_provisioning' && identity.materialActivation) {
+    return identity.materialActivation;
+  }
+  throw new Error('[login] passkey Ed25519 warm-up requires a canonical material activation');
 }
 
 type LoginEd25519ProvisionScope = {
@@ -1888,6 +1902,7 @@ async function unlockInternal(
           ed25519MintPlan = {
             kind: 'local_material',
             stableServerScope: localMaterial.locator.stableServerScope,
+            materialActivation: localMaterial.locator.materialActivation,
           };
           break;
         }
@@ -3083,11 +3098,15 @@ async function primeThresholdLoginWarmSigners(args: {
                 source: 'email_otp',
                 authority: ed25519SessionAuthority.authority,
                 emailOtpAuthContext: ed25519SessionAuthority.emailOtpAuthContext,
+                materialActivation: undefined,
               })
             : await args.signingEngine.connectEd25519Session({
                 ...commonEd25519ConnectArgs,
                 source: 'login',
                 authority: ed25519SessionAuthority.authority,
+                materialActivation: requireLoginPasskeyMaterialActivation(
+                  ed25519ProvisioningIdentity,
+                ),
               });
         if (!connected.ok) {
           const details = String(

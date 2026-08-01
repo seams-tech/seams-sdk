@@ -182,6 +182,7 @@ export type RouterAbEd25519YaoExportWorkerPayloadV1 = ExportPrivateKeysWithUiWor
     registeredPublicKey: RouterAbEd25519YaoBytes32V1;
     stateEpoch: number;
     activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
+    materialActivation: MpcMaterialActivationRef;
     runtimePolicyScope: ThresholdRuntimePolicyScope;
   };
   chainTarget?: never;

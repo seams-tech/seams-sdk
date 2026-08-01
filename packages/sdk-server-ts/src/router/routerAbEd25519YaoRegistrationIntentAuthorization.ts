@@ -196,6 +196,7 @@ function canonicalAdmissionRequest(
       wallet_session_id: request.scope.wallet_session_id,
       signer_set_id: request.scope.signer_set_id,
       signing_worker_id: request.scope.signing_worker_id,
+      material_activation: request.scope.material_activation,
     },
     application_binding: {
       wallet_id: request.application_binding.wallet_id,
@@ -218,6 +219,7 @@ function copyAdmissionRequest(
       wallet_session_id: request.scope.wallet_session_id,
       signer_set_id: request.scope.signer_set_id,
       signing_worker_id: request.scope.signing_worker_id,
+      material_activation: request.scope.material_activation,
     },
     application_binding: {
       wallet_id: request.application_binding.wallet_id,

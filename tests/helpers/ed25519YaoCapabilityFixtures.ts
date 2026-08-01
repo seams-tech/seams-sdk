@@ -65,6 +65,15 @@ export function buildEd25519YaoCapabilityFixture(input: {
       wallet_session_id: input.thresholdSessionId,
       signer_set_id: signerSetId,
       signing_worker_id: input.signingWorkerId,
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: `${lifecycleId}-activation`,
+        capability: `${lifecycleId}-capability`,
+        material_owner: input.walletId,
+        key_binding: `${lifecycleId}-key`,
+        lifecycle_binding: `${lifecycleId}-lifecycle-binding`,
+        signing_worker: input.signingWorkerId,
+      },
     },
     application_binding: {
       wallet_id: input.walletId,

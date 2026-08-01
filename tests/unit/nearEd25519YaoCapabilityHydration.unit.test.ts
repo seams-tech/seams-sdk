@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 import {
-  nearEd25519YaoMaterialActivationFromPublicFacts,
   resolveNearEd25519YaoCapabilityHydrationV1,
   type NearEd25519YaoCapabilityHydrationInputV1,
 } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 import { requireNearOperationStepUpMaterialActivation } from '@/core/signingEngine/flows/signNear/shared/operationStepUpPreparation';
 import { nearEd25519YaoCapabilityHydrationFixture } from './helpers/nearEd25519YaoCapabilityHydration.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { buildAuthorizationRequiredNearEd25519YaoSigningPreparation } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
 import { resolveNearSigningSessionAuthContext } from '@/core/signingEngine/flows/signNear/shared/signingSessionAuthMode';
 import { selectedEd25519Lane } from '@/core/signingEngine/session/identity/laneIdentity';
@@ -128,14 +128,10 @@ test('Near operation step-up preserves the exact sealed material activation', ()
     actual: plan.materialActivation,
   });
 
-  const differentActivation = nearEd25519YaoMaterialActivationFromPublicFacts({
-    activationId: 'different-material-activation',
-    activeCapabilityBinding: new Uint8Array(32).fill(4),
-    walletId: 'wallet-near-hydration',
-    registeredPublicKey: new Uint8Array(32).fill(7),
-    lifecycleId: 'different-material-lifecycle',
-    signingWorkerId: 'signing-worker-near-hydration',
-  });
+  const differentActivation = buildMpcMaterialActivationRefFixture(
+    'different-near-hydration',
+    'wallet-near-hydration',
+  );
   expect(() =>
     requireNearOperationStepUpMaterialActivation({
       expected: fixture.materialActivation,

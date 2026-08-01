@@ -53,6 +53,7 @@ import {
   parseThresholdEd25519SessionId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 
 type RecoveryAdmissionReceipt = RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'>;
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
@@ -409,6 +410,7 @@ export type RouterAbEd25519YaoActiveCapabilityLookupV1 = {
 
 export type RouterAbEd25519YaoActiveCapabilityDescriptorV1 = {
   readonly kind: 'router_ab_ed25519_yao_active_capability_v1';
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   readonly activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
   readonly registeredPublicKey: RouterAbEd25519YaoBytes32V1;
   readonly nearAccountId: string;
@@ -1425,6 +1427,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
       ok: true,
       capability: {
         kind: 'router_ab_ed25519_yao_active_capability_v1',
+        materialActivation: matched.activationBinding.material_activation,
         activeCapabilityBinding: [...matched.capabilityBinding],
         registeredPublicKey: [...matched.registeredPublicKey],
         nearAccountId: matched.nearAccountId,
