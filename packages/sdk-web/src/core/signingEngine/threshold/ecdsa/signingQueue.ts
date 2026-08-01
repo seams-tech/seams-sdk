@@ -6,10 +6,8 @@ import {
   type ThresholdCommitQueueByKey,
   type ThresholdCommitQueueCancelledReason,
   type ThresholdCommitQueueError,
-  type ThresholdCommitQueueErrorCode,
 } from '../commitQueueShared';
 
-export type ThresholdEcdsaSigningQueueErrorCode = ThresholdCommitQueueErrorCode;
 export type ThresholdEcdsaSigningQueueError = ThresholdCommitQueueError;
 
 export type ThresholdEcdsaSigningQueueKeyInput = {
