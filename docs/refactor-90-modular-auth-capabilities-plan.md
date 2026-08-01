@@ -566,6 +566,9 @@ the replacement and legacy MPC paths must not ship together.
 
 - [x] Keep authorization session, material activation, recovery, grant, and
       operation identities independent and branded.
+- [x] Store active Ed25519 Yao material without reusable Wallet Session
+      authorization; resolve current authorization independently for execution
+      and reject cross-material publication (`a5d2d9ecc`, `2eff31657`).
 - [x] Name the Ed25519 active-capability lifecycle with branded
       `ThresholdEd25519SessionId`; keep reusable `WalletSessionId` and quota
       identity on authorization only, and bind recovery admission to the
