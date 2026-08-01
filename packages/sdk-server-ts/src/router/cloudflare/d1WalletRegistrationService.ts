@@ -29,6 +29,7 @@ import {
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { parseSigningGrantId, type SigningGrantId } from '@shared/utils/domainIds';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   deriveSigningRootId,
@@ -1108,6 +1109,41 @@ export class CloudflareD1WalletRegistrationService {
     const ceremony = await store.getCeremony(registrationCeremonyId);
     if (!ceremony) return undefined;
     return registrationPreparedContextRuntimePolicyScope(ceremony.preparedContext);
+  }
+
+  async resolveEcdsaMaterialActivation(input: {
+    readonly walletId: string;
+    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+      }
+    | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
+  > {
+    try {
+      const signer = await this.getWalletStore().getEcdsaSignerByMaterialActivation({
+        walletId: walletIdFromString(input.walletId),
+        materialActivation: input.materialActivation,
+      });
+      if (!signer) {
+        return {
+          ok: false,
+          code: 'not_found',
+          message: 'ECDSA material activation is not active for this wallet',
+        };
+      }
+      return {
+        ok: true,
+        materialActivation: signer.walletKey.publicCapability.material_activation,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: error instanceof Error ? error.message : 'ECDSA material lookup failed',
+      };
+    }
   }
 
   async listWalletEcdsaKeyFactsInventory(input: {
