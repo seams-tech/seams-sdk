@@ -378,20 +378,29 @@ ports, and the two-state recovery journal.
   no broad source aggregate)
 - ~~`emailOtpNearEd25519LaneRequiresFreshAuth`~~ — confirmed absent at
   `7495b5b44`
-- `RouterAbEd25519YaoClientRootFactorV1`
+- ~~`RouterAbEd25519YaoClientRootFactorV1` deletion~~ — retained as the exact
+  WASM protocol dispatch boundary for Passkey PRF-first and Email OTP factor
+  sessions; it is not generic lifecycle state.
 - `RouterAbEd25519YaoBudgetRefreshAuthorizationV1`
-- factor-labelled Yao root/export transport unions
+- ~~factor-labelled Yao root/export transport unions deletion~~ — retained only
+  at the Yao protocol boundary where the factors select different acquisition
+  sessions.
 
 ## Phase 19 — sealed-refresh tactical surface
 
-- `EmailOtpEd25519YaoSilentRecoveryResultV1`
-- `EmailOtpEd25519YaoSilentRecoveryPorts`
+- ~~`EmailOtpEd25519YaoSilentRecoveryResultV1` and
+  `EmailOtpEd25519YaoSilentRecoveryPorts` deletion~~ — retained as the current
+  factor-specific sealed-recovery boundary; neither carries grant or budget
+  material.
 - ~~`EmailOtpEd25519YaoBudgetRecoveryResult`~~ — renamed to the
   capability-owned recovery result in `82b439fc5`; no budget/session authority
   remains in that carrier
 - ~~`PreparedEmailOtpEd25519YaoRecoveryV1`~~ — confirmed absent at `7495b5b44`
-- `PreparedColdEmailOtpEd25519YaoRecoveryV1`
-- `recoverEmailOtpEd25519YaoFromSealedSessionV1`
+- ~~`PreparedColdEmailOtpEd25519YaoRecoveryV1` broad capability state~~ — the
+  prepared value now retains only exact prior active-client metadata rather
+  than the combined signing capability (`e179600cf`).
+- ~~`recoverEmailOtpEd25519YaoFromSealedSessionV1` deletion~~ — retained as the
+  canonical Email OTP sealed-recovery entry point.
 - ~~`recoverEmailOtpEd25519CapabilityForSigningV1`~~ — confirmed absent at
   `7495b5b44`
 - ~~`recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning`~~ — absent from
@@ -400,14 +409,15 @@ ports, and the two-state recovery journal.
   `7495b5b44`
 - ~~the `rehydrateEmailOtpEd25519YaoFactor` worker operation~~ — absent from
   production and retained tests.
-- Email-OTP-specific Yao root purpose/scope/handle shapes
+- ~~Email-OTP-specific Yao root purpose/scope/handle deletion~~ — retained only
+  at the factor-specific Yao acquisition boundary.
 - method-specific Browser recovery singleflight maps
 
 ## Phase 19 — export coordinator surface
 
-- `PasskeyEd25519YaoLocalMaterialLocatorV1` (checkpoint shape embeds
-  `signingGrantId` and refresh scope; replaced by the canonical sealed
-  active-Client record)
+- ~~`PasskeyEd25519YaoLocalMaterialLocatorV1` checkpoint shape~~ — the current
+  exact IndexedDB locator carries no signing grant or refresh scope; its stale
+  ledger description no longer applies.
 - `Ed25519YaoExportFlowDeps.recoverPasskeyCapability` and the nested
   `emailOtp.resolveExportContext` callback bag
 - ~~`exportEd25519YaoKeyWithFreshPasskey`,
@@ -426,9 +436,9 @@ ports, and the two-state recovery journal.
   (`f20403de5`).
 - ~~the `laneIdentity.auth.kind` dispatch in `exportKeypairOperation.ts`~~ —
   moved inside the exhaustive capability-owned coordinator in `01bcabb29`
-- `EmailOtpEd25519YaoActiveCapabilityDescriptorV1` (destructive replace at the
-  generic lifecycle/export-context boundary; strip `signingGrantId`, raw
-  provider subject, and bearer JWT from the worker payload)
+- ~~`EmailOtpEd25519YaoActiveCapabilityDescriptorV1` legacy payload~~ — the
+  current worker descriptor contains activation, public facts, and lifecycle
+  only; signing grant, provider JWT, and bearer state are absent.
 - `signingGrantId` in export subject/context/worker requests (the exact
   `near.export_key` grant lives only in operation authorization/claim state)
 
@@ -441,15 +451,17 @@ ports, and the two-state recovery journal.
   retained tests.
 - ~~`resolveAccountAuthMethodForSigning`~~ — absent from production; the one
   remaining source-guard literal asserts that assembly cannot recreate it.
-- `ensureNearEd25519YaoCapabilityForSigning`
-- `resolveActiveNearEd25519YaoSigningLane`
+- ~~`ensureNearEd25519YaoCapabilityForSigning` and
+  `resolveActiveNearEd25519YaoSigningLane` deletion~~ — retained as private
+  Browser exact-material orchestration, not generic assembly ports.
 - ~~`hasPasskeyAuthenticatorForNearEd25519Subject`~~ — absent from production
   and retained tests.
 - ~~`recoverNearEd25519YaoCapabilityForSigning`~~ — absent from production and
   retained tests.
 - ~~`recoverExactPasskeyEd25519YaoCapabilityForSigning`~~ — absent from
   production and retained tests.
-- `recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning`
+- ~~`recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning` deletion~~ —
+  retained as private Browser factor-owned recovery orchestration.
 - ~~`recoverExactEd25519YaoCapability`~~
 - ~~`hasNearEd25519YaoPublicReference`~~
 - ~~`recoverNearEd25519YaoCapabilityFromSealedSession`~~
@@ -463,11 +475,15 @@ ports, and the two-state recovery journal.
   production occurrence remains.
 - ~~`resolveThresholdEd25519SessionIdForNearAccount`~~ — absent from production
   and retained tests.
-- the broad `resolveActiveEd25519YaoSigningCapability` port
+- ~~the broad `resolveActiveEd25519YaoSigningCapability` port~~ — absent from
+  production and retained tests.
 - ~~the production-dead `thresholdSigningSessionReadiness.ts` classifier and
   its self-only unit test~~ — deleted by `18850e9d4`
-- `withThresholdEd25519CommitQueue`, `ThresholdEd25519CommitQueueByKey`,
-  `resolveThresholdEd25519CommitQueueKey`
+- ~~`withThresholdEd25519CommitQueue`, `ThresholdEd25519CommitQueueByKey`, and
+  `resolveThresholdEd25519CommitQueueKey` deletion~~ — retained as the one
+  canonical exact-owner queue required by `R90-INV-008`; same-owner FIFO,
+  stale-owner rejection, and different-owner concurrency are proved in
+  `8c26a39bf`.
 - the `forceFreshAuth` and `retryingFreshAuth` planner booleans
 - all `CreateSigningEnginePortsArgs` aliases/wiring for the ports above
 - ~~stale cross-curve companion envelopes, including
@@ -622,13 +638,18 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   confirmation plan for warm-session, Passkey step-up, and Email OTP step-up
 - ~~pure `SigningAuthMethod = SignerAuthMethod` alias and its lane-identity
   re-export~~ — consumers use canonical `SignerAuthMethod`
-- remaining `signing-session` terminology and old route planes
-  (`threshold_session`, `user_session` on migrated surfaces)
+- remaining `signing-session` terminology on surfaces where it still conflates
+  authorization with material lifecycle
+- ~~old route-plane labels `threshold_session` and `user_session`~~ — internal
+  policy planes are now `capability_grant` and `session_principal`
+  (`f090ecde2`); deployed protocol schemes and error codes retain their exact
+  wire names
 - wallet-only `AuthMethod` usages outside capability-local modules
 - ~~optional `authMethod` and implicit Passkey defaults on generic
   `registerNearWallet` / `registerEvmWallet` host and iframe paths~~ — deleted
   by `4f51048c5`; Passkey-named convenience APIs remain explicit
-- auto-signer registration paths
+- ~~auto-signer registration paths~~ — no production occurrence remains at
+  `f090ecde2`
 - public exports implying wallet-only auth/sessions/grants
 - ~~one-use iframe aliases for ECDSA bootstrap and exact/missing Wallet Session
   payloads~~ — canonical payload types are used directly in the envelope
