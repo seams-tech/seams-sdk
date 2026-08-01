@@ -29,6 +29,18 @@ fn digest(seed: u8) -> PublicDigest32 {
     PublicDigest32::new([seed; 32])
 }
 
+fn explicit_material_activation() -> MpcMaterialActivationRefV1 {
+    MpcMaterialActivationRefV1::new(
+        "opaque-activation-1",
+        "capability-1",
+        "alice.testnet",
+        "near-ed25519-key-1",
+        "opaque-material-lifecycle-1",
+        "server-a",
+    )
+    .expect("material activation")
+}
+
 fn wire(kind: WireMessageKindV1) -> WireMessageV1 {
     wire_with_digest(kind, local_valid_transcript_digest())
 }
@@ -62,6 +74,7 @@ fn client_router_request() -> LocalClientRouterRequestV1 {
         "lifecycle-1",
         "request-nonce-1",
         2_000,
+        explicit_material_activation(),
         http_request(
             LocalHttpPathV1::RouterToSignerA,
             LocalTransportRouteV1::RouterToSignerA,
@@ -275,16 +288,8 @@ fn normal_signing_scope() -> NormalSigningScopeV1 {
         "sign-request-1",
         "alice.testnet",
         NormalSigningAuthorizationV1::reusable_wallet_session("renewed-wallet-session-1")
-        .expect("authorization"),
-        MpcMaterialActivationRefV1::new(
-            "session-1",
-            "capability-1",
-            "alice.testnet",
-            "near-ed25519-key-1",
-            "lifecycle-1",
-            "server-a",
-        )
-        .expect("material activation"),
+            .expect("authorization"),
+        explicit_material_activation(),
         "server-a",
     )
     .expect("normal signing scope")
@@ -910,6 +915,7 @@ fn local_service_stack_runs_in_process_ceremony_from_startup_configs() {
     let result = stack
         .run_deterministic_ceremony(
             "lifecycle-1",
+            explicit_material_activation(),
             wire(WireMessageKindV1::RouterToSignerA),
             wire(WireMessageKindV1::RouterToSignerB),
         )
@@ -1029,7 +1035,12 @@ fn local_signing_worker_rejects_tampered_activation_ciphertext() {
     let activation_context = SigningWorkerActivationContextV1::from_router_payload(&router_payload)
         .expect("activation context");
     let result = stack
-        .run_deterministic_ceremony("lifecycle-1", signer_a_request, signer_b_request)
+        .run_deterministic_ceremony(
+            "lifecycle-1",
+            explicit_material_activation(),
+            signer_a_request,
+            signer_b_request,
+        )
         .expect("in-process ceremony");
     let tampered_activation = LocalSigningWorkerRecipientProofBundleActivationV1::new(
         tamper_local_recipient_bundle_ciphertext(
@@ -1045,7 +1056,12 @@ fn local_signing_worker_rejects_tampered_activation_ciphertext() {
     .expect("tampered public activation envelope still validates");
     let err = stack
         .signing_worker
-        .accept_recipient_proof_bundle_activation(&activation_context, tampered_activation, 2)
+        .accept_recipient_proof_bundle_activation(
+            &activation_context,
+            explicit_material_activation(),
+            tampered_activation,
+            2,
+        )
         .expect_err("SigningWorker must reject tampered encrypted activation bundle");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
@@ -1131,6 +1147,7 @@ fn local_service_stack_runs_http_ceremony_from_router_requests() {
     let result = stack
         .run_deterministic_http_ceremony(
             "lifecycle-1",
+            explicit_material_activation(),
             http_request(
                 LocalHttpPathV1::RouterToSignerA,
                 LocalTransportRouteV1::RouterToSignerA,
@@ -1251,6 +1268,7 @@ fn local_client_router_request_rejects_transcript_mismatch() {
         "lifecycle-1",
         "request-nonce-1",
         2_000,
+        explicit_material_activation(),
         http_request_with_digest(
             LocalHttpPathV1::RouterToSignerA,
             LocalTransportRouteV1::RouterToSignerA,

@@ -24,8 +24,8 @@ use router_ab_core::{
     LocalPersistenceSqlSeedExecutorV1, LocalPersistenceSqlStatementV1, LocalPersistenceSqlValueV1,
     LocalRouterEndpointV1, LocalSealedRootShareRecordV1, LocalServiceRoleV1, LocalServiceStackV1,
     LocalServiceStartupV1, LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1,
-    LocalTransportEnvelopeV1, LocalTransportRouteV1, RoleEncryptedEnvelopeV1,
-    RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+    LocalTransportEnvelopeV1, LocalTransportRouteV1, MpcMaterialActivationRefV1,
+    RoleEncryptedEnvelopeV1, RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
@@ -1908,6 +1908,14 @@ pub fn run_example_local_router_ab_dev_http_ceremony_v1(
     )?;
     let core_http_ceremony = local_service_stack_v1()?.run_deterministic_http_ceremony(
         router_request.lifecycle.lifecycle_id.clone(),
+        MpcMaterialActivationRefV1::new(
+            "opaque-local-example-activation-1",
+            "local-example-capability-1",
+            router_request.lifecycle.account_id.clone(),
+            "local-example-key-binding-1",
+            "opaque-local-example-material-lifecycle-1",
+            router_request.lifecycle.selected_server_id.clone(),
+        )?,
         deriver_a_request.clone(),
         deriver_b_request.clone(),
     )?;
