@@ -481,10 +481,10 @@ export async function signNep413Message({
         ? await tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning({
             ctx,
             thresholdSessionId: canonicalThresholdSessionId,
-            activeClient: preparedMaterial.resolved.capability.activeClient,
+            activeClient: preparedMaterial.resolved.material.activeClient,
             walletSessionState: requireAuthorizedNearNep413WalletSessionState(
               await resolveActiveAuthorizedRouterAbEd25519WalletSessionState({
-                state: preparedMaterial.resolved.capability.walletSessionState,
+                state: preparedMaterial.resolved.walletSessionState,
                 nowMs: Date.now(),
               }),
             ),

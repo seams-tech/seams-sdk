@@ -65,7 +65,7 @@ export type RecoverPasskeyEd25519YaoForUnlockInputV1 = {
     readonly challengeB64u: string;
     readonly credentialIds: readonly string[];
   }) => Promise<WebAuthnAuthenticationCredential>;
-  readonly activateCapability: AccountSyncSigningSurface['activateVerifiedNearEd25519YaoSigningCapability'];
+  readonly activateCapability: AccountSyncSigningSurface['activateVerifiedNearEd25519YaoMaterial'];
   readonly withExactEd25519MaterialOwner: AccountSyncSigningSurface['withExactEd25519MaterialOwner'];
   readonly sessionPersistence: Pick<
     AccountSyncSigningSurface,
@@ -322,7 +322,15 @@ async function recoverAndCommitPasskeyEd25519Unlock(
     });
     const activated = await input.activateCapability({
       activeClient: recovery.activeClient,
-      walletSessionState: recovery.walletSessionState,
+      facts: {
+        thresholdSessionId: recovery.walletSessionState.thresholdSessionId,
+        signer: recovery.walletSessionState.signingLane.identity.signer,
+        signingRootId: recovery.walletSessionState.signingRootId,
+        signingRootVersion: recovery.walletSessionState.signingRootVersion,
+        routerAbNormalSigning: recovery.walletSessionState.routerAbNormalSigning,
+        runtimePolicyScope: recovery.walletSessionState.runtimePolicyScope,
+        relayerUrl: recovery.walletSessionState.relayerUrl,
+      },
     });
     if (
       !mpcMaterialActivationRefsEqual(
@@ -540,7 +548,7 @@ export async function syncAccount(
       fetch: fetchWithGlobalThis,
       collectCredential: collectSyncAccountRecoveryCredential.bind(undefined, recoveryCallbacks),
       activateCapability:
-        context.signingEngine.activateVerifiedNearEd25519YaoSigningCapability.bind(
+        context.signingEngine.activateVerifiedNearEd25519YaoMaterial.bind(
           context.signingEngine,
         ),
       withExactEd25519MaterialOwner:

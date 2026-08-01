@@ -6,7 +6,7 @@ import {
   type AccountKeyMaterialDeps,
 } from '@/core/indexedDB/accountKeyMaterial';
 import type {
-  NearEd25519YaoSigningCapability,
+  NearEd25519YaoOperationMaterial,
   NearResolvedEd25519SigningSessionState,
 } from '@/core/signingEngine/interfaces/near';
 import {
@@ -209,7 +209,7 @@ export type HydratePasskeyEd25519YaoLocalMaterialResultV1 =
   | {
       kind: 'live';
       plan: Extract<MpcCapabilityHydrationPlan, { kind: 'use_live_runtime' }>;
-      capability: NearEd25519YaoSigningCapability;
+      material: NearEd25519YaoOperationMaterial;
       activeClient?: never;
     }
   | {
@@ -846,12 +846,12 @@ async function expectedPasskeyAuthority(args: {
 }
 
 function liveRuntimeObservation(
-  capability: NearEd25519YaoSigningCapability | null,
+  material: NearEd25519YaoOperationMaterial | null,
 ): NearEd25519YaoRuntimeObservationV1 {
-  if (!capability) return { kind: 'absent' };
-  if (capability.activeClient.status().kind !== 'active') return { kind: 'absent' };
+  if (!material) return { kind: 'absent' };
+  if (material.activeClient.status().kind !== 'active') return { kind: 'absent' };
   const materialActivation = nearEd25519YaoMaterialActivationFromMetadata(
-    capability.activeClient.metadata(),
+    material.activeClient.metadata(),
   );
   return {
     kind: 'live',
@@ -951,7 +951,7 @@ export async function hydratePasskeyEd25519YaoLocalMaterialV1(input: {
   credentialIdB64u: string;
   publicLocator: PasskeyEd25519YaoPublicLocatorObservationV1;
   unlockSource: PasskeyEd25519YaoUnlockSourceV1;
-  liveCapability: NearEd25519YaoSigningCapability | null;
+  liveMaterial: NearEd25519YaoOperationMaterial | null;
 }): Promise<HydratePasskeyEd25519YaoLocalMaterialResultV1> {
   const expectedAuthority = await expectedPasskeyAuthority(input);
   const publicLocator: NearEd25519YaoPublicLocatorObservationV1 =
@@ -985,7 +985,7 @@ export async function hydratePasskeyEd25519YaoLocalMaterialV1(input: {
     const plan = resolveNearEd25519YaoCapabilityHydrationV1({
       publicLocator,
       sealed: { kind: 'corrupt' },
-      runtime: liveRuntimeObservation(input.liveCapability),
+      runtime: liveRuntimeObservation(input.liveMaterial),
       unlockSource: { kind: 'unavailable' },
     });
     if (plan.kind !== 'blocked') {
@@ -1008,23 +1008,23 @@ export async function hydratePasskeyEd25519YaoLocalMaterialV1(input: {
             sealedMaterial: localMaterial.locator.sealedMaterial,
           }
         : { kind: 'missing' },
-    runtime: liveRuntimeObservation(input.liveCapability),
+    runtime: liveRuntimeObservation(input.liveMaterial),
     unlockSource,
   });
   switch (plan.kind) {
     case 'use_live_runtime': {
-      const capability = input.liveCapability;
+      const material = input.liveMaterial;
       if (
-        !capability ||
-        capability.activeClient.status().kind !== 'active' ||
+        !material ||
+        material.activeClient.status().kind !== 'active' ||
         !mpcMaterialActivationRefsEqual(
           plan.materialActivation,
-          nearEd25519YaoMaterialActivationFromMetadata(capability.activeClient.metadata()),
+          nearEd25519YaoMaterialActivationFromMetadata(material.activeClient.metadata()),
         )
       ) {
         throw new Error('Near Ed25519 live hydration plan lost its exact runtime');
       }
-      return { kind: 'live', plan, capability };
+      return { kind: 'live', plan, material };
     }
     case 'rehydrate_material_activation': {
       if (input.unlockSource.kind !== 'available') {

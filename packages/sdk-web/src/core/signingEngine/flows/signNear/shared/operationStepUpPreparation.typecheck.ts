@@ -4,7 +4,6 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
   NearEd25519YaoOperationMaterial,
   NearEd25519YaoOperationMaterialFacts,
-  NearEd25519YaoSigningCapability,
 } from '@/core/signingEngine/interfaces/near';
 import type { PreparedNearOperationStepUp } from './operationStepUpPreparation';
 import {
@@ -14,31 +13,31 @@ import {
 
 declare const prepare: RouterAbNormalSigningPrepareRequestV2BuildResult;
 declare const materialActivation: MpcMaterialActivationRef;
-declare const capability: NearEd25519YaoSigningCapability;
+declare const material: NearEd25519YaoOperationMaterial;
 declare const credential: WebAuthnAuthenticationCredential;
 declare const materialFacts: NearEd25519YaoOperationMaterialFacts;
 
 const operationMaterial: NearEd25519YaoOperationMaterial = {
-  activeClient: capability.activeClient,
+  activeClient: material.activeClient,
   facts: materialFacts,
 };
 
 const invalidAuthorizedOperationMaterial: NearEd25519YaoOperationMaterial = {
-  activeClient: capability.activeClient,
+  activeClient: material.activeClient,
   facts: materialFacts,
   // @ts-expect-error Operation material cannot carry reusable Wallet Session state.
-  walletSessionState: capability.walletSessionState,
+  walletSessionState: undefined,
 };
 
 const invalidSessionOperationMaterial: NearEd25519YaoOperationMaterial = {
-  activeClient: capability.activeClient,
+  activeClient: material.activeClient,
   facts: materialFacts,
   // @ts-expect-error Operation material cannot carry authorization-session identity.
   walletSessionId: 'wallet-session',
 };
 
 const invalidGrantOperationMaterial: NearEd25519YaoOperationMaterial = {
-  activeClient: capability.activeClient,
+  activeClient: material.activeClient,
   facts: materialFacts,
   // @ts-expect-error An issued grant belongs beside resolved material.
   issuedGrant: null,
@@ -115,4 +114,4 @@ void operationMaterial;
 void invalidAuthorizedOperationMaterial;
 void invalidSessionOperationMaterial;
 void invalidGrantOperationMaterial;
-void capability;
+void material;

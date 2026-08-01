@@ -1,4 +1,4 @@
-import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/interfaces/near';
+import type { NearEd25519YaoOperationMaterial } from '@/core/signingEngine/interfaces/near';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
@@ -121,9 +121,9 @@ export type EmailOtpEd25519YaoSilentRecoveryPorts = {
   workerContext: WorkerOperationContext;
   resolveActiveCapability: (
     scope: Ed25519YaoActiveClientLookupScopeV1,
-  ) => NearEd25519YaoSigningCapability | null;
+  ) => NearEd25519YaoOperationMaterial | null;
   activateCapability: (
-    capability: NearEd25519YaoSigningCapability,
+    material: NearEd25519YaoOperationMaterial,
   ) => Promise<Ed25519YaoActiveClientIdentityV1>;
   withThresholdEd25519CommitQueue: <T>(args: {
     queueKey: string;
@@ -773,7 +773,8 @@ async function runFencedEmailOtpEd25519YaoSealedRecovery(
     activateCapability: input.ports.activateCapability,
   });
   await input.ports.persistRecoveredSession({
-    capability: recovery,
+    material: recovery.material,
+    walletSessionState: recovery.walletSessionState,
     publicationContext: recovery.publicationContext,
   });
   const committed = await resolveSealedRecord({

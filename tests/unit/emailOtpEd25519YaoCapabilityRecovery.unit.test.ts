@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { ClientUserData } from '../../packages/sdk-web/src/core/accountData/near/nearAccountData.types';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
-import type { NearEd25519YaoSigningCapability } from '../../packages/sdk-web/src/core/signingEngine/interfaces/near';
+import type { NearEd25519YaoOperationMaterial } from '../../packages/sdk-web/src/core/signingEngine/interfaces/near';
 import {
   activateColdEmailOtpEd25519YaoUnlockedRecoveryV1,
   prepareColdEmailOtpEd25519YaoRecoveryV1,
@@ -439,30 +439,30 @@ class RecoveryWorkerFixture {
 }
 
 class RecoveryActivationHarness {
-  private readonly previous: NearEd25519YaoSigningCapability | null;
-  activated: NearEd25519YaoSigningCapability | null = null;
+  private readonly previous: NearEd25519YaoOperationMaterial | null;
+  activated: NearEd25519YaoOperationMaterial | null = null;
   activateCalls = 0;
 
-  constructor(previous: NearEd25519YaoSigningCapability | null) {
+  constructor(previous: NearEd25519YaoOperationMaterial | null) {
     this.previous = previous;
   }
 
-  resolve(scope: Ed25519YaoActiveClientLookupScopeV1): NearEd25519YaoSigningCapability | null {
+  resolve(scope: Ed25519YaoActiveClientLookupScopeV1): NearEd25519YaoOperationMaterial | null {
     return this.previous && scope.walletId === WALLET_ID && scope.nearAccountId === NEAR_ACCOUNT_ID
       ? this.previous
       : null;
   }
 
   async activate(
-    capability: NearEd25519YaoSigningCapability,
+    material: NearEd25519YaoOperationMaterial,
   ): Promise<Ed25519YaoActiveClientIdentityV1> {
     this.activateCalls += 1;
-    this.activated = capability;
+    this.activated = material;
     return {
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
       materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
-        capability.activeClient.metadata(),
+        material.activeClient.metadata(),
       ),
     };
   }
@@ -489,7 +489,7 @@ class ColdRecoveryResolutionFixture {
   }
 }
 
-function resolveNoActiveCapability(): NearEd25519YaoSigningCapability | null {
+function resolveNoActiveCapability(): NearEd25519YaoOperationMaterial | null {
   return null;
 }
 
@@ -655,7 +655,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       providerSubjectId: PROVIDER_SUBJECT,
       emailHashHex: EMAIL_HASH_HEX,
     });
-    expect(publicationInput?.capability.walletSessionState.thresholdSessionId).toBe(
+    expect(publicationInput?.walletSessionState.thresholdSessionId).toBe(
       THRESHOLD_SESSION_ID,
     );
     if (result.kind === 'recovered') {
@@ -1003,12 +1003,12 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
     expect(result.walletSessionState.signingGrantId).toBe(RECOVERED_SIGNING_GRANT_ID);
     expect(result.walletSessionState.remainingUses).toBe(3);
     expect(result.walletSessionState.signingLane.identity.signer.signerSlot).toBe(
-      result.activeClient.metadata().applicationBinding.key_creation_signer_slot,
+      result.material.activeClient.metadata().applicationBinding.key_creation_signer_slot,
     );
     expect(result.walletSessionState.signingLane.storageSource).toBe('email_otp');
-    expect(result.activeClient.metadata().registeredPublicKey).toEqual(REGISTERED_PUBLIC_KEY);
+    expect(result.material.activeClient.metadata().registeredPublicKey).toEqual(REGISTERED_PUBLIC_KEY);
     const recoveredActivation = nearEd25519YaoMaterialActivationFromMetadata(
-      result.activeClient.metadata(),
+      result.material.activeClient.metadata(),
     );
     expect(mpcMaterialActivationRefsEqual(recoveredActivation, priorMetadata.materialActivation))
       .toBe(false);

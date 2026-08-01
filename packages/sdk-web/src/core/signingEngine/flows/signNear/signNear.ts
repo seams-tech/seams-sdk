@@ -17,7 +17,7 @@ import type {
 } from '@/core/types/signer-worker';
 import type {
   NearEd25519YaoMaterialExecutor,
-  NearEd25519YaoSigningCapability,
+  NearEd25519YaoOperationMaterialFacts,
   NearEmailOtpEd25519StepUpHook,
   NearPasskeyEd25519OperationStepUpHook,
   NearTransactionWithActionsPayload,
@@ -105,9 +105,8 @@ import {
   type PreparedThresholdSigningOperation,
   type ThresholdSigningReadinessInput,
 } from '../../session/operationState/preparedOperation';
-import {
-  nearEd25519YaoOperationMaterialFacts,
-  type ResolvedRouterAbEd25519WalletSessionState,
+import type {
+  ResolvedRouterAbEd25519WalletSessionState,
 } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   receiveTransactionIntent,
@@ -709,11 +708,11 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
 async function resolveNearPasskeyStepUpMaterialFacts(args: {
   preparation: NearEd25519YaoSigningPreparation;
   executor: NearEd25519YaoMaterialExecutor;
-}): Promise<ReturnType<typeof nearEd25519YaoOperationMaterialFacts>> {
+}): Promise<NearEd25519YaoOperationMaterialFacts> {
   switch (args.preparation.hydration.kind) {
     case 'use_live_runtime': {
-      const capability = await args.executor.resolve(args.preparation);
-      return nearEd25519YaoOperationMaterialFacts(capability.walletSessionState);
+      const material = await args.executor.resolve(args.preparation);
+      return material.facts;
     }
     case 'rehydrate_material_activation': {
       const prepared = await args.executor.preparePasskeyOperationStepUp(args.preparation);

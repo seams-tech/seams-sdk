@@ -4,15 +4,11 @@ import {
   ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1,
   type RouterAbEd25519YaoExportWorkerPayloadV1,
 } from '@/core/types/secure-confirm-worker';
-import type { NearEd25519YaoSigningCapability } from '../../interfaces/near';
 import type {
   PasskeyMpcExportPort,
   UiConfirmRuntimeBridgePort,
 } from '../../uiConfirm/uiConfirm.types';
 import type { ExactEd25519SigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
-import type {
-  Ed25519YaoActiveClientIdentityV1,
-} from '../../threshold/ed25519/yaoActiveClientRegistry';
 import {
   createExportUiRequestId,
   emitKeyExportEvent,
@@ -39,24 +35,11 @@ import type {
 } from '../../session/passkey/ed25519YaoWarmRecovery';
 import { resolveThresholdEd25519CommitQueueKey } from '../../threshold/ed25519/commitQueue';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
-import {
-  mpcMaterialActivationRefsEqual,
-  type MpcMaterialActivationRef,
-} from '@shared/utils/domainIds';
-import { nearEd25519YaoMaterialActivationFromMetadata } from '../../session/material/nearEd25519YaoMaterialActivation';
+import { mpcMaterialActivationRefsEqual, type MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 export type Ed25519YaoExportFlowDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'initialize' | 'requestUserConfirmation'>;
   passkeyMpcExport: PasskeyMpcExportPort;
-  resolveActiveCapability: (
-    identity: Ed25519YaoActiveClientIdentityV1,
-  ) => NearEd25519YaoSigningCapability | null;
-  recoverPasskeyCapability: (
-    args: {
-      laneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
-      materialActivation: MpcMaterialActivationRef;
-    },
-  ) => Promise<NearEd25519YaoSigningCapability>;
   resolvePasskeyExportContext: (
     args: {
       laneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
@@ -102,14 +85,6 @@ export type ExportEd25519YaoKeyArgs = {
   flowId: string;
   onEvent?: KeyExportEventCallback;
 };
-
-function safeStateEpoch(value: bigint): number {
-  const epoch = Number(value);
-  if (!Number.isSafeInteger(epoch) || epoch < 0 || BigInt(epoch) !== value) {
-    throw new Error('[SigningEngine][ed25519-export] active capability state epoch is invalid');
-  }
-  return epoch;
-}
 
 function emailOtpExportAuthLane(
   context: ResolvedEmailOtpEd25519YaoExportV1,
@@ -198,36 +173,6 @@ function requireEmailOtpExportLaneIdentity(
   return args.laneIdentity;
 }
 
-function activeCapabilityLookupScope(
-  laneIdentity: ExactEd25519SigningLaneIdentity,
-  materialActivation: MpcMaterialActivationRef,
-): Ed25519YaoActiveClientIdentityV1 {
-  return {
-    walletId: laneIdentity.signer.account.wallet.walletId,
-    nearAccountId: laneIdentity.signer.account.nearAccountId,
-    materialActivation,
-  };
-}
-
-function passkeyExportStableIdentityMatches(args: {
-  selected: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
-  current: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
-}): boolean {
-  const selectedSigner = args.selected.signer;
-  const currentSigner = args.current.signer;
-  return (
-    String(selectedSigner.account.wallet.walletId) ===
-      String(currentSigner.account.wallet.walletId) &&
-    String(selectedSigner.account.nearAccountId) === String(currentSigner.account.nearAccountId) &&
-    String(selectedSigner.nearEd25519SigningKeyId) ===
-      String(currentSigner.nearEd25519SigningKeyId) &&
-    selectedSigner.signerSlot === currentSigner.signerSlot &&
-    selectedSigner.account.kind === currentSigner.account.kind &&
-    String(args.selected.auth.rpId) === String(args.current.auth.rpId) &&
-    args.selected.auth.credentialIdB64u === args.current.auth.credentialIdB64u
-  );
-}
-
 function passkeyExportMaterialIdentityMatches(args: {
   selected: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
   context: PasskeyEd25519YaoExportContextV1;
@@ -242,51 +187,6 @@ function passkeyExportMaterialIdentityMatches(args: {
     String(args.selected.auth.rpId) === args.context.rpId &&
     args.selected.auth.credentialIdB64u === material.credentialIdB64u
   );
-}
-
-function resolvePasskeyExportContextFromActiveCapability(args: {
-  capability: NearEd25519YaoSigningCapability;
-  selectedLaneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
-  selectedMaterialActivation: MpcMaterialActivationRef;
-}): ResolvedPasskeyEd25519YaoExportContext {
-  const { capability } = args;
-  if (capability.activeClient.status().kind !== 'active') {
-    throw new Error('[SigningEngine][ed25519-export] recovered Yao capability is inactive');
-  }
-  const currentLaneIdentity = capability.walletSessionState.signingLane.identity;
-  if (!isExactPasskeyEd25519SigningLaneIdentity(currentLaneIdentity)) {
-    throw new Error(
-      '[SigningEngine][ed25519-export] recovered capability requires passkey authority',
-    );
-  }
-  if (
-    !passkeyExportStableIdentityMatches({
-      selected: args.selectedLaneIdentity,
-      current: currentLaneIdentity,
-    })
-  ) {
-    throw new Error('[SigningEngine][ed25519-export] Yao capability stable identity mismatch');
-  }
-  const metadata = capability.activeClient.metadata();
-  const materialActivation = nearEd25519YaoMaterialActivationFromMetadata(metadata);
-  if (!mpcMaterialActivationRefsEqual(args.selectedMaterialActivation, materialActivation)) {
-    throw new Error('[SigningEngine][ed25519-export] Yao capability activation mismatch');
-  }
-  return {
-    laneIdentity: currentLaneIdentity,
-    relayerUrl: capability.walletSessionState.relayerUrl,
-    walletSessionJwt: capability.walletSessionState.walletSessionAuth.walletSessionJwt,
-    capability: {
-      materialActivation,
-      scope: metadata.scope,
-      applicationBinding: metadata.applicationBinding,
-      participantIds: metadata.participantIds,
-      registeredPublicKey: [...metadata.registeredPublicKey],
-      stateEpoch: safeStateEpoch(metadata.stateEpoch),
-      activeCapabilityBinding: [...metadata.activeCapabilityBinding],
-      runtimePolicyScope: capability.walletSessionState.runtimePolicyScope,
-    },
-  };
 }
 
 function requireDurablePasskeyExportContext(args: {
@@ -344,16 +244,6 @@ async function resolveExactPasskeyExportContext(
   args: ExportEd25519YaoKeyArgs,
 ): Promise<ResolvedPasskeyEd25519YaoExportContext> {
   const laneIdentity = requirePasskeyExportLaneIdentity(args);
-  const activeCapability = deps.resolveActiveCapability(
-    activeCapabilityLookupScope(laneIdentity, args.materialActivation),
-  );
-  if (activeCapability) {
-    return resolvePasskeyExportContextFromActiveCapability({
-      capability: activeCapability,
-      selectedLaneIdentity: laneIdentity,
-      selectedMaterialActivation: args.materialActivation,
-    });
-  }
   const durableContext = await deps.resolvePasskeyExportContext({
     laneIdentity,
     materialActivation: args.materialActivation,
@@ -365,17 +255,10 @@ async function resolveExactPasskeyExportContext(
         selectedLaneIdentity: laneIdentity,
         selectedMaterialActivation: args.materialActivation,
       });
-    case 'capability_recovery_required': {
-      const capability = await deps.recoverPasskeyCapability({
-        laneIdentity,
-        materialActivation: args.materialActivation,
-      });
-      return resolvePasskeyExportContextFromActiveCapability({
-        capability,
-        selectedLaneIdentity: laneIdentity,
-        selectedMaterialActivation: args.materialActivation,
-      });
-    }
+    case 'capability_recovery_required':
+      throw new Error(
+        '[SigningEngine][ed25519-export] passkey material recovery did not publish durable context',
+      );
   }
   durableContext satisfies never;
   throw new Error('[SigningEngine][ed25519-export] unsupported passkey export context state');

@@ -71,8 +71,6 @@ export function createBrowserRecoveryPublicDeps(args: {
   thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
   thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey;
   getWalletSessionActivationDeps: () => WalletSessionActivationDeps;
-  resolveActiveEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['resolveActiveCapability'];
-  recoverPasskeyEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['recoverPasskeyCapability'];
   resolvePasskeyEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['resolvePasskeyExportContext'];
   resolveEmailOtpEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['emailOtp']['resolveExportContext'];
   getSigningSessionCoordinator: () => SigningSessionCoordinator;
@@ -151,8 +149,6 @@ export function createBrowserRecoveryPublicDeps(args: {
     ),
     getWalletSessionStatus: (statusArgs) =>
       readCanonicalWalletSessionStatus(statusArgs),
-    resolveActiveEd25519YaoCapability: args.resolveActiveEd25519YaoCapability,
-    recoverPasskeyEd25519YaoCapability: args.recoverPasskeyEd25519YaoCapability,
     resolvePasskeyEd25519YaoExportContext: args.resolvePasskeyEd25519YaoExportContext,
     resolveEmailOtpEd25519YaoExportContext: args.resolveEmailOtpEd25519YaoExportContext,
     sessionLifecycle: {

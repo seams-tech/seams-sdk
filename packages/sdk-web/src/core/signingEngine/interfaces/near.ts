@@ -94,11 +94,6 @@ export type NearAuthorizedEd25519SigningSessionState = NearResolvedEd25519Signin
   walletSessionAuthorization: ActiveWalletSessionAuthorizationProjection;
 };
 
-export type NearEd25519YaoSigningCapability = {
-  activeClient: RouterAbEd25519YaoActiveClientV1;
-  walletSessionState: NearResolvedEd25519SigningSessionState;
-};
-
 export type NearEd25519YaoOperationMaterialFacts = {
   thresholdSessionId: string;
   signer: NearTransactionSigningLane['identity']['signer'];
@@ -153,7 +148,8 @@ export type NearEmailOtpEd25519OperationStepUpCapabilityPreparation =
 export type NearEd25519YaoMaterialExecutor = {
   resolve: (
     preparation: NearEd25519YaoSigningPreparation,
-  ) => Promise<NearEd25519YaoSigningCapability>;
+  ) => Promise<NearEd25519YaoOperationMaterial>;
+  resolveWalletSessionState: () => Promise<NearResolvedEd25519SigningSessionState>;
   preparePasskeyOperationStepUp: (
     preparation: NearEd25519YaoSigningPreparation,
   ) => Promise<NearPasskeyEd25519OperationStepUpCapabilityPreparation>;

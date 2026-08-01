@@ -93,7 +93,6 @@ function buildLaneIdentity() {
 
 class EmailOtpEd25519ExportRefreshHarness {
   contextCalls = 0;
-  passkeyRecoveryCalls = 0;
   exportCalls = 0;
   exportedCapability: unknown = null;
 
@@ -114,15 +113,6 @@ class EmailOtpEd25519ExportRefreshHarness {
   }
 
   async initialize(): Promise<void> {}
-
-  resolveActiveCapability(): null {
-    return null;
-  }
-
-  async recoverPasskeyCapability(): Promise<never> {
-    this.passkeyRecoveryCalls += 1;
-    throw new Error('Email OTP export must not recover a passkey capability');
-  }
 
   async resolvePasskeyExportContext(): Promise<never> {
     throw new Error('Email OTP export must not resolve a passkey export context');
@@ -193,8 +183,6 @@ class EmailOtpEd25519ExportRefreshHarness {
       passkeyMpcExport: {
         exportPrivateKeysWithUi: this.unexpectedPasskeyExport.bind(this),
       },
-      resolveActiveCapability: this.resolveActiveCapability.bind(this),
-      recoverPasskeyCapability: this.recoverPasskeyCapability.bind(this),
       resolvePasskeyExportContext: this.resolvePasskeyExportContext.bind(this),
       withThresholdEd25519CommitQueue: this.withThresholdEd25519CommitQueue.bind(this),
       emailOtp: {
@@ -222,7 +210,6 @@ test('page-refresh Email OTP Ed25519 export resolves durable context without pas
     exportedSchemes: ['ed25519'],
   });
   expect(harness.contextCalls).toBe(1);
-  expect(harness.passkeyRecoveryCalls).toBe(0);
   expect(harness.exportCalls).toBe(1);
   expect(harness.exportedCapability).toEqual(CAPABILITY);
 });
