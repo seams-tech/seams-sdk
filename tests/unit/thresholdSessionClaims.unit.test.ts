@@ -616,7 +616,6 @@ test.describe('Router A/B Wallet Session token claims', () => {
         authorization: {
           kind: 'reusable_wallet_session',
           wallet_session_id: claims.walletSessionId,
-          grant_id: claims.signingGrantId,
         },
         material_activation: routerAbEd25519MaterialActivation,
         signing_worker_id: claims.routerAbNormalSigning.signingWorkerId,
@@ -665,7 +664,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
             ...validBody.scope,
             authorization: {
               ...validBody.scope.authorization,
-              grant_id: 'substituted-grant',
+              wallet_session_id: 'substituted-wallet-session',
             },
           },
         },
