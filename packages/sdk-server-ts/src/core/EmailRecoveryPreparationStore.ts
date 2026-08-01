@@ -1,7 +1,6 @@
 import type { NormalizedLogger } from './logger';
 import type {
   ThresholdEd25519AuthorityScope,
-  ThresholdEd25519BootstrapSession,
   ThresholdRuntimePolicyScope,
   ThresholdStoreConfigInput
 } from './types';
@@ -11,7 +10,6 @@ import type {
 import { registrationPreparationIdFromString } from './registrationContracts';
 import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
-import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { parseThresholdEd25519AuthorityScope } from './ThresholdService/validation';
 import {
   RedisTcpClient,
@@ -56,7 +54,6 @@ export type EmailRecoveryPreparedThresholdEd25519Record = {
   clientParticipantId?: number;
   relayerParticipantId?: number;
   participantIds?: number[];
-  session?: ThresholdEd25519BootstrapSession;
 };
 
 export type EmailRecoveryResolvedWalletBinding = {
@@ -238,53 +235,6 @@ function parseParticipantIds(raw: unknown): number[] | undefined {
     : undefined;
 }
 
-function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSession | undefined {
-  if (!isObject(raw)) return undefined;
-  const sessionKind = toOptionalTrimmedString(raw.sessionKind);
-  const walletId = toOptionalTrimmedString(raw.walletId);
-  const nearAccountId = toOptionalTrimmedString(raw.nearAccountId);
-  const nearEd25519SigningKeyId = toOptionalTrimmedString(raw.nearEd25519SigningKeyId);
-  const authorityScope = parseThresholdEd25519AuthorityScope(raw.authorityScope);
-  const thresholdSessionId = toOptionalTrimmedString(raw.thresholdSessionId);
-  const signingGrantId = toOptionalTrimmedString(raw.signingGrantId);
-  const expiresAtMs = parsePositiveInteger(raw.expiresAtMs);
-  if (
-    (sessionKind !== 'jwt' && sessionKind !== 'cookie') ||
-    !walletId ||
-    !nearAccountId ||
-    !nearEd25519SigningKeyId ||
-    !authorityScope ||
-    !thresholdSessionId ||
-    !signingGrantId ||
-    !expiresAtMs
-  ) {
-    return undefined;
-  }
-  const expiresAt = toOptionalTrimmedString(raw.expiresAt);
-  const participantIds = parseParticipantIds(raw.participantIds);
-  const remainingUses = parseNonNegativeInteger(raw.remainingUses);
-  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
-  const jwt = toOptionalTrimmedString(raw.jwt);
-  return {
-    sessionKind,
-    walletId,
-    nearAccountId,
-    nearEd25519SigningKeyId,
-    authorityScope,
-    thresholdSessionId,
-    signingGrantId,
-    expiresAtMs,
-    ...(expiresAt ? { expiresAt } : {}),
-    ...(participantIds ? { participantIds } : {}),
-    ...(remainingUses !== undefined ? { remainingUses } : {}),
-    ...(isObject(raw.runtimePolicyScope)
-      ? { runtimePolicyScope: raw.runtimePolicyScope as ThresholdRuntimePolicyScope }
-      : {}),
-    ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
-    ...(jwt ? { jwt } : {}),
-  };
-}
-
 function parseEmailRecoveryResolvedWalletBinding(
   raw: unknown,
 ): EmailRecoveryResolvedWalletBinding | null {
@@ -329,7 +279,6 @@ function parsePreparedThresholdEd25519(
   const clientParticipantId = parsePositiveInteger(raw.clientParticipantId);
   const relayerParticipantId = parsePositiveInteger(raw.relayerParticipantId);
   const participantIds = parseParticipantIds(raw.participantIds);
-  const session = parseThresholdEd25519Session(raw.session);
   return {
     relayerKeyId,
     authorityScope,
@@ -339,7 +288,6 @@ function parsePreparedThresholdEd25519(
     ...(clientParticipantId ? { clientParticipantId } : {}),
     ...(relayerParticipantId ? { relayerParticipantId } : {}),
     ...(participantIds ? { participantIds } : {}),
-    ...(session ? { session } : {}),
   };
 }
 

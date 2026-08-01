@@ -22,7 +22,6 @@ import { DEFAULT_RECOVERY_SESSION_TTL_MS } from '../recoverySessionRecords';
 import type {
   ThresholdRuntimePolicyScope,
   ThresholdEd25519AuthorityScope,
-  ThresholdEd25519BootstrapSession,
 } from '../types';
 import { registrationPreparationIdFromString } from '../registrationContracts';
 import { randomBase64Url } from './bytes';
@@ -230,7 +229,6 @@ export class EmailRecoveryAuthOperations {
           clientParticipantId?: number;
           relayerParticipantId?: number;
           participantIds?: number[];
-          session?: ThresholdEd25519BootstrapSession;
         };
         ecdsa: EmailRecoveryEcdsaPreparePayload;
       }
