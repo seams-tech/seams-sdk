@@ -11,7 +11,13 @@ import {
   type RouterAbMpcMaterialActivationRefWire,
 } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
-import { ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
+import {
+  buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+  buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH,
+} from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { buildPasskeyAuthorizationSessionFixture } from './helpers/authorizationCore.fixtures';
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
 
@@ -294,4 +300,89 @@ test('operation step-up issues one grant for the exact canonical material ref', 
   expect(sideEffects.claims).toBe(0);
   expect(sideEffects.audits).toBe(0);
   expect(sideEffects.quotaWrites).toBe(0);
+});
+
+test('operation step-up prepare and finalize reject superseded material before claims', async () => {
+  const walletId = fixtureWalletId();
+  const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
+  const canonicalActivation = signer.walletKey.publicCapability.material_activation;
+  const supersededActivation = corruptMaterialActivation(
+    canonicalActivation,
+    'activation_id',
+  );
+  const capability = signer.walletKey.publicCapability;
+  const nowMs = Date.now();
+  const scope = {
+    wallet_id: String(walletId),
+    ecdsa_threshold_key_id: signer.walletKey.ecdsaThresholdKeyId,
+    signing_root_id: signer.walletKey.signingRootId,
+    signing_root_version: signer.walletKey.signingRootVersion,
+    context: capability.context,
+    public_identity: capability.public_identity,
+    material_activation: supersededActivation,
+    signing_worker: capability.signer_set.selected_server,
+    activation_epoch: capability.activation_epoch,
+  };
+  const authorization = {
+    kind: 'operation_step_up' as const,
+    grant_id: 'operation-step-up-grant-superseded',
+  };
+  const prepare = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
+    scope,
+    requestId: 'operation-step-up-superseded-prepare',
+    operationId: 'operation-step-up-superseded-operation',
+    operationDigests: {
+      lane_digest_b64u: digest(4),
+      intent_digest_b64u: digest(5),
+      display_digest_b64u: digest(6),
+    },
+    authorization,
+    materialActivation: supersededActivation,
+    clientPresignatureId: 'client-presignature-superseded',
+    expiresAtMs: nowMs + 40_000,
+    signingDigest32: new Uint8Array(32).fill(5),
+    clientRerandomizationCommitment32: new Uint8Array(32).fill(0x31),
+  });
+  const finalize = buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1({
+    scope,
+    requestId: prepare.request_id,
+    operationId: 'operation-step-up-superseded-operation',
+    operationDigests: prepare.operation_digests,
+    authorization,
+    materialActivation: supersededActivation,
+    expiresAtMs: prepare.expires_at_ms,
+    signingDigest32: new Uint8Array(32).fill(5),
+    serverPresignatureId: prepare.client_presignature_id,
+    clientSignatureShare32: new Uint8Array(32).fill(0x51),
+    clientRerandomizationContribution32: new Uint8Array(32).fill(0x41),
+  });
+
+  for (const [pathname, body] of [
+    [ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH, prepare],
+    [ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH, finalize],
+  ] as const) {
+    const sideEffects = emptyRouteSideEffects();
+    const ctx = await stepUpRouteFixture({
+      signer,
+      requestedActivation: supersededActivation,
+      sideEffects,
+    });
+    ctx.request = new Request(`https://app.example.test${pathname}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      body: JSON.stringify(body),
+    });
+    ctx.url = new URL(ctx.request.url);
+    ctx.pathname = pathname;
+    ctx.opts.routerAbNormalSigningAdmission = {
+      async evaluate() {
+        sideEffects.audits += 1;
+        return { ok: true };
+      },
+    };
+
+    const response = await handleThresholdEcdsa(ctx);
+    expect(response?.status).toBe(403);
+    expect(sideEffects).toEqual(emptyRouteSideEffects());
+  }
 });
