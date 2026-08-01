@@ -8,6 +8,15 @@ import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  parsePrincipalId,
+  parseReusableWalletSessionMintId,
+} from '@shared/authorization/capabilityKinds';
+import {
+  DEFAULT_WALLET_SESSION_REMAINING_USES,
+  DEFAULT_WALLET_SESSION_TTL_MS,
+} from '@shared/threshold/sessionPolicy';
 
 function syncAccountResponseStatus(result: { ok: boolean; verified?: boolean; code?: string }) {
   if (result.ok && result.verified) return 200;
@@ -122,8 +131,90 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
         credentialIdB64u,
       });
       const authorityRef = await walletAuthAuthorityRef({ authority });
+      const budgetProvisioner =
+        ctx.service.thresholdRuntime.getWalletBudgetGrantProvisioner?.() ?? null;
+      if (!budgetProvisioner) {
+        return json(
+          {
+            ok: false,
+            code: 'internal',
+            message: 'Ed25519 Wallet Session budget provisioner is not configured',
+          },
+          { status: 500 },
+        );
+      }
+      const principalId = parsePrincipalId(walletId);
+      const mintId = parseReusableWalletSessionMintId(parsed.request.challengeId);
+      if (!principalId.ok || !mintId.ok) {
+        return json(
+          {
+            ok: false,
+            code: 'internal',
+            message: 'Verified passkey Wallet Session identity is invalid',
+          },
+          { status: 500 },
+        );
+      }
+      const issuedAtMs = Date.now();
+      const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
+      const reusableWalletSession =
+        await ctx.service.authorizationSessions.issueReusableWalletSession({
+          tenantId: ctx.service.authorizationSessions.tenantId,
+          principalId: principalId.value,
+          walletId: walletIdFromString(walletId),
+          authority: authorityRef,
+          mintId: mintId.value,
+          remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+          issuedAtMs,
+          expiresAtMs,
+        });
+      const walletSession = await yaoRuntime.mintWalletSession({
+        kind: 'verified_wallet_unlock_v1',
+        walletId: walletIdFromString(walletId),
+        nearAccountId,
+        nearEd25519SigningKeyId,
+        authority,
+        thresholdSessionId: capability.capability.lifecycle.thresholdSessionId,
+        walletSessionId: reusableWalletSession.session.walletSessionId,
+        quotaId: reusableWalletSession.quota.quotaId,
+        participantIds: [firstParticipantId, secondParticipantId],
+        runtimePolicyScope: capability.capability.runtimePolicyScope,
+        expiresAtMs,
+        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+      });
+      if (!walletSession.ok) {
+        return json(
+          { ok: false, code: walletSession.code, message: walletSession.message },
+          { status: 500 },
+        );
+      }
+      const provisioned = await budgetProvisioner.provisionGrant({
+        walletId,
+        signingGrantId: walletSession.session.signingGrantId,
+        relyingPartyId: walletBinding.rpId,
+        authorizedSigners: [
+          {
+            curve: 'ed25519',
+            threshold_session_id: walletSession.session.thresholdSessionId,
+            signing_worker_id: signingWorkerId,
+          },
+        ],
+        initialSignatureUses: walletSession.session.remainingUses,
+        expiresAtMs: walletSession.session.expiresAtMs,
+        issuerIdempotencyKey: `sync-account:${walletSession.session.signingGrantId}`,
+      });
+      if (!provisioned.ok) {
+        return json(
+          { ok: false, code: provisioned.code, message: provisioned.message },
+          { status: 500 },
+        );
+      }
       responseBody = {
         ...result,
+        thresholdEd25519: {
+          ...thresholdEd25519,
+          session: walletSession.session,
+        },
         ed25519YaoRecovery: {
           kind: 'router_ab_ed25519_yao_sync_recovery_v1',
           authorityRef,
