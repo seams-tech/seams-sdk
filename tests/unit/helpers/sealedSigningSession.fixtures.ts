@@ -163,6 +163,106 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
   });
 }
 
+export function buildEmailOtpEd25519SealedSessionRecordFixture(
+  args: {
+    walletId?: string;
+    nearAccountId?: string;
+    nearEd25519SigningKeyId?: string;
+    thresholdSessionId?: string;
+    expiresAtMs?: number;
+    remainingUses?: number;
+  } = {},
+): CurrentEd25519SealedSessionRecord {
+  const walletId = args.walletId ?? 'email-otp-ed25519-sealed-runtime-wallet';
+  const thresholdSessionId =
+    args.thresholdSessionId ?? 'email-otp-ed25519-sealed-runtime-session';
+  const record = buildCurrentSealedSessionRecord({
+    curve: 'ed25519',
+    authMethod: 'email_otp',
+    thresholdSessionId,
+    thresholdSessionIds: { ed25519: thresholdSessionId },
+    walletId,
+    signingRootId: 'email-otp-ed25519-sealed-runtime-project:test',
+    signingRootVersion: 'v1',
+    relayerUrl: 'https://relay.example.test',
+    sealedSecretB64u: 'email-otp-ed25519-sealed-runtime-secret',
+    keyVersion: 'email-otp-ed25519-sealed-runtime-kek',
+    groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+    issuedAtMs: 1,
+    expiresAtMs: args.expiresAtMs ?? 1_900_000_000_000,
+    remainingUses: args.remainingUses ?? 3,
+    updatedAtMs: 2,
+    ed25519Restore: {
+      nearAccountId: args.nearAccountId ?? 'email-otp-ed25519-runtime.testnet',
+      nearEd25519SigningKeyId:
+        args.nearEd25519SigningKeyId ?? 'email-otp-ed25519-runtime-key',
+      rpId: 'wallet.example.test',
+      provider: 'google',
+      providerSubjectId: 'google:email-otp-ed25519-runtime',
+      emailHashHex: 'email-otp-ed25519-runtime-hash',
+      materialActivation: buildMpcMaterialActivationRefFixture(
+        'email-otp-ed25519-runtime-material',
+        walletId,
+      ),
+      relayerKeyId: 'email-otp-ed25519-runtime-worker',
+      participantIds: [1, 2],
+      runtimePolicyScope: {
+        orgId: 'email-otp-ed25519-runtime-org',
+        projectId: 'email-otp-ed25519-sealed-runtime-project',
+        envId: 'test',
+        signingRootVersion: 'v1',
+      },
+      signerSlot: 1,
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1',
+        signingWorkerId: 'email-otp-ed25519-runtime-worker',
+      },
+    },
+  });
+  if (!record || record.curve !== 'ed25519') {
+    throw new Error('Failed to build Email OTP Ed25519 sealed-session fixture');
+  }
+  return record;
+}
+
+export function buildEmailOtpEd25519AuthorizationProjectionFixture(
+  record: CurrentEd25519SealedSessionRecord,
+) {
+  if (!('provider' in record.ed25519Restore)) {
+    throw new Error('Email OTP Ed25519 authorization fixture requires provider restore metadata');
+  }
+  const authority = buildEmailOtpWalletAuthAuthority({
+    walletId: record.walletId,
+    provider: record.ed25519Restore.provider,
+    providerUserId: record.ed25519Restore.providerSubjectId,
+    emailHashHex: record.ed25519Restore.emailHashHex,
+  });
+  return buildActiveWalletSessionAuthorizationProjection({
+    walletId: authority.walletId,
+    authorizationSessionId: requireFixtureDomainId(
+      parseSeamsSessionId(`authorization:${record.thresholdSessionIds.ed25519}`),
+    ),
+    walletSessionId: requireFixtureDomainId(
+      parseWalletSessionId(`wallet-session:${record.thresholdSessionIds.ed25519}`),
+    ),
+    quotaId: requireFixtureDomainId(
+      parseMpcWalletSigningQuotaId(`quota:${record.thresholdSessionIds.ed25519}`),
+    ),
+    walletSessionJwt: fixtureJwt(ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND, {
+      walletId: record.walletId,
+      nearAccountId: record.ed25519Restore.nearAccountId,
+      nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
+      walletSessionId: `wallet-session:${record.thresholdSessionIds.ed25519}`,
+      quotaId: `quota:${record.thresholdSessionIds.ed25519}`,
+      thresholdSessionId: record.thresholdSessionIds.ed25519,
+      signingGrantId: `grant:${record.thresholdSessionIds.ed25519}`,
+    }),
+    authMethod: 'email_otp',
+    authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),
+    expiresAtMs: record.expiresAtMs,
+  });
+}
+
 export type EmailOtpEcdsaSealedSigningSessionRecord = Extract<
   SealedSigningSessionRecord,
   { curve: 'ecdsa' }
