@@ -57,6 +57,10 @@ const sessionIdBoundaryRoots = [
 const classifiedSessionIdPublicSurfaceFiles = {
   'apps/seams-site/src/flows/demo/hooks/useDemoSigningSession.ts':
     'rename_later_agent_b_signing_or_wasm',
+  'packages/sdk-server-ts/src/authorization/domain.ts':
+    'keep_app_device_or_recovery_session',
+  'packages/sdk-server-ts/src/authorization/service.ts':
+    'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/core/RecoveryExecutionStore.ts':
     'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/core/RecoverySessionStore.ts': 'keep_app_device_or_recovery_session',
@@ -75,8 +79,6 @@ const classifiedSessionIdPublicSurfaceFiles = {
   'packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts':
-    'rename_later_agent_b_signing_or_wasm',
-  'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts':
     'rename_later_agent_b_signing_or_wasm',

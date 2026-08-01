@@ -102,21 +102,6 @@ test.describe('signing session PRF cache utilities', () => {
     expect(message).toBe('WebCrypto getRandomValues is required for passkey PRF cache session IDs');
   });
 
-  test('threshold warm-session bootstrap uses hydrate seam without active-pointer flags', () => {
-    const source = fs.readFileSync(
-      path.resolve(
-        process.cwd(),
-        '../packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
-      ),
-      'utf8',
-    );
-
-    expect(source).toContain('signingEngine.hydrateSigningSession({');
-    expect(source).not.toContain('setActiveSigningSessionId');
-    expect(source).not.toContain('signingEngine.setActiveSigningSessionId(');
-    expect(source).not.toContain('signingEngine.putWarmSessionMaterial(');
-  });
-
   test('signing engine global clear path wipes all volatile worker PRF cache entries', () => {
     const source = fs.readFileSync(
       path.resolve(
