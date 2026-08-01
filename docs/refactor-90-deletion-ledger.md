@@ -384,7 +384,9 @@ ports, and the two-state recovery journal.
 
 - `EmailOtpEd25519YaoSilentRecoveryResultV1`
 - `EmailOtpEd25519YaoSilentRecoveryPorts`
-- `EmailOtpEd25519YaoBudgetRecoveryResult`
+- ~~`EmailOtpEd25519YaoBudgetRecoveryResult`~~ — renamed to the
+  capability-owned recovery result in `82b439fc5`; no budget/session authority
+  remains in that carrier
 - ~~`PreparedEmailOtpEd25519YaoRecoveryV1`~~ — confirmed absent at `7495b5b44`
 - `PreparedColdEmailOtpEd25519YaoRecoveryV1`
 - `recoverEmailOtpEd25519YaoFromSealedSessionV1`
@@ -493,9 +495,11 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   deleted by `c838eeea0` after all production callers moved to relayer claims
 - ~~the zero-caller client budget projection reducer, reservation projection,
   and dedicated type fixture~~ — deleted by `64f46362c`; the temporary
-  `budgetUnknownSigningSessionStatus` helper remains live until the trusted
-  status-reader cutover
-- `signingEngine/session/budget/**`
+  `budgetUnknownSigningSessionStatus` helper was deleted with the neutral
+  lifecycle-status move in `82b439fc5`
+- ~~`signingEngine/session/budget/**`~~ — deleted in `82b439fc5`; the live
+  Refactor-92 status classifier and authorization admission now live under
+  `session/lifecycle` and `session/operationState`
 - ~~reusable NEAR transaction client admission, reservation, success/zero-spend
   finalization, and prepared-boundary budget state~~ — removed by `cc4cf26ab`;
   relayer operation claims and quota transactions own consumption
