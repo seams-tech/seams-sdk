@@ -126,7 +126,7 @@ export type Ed25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane &
 export type DeferredEd25519MaterialIdentity = {
   readonly kind: 'deferred_ed25519_material_identity';
   readonly signer: NearEd25519SignerBinding;
-  readonly auth: SigningLaneAuthBinding;
+  readonly materialActivation: MpcMaterialActivationRef;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
 };
 
@@ -142,6 +142,7 @@ export type DeferredEd25519SigningSessionPlanningLane = BaseSigningSessionPlanni
     sessionOrigin: 'per_operation';
     storageSource: 'sealed_restore';
     retention: 'single_use';
+    materialActivation: MpcMaterialActivationRef;
     signingGrantId?: never;
     thresholdSessionId: ThresholdEd25519SessionId;
   };

@@ -341,7 +341,7 @@ async function runNearAuthorizationRequiredTransactionSigning(
       nearEd25519SigningKeyId: candidate.nearEd25519SigningKeyId,
       signerSlot: candidate.signerSlot,
     }),
-    auth: candidate.auth,
+    materialActivation: candidate.materialActivation,
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(candidate.thresholdSessionId),
   };
   const signingSessionPlan: SigningSessionPlan = {
@@ -356,6 +356,7 @@ async function runNearAuthorizationRequiredTransactionSigning(
       storageSource: 'sealed_restore',
       retention: 'single_use',
       runtimeState: 'no_runtime_material',
+      materialActivation: deferredIdentity.materialActivation,
       thresholdSessionId: deferredIdentity.thresholdSessionId,
     },
   };

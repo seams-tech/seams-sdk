@@ -456,24 +456,18 @@ export function exactSigningLaneIdentityKey(
 }
 
 export function deferredEd25519MaterialIdentityKey(input: {
-  signer: NearEd25519SignerBinding;
-  auth: SigningLaneAuthBinding;
-  thresholdSessionId: ThresholdEd25519SessionId;
+  materialActivation: MpcMaterialActivationRef;
 }): ExactSigningLaneIdentityKey {
   return alphabetizeStringify({
     kind: 'deferred_ed25519_material_identity',
-    signer: {
-      kind: input.signer.kind,
-      account: {
-        kind: input.signer.account.kind,
-        walletId: String(input.signer.account.wallet.walletId),
-        nearAccountId: String(input.signer.account.nearAccountId),
-      },
-      nearEd25519SigningKeyId: String(input.signer.nearEd25519SigningKeyId),
-      signerSlot: Number(input.signer.signerSlot),
+    materialActivation: {
+      activationId: String(input.materialActivation.activationId),
+      capability: String(input.materialActivation.capability),
+      materialOwner: String(input.materialActivation.materialOwner),
+      keyBinding: String(input.materialActivation.keyBinding),
+      lifecycleBinding: String(input.materialActivation.lifecycleBinding),
+      signingWorker: String(input.materialActivation.signingWorker),
     },
-    auth: canonicalAuthBinding(input.auth),
-    thresholdSessionId: String(input.thresholdSessionId),
   }) as ExactSigningLaneIdentityKey;
 }
 

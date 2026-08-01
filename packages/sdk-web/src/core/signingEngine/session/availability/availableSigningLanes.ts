@@ -626,6 +626,7 @@ export function ed25519LaneCandidateFromAvailableLane(args: {
     nearAccountId: args.lane.nearAccountId,
     nearEd25519SigningKeyId: args.lane.nearEd25519SigningKeyId,
     signerSlot: args.lane.signerSlot,
+    materialActivation: args.lane.materialActivation,
     auth: args.lane.auth,
     curve: 'ed25519',
     chain: 'near',
@@ -1179,8 +1180,8 @@ function ed25519LaneGroupConflicts(
   return [];
 }
 
-function isEd25519CanonicalFactOperationUsable(fact: Ed25519LaneRecordFact): boolean {
-  return fact.lane.state !== 'deferred';
+function isEd25519CanonicalFactOperationUsable(_fact: Ed25519LaneRecordFact): boolean {
+  return true;
 }
 
 function ed25519CanonicalFactGeneration(
