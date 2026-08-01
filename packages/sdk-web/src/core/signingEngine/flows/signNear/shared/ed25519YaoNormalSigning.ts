@@ -112,7 +112,10 @@ const ROUTER_AB_NORMAL_SIGNING_REQUEST_TTL_MS = 120_000;
 export function selectedNearEd25519LaneFromOperationStepUp(args: {
   materialFacts: NearEd25519YaoOperationMaterialFacts;
   auth: SigningLaneAuthBinding;
-  prepared: Extract<PreparedNearOperationStepUp, { kind: 'near_signature_only' }>;
+  prepared: Extract<
+    PreparedNearOperationStepUp,
+    { kind: 'near_signature_only' | 'near_transaction' }
+  >;
   issuedGrant: NearEd25519OperationStepUpGrant;
 }): SelectedEd25519Lane {
   const authorization = args.prepared.prepare.request.scope.authorization;
@@ -155,11 +158,21 @@ export type RouterAbEd25519SignatureOnlyIntentWire =
       };
     };
 
-export type RouterAbEd25519NearTransactionNormalSigningResult = {
-  kind: 'router_ab_ed25519_near_transaction_normal_signing_result_v1';
-  okResponse: WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions>;
-  transactionHash: string;
-};
+export type RouterAbEd25519NearTransactionNormalSigningResult =
+  | {
+      kind: 'router_ab_ed25519_near_transaction_normal_signing_result_v1';
+      authorization: 'operation_step_up';
+      issuedGrant: NearEd25519OperationStepUpGrant;
+      okResponse: WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions>;
+      transactionHash: string;
+    }
+  | {
+      kind: 'router_ab_ed25519_near_transaction_normal_signing_result_v1';
+      authorization: 'reusable_wallet_session';
+      issuedGrant?: never;
+      okResponse: WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions>;
+      transactionHash: string;
+    };
 
 export type RouterAbEd25519SignatureOnlyNormalSigningResult =
   | {
@@ -1417,6 +1430,7 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(
   );
   let prepare: RouterAbNormalSigningPrepareRequestV2BuildResult;
   let credential: RouterAbEd25519NormalSigningCredential;
+  let issuedGrant: NearEd25519OperationStepUpGrant | undefined;
   if (operationStepUp) {
     prepare = args.authorization.prepared.prepare;
     const issued = await resolveIssuedEd25519OperationStepUpGrant({
@@ -1432,6 +1446,7 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(
     ) {
       throw new Error('[SigningEngine][near] issued operation step-up grant changed identity');
     }
+    issuedGrant = issued;
     credential = { kind: 'app_session_cookie' };
   } else {
     const scope = buildRouterAbNormalSigningScope({
@@ -1515,19 +1530,33 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(
     workerCtx: args.ctx,
   });
   const transactionHash = finalized.transactionHash || decoded.transactionHash;
+  const okResponse = {
+    type: WorkerResponseType.SignTransactionsWithActionsSuccess,
+    payload: {
+      free: () => undefined,
+      success: true,
+      transactionHashes: [transactionHash],
+      signedTransactions: [decoded.signedTransaction],
+      logs: ['NEAR transaction signed through Router A/B normal signing'],
+      error: undefined,
+    },
+  } satisfies WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions>;
+  if (operationStepUp) {
+    if (!issuedGrant) {
+      throw new Error('[SigningEngine][near] operation step-up grant was not issued');
+    }
+    return {
+      kind: 'router_ab_ed25519_near_transaction_normal_signing_result_v1',
+      authorization: 'operation_step_up',
+      issuedGrant,
+      transactionHash,
+      okResponse,
+    };
+  }
   return {
     kind: 'router_ab_ed25519_near_transaction_normal_signing_result_v1',
+    authorization: 'reusable_wallet_session',
     transactionHash,
-    okResponse: {
-      type: WorkerResponseType.SignTransactionsWithActionsSuccess,
-      payload: {
-        free: () => undefined,
-        success: true,
-        transactionHashes: [transactionHash],
-        signedTransactions: [decoded.signedTransaction],
-        logs: ['NEAR transaction signed through Router A/B normal signing'],
-        error: undefined,
-      },
-    },
+    okResponse,
   };
 }

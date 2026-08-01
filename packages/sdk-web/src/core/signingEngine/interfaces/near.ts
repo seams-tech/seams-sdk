@@ -203,7 +203,7 @@ export type NearEd25519TransactionAdmissionBoundary = {
 
 export type NearEd25519TransactionSigningBoundary = NearEd25519TransactionAdmissionBoundary;
 
-export type NearTransactionWithActionsPayload = {
+type NearTransactionWithActionsPayloadBase = {
   ctx: NearSigningRuntimeDeps;
   commandSubject: NearCommandSubject;
   nearAccount: NearAccountRef;
@@ -216,8 +216,6 @@ export type NearTransactionWithActionsPayload = {
   signerSlot?: number;
   signingOperationId?: SigningOperationId;
   signingSessionCoordinator: SigningSessionCoordinator;
-  transactionOperation: PreparedTransactionOperation<SelectedEd25519Lane>;
-  ed25519SigningBoundary: NearEd25519TransactionSigningBoundary;
   finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
   passkeyEd25519OperationStepUp?: NearPasskeyEd25519OperationStepUpHook;
   emailOtpEd25519StepUp?: NearEmailOtpEd25519StepUpHook;
@@ -225,6 +223,26 @@ export type NearTransactionWithActionsPayload = {
   yaoSigningPreparation: NearEd25519YaoSigningPreparation;
   yaoMaterialExecutor: NearEd25519YaoMaterialExecutor;
 };
+
+export type NearTransactionWithActionsPayload =
+  | (NearTransactionWithActionsPayloadBase & {
+      selection: {
+        kind: 'authorized';
+        selectedLane: SelectedEd25519Lane;
+        candidate?: never;
+      };
+      transactionOperation: PreparedTransactionOperation<SelectedEd25519Lane>;
+      ed25519SigningBoundary: NearEd25519TransactionSigningBoundary;
+    })
+  | (NearTransactionWithActionsPayloadBase & {
+      selection: {
+        kind: 'authorization_required';
+        selectedLane?: never;
+        candidate: AuthorizationRequiredEd25519LaneCandidate;
+      };
+      transactionOperation?: never;
+      ed25519SigningBoundary?: never;
+    });
 
 export type NearAdHocEd25519Selection =
   | {
