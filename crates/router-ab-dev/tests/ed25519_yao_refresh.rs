@@ -61,6 +61,28 @@ fn role_local_refresh_state_rotates_effective_contributions_only_on_promotion() 
     )
     .expect("joint delta");
 
+    let substituted_refresh = Ed25519YaoRefreshBindingV1::new(
+        ceremony_with_activation_id(
+            Ed25519YaoOperationV1::Refresh,
+            ExpensiveWorkKindV1::ServerShareRefresh,
+            [0x43; 32],
+            "opaque-substituted-activation",
+        ),
+        [0x71; 32],
+        Ed25519YaoRefreshEpochsV1 {
+            deriver_a: transition,
+            deriver_b: transition,
+            signing_worker: transition,
+        },
+    )
+    .expect("substituted refresh binding");
+    assert!(state_a
+        .prepare_refresh(&substituted_refresh, &delta)
+        .is_err());
+    assert!(state_b
+        .prepare_refresh(&substituted_refresh, &delta)
+        .is_err());
+
     let prepared_a = state_a
         .prepare_refresh(&refresh, &delta)
         .expect("prepare A");
@@ -98,13 +120,22 @@ fn ceremony(
     work_kind: ExpensiveWorkKindV1,
     session: [u8; 32],
 ) -> Ed25519YaoCeremonyBindingV1 {
+    ceremony_with_activation_id(operation, work_kind, session, "opaque-refresh-activation")
+}
+
+fn ceremony_with_activation_id(
+    operation: Ed25519YaoOperationV1,
+    work_kind: ExpensiveWorkKindV1,
+    session: [u8; 32],
+    activation_id: &str,
+) -> Ed25519YaoCeremonyBindingV1 {
     Ed25519YaoCeremonyBindingV1::new(
         LifecycleScopeV1::new(
-            "lifecycle-1",
+            "threshold-lifecycle-1",
             work_kind,
             RootShareEpoch::new("root-epoch-1").expect("root epoch"),
             "account-1",
-            "wallet-session-1",
+            "threshold-session-1",
             "signer-set-1",
             "signing-worker-1",
         )
@@ -113,11 +144,11 @@ fn ceremony(
         Ed25519YaoSessionIdV1::new(session).expect("session"),
         Ed25519YaoStableKeyContextBindingV1::new([0x51; 32]),
         MpcMaterialActivationRefV1::new(
-            "refresh-activation",
+            activation_id,
             "refresh-capability",
             "account-1",
             "refresh-key",
-            "lifecycle-1",
+            "opaque-material-lifecycle-1",
             "signing-worker-1",
         )
         .expect("material activation"),

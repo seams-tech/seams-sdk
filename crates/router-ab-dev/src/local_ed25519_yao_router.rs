@@ -2,9 +2,10 @@ use getrandom::getrandom;
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoOperationV1, Ed25519YaoRefreshBindingV1,
     Ed25519YaoRefreshEpochsV1, Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1,
-    Ed25519YaoStateEpochV1, RootShareEpoch, RouterAbEd25519YaoApplicationBindingFactsV1,
-    RouterAbEd25519YaoLifecycleScopeV1, RouterAbEd25519YaoRegistrationAdmissionRequestV1,
-    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    Ed25519YaoStateEpochV1, MpcMaterialActivationRefV1, RootShareEpoch,
+    RouterAbEd25519YaoApplicationBindingFactsV1, RouterAbEd25519YaoLifecycleScopeV1,
+    RouterAbEd25519YaoRegistrationAdmissionRequestV1, RouterAbProtocolError,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -97,6 +98,7 @@ enum LocalEd25519YaoRefreshLifecycleV1 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LocalEd25519YaoRefreshStableIdentityV1 {
     stable_key_context_binding: Ed25519YaoStableKeyContextBindingV1,
+    material_activation: MpcMaterialActivationRefV1,
     root_share_epoch: RootShareEpoch,
     account_id: String,
     signer_set_id: String,
@@ -260,6 +262,7 @@ fn refresh_stable_identity(
 ) -> LocalEd25519YaoRefreshStableIdentityV1 {
     LocalEd25519YaoRefreshStableIdentityV1 {
         stable_key_context_binding: binding.stable_key_context_binding,
+        material_activation: binding.material_activation.clone(),
         root_share_epoch: binding.lifecycle.root_share_epoch.clone(),
         account_id: binding.lifecycle.account_id.clone(),
         signer_set_id: binding.lifecycle.signer_set_id.clone(),
@@ -272,6 +275,7 @@ fn refresh_identity_matches(
     refresh: &Ed25519YaoCeremonyBindingV1,
 ) -> bool {
     active.stable_key_context_binding == refresh.stable_key_context_binding
+        && active.material_activation == refresh.material_activation
         && active.root_share_epoch == refresh.lifecycle.root_share_epoch
         && active.account_id == refresh.lifecycle.account_id
         && active.signer_set_id == refresh.lifecycle.signer_set_id
