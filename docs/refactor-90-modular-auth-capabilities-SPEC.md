@@ -554,9 +554,14 @@ implementing commit SHA as the evidence.
     active material from WalletStore before factor/proof consumption or any
     evidence/grant write, and hostile mutations of all six activation fields
     leave every side-effect counter at zero (`4a436aed7`).
-  - [ ] Canonicalize reusable/step-up prepare and finalize, pool fill, and
-    export before side effects; finish activation-owned Ed25519 storage/export
-    identities and recovery-journal correlation.
+  - [x] Reusable ECDSA prepare/finalize resolve current canonical material
+    before admission and operation-claim/quota effects; accepted admission
+    carries the full ref and derives capability identity from it (`c7b259a5c`).
+  - [x] Near recovery journals correlate their outer material owner with both
+    admitted activation refs and require replacement material to equal the
+    promotion receipt before commit and atomic finalization (`aa5ceb318`).
+  - [ ] Canonicalize step-up prepare and finalize, pool fill, and export before
+    side effects; finish activation-owned Ed25519 storage/export identities.
   - [x] Delete write-only ECDSA resolved-identity publication from passkey
     recovery, Email OTP restore, and sealed-store identity projections. ECDSA
     availability is resolved from canonical capability and sealed-runtime
