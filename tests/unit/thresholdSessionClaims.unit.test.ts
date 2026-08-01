@@ -188,6 +188,7 @@ function routerAbEcdsaClaims(overrides: Record<string, unknown> = {}) {
     activationEpoch: fixtureRootShareEpoch('activation-epoch-1'),
     routerAbPublicKeyset,
     signingWorkerId: 'signing-worker-1',
+    materialActivation: routerAbEcdsaMaterialActivation,
   });
   if (!normalSigning.ok) throw new Error(normalSigning.message);
   return {
@@ -477,6 +478,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       activationEpoch: fixtureRootShareEpoch('activation-epoch-1'),
       routerAbPublicKeyset,
       signingWorkerId: 'signing-worker-1',
+      materialActivation: routerAbEcdsaMaterialActivation,
     });
     expect(ecdsaNormalSigning).toMatchObject({ ok: true });
     if (!ecdsaNormalSigning.ok) throw new Error(ecdsaNormalSigning.message);
@@ -806,6 +808,32 @@ test.describe('Router A/B Wallet Session token claims', () => {
       requestId: finalizeRequest.request_id,
       expiresAtMs: finalizeRequest.expires_at_ms,
     });
+
+    const hostileMaterialActivations = [
+      { ...routerAbEcdsaMaterialActivation, activation_id: 'activation-ecdsa-hostile' },
+      { ...routerAbEcdsaMaterialActivation, capability: 'capability:ecdsa:hostile' },
+      { ...routerAbEcdsaMaterialActivation, material_owner: 'hostile.testnet' },
+      { ...routerAbEcdsaMaterialActivation, key_binding: 'hostile-key-binding' },
+      { ...routerAbEcdsaMaterialActivation, lifecycle_binding: 'hostile-lifecycle-binding' },
+      { ...routerAbEcdsaMaterialActivation, signing_worker: 'signing-worker-hostile' },
+    ];
+    for (const materialActivation of hostileMaterialActivations) {
+      expect(
+        validateRouterAbEcdsaDerivationNormalSigningPrepareRequest({
+          claims,
+          walletSessionAuth,
+          body: { ...prepareRequest, material_activation: materialActivation },
+        }),
+      ).toMatchObject({
+        ok: false,
+        error: {
+          status: 403,
+          body: {
+            code: 'wallet_session_scope_mismatch',
+          },
+        },
+      });
+    }
 
     const driftedScope = {
       ...scope,

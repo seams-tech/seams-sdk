@@ -9,7 +9,8 @@ use router_ab_core::{
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
-    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationStableKeyContextV1,
+    RouterAbEcdsaDerivationOperationDigestsV1, RouterAbEcdsaDerivationPublicIdentityV1,
+    RouterAbEcdsaDerivationStableKeyContextV1,
     MpcMaterialActivationRefV1, NormalSigningAuthorizationV1, RouterAbProtocolResult,
     ServerIdentityV1,
 };
@@ -126,6 +127,7 @@ fn router_ab_ecdsa_derivation_evidence() -> RouterAbProtocolResult<RouterAbEcdsa
         prepare.scope.clone(),
         "ecdsa-sign-request-1",
         prepare.operation_id.clone(),
+        prepare.operation_digests.clone(),
         prepare.authorization.clone(),
         prepare.material_activation.clone(),
         1_900_000_000_000,
@@ -216,9 +218,9 @@ fn ecdsa_signing_request(
         scope,
         "ecdsa-sign-request-1",
         "ecdsa-operation-1",
+        operation_digests(),
         NormalSigningAuthorizationV1::reusable_wallet_session(
             "wallet-session-1",
-            "capability-grant-1",
         )?,
         material_activation,
         "server-presignature-1",
@@ -231,6 +233,19 @@ fn ecdsa_signing_request(
 }
 
 fn ecdsa_scope() -> RouterAbProtocolResult<RouterAbEcdsaDerivationNormalSigningScopeV1> {
+    let material_activation = MpcMaterialActivationRefV1::new(
+        router_ab_core::router_ab_ecdsa_derivation_material_activation_id_v1(
+            "ecdsa-threshold-key-1",
+            "signing-root-1",
+            "root-v1",
+            "root-epoch-1",
+        )?,
+        "ecdsa-signing-capability-1",
+        "wallet-1",
+        "ecdsa-threshold-key-1",
+        "ecdsa-material-lifecycle-1",
+        "signing-worker-1",
+    )?;
     RouterAbEcdsaDerivationNormalSigningScopeV1::new(
         "wallet-1",
         "ecdsa-threshold-key-1",
@@ -240,20 +255,22 @@ fn ecdsa_scope() -> RouterAbProtocolResult<RouterAbEcdsaDerivationNormalSigningS
         ecdsa_public_identity()?,
         signing_worker_identity()?,
         "root-epoch-1",
+        material_activation,
     )
 }
 
 fn ecdsa_material_activation(
     scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
 ) -> RouterAbProtocolResult<MpcMaterialActivationRefV1> {
-    MpcMaterialActivationRefV1::new(
-        scope.material_activation_id()?,
-        "evm-ecdsa-capability-1",
-        scope.wallet_id.clone(),
-        scope.ecdsa_threshold_key_id.clone(),
-        scope.activation_epoch.clone(),
-        scope.signing_worker.server_id.clone(),
-    )
+    Ok(scope.material_activation.clone())
+}
+
+fn operation_digests() -> RouterAbEcdsaDerivationOperationDigestsV1 {
+    RouterAbEcdsaDerivationOperationDigestsV1 {
+        lane_digest_b64u: b64u(&[0x31; 32]),
+        intent_digest_b64u: b64u(&[0x66; 32]),
+        display_digest_b64u: b64u(&[0x33; 32]),
+    }
 }
 
 fn ecdsa_context() -> RouterAbProtocolResult<RouterAbEcdsaDerivationStableKeyContextV1> {

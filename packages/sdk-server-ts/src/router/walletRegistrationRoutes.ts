@@ -521,6 +521,7 @@ async function attachEcdsaWalletSessionJwt(
       activationEpoch,
       routerAbPublicKeyset: input.services.routerAbPublicKeyset,
       signingWorkerId,
+      materialActivation: bootstrap.routerAbEcdsaDerivationNormalSigning.scope.material_activation,
     });
   if (
     !expectedNormalSigning.ok ||

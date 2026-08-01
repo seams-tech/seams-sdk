@@ -257,6 +257,7 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
             refresh_nonce: request.refresh_nonce.clone(),
             previous_activation_epoch: request.previous_activation_epoch.clone(),
             next_activation_epoch: request.next_activation_epoch.clone(),
+            material_activation: request.material_activation.clone(),
         };
         plaintext.validate()?;
         Ok(Self::Refresh(plaintext))
@@ -382,6 +383,7 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
                 push_len32(&mut out, plaintext.refresh_nonce.as_bytes());
                 push_len32(&mut out, plaintext.previous_activation_epoch.as_bytes());
                 push_len32(&mut out, plaintext.next_activation_epoch.as_bytes());
+                push_mpc_material_activation_ref(&mut out, &plaintext.material_activation)?;
             }
         }
         Ok(out)
@@ -615,6 +617,8 @@ pub struct RouterAbEcdsaDerivationDeriverRefreshEnvelopePlaintextV1 {
     pub previous_activation_epoch: String,
     /// Activation epoch to be installed by the SigningWorker.
     pub next_activation_epoch: String,
+    /// Exact material activation installed by this refresh.
+    pub material_activation: MpcMaterialActivationRefV1,
 }
 
 impl RouterAbEcdsaDerivationDeriverRefreshEnvelopePlaintextV1 {
@@ -655,6 +659,16 @@ impl RouterAbEcdsaDerivationDeriverRefreshEnvelopePlaintextV1 {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLifecycleState,
                 "Router A/B ECDSA derivation Deriver refresh plaintext lifecycle root epoch must equal next activation epoch",
+            ));
+        }
+        self.material_activation.validate()?;
+        if self.material_activation.material_owner != self.common.lifecycle.account_id
+            || self.material_activation.signing_worker
+                != self.common.signer_set.selected_server.server_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "Router A/B ECDSA derivation Deriver refresh material activation is not bound to lifecycle owner and selected SigningWorker",
             ));
         }
         Ok(())
@@ -1157,6 +1171,8 @@ pub struct RouterAbEcdsaDerivationActivationReceiptV1 {
     pub public_identity: RouterAbEcdsaDerivationPublicIdentityV1,
     /// SigningWorker identity that accepted activation.
     pub signing_worker: ServerIdentityV1,
+    /// Canonical exact material activation installed by the SigningWorker.
+    pub material_activation: MpcMaterialActivationRefV1,
     /// Activation epoch persisted by the SigningWorker.
     pub activation_epoch: String,
     /// Digest of the activation payload encoded as unpadded base64url.
@@ -1171,6 +1187,13 @@ impl RouterAbEcdsaDerivationActivationReceiptV1 {
         self.context.validate()?;
         self.public_identity.validate_for_context(&self.context)?;
         self.signing_worker.validate()?;
+        self.material_activation.validate()?;
+        if self.material_activation.signing_worker != self.signing_worker.server_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidSignerIdentity,
+                "activation material activation does not match SigningWorker",
+            ));
+        }
         require_ascii_non_empty("activation.activation_epoch", &self.activation_epoch)?;
         decode_base64url_fixed_32(
             "activation.activation_digest_b64u",
@@ -1539,6 +1562,8 @@ pub struct RouterAbEcdsaDerivationActivationRefreshRequestV1 {
     pub previous_activation_epoch: String,
     /// Activation epoch to be installed by the SigningWorker.
     pub next_activation_epoch: String,
+    /// Canonical exact material activation that the refresh installs.
+    pub material_activation: MpcMaterialActivationRefV1,
     /// Request expiry in Unix milliseconds.
     pub expires_at_ms: u64,
     /// Deriver A encrypted Router A/B ECDSA derivation refresh envelope.
@@ -1586,6 +1611,16 @@ impl RouterAbEcdsaDerivationActivationRefreshRequestV1 {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLifecycleState,
                 "Router A/B ECDSA derivation refresh lifecycle root epoch must equal next activation epoch",
+            ));
+        }
+        self.material_activation.validate()?;
+        if self.material_activation.material_owner != self.lifecycle.account_id
+            || self.material_activation.signing_worker
+                != self.signer_set.selected_server.server_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "Router A/B ECDSA derivation refresh material activation is not bound to the lifecycle owner and selected SigningWorker",
             ));
         }
         require_positive_ms("refresh.expires_at_ms", self.expires_at_ms)?;
@@ -1641,6 +1676,7 @@ impl RouterAbEcdsaDerivationActivationRefreshRequestV1 {
         push_len32(&mut out, self.refresh_nonce.as_bytes());
         push_len32(&mut out, self.previous_activation_epoch.as_bytes());
         push_len32(&mut out, self.next_activation_epoch.as_bytes());
+        push_mpc_material_activation_ref(&mut out, &self.material_activation)?;
         push_u64(&mut out, self.expires_at_ms);
         Ok(out)
     }
@@ -1716,6 +1752,8 @@ pub struct RouterAbEcdsaDerivationNormalSigningScopeV1 {
     pub context: RouterAbEcdsaDerivationStableKeyContextV1,
     /// Public identity expected for the active signing key.
     pub public_identity: RouterAbEcdsaDerivationPublicIdentityV1,
+    /// Complete activated material reference owned by the SigningWorker.
+    pub material_activation: MpcMaterialActivationRefV1,
     /// SigningWorker identity that owns activation state.
     pub signing_worker: ServerIdentityV1,
     /// Activation epoch persisted by the SigningWorker.
@@ -1734,6 +1772,7 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
         public_identity: RouterAbEcdsaDerivationPublicIdentityV1,
         signing_worker: ServerIdentityV1,
         activation_epoch: impl Into<String>,
+        material_activation: MpcMaterialActivationRefV1,
     ) -> RouterAbProtocolResult<Self> {
         let scope = Self {
             wallet_id: wallet_id.into(),
@@ -1742,6 +1781,7 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
             signing_root_version: signing_root_version.into(),
             context,
             public_identity,
+            material_activation,
             signing_worker,
             activation_epoch: activation_epoch.into(),
         };
@@ -1763,8 +1803,25 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
         )?;
         self.context.validate()?;
         self.public_identity.validate_for_context(&self.context)?;
+        self.material_activation.validate()?;
         self.signing_worker.validate()?;
-        require_ascii_non_empty("normal_signing.activation_epoch", &self.activation_epoch)
+        require_ascii_non_empty("normal_signing.activation_epoch", &self.activation_epoch)?;
+        let expected_activation_id = router_ab_ecdsa_derivation_material_activation_id_v1(
+            &self.ecdsa_threshold_key_id,
+            &self.signing_root_id,
+            &self.signing_root_version,
+            &self.activation_epoch,
+        )?;
+        if self.material_activation.activation_id != expected_activation_id
+            || self.material_activation.material_owner != self.wallet_id
+            || self.material_activation.signing_worker != self.signing_worker.server_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "normal-signing material activation does not match scope",
+            ));
+        }
+        Ok(())
     }
 
     /// Returns canonical normal-signing scope bytes.
@@ -1784,6 +1841,7 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
             &mut out,
             &self.public_identity.canonical_public_identity_bytes()?,
         );
+        push_mpc_material_activation_ref(&mut out, &self.material_activation)?;
         push_server_identity(&mut out, &self.signing_worker);
         push_len32(&mut out, self.activation_epoch.as_bytes());
         Ok(out)
@@ -1792,12 +1850,7 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
     /// Returns the material activation id for this normal-signing scope.
     pub fn material_activation_id(&self) -> RouterAbProtocolResult<String> {
         self.validate()?;
-        router_ab_ecdsa_derivation_material_activation_id_v1(
-            &self.ecdsa_threshold_key_id,
-            &self.signing_root_id,
-            &self.signing_root_version,
-            &self.activation_epoch,
-        )
+        Ok(self.material_activation.activation_id.clone())
     }
 
     /// Returns the normal-signing scope digest.

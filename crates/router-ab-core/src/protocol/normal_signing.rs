@@ -3,7 +3,9 @@ use crate::protocol::error::{
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
 use crate::protocol::identity::ServerIdentityV1;
-use crate::protocol::lifecycle::{NormalSigningAuthorizationV1, NormalSigningScopeV1};
+use crate::protocol::lifecycle::{
+    MpcMaterialActivationRefV1, NormalSigningAuthorizationV1, NormalSigningScopeV1,
+};
 use crate::protocol::wire::CanonicalWireBytesV1;
 use base64ct::{Base64UrlUnpadded, Encoding};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -1814,7 +1816,7 @@ pub struct ActiveSigningWorkerStateV1 {
     /// Canonical account or wallet id.
     pub account_id: String,
     /// Exact activated MPC material identity used by normal signing.
-    pub material_activation_id: String,
+    pub material_activation: MpcMaterialActivationRefV1,
     /// Account public key bound into the activation transcript.
     pub account_public_key: String,
     /// Active SigningWorker identity.
@@ -1834,7 +1836,7 @@ impl ActiveSigningWorkerStateV1 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         account_id: impl Into<String>,
-        material_activation_id: impl Into<String>,
+        material_activation: MpcMaterialActivationRefV1,
         account_public_key: impl Into<String>,
         signing_worker: ServerIdentityV1,
         activation_transcript_digest: PublicDigest32,
@@ -1844,7 +1846,7 @@ impl ActiveSigningWorkerStateV1 {
     ) -> RouterAbProtocolResult<Self> {
         let state = Self {
             account_id: account_id.into(),
-            material_activation_id: material_activation_id.into(),
+            material_activation,
             account_public_key: account_public_key.into(),
             signing_worker,
             activation_transcript_digest,
@@ -1859,10 +1861,7 @@ impl ActiveSigningWorkerStateV1 {
     /// Validates active SigningWorker identity fields.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty("active signing worker account_id", &self.account_id)?;
-        require_non_empty(
-            "active signing worker material_activation_id",
-            &self.material_activation_id,
-        )?;
+        self.material_activation.validate()?;
         require_non_empty(
             "active signing worker account_public_key",
             &self.account_public_key,
@@ -1886,7 +1885,7 @@ impl ActiveSigningWorkerStateV1 {
         self.validate()?;
         scope.validate()?;
         if self.account_id != scope.account_id
-            || self.material_activation_id != scope.material_activation.activation_id
+            || self.material_activation != scope.material_activation
             || self.signing_worker.server_id != scope.signing_worker_id
         {
             return Err(RouterAbProtocolError::new(

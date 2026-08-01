@@ -307,6 +307,7 @@ export type RouterAbEcdsaRegistrationActivationReceiptV1 = {
     context: RouterAbEcdsaDerivationStableKeyContextV1;
     public_identity: RouterAbEcdsaDerivationPublicIdentityV1;
     signing_worker: RouterAbServerIdentityV1;
+    material_activation: RouterAbMpcMaterialActivationRefWire;
     activation_epoch: RootShareEpoch;
     activation_digest_b64u: string;
     activated_at_ms: number;
@@ -347,6 +348,7 @@ export type RouterAbEcdsaDerivationPublicCapabilityV1 = {
   kind: 'router_ab_ecdsa_derivation_public_capability_v1';
   context: RouterAbEcdsaDerivationStableKeyContextV1;
   public_identity: RouterAbEcdsaDerivationPublicIdentityV1;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   signer_set: RouterAbEcdsaDerivationSignerSetV1;
   deriver_recipient_keys: RouterAbEcdsaRegistrationRecipientKeysV1;
   router_id: string;
@@ -455,6 +457,7 @@ export type RouterAbEcdsaDerivationActivationRefreshRequestV1 = {
   refresh_nonce: string;
   previous_activation_epoch: RootShareEpoch;
   next_activation_epoch: RootShareEpoch;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   expires_at_ms: number;
   deriver_a_refresh_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_a'>;
   deriver_b_refresh_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_b'>;
@@ -529,7 +532,7 @@ export type RouterAbPublicDigest32V1Wire = {
 
 export type RouterAbActiveSigningWorkerStateV1 = {
   account_id: string;
-  material_activation_id: string;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   account_public_key: string;
   signing_worker: RouterAbServerIdentityV1;
   activation_transcript_digest: RouterAbPublicDigest32V1Wire;
@@ -545,6 +548,7 @@ export type RouterAbEcdsaDerivationNormalSigningScopeV1 = {
   signing_root_version: string;
   context: RouterAbEcdsaDerivationStableKeyContextV1;
   public_identity: RouterAbEcdsaDerivationPublicIdentityV1;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   signing_worker: RouterAbServerIdentityV1;
   activation_epoch: RootShareEpoch;
 };
@@ -1703,6 +1707,7 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
     'context',
     'public_identity',
     'signing_worker',
+    'material_activation',
     'activation_epoch',
     'activation_digest_b64u',
     'activated_at_ms',
@@ -1711,6 +1716,12 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
     activation.signing_worker,
     `${activationLabel}.signing_worker`,
   );
+  const materialActivation = parseRouterAbMpcMaterialActivationRef(
+    activation.material_activation,
+  );
+  if (materialActivation.signing_worker !== signingWorker.server_id) {
+    throw new Error(`${activationLabel}.material_activation.signing_worker does not match signing_worker`);
+  }
   const activationDigestB64u = requireBase64UrlFixed(
     activation.activation_digest_b64u,
     `${activationLabel}.activation_digest_b64u`,
@@ -1731,6 +1742,7 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
       context: parseStableKeyContext(activation.context),
       public_identity: parsePublicIdentity(activation.public_identity),
       signing_worker: signingWorker,
+      material_activation: materialActivation,
       activation_epoch: requireRootShareEpoch(
         activation.activation_epoch,
         `${activationLabel}.activation_epoch`,
@@ -1873,6 +1885,7 @@ export function parseRouterAbEcdsaDerivationPublicCapabilityV1(
     'kind',
     'context',
     'public_identity',
+    'material_activation',
     'signer_set',
     'deriver_recipient_keys',
     'router_id',
@@ -1899,6 +1912,7 @@ export function parseRouterAbEcdsaDerivationPublicCapabilityV1(
     kind: 'router_ab_ecdsa_derivation_public_capability_v1',
     context: parseStableKeyContext(record.context),
     public_identity: parsePublicIdentity(record.public_identity),
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
     signer_set: signerSet,
     deriver_recipient_keys: recipientKeys,
     router_id: requireAsciiNonEmptyString(record.router_id, `${label}.router_id`),
@@ -2092,6 +2106,7 @@ export function buildRouterAbEcdsaDerivationPublicCapabilityV1(input: {
     kind: 'router_ab_ecdsa_derivation_public_capability_v1',
     context: activated.context,
     public_identity: activated.public_identity,
+    material_activation: activated.material_activation,
     signer_set: request.signer_set,
     deriver_recipient_keys: facts.deriver_recipient_keys,
     router_id: request.router_id,
@@ -2278,6 +2293,7 @@ export function parseRouterAbEcdsaDerivationActivationRefreshRequestV1(
     'refresh_nonce',
     'previous_activation_epoch',
     'next_activation_epoch',
+    'material_activation',
     'expires_at_ms',
     'deriver_a_refresh_envelope',
     'deriver_b_refresh_envelope',
@@ -2304,6 +2320,13 @@ export function parseRouterAbEcdsaDerivationActivationRefreshRequestV1(
     throw new Error('refresh.lifecycle.root_share_epoch must equal next_activation_epoch');
   }
   requirePostRegistrationBindings(label, lifecycle, signerSet);
+  const materialActivation = parseRouterAbMpcMaterialActivationRef(record.material_activation);
+  if (
+    materialActivation.material_owner !== lifecycle.account_id ||
+    materialActivation.signing_worker !== signerSet.selected_server.server_id
+  ) {
+    throw new Error('refresh.material_activation is not bound to lifecycle owner and selected server');
+  }
   return {
     context: parseStableKeyContext(record.context),
     lifecycle,
@@ -2323,6 +2346,7 @@ export function parseRouterAbEcdsaDerivationActivationRefreshRequestV1(
     refresh_nonce: requireAsciiNonEmptyString(record.refresh_nonce, `${label}.refresh_nonce`),
     previous_activation_epoch: previousActivationEpoch,
     next_activation_epoch: nextActivationEpoch,
+    material_activation: materialActivation,
     expires_at_ms: requirePositiveUnixMs(record.expires_at_ms, `${label}.expires_at_ms`),
     deriver_a_refresh_envelope: parsePostRegistrationRoleEnvelope(
       record.deriver_a_refresh_envelope,
@@ -2546,6 +2570,7 @@ function canonicalNormalSigningScopeBytes(
   pushLen32(out, asciiBytes(parsed.signing_root_version));
   pushLen32(out, canonicalStableKeyContextBytes(parsed.context));
   pushLen32(out, canonicalPublicIdentityBytes(parsed.public_identity));
+  out.push(...canonicalRouterAbMpcMaterialActivationRefBytes(parsed.material_activation));
   pushServerIdentity(out, parsed.signing_worker);
   pushLen32(out, asciiBytes(parsed.activation_epoch));
   return new Uint8Array(out);
@@ -2666,6 +2691,7 @@ export function parseRouterAbEcdsaDerivationNormalSigningScopeV1(
     'signing_root_version',
     'context',
     'public_identity',
+    'material_activation',
     'signing_worker',
     'activation_epoch',
   ]);
@@ -2682,6 +2708,7 @@ export function parseRouterAbEcdsaDerivationNormalSigningScopeV1(
     ),
     context: parseStableKeyContext(record.context),
     public_identity: parsePublicIdentity(record.public_identity),
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
     signing_worker: parseServerIdentity(record.signing_worker),
     activation_epoch: requireRootShareEpoch(record.activation_epoch, 'scope.activation_epoch'),
   };
@@ -3431,7 +3458,7 @@ function parseActiveSigningWorkerState(value: unknown): RouterAbActiveSigningWor
   const record = requireRecord(value, 'receipt.active_signing_worker_state');
   requireExactKeys(record, 'receipt.active_signing_worker_state', [
     'account_id',
-    'material_activation_id',
+    'material_activation',
     'account_public_key',
     'signing_worker',
     'activation_transcript_digest',
@@ -3444,9 +3471,8 @@ function parseActiveSigningWorkerState(value: unknown): RouterAbActiveSigningWor
       record.account_id,
       'receipt.active_signing_worker_state.account_id',
     ),
-    material_activation_id: requireAsciiNonEmptyString(
-      record.material_activation_id,
-      'receipt.active_signing_worker_state.material_activation_id',
+    material_activation: parseRouterAbMpcMaterialActivationRef(
+      record.material_activation,
     ),
     account_public_key: requireAsciiNonEmptyString(
       record.account_public_key,

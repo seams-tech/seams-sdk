@@ -16,7 +16,8 @@ use router_ab_core::{
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
-    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationSignatureSchemeV1,
+    RouterAbEcdsaDerivationOperationDigestsV1, RouterAbEcdsaDerivationPublicIdentityV1,
+    RouterAbEcdsaDerivationSignatureSchemeV1,
     RouterAbEcdsaDerivationStableKeyContextV1, ServerIdentityV1,
 };
 use router_ab_dev::{
@@ -283,9 +284,13 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
         fixture.scope.clone(),
         &format!("local-router-ab-ecdsa-derivation-smoke-sign-{smoke_run_id}"),
         &format!("local-router-ab-ecdsa-derivation-operation-{smoke_run_id}"),
+        RouterAbEcdsaDerivationOperationDigestsV1 {
+            lane_digest_b64u: b64u(&[0x31; 32]),
+            intent_digest_b64u: b64u(&fixture.signing_digest32),
+            display_digest_b64u: b64u(&[0x33; 32]),
+        },
         NormalSigningAuthorizationV1::reusable_wallet_session(
             LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_SESSION_ID,
-            LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_GRANT_ID,
         )?,
         local_smoke_router_ab_ecdsa_derivation_material_activation(&fixture.scope)?,
         fixture.server_presignature_id.clone(),
@@ -359,6 +364,7 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
         fixture.scope,
         prepare_request.request_id,
         prepare_request.operation_id,
+        prepare_request.operation_digests,
         prepare_request.authorization,
         prepare_request.material_activation,
         prepare_request.expires_at_ms,
@@ -508,6 +514,19 @@ fn local_router_ab_ecdsa_derivation_fixture(
         0,
         0,
     )?;
+    let material_activation = MpcMaterialActivationRefV1::new(
+        router_ab_core::router_ab_ecdsa_derivation_material_activation_id_v1(
+            LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
+            LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
+            LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
+            "activation-epoch-local",
+        )?,
+        "evm-ecdsa-capability-local",
+        LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
+        LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
+        "ecdsa-material-lifecycle-local",
+        "signing-worker-1",
+    )?;
     let scope = RouterAbEcdsaDerivationNormalSigningScopeV1::new(
         LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
         LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
@@ -517,6 +536,7 @@ fn local_router_ab_ecdsa_derivation_fixture(
         public_identity,
         signing_worker,
         "activation-epoch-local",
+        material_activation,
     )?;
     let server_presignature_id =
         local_router_ab_ecdsa_derivation_smoke_server_presignature_id(&scope, &server_big_r33)?;
@@ -537,14 +557,7 @@ fn local_router_ab_ecdsa_derivation_fixture(
 fn local_smoke_router_ab_ecdsa_derivation_material_activation(
     scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
 ) -> Result<MpcMaterialActivationRefV1, Box<dyn std::error::Error>> {
-    Ok(MpcMaterialActivationRefV1::new(
-        scope.material_activation_id()?,
-        "evm-ecdsa-capability-local",
-        scope.wallet_id.clone(),
-        scope.ecdsa_threshold_key_id.clone(),
-        scope.activation_epoch.clone(),
-        scope.signing_worker.server_id.clone(),
-    )?)
+    Ok(scope.material_activation.clone())
 }
 
 fn local_router_ab_ecdsa_derivation_smoke_server_presignature_id(

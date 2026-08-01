@@ -16,6 +16,8 @@ import {
   buildEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import { fixtureRouterAbEcdsaDerivationPublicCapability } from './ecdsaBootstrap.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 
 const FIXTURE_WALLET_ID = toWalletId('alice.testnet');
 
@@ -93,6 +95,12 @@ export function makeRouterAbEcdsaDerivationNormalSigningStateFixture(
         client_share_retry_counter: 0,
         server_share_retry_counter: 0,
       },
+      material_activation: routerAbMpcMaterialActivationRefToWire(
+        buildMpcMaterialActivationRefFixture(
+          `record-variants:${walletId}:${input.ecdsaThresholdKeyId ?? 'ederivation-shared-key'}:${input.activationEpoch ?? 'activation-1'}`,
+          walletId,
+        ),
+      ),
       signing_worker: {
         server_id: 'signing-worker-1',
         key_epoch: 'worker-epoch-1',

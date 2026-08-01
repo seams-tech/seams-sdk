@@ -872,6 +872,7 @@ export async function buildActivatedEcdsaFamilyBootstrap(input: {
         server_share_retry_counter: identity.server_share_retry_counter,
       },
       signing_worker: input.activation.ecdsa_activation.signing_worker,
+      material_activation: input.activation.ecdsa_activation.material_activation,
       activation_epoch: input.activation.ecdsa_activation.activation_epoch,
     },
   });
@@ -1000,6 +1001,7 @@ function buildPostRegistrationEcdsaNormalSigningState(input: {
       signing_root_version: input.walletKey.signingRootVersion,
       context: capability.context,
       public_identity: capability.public_identity,
+      material_activation: capability.material_activation,
       signing_worker: capability.signer_set.selected_server,
       activation_epoch: capability.activation_epoch,
     },

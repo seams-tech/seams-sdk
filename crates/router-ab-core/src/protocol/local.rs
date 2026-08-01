@@ -13,6 +13,7 @@ use crate::protocol::error::{
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
 use crate::protocol::identity::{ServerIdentityV1, SignerIdentityV1};
+use crate::protocol::lifecycle::MpcMaterialActivationRefV1;
 use crate::protocol::normal_signing::ActiveSigningWorkerStateV1;
 use crate::protocol::output::{
     decode_recipient_proof_bundle_ciphertext_v1,
@@ -1197,9 +1198,17 @@ impl LocalSigningWorkerServiceV1 {
             activation_digest,
         );
         let lifecycle = activation_context.lifecycle();
+        let material_activation = MpcMaterialActivationRefV1::new(
+            lifecycle.session_id.clone(),
+            "ed25519-yao-signing-capability",
+            lifecycle.account_id.clone(),
+            format!("ed25519-yao-key-binding:{}", lifecycle.account_id),
+            lifecycle.lifecycle_id.clone(),
+            self.server.server_id.clone(),
+        )?;
         let active_signing_worker_state = ActiveSigningWorkerStateV1::new(
             lifecycle.account_id.clone(),
-            lifecycle.session_id.clone(),
+            material_activation,
             activation_context
                 .transcript_metadata
                 .account_public_key

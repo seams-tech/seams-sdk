@@ -224,6 +224,15 @@ export function ecdsaCapabilityActivationFixture(args?: {
         recipient_encryption_key:
           'x25519:1111111111111111111111111111111111111111111111111111111111111111',
       },
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: 'ecdsa-activation-fixture',
+        capability: 'ecdsa-capability-fixture',
+        material_owner: 'ecdsa-manifest-fixture-wallet',
+        key_binding: 'ecdsa-key-handle-fixture',
+        lifecycle_binding: 'ecdsa-lifecycle-fixture',
+        signing_worker: 'signing-worker-fixture',
+      },
       activation_epoch: unwrap(parseRootShareEpoch('activation-epoch-fixture')),
       activation_digest_b64u: DIGEST_B64U,
       activated_at_ms: 1_753_574_400_000,
@@ -512,6 +521,15 @@ function buildEcdsaCapabilityReplacementFixture(
         key_epoch: 'key-epoch-replacement-fixture',
         recipient_encryption_key:
           'x25519:2222222222222222222222222222222222222222222222222222222222222222',
+      },
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: 'ecdsa-activation-replacement-fixture',
+        capability: 'ecdsa-capability-fixture',
+        material_owner: 'ecdsa-manifest-fixture-wallet',
+        key_binding: 'ecdsa-key-handle-replacement-fixture',
+        lifecycle_binding: 'ecdsa-lifecycle-replacement-fixture',
+        signing_worker: 'signing-worker-replacement-fixture',
       },
       activation_epoch: unwrap(parseRootShareEpoch('activation-epoch-replacement-fixture')),
       activation_digest_b64u: REPLACEMENT_DIGEST_B64U,

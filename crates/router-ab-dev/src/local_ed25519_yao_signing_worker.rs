@@ -814,7 +814,7 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
         );
         let state = ActiveSigningWorkerStateV1::new(
             scope.account_id.clone(),
-            scope.material_activation.activation_id.clone(),
+            scope.material_activation.clone(),
             public_key,
             ServerIdentityV1::new(
                 config.signing_worker_id.clone(),

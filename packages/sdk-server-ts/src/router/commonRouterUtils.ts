@@ -38,6 +38,7 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { RootShareEpoch } from '@shared/utils/domainIds';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   normalizeRuntimePolicyScope,
   normalizeRuntimePolicyScopeFields,
@@ -444,6 +445,7 @@ export function buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap(input
   activationEpoch: RootShareEpoch;
   routerAbPublicKeyset: RouterAbPublicKeysetV2 | null | undefined;
   signingWorkerId: string;
+  materialActivation: RouterAbMpcMaterialActivationRefWire;
 }):
   | { ok: true; state: RouterAbEcdsaDerivationNormalSigningStateV1 }
   | { ok: false; code: 'not_configured' | 'internal'; message: string } {
@@ -485,6 +487,7 @@ export function buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap(input
           key_epoch: signingWorkerHpke.key_epoch,
           recipient_encryption_key: signingWorkerHpke.public_key,
         },
+        material_activation: input.materialActivation,
         activation_epoch: input.activationEpoch,
       },
     });

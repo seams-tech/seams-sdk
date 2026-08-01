@@ -339,6 +339,49 @@ impl EcdsaPostRegistrationRecipientV1 {
     }
 }
 
+/// Exact material activation identity carried by an activation refresh.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EcdsaMaterialActivationRefV1 {
+    /// Stable activation identifier.
+    pub activation_id: String,
+    /// Canonical capability identifier.
+    pub capability: String,
+    /// Wallet/account that owns the material.
+    pub material_owner: String,
+    /// Stable signer key binding.
+    pub key_binding: String,
+    /// Lifecycle binding for the activation ceremony.
+    pub lifecycle_binding: String,
+    /// SigningWorker that owns the active runtime.
+    pub signing_worker: String,
+}
+
+impl EcdsaMaterialActivationRefV1 {
+    fn validate(&self) -> Result<(), EcdsaClientProtocolError> {
+        require_fields_non_empty(&[
+            &self.activation_id,
+            &self.capability,
+            &self.material_owner,
+            &self.key_binding,
+            &self.lifecycle_binding,
+            &self.signing_worker,
+        ])
+    }
+
+    fn canonical_bytes(&self) -> Result<Vec<u8>, EcdsaClientProtocolError> {
+        self.validate()?;
+        let mut output = Vec::new();
+        push_bytes(&mut output, b"mpc_material_activation_ref");
+        push_bytes(&mut output, self.activation_id.as_bytes());
+        push_bytes(&mut output, self.capability.as_bytes());
+        push_bytes(&mut output, self.material_owner.as_bytes());
+        push_bytes(&mut output, self.key_binding.as_bytes());
+        push_bytes(&mut output, self.lifecycle_binding.as_bytes());
+        push_bytes(&mut output, self.signing_worker.as_bytes());
+        Ok(output)
+    }
+}
+
 /// Ceremony-specific authorization, replay nonce, and refresh epochs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EcdsaPostRegistrationOperationV1 {
@@ -372,6 +415,8 @@ pub enum EcdsaPostRegistrationOperationV1 {
         previous_activation_epoch: String,
         /// Next activation epoch installed by this ceremony.
         next_activation_epoch: String,
+        /// Exact material activation installed by this ceremony.
+        material_activation: EcdsaMaterialActivationRefV1,
     },
 }
 
@@ -546,11 +591,13 @@ impl EcdsaPostRegistrationHeaderV1 {
         if let EcdsaPostRegistrationOperationV1::ActivationRefresh {
             previous_activation_epoch,
             next_activation_epoch,
+            material_activation,
             ..
         } = &self.input.operation
         {
             push_bytes(&mut output, previous_activation_epoch.as_bytes());
             push_bytes(&mut output, next_activation_epoch.as_bytes());
+            output.extend_from_slice(&material_activation.canonical_bytes()?);
         }
         output.extend_from_slice(&self.input.expires_at_ms.to_be_bytes());
         Ok(output)
@@ -692,11 +739,13 @@ impl EcdsaPostRegistrationHeaderV1 {
         if let EcdsaPostRegistrationOperationV1::ActivationRefresh {
             previous_activation_epoch,
             next_activation_epoch,
+            material_activation,
             ..
         } = &self.input.operation
         {
             push_bytes(&mut output, previous_activation_epoch.as_bytes());
             push_bytes(&mut output, next_activation_epoch.as_bytes());
+            output.extend_from_slice(&material_activation.canonical_bytes()?);
         }
         Ok(output)
     }
@@ -823,9 +872,16 @@ fn validate_refresh_epochs(
         EcdsaPostRegistrationOperationV1::ActivationRefresh {
             previous_activation_epoch,
             next_activation_epoch,
+            material_activation,
             ..
         } => {
             require_ascii_fields(&[previous_activation_epoch, next_activation_epoch])?;
+            material_activation.validate()?;
+            if material_activation.material_owner != lifecycle.account_id
+                || material_activation.signing_worker != lifecycle.selected_server_id
+            {
+                return Err(EcdsaClientProtocolError::InvalidShape);
+            }
             if previous_activation_epoch == next_activation_epoch
                 || lifecycle.root_share_epoch != *next_activation_epoch
             {

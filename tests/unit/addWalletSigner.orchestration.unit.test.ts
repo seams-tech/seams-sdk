@@ -473,6 +473,15 @@ function mockedEcdsaPublicCapability(
     kind: 'router_ab_ecdsa_derivation_public_capability_v1',
     context: facts.context,
     public_identity: mockedEcdsaPublicIdentity(),
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: `ecdsa-activation:${facts.lifecycle.lifecycle_id}`,
+      capability: `ecdsa-capability:${facts.lifecycle.account_id}`,
+      material_owner: facts.lifecycle.account_id,
+      key_binding: 'ecdsa-key-binding-fixture',
+      lifecycle_binding: facts.lifecycle.lifecycle_id,
+      signing_worker: facts.signer_set.selected_server.server_id,
+    },
     signer_set: facts.signer_set,
     deriver_recipient_keys: facts.deriver_recipient_keys,
     router_id: facts.router_id,
@@ -540,6 +549,15 @@ function mockedEcdsaServerBootstrap(
           recipient_encryption_key:
             'x25519:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
         },
+        material_activation: {
+          kind: 'mpc_material_activation_ref',
+          activation_id: `ecdsa-activation:${facts.lifecycle.lifecycle_id}`,
+          capability: `ecdsa-capability:${facts.lifecycle.account_id}`,
+          material_owner: facts.lifecycle.account_id,
+          key_binding: 'ecdsa-key-binding-fixture',
+          lifecycle_binding: facts.lifecycle.lifecycle_id,
+          signing_worker: 'signing-worker-test',
+        },
         activation_epoch: facts.lifecycle.root_share_epoch,
       },
     },
@@ -560,6 +578,15 @@ function mockedEcdsaActivationReceipt(facts: Record<string, any>): Record<string
         ...mockedEcdsaPublicIdentity(),
       },
       signing_worker: facts.signer_set.selected_server,
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: `ecdsa-activation:${facts.lifecycle.lifecycle_id}`,
+        capability: `ecdsa-capability:${facts.lifecycle.account_id}`,
+        material_owner: facts.lifecycle.account_id,
+        key_binding: 'ecdsa-key-binding-fixture',
+        lifecycle_binding: facts.lifecycle.lifecycle_id,
+        signing_worker: facts.signer_set.selected_server.server_id,
+      },
       activation_epoch: facts.lifecycle.root_share_epoch,
       activation_digest_b64u: CONTEXT_BINDING_32_B64U,
       activated_at_ms: Date.now(),
@@ -609,7 +636,6 @@ function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): 
   const sessionId = String(bootstrap.sessionId || bootstrap.thresholdSessionId || '').trim();
   const signingGrantId = String(bootstrap.signingGrantId || '').trim();
   const walletId = String(bootstrap.walletId || '').trim();
-  const evmFamilySigningKeySlotId = String(bootstrap.evmFamilySigningKeySlotId || '').trim();
   const applicationBindingDigestB64u = String(bootstrap.applicationBindingDigestB64u || '').trim();
   const ecdsaThresholdKeyId = String(bootstrap.ecdsaThresholdKeyId || '').trim();
   const signingRootId = String(bootstrap.signingRootId || '').trim();
@@ -618,13 +644,17 @@ function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): 
   const relayerKeyId = String(bootstrap.relayerKeyId || '').trim();
   const expiresAtMs = Number(bootstrap.expiresAtMs);
   const participantIds = Array.isArray(bootstrap.participantIds) ? bootstrap.participantIds : [];
+  const normalSigning = bootstrap.routerAbEcdsaDerivationNormalSigning as Record<string, unknown>;
+  const normalSigningScope = normalSigning.scope as Record<string, unknown>;
   return jwtWithPayload({
     kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     sub: walletId,
     walletId,
-    evmFamilySigningKeySlotId,
     thresholdSessionId: sessionId,
     signingGrantId,
+    authorizationSessionId: `auth-session:${walletId}`,
+    walletSessionId: `wallet-session:${walletId}`,
+    quotaId: `wallet-quota:${walletId}`,
     keyScope: 'evm-family',
     keyHandle,
     relayerKeyId,
@@ -655,6 +685,7 @@ function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): 
           client_share_retry_counter: Number(bootstrap.clientShareRetryCounter),
           server_share_retry_counter: Number(bootstrap.relayerShareRetryCounter),
         },
+        material_activation: normalSigningScope.material_activation,
         signing_worker: {
           server_id: 'signing-worker-test',
           key_epoch: 'worker-epoch-test',

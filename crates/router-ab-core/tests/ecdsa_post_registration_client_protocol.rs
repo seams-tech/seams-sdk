@@ -3,7 +3,8 @@ use router_ab_core::derivation::{PublicDigest32, Role, RootShareEpoch};
 use router_ab_core::protocol::{
     decode_signer_envelope_hpke_payload_v1, role_encrypted_envelope_digest_v1,
     EcdsaThresholdPrfRequestV1, EncryptedPayloadV1, ExpensiveWorkKindV1, LifecycleScopeV1,
-    NormalSigningAuthorizationV1, RoleEncryptedEnvelopeV1, RoleEnvelopeAadV1,
+    MpcMaterialActivationRefV1, NormalSigningAuthorizationV1, RoleEncryptedEnvelopeV1,
+    RoleEnvelopeAadV1,
     RouterAbEcdsaDerivationActivationRefreshRequestV1,
     RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
     RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationPublicIdentityV1,
@@ -13,6 +14,7 @@ use router_ab_core::protocol::{
 use router_ab_ecdsa_client_protocol::{
     build_ecdsa_post_registration_request_v1, derive_ecdsa_client_ephemeral_keypair_v1,
     open_ecdsa_signer_envelope_v1, EcdsaClientProtocolError, EcdsaDeriverRoleV1,
+    EcdsaMaterialActivationRefV1,
     EcdsaPostRegistrationCeremonyV1, EcdsaPostRegistrationHeaderInputV1,
     EcdsaPostRegistrationHeaderV1, EcdsaPostRegistrationLifecycleV1,
     EcdsaPostRegistrationLifecycleWireV1, EcdsaPostRegistrationOperationV1,
@@ -292,6 +294,14 @@ fn operation(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistration
                 nonce: "refresh-nonce-1".to_owned(),
                 previous_activation_epoch: "root-epoch-1".to_owned(),
                 next_activation_epoch: "root-epoch-2".to_owned(),
+                material_activation: EcdsaMaterialActivationRefV1 {
+                    activation_id: "activation-refresh-2".to_owned(),
+                    capability: "capability-1".to_owned(),
+                    material_owner: "wallet-1".to_owned(),
+                    key_binding: "key-binding-1".to_owned(),
+                    lifecycle_binding: "lifecycle-binding-1".to_owned(),
+                    signing_worker: SERVER_ID.to_owned(),
+                },
             }
         }
     }
@@ -432,6 +442,7 @@ fn core_request(
             })
         }
         EcdsaPostRegistrationCeremonyV1::ActivationRefresh => {
+            let material_owner = common.1.account_id.clone();
             CorePostRequest::Refresh(RouterAbEcdsaDerivationActivationRefreshRequestV1 {
                 context: common.0,
                 lifecycle: common.1,
@@ -444,6 +455,15 @@ fn core_request(
                 refresh_nonce: "refresh-nonce-1".to_owned(),
                 previous_activation_epoch: "root-epoch-1".to_owned(),
                 next_activation_epoch: "root-epoch-2".to_owned(),
+                material_activation: MpcMaterialActivationRefV1::new(
+                    "activation-refresh-2",
+                    "capability-1",
+                    material_owner,
+                    "key-binding-1",
+                    "lifecycle-binding-1",
+                    SERVER_ID,
+                )
+                .expect("refresh material activation"),
                 expires_at_ms: common.7,
                 deriver_a_refresh_envelope: common.8,
                 deriver_b_refresh_envelope: common.9,
@@ -655,6 +675,14 @@ fn post_registration_rejects_lifecycle_output_authorization_nonce_epoch_and_reci
             nonce: "refresh-nonce-1".to_owned(),
             previous_activation_epoch: "root-epoch-2".to_owned(),
             next_activation_epoch: "root-epoch-2".to_owned(),
+            material_activation: EcdsaMaterialActivationRefV1 {
+                activation_id: "activation-refresh-2".to_owned(),
+                capability: "capability-1".to_owned(),
+                material_owner: "wallet-1".to_owned(),
+                key_binding: "key-binding-1".to_owned(),
+                lifecycle_binding: "lifecycle-binding-1".to_owned(),
+                signing_worker: SERVER_ID.to_owned(),
+            },
         },
         expires_at_ms: 8_000_000,
     });

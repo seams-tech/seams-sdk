@@ -82,7 +82,11 @@ import {
   type ClaimedCapabilityGrantUse,
 } from '../authorization/domain';
 import { alphabetizeStringify } from '@shared/utils/digests';
-import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  sameRouterAbMpcMaterialActivationRef,
+  type RouterAbNormalSigningAuthorizationWire,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseMpcMaterialActivationId,
   type MpcMaterialActivationId,
@@ -793,6 +797,12 @@ export async function deriveRouterAbEcdsaDerivationBudgetOperationId(input: {
     ['ecdsa_threshold_key_id', input.body.scope.ecdsa_threshold_key_id],
     ['signing_root_id', input.body.scope.signing_root_id],
     ['signing_root_version', input.body.scope.signing_root_version],
+    ['material_activation_id', input.body.scope.material_activation.activation_id],
+    ['material_activation_capability', input.body.scope.material_activation.capability],
+    ['material_activation_owner', input.body.scope.material_activation.material_owner],
+    ['material_activation_key_binding', input.body.scope.material_activation.key_binding],
+    ['material_activation_lifecycle_binding', input.body.scope.material_activation.lifecycle_binding],
+    ['material_activation_signing_worker', input.body.scope.material_activation.signing_worker],
     ['activation_epoch', input.body.scope.activation_epoch],
     ['signing_worker_id', input.signingWorkerId],
     ['scope_signing_worker_id', input.body.scope.signing_worker.server_id],
@@ -2551,6 +2561,17 @@ export function validateRouterAbEcdsaDerivationNormalSigningPrepareRequest(input
       error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.scopeMismatch),
     };
   }
+  if (
+    !sameRouterAbMpcMaterialActivationRef(
+      request.material_activation,
+      normalSigning.scope.material_activation,
+    )
+  ) {
+    return {
+      ok: false,
+      error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.scopeMismatch),
+    };
+  }
   if (request.expires_at_ms <= Date.now()) {
     return {
       ok: false,
@@ -2612,6 +2633,17 @@ export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(inpu
     request.authorization.wallet_session_id !== input.claims.walletSessionId ||
     request.material_activation.material_owner !== input.claims.walletId ||
     request.material_activation.signing_worker !== normalSigning.scope.signing_worker.server_id
+  ) {
+    return {
+      ok: false,
+      error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.scopeMismatch),
+    };
+  }
+  if (
+    !sameRouterAbMpcMaterialActivationRef(
+      request.material_activation,
+      normalSigning.scope.material_activation,
+    )
   ) {
     return {
       ok: false,
@@ -2896,7 +2928,11 @@ function validateRouterAbEcdsaOperationStepUpIdentity(input: {
     request.authorization.kind !== 'operation_step_up' ||
     request.scope.wallet_id !== input.session.walletId ||
     request.material_activation.material_owner !== input.session.walletId ||
-    request.material_activation.signing_worker !== request.scope.signing_worker.server_id
+    request.material_activation.signing_worker !== request.scope.signing_worker.server_id ||
+    !sameRouterAbMpcMaterialActivationRef(
+      request.material_activation,
+      request.scope.material_activation,
+    )
   ) {
     return routerAbStepUpError(
       403,
@@ -2927,6 +2963,7 @@ export async function claimRouterAbEcdsaOperationStepUp(input: {
     'operation_id' | 'operation_digests' | 'material_activation'
   >;
   readonly grantId: string;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   readonly authenticated: Extract<
     Awaited<ReturnType<typeof authenticateRouterAbEcdsaOperationStepUpAppSession>>,
     { readonly ok: true }
@@ -2955,7 +2992,7 @@ export async function claimRouterAbEcdsaOperationStepUp(input: {
       authorizationSessionId: input.authenticated.session.sessionId,
       principalId: input.authenticated.session.principalId,
       capabilityId: requireAuthorizationValue(
-        parseCapabilityId(input.operation.material_activation.capability),
+        parseCapabilityId(input.materialActivation.capability),
       ),
       operationId,
       operation: buildEvmEcdsaMpcOperationRef('evm.sign_transaction'),
@@ -3043,6 +3080,7 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
         operation_digests: prepareRequest.operation_digests,
         material_activation: prepareRequest.material_activation,
       },
+      materialActivation: request.scope.material_activation,
       grantId:
         prepareRequest.authorization.kind === 'operation_step_up'
           ? prepareRequest.authorization.grant_id

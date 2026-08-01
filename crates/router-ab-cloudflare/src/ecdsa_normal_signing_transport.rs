@@ -366,6 +366,21 @@ mod tests {
             ServerIdentityV1::new("signing-worker-1", "key-epoch-1", "x25519:public-key")
                 .expect("SigningWorker identity"),
             "root-epoch-7",
+            MpcMaterialActivationRefV1::new(
+                router_ab_core::router_ab_ecdsa_derivation_material_activation_id_v1(
+                    "threshold-key-1",
+                    "signing-root-1",
+                    "7",
+                    "root-epoch-7",
+                )
+                .expect("activation id"),
+                "ecdsa-signing-capability-1",
+                "wallet-1",
+                "threshold-key-1",
+                "ecdsa-material-lifecycle-1",
+                "signing-worker-1",
+            )
+            .expect("material activation"),
         )
         .expect("normal-signing scope")
     }
@@ -379,16 +394,7 @@ mod tests {
     }
 
     fn material_activation() -> MpcMaterialActivationRefV1 {
-        let scope = normal_signing_scope();
-        MpcMaterialActivationRefV1::new(
-            scope.material_activation_id().expect("activation id"),
-            "ecdsa-signing-capability-1",
-            scope.wallet_id.clone(),
-            "threshold-key-1",
-            "ecdsa-material-lifecycle-1",
-            scope.signing_worker.server_id.clone(),
-        )
-        .expect("material activation")
+        normal_signing_scope().material_activation
     }
 
     fn base64url(bytes: &[u8]) -> String {
