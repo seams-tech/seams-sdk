@@ -374,8 +374,9 @@ ports, and the two-state recovery journal.
   `7495b5b44`
 - ~~`NearEd25519YaoCapabilitySource`, `nearEd25519YaoCapabilitySource`~~ — no
   production or retained-test occurrence remains.
-- `NearEd25519YaoSigningCapability` (replace with the branded committed shape;
-  no broad source aggregate)
+- ~~`NearEd25519YaoSigningCapability`~~ — deleted in `a5d2d9ecc`; the volatile
+  registry owns auth-neutral `NearEd25519YaoOperationMaterial`, while current
+  Wallet Session authorization resolves independently at execution.
 - ~~`emailOtpNearEd25519LaneRequiresFreshAuth`~~ — confirmed absent at
   `7495b5b44`
 - ~~`RouterAbEd25519YaoClientRootFactorV1` deletion~~ — retained as the exact
@@ -418,8 +419,10 @@ ports, and the two-state recovery journal.
 - ~~`PasskeyEd25519YaoLocalMaterialLocatorV1` checkpoint shape~~ — the current
   exact IndexedDB locator carries no signing grant or refresh scope; its stale
   ledger description no longer applies.
-- `Ed25519YaoExportFlowDeps.recoverPasskeyCapability` and the nested
-  `emailOtp.resolveExportContext` callback bag
+- ~~`Ed25519YaoExportFlowDeps.recoverPasskeyCapability`~~ — deleted in
+  `a5d2d9ecc`; the canonical Passkey durable-context resolver owns recovery and
+  exact readback.
+- the nested `emailOtp.resolveExportContext` callback bag
 - ~~`exportEd25519YaoKeyWithFreshPasskey`,
   `exportEd25519YaoKeyWithFreshEmailOtp`~~ — replaced by one exhaustive
   same-method coordinator in `01bcabb29`
@@ -430,7 +433,8 @@ ports, and the two-state recovery journal.
   `EmailOtpEd25519YaoExportContextPorts`~~ — replaced by the exact lane,
   independent Wallet Session authorization projection, and material-owned
   export context in `f20403de5`.
-- `recoverExactPasskeyEd25519YaoCapabilityForExport`
+- ~~`recoverExactPasskeyEd25519YaoCapabilityForExport`~~ — deleted with its
+  flow/assembly port in `a5d2d9ecc`.
 - ~~matching Browser/assembly port aliases~~ — the resolver now accepts the
   exact Email OTP lane directly; the canonical resolver remains in place
   (`f20403de5`).
