@@ -487,6 +487,12 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 
 - `BudgetCoordinator`, `budgetProjection`, `budgetFinalizer`,
   `budgetStatusReader`
+- ~~`budgetFinalizer` and its finalizer-only type/test/source-guard surface~~ —
+  deleted by `c838eeea0` after all production callers moved to relayer claims
+- ~~the zero-caller client budget projection reducer, reservation projection,
+  and dedicated type fixture~~ — deleted by `64f46362c`; the temporary
+  `budgetUnknownSigningSessionStatus` helper remains live until the trusted
+  status-reader cutover
 - `signingEngine/session/budget/**`
 - ~~reusable NEAR transaction client admission, reservation, success/zero-spend
   finalization, and prepared-boundary budget state~~ — removed by `cc4cf26ab`;

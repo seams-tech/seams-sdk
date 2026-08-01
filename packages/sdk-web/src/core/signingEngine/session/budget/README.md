@@ -2,8 +2,8 @@
 
 ## Owns
 
-Signing grant budget reads, projection helpers, reservations, spend
-finalization, and trusted budget status fetches.
+Signing grant budget status reads, admission classification, and trusted
+status normalization during the remaining server-status cutover.
 
 ## May Import
 
@@ -20,5 +20,4 @@ entrypoints, or concrete confirmation/runtime modules.
 - `BudgetCoordinator.ts`
 - `budget.ts`
 - `budgetProjection.ts`
-- `budgetFinalizer.ts`
 - `budgetStatusReader.ts`

@@ -505,6 +505,8 @@ implementing commit SHA as the evidence.
   - [x] Reusable NEAR transaction signing no longer reserves or finalizes a
     client budget projection. Its relayer prepare/finalize exchange owns the
     exact operation claim and quota transaction (`cc4cf26ab`).
+  - [x] Delegate and NEP-413 signing use that same server-owned claim path;
+    their client reservation/finalization chain is deleted (`f16cfef7a`).
 - [x] `R90-INV-010` — authority/lifecycle replacement returns `superseded` and
   every SDK/UI adapter discards and re-resolves the stale lane.
   (Typed `superseded` with three supersession kinds through the material plan;

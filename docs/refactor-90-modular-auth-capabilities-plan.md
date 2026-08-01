@@ -603,7 +603,17 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Remove reusable NEAR transaction admission and finalization from the
       client budget subsystem. The relayer now owns the exact operation claim,
       quota consumption, replay, and terminal completion for that path
-      (`cc4cf26ab`). Signature-only Ed25519 cleanup remains open.
+      (`cc4cf26ab`).
+- [x] Remove delegate and NEP-413 admission/finalization from the client budget
+      subsystem; their relayer prepare/finalize exchange owns the same exact
+      operation claim and quota transaction (`f16cfef7a`).
+- [x] Delete the zero-caller client budget projection reducer and finalizer,
+      their obsolete type fixtures/tests, and the stale diagnostics boundary
+      guard (`64f46362c`, `c838eeea0`). Trusted server-status reads remain open.
+- [x] Remove reusable Ed25519 `grant_id` from the public normal-signing scope.
+      The private SigningWorker candidate derives its grant only from verified
+      Wallet Session claims, and the committed Rust vectors now pass the
+      TypeScript boundary unchanged (`86c82a904`).
 - [x] Select ECDSA signing lanes and live material by exact canonical material
       identity; delete the source-priority scan, record-candidate builders,
       `findExact`/`readSelected` readers, and obsolete budget-blocked lane kind.
