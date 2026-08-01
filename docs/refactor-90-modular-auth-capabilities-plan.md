@@ -599,6 +599,11 @@ the replacement and legacy MPC paths must not ship together.
         authenticated server claims derive and correlate those authorization
         identities (`bbeabd262`). The remaining lane/context identity deletion
         stays owned by this parent item.
+  - [x] Remove threshold-session and signing-grant identity from the Email OTP
+        and shared client/worker Ed25519 export-authorization carriers. Exact
+        capability activation remains the material identity and the authenticated
+        server claims remain the authorization source (`82b439fc5`). Passkey
+        durable-context rekeying remains owned by this parent item.
   - [x] Cloudflare and local Rust normal-signing paths keep Wallet Session,
         threshold-session, activation, and lifecycle identities distinct; local
         registration takes explicit activation and refresh rejects substitution
@@ -647,6 +652,10 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Delete the zero-caller client budget projection reducer and finalizer,
       their obsolete type fixtures/tests, and the stale diagnostics boundary
       guard (`64f46362c`, `c838eeea0`). Trusted server-status reads remain open.
+- [x] Delete the remaining `session/budget/**` implementation and obsolete
+      policy fixture; move live Refactor-92 lifecycle status and authorization
+      admission into neutral lifecycle/operation-state modules (`82b439fc5`).
+      The trusted status wire and server-owned quota lifecycle remain open.
 - [x] Remove reusable Ed25519 `grant_id` from the public normal-signing scope.
       The private SigningWorker candidate derives its grant only from verified
       Wallet Session claims, and the committed Rust vectors now pass the
@@ -1180,6 +1189,9 @@ the replacement and legacy MPC paths must not ship together.
       updating still-valid tests through current shared factories; require a
       successful non-empty Playwright unit test listing before normal-signing
       work proceeds.
+  - [x] Build the enrolled threshold-session claim tests through shared
+        curve-specific factories; the focused parser/private-route matrix passes
+        9/9 (`b34b0c58a`).
 - [x] Delete the complete production `ThresholdEcdsaSessionRecord*` family,
       public APIs, runtime maps, readers, writers, parsers, and adapters after
       Unit 2 supplies the narrow authorization/session/quota projection.
@@ -1190,6 +1202,9 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Remove legacy-only composite-record fixtures and move retained Email OTP
       coordinator setup to canonical manifest, authorization, and sealed-runtime
       factories.
+- [x] Delete the tactical Email OTP local Wallet Session/budget model and rename
+      its remaining Shamir3Pass recovery, publication, refresh, route, worker,
+      browser, and test surfaces as capability operations (`82b439fc5`).
 - [x] Delete `active_state_session_id` from production types and wire shapes.
 - [ ] Delete remaining generic wire session aliases and
       authorization/material-scope aliases owned by this cutover.
