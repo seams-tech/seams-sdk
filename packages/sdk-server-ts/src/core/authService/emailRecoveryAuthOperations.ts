@@ -22,13 +22,13 @@ import { DEFAULT_RECOVERY_SESSION_TTL_MS } from '../recoverySessionRecords';
 import type {
   ThresholdRuntimePolicyScope,
   ThresholdEd25519AuthorityScope,
+  ThresholdEd25519BootstrapSession,
 } from '../types';
 import { registrationPreparationIdFromString } from '../registrationContracts';
 import { randomBase64Url } from './bytes';
 import { normalizeAdjacentFlowEcdsaPrepareSpec } from './walletRegistrationPlanning';
 import {
   resolveBoundThresholdRuntimePolicyScope,
-  type ThresholdEd25519BootstrapSession,
 } from './registrationThresholdHelpers';
 import {
   passkeyThresholdEd25519AuthorityScope,
