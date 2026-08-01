@@ -29,6 +29,7 @@ const routerAbNormalSigning = {
 const validSession = {
   curve: 'ed25519',
   auth,
+  walletSessionId: 'wallet-session-1',
   thresholdSessionId: 'threshold-session-1',
   signingGrantId: 'signing-grant-1',
   remainingUses: 2,
@@ -44,6 +45,7 @@ void validSession;
 const missingSigningRoot: RouterAbEd25519SigningWalletSession = {
   curve: 'ed25519',
   auth,
+  walletSessionId: 'wallet-session-1',
   thresholdSessionId: 'threshold-session-1',
   signingGrantId: 'signing-grant-1',
   remainingUses: 2,
@@ -57,6 +59,7 @@ void missingSigningRoot;
 const embeddedWorkerMaterial = {
   curve: 'ed25519',
   auth,
+  walletSessionId: 'wallet-session-1',
   thresholdSessionId: 'threshold-session-1',
   signingGrantId: 'signing-grant-1',
   remainingUses: 2,
@@ -73,6 +76,7 @@ void embeddedWorkerMaterial;
 const embeddedActiveClient = {
   curve: 'ed25519',
   auth,
+  walletSessionId: 'wallet-session-1',
   thresholdSessionId: 'threshold-session-1',
   signingGrantId: 'signing-grant-1',
   remainingUses: 2,
