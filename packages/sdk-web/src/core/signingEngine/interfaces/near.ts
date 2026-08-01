@@ -52,7 +52,7 @@ export type NearResolvedEd25519WalletSessionAuth = {
 };
 
 export type NearPasskeyOperationStepUpPlan = {
-  sessionId: ThresholdEd25519SessionId;
+  thresholdSessionId: ThresholdEd25519SessionId;
   requestedGrantId: CapabilityGrantId;
   authority: PasskeyWalletAuthAuthority;
 };
@@ -168,7 +168,7 @@ export type NearEd25519YaoPreparedMaterialBoundary = {
 
 export type NearPasskeyEd25519OperationStepUpHook = {
   prepare: () => Promise<{
-    sessionId: ThresholdEd25519SessionId;
+    thresholdSessionId: ThresholdEd25519SessionId;
     requestedGrantId: CapabilityGrantId;
     authority: PasskeyWalletAuthAuthority;
   }>;
@@ -180,7 +180,7 @@ export type NearEmailOtpEd25519StepUpHook = {
 };
 
 export type NearEd25519TransactionAdmissionBoundary = {
-  sessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   signingSessionPlan: SigningSessionPlan;
   signingAuthPlan: SigningAuthPlan;
   signingLane: NearTransactionSigningLane;

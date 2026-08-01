@@ -622,11 +622,6 @@ export function createBrowserSigningSurfaceEnginePorts(
         {
           listEcdsaSigningCapabilitiesForWallet: (input) =>
             listBrowserEcdsaSigningCapabilitiesForWallet(args, input),
-          statusReader: args.warmSigning.statusUiConfirm,
-          getEmailOtpWarmSessionStatus: (target) =>
-            args.emailOtpSessions.readWarmSessionStatusOnly(target),
-          getWalletSessionStatus: (statusArgs) =>
-            readCanonicalWalletSessionStatus(statusArgs),
         },
         readArgs,
         configuredThresholdEcdsaChainTargets(args.seamsWebConfigs.network.chains),

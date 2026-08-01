@@ -82,9 +82,6 @@ export function createRecoveryPublicDeps(args: {
         readPersistedAvailableSigningLanesForTargets(
           {
             listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
-            statusReader: args.passkeyMpcSession,
-            getEmailOtpWarmSessionStatus,
-            getWalletSessionStatus: args.getWalletSessionStatus,
           },
           completeConfiguredEcdsaTargets(availableLanesArgs),
         ),

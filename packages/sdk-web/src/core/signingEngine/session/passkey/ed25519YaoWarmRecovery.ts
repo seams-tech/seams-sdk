@@ -44,6 +44,7 @@ import {
   mpcMaterialActivationRefsEqual,
   parseWalletId,
   type MpcMaterialActivationRef,
+  type ThresholdEd25519SessionId,
   type WalletId,
 } from '@shared/utils/domainIds';
 
@@ -59,7 +60,7 @@ export type PasskeyEd25519WarmRecoverySubject = {
   readonly walletId: string;
   readonly nearAccountId: string;
   readonly signerSlot: number | null;
-  readonly thresholdSessionId: string | null;
+  readonly thresholdSessionId: ThresholdEd25519SessionId | null;
   readonly materialActivation: MpcMaterialActivationRef;
 };
 

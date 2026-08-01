@@ -120,6 +120,7 @@ import {
   parseAppSessionJwt,
   parseWalletId,
   type MpcMaterialActivationRef,
+  type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import { materialActivationKey } from '@/core/signingEngine/session/sealedRecovery/materialActivationKey';
 import { retireWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -286,7 +287,7 @@ type NearEd25519CapabilityRehydrationSubject =
       readonly walletId: WalletId;
       readonly nearAccountId: AccountId;
       readonly signerSlot: number;
-      readonly thresholdSessionId: string;
+      readonly thresholdSessionId: ThresholdEd25519SessionId;
       readonly laneIdentity: ExactEd25519SigningLaneIdentity;
     }
   | {
@@ -294,7 +295,7 @@ type NearEd25519CapabilityRehydrationSubject =
       readonly walletId: WalletId;
       readonly nearAccountId: AccountId;
       readonly signerSlot: number;
-      readonly thresholdSessionId: string;
+      readonly thresholdSessionId: ThresholdEd25519SessionId;
       readonly laneIdentity: ExactEd25519SigningLaneIdentity;
       readonly materialActivation: MpcMaterialActivationRef;
     }
@@ -303,7 +304,7 @@ type NearEd25519CapabilityRehydrationSubject =
       readonly walletId: WalletId;
       readonly nearAccountId: AccountId;
       readonly signerSlot: number;
-      readonly thresholdSessionId: string;
+      readonly thresholdSessionId: ThresholdEd25519SessionId;
       readonly materialIdentity: NearEd25519MaterialIdentity;
     };
 
@@ -609,7 +610,7 @@ type EmailOtpEd25519YaoSilentRecoveryInput = {
   walletId: WalletId;
   nearAccountId: AccountId;
   signerSlot: number;
-  thresholdSessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   materialActivation: MpcMaterialActivationRef;
 };
 
@@ -1340,7 +1341,7 @@ export class BrowserSigningSurface {
             walletId: args.walletId,
             nearAccountId: args.nearAccountId,
             signerSlot: identity.signer.signerSlot,
-            thresholdSessionId: String(identity.thresholdSessionId),
+            thresholdSessionId: identity.thresholdSessionId,
             laneIdentity: args.laneIdentity,
           }
         : {
@@ -1348,7 +1349,7 @@ export class BrowserSigningSurface {
             walletId: args.walletId,
             nearAccountId: args.nearAccountId,
             signerSlot: identity.signer.signerSlot,
-            thresholdSessionId: String(identity.thresholdSessionId),
+            thresholdSessionId: identity.thresholdSessionId,
             materialIdentity: identity,
           },
     );
@@ -1419,7 +1420,7 @@ export class BrowserSigningSurface {
             walletId: args.walletId,
             nearAccountId: args.nearAccountId,
             signerSlot: identity.signer.signerSlot,
-            thresholdSessionId: String(identity.thresholdSessionId),
+            thresholdSessionId: identity.thresholdSessionId,
           },
           publicLocator: publicLocatorBase,
           runtime: runtimeObservation,
@@ -1526,7 +1527,7 @@ export class BrowserSigningSurface {
         walletId: args.walletId,
         nearAccountId: args.nearAccountId,
         signerSlot: args.laneIdentity.signer.signerSlot,
-        thresholdSessionId: String(args.laneIdentity.thresholdSessionId),
+        thresholdSessionId: args.laneIdentity.thresholdSessionId,
         materialActivation: expectedActivation,
       });
       switch (recovery.kind) {
@@ -1619,7 +1620,7 @@ export class BrowserSigningSurface {
                 walletId: args.walletId,
                 nearAccountId: args.nearAccountId,
                 signerSlot: args.laneIdentity.signer.signerSlot,
-                thresholdSessionId: String(args.laneIdentity.thresholdSessionId),
+                thresholdSessionId: args.laneIdentity.thresholdSessionId,
                 materialActivation: expectedActivation,
               });
             switch (recovery.kind) {
@@ -1847,7 +1848,7 @@ export class BrowserSigningSurface {
             walletId: args.walletId,
             nearAccountId: args.nearAccountId,
             signerSlot: args.laneIdentity.signer.signerSlot,
-            thresholdSessionId: String(args.laneIdentity.thresholdSessionId),
+                thresholdSessionId: args.laneIdentity.thresholdSessionId,
           },
           publicLocator: input.publicLocator,
           runtime: input.runtime,
@@ -1868,7 +1869,7 @@ export class BrowserSigningSurface {
       walletId: authorizedArgs.walletId,
       nearAccountId: authorizedArgs.nearAccountId,
       signerSlot: authorizedArgs.laneIdentity.signer.signerSlot,
-      thresholdSessionId: String(authorizedArgs.laneIdentity.thresholdSessionId),
+      thresholdSessionId: authorizedArgs.laneIdentity.thresholdSessionId,
       laneIdentity: authorizedArgs.laneIdentity,
     });
     if (!lane) {
@@ -2060,7 +2061,7 @@ export class BrowserSigningSurface {
         walletId: String(args.laneIdentity.signer.account.wallet.walletId),
         nearAccountId: String(args.laneIdentity.signer.account.nearAccountId),
         signerSlot: args.laneIdentity.signer.signerSlot,
-        thresholdSessionId: String(args.laneIdentity.thresholdSessionId),
+        thresholdSessionId: args.laneIdentity.thresholdSessionId,
         materialActivation: args.materialActivation,
       },
       relayerUrl,

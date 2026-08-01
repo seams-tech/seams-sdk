@@ -41,7 +41,10 @@ import type {
 } from '../../interfaces/operationDeps';
 import { signNearWithUiConfirm } from './nearSigningFlow';
 import { resolveThresholdEd25519CommitQueueKey } from '../../threshold/ed25519/commitQueue';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type {
+  MpcMaterialActivationRef,
+  ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
 import {
   emailOtpAuthContextReason,
   emailOtpAuthContextRetention,
@@ -284,7 +287,7 @@ type PreparedNearEd25519TransactionSigningSession = {
   signingLane: NearTransactionSigningLane;
   transactionLane: SelectedEd25519Lane;
   identity: ResolvedEd25519SigningSessionIdentity;
-  resolvedSessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   availableLanesGeneration: number;
   preparedOperation: PreparedNearEd25519Operation;
   transactionOperation: PreparedTransactionOperation<SelectedEd25519Lane>;
@@ -292,7 +295,7 @@ type PreparedNearEd25519TransactionSigningSession = {
 
 type PreparedNearTransactionExecutionState = {
   kind: 'prepared_near_transaction_execution';
-  sessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   signingSessionPlan: PreparedNearEd25519Operation['signingSessionPlan'];
   signingAuthPlan: SigningAuthPlan;
   signingLane: NearTransactionSigningLane;
@@ -618,14 +621,14 @@ type PreparedNearAdHocSigningSession =
 
 function buildPreparedNearTransactionExecutionState(args: {
   preparedSigningSession: PreparedNearEd25519TransactionSigningSession;
-  resolvedSessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   signingSessionCoordinator: SigningSessionCoordinator;
   passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
   emailOtpEd25519StepUp: NearEmailOtpEd25519StepUpHook | null;
 }): PreparedNearTransactionExecutionState {
   return {
     kind: 'prepared_near_transaction_execution',
-    sessionId: args.resolvedSessionId,
+    thresholdSessionId: args.thresholdSessionId,
     signingSessionPlan: args.preparedSigningSession.preparedOperation.signingSessionPlan,
     signingAuthPlan: args.preparedSigningSession.signingAuthPlan,
     signingLane: args.preparedSigningSession.signingLane,
@@ -692,7 +695,7 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
         credentialIdB64u: auth.credentialIdB64u,
       });
       return {
-        sessionId: thresholdSessionId,
+        thresholdSessionId,
         requestedGrantId,
         authority,
       };
@@ -1286,10 +1289,12 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     signingLane,
     transactionLane,
     identity,
-    resolvedSessionId: resolvePreparedSigningRequestSessionId({
-      providedSessionId: args.input.sessionId,
-      identity,
-    }),
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+      resolvePreparedSigningRequestSessionId({
+        providedSessionId: args.input.sessionId,
+        identity,
+      }),
+    ),
     availableLanesGeneration: preparedOperation.availableLanesGeneration,
     preparedOperation,
     transactionOperation,
@@ -1377,7 +1382,7 @@ export async function signTransactionWithActions(
   const signingAuthPlan = preparedSigningSession.signingAuthPlan;
   const signingLane = preparedSigningSession.signingLane;
   const transactionLane = preparedSigningSession.transactionLane;
-  const resolvedSessionId = preparedSigningSession.resolvedSessionId;
+  const thresholdSessionId = preparedSigningSession.thresholdSessionId;
   assertSigningLaneMatchesSelectedTransactionLane({
     signingLane,
     transactionLane,
@@ -1412,13 +1417,13 @@ export async function signTransactionWithActions(
         });
         const executionState = buildPreparedNearTransactionExecutionState({
           preparedSigningSession,
-          resolvedSessionId,
+          thresholdSessionId,
           signingSessionCoordinator,
           passkeyEd25519OperationStepUp: passkeyEd25519OperationStepUp || null,
           emailOtpEd25519StepUp: emailOtpEd25519StepUp || null,
         });
         const ed25519SigningBoundary = {
-          sessionId: executionState.sessionId,
+          thresholdSessionId: executionState.thresholdSessionId,
           signingSessionPlan: executionState.signingSessionPlan,
           signingAuthPlan: executionState.signingAuthPlan,
           signingLane: executionState.signingLane,

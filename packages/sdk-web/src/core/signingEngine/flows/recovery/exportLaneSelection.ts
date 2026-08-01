@@ -284,8 +284,7 @@ function isUsableEd25519ExportLane(args: {
   walletId: string;
   nearAccountId: string;
 }): boolean {
-  const hasRecoverableSource =
-    args.lane.source === 'runtime_session_record' || args.lane.source === 'durable_sealed_record';
+  const hasRecoverableSource = args.lane.source === 'durable_sealed_record';
   return (
     String(args.lane.walletId) === args.walletId &&
     String(args.lane.nearAccountId) === args.nearAccountId &&

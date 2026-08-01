@@ -442,7 +442,7 @@ export async function signNep413Message({
           }
         : {
             kind: 'operation_step_up' as const,
-            sessionId: nearOperationStepUpMaterialFacts(
+            thresholdSessionId: nearOperationStepUpMaterialFacts(
               requireNearNep413OperationStepUpMaterial(operationStepUpMaterial),
             ).thresholdSessionId,
             resolved: await resolveNearNep413OperationStepUpCapability({
@@ -460,8 +460,8 @@ export async function signNep413Message({
   });
   const canonicalThresholdSessionId =
     preparedMaterial.kind === 'warm_session'
-      ? preparedMaterial.resolved.sessionId
-      : preparedMaterial.sessionId;
+      ? preparedMaterial.resolved.thresholdSessionId
+      : preparedMaterial.thresholdSessionId;
 
   const executeNep413Request = async () => {
     const signingDigestB64u =

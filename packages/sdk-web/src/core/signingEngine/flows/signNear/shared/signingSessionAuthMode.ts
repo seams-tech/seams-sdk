@@ -16,12 +16,13 @@ import type { NearCommandSubject } from '@/core/signingEngine/interfaces/ecdsaCh
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SelectedEd25519Lane } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { NearEd25519YaoSigningPreparation } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
+import type { ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 
 export const SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR =
   'Threshold signing session authorization is unavailable';
 
 export type NearSigningSessionAuthPlan = {
-  sessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   lane: NearTransactionSigningLane;
   signingAuthPlan: SigningAuthPlan;
   confirmationAuthPayload: { signingAuthPlan: SigningAuthPlan };
@@ -29,7 +30,7 @@ export type NearSigningSessionAuthPlan = {
 };
 
 export type NearSigningSessionAuthContext = {
-  sessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   walletId: string;
   nearAccountId: string;
   lane: NearTransactionSigningLane;
@@ -177,7 +178,9 @@ export function resolveNearSigningSessionAuthContext(args: {
   });
   emitSigningLaneResolutionTrace('near', lane, { reason: 'near_threshold_auth_plan' });
   return {
-    sessionId: String(args.selectedLane.thresholdSessionId),
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+      args.selectedLane.thresholdSessionId,
+    ),
     walletId: subject.walletId,
     nearAccountId: subject.nearAccountId,
     lane,
@@ -196,7 +199,7 @@ export function buildNearSigningSessionAuthPlan(args: {
   context: NearSigningSessionAuthContext;
   resolvedSigningSession: ResolveSigningSessionAuthPlanFromReadinessResult;
 }): NearSigningSessionAuthPlan {
-  const { sessionId, lane } = args.context;
+  const { thresholdSessionId, lane } = args.context;
   const resolvedSigningSession = args.resolvedSigningSession;
   const plan = resolvedSigningSession.signingSessionPlan;
   if (plan.kind === SigningSessionPlanKind.NotReady) {
@@ -211,7 +214,7 @@ export function buildNearSigningSessionAuthPlan(args: {
     remainingUses: resolvedSigningSession.remainingUses,
   });
   return {
-    sessionId,
+    thresholdSessionId,
     lane,
     signingAuthPlan,
     confirmationAuthPayload: { signingAuthPlan },

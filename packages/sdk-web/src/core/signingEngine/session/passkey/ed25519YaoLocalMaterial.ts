@@ -30,7 +30,9 @@ import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNo
 import {
   mpcMaterialActivationRefsEqual,
   parseMpcMaterialActivationRef,
+  parseThresholdEd25519SessionId,
   type MpcMaterialActivationRef,
+  type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import {
   nearEd25519YaoMaterialActivationFromMetadata,
@@ -87,7 +89,7 @@ export type Ed25519YaoLocalMaterialBindingV1 = {
   rpId: string;
   credentialIdB64u: string;
   lifecycleId: string;
-  thresholdSessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   materialActivation: MpcMaterialActivationRef;
   signingRootId: string;
   signingRootVersion: string;
@@ -268,6 +270,15 @@ function requirePositiveSafeInteger(value: unknown, label: string): number {
   return parsed;
 }
 
+function requireThresholdSessionId(
+  value: unknown,
+  label: string,
+): ThresholdEd25519SessionId {
+  const parsed = parseThresholdEd25519SessionId(value);
+  if (!parsed.ok) throw new Error(`${label}: ${parsed.error.message}`);
+  return parsed.value;
+}
+
 function requireBytes32B64u(value: unknown, label: string): string {
   const parsed = requireNonEmpty(value, label);
   if (base64UrlDecode(parsed).length !== 32) {
@@ -373,7 +384,7 @@ function bindingFromActiveClient(args: {
     rpId: args.identity.rpId,
     credentialIdB64u: args.identity.credentialIdB64u,
     lifecycleId: requireNonEmpty(metadata.scope.lifecycle_id, 'lifecycleId'),
-    thresholdSessionId: requireNonEmpty(
+    thresholdSessionId: requireThresholdSessionId(
       metadata.scope.threshold_session_id,
       'thresholdSessionId',
     ),
@@ -469,7 +480,10 @@ export function parsePasskeyEd25519YaoLocalMaterialBindingV1(
     rpId: requireNonEmpty(record.rpId, 'binding.rpId'),
     credentialIdB64u: requireNonEmpty(record.credentialIdB64u, 'binding.credentialIdB64u'),
     lifecycleId: requireNonEmpty(record.lifecycleId, 'binding.lifecycleId'),
-    thresholdSessionId: requireNonEmpty(record.thresholdSessionId, 'binding.thresholdSessionId'),
+    thresholdSessionId: requireThresholdSessionId(
+      record.thresholdSessionId,
+      'binding.thresholdSessionId',
+    ),
     materialActivation: materialActivation.value,
     signingRootId: requireNonEmpty(record.signingRootId, 'binding.signingRootId'),
     signingRootVersion: requireNonEmpty(record.signingRootVersion, 'binding.signingRootVersion'),

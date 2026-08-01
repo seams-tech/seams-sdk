@@ -27,10 +27,6 @@ export function createSessionPublicDeps(args: {
   return {
     availableLanes: {
       listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
-      statusReader: args.passkeyMpcSession,
-      getEmailOtpWarmSessionStatus: (target) =>
-        args.emailOtpSessions.readWarmSessionStatusOnly(target),
-      getWalletSessionStatus: args.getWalletSessionStatus,
     },
     signingSessionSeal:
       args.seamsWebConfigs.signing.sessionSeal.mode === 'sealed_refresh_v1'

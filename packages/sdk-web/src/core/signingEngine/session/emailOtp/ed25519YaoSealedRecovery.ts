@@ -96,7 +96,7 @@ export type EmailOtpEd25519YaoSilentRecoverySubject = {
   walletId: WalletId;
   nearAccountId: AccountId;
   signerSlot: number;
-  thresholdSessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
 };
 
 export type EmailOtpEd25519YaoPublicLocatorObservationV1 =
@@ -354,7 +354,7 @@ function sealedRecordMatchesExportSubject(
       walletId: subject.signer.account.wallet.walletId,
       nearAccountId: subject.signer.account.nearAccountId,
       signerSlot: subject.signer.signerSlot,
-      thresholdSessionId: String(subject.thresholdSessionId),
+      thresholdSessionId: subject.thresholdSessionId,
     }) &&
     restore.nearEd25519SigningKeyId === String(subject.signer.nearEd25519SigningKeyId) &&
     'providerSubjectId' in restore &&
