@@ -130,8 +130,6 @@ export type NearSigningApiDeps = {
   }) => Promise<T>;
 };
 
-export type PasskeyEcdsaSessionStoreSource = Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
-
 export type EcdsaSigningLookupArgs = {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -144,7 +142,7 @@ export type EcdsaSigningListLookupArgs = {
 };
 
 export type PasskeyEcdsaSigningLookupArgs = EcdsaSigningLookupArgs & {
-  source: PasskeyEcdsaSessionStoreSource;
+  source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
 };
 
 export type EvmFamilySigningDeps = DurableEmailOtpEcdsaSigningSessionAuthorityResolver &

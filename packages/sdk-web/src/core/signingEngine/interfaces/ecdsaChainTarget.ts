@@ -73,28 +73,21 @@ export function walletIdFromWalletProfile(args: { walletId: unknown }): WalletId
   return toWalletId(args.walletId);
 }
 
-export function walletIdFromSessionValue(value: unknown): WalletId {
-  if (typeof value === 'object' && value !== null && 'walletId' in value) {
-    return toWalletId((value as { walletId?: unknown }).walletId);
-  }
-  if (typeof value === 'object' && value !== null) {
-    throw new Error('[wallet-session] missing wallet id');
-  }
-  return toWalletId(value);
-}
-
 export function walletSessionRefFromSession(value: {
   walletId?: unknown;
   walletSessionUserId?: unknown;
   userId?: unknown;
 }): WalletSessionRef {
+  if (!('walletId' in value)) {
+    throw new Error('[wallet-session] missing wallet id');
+  }
   const walletSessionUserId =
     nonEmptyString(value.walletSessionUserId) || nonEmptyString(value.userId);
   if (!walletSessionUserId) {
     throw new Error('[wallet-session] missing wallet session user id');
   }
   return {
-    walletId: walletIdFromSessionValue(value),
+    walletId: toWalletId(value.walletId),
     walletSessionUserId,
   };
 }
