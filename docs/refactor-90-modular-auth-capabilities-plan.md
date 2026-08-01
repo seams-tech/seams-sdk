@@ -594,6 +594,11 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Passkey Ed25519 export selection, browser/iframe transport, durable
         recovery, and exact active-registry lookup carry and revalidate the
         selected material activation (`2574fe239`).
+  - [x] Ed25519 export admission/execute wire and worker transport no longer
+        accept client-supplied threshold-session or signing-grant identity;
+        authenticated server claims derive and correlate those authorization
+        identities (`bbeabd262`). The remaining lane/context identity deletion
+        stays owned by this parent item.
   - [x] Cloudflare and local Rust normal-signing paths keep Wallet Session,
         threshold-session, activation, and lifecycle identities distinct; local
         registration takes explicit activation and refresh rejects substitution
@@ -740,6 +745,10 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Email OTP ECDSA signing-session refresh enters the exact activation
         queue, re-resolves before the consuming login call and after refresh,
         and rejects disappearance or replacement (`71c67e3dc`).
+  - [x] Passkey and Email OTP ECDSA sealed restore enter the shared exact-owner
+        queue, re-resolve canonical material before worker rehydration and
+        before durable writes, preserve the persisted allowance, and reject a
+        replacement with zero restore/write side effects (`bbeabd262`).
   - [x] Email OTP Ed25519 silent sealed recovery uses the queue shared by NEAR
         signing and export, re-resolves before rehydration, persists before
         releasing the owner, and verifies the durable activation afterward

@@ -485,8 +485,10 @@ ports, and the two-state recovery journal.
 
 Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 
-- `BudgetCoordinator`, `budgetProjection`, `budgetFinalizer`,
-  `budgetStatusReader`
+- ~~`BudgetCoordinator`, the client reservation projection, client lifecycle
+  finalizer, and their trace/typecheck/test surface~~ — deleted by
+  `655a597c5`; live Refactor-92 status/admission classifiers remain open below
+  until they are rehomed outside the legacy budget subsystem
 - ~~`budgetFinalizer` and its finalizer-only type/test/source-guard surface~~ —
   deleted by `c838eeea0` after all production callers moved to relayer claims
 - ~~the zero-caller client budget projection reducer, reservation projection,
