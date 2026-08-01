@@ -78,4 +78,3 @@ export type ThresholdWarmSessionMaterialWriter = Pick<
   ThresholdWarmSessionMaterialPort,
   'putWarmSessionMaterial'
 >;
-export type ThresholdSigningKeyOpsPort = ThresholdEd25519ClientShareDeriverPort;
