@@ -543,6 +543,8 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   relayer operation claims and quota transactions own consumption
 - ~~`DelegatedBudgetReservationStore`~~ — deleted in `20bd2297e`; it had no
   production consumer
+- ~~zero-caller `RouterAbEd25519YaoNormalSigningBudgetRefreshResult` alias~~ —
+  budget refresh returns the canonical session-provision result directly
 - router reserve/commit/release budget methods
 - old development `signingGrantId` budget rows (reject and clear at the
   persistence boundary; never fan one remaining-use count into multiple
