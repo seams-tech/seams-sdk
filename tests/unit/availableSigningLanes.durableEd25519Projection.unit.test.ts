@@ -10,8 +10,13 @@ import {
   readAvailableLanesFixture,
   runtimeEd25519RouterAbNormalSigningState,
 } from './helpers/availableSigningLanes.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const THRESHOLD_SESSION_ID = 'threshold-session-durable-ed25519-projection';
+const MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'durable-ed25519-projection',
+  AVAILABLE_LANES_ED25519_WALLET_ID,
+);
 
 function durableEd25519ProjectionRecord(): AvailableSigningLanesRuntimeEd25519Record {
   return {
@@ -26,6 +31,7 @@ function durableEd25519ProjectionRecord(): AvailableSigningLanesRuntimeEd25519Re
     nearAccountId: AVAILABLE_LANES_ED25519_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: AVAILABLE_LANES_ED25519_KEY_SCOPE_ID,
     signerSlot: 1,
+    materialActivation: MATERIAL_ACTIVATION,
     routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
     thresholdSessionId: THRESHOLD_SESSION_ID,
     authorizationState: 'authorized',
@@ -54,6 +60,7 @@ function durableEmailOtpEd25519ProjectionRecord(): AvailableSigningLanesRuntimeE
     nearAccountId: AVAILABLE_LANES_ED25519_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: AVAILABLE_LANES_ED25519_KEY_SCOPE_ID,
     signerSlot: 1,
+    materialActivation: MATERIAL_ACTIVATION,
     routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
     thresholdSessionId: 'threshold-session-durable-email-otp-ed25519-projection',
     authorizationState: 'authorized',
@@ -83,6 +90,7 @@ function deferredDurableEd25519ProjectionRecord(): AvailableSigningLanesRuntimeE
     nearAccountId: AVAILABLE_LANES_ED25519_NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: AVAILABLE_LANES_ED25519_KEY_SCOPE_ID,
     signerSlot: 1,
+    materialActivation: MATERIAL_ACTIVATION,
     routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
     thresholdSessionId: 'threshold-session-deferred-durable-ed25519-projection',
     authorizationState: 'authorization_required',

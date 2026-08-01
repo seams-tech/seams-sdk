@@ -19,6 +19,7 @@ import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationInt
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const walletId = toWalletId('cedar-zenith-pghgtw');
 const nearAccountId = toAccountId('cedar-zenith-pghgtw.testnet');
@@ -30,6 +31,10 @@ const auth = {
   rpId: toRpId('localhost'),
   credentialIdB64u: 'credential-ed25519-transaction-selection',
 } as const;
+const materialActivation = buildMpcMaterialActivationRefFixture(
+  'ed25519-transaction-selection',
+  String(walletId),
+);
 
 function signerSlot(value: number) {
   const parsed = parseSignerSlot(value);
@@ -51,6 +56,7 @@ function ed25519Lane(input: {
     nearAccountId,
     nearEd25519SigningKeyId,
     signerSlot: 1,
+    materialActivation,
     source: input.source,
     thresholdSessionId: 'tsess_ed25519_transaction_selection',
     remainingUses: 3,
