@@ -656,6 +656,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~zero-caller generic `ThresholdSigningKeyOpsPort` export alias~~ — the
   Ed25519-specific `ThresholdEd25519ClientShareDeriverPort` is the sole
   signing-key operation contract
+- ~~one-use `RouterApiThresholdRuntimeService` alias~~ — the Router service bag
+  now names the canonical `RouterAbSigningRuntimeService` directly
+  (`80bb11a3f`)
 - ~~one-use iframe aliases for ECDSA bootstrap and exact/missing Wallet Session
   payloads~~ — canonical payload types are used directly in the envelope
 - ~~zero-caller Cloudflare route-registration wrapper and its wrapper-only
