@@ -409,7 +409,6 @@ export async function runNearDelegateActionSigning({
     const material = operationStepUpMaterial;
     const materialFacts = nearOperationStepUpMaterialFacts(material);
     const signingDigest = await computeThresholdEd25519DelegateSigningDigestWasm({
-      sessionId: materialFacts.thresholdSessionId,
       delegate: delegateSigningPayloads.workerDelegate,
       workerCtx: ctx,
     });
@@ -609,7 +608,6 @@ export async function runNearDelegateActionSigning({
       stepUpAuthorization.kind === 'warm_session'
         ? (
             await computeThresholdEd25519DelegateSigningDigestWasm({
-              sessionId: canonicalThresholdSessionId,
               delegate: delegatePayload,
               workerCtx: ctx,
             })
@@ -669,7 +667,6 @@ export async function runNearDelegateActionSigning({
       }
       const delegateResult = await finalizeThresholdEd25519DelegateSignatureResult({
         ctx,
-        thresholdSessionId: canonicalThresholdSessionId,
         delegate: delegatePayload,
         signingDigestB64u,
         signatureB64u: routerAbNormalSigningResult.signatureB64u,

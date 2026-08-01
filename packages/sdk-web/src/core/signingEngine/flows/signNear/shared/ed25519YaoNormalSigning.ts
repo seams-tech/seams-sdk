@@ -373,13 +373,11 @@ function routerAbDelegateActionsForWasm(
 
 export async function finalizeThresholdEd25519DelegateSignatureResult(args: {
   ctx: NearSigningRuntimeDeps;
-  thresholdSessionId: string;
   delegate: DelegatePayload;
   signingDigestB64u: string;
   signatureB64u: string;
 }): Promise<{ signedDelegate: WasmSignedDelegate; hash: string }> {
   const signedDelegate = await finalizeThresholdEd25519DelegateFromSignatureWasm({
-    sessionId: args.thresholdSessionId,
     delegate: args.delegate,
     signingDigestB64u: args.signingDigestB64u,
     signatureB64u: args.signatureB64u,
@@ -791,7 +789,6 @@ async function buildRouterAbEd25519SignatureOnlyPrepareRequest(args: {
             ),
             canonicalDelegateBorshB64u: (
               await buildThresholdEd25519DelegateSigningPayloadWasm({
-                sessionId: args.thresholdSessionId,
                 delegate: {
                   senderId: args.intent.delegate.senderId,
                   receiverId: args.intent.delegate.receiverId,
@@ -1092,7 +1089,6 @@ export async function prepareRouterAbEd25519NearTransactionOperationStepUp(args:
   envelope: CapabilityOperationEnvelope;
 }> {
   const unsigned = await buildThresholdEd25519NearTxUnsignedBorshWasm({
-    sessionId: args.thresholdSessionId,
     txSigningRequest: args.txSigningRequest,
     transactionContext: args.transactionContext,
     workerCtx: args.ctx,
@@ -1248,7 +1244,6 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(
           signingDigestB64u: args.authorization.prepared.signingDigestB64u,
         }
       : await buildThresholdEd25519NearTxUnsignedBorshWasm({
-          sessionId: args.thresholdSessionId,
           txSigningRequest: args.txSigningRequest,
           transactionContext: args.transactionContext,
           workerCtx: args.ctx,
@@ -1362,7 +1357,6 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(
         authorization: 'reusable_wallet_session',
       });
   const finalized = await finalizeThresholdEd25519NearTxFromSignatureWasm({
-    sessionId: args.thresholdSessionId,
     unsignedTransactionBorshB64u: unsigned.unsignedTransactionBorshB64u,
     signingDigestB64u: unsigned.signingDigestB64u,
     signatureB64u: signatureResult.signatureB64u,
@@ -1371,7 +1365,6 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(
     workerCtx: args.ctx,
   });
   const decoded = await decodeThresholdEd25519SignedNearTxBorshWasm({
-    sessionId: args.thresholdSessionId,
     signedTransactionBorshB64u: finalized.signedTransactionBorshB64u,
     workerCtx: args.ctx,
   });

@@ -18,7 +18,6 @@ import {
 } from '@/core/walletRuntimePaths/multichainWorkers';
 import { resolveWorkerUrl } from '@/core/walletRuntimePaths';
 import { resolveEmailOtpWorkerUrl } from '@/core/walletRuntimePaths/emailOtpWorker';
-import { withSessionId } from './session';
 import { EcdsaClientWorkerControlKind } from './ecdsaClientWorkerChannels';
 import type {
   EcdsaDerivationWorkerOperationRequest,
@@ -399,26 +398,12 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   }
 
   private async requestNearOperation<T extends NearWorkerOperationType>({
-    sessionId,
     type,
     payload,
     onEvent,
     timeoutMs = SIGNER_WORKER_MANAGER_CONFIG.TIMEOUTS.DEFAULT,
     transfer,
   }: NearWorkerOperationRequest<T>): Promise<NearWorkerOperationResult<T>> {
-    const payloadSessionId = (payload as { sessionId?: unknown })?.sessionId;
-    if (sessionId && payloadSessionId && payloadSessionId !== sessionId) {
-      throw new Error(
-        `requestOperation: payload.sessionId (${payloadSessionId}) does not match provided sessionId (${sessionId})`,
-      );
-    }
-
-    const effectiveSessionId =
-      sessionId || (typeof payloadSessionId === 'string' ? payloadSessionId : undefined);
-    const finalPayload = effectiveSessionId
-      ? withSessionId(effectiveSessionId, payload as Record<string, unknown>)
-      : payload;
-
     const worker = this.getOrCreateWorker('nearSigner');
     const requestId = makeId('nearSigner');
 
@@ -452,7 +437,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       });
 
       try {
-        worker.postMessage({ id: requestId, type, payload: finalPayload }, transfer || []);
+        worker.postMessage({ id: requestId, type, payload }, transfer || []);
       } catch (error) {
         this.rejectRequest(
           'nearSigner',
@@ -468,25 +453,11 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   }
 
   private async requestDerivationOperation<T extends EcdsaDerivationWorkerOperationType>({
-    sessionId,
     type,
     payload,
     timeoutMs = SIGNER_WORKER_MANAGER_CONFIG.TIMEOUTS.DEFAULT,
     transfer,
   }: EcdsaDerivationWorkerOperationRequest<T>): Promise<EcdsaDerivationWorkerOperationResult<T>> {
-    const payloadSessionId = (payload as { sessionId?: unknown })?.sessionId;
-    if (sessionId && payloadSessionId && payloadSessionId !== sessionId) {
-      throw new Error(
-        `requestOperation: payload.sessionId (${payloadSessionId}) does not match provided sessionId (${sessionId})`,
-      );
-    }
-
-    const effectiveSessionId =
-      sessionId || (typeof payloadSessionId === 'string' ? payloadSessionId : undefined);
-    const finalPayload = effectiveSessionId
-      ? withSessionId(effectiveSessionId, payload as Record<string, unknown>)
-      : payload;
-
     const worker = this.getOrCreateWorker('ecdsaDerivationClient');
     const requestId = makeId('ecdsaDerivationClient');
 
@@ -511,7 +482,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       });
 
       try {
-        worker.postMessage({ id: requestId, type, payload: finalPayload }, transfer || []);
+        worker.postMessage({ id: requestId, type, payload }, transfer || []);
       } catch (error) {
         this.rejectRequest(
           'ecdsaDerivationClient',

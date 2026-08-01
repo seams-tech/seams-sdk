@@ -4,9 +4,12 @@ import {
   computeThresholdEd25519DelegateSigningDigestWasm,
   computeThresholdEd25519Nep413SigningDigestWasm,
   decodeThresholdEd25519SignedNearTxBorshWasm,
+  deriveThresholdEd25519ClientVerifyingShareWasm,
 } from '../../packages/sdk-web/src/core/signingEngine/chains/near/nearSignerWasm';
 import {
   NearSignerWorkerCustomRequestType,
+  WorkerRequestType,
+  WorkerResponseType,
   type DelegatePayload,
 } from '../../packages/sdk-web/src/core/types/signer-worker';
 import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
@@ -21,10 +24,45 @@ function recordingWorkerCtx(result: unknown, calls: unknown[]): WorkerOperationC
 }
 
 test.describe('threshold Ed25519 near signer WASM wrappers', () => {
+  test('puts the required protocol session ID inside the derive payload', async () => {
+    const calls: unknown[] = [];
+    const result = await deriveThresholdEd25519ClientVerifyingShareWasm({
+      sessionId: 'threshold-session',
+      nearAccountId: 'alice.testnet',
+      prfFirstB64u: 'prf-first',
+      wrapKeySalt: 'wrap-key-salt',
+      workerCtx: recordingWorkerCtx(
+        {
+          type: WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareSuccess,
+          payload: {
+            nearAccountId: 'alice.testnet',
+            clientVerifyingShareB64u: 'client-verifying-share',
+          },
+        },
+        calls,
+      ),
+    });
+
+    expect(result).toEqual({
+      nearAccountId: 'alice.testnet',
+      clientVerifyingShareB64u: 'client-verifying-share',
+    });
+    expect(calls[0]).toMatchObject({
+      request: {
+        type: WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare,
+        payload: {
+          sessionId: 'threshold-session',
+          nearAccountId: 'alice.testnet',
+          prfFirstB64u: 'prf-first',
+          wrapKeySalt: 'wrap-key-salt',
+        },
+      },
+    });
+  });
+
   test('computes signature-only signing digests through the near signer worker', async () => {
     const nep413Calls: unknown[] = [];
     const nep413 = await computeThresholdEd25519Nep413SigningDigestWasm({
-      sessionId: 'threshold-session',
       message: 'hello',
       recipient: 'wallet.example',
       nonce: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
@@ -49,7 +87,6 @@ test.describe('threshold Ed25519 near signer WASM wrappers', () => {
     };
     const delegateCalls: unknown[] = [];
     const delegateDigest = await computeThresholdEd25519DelegateSigningDigestWasm({
-      sessionId: 'threshold-session',
       delegate,
       workerCtx: recordingWorkerCtx({ signingDigestB64u: 'digest-delegate' }, delegateCalls),
     });
@@ -65,7 +102,6 @@ test.describe('threshold Ed25519 near signer WASM wrappers', () => {
   test('builds and decodes NEAR transaction BORSH through the near signer worker', async () => {
     const unsignedCalls: unknown[] = [];
     const unsigned = await buildThresholdEd25519NearTxUnsignedBorshWasm({
-      sessionId: 'threshold-session',
       txSigningRequest: { nearAccountId: 'alice.testnet', receiverId: 'bob.testnet', actions: [] },
       transactionContext: {
         nearPublicKeyStr: 'ed25519:group',
@@ -96,7 +132,6 @@ test.describe('threshold Ed25519 near signer WASM wrappers', () => {
 
     const decodeCalls: unknown[] = [];
     const decoded = await decodeThresholdEd25519SignedNearTxBorshWasm({
-      sessionId: 'threshold-session',
       signedTransactionBorshB64u: 'signed-tx',
       workerCtx: recordingWorkerCtx(
         {

@@ -1184,15 +1184,11 @@ export type EmailOtpWarmSessionOperationRequest<T extends EmailOtpWarmSessionOpe
 export type EmailOtpExportOperationRequest<T extends EmailOtpExportOperationType> =
   EmailOtpWorkerOperationRequestEnvelopeFor<T>;
 
-export type WithOptionalSessionId<T> = T extends { sessionId: string }
-  ? Omit<T, 'sessionId'> & { sessionId?: string }
-  : T;
-
 type NearSignerWorkerPublicWasmOperationType = keyof WorkerRequestTypeMap;
 
 export type NearSignerWorkerWasmOperationMap = {
   [T in NearSignerWorkerPublicWasmOperationType]: {
-    payload: WithOptionalSessionId<WorkerRequestTypeMap[T]['request']>;
+    payload: WorkerRequestTypeMap[T]['request'];
     result: WorkerResponseForRequest<T>;
   };
 };
@@ -1236,7 +1232,6 @@ export type NearWorkerOperationType = keyof NearSignerWorkerOperationMap;
 type NearWorkerOperationEntry<T extends NearWorkerOperationType> = NearSignerWorkerOperationMap[T];
 
 export type NearWorkerOperationRequest<T extends NearWorkerOperationType> = {
-  sessionId?: string;
   type: T;
   payload: NearWorkerOperationEntry<T>['payload'];
   onEvent?: (update: NearWorkerProgressEvent) => void;
@@ -1708,9 +1703,8 @@ type EcdsaDerivationWorkerOperationEntry<T extends EcdsaDerivationWorkerOperatio
   EcdsaDerivationClientCustomOperationMap[T];
 
 export type EcdsaDerivationWorkerOperationRequest<T extends EcdsaDerivationWorkerOperationType> = {
-  sessionId?: string;
   type: T;
-  payload: WithOptionalSessionId<EcdsaDerivationWorkerOperationEntry<T>['payload']>;
+  payload: EcdsaDerivationWorkerOperationEntry<T>['payload'];
   timeoutMs?: number;
   transfer?: Transferable[];
 };
