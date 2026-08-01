@@ -238,59 +238,17 @@ export async function resolveNearOperationStepUpMaterial(
 }
 
 export async function resolveConfirmedNearEd25519YaoCapability(args: {
-  authorization: NearEd25519StepUpAuthorization;
+  authorization: Extract<NearEd25519StepUpAuthorization, { kind: 'warm_session' }>;
   preparation: NearEd25519YaoSigningPreparation;
   executor: NearEd25519YaoMaterialExecutor;
 }): Promise<NearEd25519AuthorizationResult> {
-  switch (args.authorization.kind) {
-    case 'warm_session': {
-      const material = await resolvePreparedNearEd25519YaoMaterial(
-        args.preparation,
-        args.executor,
-      );
-      return {
-        sessionId: material.facts.thresholdSessionId,
-        material,
-        walletSessionState: await args.executor.resolveWalletSessionState(),
-      };
-    }
-    case 'passkey': {
-      const material = await resolvePreparedNearEd25519YaoMaterial(
-        args.preparation,
-        args.executor,
-      );
-      if (
-        material.facts.thresholdSessionId !==
-        args.authorization.plannedPasskeyOperationStepUp.sessionId
-      ) {
-        throw new Error(
-          '[SigningEngine] passkey signing capability does not match the confirmed material session',
-        );
-      }
-      return {
-        sessionId: material.facts.thresholdSessionId,
-        material,
-        walletSessionState: await args.executor.resolveWalletSessionState(),
-      };
-    }
-    case 'email_otp': {
-      const material = await resolvePreparedNearEd25519YaoMaterial(
-        args.preparation,
-        args.executor,
-      );
-      return {
-        sessionId: material.facts.thresholdSessionId,
-        material,
-        walletSessionState: await args.executor.resolveWalletSessionState(),
-      };
-    }
-    default:
-      return assertNeverNearEd25519StepUpAuthorization(args.authorization);
-  }
-}
-
-function assertNeverNearEd25519StepUpAuthorization(value: never): never {
-  throw new Error(
-    `[SigningEngine][near] unsupported Ed25519 step-up authorization: ${String(value)}`,
+  const material = await resolvePreparedNearEd25519YaoMaterial(
+    args.preparation,
+    args.executor,
   );
+  return {
+    sessionId: material.facts.thresholdSessionId,
+    material,
+    walletSessionState: await args.executor.resolveWalletSessionState(),
+  };
 }

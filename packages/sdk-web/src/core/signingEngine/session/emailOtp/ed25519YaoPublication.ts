@@ -11,6 +11,10 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import {
+  routerAbMpcMaterialActivationRefToWire,
+  sameRouterAbMpcMaterialActivationRef,
+} from '@shared/utils/routerAbNormalSigningIdentity';
+import {
   readExactEd25519SealedSession,
   type BuildCurrentSealedSessionRecordInput,
 } from '../persistence/sealedSessionStore';
@@ -64,6 +68,18 @@ function buildEd25519YaoSealTransport(args: {
   };
 }
 
+function sameRuntimePolicyScope(
+  left: NearEd25519YaoOperationMaterial['facts']['runtimePolicyScope'],
+  right: NearResolvedEd25519SigningSessionState['runtimePolicyScope'],
+): boolean {
+  return (
+    left.orgId === right.orgId &&
+    left.projectId === right.projectId &&
+    left.envId === right.envId &&
+    left.signingRootVersion === right.signingRootVersion
+  );
+}
+
 function assertPublicationCapabilityContinuity(
   material: NearEd25519YaoOperationMaterial,
   state: NearResolvedEd25519SigningSessionState,
@@ -72,8 +88,23 @@ function assertPublicationCapabilityContinuity(
   const lane = state.signingLane;
   const signer = lane.identity.signer;
   const metadata = material.activeClient.metadata();
+  const facts = material.facts;
+  const factsSigner = facts.signer;
   const materialActivation = nearEd25519YaoMaterialActivationFromMetadata(metadata);
   if (
+    facts.thresholdSessionId !== state.thresholdSessionId ||
+    metadata.scope.threshold_session_id !== facts.thresholdSessionId ||
+    String(factsSigner.account.wallet.walletId) !== String(signer.account.wallet.walletId) ||
+    String(factsSigner.account.nearAccountId) !== String(signer.account.nearAccountId) ||
+    String(factsSigner.nearEd25519SigningKeyId) !== String(signer.nearEd25519SigningKeyId) ||
+    factsSigner.signerSlot !== signer.signerSlot ||
+    facts.signingRootId !== state.signingRootId ||
+    facts.signingRootVersion !== state.signingRootVersion ||
+    facts.routerAbNormalSigning.kind !== state.routerAbNormalSigning.kind ||
+    facts.routerAbNormalSigning.signingWorkerId !==
+      state.routerAbNormalSigning.signingWorkerId ||
+    !sameRuntimePolicyScope(facts.runtimePolicyScope, state.runtimePolicyScope) ||
+    facts.relayerUrl !== state.relayerUrl ||
     String(lane.thresholdSessionId) !== state.thresholdSessionId ||
     String(lane.identity.thresholdSessionId) !== state.thresholdSessionId ||
     metadata.scope.account_id !== String(signer.account.wallet.walletId) ||
@@ -84,6 +115,10 @@ function assertPublicationCapabilityContinuity(
     metadata.applicationBinding.key_creation_signer_slot !== signer.signerSlot ||
     metadata.scope.root_share_epoch !== state.signingRootVersion ||
     metadata.scope.signing_worker_id !== state.routerAbNormalSigning.signingWorkerId ||
+    !sameRouterAbMpcMaterialActivationRef(
+      metadata.scope.material_activation,
+      routerAbMpcMaterialActivationRefToWire(materialActivation),
+    ) ||
     !mpcMaterialActivationRefsEqual(materialActivation, publicationContext.materialActivation)
   ) {
     throw new Error('Email OTP Ed25519 sealed refresh capability identity mismatch');
