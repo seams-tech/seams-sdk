@@ -61,7 +61,6 @@ import type {
 } from '../../session/availability/availableSigningLanes';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDelivery';
-import { buildPasskeyEd25519SessionPolicy } from '../../threshold/sessionPolicy';
 import { createNearOperationStepUpGrantId } from './shared/operationStepUpPreparation';
 import {
   walletSessionFailureFromError,
@@ -680,12 +679,11 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
   if (args.auth.kind !== 'passkey') return undefined;
   const auth = args.auth;
   return {
-    prepare: async ({ requiredSignatureUses }: { requiredSignatureUses: number }) => {
-      const material = await resolveNearPasskeyStepUpPolicyMaterial({
+    prepare: async () => {
+      const materialFacts = await resolveNearPasskeyStepUpMaterialFacts({
         preparation: args.preparation,
         executor: args.materialExecutor,
       });
-      const materialFacts = material.facts;
       const signer = args.signer;
       const thresholdSessionId = String(materialFacts.thresholdSessionId || '').trim();
       const requestedGrantId = createNearOperationStepUpGrantId();
@@ -699,50 +697,27 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
         rpId: auth.rpId,
         credentialIdB64u: auth.credentialIdB64u,
       });
-      const { policy, sessionPolicyDigest32 } = await buildPasskeyEd25519SessionPolicy({
-        nearAccountId: signer.account.nearAccountId,
-        nearEd25519SigningKeyId: String(signer.nearEd25519SigningKeyId),
-        authority,
-        relayerKeyId: materialFacts.routerAbNormalSigning.signingWorkerId,
-        runtimePolicyScope: materialFacts.runtimePolicyScope,
-        routerAbNormalSigning: materialFacts.routerAbNormalSigning,
-        participantIds: [...material.participantIds],
-        thresholdSessionId,
-        signingGrantId: requestedGrantId,
-        remainingUses: requiredSignatureUses,
-      });
       return {
-        sessionId: policy.thresholdSessionId,
+        sessionId: thresholdSessionId,
         requestedGrantId,
-        sessionPolicyDigest32,
         authority,
       };
     },
   };
 }
 
-async function resolveNearPasskeyStepUpPolicyMaterial(args: {
+async function resolveNearPasskeyStepUpMaterialFacts(args: {
   preparation: NearEd25519YaoSigningPreparation;
   executor: NearEd25519YaoMaterialExecutor;
-}): Promise<{
-  facts: ReturnType<typeof nearEd25519YaoOperationMaterialFacts>;
-  participantIds: readonly number[];
-}> {
+}): Promise<ReturnType<typeof nearEd25519YaoOperationMaterialFacts>> {
   switch (args.preparation.hydration.kind) {
     case 'use_live_runtime': {
       const capability = await args.executor.resolve(args.preparation);
-      const metadata = capability.activeClient.metadata();
-      return {
-        facts: nearEd25519YaoOperationMaterialFacts(capability.walletSessionState),
-        participantIds: [...metadata.participantIds],
-      };
+      return nearEd25519YaoOperationMaterialFacts(capability.walletSessionState);
     }
     case 'rehydrate_material_activation': {
       const prepared = await args.executor.preparePasskeyOperationStepUp(args.preparation);
-      return {
-        facts: prepared.facts,
-        participantIds: prepared.participantIds,
-      };
+      return prepared.facts;
     }
     case 'reauthorize_public_anchor':
       throw new Error('[SigningEngine][near] retired material cannot prepare Passkey step-up');

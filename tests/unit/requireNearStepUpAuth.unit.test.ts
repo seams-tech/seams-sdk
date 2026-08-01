@@ -167,19 +167,15 @@ test.describe('requireNearStepUpAuth', () => {
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-passkey'),
       storageSource: 'login',
     });
-    const preparedUses: number[] = [];
-
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
       signingLaneAuth: signingLane.auth,
       requiredSignatureUses: 1,
       passkeyEd25519OperationStepUp: {
-        prepare: async ({ requiredSignatureUses }) => {
-          preparedUses.push(requiredSignatureUses);
+        prepare: async () => {
           return {
             sessionId: 'threshold-session-passkey',
             requestedGrantId: OPERATION_GRANT_ID,
-            sessionPolicyDigest32: 'digest-32',
             authority: buildPasskeyWalletAuthAuthority({
               walletId: WALLET_ID,
               rpId: PASSKEY_AUTH.rpId,
@@ -190,13 +186,11 @@ test.describe('requireNearStepUpAuth', () => {
       },
     });
 
-    expect(preparedUses).toEqual([1]);
     expect(prepared.kind).toBe('passkey');
     if (prepared.kind !== 'passkey') throw new Error('expected passkey branch');
     expect(prepared.plannedPasskeyOperationStepUp).toMatchObject({
       sessionId: 'threshold-session-passkey',
       requestedGrantId: OPERATION_GRANT_ID,
-      sessionPolicyDigest32: 'digest-32',
     });
   });
 });
