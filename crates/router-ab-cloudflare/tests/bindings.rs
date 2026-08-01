@@ -289,7 +289,7 @@ fn normal_signing_v2_wallet_session(expires_at_ms: u64) -> CloudflareRouterVerif
         "account.near",
         "authorization-session-1",
         "wallet-session-1",
-        "ed25519-material-lifecycle-1",
+        "threshold-session-1",
         "signing-grant-1",
         "org-1",
         "project-1",
@@ -3339,6 +3339,31 @@ fn router_verified_wallet_session_authorizes_normal_signing_v2_prepare_scope() {
     let wallet_session = normal_signing_v2_wallet_session(3_000);
     let request = normal_signing_v2_prepare_request(2_000);
 
+    assert_ne!(
+        wallet_session.threshold_session_id,
+        request.scope.material_activation.activation_id
+    );
+    assert_ne!(
+        wallet_session.threshold_session_id,
+        wallet_session.wallet_session_id
+    );
+    assert_ne!(
+        wallet_session.threshold_session_id,
+        request.scope.material_activation.lifecycle_binding
+    );
+    assert_ne!(
+        wallet_session.wallet_session_id,
+        request.scope.material_activation.activation_id
+    );
+    assert_ne!(
+        wallet_session.wallet_session_id,
+        request.scope.material_activation.lifecycle_binding
+    );
+    assert_ne!(
+        request.scope.material_activation.activation_id,
+        request.scope.material_activation.lifecycle_binding
+    );
+
     wallet_session
         .validate_for_normal_signing_prepare_request_v2(&request, 1_000)
         .expect("wallet session authorizes v2 prepare request");
@@ -3399,7 +3424,7 @@ fn router_verified_wallet_session_rejects_normal_signing_v2_signing_worker_misma
 }
 
 #[test]
-fn router_verified_wallet_session_rejects_normal_signing_v2_prepare_account_and_session_mismatch() {
+fn router_verified_wallet_session_rejects_v2_prepare_account_or_wallet_session_mismatch() {
     let request = normal_signing_v2_prepare_request(2_000);
 
     let mut wrong_account = normal_signing_v2_wallet_session(3_000);
@@ -3409,11 +3434,14 @@ fn router_verified_wallet_session_rejects_normal_signing_v2_prepare_account_and_
         .expect_err("prepare account mismatch must fail");
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 
-    let mut wrong_session = normal_signing_v2_wallet_session(3_000);
-    wrong_session.threshold_session_id = "other-session".to_owned();
-    let err = wrong_session
-        .validate_for_normal_signing_prepare_request_v2(&request, 1_000)
-        .expect_err("prepare session mismatch must fail");
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let mut wrong_authorization = request;
+    wrong_authorization.scope.authorization =
+        NormalSigningAuthorizationV1::reusable_wallet_session("other-wallet-session")
+            .expect("substituted Wallet Session authorization");
+    let err = wallet_session
+        .validate_for_normal_signing_prepare_request_v2(&wrong_authorization, 1_000)
+        .expect_err("prepare Wallet Session authorization mismatch must fail");
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 }
 
@@ -3484,8 +3512,7 @@ fn router_verified_wallet_session_rejects_normal_signing_v2_finalize_signing_wor
 }
 
 #[test]
-fn router_verified_wallet_session_rejects_normal_signing_v2_finalize_account_and_session_mismatch()
-{
+fn router_verified_wallet_session_rejects_v2_finalize_account_or_wallet_session_mismatch() {
     let request = normal_signing_v2_finalize_request(2_000);
 
     let mut wrong_account = normal_signing_v2_wallet_session(3_000);
@@ -3495,11 +3522,14 @@ fn router_verified_wallet_session_rejects_normal_signing_v2_finalize_account_and
         .expect_err("finalize account mismatch must fail");
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 
-    let mut wrong_session = normal_signing_v2_wallet_session(3_000);
-    wrong_session.threshold_session_id = "other-session".to_owned();
-    let err = wrong_session
-        .validate_for_normal_signing_finalize_request_v2(&request, 1_000)
-        .expect_err("finalize session mismatch must fail");
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let mut wrong_authorization = request;
+    wrong_authorization.scope.authorization =
+        NormalSigningAuthorizationV1::reusable_wallet_session("other-wallet-session")
+            .expect("substituted Wallet Session authorization");
+    let err = wallet_session
+        .validate_for_normal_signing_finalize_request_v2(&wrong_authorization, 1_000)
+        .expect_err("finalize Wallet Session authorization mismatch must fail");
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 }
 
