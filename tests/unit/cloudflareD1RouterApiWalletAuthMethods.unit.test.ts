@@ -99,7 +99,7 @@ function yaoRegistrationBinding(
       primitive_request_kind: 'registration',
       root_share_epoch: request.scope.root_share_epoch,
       account_id: request.scope.account_id,
-      session_id: request.scope.wallet_session_id,
+      session_id: request.scope.threshold_session_id,
       signer_set_id: request.scope.signer_set_id,
       selected_server_id: request.scope.signing_worker_id,
     },
@@ -1014,7 +1014,7 @@ test('partitioned D1 finalizes and replays Ed25519 Yao add-signer without reques
         admissionRequest: {
           scope: {
             lifecycle_id: started.addSignerCeremonyId,
-            wallet_session_id: started.addSignerCeremonyId,
+            threshold_session_id: started.addSignerCeremonyId,
             signer_set_id: registrationNearEd25519BranchKey(3),
             signing_worker_id: TEST_YAO_SIGNING_WORKER_ID,
           },

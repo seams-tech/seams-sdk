@@ -67,7 +67,7 @@ fn router_rejects_ambiguous_participant_and_scope_inputs() {
 
     let mut invalid_scope =
         serde_json::to_value(registration_request()).expect("registration JSON");
-    invalid_scope["scope"]["wallet_session_id"] = serde_json::json!("");
+    invalid_scope["scope"]["threshold_session_id"] = serde_json::json!("");
     assert!(
         serde_json::from_value::<RouterAbEd25519YaoRegistrationAdmissionRequestV1>(invalid_scope)
             .is_err()

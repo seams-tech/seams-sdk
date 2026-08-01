@@ -173,12 +173,12 @@ fn admission_request() -> RouterAbEd25519YaoRegistrationAdmissionRequestV1 {
     .expect("registration request")
 }
 
-fn scope(lifecycle_id: &str, wallet_session_id: &str) -> RouterAbEd25519YaoLifecycleScopeV1 {
+fn scope(lifecycle_id: &str, threshold_session_id: &str) -> RouterAbEd25519YaoLifecycleScopeV1 {
     RouterAbEd25519YaoLifecycleScopeV1::new(
         lifecycle_id,
         RootShareEpoch::new("epoch-1").expect("epoch"),
         "account-1",
-        wallet_session_id,
+        threshold_session_id,
         "set-1",
         "worker-1",
         MpcMaterialActivationRefV1::new(
