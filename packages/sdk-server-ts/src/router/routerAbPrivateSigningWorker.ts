@@ -408,7 +408,6 @@ type RouterAbEd25519NormalSigningAuthorizationV2 =
   | {
       readonly kind: 'reusable_wallet_session';
       readonly wallet_session_id: string;
-      readonly grant_id: string;
     }
   | {
       readonly kind: 'operation_step_up';
@@ -461,6 +460,15 @@ type RouterAbEcdsaPrivateSigningAuthorization =
       readonly kind: 'operation_step_up';
       readonly session: RouterAbOperationStepUpAppSession;
     };
+
+function reusableEd25519SigningGrantId(
+  authorization: RouterAbEd25519PrivateSigningAuthorization,
+): string {
+  if (authorization.kind !== 'reusable_wallet_session') {
+    throw new Error('Router A/B reusable authorization is unavailable');
+  }
+  return authorization.claims.signingGrantId;
+}
 
 type RouterAbAuthenticatedSessionContextV1 =
   | {
@@ -724,6 +732,7 @@ async function ed25519BudgetRequestDigestB64u(input: {
   body: Record<string, unknown>;
   operationId: string;
   signingWorkerId: string;
+  signingGrantId: string;
 }): Promise<string> {
   const requestId = routerAbScopeField(input.body, 'request_id');
   const accountId = routerAbScopeField(input.body, 'account_id');
@@ -731,7 +740,6 @@ async function ed25519BudgetRequestDigestB64u(input: {
   const scope = requirePrivateSigningScope(input.body.scope);
   if (scope.authorization.kind !== 'reusable_wallet_session') return '';
   const walletSessionId = scope.authorization.wallet_session_id;
-  const signingGrantId = scope.authorization.grant_id;
   const materialActivationId = scope.material_activation.activation_id;
   const expiresAtMs = expiresAtMsField(input.body);
   const payloadDigest = await ed25519BudgetSigningPayloadDigestB64u(input.body);
@@ -739,7 +747,7 @@ async function ed25519BudgetRequestDigestB64u(input: {
     !requestId ||
     !accountId ||
     !walletSessionId ||
-    !signingGrantId ||
+    !input.signingGrantId ||
     !materialActivationId ||
     !scopeSigningWorkerId ||
     !input.signingWorkerId ||
@@ -755,7 +763,7 @@ async function ed25519BudgetRequestDigestB64u(input: {
       ['request_id', requestId],
       ['account_id', accountId],
       ['wallet_session_id', walletSessionId],
-      ['signing_grant_id', signingGrantId],
+      ['signing_grant_id', input.signingGrantId],
       ['material_activation_id', materialActivationId],
       ['scope_signing_worker_id', scopeSigningWorkerId],
       ['claims_signing_worker_id', input.signingWorkerId],
@@ -919,7 +927,7 @@ function requirePrivateSigningAuthorization(
     case 'reusable_wallet_session':
       requirePrivateSigningExactFields(
         authorization,
-        ['kind', 'wallet_session_id', 'grant_id'],
+        ['kind', 'wallet_session_id'],
         'scope.authorization',
       );
       return {
@@ -927,10 +935,6 @@ function requirePrivateSigningAuthorization(
         wallet_session_id: requirePrivateSigningString(
           authorization.wallet_session_id,
           'scope.authorization.wallet_session_id',
-        ),
-        grant_id: requirePrivateSigningString(
-          authorization.grant_id,
-          'scope.authorization.grant_id',
         ),
       };
     case 'operation_step_up':
@@ -1257,7 +1261,6 @@ async function privateSigningRound1BindingDigest(input: {
     case 'reusable_wallet_session':
       pushLen32(out, textBytes('reusable_wallet_session'));
       pushLen32(out, textBytes(input.scope.authorization.wallet_session_id));
-      pushLen32(out, textBytes(input.scope.authorization.grant_id));
       break;
     case 'operation_step_up':
       pushLen32(out, textBytes('operation_step_up'));
@@ -1357,8 +1360,7 @@ function privateSigningAuthorizationContext(
     scope.authorization.kind === 'reusable_wallet_session'
   ) {
     if (
-      scope.authorization.wallet_session_id !== authorization.claims.walletSessionId ||
-      scope.authorization.grant_id !== authorization.claims.signingGrantId
+      scope.authorization.wallet_session_id !== authorization.claims.walletSessionId
     ) {
       throw new Error('Router A/B Ed25519 scope authorization does not match verified claims');
     }
@@ -1443,7 +1445,7 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
             ? {
                 kind: 'reusable_wallet_session',
                 wallet_session_id: scope.authorization.wallet_session_id,
-                grant_id: scope.authorization.grant_id,
+                grant_id: reusableEd25519SigningGrantId(input.authorization),
               }
             : {
                 kind: 'operation_step_up',
@@ -1510,7 +1512,7 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
           ? {
               kind: 'reusable_wallet_session',
               wallet_session_id: scope.authorization.wallet_session_id,
-              grant_id: scope.authorization.grant_id,
+              grant_id: reusableEd25519SigningGrantId(input.authorization),
             }
           : {
               kind: 'operation_step_up',
@@ -2204,6 +2206,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
       body: input.body,
       operationId,
       signingWorkerId,
+      signingGrantId: validated.walletSessionAuth.signingGrantId,
     });
     if (!operationId || !requestDigest) {
       return {
@@ -2248,6 +2251,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
       body: input.body,
       operationId,
       signingWorkerId,
+      signingGrantId: validated.walletSessionAuth.signingGrantId,
     });
     if (!reservationId || !operationId || !requestDigest) {
       return {
@@ -2395,7 +2399,6 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
   if (
     scope.account_id !== input.walletSessionAuth.userId ||
     authorization.wallet_session_id !== input.walletSessionAuth.walletSessionId ||
-    authorization.grant_id !== input.walletSessionAuth.signingGrantId ||
     scope.material_activation.material_owner !== input.walletSessionAuth.userId
   ) {
     return {
