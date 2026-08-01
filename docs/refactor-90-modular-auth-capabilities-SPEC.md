@@ -581,8 +581,11 @@ implementing commit SHA as the evidence.
     threshold-session, activation, and lifecycle identities independent; local
     activation is explicit and refresh rejects substituted material
     (`c45dd8d3f`, `5498e37f9`).
-  - [ ] Canonicalize export before side effects; finish activation-owned
-    Ed25519 storage/export identities.
+  - [x] Canonicalize export before side effects; keep Passkey and Email OTP
+    Ed25519 export material keyed by exact activation while current reusable
+    authorization travels independently. Operation step-up uses a fresh
+    branded `CapabilityGrantId` and never fabricates a reusable signing lane
+    (`bbeabd262`, `82b439fc5`, `35b9584a6`, `0ef310b0e`).
   - [x] Delete write-only ECDSA resolved-identity publication from passkey
     recovery, Email OTP restore, and sealed-store identity projections. ECDSA
     availability is resolved from canonical capability and sealed-runtime
