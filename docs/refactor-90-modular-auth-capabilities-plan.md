@@ -581,6 +581,10 @@ the replacement and legacy MPC paths must not ship together.
       remove threshold-session/grant identity from Ed25519 export context.
   - [x] Warm-session purpose carries exact Ed25519 activation while worker
         protocol session identity travels separately (`c619db902`).
+  - [x] Passkey durable reads and policy updates resolve Ed25519 material by
+        exact activation, while Email OTP worker status, consumption, sealing,
+        clearing, and rehydration key Ed25519 material by the complete
+        activation target (`c7472eb28`, `629c1da97`, `47f0cebfe`).
   - [x] Email OTP Ed25519 hydration, recovery, publication readback, and export
         resolve sealed material by the complete activation ref; unavailable
         public locators fail before durable probing (`eeab81b5a`, `30c1a741a`).
