@@ -6,19 +6,17 @@ import {
   SigningSessionIds,
   summarizeSigningLane,
   type BackingMaterialSessionId,
-  type SelectedEcdsaSigningSessionPlanningLane,
+  type SelectedEd25519SigningSessionPlanningLane,
   type SelectedSigningSessionPlanningLane,
   type SigningLaneSummary,
   type SigningOperationContext,
   type SigningOperationFingerprint,
   type SigningOperationId,
-  type ThresholdEcdsaSessionId,
   type ThresholdSessionId,
   type SigningGrantId,
   type WalletSigningSpendPlan,
 } from '../operationState/types';
 import {
-  exactEcdsaSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
   thresholdSessionIdsFromExactSigningLaneIdentity,
@@ -28,15 +26,8 @@ import {
 } from '../identity/exactSigningLaneIdentity';
 import {
   toWalletId,
-  type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  EvmFamilyEcdsaKeyHandle,
-  EvmFamilyEcdsaKeyIdentity,
-} from '../identity/evmFamilyEcdsaIdentity';
-import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 export type SigningSessionBudgetZeroSpendReason =
   | 'confirmation_cancelled'
@@ -246,7 +237,7 @@ export type ZeroBudgetFinalizationSpend = {
   kind: 'zero_spend';
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
-  lane: SelectedSigningSessionPlanningLane;
+  lane: SelectedEd25519SigningSessionPlanningLane;
   reason: SigningSessionBudgetZeroSpendReason;
   error?: unknown;
 };
@@ -394,13 +385,7 @@ export type Ed25519WalletBudgetOwner = {
   accountId?: never;
 };
 
-export type EcdsaWalletBudgetOwner = {
-  curve: 'ecdsa';
-  walletId: WalletId;
-  accountId?: never;
-};
-
-export type WalletBudgetOwner = Ed25519WalletBudgetOwner | EcdsaWalletBudgetOwner;
+export type WalletBudgetOwner = Ed25519WalletBudgetOwner;
 
 export type WalletBudgetStatusCheck = {
   kind: 'wallet_budget_status_check';
@@ -966,20 +951,10 @@ export function ed25519WalletBudgetOwner(walletId: WalletId | string): Ed25519Wa
   return { curve: 'ed25519', walletId: toWalletId(walletId) };
 }
 
-export function ecdsaWalletBudgetOwner(walletId: WalletId): EcdsaWalletBudgetOwner {
-  return { curve: 'ecdsa', walletId };
-}
-
 export function walletBudgetOwnerForLane(
-  lane: SelectedSigningSessionPlanningLane,
+  lane: SelectedEd25519SigningSessionPlanningLane,
 ): WalletBudgetOwner {
-  const signer = exactSigningLaneIdentityFromSelectedLane(lane).signer;
-  switch (signer.kind) {
-    case 'evm_family_ecdsa_signer':
-      return ecdsaWalletBudgetOwner(toWalletId(signer.walletId));
-    case 'near_ed25519_signer':
-      return ed25519WalletBudgetOwner(signer.account.wallet.walletId);
-  }
+  return ed25519WalletBudgetOwner(lane.identity.signer.account.wallet.walletId);
 }
 
 export function walletBudgetOwnerId(owner: WalletBudgetOwner): WalletId {
