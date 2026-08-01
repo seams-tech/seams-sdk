@@ -759,7 +759,6 @@ export function ed25519AvailableLaneIdentityKey(
   const nearAccountId = String(lane.nearAccountId || '').trim();
   const nearEd25519SigningKeyId = String(lane.nearEd25519SigningKeyId || '').trim();
   const signerSlot = String(lane.signerSlot || '').trim();
-  const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
   const activationKey = lane.materialActivation ? materialActivationKey(lane.materialActivation) : '';
   if (
     !authMethod ||
@@ -767,7 +766,6 @@ export function ed25519AvailableLaneIdentityKey(
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
     !signerSlot ||
-    !thresholdSessionId ||
     !activationKey
   ) {
     return null;
@@ -780,7 +778,6 @@ export function ed25519AvailableLaneIdentityKey(
     authMethod,
     'ed25519',
     'near',
-    thresholdSessionId,
     activationKey,
   ].join(':');
 }
