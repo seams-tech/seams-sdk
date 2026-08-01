@@ -10,11 +10,6 @@ import type {
   UiConfirmRuntimeBridgePort,
 } from '../../uiConfirm/uiConfirm.types';
 import type { ExactEd25519SigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
-import {
-  exactEd25519SigningLaneIdentity,
-  nearEd25519SignerBindingFromBoundaryFields,
-} from '../../session/identity/exactSigningLaneIdentity';
-import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type {
   Ed25519YaoActiveClientIdentityV1,
 } from '../../threshold/ed25519/yaoActiveClientRegistry';
@@ -42,7 +37,6 @@ import type {
   PasskeyEd25519YaoExportContextResolutionV1,
   PasskeyEd25519YaoExportContextV1,
 } from '../../session/passkey/ed25519YaoWarmRecovery';
-import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { resolveThresholdEd25519CommitQueueKey } from '../../threshold/ed25519/commitQueue';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
@@ -229,9 +223,24 @@ function passkeyExportStableIdentityMatches(args: {
       String(currentSigner.nearEd25519SigningKeyId) &&
     selectedSigner.signerSlot === currentSigner.signerSlot &&
     selectedSigner.account.kind === currentSigner.account.kind &&
-    String(args.selected.thresholdSessionId) === String(args.current.thresholdSessionId) &&
     String(args.selected.auth.rpId) === String(args.current.auth.rpId) &&
     args.selected.auth.credentialIdB64u === args.current.auth.credentialIdB64u
+  );
+}
+
+function passkeyExportMaterialIdentityMatches(args: {
+  selected: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
+  context: PasskeyEd25519YaoExportContextV1;
+}): boolean {
+  const signer = args.selected.signer;
+  const material = args.context.material;
+  return (
+    String(signer.account.wallet.walletId) === String(material.walletId) &&
+    String(signer.account.nearAccountId) === String(material.nearAccountId) &&
+    String(signer.nearEd25519SigningKeyId) === String(material.nearEd25519SigningKeyId) &&
+    signer.signerSlot === material.signerSlot &&
+    String(args.selected.auth.rpId) === args.context.rpId &&
+    args.selected.auth.credentialIdB64u === material.credentialIdB64u
   );
 }
 
@@ -280,50 +289,20 @@ function resolvePasskeyExportContextFromActiveCapability(args: {
   };
 }
 
-function passkeyLaneIdentityFromExportContext(
-  context: PasskeyEd25519YaoExportContextV1,
-): ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth> {
-  const descriptor = context.descriptor;
-  const laneIdentity = exactEd25519SigningLaneIdentity({
-    signer: nearEd25519SignerBindingFromBoundaryFields({
-      walletId: descriptor.walletId,
-      nearAccountId: descriptor.nearAccountId,
-      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
-        descriptor.nearEd25519SigningKeyId,
-      ),
-      signerSlot: descriptor.signerSlot,
-    }),
-    auth: {
-      kind: 'passkey',
-      rpId: toRpId(context.rpId),
-      credentialIdB64u: descriptor.credentialIdB64u,
-    },
-    signingGrantId: descriptor.session.signingGrantId,
-    thresholdSessionId: descriptor.session.thresholdSessionId,
-  });
-  if (!isExactPasskeyEd25519SigningLaneIdentity(laneIdentity)) {
-    throw new Error(
-      '[SigningEngine][ed25519-export] durable Yao context requires passkey authority',
-    );
-  }
-  return laneIdentity;
-}
-
 function requireDurablePasskeyExportContext(args: {
   context: PasskeyEd25519YaoExportContextV1;
   selectedLaneIdentity: ExactEd25519SigningLaneIdentity<PasskeyEd25519LaneAuth>;
   selectedMaterialActivation: MpcMaterialActivationRef;
 }): ResolvedPasskeyEd25519YaoExportContext {
-  const currentLaneIdentity = passkeyLaneIdentityFromExportContext(args.context);
   if (
-    !passkeyExportStableIdentityMatches({
+    !passkeyExportMaterialIdentityMatches({
       selected: args.selectedLaneIdentity,
-      current: currentLaneIdentity,
+      context: args.context,
     })
   ) {
     throw new Error('[SigningEngine][ed25519-export] durable Yao context identity mismatch');
   }
-  const descriptor = args.context.descriptor;
+  const descriptor = args.context.material;
   if (
     !mpcMaterialActivationRefsEqual(
       args.selectedMaterialActivation,
@@ -334,9 +313,9 @@ function requireDurablePasskeyExportContext(args: {
   }
   const lifecycle = descriptor.capability.lifecycle;
   return {
-    laneIdentity: currentLaneIdentity,
+    laneIdentity: args.selectedLaneIdentity,
     relayerUrl: args.context.relayerUrl,
-    walletSessionJwt: descriptor.session.walletSessionJwt,
+    walletSessionJwt: args.context.authorization.walletSessionJwt,
     capability: {
       materialActivation: descriptor.capability.materialActivation,
       scope: {
@@ -355,7 +334,7 @@ function requireDurablePasskeyExportContext(args: {
       registeredPublicKey: descriptor.capability.registeredPublicKey,
       stateEpoch: descriptor.capability.stateEpoch,
       activeCapabilityBinding: descriptor.capability.activeCapabilityBinding,
-      runtimePolicyScope: descriptor.session.runtimePolicyScope,
+      runtimePolicyScope: descriptor.capability.runtimePolicyScope,
     },
   };
 }

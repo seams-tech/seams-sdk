@@ -24,11 +24,13 @@ import type { RouterAbEd25519YaoExportWorkerPayloadV1 } from '@/core/types/secur
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 
 const WALLET_ID = toWalletId('passkey-export-refresh-wallet');
 const NEAR_ACCOUNT_ID = toAccountId('passkey-export-refresh.testnet');
 const NEAR_SIGNING_KEY_ID = nearEd25519SigningKeyIdFromString('passkey-export-refresh-key');
 const THRESHOLD_SESSION_ID = 'threshold-passkey-export-refresh';
+const RETIRED_THRESHOLD_SESSION_ID = 'threshold-passkey-export-refresh-retired';
 const WALLET_SESSION_ID = 'wallet-session-passkey-export-refresh';
 const STALE_SIGNING_GRANT_ID = 'grant-before-cold-recovery';
 const CURRENT_SIGNING_GRANT_ID = 'grant-after-cold-recovery';
@@ -51,6 +53,11 @@ const MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
   'passkey-export-refresh',
   String(WALLET_ID),
 );
+const DURABLE_EXPORT_AUTHORIZATION = availableLaneEd25519Authorization({
+  walletId: String(WALLET_ID),
+  identitySeed: 'passkey-export-refresh',
+  authMethod: 'passkey',
+});
 
 function fixtureJwt(signingGrantId: string): string {
   const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
@@ -74,7 +81,10 @@ function fixtureJwt(signingGrantId: string): string {
   return `${header}.${payload}.fixture`;
 }
 
-function passkeyLaneIdentity(signingGrantId: string): ExactEd25519SigningLaneIdentity {
+function passkeyLaneIdentity(
+  signingGrantId: string,
+  thresholdSessionId: string = THRESHOLD_SESSION_ID,
+): ExactEd25519SigningLaneIdentity {
   return exactEd25519SigningLaneIdentity({
     signer: nearEd25519SignerBindingFromBoundaryFields({
       walletId: WALLET_ID,
@@ -88,7 +98,7 @@ function passkeyLaneIdentity(signingGrantId: string): ExactEd25519SigningLaneIde
       credentialIdB64u: CREDENTIAL_ID,
     },
     signingGrantId,
-    thresholdSessionId: THRESHOLD_SESSION_ID,
+    thresholdSessionId,
   });
 }
 
@@ -261,7 +271,8 @@ class DurablePasskeyEd25519ExportRefreshHarness extends PasskeyEd25519ExportRefr
         kind: 'passkey_ed25519_yao_export_context_v1',
         relayerUrl: RELAYER_URL,
         rpId: RP_ID,
-        descriptor: {
+        authorization: DURABLE_EXPORT_AUTHORIZATION,
+        material: {
           walletId: WALLET_ID,
           nearAccountId: NEAR_ACCOUNT_ID,
           nearEd25519SigningKeyId: String(NEAR_SIGNING_KEY_ID),
@@ -269,16 +280,6 @@ class DurablePasskeyEd25519ExportRefreshHarness extends PasskeyEd25519ExportRefr
           operationalPublicKey: 'ed25519:durable-export-context',
           relayerKeyId: RELAYER_KEY_ID,
           credentialIdB64u: CREDENTIAL_ID,
-          session: {
-            walletSessionJwt: fixtureJwt(CURRENT_SIGNING_GRANT_ID),
-            thresholdSessionId: THRESHOLD_SESSION_ID,
-            signingGrantId: CURRENT_SIGNING_GRANT_ID,
-            expiresAtMs: Date.now() + 60_000,
-            remainingUses: 3,
-            runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-            participantIds: PARTICIPANT_IDS,
-            routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
-          },
           capability: {
             materialActivation: MATERIAL_ACTIVATION,
             activeCapabilityBinding: new Array<number>(32).fill(1),
@@ -313,7 +314,7 @@ test('page-refresh passkey export prompts from durable context without activatin
   const result = await exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
-    laneIdentity: passkeyLaneIdentity(STALE_SIGNING_GRANT_ID),
+    laneIdentity: passkeyLaneIdentity(STALE_SIGNING_GRANT_ID, RETIRED_THRESHOLD_SESSION_ID),
     materialActivation: MATERIAL_ACTIVATION,
     options: {},
     flowId: 'flow-passkey-export-durable-context',
@@ -326,7 +327,7 @@ test('page-refresh passkey export prompts from durable context without activatin
   expect(harness.recoveryCalls).toBe(0);
   expect(harness.workerPayload?.exactLane.materialActivation).toEqual(MATERIAL_ACTIVATION);
   expect(harness.workerPayload?.authorization.walletSessionJwt).toBe(
-    fixtureJwt(CURRENT_SIGNING_GRANT_ID),
+    DURABLE_EXPORT_AUTHORIZATION.walletSessionJwt,
   );
 });
 
