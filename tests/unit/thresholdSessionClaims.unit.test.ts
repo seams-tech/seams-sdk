@@ -16,6 +16,7 @@ import {
   validateRouterAbEd25519NormalSigningRequestScope,
   validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest,
   validateRouterAbEcdsaDerivationNormalSigningPrepareRequest,
+  authorizeRouterAbEcdsaDerivationNormalSigningRoute,
 } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import {
   buildVerifiedEcdsaWalletSessionAuth,
@@ -935,5 +936,98 @@ test.describe('Router A/B Wallet Session token claims', () => {
         },
       },
     });
+  });
+
+  test('reusable ECDSA prepare and finalize reject superseded material before admission', async () => {
+    const claims = parseRouterAbEcdsaDerivationWalletSessionClaims(routerAbEcdsaClaims());
+    if (!claims?.routerAbEcdsaDerivationNormalSigning) {
+      throw new Error('expected Router A/B ECDSA derivation normal-signing claims');
+    }
+    const scope = claims.routerAbEcdsaDerivationNormalSigning.scope;
+    const prepareRequest = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
+      scope,
+      requestId: 'router-ab-ecdsa-superseded-prepare',
+      operationId: 'router-ab-ecdsa-superseded-operation',
+      operationDigests: routerAbOperationDigests,
+      authorization: {
+        kind: 'reusable_wallet_session',
+        wallet_session_id: claims.walletSessionId,
+      },
+      materialActivation: routerAbEcdsaMaterialActivation,
+      clientPresignatureId: 'client-presignature-superseded',
+      expiresAtMs: claims.thresholdExpiresAtMs,
+      signingDigest32: new Uint8Array(32).fill(1),
+      clientRerandomizationCommitment32: new Uint8Array(32).fill(0x31),
+    });
+    const finalizeRequest = buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1({
+      scope,
+      requestId: prepareRequest.request_id,
+      operationId: 'router-ab-ecdsa-superseded-operation',
+      operationDigests: routerAbOperationDigests,
+      authorization: {
+        kind: 'reusable_wallet_session',
+        wallet_session_id: claims.walletSessionId,
+      },
+      materialActivation: routerAbEcdsaMaterialActivation,
+      expiresAtMs: claims.thresholdExpiresAtMs,
+      signingDigest32: new Uint8Array(32).fill(1),
+      serverPresignatureId: prepareRequest.client_presignature_id,
+      clientSignatureShare32: new Uint8Array(32).fill(0x51),
+      clientRerandomizationContribution32: new Uint8Array(32).fill(0x41),
+    });
+    const session: SessionAdapter = {
+      signJwt: async () => 'unused',
+      verifyJwt: async () => ({ valid: false as const }),
+      parse: async () => ({ ok: true as const, claims }),
+      buildSetCookie: (token) => `session=${token}`,
+      buildClearCookie: () => 'session=',
+      refresh: async () => ({ ok: false }),
+    };
+    let materialLookups = 0;
+    let admissions = 0;
+    const resolveEcdsaMaterialActivation = async () => {
+      materialLookups += 1;
+      return {
+        ok: false as const,
+        code: 'not_found' as const,
+        message: 'ECDSA material activation is not active for this wallet',
+      };
+    };
+    const admissionAdapter = {
+      async evaluate() {
+        admissions += 1;
+        return { ok: true as const };
+      },
+    };
+
+    for (const [phase, body] of [
+      ['prepare', prepareRequest],
+      ['finalize', finalizeRequest],
+    ] as const) {
+      await expect(
+        authorizeRouterAbEcdsaDerivationNormalSigningRoute({
+          body,
+          rawBody: body,
+          headers: {},
+          session,
+          authorizationClaims: null,
+          authorizationSessions: null,
+          admissionAdapter,
+          resolveEcdsaMaterialActivation,
+          phase,
+        }),
+      ).resolves.toMatchObject({
+        ok: false,
+        result: {
+          status: 403,
+          body: {
+            code: 'wallet_session_scope_mismatch',
+          },
+        },
+      });
+    }
+
+    expect(materialLookups).toBe(2);
+    expect(admissions).toBe(0);
   });
 });
