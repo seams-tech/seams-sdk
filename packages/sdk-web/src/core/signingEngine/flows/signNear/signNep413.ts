@@ -337,7 +337,6 @@ export async function signNep413Message({
     const material = operationStepUpMaterial;
     const materialFacts = nearOperationStepUpMaterialFacts(material);
     const signingDigest = await computeThresholdEd25519Nep413SigningDigestWasm({
-      sessionId: materialFacts.thresholdSessionId,
       message: payload.message,
       recipient: payload.recipient,
       nonce: payload.nonce,
@@ -478,7 +477,6 @@ export async function signNep413Message({
       stepUpAuthorization.kind === 'warm_session'
         ? (
             await computeThresholdEd25519Nep413SigningDigestWasm({
-              sessionId: canonicalThresholdSessionId,
               message: payload.message,
               recipient: payload.recipient,
               nonce: payload.nonce,

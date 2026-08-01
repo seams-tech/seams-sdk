@@ -98,7 +98,6 @@ WORKER_THRESHOLD_PRF_WASM="threshold_prf.wasm"
 CRITICAL_FILES=(
     "src/core/signingEngine/uiConfirm/UiConfirmManager.ts"
     "src/core/signingEngine/workerManager/SignerWorkerManager.ts"
-    "src/core/signingEngine/workerManager/session.ts"
     "src/core/signingEngine/workerManager/validation.ts"
     "src/core/signingEngine/workerManager/nearKeyOps"
     "src/core/signingEngine/chains/near"
