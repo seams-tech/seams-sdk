@@ -223,14 +223,6 @@ export type SealedSigningSessionRecord =
       ed25519Restore?: SealedSigningSessionEd25519RestoreMetadata;
     });
 
-export type EmailOtpSigningSessionSecretInfoInput = {
-  walletId: string;
-  userId: string;
-  signingRootId: string;
-  signingRootVersion?: string;
-  signingGrantId: string;
-};
-
 export type EmailOtpEcdsaRestoreInfoInput = {
   ecdsaThresholdSessionId: string;
   ecdsaThresholdKeyId: string;
@@ -279,32 +271,6 @@ export function encodeSigningSessionHkdfTuple(fields: readonly string[]): Uint8A
     offset += chunk.bytes.length;
   }
   return out;
-}
-
-export function emailOtpSigningSessionSecretInfoFields(
-  args: EmailOtpSigningSessionSecretInfoInput,
-): string[] {
-  return [
-    trimString(args.walletId),
-    trimString(args.userId),
-    trimString(args.signingRootId),
-    trimString(args.signingRootVersion),
-    trimString(args.signingGrantId),
-    'email_otp',
-  ];
-}
-
-export function emailOtpSigningSessionRestoreRootInfoFields(
-  args: EmailOtpSigningSessionSecretInfoInput,
-): string[] {
-  return [
-    'email_otp',
-    trimString(args.walletId),
-    trimString(args.userId),
-    trimString(args.signingRootId),
-    trimString(args.signingRootVersion),
-    trimString(args.signingGrantId),
-  ];
 }
 
 export function emailOtpEcdsaRestoreInfoFields(args: EmailOtpEcdsaRestoreInfoInput): string[] {
