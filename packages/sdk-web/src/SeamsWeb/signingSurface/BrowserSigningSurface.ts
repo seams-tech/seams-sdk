@@ -850,8 +850,8 @@ export class BrowserSigningSurface {
     this.warmSigning = createWarmSigningPorts({
       touchConfirm: this.touchConfirm,
       passkeyMpcSession: this.passkeyMpcSession,
-      getEmailOtpWarmSessionStatus: (sessionId) =>
-        this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
+      getEmailOtpWarmSessionStatus: (target) =>
+        this.emailOtpSessions.readWarmSessionStatusOnly(target),
       signingSessionSeal: this.seamsWebConfigs.signing.sessionSeal,
       ecdsaExportArtifacts: ecdsaExportArtifactStore,
       resolveActiveEcdsaWalletSessionAuthorization:

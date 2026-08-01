@@ -515,13 +515,15 @@ export function createBrowserSigningSurfaceEnginePorts(
     touchConfirm: args.touchConfirm,
     passkeyMpcSession: args.passkeyMpcSession,
     passkeyMpcExport: args.passkeyMpcExport,
-    getEmailOtpWarmSessionStatus: (sessionId) =>
-      args.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
+    getEmailOtpWarmSessionStatus: (target) =>
+      args.emailOtpSessions.readWarmSessionStatusOnly(target),
     consumeEmailOtpWarmSessionUses: (consumeArgs) =>
       args.emailOtpSessions.consumeWarmSessionUses(consumeArgs),
-    clearEmailOtpWarmSessionMaterial: args.emailOtpSessions.clearVolatileWarmSessionMaterial.bind(
-      args.emailOtpSessions,
-    ),
+    clearEmailOtpWarmSessionMaterial: (sessionId) =>
+      args.emailOtpSessions.clearVolatileWarmSessionMaterial({
+        kind: 'ecdsa',
+        thresholdSessionId: sessionId,
+      }),
     getWalletSigningBudgetStatus: (statusArgs) =>
       readTrustedWalletSigningBudgetStatusOperation(
         {
@@ -600,8 +602,8 @@ export function createBrowserSigningSurfaceEnginePorts(
           listEcdsaSigningCapabilitiesForWallet: (input) =>
             listBrowserEcdsaSigningCapabilitiesForWallet(args, input),
           statusReader: args.warmSigning.statusUiConfirm,
-          getEmailOtpWarmSessionStatus: (sessionId) =>
-            args.warmSigning.statusUiConfirm.getWarmSessionStatus({ sessionId }),
+          getEmailOtpWarmSessionStatus: (target) =>
+            args.emailOtpSessions.readWarmSessionStatusOnly(target),
           getWalletSigningBudgetStatus: (statusArgs) =>
             args.getEnginePorts().signingSessionCoordinator.getAvailableStatus(statusArgs),
         },

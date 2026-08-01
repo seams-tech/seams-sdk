@@ -5,6 +5,7 @@ import type {
   EmailOtpEd25519YaoIssuedOperationGrantV1,
   EmailOtpEd25519YaoOperationStepUpProofV1,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
+  EmailOtpWarmMaterialTarget,
   SignerWorkerOperationResult,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
@@ -57,7 +58,7 @@ export type EmailOtpEd25519YaoLocalMaterialRestore = {
 
 export async function requestSealEmailOtpWarmSessionMaterial(args: {
   workerCtx: WorkerOperationContext;
-  sessionId: string;
+  target: EmailOtpWarmMaterialTarget;
   transport: EmailOtpWarmSessionTransport;
 }): Promise<SignerWorkerOperationResult<'emailOtp', 'sealEmailOtpWarmSessionMaterial'>> {
   return await args.workerCtx.requestWorkerOperation({
@@ -66,7 +67,7 @@ export async function requestSealEmailOtpWarmSessionMaterial(args: {
       type: 'sealEmailOtpWarmSessionMaterial',
       timeoutMs: 30_000,
       payload: {
-        sessionId: args.sessionId,
+        target: args.target,
         transport: args.transport,
       },
     },
@@ -99,21 +100,21 @@ export async function requestBindEmailOtpEcdsaWarmSessionFromWorkerHandle(args: 
 
 export async function requestGetEmailOtpWarmSessionStatus(args: {
   worker: EmailOtpWorkerRequester;
-  sessionId: string;
+  target: EmailOtpWarmMaterialTarget;
 }): Promise<SignerWorkerOperationResult<'emailOtp', 'getEmailOtpWarmSessionStatus'>> {
   return await args.worker.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
       type: 'getEmailOtpWarmSessionStatus',
       timeoutMs: 5_000,
-      payload: { sessionId: args.sessionId },
+      payload: { target: args.target },
     },
   });
 }
 
 export async function requestConsumeEmailOtpWarmSessionUses(args: {
   worker: EmailOtpWorkerRequester;
-  sessionId: string;
+  target: EmailOtpWarmMaterialTarget;
   uses?: number;
 }): Promise<SignerWorkerOperationResult<'emailOtp', 'consumeEmailOtpWarmSessionUses'>> {
   return await args.worker.requestWorkerOperation({
@@ -122,7 +123,7 @@ export async function requestConsumeEmailOtpWarmSessionUses(args: {
       type: 'consumeEmailOtpWarmSessionUses',
       timeoutMs: 5_000,
       payload: {
-        sessionId: args.sessionId,
+        target: args.target,
         ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
       },
     },
@@ -131,20 +132,21 @@ export async function requestConsumeEmailOtpWarmSessionUses(args: {
 
 export async function requestClearEmailOtpWarmSessionMaterial(args: {
   worker: EmailOtpWorkerRequester;
-  sessionId: string;
+  target: EmailOtpWarmMaterialTarget;
 }): Promise<SignerWorkerOperationResult<'emailOtp', 'clearEmailOtpWarmSessionMaterial'>> {
   return await args.worker.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
       type: 'clearEmailOtpWarmSessionMaterial',
       timeoutMs: 5_000,
-      payload: { sessionId: args.sessionId },
+      payload: { target: args.target },
     },
   });
 }
 
 export async function requestRehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
   workerCtx: WorkerOperationContext;
+  target: Extract<EmailOtpWarmMaterialTarget, { kind: 'ecdsa' }>;
   sealedSecretB64u: string;
   remainingUses: number;
   expiresAtMs: number;
@@ -157,6 +159,7 @@ export async function requestRehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
       type: 'rehydrateEmailOtpEcdsaWarmSessionMaterial',
       timeoutMs: 60_000,
       payload: {
+        target: args.target,
         sealedSecretB64u: args.sealedSecretB64u,
         remainingUses: args.remainingUses,
         expiresAtMs: args.expiresAtMs,
@@ -169,6 +172,7 @@ export async function requestRehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
 
 export async function requestRehydrateEmailOtpEd25519YaoLocalMaterial(args: {
   workerCtx: WorkerOperationContext;
+  target: Extract<EmailOtpWarmMaterialTarget, { kind: 'ed25519_yao' }>;
   sealedSecretB64u: string;
   remainingUses: number;
   expiresAtMs: number;
@@ -181,6 +185,7 @@ export async function requestRehydrateEmailOtpEd25519YaoLocalMaterial(args: {
       type: 'rehydrateEmailOtpEd25519YaoLocalMaterial',
       timeoutMs: 60_000,
       payload: {
+        target: args.target,
         sealedSecretB64u: args.sealedSecretB64u,
         remainingUses: args.remainingUses,
         expiresAtMs: args.expiresAtMs,

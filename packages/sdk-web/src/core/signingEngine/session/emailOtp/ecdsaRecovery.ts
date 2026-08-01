@@ -310,6 +310,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   }
   const restored = await requestRehydrateEmailOtpEcdsaWarmSessionMaterial({
     workerCtx,
+    target: { kind: 'ecdsa', thresholdSessionId: restoreSource.thresholdSessionId },
     sealedSecretB64u: sealedRecord.sealedSecretB64u,
     remainingUses: sealedRecord.remainingUses,
     expiresAtMs: sealedRecord.expiresAtMs,

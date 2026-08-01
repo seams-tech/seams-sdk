@@ -40,6 +40,7 @@ import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import type { DurableRecordStore } from '@/core/platform';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 
 export type EcdsaExportArtifactStorePorts = {
   exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
@@ -56,7 +57,9 @@ type WarmSigningEd25519AuthorizationResolver = (
 type WarmSigningPortsArgs = {
   touchConfirm: UiConfirmRuntimeBridgePort;
   passkeyMpcSession: PasskeyMpcSessionPort;
-  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  getEmailOtpWarmSessionStatus: (
+    target: EmailOtpWarmMaterialTarget,
+  ) => Promise<WarmSessionStatusResult>;
   signingSessionSeal: SeamsConfigsReadonly['signing']['sessionSeal'];
   ecdsaExportArtifacts: EcdsaExportArtifactStorePorts;
   resolveActiveEcdsaWalletSessionAuthorization?: WarmSigningAuthorizationResolver;
@@ -77,14 +80,16 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
   const statusUiConfirm = createWarmSessionStatusOnlyUiConfirm({
     base: args.passkeyMpcSession,
     secondary: {
-      readWarmSessionStatusOnly: args.getEmailOtpWarmSessionStatus,
+      readWarmSessionStatusOnly: (sessionId) =>
+        args.getEmailOtpWarmSessionStatus({
+          kind: 'ecdsa',
+          thresholdSessionId: sessionId,
+        }),
     },
   });
-  const readCombinedEmailOtpWarmSessionStatus = (sessionId: string) =>
-    statusUiConfirm.getWarmSessionStatus({ sessionId });
   const statusReader = createWarmSessionStatusReader({
     touchConfirm: statusUiConfirm,
-    getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
+    getEmailOtpWarmSessionStatus: args.getEmailOtpWarmSessionStatus,
   });
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: args.passkeyMpcSession,
@@ -92,7 +97,7 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
       args.signingSessionSeal.mode === 'sealed_refresh_v1'
         ? { groupId: SIGNING_SESSION_SEAL_GROUP_ID }
         : null,
-    getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
+    getEmailOtpWarmSessionStatus: args.getEmailOtpWarmSessionStatus,
     ...(args.resolveActiveEcdsaWalletSessionAuthorization
       ? {
           resolveActiveEcdsaWalletSessionAuthorization:

@@ -736,6 +736,11 @@ async function runFencedEmailOtpEd25519YaoSealedRecovery(
   });
   const rehydrated = await requestRehydrateEmailOtpEd25519YaoLocalMaterial({
     workerCtx: input.ports.workerContext,
+    target: {
+      kind: 'ed25519_yao',
+      thresholdSessionId: session.thresholdSessionId,
+      materialActivation: emailOtp.materialActivation,
+    },
     sealedSecretB64u: record.sealedSecretB64u,
     remainingUses: record.remainingUses,
     expiresAtMs: record.expiresAtMs,

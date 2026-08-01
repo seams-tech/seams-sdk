@@ -50,6 +50,7 @@ import {
 } from '../warmCapabilities/ed25519SealedSessionRuntime';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
+import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 
 export type PersistedAvailableSigningLanesDeps = {
   listEcdsaSigningCapabilitiesForWallet: (args: {
@@ -60,7 +61,9 @@ export type PersistedAvailableSigningLanesDeps = {
   statusReader: {
     getWarmSessionStatus: (args: { sessionId: string }) => Promise<WarmSessionStatusResult>;
   };
-  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  getEmailOtpWarmSessionStatus: (
+    target: EmailOtpWarmMaterialTarget,
+  ) => Promise<WarmSessionStatusResult>;
   getWalletSigningBudgetStatus?: (
     args: SigningSessionBudgetStatusCheck,
   ) => Promise<SigningSessionStatus | null>;
@@ -278,7 +281,13 @@ async function readValidatedEd25519WarmClaim(args: {
 }): Promise<AvailableLaneStateAdvisory | null> {
   const status =
     args.runtime.factor.kind === SIGNER_AUTH_METHODS.emailOtp
-      ? await args.deps.getEmailOtpWarmSessionStatus(args.sessionId).catch(() => null)
+      ? await args.deps
+          .getEmailOtpWarmSessionStatus({
+            kind: 'ed25519_yao',
+            thresholdSessionId: args.sessionId,
+            materialActivation: args.runtime.sealedRecord.ed25519Restore.materialActivation,
+          })
+          .catch(() => null)
       : await args.deps.statusReader
           .getWarmSessionStatus({ sessionId: args.sessionId })
           .catch(() => null);

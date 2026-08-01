@@ -17,8 +17,6 @@ export function createSessionPublicDeps(args: {
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
 }): SessionPublicDeps {
-  const readCombinedEmailOtpWarmSessionStatus = (sessionId: string) =>
-    args.passkeyMpcSession.getWarmSessionStatus({ sessionId });
   const sessionDiscovery: SessionPublicDeps['discovery'] = {
     emailOtp: (discoveryArgs) =>
       args.emailOtpSessions.discoverPersistedSessionsForWallet(discoveryArgs),
@@ -29,7 +27,8 @@ export function createSessionPublicDeps(args: {
     availableLanes: {
       listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
       statusReader: args.passkeyMpcSession,
-      getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
+      getEmailOtpWarmSessionStatus: (target) =>
+        args.emailOtpSessions.readWarmSessionStatusOnly(target),
       getWalletSigningBudgetStatus: (statusArgs) =>
         readTrustedWalletSigningBudgetStatus({}, statusArgs),
     },

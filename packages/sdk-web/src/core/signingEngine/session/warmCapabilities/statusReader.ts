@@ -17,6 +17,7 @@ import {
   type ExactEd25519SealedSessionRuntime,
 } from './ed25519SealedSessionRuntime';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
@@ -95,7 +96,9 @@ async function ed25519AuthorizationMatchesRuntime(args: {
 
 export type WarmSessionStatusReaderDeps = {
   touchConfirm?: WarmSessionReadPortsInput;
-  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  getEmailOtpWarmSessionStatus: (
+    target: EmailOtpWarmMaterialTarget,
+  ) => Promise<WarmSessionStatusResult>;
 };
 
 export type WarmSigningStatusReader = ThresholdWarmSessionStatusReader & {
@@ -116,16 +119,22 @@ export function createWarmSessionStatusReader(
     return await readEd25519WarmSessionClaimByMethod({
       authMethod: runtime.factor.kind,
       sessionId,
+      materialActivation: runtime.sealedRecord.ed25519Restore.materialActivation,
     });
   }
 
   async function readEd25519WarmSessionClaimByMethod(args: {
     authMethod: SignerAuthMethod;
     sessionId: string;
+    materialActivation: ExactEd25519SealedSessionRuntime['sealedRecord']['ed25519Restore']['materialActivation'];
   }): Promise<WarmSessionPrfClaim | null> {
     if (args.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
       const status = await deps
-        .getEmailOtpWarmSessionStatus(args.sessionId)
+        .getEmailOtpWarmSessionStatus({
+          kind: 'ed25519_yao',
+          thresholdSessionId: args.sessionId,
+          materialActivation: args.materialActivation,
+        })
         .catch(() => ({
           ok: false as const,
           code: 'worker_error',

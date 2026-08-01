@@ -23,6 +23,7 @@ import type {
 import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
 import type { EcdsaExportFlowDeps } from '../../flows/recovery/ecdsaExportFlow';
 import type { Ed25519YaoExportFlowDeps } from '../../flows/recovery/ed25519YaoExportFlow';
+import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 
 export function createRecoveryPublicDeps(args: {
   seamsWebConfigs: CreateSigningEnginePortsArgs['seamsWebConfigs'];
@@ -36,7 +37,9 @@ export function createRecoveryPublicDeps(args: {
   passkeyMpcExport: PasskeyMpcExportPort;
   passkeyMpcSession: PasskeyMpcSessionPort;
   emailOtpSessions: {
-    readWarmSessionStatusOnly: (sessionId: string) => Promise<WarmSessionStatusResult>;
+    readWarmSessionStatusOnly: (
+      target: EmailOtpWarmMaterialTarget,
+    ) => Promise<WarmSessionStatusResult>;
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     exportEcdsaKeyWithDurableAuthorization: (
       request: ExportEcdsaKeyWithDurableAuthorizationArgs,
@@ -52,8 +55,8 @@ export function createRecoveryPublicDeps(args: {
   resolveEmailOtpEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['emailOtp']['resolveExportContext'];
   sessionLifecycle: RecoveryPublicDeps['sessionLifecycle'];
 }): RecoveryPublicDeps {
-  const getEmailOtpWarmSessionStatus = (sessionId: string) =>
-    args.emailOtpSessions.readWarmSessionStatusOnly(sessionId);
+  const getEmailOtpWarmSessionStatus = (target: EmailOtpWarmMaterialTarget) =>
+    args.emailOtpSessions.readWarmSessionStatusOnly(target);
   const configuredChainTargets = configuredThresholdEcdsaChainTargets(
     args.seamsWebConfigs.network.chains,
   );

@@ -87,9 +87,15 @@ export function createStepUpRuntime(args: {
     base: args.passkeyMpcSession,
     secondary: {
       readWarmSessionStatusOnly: (sessionId) =>
-        emailOtpSessions.readWarmSessionStatusOnly(sessionId),
+        emailOtpSessions.readWarmSessionStatusOnly({
+          kind: 'ecdsa',
+          thresholdSessionId: String(sessionId),
+        }),
       clearVolatileWarmSessionMaterial: (command) =>
-        emailOtpSessions.clearVolatileWarmSessionMaterial(command.scope.sessionId),
+        emailOtpSessions.clearVolatileWarmSessionMaterial({
+          kind: 'ecdsa',
+          thresholdSessionId: String(command.scope.sessionId),
+        }),
     },
   });
 

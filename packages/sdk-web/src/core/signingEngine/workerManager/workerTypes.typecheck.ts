@@ -382,6 +382,11 @@ type EmailOtpEd25519YaoLocalMaterialRehydratePayload =
   EmailOtpWorkerOperationMap['rehydrateEmailOtpEd25519YaoLocalMaterial']['payload'];
 
 const emailOtpEd25519YaoLocalMaterialRehydrate: EmailOtpEd25519YaoLocalMaterialRehydratePayload = {
+  target: {
+    kind: 'ed25519_yao',
+    thresholdSessionId: emailOtpEd25519YaoSession.thresholdSessionId,
+    materialActivation,
+  },
   sealedSecretB64u: 'sealed-ed25519-yao-factor',
   remainingUses: 3,
   expiresAtMs: Date.now() + 60_000,
@@ -399,6 +404,28 @@ const emailOtpEd25519YaoLocalMaterialRehydrate: EmailOtpEd25519YaoLocalMaterialR
   },
 };
 void emailOtpEd25519YaoLocalMaterialRehydrate;
+
+const emailOtpEcdsaWarmMaterialTarget: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] = {
+  target: { kind: 'ecdsa', thresholdSessionId: 'ecdsa-session' },
+};
+void emailOtpEcdsaWarmMaterialTarget;
+
+const emailOtpEd25519YaoWarmMaterialTarget: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] = {
+  target: { kind: 'ed25519_yao', thresholdSessionId: 'ed-session', materialActivation },
+};
+void emailOtpEd25519YaoWarmMaterialTarget;
+
+const emailOtpEd25519YaoWarmMaterialTargetMissingActivation: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] = {
+  // @ts-expect-error Ed25519 warm material always requires exact activation identity.
+  target: { kind: 'ed25519_yao', thresholdSessionId: 'ed-session' },
+};
+void emailOtpEd25519YaoWarmMaterialTargetMissingActivation;
+
+const emailOtpEcdsaWarmMaterialTargetWithActivation: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] = {
+  // @ts-expect-error ECDSA warm material remains session-addressed.
+  target: { kind: 'ecdsa', thresholdSessionId: 'ecdsa-session', materialActivation },
+};
+void emailOtpEcdsaWarmMaterialTargetWithActivation;
 
 const emailOtpEd25519YaoLocalMaterialRehydrateWithOtp = {
   ...emailOtpEd25519YaoLocalMaterialRehydrate,

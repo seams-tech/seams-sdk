@@ -4,6 +4,7 @@ import { listExactSealedSessionsForWallet } from '../../session/persistence/seal
 import { exactEmailOtpEcdsaSigningSessionAuthorityFromSealedRecords } from '../../session/emailOtp/sealedSigningSessionAuth';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
+import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
@@ -32,7 +33,9 @@ export function createEvmFamilySigningDeps(args: {
   walletSignerStore: EvmFamilySigningDeps['walletSignerStore'];
   passkeyAuthenticatorStore: EvmFamilySigningDeps['passkeyAuthenticatorStore'];
   signingSessionCoordinator: SigningSessionCoordinator;
-  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  getEmailOtpWarmSessionStatus: (
+    target: EmailOtpWarmMaterialTarget,
+  ) => Promise<WarmSessionStatusResult>;
 }): EvmFamilySigningDeps {
   const { createArgs, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
   return {
@@ -61,7 +64,8 @@ export function createEvmFamilySigningDeps(args: {
     readAvailableSigningLanesForSigning: (snapshotArgs) =>
       createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
     signingSessionCoordinator,
-    getEmailOtpWarmSessionStatus,
+    getEmailOtpWarmSessionStatus: (sessionId) =>
+      getEmailOtpWarmSessionStatus({ kind: 'ecdsa', thresholdSessionId: sessionId }),
     provisionThresholdEcdsaSession: (provisionArgs) =>
       createArgs.provisionThresholdEcdsaSession(provisionArgs),
     withThresholdEcdsaSigningQueue: (queueArgs) =>

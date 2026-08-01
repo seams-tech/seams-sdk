@@ -117,7 +117,11 @@ export async function persistEmailOtpEd25519YaoSessionForRefresh(
   });
   const sealed = await requestSealEmailOtpWarmSessionMaterial({
     workerCtx: workerContext,
-    sessionId: thresholdSessionId,
+    target: {
+      kind: 'ed25519_yao',
+      thresholdSessionId,
+      materialActivation: args.publicationContext.materialActivation,
+    },
     transport,
   });
   if (!sealed.ok) {
