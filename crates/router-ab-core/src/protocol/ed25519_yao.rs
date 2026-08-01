@@ -5,7 +5,7 @@ use crate::protocol::error::{
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
 use crate::protocol::gate::ExpensiveWorkKindV1;
-use crate::protocol::lifecycle::LifecycleScopeV1;
+use crate::protocol::lifecycle::{LifecycleScopeV1, MpcMaterialActivationRefV1};
 
 /// Public SDK Router path for Ed25519 Yao registration admission.
 pub const ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1: &str =
@@ -324,6 +324,7 @@ pub struct Ed25519YaoCeremonyBindingV1 {
         ts(type = "RouterAbEd25519YaoStableKeyContextBindingV1")
     )]
     pub stable_key_context_binding: Ed25519YaoStableKeyContextBindingV1,
+    pub material_activation: MpcMaterialActivationRefV1,
 }
 
 impl Ed25519YaoCeremonyBindingV1 {
@@ -333,12 +334,14 @@ impl Ed25519YaoCeremonyBindingV1 {
         operation: Ed25519YaoOperationV1,
         session_id: Ed25519YaoSessionIdV1,
         stable_key_context_binding: Ed25519YaoStableKeyContextBindingV1,
+        material_activation: MpcMaterialActivationRefV1,
     ) -> RouterAbProtocolResult<Self> {
         let binding = Self {
             lifecycle,
             operation,
             session_id,
             stable_key_context_binding,
+            material_activation,
         };
         binding.validate()?;
         Ok(binding)
@@ -347,6 +350,7 @@ impl Ed25519YaoCeremonyBindingV1 {
     /// Revalidates a binding received from an untrusted serialization boundary.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.lifecycle.validate()?;
+        self.material_activation.validate()?;
         if self.lifecycle.work_kind != self.operation.work_kind() {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLifecycleState,
@@ -359,6 +363,10 @@ impl Ed25519YaoCeremonyBindingV1 {
     /// Returns the fixed circuit family selected by the operation.
     pub const fn circuit_family(&self) -> Ed25519YaoCircuitFamilyV1 {
         self.operation.circuit_family()
+    }
+
+    pub const fn material_activation(&self) -> &MpcMaterialActivationRefV1 {
+        &self.material_activation
     }
 }
 
@@ -456,6 +464,7 @@ pub struct RouterAbEd25519YaoLifecycleScopeV1 {
     wallet_session_id: String,
     signer_set_id: String,
     signing_worker_id: String,
+    material_activation: MpcMaterialActivationRefV1,
 }
 
 impl RouterAbEd25519YaoLifecycleScopeV1 {
@@ -467,6 +476,7 @@ impl RouterAbEd25519YaoLifecycleScopeV1 {
         wallet_session_id: impl Into<String>,
         signer_set_id: impl Into<String>,
         signing_worker_id: impl Into<String>,
+        material_activation: MpcMaterialActivationRefV1,
     ) -> RouterAbProtocolResult<Self> {
         let scope = Self {
             lifecycle_id: lifecycle_id.into(),
@@ -475,13 +485,19 @@ impl RouterAbEd25519YaoLifecycleScopeV1 {
             wallet_session_id: wallet_session_id.into(),
             signer_set_id: signer_set_id.into(),
             signing_worker_id: signing_worker_id.into(),
+            material_activation,
         };
         validate_visible_identifier("lifecycle_id", &scope.lifecycle_id)?;
         validate_visible_identifier("account_id", &scope.account_id)?;
         validate_visible_identifier("wallet_session_id", &scope.wallet_session_id)?;
         validate_visible_identifier("signer_set_id", &scope.signer_set_id)?;
         validate_visible_identifier("signing_worker_id", &scope.signing_worker_id)?;
+        scope.material_activation.validate()?;
         Ok(scope)
+    }
+
+    pub fn material_activation(&self) -> &MpcMaterialActivationRefV1 {
+        &self.material_activation
     }
 
     /// Converts the public facts into the internal lifecycle for one fixed operation.
@@ -510,6 +526,7 @@ struct RawRouterAbEd25519YaoLifecycleScopeV1 {
     wallet_session_id: String,
     signer_set_id: String,
     signing_worker_id: String,
+    material_activation: MpcMaterialActivationRefV1,
 }
 
 impl<'de> Deserialize<'de> for RouterAbEd25519YaoLifecycleScopeV1 {
@@ -525,6 +542,7 @@ impl<'de> Deserialize<'de> for RouterAbEd25519YaoLifecycleScopeV1 {
             raw.wallet_session_id,
             raw.signer_set_id,
             raw.signing_worker_id,
+            raw.material_activation,
         )
         .map_err(D::Error::custom)
     }
@@ -1610,6 +1628,7 @@ pub struct RouterAbEd25519YaoActivationPublicReceiptV1 {
     joined_signing_worker_commitment: [u8; 32],
     signing_worker_verifying_share: [u8; 32],
     state_epoch: Ed25519YaoStateEpochV1,
+    material_activation: MpcMaterialActivationRefV1,
 }
 
 impl RouterAbEd25519YaoActivationPublicReceiptV1 {
@@ -1621,6 +1640,7 @@ impl RouterAbEd25519YaoActivationPublicReceiptV1 {
         joined_signing_worker_commitment: [u8; 32],
         signing_worker_verifying_share: [u8; 32],
         state_epoch: Ed25519YaoStateEpochV1,
+        material_activation: MpcMaterialActivationRefV1,
     ) -> RouterAbProtocolResult<Self> {
         if [
             transcript,
@@ -1636,6 +1656,7 @@ impl RouterAbEd25519YaoActivationPublicReceiptV1 {
                 "Ed25519 Yao activation public receipt contains a zero field",
             ));
         }
+        material_activation.validate()?;
         Ok(Self {
             transcript,
             registered_public_key,
@@ -1643,6 +1664,7 @@ impl RouterAbEd25519YaoActivationPublicReceiptV1 {
             joined_signing_worker_commitment,
             signing_worker_verifying_share,
             state_epoch,
+            material_activation,
         })
     }
 
@@ -1675,6 +1697,11 @@ impl RouterAbEd25519YaoActivationPublicReceiptV1 {
     pub const fn state_epoch(&self) -> Ed25519YaoStateEpochV1 {
         self.state_epoch
     }
+
+    /// Returns the exact activated material reference issued with this receipt.
+    pub const fn material_activation(&self) -> &MpcMaterialActivationRefV1 {
+        &self.material_activation
+    }
 }
 
 #[derive(Deserialize)]
@@ -1686,6 +1713,7 @@ struct RawRouterAbEd25519YaoActivationPublicReceiptV1 {
     joined_signing_worker_commitment: [u8; 32],
     signing_worker_verifying_share: [u8; 32],
     state_epoch: Ed25519YaoStateEpochV1,
+    material_activation: MpcMaterialActivationRefV1,
 }
 
 impl<'de> Deserialize<'de> for RouterAbEd25519YaoActivationPublicReceiptV1 {
@@ -1701,6 +1729,7 @@ impl<'de> Deserialize<'de> for RouterAbEd25519YaoActivationPublicReceiptV1 {
             raw.joined_signing_worker_commitment,
             raw.signing_worker_verifying_share,
             raw.state_epoch,
+            raw.material_activation,
         )
         .map_err(D::Error::custom)
     }
@@ -1926,12 +1955,25 @@ mod tests {
         .expect("lifecycle")
     }
 
+    fn material_activation() -> MpcMaterialActivationRefV1 {
+        MpcMaterialActivationRefV1::new(
+            "activation-1",
+            "capability-1",
+            "account-1",
+            "key-1",
+            "lifecycle-1",
+            "signing-worker-1",
+        )
+        .expect("material activation")
+    }
+
     fn registration_binding() -> Ed25519YaoCeremonyBindingV1 {
         Ed25519YaoCeremonyBindingV1::new(
             lifecycle(ExpensiveWorkKindV1::RegistrationPrepare),
             Ed25519YaoOperationV1::Registration,
             Ed25519YaoSessionIdV1::new([7; 32]).expect("session"),
             Ed25519YaoStableKeyContextBindingV1::new([8; 32]),
+            material_activation(),
         )
         .expect("registration binding")
     }
@@ -1960,6 +2002,7 @@ mod tests {
             [14; 32],
             [15; 32],
             Ed25519YaoStateEpochV1::new(1).expect("state epoch"),
+            material_activation(),
         )
         .expect("public receipt")
     }
@@ -1987,6 +2030,7 @@ mod tests {
             Ed25519YaoOperationV1::Registration,
             session,
             Ed25519YaoStableKeyContextBindingV1::new([8; 32]),
+            material_activation(),
         )
         .expect("registration");
         assert_eq!(
@@ -1999,6 +2043,7 @@ mod tests {
             Ed25519YaoOperationV1::Recovery,
             session,
             Ed25519YaoStableKeyContextBindingV1::new([8; 32]),
+            material_activation(),
         );
         assert!(mismatch.is_err());
     }
@@ -2019,6 +2064,7 @@ mod tests {
             Ed25519YaoOperationV1::Refresh,
             Ed25519YaoSessionIdV1::new([9; 32]).expect("session"),
             Ed25519YaoStableKeyContextBindingV1::new([8; 32]),
+            material_activation(),
         )
         .expect("refresh ceremony");
         let binding = Ed25519YaoRefreshBindingV1::new(
@@ -2056,6 +2102,7 @@ mod tests {
             Ed25519YaoOperationV1::Refresh,
             Ed25519YaoSessionIdV1::new([9; 32]).expect("session"),
             Ed25519YaoStableKeyContextBindingV1::new([8; 32]),
+            material_activation(),
         )
         .expect("ceremony");
         let binding = Ed25519YaoRefreshBindingV1::new(
@@ -2082,6 +2129,7 @@ mod tests {
             "wallet-session-1",
             "signer-set-1",
             "signing-worker-1",
+            material_activation(),
         )
         .expect("scope");
         let application = RouterAbEd25519YaoApplicationBindingFactsV1::new(
@@ -2213,6 +2261,7 @@ mod tests {
             Ed25519YaoOperationV1::Recovery,
             Ed25519YaoSessionIdV1::new([7; 32]).expect("session"),
             Ed25519YaoStableKeyContextBindingV1::new([8; 32]),
+            material_activation(),
         )
         .expect("recovery binding");
         let request = RouterAbEd25519YaoActivationExecuteRequestV1::new(

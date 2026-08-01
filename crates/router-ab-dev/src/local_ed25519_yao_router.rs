@@ -469,11 +469,13 @@ fn admitted_binding(
 ) -> RouterAbProtocolResult<Ed25519YaoCeremonyBindingV1> {
     let context =
         super::local_ed25519_yao_api::stable_context(application_binding, participant_ids)?;
+    let material_activation = scope.material_activation().clone();
     Ed25519YaoCeremonyBindingV1::new(
         scope.into_lifecycle(operation)?,
         operation,
         Ed25519YaoSessionIdV1::new(fresh_session_id()?)?,
         Ed25519YaoStableKeyContextBindingV1::new(context.binding_digest()),
+        material_activation,
     )
 }
 

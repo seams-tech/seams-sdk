@@ -3,7 +3,7 @@ use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoEpochTransitionV1, Ed25519YaoOperationV1,
     Ed25519YaoRefreshBindingV1, Ed25519YaoRefreshEpochsV1, Ed25519YaoSessionIdV1,
     Ed25519YaoStableKeyContextBindingV1, Ed25519YaoStateEpochV1, ExpensiveWorkKindV1,
-    LifecycleScopeV1, RootShareEpoch,
+    LifecycleScopeV1, MpcMaterialActivationRefV1, RootShareEpoch,
 };
 use router_ab_dev::{
     LocalEd25519YaoDeriverAEffectiveStateV1, LocalEd25519YaoDeriverBEffectiveStateV1,
@@ -112,6 +112,15 @@ fn ceremony(
         operation,
         Ed25519YaoSessionIdV1::new(session).expect("session"),
         Ed25519YaoStableKeyContextBindingV1::new([0x51; 32]),
+        MpcMaterialActivationRefV1::new(
+            "refresh-activation",
+            "refresh-capability",
+            "account-1",
+            "refresh-key",
+            "lifecycle-1",
+            "signing-worker-1",
+        )
+        .expect("material activation"),
     )
     .expect("ceremony")
 }
