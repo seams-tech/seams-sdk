@@ -6,6 +6,10 @@ import {
   mpcMaterialActivationRefsEqual,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
+import {
+  routerAbMpcMaterialActivationRefToWire,
+  sameRouterAbMpcMaterialActivationRef,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../../session/material/nearEd25519YaoMaterialActivation';
 import type { Ed25519YaoPublicCapabilityReferenceStorePort } from './yaoPublicCapabilityReferences';
 
@@ -80,7 +84,13 @@ function materialIdentity(
   const walletId = signer.account.wallet.walletId;
   const nearAccountId = signer.account.nearAccountId;
   const thresholdSessionId = requireNonEmpty(facts.thresholdSessionId, 'material.facts.thresholdSessionId');
+  const materialActivation = nearEd25519YaoMaterialActivationFromMetadata(metadata);
   if (
+    metadata.scope.threshold_session_id !== thresholdSessionId ||
+    !sameRouterAbMpcMaterialActivationRef(
+      metadata.scope.material_activation,
+      routerAbMpcMaterialActivationRefToWire(materialActivation),
+    ) ||
     metadata.scope.account_id !== String(walletId) ||
     metadata.applicationBinding.wallet_id !== String(walletId) ||
     metadata.applicationBinding.near_ed25519_signing_key_id !==
@@ -101,7 +111,7 @@ function materialIdentity(
   return {
     walletId,
     nearAccountId,
-    materialActivation: nearEd25519YaoMaterialActivationFromMetadata(metadata),
+    materialActivation,
   };
 }
 
