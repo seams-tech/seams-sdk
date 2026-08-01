@@ -545,6 +545,9 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   production consumer
 - ~~zero-caller `RouterAbEd25519YaoNormalSigningBudgetRefreshResult` alias~~ —
   budget refresh returns the canonical session-provision result directly
+- ~~zero-caller `WalletSigningSpendPlan`, its Ed25519-only target type, and
+  normalizer~~ — deleted after claim-owned quota consumption left no producer
+  or consumer
 - router reserve/commit/release budget methods
 - old development `signingGrantId` budget rows (reject and clear at the
   persistence boundary; never fan one remaining-use count into multiple
