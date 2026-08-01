@@ -37,7 +37,7 @@ export interface RouterAbNormalSigningAbuseProvider {
 
 export interface RouterAbNormalSigningQuotaStore {
   reserveQuota(
-    input: RouterAbNormalSigningAdmissionInput,
+    input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
   ): Promise<RouterAbNormalSigningQuotaDecision>;
 }
 
@@ -116,7 +116,7 @@ export class InMemoryRouterAbNormalSigningAdmissionStore implements RouterAbNorm
   }
 
   async reserveQuota(
-    input: RouterAbNormalSigningAdmissionInput,
+    input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
   ): Promise<RouterAbNormalSigningQuotaDecision> {
     const nowMs = this.now();
     this.clearExpired(nowMs);
@@ -197,7 +197,7 @@ export class CloudflareD1RouterAbNormalSigningAdmissionStore implements RouterAb
   }
 
   async reserveQuota(
-    input: RouterAbNormalSigningAdmissionInput,
+    input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
   ): Promise<RouterAbNormalSigningQuotaDecision> {
     const nowMs = this.now();
     const expiresAtMs = quotaReservationExpiresAtMs(input, nowMs);
@@ -418,77 +418,94 @@ function isSuccessfulD1Result(result: D1ResultLike): boolean {
   return result.success === true;
 }
 
+class DefaultRouterAbNormalSigningAdmissionAdapter
+  implements RouterAbNormalSigningAdmissionAdapter
+{
+  constructor(
+    private readonly store: RouterAbNormalSigningAdmissionStore,
+    private readonly now: () => number,
+  ) {}
+
+  async evaluatePolicy(
+    input: RouterAbNormalSigningAdmissionInput,
+  ): Promise<RouterAbNormalSigningAdmissionResult> {
+    if (input.expiresAtMs <= this.now()) {
+      return admissionFailure(
+        408,
+        'invalid_body',
+        'Router A/B normal-signing request is expired',
+      );
+    }
+
+    const projectPolicy = await this.store.evaluateProjectPolicy(input);
+    switch (projectPolicy.kind) {
+      case 'allowed':
+        break;
+      case 'rejected':
+        return admissionFailure(
+          403,
+          'project_policy_rejected',
+          'Router A/B normal-signing project policy rejected the request',
+        );
+      default:
+        return assertNever(projectPolicy);
+    }
+
+    const abuse = await this.store.evaluateAbuse(input);
+    switch (abuse.kind) {
+      case 'allowed':
+        return { ok: true };
+      case 'rate_limited':
+        return admissionFailure(
+          429,
+          'rate_limited',
+          'Router A/B normal-signing request is rate limited',
+        );
+      case 'rejected':
+        return admissionFailure(
+          403,
+          'abuse_rejected',
+          'Router A/B normal-signing abuse policy rejected the request',
+        );
+      default:
+        return assertNever(abuse);
+    }
+  }
+
+  async evaluate(
+    input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
+  ): Promise<RouterAbNormalSigningAdmissionResult> {
+    const policy = await this.evaluatePolicy(input);
+    if (!policy.ok) return policy;
+
+    const quota = await this.store.reserveQuota(input);
+    switch (quota.kind) {
+      case 'accepted':
+      case 'reuse_existing':
+        return { ok: true };
+      case 'short_window_saturated':
+        return admissionFailure(
+          429,
+          'quota_saturated',
+          'Router A/B normal-signing short-window quota is saturated',
+        );
+      case 'signer_queue_saturated':
+        return admissionFailure(
+          503,
+          'quota_saturated',
+          'Router A/B normal-signing signer queue is saturated',
+        );
+      default:
+        return assertNever(quota);
+    }
+  }
+}
+
 export function createRouterAbNormalSigningAdmissionAdapter(
   store: RouterAbNormalSigningAdmissionStore,
   options: { readonly now?: () => number } = {},
 ): RouterAbNormalSigningAdmissionAdapter {
-  const now = options.now || Date.now;
-  return {
-    async evaluate(input) {
-      if (input.expiresAtMs <= now()) {
-        return admissionFailure(
-          408,
-          'invalid_body',
-          'Router A/B normal-signing request is expired',
-        );
-      }
-
-      const projectPolicy = await store.evaluateProjectPolicy(input);
-      switch (projectPolicy.kind) {
-        case 'allowed':
-          break;
-        case 'rejected':
-          return admissionFailure(
-            403,
-            'project_policy_rejected',
-            'Router A/B normal-signing project policy rejected the request',
-          );
-        default:
-          return assertNever(projectPolicy);
-      }
-
-      const abuse = await store.evaluateAbuse(input);
-      switch (abuse.kind) {
-        case 'allowed':
-          break;
-        case 'rate_limited':
-          return admissionFailure(
-            429,
-            'rate_limited',
-            'Router A/B normal-signing request is rate limited',
-          );
-        case 'rejected':
-          return admissionFailure(
-            403,
-            'abuse_rejected',
-            'Router A/B normal-signing abuse policy rejected the request',
-          );
-        default:
-          return assertNever(abuse);
-      }
-
-      const quota = await store.reserveQuota(input);
-      switch (quota.kind) {
-        case 'accepted':
-        case 'reuse_existing':
-          return { ok: true };
-        case 'short_window_saturated':
-          return admissionFailure(
-            429,
-            'quota_saturated',
-            'Router A/B normal-signing short-window quota is saturated',
-          );
-        case 'signer_queue_saturated':
-          return admissionFailure(
-            503,
-            'quota_saturated',
-            'Router A/B normal-signing signer queue is saturated',
-          );
-        default:
-          return assertNever(quota);
-      }
-    },
-  };
+  return new DefaultRouterAbNormalSigningAdmissionAdapter(store, options.now || Date.now);
 }
 
 export function createInMemoryRouterAbNormalSigningAdmissionStore(

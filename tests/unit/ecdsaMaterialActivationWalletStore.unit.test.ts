@@ -103,6 +103,7 @@ async function stepUpRouteFixture(input: {
   signer: ReturnType<typeof createWalletEcdsaSignerRecord>;
   requestedActivation: RouterAbMpcMaterialActivationRefWire;
   sideEffects: RouteSideEffects;
+  materialResolutionQueue?: readonly RouterAbMpcMaterialActivationRefWire[];
 }): Promise<CloudflareRouterApiContext> {
   const nowMs = Date.now();
   const walletId = String(input.signer.walletId);
@@ -118,6 +119,7 @@ async function stepUpRouteFixture(input: {
     expiresAtMs: nowMs + 50_000,
   });
   const capability = input.signer.walletKey.publicCapability;
+  const materialResolutionQueue = [...(input.materialResolutionQueue ?? [])];
   const requestBody = {
     kind: 'router_ab_ecdsa_operation_step_up_grant_v1',
     operation: {
@@ -198,11 +200,27 @@ async function stepUpRouteFixture(input: {
     service: {
       walletRegistration: {
         async resolveEcdsaMaterialActivation({ materialActivation }) {
+          const queued = materialResolutionQueue.shift();
+          if (queued) {
+            return {
+              ok: true,
+              materialActivation: queued,
+              keyHandle: input.signer.walletKey.keyHandle,
+              relayerKeyId: input.signer.walletKey.relayerKeyId,
+              participantIds: input.signer.walletKey.participantIds,
+            };
+          }
           return sameRouterAbMpcMaterialActivationRef(
             capability.material_activation,
             materialActivation,
           )
-            ? { ok: true, materialActivation: capability.material_activation }
+            ? {
+                ok: true,
+                materialActivation: capability.material_activation,
+                keyHandle: input.signer.walletKey.keyHandle,
+                relayerKeyId: input.signer.walletKey.relayerKeyId,
+                participantIds: input.signer.walletKey.participantIds,
+              }
             : {
                 ok: false,
                 code: 'not_found',
@@ -224,6 +242,66 @@ async function stepUpRouteFixture(input: {
         },
         async issueGrant() {
           input.sideEffects.grantWrites += 1;
+        },
+        async putEcdsaEvidenceAndGrant({ evidenceSet, material }) {
+          if (
+            material.walletId !== input.signer.walletId ||
+            !sameRouterAbMpcMaterialActivationRef(
+              material.materialActivation,
+              capability.material_activation,
+            )
+          ) {
+            return { kind: 'material_mismatch' as const };
+          }
+          input.sideEffects.evidenceWrites += 1;
+          input.sideEffects.grantWrites += 1;
+          void evidenceSet;
+          return { kind: 'committed' as const };
+        },
+        async claimEcdsaOperation({ material }) {
+          if (
+            material.walletId !== input.signer.walletId ||
+            !sameRouterAbMpcMaterialActivationRef(
+              material.materialActivation,
+              capability.material_activation,
+            )
+          ) {
+            return { kind: 'material_mismatch' as const };
+          }
+          input.sideEffects.claims += 1;
+          return { kind: 'grant_mismatch' as const };
+        },
+        async claimEcdsaOperationStepUpFromGrant({ material }) {
+          if (
+            material.walletId !== input.signer.walletId ||
+            !sameRouterAbMpcMaterialActivationRef(
+              material.materialActivation,
+              capability.material_activation,
+            )
+          ) {
+            return { kind: 'material_mismatch' as const };
+          }
+          input.sideEffects.claims += 1;
+          return { kind: 'grant_mismatch' as const };
+        },
+        async claimEcdsaReusableWalletSessionOperation({ material }) {
+          if (
+            material.walletId !== input.signer.walletId ||
+            !sameRouterAbMpcMaterialActivationRef(
+              material.materialActivation,
+              capability.material_activation,
+            )
+          ) {
+            return {
+              claim: null,
+              result: { kind: 'material_mismatch' as const },
+            };
+          }
+          input.sideEffects.claims += 1;
+          return {
+            claim: null,
+            result: { kind: 'grant_mismatch' as const },
+          };
         },
         async claimOperationStepUpFromGrant() {
           input.sideEffects.claims += 1;
@@ -318,6 +396,64 @@ test('operation step-up rejects every hostile material-ref mutation before side 
   }
 });
 
+test('operation step-up rejects a key handle outside the canonical signer', async () => {
+  const walletId = fixtureWalletId();
+  const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
+  const sideEffects = emptyRouteSideEffects();
+  const ctx = await stepUpRouteFixture({
+    signer,
+    requestedActivation: signer.walletKey.publicCapability.material_activation,
+    sideEffects,
+  });
+  const body = (await ctx.request.json()) as {
+    operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+  };
+  ctx.request = new Request(ctx.request.url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+    body: JSON.stringify({
+      ...body,
+      operation: { ...body.operation, key_handle: 'hostile-key-handle' },
+    }),
+  });
+
+  const response = await handleThresholdEcdsa(ctx);
+  expect(response?.status).toBe(403);
+  expect(sideEffects).toEqual(emptyRouteSideEffects());
+});
+
+test('operation step-up rejects hostile signer runtime facts before side effects', async () => {
+  const walletId = fixtureWalletId();
+  const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
+  for (const operationOverride of [
+    { signing_worker_id: 'hostile-signing-worker' },
+    { relayer_key_id: 'hostile-relayer-key' },
+    { participant_ids: [2, 3] as const },
+  ]) {
+    const sideEffects = emptyRouteSideEffects();
+    const ctx = await stepUpRouteFixture({
+      signer,
+      requestedActivation: signer.walletKey.publicCapability.material_activation,
+      sideEffects,
+    });
+    const body = (await ctx.request.json()) as {
+      operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+    };
+    ctx.request = new Request(ctx.request.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      body: JSON.stringify({
+        ...body,
+        operation: { ...body.operation, ...operationOverride },
+      }),
+    });
+
+    const response = await handleThresholdEcdsa(ctx);
+    expect(response?.status).toBe(403);
+    expect(sideEffects).toEqual(emptyRouteSideEffects());
+  }
+});
+
 test('operation step-up issues one grant for the exact canonical material ref', async () => {
   const walletId = fixtureWalletId();
   const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
@@ -338,6 +474,32 @@ test('operation step-up issues one grant for the exact canonical material ref', 
   expect(sideEffects.claims).toBe(0);
   expect(sideEffects.audits).toBe(0);
   expect(sideEffects.quotaWrites).toBe(0);
+});
+
+test('operation step-up rejects a material replacement before proof, evidence, or grant writes', async () => {
+  const walletId = fixtureWalletId();
+  const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
+  const canonicalActivation = signer.walletKey.publicCapability.material_activation;
+  const replacementActivation = corruptMaterialActivation(canonicalActivation, 'activation_id');
+  const sideEffects = emptyRouteSideEffects();
+  const response = await handleThresholdEcdsa(
+    await stepUpRouteFixture({
+      signer,
+      requestedActivation: canonicalActivation,
+      materialResolutionQueue: [canonicalActivation, replacementActivation],
+      sideEffects,
+    }),
+  );
+
+  expect(response?.status).toBe(403);
+  expect(sideEffects.proofVerifications).toBe(0);
+  expect(sideEffects.otpConsumptions).toBe(0);
+  expect(sideEffects.evidenceWrites).toBe(0);
+  expect(sideEffects.grantWrites).toBe(0);
+  expect(sideEffects.claims).toBe(0);
+  expect(sideEffects.audits).toBe(0);
+  expect(sideEffects.quotaWrites).toBe(0);
+  expect(sideEffects.runtimeCalls).toBe(0);
 });
 
 test('operation step-up prepare and finalize reject superseded material before claims', async () => {
@@ -413,6 +575,10 @@ test('operation step-up prepare and finalize reject superseded material before c
     ctx.url = new URL(ctx.request.url);
     ctx.pathname = pathname;
     ctx.opts.routerAbNormalSigningAdmission = {
+      async evaluatePolicy() {
+        sideEffects.audits += 1;
+        return { ok: true };
+      },
       async evaluate() {
         sideEffects.audits += 1;
         return { ok: true };
@@ -423,6 +589,72 @@ test('operation step-up prepare and finalize reject superseded material before c
     expect(response?.status).toBe(403);
     expect(sideEffects).toEqual(emptyRouteSideEffects());
   }
+});
+
+test('operation step-up rejects material replaced during policy evaluation', async () => {
+  const walletId = fixtureWalletId();
+  const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
+  const canonicalActivation = signer.walletKey.publicCapability.material_activation;
+  const replacementActivation = corruptMaterialActivation(canonicalActivation, 'activation_id');
+  const capability = signer.walletKey.publicCapability;
+  const request = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
+    scope: {
+      wallet_id: String(walletId),
+      ecdsa_threshold_key_id: signer.walletKey.ecdsaThresholdKeyId,
+      signing_root_id: signer.walletKey.signingRootId,
+      signing_root_version: signer.walletKey.signingRootVersion,
+      context: capability.context,
+      public_identity: capability.public_identity,
+      material_activation: canonicalActivation,
+      signing_worker: capability.signer_set.selected_server,
+      activation_epoch: capability.activation_epoch,
+    },
+    requestId: 'operation-step-up-policy-race-prepare',
+    operationId: 'operation-step-up-policy-race-operation',
+    operationDigests: {
+      lane_digest_b64u: digest(7),
+      intent_digest_b64u: digest(7),
+      display_digest_b64u: digest(9),
+    },
+    authorization: {
+      kind: 'operation_step_up',
+      grant_id: 'operation-step-up-policy-race-grant',
+    },
+    materialActivation: canonicalActivation,
+    clientPresignatureId: 'client-presignature-policy-race',
+    expiresAtMs: Date.now() + 40_000,
+    signingDigest32: new Uint8Array(32).fill(7),
+    clientRerandomizationCommitment32: new Uint8Array(32).fill(0x37),
+  });
+  const sideEffects = emptyRouteSideEffects();
+  const ctx = await stepUpRouteFixture({
+    signer,
+    requestedActivation: canonicalActivation,
+    materialResolutionQueue: [canonicalActivation, replacementActivation],
+    sideEffects,
+  });
+  ctx.request = new Request(
+    `https://app.example.test${ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      body: JSON.stringify(request),
+    },
+  );
+  ctx.url = new URL(ctx.request.url);
+  ctx.pathname = ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH;
+  ctx.opts.routerAbNormalSigningAdmission = {
+    async evaluatePolicy() {
+      return { ok: true };
+    },
+    async evaluate() {
+      throw new Error('ECDSA must never reserve legacy admission quota');
+    },
+  };
+
+  const response = await handleThresholdEcdsa(ctx);
+  expect(response?.status).toBe(403);
+  expect(sideEffects).toEqual(emptyRouteSideEffects());
 });
 
 test('pool-fill rejects hostile material refs before claims or runtime calls', async () => {
@@ -548,4 +780,50 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
     expect(response?.status, testCase.name).toBe(403);
     expect(sideEffects, testCase.name).toEqual(emptyRouteSideEffects());
   }
+});
+
+test('operation step-up pool fill rejects a material replacement before claim or runtime calls', async () => {
+  const walletId = fixtureWalletId();
+  const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
+  const canonicalActivation = signer.walletKey.publicCapability.material_activation;
+  const replacementActivation = corruptMaterialActivation(canonicalActivation, 'activation_id');
+  const sideEffects = emptyRouteSideEffects();
+  const ctx = await stepUpRouteFixture({
+    signer,
+    requestedActivation: canonicalActivation,
+    materialResolutionQueue: [canonicalActivation, replacementActivation],
+    sideEffects,
+  });
+  const grantBody = (await ctx.request.clone().json()) as {
+    operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+  };
+  const operation = grantBody.operation;
+  const body = {
+    sessionKind: 'jwt',
+    count: 1,
+    poolFill: {
+      kind: 'router_ab_ecdsa_derivation_signing_worker_pool',
+      scope: operation.normal_signing_scope,
+      expiresAtMs: Date.now() + 40_000,
+    },
+    authorization: {
+      kind: 'operation_step_up' as const,
+      grant_id: 'pool-fill-step-up-grant',
+    },
+    operation,
+  };
+  ctx.request = new Request(
+    `https://app.example.test${ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      body: JSON.stringify(body),
+    },
+  );
+  ctx.url = new URL(ctx.request.url);
+  ctx.pathname = ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH;
+
+  const response = await handleThresholdEcdsa(ctx);
+  expect(response?.status).toBe(403);
+  expect(sideEffects).toEqual(emptyRouteSideEffects());
 });

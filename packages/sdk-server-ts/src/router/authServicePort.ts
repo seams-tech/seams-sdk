@@ -182,6 +182,10 @@ import type {
   OperationStepUpClaimInput,
   ReusableWalletSessionClaimInput,
   ReusableWalletSessionClaimOutcome,
+  EcdsaAtomicAuthorizationResult,
+  EcdsaAtomicClaimResult,
+  EcdsaMaterialActivationScope,
+  EcdsaReusableWalletSessionClaimOutcome,
 } from '../authorization/service';
 import type { PrincipalId, SeamsSessionId, TenantId } from '@shared/authorization/capabilityKinds';
 
@@ -1126,9 +1130,12 @@ export interface RouterApiWalletRegistrationService {
     readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   }): Promise<
     | {
-        readonly ok: true;
-        readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
-      }
+      readonly ok: true;
+      readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+      readonly keyHandle: string;
+      readonly relayerKeyId: string;
+      readonly participantIds: readonly [number, number];
+    }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   >;
   listWalletEcdsaKeyFactsInventory(
@@ -1453,6 +1460,25 @@ export interface RouterApiAuthorizationClaimService {
   claimOperationStepUpFromGrant(
     input: OperationStepUpClaimInput,
   ): Promise<ClaimCapabilityOperationResult>;
+  claimEcdsaOperation(input: {
+    readonly claim: import('../authorization/domain').CapabilityOperationClaim;
+    readonly material: EcdsaMaterialActivationScope;
+  }): Promise<EcdsaAtomicClaimResult>;
+  claimEcdsaOperationStepUpFromGrant(input: {
+    readonly claim: OperationStepUpClaimInput;
+    readonly material: EcdsaMaterialActivationScope;
+  }): Promise<EcdsaAtomicClaimResult>;
+  putEcdsaEvidenceAndGrant(input: {
+    readonly evidenceSet: VerifiedGrantEvidenceSet;
+    readonly grant: ActiveCapabilityGrant;
+    readonly material: EcdsaMaterialActivationScope;
+  }): Promise<EcdsaAtomicAuthorizationResult>;
+  claimEcdsaReusableWalletSessionOperation(input: {
+    readonly evidenceSet: VerifiedGrantEvidenceSet;
+    readonly grant: ActiveCapabilityGrant;
+    readonly claim: import('../authorization/domain').CapabilityOperationClaim;
+    readonly material: EcdsaMaterialActivationScope;
+  }): Promise<EcdsaReusableWalletSessionClaimOutcome>;
   claimReusableWalletSessionFromGrant(
     input: ReusableWalletSessionClaimInput,
   ): Promise<ClaimCapabilityOperationResult>;

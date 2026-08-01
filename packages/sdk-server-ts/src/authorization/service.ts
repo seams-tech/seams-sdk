@@ -31,6 +31,7 @@ import {
   parseHostedWalletSeamsSessionExchangeNonce,
 } from './domain';
 import {
+  CAPABILITY_KINDS,
   parseHostedWalletSessionExchangeCodeId,
   type AuthorizationAuditEventId,
   type CapabilityGrantId,
@@ -71,6 +72,8 @@ import {
 } from '@shared/authorization/operationFingerprint';
 import type { WalletId } from '@shared/utils/domainIds';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
 export interface AuthorizationSessionPort {
   putActiveSession(session: ActiveAuthorizationSession): Promise<void>;
@@ -142,12 +145,59 @@ export interface AuthorizationClaimPort {
     readonly operationFingerprintDigest: CapabilityOperationClaim['operationFingerprintDigest'];
   }): Promise<CapabilityGrantUse | null>;
   claimOperation(claim: CapabilityOperationClaim): Promise<ClaimCapabilityOperationResult>;
+  claimEcdsaOperation(input: {
+    readonly claim: CapabilityOperationClaim;
+    readonly material: EcdsaMaterialActivationScope;
+  }): Promise<EcdsaAtomicClaimResult>;
+  putEcdsaEvidenceAndGrant(input: {
+    readonly evidenceSet: VerifiedGrantEvidenceSet;
+    readonly grant: ActiveCapabilityGrant;
+    readonly material: EcdsaMaterialActivationScope;
+  }): Promise<EcdsaAtomicAuthorizationResult>;
+  claimEcdsaReusableWalletSessionOperation(input: {
+    readonly evidenceSet: VerifiedGrantEvidenceSet;
+    readonly grant: ActiveCapabilityGrant;
+    readonly claim: CapabilityOperationClaim;
+    readonly material: EcdsaMaterialActivationScope;
+  }): Promise<EcdsaReusableWalletSessionClaimOutcome>;
   completeOperation(input: {
     readonly claim: CapabilityOperationClaim | CapabilityOperationCompletionClaimRef;
     readonly result: CompletedCapabilityOperationResult;
     readonly resultRef: CapabilityOperationResultRef;
     readonly completedAtMs: number;
   }): Promise<CompleteCapabilityOperationResult>;
+}
+
+export type EcdsaMaterialActivationScope = Readonly<{
+  readonly walletId: WalletId;
+  readonly keyHandle: string;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+}>;
+
+export type EcdsaAtomicAuthorizationResult =
+  | { readonly kind: 'committed' }
+  | { readonly kind: 'material_mismatch' };
+
+export type EcdsaAtomicClaimResult =
+  | ClaimCapabilityOperationResult
+  | { readonly kind: 'material_mismatch' };
+
+export type EcdsaReusableWalletSessionClaimOutcome = {
+  readonly claim: CapabilityOperationClaim | null;
+  readonly result: EcdsaAtomicClaimResult;
+};
+
+function ecdsaMaterialMatchesCapability(input: {
+  readonly material: EcdsaMaterialActivationScope;
+  readonly capabilityId: CapabilityId;
+  readonly operation: CapabilityOperationRef;
+}): boolean {
+  return (
+    input.operation.capabilityKind === CAPABILITY_KINDS.evmEcdsaMpcSigning &&
+    String(input.material.walletId) === input.material.materialActivation.material_owner &&
+    input.material.materialActivation.capability === input.capabilityId
+  );
 }
 
 export interface AuthorizationAuditPort {
@@ -461,6 +511,117 @@ export class AuthorizationService {
 
   async claimOperation(claim: CapabilityOperationClaim): Promise<ClaimCapabilityOperationResult> {
     return await this.ports.claims.claimOperation(claim);
+  }
+
+  async claimEcdsaOperation(input: {
+    readonly claim: CapabilityOperationClaim;
+    readonly material: EcdsaMaterialActivationScope;
+  }): Promise<EcdsaAtomicClaimResult> {
+    if (
+      input.material.runtimePolicyScope.orgId !== input.claim.tenantId ||
+      !ecdsaMaterialMatchesCapability({
+        material: input.material,
+        capabilityId: input.claim.operation.capabilityId,
+        operation: input.claim.operation.operation,
+      })
+    ) {
+      return { kind: 'material_mismatch' };
+    }
+    return await this.ports.claims.claimEcdsaOperation(input);
+  }
+
+  async claimEcdsaOperationStepUpFromGrant(input: {
+    readonly claim: OperationStepUpClaimInput;
+    readonly material: EcdsaMaterialActivationScope;
+  }): Promise<EcdsaAtomicClaimResult> {
+    if (
+      input.material.runtimePolicyScope.orgId !== input.claim.tenantId ||
+      !ecdsaMaterialMatchesCapability({
+        material: input.material,
+        capabilityId: input.claim.capabilityId,
+        operation: input.claim.operation,
+      })
+    ) {
+      return { kind: 'material_mismatch' };
+    }
+    const operation = operationEnvelopeFromClaimInput(input.claim);
+    const session = await this.ports.sessions.readActiveSession({
+      tenantId: input.claim.tenantId,
+      sessionId: input.claim.authorizationSessionId,
+      nowMs: input.claim.claimedAtMs,
+    });
+    if (!session || session.principalId !== input.claim.principalId) {
+      return { kind: 'grant_mismatch' };
+    }
+    const grant = await this.ports.grants.readGrantClaimSource({
+      tenantId: input.claim.tenantId,
+      grantId: input.claim.grantId,
+    });
+    if (!grant || !operationStepUpGrantMatches(grant, input.claim)) {
+      return { kind: 'grant_mismatch' };
+    }
+    const claim = await buildCapabilityOperationClaim({
+      tenantId: input.claim.tenantId,
+      useId: input.claim.useId,
+      auditEventId: input.claim.auditEventId,
+      grantId: input.claim.grantId,
+      operation,
+      evidenceSetDigest: grant.evidenceSetDigest,
+      claimedAtMs: input.claim.claimedAtMs,
+      authorization: { kind: 'operation_step_up' },
+    });
+    return await this.ports.claims.claimEcdsaOperation({
+      claim,
+      material: input.material,
+    });
+  }
+
+  async putEcdsaEvidenceAndGrant(input: {
+    readonly evidenceSet: VerifiedGrantEvidenceSet;
+    readonly grant: ActiveCapabilityGrant;
+    readonly material: EcdsaMaterialActivationScope;
+  }): Promise<EcdsaAtomicAuthorizationResult> {
+    if (
+      input.material.runtimePolicyScope.orgId !== input.evidenceSet.tenantId ||
+      input.material.runtimePolicyScope.orgId !== input.grant.tenantId ||
+      input.evidenceSet.tenantId !== input.grant.tenantId ||
+      !ecdsaMaterialMatchesCapability({
+        material: input.material,
+        capabilityId: input.grant.capabilityId,
+        operation: input.grant.operation,
+      })
+    ) {
+      return { kind: 'material_mismatch' };
+    }
+    return await this.ports.claims.putEcdsaEvidenceAndGrant(input);
+  }
+
+  async claimEcdsaReusableWalletSessionOperation(input: {
+    readonly evidenceSet: VerifiedGrantEvidenceSet;
+    readonly grant: ActiveCapabilityGrant;
+    readonly claim: CapabilityOperationClaim;
+    readonly material: EcdsaMaterialActivationScope;
+  }): Promise<EcdsaReusableWalletSessionClaimOutcome> {
+    if (
+      input.material.runtimePolicyScope.orgId !== input.evidenceSet.tenantId ||
+      input.material.runtimePolicyScope.orgId !== input.grant.tenantId ||
+      input.material.runtimePolicyScope.orgId !== input.claim.tenantId ||
+      input.evidenceSet.tenantId !== input.grant.tenantId ||
+      input.evidenceSet.tenantId !== input.claim.tenantId ||
+      !ecdsaMaterialMatchesCapability({
+        material: input.material,
+        capabilityId: input.grant.capabilityId,
+        operation: input.grant.operation,
+      }) ||
+      !ecdsaMaterialMatchesCapability({
+        material: input.material,
+        capabilityId: input.claim.operation.capabilityId,
+        operation: input.claim.operation.operation,
+      })
+    ) {
+      return { claim: null, result: { kind: 'material_mismatch' } };
+    }
+    return await this.ports.claims.claimEcdsaReusableWalletSessionOperation(input);
   }
 
   async lookupOperationClaim(

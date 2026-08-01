@@ -147,15 +147,10 @@ test.describe('Router A/B normal-signing admission store', () => {
     const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
     const adapter = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
     const input = ed25519AdmissionInput();
-    const ecdsaInput = ecdsaAdmissionInput();
 
     await expect(adapter.evaluate(input)).resolves.toEqual({ ok: true });
     await expect(
       adapter.evaluate(ed25519AdmissionInput({ requestId: 'request-2' })),
-    ).resolves.toEqual({ ok: true });
-    await expect(adapter.evaluate(ecdsaInput)).resolves.toEqual({ ok: true });
-    await expect(
-      adapter.evaluate(ecdsaAdmissionInput({ requestId: 'ecdsa-request-2' })),
     ).resolves.toEqual({ ok: true });
   });
 
@@ -175,58 +170,25 @@ test.describe('Router A/B normal-signing admission store', () => {
     ).resolves.toEqual({ ok: true });
   });
 
-  test('expires exact lifecycle reservations before the signing request expiry', async () => {
-    let nowMs = 1_000;
-    const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
-    const input = ecdsaAdmissionInput({ expiresAtMs: 60_000 });
-
-    await expect(store.reserveQuota(input)).resolves.toEqual({
-      kind: 'accepted',
-      requestId: input.requestId,
-    });
-    await expect(store.reserveQuota(input)).resolves.toEqual({
-      kind: 'reuse_existing',
-      requestId: input.requestId,
-      existingLifecycleId:
-        'ecdsa:prepare:alice.testnet:material_activation:ecdsa-material-activation-1:wallet_session:ecdsa-session-1:signing-grant-1:ecdsa-request-1:signing-worker-a:ecdsa-key-handle-1',
-    });
-
-    nowMs = 6_001;
-
-    await expect(store.reserveQuota(input)).resolves.toEqual({
-      kind: 'accepted',
-      requestId: input.requestId,
-    });
-  });
-
-  test('keeps Ed25519 and ECDSA quota scopes separate', async () => {
+  test('evaluates ECDSA policy without reserving legacy admission quota', async () => {
     const nowMs = 1_000;
-    const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
+    let quotaReservations = 0;
+    const store = {
+      async evaluateProjectPolicy() {
+        return { kind: 'allowed' as const };
+      },
+      async evaluateAbuse() {
+        return { kind: 'allowed' as const };
+      },
+      async reserveQuota(input: Ed25519AdmissionInput) {
+        quotaReservations += 1;
+        return { kind: 'accepted' as const, requestId: input.requestId };
+      },
+    };
     const adapter = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
 
-    await expect(adapter.evaluate(ed25519AdmissionInput())).resolves.toEqual({ ok: true });
-    await expect(adapter.evaluate(ecdsaAdmissionInput())).resolves.toEqual({ ok: true });
-  });
-
-  test('keeps reusable sessions and operation material activations separate', async () => {
-    const nowMs = 1_000;
-    const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
-    const sharedId = 'shared-runtime-identity';
-    const reusable = ecdsaAdmissionInput({
-      authorizationIdentity: {
-        kind: 'reusable_wallet_session',
-        walletSessionId: sharedId,
-      },
-    });
-    const stepUp = ecdsaAdmissionInput({
-      authorizationIdentity: {
-        kind: 'operation_step_up',
-        materialActivationId: materialActivationId(sharedId),
-      },
-    });
-
-    await expect(store.reserveQuota(reusable)).resolves.toMatchObject({ kind: 'accepted' });
-    await expect(store.reserveQuota(stepUp)).resolves.toMatchObject({ kind: 'accepted' });
+    await expect(adapter.evaluatePolicy(ecdsaAdmissionInput())).resolves.toEqual({ ok: true });
+    expect(quotaReservations).toBe(0);
   });
 
   test('maps project policy rejection before quota reservation', async () => {

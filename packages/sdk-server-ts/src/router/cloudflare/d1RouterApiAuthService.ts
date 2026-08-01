@@ -1495,6 +1495,20 @@ function createD1AuthorizationClaimRouteService(
     claimOperationStepUpFromGrant: assembly.authorizationService.claimOperationStepUpFromGrant.bind(
       assembly.authorizationService,
     ),
+    claimEcdsaOperation: assembly.authorizationService.claimEcdsaOperation.bind(
+      assembly.authorizationService,
+    ),
+    claimEcdsaOperationStepUpFromGrant:
+      assembly.authorizationService.claimEcdsaOperationStepUpFromGrant.bind(
+        assembly.authorizationService,
+      ),
+    putEcdsaEvidenceAndGrant: assembly.authorizationService.putEcdsaEvidenceAndGrant.bind(
+      assembly.authorizationService,
+    ),
+    claimEcdsaReusableWalletSessionOperation:
+      assembly.authorizationService.claimEcdsaReusableWalletSessionOperation.bind(
+        assembly.authorizationService,
+      ),
     lookupOperationClaim: assembly.authorizationService.lookupOperationClaim.bind(
       assembly.authorizationService,
     ),

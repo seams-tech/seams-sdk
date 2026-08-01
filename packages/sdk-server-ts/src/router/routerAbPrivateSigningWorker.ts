@@ -80,8 +80,10 @@ import {
 import { buildCapabilityOperationEnvelope } from '@shared/authorization/operationFingerprint';
 import {
   buildActiveCapabilityGrant,
+  buildCapabilityOperationClaim,
   type ClaimedCapabilityGrantUse,
 } from '../authorization/domain';
+import { buildVerifiedSessionEvidenceSet } from '../authorization/factorEvidence';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
   sameRouterAbMpcMaterialActivationRef,
@@ -90,6 +92,7 @@ import {
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseMpcMaterialActivationId,
+  parseWalletId,
   type MpcMaterialActivationId,
 } from '@shared/utils/domainIds';
 
@@ -98,6 +101,18 @@ const ED25519_SIGNING_PAYLOAD_VERSION_V2 = 'router-ab-protocol/ed25519-normal-si
 const ED25519_ROUND1_BINDING_VERSION_V2 =
   'router-ab-protocol/ed25519-normal-signing/round1-binding/v2';
 const ED25519_TRUSTED_SOURCE_VERSION_V2 = 'router-ab-cloudflare-trusted-source/v2';
+
+export function routerAbEcdsaAtomicAuthorizationConfigured(
+  claims: RouterApiAuthorizationClaimService,
+): boolean {
+  const runtime = claims as unknown as Record<string, unknown>;
+  return (
+    typeof runtime.claimEcdsaOperation === 'function' &&
+    typeof runtime.claimEcdsaOperationStepUpFromGrant === 'function' &&
+    typeof runtime.putEcdsaEvidenceAndGrant === 'function' &&
+    typeof runtime.claimEcdsaReusableWalletSessionOperation === 'function'
+  );
+}
 
 const PRIVATE_ED25519_SIGNING_PREPARE_PATH = '/router-ab/signing-worker/sign/prepare';
 const PRIVATE_ED25519_SIGNING_FINALIZE_PATH = '/router-ab/signing-worker/sign';
@@ -325,8 +340,11 @@ export type RouterAbNormalSigningAdmissionInput =
     };
 
 export interface RouterAbNormalSigningAdmissionAdapter {
-  evaluate(
+  evaluatePolicy(
     input: RouterAbNormalSigningAdmissionInput,
+  ): Promise<RouterAbNormalSigningAdmissionResult>;
+  evaluate(
+    input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
   ): Promise<RouterAbNormalSigningAdmissionResult>;
 }
 
@@ -386,7 +404,7 @@ export async function evaluateRouterAbNormalSigningAdmission(
     };
   }
 
-  return await input.adapter.evaluate({
+  return await input.adapter.evaluatePolicy({
     curve: 'ecdsa',
     phase: input.phase,
     walletId: input.walletSessionAuth.userId,
@@ -2525,6 +2543,42 @@ export function validateRouterAbEcdsaDerivationNormalSigningPrepareRequest(input
   };
 }
 
+/**
+ * Re-resolve the complete activation reference immediately before a claim or
+ * evidence write. The resolver is authoritative for capability identity and
+ * all owner/key/lifecycle/worker bindings; a stale or superseded reference
+ * must fail before any authorization side effect is attempted.
+ */
+export async function resolveFreshRouterAbEcdsaMaterialActivation(input: {
+  readonly resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
+  readonly walletId: string;
+  readonly expected: RouterAbMpcMaterialActivationRefWire;
+}): Promise<
+  | {
+      readonly ok: true;
+      readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+      readonly keyHandle: string;
+      readonly relayerKeyId: string;
+      readonly participantIds: readonly [number, number];
+    }
+  | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
+  | { readonly ok: false; readonly code: 'scope_mismatch'; readonly message: string }
+> {
+  const resolved = await input.resolveEcdsaMaterialActivation({
+    walletId: input.walletId,
+    materialActivation: input.expected,
+  });
+  if (!resolved.ok) return resolved;
+  if (!sameRouterAbMpcMaterialActivationRef(resolved.materialActivation, input.expected)) {
+    return {
+      ok: false,
+      code: 'scope_mismatch',
+      message: 'ECDSA material activation changed before authorization claim',
+    };
+  }
+  return resolved;
+}
+
 export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(input: {
   claims: RouterAbEcdsaDerivationWalletSessionClaims;
   walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
@@ -2607,6 +2661,7 @@ async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
   claims: RouterAbEcdsaDerivationWalletSessionClaims;
   authorizationClaims: RouterApiAuthorizationClaimService;
   authorizationSessions: RouterApiAuthorizationSessionService;
+  resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
 }): Promise<
   | {
       readonly ok: true;
@@ -2618,6 +2673,16 @@ async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
     }
   | { readonly ok: false; readonly error: RouterAbJsonRouteResult }
 > {
+  if (!routerAbEcdsaAtomicAuthorizationConfigured(input.authorizationClaims)) {
+    return {
+      ok: false,
+      error: routerAbStepUpError(
+        501,
+        'not_configured',
+        'ECDSA atomic authorization is not configured',
+      ),
+    };
+  }
   if (input.request.authorization.kind !== 'reusable_wallet_session') {
     return {
       ok: false,
@@ -2658,8 +2723,33 @@ async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
         ),
       };
     }
+    const freshMaterial = await resolveFreshRouterAbEcdsaMaterialActivation({
+      resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
+      walletId: input.claims.walletId,
+      expected: input.materialActivation,
+    });
+    if (!freshMaterial.ok) {
+      return {
+        ok: false,
+        error: routerAbStepUpError(
+          freshMaterial.code === 'internal' ? 500 : 403,
+          freshMaterial.code === 'internal' ? 'internal' : 'wallet_session_mismatch',
+          freshMaterial.message,
+        ),
+      };
+    }
+    if (freshMaterial.keyHandle !== input.claims.keyHandle) {
+      return {
+        ok: false,
+        error: routerAbStepUpError(
+          403,
+          'wallet_session_mismatch',
+          'Reusable Wallet Session key does not match the active material',
+        ),
+      };
+    }
     const capabilityId = requireAuthorizationValue(
-      parseCapabilityId(input.materialActivation.capability),
+      parseCapabilityId(freshMaterial.materialActivation.capability),
     );
     const operationId = requireAuthorizationValue(
       parseCapabilityOperationId(input.request.operation_id),
@@ -2688,21 +2778,17 @@ async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
       input.claims.thresholdExpiresAtMs,
       activeSession.lifecycle.expiresAtMs,
     );
-    const evidenceSet =
-      await input.authorizationClaims.recordVerifiedSessionEvidenceSet({
-        session: activeSession,
-        operation: envelope,
-        evidenceId,
-        evidenceSetId,
-        expiresAtMs,
-      });
+    const evidenceSet = await buildVerifiedSessionEvidenceSet({
+      session: activeSession,
+      operation: envelope,
+      evidenceId,
+      evidenceSetId,
+      expiresAtMs,
+    });
     const grantId = requireAuthorizationValue(
       parseCapabilityGrantId(`ecdsa-operation-grant:${operationId}`),
     );
-    await input.authorizationClaims.issueGrant({
-      operation: envelope,
-      evidenceSet,
-      grant: buildActiveCapabilityGrant({
+    const grant = buildActiveCapabilityGrant({
         tenantId,
         principalId,
         grantId,
@@ -2725,31 +2811,50 @@ async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
         remainingUses: 1,
         createdAtMs: nowMs,
         expiresAtMs,
-      }),
-    });
+      });
     const useId = requireAuthorizationValue(
       parseCapabilityGrantUseId(
         `ecdsa-operation-use:${operationId}:${input.request.request_id}`,
       ),
     );
-    const outcome = await input.authorizationClaims.claimReusableWalletSessionOperation({
+    const auditEventId = requireAuthorizationValue(
+      parseAuthorizationAuditEventId(`ecdsa-operation-audit:${operationId}`),
+    );
+    const claim = await buildCapabilityOperationClaim({
       tenantId,
-      grantId,
       useId,
-      auditEventId: requireAuthorizationValue(
-        parseAuthorizationAuditEventId(`ecdsa-operation-audit:${operationId}`),
-      ),
-      walletSessionId: input.claims.walletSessionId,
-      quotaId: input.claims.quotaId,
-      principalId,
-      capabilityId,
-      operationId,
-      operation,
-      laneDigest: envelope.digests.laneDigest,
-      intentDigest: envelope.digests.intentDigest,
-      displayDigest: envelope.digests.displayDigest,
+      auditEventId,
+      grantId,
+      operation: envelope,
+      evidenceSetDigest: evidenceSet.evidenceSetDigest,
       claimedAtMs: nowMs,
+      authorization: {
+        kind: 'reusable_wallet_session',
+        walletSessionId: input.claims.walletSessionId,
+        quotaId: input.claims.quotaId,
+      },
     });
+    const outcome = await input.authorizationClaims.claimEcdsaReusableWalletSessionOperation({
+      evidenceSet,
+      grant,
+      claim,
+      material: {
+        walletId: requireAuthorizationValue(parseWalletId(input.claims.walletId)),
+        keyHandle: freshMaterial.keyHandle,
+        runtimePolicyScope,
+        materialActivation: freshMaterial.materialActivation,
+      },
+    });
+    if (outcome.result.kind === 'material_mismatch') {
+      return {
+        ok: false,
+        error: routerAbStepUpError(
+          403,
+          'wallet_session_mismatch',
+          'ECDSA material activation is no longer active',
+        ),
+      };
+    }
     const claimFailure = routerAbReusableWalletSessionClaimFailure(outcome.result, useId);
     if (claimFailure) return { ok: false, error: claimFailure };
     if (!outcome.claim) {
@@ -2883,27 +2988,40 @@ function validateRouterAbEcdsaOperationStepUpIdentity(input: {
 }
 
 export async function claimRouterAbEcdsaOperationStepUp(input: {
+  readonly operationKind: 'evm.sign_transaction' | 'evm.export_key';
   readonly operation: Pick<
     RouterAbEcdsaOperationStepUpPreparationV1Wire,
     'operation_id' | 'operation_digests' | 'material_activation'
   >;
   readonly grantId: string;
   readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  readonly keyHandle: string;
   readonly authenticated: Extract<
     Awaited<ReturnType<typeof authenticateRouterAbEcdsaOperationStepUpAppSession>>,
     { readonly ok: true }
   >;
 }): Promise<RouterAbJsonRouteResult | null> {
+  if (!routerAbEcdsaAtomicAuthorizationConfigured(input.authenticated.claims)) {
+    return routerAbStepUpError(
+      501,
+      'not_configured',
+      'ECDSA atomic authorization is not configured',
+    );
+  }
+  let useId: CapabilityGrantUseId;
+  let claimInput: Parameters<
+    RouterApiAuthorizationClaimService['claimEcdsaOperationStepUpFromGrant']
+  >[0]['claim'];
   try {
     const operationId = requireAuthorizationValue(
       parseCapabilityOperationId(input.operation.operation_id),
     );
-    const useId = requireAuthorizationValue(
+    useId = requireAuthorizationValue(
       parseCapabilityGrantUseId(
         `ecdsa-operation-step-up-use:${input.operation.operation_id}`,
       ),
     );
-    const result = await input.authenticated.claims.claimOperationStepUpFromGrant({
+    claimInput = {
       tenantId: input.authenticated.session.tenantId,
       grantId: requireAuthorizationValue(
         parseCapabilityGrantId(input.grantId),
@@ -2920,16 +3038,34 @@ export async function claimRouterAbEcdsaOperationStepUp(input: {
         parseCapabilityId(input.materialActivation.capability),
       ),
       operationId,
-      operation: buildEvmEcdsaMpcOperationRef('evm.sign_transaction'),
+      operation: buildEvmEcdsaMpcOperationRef(input.operationKind),
       laneDigest: parseDigestB64u(input.operation.operation_digests.lane_digest_b64u),
       intentDigest: parseDigestB64u(input.operation.operation_digests.intent_digest_b64u),
       displayDigest: parseDigestB64u(input.operation.operation_digests.display_digest_b64u),
       claimedAtMs: Date.now(),
-    });
-    return routerAbOperationStepUpClaimFailure(result, useId);
+    };
   } catch (error: unknown) {
     return routerAbStepUpError(400, 'invalid_body', errorMessage(error));
   }
+  const result = await input.authenticated.claims.claimEcdsaOperationStepUpFromGrant({
+    claim: claimInput,
+    material: {
+      walletId: requireAuthorizationValue(
+        parseWalletId(input.authenticated.session.walletId),
+      ),
+      keyHandle: input.keyHandle,
+      runtimePolicyScope: input.authenticated.session.runtimePolicyScope,
+      materialActivation: input.materialActivation,
+    },
+  });
+  if (result.kind === 'material_mismatch') {
+    return routerAbStepUpError(
+      403,
+      'scope_mismatch',
+      'ECDSA material activation changed before operation claim',
+    );
+  }
+  return routerAbOperationStepUpClaimFailure(result, useId);
 }
 
 async function handleRouterAbEcdsaOperationStepUpRoute(input: {
@@ -3000,7 +3136,7 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
       'Router A/B ECDSA operation step-up admission is not configured',
     );
   }
-  const admission = await input.admissionAdapter.evaluate({
+  const admission = await input.admissionAdapter.evaluatePolicy({
     curve: 'ecdsa',
     phase: input.phase,
     walletId: authenticated.session.walletId,
@@ -3013,7 +3149,7 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
     requestId: request.request_id,
     expiresAtMs: request.expires_at_ms,
     signingWorkerId: activeMaterial.materialActivation.signing_worker,
-    keyHandle: activeMaterial.materialActivation.key_binding,
+    keyHandle: activeMaterial.keyHandle,
     runtimePolicyScope: authenticated.session.runtimePolicyScope,
   });
   if (!admission.ok) {
@@ -3022,15 +3158,41 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
       body: { ok: false, code: admission.code, message: admission.message },
     };
   }
+  const freshMaterial = await resolveFreshRouterAbEcdsaMaterialActivation({
+    resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
+    walletId: authenticated.session.walletId,
+    expected: request.material_activation,
+  });
+  if (!freshMaterial.ok) {
+    return routerAbStepUpError(
+      freshMaterial.code === 'internal' ? 500 : 403,
+      freshMaterial.code === 'internal' ? 'internal' : 'scope_mismatch',
+      freshMaterial.message,
+    );
+  }
+  if (
+    freshMaterial.keyHandle !== activeMaterial.keyHandle ||
+    freshMaterial.relayerKeyId !== activeMaterial.relayerKeyId ||
+    freshMaterial.participantIds[0] !== activeMaterial.participantIds[0] ||
+    freshMaterial.participantIds[1] !== activeMaterial.participantIds[1]
+  ) {
+    return routerAbStepUpError(
+      403,
+      'scope_mismatch',
+      'ECDSA operation step-up signer facts changed before operation claim',
+    );
+  }
   if (input.phase === 'prepare') {
     const prepareRequest = parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body);
     const claimFailure = await claimRouterAbEcdsaOperationStepUp({
+      operationKind: 'evm.sign_transaction',
       operation: {
         operation_id: prepareRequest.operation_id,
         operation_digests: prepareRequest.operation_digests,
         material_activation: prepareRequest.material_activation,
       },
-      materialActivation: activeMaterial.materialActivation,
+      materialActivation: freshMaterial.materialActivation,
+      keyHandle: freshMaterial.keyHandle,
       grantId:
         prepareRequest.authorization.kind === 'operation_step_up'
           ? prepareRequest.authorization.grant_id
@@ -3135,6 +3297,7 @@ export async function authorizeRouterAbEcdsaDerivationNormalSigningRoute(input: 
     };
   }
   if (
+    activeMaterial.keyHandle !== validated.walletSessionAuth.keyHandle ||
     !sameRouterAbMpcMaterialActivationRef(
       activeMaterial.materialActivation,
       admission.materialActivation,
@@ -3254,6 +3417,7 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
       claims: validated.claims,
       authorizationClaims: input.authorizationClaims,
       authorizationSessions: input.authorizationSessions,
+      resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
     });
     if (!claimed.ok) return claimed.error;
     prepareClaim = claimed.claim;
