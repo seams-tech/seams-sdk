@@ -18,7 +18,6 @@ import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 type WarmSessionSealTransportCommon = {
   walletId?: string;
   relayerUrl: string;
-  signingGrantId?: string;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   groupId?: string;
 };
@@ -81,7 +80,6 @@ export type WarmSessionSealTransportInput =
       curve: 'ed25519';
       authMethod: 'passkey';
       walletId: string;
-      signingGrantId: string;
       walletSessionJwt: string;
       ecdsaRestore?: never;
       ed25519Restore: PasskeyEd25519SealRestoreMetadata;

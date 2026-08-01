@@ -161,11 +161,9 @@ type BuildCurrentRecordInputArgs = {
 } & (
   | {
       transport: Extract<PasskeyWarmSessionSealTransportInput, { curve: 'ed25519' }>;
-      signingGrantId: string;
     }
   | {
       transport: Extract<PasskeyWarmSessionSealTransportInput, { curve: 'ecdsa' }>;
-      signingGrantId?: never;
     }
 );
 
@@ -173,7 +171,6 @@ function isEd25519BuildCurrentRecordInputArgs(
   args: BuildCurrentRecordInputArgs,
 ): args is BuildCurrentRecordInputArgs & {
   transport: Extract<PasskeyWarmSessionSealTransportInput, { curve: 'ed25519' }>;
-  signingGrantId: string;
 } {
   return args.transport.curve === 'ed25519';
 }
@@ -248,11 +245,9 @@ type PersistExactRecordArgs = {
 } & (
   | {
       transport: Extract<PasskeyWarmSessionSealTransportInput, { curve: 'ed25519' }>;
-      signingGrantId: string;
     }
   | {
       transport: Extract<PasskeyWarmSessionSealTransportInput, { curve: 'ecdsa' }>;
-      signingGrantId?: never;
     }
 );
 
@@ -260,7 +255,6 @@ function isEd25519PersistExactRecordArgs(
   args: PersistExactRecordArgs,
 ): args is PersistExactRecordArgs & {
   transport: Extract<PasskeyWarmSessionSealTransportInput, { curve: 'ed25519' }>;
-  signingGrantId: string;
 } {
   return args.transport.curve === 'ed25519';
 }
@@ -414,20 +408,11 @@ export class PasskeyMpcSessionDurableState {
 
     let persistTask: Promise<WarmSessionSealAndPersistResult>;
     if (args.transport.curve === 'ed25519') {
-      const signingGrantId = String(args.transport.signingGrantId || '').trim();
-      if (!signingGrantId) {
-        return {
-          ok: false,
-          code: 'invalid_args',
-          message: 'Passkey Ed25519 seal persistence requires signingGrantId',
-        };
-      }
       persistTask = this.persistExactRecord({
         thresholdSessionId,
         transport: args.transport,
         metadata,
         purpose,
-        signingGrantId,
         relayerUrl,
         diagnostics: args.diagnostics,
       });
@@ -574,7 +559,6 @@ export class PasskeyMpcSessionDurableState {
             transport: args.transport,
             metadata,
             sealedSecretB64u: existing.sealedSecretB64u,
-            signingGrantId: args.signingGrantId,
             relayerUrl: existing.relayerUrl,
             keyVersion: existing.keyVersion,
             groupId: existing.groupId,
@@ -684,7 +668,6 @@ export class PasskeyMpcSessionDurableState {
           transport: args.transport,
           metadata: args.metadata,
           sealedSecretB64u: sealed.sealedSecretB64u,
-          signingGrantId: args.signingGrantId,
           relayerUrl: args.relayerUrl,
           keyVersion,
           groupId,

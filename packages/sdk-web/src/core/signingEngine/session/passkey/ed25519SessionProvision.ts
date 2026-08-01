@@ -47,7 +47,6 @@ export type ProvisionThresholdEd25519SessionDeps = {
 function sealTransportForProvisionedEd25519Session(args: {
   walletId: string;
   relayerUrl: string;
-  signingGrantId: string;
   walletSessionJwt: string;
   ed25519Restore: PasskeyEd25519SealRestoreMetadata;
 }): WarmSessionSealTransportInput {
@@ -56,7 +55,6 @@ function sealTransportForProvisionedEd25519Session(args: {
     authMethod: 'passkey',
     walletId: args.walletId,
     relayerUrl: args.relayerUrl,
-    signingGrantId: args.signingGrantId,
     walletSessionJwt: args.walletSessionJwt,
     ed25519Restore: args.ed25519Restore,
   };
@@ -228,7 +226,6 @@ export async function provisionThresholdEd25519Session(
     const transport = sealTransportForProvisionedEd25519Session({
       walletId: protocol.walletId,
       relayerUrl,
-      signingGrantId,
       walletSessionJwt: jwt,
       ed25519Restore,
     });
