@@ -1,6 +1,5 @@
 import { toAccountId } from '@/core/types/accountIds';
 import { SigningOperationIntent, SigningSessionIds } from '../operationState/types';
-import { createWalletBudgetProjection } from './budgetProjection';
 import type {
   BudgetAdmittedLifecycle,
   PreparedTransactionOperation,
@@ -93,12 +92,6 @@ const invalidThresholdSessionBudgetStatusAuth: SigningSessionBudgetStatusAuth = 
   thresholdSessionAuthToken: 'threshold-session-jwt',
 };
 void invalidThresholdSessionBudgetStatusAuth;
-
-const walletBudgetProjection = createWalletBudgetProjection({
-  walletId,
-  signingGrantId: 'signing-grant-1',
-});
-void walletBudgetProjection;
 
 const externallyConsumedSpend: ExternallyConsumedWalletBudgetSpend = {
   kind: 'externally_consumed_success',
