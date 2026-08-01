@@ -323,7 +323,6 @@ export async function runNearDelegateActionSigning({
         sessionOrigin: 'per_operation',
         storageSource: 'sealed_restore',
         retention: 'single_use',
-        runtimeState: 'no_runtime_material',
         materialActivation: deferredIdentity.materialActivation,
         thresholdSessionId: deferredIdentity.thresholdSessionId,
       },

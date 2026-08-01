@@ -56,7 +56,6 @@ import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBin
 
 export type Brand<TValue, TBrand extends string> = TValue & { readonly __brand: TBrand };
 
-export type BackingMaterialSessionId = Brand<string, 'BackingMaterialSessionId'>;
 export type SigningOperationId = Brand<string, 'SigningOperationId'>;
 export type SigningOperationFingerprint = Brand<string, 'SigningOperationFingerprint'>;
 
@@ -91,30 +90,7 @@ type BaseSigningSessionPlanningLane = {
   retention: SigningSessionRetention;
 };
 
-type BranchSigningSessionRuntimeState =
-  | {
-      runtimeState: 'no_runtime_material';
-      backingMaterialSessionId?: never;
-      activeSignerSlot?: never;
-    }
-  | {
-      runtimeState: 'backing_material';
-      backingMaterialSessionId: BackingMaterialSessionId;
-      activeSignerSlot?: never;
-    }
-  | {
-      runtimeState: 'active_signer';
-      backingMaterialSessionId?: never;
-      activeSignerSlot: number;
-    }
-  | {
-      runtimeState: 'backing_material_with_active_signer';
-      backingMaterialSessionId: BackingMaterialSessionId;
-      activeSignerSlot: number;
-    };
-
-export type Ed25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane &
-  BranchSigningSessionRuntimeState & {
+export type Ed25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane & {
     identity: ExactEd25519SigningLaneIdentity;
     curve: 'ed25519';
     keyKind: 'threshold_ed25519';
@@ -132,8 +108,7 @@ export type DeferredEd25519MaterialIdentity = {
 
 /** A material candidate before operation-step-up has issued a grant. This
  * lane is deliberately excluded from reusable-session and budget paths. */
-export type DeferredEd25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane &
-  BranchSigningSessionRuntimeState & {
+export type DeferredEd25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane & {
     identity: DeferredEd25519MaterialIdentity;
     auth: SigningLaneAuthBinding;
     curve: 'ed25519';
@@ -147,8 +122,7 @@ export type DeferredEd25519SigningSessionPlanningLane = BaseSigningSessionPlanni
     thresholdSessionId: ThresholdEd25519SessionId;
   };
 
-export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane &
-  BranchSigningSessionRuntimeState & {
+export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane & {
     identity: ExactEcdsaSigningLaneIdentity;
     curve: 'ecdsa';
     keyKind: 'threshold_ecdsa_secp256k1';
@@ -212,7 +186,7 @@ type BaseResolvedSigningSessionIdentity<
   sessionOrigin: SigningSessionOrigin;
   storageSource: SigningSessionStorageSource;
   retention: SigningSessionRetention;
-} & BranchSigningSessionRuntimeState;
+};
 
 export type ResolvedEd25519SigningSessionIdentity =
   BaseResolvedSigningSessionIdentity<ExactEd25519SigningLaneIdentity> & {
@@ -291,7 +265,6 @@ export type Ed25519WalletSigningSpendPlan = {
   operationId: SigningOperationId;
   operationFingerprint?: SigningOperationFingerprint;
   lane: SelectedEd25519SigningSessionPlanningLane;
-  backingMaterialSessionIds: readonly BackingMaterialSessionId[];
   uses: number;
   reason: SigningOperationIntent;
 };
@@ -424,9 +397,6 @@ export const SigningSessionIds = {
   thresholdEcdsaSession(value: unknown): ThresholdEcdsaSessionId {
     return requireDomainId(parseThresholdEcdsaSessionId(value), 'thresholdEcdsaSessionId');
   },
-  backingMaterialSession(value: unknown): BackingMaterialSessionId {
-    return toRequiredBrandedString(value, 'backingMaterialSessionId');
-  },
   emailOtpChallenge(value: unknown): EmailOtpChallengeId {
     return requireDomainId(parseEmailOtpChallengeId(value), 'emailOtpChallengeId');
   },
@@ -488,12 +458,9 @@ export function findSigningLaneIdentityMismatch(
   }
   const fields: Array<keyof SigningSessionPlanningLane> = [
     'keyKind',
-    'runtimeState',
-    'backingMaterialSessionId',
     'sessionOrigin',
     'storageSource',
     'retention',
-    'activeSignerSlot',
   ];
   for (const field of fields) {
     if (normalizeLaneIdentityField(a[field]) !== normalizeLaneIdentityField(b[field])) {
@@ -551,33 +518,9 @@ export function normalizeWalletSigningSpendPlan(
     operationId,
     ...(operationFingerprint ? { operationFingerprint } : {}),
     lane: normalizedLane,
-    backingMaterialSessionIds: uniqueBrandedStrings(
-      input.backingMaterialSessionIds,
-      SigningSessionIds.backingMaterialSession,
-      'backingMaterialSessionIds',
-    ),
     uses,
     reason: SigningOperationIntent.TransactionSign,
   } as WalletSigningSpendPlan;
-}
-
-function uniqueBrandedStrings<TValue extends string>(
-  values: readonly unknown[],
-  normalize: (value: unknown) => TValue,
-  label: string,
-): TValue[] {
-  if (!Array.isArray(values)) {
-    throw new Error(`[SigningSession] wallet signing spend ${label} must be an array`);
-  }
-  const seen = new Set<string>();
-  const out: TValue[] = [];
-  for (const value of values) {
-    const normalized = normalize(value);
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-    out.push(normalized);
-  }
-  return out;
 }
 
 export function summarizeSigningSessionPlan(plan: SigningSessionPlan): SigningPlanSummary {

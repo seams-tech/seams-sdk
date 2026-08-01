@@ -6,7 +6,6 @@ test.describe('signing session shared types', () => {
     expect(SigningSessionIds.signingGrant(' wsess-1 ')).toBe('wsess-1');
     expect(SigningSessionIds.thresholdEd25519Session(' tsess-ed25519 ')).toBe('tsess-ed25519');
     expect(SigningSessionIds.thresholdEcdsaSession(' tsess-ecdsa ')).toBe('tsess-ecdsa');
-    expect(SigningSessionIds.backingMaterialSession(' backing-session ')).toBe('backing-session');
     expect(SigningSessionIds.emailOtpChallenge(' challenge-1 ')).toBe('challenge-1');
     expect(SigningSessionIds.signingOperation(' op-1 ')).toBe('op-1');
   });
