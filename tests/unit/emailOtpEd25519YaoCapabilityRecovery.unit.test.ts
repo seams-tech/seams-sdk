@@ -998,7 +998,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
 
     expect(worker.operations).toEqual(['bindEmailOtpEd25519YaoRoot', 'recoverEmailOtpEd25519Yao']);
     expect(activation.activateCalls).toBe(1);
-    expect(result.sessionId).toBe(THRESHOLD_SESSION_ID);
+    expect(result.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
     expect(result.walletSessionState.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
     expect(result.walletSessionState.signingGrantId).toBe(RECOVERED_SIGNING_GRANT_ID);
     expect(result.walletSessionState.remainingUses).toBe(3);

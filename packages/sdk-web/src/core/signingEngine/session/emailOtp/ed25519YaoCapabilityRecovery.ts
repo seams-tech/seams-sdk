@@ -32,6 +32,7 @@ import { buildEmailOtpAuthContextForWalletAuthMethod } from '../identity/laneIde
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import {
   mpcMaterialActivationRefsEqual,
+  parseThresholdEd25519SessionId,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import type { EmailOtpEd25519YaoPublicationContext } from './ed25519YaoPublication';
@@ -41,7 +42,7 @@ import {
 } from '../routerAbSigningWalletSession';
 
 export type EmailOtpEd25519YaoCapabilityRecoveryResult = {
-  sessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   publicationContext: EmailOtpEd25519YaoPublicationContext;
 } & NearEd25519YaoSigningCapability;
 
@@ -75,6 +76,12 @@ function requireNonEmpty(value: unknown, label: string): string {
   const parsed = String(value ?? '').trim();
   if (!parsed) throw new Error(`${label} is required`);
   return parsed;
+}
+
+function requireThresholdSessionId(value: unknown): ThresholdEd25519SessionId {
+  const parsed = parseThresholdEd25519SessionId(value);
+  if (!parsed.ok) throw new Error('thresholdSessionId is invalid');
+  return parsed.value;
 }
 
 function isFreshActivationForSameSigner(
@@ -340,7 +347,7 @@ export async function activateEmailOtpEd25519YaoLocalCapabilityV1(args: {
     }
     activeClient = null;
     return {
-      sessionId: walletSessionState.thresholdSessionId,
+      thresholdSessionId: requireThresholdSessionId(walletSessionState.thresholdSessionId),
       publicationContext: buildEmailOtpEd25519YaoPublicationContext(args),
       ...capability,
     };
@@ -401,7 +408,7 @@ export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
     }
     activeClient = null;
     return {
-      sessionId: walletSessionState.thresholdSessionId,
+      thresholdSessionId: requireThresholdSessionId(walletSessionState.thresholdSessionId),
       publicationContext: buildEmailOtpEd25519YaoPublicationContext(args),
       ...capability,
     };
