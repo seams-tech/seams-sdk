@@ -576,7 +576,7 @@ the replacement and legacy MPC paths must not ship together.
 - [x] Validate reusable NEAR normal-signing authorization against the active
       Wallet Session ID independently from the threshold-material session ID
       (`a55e393a8`).
-- [ ] Rekey the remaining Passkey, sealed-store, and Email OTP Ed25519 material
+- [x] Rekey the remaining Passkey, sealed-store, and Email OTP Ed25519 material
       locators from threshold-session identity to the exact material activation;
       remove threshold-session/grant identity from Ed25519 export context.
   - [x] Warm-session purpose carries exact Ed25519 activation while worker
@@ -597,13 +597,16 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Ed25519 export admission/execute wire and worker transport no longer
         accept client-supplied threshold-session or signing-grant identity;
         authenticated server claims derive and correlate those authorization
-        identities (`bbeabd262`). The remaining lane/context identity deletion
-        stays owned by this parent item.
+        identities (`bbeabd262`).
   - [x] Remove threshold-session and signing-grant identity from the Email OTP
         and shared client/worker Ed25519 export-authorization carriers. Exact
         capability activation remains the material identity and the authenticated
         server claims remain the authorization source (`82b439fc5`). Passkey
-        durable-context rekeying remains owned by this parent item.
+        durable export context now carries exact material beside current
+        authorization, without threshold-session or signing-grant identity
+        (`35b9584a6`). Deferred material and lane identity preserve exact
+        activation across Wallet Session and threshold-session renewal
+        (`b68efc2a9`, `594e99c1e`, `d89688dac`).
   - [x] Cloudflare and local Rust normal-signing paths keep Wallet Session,
         threshold-session, activation, and lifecycle identities distinct; local
         registration takes explicit activation and refresh rejects substitution
@@ -1223,6 +1226,14 @@ the replacement and legacy MPC paths must not ship together.
         lookup/storage keys, shared TypeScript parser, dev adapter, fixtures,
         and protocol documentation. Lifecycle and ceremony `session_id`
         fields remain unchanged (`d91498b2c`).
+  - [x] Delete generic worker `WithOptionalSessionId`/`withSessionId`
+        injection. Exact WASM payloads now carry their required protocol
+        session identity directly; custom worker messages carry no invented
+        session field (`53838a192`).
+  - [x] Keep one-operation NEAR grants as fresh branded
+        `CapabilityGrantId`s from preparation through server issuance and
+        execution. They never become a reusable `SigningGrantId` or selected
+        Wallet Session lane (`0ef310b0e`).
   - [x] Carry ECDSA normal-signing state explicitly in the server bootstrap
         response, persist and reject malformed/old D1 rows at the boundary,
         validate the state before Wallet Session JWT signing, and require the
