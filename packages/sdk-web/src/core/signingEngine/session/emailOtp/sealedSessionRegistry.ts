@@ -10,6 +10,7 @@ import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/
 import {
   buildCurrentSealedSessionRecord,
   type BuildCurrentSealedSessionRecordInput,
+  type readExactEd25519SealedSession,
   type readExactSealedSession,
   type writeExactSealedSession,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
@@ -39,6 +40,7 @@ export class EmailOtpSealedSessionRegistry {
         authorization: ActiveWalletSessionAuthorizationProjection;
       }>;
       writeExactSealedSession: typeof writeExactSealedSession;
+      readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
       readExactSealedSession: typeof readExactSealedSession;
       listActiveEcdsaCapabilityManifestsForWallet: EmailOtpEcdsaPublicationPorts['listActiveEcdsaCapabilityManifestsForWallet'];
       clearEcdsaRestoreCaches: () => void;
@@ -101,7 +103,7 @@ export class EmailOtpSealedSessionRegistry {
       configs: this.ports.configs,
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
       registerSigningSession: (record) => this.registerSigningSession(record),
-      readExactSealedSession: this.ports.readExactSealedSession,
+      readExactEd25519SealedSession: this.ports.readExactEd25519SealedSession,
     };
   }
 }

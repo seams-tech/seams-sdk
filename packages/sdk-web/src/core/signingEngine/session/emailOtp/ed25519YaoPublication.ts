@@ -8,9 +8,10 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import {
-  readExactSealedSession,
+  readExactEd25519SealedSession,
   type BuildCurrentSealedSessionRecordInput,
 } from '../persistence/sealedSessionStore';
+import { ed25519DurableMaterialLocator } from '../sealedRecovery/materialActivationKey';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../material/nearEd25519YaoMaterialActivation';
 import {
   requestSealEmailOtpWarmSessionMaterial,
@@ -36,7 +37,7 @@ export type EmailOtpEd25519YaoPublicationPorts = {
   registerSigningSession: (
     record: Extract<BuildCurrentSealedSessionRecordInput, { curve: 'ed25519' }>,
   ) => Promise<void>;
-  readExactSealedSession: typeof readExactSealedSession;
+  readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
 };
 
 function requirePositiveInteger(value: unknown, label: string): number {
@@ -175,10 +176,12 @@ export async function persistEmailOtpEd25519YaoSessionForRefresh(
       routerAbNormalSigning: state.routerAbNormalSigning,
     },
   });
-  const persisted = await ports.readExactSealedSession(thresholdSessionId, {
-    authMethod: 'email_otp',
-    curve: 'ed25519',
-  });
+  const persisted = await ports.readExactEd25519SealedSession(
+    ed25519DurableMaterialLocator({
+      authMethod: 'email_otp',
+      materialActivation: sealed.materialActivation,
+    }),
+  );
   if (
     !persisted ||
     persisted.curve !== 'ed25519' ||

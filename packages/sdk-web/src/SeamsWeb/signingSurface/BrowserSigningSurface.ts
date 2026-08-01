@@ -206,7 +206,7 @@ import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEng
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import {
   listExactSealedSessionsForWallet,
-  readExactEmailOtpEd25519SealedSessionByMaterialActivation,
+  readExactEd25519SealedSession,
   readExactSealedSession,
   type CurrentSealedSessionRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
@@ -1360,7 +1360,7 @@ export class BrowserSigningSurface {
           },
           publicLocator: publicLocatorBase,
           runtime: runtimeObservation,
-          readExactSealedSession,
+          readExactEd25519SealedSession,
         });
         break;
       default:
@@ -1779,7 +1779,7 @@ export class BrowserSigningSurface {
           },
           publicLocator: input.publicLocator,
           runtime: input.runtime,
-          readExactSealedSession,
+          readExactEd25519SealedSession,
         });
       default:
         args.auth satisfies never;
@@ -1950,7 +1950,7 @@ export class BrowserSigningSurface {
       relayerUrl,
       authPolicy: this.seamsWebConfigs.signing.emailOtp.authPolicy,
       ports: {
-        readExactSealedSession,
+        readExactEd25519SealedSession,
         readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
           walletSessionAuthorizations,
         ),
@@ -2032,7 +2032,7 @@ export class BrowserSigningSurface {
       expectedMaterialActivation: publicLocator.materialActivation,
       relayerUrl,
       ports: {
-        readExactEmailOtpEd25519SealedSessionByMaterialActivation,
+        readExactEd25519SealedSession,
         readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
           walletSessionAuthorizations,
         ),

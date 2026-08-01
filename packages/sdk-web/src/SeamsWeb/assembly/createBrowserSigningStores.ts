@@ -11,6 +11,7 @@ import {
   listExactSealedSessionsForWallet,
   listEcdsaSealedSessionsForWallet,
   releaseSigningSessionRestoreLease,
+  readExactEd25519SealedSession,
   readExactSealedSession,
   updateExactSealedSessionPolicy,
   writeExactSealedSession,
@@ -58,6 +59,7 @@ export function createBrowserSigningStores(
     },
     sealedSigningSessionStore: {
       writeExactSealedSession,
+      readExactEd25519SealedSession,
       readExactSealedSession,
       listExactSealedSessionsForWallet,
       listEcdsaSealedSessionsForWallet,

@@ -40,10 +40,10 @@ import type {
   Ed25519YaoActiveClientLookupScopeV1,
 } from '../../threshold/ed25519/yaoActiveClientRegistry';
 import {
-  readExactEmailOtpEd25519SealedSessionByMaterialActivation,
-  readExactSealedSession,
+  readExactEd25519SealedSession,
   type CurrentEd25519SealedSessionRecord,
 } from '../persistence/sealedSessionStore';
+import { ed25519DurableMaterialLocator } from '../sealedRecovery/materialActivationKey';
 import { parseSigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import {
   activateColdEmailOtpEd25519YaoLocalSessionV1,
@@ -114,7 +114,7 @@ export type ResolvedEmailOtpEd25519YaoExportV1 = {
 };
 
 export type EmailOtpEd25519YaoSilentRecoveryPorts = {
-  readExactSealedSession: typeof readExactSealedSession;
+  readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
   readActiveWalletSessionAuthorization: (
     walletId: WalletId,
   ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
@@ -290,24 +290,26 @@ export async function resolveEmailOtpEd25519YaoHydrationPlanForSigningV1(input: 
   subject: EmailOtpEd25519YaoSilentRecoverySubject;
   publicLocator: EmailOtpEd25519YaoPublicLocatorObservationV1;
   runtime: NearEd25519YaoRuntimeObservationV1;
-  readExactSealedSession: typeof readExactSealedSession;
+  readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
 }): Promise<MpcCapabilityHydrationPlan> {
-  const record = await input.readExactSealedSession(input.subject.thresholdSessionId, {
-    authMethod: 'email_otp',
-    curve: 'ed25519',
-  });
-  if (!record || record.curve !== 'ed25519' || !sealedRecordMatchesSubject(record, input.subject)) {
-    if (input.publicLocator.kind === 'available') {
-      return buildBlockedMpcCapabilityHydrationPlan({
-        capability: input.publicLocator.materialActivation.capability,
-        reason: 'missing_material',
-      });
-    }
+  if (input.publicLocator.kind !== 'available') {
     return resolveNearEd25519YaoCapabilityHydrationV1({
       publicLocator: input.publicLocator,
       sealed: { kind: 'missing' },
       runtime: input.runtime,
       unlockSource: { kind: 'unavailable' },
+    });
+  }
+  const record = await input.readExactEd25519SealedSession(
+    ed25519DurableMaterialLocator({
+      authMethod: 'email_otp',
+      materialActivation: input.publicLocator.materialActivation,
+    }),
+  );
+  if (!record || record.curve !== 'ed25519' || !sealedRecordMatchesSubject(record, input.subject)) {
+    return buildBlockedMpcCapabilityHydrationPlan({
+      capability: input.publicLocator.materialActivation.capability,
+      reason: 'missing_material',
     });
   }
   const emailOtp = emailOtpRestoreMetadata(record);
@@ -362,12 +364,15 @@ function sealedRecordMatchesExportSubject(
 
 async function resolveSealedRecord(args: {
   subject: EmailOtpEd25519YaoSilentRecoverySubject;
+  expectedMaterialActivation: MpcMaterialActivationRef;
   ports: EmailOtpEd25519YaoSilentRecoveryPorts;
 }): Promise<SealedRecordResolution> {
-  const record = await args.ports.readExactSealedSession(args.subject.thresholdSessionId, {
-    authMethod: 'email_otp',
-    curve: 'ed25519',
-  });
+  const record = await args.ports.readExactEd25519SealedSession(
+    ed25519DurableMaterialLocator({
+      authMethod: 'email_otp',
+      materialActivation: args.expectedMaterialActivation,
+    }),
+  );
   if (!record || record.curve !== 'ed25519' || !sealedRecordMatchesSubject(record, args.subject)) {
     return { kind: 'reauth_required', reason: 'sealed_session_missing' };
   }
@@ -669,7 +674,11 @@ type RecoverEmailOtpEd25519YaoFromSealedSessionInput = {
 async function runFencedEmailOtpEd25519YaoSealedRecovery(
   input: RecoverEmailOtpEd25519YaoFromSealedSessionInput,
 ): Promise<EmailOtpEd25519YaoSilentRecoveryResultV1> {
-  const sealedRecord = await resolveSealedRecord({ subject: input.subject, ports: input.ports });
+  const sealedRecord = await resolveSealedRecord({
+    subject: input.subject,
+    expectedMaterialActivation: input.expectedMaterialActivation,
+    ports: input.ports,
+  });
   if (sealedRecord.kind === 'reauth_required') return sealedRecord;
   const record = sealedRecord.record;
   const emailOtp = emailOtpRestoreMetadata(record);
@@ -762,7 +771,11 @@ async function runFencedEmailOtpEd25519YaoSealedRecovery(
     capability: recovery,
     publicationContext: recovery.publicationContext,
   });
-  const committed = await resolveSealedRecord({ subject: input.subject, ports: input.ports });
+  const committed = await resolveSealedRecord({
+    subject: input.subject,
+    expectedMaterialActivation: input.expectedMaterialActivation,
+    ports: input.ports,
+  });
   if (
     committed.kind === 'reauth_required' ||
     !mpcMaterialActivationRefsEqual(
@@ -780,7 +793,11 @@ async function runFencedEmailOtpEd25519YaoSealedRecovery(
 export async function recoverEmailOtpEd25519YaoFromSealedSessionV1(
   input: RecoverEmailOtpEd25519YaoFromSealedSessionInput,
 ): Promise<EmailOtpEd25519YaoSilentRecoveryResultV1> {
-  const initial = await resolveSealedRecord({ subject: input.subject, ports: input.ports });
+  const initial = await resolveSealedRecord({
+    subject: input.subject,
+    expectedMaterialActivation: input.expectedMaterialActivation,
+    ports: input.ports,
+  });
   if (initial.kind === 'reauth_required') return initial;
   const initialActivation = emailOtpRestoreMetadata(initial.record).materialActivation;
   if (!mpcMaterialActivationRefsEqual(initialActivation, input.expectedMaterialActivation)) {
@@ -803,15 +820,18 @@ export async function resolveEmailOtpEd25519YaoExportContextV1(input: {
   expectedMaterialActivation: MpcMaterialActivationRef;
   relayerUrl: string;
   ports: {
-    readExactEmailOtpEd25519SealedSessionByMaterialActivation: typeof readExactEmailOtpEd25519SealedSessionByMaterialActivation;
+    readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
     readActiveWalletSessionAuthorization: (
       walletId: WalletId,
     ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
     fetch: typeof fetch;
   };
 }): Promise<ResolvedEmailOtpEd25519YaoExportV1> {
-  const record = await input.ports.readExactEmailOtpEd25519SealedSessionByMaterialActivation(
-    input.expectedMaterialActivation,
+  const record = await input.ports.readExactEd25519SealedSession(
+    ed25519DurableMaterialLocator({
+      authMethod: 'email_otp',
+      materialActivation: input.expectedMaterialActivation,
+    }),
   );
   if (
     !record ||

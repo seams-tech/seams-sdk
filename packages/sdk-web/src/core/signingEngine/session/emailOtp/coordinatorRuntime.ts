@@ -78,6 +78,7 @@ export class EmailOtpWalletSessionRuntime {
       commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,
       listActiveEcdsaCapabilityManifestsForWallet: deps.listActiveEcdsaCapabilityManifestsForWallet,
       writeExactSealedSession: deps.writeExactSealedSession,
+      readExactEd25519SealedSession: deps.readExactEd25519SealedSession,
       readExactSealedSession: deps.readExactSealedSession,
       clearEcdsaRestoreCaches: () => this.clearEcdsaRestoreCaches(),
     });
