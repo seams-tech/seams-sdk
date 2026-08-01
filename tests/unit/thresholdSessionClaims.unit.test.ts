@@ -3,7 +3,6 @@ import {
   parseAppSessionClaims,
   parseRouterAbEcdsaDerivationWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
-  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
 } from '@server/core/ThresholdService/validation';
 import {
   buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap,
@@ -24,10 +23,6 @@ import {
 } from '../../packages/sdk-server-ts/src/router/verifiedWalletSessionAuth';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
 import type { EcdsaDerivationServerBootstrapResponse } from '@server/core/types';
-import {
-  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-} from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
@@ -47,6 +42,8 @@ import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import { buildRouterAbEcdsaWalletSessionClaimsFixture } from './helpers/routerAbEcdsaWalletSessionClaims.fixtures';
+import { buildRouterAbEd25519WalletSessionClaimsFixture } from './helpers/routerAbEd25519WalletSessionClaims.fixtures';
 
 const passkeyAuthority = buildPasskeyWalletAuthAuthority({
   walletId: 'alice.testnet',
@@ -60,46 +57,6 @@ function fixtureRootShareEpoch(value: string) {
   const parsed = parseRootShareEpoch(value);
   if (!parsed.ok) throw new Error(`invalid fixture root-share epoch: ${value}`);
   return parsed.value;
-}
-
-function baseEd25519Claims() {
-  return {
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    sub: 'alice.testnet',
-    walletId: 'alice.testnet',
-    nearAccountId: 'alice.testnet',
-    nearEd25519SigningKeyId: 'alice.testnet',
-    thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
-    authorizationSessionId: 'authorization-session-1',
-    walletSessionId: 'wallet-session-1',
-    quotaId: 'wallet-quota-1',
-    relayerKeyId: 'relayer-key-1',
-    thresholdExpiresAtMs: Date.now() + 60 * 60 * 1000,
-    participantIds: [1, 2],
-    authority: passkeyAuthority,
-    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(passkeyAuthority),
-  };
-}
-
-function baseEcdsaClaims() {
-  return {
-    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-    sub: 'alice.testnet',
-    walletId: 'alice.testnet',
-    nearAccountId: 'alice.testnet',
-    nearEd25519SigningKeyId: 'alice.testnet',
-    thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
-    authorizationSessionId: 'authorization-session-1',
-    walletSessionId: 'wallet-session-1',
-    quotaId: 'wallet-quota-1',
-    relayerKeyId: 'relayer-key-1',
-    thresholdExpiresAtMs: Date.now() + 60 * 60 * 1000,
-    participantIds: [1, 2],
-    keyScope: 'evm-family',
-    keyHandle: 'ederivation-key-test',
-  };
 }
 
 function b64u(bytes: number[]): string {
@@ -144,13 +101,22 @@ const routerAbOperationDigests = {
   display_digest_b64u: b64u(Array.from({ length: 32 }, () => 3)),
 };
 
-function routerAbEd25519Claims(overrides: Record<string, unknown> = {}) {
-  return {
-    ...baseEd25519Claims(),
+function routerAbEd25519Claims(input: { readonly thresholdExpiresAtMs?: number } = {}) {
+  return buildRouterAbEd25519WalletSessionClaimsFixture({
+    walletId: 'alice.testnet',
+    nearAccountId: 'alice.testnet',
+    nearEd25519SigningKeyId: 'alice.testnet',
+    thresholdSessionId: 'threshold-session-1',
+    signingGrantId: 'signing-grant-1',
+    walletSessionId: 'wallet-session-1',
+    quotaId: 'wallet-quota-1',
+    relayerKeyId: 'relayer-key-1',
+    participantIds: [1, 2],
+    thresholdExpiresAtMs: input.thresholdExpiresAtMs ?? Date.now() + 60 * 60 * 1000,
     runtimePolicyScope,
-    routerAbNormalSigning,
-    ...overrides,
-  };
+    normalSigning: routerAbNormalSigning,
+    authority: passkeyAuthority,
+  });
 }
 
 function routerAbEcdsaIssuerBinding(overrides: Record<string, unknown> = {}) {
@@ -183,7 +149,7 @@ function routerAbEcdsaIssuerBinding(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function routerAbEcdsaClaims(overrides: Record<string, unknown> = {}) {
+function routerAbEcdsaClaims() {
   const normalSigning = buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap({
     bootstrap: routerAbEcdsaBootstrap(),
     activationEpoch: fixtureRootShareEpoch('activation-epoch-1'),
@@ -192,11 +158,20 @@ function routerAbEcdsaClaims(overrides: Record<string, unknown> = {}) {
     materialActivation: routerAbEcdsaMaterialActivation,
   });
   if (!normalSigning.ok) throw new Error(normalSigning.message);
-  return {
-    ...baseEcdsaClaims(),
-    routerAbEcdsaDerivationNormalSigning: normalSigning.state,
-    ...overrides,
-  };
+  return buildRouterAbEcdsaWalletSessionClaimsFixture({
+    walletId: 'alice.testnet',
+    keyHandle: 'ederivation-key-test',
+    relayerKeyId: 'relayer-key-1',
+    participantIds: [1, 2],
+    thresholdExpiresAtMs: Date.now() + 60 * 60 * 1000,
+    runtimePolicyScope,
+    normalSigningScope: normalSigning.state.scope,
+    walletSessionId: 'wallet-session-1',
+    authorizationSessionId: 'authorization-session-1',
+    quotaId: 'wallet-quota-1',
+    thresholdSessionId: 'threshold-session-1',
+    signingGrantId: 'signing-grant-1',
+  });
 }
 
 const routerAbPublicKeyset = {
@@ -337,16 +312,27 @@ test.describe('Router A/B Wallet Session token claims', () => {
   });
 
   test('Router A/B Wallet Session parsers require complete curve-specific state', () => {
-    expect(parseRouterAbEd25519WalletSessionClaims(baseEd25519Claims())).toBeNull();
+    const validEd25519Claims = routerAbEd25519Claims();
+    expect(
+      parseRouterAbEd25519WalletSessionClaims({
+        ...validEd25519Claims,
+        routerAbNormalSigning: undefined,
+      }),
+    ).toBeNull();
     expect(parseRouterAbEd25519WalletSessionClaims(routerAbEd25519Claims())?.walletId).toBe(
       'alice.testnet',
     );
+    const validEcdsaClaims = routerAbEcdsaClaims();
     expect(
-      parseRouterAbEcdsaDerivationWalletSessionClaims(baseEcdsaClaims()),
+      parseRouterAbEcdsaDerivationWalletSessionClaims({
+        ...validEcdsaClaims,
+        routerAbEcdsaDerivationNormalSigning: undefined,
+      }),
     ).toBeNull();
     expect(
       parseRouterAbEcdsaDerivationWalletSessionClaims({
-        ...baseEcdsaClaims(),
+        ...validEcdsaClaims,
+        routerAbEcdsaDerivationNormalSigning: undefined,
         routerAbEcdsaDerivationIssuerBinding: routerAbEcdsaIssuerBinding(),
       }),
     ).toBeNull();
@@ -518,16 +504,16 @@ test.describe('Router A/B Wallet Session token claims', () => {
     }
     const signedEcdsaWalletSessionAuth = buildVerifiedEcdsaWalletSessionAuth(signedEcdsaClaims);
     const prepareRequest = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
-        scope: ecdsaNormalSigning.state.scope,
-        requestId: 'router-ab-ecdsa-sign-test',
-        operationId: 'router-ab-ecdsa-operation-test',
-        operationDigests: routerAbOperationDigests,
-        authorization: {
-          kind: 'reusable_wallet_session',
-          wallet_session_id: 'wallet-session-1',
-        },
-        materialActivation: routerAbEcdsaMaterialActivation,
-        clientPresignatureId: 'client-presignature-test',
+      scope: ecdsaNormalSigning.state.scope,
+      requestId: 'router-ab-ecdsa-sign-test',
+      operationId: 'router-ab-ecdsa-operation-test',
+      operationDigests: routerAbOperationDigests,
+      authorization: {
+        kind: 'reusable_wallet_session',
+        wallet_session_id: 'wallet-session-1',
+      },
+      materialActivation: routerAbEcdsaMaterialActivation,
+      clientPresignatureId: 'client-presignature-test',
       expiresAtMs: ecdsaBootstrap.expiresAtMs,
       signingDigest32: new Uint8Array(32).fill(1),
       clientRerandomizationCommitment32: new Uint8Array(32).fill(0x31),
