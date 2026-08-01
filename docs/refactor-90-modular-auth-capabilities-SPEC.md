@@ -472,8 +472,10 @@ implementing commit SHA as the evidence.
   remains outside the journal (`5db9ad87e`).
 - [x] `R90-INV-007` — cancel/crash/reload tests prove `cancel_requested` never
   resumes the abandoned parent operation (`51b738d2a`).
-- [ ] `R90-INV-008` — concurrent recovery, signing, refresh, and export serialize
-  by exact owner and reject stale generations/fences.
+- [x] `R90-INV-008` — concurrent recovery, signing, refresh, and export serialize
+  by exact owner and reject stale generations/fences. The shared queue suite
+  proves same-owner FIFO, rejects a stale queued owner before task side effects,
+  and allows different owners to progress independently (`8c26a39bf`).
   - [x] NEAR transaction, delegate, NEP-413, Passkey export, and Email OTP
     export share one queue keyed by canonical material activation rather than
     threshold session identity (`10c8a61da`).
@@ -581,6 +583,10 @@ implementing commit SHA as the evidence.
     threshold-session, activation, and lifecycle identities independent; local
     activation is explicit and refresh rejects substituted material
     (`c45dd8d3f`, `5498e37f9`).
+  - [x] Cloudflare Ed25519 normal signing and operation-step-up grant issuance
+    resolve the complete active material reference before admission, quota,
+    factor evidence, persistence, audit, or worker effects. Hostile substitution
+    of every reference component leaves admission untouched (`f1697ab97`).
   - [x] Canonicalize export before side effects; keep Passkey and Email OTP
     Ed25519 export material keyed by exact activation while current reusable
     authorization travels independently. Operation step-up uses a fresh
