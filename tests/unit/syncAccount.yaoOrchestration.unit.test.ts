@@ -6,7 +6,7 @@ import type {
   KeyMaterialKind,
   KeyMaterialRecord,
 } from '../../packages/sdk-web/src/core/indexedDB/keyMaterial.types';
-import type { NearEd25519YaoSigningCapability } from '../../packages/sdk-web/src/core/signingEngine/interfaces/near';
+import type { NearEd25519YaoOperationMaterial } from '../../packages/sdk-web/src/core/signingEngine/interfaces/near';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../../packages/sdk-web/src/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 import {
@@ -29,11 +29,13 @@ import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { isPlainObject } from '../../packages/shared-ts/src/utils/validation';
+import { parseMpcMaterialActivationRef } from '../../packages/shared-ts/src/utils/domainIds';
 import {
   parseRouterAbEd25519YaoRecoveryActivationReceiptV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const RELAYER_URL = 'https://router.example.test';
 const RP_ID = 'wallet.example.test';
@@ -53,6 +55,12 @@ const REGISTERED_PUBLIC_KEY = new Uint8Array(32).fill(21);
 const OPERATIONAL_PUBLIC_KEY = `ed25519:${base58Encode(REGISTERED_PUBLIC_KEY)}`;
 const PRF_FIRST = new Uint8Array(32).fill(77);
 const PRF_FIRST_B64U = base64UrlEncode(PRF_FIRST);
+const MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'sync-account-yao',
+  DISCOVERED_WALLET_ID,
+  SIGNING_WORKER_ID,
+  NEAR_SIGNING_KEY_ID,
+);
 
 type MockActiveClient = RouterAbEd25519YaoSealableActiveClientV1;
 
@@ -209,6 +217,23 @@ function requireActivePersistenceFixture(): SyncAccountPersistenceFixture {
   return activePersistenceFixture;
 }
 
+function requireRecoveryMaterialActivation(
+  request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+) {
+  const wire = request.scope.material_activation;
+  const parsed = parseMpcMaterialActivationRef({
+    kind: wire.kind,
+    activationId: wire.activation_id,
+    capability: wire.capability,
+    materialOwner: wire.material_owner,
+    keyBinding: wire.key_binding,
+    lifecycleBinding: wire.lifecycle_binding,
+    signingWorker: wire.signing_worker,
+  });
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 function createMockActiveClient(scenario: YaoScenario): MockActiveClient {
   return {
     metadata() {
@@ -224,6 +249,7 @@ function createMockActiveClient(scenario: YaoScenario): MockActiveClient {
         signingWorkerVerifyingShare: new Uint8Array(32).fill(15),
         transcript: new Uint8Array(32).fill(11),
         activeCapabilityBinding: request.replacement_capability_binding,
+        materialActivation: requireRecoveryMaterialActivation(request),
       };
     },
     async createSigningShare() {
@@ -289,6 +315,7 @@ function requirePromotionReceipt(request: RouterAbEd25519YaoRecoveryAdmissionReq
       operation: 'recovery',
       session_id: new Array<number>(32).fill(7),
       stable_key_context_binding: new Array<number>(32).fill(8),
+      material_activation: request.scope.material_activation,
     },
     public_receipt: {
       transcript: new Array<number>(32).fill(11),
@@ -297,6 +324,7 @@ function requirePromotionReceipt(request: RouterAbEd25519YaoRecoveryAdmissionReq
       joined_signing_worker_commitment: new Array<number>(32).fill(14),
       signing_worker_verifying_share: new Array<number>(32).fill(15),
       state_epoch: 2,
+      material_activation: request.scope.material_activation,
     },
     active_capability_binding: request.replacement_capability_binding,
     retired_capability_binding: request.active_capability_binding,
@@ -454,6 +482,7 @@ function syncVerifyResponse(walletId: string): Record<string, unknown> {
       },
       capability: {
         kind: 'router_ab_ed25519_yao_active_capability_v1',
+        materialActivation: MATERIAL_ACTIVATION,
         activeCapabilityBinding: new Array<number>(32).fill(8),
         registeredPublicKey: [...REGISTERED_PUBLIC_KEY],
         nearAccountId: NEAR_ACCOUNT_ID,
@@ -530,7 +559,7 @@ function testConfigs(): SeamsConfigsReadonly {
 
 class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   readonly credential = passkeyCredential();
-  readonly activatedCapabilities: NearEd25519YaoSigningCapability[] = [];
+  readonly activatedMaterials: NearEd25519YaoOperationMaterial[] = [];
   readonly activationQueueStates: boolean[] = [];
   readonly authenticatedWalletIds: string[] = [];
   readonly clearWalletIds: string[] = [];
@@ -596,16 +625,16 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
     }
   }
 
-  async activateVerifiedNearEd25519YaoSigningCapability(
-    capability: NearEd25519YaoSigningCapability,
-  ): ReturnType<AccountSyncSigningSurface['activateVerifiedNearEd25519YaoSigningCapability']> {
+  async activateVerifiedNearEd25519YaoMaterial(
+    material: NearEd25519YaoOperationMaterial,
+  ): ReturnType<AccountSyncSigningSurface['activateVerifiedNearEd25519YaoMaterial']> {
     this.activationQueueStates.push(this.insideMaterialOwnerQueue);
-    this.activatedCapabilities.push(capability);
+    this.activatedMaterials.push(material);
     return {
       walletId: toWalletId(DISCOVERED_WALLET_ID),
       nearAccountId: toAccountId(NEAR_ACCOUNT_ID),
       materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
-        capability.activeClient.metadata(),
+        material.activeClient.metadata(),
       ),
     };
   }
@@ -629,8 +658,8 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
     walletId?: Parameters<AccountSyncSigningSurface['clearVolatileWarmSigningMaterial']>[0],
   ): Promise<void> {
     this.clearWalletIds.push(String(walletId || ''));
-    const capability = this.activatedCapabilities[0];
-    capability?.activeClient.dispose();
+    const material = this.activatedMaterials[0];
+    material?.activeClient.dispose();
   }
 
   async hydrateSigningSession(
@@ -745,8 +774,8 @@ test.describe('public syncAccount Yao orchestration', () => {
       challengeId: 'sync-challenge-id',
       webauthn_authentication: { clientExtensionResults: null },
     });
-    expect(surface.activatedCapabilities).toHaveLength(1);
-    expect(surface.queuedActivationIds).toEqual([THRESHOLD_SESSION_ID]);
+    expect(surface.activatedMaterials).toHaveLength(1);
+    expect(surface.queuedActivationIds).toEqual([String(MATERIAL_ACTIVATION.activationId)]);
     expect(surface.activationQueueStates).toEqual([true]);
     expect(surface.hydratedSessionIds).toEqual([THRESHOLD_SESSION_ID]);
     expect(surface.sealedSessionIds).toEqual([THRESHOLD_SESSION_ID]);
@@ -774,7 +803,7 @@ test.describe('public syncAccount Yao orchestration', () => {
       success: false,
       error: 'sync-account/verify returned mismatched wallet binding',
     });
-    expect(surface.activatedCapabilities).toEqual([]);
+    expect(surface.activatedMaterials).toEqual([]);
     expect(surface.clearWalletIds).toEqual([]);
     expect(yaoScenario.disposeCalls).toBe(1);
   });
@@ -791,7 +820,7 @@ test.describe('public syncAccount Yao orchestration', () => {
 
     expect(result).toMatchObject({ success: false, error: 'mock Yao recovery failed' });
     expect(yaoScenario.capturedPrfFirst).toEqual(new Uint8Array(32));
-    expect(surface.activatedCapabilities).toEqual([]);
+    expect(surface.activatedMaterials).toEqual([]);
     expect(surface.clearWalletIds).toEqual([]);
   });
 
@@ -809,7 +838,7 @@ test.describe('public syncAccount Yao orchestration', () => {
       success: false,
       error: 'mock authenticated wallet activation failed',
     });
-    expect(surface.activatedCapabilities).toHaveLength(1);
+    expect(surface.activatedMaterials).toHaveLength(1);
     expect(surface.clearWalletIds).toEqual([DISCOVERED_WALLET_ID]);
     expect(yaoScenario.disposeCalls).toBe(1);
   });

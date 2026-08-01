@@ -609,10 +609,10 @@ export async function runNearDelegateActionSigning({
         ? await tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning({
             ctx,
             thresholdSessionId: canonicalThresholdSessionId,
-            activeClient: resolvedMaterial.resolved.capability.activeClient,
+            activeClient: resolvedMaterial.resolved.material.activeClient,
             walletSessionState: requireAuthorizedNearDelegateWalletSessionState(
               await resolveActiveAuthorizedRouterAbEd25519WalletSessionState({
-                state: resolvedMaterial.resolved.capability.walletSessionState,
+                state: resolvedMaterial.resolved.walletSessionState,
                 nowMs: Date.now(),
               }),
             ),

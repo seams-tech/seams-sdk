@@ -2945,7 +2945,7 @@ async function hydrateAndActivatePasskeyEd25519LoginMaterial(
       kind: 'available',
       passkeyPrfFirstB64u: input.passkeyPrfFirstB64u,
     },
-    liveCapability: null,
+    liveMaterial: null,
   });
   if (hydrated.kind === 'blocked') {
     throw new Error(
@@ -2957,9 +2957,17 @@ async function hydrateAndActivatePasskeyEd25519LoginMaterial(
   }
   try {
     const activated =
-      await input.signingEngine.activateVerifiedNearEd25519YaoSigningCapability({
+      await input.signingEngine.activateVerifiedNearEd25519YaoMaterial({
         activeClient: hydrated.activeClient,
-        walletSessionState: input.walletSessionState,
+        facts: {
+          thresholdSessionId: input.walletSessionState.thresholdSessionId,
+          signer: input.walletSessionState.signingLane.identity.signer,
+          signingRootId: input.walletSessionState.signingRootId,
+          signingRootVersion: input.walletSessionState.signingRootVersion,
+          routerAbNormalSigning: input.walletSessionState.routerAbNormalSigning,
+          runtimePolicyScope: input.walletSessionState.runtimePolicyScope,
+          relayerUrl: input.walletSessionState.relayerUrl,
+        },
       });
     if (
       !mpcMaterialActivationRefsEqual(

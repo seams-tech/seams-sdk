@@ -1,5 +1,8 @@
 import { toAccountId } from '@/core/types/accountIds';
-import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/interfaces/near';
+import type {
+  NearEd25519YaoOperationMaterial,
+  NearResolvedEd25519SigningSessionState,
+} from '@/core/signingEngine/interfaces/near';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   EmailOtpEd25519YaoRecoveryBootstrapV1,
@@ -44,7 +47,9 @@ import {
 export type EmailOtpEd25519YaoCapabilityRecoveryResult = {
   thresholdSessionId: ThresholdEd25519SessionId;
   publicationContext: EmailOtpEd25519YaoPublicationContext;
-} & NearEd25519YaoSigningCapability;
+  material: NearEd25519YaoOperationMaterial;
+  walletSessionState: NearResolvedEd25519SigningSessionState;
+};
 
 export type PreparedColdEmailOtpEd25519YaoRecoveryV1 = {
   kind: 'prepared_cold_email_otp_ed25519_yao_recovery_v1';
@@ -179,7 +184,7 @@ export function prepareColdEmailOtpEd25519YaoRecoveryV1(args: {
   remainingUses: number;
   resolveActiveCapability: (
     scope: Ed25519YaoActiveClientLookupScopeV1,
-  ) => NearEd25519YaoSigningCapability | null;
+  ) => NearEd25519YaoOperationMaterial | null;
 }): PreparedColdEmailOtpEd25519YaoRecoveryV1 {
   const resolved = args.resolveActiveCapability(args.identity);
   const previousMetadata =
@@ -321,11 +326,11 @@ export async function activateEmailOtpEd25519YaoLocalCapabilityV1(args: {
   metadata: RouterAbEd25519YaoActiveClientMetadataV1;
   workerContext: WorkerOperationContext;
   activateCapability: (
-    capability: NearEd25519YaoSigningCapability,
+    material: NearEd25519YaoOperationMaterial,
   ) => Promise<Ed25519YaoActiveClientIdentityV1>;
 }): Promise<EmailOtpEd25519YaoCapabilityRecoveryResult> {
   assertColdBootstrapContinuity(args);
-  let activeClient: NearEd25519YaoSigningCapability['activeClient'] | null =
+  let activeClient: NearEd25519YaoOperationMaterial['activeClient'] | null =
     new EmailOtpEd25519YaoWorkerActiveClientV1(
       args.workerContext,
       args.activeClientHandle,
@@ -333,8 +338,19 @@ export async function activateEmailOtpEd25519YaoLocalCapabilityV1(args: {
     );
   try {
     const walletSessionState = buildColdRecoveredWalletSessionState(args);
-    const capability: NearEd25519YaoSigningCapability = { activeClient, walletSessionState };
-    const identity = await args.activateCapability(capability);
+    const material: NearEd25519YaoOperationMaterial = {
+      activeClient,
+      facts: {
+        thresholdSessionId: walletSessionState.thresholdSessionId,
+        signer: walletSessionState.signingLane.identity.signer,
+        signingRootId: walletSessionState.signingRootId,
+        signingRootVersion: walletSessionState.signingRootVersion,
+        routerAbNormalSigning: walletSessionState.routerAbNormalSigning,
+        runtimePolicyScope: walletSessionState.runtimePolicyScope,
+        relayerUrl: walletSessionState.relayerUrl,
+      },
+    };
+    const identity = await args.activateCapability(material);
     if (
       String(identity.walletId) !== String(args.prepared.identity.walletId) ||
       String(identity.nearAccountId) !== String(args.prepared.identity.nearAccountId) ||
@@ -349,7 +365,8 @@ export async function activateEmailOtpEd25519YaoLocalCapabilityV1(args: {
     return {
       thresholdSessionId: requireThresholdSessionId(walletSessionState.thresholdSessionId),
       publicationContext: buildEmailOtpEd25519YaoPublicationContext(args),
-      ...capability,
+      material,
+      walletSessionState,
     };
   } finally {
     activeClient?.dispose();
@@ -362,7 +379,7 @@ export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
   pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
   workerContext: WorkerOperationContext;
   activateCapability: (
-    capability: NearEd25519YaoSigningCapability,
+    material: NearEd25519YaoOperationMaterial,
   ) => Promise<Ed25519YaoActiveClientIdentityV1>;
 }): Promise<EmailOtpEd25519YaoCapabilityRecoveryResult> {
   await assertColdBootstrapContinuityOrDisposePending(args);
@@ -391,11 +408,22 @@ export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
     registrationAuthorityId: String(authority.bindingId),
     routerOrigin: new URL(args.prepared.relayerUrl).origin,
   });
-  let activeClient: NearEd25519YaoSigningCapability['activeClient'] | null = recovered.activeClient;
+  let activeClient: NearEd25519YaoOperationMaterial['activeClient'] | null = recovered.activeClient;
   try {
     const walletSessionState = buildColdRecoveredWalletSessionState(args);
-    const capability: NearEd25519YaoSigningCapability = { activeClient, walletSessionState };
-    const activatedIdentity = await args.activateCapability(capability);
+    const material: NearEd25519YaoOperationMaterial = {
+      activeClient,
+      facts: {
+        thresholdSessionId: walletSessionState.thresholdSessionId,
+        signer: walletSessionState.signingLane.identity.signer,
+        signingRootId: walletSessionState.signingRootId,
+        signingRootVersion: walletSessionState.signingRootVersion,
+        routerAbNormalSigning: walletSessionState.routerAbNormalSigning,
+        runtimePolicyScope: walletSessionState.runtimePolicyScope,
+        relayerUrl: walletSessionState.relayerUrl,
+      },
+    };
+    const activatedIdentity = await args.activateCapability(material);
     if (
       String(activatedIdentity.walletId) !== String(args.prepared.identity.walletId) ||
       String(activatedIdentity.nearAccountId) !== String(args.prepared.identity.nearAccountId) ||
@@ -410,7 +438,8 @@ export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
     return {
       thresholdSessionId: requireThresholdSessionId(walletSessionState.thresholdSessionId),
       publicationContext: buildEmailOtpEd25519YaoPublicationContext(args),
-      ...capability,
+      material,
+      walletSessionState,
     };
   } finally {
     activeClient?.dispose();
@@ -425,7 +454,7 @@ export async function recoverColdEmailOtpEd25519CapabilityForLoginV1(args: {
   groupId: string | undefined;
   workerContext: WorkerOperationContext;
   activateCapability: (
-    capability: NearEd25519YaoSigningCapability,
+    material: NearEd25519YaoOperationMaterial,
   ) => Promise<Ed25519YaoActiveClientIdentityV1>;
 }): Promise<EmailOtpEd25519YaoCapabilityRecoveryResult> {
   const appSessionJwt = requireNonEmpty(args.appSessionJwt, 'appSessionJwt');

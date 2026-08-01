@@ -17,7 +17,7 @@ import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import type {
   NearEd25519YaoMaterialExecutor,
-  NearEd25519YaoSigningCapability,
+  NearEd25519YaoOperationMaterial,
   NearEmailOtpEd25519StepUpHook,
   NearEd25519StepUpAuthorization,
   NearEd25519TransactionSigningBoundary,
@@ -847,7 +847,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
         stepUpAuthorization.kind === 'warm_session'
           ? {
               kind: 'warm_session' as const,
-              capability: await resolvePreparedNearEd25519YaoMaterial(
+              material: await resolvePreparedNearEd25519YaoMaterial(
                 yaoSigningPreparation,
                 yaoMaterialExecutor,
               ),
@@ -858,15 +858,15 @@ async function runAuthorizedNearTransactionWithActionsSigning({
             };
       const canonicalThresholdSessionId =
         resolvedMaterial.kind === 'warm_session'
-          ? resolvedMaterial.capability.walletSessionState.thresholdSessionId
+          ? resolvedMaterial.material.facts.thresholdSessionId
           : resolvedMaterial.resolved.material.facts.thresholdSessionId;
       const activeYaoClient =
         resolvedMaterial.kind === 'warm_session'
-          ? resolvedMaterial.capability.activeClient
+          ? resolvedMaterial.material.activeClient
           : resolvedMaterial.resolved.material.activeClient;
       const activeWalletSessionState =
         resolvedMaterial.kind === 'warm_session'
-          ? resolvedMaterial.capability.walletSessionState
+          ? await yaoMaterialExecutor.resolveWalletSessionState()
           : null;
       const confirmedNearContext =
         resolvedMaterial.kind === 'warm_session'
@@ -948,7 +948,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
     });
   };
   const executeSignRequest = async (
-    yaoClient: NearEd25519YaoSigningCapability['activeClient'],
+    yaoClient: NearEd25519YaoOperationMaterial['activeClient'],
   ) => {
     emitNearSigningEvent(onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_10_COMMIT_STARTED,

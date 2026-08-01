@@ -7,7 +7,7 @@ import {
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoBytes32V1,
 } from '@shared/utils/routerAbEd25519Yao';
-import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/interfaces/near';
+import type { NearEd25519YaoOperationMaterial } from '@/core/signingEngine/interfaces/near';
 import { type Ed25519YaoActiveClientIdentityV1 } from '@/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import {
@@ -28,8 +28,8 @@ export type ProductEd25519YaoRegistrationRequestInputV1 = {
 export type ProductEd25519YaoRegistrationFailureV1 = RouterAbEd25519YaoRegistrationFailureV1;
 
 export type ProductEd25519YaoCapabilityActivationPortV1 = {
-  activateVerifiedNearEd25519YaoSigningCapability(
-    capability: NearEd25519YaoSigningCapability,
+  activateVerifiedNearEd25519YaoMaterial(
+    material: NearEd25519YaoOperationMaterial,
   ): Promise<Ed25519YaoActiveClientIdentityV1>;
 };
 

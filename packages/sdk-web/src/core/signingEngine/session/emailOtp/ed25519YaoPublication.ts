@@ -1,5 +1,8 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import type { NearEd25519YaoSigningCapability } from '@/core/signingEngine/interfaces/near';
+import type {
+  NearEd25519YaoOperationMaterial,
+  NearResolvedEd25519SigningSessionState,
+} from '@/core/signingEngine/interfaces/near';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { requireTrimmedString } from '@shared/utils/validation';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
@@ -27,7 +30,8 @@ export type EmailOtpEd25519YaoPublicationContext = {
 };
 
 export type EmailOtpEd25519YaoPublicationInput = {
-  capability: NearEd25519YaoSigningCapability;
+  material: NearEd25519YaoOperationMaterial;
+  walletSessionState: NearResolvedEd25519SigningSessionState;
   publicationContext: EmailOtpEd25519YaoPublicationContext;
 };
 
@@ -61,13 +65,13 @@ function buildEd25519YaoSealTransport(args: {
 }
 
 function assertPublicationCapabilityContinuity(
-  capability: NearEd25519YaoSigningCapability,
+  material: NearEd25519YaoOperationMaterial,
+  state: NearResolvedEd25519SigningSessionState,
   publicationContext: EmailOtpEd25519YaoPublicationContext,
 ): void {
-  const state = capability.walletSessionState;
   const lane = state.signingLane;
   const signer = lane.identity.signer;
-  const metadata = capability.activeClient.metadata();
+  const metadata = material.activeClient.metadata();
   const materialActivation = nearEd25519YaoMaterialActivationFromMetadata(metadata);
   if (
     String(lane.thresholdSessionId) !== state.thresholdSessionId ||
@@ -91,11 +95,11 @@ export async function persistEmailOtpEd25519YaoCapabilityForRefresh(
   ports: EmailOtpEd25519YaoPublicationPorts,
 ): Promise<void> {
   if (ports.configs.signing.sessionPersistenceMode !== 'sealed_refresh_v1') return;
-  const capability = args.capability;
-  const state = capability.walletSessionState;
+  const material = args.material;
+  const state = args.walletSessionState;
   const lane = state.signingLane;
   if (lane.auth.kind !== 'email_otp' || lane.retention !== 'session') return;
-  assertPublicationCapabilityContinuity(capability, args.publicationContext);
+  assertPublicationCapabilityContinuity(material, state, args.publicationContext);
 
   const workerContext = ports.getSignerWorkerContext();
   if (!workerContext) {
@@ -146,7 +150,7 @@ export async function persistEmailOtpEd25519YaoCapabilityForRefresh(
     args.publicationContext.providerSubjectId,
     'providerSubjectId',
   );
-  const metadata = capability.activeClient.metadata();
+  const metadata = material.activeClient.metadata();
   const signer = lane.identity.signer;
   await ports.registerSigningSession({
     thresholdSessionId,

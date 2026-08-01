@@ -1,6 +1,4 @@
-import type {
-  NearEd25519YaoSigningCapability,
-} from '@/core/signingEngine/interfaces/near';
+import type { NearEd25519YaoOperationMaterial } from '@/core/signingEngine/interfaces/near';
 import type { WasmRouterAbEd25519YaoActiveClientV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import {
   PendingProductEd25519YaoRegistrationV1,
@@ -12,7 +10,7 @@ import {
 declare const pendingRegistration: PendingProductEd25519YaoRegistrationV1;
 void pendingRegistration.dispose();
 declare const activation: ProductEd25519YaoCapabilityActivationPortV1;
-declare const capability: NearEd25519YaoSigningCapability;
+declare const material: NearEd25519YaoOperationMaterial;
 declare const activeClient: WasmRouterAbEd25519YaoActiveClientV1;
 declare const browserPersistence: ProductEd25519YaoBrowserMaterialPersistencePortV1;
 
@@ -37,9 +35,9 @@ pendingRegistration.persistRegistrationMaterial({
   persistence: browserPersistence,
   signerSlot: 1,
 });
-activation.activateVerifiedNearEd25519YaoSigningCapability(capability);
-// @ts-expect-error activation accepts a verified capability, not a raw active Client.
-activation.activateVerifiedNearEd25519YaoSigningCapability(activeClient);
+activation.activateVerifiedNearEd25519YaoMaterial(material);
+// @ts-expect-error activation accepts canonical operation material, not a raw active Client.
+activation.activateVerifiedNearEd25519YaoMaterial(activeClient);
 
 buildProductEd25519YaoRegistrationRequestV1({
   scope: {

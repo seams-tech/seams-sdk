@@ -49,8 +49,6 @@ export function createRecoveryPublicDeps(args: {
   provisionPasskeyEcdsaExplicitExportSession: RecoveryPublicDeps['ecdsa']['provisionPasskeyEcdsaExplicitExportSession'];
   resolvePasskeyEcdsaExportRouteAuth: RecoveryPublicDeps['ecdsa']['resolvePasskeyEcdsaExportRouteAuth'];
   getWalletSessionStatus: WalletSigningSessionStatusDeps['getAvailableStatus'];
-  resolveActiveEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['resolveActiveCapability'];
-  recoverPasskeyEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['recoverPasskeyCapability'];
   resolvePasskeyEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['resolvePasskeyExportContext'];
   resolveEmailOtpEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['emailOtp']['resolveExportContext'];
   sessionLifecycle: RecoveryPublicDeps['sessionLifecycle'];
@@ -112,8 +110,6 @@ export function createRecoveryPublicDeps(args: {
     ed25519Yao: {
       touchConfirm: args.touchConfirm,
       passkeyMpcExport: args.passkeyMpcExport,
-      resolveActiveCapability: args.resolveActiveEd25519YaoCapability,
-      recoverPasskeyCapability: args.recoverPasskeyEd25519YaoCapability,
       resolvePasskeyExportContext: args.resolvePasskeyEd25519YaoExportContext,
       withThresholdEd25519CommitQueue: args.withThresholdEd25519CommitQueue,
       emailOtp: {

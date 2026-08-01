@@ -1074,7 +1074,7 @@ async function captureEmailOtpEd25519Registration(
   return { signerSlot: input.signerSlot };
 }
 
-async function captureActivatedEmailOtpEd25519YaoCapability(
+async function captureActivatedEmailOtpEd25519YaoMaterial(
   captures: Record<string, unknown>,
   input: Record<string, unknown>,
 ): Promise<{ kind: string; identityKey: string }> {
@@ -1406,8 +1406,8 @@ function createContext(captures: Record<string, unknown>): any {
           throw new Error(`durable NEAR provisioning write unavailable: ${write.status}`);
         }
       },
-      activateVerifiedNearEd25519YaoSigningCapability:
-        captureActivatedEmailOtpEd25519YaoCapability.bind(undefined, captures),
+      activateVerifiedNearEd25519YaoMaterial:
+        captureActivatedEmailOtpEd25519YaoMaterial.bind(undefined, captures),
       createRouterAbEcdsaRegistrationCeremony: async (args: Record<string, any>) => {
         captures.ecdsaRegistrationFacts = args.registration;
         registrationEvents(captures)?.push('ecdsaCeremonyStarted');

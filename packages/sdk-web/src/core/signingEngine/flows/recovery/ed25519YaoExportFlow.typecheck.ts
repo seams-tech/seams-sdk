@@ -13,8 +13,10 @@ declare const deps: Ed25519YaoExportFlowDeps;
 declare const passkeyLane: PasskeyEd25519Lane;
 declare const emailOtpLane: EmailOtpEd25519Lane;
 
-declare const materialActivation: Parameters<Ed25519YaoExportFlowDeps['recoverPasskeyCapability']>[0]['materialActivation'];
-void deps.recoverPasskeyCapability({ laneIdentity: passkeyLane, materialActivation });
+declare const materialActivation: Parameters<
+  Ed25519YaoExportFlowDeps['resolvePasskeyExportContext']
+>[0]['materialActivation'];
+void deps.resolvePasskeyExportContext({ laneIdentity: passkeyLane, materialActivation });
 
-// @ts-expect-error Email OTP export resolves durable context and cannot enter passkey recovery.
-void deps.recoverPasskeyCapability({ laneIdentity: emailOtpLane, materialActivation });
+// @ts-expect-error Email OTP export resolves through its factor-owned context boundary.
+void deps.resolvePasskeyExportContext({ laneIdentity: emailOtpLane, materialActivation });
