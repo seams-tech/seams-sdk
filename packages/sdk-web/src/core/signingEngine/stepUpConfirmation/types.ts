@@ -2,7 +2,7 @@ import type {
   WalletAuthCurve,
   WalletAuthIntent,
   SigningSessionRetention,
-  WalletAuthMethod,
+  SignerAuthMethod,
 } from '@/core/types/seams';
 import type { TransactionContext } from '@/core/types/rpc';
 import type { NearTransactionReadiness } from '../nonce/nearTransactionReadiness';
@@ -146,7 +146,7 @@ export interface EmailOtpConfirmPrompt {
 export type SigningAuthPlan =
   | {
       kind: typeof SigningAuthPlanKind.WarmSession;
-      method: WalletAuthMethod;
+      method: SignerAuthMethod;
       accountId: string;
       intent: WalletAuthIntent;
       curve?: WalletAuthCurve;
@@ -228,7 +228,7 @@ export type PasskeyPromptPlan = {
 };
 
 export type StepUpWarmSessionAuthorization = {
-  method: WalletAuthMethod;
+  method: SignerAuthMethod;
   sessionId: string;
   expiresAtMs: number;
   remainingUses: number;

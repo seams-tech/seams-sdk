@@ -3,7 +3,7 @@ import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecds
 import type {
   SigningSessionRetention,
   SigningSessionStatus,
-  WalletAuthMethod,
+  SignerAuthMethod,
 } from '@/core/types/seams';
 import type {
   WarmSessionStatusBatchReader,
@@ -260,7 +260,7 @@ export function deriveEcdsaCapabilityState(args: {
 export function toSigningSessionStatus(args: {
   sessionId: string;
   claim: WarmSessionPrfClaim | null;
-  authMethod?: WalletAuthMethod | null;
+  authMethod?: SignerAuthMethod | null;
   retention?: SigningSessionRetention | null;
 }): SigningSessionStatus {
   const sessionId = String(args.sessionId || '').trim();
