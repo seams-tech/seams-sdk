@@ -1,15 +1,12 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
-  clearThresholdCommitQueue,
   withThresholdCommitQueue,
   type ThresholdCommitQueueByKey,
   type ThresholdCommitQueueCancelledReason,
   type ThresholdCommitQueueError,
-  type ThresholdCommitQueueErrorCode,
 } from '../commitQueueShared';
 
-export type ThresholdEd25519CommitQueueErrorCode = ThresholdCommitQueueErrorCode;
 export type ThresholdEd25519CommitQueueError = ThresholdCommitQueueError;
 
 export type ThresholdEd25519CommitQueueKeyInput = {
@@ -68,12 +65,6 @@ export function resolveThresholdEd25519CommitQueueKey(
     encodeURIComponent(String(args.materialActivation.capability)),
     encodeURIComponent(String(args.materialActivation.activationId)),
   ].join(':');
-}
-
-export function clearThresholdEd25519CommitQueue(
-  queueByKey: ThresholdEd25519CommitQueueByKey,
-): void {
-  clearThresholdCommitQueue(queueByKey);
 }
 
 export async function withThresholdEd25519CommitQueue<T>(args: {
