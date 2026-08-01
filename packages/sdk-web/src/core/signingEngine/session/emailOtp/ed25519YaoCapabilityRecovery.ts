@@ -58,7 +58,7 @@ export type PreparedColdEmailOtpEd25519YaoRecoveryV1 = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   authPolicy: EmailOtpAuthPolicy;
   remainingUses: number;
-  previous: NearEd25519YaoSigningCapability | null;
+  previousMetadata: RouterAbEd25519YaoActiveClientMetadataV1 | null;
 };
 
 type EmailOtpEd25519YaoUnlockBootstrapV1 = EmailOtpEd25519YaoRecoveryBootstrapV1;
@@ -175,7 +175,8 @@ export function prepareColdEmailOtpEd25519YaoRecoveryV1(args: {
   ) => NearEd25519YaoSigningCapability | null;
 }): PreparedColdEmailOtpEd25519YaoRecoveryV1 {
   const resolved = args.resolveActiveCapability(args.identity);
-  const previous = resolved?.activeClient.status().kind === 'active' ? resolved : null;
+  const previousMetadata =
+    resolved?.activeClient.status().kind === 'active' ? resolved.activeClient.metadata() : null;
   return {
     kind: 'prepared_cold_email_otp_ed25519_yao_recovery_v1',
     identity: args.identity,
@@ -192,7 +193,7 @@ export function prepareColdEmailOtpEd25519YaoRecoveryV1(args: {
     runtimePolicyScope: args.runtimePolicyScope,
     authPolicy: args.authPolicy,
     remainingUses: requirePositiveInteger(args.remainingUses, 'remainingUses'),
-    previous,
+    previousMetadata,
   };
 }
 
@@ -203,7 +204,7 @@ function assertColdBootstrapContinuity(args: {
   const prepared = args.prepared;
   const session = args.bootstrap.session;
   const capability = args.bootstrap.capability;
-  const metadata = prepared.previous?.activeClient.metadata() ?? null;
+  const metadata = prepared.previousMetadata;
   if (
     session.authorityScope.kind !== 'email_otp' ||
     session.authorityScope.providerUserId !== prepared.providerSubject ||
@@ -358,9 +359,9 @@ export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
   ) => Promise<Ed25519YaoActiveClientIdentityV1>;
 }): Promise<EmailOtpEd25519YaoCapabilityRecoveryResult> {
   await assertColdBootstrapContinuityOrDisposePending(args);
-  const expectedPriorMetadata = args.prepared.previous
-    ? args.prepared.previous.activeClient.metadata()
-    : buildEmailOtpEd25519YaoRecoveryContinuityMetadataV1(args.bootstrap);
+  const expectedPriorMetadata =
+    args.prepared.previousMetadata ??
+    buildEmailOtpEd25519YaoRecoveryContinuityMetadataV1(args.bootstrap);
   const authorityScope = args.bootstrap.session.authorityScope;
   if (authorityScope.kind !== 'email_otp') {
     throw new Error('Email OTP Ed25519 Yao recovery returned another authority kind');
