@@ -24,7 +24,10 @@ import {
   type RegistrationSignerRequest,
   type RegistrationSignerSetSelection,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseMpcMaterialActivationRef,
+  parseWebAuthnRpId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import { base58Encode } from '../../packages/shared-ts/src/utils/base58';
 import { sha256HexUtf8 } from '../../packages/shared-ts/src/utils/digests';
 import {
@@ -450,16 +453,41 @@ function mockedEcdsaServerBootstrap(
     thresholdSessionId: prepare.thresholdSessionId,
     activationEpoch: facts.lifecycle.root_share_epoch,
     signingGrantId: prepare.signingGrantId,
+    authorizationSessionId: `auth-session:${walletId}`,
+    walletSessionId: `wallet-session:${walletId}`,
+    quotaId: `wallet-quota:${walletId}`,
     expiresAtMs,
     expiresAt: new Date(expiresAtMs).toISOString(),
     remainingUses: prepare.remainingUses,
+    routerAbEcdsaDerivationNormalSigning: {
+      kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
+      scope: {
+        wallet_id: walletId,
+        ecdsa_threshold_key_id: String(prepare.ecdsaThresholdKeyId),
+        signing_root_id: String(prepare.signingRootId),
+        signing_root_version: String(prepare.signingRootVersion),
+        context: { application_binding_digest_b64u: facts.context.application_binding_digest_b64u },
+        public_identity: mockedEcdsaPublicIdentity(),
+        signing_worker: {
+          server_id: 'signing-worker-test',
+          key_epoch: 'worker-epoch-test',
+          recipient_encryption_key:
+            'x25519:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+        },
+        activation_epoch: facts.lifecycle.root_share_epoch,
+      },
+    },
   };
   bootstrap.jwt = ecdsaWalletSessionJwtForBootstrap(bootstrap);
   return bootstrap;
 }
 
 function mockedEcdsaActivationReceipt(facts: Record<string, any>): Record<string, unknown> {
+  const digest = { bytes: new Array<number>(32).fill(0) };
   return {
+    activation_correlation_id: facts.lifecycle.lifecycle_id,
+    activation_request_digest: digest,
+    server_generation: 'generation-test',
     ecdsa_activation: {
       context: facts.context,
       public_identity: {
@@ -471,8 +499,7 @@ function mockedEcdsaActivationReceipt(facts: Record<string, any>): Record<string
       activated_at_ms: Date.now(),
     },
     lifecycle_id: facts.lifecycle.lifecycle_id,
-    transcript_digest: { bytes: new Array<number>(32).fill(0) },
-    activated: true,
+    transcript_digest: digest,
   };
 }
 
@@ -564,7 +591,6 @@ function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): 
       kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
       scope: {
         wallet_id: walletId,
-        wallet_key_id: evmFamilySigningKeySlotId,
         ecdsa_threshold_key_id: ecdsaThresholdKeyId,
         signing_root_id: signingRootId,
         signing_root_version: signingRootVersion,
@@ -662,6 +688,19 @@ function expectRegistrationSuccess(result: { success: boolean; error?: unknown }
   }
 }
 
+function ecdsaCapabilityFromRegistrationResult(result: {
+  capabilities?: readonly {
+    kind: string;
+    thresholdEcdsaEthereumAddress?: string;
+    thresholdEcdsaPublicKeyB64u?: string;
+  }[];
+}): {
+  thresholdEcdsaEthereumAddress?: string;
+  thresholdEcdsaPublicKeyB64u?: string;
+} | null {
+  return result.capabilities?.find((capability) => capability.kind === 'evm_family_ecdsa') ?? null;
+}
+
 async function emptyWorkerWarmupDiagnostics() {
   return {
     kind: 'worker_resource_warmup_diagnostics_v1' as const,
@@ -670,6 +709,20 @@ async function emptyWorkerWarmupDiagnostics() {
     keyMaterialReadMs: 0,
     uiConfirmPrewarmMs: 0,
     signerWorkerPrewarmMs: 0,
+  };
+}
+
+async function persistInitialCanonicalEcdsaActivationForTest(
+  captures: Record<string, unknown>,
+  input: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  captures.persistedCanonicalEcdsaActivation = input;
+  const planInput = input.planInput as Record<string, unknown> | undefined;
+  return {
+    ok: true,
+    kind: 'initial_canonical_ecdsa_activation_persisted_v1',
+    ceremonyId: String(input.ceremonyId || ''),
+    journalId: String(planInput?.journalId || ''),
   };
 }
 
@@ -1305,14 +1358,47 @@ function createContext(captures: Record<string, unknown>): any {
           participantId: 1,
         },
       }),
+      persistInitialCanonicalEcdsaActivation: persistInitialCanonicalEcdsaActivationForTest.bind(
+        undefined,
+        captures,
+      ),
       finalizeRouterAbEcdsaRegistrationActivation: async (args: Record<string, any>) => {
         const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
         const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
           mockedEcdsaPublicCapability(ecdsaFacts),
         );
+        const intent = captures.intent as Record<string, any>;
+        const walletId = String(intent.walletId || WALLET_SUBJECT_ID);
+        const authority =
+          intent.authMethod?.kind === 'email_otp'
+            ? buildEmailOtpWalletAuthAuthority({
+                walletId,
+                provider: 'google',
+                providerUserId: EMAIL_OTP_PROVIDER_SUBJECT,
+                emailHashHex: await sha256HexUtf8('alice@example.com'),
+              })
+            : buildPasskeyWalletAuthAuthority({
+                walletId,
+                rpId: RP_ID,
+                credentialIdB64u: 'registration-credential-id',
+              });
+        const parsedMaterialActivation = parseMpcMaterialActivationRef({
+          kind: 'mpc_material_activation_ref',
+          activationId: 'activation:registration-ceremony',
+          capability: 'capability:registration-ceremony',
+          materialOwner: 'material-owner:registration-ceremony',
+          keyBinding: 'key-binding:registration-ceremony',
+          lifecycleBinding: 'lifecycle-binding:registration-ceremony',
+          signingWorker: 'signing-worker:registration-ceremony',
+        });
+        if (!parsedMaterialActivation.ok) {
+          throw new Error(parsedMaterialActivation.error.message);
+        }
         return {
           kind: 'router_ab_ecdsa_registration_activation_finalized_v1',
-          ceremonyId: args.ceremonyId,
+          journalId: String(args.journalId || args.ceremonyId || 'registration-ceremony'),
+          authority,
+          materialActivation: parsedMaterialActivation.value,
           roleLocalMaterial: {
             kind: 'ecdsa_role_local_worker_handle_v1',
             materialHandle: parseEcdsaRoleLocalMaterialHandle(
@@ -1593,7 +1679,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
       };
       if (mockedRegistrationNearEd25519Signer((captures.intent as any)?.signerSelection)) {
         /* Mixed plans: the NEAR arm is still deferred at this point. */
-        (activateBody as Record<string, any>).nearProvisioning = { status: 'near_pending' };
+        (activateBody as Record<string, any>).nearProvisioning = { status: 'pending' };
       }
       return jsonResponse(activateBody);
     }
@@ -1783,6 +1869,7 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
       signer.registerEvmWallet({
         chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1, networkSlug: 'ethereum' }],
         participantIds: [1, 2],
+        authMethod: { kind: 'passkey', rpId: RP_ID },
         options: {},
       }),
     );
@@ -1790,7 +1877,12 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
     expectRegistrationSuccess(result);
     expect(result).toMatchObject({
       success: true,
-      thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
+      capabilities: [
+        {
+          kind: 'evm_family_ecdsa',
+          thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
+        },
+      ],
     });
     expect((captures.intentRequestBody as any)?.signerSelection).toEqual({
       kind: 'signer_set',
@@ -1838,7 +1930,12 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
     expectRegistrationSuccess(result);
     expect(result).toMatchObject({
       success: true,
-      thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
+      capabilities: [
+        {
+          kind: 'evm_family_ecdsa',
+          thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
+        },
+      ],
     });
     /* Registration completes through the three-route protocol. */
     expect(fetchMock.paths).toEqual([
@@ -1859,7 +1956,11 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
       },
     });
     expect(captures.persistedEcdsaSessions).toMatchObject({
-      auth: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
+      session: {
+        authority: {
+          factor: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
+        },
+      },
     });
     expect(captures.emailOtpYaoPrewarmCalls || 0).toBe(0);
   } finally {
@@ -2001,13 +2102,10 @@ test('registerWallet overlaps Email OTP enrollment material with ECDSA registrat
       },
     });
     expect(captures.persistedEcdsaSessions).toMatchObject({
-      auth: {
-        kind: 'email_otp',
-        emailOtpAuthContext: {
-          authority: {
-            factor: {
-              kind: 'email_otp',
-            },
+      session: {
+        authority: {
+          factor: {
+            kind: 'email_otp',
           },
         },
       },
@@ -2180,7 +2278,7 @@ test('registerWallet keeps the ECDSA wallet when the deferred Ed25519 finalize f
       success: true,
       kind: 'ecdsa_wallet_registered_near_pending',
     });
-    expect(String((result as { thresholdEcdsaEthereumAddress?: string }).thresholdEcdsaEthereumAddress ?? '')).not.toBe('');
+    expect(String(ecdsaCapabilityFromRegistrationResult(result)?.thresholdEcdsaEthereumAddress ?? '')).not.toBe('');
 
     await waitForTestCondition({
       label: 'the deferred Ed25519 finalize to be attempted and rejected',
@@ -2310,12 +2408,11 @@ test('the ECDSA wallet is durable and usable while the Yao ceremony is still blo
     /* Commit #1 is durable: the ECDSA signer records were persisted, and the
        wallet carries a usable threshold address. */
     expect(captures.storedEcdsaRegistration).toBeDefined();
-    const ecdsaAddress = String(
-      (result as { thresholdEcdsaEthereumAddress?: string }).thresholdEcdsaEthereumAddress ?? '',
-    );
+    const ecdsaCapability = ecdsaCapabilityFromRegistrationResult(result);
+    const ecdsaAddress = String(ecdsaCapability?.thresholdEcdsaEthereumAddress ?? '');
     expect(ecdsaAddress).not.toBe('');
     expect(
-      String((result as { thresholdEcdsaPublicKeyB64u?: string }).thresholdEcdsaPublicKeyB64u ?? ''),
+      String(ecdsaCapability?.thresholdEcdsaPublicKeyB64u ?? ''),
     ).not.toBe('');
 
     /* The wallet is entered under its own id, not a NEAR account that does not
@@ -2353,7 +2450,7 @@ test('a failed near_ready write never publishes near_ready', async () => {
     expect(result).toMatchObject({ success: true, kind: 'ecdsa_wallet_registered_near_pending' });
     expect(
       String(
-        (result as { thresholdEcdsaEthereumAddress?: string }).thresholdEcdsaEthereumAddress ?? '',
+        ecdsaCapabilityFromRegistrationResult(result)?.thresholdEcdsaEthereumAddress ?? '',
       ),
     ).not.toBe('');
 
@@ -3161,7 +3258,12 @@ test('addWalletSigner orchestrates later ECDSA from an Ed25519 wallet', async ()
     expectRegistrationSuccess(result);
     expect(result).toMatchObject({
       success: true,
-      thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
+      capabilities: [
+        {
+          kind: 'evm_family_ecdsa',
+          thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
+        },
+      ],
     });
     expect(fetchMock.paths).toEqual([
       `/wallets/${WALLET_SUBJECT_ID}/signers/intent`,
