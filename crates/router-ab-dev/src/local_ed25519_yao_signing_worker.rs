@@ -1362,7 +1362,7 @@ mod tests {
     use super::*;
     use router_ab_core::{
         Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1, RootShareEpoch,
-        RouterAbEd25519YaoLifecycleScopeV1,
+        MpcMaterialActivationRefV1, RouterAbEd25519YaoLifecycleScopeV1,
     };
 
     #[test]
@@ -1627,13 +1627,24 @@ mod tests {
             format!("wallet-session-{session_tag}"),
             format!("signer-set-{identity_tag}"),
             "signing-worker-1",
+            MpcMaterialActivationRefV1::new(
+                format!("activation-{session_tag}"),
+                format!("capability-{identity_tag}"),
+                format!("account-{identity_tag}"),
+                format!("key-{identity_tag}"),
+                format!("lifecycle-{session_tag}"),
+                "signing-worker-1",
+            )
+            .expect("material activation"),
         )
         .expect("scope");
+        let material_activation = scope.material_activation().clone();
         Ed25519YaoCeremonyBindingV1::new(
             scope.into_lifecycle(operation).expect("lifecycle"),
             operation,
             Ed25519YaoSessionIdV1::new([session_tag; 32]).expect("session"),
             Ed25519YaoStableKeyContextBindingV1::new([identity_tag; 32]),
+            material_activation,
         )
         .expect("binding")
     }

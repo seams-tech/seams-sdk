@@ -328,6 +328,15 @@ fn pair_digest_vector_case(
         operation,
         Ed25519YaoSessionIdV1::new(session).expect("vector session"),
         Ed25519YaoStableKeyContextBindingV1::new(stable_context_binding),
+        MpcMaterialActivationRefV1::new(
+            format!("{case_id}-activation"),
+            format!("{case_id}-capability"),
+            format!("{case_id}-account"),
+            format!("{case_id}-key"),
+            format!("{case_id}-lifecycle"),
+            format!("{case_id}-server"),
+        )
+        .expect("vector material activation"),
     )
     .expect("vector ceremony binding");
     let ceremony = Ed25519YaoCeremonyIdentityV1::from_binding(ceremony_binding)

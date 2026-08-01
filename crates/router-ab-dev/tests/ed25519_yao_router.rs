@@ -1,6 +1,6 @@
 use router_ab_core::{
     Ed25519YaoCircuitFamilyV1, Ed25519YaoEpochTransitionV1, Ed25519YaoOperationV1,
-    Ed25519YaoRefreshEpochsV1, Ed25519YaoStateEpochV1, ExpensiveWorkKindV1, RootShareEpoch,
+    Ed25519YaoRefreshEpochsV1, Ed25519YaoStateEpochV1, ExpensiveWorkKindV1, MpcMaterialActivationRefV1, RootShareEpoch,
 };
 use router_ab_dev::{
     admit_local_ed25519_yao_export_v1, admit_local_ed25519_yao_registration_v1,
@@ -198,6 +198,15 @@ fn scope(lifecycle_id: &str) -> RouterAbEd25519YaoLifecycleScopeV1 {
         "wallet-session-1",
         "signer-set-1",
         "signing-worker-1",
+        MpcMaterialActivationRefV1::new(
+            format!("activation-{lifecycle_id}"),
+            "capability-router",
+            "wallet-router",
+            "key-router",
+            lifecycle_id,
+            "worker-1",
+        )
+        .expect("material activation"),
     )
     .expect("lifecycle scope")
 }

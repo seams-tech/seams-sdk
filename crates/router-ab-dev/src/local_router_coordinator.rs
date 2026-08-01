@@ -316,7 +316,11 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
                     &config.internal_service_auth,
                     &delivery,
                 )?;
-                let public_receipt = activation_public_receipt(receipt, request.operation)?;
+                let public_receipt = activation_public_receipt(
+                    receipt,
+                    request.operation,
+                    request.binding.material_activation().clone(),
+                )?;
                 let result = RouterAbEd25519YaoActivationResultV1::new(
                     request.binding.clone(),
                     a.client_package.clone(),
@@ -521,6 +525,7 @@ fn package_delivery(
 fn activation_public_receipt(
     receipt: LocalEd25519YaoSigningWorkerActivationReceiptV1,
     operation: Ed25519YaoOperationV1,
+    material_activation: router_ab_core::MpcMaterialActivationRefV1,
 ) -> RouterAbProtocolResult<RouterAbEd25519YaoActivationPublicReceiptV1> {
     let (
         status_operation,
@@ -570,6 +575,7 @@ fn activation_public_receipt(
         joined_signing_worker_commitment,
         signing_worker_verifying_share,
         state_epoch,
+        material_activation,
     )
 }
 
@@ -631,11 +637,21 @@ mod tests {
             "local-worker",
         )
         .expect("lifecycle");
+        let material_activation = router_ab_core::MpcMaterialActivationRefV1::new(
+            "activation-1",
+            "capability-1",
+            "local-account",
+            "key-1",
+            "local-coordinator",
+            "local-worker",
+        )
+        .expect("material activation");
         let binding = router_ab_core::Ed25519YaoCeremonyBindingV1::new(
             lifecycle,
             Ed25519YaoOperationV1::Recovery,
             Ed25519YaoSessionIdV1::new([0x11; 32]).expect("session"),
             Ed25519YaoStableKeyContextBindingV1::new([0x22; 32]),
+            material_activation.clone(),
         )
         .expect("binding");
         let public_receipt = RouterAbEd25519YaoActivationPublicReceiptV1::new(
@@ -645,6 +661,7 @@ mod tests {
             [0x34; 32],
             [0x35; 32],
             router_ab_core::Ed25519YaoStateEpochV1::new(1).expect("state epoch"),
+            material_activation,
         )
         .expect("public receipt");
         LocalRouterEd25519YaoRecoveryPromotionRequestV1 {
@@ -695,7 +712,21 @@ mod tests {
             signing_worker_verifying_share: [6; 32],
             state_epoch: router_ab_core::Ed25519YaoStateEpochV1::new(1).expect("epoch"),
         };
-        assert!(activation_public_receipt(receipt, Ed25519YaoOperationV1::Recovery).is_err());
+        let material_activation = router_ab_core::MpcMaterialActivationRefV1::new(
+            "activation-1",
+            "capability-1",
+            "local-account",
+            "key-1",
+            "local-coordinator",
+            "local-worker",
+        )
+        .expect("material activation");
+        assert!(activation_public_receipt(
+            receipt,
+            Ed25519YaoOperationV1::Recovery,
+            material_activation,
+        )
+        .is_err());
     }
 
     #[test]
