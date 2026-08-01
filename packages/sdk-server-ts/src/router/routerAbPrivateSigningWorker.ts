@@ -2939,15 +2939,12 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
   readonly authorizationClaims: RouterApiAuthorizationClaimService | null | undefined;
   readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   readonly admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
+  readonly resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
   readonly phase: 'prepare' | 'finalize';
 }): Promise<RouterAbJsonRouteResult | null> {
   let request: RouterAbEcdsaOperationStepUpRequest;
-  let materialActivationId: MpcMaterialActivationId;
   try {
     request = parseRouterAbEcdsaOperationStepUpRequest(input);
-    materialActivationId = requireMpcMaterialActivationId(
-      request.material_activation.activation_id,
-    );
   } catch (error: unknown) {
     return routerAbStepUpError(400, 'invalid_body', errorMessage(error));
   }
@@ -2968,6 +2965,34 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
     sessionExpiresAtMs: authenticated.expiresAtMs,
   });
   if (identityFailure) return identityFailure;
+  const activeMaterial = await input.resolveEcdsaMaterialActivation({
+    walletId: authenticated.session.walletId,
+    materialActivation: request.material_activation,
+  });
+  if (!activeMaterial.ok) {
+    return routerAbStepUpError(
+      activeMaterial.code === 'internal' ? 500 : 403,
+      activeMaterial.code === 'internal' ? 'internal' : 'scope_mismatch',
+      activeMaterial.code === 'internal'
+        ? activeMaterial.message
+        : 'ECDSA operation step-up material is no longer active',
+    );
+  }
+  if (
+    !sameRouterAbMpcMaterialActivationRef(
+      activeMaterial.materialActivation,
+      request.scope.material_activation,
+    )
+  ) {
+    return routerAbStepUpError(
+      403,
+      'scope_mismatch',
+      'ECDSA operation step-up scope does not name the active material',
+    );
+  }
+  const materialActivationId = requireMpcMaterialActivationId(
+    activeMaterial.materialActivation.activation_id,
+  );
   if (!input.admissionAdapter) {
     return routerAbStepUpError(
       501,
@@ -2987,8 +3012,8 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
     signingGrantId: request.authorization.grant_id,
     requestId: request.request_id,
     expiresAtMs: request.expires_at_ms,
-    signingWorkerId: request.scope.signing_worker.server_id,
-    keyHandle: request.material_activation.key_binding,
+    signingWorkerId: activeMaterial.materialActivation.signing_worker,
+    keyHandle: activeMaterial.materialActivation.key_binding,
     runtimePolicyScope: authenticated.session.runtimePolicyScope,
   });
   if (!admission.ok) {
@@ -3005,7 +3030,7 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
         operation_digests: prepareRequest.operation_digests,
         material_activation: prepareRequest.material_activation,
       },
-      materialActivation: request.scope.material_activation,
+      materialActivation: activeMaterial.materialActivation,
       grantId:
         prepareRequest.authorization.kind === 'operation_step_up'
           ? prepareRequest.authorization.grant_id
@@ -3051,6 +3076,7 @@ export async function authorizeRouterAbEcdsaDerivationNormalSigningRoute(input: 
         authorizationClaims: input.authorizationClaims,
         authorizationSessions: input.authorizationSessions,
         admissionAdapter: input.admissionAdapter,
+        resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
         phase: input.phase,
       });
     return failure
