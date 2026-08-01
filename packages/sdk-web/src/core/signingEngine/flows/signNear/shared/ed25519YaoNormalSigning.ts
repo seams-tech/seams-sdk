@@ -444,7 +444,9 @@ function decodeThresholdEd25519PublicKey(publicKey: string): Uint8Array {
 
 function requireActiveClientMatchesNormalSigningOperation(args: {
   activeClient: RouterAbEd25519YaoActiveClientV1;
-  thresholdSessionId: string;
+  authorization:
+    | { kind: 'reusable_wallet_session'; walletSessionId: string }
+    | { kind: 'operation_step_up' };
   materialFacts: NearEd25519YaoOperationMaterialFacts;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   walletId: WalletId;
@@ -504,21 +506,30 @@ function requireActiveClientMatchesNormalSigningOperation(args: {
     'material SigningWorker',
   );
   const authorization = args.prepare.request.scope.authorization;
-  switch (authorization.kind) {
+  if (authorization.kind !== args.authorization.kind) {
+    throw new Error('Router A/B Ed25519 authorization kind mismatch');
+  }
+  switch (args.authorization.kind) {
     case 'reusable_wallet_session':
+      if (authorization.kind !== 'reusable_wallet_session') {
+        throw new Error('Router A/B Ed25519 reusable authorization is missing');
+      }
       requireMatchingRouterAbEd25519Identity(
         authorization.wallet_session_id,
-        args.thresholdSessionId,
+        args.authorization.walletSessionId,
         'authorization session',
       );
       break;
     case 'operation_step_up':
+      if (authorization.kind !== 'operation_step_up') {
+        throw new Error('Router A/B Ed25519 operation step-up authorization is missing');
+      }
       if (!authorization.grant_id) {
         throw new Error('Router A/B Ed25519 operation step-up grant is missing');
       }
       break;
     default:
-      authorization satisfies never;
+      args.authorization satisfies never;
   }
   requireMatchingRouterAbEd25519Identity(
     metadata.scope.signing_worker_id,
@@ -659,7 +670,13 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(
   }
   requireActiveClientMatchesNormalSigningOperation({
     activeClient: args.activeClient,
-    thresholdSessionId: args.thresholdSessionId,
+    authorization:
+      args.authorization === 'reusable_wallet_session'
+        ? {
+            kind: 'reusable_wallet_session',
+            walletSessionId: args.walletSessionState.signingWalletSession.walletSessionId,
+          }
+        : { kind: 'operation_step_up' },
     materialFacts,
     thresholdKeyMaterial: args.thresholdKeyMaterial,
     walletId: args.walletId,
