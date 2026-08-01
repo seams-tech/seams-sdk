@@ -1160,10 +1160,15 @@ async function emailOtpLoginManifestFixture(args: {
 test.describe('EmailOtpWalletSessionCoordinator', () => {
   test('normalizes warm-session status requests and maps worker failures', async () => {
     const invalid = createCoordinator();
-    await expect(invalid.coordinator.readWarmSessionStatusOnly('   ')).resolves.toMatchObject({
-      ok: false,
-      code: 'invalid_args',
-    });
+    await expect(
+      invalid.coordinator.readWarmSessionStatusOnly({
+        kind: 'ecdsa',
+        thresholdSessionId: '   ',
+      }),
+    ).resolves.toMatchObject({
+        ok: false,
+        code: 'invalid_args',
+      });
     expect(invalid.workerCalls).toHaveLength(0);
 
     const failing = createCoordinator({
@@ -1172,13 +1177,19 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       },
     });
     await expect(
-      failing.coordinator.readWarmSessionStatusOnly(' session-1 '),
+      failing.coordinator.readWarmSessionStatusOnly({
+        kind: 'ecdsa',
+        thresholdSessionId: ' session-1 ',
+      }),
     ).resolves.toMatchObject({
       ok: false,
       code: 'worker_error',
       message: 'worker unavailable',
     });
-    expect(failing.workerCalls[0].request.payload.sessionId).toBe('session-1');
+    expect(failing.workerCalls[0].request.payload.target).toEqual({
+      kind: 'ecdsa',
+      thresholdSessionId: 'session-1',
+    });
   });
 
   test('requests transaction challenges with signing-session auth only', async () => {
@@ -1514,14 +1525,17 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     const sealCall = workerCalls.find(
       (call) => call.request?.type === 'sealEmailOtpWarmSessionMaterial',
     );
-    const sealedThresholdSessionId = sealCall?.request?.payload?.sessionId;
+    const sealedThresholdSessionId = sealCall?.request?.payload?.target?.thresholdSessionId;
     expect(sealedThresholdSessionId).toMatch(/^threshold-ecdsa-login-/);
     expect(sealCall).toMatchObject({
       kind: 'emailOtp',
       request: {
         type: 'sealEmailOtpWarmSessionMaterial',
         payload: {
-          sessionId: sealedThresholdSessionId,
+          target: {
+            kind: 'ecdsa',
+            thresholdSessionId: sealedThresholdSessionId,
+          },
           transport: {
             relayerUrl: 'https://relay.example',
             walletSessionJwt: expect.any(String),
@@ -1828,8 +1842,14 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     });
 
     try {
-      await coordinator.readWarmSessionStatusOnly('ecdsa-session');
-      await coordinator.readWarmSessionStatusOnly('ecdsa-session');
+      await coordinator.readWarmSessionStatusOnly({
+        kind: 'ecdsa',
+        thresholdSessionId: 'ecdsa-session',
+      });
+      await coordinator.readWarmSessionStatusOnly({
+        kind: 'ecdsa',
+        thresholdSessionId: 'ecdsa-session',
+      });
     } finally {
       console.warn = originalWarn;
       console.debug = originalDebug;

@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 import { createWarmSessionStatusReader } from '@/core/signingEngine/session/warmCapabilities/statusReader';
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import {
+  buildEmailOtpEd25519AuthorizationProjectionFixture,
+  buildEmailOtpEd25519SealedSessionRecordFixture,
   buildPasskeyEd25519AuthorizationProjectionFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
@@ -15,6 +17,39 @@ function passkeyStatusFixture() {
     authorization: buildPasskeyEd25519AuthorizationProjectionFixture(record),
   };
 }
+
+test('addresses Email OTP warm material by threshold session and exact activation', async () => {
+  const record = buildEmailOtpEd25519SealedSessionRecordFixture();
+  const runtime = parseExactEd25519SealedSessionRuntime(record);
+  if (!runtime) throw new Error('expected exact Email OTP Ed25519 runtime fixture');
+  const targets: unknown[] = [];
+  const reader = createWarmSessionStatusReader({
+    touchConfirm: null,
+    getEmailOtpWarmSessionStatus: async (target) => {
+      targets.push(target);
+      return {
+        ok: true,
+        remainingUses: 2,
+        expiresAtMs: runtime.expiresAtMs,
+      };
+    },
+  });
+
+  await expect(
+    reader.getEd25519SigningSessionStatus({
+      runtime,
+      authorization: buildEmailOtpEd25519AuthorizationProjectionFixture(record),
+      nowMs: 1_800_000_000_000,
+    }),
+  ).resolves.toMatchObject({ status: 'active', remainingUses: 2 });
+  expect(targets).toEqual([
+    {
+      kind: 'ed25519_yao',
+      thresholdSessionId: runtime.thresholdSessionId,
+      materialActivation: record.ed25519Restore.materialActivation,
+    },
+  ]);
+});
 
 test('reads active Ed25519 status from exact runtime and active authorization', async () => {
   const fixture = passkeyStatusFixture();
