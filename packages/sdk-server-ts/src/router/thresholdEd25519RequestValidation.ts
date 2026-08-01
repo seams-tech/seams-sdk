@@ -7,6 +7,12 @@ import { isPlainObject } from '@shared/utils/validation';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import {
+  parseSigningGrantId,
+  parseThresholdEd25519SessionId,
+  type SigningGrantId,
+  type ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import {
   isPasskeyWalletAuthAuthority,
   parseWalletAuthAuthority,
   parseWalletAuthAuthorityRef,
@@ -99,6 +105,30 @@ function requiredStringField(
   return { ok: true, request: value.trim() };
 }
 
+function requiredThresholdEd25519SessionId(
+  record: Record<string, unknown>,
+  field: string,
+): ThresholdEd25519RouteParseResult<ThresholdEd25519SessionId> {
+  const value = requiredStringField(record, field);
+  if (!value.ok) return value;
+  const parsed = parseThresholdEd25519SessionId(value.request);
+  return parsed.ok
+    ? { ok: true, request: parsed.value }
+    : invalidThresholdEd25519Body(`${field} is invalid`);
+}
+
+function requiredSigningGrantId(
+  record: Record<string, unknown>,
+  field: string,
+): ThresholdEd25519RouteParseResult<SigningGrantId> {
+  const value = requiredStringField(record, field);
+  if (!value.ok) return value;
+  const parsed = parseSigningGrantId(value.request);
+  return parsed.ok
+    ? { ok: true, request: parsed.value }
+    : invalidThresholdEd25519Body(`${field} is invalid`);
+}
+
 function optionalStringField(record: Record<string, unknown>, field: string): string | undefined {
   return optionalRouteTrimmedString(record, field);
 }
@@ -141,9 +171,9 @@ export function parseRouterAbEd25519YaoSessionPolicyV1(
   }
   const relayerKeyId = requiredStringField(raw, 'relayerKeyId');
   if (!relayerKeyId.ok) return relayerKeyId;
-  const thresholdSessionId = requiredStringField(raw, 'thresholdSessionId');
+  const thresholdSessionId = requiredThresholdEd25519SessionId(raw, 'thresholdSessionId');
   if (!thresholdSessionId.ok) return thresholdSessionId;
-  const signingGrantId = requiredStringField(raw, 'signingGrantId');
+  const signingGrantId = requiredSigningGrantId(raw, 'signingGrantId');
   if (!signingGrantId.ok) return signingGrantId;
   if (
     typeof raw.ttlMs !== 'number' ||

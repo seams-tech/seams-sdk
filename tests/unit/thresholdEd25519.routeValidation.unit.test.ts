@@ -339,6 +339,28 @@ function rejectsRelayerIdentityMismatch(): void {
   );
 }
 
+function normalizesThresholdSessionIdentityAtRouteBoundary(): void {
+  const body = validThresholdEd25519SessionBody();
+  const policy = validThresholdEd25519SessionPolicy();
+  policy.thresholdSessionId = '  tsess-route-validation  ';
+  body.sessionPolicy = policy;
+  const parsed = parseThresholdEd25519SessionRouteRequest(body);
+  expect(parsed.ok).toBe(true);
+  if (!parsed.ok) throw new Error(parsed.body.message);
+  expect(parsed.request.sessionPolicy.thresholdSessionId).toBe('tsess-route-validation');
+}
+
+function normalizesSigningGrantIdentityAtRouteBoundary(): void {
+  const body = validThresholdEd25519SessionBody();
+  const policy = validThresholdEd25519SessionPolicy();
+  policy.signingGrantId = '  grant-route-validation  ';
+  body.sessionPolicy = policy;
+  const parsed = parseThresholdEd25519SessionRouteRequest(body);
+  expect(parsed.ok).toBe(true);
+  if (!parsed.ok) throw new Error(parsed.body.message);
+  expect(parsed.request.sessionPolicy.signingGrantId).toBe('grant-route-validation');
+}
+
 function rejectsBodyOwnedAppSessionClaims(): void {
   const body = validThresholdEd25519SessionBody();
   body.appSessionClaims = {
@@ -375,6 +397,14 @@ test(
 test(
   'threshold-ed25519 session route rejects a malformed WebAuthn proof',
   rejectsMalformedWebAuthnProof,
+);
+test(
+  'threshold-ed25519 session route normalizes threshold-session identity once',
+  normalizesThresholdSessionIdentityAtRouteBoundary,
+);
+test(
+  'threshold-ed25519 session route normalizes signing-grant identity once',
+  normalizesSigningGrantIdentityAtRouteBoundary,
 );
 test('threshold-ed25519 session route requires jwt session kind', rejectsMissingJwtSessionKind);
 test(

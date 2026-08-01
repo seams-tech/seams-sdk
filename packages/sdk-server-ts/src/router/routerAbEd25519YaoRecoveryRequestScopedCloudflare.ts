@@ -44,6 +44,12 @@ import {
 import { warmBootstrapCapabilityMatchesStableIdentity } from './routerAbEd25519YaoRecovery';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
+  parseSigningGrantId,
+  parseThresholdEd25519SessionId,
+  type SigningGrantId,
+  type ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import {
   runRouterAbEd25519YaoRegistrationTwoPhaseV1,
   type RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1,
   type RouterAbEd25519YaoRegistrationTwoPhaseCompletionV1,
@@ -96,6 +102,24 @@ type RecoveryResponse =
 type TraceResolution =
   | { readonly ok: true; readonly value: RouterAbTraceContextV1 }
   | { readonly ok: false; readonly message: string };
+
+type WarmRecoveryWalletSessionIdentity = {
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+  readonly signingGrantId: SigningGrantId;
+};
+
+function parseWarmRecoveryWalletSessionIdentity(input: {
+  readonly thresholdSessionId: unknown;
+  readonly signingGrantId: unknown;
+}): WarmRecoveryWalletSessionIdentity | null {
+  const thresholdSessionId = parseThresholdEd25519SessionId(input.thresholdSessionId);
+  const signingGrantId = parseSigningGrantId(input.signingGrantId);
+  if (!thresholdSessionId.ok || !signingGrantId.ok) return null;
+  return {
+    thresholdSessionId: thresholdSessionId.value,
+    signingGrantId: signingGrantId.value,
+  };
+}
 
 export type RouterAbEd25519YaoRecoveryRequestScopedCloudflareInputV1 = {
   readonly request: Request;
@@ -502,14 +526,28 @@ async function runWarmRecoveryBootstrapRequest(
       { status: 401 },
     );
   }
+  const identity = parseWarmRecoveryWalletSessionIdentity({
+    thresholdSessionId: authorized.claims.thresholdSessionId,
+    signingGrantId: authorized.claims.signingGrantId,
+  });
+  if (!identity) {
+    return json(
+      {
+        ok: false,
+        code: 'wallet_session_claims_invalid',
+        message: 'Ed25519 Yao recovery received invalid Wallet Session identities',
+      },
+      { status: 401 },
+    );
+  }
   const response: RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
     kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
     walletId: authorized.claims.walletId,
     nearAccountId: authorized.claims.nearAccountId,
     nearEd25519SigningKeyId: authorized.claims.nearEd25519SigningKeyId,
     signerSlot: request.signerSlot,
-    thresholdSessionId: authorized.claims.thresholdSessionId,
-    signingGrantId: authorized.claims.signingGrantId,
+    thresholdSessionId: identity.thresholdSessionId,
+    signingGrantId: identity.signingGrantId,
     walletSessionId: authorized.claims.walletSessionId,
     quotaId: authorized.claims.quotaId,
     signingWorkerId: authorized.claims.routerAbNormalSigning.signingWorkerId,

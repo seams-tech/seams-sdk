@@ -51,6 +51,8 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import {
   parseThresholdEd25519SessionId,
+  parseSigningGrantId,
+  type SigningGrantId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import {
@@ -68,6 +70,14 @@ function requireThresholdEd25519SessionId(
   label: string,
 ): ThresholdEd25519SessionId {
   const parsed = parseThresholdEd25519SessionId(value);
+  if (!parsed.ok) {
+    throw new Error(`${label} is invalid`);
+  }
+  return parsed.value;
+}
+
+function requireSigningGrantId(value: unknown, label: string): SigningGrantId {
+  const parsed = parseSigningGrantId(value);
   if (!parsed.ok) {
     throw new Error(`${label} is invalid`);
   }
@@ -445,8 +455,8 @@ export type RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
   readonly nearAccountId: string;
   readonly nearEd25519SigningKeyId: string;
   readonly signerSlot: number;
-  readonly thresholdSessionId: string;
-  readonly signingGrantId: string;
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+  readonly signingGrantId: SigningGrantId;
   readonly walletSessionId: RouterAbEd25519WalletSessionClaims['walletSessionId'];
   readonly quotaId: RouterAbEd25519WalletSessionClaims['quotaId'];
   readonly signingWorkerId: string;
@@ -2390,14 +2400,35 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
         { status: 401 },
       );
     }
+    let thresholdSessionId: ThresholdEd25519SessionId;
+    let signingGrantId: SigningGrantId;
+    try {
+      thresholdSessionId = requireThresholdEd25519SessionId(
+        authorization.claims.thresholdSessionId,
+        'Wallet Session threshold session identity',
+      );
+      signingGrantId = requireSigningGrantId(
+        authorization.claims.signingGrantId,
+        'Wallet Session signing grant identity',
+      );
+    } catch {
+      return json(
+        {
+          ok: false,
+          code: 'wallet_session_claims_invalid',
+          message: 'Ed25519 Yao recovery received invalid Wallet Session identities',
+        },
+        { status: 401 },
+      );
+    }
     const response: RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
       kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
       walletId: authorization.claims.walletId,
       nearAccountId: authorization.claims.nearAccountId,
       nearEd25519SigningKeyId: authorization.claims.nearEd25519SigningKeyId,
       signerSlot: parsed.value.signerSlot,
-      thresholdSessionId: authorization.claims.thresholdSessionId,
-      signingGrantId: authorization.claims.signingGrantId,
+      thresholdSessionId,
+      signingGrantId,
       walletSessionId: authorization.claims.walletSessionId,
       quotaId: authorization.claims.quotaId,
       signingWorkerId: authorization.claims.routerAbNormalSigning.signingWorkerId,
