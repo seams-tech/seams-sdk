@@ -1016,6 +1016,81 @@ pub async fn claim_cloudflare_signing_worker_near_effect_v1(
     }
 }
 
+/// Reads an exact ECDSA terminal result before applying fresh-request checks.
+pub async fn replay_cloudflare_signing_worker_ecdsa_terminal_v1(
+    env: &Env,
+    request: &CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1,
+) -> RouterAbProtocolResult<Option<String>> {
+    request.validate()?;
+    let operation_key = request.effect_operation_key()?;
+    let request_digest_hex = private_d1_digest_hex_v1(request.effect_request_digest()?);
+    let database = signing_worker_private_d1_from_env_v1(env)?;
+    let session = database
+        .with_session_constraint(D1SessionConstraint::FirstPrimary)
+        .map_err(|error| map_d1_error("SigningWorker ECDSA effect replay session failed", error))?;
+    load_cloudflare_signing_worker_terminal_response_v1(
+        &session,
+        &operation_key,
+        &request_digest_hex,
+    )
+    .await
+}
+
+/// Claims one ECDSA signing effect before presignature material is consumed.
+pub async fn claim_cloudflare_signing_worker_ecdsa_effect_v1(
+    env: &Env,
+    request: &CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1,
+    claimed_at_ms: u64,
+) -> RouterAbProtocolResult<CloudflareSigningWorkerNearEffectClaimV1> {
+    request.validate()?;
+    require_positive_ms("SigningWorker ECDSA effect claimed_at_ms", claimed_at_ms)?;
+    let operation_key = request.effect_operation_key()?;
+    let request_digest_hex = private_d1_digest_hex_v1(request.effect_request_digest()?);
+    let database = signing_worker_private_d1_from_env_v1(env)?;
+    let session = database
+        .with_session_constraint(D1SessionConstraint::FirstPrimary)
+        .map_err(|error| map_d1_error("SigningWorker ECDSA effect primary session failed", error))?;
+    if let Some(response_json) = load_cloudflare_signing_worker_terminal_response_v1(
+        &session,
+        &operation_key,
+        &request_digest_hex,
+    )
+    .await?
+    {
+        return Ok(CloudflareSigningWorkerNearEffectClaimV1::Replay {
+            terminal_json: response_json,
+        });
+    }
+    request.request.validate_at(claimed_at_ms)?;
+    let authorization_json =
+        encode_json("SigningWorker ECDSA effect authorization", &request.effect_claim)?;
+    let authorization_key = match &request.effect_claim {
+        CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession { claim } => {
+            format!(
+                "ecdsa-reusable-wallet-session/{}/{}/{}",
+                claim.wallet_session_id, claim.grant_id, claim.use_id
+            )
+        }
+        CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
+            authorization_session_id,
+            grant_id,
+            use_id,
+            ..
+        } => format!(
+            "ecdsa-operation-step-up/{authorization_session_id}/{grant_id}/{use_id}"
+        ),
+    };
+    claim_cloudflare_signing_worker_authorization_effect_v1(
+        &session,
+        &operation_key,
+        &authorization_key,
+        &request_digest_hex,
+        &authorization_json,
+        claimed_at_ms,
+    )
+    .await
+}
+
 pub async fn put_cloudflare_signing_worker_output_activation_record_v1(
     env: &Env,
     record: &CloudflareSigningWorkerOutputActivationRecordV1,

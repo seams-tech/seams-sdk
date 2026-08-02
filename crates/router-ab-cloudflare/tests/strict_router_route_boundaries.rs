@@ -100,7 +100,7 @@ fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
         "parse_router_ab_ecdsa_derivation_recovery_request_v1_json",
         "parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_request_v1_json",
         "parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json",
-        "parse_cloudflare_router_budgeted_router_ab_ecdsa_derivation_finalize_request_v1_json",
+        "parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_finalize_request_v1_json",
         "handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_explicit_export_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_recovery_authenticated_public_request_v1",
