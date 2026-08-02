@@ -30,6 +30,16 @@ any concrete vault target discovered by its Satyr Phase 6 inventory.
 
 ## Final bounded sweep — 2026-08-02
 
+### Current wire checkpoint — `9196afd69`, `7512bf6a6`
+
+The strict Rust/TypeScript ECDSA `authorization_claim` boundary now rejects
+the retired public budget fields and binds reusable claims to the verified
+Wallet Session plus canonical capability grant. Rust binding tests pass 31/31,
+the shared TypeScript check passes, and the Email OTP warm worker names its
+volatile map key `thresholdSessionId`. The local-Yao signing harness remains
+the final caller of the retired Router reserve/commit/release adapter and is
+held for an explicit canonical-route migration or coverage decision.
+
 The final Unit 1/3a/4 sweep found one identity bug and one dead type surface.
 Passkey ECDSA seal persistence now receives the actual `thresholdSessionId`
 from bootstrap while retaining a material-activation-keyed single-flight map;
