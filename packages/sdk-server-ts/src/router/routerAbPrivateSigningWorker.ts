@@ -332,7 +332,6 @@ export type RouterAbNormalSigningAdmissionInput =
       walletId: string;
       materialActivationId: MpcMaterialActivationId;
       authorizationIdentity: RouterAbNormalSigningAuthorizationIdentity;
-      signingGrantId: string;
       requestId: string;
       expiresAtMs: number;
       signingWorkerId: string;
@@ -416,7 +415,6 @@ export async function evaluateRouterAbNormalSigningAdmission(
       kind: 'reusable_wallet_session',
       walletSessionId: input.walletSessionAuth.walletSessionId,
     },
-    signingGrantId: input.walletSessionAuth.signingGrantId,
     requestId: input.admission.requestId,
     expiresAtMs: input.admission.expiresAtMs,
     signingWorkerId:
@@ -3209,7 +3207,6 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
       kind: 'operation_step_up',
       materialActivationId,
     },
-    signingGrantId: request.authorization.grant_id,
     requestId: request.request_id,
     expiresAtMs: request.expires_at_ms,
     signingWorkerId: activeMaterial.materialActivation.signing_worker,

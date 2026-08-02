@@ -628,7 +628,9 @@ export function abusePrincipalKey(input: RouterAbNormalSigningAdmissionInput): s
   ].join('\x1f');
 }
 
-export function quotaScopeKey(input: RouterAbNormalSigningAdmissionInput): string {
+export function quotaScopeKey(
+  input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
+): string {
   const base = [
     runtimePolicyScopeKey(input.runtimePolicyScope),
     input.walletId,
@@ -640,9 +642,6 @@ export function quotaScopeKey(input: RouterAbNormalSigningAdmissionInput): strin
     input.requestId,
     input.signingWorkerId,
   ];
-  if (input.curve === 'ecdsa') {
-    return [...base, input.keyHandle].join('\x1f');
-  }
   return base.join('\x1f');
 }
 
@@ -653,7 +652,9 @@ export function quotaReservationExpiresAtMs(
   return Math.min(input.expiresAtMs, nowMs + ROUTER_AB_NORMAL_SIGNING_QUOTA_RESERVATION_TTL_MS);
 }
 
-export function normalSigningLifecycleId(input: RouterAbNormalSigningAdmissionInput): string {
+export function normalSigningLifecycleId(
+  input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
+): string {
   const base = [
     input.curve,
     input.phase,
@@ -664,9 +665,6 @@ export function normalSigningLifecycleId(input: RouterAbNormalSigningAdmissionIn
     input.requestId,
     input.signingWorkerId,
   ];
-  if (input.curve === 'ecdsa') {
-    return [...base, input.keyHandle].join(':');
-  }
   return base.join(':');
 }
 
