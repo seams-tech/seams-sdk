@@ -171,7 +171,7 @@ const ed25519ExportOperationPath =
 const ed25519ExportOperation = readRepoSource(ed25519ExportOperationPath);
 for (const marker of [
   'exportEd25519YaoKeyWithFreshAuthorization',
-  'resolveActiveCapability',
+  'resolvePasskeyExportContext',
   'artifactKind: ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1',
   'resolveExportContext',
   'exportSeedWithFreshAuthorization',
