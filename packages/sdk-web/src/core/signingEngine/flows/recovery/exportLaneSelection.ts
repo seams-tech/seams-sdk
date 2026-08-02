@@ -296,6 +296,9 @@ function isUsableEd25519ExportLane(args: {
 function exactEd25519IdentityForExportLane(
   lane: ConcreteAvailableEd25519SigningLane,
 ): ExactEd25519SigningLaneIdentity {
+  if (!lane.authorization) {
+    throw new Error('Ed25519 export requires reusable Wallet Session authorization');
+  }
   return exactEd25519SigningLaneIdentity({
     signer: nearEd25519SignerBindingFromBoundaryFields({
       walletId: lane.walletId,

@@ -1,14 +1,12 @@
 import type {
   ClearVolatileWarmSessionMaterialCommand,
-  VolatileWarmMaterialPort,
 } from '../../uiConfirm/uiConfirm.types';
 import type { ExpiredWalletSessionAuthorizationState } from '../identity/clientSessionPersistenceState';
 import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
+import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabilities/volatileWarmMaterialCommands';
 import {
-  clearSigningGrant,
   type SigningGrantClearFailure,
   type SigningGrantClearResult,
-  type SigningGrantReadinessDeps,
   type SigningGrantStatusOverride,
 } from './readiness';
 
@@ -53,11 +51,7 @@ export type ClientWalletSessionExpiryInvalidationResult =
 function walletSessionInvalidationKey(
   state: ExpiredWalletSessionAuthorizationState,
 ): string {
-  return `${String(state.walletId)}:${
-    'walletSessionId' in state
-      ? `wallet-session:${String(state.walletSessionId)}`
-      : `signing-grant:${String(state.signingGrantId)}`
-  }`;
+  return `${String(state.walletId)}:wallet-session:${String(state.walletSessionId)}`;
 }
 
 function walletSessionExpiredEvent(args: {
@@ -80,31 +74,27 @@ export type InvalidateExpiredWalletSessionInput = {
   readonly walletSessionId: WalletSessionId;
 };
 
-function toSigningGrantReadinessDeps(
-  deps: ClientWalletSessionInvalidationReadinessDeps,
-): SigningGrantReadinessDeps {
-  const touchConfirm: Pick<VolatileWarmMaterialPort, 'clearVolatileWarmSessionMaterial'> = {
-    clearVolatileWarmSessionMaterial: deps.touchConfirm.clearVolatileWarmSessionMaterial,
-  };
-  return {
-    touchConfirm,
-    clearEmailOtpWarmSessionMaterial: deps.clearEmailOtpWarmSessionMaterial,
-  };
-}
-
 async function clearExpiredAuthorization(args: {
   readonly deps: ClientWalletSessionExpiryInvalidatorDeps;
   readonly state: ExpiredWalletSessionAuthorizationState;
 }): Promise<SigningGrantClearResult> {
-  if ('walletSessionId' in args.state) {
+  const lane = args.state.laneIdentity;
+  if (!('thresholdSessionId' in lane)) return { kind: 'cleared' };
+  try {
+    if (lane.auth.kind === 'email_otp') {
+      await args.deps.readiness.clearEmailOtpWarmSessionMaterial(lane.thresholdSessionId);
+    } else {
+      await args.deps.readiness.touchConfirm.clearVolatileWarmSessionMaterial(
+        createClearVolatileWarmSessionMaterialCommand(lane.thresholdSessionId),
+      );
+    }
     return { kind: 'cleared' };
+  } catch {
+    return {
+      kind: 'unavailable',
+      failures: [lane.auth.kind === 'email_otp' ? 'email_otp_material' : 'touch_confirm_material'],
+    };
   }
-  return clearSigningGrant({
-    deps: toSigningGrantReadinessDeps(args.deps.readiness),
-    statusOverrides: args.deps.statusOverrides,
-    walletId: args.state.walletId,
-    signingGrantId: args.state.signingGrantId,
-  });
 }
 
 export class ClientWalletSessionExpiryInvalidator {

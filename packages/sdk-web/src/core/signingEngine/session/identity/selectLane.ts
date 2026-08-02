@@ -420,6 +420,9 @@ export function listNearEd25519TransactionSelectableLanes(
 
 function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
   if (candidate.curve === 'ed25519') {
+    if (candidate.authorizationState !== 'authorized' || !candidate.authorization) {
+      throw new Error('[SigningSessionSelectLane] Ed25519 lane requires active authorization');
+    }
     return selectedEd25519Lane({
       walletId: candidate.walletId,
       nearAccountId: candidate.nearAccountId,
