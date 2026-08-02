@@ -1650,12 +1650,13 @@ cutover is complete: current production source has no live `SigningGrantId`,
 historical migration, and both curves use the Gateway atomic claim/quota path.
 The focused acceptance and conformance evidence is closed by `fa5791630`.
 
-The deletion checkpoints `882dfd681`, `4885bed62`, `32be59fb1`, and
-`fa5791630` remove the remaining
+The deletion checkpoints `882dfd681`, `4885bed62`, `32be59fb1`,
+`fa5791630`, and `f4c8c7423` remove the remaining
 TypeScript Router budget persistence/parser surface, the callerless local
 signing-seed runtime and factory wiring, obsolete wallet-budget status and
-parser tests, and grant-named admission/cache identities in the SDK, local
-smoke wire, console admission fixture, and current documentation. The focused
+parser tests, grant-named admission/cache identities in the SDK and console
+admission fixture, and the local smoke wire's legacy budget-field injection.
+The focused
 wallet-session quota admission suite is green; Router normal-signing,
 Email OTP recovery/export, identity-fixture, and EVM retry coverage are green;
 SDK-server, SDK-web, console-server, and unit TypeScript typechecks pass. The
@@ -1784,7 +1785,7 @@ Refactor 90 environment-dependent acceptance remains tracked separately.
       rows, fixtures, and guards are deleted (`4885bed62`).
 - [x] Focused reusable, step-up, expiry, exhaustion, export, replay, hostile
       substitution, binding, and vector checks pass (`4885bed62`,
-      `32be59fb1`, `fa5791630`; 109 identity fixtures, 38 admission/recovery/
+      `32be59fb1`, `fa5791630`, `f4c8c7423`; 109 identity fixtures, 38 admission/recovery/
       export/coordinator checks, and the previously recorded Rust binding and
       vector gates).
 - [x] All Unit 3c deletion-ledger entries are closed with implementing commit
@@ -1880,12 +1881,14 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 
 This is a validation gate, not a deferred cleanup phase.
 
-- [ ] Every applicable deletion-ledger entry is closed. Unit 3c owns the
-      previously retained `SigningGrantId` and Router budget rows.
-- [ ] Prohibited legacy symbols, routes, imports, exports, aliases, record
+- [x] Every applicable deletion-ledger entry is closed. Unit 3c owns the
+      previously retained `SigningGrantId` and Router budget rows
+      (`acd3a5a04`, `f4c8c7423`).
+- [x] Prohibited legacy symbols, routes, imports, exports, aliases, record
       families, and obsolete source guards are absent. Remaining `sessionId`
       fields may be ceremony, handle, presign, request, or UI identities;
-      `SigningGrantId` has no retained live exception.
+      `SigningGrantId` has no retained live exception. Current-source sweeps
+      exclude only immutable historical migrations and negative type fixtures.
 - [x] Required factor-neutral, worker/WASM, import, and bundle guards pass.
       Key-export custody, ECDSA worker ownership, signing-engine architecture
       and identity, and static-wallet-asset checks pass after the latest
