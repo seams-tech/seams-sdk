@@ -26,6 +26,24 @@ commit references stay understandable. Current ownership is:
 Historical Phase 6 inventory is absorbed by every unit. Unit 3b adds and closes
 any concrete vault target discovered by its Satyr Phase 6 inventory.
 
+## Final bounded sweep — 2026-08-02
+
+The final Unit 3a/4 sweep found one identity bug and one dead type surface.
+Passkey ECDSA seal persistence now receives the actual `thresholdSessionId`
+from bootstrap while retaining a material-activation-keyed single-flight map;
+it no longer substitutes the activation ID for threshold runtime identity. The
+focused regression test proves the two identifiers stay distinct
+(`57849eda9`). The zero-caller `WarmSessionProvisioner` and its
+`EnsureWarmEcdsaCapabilityReadyResult` carrier were deleted in the same
+checkpoint. No additional safe production deletions were found.
+
+Retained rows are intentional: the Ed25519 `signingGrantId` quota boundary and
+Email OTP NEAR challenge remain live operation-owned interfaces; generated
+passkey-only WASM class names require a coordinated binding rebuild and are not
+safe source-only deletions. The historical `missing_hot_material` and removed
+ECDSA budget fixture references in older refactor documents are documentation
+history, not production symbols.
+
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
 Replacement: the required-field `active | retired` ECDSA capability record,
@@ -274,6 +292,10 @@ discriminated `MpcOperationAuthorizationRef`.
   only `CapabilityGrantId`
 - every `thresholdSessionId` or Wallet Session ID used as a material activation
   locator, persistence key, worker-state key, or hydration identity
+- ~~passkey ECDSA seal persistence substituting `materialActivationId` for the
+  persisted `thresholdSessionId`~~ — the real threshold-session identity is
+  threaded from bootstrap while in-flight coalescing remains keyed by material
+  activation and chain target (`57849eda9`)
 - compatibility aliases between authorization session IDs and material
   activation IDs
 
@@ -617,7 +639,8 @@ local-dev launcher again loads the sibling SDK `.dev.vars` before the console
 - generic-named passkey-only WASM sessions (destructive rename to
   `WasmPasskeyClientRegistrationSessionV1` /
   `WasmPasskeyClientRecoverySessionV1`; no aliases)
-- combined ECDSA enrollment requests
+- ~~combined ECDSA enrollment requests~~ — no production or retained-test
+  occurrences remain at the final symbol audit (2026-08-02)
 - ~~`ecdsa_and_ed25519_yao_recovery` unlock worker requests~~ — replaced by
   capability-specific commands inside one shared unlock proof envelope in
   `def400d94`
@@ -828,6 +851,11 @@ local-dev launcher again loads the sibling SDK `.dev.vars` before the console
   installation and lookup ports
 - ~~zero-caller ECDSA activation-journal id projection~~ — deleted by
   `c51134bba`; journal owners read the required journal id directly
+- ~~zero-caller `WarmSessionProvisioner` and
+  `EnsureWarmEcdsaCapabilityReadyResult` declarations~~ — removed with their
+  threshold-session-id persistence alias; the live capability reader and
+  provisioning entry points use lane-qualified canonical types
+  (`57849eda9`)
 - ~~zero-caller budget owner, availability, and unknown-status adapters~~ —
   deleted by `20f1bcfca`, `1ce066cf9`, and `69b0e6b30`; live admission and
   status readers retain their direct budget paths

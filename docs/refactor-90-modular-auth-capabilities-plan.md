@@ -1498,6 +1498,11 @@ the replacement and legacy MPC paths must not ship together.
         Email OTP Ed25519 fixtures now carry canonical material activation and
         valid runtime-policy scope; 1,975 tests collect in 349 files
         (`e5cb737c8`).
+  - [x] Keep threshold-session identity separate from material activation in
+        Passkey ECDSA seal persistence. Bootstrap supplies the real
+        `thresholdSessionId`; material activation remains the in-flight
+        coalescing key, and the zero-caller `WarmSessionProvisioner` alias is
+        deleted (`57849eda9`).
   - [x] Delete zero-caller budget owner, availability, and unknown-status
         adapters; live admission and status readers remain unchanged
         (`20f1bcfca`, `1ce066cf9`, `69b0e6b30`).
@@ -1533,7 +1538,9 @@ the replacement and legacy MPC paths must not ship together.
       SDK and unit typechecks pass; direct architecture, worker/WASM, bundle,
       and boundary guards pass. The source Playwright guard set passes 220/220;
       the D1 local-dev launcher contract is restored with SDK `.dev.vars`
-      precedence before the console file (`a610be9dc`). Workspace Rust checks
+      precedence before the console file (`a610be9dc`). Passkey ECDSA seal
+      persistence keeps `thresholdSessionId` distinct from material activation
+      (`57849eda9`). Workspace Rust checks
       for router-ab-core, router-ab-ecdsa-client-protocol, router-ab-cloudflare,
       and router-ab-ed25519-yao-client also pass (`c2a6bbf04`).
 - [ ] No legacy and replacement MPC path coexist in a releasable tree.
