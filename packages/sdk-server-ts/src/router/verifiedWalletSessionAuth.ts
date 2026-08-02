@@ -12,7 +12,6 @@ type BaseVerifiedWalletSessionAuth = {
   kind: 'wallet_session';
   curve: 'ecdsa' | 'ed25519';
   thresholdSessionId: string;
-  signingGrantId: string;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   userId: string;
@@ -30,6 +29,7 @@ export type VerifiedEcdsaWalletSessionAuth = BaseVerifiedWalletSessionAuth & {
 
 export type VerifiedEd25519WalletSessionAuth = BaseVerifiedWalletSessionAuth & {
   curve: 'ed25519';
+  signingGrantId: string;
   authority: WalletAuthAuthority;
   authorityScope?: never;
   ed25519RelayerKeyId: string;
@@ -49,7 +49,6 @@ export function buildVerifiedEcdsaWalletSessionAuth(
     kind: 'wallet_session',
     curve: 'ecdsa',
     thresholdSessionId: claims.thresholdSessionId,
-    signingGrantId: claims.signingGrantId,
     walletSessionId: claims.walletSessionId,
     quotaId: claims.quotaId,
     userId: claims.walletId,
