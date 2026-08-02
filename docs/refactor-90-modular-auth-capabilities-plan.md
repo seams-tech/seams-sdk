@@ -1575,6 +1575,12 @@ the replacement and legacy MPC paths must not ship together.
       The latest local-no-server focused claim, recovery, coordinator,
       lifecycle, sealed-runtime, signing, export, and supersession matrix
       passes 104/104.
+      The final 97-test closeout selection (Gateway claims, canonical ECDSA
+      hydration/signing/export, recovery, expiry, step-up, and factor parity)
+      passed 92/97. Its five failures were all `sealedRefresh.parity` setup
+      cases that could not reach the assertion because the local frontend at
+      `::1:5180` was unavailable; classify those as environment failures and
+      rerun with the intended frontend healthy.
   - [ ] Broad unit gate was rerun after the full build on the current fixture
         checkpoint: **1,745 passed, 147 failed, and 9 skipped out of 1,901
         collected tests**. This is an improvement over the prior 1,740/197/11
