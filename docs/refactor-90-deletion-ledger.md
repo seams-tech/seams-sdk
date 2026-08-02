@@ -79,6 +79,9 @@ one-shot Email OTP client-root handle retains its own local `sessionId`
 Volatile warm-material clear commands now use branded `ThresholdSessionId` in
 their worker scope; the retired generic `sessionId` field and local volatile-ID
 alias were deleted (`0c341f40a`).
+The inert ECDSA Router A/B admission-policy `signingGrantId` input and its
+ECDSA quota-key branches were deleted; quota reservation remains statically
+Ed25519-only until Unit 3c moves that live boundary (`5cf433765`).
 
 The remaining Ed25519 `signingGrantId` values are Unit 3c deletion targets.
 Until that cutover lands, they live only in authenticated Wallet Session/quota
