@@ -706,21 +706,9 @@ export type RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire =
     authorization: RouterAbNormalSigningAuthorizationWire;
   };
 
-export type RouterAbEcdsaDerivationBudgetStatusV1Wire = {
-  remaining_uses: number;
-  committed_remaining_uses: number;
-  reserved_uses: number;
-  available_uses: number;
-  projection_version: number;
-  expires_at_ms: number;
-};
-
 export type RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire = {
   scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
   request_id: string;
-  budget_reservation_id: string;
-  budget_operation_id: string;
-  budget_status: RouterAbEcdsaDerivationBudgetStatusV1Wire;
   request_digest: RouterAbPublicDigest32V1Wire;
   signing_digest: RouterAbPublicDigest32V1Wire;
   server_presignature_id: string;
@@ -738,7 +726,6 @@ export type RouterAbEcdsaDerivationEvmDigestSigningResponseV1Wire = {
   signing_digest: RouterAbPublicDigest32V1Wire;
   signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1Wire;
   signature65_b64u: string;
-  budget_status: RouterAbEcdsaDerivationBudgetStatusV1Wire;
 };
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
@@ -2858,9 +2845,6 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(
   requireExactKeys(record, 'ecdsaSigningRequest', [
     'scope',
     'request_id',
-    'budget_reservation_id',
-    'budget_operation_id',
-    'budget_status',
     'operation_id',
     'operation_digests',
     'authorization',
@@ -3258,15 +3242,9 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1(
   value: unknown,
 ): RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire {
   const record = requireRecord(value, 'ecdsaPrepareResponse');
-  // The three budget fields are required by the parse body and the wire type
-  // below; omitting them here made the parser reject every input — absent
-  // fields failed "must be a string", present ones "not a supported field".
   requireExactKeys(record, 'ecdsaPrepareResponse', [
     'scope',
     'request_id',
-    'budget_reservation_id',
-    'budget_operation_id',
-    'budget_status',
     'request_digest',
     'signing_digest',
     'server_presignature_id',
@@ -3279,18 +3257,6 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1(
   return {
     scope: parseRouterAbEcdsaDerivationNormalSigningScopeV1(record.scope),
     request_id: requireAsciiNonEmptyString(record.request_id, 'ecdsaPrepareResponse.request_id'),
-    budget_reservation_id: requireAsciiNonEmptyString(
-      record.budget_reservation_id,
-      'ecdsaPrepareResponse.budget_reservation_id',
-    ),
-    budget_operation_id: requireAsciiNonEmptyString(
-      record.budget_operation_id,
-      'ecdsaPrepareResponse.budget_operation_id',
-    ),
-    budget_status: parseRouterAbEcdsaDerivationBudgetStatusV1(
-      record.budget_status,
-      'ecdsaPrepareResponse.budget_status',
-    ),
     request_digest: parsePublicDigest32(
       record.request_digest,
       'ecdsaPrepareResponse.request_digest',
@@ -3328,34 +3294,6 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1(
   };
 }
 
-function parseRouterAbEcdsaDerivationBudgetStatusV1(
-  value: unknown,
-  label: string,
-): RouterAbEcdsaDerivationBudgetStatusV1Wire {
-  const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
-    'remaining_uses',
-    'committed_remaining_uses',
-    'reserved_uses',
-    'available_uses',
-    'projection_version',
-    'expires_at_ms',
-  ]);
-  return {
-    remaining_uses: requireNonNegativeInteger(record.remaining_uses, `${label}.remaining_uses`),
-    committed_remaining_uses: requireNonNegativeInteger(
-      record.committed_remaining_uses,
-      `${label}.committed_remaining_uses`,
-    ),
-    reserved_uses: requireNonNegativeInteger(record.reserved_uses, `${label}.reserved_uses`),
-    available_uses: requireNonNegativeInteger(record.available_uses, `${label}.available_uses`),
-    projection_version: requirePositiveCounter(
-      record.projection_version,
-      `${label}.projection_version`,
-    ),
-    expires_at_ms: requirePositiveUnixMs(record.expires_at_ms, `${label}.expires_at_ms`),
-  };
-}
 export async function parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseForRequestV1(
   request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
   value: unknown,
@@ -3404,7 +3342,6 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningResponseV1(
     'signing_digest',
     'signature_scheme',
     'signature65_b64u',
-    'budget_status',
   ]);
   return {
     scope: parseRouterAbEcdsaDerivationNormalSigningScopeV1(record.scope),
@@ -3425,10 +3362,6 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningResponseV1(
       record.signature65_b64u,
       'ecdsaSigningResponse.signature65_b64u',
       65,
-    ),
-    budget_status: parseRouterAbEcdsaDerivationBudgetStatusV1(
-      record.budget_status,
-      'ecdsaSigningResponse.budget_status',
     ),
   };
 }

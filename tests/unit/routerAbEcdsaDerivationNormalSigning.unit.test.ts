@@ -121,16 +121,6 @@ async function prepareResponse(
   return {
     scope,
     request_id: request.request_id,
-    budget_reservation_id: 'ecdsa-sign-budget-reservation-1',
-    budget_operation_id: 'ecdsa-sign-budget-operation-1',
-    budget_status: {
-      remaining_uses: 3,
-      committed_remaining_uses: 3,
-      reserved_uses: 1,
-      available_uses: 2,
-      projection_version: 2,
-      expires_at_ms: 1_900_000_000_000,
-    },
     request_digest: await routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1(request),
     signing_digest: digest(11),
     server_presignature_id: request.client_presignature_id,
@@ -155,14 +145,6 @@ async function signingResponse(
     signing_digest: digest(11),
     signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
     signature65_b64u: b64u(16, 65),
-    budget_status: {
-      remaining_uses: 8,
-      committed_remaining_uses: 8,
-      reserved_uses: 0,
-      available_uses: 8,
-      projection_version: 3,
-      expires_at_ms: 1_900_000_000_000,
-    },
   };
 }
 
@@ -286,6 +268,13 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
     ).rejects.toThrow(
       'ecdsaPrepareResponse.signature_scheme must be ecdsa_secp256k1_recoverable_v1',
     );
+
+    await expect(
+      parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseForRequestV1(request, {
+        ...(await prepareResponse(request)),
+        budget_status: {},
+      }),
+    ).rejects.toThrow('ecdsaPrepareResponse.budget_status is not a supported field');
   });
 
   test('rejects mismatched finalize response request digests', async () => {

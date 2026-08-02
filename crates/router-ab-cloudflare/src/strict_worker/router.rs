@@ -472,9 +472,9 @@ pub(super) async fn handle_strict_router_fetch_v1(
             Ok(bytes) => bytes,
             Err(response) => return Ok(response),
         };
-        let (finalize_request, budget_metadata) = match parse_router_public_body_v1(
+        let (finalize_request, authorization_claim) = match parse_router_public_body_v1(
             &request_body,
-            parse_cloudflare_router_budgeted_router_ab_ecdsa_derivation_finalize_request_v1_json,
+            parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_finalize_request_v1_json,
             &request,
             &env,
         )? {
@@ -491,7 +491,7 @@ pub(super) async fn handle_strict_router_fetch_v1(
             &runtime,
             now_unix_ms,
             finalize_request,
-            budget_metadata,
+            authorization_claim,
             credential,
             trusted_source_digest,
             verifier,

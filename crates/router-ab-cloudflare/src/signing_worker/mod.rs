@@ -722,6 +722,69 @@ impl CloudflareSigningWorkerNormalSigningEffectClaimV1 {
             ))
         }
     }
+
+    /// Validates the claim against the exact ECDSA authorization and operation digests.
+    pub fn validate_for_ecdsa_finalize_request(
+        &self,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        request.validate()?;
+        let matches = match (self, &request.authorization) {
+            (
+                Self::ReusableWalletSession { claim },
+                router_ab_core::NormalSigningAuthorizationV1::ReusableWalletSession {
+                    wallet_session_id,
+                },
+            ) => {
+                claim.validate()?;
+                claim.wallet_session_id == *wallet_session_id
+            }
+            (
+                Self::OperationStepUp {
+                    authorization_session_id,
+                    grant_id,
+                    operation_id,
+                    operation_fingerprint_digest,
+                    ..
+                },
+                router_ab_core::NormalSigningAuthorizationV1::OperationStepUp { grant_id: admitted_grant_id },
+            ) => {
+                require_non_empty(
+                    "ECDSA effect claim authorization_session_id",
+                    authorization_session_id,
+                )?;
+                require_non_empty("ECDSA effect claim grant_id", grant_id)?;
+                require_non_empty("ECDSA effect claim operation_id", operation_id)?;
+                require_non_empty(
+                    "ECDSA effect claim operation_fingerprint_digest",
+                    operation_fingerprint_digest,
+                )?;
+                grant_id == admitted_grant_id
+            }
+            _ => false,
+        };
+        if !matches {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "ECDSA effect claim does not match Router authorization",
+            ));
+        }
+        if request.operation_id != self.claim_operation_id() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "ECDSA effect claim does not match finalize operation",
+            ));
+        }
+        Ok(())
+    }
+
+    fn claim_operation_id(&self) -> &str {
+        match self {
+            Self::ReusableWalletSession { claim } => &claim.operation_id,
+            Self::OperationStepUp { operation_id, .. } => operation_id,
+        }
+    }
+
 }
 
 impl CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
@@ -989,6 +1052,8 @@ pub struct CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinali
     pub request: RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     /// Accepted Router store admission decision for this request.
     pub trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+    /// Exact Gateway authorization claim converted by Router into the worker effect claim.
+    pub effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
 }
 
 impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1 {
@@ -996,10 +1061,12 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequ
     pub fn new(
         request: RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
         trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+        effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self {
             request,
             trusted_admission,
+            effect_claim,
         };
         request.validate()?;
         Ok(request)
@@ -1031,6 +1098,8 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequ
                 "Router A/B ECDSA derivation finalize trusted admission digest does not match request",
             ));
         }
+        self.effect_claim
+            .validate_for_ecdsa_finalize_request(&self.request)?;
         if self.trusted_admission.allows_signing_worker_forwarding()? {
             return Ok(());
         }
@@ -1038,6 +1107,31 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequ
             RouterAbProtocolErrorCode::InvalidGateDecision,
             "SigningWorker Router A/B ECDSA derivation finalize requires accepted Router admission",
         ))
+    }
+
+    /// Stable effect key shared by retries of one exact ECDSA operation.
+    pub fn effect_operation_key(&self) -> RouterAbProtocolResult<String> {
+        self.validate()?;
+        Ok(format!(
+            "evm-ecdsa/{}/{}/{}",
+            self.request.scope.wallet_id,
+            self.request.material_activation.activation_id,
+            self.request.operation_id,
+        ))
+    }
+
+    /// Exact digest whose terminal response may be replayed for this effect key.
+    pub fn effect_request_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
+        self.validate()?;
+        let mut hasher = Sha256::new();
+        hasher.update(b"seams/signing-worker/evm-ecdsa-effect/v1");
+        hasher.update(serde_json::to_vec(self).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("ECDSA finalize serialization failed: {error}"),
+            )
+        })?);
+        Ok(PublicDigest32::new(hasher.finalize().into()))
     }
 }
 

@@ -151,7 +151,10 @@ mod tests {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
     use futures::executor::block_on;
-    use router_ab_core::{MpcMaterialActivationRefV1, RouterAbEcdsaDerivationOperationDigestsV1};
+    use router_ab_core::{
+        MpcMaterialActivationRefV1, NormalSigningAuthorizationV1,
+        RouterAbEcdsaDerivationOperationDigestsV1,
+    };
 
     const COMPRESSED_SECP256K1_GENERATOR: [u8; 33] = [
         0x02, 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87,
@@ -310,8 +313,36 @@ mod tests {
     ) -> CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1 {
         let admission =
             trusted_admission(&request.scope, request.request_digest().expect("digest"));
+        let effect_claim = match &request.authorization {
+            NormalSigningAuthorizationV1::ReusableWalletSession {
+                wallet_session_id,
+            } => CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
+                claim: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::new(
+                    wallet_session_id.clone(),
+                    "signing-grant-ecdsa-1",
+                    request.operation_id.clone(),
+                    request.operation_id.clone(),
+                    request.operation_digests.intent_digest_b64u.clone(),
+                )
+                .expect("ECDSA effect claim"),
+            },
+            NormalSigningAuthorizationV1::OperationStepUp { grant_id } => {
+                CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
+                    authorization_session_id: "authorization-session-ecdsa-1".to_owned(),
+                    grant_id: grant_id.clone(),
+                    use_id: request.operation_id.clone(),
+                    operation_id: request.operation_id.clone(),
+                    operation_fingerprint_digest: request
+                        .operation_digests
+                        .intent_digest_b64u
+                        .clone(),
+                }
+            }
+        };
         CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1::new(
-            request, admission,
+            request,
+            admission,
+            effect_claim,
         )
         .expect("admitted finalize")
     }

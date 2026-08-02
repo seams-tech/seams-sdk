@@ -4963,49 +4963,6 @@ const CLOUDFLARE_ROUTER_WALLET_BUDGET_RESERVATION_TTL_MS_V1: u64 = 10_000;
 const ROUTER_AB_ECDSA_DERIVATION_BUDGET_OPERATION_ID_VERSION_V1: &str =
     "router_ab_ecdsa_derivation_budget_operation_id_v1";
 
-/// Public budget projection attached to strict normal-signing responses.
-#[cfg(feature = "workers-rs")]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct CloudflareRouterWalletBudgetStatusWireV1 {
-    /// Remaining committed uses after finalized signatures.
-    pub remaining_uses: u32,
-    /// Remaining committed uses after finalized signatures.
-    pub committed_remaining_uses: u32,
-    /// Uses currently reserved by in-flight prepare requests.
-    pub reserved_uses: u32,
-    /// Uses available for a new reservation now.
-    pub available_uses: u32,
-    /// Monotonic private-D1 projection version.
-    pub projection_version: u64,
-    /// Grant expiry in Unix milliseconds.
-    pub expires_at_ms: u64,
-}
-
-#[cfg(feature = "workers-rs")]
-impl CloudflareRouterWalletBudgetStatusWireV1 {
-    fn from_status(status: CloudflareRouterWalletBudgetStatusV1) -> RouterAbProtocolResult<Self> {
-        status.validate()?;
-        Ok(Self {
-            remaining_uses: status.committed_remaining_uses,
-            committed_remaining_uses: status.committed_remaining_uses,
-            reserved_uses: status.reserved_uses,
-            available_uses: status.available_uses,
-            projection_version: status.projection_version,
-            expires_at_ms: status.expires_at_ms,
-        })
-    }
-}
-
-/// Budget metadata required on prepare/finalize split-signing finalize requests.
-#[cfg(feature = "workers-rs")]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CloudflareRouterWalletBudgetFinalizeMetadataV1 {
-    /// Reservation id returned by prepare.
-    pub budget_reservation_id: String,
-    /// Canonical operation id returned by prepare.
-    pub budget_operation_id: String,
-}
-
 /// Durable authorization claim attached by the authorization service to Ed25519 finalize.
 #[cfg(feature = "workers-rs")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -5225,82 +5182,274 @@ impl CloudflareRouterEd25519AuthorizationClaimV1 {
     }
 }
 
+/// Gateway authorization claim attached to Router A/B ECDSA finalize.
 #[cfg(feature = "workers-rs")]
-impl CloudflareRouterWalletBudgetFinalizeMetadataV1 {
-    /// Builds validated finalize metadata.
-    pub fn new(
-        budget_reservation_id: impl Into<String>,
-        budget_operation_id: impl Into<String>,
-    ) -> RouterAbProtocolResult<Self> {
-        let metadata = Self {
-            budget_reservation_id: budget_reservation_id.into(),
-            budget_operation_id: budget_operation_id.into(),
-        };
-        metadata.validate()?;
-        Ok(metadata)
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareRouterEcdsaAuthorizationClaimV1 {
+    ReusableWalletSessionOperationClaimV1 {
+        use_id: String,
+        grant_id: String,
+        operation_id: String,
+        capability_kind: CloudflareRouterEcdsaCapabilityKindV1,
+        operation_kind: CloudflareRouterEcdsaOperationKindV1,
+        lane_digest_b64u: String,
+        intent_digest_b64u: String,
+        display_digest_b64u: String,
+        operation_fingerprint_digest: String,
+    },
+    OperationStepUpOperationClaimV1 {
+        authorization_session_id: String,
+        use_id: String,
+        grant_id: String,
+        operation_id: String,
+        capability_kind: CloudflareRouterEcdsaCapabilityKindV1,
+        operation_kind: CloudflareRouterEcdsaOperationKindV1,
+        lane_digest_b64u: String,
+        intent_digest_b64u: String,
+        display_digest_b64u: String,
+        operation_fingerprint_digest: String,
+    },
+}
 
-    /// Validates required budget metadata.
+#[cfg(feature = "workers-rs")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CloudflareRouterEcdsaCapabilityKindV1 {
+    #[serde(rename = "evm_ecdsa_mpc_signing")]
+    EvmEcdsaMpcSigning,
+}
+
+#[cfg(feature = "workers-rs")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CloudflareRouterEcdsaOperationKindV1 {
+    #[serde(rename = "evm.sign_transaction")]
+    SignTransaction,
+}
+
+#[cfg(feature = "workers-rs")]
+impl CloudflareRouterEcdsaAuthorizationClaimV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("budget_reservation_id", &self.budget_reservation_id)?;
-        require_non_empty("budget_operation_id", &self.budget_operation_id)
-    }
-}
-
-/// Prepare response carrying the budget reservation the client must present at finalize.
-#[cfg(feature = "workers-rs")]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct CloudflareRouterWalletBudgetedPrepareResponseV1<T> {
-    #[serde(flatten)]
-    pub response: T,
-    pub budget_reservation_id: String,
-    pub budget_operation_id: String,
-    pub budget_status: CloudflareRouterWalletBudgetStatusWireV1,
-}
-
-#[cfg(feature = "workers-rs")]
-impl<T> CloudflareRouterWalletBudgetedPrepareResponseV1<T> {
-    fn new(
-        response: T,
-        budget_reservation_id: impl Into<String>,
-        budget_operation_id: impl Into<String>,
-        budget_status: CloudflareRouterWalletBudgetStatusV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let response = Self {
-            response,
-            budget_reservation_id: budget_reservation_id.into(),
-            budget_operation_id: budget_operation_id.into(),
-            budget_status: CloudflareRouterWalletBudgetStatusWireV1::from_status(budget_status)?,
+        let (
+            authorization_session_id,
+            use_id,
+            grant_id,
+            operation_id,
+            lane_digest_b64u,
+            intent_digest_b64u,
+            display_digest_b64u,
+            operation_fingerprint_digest,
+            capability_kind,
+            operation_kind,
+        ) = match self {
+            Self::ReusableWalletSessionOperationClaimV1 {
+                use_id,
+                grant_id,
+                operation_id,
+                lane_digest_b64u,
+                intent_digest_b64u,
+                display_digest_b64u,
+                operation_fingerprint_digest,
+                capability_kind,
+                operation_kind,
+            } => (
+                None,
+                use_id,
+                grant_id,
+                operation_id,
+                lane_digest_b64u,
+                intent_digest_b64u,
+                display_digest_b64u,
+                operation_fingerprint_digest,
+                capability_kind,
+                operation_kind,
+            ),
+            Self::OperationStepUpOperationClaimV1 {
+                authorization_session_id,
+                use_id,
+                grant_id,
+                operation_id,
+                lane_digest_b64u,
+                intent_digest_b64u,
+                display_digest_b64u,
+                operation_fingerprint_digest,
+                capability_kind,
+                operation_kind,
+            } => (
+                Some(authorization_session_id),
+                use_id,
+                grant_id,
+                operation_id,
+                lane_digest_b64u,
+                intent_digest_b64u,
+                display_digest_b64u,
+                operation_fingerprint_digest,
+                capability_kind,
+                operation_kind,
+            ),
         };
-        response.validate()?;
-        Ok(response)
+        if let Some(value) = authorization_session_id {
+            require_non_empty("ECDSA authorization_claim.authorization_session_id", value)?;
+        }
+        require_non_empty("ECDSA authorization_claim.use_id", use_id)?;
+        require_non_empty("ECDSA authorization_claim.grant_id", grant_id)?;
+        require_non_empty("ECDSA authorization_claim.operation_id", operation_id)?;
+        decode_public_digest_b64u_v1("ECDSA authorization_claim.lane_digest_b64u", lane_digest_b64u)?;
+        decode_public_digest_b64u_v1("ECDSA authorization_claim.intent_digest_b64u", intent_digest_b64u)?;
+        decode_public_digest_b64u_v1(
+            "ECDSA authorization_claim.display_digest_b64u",
+            display_digest_b64u,
+        )?;
+        decode_public_digest_b64u_v1(
+            "ECDSA authorization_claim.operation_fingerprint_digest",
+            operation_fingerprint_digest,
+        )?;
+        if *capability_kind != CloudflareRouterEcdsaCapabilityKindV1::EvmEcdsaMpcSigning
+            || *operation_kind != CloudflareRouterEcdsaOperationKindV1::SignTransaction
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "ECDSA authorization claim capability or operation kind is invalid",
+            ));
+        }
+        Ok(())
     }
 
-    fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("budget_reservation_id", &self.budget_reservation_id)?;
-        require_non_empty("budget_operation_id", &self.budget_operation_id)
+    pub fn validate_for_finalize_request(
+        &self,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate_for_finalize_request_with_session(request, None)
     }
-}
 
-/// Finalize response carrying the committed budget projection.
-#[cfg(feature = "workers-rs")]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct CloudflareRouterWalletBudgetedFinalizeResponseV1<T> {
-    #[serde(flatten)]
-    pub response: T,
-    pub budget_status: CloudflareRouterWalletBudgetStatusWireV1,
-}
+    pub fn validate_for_finalize_request_with_session(
+        &self,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+        expected_authorization_session_id: Option<&str>,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate_for_finalize_request_with_session_and_grant(
+            request,
+            expected_authorization_session_id,
+            None,
+        )
+    }
 
-#[cfg(feature = "workers-rs")]
-impl<T> CloudflareRouterWalletBudgetedFinalizeResponseV1<T> {
-    fn new(
-        response: T,
-        budget_status: CloudflareRouterWalletBudgetStatusV1,
-    ) -> RouterAbProtocolResult<Self> {
-        Ok(Self {
-            response,
-            budget_status: CloudflareRouterWalletBudgetStatusWireV1::from_status(budget_status)?,
-        })
+    pub fn validate_for_finalize_request_with_session_and_grant(
+        &self,
+        request: &RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+        expected_authorization_session_id: Option<&str>,
+        expected_signing_grant_id: Option<&str>,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        request.validate()?;
+        let (claim_operation_id, claim_intent, claim_lane, claim_display, claim_grant) = match self {
+            Self::ReusableWalletSessionOperationClaimV1 {
+                operation_id,
+                intent_digest_b64u,
+                lane_digest_b64u,
+                display_digest_b64u,
+                grant_id,
+                ..
+            }
+            | Self::OperationStepUpOperationClaimV1 {
+                operation_id,
+                intent_digest_b64u,
+                lane_digest_b64u,
+                display_digest_b64u,
+                grant_id,
+                ..
+            } => (
+                operation_id,
+                intent_digest_b64u,
+                lane_digest_b64u,
+                display_digest_b64u,
+                grant_id,
+            ),
+        };
+        if claim_operation_id != &request.operation_id
+            || claim_intent != &request.operation_digests.intent_digest_b64u
+            || claim_lane != &request.operation_digests.lane_digest_b64u
+            || claim_display != &request.operation_digests.display_digest_b64u
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "ECDSA authorization claim does not match finalize digests",
+            ));
+        }
+        match (&request.authorization, self) {
+            (
+                NormalSigningAuthorizationV1::ReusableWalletSession { .. },
+                Self::ReusableWalletSessionOperationClaimV1 { .. },
+            ) => {
+                if let Some(expected) = expected_signing_grant_id {
+                    if claim_grant != expected {
+                        return Err(RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::InvalidGateDecision,
+                            "ECDSA reusable authorization claim grant does not match Wallet Session",
+                        ));
+                    }
+                }
+                Ok(())
+            }
+            (
+                NormalSigningAuthorizationV1::OperationStepUp { grant_id: admitted_grant_id },
+                Self::OperationStepUpOperationClaimV1 {
+                    authorization_session_id,
+                    ..
+                },
+            ) if claim_grant == admitted_grant_id => {
+                if let Some(expected) = expected_authorization_session_id {
+                    if authorization_session_id != expected {
+                        return Err(RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::InvalidGateDecision,
+                            "ECDSA authorization claim session does not match Wallet Session",
+                        ));
+                    }
+                }
+                Ok(())
+            }
+            _ => Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "ECDSA authorization claim branch does not match finalize authorization",
+            )),
+        }
+    }
+
+    fn into_signing_worker_effect_claim(
+        self,
+        wallet_session_id: String,
+    ) -> RouterAbProtocolResult<CloudflareSigningWorkerNormalSigningEffectClaimV1> {
+        self.validate()?;
+        match self {
+            Self::ReusableWalletSessionOperationClaimV1 {
+                use_id,
+                grant_id,
+                operation_id,
+                operation_fingerprint_digest,
+                ..
+            } => Ok(CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
+                claim: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::new(
+                    wallet_session_id,
+                    grant_id,
+                    use_id,
+                    operation_id,
+                    operation_fingerprint_digest,
+                )?,
+            }),
+            Self::OperationStepUpOperationClaimV1 {
+                authorization_session_id,
+                use_id,
+                grant_id,
+                operation_id,
+                operation_fingerprint_digest,
+                ..
+            } => Ok(CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
+                authorization_session_id,
+                grant_id,
+                use_id,
+                operation_id,
+                operation_fingerprint_digest,
+            }),
+        }
     }
 }
 
@@ -5434,40 +5583,16 @@ pub fn parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json(
 }
 
 #[cfg(feature = "workers-rs")]
-pub fn parse_cloudflare_router_budgeted_router_ab_ecdsa_derivation_finalize_request_v1_json(
+pub fn parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_finalize_request_v1_json(
     bytes: &[u8],
 ) -> RouterAbProtocolResult<(
     RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
-    CloudflareRouterWalletBudgetFinalizeMetadataV1,
-)> {
-    let (value, metadata) = strip_cloudflare_router_wallet_budget_finalize_metadata_v1(
-        bytes,
-        "Router A/B ECDSA derivation finalize",
-    )?;
-    let request =
-        serde_json::from_value::<RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1>(value)
-            .map_err(|err| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                format!("Router A/B ECDSA derivation finalize request JSON parse failed: {err}"),
-            )
-        })?;
-    request.validate()?;
-    Ok((request, metadata))
-}
-
-#[cfg(feature = "workers-rs")]
-fn strip_cloudflare_router_wallet_budget_finalize_metadata_v1(
-    bytes: &[u8],
-    label: &str,
-) -> RouterAbProtocolResult<(
-    serde_json::Value,
-    CloudflareRouterWalletBudgetFinalizeMetadataV1,
+    CloudflareRouterEcdsaAuthorizationClaimV1,
 )> {
     let value = serde_json::from_slice::<serde_json::Value>(bytes).map_err(|err| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!("{label} request JSON parse failed: {err}"),
+            format!("Router A/B ECDSA derivation finalize request JSON parse failed: {err}"),
         )
     })?;
     let mut object = match value {
@@ -5475,81 +5600,36 @@ fn strip_cloudflare_router_wallet_budget_finalize_metadata_v1(
         _ => {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::MalformedWirePayload,
-                format!("{label} request must be a JSON object"),
+                "Router A/B ECDSA derivation finalize request must be a JSON object",
             ));
         }
     };
-    let budget_reservation_id =
-        take_required_json_string_field_v1(&mut object, "budget_reservation_id")?;
-    let budget_operation_id =
-        take_required_json_string_field_v1(&mut object, "budget_operation_id")?;
-    let metadata = CloudflareRouterWalletBudgetFinalizeMetadataV1::new(
-        budget_reservation_id,
-        budget_operation_id,
-    )?;
-    Ok((serde_json::Value::Object(object), metadata))
-}
-
-#[cfg(feature = "workers-rs")]
-fn take_required_json_string_field_v1(
-    object: &mut serde_json::Map<String, serde_json::Value>,
-    field: &str,
-) -> RouterAbProtocolResult<String> {
-    let value = object.remove(field).ok_or_else(|| {
+    let claim_value = object.remove("authorization_claim").ok_or_else(|| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!("{field} is required"),
+            "authorization_claim is required",
         )
     })?;
-    match value {
-        serde_json::Value::String(value) => {
-            require_non_empty(field, &value)?;
-            Ok(value)
-        }
-        _ => Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!("{field} must be a string"),
-        )),
-    }
-}
-
-#[cfg(feature = "workers-rs")]
-fn cloudflare_budget_push_len32_v1(out: &mut Vec<u8>, bytes: &[u8]) -> RouterAbProtocolResult<()> {
-    let len = u32::try_from(bytes.len()).map_err(|_| {
+    let claim = serde_json::from_value::<CloudflareRouterEcdsaAuthorizationClaimV1>(claim_value)
+        .map_err(|err| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("ECDSA authorization claim JSON parse failed: {err}"),
+            )
+        })?;
+    claim.validate()?;
+    let request = serde_json::from_value::<RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1>(
+        serde_json::Value::Object(object),
+    )
+    .map_err(|err| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
-            "budget digest field is too large",
+            format!("Router A/B ECDSA derivation finalize request JSON parse failed: {err}"),
         )
     })?;
-    out.extend_from_slice(&len.to_be_bytes());
-    out.extend_from_slice(bytes);
-    Ok(())
-}
-
-#[cfg(feature = "workers-rs")]
-fn cloudflare_budget_push_field_v1(
-    out: &mut Vec<u8>,
-    name: &str,
-    value: &str,
-) -> RouterAbProtocolResult<()> {
-    require_non_empty(name, value)?;
-    cloudflare_budget_push_len32_v1(out, name.as_bytes())?;
-    cloudflare_budget_push_len32_v1(out, value.as_bytes())
-}
-
-#[cfg(feature = "workers-rs")]
-fn cloudflare_budget_digest_b64u_v1(
-    version: &str,
-    fields: &[(&str, String)],
-) -> RouterAbProtocolResult<String> {
-    require_non_empty("budget digest version", version)?;
-    let mut out = Vec::new();
-    cloudflare_budget_push_len32_v1(&mut out, version.as_bytes())?;
-    for (name, value) in fields {
-        cloudflare_budget_push_field_v1(&mut out, name, value)?;
-    }
-    let digest = Sha256::digest(&out);
-    Ok(encode_base64url_bytes_v1(&digest))
+    request.validate()?;
+    claim.validate_for_finalize_request(&request)?;
+    Ok((request, claim))
 }
 
 #[cfg(feature = "workers-rs")]
@@ -5601,31 +5681,16 @@ fn cloudflare_router_ab_ecdsa_derivation_budget_operation_id_v1(
     let digest = cloudflare_budget_digest_b64u_v1(
         ROUTER_AB_ECDSA_DERIVATION_BUDGET_OPERATION_ID_VERSION_V1,
         &[
-            (
-                "threshold_session_id",
-                wallet_session.threshold_session_id.clone(),
-            ),
+            ("threshold_session_id", wallet_session.threshold_session_id.clone()),
             ("wallet_id", scope.wallet_id.clone()),
             ("material_activation_id", scope.material_activation_id()?),
-            (
-                "ecdsa_threshold_key_id",
-                scope.ecdsa_threshold_key_id.clone(),
-            ),
+            ("ecdsa_threshold_key_id", scope.ecdsa_threshold_key_id.clone()),
             ("signing_root_id", scope.signing_root_id.clone()),
             ("signing_root_version", scope.signing_root_version.clone()),
             ("activation_epoch", scope.activation_epoch.clone()),
-            (
-                "signing_worker_id",
-                wallet_session.signing_worker_id.clone(),
-            ),
-            (
-                "scope_signing_worker_id",
-                scope.signing_worker.server_id.clone(),
-            ),
-            (
-                "context_binding_b64u",
-                scope.public_identity.context_binding_b64u.clone(),
-            ),
+            ("signing_worker_id", wallet_session.signing_worker_id.clone()),
+            ("scope_signing_worker_id", scope.signing_worker.server_id.clone()),
+            ("context_binding_b64u", scope.public_identity.context_binding_b64u.clone()),
             (
                 "threshold_public_key33_b64u",
                 scope.public_identity.threshold_public_key33_b64u.clone(),
@@ -5636,6 +5701,45 @@ fn cloudflare_router_ab_ecdsa_derivation_budget_operation_id_v1(
         ],
     )?;
     Ok(format!("router-ab-ecdsa-derivation:{digest}"))
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_budget_push_len32_v1(out: &mut Vec<u8>, bytes: &[u8]) -> RouterAbProtocolResult<()> {
+    let len = u32::try_from(bytes.len()).map_err(|_| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "budget digest field is too large",
+        )
+    })?;
+    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(bytes);
+    Ok(())
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_budget_push_field_v1(
+    out: &mut Vec<u8>,
+    name: &str,
+    value: &str,
+) -> RouterAbProtocolResult<()> {
+    require_non_empty(name, value)?;
+    cloudflare_budget_push_len32_v1(out, name.as_bytes())?;
+    cloudflare_budget_push_len32_v1(out, value.as_bytes())
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_budget_digest_b64u_v1(
+    version: &str,
+    fields: &[(&str, String)],
+) -> RouterAbProtocolResult<String> {
+    require_non_empty("budget digest version", version)?;
+    let mut out = Vec::new();
+    cloudflare_budget_push_len32_v1(&mut out, version.as_bytes())?;
+    for (name, value) in fields {
+        cloudflare_budget_push_field_v1(&mut out, name, value)?;
+    }
+    let digest = Sha256::digest(&out);
+    Ok(encode_base64url_bytes_v1(&digest))
 }
 
 #[cfg(feature = "workers-rs")]
@@ -5724,18 +5828,24 @@ fn cloudflare_router_wallet_budget_reserve_request_v1(
 #[cfg(feature = "workers-rs")]
 fn cloudflare_router_wallet_budget_identity_v1(
     wallet_session: &CloudflareRouterVerifiedWalletSessionV1,
-    metadata: &CloudflareRouterWalletBudgetFinalizeMetadataV1,
+    operation_id: impl Into<String>,
     request_digest: PublicDigest32,
     now_unix_ms: u64,
 ) -> RouterAbProtocolResult<CloudflareRouterWalletBudgetReservationIdentityV1> {
-    wallet_session.validate_at(now_unix_ms)?;
-    metadata.validate()?;
+    let reserve_request = cloudflare_router_wallet_budget_reserve_request_v1(
+        wallet_session,
+        CloudflareRouterWalletBudgetCurveV1::RouterAbEcdsaDerivation,
+        operation_id,
+        request_digest,
+        wallet_session.expires_at_ms,
+        now_unix_ms,
+    )?;
     CloudflareRouterWalletBudgetReservationIdentityV1::new(
         wallet_session.signing_grant_id.clone(),
-        metadata.budget_reservation_id.clone(),
+        cloudflare_signing_worker_wallet_budget_reservation_id_v1(&reserve_request)?,
         wallet_session.signing_worker_id.clone(),
-        metadata.budget_operation_id.clone(),
-        request_digest,
+        reserve_request.operation_id,
+        reserve_request.request_digest,
         now_unix_ms,
     )
 }
@@ -5777,25 +5887,6 @@ async fn reserve_cloudflare_router_wallet_budget_v1(
         return Err(invalid_signing_worker_budget_response_v1("reserve"));
     };
     Ok((reservation_id, status))
-}
-
-#[cfg(feature = "workers-rs")]
-async fn put_cloudflare_router_wallet_budget_grant_v1(
-    env: &worker::Env,
-    runtime: &CloudflareRouterWorkerRuntimeV1,
-    request: CloudflareRouterWalletBudgetPutGrantRequestV1,
-) -> RouterAbProtocolResult<CloudflareRouterWalletBudgetStatusV1> {
-    let operation = CloudflareSigningWorkerWalletBudgetRequestV1::PutGrant { request };
-    let response = execute_cloudflare_signing_worker_wallet_budget_service_call_v1(
-        env,
-        runtime.signing_worker_peer(),
-        &operation,
-    )
-    .await?;
-    let CloudflareSigningWorkerWalletBudgetResponseV1::GrantPut { status } = response else {
-        return Err(invalid_signing_worker_budget_response_v1("put grant"));
-    };
-    Ok(status)
 }
 
 #[cfg(feature = "workers-rs")]
@@ -5842,6 +5933,58 @@ async fn commit_cloudflare_router_wallet_budget_v1(
         return Err(invalid_signing_worker_budget_response_v1("commit"));
     };
     Ok((reservation_id, status))
+}
+
+#[cfg(feature = "workers-rs")]
+async fn release_cloudflare_router_wallet_budget_best_effort_v1(
+    env: &worker::Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    identity: &CloudflareRouterWalletBudgetReservationIdentityV1,
+) {
+    let request = match cloudflare_router_wallet_budget_release_request_v1(identity) {
+        Ok(request) => request,
+        Err(err) => {
+            worker::console_warn!(
+                "wallet_budget_release_failed: release request build failed: {:?}: {}",
+                err.code(),
+                err.message()
+            );
+            return;
+        }
+    };
+    let operation = CloudflareSigningWorkerWalletBudgetRequestV1::Release { request };
+    if let Err(err) = execute_cloudflare_signing_worker_wallet_budget_service_call_v1(
+        env,
+        runtime.signing_worker_peer(),
+        &operation,
+    )
+    .await
+    {
+        worker::console_warn!(
+            "wallet_budget_release_failed: release call failed: {:?}: {}",
+            err.code(),
+            err.message()
+        );
+    }
+}
+
+#[cfg(feature = "workers-rs")]
+async fn put_cloudflare_router_wallet_budget_grant_v1(
+    env: &worker::Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    request: CloudflareRouterWalletBudgetPutGrantRequestV1,
+) -> RouterAbProtocolResult<CloudflareRouterWalletBudgetStatusV1> {
+    let operation = CloudflareSigningWorkerWalletBudgetRequestV1::PutGrant { request };
+    let response = execute_cloudflare_signing_worker_wallet_budget_service_call_v1(
+        env,
+        runtime.signing_worker_peer(),
+        &operation,
+    )
+    .await?;
+    let CloudflareSigningWorkerWalletBudgetResponseV1::GrantPut { status } = response else {
+        return Err(invalid_signing_worker_budget_response_v1("put grant"));
+    };
+    Ok(status)
 }
 
 #[cfg(feature = "workers-rs")]
@@ -5896,44 +6039,12 @@ async fn execute_cloudflare_signing_worker_wallet_budget_service_call_v1(
     Ok(response)
 }
 
+#[cfg(feature = "workers-rs")]
 fn invalid_signing_worker_budget_response_v1(operation: &str) -> RouterAbProtocolError {
     RouterAbProtocolError::new(
         RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
         format!("SigningWorker returned the wrong wallet budget {operation} response"),
     )
-}
-
-#[cfg(feature = "workers-rs")]
-async fn release_cloudflare_router_wallet_budget_best_effort_v1(
-    env: &worker::Env,
-    runtime: &CloudflareRouterWorkerRuntimeV1,
-    identity: &CloudflareRouterWalletBudgetReservationIdentityV1,
-) {
-    let request = match cloudflare_router_wallet_budget_release_request_v1(identity) {
-        Ok(request) => request,
-        Err(err) => {
-            worker::console_warn!(
-                "wallet_budget_release_failed: release request build failed: {:?}: {}",
-                err.code(),
-                err.message()
-            );
-            return;
-        }
-    };
-    let operation = CloudflareSigningWorkerWalletBudgetRequestV1::Release { request };
-    if let Err(err) = execute_cloudflare_signing_worker_wallet_budget_service_call_v1(
-        env,
-        runtime.signing_worker_peer(),
-        &operation,
-    )
-    .await
-    {
-        worker::console_warn!(
-            "wallet_budget_release_failed: release call failed: {:?}: {}",
-            err.code(),
-            err.message()
-        );
-    }
 }
 
 /// Handles Router's private Wallet Session budget-grant issuance route.
@@ -6159,11 +6270,7 @@ pub async fn handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_pre
     credential: CloudflareRouterWalletSessionCredentialV1,
     trusted_source_digest: PublicDigest32,
     mut verifier: Verifier,
-) -> RouterAbProtocolResult<
-    CloudflareRouterWalletBudgetedPrepareResponseV1<
-        RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
-    >,
->
+) -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1>
 where
     Verifier: CloudflareRouterWalletSessionVerifierV1,
 {
@@ -6207,7 +6314,7 @@ where
         request.expires_at_ms,
         now_unix_ms,
     )?;
-    let (budget_reservation_id, budget_status) =
+    let (budget_reservation_id, _budget_status) =
         reserve_cloudflare_router_wallet_budget_v1(env, runtime, budget_reserve_request).await?;
     let budget_identity = CloudflareRouterWalletBudgetReservationIdentityV1::new(
         wallet_session.signing_grant_id.clone(),
@@ -6241,12 +6348,7 @@ where
                 return Err(err);
             }
         };
-    CloudflareRouterWalletBudgetedPrepareResponseV1::new(
-        response,
-        budget_reservation_id,
-        budget_operation_id,
-        budget_status,
-    )
+    Ok(response)
 }
 
 /// Handles an authenticated public Router Router A/B ECDSA derivation finalize request.
@@ -6258,15 +6360,11 @@ pub async fn handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_fin
     runtime: &CloudflareRouterWorkerRuntimeV1,
     now_unix_ms: u64,
     request: RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
-    budget_metadata: CloudflareRouterWalletBudgetFinalizeMetadataV1,
+    authorization_claim: CloudflareRouterEcdsaAuthorizationClaimV1,
     credential: CloudflareRouterWalletSessionCredentialV1,
     trusted_source_digest: PublicDigest32,
     mut verifier: Verifier,
-) -> RouterAbProtocolResult<
-    CloudflareRouterWalletBudgetedFinalizeResponseV1<
-        RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
-    >,
->
+) -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvmDigestSigningResponseV1>
 where
     Verifier: CloudflareRouterWalletSessionVerifierV1,
 {
@@ -6281,21 +6379,18 @@ where
         &request,
         now_unix_ms,
     )?;
-    budget_metadata.validate()?;
-    let expected_budget_operation_id =
-        cloudflare_router_ab_ecdsa_derivation_finalize_budget_operation_id_v1(
-            &request,
-            &wallet_session,
-        )?;
-    if budget_metadata.budget_operation_id != expected_budget_operation_id {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidGateDecision,
-            "Router A/B ECDSA derivation budget operation identity mismatch",
-        ));
-    }
+    authorization_claim.validate_for_finalize_request_with_session_and_grant(
+        &request,
+        Some(&wallet_session.authorization_session_id),
+        Some(&wallet_session.signing_grant_id),
+    )?;
+    let expected_budget_operation_id = cloudflare_router_ab_ecdsa_derivation_finalize_budget_operation_id_v1(
+        &request,
+        &wallet_session,
+    )?;
     let budget_identity = cloudflare_router_wallet_budget_identity_v1(
         &wallet_session,
-        &budget_metadata,
+        expected_budget_operation_id,
         request.prepare_request_digest()?,
         now_unix_ms,
     )?;
@@ -6326,6 +6421,9 @@ where
         CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1::new(
             request,
             trusted_admission,
+            authorization_claim.into_signing_worker_effect_claim(
+                wallet_session.wallet_session_id.clone(),
+            )?,
         )?;
     let response =
         match execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_call_v1(
@@ -6346,9 +6444,8 @@ where
                 return Err(err);
             }
         };
-    let (_, budget_status) =
-        commit_cloudflare_router_wallet_budget_v1(env, runtime, budget_identity).await?;
-    CloudflareRouterWalletBudgetedFinalizeResponseV1::new(response, budget_status)
+    commit_cloudflare_router_wallet_budget_v1(env, runtime, budget_identity).await?;
+    Ok(response)
 }
 
 /// Handles an authenticated public Router normal-signing v2 finalize request.
@@ -9706,6 +9803,70 @@ where
             cloudflare_router_error_status(err.code()),
         );
     }
+    match replay_cloudflare_signing_worker_ecdsa_terminal_v1(env, &parsed).await {
+        Ok(Some(response_json)) => {
+            let response = match serde_json::from_str::<
+                RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
+            >(&response_json)
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    return worker::Response::error(
+                        format!("SigningWorker ECDSA terminal response JSON is invalid: {error}"),
+                        500,
+                    );
+                }
+            };
+            if let Err(error) = response.validate_for_request(&parsed.request) {
+                return worker::Response::error(
+                    format!("{:?}: {}", error.code(), error.message()),
+                    cloudflare_router_error_status(error.code()),
+                );
+            }
+            return worker::Response::from_json(&response);
+        }
+        Ok(None) => {}
+        Err(error) => {
+            return worker::Response::error(
+                format!("{:?}: {}", error.code(), error.message()),
+                cloudflare_router_error_status(error.code()),
+            );
+        }
+    }
+    match claim_cloudflare_signing_worker_ecdsa_effect_v1(env, &parsed, now_unix_ms).await {
+        Ok(CloudflareSigningWorkerNearEffectClaimV1::Claimed) => {}
+        Ok(CloudflareSigningWorkerNearEffectClaimV1::Replay { terminal_json }) => {
+            let response = match serde_json::from_str::<
+                RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
+            >(&terminal_json)
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    return worker::Response::error(
+                        format!("SigningWorker ECDSA terminal response JSON is invalid: {error}"),
+                        500,
+                    );
+                }
+            };
+            return worker::Response::from_json(&response);
+        }
+        Ok(CloudflareSigningWorkerNearEffectClaimV1::InProgress) => {
+            let error = RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "SigningWorker ECDSA effect is already in progress",
+            );
+            return worker::Response::error(
+                format!("{:?}: {}", error.code(), error.message()),
+                cloudflare_router_error_status(error.code()),
+            );
+        }
+        Err(error) => {
+            return worker::Response::error(
+                format!("{:?}: {}", error.code(), error.message()),
+                cloudflare_router_error_status(error.code()),
+            );
+        }
+    }
     let prepare_request_digest = match parsed.request.prepare_request_digest() {
         Ok(digest) => digest,
         Err(err) => {
@@ -9838,6 +9999,25 @@ where
             );
         }
     };
+    let effect_operation_key = match parsed.effect_operation_key() {
+        Ok(value) => value,
+        Err(error) => {
+            return worker::Response::error(
+                format!("{:?}: {}", error.code(), error.message()),
+                cloudflare_router_error_status(error.code()),
+            );
+        }
+    };
+    let effect_request_digest = match parsed.effect_request_digest() {
+        Ok(value) => value,
+        Err(error) => {
+            return worker::Response::error(
+                format!("{:?}: {}", error.code(), error.message()),
+                cloudflare_router_error_status(error.code()),
+            );
+        }
+    };
+    let expected_request = parsed.request.clone();
     let signing_result =
         handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_private_request_v1(
             handler,
@@ -9848,7 +10028,41 @@ where
             server_presignature,
         );
     match signing_result {
-        Ok(response) => worker::Response::from_json(&response),
+        Ok(response) => {
+            if let Err(error) = response.validate_for_request(&expected_request) {
+                return worker::Response::error(
+                    format!("{:?}: {}", error.code(), error.message()),
+                    cloudflare_router_error_status(error.code()),
+                );
+            }
+            let response_json = match serde_json::to_string(&response) {
+                Ok(value) => value,
+                Err(error) => {
+                    return worker::Response::error(
+                        format!("SigningWorker ECDSA terminal response serialization failed: {error}"),
+                        500,
+                    );
+                }
+            };
+            match commit_cloudflare_signing_worker_terminal_response_v1(
+                env,
+                &effect_operation_key,
+                effect_request_digest,
+                &response_json,
+                now_unix_ms,
+            )
+            .await
+            {
+                Ok(CloudflareSigningWorkerTerminalResponseCommitV1::Committed)
+                | Ok(CloudflareSigningWorkerTerminalResponseCommitV1::Replay { .. }) => {
+                    worker::Response::from_json(&response)
+                }
+                Err(error) => worker::Response::error(
+                    format!("{:?}: {}", error.code(), error.message()),
+                    cloudflare_router_error_status(error.code()),
+                ),
+            }
+        }
         Err(err) => worker::Response::error(
             format!("{:?}: {}", err.code(), err.message()),
             cloudflare_router_error_status(err.code()),
