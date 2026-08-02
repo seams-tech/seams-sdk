@@ -114,7 +114,7 @@ function explicitExportRequest(operationKind: 'evm.export_key' | 'evm.sign_trans
     client_ephemeral_public_key: `x25519:${'a'.repeat(64)}`,
     authorization: { kind: 'operation_step_up', grant_id: 'grant-1' },
     operation,
-    material_activation_id: String(materialActivation.activationId),
+    material_activation: routerAbMpcMaterialActivationRefToWire(materialActivation),
     export_authorization_digest_b64u: b64u(21, 32),
     export_nonce: 'export-nonce-1',
     expires_at_ms: operation.expires_at_ms,
