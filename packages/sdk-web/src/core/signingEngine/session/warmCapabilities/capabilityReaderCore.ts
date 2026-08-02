@@ -116,7 +116,7 @@ function ecdsaClaimForResolution(
 ): WarmSessionPrfClaim | null {
   if (resolution.kind !== 'resolved') return null;
   return warmClaimFromRecordPolicy({
-    sessionId: resolution.runtime.sealedRecord.thresholdSessionId,
+    thresholdSessionId: resolution.runtime.sealedRecord.thresholdSessionId,
     remainingUses: resolution.runtime.remainingUses,
     expiresAtMs: resolution.runtime.expiresAtMs,
   });

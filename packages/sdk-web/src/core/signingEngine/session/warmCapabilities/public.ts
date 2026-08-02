@@ -32,7 +32,7 @@ export type PersistThresholdEcdsaBootstrapForWalletTargetInput = {
 };
 
 export type HydrateSigningSessionInput = {
-  sessionId: string;
+  thresholdSessionId: string;
   prfFirstB64u: string;
   expiresAtMs: number;
   remainingUses: number;

@@ -579,7 +579,7 @@ export async function bootstrapEcdsaSessionValue(
       },
     };
     await deps.touchConfirm.putWarmSessionMaterial({
-      sessionId: readyPersistenceInput.thresholdSessionId,
+      thresholdSessionId: readyPersistenceInput.thresholdSessionId,
       prfFirstB64u: readyPersistenceInput.passkeyPrfSealMaterial.passkeyPrfFirstB64u,
       expiresAtMs: Number(activation.session.expiresAtMs),
       remainingUses: Number(activation.session.remainingUses),

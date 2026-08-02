@@ -115,24 +115,24 @@ export function createWarmSessionStatusReader(
   async function readEd25519WarmSessionClaim(
     runtime: ExactEd25519SealedSessionRuntime,
   ): Promise<WarmSessionPrfClaim | null> {
-    const sessionId = String(runtime.thresholdSessionId);
+    const thresholdSessionId = String(runtime.thresholdSessionId);
     return await readEd25519WarmSessionClaimByMethod({
       authMethod: runtime.factor.kind,
-      sessionId,
+      thresholdSessionId,
       materialActivation: runtime.sealedRecord.ed25519Restore.materialActivation,
     });
   }
 
   async function readEd25519WarmSessionClaimByMethod(args: {
     authMethod: SignerAuthMethod;
-    sessionId: string;
+    thresholdSessionId: string;
     materialActivation: ExactEd25519SealedSessionRuntime['sealedRecord']['ed25519Restore']['materialActivation'];
   }): Promise<WarmSessionPrfClaim | null> {
     if (args.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
       const status = await deps
         .getEmailOtpWarmSessionStatus({
           kind: 'ed25519_yao',
-          thresholdSessionId: args.sessionId,
+          thresholdSessionId: args.thresholdSessionId,
           materialActivation: args.materialActivation,
         })
         .catch(() => ({
@@ -141,11 +141,11 @@ export function createWarmSessionStatusReader(
           message: 'worker_error',
         }));
       return toWarmSessionClaimFromStatusResult({
-        sessionId: args.sessionId,
+        thresholdSessionId: args.thresholdSessionId,
         status,
       });
     }
-    return await readWarmSessionClaim(touchConfirm, args.sessionId);
+    return await readWarmSessionClaim(touchConfirm, args.thresholdSessionId);
   }
 
   async function getEd25519SigningSessionStatus(args: {
@@ -154,7 +154,7 @@ export function createWarmSessionStatusReader(
     nowMs: number;
   }): Promise<SigningSessionStatus> {
     const runtime = args.runtime;
-    const sessionId = String(runtime.thresholdSessionId);
+    const thresholdSessionId = String(runtime.thresholdSessionId);
     const metadata = ed25519SessionMetadata(runtime);
     if (
       !args.authorization ||
@@ -164,7 +164,7 @@ export function createWarmSessionStatusReader(
       }))
     ) {
       return {
-        sessionId,
+        sessionId: thresholdSessionId,
         status: 'unavailable',
         statusCode: 'auth_missing',
         ...metadata,
@@ -172,7 +172,7 @@ export function createWarmSessionStatusReader(
     }
     if (args.authorization.expiresAtMs <= args.nowMs || runtime.expiresAtMs <= args.nowMs) {
       return {
-        sessionId,
+        sessionId: thresholdSessionId,
         status: 'expired',
         expiresAtMs: Math.min(
           args.authorization.expiresAtMs,
@@ -183,7 +183,7 @@ export function createWarmSessionStatusReader(
     }
     if (runtime.remainingUses <= 0) {
       return {
-        sessionId,
+        sessionId: thresholdSessionId,
         status: 'exhausted',
         remainingUses: 0,
         expiresAtMs: runtime.expiresAtMs,
@@ -192,14 +192,14 @@ export function createWarmSessionStatusReader(
     }
     const claim = await readEd25519WarmSessionClaim(runtime);
     const status = toSigningSessionStatus({
-      sessionId,
+      sessionId: thresholdSessionId,
       claim,
       authMethod: metadata.authMethod,
       retention: metadata.retention ?? null,
     });
     if (status.status === 'not_found') {
       return {
-        sessionId,
+        sessionId: thresholdSessionId,
         status: 'active',
         remainingUses: runtime.remainingUses,
         expiresAtMs: runtime.expiresAtMs,

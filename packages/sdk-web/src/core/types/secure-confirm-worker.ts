@@ -105,12 +105,12 @@ export type WarmSessionSealTransportInput =
     });
 
 export interface WarmSessionSealAndPersistPayload {
-  sessionId: string;
+  thresholdSessionId: string;
   transport: WarmSessionSealTransportInput;
 }
 
 export interface WarmSessionRehydratePayload {
-  sessionId: string;
+  thresholdSessionId: string;
   sealedSecretB64u: string;
   expiresAtMs: number;
   remainingUses: number;
@@ -119,12 +119,12 @@ export interface WarmSessionRehydratePayload {
 }
 
 export interface WarmSessionStatusBatchReadPayload {
-  sessionIds: string[];
+  thresholdSessionIds: string[];
 }
 
 export type WarmSessionStatusBatchResult = {
   results: Array<{
-    sessionId: string;
+    thresholdSessionId: string;
     result:
       | { ok: true; remainingUses: number; expiresAtMs: number }
       | { ok: false; code: string; message: string };

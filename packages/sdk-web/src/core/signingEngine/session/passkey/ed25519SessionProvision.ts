@@ -237,7 +237,7 @@ export async function provisionThresholdEd25519Session(
     });
     try {
       await cacheCredentialBoundarySetupExportPrfFirst(deps.touchConfirm, {
-        sessionId: String(resolvedThresholdSessionId),
+        thresholdSessionId: String(resolvedThresholdSessionId),
         prfFirstB64u,
         expiresAtMs,
         remainingUses,

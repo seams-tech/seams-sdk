@@ -251,12 +251,16 @@ function parseWarmSessionStatusBatchResult(data: unknown): WarmSessionStatusBatc
   if (!isObjectRecord(data) || !Array.isArray(data.results)) return null;
   const results: WarmSessionStatusBatchResult['results'] = [];
   for (const entry of data.results) {
-    if (!isObjectRecord(entry) || typeof entry.sessionId !== 'string' || !entry.sessionId.trim()) {
+    if (
+      !isObjectRecord(entry) ||
+      typeof entry.thresholdSessionId !== 'string' ||
+      !entry.thresholdSessionId.trim()
+    ) {
       return null;
     }
     const result = parseWarmSessionStatusResult(entry.result);
     if (!result) return null;
-    results.push({ sessionId: entry.sessionId, result });
+    results.push({ thresholdSessionId: entry.thresholdSessionId, result });
   }
   return { results };
 }
@@ -420,7 +424,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
     const persistStartedAt = performance.now();
     const persistenceResult = args.transport
       ? await this.persistSigningSessionSealForThresholdSession({
-          sessionId: args.sessionId,
+          thresholdSessionId: args.thresholdSessionId,
           transport: requirePasskeySealTransport(args.transport),
           ...(diagnostics ? { diagnostics } : {}),
         })
@@ -443,7 +447,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
     }
   };
 
-  getWarmSessionStatus = async (args: { sessionId: string }): Promise<WarmSessionStatusResult> =>
+  getWarmSessionStatus = async (args: { thresholdSessionId: string }): Promise<WarmSessionStatusResult> =>
     await this.readWarmSessionStatus(args);
 
   discoverPersistedSessionsForWallet = async (
@@ -614,8 +618,8 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
             thresholdSessionId,
             status,
           ),
-        readWarmSessionStatusFromWorker: async (sessionId) =>
-          await this.readWarmSessionStatus({ sessionId }),
+        readWarmSessionStatusFromWorker: async (thresholdSessionId) =>
+          await this.readWarmSessionStatus({ thresholdSessionId }),
         resolveCurrentEcdsaCapabilityRuntime: this.deps.resolveCurrentEcdsaCapabilityRuntime,
         updatePersistedPolicy: async (policy) =>
           await this.durableState.updatePersistedPolicy({
@@ -630,22 +634,22 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
   }
 
   getWarmSessionStatuses = async (args: {
-    sessionIds: string[];
+    thresholdSessionIds: string[];
   }): Promise<WarmSessionStatusBatchResult> => {
-    const sessionIds = Array.from(
-      new Set(args.sessionIds.map((value) => String(value || '').trim()).filter(Boolean)),
+    const thresholdSessionIds = Array.from(
+      new Set(args.thresholdSessionIds.map((value) => String(value || '').trim()).filter(Boolean)),
     );
-    if (!sessionIds.length) return { results: [] };
+    if (!thresholdSessionIds.length) return { results: [] };
     const response = await this.sendMessage({
       type: 'WARM_SESSION_STATUS_BATCH_READ',
       id: this.generateMessageId(),
-      payload: { sessionIds },
+      payload: { thresholdSessionIds },
     });
     const parsed = parseWarmSessionStatusBatchResult(response.data);
     if (response.success && parsed) return parsed;
     return {
-      results: sessionIds.map((sessionId) => ({
-        sessionId,
+      results: thresholdSessionIds.map((thresholdSessionId) => ({
+        thresholdSessionId,
         result: {
           ok: false,
           code: 'worker_error',
@@ -664,7 +668,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
       type: 'WARM_SESSION_MATERIAL_CLAIM',
       id: this.generateMessageId(),
       payload: {
-        sessionId: thresholdSessionId,
+        thresholdSessionId,
         ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
         ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
         curve: args.purpose.curve,
@@ -690,7 +694,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
       type: 'WARM_SESSION_MATERIAL_CONSUME',
       id: this.generateMessageId(),
       payload: {
-        sessionId: thresholdSessionId,
+        thresholdSessionId,
         ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
         curve: args.purpose.curve,
       },
@@ -802,7 +806,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
   }
 
   private async readWarmSessionStatus(args: {
-    sessionId: string;
+    thresholdSessionId: string;
   }): Promise<WarmSessionStatusResult> {
     const response = await this.sendMessage({
       type: 'WARM_SESSION_STATUS_READ',

@@ -58,7 +58,7 @@ export function buildPasskeyEd25519RestoreMetadata(args: {
 export type PasskeyEd25519YaoSessionPersistencePort = {
   hydrateSigningSession(input: HydrateSigningSessionInput): Promise<void>;
   persistSigningSessionSealForThresholdSession(input: {
-    sessionId: string;
+    thresholdSessionId: string;
     transport: NonNullable<HydrateSigningSessionInput['transport']>;
   }): Promise<WarmSessionSealAndPersistResult>;
 };
@@ -74,7 +74,7 @@ export type PersistPasskeyEd25519YaoSessionForRefreshInput = {
 export async function persistPasskeyEd25519YaoSessionForRefresh(
   input: PersistPasskeyEd25519YaoSessionForRefreshInput,
 ): Promise<void> {
-  const sessionId = String(input.session.thresholdSessionId || '').trim();
+  const thresholdSessionId = String(input.session.thresholdSessionId || '').trim();
   const walletSessionJwt = String(input.session.walletSessionAuth.walletSessionJwt || '').trim();
   const walletId = String(
     input.session.signingLane.identity.signer.account.wallet.walletId || '',
@@ -87,7 +87,7 @@ export async function persistPasskeyEd25519YaoSessionForRefresh(
     throw new Error('Ed25519 Yao sealed refresh persistence requires a passkey lane');
   }
   if (
-    !sessionId ||
+    !thresholdSessionId ||
     !walletSessionJwt ||
     !walletId ||
     !prfFirstB64u ||
@@ -123,14 +123,14 @@ export async function persistPasskeyEd25519YaoSessionForRefresh(
     ed25519Restore: input.ed25519Restore,
   } as const;
   await input.persistence.hydrateSigningSession({
-    sessionId,
+    thresholdSessionId,
     prfFirstB64u,
     expiresAtMs,
     remainingUses,
     transport,
   });
   const persisted = await input.persistence.persistSigningSessionSealForThresholdSession({
-    sessionId,
+    thresholdSessionId,
     transport,
   });
   if (!persisted.ok) {

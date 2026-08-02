@@ -38,7 +38,7 @@ export type ThresholdEd25519ClientShareDeriverPort = {
 
 export type ThresholdWarmSessionMaterialPort = {
   putWarmSessionMaterial: (args: {
-    sessionId: string;
+    thresholdSessionId: string;
     prfFirstB64u: string;
     expiresAtMs: number;
     remainingUses: number;
@@ -54,7 +54,7 @@ export type ThresholdWarmSessionMaterialPort = {
     remainingUses?: number;
     expiresAtMs?: number;
   }>;
-  getWarmSessionStatus?: (args: { sessionId: string }) => Promise<{
+  getWarmSessionStatus?: (args: { thresholdSessionId: string }) => Promise<{
     ok: boolean;
     code?: string;
     message?: string;
@@ -62,7 +62,7 @@ export type ThresholdWarmSessionMaterialPort = {
     expiresAtMs?: number;
   }>;
   persistSigningSessionSealForThresholdSession?: (args: {
-    sessionId: string;
+    thresholdSessionId: string;
     transport: Exclude<WarmSessionSealTransportInput, { authMethod: 'email_otp' }>;
   }) => Promise<{
     ok: boolean;
