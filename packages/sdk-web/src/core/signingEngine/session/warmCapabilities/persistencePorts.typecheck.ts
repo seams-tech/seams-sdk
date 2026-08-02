@@ -12,12 +12,16 @@ import type {
 import type {
   ThresholdEd25519SessionId,
   ThresholdEcdsaSessionId,
-  SigningGrantId,
 } from '../operationState/types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 declare const walletId: WalletId;
 declare const accountId: AccountId;
-declare const signingGrantId: SigningGrantId;
+declare const walletSessionId: WalletSessionId;
+declare const quotaId: MpcWalletSigningQuotaId;
 declare const thresholdSessionId: ThresholdEcdsaSessionId;
 declare const thresholdEd25519SessionId: ThresholdEd25519SessionId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
@@ -29,7 +33,8 @@ void ({
   authMethod: 'email_otp',
   curve: 'ecdsa',
   walletId,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId,
   chainTarget,
   emailOtpAuthContext,
@@ -43,7 +48,8 @@ void ({
   authMethod: 'email_otp',
   curve: 'ed25519',
   walletId,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId: thresholdEd25519SessionId,
   accountId,
   material: {
@@ -56,7 +62,8 @@ void ({
   authMethod: 'passkey',
   curve: 'ecdsa',
   walletId,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId,
   chainTarget,
   persistenceSource: {
@@ -78,7 +85,8 @@ void ({
   authMethod: 'passkey',
   curve: 'ecdsa',
   walletId,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId,
   chainTarget,
   persistenceSource: {
@@ -101,7 +109,8 @@ const emailOtpEcdsaMissingChainTarget: EmailOtpEcdsaReadyPersistInput = {
   authMethod: 'email_otp',
   curve: 'ecdsa',
   walletId,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId,
   emailOtpAuthContext,
   material: {
@@ -115,7 +124,8 @@ const emailOtpEcdsaWithPasskeyMaterial: EmailOtpEcdsaReadyPersistInput = {
   authMethod: 'email_otp',
   curve: 'ecdsa',
   walletId,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId,
   chainTarget,
   emailOtpAuthContext,
@@ -140,7 +150,8 @@ const emailOtpEd25519WithEcdsaContext: EmailOtpEd25519ReadyPersistInput = {
   authMethod: 'email_otp',
   curve: 'ed25519',
   walletId,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId: thresholdEd25519SessionId,
   accountId,
   material: {
@@ -156,7 +167,8 @@ const passkeyEcdsaWithEmailOtpContext: PasskeyEcdsaReadyPersistInput = {
   authMethod: 'passkey',
   curve: 'ecdsa',
   walletId,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId,
   chainTarget,
   persistenceSource: {
@@ -181,7 +193,8 @@ const passkeyReconnectWithCredentialId: PasskeyEcdsaReadyPersistInput = {
   authMethod: 'passkey',
   curve: 'ecdsa',
   walletId,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId,
   chainTarget,
   // @ts-expect-error Reconnect persistence cannot invent a WebAuthn credential id.

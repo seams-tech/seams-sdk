@@ -5,9 +5,9 @@ import type { ExpiredWalletSessionAuthorizationState } from '../identity/clientS
 import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
 import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabilities/volatileWarmMaterialCommands';
 import {
-  type SigningGrantClearFailure,
-  type SigningGrantClearResult,
-  type SigningGrantStatusOverride,
+  type WalletSessionClearFailure,
+  type WalletSessionClearResult,
+  type WalletSessionStatusOverride,
 } from './readiness';
 
 export type ClientWalletSessionInvalidationReadinessDeps = {
@@ -21,7 +21,7 @@ export type ClientWalletSessionInvalidationReadinessDeps = {
 
 export type ClientWalletSessionExpiryInvalidatorDeps = {
   readonly readiness: ClientWalletSessionInvalidationReadinessDeps;
-  readonly statusOverrides: Map<string, SigningGrantStatusOverride>;
+  readonly statusOverrides: Map<string, WalletSessionStatusOverride>;
 };
 
 export type WalletSessionExpiredEvent = {
@@ -44,7 +44,7 @@ export type ClientWalletSessionExpiryInvalidationResult =
     }
   | {
       readonly kind: 'unavailable';
-      readonly failures: readonly SigningGrantClearFailure[];
+      readonly failures: readonly WalletSessionClearFailure[];
       readonly event: null;
     };
 
@@ -77,7 +77,7 @@ export type InvalidateExpiredWalletSessionInput = {
 async function clearExpiredAuthorization(args: {
   readonly deps: ClientWalletSessionExpiryInvalidatorDeps;
   readonly state: ExpiredWalletSessionAuthorizationState;
-}): Promise<SigningGrantClearResult> {
+}): Promise<WalletSessionClearResult> {
   const lane = args.state.laneIdentity;
   if (!('thresholdSessionId' in lane)) return { kind: 'cleared' };
   try {
@@ -99,7 +99,7 @@ async function clearExpiredAuthorization(args: {
 
 export class ClientWalletSessionExpiryInvalidator {
   readonly #deps: ClientWalletSessionExpiryInvalidatorDeps;
-  readonly #cleanupBySession = new Map<string, Promise<SigningGrantClearResult>>();
+  readonly #cleanupBySession = new Map<string, Promise<WalletSessionClearResult>>();
   readonly #eventDelivered = new Set<string>();
 
   constructor(deps: ClientWalletSessionExpiryInvalidatorDeps) {

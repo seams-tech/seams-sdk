@@ -27,7 +27,6 @@ declare const emailOtpWorkerHandle: Extract<
 
 const identity = buildEcdsaSessionIdentity({
   thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
 });
 const signingKeyContext = {
   ecdsaThresholdKeyId: 'ecdsa-key-1',

@@ -38,7 +38,8 @@ if (!accountIdResult.ok) {
 const accountId = accountIdResult.value;
 const walletId = toWalletId('frost-vermillion-k7p9m2');
 const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('scope-frost-vermillion-k7p9m2');
-const signingGrantId = SigningSessionIds.signingGrant('wallet-session-1');
+const walletSessionId = SigningSessionIds.walletSession('wallet-session-1');
+const quotaId = SigningSessionIds.walletSessionQuota('quota-1');
 const ed25519ThresholdSessionId = SigningSessionIds.thresholdEd25519Session(
   'ed25519-threshold-session-1',
 );
@@ -83,7 +84,8 @@ const nearSigner = buildNearEd25519SignerBinding({
 const ed25519Identity = exactEd25519SigningLaneIdentity({
   signer: nearSigner,
   auth: passkeyAuth,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId: ed25519ThresholdSessionId,
 });
 exactSigningLaneIdentityKey(ed25519Identity);
@@ -142,8 +144,6 @@ const invalidEcdsaWithoutKey: ExactEcdsaSigningLaneIdentity = {
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   },
   auth: passkeyAuth,
-  signingGrantId,
-  thresholdSessionId: ecdsaThresholdSessionId,
 };
 void invalidEcdsaWithoutKey;
 
@@ -157,8 +157,6 @@ const invalidEcdsaWithoutKeyHandle: ExactEcdsaSigningLaneIdentity = {
     key: ecdsaKey,
   },
   auth: passkeyAuth,
-  signingGrantId,
-  thresholdSessionId: ecdsaThresholdSessionId,
 };
 void invalidEcdsaWithoutKeyHandle;
 

@@ -5,14 +5,16 @@ import type {
   RouterAbSigningWalletSessionAuth,
 } from './routerAbSigningWalletSession';
 import type {
-  SigningGrantId,
   ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
-import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 declare const walletSessionId: WalletSessionId;
+declare const quotaId: MpcWalletSigningQuotaId;
 declare const thresholdSessionId: ThresholdEd25519SessionId;
-declare const signingGrantId: SigningGrantId;
 
 const auth = {
   kind: 'wallet_session_jwt',
@@ -40,7 +42,7 @@ const validSession = {
   auth,
   walletSessionId,
   thresholdSessionId,
-  signingGrantId,
+  quotaId,
   remainingUses: 2,
   expiresAtMs: 1_900_000_000_000,
   runtimePolicyScope,
@@ -56,7 +58,7 @@ const missingSigningRoot: RouterAbEd25519SigningWalletSession = {
   auth,
   walletSessionId,
   thresholdSessionId,
-  signingGrantId,
+  quotaId,
   remainingUses: 2,
   expiresAtMs: 1_900_000_000_000,
   runtimePolicyScope,
@@ -70,7 +72,7 @@ const embeddedWorkerMaterial = {
   auth,
   walletSessionId,
   thresholdSessionId,
-  signingGrantId,
+  quotaId,
   remainingUses: 2,
   expiresAtMs: 1_900_000_000_000,
   runtimePolicyScope,
@@ -87,7 +89,7 @@ const embeddedActiveClient = {
   auth,
   walletSessionId,
   thresholdSessionId,
-  signingGrantId,
+  quotaId,
   remainingUses: 2,
   expiresAtMs: 1_900_000_000_000,
   runtimePolicyScope,

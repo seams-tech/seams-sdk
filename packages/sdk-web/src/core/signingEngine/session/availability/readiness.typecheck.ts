@@ -1,48 +1,54 @@
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WalletSessionStatusOwner } from '../lifecycle/walletSessionStatus';
+import { SigningSessionIds } from '../operationState/types';
 import {
-  clearSigningGrant,
+  clearWalletSession,
   discoverLanesForWallet,
   readWalletScopedLaneClaimsForWallet,
-  type SigningGrantReadinessDeps,
-  type SigningGrantStatusOverride,
+  type WalletSessionReadinessDeps,
+  type WalletSessionStatusOverride,
 } from './readiness';
 
 declare const walletId: WalletId;
 const ed25519WalletId = toWalletId('owner.testnet');
-declare const deps: SigningGrantReadinessDeps;
-declare const statusOverrides: Map<string, SigningGrantStatusOverride>;
+const walletSessionId = SigningSessionIds.walletSession('wallet-session-id');
+const quotaId = SigningSessionIds.walletSessionQuota('quota-id');
+declare const deps: WalletSessionReadinessDeps;
+declare const statusOverrides: Map<string, WalletSessionStatusOverride>;
 
-const validReadinessOverride: SigningGrantStatusOverride = {
+const validReadinessOverride: WalletSessionStatusOverride = {
   owner: {
     curve: 'ed25519',
     walletId: ed25519WalletId,
   },
-  signingGrantId: 'wallet-session-id',
-  status: { sessionId: 'wallet-session-id', status: 'active', remainingUses: 1 },
+  walletSessionId,
+  quotaId,
+  status: { sessionId: String(walletSessionId), status: 'active', remainingUses: 1 },
   thresholdSessionIds: new Set(['threshold-session-id']),
   updatedAtMs: 1,
 };
 void validReadinessOverride;
 
-const invalidReadinessOverrideWithRawAccountId: SigningGrantStatusOverride = {
+const invalidReadinessOverrideWithRawAccountId: WalletSessionStatusOverride = {
   owner: {
     curve: 'ed25519',
     // @ts-expect-error readiness owners require normalized WalletId branding.
     walletId: 'owner.testnet',
   },
-  signingGrantId: 'wallet-session-id',
-  status: { sessionId: 'wallet-session-id', status: 'active', remainingUses: 1 },
+  walletSessionId,
+  quotaId,
+  status: { sessionId: String(walletSessionId), status: 'active', remainingUses: 1 },
   thresholdSessionIds: new Set(['threshold-session-id']),
   updatedAtMs: 1,
 };
 void invalidReadinessOverrideWithRawAccountId;
 
-const invalidReadinessOverrideWithWalletId: SigningGrantStatusOverride = {
+const invalidReadinessOverrideWithWalletId: WalletSessionStatusOverride = {
   // @ts-expect-error readiness overrides use owner identity, not mixed walletId.
   walletId,
-  signingGrantId: 'wallet-session-id',
-  status: { sessionId: 'wallet-session-id', status: 'active', remainingUses: 1 },
+  walletSessionId,
+  quotaId,
+  status: { sessionId: String(walletSessionId), status: 'active', remainingUses: 1 },
   thresholdSessionIds: new Set(['threshold-session-id']),
   updatedAtMs: 1,
 };
@@ -56,11 +62,12 @@ void readWalletScopedLaneClaimsForWallet({
   statusOverrides,
 });
 
-void clearSigningGrant({
+void clearWalletSession({
   deps,
   statusOverrides,
   walletId,
-  signingGrantId: 'wallet-session-id',
+  walletSessionId,
+  quotaId,
 });
 
 // @ts-expect-error readiness wallet discovery requires a normalized WalletId.
@@ -73,12 +80,13 @@ void readWalletScopedLaneClaimsForWallet({
   statusOverrides,
 });
 
-void clearSigningGrant({
+void clearWalletSession({
   deps,
   statusOverrides,
   // @ts-expect-error readiness clear requires a normalized WalletId.
   walletId: 'wallet.testnet',
-  signingGrantId: 'wallet-session-id',
+  walletSessionId,
+  quotaId,
 });
 
 export {};

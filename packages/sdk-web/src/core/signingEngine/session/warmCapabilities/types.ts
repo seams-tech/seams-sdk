@@ -1,4 +1,8 @@
 import type { AccountId } from '@/core/types/accountIds';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import {
@@ -642,7 +646,6 @@ export type FreshWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519Capabi
   signerSlot: number;
   laneIdentity?: never;
   thresholdSessionId?: never;
-  signingGrantId?: never;
 };
 
 export type ExactWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519CapabilityCommonArgs & {
@@ -653,7 +656,6 @@ export type ExactWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519Capabi
   nearEd25519SigningKeyId?: never;
   signerSlot?: never;
   thresholdSessionId?: never;
-  signingGrantId?: never;
 };
 
 export type ProvisionWarmEd25519CapabilityArgs =
@@ -663,7 +665,8 @@ export type ProvisionWarmEd25519CapabilityArgs =
 export type ProvisionWarmEd25519CapabilitySuccessResult = {
   ok: true;
   thresholdSessionId: ThresholdEd25519SessionId;
-  signingGrantId: string;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;

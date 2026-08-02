@@ -20,10 +20,6 @@ import {
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
-import {
-  toEcdsaDerivationSigningGrantId,
-  type SigningGrantId,
-} from '../session/identity/emailOtpEcdsaDerivationIdentity';
 import type { SigningOperationId } from '../session/operationState/types';
 
 export type ThresholdRuntimePolicyScope = RuntimePolicyScope;
@@ -99,7 +95,6 @@ export type Ed25519SessionPolicy = {
   authority: WalletAuthAuthority;
   relayerKeyId: string;
   thresholdSessionId: string;
-  signingGrantId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   /**
@@ -127,7 +122,6 @@ type Ed25519SessionPolicyBaseParams = {
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   participantIds?: number[];
   thresholdSessionId?: string;
-  signingGrantId?: string;
   ttlMs?: number;
   remainingUses?: number;
 };
@@ -204,10 +198,6 @@ export function generateThresholdSessionId(): string {
   return secureRandomId('tsess', 32, 'threshold session IDs');
 }
 
-export function generateSigningGrantId(): SigningGrantId {
-  return toEcdsaDerivationSigningGrantId(secureRandomId('wsess', 32, 'signing grant IDs'));
-}
-
 export async function computeEd25519SessionPolicyDigest32(
   policy: Ed25519SessionPolicy,
 ): Promise<string> {
@@ -225,7 +215,6 @@ export async function buildEd25519SessionPolicy(params: {
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   participantIds?: number[];
   thresholdSessionId?: string;
-  signingGrantId?: string;
   ttlMs?: number;
   remainingUses?: number;
 }): Ed25519SessionPolicyBuildResult {
@@ -238,7 +227,6 @@ export async function buildEd25519SessionPolicy(params: {
     routerAbNormalSigning: params.routerAbNormalSigning,
     participantIds: params.participantIds,
     thresholdSessionId: params.thresholdSessionId,
-    signingGrantId: params.signingGrantId,
     ttlMs: params.ttlMs,
     remainingUses: params.remainingUses,
   });
@@ -256,7 +244,6 @@ export async function buildPasskeyEd25519SessionPolicy(
     routerAbNormalSigning: params.routerAbNormalSigning,
     participantIds: params.participantIds,
     thresholdSessionId: params.thresholdSessionId,
-    signingGrantId: params.signingGrantId,
     ttlMs: params.ttlMs,
     remainingUses: params.remainingUses,
   });
@@ -274,7 +261,6 @@ export async function buildEmailOtpEd25519SessionPolicy(
     routerAbNormalSigning: params.routerAbNormalSigning,
     participantIds: params.participantIds,
     thresholdSessionId: params.thresholdSessionId,
-    signingGrantId: params.signingGrantId,
     ttlMs: params.ttlMs,
     remainingUses: params.remainingUses,
   });
@@ -284,7 +270,6 @@ async function buildExactEd25519SessionPolicy(
   params: BuildExactEd25519SessionPolicyParams,
 ): Ed25519SessionPolicyBuildResult {
   const thresholdSessionId = params.thresholdSessionId || generateThresholdSessionId();
-  const signingGrantId = String(params.signingGrantId || '').trim() || generateSigningGrantId();
   const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
     ttlMs: params.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
     remainingUses: params.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
@@ -298,7 +283,6 @@ async function buildExactEd25519SessionPolicy(
     authority: params.authority,
     relayerKeyId: params.relayerKeyId,
     thresholdSessionId,
-    signingGrantId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     routerAbNormalSigning: params.routerAbNormalSigning,
     ...(participantIds ? { participantIds } : {}),

@@ -20,10 +20,14 @@ import {
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
   parseCapabilityGrantId,
   parseSeamsSessionId,
   type CapabilityGrantId,
+  type MpcWalletSigningQuotaId,
   type SeamsSessionId,
+  type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
 export type ThresholdEd25519WebAuthnPrfSecretSource = {
@@ -153,7 +157,8 @@ export async function mintEd25519WalletSession(args: {
 }): Promise<{
   ok: boolean;
   thresholdSessionId?: ThresholdEd25519SessionId;
-  signingGrantId?: string;
+  walletSessionId?: WalletSessionId;
+  quotaId?: MpcWalletSigningQuotaId;
   expiresAtMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -186,7 +191,8 @@ export async function mintEd25519WalletSession(args: {
   type Ed25519WalletSessionMintResponseBody = Partial<{
     ok: boolean;
     thresholdSessionId: string;
-    signingGrantId: string;
+    walletSessionId: string;
+    quotaId: string;
     expiresAt: string;
     remainingUses: number;
     runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -248,10 +254,20 @@ export async function mintEd25519WalletSession(args: {
         message: 'Wallet Session mint returned an invalid thresholdSessionId',
       };
     }
+    const walletSessionId = parseWalletSessionId(data.walletSessionId);
+    const quotaId = parseMpcWalletSigningQuotaId(data.quotaId);
+    if (!walletSessionId.ok || !quotaId.ok) {
+      return {
+        ok: false,
+        code: 'invalid_response',
+        message: 'Wallet Session mint returned invalid authorization identity',
+      };
+    }
     return {
       ok: data.ok === true,
       ...(thresholdSessionId?.ok ? { thresholdSessionId: thresholdSessionId.value } : {}),
-      signingGrantId: data.signingGrantId,
+      walletSessionId: walletSessionId.value,
+      quotaId: quotaId.value,
       expiresAtMs,
       remainingUses: data.remainingUses,
       ...(data.runtimePolicyScope ? { runtimePolicyScope: data.runtimePolicyScope } : {}),
