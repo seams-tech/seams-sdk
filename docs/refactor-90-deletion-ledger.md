@@ -142,6 +142,9 @@ Wallet Session/quota inputs have moved to the canonical authorization owner.
 The standalone `routerAbEd25519BudgetRouteCore.unit.test.ts` was obsolete
 coverage for that retired reservation protocol and was deleted in the same
 checkpoint; the local-Yao test remains as the migration work item.
+The canonical D1 authorization core remains covered independently: its
+reusable-session, replay, expiry, quota, ECDSA binding, and hostile-substitution
+cases pass 19/19 in the focused unit run.
 
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
