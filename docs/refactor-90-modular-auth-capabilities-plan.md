@@ -648,6 +648,11 @@ the replacement and legacy MPC paths must not ship together.
       return `authorization_required` when authorization is absent.
 - [x] Delete the client-side ECDSA wallet-budget lane path; keep the remaining
       client budget subsystem Ed25519-only and fail closed for other curves.
+- [x] Record the retained Ed25519 server quota boundary explicitly: the
+      authenticated Router A/B reserve/commit/release path remains live for
+      Ed25519 normal signing, while ECDSA public budget fields and compatibility
+      aliases are removed at the wire boundary (`41ed8f9cb`). Its possible
+      rehome is outside Refactor 90 and is tracked as a ledger reassignment.
 - [x] Remove reusable NEAR transaction admission and finalization from the
       client budget subsystem. The relayer now owns the exact operation claim,
       quota consumption, replay, and terminal completion for that path

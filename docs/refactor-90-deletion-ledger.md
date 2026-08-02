@@ -591,6 +591,17 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - keep only client-side concurrent-operation fingerprinting from the old
   subsystem
 
+Scope disposition: the router reserve/commit/release methods and their
+`signingGrantId`-keyed rows remain the live Ed25519 authenticated normal-signing
+quota boundary. They are not ECDSA public budget fields, do not identify durable
+material, and are still called by the Ed25519 prepare/finalize path. Refactor 90
+therefore retains them as canonical Ed25519 server authorization/quota state;
+removing them here would delete a live operating path without a replacement.
+The ECDSA public budget fields and compatibility aliases are already removed by
+`41ed8f9cb`. A future quota-path refactor may rehome the Ed25519 boundary as a
+separate change; these rows remain an explicit reassignment rather than an open
+Refactor 90 deletion.
+
 ## Phase 21 — worker and WASM residue
 
 - generic-named passkey-only WASM sessions (destructive rename to
