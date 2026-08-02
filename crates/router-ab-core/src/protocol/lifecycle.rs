@@ -166,6 +166,14 @@ impl NormalSigningAuthorizationV1 {
 /// Exact activated MPC material used by one normal-signing request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(
+        rename = "RouterAbMpcMaterialActivationRefKindV1",
+        rename_all = "snake_case"
+    )
+)]
 pub enum MpcMaterialActivationRefKindV1 {
     /// Exact MPC material-activation reference.
     MpcMaterialActivationRef,
@@ -174,6 +182,11 @@ pub enum MpcMaterialActivationRefKindV1 {
 /// Exact activated MPC material used by one normal-signing request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(rename = "RouterAbMpcMaterialActivationRefV1")
+)]
 pub struct MpcMaterialActivationRefV1 {
     /// Wire discriminant.
     pub kind: MpcMaterialActivationRefKindV1,
