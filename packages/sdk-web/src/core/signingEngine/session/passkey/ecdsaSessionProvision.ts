@@ -701,9 +701,10 @@ export async function provisionThresholdEcdsaSessionFromBootstrapArgs(
         sealPersistence: deps.sealPersistence,
         lane: sealLane.lane,
         authorization: sealLane.authorization,
+        thresholdSessionId,
         required: sealRequired,
         errorContext: 'threshold-ecdsa bootstrap seal persistence',
-        sealPersistInFlightBySessionId: new Map(),
+        sealPersistInFlightByMaterialActivation: new Map(),
         resolveSealTransport: deps.resolveSealTransport,
       });
     }

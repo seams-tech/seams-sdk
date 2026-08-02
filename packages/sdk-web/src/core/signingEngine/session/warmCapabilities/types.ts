@@ -713,13 +713,6 @@ export type EnsureWarmEcdsaProvisionPlanReadyArgs =
       capability: WarmSessionEcdsaCapabilityState;
     });
 
-export type EnsureWarmEcdsaCapabilityReadyResult = {
-  keyRef?: never;
-  warmSession: WarmSessionEnvelope;
-  capability: WarmSessionEcdsaCapabilityState;
-  reconnected: boolean;
-};
-
 export type WarmSessionCapabilityReader = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
   getEcdsaCapabilityForLane: (
@@ -745,19 +738,4 @@ export type ThresholdWarmSessionStatusReader = {
       nowMs: number;
     },
   ) => Promise<SigningSessionStatus>;
-};
-
-export type WarmSessionProvisioner = {
-  provisionEd25519Capability: (
-    args: ProvisionWarmEd25519CapabilityArgs,
-  ) => Promise<ProvisionWarmEd25519CapabilityResult>;
-  ensureEcdsaCapabilityReady: (
-    args: EnsureWarmEcdsaProvisionPlanReadyArgs,
-  ) => Promise<EnsureWarmEcdsaCapabilityReadyResult>;
-  ensureEcdsaPrfSealPersistedByThresholdSessionId: (args: {
-    chainTarget: ThresholdEcdsaChainTarget;
-    thresholdSessionId: string;
-    required?: boolean;
-    errorContext?: string;
-  }) => Promise<void>;
 };

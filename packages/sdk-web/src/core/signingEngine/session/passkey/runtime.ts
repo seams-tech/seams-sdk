@@ -17,9 +17,10 @@ export async function ensureEcdsaPrfSealPersisted(args: {
   sealPersistence: WarmSessionSealPersistPorts;
   lane: ExactEcdsaSigningLaneIdentity;
   authorization: ActiveEvmFamilyWalletSessionAuthorization;
+  thresholdSessionId: string;
   required?: boolean;
   errorContext?: string;
-  sealPersistInFlightBySessionId: Map<string, Promise<void>>;
+  sealPersistInFlightByMaterialActivation: Map<string, Promise<void>>;
   resolveSealTransport: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
     authorization: ActiveEvmFamilyWalletSessionAuthorization;
@@ -30,7 +31,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
   ).trim();
   if (!materialActivationId) return;
   const persistKey = `${materialActivationId}:${thresholdEcdsaChainTargetKey(args.lane.signer.chainTarget)}`;
-  let persistPromise = args.sealPersistInFlightBySessionId.get(persistKey);
+  let persistPromise = args.sealPersistInFlightByMaterialActivation.get(persistKey);
   if (!persistPromise) {
     persistPromise = (async (): Promise<void> => {
       const errorContext = String(args.errorContext || 'threshold session seal persistence').trim();
@@ -41,7 +42,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
       if (sealTransport) {
         const persisted =
           await args.sealPersistence.persistSigningSessionSealForThresholdSession({
-          thresholdSessionId: materialActivationId,
+          thresholdSessionId: args.thresholdSessionId,
           transport: {
             curve: sealTransport.curve,
             ...(sealTransport.walletId ? { walletId: sealTransport.walletId } : {}),
@@ -66,16 +67,16 @@ export async function ensureEcdsaPrfSealPersisted(args: {
         if (persisted.ok) return;
       }
     })();
-    args.sealPersistInFlightBySessionId.set(persistKey, persistPromise);
+    args.sealPersistInFlightByMaterialActivation.set(persistKey, persistPromise);
     void persistPromise.then(
       () => {
-        if (args.sealPersistInFlightBySessionId.get(persistKey) === persistPromise) {
-          args.sealPersistInFlightBySessionId.delete(persistKey);
+        if (args.sealPersistInFlightByMaterialActivation.get(persistKey) === persistPromise) {
+          args.sealPersistInFlightByMaterialActivation.delete(persistKey);
         }
       },
       () => {
-        if (args.sealPersistInFlightBySessionId.get(persistKey) === persistPromise) {
-          args.sealPersistInFlightBySessionId.delete(persistKey);
+        if (args.sealPersistInFlightByMaterialActivation.get(persistKey) === persistPromise) {
+          args.sealPersistInFlightByMaterialActivation.delete(persistKey);
         }
       },
     );
