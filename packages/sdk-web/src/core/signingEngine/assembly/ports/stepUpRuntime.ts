@@ -104,7 +104,7 @@ export function createStepUpRuntime(args: {
       clearVolatileWarmSessionMaterial: (command) =>
         emailOtpSessions.clearVolatileWarmSessionMaterial({
           kind: 'ecdsa',
-          thresholdSessionId: String(command.scope.sessionId),
+          thresholdSessionId: String(command.scope.thresholdSessionId),
         }),
     },
   });

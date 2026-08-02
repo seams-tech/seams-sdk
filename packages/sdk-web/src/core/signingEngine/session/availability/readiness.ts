@@ -10,7 +10,7 @@ import {
   type updateExactSealedSessionPolicy,
 } from '../persistence/sealedSessionStore';
 import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabilities/volatileWarmMaterialCommands';
-import { parseVolatileWarmSessionId } from '../warmCapabilities/volatileWarmSessionId';
+import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import type {
   WarmSessionExhaustedPrfClaim,
   WarmSessionExpiredPrfClaim,
@@ -739,11 +739,11 @@ export async function clearSigningGrant(args: {
       }
       continue;
     }
-    const volatileSessionId = parseVolatileWarmSessionId(lane.thresholdSessionId);
-    if (!volatileSessionId) continue;
+    const thresholdSessionId = parseThresholdEd25519SessionId(lane.thresholdSessionId);
+    if (!thresholdSessionId.ok) continue;
     try {
       await args.deps.touchConfirm?.clearVolatileWarmSessionMaterial?.(
-        createClearVolatileWarmSessionMaterialCommand(volatileSessionId),
+        createClearVolatileWarmSessionMaterialCommand(thresholdSessionId.value),
       );
     } catch {
       failures.add('touch_confirm_material');

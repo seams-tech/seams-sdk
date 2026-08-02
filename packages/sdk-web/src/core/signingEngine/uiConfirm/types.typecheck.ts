@@ -11,14 +11,11 @@ import type {
 } from '../session/persistence/durableSealedSessionCommands';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import { createClearVolatileWarmSessionMaterialCommand } from '../session/warmCapabilities/volatileWarmMaterialCommands';
-import { parseVolatileWarmSessionId } from '../session/warmCapabilities/volatileWarmSessionId';
+import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 
-function must<T>(value: T | null): T {
-  if (value == null) throw new Error('expected value');
-  return value;
-}
-
-const volatileSessionId = must(parseVolatileWarmSessionId('threshold-session-1'));
+const parsedThresholdSessionId = parseThresholdEd25519SessionId('threshold-session-1');
+if (!parsedThresholdSessionId.ok) throw new Error('expected threshold session id');
+const volatileSessionId = parsedThresholdSessionId.value;
 
 const clearSessionCommand: ClearVolatileWarmSessionMaterialCommand =
   createClearVolatileWarmSessionMaterialCommand(volatileSessionId);
@@ -55,7 +52,7 @@ void durableDeleteCommand;
 
 const invalidVolatileDeleteCommand: ClearVolatileWarmMaterialCommand = {
   kind: 'clear_volatile_warm_material',
-  scope: { kind: 'session', sessionId: volatileSessionId },
+  scope: { kind: 'session', thresholdSessionId: volatileSessionId },
   // @ts-expect-error Volatile clears cannot carry durable sealed-record identity.
   durableRecord: {},
 };
@@ -64,7 +61,7 @@ void invalidVolatileDeleteCommand;
 
 const invalidVolatileDeleteReasonCommand: ClearVolatileWarmMaterialCommand = {
   kind: 'clear_volatile_warm_material',
-  scope: { kind: 'session', sessionId: volatileSessionId },
+  scope: { kind: 'session', thresholdSessionId: volatileSessionId },
   // @ts-expect-error Volatile clears cannot carry durable delete reasons.
   deleteReason: 'trusted_persisted_delete',
 };
@@ -98,7 +95,7 @@ const invalidDurableDeleteCommand: DeleteDurableSealedSessionCommand = {
   deleteReason: 'trusted_persisted_delete',
   preserveResolvedIdentity: false,
   // @ts-expect-error Durable deletes cannot carry volatile clear scopes.
-  scope: { kind: 'session', sessionId: volatileSessionId },
+  scope: { kind: 'session', thresholdSessionId: volatileSessionId },
 };
 
 void invalidDurableDeleteCommand;
