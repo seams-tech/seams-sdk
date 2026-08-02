@@ -180,7 +180,7 @@ work is tracked in seven units.
 | **2. Shared authorization core**                   | Phases 7–14, including Phase 8 SDK selection             | Atomic claim core complete; effect-owner response replay awaits Refactor 94C                       | Closed capability vocabulary plus DB-backed session → evidence → grant → claim → audit flow.                       |
 | **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | Core operating paths and production record deletion complete; acceptance and residual cleanup open | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
 | **3b. Vault proving vertical**                     | Phase 16                                                 | Complete                                                                                           | [Satyr vault plan Phase 6](./satyr-secrets-vault.md) proves one real vault operation.                              |
-| **3c. Signing grant identity elimination**         | Final authorization/quota convergence                    | Units 2 and 3a complete their canonical claim and wire foundations                                 | Both MPC curves use Wallet Session, quota, and capability-grant identities directly; `SigningGrantId` is absent.   |
+| **3c. Signing grant identity elimination**         | Signing-specific identity and quota convergence          | Units 2 and 3a complete their canonical claim and wire foundations                                 | `SigningGrantId` and the duplicate Router quota protocol are absent; both curves use the shared claim owner.        |
 | **3d. Direct reusable-session operation claims**   | Follow-up authorization model simplification             | Unit 3c is complete                                                                                | Reusable Wallet Sessions claim operations directly; capability grants and grant evidence exist only for step-up.   |
 | **4. UI + provisioning**                           | Phases 22–23                                             | Provisioning and typed lifecycle implementation complete; cleanup and Refactor 92 acceptance open  | Typed lifecycle events and provisioning use the canonical capability model.                                        |
 
@@ -1699,7 +1699,9 @@ Refactor 90 environment-dependent acceptance remains tracked separately.
       `CapabilityGrantUseId` values for each authorized signing operation.
       Bind the grant to the exact capability, operation, digests, material
       activation, and reusable Wallet Session/quota branch or operation-step-up
-      branch (`b166b0bf1`, `41ed8f9cb`).
+      branch (`b166b0bf1`, `41ed8f9cb`). This records the completed Unit 3c
+      checkpoint; Unit 3d removes the synthetic reusable branch while retaining
+      grants for operation step-up.
 - [x] Change the ECDSA `authorization_claim` reusable branch to carry the
       canonical capability grant rather than the verified Wallet Session's
       `signing_grant_id`. Keep strict Rust and TypeScript parsing atomic and
@@ -1787,9 +1789,9 @@ Refactor 90 environment-dependent acceptance remains tracked separately.
       current-schema occurrence of `SigningGrantId`, `signingGrantId`, or
       `signing_grant_id` remains. Any immutable historical migration occurrence
       is boundary-only and explicitly recorded (`4885bed62`, `41ed8f9cb`).
-- [x] Ed25519 and ECDSA use the same reusable-session → capability grant →
-      atomic claim/quota → exact material activation authorization sequence
-      (`b166b0bf1`, `41ed8f9cb`).
+- [x] Ed25519 and ECDSA use the same Gateway atomic claim/quota owner and exact
+      material-activation separation (`b166b0bf1`, `41ed8f9cb`). Unit 3d owns
+      removal of their remaining divergent synthetic-grant adapters.
 - [x] The legacy Router reserve/commit/release budget protocol and its persisted
       rows, fixtures, and guards are deleted (`4885bed62`).
 - [x] Focused reusable, step-up, expiry, exhaustion, export, replay, hostile
@@ -1829,6 +1831,10 @@ new model.
 
 ### Branch-specific domain model
 
+- [ ] Amend the Refactor 90 SPEC so `R90-INV-009` defines the exact reusable
+      and operation-step-up claim branches, their forbidden fields, their
+      operation-use identities, and their atomic storage obligations before
+      changing production types.
 - [ ] Replace the common `CapabilityOperationClaimBase` with a discriminated
       union whose reusable branch requires Wallet Session, quota, operation,
       fingerprint, direct operation-use, audit, and claim-time fields. Require
@@ -1856,6 +1862,10 @@ new model.
       and persistence of `VerifiedGrantEvidenceSet`, `ActiveCapabilityGrant`,
       binding ID, grant ID, and evidence IDs. Preserve verified evidence and
       capability grants for operation step-up.
+- [ ] Cut over the reusable ECDSA `authorization_claim` branch in Rust,
+      TypeScript, generated bindings, boundary parsers, and fixtures together.
+      Reject grant, grant-use, binding, and grant-evidence fields on that
+      branch; keep the operation-step-up branch strict and unchanged.
 - [ ] Keep the ECDSA material-activation match inside its atomic admission.
       Ed25519 and ECDSA must share session, quota, fingerprint, claim, replay,
       completion, and audit semantics; curve-specific material checks remain
@@ -2020,9 +2030,10 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 
 This is a validation gate, not a deferred cleanup phase.
 
-- [x] Every applicable deletion-ledger entry is closed. Unit 3c owns the
+- [ ] Every applicable deletion-ledger entry is closed. Unit 3c closed the
       previously retained `SigningGrantId` and Router budget rows
-      (`acd3a5a04`, `f4c8c7423`).
+      (`acd3a5a04`, `f4c8c7423`); Unit 3d owns the new direct reusable-claim
+      deletion inventory.
 - [x] Prohibited legacy symbols, routes, imports, exports, aliases, record
       families, and obsolete source guards are absent. Remaining `sessionId`
       fields may be ceremony, handle, presign, request, or UI identities;

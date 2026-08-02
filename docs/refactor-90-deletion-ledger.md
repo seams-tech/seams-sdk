@@ -23,6 +23,8 @@ commit references stay understandable. Current ownership is:
   Phase 18, and MPC-owned final deletions;
 - Unit 3c: the final `SigningGrantId` identity, Ed25519 Router budget flow, and
   cross-curve authorization/quota convergence;
+- Unit 3d: synthetic capability-grant and grant-evidence identity on reusable
+  Wallet Session operations, plus the divergent Ed25519/ECDSA claim adapters;
 - Unit 4: Phases 22–23 and UI-owned final deletions.
 
 Historical Phase 6 inventory is absorbed by every unit. Unit 3b adds and closes
@@ -101,6 +103,49 @@ neither curve retains a Router reserve/commit/release caller.
 The Email OTP Ed25519 challenge request and the Passkey/Email OTP owner-local
 single-flight maps remain live factor-owned operating paths, not generic
 compatibility aliases.
+
+### Unit 3d initial deletion inventory — 2026-08-02
+
+Unit 3c removed the signing-specific grant identity and duplicate Router quota
+owner. A follow-up review found that the generic authorization core still
+forces capability-grant fields onto direct reusable Wallet Session operations.
+Ed25519 fabricates those fields without a grant record, while ECDSA persists
+temporary evidence and grant records for the same authority branch. Unit 3d
+deletes that remaining model overlap.
+
+- `CapabilityOperationClaimBase.grantId` and `.evidenceSetDigest` as required
+  reusable-claim fields; replace the common base with exact reusable and
+  operation-step-up branches
+- `CapabilityGrantUseId`, `ClaimedCapabilityGrantUse`,
+  `CompletedCapabilityGrantUse`, and grant-bearing completion references on
+  reusable operations; introduce direct reusable operation-use identity and
+  branch-specific results
+- `ReusableWalletSessionClaimInput.grantId`,
+  `claimReusableWalletSessionFromGrant`, and the synthetic
+  `reusable-wallet-session-operation` evidence digest
+- the fabricated Ed25519 `ed25519-operation-grant:*` identifier and its
+  fixtures, receipts, diagnostics, and public-documentation projections
+- reusable ECDSA `GrantEvidenceId`, `GrantEvidenceSetId`,
+  `CapabilityBindingId`, `CapabilityGrantId`, `VerifiedGrantEvidenceSet`, and
+  `ActiveCapabilityGrant` construction/persistence; retain these concepts for
+  real operation step-up and the independent vault vertical
+- `grant_id` and `evidence_set_digest` columns and parsers in reusable Wallet
+  Session operation-use and audit rows; remove them through a forward D1
+  migration without rewriting historical migrations
+- duplicated reusable ECDSA claim/grant SQL and service ports after both curves
+  use the direct reusable-session claim transaction
+- current fixtures and public docs that describe
+  `CapabilityGrantId + CapabilityGrantUseId` as reusable Wallet Session
+  operation authority
+- the raw cold-recovery `wallet_binding_mismatch` exception; route it through
+  the existing typed recovery result boundary
+- hard-coded D1 migration table counts, the stale runtime-readiness expectation,
+  and missing local ceremony-JWT JWK setup that obscure broad authorization
+  regressions
+
+Unit 3d adds no compatibility types, source-text guards, quota reservation
+layer, or duplicate E2E suite. Close each row with its replacing implementation
+and focused behavioral evidence.
 
 ### Unit 3c pre-cutover live-occurrence inventory — 2026-08-02 (historical)
 
