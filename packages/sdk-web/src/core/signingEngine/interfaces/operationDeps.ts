@@ -52,13 +52,6 @@ import type { EcdsaOperationStepUpSessionAuth } from '../threshold/ecdsa/operati
 
 export type EvmFamilyChain = 'tempo' | 'evm';
 
-export type NearEd25519SigningSessionStatus = {
-  sessionId?: string | null;
-  status?: string | null;
-  remainingUses?: number | null;
-  expiresAtMs?: number | null;
-};
-
 export type EmailOtpEcdsaSigningBootstrapResult = {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   authorization: ActiveWalletSessionAuthorizationProjection;
