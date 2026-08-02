@@ -139,54 +139,6 @@ function testWebAuthnAssertionCredential(credentialIdB64u: string) {
   };
 }
 
-type TestEd25519WalletSessionBudget = {
-  readonly signingGrantId: string;
-  readonly expiresAtMs: number;
-  readonly remainingUses: number;
-};
-
-type TestAddSignerWalletSessionMintInput = Extract<
-  RouterAbEd25519YaoWalletSessionMintInputV1,
-  { readonly kind: 'add_signer_wallet_session_v1' }
->;
-
-function assertNeverTestWalletSessionMintInput(input: never): never {
-  throw new Error(`Unexpected test Wallet Session mint kind: ${String(input)}`);
-}
-
-function testEd25519WalletSessionBudget(
-  input: RouterAbEd25519YaoWalletSessionMintInputV1,
-): TestEd25519WalletSessionBudget {
-  switch (input.kind) {
-    case 'registration_wallet_session_v1':
-      return {
-        signingGrantId: 'test-add-signer-signing-grant',
-        expiresAtMs: Date.now() + 60_000,
-        remainingUses: 3,
-      };
-    case 'add_signer_wallet_session_v1':
-      return {
-        signingGrantId: input.signingGrantId,
-        expiresAtMs: input.expiresAtMs,
-        remainingUses: input.remainingUses,
-      };
-    case 'verified_wallet_unlock_v1':
-      return {
-        signingGrantId: 'test-email-otp-recovery-signing-grant',
-        expiresAtMs: Date.now() + 60_000,
-        remainingUses: input.remainingUses,
-      };
-    case 'shared_registration_wallet_session_v1':
-    case 'same_identity_budget_refresh_v1':
-      return {
-        signingGrantId: input.signingGrantId,
-        expiresAtMs: input.expiresAtMs,
-        remainingUses: input.remainingUses,
-      };
-  }
-  return assertNeverTestWalletSessionMintInput(input);
-}
-
 class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistrationRuntimeV1 {
   readonly kind = 'router_ab_ed25519_yao_product_registration_runtime_v1' as const;
   readonly signingWorkerId = TEST_YAO_SIGNING_WORKER_ID;
@@ -200,7 +152,7 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
   freshConsumptions = 0;
   installCalls = 0;
   mintCalls = 0;
-  readonly mintInputs: TestAddSignerWalletSessionMintInput[] = [];
+  readonly mintInputs: RouterAbEd25519YaoWalletSessionMintInputV1[] = [];
 
   async bindVerifiedIntent(
     input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['bindVerifiedIntent']>[0],
@@ -317,8 +269,9 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
     input: RouterAbEd25519YaoWalletSessionMintInputV1,
   ): ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['mintWalletSession']> {
     this.mintCalls += 1;
-    if (input.kind === 'add_signer_wallet_session_v1') this.mintInputs.push(input);
-    const budget = testEd25519WalletSessionBudget(input);
+    this.mintInputs.push(input);
+    const expiresAtMs =
+      input.kind === 'verified_wallet_unlock_v1' ? input.expiresAtMs : Date.now() + 60_000;
     return {
       ok: true,
       session: {
@@ -329,10 +282,11 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
         nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
         authorityScope: { kind: 'passkey_rp', rpId: 'example.com' },
         thresholdSessionId: input.thresholdSessionId,
-        signingGrantId: budget.signingGrantId,
-        expiresAtMs: budget.expiresAtMs,
+        walletSessionId: input.walletSessionId,
+        quotaId: input.quotaId,
+        expiresAtMs,
         participantIds: [input.participantIds[0], input.participantIds[1]],
-        remainingUses: budget.remainingUses,
+        remainingUses: input.remainingUses,
         signingRootId: `${input.runtimePolicyScope.projectId}:${input.runtimePolicyScope.envId}`,
         signingRootVersion: input.runtimePolicyScope.signingRootVersion,
         runtimePolicyScope: input.runtimePolicyScope,
@@ -360,7 +314,8 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
     const nearEd25519SigningKeyId = 'near-ed25519-key-refresh';
     const registrationThresholdSessionId = 'threshold-session-registration';
     const currentThresholdSessionId = 'threshold-session-current';
-    const currentSigningGrantId = 'signing-grant-current';
+    const currentWalletSessionId = 'wallet-session-current';
+    const currentQuotaId = 'wallet-quota-current';
     const rpId = 'example.com';
     const credentialIdB64u = 'passkey-budget-refresh-credential';
     const participantIds = [1, 2] as const;
@@ -393,7 +348,6 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       nearAccountId,
       nearEd25519SigningKeyId,
       thresholdSessionId: registrationThresholdSessionId,
-      signingGrantId: 'obsolete-registration-grant',
       signerSlot: 1,
       publicKey: activeYao.publicKey,
       signingWorkerId: TEST_YAO_SIGNING_WORKER_ID,
@@ -409,7 +363,6 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
     });
     expect(persistedSigner).not.toBeNull();
     if (!persistedSigner) throw new Error('test Ed25519 signer did not parse');
-    expect(Object.hasOwn(persistedSigner, 'signingGrantId')).toBe(false);
 
     await insertSignerWallet({ database, ...scope, walletId });
     await insertWalletAuthMethod({
@@ -458,7 +411,8 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
           authority,
           relayerKeyId: TEST_YAO_SIGNING_WORKER_ID,
           thresholdSessionId: currentThresholdSessionId,
-          signingGrantId: currentSigningGrantId,
+          walletSessionId: currentWalletSessionId,
+          quotaId: currentQuotaId,
           runtimePolicyScope,
           routerAbNormalSigning: {
             kind: 'router_ab_ed25519_normal_signing_v1',
@@ -477,7 +431,8 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       ok: true,
       walletId,
       thresholdSessionId: currentThresholdSessionId,
-      signingGrantId: currentSigningGrantId,
+      walletSessionId: currentWalletSessionId,
+      quotaId: currentQuotaId,
       remainingUses: 1,
     });
   } finally {

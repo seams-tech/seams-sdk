@@ -53,14 +53,11 @@ export {
 } from './routerAbNormalSigningAdmissionStore';
 export type {
   CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
-  InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
   RouterAbNormalSigningAdmissionStore,
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningProjectPolicyProvider,
-  RouterAbNormalSigningQuotaDecision,
-  RouterAbNormalSigningQuotaStore,
 } from './routerAbNormalSigningAdmissionStore';
 export type {
   RouterApiCloudflareRouteExtension,

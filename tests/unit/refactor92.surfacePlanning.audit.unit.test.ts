@@ -70,7 +70,8 @@ const NEAR_PASSKEY_LANE = buildEd25519PasskeySigningLane({
   nearEd25519SigningKeyId: NEAR_KEY_ID,
   signerSlot: 1,
   auth: PASSKEY_AUTH,
-  signingGrantId: SigningSessionIds.signingGrant('refactor-92-near-passkey-grant'),
+  walletSessionId: SigningSessionIds.walletSession('refactor-92-near-passkey-session'),
+  quotaId: SigningSessionIds.walletSessionQuota('refactor-92-near-passkey-quota'),
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
     'refactor-92-near-passkey-session',
   ),
@@ -82,7 +83,8 @@ const NEAR_EMAIL_OTP_LANE = buildEd25519EmailOtpSigningLane({
   nearEd25519SigningKeyId: NEAR_KEY_ID,
   signerSlot: 1,
   auth: EMAIL_OTP_AUTH,
-  signingGrantId: SigningSessionIds.signingGrant('refactor-92-near-otp-grant'),
+  walletSessionId: SigningSessionIds.walletSession('refactor-92-near-otp-session'),
+  quotaId: SigningSessionIds.walletSessionQuota('refactor-92-near-otp-quota'),
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
     'refactor-92-near-otp-session',
   ),

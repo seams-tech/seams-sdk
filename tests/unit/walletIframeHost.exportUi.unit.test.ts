@@ -25,6 +25,7 @@ import {
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -84,6 +85,10 @@ const EXPORT_ED25519_MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
   'export-host-ed25519',
   String(EXPORT_WALLET_ID),
 );
+const EXPORT_ED25519_WALLET_SESSION_ID = SigningSessionIds.walletSession(
+  'wallet-session-export-host',
+);
+const EXPORT_ED25519_QUOTA_ID = SigningSessionIds.walletSessionQuota('quota-export-host');
 const EXPORT_ED25519_LANE = exactEd25519SigningLaneIdentity({
   signer: nearEd25519SignerBindingFromBoundaryFields({
     walletId: EXPORT_WALLET_ID,
@@ -98,7 +103,8 @@ const EXPORT_ED25519_LANE = exactEd25519SigningLaneIdentity({
     rpId: toRpId('example.test'),
     credentialIdB64u: 'cred-ed25519-export-host',
   },
-  signingGrantId: 'grant-ed25519-export-host',
+  walletSessionId: EXPORT_ED25519_WALLET_SESSION_ID,
+  quotaId: EXPORT_ED25519_QUOTA_ID,
   thresholdSessionId: 'threshold-ed25519-export-host',
 });
 

@@ -53,7 +53,8 @@ function makeNearLane(args?: { thresholdSessionId?: string }) {
     nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
     signerSlot: 1,
     auth: PASSKEY_AUTH,
-    signingGrantId: SigningSessionIds.signingGrant('wallet-session-near'),
+    walletSessionId: SigningSessionIds.walletSession('wallet-session-near'),
+    quotaId: SigningSessionIds.walletSessionQuota('quota-near'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
       args?.thresholdSessionId || 'threshold-session-near',
     ),
@@ -93,7 +94,8 @@ function makeEcdsaLane(args?: { thresholdSessionId?: string }) {
     walletId: key.walletId,
     auth: EMAIL_OTP_AUTH,
     chainTarget: tempoChainTarget,
-    signingGrantId: SigningSessionIds.signingGrant('wallet-session-ecdsa'),
+    walletSessionId: SigningSessionIds.walletSession('wallet-session-ecdsa'),
+    quotaId: SigningSessionIds.walletSessionQuota('quota-ecdsa'),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
       args?.thresholdSessionId || 'threshold-session-ecdsa',
     ),
@@ -176,7 +178,7 @@ test.describe('step-up freshness identity', () => {
       laneIdentity,
       observedAtMs: 1_800_000_000_000,
       status: {
-        sessionId: String(lane.signingGrantId),
+        sessionId: String(lane.walletSessionId),
         status: 'active',
         remainingUses: 2,
         expiresAtMs: 1_900_000_000_000,
@@ -189,7 +191,7 @@ test.describe('step-up freshness identity', () => {
       laneIdentity,
       observedAtMs: 1_800_000_000_000,
       status: {
-        sessionId: String(lane.signingGrantId),
+        sessionId: String(lane.walletSessionId),
         status: 'exhausted',
         remainingUses: 0,
         projectionVersion: 'projection-2',

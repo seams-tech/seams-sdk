@@ -172,7 +172,6 @@ test('Email OTP operation material client carries exact material identity withou
   expect(worker.operations[0]?.payload).not.toHaveProperty('walletSessionJwt');
   expect(worker.operations[0]?.payload).not.toHaveProperty('walletSessionId');
   expect(worker.operations[0]?.payload).not.toHaveProperty('remainingUses');
-  expect(worker.operations[0]?.payload).not.toHaveProperty('signingGrantId');
 });
 
 test('sealed Email OTP material authorizes and rehydrates only after operation confirmation', async () => {

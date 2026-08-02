@@ -17,12 +17,6 @@ export type RouterAbNormalSigningAbuseDecision =
   | { kind: 'rate_limited'; retryAfterMs: number }
   | { kind: 'rejected'; retryAfterMs: number };
 
-export type RouterAbNormalSigningQuotaDecision =
-  | { kind: 'accepted'; requestId: string }
-  | { kind: 'reuse_existing'; requestId: string; existingLifecycleId: string }
-  | { kind: 'short_window_saturated' }
-  | { kind: 'signer_queue_saturated' };
-
 export interface RouterAbNormalSigningProjectPolicyProvider {
   evaluateProjectPolicy(
     input: RouterAbNormalSigningAdmissionInput,
@@ -35,39 +29,14 @@ export interface RouterAbNormalSigningAbuseProvider {
   ): Promise<RouterAbNormalSigningAbuseDecision>;
 }
 
-export interface RouterAbNormalSigningQuotaStore {
-  reserveQuota(
-    input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
-  ): Promise<RouterAbNormalSigningQuotaDecision>;
-}
-
 export interface RouterAbNormalSigningAdmissionStore
   extends
     RouterAbNormalSigningProjectPolicyProvider,
-    RouterAbNormalSigningAbuseProvider,
-    RouterAbNormalSigningQuotaStore {}
-
-export type InMemoryRouterAbNormalSigningAdmissionStoreOptions = {
-  readonly now?: () => number;
-};
-
-type RouterAbNormalSigningQuotaReservation = {
-  readonly requestId: string;
-  readonly lifecycleId: string;
-  readonly expiresAtMs: number;
-};
-
-const ROUTER_AB_NORMAL_SIGNING_QUOTA_RESERVATION_TTL_MS = 5_000;
+    RouterAbNormalSigningAbuseProvider {}
 
 export class InMemoryRouterAbNormalSigningAdmissionStore implements RouterAbNormalSigningAdmissionStore {
-  private readonly now: () => number;
   private readonly projectPolicies = new Map<string, RouterAbNormalSigningProjectPolicyDecision>();
   private readonly abuseDecisions = new Map<string, RouterAbNormalSigningAbuseDecision>();
-  private readonly quotaReservations = new Map<string, RouterAbNormalSigningQuotaReservation>();
-
-  constructor(options: InMemoryRouterAbNormalSigningAdmissionStoreOptions = {}) {
-    this.now = options.now || Date.now;
-  }
 
   setProjectPolicy(
     scope: RuntimePolicyScope,
@@ -91,14 +60,6 @@ export class InMemoryRouterAbNormalSigningAdmissionStore implements RouterAbNorm
     this.abuseDecisions.delete(abusePrincipalKey(input));
   }
 
-  clearExpired(nowMs = this.now()): void {
-    for (const [key, reservation] of this.quotaReservations.entries()) {
-      if (reservation.expiresAtMs <= nowMs) {
-        this.quotaReservations.delete(key);
-      }
-    }
-  }
-
   async evaluateProjectPolicy(
     input: RouterAbNormalSigningAdmissionInput,
   ): Promise<RouterAbNormalSigningProjectPolicyDecision> {
@@ -115,31 +76,6 @@ export class InMemoryRouterAbNormalSigningAdmissionStore implements RouterAbNorm
     return this.abuseDecisions.get(abusePrincipalKey(input)) || { kind: 'allowed' };
   }
 
-  async reserveQuota(
-    input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
-  ): Promise<RouterAbNormalSigningQuotaDecision> {
-    const nowMs = this.now();
-    this.clearExpired(nowMs);
-    const key = quotaScopeKey(input);
-    const active = this.quotaReservations.get(key);
-    if (active) {
-      if (active.requestId === input.requestId) {
-        return {
-          kind: 'reuse_existing',
-          requestId: input.requestId,
-          existingLifecycleId: active.lifecycleId,
-        };
-      }
-      return { kind: 'short_window_saturated' };
-    }
-
-    this.quotaReservations.set(key, {
-      requestId: input.requestId,
-      lifecycleId: normalSigningLifecycleId(input),
-      expiresAtMs: quotaReservationExpiresAtMs(input, nowMs),
-    });
-    return { kind: 'accepted', requestId: input.requestId };
-  }
 }
 
 export type CloudflareD1RouterAbNormalSigningAdmissionStoreOptions = {
@@ -151,11 +87,6 @@ export type CloudflareD1RouterAbNormalSigningAdmissionStoreOptions = {
 type CloudflareD1AdmissionDecisionRow = {
   readonly decision?: unknown;
   readonly retry_after_ms?: unknown;
-};
-
-type CloudflareD1QuotaReservationRow = {
-  readonly request_id?: unknown;
-  readonly lifecycle_id?: unknown;
 };
 
 const ROUTER_AB_NORMAL_SIGNING_ADMISSION_TABLE = 'router_ab_normal_signing_admission_records';
@@ -194,59 +125,6 @@ export class CloudflareD1RouterAbNormalSigningAdmissionStore implements RouterAb
       abusePrincipalKey(input),
     );
     return row === null ? { kind: 'allowed' } : parseAbuseDecision(row);
-  }
-
-  async reserveQuota(
-    input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
-  ): Promise<RouterAbNormalSigningQuotaDecision> {
-    const nowMs = this.now();
-    const expiresAtMs = quotaReservationExpiresAtMs(input, nowMs);
-    if (expiresAtMs <= nowMs) return { kind: 'short_window_saturated' };
-    const scope = input.runtimePolicyScope;
-    const lifecycleId = normalSigningLifecycleId(input);
-    const row = await this.database
-      .prepare(
-        `INSERT INTO ${ROUTER_AB_NORMAL_SIGNING_ADMISSION_TABLE} (
-           namespace, org_id, project_id, env_id, signing_root_version,
-           record_kind, record_key, request_id, lifecycle_id, expires_at_ms, updated_at_ms
-         ) VALUES (?1, ?2, ?3, ?4, ?5, 'quota', ?6, ?7, ?8, ?9, ?10)
-         ON CONFLICT (
-           namespace, org_id, project_id, env_id, signing_root_version, record_kind, record_key
-         ) DO UPDATE SET
-           request_id = excluded.request_id,
-           lifecycle_id = excluded.lifecycle_id,
-           expires_at_ms = excluded.expires_at_ms,
-           updated_at_ms = excluded.updated_at_ms
-         WHERE ${ROUTER_AB_NORMAL_SIGNING_ADMISSION_TABLE}.expires_at_ms <= ?10
-         RETURNING request_id, lifecycle_id`,
-      )
-      .bind(
-        this.storageNamespace,
-        scope.orgId,
-        scope.projectId,
-        scope.envId,
-        scope.signingRootVersion,
-        quotaScopeKey(input),
-        input.requestId,
-        lifecycleId,
-        expiresAtMs,
-        nowMs,
-      )
-      .first<CloudflareD1QuotaReservationRow>();
-    if (row !== null) {
-      return { kind: 'accepted', requestId: input.requestId };
-    }
-
-    const existing = await this.readQuotaReservation(scope, quotaScopeKey(input));
-    if (existing === null) {
-      throw new Error('Router A/B normal-signing D1 quota reservation disappeared');
-    }
-    const requestId = requireNonEmptyString('request_id', existing.request_id);
-    const existingLifecycleId = requireNonEmptyString('lifecycle_id', existing.lifecycle_id);
-    if (requestId === input.requestId) {
-      return { kind: 'reuse_existing', requestId, existingLifecycleId };
-    }
-    return { kind: 'short_window_saturated' };
   }
 
   async setProjectPolicy(
@@ -312,33 +190,6 @@ export class CloudflareD1RouterAbNormalSigningAdmissionStore implements RouterAb
         key,
       )
       .first<CloudflareD1AdmissionDecisionRow>();
-  }
-
-  private async readQuotaReservation(
-    scope: RuntimePolicyScope,
-    key: string,
-  ): Promise<CloudflareD1QuotaReservationRow | null> {
-    return await this.database
-      .prepare(
-        `SELECT request_id, lifecycle_id
-           FROM ${ROUTER_AB_NORMAL_SIGNING_ADMISSION_TABLE}
-          WHERE namespace = ?1
-            AND org_id = ?2
-            AND project_id = ?3
-            AND env_id = ?4
-            AND signing_root_version = ?5
-            AND record_kind = 'quota'
-            AND record_key = ?6`,
-      )
-      .bind(
-        this.storageNamespace,
-        scope.orgId,
-        scope.projectId,
-        scope.envId,
-        scope.signingRootVersion,
-        key,
-      )
-      .first<CloudflareD1QuotaReservationRow>();
   }
 
   private async putDecision(
@@ -472,33 +323,6 @@ class DefaultRouterAbNormalSigningAdmissionAdapter
     }
   }
 
-  async evaluate(
-    input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
-  ): Promise<RouterAbNormalSigningAdmissionResult> {
-    const policy = await this.evaluatePolicy(input);
-    if (!policy.ok) return policy;
-
-    const quota = await this.store.reserveQuota(input);
-    switch (quota.kind) {
-      case 'accepted':
-      case 'reuse_existing':
-        return { ok: true };
-      case 'short_window_saturated':
-        return admissionFailure(
-          429,
-          'quota_saturated',
-          'Router A/B normal-signing short-window quota is saturated',
-        );
-      case 'signer_queue_saturated':
-        return admissionFailure(
-          503,
-          'quota_saturated',
-          'Router A/B normal-signing signer queue is saturated',
-        );
-      default:
-        return assertNever(quota);
-    }
-  }
 }
 
 export function createRouterAbNormalSigningAdmissionAdapter(
@@ -508,19 +332,17 @@ export function createRouterAbNormalSigningAdmissionAdapter(
   return new DefaultRouterAbNormalSigningAdmissionAdapter(store, options.now || Date.now);
 }
 
-export function createInMemoryRouterAbNormalSigningAdmissionStore(
-  options: InMemoryRouterAbNormalSigningAdmissionStoreOptions = {},
-): InMemoryRouterAbNormalSigningAdmissionStore {
-  return new InMemoryRouterAbNormalSigningAdmissionStore(options);
+export function createInMemoryRouterAbNormalSigningAdmissionStore(): InMemoryRouterAbNormalSigningAdmissionStore {
+  return new InMemoryRouterAbNormalSigningAdmissionStore();
 }
 
 export function createInMemoryRouterAbNormalSigningAdmissionAdapter(
-  options: InMemoryRouterAbNormalSigningAdmissionStoreOptions = {},
+  options: { readonly now?: () => number } = {},
 ): {
   readonly adapter: RouterAbNormalSigningAdmissionAdapter;
   readonly store: InMemoryRouterAbNormalSigningAdmissionStore;
 } {
-  const store = createInMemoryRouterAbNormalSigningAdmissionStore(options);
+  const store = createInMemoryRouterAbNormalSigningAdmissionStore();
   return {
     store,
     adapter: createRouterAbNormalSigningAdmissionAdapter(store, options),
@@ -574,7 +396,6 @@ function admissionFailure(
   status: 400 | 401 | 403 | 408 | 409 | 429 | 500 | 503,
   code:
     | 'project_policy_rejected'
-    | 'quota_saturated'
     | 'abuse_rejected'
     | 'rate_limited'
     | 'invalid_body',
@@ -607,18 +428,6 @@ function admissionAuthorityScope(input: RouterAbNormalSigningAdmissionInput): st
   throw new Error('Unsupported Router A/B normal-signing curve');
 }
 
-function admissionAuthorizationIdentityKey(input: RouterAbNormalSigningAdmissionInput): string {
-  if (input.curve === 'ed25519') return input.thresholdSessionId;
-  switch (input.authorizationIdentity.kind) {
-    case 'reusable_wallet_session':
-      return `wallet_session:${input.authorizationIdentity.walletSessionId}`;
-    case 'operation_step_up':
-      return `material_activation:${input.authorizationIdentity.materialActivationId}`;
-  }
-  input.authorizationIdentity satisfies never;
-  throw new Error('Unsupported Router A/B normal-signing authorization identity');
-}
-
 export function abusePrincipalKey(input: RouterAbNormalSigningAdmissionInput): string {
   return [
     runtimePolicyScopeKey(input.runtimePolicyScope),
@@ -626,48 +435,6 @@ export function abusePrincipalKey(input: RouterAbNormalSigningAdmissionInput): s
     admissionAuthorityScope(input),
     input.curve,
   ].join('\x1f');
-}
-
-export function quotaScopeKey(
-  input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
-): string {
-  const base = [
-    runtimePolicyScopeKey(input.runtimePolicyScope),
-    input.walletId,
-    admissionAuthorityScope(input),
-    input.curve,
-    input.phase,
-    admissionAuthorizationIdentityKey(input),
-    input.walletSessionId,
-    input.quotaId,
-    input.requestId,
-    input.signingWorkerId,
-  ];
-  return base.join('\x1f');
-}
-
-export function quotaReservationExpiresAtMs(
-  input: RouterAbNormalSigningAdmissionInput,
-  nowMs: number,
-): number {
-  return Math.min(input.expiresAtMs, nowMs + ROUTER_AB_NORMAL_SIGNING_QUOTA_RESERVATION_TTL_MS);
-}
-
-export function normalSigningLifecycleId(
-  input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
-): string {
-  const base = [
-    input.curve,
-    input.phase,
-    input.walletId,
-    admissionAuthorityScope(input),
-    admissionAuthorizationIdentityKey(input),
-    input.walletSessionId,
-    input.quotaId,
-    input.requestId,
-    input.signingWorkerId,
-  ];
-  return base.join(':');
 }
 
 export function requireNonEmptyString(label: string, value: unknown): string {

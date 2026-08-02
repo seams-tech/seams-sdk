@@ -81,13 +81,11 @@ test('reads active Ed25519 status from exact runtime and active authorization', 
   });
 });
 
-test('reads active status from canonical authorization identity without a signing grant', async () => {
+test('reads active status from canonical authorization identity', async () => {
   const record = buildPasskeyEd25519SealedSessionRecordFixture();
   const runtime = parseExactEd25519SealedSessionRuntime(record);
   if (!runtime) throw new Error('expected exact Ed25519 runtime fixture');
-  const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(record, {
-    signingGrantId: '',
-  });
+  const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(record);
   const reader = createWarmSessionStatusReader({
     touchConfirm: {
       getWarmSessionStatus: async () => ({

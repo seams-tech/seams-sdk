@@ -54,7 +54,6 @@ function collectDuplicateDomainBrandViolations() {
     'EmailOtpRegistrationAttemptId',
     'OrgId',
     'AppSessionVersion',
-    'SigningGrantId',
     'ThresholdEd25519SessionId',
     'ThresholdEcdsaSessionId',
   ];

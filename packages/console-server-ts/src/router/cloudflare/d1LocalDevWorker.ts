@@ -1,6 +1,7 @@
 import type { RouterAbNormalSigningAdmissionInput } from '@seams/sdk-server/cloud-host';
 import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
 import { createCloudflareD1RouterAbNormalSigningAdmissionStore } from '@seams/sdk-server/cloud-host';
+import { createRouterAbNormalSigningAdmissionAdapter } from '@seams/sdk-server/cloud-host';
 import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from '../consoleAuth';
 import {
   createSigningRootSecretShareKekResolver,
@@ -23,7 +24,6 @@ import { createSigningSessionSealOptions } from '@seams/sdk-server/cloud-host';
 import { RouterAbEcdsaPresignRuntime } from '@seams/sdk-server/cloud-host';
 import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/cloud-host';
 import { createCloudflareRouter } from '@seams/sdk-server/cloud-host';
-import { createRouterAbPrivateD1WalletBudgetGrantProvisionerV1 } from '@seams/sdk-server/cloud-host';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import {
   createCloudflareD1ConsoleServiceBundle,
@@ -188,7 +188,7 @@ type ReadyD1SchemaResult = {
 
 type ReadyAdmissionResult = {
   readonly database: 'SIGNER_DB';
-  readonly quotaReservation: 'accepted' | 'reuse_existing';
+  readonly policy: 'allowed';
 };
 
 type LocalD1SigningRootShareRequest = {
@@ -1368,12 +1368,6 @@ function localD1RouterApiAuthServiceOptions(
     emailOtpGoogleRegistrationAttemptRateLimitWindowMs:
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
-    walletBudgetGrantProvisioner:
-      createRouterAbPrivateD1WalletBudgetGrantProvisionerV1({
-        routerBaseUrl: ROUTER_AB_MPC_ROUTER_ORIGIN,
-        internalServiceAuthSecret: localRouterAbInternalServiceAuthSecret(env),
-        fetchImpl: createRouterAbServiceBindingFetch(env),
-      }),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env).registration,
     ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
   };
@@ -1551,24 +1545,12 @@ async function runD1AdmissionSmoke(env: LocalD1DevEnv): Promise<ReadyAdmissionRe
     storageNamespace: localTenantStorageNamespace(env),
     now: () => nowMs,
   });
-  const result = await store.reserveQuota(input);
-  switch (result.kind) {
-    case 'accepted':
-    case 'reuse_existing':
-      return {
-        database: 'SIGNER_DB',
-        quotaReservation: result.kind,
-      };
-    case 'short_window_saturated':
-    case 'signer_queue_saturated':
-      throw new Error(`local D1 admission smoke failed: ${result.kind}`);
-    default:
-      return assertNeverAdmissionDecision(result);
+  const admission = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
+  const result = await admission.evaluatePolicy(input);
+  if (!result.ok) {
+    throw new Error(`local D1 admission smoke failed: ${result.code}`);
   }
-}
-
-function assertNeverAdmissionDecision(value: never): never {
-  throw new Error(`Unsupported local D1 admission decision: ${JSON.stringify(value)}`);
+  return { database: 'SIGNER_DB', policy: 'allowed' };
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {

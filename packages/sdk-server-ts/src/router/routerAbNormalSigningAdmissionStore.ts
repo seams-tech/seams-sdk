@@ -9,12 +9,9 @@ export {
 
 export type {
   CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
-  InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
   RouterAbNormalSigningAdmissionStore,
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningProjectPolicyProvider,
-  RouterAbNormalSigningQuotaDecision,
-  RouterAbNormalSigningQuotaStore,
 } from './routerAbNormalSigningAdmissionCore';

@@ -35,6 +35,11 @@ const materialActivation = buildMpcMaterialActivationRefFixture(
   'ed25519-transaction-selection',
   String(walletId),
 );
+const laneAuthorization = availableLaneEd25519Authorization({
+  walletId: String(walletId),
+  identitySeed: 'transaction-selection',
+  authMethod: 'passkey',
+});
 
 function signerSlot(value: number) {
   const parsed = parseSignerSlot(value);
@@ -74,12 +79,11 @@ function ed25519Lane(input: {
     ...base,
     authorizationState: 'authorized',
     authorization: availableLaneEd25519Authorization({
-      walletId,
+      walletId: String(walletId),
       identitySeed: 'transaction-selection',
       authMethod: laneAuth.kind,
     }),
     state: input.state,
-    signingGrantId: 'wss_ed25519_transaction_selection',
   };
 }
 
@@ -121,7 +125,8 @@ test('NEAR Ed25519 transaction ready lane carries exact lane authority', () => {
       kind: 'selected_lane',
       curve: 'ed25519',
       chain: 'near',
-      signingGrantId: 'wss_ed25519_transaction_selection',
+      walletSessionId: laneAuthorization.walletSessionId,
+      quotaId: laneAuthorization.quotaId,
       thresholdSessionId: 'tsess_ed25519_transaction_selection',
     },
   });
@@ -143,7 +148,10 @@ test('NEAR Ed25519 transaction ready lanes admit restorable lanes and reject def
   expect(readyLanes).toHaveLength(1);
   expect(readyLanes[0]?.availableLane).toMatchObject({
     state: 'restorable',
-    signingGrantId: 'wss_ed25519_transaction_selection',
+    authorization: {
+      walletSessionId: laneAuthorization.walletSessionId,
+      quotaId: laneAuthorization.quotaId,
+    },
     thresholdSessionId: 'tsess_ed25519_transaction_selection',
   });
   expect(toNearEd25519TransactionReadyLane(deferred)).toBeNull();
@@ -160,7 +168,6 @@ test('NEAR Ed25519 availability preserves a grant-free deferred material candida
     state: 'deferred',
     thresholdSessionId: 'tsess_ed25519_transaction_selection',
   });
-  expect(deferred).not.toHaveProperty('signingGrantId');
 });
 
 for (const laneAuth of [
@@ -203,7 +210,6 @@ for (const laneAuth of [
       },
     });
     expect(selected).not.toHaveProperty('lane');
-    expect(selected).not.toHaveProperty('signingGrantId');
   });
 }
 
@@ -233,7 +239,10 @@ test('NEAR Ed25519 transaction selection carries expired durable lanes as reauth
     kind: 'near_ed25519_transaction_reauth_lane',
     availableLane: {
       state: 'expired',
-      signingGrantId: 'wss_ed25519_transaction_selection',
+      authorization: {
+        walletSessionId: laneAuthorization.walletSessionId,
+        quotaId: laneAuthorization.quotaId,
+      },
       thresholdSessionId: 'tsess_ed25519_transaction_selection',
     },
   });
@@ -241,7 +250,10 @@ test('NEAR Ed25519 transaction selection carries expired durable lanes as reauth
     ok: true,
     availableLane: {
       state: 'expired',
-      signingGrantId: 'wss_ed25519_transaction_selection',
+      authorization: {
+        walletSessionId: laneAuthorization.walletSessionId,
+        quotaId: laneAuthorization.quotaId,
+      },
       thresholdSessionId: 'tsess_ed25519_transaction_selection',
     },
     selectionCandidate: {
@@ -273,12 +285,16 @@ test('NEAR Ed25519 transaction selection accepts restorable runtime lanes', () =
     lane: {
       curve: 'ed25519',
       chain: 'near',
-      signingGrantId: 'wss_ed25519_transaction_selection',
+      walletSessionId: laneAuthorization.walletSessionId,
+      quotaId: laneAuthorization.quotaId,
       thresholdSessionId: 'tsess_ed25519_transaction_selection',
     },
     availableLane: {
       state: 'restorable',
-      signingGrantId: 'wss_ed25519_transaction_selection',
+      authorization: {
+        walletSessionId: laneAuthorization.walletSessionId,
+        quotaId: laneAuthorization.quotaId,
+      },
       thresholdSessionId: 'tsess_ed25519_transaction_selection',
     },
   });
@@ -333,7 +349,6 @@ test('NEAR Ed25519 transaction selection binds the requested account before reso
     nearAccountId: requestedNearAccountId,
     nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('ed25519ks_second-key'),
     signerSlot: 2,
-    signingGrantId: 'wss_ed25519_transaction_selection_second',
     thresholdSessionId: 'tsess_ed25519_transaction_selection_second',
   } satisfies AvailableEd25519SigningLane;
 
@@ -365,7 +380,6 @@ test('NEAR Ed25519 transaction selection binds an explicit signer slot within on
     ...first,
     nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('ed25519ks_same-account-slot-two'),
     signerSlot: 2,
-    signingGrantId: 'wss_ed25519_transaction_selection_slot_two',
     thresholdSessionId: 'tsess_ed25519_transaction_selection_slot_two',
   } satisfies AvailableEd25519SigningLane;
 

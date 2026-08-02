@@ -130,7 +130,7 @@ test.describe('step-up authorization builders', () => {
 
   // A passkey step-up authorization is now the plan plus the credential and
   // nothing else. It used to carry a `plannedPasskeyReconnect` webauthn
-  // challenge keyed by `thresholdSessionId` and `signingGrantId` -- the
+  // challenge keyed by threshold-session authorization -- the
   // session-identity bridge Refactor 90 deletes. The operation a step-up
   // authorizes is named by the prepared operation, not by a reconnect
   // challenge, so there is no shape here for those identifiers to live in.

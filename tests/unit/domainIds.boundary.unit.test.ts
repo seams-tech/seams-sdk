@@ -20,7 +20,6 @@ import {
   parseThresholdEd25519SessionId,
   parseThresholdSessionId,
   parseWalletId,
-  parseSigningGrantId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseD1BoundaryWalletIdResult } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthBoundary';
@@ -34,7 +33,6 @@ const parsers = [
   { name: 'emailOtpRegistrationAttemptId', parse: parseEmailOtpRegistrationAttemptId },
   { name: 'orgId', parse: parseOrgId },
   { name: 'appSessionVersion', parse: parseAppSessionVersion },
-  { name: 'signingGrantId', parse: parseSigningGrantId },
   { name: 'thresholdEd25519SessionId', parse: parseThresholdEd25519SessionId },
   { name: 'thresholdEcdsaSessionId', parse: parseThresholdEcdsaSessionId },
   { name: 'thresholdSessionId', parse: parseThresholdSessionId },

@@ -73,7 +73,8 @@ function ed25519Lane(
     nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
     signerSlot: 1,
     state: options.state ?? 'ready',
-    signingGrantId: `wss-ed25519-${suffix}`,
+    walletSessionId: `wss-ed25519-${suffix}`,
+    quotaId: `quota-ed25519-${suffix}`,
     thresholdSessionId: `tsess-ed25519-${suffix}`,
     remainingUses: options.remainingUses ?? 3,
     expiresAtMs: options.expiresAtMs ?? 1_900_000_000_000,
@@ -189,7 +190,8 @@ test.describe('wallet runtime postconditions', () => {
     expect(inventory.ed25519).toMatchObject({
       authMethod: 'passkey',
       target: { curve: 'ed25519' },
-      signingGrantId: 'wss-ed25519-candidate-backed-unlock',
+      walletSessionId: 'wss-ed25519-candidate-backed-unlock',
+      quotaId: 'quota-ed25519-candidate-backed-unlock',
       material: { kind: 'runtime_session_record' },
     });
   });

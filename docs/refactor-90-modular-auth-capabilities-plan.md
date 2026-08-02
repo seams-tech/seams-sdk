@@ -1648,6 +1648,18 @@ budget-only unit coverage was deleted in `5dbabdfc8`. Unit 3c remains open for
 the live TypeScript Ed25519 reserve/commit store path, remaining grant-bearing
 worker/server surfaces, and final claim and quota migration.
 
+The next deletion checkpoint is `882dfd681`. It removes the remaining
+TypeScript Router budget persistence/parser surface, the callerless local
+signing-seed runtime and factory wiring, obsolete wallet-budget status and
+parser tests, and grant-named admission/cache identities in the SDK, local
+smoke wire, console admission fixture, and current documentation. The focused
+wallet-session quota admission suite is green (5/5); Router normal-signing
+validation and EVM retry suites are green (9/9); SDK-server, SDK-web, and
+shared TypeScript typechecks pass. The Unit 3c identity sweep and shared
+Ed25519 atomic claim/quota move remain open. Registration activation tests
+still expose the known Refactor 94C fixture/activation mismatch and are not
+claimed as Unit 3c evidence.
+
 ### Canonical authorization identities
 
 - [x] Remove the inert ECDSA admission-policy `signingGrantId` input and make
@@ -1705,6 +1717,12 @@ worker/server surfaces, and final claim and quota migration.
       test reserve/commit/release APIs and rows after their final Ed25519 caller
       moves. Reject or clear old persisted rows at the owning persistence
       boundary without exposing a dual-schema core path.
+  - [x] Rust Router reserve/validate/commit/release protocol, public route,
+        current-row wiring, TypeScript Router budget runtime/store/provisioner,
+        and callerless local-seed runtime deleted (`cb7bc901c`, `8cfd03530`,
+        `a68f73437`, `f79921609`, `805521710`, `882dfd681`).
+  - [ ] Move the remaining live Ed25519 reusable-session quota caller to the
+        shared atomic claim/quota owner, then close this parent item.
 
 ### Client, UI, and persistence cleanup
 

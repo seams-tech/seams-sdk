@@ -24,6 +24,7 @@ import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/id
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { canonicalEcdsaAvailableLane } from './helpers/availableSigningLanes.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
@@ -47,6 +48,11 @@ const ED25519_MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
   'ed25519-export-lane',
   WALLET_ID,
 );
+const ED25519_AUTHORIZATION = availableLaneEd25519Authorization({
+  walletId: WALLET_ID,
+  identitySeed: 'export-lane',
+  authMethod: 'passkey',
+});
 
 function passkeySigningAuth(rpId = toRpId(RP_ID)) {
   return {
@@ -126,12 +132,12 @@ function ed25519Lane(
     nearEd25519SigningKeyId: NEAR_ED25519_SIGNING_KEY_ID,
     signerSlot: 1,
     state: 'ready',
-    signingGrantId: 'wallet-session-ed25519-export',
     thresholdSessionId: 'threshold-session-ed25519-export',
     remainingUses: 3,
     expiresAtMs: 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,
     source: 'runtime_session_record',
+    authorization: ED25519_AUTHORIZATION,
     ...overrides,
   };
 }
@@ -238,7 +244,8 @@ test.describe('Ed25519 export lane selection', () => {
           kind: 'passkey',
           credentialIdB64u: PASSKEY_CREDENTIAL_ID,
         }),
-        signingGrantId: lane.signingGrantId,
+        walletSessionId: ED25519_AUTHORIZATION.walletSessionId,
+        quotaId: ED25519_AUTHORIZATION.quotaId,
         thresholdSessionId: lane.thresholdSessionId,
       }),
       materialActivation: lane.materialActivation,
@@ -264,7 +271,8 @@ test.describe('Ed25519 export lane selection', () => {
       kind: 'ed25519',
       laneIdentity: expect.objectContaining({
         kind: 'exact_signing_lane',
-        signingGrantId: lane.signingGrantId,
+        walletSessionId: ED25519_AUTHORIZATION.walletSessionId,
+        quotaId: ED25519_AUTHORIZATION.quotaId,
         thresholdSessionId: lane.thresholdSessionId,
       }),
       materialActivation: lane.materialActivation,
@@ -290,7 +298,8 @@ test.describe('Ed25519 export lane selection', () => {
           kind: 'email_otp',
           providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
         },
-        signingGrantId: lane.signingGrantId,
+        walletSessionId: ED25519_AUTHORIZATION.walletSessionId,
+        quotaId: ED25519_AUTHORIZATION.quotaId,
         thresholdSessionId: lane.thresholdSessionId,
       }),
       materialActivation: lane.materialActivation,
@@ -317,7 +326,8 @@ test.describe('Ed25519 export lane selection', () => {
       ).resolves.toEqual({
         kind: 'ed25519',
         laneIdentity: expect.objectContaining({
-          signingGrantId: lane.signingGrantId,
+          walletSessionId: ED25519_AUTHORIZATION.walletSessionId,
+          quotaId: ED25519_AUTHORIZATION.quotaId,
           thresholdSessionId: lane.thresholdSessionId,
         }),
         materialActivation: lane.materialActivation,

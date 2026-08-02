@@ -451,7 +451,7 @@ function checkOptionalLifecycleFieldsStayBehindNarrowBoundaries() {
   ]);
   const offenders = [];
   const pattern =
-    /sessionId\?: string|signingGrantId\?: string|thresholdSessionId\?: string|walletSessionRouteAuth\?:(?!\s*never\b)|webauthnAuthentication\?:(?!\s*never\b)|clientRootShare32B64u\?:(?!\s*never\b)|warmRecord\?:|warmKeyRef\?:|reauthRecord\?:|emailOtpAuthContext\?:(?!\s*never\b)/;
+    /sessionId\?: string|thresholdSessionId\?: string|walletSessionRouteAuth\?:(?!\s*never\b)|webauthnAuthentication\?:(?!\s*never\b)|clientRootShare32B64u\?:(?!\s*never\b)|warmRecord\?:|warmKeyRef\?:|reauthRecord\?:|emailOtpAuthContext\?:(?!\s*never\b)/;
 
   for (const root of searchRoots) {
     for (const relativePath of listTsFiles(root)) {
@@ -535,7 +535,6 @@ function checkServerBudgetStatusRoutesStayParserOwned() {
     for (const forbidden of [
       'parseThresholdEcdsaSessionClaims',
       'parseThresholdEd25519SessionClaims',
-      'body.signingGrantId',
       'body.thresholdSessionId',
     ]) {
       if (source.includes(forbidden)) {
@@ -561,22 +560,12 @@ function checkRawEcdsaIdentityParsingStaysOutOfInternals() {
     {
       name: 'object field identity parsing',
       pattern:
-        /(thresholdSessionId|signingGrantId)\s*:\s*String\((?:[^)\n]*)(?:thresholdSessionId|signingGrantId)(?:[^)\n]*)\)\.trim\(/g,
+        /thresholdSessionId\s*:\s*String\((?:[^)\n]*)thresholdSessionId(?:[^)\n]*)\)\.trim\(/g,
     },
     {
       name: 'raw identity comparison',
       pattern:
-        /String\([^;\n]*(?:thresholdSessionId|signingGrantId)[^;\n]*\)\.trim\(\)\s*(?:={2,3}|!={1,2})\s*String\([^;\n]*(?:thresholdSessionId|signingGrantId)[^;\n]*\)\.trim\(\)/g,
-    },
-    {
-      name: 'paired local identity parsing',
-      pattern:
-        /\b(?:const|let)\s+\w*(?:ThresholdSessionId|SessionId)\s*=\s*String\([^;\n]*thresholdSessionId[^;\n]*\)\.trim\(\)[\s\S]{0,240}\b(?:const|let)\s+\w*SigningGrantId\s*=\s*String\([^;\n]*signingGrantId[^;\n]*\)\.trim\(\)/g,
-    },
-    {
-      name: 'paired local identity parsing',
-      pattern:
-        /\b(?:const|let)\s+\w*SigningGrantId\s*=\s*String\([^;\n]*signingGrantId[^;\n]*\)\.trim\(\)[\s\S]{0,240}\b(?:const|let)\s+\w*(?:ThresholdSessionId|SessionId)\s*=\s*String\([^;\n]*thresholdSessionId[^;\n]*\)\.trim\(\)/g,
+        /String\([^;\n]*thresholdSessionId[^;\n]*\)\.trim\(\)\s*(?:={2,3}|!={1,2})\s*String\([^;\n]*thresholdSessionId[^;\n]*\)\.trim\(\)/g,
     },
   ];
 
@@ -1040,7 +1029,6 @@ function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
     'derivationClientSharePublicKey33B64u',
     'contextBinding32B64u',
     'sessionId',
-    'signingGrantId',
     'participantIds',
   ];
 
@@ -1160,7 +1148,7 @@ function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
       'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',
     ],
   ]) {
-    for (const field of ['signingGrantId', 'thresholdSessionId']) {
+    for (const field of ['thresholdSessionId']) {
       if (new RegExp(`\\b${field}\\s*:`).test(block)) {
         offenders.push(`${context} carries concrete ${field}`);
       }

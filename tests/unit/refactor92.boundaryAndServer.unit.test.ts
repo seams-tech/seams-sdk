@@ -42,7 +42,8 @@ const LANE = buildEd25519PasskeySigningLane({
     rpId: toRpId('localhost'),
     credentialIdB64u: 'refactor-92-credential',
   },
-  signingGrantId: SigningSessionIds.signingGrant('refactor-92-grant'),
+  walletSessionId: SigningSessionIds.walletSession('refactor-92-wallet-session'),
+  quotaId: SigningSessionIds.walletSessionQuota('refactor-92-quota'),
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session('refactor-92-session'),
   storageSource: 'login',
 });
@@ -104,7 +105,8 @@ test('Refactor 92 boundary parser classifies equality and elapsed time as expire
     ).toEqual({
       kind: 'expired',
       walletId: LANE.identity.signer.account.wallet.walletId,
-      signingGrantId: LANE.signingGrantId,
+      walletSessionId: LANE.walletSessionId,
+      quotaId: LANE.quotaId,
       authMethod: 'passkey',
       laneIdentity: LANE.identity,
       expiresAtMs,

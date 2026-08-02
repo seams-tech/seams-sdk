@@ -106,8 +106,6 @@ test.describe('recovery step-up authorization', () => {
       nearAccountId: 'alice.testnet',
       nearEd25519SigningKeyId: 'near-ed25519-key-1',
       signerSlot: 3,
-      thresholdSessionId: 'threshold-session-1',
-      signingGrantId: 'signing-grant-1',
       emailOtpPrompt: { challengeId: 'challenge-ed25519' },
       decision: {
         confirmed: true,
@@ -133,8 +131,6 @@ test.describe('recovery step-up authorization', () => {
       nearAccountId: 'alice.testnet',
       nearEd25519SigningKeyId: 'near-ed25519-key-1',
       signerSlot: 3,
-      thresholdSessionId: 'threshold-session-1',
-      signingGrantId: 'signing-grant-1',
     });
   });
 });

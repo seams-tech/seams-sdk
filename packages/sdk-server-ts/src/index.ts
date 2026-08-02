@@ -221,14 +221,11 @@ export {
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
   type CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
-  type InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   type RouterAbNormalSigningAbuseDecision,
   type RouterAbNormalSigningAbuseProvider,
   type RouterAbNormalSigningAdmissionStore,
   type RouterAbNormalSigningProjectPolicyDecision,
   type RouterAbNormalSigningProjectPolicyProvider,
-  type RouterAbNormalSigningQuotaDecision,
-  type RouterAbNormalSigningQuotaStore,
 } from './router/routerAbNormalSigningAdmissionStore';
 export * from './email-recovery';
 export * from './threshold/session/signingSessionSeal';

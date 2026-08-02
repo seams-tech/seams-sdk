@@ -42,7 +42,6 @@ type ClaimsFixtureInput = {
   walletSessionId: string;
   quotaId: string;
   thresholdSessionId: string;
-  signingGrantId: string;
   rootShareEpoch: string;
   participantIds: readonly number[];
   signingWorkerId: string;
@@ -267,7 +266,6 @@ function validClaimsFixture(input?: Partial<ClaimsFixtureInput>): SessionClaims 
     walletSessionId: input?.walletSessionId ?? WALLET_SESSION_ID,
     quotaId: input?.quotaId ?? 'quota-recovery-1',
     thresholdSessionId: input?.thresholdSessionId ?? THRESHOLD_SESSION_ID,
-    signingGrantId: input?.signingGrantId ?? 'signing-grant-recovery-1',
     rootShareEpoch: input?.rootShareEpoch ?? ROOT_SHARE_EPOCH,
     participantIds: input?.participantIds ?? PARTICIPANT_IDS,
     signingWorkerId: input?.signingWorkerId ?? SIGNING_WORKER_ID,
@@ -287,7 +285,6 @@ function validClaimsFixture(input?: Partial<ClaimsFixtureInput>): SessionClaims 
     walletSessionId: values.walletSessionId,
     quotaId: values.quotaId,
     thresholdSessionId: values.thresholdSessionId,
-    signingGrantId: values.signingGrantId,
     relayerKeyId: values.signingWorkerId,
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
