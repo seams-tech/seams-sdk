@@ -1543,6 +1543,11 @@ the replacement and legacy MPC paths must not ship together.
       (`57849eda9`). Workspace Rust checks
       for router-ab-core, router-ab-ecdsa-client-protocol, router-ab-cloudflare,
       and router-ab-ed25519-yao-client also pass (`c2a6bbf04`).
+  - [ ] Broad unit gate was rerun after the full build: 1,740 passed, 197
+        failed, and 11 skipped out of 1,948 collected tests. The failures are
+        lower-authority stale fixtures and environment-gated local D1/JWK,
+        Google-identity, and UI timing cases; the focused identity regression
+        remains green. Keep this gate open until the failures are reconciled.
 - [ ] No legacy and replacement MPC path coexist in a releasable tree.
 
 ## Unit 3b — Vault Proving Vertical
