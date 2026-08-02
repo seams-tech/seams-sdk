@@ -105,7 +105,8 @@ test.describe('Email OTP ECDSA publication targets', () => {
       buildEmailOtpEcdsaReadyPersistInput({
         walletId: toWalletId('wallet.testnet'),
         chainTarget: tempoTarget,
-        signingGrantId: 'signing-grant-1',
+        walletSessionId: 'wallet-session-ecdsa-publication',
+        quotaId: 'wallet-quota-ecdsa-publication',
         thresholdSessionId: 'threshold-ecdsa-session-1',
         emailOtpAuthContext: sessionLoginAuthContext,
       }),
@@ -114,7 +115,8 @@ test.describe('Email OTP ECDSA publication targets', () => {
       curve: 'ecdsa',
       walletId: 'wallet.testnet',
       chainTarget: tempoTarget,
-      signingGrantId: 'signing-grant-1',
+      walletSessionId: 'wallet-session-ecdsa-publication',
+      quotaId: 'wallet-quota-ecdsa-publication',
       thresholdSessionId: 'threshold-ecdsa-session-1',
       emailOtpAuthContext: sessionLoginAuthContext,
       material: {

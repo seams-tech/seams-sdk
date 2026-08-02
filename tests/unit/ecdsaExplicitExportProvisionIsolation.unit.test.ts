@@ -135,5 +135,4 @@ test('dedicated ECDSA export provision keeps material auth-neutral and quota-neu
   });
   expect(Object.keys(result)).not.toContain('walletSessionJwt');
   expect(Object.keys(result)).not.toContain('thresholdSessionId');
-  expect(Object.keys(result)).not.toContain('signingGrantId');
 });
