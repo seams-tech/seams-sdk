@@ -4,8 +4,8 @@ Created: 2026-06-28
 
 Consolidated: 2026-07-27
 
-Status: **in progress — Unit 1 implementation and Unit 3b complete; Unit 2
-operating core complete; Units 3a and 4 in progress**
+Status: **in progress — Units 1, 2, and 3b complete; Unit 3a and Unit 4
+implementation complete with acceptance open; Unit 3c planned**
 
 This document is the execution tracker for
 [the normative SPEC](./refactor-90-modular-auth-capabilities-SPEC.md). If this plan
@@ -102,7 +102,9 @@ The completed system must:
 3. persist only durable state and keep secret material in its intended owner;
 4. claim authorization and reusable-session quota atomically;
 5. use the same lifecycle rules for Passkey and Email OTP;
-6. remove replaced paths in the same change that installs their replacement.
+6. remove replaced paths in the same change that installs their replacement;
+7. use `WalletSessionId`, `MpcWalletSigningQuotaId`, and
+   `CapabilityGrantId` directly, with no curve-specific `SigningGrantId`.
 
 ## Scope
 
@@ -144,8 +146,8 @@ their implementation ownership without restating them.
 | Durable recovery journals                        | `R90-INV-004`, `R90-INV-005`, `R90-INV-006`, `R90-INV-007`                               | Units 1 and 3a     | Durable state records server uncertainty and final material promotion only.                                 |
 | Preparation outcomes                             | `R90-INV-010`                                                                            | Units 3a and 4     | Every preparation ends as `ready`, `pending`, `authorization_required`, `superseded`, or `failed`.          |
 | Material serialization and secret ownership      | `R90-INV-008`                                                                            | Unit 3a            | Workers and WASM own live secret material; generic code receives typed references.                          |
-| Evidence, grants, operation claims, and quota    | `R90-INV-009`                                                                            | Units 2 and 3a     | One fingerprint and one atomic claim govern retries and reusable-session use.                               |
-| Revocation and session expiry                    | `R90-INV-006`, `R90-INV-009`, `R90-INV-013`, `R90-INV-014`                               | Units 1, 3a, and 4 | Authorization, material activation, and operation grants remain separate identities.                        |
+| Evidence, grants, operation claims, and quota    | `R90-INV-009`                                                                            | Units 2, 3a, and 3c | One fingerprint and one atomic claim govern retries and reusable-session use.                              |
+| Revocation and session expiry                    | `R90-INV-006`, `R90-INV-009`, `R90-INV-013`, `R90-INV-014`                               | Units 1, 3a, 3c, and 4 | Authorization, quota, material activation, and operation grants remain separate identities.             |
 | Minimal vault proof                              | `R90-INV-009`, `R90-INV-012`                                                             | Unit 3b            | One real secret operation proves the shared authorization core.                                             |
 | Boundary enforcement                             | `R90-INV-012`                                                                            | All units          | Each failure mode has one cheapest effective enforcement.                                                   |
 
@@ -170,7 +172,7 @@ The SPEC owns every branch payload, parser, transition, and atomicity rule.
 ## Execution Model
 
 The old phase numbers remain useful for history and the deletion ledger. Active
-work is tracked in five units.
+work is tracked in six units.
 
 | Unit                                               | Consolidates                                             | Dependency                                                                                         | Result                                                                                                             |
 | -------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -178,12 +180,13 @@ work is tracked in five units.
 | **2. Shared authorization core**                   | Phases 7–14, including Phase 8 SDK selection             | Atomic claim core complete; effect-owner response replay awaits Refactor 94C                       | Closed capability vocabulary plus DB-backed session → evidence → grant → claim → audit flow.                       |
 | **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | Core operating paths and production record deletion complete; acceptance and residual cleanup open | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
 | **3b. Vault proving vertical**                     | Phase 16                                                 | Complete                                                                                           | [Satyr vault plan Phase 6](./satyr-secrets-vault.md) proves one real vault operation.                              |
+| **3c. Signing grant identity elimination**         | Final authorization/quota convergence                    | Units 2 and 3a complete their canonical claim and wire foundations                                 | Both MPC curves use Wallet Session, quota, and capability-grant identities directly; `SigningGrantId` is absent.   |
 | **4. UI + provisioning**                           | Phases 22–23                                             | Provisioning and typed lifecycle implementation complete; cleanup and Refactor 92 acceptance open  | Typed lifecycle events and provisioning use the canonical capability model.                                        |
 
 Units 3a and 3b may be implemented in parallel after Unit 2 interfaces
-stabilize. Unit 3b does not block development of the MPC cutover. Supported
-release and Refactor 90 completion still require both proving tracks unless the
-SPEC and Satyr plan are amended together.
+stabilize. Unit 3c begins after the Unit 2 claim core and Unit 3a breaking wire
+cutover are stable. Unit 3b does not block development of the MPC cutover.
+Supported release and Refactor 90 completion require Units 3a, 3b, and 3c.
 
 ### Historical phase disposition
 
@@ -200,6 +203,7 @@ SPEC and Satyr plan are amended together.
 | 22–23                   | Merged into Unit 4.                                                                                         |
 | 24                      | Host call-site migration inside the Unit 3a cutover.                                                        |
 | 27                      | Removed as a work phase; same-change deletion is enforced per unit, followed by the final conformance gate. |
+| New closeout phase      | Unit 3c removes the legacy `SigningGrantId` identity and its curve-specific quota flows.                    |
 
 ## Working Rules
 
@@ -1593,6 +1597,122 @@ does not block the Unit 3a implementation checkpoint. Refactor 90 completion
 and its supported release gate still require this proving vertical unless the
 normative plans are amended together.
 
+## Unit 3c — Signing Grant Identity Elimination, No Release
+
+Invariants: `R90-INV-009`, `R90-INV-012`, `R90-INV-013`,
+`R90-INV-014`.
+
+`SigningGrantId` is a legacy signing-session identity that overlaps the
+canonical authorization model. A reusable operation already has an exact
+`WalletSessionId` and `MpcWalletSigningQuotaId`; a one-operation authority has
+an exact `CapabilityGrantId` and `CapabilityGrantUseId`; material is identified
+independently by `MpcMaterialActivationRef`. Unit 3c removes
+`SigningGrantId` as a domain concept across Ed25519 and ECDSA.
+
+This is a coordinated breaking cutover. It is not a mechanical rename, and it
+must not introduce a compatibility alias or let a quota, grant, session, or
+material identifier substitute for another.
+
+### Canonical authorization identities
+
+- [ ] Add every live `SigningGrantId`, `signingGrantId`, and
+      `signing_grant_id` production occurrence to the deletion ledger and
+      classify it as reusable-session authorization, quota, operation grant,
+      persistence boundary, or obsolete projection. No live occurrence may be
+      classified as material identity.
+- [ ] Make reusable authorization carry only the exact `WalletSessionId`,
+      `MpcWalletSigningQuotaId`, authority, expiry, and operation context.
+      Remove `signingGrantId` from Wallet Session JWT claims, verified session
+      auth, mint/bootstrap responses, session exchange, refresh, and status
+      projections for both curves.
+- [ ] Issue and consume canonical `CapabilityGrantId` and
+      `CapabilityGrantUseId` values for each authorized signing operation.
+      Bind the grant to the exact capability, operation, digests, material
+      activation, and reusable Wallet Session/quota branch or operation-step-up
+      branch.
+- [ ] Change the ECDSA `authorization_claim` reusable branch to carry the
+      canonical capability grant rather than the verified Wallet Session's
+      `signing_grant_id`. Keep strict Rust and TypeScript parsing atomic and
+      reject the old field.
+- [ ] Keep `MpcMaterialActivationRef` and curve-specific threshold-session
+      identity independent from Wallet Session, quota, and capability-grant
+      identities. Material, sealed records, restore leases, worker handles,
+      and hydration state must reject every authorization identifier.
+
+### Atomic claim and quota ownership
+
+- [ ] Move Ed25519 reusable-session quota consumption from the Router
+      reserve/commit/release protocol to the Unit 2 authorization core's atomic
+      absent-claim transaction at the durable Gateway D1 owner. The transaction
+      validates the exact grant, consumes the applicable quota once, creates
+      the operation claim, and records audit linkage.
+- [ ] Keep SigningWorker private D1 responsible only for cryptographic effect
+      deduplication, presignature or Yao material consumption, and terminal
+      response replay. It must receive a typed accepted claim and must not own
+      Wallet Session quota state.
+- [ ] Preserve lifecycle semantics: reusable signing consumes one quota use;
+      replay consumes none; operation step-up consumes only its one-operation
+      grant; export consumes no signing quota; expiry and exhaustion remain
+      distinct; failed, stale, mismatched, or superseded operations consume
+      nothing.
+- [ ] Delete Router, runtime, store, Redis, Durable Object, worker, client, and
+      test reserve/commit/release APIs and rows after their final Ed25519 caller
+      moves. Reject or clear old persisted rows at the owning persistence
+      boundary without exposing a dual-schema core path.
+
+### Client, UI, and persistence cleanup
+
+- [ ] Remove `signingGrantId` from signing lanes, readiness and availability
+      records, warm-capability state, session policies, expiry invalidation,
+      browser/iframe envelopes, UI confirmation payloads, local persistence,
+      worker requests, logs, and public APIs.
+- [ ] Use `CapabilityGrantPlan`/`CapabilityGrantId` for operation confirmation
+      and use `WalletSessionId` plus `MpcWalletSigningQuotaId` for reusable
+      lifecycle display and status. Display state must remain non-authoritative.
+- [ ] Delete the `SigningGrantId` branded type, parser, generator, exports,
+      builders, adapters, source guards, fixtures, mocks, and documentation
+      after all production callers move.
+- [ ] Remove `signing_grant_id` from current Rust and TypeScript wire schemas
+      and generated bindings in the same change. Historical migrations may
+      retain the old column name only when migration immutability requires it;
+      the current schema and boundary parsers must reject or remove it, and the
+      deletion ledger must record that boundary-only exception.
+- [ ] Regenerate authoritative Rust-to-TypeScript bindings and affected vectors
+      once after the wire shapes stabilize. Never hand-edit generated output.
+
+### Focused verification
+
+- [ ] One focused reusable-session operating-path test per curve proves exact
+      Wallet Session/quota binding, one atomic quota consumption, operation
+      claim creation, signing success, and replay without another consumption.
+- [ ] One focused operation-step-up test proves a canonical capability grant
+      authorizes exactly one operation and carries no Wallet Session or quota
+      identity.
+- [ ] Existing expiry, exhaustion, export-without-quota, hostile substitution,
+      and durable effect-replay cases pass after the cutover. Add no duplicate
+      enforcement for invariants already owned by those tests.
+- [ ] Type fixtures reject `SigningGrantId`, `signingGrantId`, and
+      `signing_grant_id` in current session, grant, quota, material, worker, and
+      UI shapes.
+- [ ] Run focused type, wire, claim/quota, worker, binding, and vector checks
+      while implementing. Run the broad unit and intended-behavior gates once
+      at final conformance.
+
+### Unit 3c exit
+
+- [ ] No live production, test, generated-binding, public-documentation, or
+      current-schema occurrence of `SigningGrantId`, `signingGrantId`, or
+      `signing_grant_id` remains. Any immutable historical migration occurrence
+      is boundary-only and explicitly recorded.
+- [ ] Ed25519 and ECDSA use the same reusable-session → capability grant →
+      atomic claim/quota → exact material activation authorization sequence.
+- [ ] The legacy Router reserve/commit/release budget protocol and its persisted
+      rows, fixtures, and guards are deleted.
+- [ ] Focused reusable, step-up, expiry, exhaustion, export, replay, hostile
+      substitution, binding, and vector checks pass.
+- [ ] All Unit 3c deletion-ledger entries are closed with implementing commit
+      evidence.
+
 ## Unit 4 — UI + Provisioning
 
 Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
@@ -1683,13 +1803,12 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 
 This is a validation gate, not a deferred cleanup phase.
 
-- [x] Every applicable deletion-ledger entry is closed; retained live rows are
-      explicitly reassigned in the deletion ledger to their canonical owners
-      or to a follow-on plan outside Refactor 90 scope.
-- [x] Prohibited legacy symbols, routes, imports, exports, aliases, record
+- [ ] Every applicable deletion-ledger entry is closed. Unit 3c owns the
+      previously retained `SigningGrantId` and Router budget rows.
+- [ ] Prohibited legacy symbols, routes, imports, exports, aliases, record
       families, and obsolete source guards are absent. Remaining `sessionId`
-      fields are ceremony, handle, presign, request, or UI identities rather
-      than threshold-session compatibility aliases.
+      fields may be ceremony, handle, presign, request, or UI identities;
+      `SigningGrantId` has no retained live exception.
 - [x] Required factor-neutral, worker/WASM, import, and bundle guards pass.
       Key-export custody, ECDSA worker ownership, signing-engine architecture
       and identity, and static-wallet-asset checks pass after the latest
@@ -1757,6 +1876,7 @@ short execution view.
 | 2     | Schema/boundary tests, authorization integration, atomic claim concurrency, host-port contracts         |
 | 3a    | MPC intended behaviors, recovery fault injection, vectors/bindings, worker/WASM/bundle and host checks  |
 | 3b    | Satyr Phase 6 end-to-end vault operation and authorization/audit assertions                             |
+| 3c    | Reusable/step-up claim and quota tests, strict wire bindings, identity type fixtures, and deletion sweep |
 | 4     | UI type fixtures and intended registration/unlock/refresh/expiry/exhaustion tests                       |
 | Final | Full intended suite, architecture/export guards, deletion ledger, and diff hygiene                      |
 
@@ -1770,9 +1890,12 @@ SPEC and intended behavior before changing production code.
 2. **Unit 2 checkpoint:** the DB-backed authorization integration gate passes.
 3. **Unit 3a and 3b checkpoints:** proceed in parallel once Unit 2 interfaces
    stabilize; each lands as an independently reviewable checkpoint.
-4. **Unit 4 checkpoint:** UI and provisioning consume stable capability
-   interfaces.
-5. **Final checkpoint:** all deletion and conformance gates pass.
+4. **Unit 3c checkpoint:** remove `SigningGrantId` after the shared claim core
+   and MPC wire boundaries are stable.
+5. **Unit 4 checkpoint:** UI and provisioning consume stable capability
+   interfaces; rerun its narrow lifecycle checks after Unit 3c removes the
+   final signing-specific grant projection.
+6. **Final checkpoint:** all deletion and conformance gates pass.
 
 Pull or merge `dev` at stable checkpoint boundaries. Re-run the narrow
 unit-owned validation after reconciliation before continuing.

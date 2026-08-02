@@ -21,6 +21,8 @@ commit references stay understandable. Current ownership is:
 - Unit 2: Phases 7–14;
 - Unit 3a: Phases 17–21, 24, the authorization/wire portion of historical
   Phase 18, and MPC-owned final deletions;
+- Unit 3c: the final `SigningGrantId` identity, Ed25519 Router budget flow, and
+  cross-curve authorization/quota convergence;
 - Unit 4: Phases 22–23 and UI-owned final deletions.
 
 Historical Phase 6 inventory is absorbed by every unit. Unit 3b adds and closes
@@ -37,8 +39,10 @@ focused regression test proves the two identifiers stay distinct
 `EnsureWarmEcdsaCapabilityReadyResult` carrier were deleted in the same
 checkpoint. No additional safe production deletions were found.
 
-Retained rows are intentional: the Ed25519 `signingGrantId` quota boundary and
-Email OTP NEAR challenge remain live operation-owned interfaces; generated
+The Ed25519 `signingGrantId` quota boundary is temporarily retained until Unit
+3c replaces it with canonical Wallet Session, quota, capability-grant, and
+operation-claim identities. The Email OTP NEAR challenge remains a live
+operation-owned interface; generated
 passkey-only WASM class names require a coordinated binding rebuild and are not
 safe source-only deletions. The historical `missing_hot_material` and removed
 ECDSA budget fixture references in older refactor documents are documentation
@@ -73,12 +77,13 @@ The ECDSA worker-share and presign handoff now use `thresholdSessionId`; the
 one-shot Email OTP client-root handle retains its own local `sessionId`
 (`fae146131`).
 
-The remaining Ed25519 `signingGrantId` values are also intentional. They live
-in the authenticated Wallet Session/quota and operation-lane boundaries; they
-are absent from current Ed25519 sealed records, restore leases, material
-locators, and worker-owned durable material. The Email OTP Ed25519 challenge
-request and the Passkey/Email OTP owner-local single-flight maps remain live
-factor-owned operating paths, not generic compatibility aliases.
+The remaining Ed25519 `signingGrantId` values are Unit 3c deletion targets.
+Until that cutover lands, they live only in authenticated Wallet Session/quota
+and operation-lane boundaries and remain absent from current Ed25519 sealed
+records, restore leases, material locators, and worker-owned durable material.
+The Email OTP Ed25519 challenge request and the Passkey/Email OTP owner-local
+single-flight maps remain live factor-owned operating paths, not generic
+compatibility aliases.
 
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
@@ -655,15 +660,12 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
   subsystem
 
 Scope disposition: the router reserve/commit/release methods and their
-`signingGrantId`-keyed rows remain the live Ed25519 authenticated normal-signing
-quota boundary. They are not ECDSA public budget fields, do not identify durable
-material, and are still called by the Ed25519 prepare/finalize path. Refactor 90
-therefore retains them as canonical Ed25519 server authorization/quota state;
-removing them here would delete a live operating path without a replacement.
-The ECDSA public budget fields and compatibility aliases are already removed by
-`41ed8f9cb`. A future quota-path refactor may rehome the Ed25519 boundary as a
-separate change; these rows remain an explicit reassignment rather than an open
-Refactor 90 deletion.
+`signingGrantId`-keyed rows remain live only until Unit 3c moves Ed25519 to the
+shared authorization core's atomic claim-and-quota transaction. Unit 3c then
+deletes these methods, rows, wire fields, fixtures, and guards. The ECDSA public
+budget fields and compatibility aliases were removed by `41ed8f9cb`; Unit 3c
+also replaces the ECDSA reusable authorization claim's remaining
+`signing_grant_id` binding with the canonical `CapabilityGrantId`.
 
 ## Phase 21 — worker and WASM residue
 
