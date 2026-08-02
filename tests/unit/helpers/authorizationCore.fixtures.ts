@@ -43,14 +43,14 @@ import {
 import {
   buildActiveAuthorizationSession,
   buildActiveCapabilityGrant,
-  buildActiveReusableWalletSession,
+  buildWalletSessionAuthorization,
   buildActiveWalletSessionQuota,
   buildCapabilityOperationClaim,
   parseSessionOrigin,
   type ActiveAuthorizationSession,
   type ActiveCapabilityGrant,
   type ActiveWalletSessionQuota,
-  type ActiveReusableWalletSession,
+  type WalletSessionAuthorization,
   type CapabilityOperationClaim,
   type ClaimCapabilityOperationResult,
   type CapabilityOperationResultRef,
@@ -73,7 +73,7 @@ export type ReusableAuthorizationCoreFixture = {
   readonly evidenceSet: VerifiedGrantEvidenceSet;
   readonly grant: ActiveCapabilityGrant;
   readonly quota: ActiveWalletSessionQuota;
-  readonly reusableWalletSession: ActiveReusableWalletSession;
+  readonly reusableWalletSession: WalletSessionAuthorization;
   readonly claim: CapabilityOperationClaim;
   readonly resultRef: CapabilityOperationResultRef;
 };
@@ -203,7 +203,7 @@ export async function buildReusableAuthorizationCoreFixture(
       remainingUses: input.quotaRemainingUses ?? 2,
       expiresAtMs: walletSessionExpiresAtMs,
     }),
-    reusableWalletSession: buildActiveReusableWalletSession({
+    reusableWalletSession: buildWalletSessionAuthorization({
       tenantId,
       principalId,
       walletId,

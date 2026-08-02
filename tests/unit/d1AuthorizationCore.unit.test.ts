@@ -451,7 +451,7 @@ test.describe('D1 authorization core', () => {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
       const service = createService(temporary.database, 'wallet-session-direct-operation');
       const fixture = await buildReusableAuthorizationCoreFixture();
-      await service.seedStore.putActiveReusableWalletSession({
+      await service.seedStore.putWalletSessionAuthorization({
         session: fixture.reusableWalletSession,
         quota: fixture.quota,
       });
@@ -749,7 +749,7 @@ test.describe('D1 authorization core', () => {
       await expect(rowCount(temporary.database, 'verified_grant_evidence_sets')).resolves.toBe(2);
 
       const grant = buildGrantForEvidence(passkey.authorization.grant, passkeyEvidence);
-      await service.seedStore.putActiveReusableWalletSession({
+      await service.seedStore.putWalletSessionAuthorization({
         session: passkey.authorization.reusableWalletSession,
         quota: passkey.authorization.quota,
       });
@@ -1389,7 +1389,7 @@ async function buildEcdsaAtomicFixture(
   });
   await walletStore.putSigner(signer);
   await service.recordActiveSession(authorization.session);
-  await service.seedStore.putActiveReusableWalletSession({
+  await service.seedStore.putWalletSessionAuthorization({
     session: authorization.reusableWalletSession,
     quota: authorization.quota,
   });
@@ -1436,7 +1436,7 @@ async function seedReusable(
 ): Promise<void> {
   await service.recordActiveSession(fixture.session);
   await service.recordVerifiedSessionEvidenceSet(fixture.sessionEvidenceInput);
-  await service.seedStore.putActiveReusableWalletSession({
+  await service.seedStore.putWalletSessionAuthorization({
     session: fixture.reusableWalletSession,
     quota: fixture.quota,
   });

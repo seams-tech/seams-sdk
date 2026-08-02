@@ -1,6 +1,8 @@
 import type {
   CapabilityGrantUseId,
   CapabilityGrantId,
+  AuthorizationGrantRef,
+  AuthorizedOperationId,
   AuthorizationAuditEventId,
   TenantId,
 } from '@shared/authorization/capabilityKinds';
@@ -15,12 +17,16 @@ import type {
   CapabilityOperationClaim,
   CapabilityOperationClaimInput,
   CapabilityOperationCompletionClaimRef,
+  AuthorizedOperationInput,
+  OperationAuthorizationSource,
   MpcWalletSigningQuotaId,
   WalletSessionId,
 } from './domain';
 
 declare const tenantId: TenantId;
 declare const useId: CapabilityGrantUseId;
+declare const authorizedOperationId: AuthorizedOperationId;
+declare const authorizationGrantRef: AuthorizationGrantRef;
 declare const auditEventId: AuthorizationAuditEventId;
 declare const grantId: CapabilityGrantId;
 declare const operation: CapabilityOperationEnvelope;
@@ -113,3 +119,40 @@ const invalidProvider = {
 
 // @ts-expect-error normalized sessions require a closed provider and branded subject
 invalidProvider satisfies ActiveAuthorizationSession;
+
+const reusableSource: OperationAuthorizationSource = {
+  kind: 'authorization_grant',
+  authorizationGrantRef,
+};
+const stepUpSource: OperationAuthorizationSource = {
+  kind: 'verified_step_up',
+  evidenceSetDigest,
+};
+void reusableSource;
+void stepUpSource;
+
+// @ts-expect-error Authorization-grant operations cannot carry step-up evidence.
+const mixedAuthorizationSource: OperationAuthorizationSource = {
+  kind: 'authorization_grant',
+  authorizationGrantRef,
+  evidenceSetDigest,
+};
+void mixedAuthorizationSource;
+
+const authorizedOperationInput: AuthorizedOperationInput = {
+  tenantId,
+  authorizedOperationId,
+  auditEventId,
+  operation,
+  authorization: stepUpSource,
+  quota: { kind: 'quota_neutral' },
+  claimedAtMs: 1,
+};
+void authorizedOperationInput;
+
+const substitutedOperationId: AuthorizedOperationInput = {
+  ...authorizedOperationInput,
+  // @ts-expect-error A Wallet Session authorization ref cannot be used as an operation id.
+  authorizedOperationId: authorizationGrantRef,
+};
+void substitutedOperationId;
