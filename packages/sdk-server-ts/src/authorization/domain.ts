@@ -1,5 +1,7 @@
 import type {
   AuthorizationAuditEventId,
+  AuthorizationGrantRef,
+  AuthorizedOperationId,
   CapabilityBindingId,
   CapabilityGrantId,
   CapabilityGrantUseId,
@@ -207,8 +209,8 @@ export type ActiveWalletSessionQuota = {
   readonly expiresAtMs: number;
 };
 
-export type ActiveReusableWalletSession = {
-  readonly kind: 'active_reusable_wallet_session';
+export type WalletSessionAuthorization = {
+  readonly kind: 'wallet_session_authorization';
   readonly tenantId: TenantId;
   readonly principalId: PrincipalId;
   readonly walletId: WalletId;
@@ -219,6 +221,82 @@ export type ActiveReusableWalletSession = {
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
 };
+
+export type AuthorizationGrant = WalletSessionAuthorization;
+
+export type OperationAuthorizationSource =
+  | {
+      readonly kind: 'authorization_grant';
+      readonly authorizationGrantRef: AuthorizationGrantRef;
+      readonly evidenceSetDigest?: never;
+    }
+  | {
+      readonly kind: 'verified_step_up';
+      readonly authorizationGrantRef?: never;
+      readonly evidenceSetDigest: DigestB64u;
+    };
+
+type AuthorizedOperationLifecycle =
+  | {
+      readonly lifecycle: 'claimed';
+      readonly result?: never;
+      readonly resultRef?: never;
+      readonly completedAtMs?: never;
+    }
+  | {
+      readonly lifecycle: 'completed';
+      readonly result: CompletedCapabilityOperationResult;
+      readonly resultRef: CapabilityOperationResultRef;
+      readonly completedAtMs: number;
+    };
+
+export type AuthorizedOperation = AuthorizedOperationLifecycle & {
+  readonly kind: 'authorized_operation';
+  readonly tenantId: TenantId;
+  readonly authorizedOperationId: AuthorizedOperationId;
+  readonly auditEventId: AuthorizationAuditEventId;
+  readonly operation: CapabilityOperationEnvelope;
+  readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
+  readonly authorization: OperationAuthorizationSource;
+  readonly quota:
+    | {
+        readonly kind: 'consume_reusable_wallet_session';
+        readonly quotaId: MpcWalletSigningQuotaId;
+      }
+    | { readonly kind: 'quota_neutral'; readonly quotaId?: never };
+};
+
+export type AuthorizedOperationInput = {
+  readonly tenantId: TenantId;
+  readonly authorizedOperationId: AuthorizedOperationId;
+  readonly auditEventId: AuthorizationAuditEventId;
+  readonly operation: CapabilityOperationEnvelope;
+  readonly authorization: OperationAuthorizationSource;
+  readonly quota:
+    | {
+        readonly kind: 'consume_reusable_wallet_session';
+        readonly quotaId: MpcWalletSigningQuotaId;
+      }
+    | { readonly kind: 'quota_neutral'; readonly quotaId?: never };
+  readonly claimedAtMs: number;
+};
+
+export async function buildAuthorizedOperation(
+  input: AuthorizedOperationInput,
+): Promise<AuthorizedOperation> {
+  if (input.tenantId !== input.operation.tenantId) {
+    throw new Error('authorized operation tenant must match its operation envelope');
+  }
+  const operationFingerprintDigest = await computeCapabilityOperationFingerprintDigest(
+    input.operation,
+  );
+  return {
+    ...input,
+    kind: 'authorized_operation',
+    operationFingerprintDigest,
+    lifecycle: 'claimed',
+  };
+}
 
 type ReusableWalletSessionStatusIdentity = {
   readonly tenantId: TenantId;
@@ -545,15 +623,15 @@ export function buildActiveWalletSessionQuota(
   };
 }
 
-export function buildActiveReusableWalletSession(
-  fields: Omit<ActiveReusableWalletSession, 'kind'>,
-): ActiveReusableWalletSession {
+export function buildWalletSessionAuthorization(
+  fields: Omit<WalletSessionAuthorization, 'kind'>,
+): WalletSessionAuthorization {
   requireOrderedTimes(fields.createdAtMs, fields.expiresAtMs, 'reusable Wallet Session');
   if (fields.authority.walletId !== fields.walletId) {
     throw new Error('reusable Wallet Session authority must identify the exact wallet');
   }
   return {
-    kind: 'active_reusable_wallet_session',
+    kind: 'wallet_session_authorization',
     tenantId: fields.tenantId,
     principalId: fields.principalId,
     walletId: fields.walletId,

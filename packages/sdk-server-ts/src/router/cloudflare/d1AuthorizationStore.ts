@@ -19,7 +19,7 @@ import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   ActiveAuthorizationSession,
   ActiveCapabilityGrant,
-  ActiveReusableWalletSession,
+  WalletSessionAuthorization,
   ActiveWalletSessionQuota,
   AuthorizationAuditEvent,
   CapabilityGrantUse,
@@ -39,7 +39,7 @@ import type {
 } from '../../authorization/domain';
 import {
   buildActiveAuthorizationSession,
-  buildActiveReusableWalletSession,
+  buildWalletSessionAuthorization,
   buildActiveWalletSessionQuota,
   parseMpcWalletSigningQuotaId,
   parseSessionOrigin,
@@ -989,8 +989,8 @@ export class CloudflareD1AuthorizationStore
     requireOneChangedRow(result, 'active Wallet Session quota');
   }
 
-  async putActiveReusableWalletSession(input: {
-    readonly session: ActiveReusableWalletSession;
+  async putWalletSessionAuthorization(input: {
+    readonly session: WalletSessionAuthorization;
     readonly quota: ActiveWalletSessionQuota;
   }): Promise<void> {
     requireExactReusableWalletSessionQuota(input);
@@ -1133,7 +1133,7 @@ export class CloudflareD1AuthorizationStore
   }
 
   private async requireExactReusableWalletSessionReadback(input: {
-    readonly session: ActiveReusableWalletSession;
+    readonly session: WalletSessionAuthorization;
     readonly quota: ActiveWalletSessionQuota;
   }): Promise<void> {
     const session = await this.database
@@ -2822,7 +2822,7 @@ function requireOneChangedRow(
 }
 
 function requireExactReusableWalletSessionQuota(input: {
-  readonly session: ActiveReusableWalletSession;
+  readonly session: WalletSessionAuthorization;
   readonly quota: ActiveWalletSessionQuota;
 }): void {
   if (
@@ -2840,7 +2840,7 @@ function reusableWalletSessionReadbackMatches(
   session: D1Row | null,
   quota: D1Row | null,
   input: {
-    readonly session: ActiveReusableWalletSession;
+    readonly session: WalletSessionAuthorization;
     readonly quota: ActiveWalletSessionQuota;
   },
 ): boolean {

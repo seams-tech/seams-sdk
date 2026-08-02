@@ -98,6 +98,9 @@ export type CapabilityBindingId = DomainId<'CapabilityBindingId'>;
 export type CapabilityOperationId = DomainId<'CapabilityOperationId'>;
 export type CapabilityGrantId = DomainId<'CapabilityGrantId'>;
 export type CapabilityGrantUseId = DomainId<'CapabilityGrantUseId'>;
+/** A Wallet Session authorization is identified by the Wallet Session itself. */
+export type AuthorizationGrantRef = WalletSessionId;
+export type AuthorizedOperationId = DomainId<'AuthorizedOperationId'>;
 export type WalletSessionId = DomainId<'WalletSessionId'>;
 export type MpcWalletSigningQuotaId = DomainId<'MpcWalletSigningQuotaId'>;
 export type ReusableWalletSessionMintId = DomainId<'ReusableWalletSessionMintId'>;
@@ -264,6 +267,18 @@ export function parseCapabilityGrantUseId(
   value: unknown,
 ): AuthorizationParseResult<CapabilityGrantUseId> {
   return parseAuthorizationId(value, 'capabilityGrantUseId');
+}
+
+export function parseAuthorizationGrantRef(
+  value: unknown,
+): AuthorizationParseResult<AuthorizationGrantRef> {
+  return parseWalletSessionId(value);
+}
+
+export function parseAuthorizedOperationId(
+  value: unknown,
+): AuthorizationParseResult<AuthorizedOperationId> {
+  return parseAuthorizationId(value, 'authorizedOperationId');
 }
 
 export function parseWalletSessionId(

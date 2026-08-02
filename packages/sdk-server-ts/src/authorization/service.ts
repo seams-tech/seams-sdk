@@ -1,7 +1,7 @@
 import type {
   ActiveAuthorizationSession,
   ActiveCapabilityGrant,
-  ActiveReusableWalletSession,
+  WalletSessionAuthorization,
   ActiveWalletSessionQuota,
   AuthorizationAuditEvent,
   CapabilityGrantUse,
@@ -22,7 +22,7 @@ import type {
   VerifiedGrantEvidenceSet,
 } from './domain';
 import {
-  buildActiveReusableWalletSession,
+  buildWalletSessionAuthorization,
   buildActiveWalletSessionQuota,
   buildCapabilityOperationClaim,
   parseMpcWalletSigningQuotaId,
@@ -129,8 +129,8 @@ export type CapabilityGrantClaimSource =
 export interface AuthorizationGrantPort {
   putActiveGrant(grant: ActiveCapabilityGrant): Promise<void>;
   putActiveWalletSessionQuota(quota: ActiveWalletSessionQuota): Promise<void>;
-  putActiveReusableWalletSession(input: {
-    readonly session: ActiveReusableWalletSession;
+  putWalletSessionAuthorization(input: {
+    readonly session: WalletSessionAuthorization;
     readonly quota: ActiveWalletSessionQuota;
   }): Promise<void>;
   readGrantClaimSource(input: {
@@ -266,7 +266,7 @@ export type IssueReusableWalletSessionInput = {
 };
 
 export type IssuedReusableWalletSession = {
-  readonly session: ActiveReusableWalletSession;
+  readonly session: WalletSessionAuthorization;
   readonly quota: ActiveWalletSessionQuota;
 };
 
@@ -412,7 +412,7 @@ export class AuthorizationService {
       await deriveReusableWalletSessionId(input, 'wallet-quota'),
       parseMpcWalletSigningQuotaId,
     );
-    const session = buildActiveReusableWalletSession({
+    const session = buildWalletSessionAuthorization({
       tenantId: input.tenantId,
       principalId: input.principalId,
       walletId: input.walletId,
@@ -431,7 +431,7 @@ export class AuthorizationService {
       remainingUses: input.remainingUses,
       expiresAtMs: session.expiresAtMs,
     });
-    await this.ports.grants.putActiveReusableWalletSession({ session, quota });
+    await this.ports.grants.putWalletSessionAuthorization({ session, quota });
     return { session, quota };
   }
 
