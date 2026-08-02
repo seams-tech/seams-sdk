@@ -10,7 +10,7 @@ export function createEmailOtpWarmSessionStatusReader(
     args.getEmailOtpWarmSessionStatus ||
     (async (target: EmailOtpWarmMaterialTarget): Promise<WarmSessionStatusResult> => {
       return await args.passkeyMpcSession.getWarmSessionStatus({
-        sessionId: target.thresholdSessionId,
+        thresholdSessionId: target.thresholdSessionId,
       });
     })
   );

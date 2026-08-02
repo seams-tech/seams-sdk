@@ -72,7 +72,7 @@ async function createEnvelope(): Promise<WarmSessionEnvelope> {
         auth: ed25519Authorization,
         prfClaim: {
           state: 'warm',
-          sessionId: ed25519Runtime.thresholdSessionId,
+          thresholdSessionId: ed25519Runtime.thresholdSessionId,
           remainingUses: 4,
           expiresAtMs: ed25519Runtime.expiresAtMs,
         },
@@ -98,7 +98,7 @@ async function createEnvelope(): Promise<WarmSessionEnvelope> {
           auth: authorization,
           prfClaim: {
             state: 'unavailable',
-            sessionId: runtime.sealedRecord.thresholdSessionId,
+            thresholdSessionId: runtime.sealedRecord.thresholdSessionId,
             code: 'worker_error',
           },
           state: 'prf_unavailable',

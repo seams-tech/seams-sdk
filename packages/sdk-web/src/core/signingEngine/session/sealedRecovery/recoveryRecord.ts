@@ -63,7 +63,6 @@ export type RawSigningSessionSealedStoreRecord = RawSealedSessionRecord & {
   userId?: unknown;
   authMethod?: unknown;
   curve?: unknown;
-  signingGrantId?: unknown;
   thresholdSessionIds?: RawThresholdSessionIds | unknown;
   sealedSecretB64u?: unknown;
   subjectId?: unknown;
@@ -229,10 +228,6 @@ function normalizeThresholdSessionIds(
 ): RawThresholdSessionIds {
   const current = normalizeRawObject<RawThresholdSessionIds>(record.thresholdSessionIds) || {};
   return current;
-}
-
-function normalizeSigningGrantId(record: RawSigningSessionSealedStoreRecord): string | null {
-  return normalizeNonEmptyString(record.signingGrantId);
 }
 
 function normalizeEthereumAddress(value: unknown): `0x${string}` | null {

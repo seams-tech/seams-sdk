@@ -223,10 +223,10 @@ function writePasskeyServerSealedSecretCache(args: {
   prunePasskeyServerSealedSecretCache();
 }
 
-function deleteWarmSessionPrfHandle(sessionId: string): void {
-  const entry = warmSessionPrfHandleCache.get(sessionId);
+function deleteWarmSessionPrfHandle(thresholdSessionId: string): void {
+  const entry = warmSessionPrfHandleCache.get(thresholdSessionId);
   if (entry) passkeyPrfFirstHandleStore.delete(entry.prfFirstHandle);
-  warmSessionPrfHandleCache.delete(sessionId);
+  warmSessionPrfHandleCache.delete(thresholdSessionId);
 }
 
 function clearWarmSessionPrfHandles(): void {
@@ -236,29 +236,29 @@ function clearWarmSessionPrfHandles(): void {
 }
 
 function storeWarmSessionPrfHandle(args: {
-  sessionId: string;
+  thresholdSessionId: string;
   prfFirstB64u: string;
   expiresAtMs: number;
   remainingUses: number;
 }): WarmSessionMaterialEntry {
-  const sessionId = normalizeOptionalTrimmedString(args.sessionId);
+  const thresholdSessionId = normalizeOptionalTrimmedString(args.thresholdSessionId);
   const remainingUses = Math.floor(Number(args.remainingUses) || 0);
   const expiresAtMs = Math.floor(Number(args.expiresAtMs) || 0);
-  if (!sessionId || remainingUses <= 0 || expiresAtMs <= nowMs()) {
+  if (!thresholdSessionId || remainingUses <= 0 || expiresAtMs <= nowMs()) {
     throw new Error('Invalid warm-session PRF handle input');
   }
-  deleteWarmSessionPrfHandle(sessionId);
+  deleteWarmSessionPrfHandle(thresholdSessionId);
   const prfFirstHandle = createPasskeyPrfFirstHandle({
     prfFirstB64u: args.prfFirstB64u,
     expiresAtMs,
   });
   const entry = { prfFirstHandle, expiresAtMs, remainingUses };
-  warmSessionPrfHandleCache.set(sessionId, entry);
+  warmSessionPrfHandleCache.set(thresholdSessionId, entry);
   return entry;
 }
 
 function updateWarmSessionPrfHandlePolicy(
-  sessionId: string,
+  thresholdSessionId: string,
   entry: WarmSessionMaterialEntry,
   policy: OkResult,
 ): WarmSessionMaterialEntry {
@@ -274,7 +274,7 @@ function updateWarmSessionPrfHandlePolicy(
       expiresAtMs: policy.expiresAtMs,
     });
   }
-  warmSessionPrfHandleCache.set(sessionId, nextEntry);
+  warmSessionPrfHandleCache.set(thresholdSessionId, nextEntry);
   return nextEntry;
 }
 
@@ -352,18 +352,18 @@ function parseSigningSessionSealRouteResult(value: unknown): SigningSessionSealR
 
 function makeSigningSessionSealSingleFlightKey(args: {
   operation: 'apply-server-seal' | 'remove-server-seal';
-  sessionId: string;
+  thresholdSessionId: string;
   relayerUrl: string;
   keyVersion?: string;
   payloadKey?: string;
 }): string {
   const operation =
     args.operation === 'apply-server-seal' ? 'apply-server-seal' : 'remove-server-seal';
-  const sessionId = normalizeOptionalTrimmedString(args.sessionId) || '';
+  const thresholdSessionId = normalizeOptionalTrimmedString(args.thresholdSessionId) || '';
   const relayerUrl = normalizeOptionalTrimmedString(args.relayerUrl) || '';
   const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion) || '';
   const payloadKey = normalizeOptionalNonEmptyString(args.payloadKey) || '';
-  return `${operation}|${sessionId}|${relayerUrl}|${keyVersion}|${SIGNING_SESSION_SEAL_GROUP_ID}|${payloadKey}`;
+  return `${operation}|${thresholdSessionId}|${relayerUrl}|${keyVersion}|${SIGNING_SESSION_SEAL_GROUP_ID}|${payloadKey}`;
 }
 
 async function callSigningSessionSealRoute(args: {
@@ -452,10 +452,10 @@ function resolvePolicyFromServerAndLocal(args: {
   return { ok: true, remainingUses, expiresAtMs };
 }
 
-function readWarmSessionMaterialEntry(sessionId: string): WarmSessionMaterialReadResult {
-  if (!sessionId)
+function readWarmSessionMaterialEntry(thresholdSessionId: string): WarmSessionMaterialReadResult {
+  if (!thresholdSessionId)
     return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
-  const entry = warmSessionPrfHandleCache.get(sessionId);
+  const entry = warmSessionPrfHandleCache.get(thresholdSessionId);
   if (!entry)
     return {
       ok: false,
@@ -463,7 +463,7 @@ function readWarmSessionMaterialEntry(sessionId: string): WarmSessionMaterialRea
       message: 'Warm-session material is not available for threshold session',
     };
   if (nowMs() >= entry.expiresAtMs) {
-    deleteWarmSessionPrfHandle(sessionId);
+    deleteWarmSessionPrfHandle(thresholdSessionId);
     return {
       ok: false,
       code: 'expired',
@@ -471,7 +471,7 @@ function readWarmSessionMaterialEntry(sessionId: string): WarmSessionMaterialRea
     };
   }
   if (entry.remainingUses <= 0) {
-    deleteWarmSessionPrfHandle(sessionId);
+    deleteWarmSessionPrfHandle(thresholdSessionId);
     return {
       ok: false,
       code: 'exhausted',
@@ -480,7 +480,7 @@ function readWarmSessionMaterialEntry(sessionId: string): WarmSessionMaterialRea
   }
   const secret = passkeyPrfFirstHandleStore.get(entry.prfFirstHandle);
   if (!secret || nowMs() >= secret.expiresAtMs) {
-    deleteWarmSessionPrfHandle(sessionId);
+    deleteWarmSessionPrfHandle(thresholdSessionId);
     return {
       ok: false,
       code: 'not_found',
@@ -496,8 +496,8 @@ function readWarmSessionMaterialEntry(sessionId: string): WarmSessionMaterialRea
   };
 }
 
-function readWarmSessionClaimEntry(sessionId: string): OkResult | ErrResult {
-  const activeEntry = readWarmSessionMaterialEntry(sessionId);
+function readWarmSessionClaimEntry(thresholdSessionId: string): OkResult | ErrResult {
+  const activeEntry = readWarmSessionMaterialEntry(thresholdSessionId);
   if (!activeEntry.ok) return activeEntry;
   return {
     ok: true,
@@ -507,11 +507,11 @@ function readWarmSessionClaimEntry(sessionId: string): OkResult | ErrResult {
 }
 
 function claimWarmSessionMaterialEntry(
-  sessionId: string,
+  thresholdSessionId: string,
   uses: number,
   consume: boolean,
 ): OkDispenseResult | ErrResult {
-  const activeEntry = readWarmSessionMaterialEntry(sessionId);
+  const activeEntry = readWarmSessionMaterialEntry(thresholdSessionId);
   if (!activeEntry.ok) return activeEntry;
   const entry = activeEntry.entry;
   const usesNeeded = Math.max(1, Math.floor(Number(uses) || 1));
@@ -525,9 +525,9 @@ function claimWarmSessionMaterialEntry(
   if (consume) {
     entry.remainingUses -= usesNeeded;
     if (entry.remainingUses <= 0) {
-      deleteWarmSessionPrfHandle(sessionId);
+      deleteWarmSessionPrfHandle(thresholdSessionId);
     } else {
-      warmSessionPrfHandleCache.set(sessionId, entry);
+      warmSessionPrfHandleCache.set(thresholdSessionId, entry);
     }
   }
   return {
@@ -538,8 +538,8 @@ function claimWarmSessionMaterialEntry(
   };
 }
 
-function consumeWarmSessionMaterialEntry(sessionId: string, uses: number): OkResult | ErrResult {
-  const activeEntry = readWarmSessionMaterialEntry(sessionId);
+function consumeWarmSessionMaterialEntry(thresholdSessionId: string, uses: number): OkResult | ErrResult {
+  const activeEntry = readWarmSessionMaterialEntry(thresholdSessionId);
   if (!activeEntry.ok) return activeEntry;
   const entry = activeEntry.entry;
   const usesNeeded = Math.max(1, Math.floor(Number(uses) || 1));
@@ -552,9 +552,9 @@ function consumeWarmSessionMaterialEntry(sessionId: string, uses: number): OkRes
   }
   entry.remainingUses -= usesNeeded;
   if (entry.remainingUses <= 0) {
-    deleteWarmSessionPrfHandle(sessionId);
+    deleteWarmSessionPrfHandle(thresholdSessionId);
   } else {
-    warmSessionPrfHandleCache.set(sessionId, entry);
+    warmSessionPrfHandleCache.set(thresholdSessionId, entry);
   }
   return {
     ok: true,
@@ -564,19 +564,19 @@ function consumeWarmSessionMaterialEntry(sessionId: string, uses: number): OkRes
 }
 
 async function runSigningSessionSealAndPersist(args: {
-  sessionId: string;
+  thresholdSessionId: string;
   transport: SigningSessionSealTransport;
 }): Promise<OkSealResult | ErrResult> {
-  const sessionId = normalizeOptionalTrimmedString(args.sessionId);
-  if (!sessionId) {
+  const thresholdSessionId = normalizeOptionalTrimmedString(args.thresholdSessionId);
+  if (!thresholdSessionId) {
     return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
   }
-  const activeEntry = readWarmSessionMaterialEntry(sessionId);
+  const activeEntry = readWarmSessionMaterialEntry(thresholdSessionId);
   if (!activeEntry.ok) return activeEntry;
   const entry = activeEntry.entry;
   const singleFlightKey = makeSigningSessionSealSingleFlightKey({
     operation: 'apply-server-seal',
-    sessionId,
+    thresholdSessionId,
     relayerUrl: args.transport.relayerUrl,
     keyVersion: args.transport.keyVersion,
     payloadKey: entry.prfFirstHandle,
@@ -613,7 +613,7 @@ async function runSigningSessionSealAndPersist(args: {
         const applied = await callSigningSessionSealRoute({
           operation: 'apply-server-seal',
           transport: args.transport,
-          thresholdSessionId: sessionId,
+          thresholdSessionId,
           ciphertext: clientEncryptedCiphertext,
           keyVersion: args.transport.keyVersion,
         });
@@ -631,10 +631,10 @@ async function runSigningSessionSealAndPersist(args: {
           serverExpiresAtMs: applied.expiresAtMs,
         });
         if (!policy.ok) {
-          deleteWarmSessionPrfHandle(sessionId);
+          deleteWarmSessionPrfHandle(thresholdSessionId);
           return policy;
         }
-        updateWarmSessionPrfHandlePolicy(sessionId, entry, policy);
+        updateWarmSessionPrfHandlePolicy(thresholdSessionId, entry, policy);
         recordWarmSessionSealAndPersistDiagnosticDuration({
           diagnostics,
           bucket: 'policyUpdateMs',
@@ -700,15 +700,15 @@ async function runSigningSessionSealAndPersist(args: {
 }
 
 async function runSigningSessionRehydrate(args: {
-  sessionId: string;
+  thresholdSessionId: string;
   sealedSecretB64u: string;
   keyVersion?: string;
   remainingUses: number;
   expiresAtMs: number;
   transport: SigningSessionSealTransport;
 }): Promise<OkResult | ErrResult> {
-  const sessionId = normalizeOptionalTrimmedString(args.sessionId);
-  if (!sessionId) {
+  const thresholdSessionId = normalizeOptionalTrimmedString(args.thresholdSessionId);
+  if (!thresholdSessionId) {
     return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
   }
   const sealedSecretB64u = normalizeOptionalTrimmedString(args.sealedSecretB64u);
@@ -733,7 +733,7 @@ async function runSigningSessionRehydrate(args: {
   }
   const singleFlightKey = makeSigningSessionSealSingleFlightKey({
     operation: 'remove-server-seal',
-    sessionId,
+    thresholdSessionId,
     relayerUrl: args.transport.relayerUrl,
     keyVersion: args.keyVersion || args.transport.keyVersion,
     payloadKey: sealedSecretB64u,
@@ -756,7 +756,7 @@ async function runSigningSessionRehydrate(args: {
         const removed = await callSigningSessionSealRoute({
           operation: 'remove-server-seal',
           transport: args.transport,
-          thresholdSessionId: sessionId,
+          thresholdSessionId,
           ciphertext: clientEncryptedCiphertext,
           keyVersion: normalizeOptionalNonEmptyString(args.keyVersion) || args.transport.keyVersion,
         });
@@ -775,7 +775,7 @@ async function runSigningSessionRehydrate(args: {
         if (!policy.ok) return policy;
 
         storeWarmSessionPrfHandle({
-          sessionId,
+          thresholdSessionId,
           prfFirstB64u,
           remainingUses: policy.remainingUses,
           expiresAtMs: policy.expiresAtMs,
@@ -840,17 +840,17 @@ self.onmessage = (event: MessageEvent) => {
   if (eventType === 'WARM_SESSION_MATERIAL_PUT') {
     try {
       const payload = asRecord(incoming.payload);
-      const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
+      const thresholdSessionId = normalizeOptionalTrimmedString(payload?.thresholdSessionId);
       const prfFirstB64u = normalizeOptionalTrimmedString(payload?.prfFirstB64u);
       const expiresAtMs = Math.floor(Number(payload?.expiresAtMs) || 0);
       const remainingUses = Math.floor(Number(payload?.remainingUses) || 0);
-      if (!sessionId || !prfFirstB64u) {
+      if (!thresholdSessionId || !prfFirstB64u) {
         postPasskeyMpcSessionWorkerResponse(id, {
           success: true,
           data: {
             ok: false,
             code: 'invalid_args',
-            message: 'Missing sessionId or prfFirstB64u',
+            message: 'Missing thresholdSessionId or prfFirstB64u',
           } satisfies ErrResult,
         });
         return;
@@ -866,7 +866,7 @@ self.onmessage = (event: MessageEvent) => {
         });
         return;
       }
-      storeWarmSessionPrfHandle({ sessionId, prfFirstB64u, expiresAtMs, remainingUses });
+      storeWarmSessionPrfHandle({ thresholdSessionId, prfFirstB64u, expiresAtMs, remainingUses });
       postPasskeyMpcSessionWorkerResponse(id, {
         success: true,
         data: { ok: true, remainingUses, expiresAtMs } satisfies OkResult,
@@ -880,20 +880,20 @@ self.onmessage = (event: MessageEvent) => {
 
   if (eventType === 'WARM_SESSION_STATUS_READ') {
     const payload = asRecord(incoming.payload);
-    const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
+    const thresholdSessionId = normalizeOptionalTrimmedString(payload?.thresholdSessionId);
     postPasskeyMpcSessionWorkerResponse(id, {
       success: true,
-      data: readWarmSessionClaimEntry(sessionId),
+      data: readWarmSessionClaimEntry(thresholdSessionId),
     });
     return;
   }
 
   if (eventType === 'WARM_SESSION_STATUS_BATCH_READ') {
     const payload = asRecord(incoming.payload);
-    const sessionIds = Array.isArray(payload?.sessionIds)
+    const thresholdSessionIds = Array.isArray(payload?.thresholdSessionIds)
       ? Array.from(
           new Set(
-            payload.sessionIds
+            payload.thresholdSessionIds
               .map((value) => normalizeOptionalTrimmedString(value))
               .filter((value): value is string => !!value),
           ),
@@ -902,9 +902,9 @@ self.onmessage = (event: MessageEvent) => {
     postPasskeyMpcSessionWorkerResponse(id, {
       success: true,
       data: {
-        results: sessionIds.map((sessionId) => ({
-          sessionId,
-          result: readWarmSessionClaimEntry(sessionId),
+        results: thresholdSessionIds.map((thresholdSessionId) => ({
+          thresholdSessionId,
+          result: readWarmSessionClaimEntry(thresholdSessionId),
         })),
       },
     });
@@ -913,23 +913,23 @@ self.onmessage = (event: MessageEvent) => {
 
   if (eventType === 'WARM_SESSION_MATERIAL_CLAIM') {
     const payload = asRecord(incoming.payload);
-    const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
+    const thresholdSessionId = normalizeOptionalTrimmedString(payload?.thresholdSessionId);
     const uses = Math.max(1, Math.floor(Number(payload?.uses) || 1));
     const consume = payload?.consume !== false;
     postPasskeyMpcSessionWorkerResponse(id, {
       success: true,
-      data: claimWarmSessionMaterialEntry(sessionId, uses, consume),
+      data: claimWarmSessionMaterialEntry(thresholdSessionId, uses, consume),
     });
     return;
   }
 
   if (eventType === 'WARM_SESSION_MATERIAL_CONSUME') {
     const payload = asRecord(incoming.payload);
-    const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
+    const thresholdSessionId = normalizeOptionalTrimmedString(payload?.thresholdSessionId);
     const uses = Math.max(1, Math.floor(Number(payload?.uses) || 1));
     postPasskeyMpcSessionWorkerResponse(id, {
       success: true,
-      data: consumeWarmSessionMaterialEntry(sessionId, uses),
+      data: consumeWarmSessionMaterialEntry(thresholdSessionId, uses),
     });
     return;
   }
@@ -952,9 +952,9 @@ self.onmessage = (event: MessageEvent) => {
   if (eventType === 'WARM_SESSION_SEAL_AND_PERSIST') {
     void (async () => {
       const payload = asRecord(incoming.payload);
-      const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
+      const thresholdSessionId = normalizeOptionalTrimmedString(payload?.thresholdSessionId);
       const transport = parseSigningSessionSealTransport(payload?.transport);
-      if (!sessionId || !transport) {
+      if (!thresholdSessionId || !transport) {
         postPasskeyMpcSessionWorkerResponse(id, {
           success: true,
           data: {
@@ -965,7 +965,7 @@ self.onmessage = (event: MessageEvent) => {
         });
         return;
       }
-      const result = await runSigningSessionSealAndPersist({ sessionId, transport });
+      const result = await runSigningSessionSealAndPersist({ thresholdSessionId, transport });
       postPasskeyMpcSessionWorkerResponse(id, { success: true, data: result });
     })();
     return;
@@ -974,13 +974,19 @@ self.onmessage = (event: MessageEvent) => {
   if (eventType === 'WARM_SESSION_REHYDRATE') {
     void (async () => {
       const payload = asRecord(incoming.payload);
-      const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
+      const thresholdSessionId = normalizeOptionalTrimmedString(payload?.thresholdSessionId);
       const sealedSecretB64u = normalizeOptionalTrimmedString(payload?.sealedSecretB64u);
       const expiresAtMs = Math.floor(Number(payload?.expiresAtMs) || 0);
       const remainingUses = Math.floor(Number(payload?.remainingUses) || 0);
       const keyVersion = normalizeOptionalNonEmptyString(payload?.signingSessionSealKeyVersion);
       const transport = parseSigningSessionSealTransport(payload?.transport);
-      if (!sessionId || !sealedSecretB64u || !transport || expiresAtMs <= 0 || remainingUses <= 0) {
+      if (
+        !thresholdSessionId ||
+        !sealedSecretB64u ||
+        !transport ||
+        expiresAtMs <= 0 ||
+        remainingUses <= 0
+      ) {
         postPasskeyMpcSessionWorkerResponse(id, {
           success: true,
           data: {
@@ -992,7 +998,7 @@ self.onmessage = (event: MessageEvent) => {
         return;
       }
       const result = await runSigningSessionRehydrate({
-        sessionId,
+        thresholdSessionId,
         sealedSecretB64u,
         expiresAtMs,
         remainingUses,

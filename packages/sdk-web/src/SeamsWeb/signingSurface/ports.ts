@@ -316,7 +316,7 @@ export interface Ed25519MaterialOwnerQueueSurface {
 export interface SigningSessionSurface {
   hydrateSigningSession(input: HydrateWarmSigningSessionInput): Promise<void>;
   persistSigningSessionSealForThresholdSession(input: {
-    sessionId: string;
+    thresholdSessionId: string;
     transport: Exclude<WarmSessionSealTransportInput, { authMethod: 'email_otp' }>;
   }): Promise<WarmSessionSealAndPersistResult>;
   readReusableWalletSessionState(walletId: WalletId | string): Promise<ReusableWalletSessionState>;

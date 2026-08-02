@@ -95,7 +95,7 @@ export type WarmSessionMaterialWriteDiagnostics = {
 };
 
 type WarmSessionPrfClaimBase = {
-  sessionId: string;
+  thresholdSessionId: string;
 };
 
 export type WarmSessionWarmPrfClaim = WarmSessionPrfClaimBase & {
@@ -394,7 +394,7 @@ function assertEd25519CapabilityStateInvariant(args: {
   const runtime = capability.runtime;
   const auth = capability.auth;
   const prfClaim = capability.prfClaim;
-  const sessionId = String(runtime?.thresholdSessionId || '').trim();
+  const thresholdSessionId = String(runtime?.thresholdSessionId || '').trim();
 
   if (!runtime) {
     if (capability.state !== 'missing' && capability.state !== 'invalid') {
@@ -420,7 +420,7 @@ function assertEd25519CapabilityStateInvariant(args: {
       `[WarmSessionStore] invalid ${args.label} capability: runtime wallet does not match envelope wallet`,
     );
   }
-  if (!sessionId) {
+  if (!thresholdSessionId) {
     throw new Error(
       `[WarmSessionStore] invalid ${args.label} capability: runtime is missing thresholdSessionId`,
     );
@@ -440,9 +440,9 @@ function assertEd25519CapabilityStateInvariant(args: {
   }
 
   if (prfClaim) {
-    if (String(prfClaim.sessionId || '').trim() !== sessionId) {
+    if (String(prfClaim.thresholdSessionId || '').trim() !== thresholdSessionId) {
       throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: warm-session status sessionId does not match record sessionId`,
+        `[WarmSessionStore] invalid ${args.label} capability: warm-session status thresholdSessionId does not match record thresholdSessionId`,
       );
     }
     switch (prfClaim.state) {
@@ -641,7 +641,7 @@ export type FreshWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519Capabi
   nearEd25519SigningKeyId: string;
   signerSlot: number;
   laneIdentity?: never;
-  sessionId?: never;
+  thresholdSessionId?: never;
   signingGrantId?: never;
 };
 
@@ -652,7 +652,7 @@ export type ExactWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519Capabi
   nearAccountId?: never;
   nearEd25519SigningKeyId?: never;
   signerSlot?: never;
-  sessionId?: never;
+  thresholdSessionId?: never;
   signingGrantId?: never;
 };
 

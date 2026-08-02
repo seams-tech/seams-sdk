@@ -23,15 +23,15 @@ function isWarmClaimFixture(
 }
 
 export function createWarmSessionStatusReader(
-  claimsBySessionId: Record<string, WarmClaimFixture>,
+  claimsByThresholdSessionId: Record<string, WarmClaimFixture>,
 ): Pick<
   WarmSessionStatusReader & WarmSessionStatusBatchReader,
   'getWarmSessionStatus' | 'getWarmSessionStatuses'
 > {
   const getWarmSessionStatus: WarmSessionStatusReader['getWarmSessionStatus'] = async ({
-    sessionId,
+    thresholdSessionId,
   }) => {
-    const claim = claimsBySessionId[String(sessionId || '').trim()];
+    const claim = claimsByThresholdSessionId[String(thresholdSessionId || '').trim()];
     if (!claim || claim.state === 'missing') {
       return {
         ok: false as const,
@@ -68,11 +68,11 @@ export function createWarmSessionStatusReader(
   };
   return {
     getWarmSessionStatus,
-    getWarmSessionStatuses: async ({ sessionIds }) => ({
+    getWarmSessionStatuses: async ({ thresholdSessionIds }) => ({
       results: await Promise.all(
-        (Array.isArray(sessionIds) ? sessionIds : []).map(async (sessionId) => ({
-          sessionId: String(sessionId || '').trim(),
-          result: await getWarmSessionStatus({ sessionId: String(sessionId || '').trim() }),
+        (Array.isArray(thresholdSessionIds) ? thresholdSessionIds : []).map(async (thresholdSessionId) => ({
+          thresholdSessionId: String(thresholdSessionId || '').trim(),
+          result: await getWarmSessionStatus({ thresholdSessionId: String(thresholdSessionId || '').trim() }),
         })),
       ),
     }),

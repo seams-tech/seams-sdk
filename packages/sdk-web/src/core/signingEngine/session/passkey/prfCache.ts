@@ -9,7 +9,7 @@ type SigningSessionCacheTransport = Parameters<
 >[0]['transport'];
 
 export type SigningSessionCacheEntry = {
-  sessionId: string;
+  thresholdSessionId: string;
   prfFirstB64u: string;
   expiresAtMs: number;
   remainingUses: number;
@@ -29,12 +29,12 @@ export function generateSessionId(prefix: string): string {
 function normalizeSigningSessionCacheEntry(
   args: SigningSessionCacheEntry,
 ): SigningSessionCacheEntry {
-  const sessionId = String(args.sessionId || '').trim();
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   const prfFirstB64u = String(args.prfFirstB64u || '').trim();
   const expiresAtMsRaw = Number(args.expiresAtMs);
   const remainingUses = toNonNegativeInt(args.remainingUses);
-  if (!sessionId || !prfFirstB64u) {
-    throw new Error('Missing sessionId or prfFirstB64u for signing session hydration');
+  if (!thresholdSessionId || !prfFirstB64u) {
+    throw new Error('Missing thresholdSessionId or prfFirstB64u for signing session hydration');
   }
   if (!Number.isFinite(expiresAtMsRaw) || expiresAtMsRaw <= 0) {
     throw new Error('Invalid expiresAtMs for signing session hydration');
@@ -43,7 +43,7 @@ function normalizeSigningSessionCacheEntry(
     throw new Error('Invalid remainingUses for signing session hydration');
   }
   return {
-    sessionId,
+    thresholdSessionId,
     prfFirstB64u,
     expiresAtMs: Math.floor(expiresAtMsRaw),
     remainingUses,
@@ -57,7 +57,7 @@ export async function cacheCredentialBoundarySetupExportPrfFirst(
 ): Promise<void> {
   const normalized = normalizeSigningSessionCacheEntry(args);
   await writer.putWarmSessionMaterial({
-    sessionId: normalized.sessionId,
+    thresholdSessionId: normalized.thresholdSessionId,
     prfFirstB64u: normalized.prfFirstB64u,
     expiresAtMs: normalized.expiresAtMs,
     remainingUses: normalized.remainingUses,

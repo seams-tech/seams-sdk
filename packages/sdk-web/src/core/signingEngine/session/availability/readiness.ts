@@ -11,7 +11,14 @@ import {
 } from '../persistence/sealedSessionStore';
 import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabilities/volatileWarmMaterialCommands';
 import { parseVolatileWarmSessionId } from '../warmCapabilities/volatileWarmSessionId';
-import type { WarmSessionPrfClaim } from '../warmCapabilities/types';
+import type {
+  WarmSessionExhaustedPrfClaim,
+  WarmSessionExpiredPrfClaim,
+  WarmSessionMissingPrfClaim,
+  WarmSessionPrfClaim,
+  WarmSessionUnavailablePrfClaim,
+  WarmSessionWarmPrfClaim,
+} from '../warmCapabilities/types';
 import {
   ed25519SigningGrantForAuthorization,
   parseExactEd25519SealedSessionRuntime,
@@ -76,13 +83,13 @@ export type SigningGrantReadinessDeps = {
       | 'clearVolatileWarmSessionMaterial'
     >
   >;
-  getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  clearEmailOtpWarmSessionMaterial?: (sessionId: string) => Promise<void>;
+  getEmailOtpWarmSessionStatus?: (thresholdSessionId: string) => Promise<WarmSessionStatusResult>;
+  clearEmailOtpWarmSessionMaterial?: (thresholdSessionId: string) => Promise<void>;
 };
 
 export type SigningGrantClaimReaderDeps = {
   touchConfirm?: WarmSessionReadPortsInput;
-  getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  getEmailOtpWarmSessionStatus?: (thresholdSessionId: string) => Promise<WarmSessionStatusResult>;
 };
 
 export type SigningSessionReadinessWithStatus = {
@@ -96,18 +103,18 @@ export function normalizeNonEmpty(value: unknown): string {
 }
 
 export function warmClaimFromRecordPolicy(args: {
-  sessionId: string;
+  thresholdSessionId: string;
   remainingUses: number;
   expiresAtMs: number;
 }): WarmSessionPrfClaim {
-  const sessionId = normalizeNonEmpty(args.sessionId);
+  const thresholdSessionId = normalizeNonEmpty(args.thresholdSessionId);
   const remainingUses = Math.max(0, Math.floor(Number(args.remainingUses) || 0));
   const expiresAtMs = Math.floor(Number(args.expiresAtMs) || 0);
-  if (expiresAtMs <= Date.now()) return { state: 'expired', sessionId };
-  if (remainingUses <= 0) return { state: 'exhausted', sessionId };
+  if (expiresAtMs <= Date.now()) return { state: 'expired', thresholdSessionId };
+  if (remainingUses <= 0) return { state: 'exhausted', thresholdSessionId };
   return {
     state: 'warm',
-    sessionId,
+    thresholdSessionId,
     remainingUses,
     expiresAtMs,
   };
@@ -348,16 +355,16 @@ export function walletScopedClaimsForLanes(args: {
 
       for (const entry of rawEntries) {
         if (terminal) {
-          scoped.set(entry.lane.thresholdSessionId, {
-            ...terminal,
-            sessionId: entry.lane.thresholdSessionId,
-          });
+          scoped.set(
+            entry.lane.thresholdSessionId,
+            attachWarmClaimToThresholdSession(terminal, entry.lane.thresholdSessionId),
+          );
           continue;
         }
         if (entry.claim?.state === 'warm') {
           scoped.set(entry.lane.thresholdSessionId, {
             state: 'warm',
-            sessionId: entry.lane.thresholdSessionId,
+            thresholdSessionId: entry.lane.thresholdSessionId,
             remainingUses: walletRemainingUses ?? entry.claim.remainingUses,
             expiresAtMs: walletExpiresAtMs ?? entry.claim.expiresAtMs,
           });
@@ -383,7 +390,12 @@ export function walletScopedClaimsForLanes(args: {
         for (const entry of entries) {
           scoped.set(
             entry.lane.thresholdSessionId,
-            overrideClaim ? { ...overrideClaim, sessionId: entry.lane.thresholdSessionId } : null,
+            overrideClaim
+              ? attachWarmClaimToThresholdSession(
+                  overrideClaim,
+                  entry.lane.thresholdSessionId,
+                )
+              : null,
           );
         }
         continue;
@@ -391,7 +403,9 @@ export function walletScopedClaimsForLanes(args: {
       for (const entry of overrideEntries) {
         scoped.set(
           entry.lane.thresholdSessionId,
-          overrideClaim ? { ...overrideClaim, sessionId: entry.lane.thresholdSessionId } : null,
+          overrideClaim
+            ? attachWarmClaimToThresholdSession(overrideClaim, entry.lane.thresholdSessionId)
+            : null,
         );
       }
       applyRawScopedClaims(rawEntries);
@@ -515,37 +529,48 @@ function resolveApplicableSigningGrantStatusOverride(args: {
   return args.override;
 }
 
+type WarmSessionPrfClaimWithoutThresholdSessionId =
+  | Omit<WarmSessionWarmPrfClaim, 'thresholdSessionId'>
+  | Omit<WarmSessionUnavailablePrfClaim, 'thresholdSessionId'>
+  | Omit<WarmSessionMissingPrfClaim, 'thresholdSessionId'>
+  | Omit<WarmSessionExpiredPrfClaim, 'thresholdSessionId'>
+  | Omit<WarmSessionExhaustedPrfClaim, 'thresholdSessionId'>;
+
 function claimFromSigningGrantStatusOverride(
   override: SigningGrantStatusOverride,
-): WarmSessionPrfClaim | null {
+): WarmSessionPrfClaimWithoutThresholdSessionId | null {
   const status = override.status;
   if (status.status === 'active') {
+    if (
+      typeof status.remainingUses !== 'number' ||
+      typeof status.expiresAtMs !== 'number'
+    ) {
+      return { state: 'unavailable', code: 'invalid_wallet_budget_status' };
+    }
     const remainingUses = Math.max(0, Math.floor(Number(status.remainingUses) || 0));
     const expiresAtMs = Math.floor(Number(status.expiresAtMs) || 0);
     if (expiresAtMs <= Date.now()) {
-      return { state: 'expired', sessionId: override.signingGrantId };
+      return { state: 'expired' };
     }
     if (remainingUses <= 0) {
-      return { state: 'exhausted', sessionId: override.signingGrantId };
+      return { state: 'exhausted' };
     }
     return {
       state: 'warm',
-      sessionId: override.signingGrantId,
       remainingUses,
       expiresAtMs,
     };
   }
   if (status.status === 'expired') {
-    return { state: 'expired', sessionId: override.signingGrantId };
+    return { state: 'expired' };
   }
   if (status.status === 'exhausted') {
-    return { state: 'exhausted', sessionId: override.signingGrantId };
+    return { state: 'exhausted' };
   }
   if (status.status === 'unavailable') {
     return {
       state: 'unavailable',
-      sessionId: override.signingGrantId,
-      code: status.statusCode || 'wallet_budget_status_override',
+      code: String(status.statusCode || 'wallet_budget_status_override'),
     };
   }
   return null;
@@ -560,13 +585,36 @@ export async function readClaimsForLanes(args: {
     claims.set(
       lane.thresholdSessionId,
       warmClaimFromRecordPolicy({
-        sessionId: lane.thresholdSessionId,
+        thresholdSessionId: lane.thresholdSessionId,
         remainingUses: lane.runtime.remainingUses,
         expiresAtMs: lane.runtime.expiresAtMs,
       }),
     );
   }
   return claims;
+}
+
+function attachWarmClaimToThresholdSession(
+  claim: WarmSessionPrfClaim | WarmSessionPrfClaimWithoutThresholdSessionId,
+  thresholdSessionId: string,
+): WarmSessionPrfClaim {
+  switch (claim.state) {
+    case 'warm':
+      return {
+        state: 'warm',
+        thresholdSessionId,
+        remainingUses: claim.remainingUses,
+        expiresAtMs: claim.expiresAtMs,
+      };
+    case 'unavailable':
+      return { state: 'unavailable', thresholdSessionId, code: claim.code };
+    case 'missing':
+      return { state: 'missing', thresholdSessionId };
+    case 'expired':
+      return { state: 'expired', thresholdSessionId };
+    case 'exhausted':
+      return { state: 'exhausted', thresholdSessionId };
+  }
 }
 
 export async function readWalletScopedLaneClaimsForWallet(args: {
@@ -602,18 +650,20 @@ export async function readDirectSigningSessionStatusForTargets(args: {
 }): Promise<SigningSessionStatus | null> {
   const signingGrantId = normalizeNonEmpty(args.signingGrantId);
   if (!signingGrantId) return null;
-  const targetSessionIds = Array.from(
+  const targetThresholdSessionIds = Array.from(
     new Set(
       [...(args.targetThresholdSessionIds || [])]
         .map(normalizeNonEmpty)
         .filter(Boolean),
     ),
   );
-  if (!targetSessionIds.length) return null;
+  if (!targetThresholdSessionIds.length) return null;
 
   const touchConfirm = normalizeWarmSessionReadPorts(args.deps.touchConfirm);
   const claims = await Promise.all(
-    targetSessionIds.map((sessionId) => readWarmSessionClaim(touchConfirm, sessionId)),
+    targetThresholdSessionIds.map((thresholdSessionId) =>
+      readWarmSessionClaim(touchConfirm, thresholdSessionId),
+    ),
   );
   const claim =
     claims.find((candidate) => candidate?.state === 'expired') ||

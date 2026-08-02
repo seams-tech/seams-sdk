@@ -104,11 +104,13 @@ export type OpenRegistrationPreparationModalParams = {
 };
 
 export interface WarmSessionStatusReader {
-  getWarmSessionStatus(args: { sessionId: string }): Promise<WarmSessionStatusResult>;
+  getWarmSessionStatus(args: { thresholdSessionId: string }): Promise<WarmSessionStatusResult>;
 }
 
 export interface WarmSessionStatusBatchReader {
-  getWarmSessionStatuses(args: { sessionIds: string[] }): Promise<WarmSessionStatusBatchResult>;
+  getWarmSessionStatuses(args: {
+    thresholdSessionIds: string[];
+  }): Promise<WarmSessionStatusBatchResult>;
 }
 
 export interface WarmSessionMaterialClaimer {
@@ -172,7 +174,7 @@ export type PasskeyWarmSessionSealTransportInput = Exclude<
 
 export interface WarmSessionSealPersister {
   persistSigningSessionSealForThresholdSession(args: {
-    sessionId: string;
+    thresholdSessionId: string;
     transport: PasskeyWarmSessionSealTransportInput;
     diagnostics?: WarmSessionMaterialWriteDiagnostics;
   }): Promise<WarmSessionSealAndPersistResult>;

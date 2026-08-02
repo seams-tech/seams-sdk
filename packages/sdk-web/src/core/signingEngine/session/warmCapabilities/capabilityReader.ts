@@ -95,7 +95,7 @@ export function normalizeWarmCapabilityReaderPorts(
       runtimeStatus: 'configured',
       touchConfirm,
       getEmailOtpWarmSessionStatus: async (target: EmailOtpWarmMaterialTarget) =>
-        await touchConfirm.getWarmSessionStatus({ sessionId: target.thresholdSessionId }),
+        await touchConfirm.getWarmSessionStatus({ thresholdSessionId: target.thresholdSessionId }),
     };
   }
   if (touchConfirm) {

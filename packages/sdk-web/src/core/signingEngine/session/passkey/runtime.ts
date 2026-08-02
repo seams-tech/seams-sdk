@@ -41,7 +41,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
       if (sealTransport) {
         const persisted =
           await args.sealPersistence.persistSigningSessionSealForThresholdSession({
-          sessionId: materialActivationId,
+          thresholdSessionId: materialActivationId,
           transport: {
             curve: sealTransport.curve,
             ...(sealTransport.walletId ? { walletId: sealTransport.walletId } : {}),

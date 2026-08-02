@@ -95,59 +95,59 @@ export function normalizeWarmSessionReadPorts(
 
 export function reportWarmSessionAvailabilityFailure(args: {
   operation: 'status_read' | 'claim';
-  sessionId: string;
+  thresholdSessionId: string;
   code?: string;
 }): void {
   console.warn('[WarmSessionStore] warm-session availability failure', {
     operation: args.operation,
-    sessionId: args.sessionId,
+    thresholdSessionId: args.thresholdSessionId,
     code: String(args.code || 'worker_error').trim() || 'worker_error',
   });
 }
 
 export async function readWarmSessionClaim(
   touchConfirm: WarmSessionReadPorts | null,
-  sessionIdRaw: string,
+  thresholdSessionIdRaw: string,
 ): Promise<WarmSessionPrfClaim | null> {
-  const sessionId = String(sessionIdRaw || '').trim();
-  if (!touchConfirm || !sessionId || touchConfirm.statusPort === 'batch') {
+  const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
+  if (!touchConfirm || !thresholdSessionId || touchConfirm.statusPort === 'batch') {
     return null;
   }
   const status = await touchConfirm
-    .getWarmSessionStatus({ sessionId })
+    .getWarmSessionStatus({ thresholdSessionId })
     .catch(() => ({ ok: false as const, code: 'worker_error', message: 'worker_error' }));
-  return toWarmSessionClaimFromStatusResult({ sessionId, status });
+  return toWarmSessionClaimFromStatusResult({ thresholdSessionId, status });
 }
 
 export function toWarmSessionClaimFromStatusResult(args: {
-  sessionId: string;
+  thresholdSessionId: string;
   status: WarmSessionStatusResult;
 }): WarmSessionPrfClaim {
-  const sessionId = String(args.sessionId || '').trim();
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!args.status.ok) {
     if (args.status.code === 'expired') {
-      return { state: 'expired', sessionId };
+      return { state: 'expired', thresholdSessionId };
     }
     if (args.status.code === 'exhausted') {
-      return { state: 'exhausted', sessionId };
+      return { state: 'exhausted', thresholdSessionId };
     }
     if (args.status.code === 'not_found') {
-      return { state: 'missing', sessionId };
+      return { state: 'missing', thresholdSessionId };
     }
     reportWarmSessionAvailabilityFailure({
       operation: 'status_read',
-      sessionId,
+      thresholdSessionId,
       code: args.status.code,
     });
     return {
       state: 'unavailable',
-      sessionId,
+      thresholdSessionId,
       code: String(args.status.code || 'worker_error').trim() || 'worker_error',
     };
   }
   return {
     state: 'warm',
-    sessionId,
+    thresholdSessionId,
     expiresAtMs: args.status.expiresAtMs,
     remainingUses: args.status.remainingUses,
   };
@@ -155,37 +155,44 @@ export function toWarmSessionClaimFromStatusResult(args: {
 
 export async function readWarmSessionClaims(args: {
   touchConfirm: WarmSessionReadPorts | null;
-  sessionIds: string[];
+  thresholdSessionIds: string[];
 }): Promise<Map<string, WarmSessionPrfClaim | null>> {
-  const normalizedSessionIds = Array.from(
-    new Set(args.sessionIds.map((value) => String(value || '').trim()).filter(Boolean)),
+  const normalizedThresholdSessionIds = Array.from(
+    new Set(args.thresholdSessionIds.map((value) => String(value || '').trim()).filter(Boolean)),
   );
   const out = new Map<string, WarmSessionPrfClaim | null>();
-  if (!normalizedSessionIds.length) {
+  if (!normalizedThresholdSessionIds.length) {
     return out;
   }
   if (!args.touchConfirm) {
-    for (const sessionId of normalizedSessionIds) {
-      out.set(sessionId, null);
+    for (const thresholdSessionId of normalizedThresholdSessionIds) {
+      out.set(thresholdSessionId, null);
     }
     return out;
   }
   if (args.touchConfirm.statusPort !== 'single') {
     const batch = await args.touchConfirm.getWarmSessionStatuses({
-      sessionIds: normalizedSessionIds,
+      thresholdSessionIds: normalizedThresholdSessionIds,
     });
-    for (const sessionId of normalizedSessionIds) {
-      const matched = batch.results.find((entry) => entry.sessionId === sessionId);
+    for (const thresholdSessionId of normalizedThresholdSessionIds) {
+      const matched = batch.results.find(
+        (entry) => entry.thresholdSessionId === thresholdSessionId,
+      );
       out.set(
-        sessionId,
-        matched ? toWarmSessionClaimFromStatusResult({ sessionId, status: matched.result }) : null,
+        thresholdSessionId,
+        matched
+          ? toWarmSessionClaimFromStatusResult({ thresholdSessionId, status: matched.result })
+          : null,
       );
     }
     return out;
   }
   await Promise.all(
-    normalizedSessionIds.map(async (sessionId) => {
-      out.set(sessionId, await readWarmSessionClaim(args.touchConfirm, sessionId));
+    normalizedThresholdSessionIds.map(async (thresholdSessionId) => {
+      out.set(
+        thresholdSessionId,
+        await readWarmSessionClaim(args.touchConfirm, thresholdSessionId),
+      );
     }),
   );
   return out;

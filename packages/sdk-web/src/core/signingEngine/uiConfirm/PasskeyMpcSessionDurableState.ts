@@ -41,10 +41,10 @@ import {
 type PasskeyMpcSessionDurableStateDeps = {
   signingSessionPersistenceMode: 'none' | 'sealed_refresh_v1';
   sealAndPersistWarmSessionMaterial(args: {
-    sessionId: string;
+    thresholdSessionId: string;
     transport: PasskeyWarmSessionSealTransportInput;
   }): Promise<WarmSessionSealAndPersistResult>;
-  readWarmSessionStatus(args: { sessionId: string }): Promise<WarmSessionStatusResult>;
+  readWarmSessionStatus(args: { thresholdSessionId: string }): Promise<WarmSessionStatusResult>;
 };
 
 type PasskeySealedRecordAccountMetadata = {
@@ -402,7 +402,7 @@ export class PasskeyMpcSessionDurableState {
   constructor(private readonly deps: PasskeyMpcSessionDurableStateDeps) {}
 
   async persistSigningSessionSealForThresholdSession(args: {
-    sessionId: string;
+    thresholdSessionId: string;
     transport: PasskeyWarmSessionSealTransportInput;
     diagnostics?: WarmSessionMaterialWriteDiagnostics;
   }): Promise<WarmSessionSealAndPersistResult> {
@@ -414,7 +414,7 @@ export class PasskeyMpcSessionDurableState {
           'Passkey signing-session seal persistence requires signingSessionPersistenceMode="sealed_refresh_v1"',
       };
     }
-    const thresholdSessionId = String(args.sessionId || '').trim();
+    const thresholdSessionId = String(args.thresholdSessionId || '').trim();
     if (!thresholdSessionId) {
       return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
     }
@@ -557,7 +557,7 @@ export class PasskeyMpcSessionDurableState {
       let policy: WarmSessionStatusResult;
       try {
         policy = await this.deps.readWarmSessionStatus({
-          sessionId: args.thresholdSessionId,
+          thresholdSessionId: args.thresholdSessionId,
         });
       } catch (error) {
         return {
@@ -673,7 +673,7 @@ export class PasskeyMpcSessionDurableState {
     const groupId = SIGNING_SESSION_SEAL_GROUP_ID;
     const sealStartedAt = performance.now();
     const sealed = await this.deps.sealAndPersistWarmSessionMaterial({
-      sessionId: args.thresholdSessionId,
+      thresholdSessionId: args.thresholdSessionId,
       transport: normalizedPasskeyTransport(args.transport, groupId),
     });
     recordDiagnosticDuration({
