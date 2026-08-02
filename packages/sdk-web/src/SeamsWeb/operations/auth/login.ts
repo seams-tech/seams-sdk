@@ -692,19 +692,19 @@ type LoginWarmupRuntimeScopeBootstrapState =
 type LoginWarmupEd25519MintPlan =
   | {
       kind: 'not_requested';
-      sessionId?: never;
+      thresholdSessionId?: never;
       signingGrantId?: never;
       authorization?: never;
     }
   | {
       kind: 'fresh';
-      sessionId?: never;
+      thresholdSessionId?: never;
       signingGrantId?: never;
       authorization?: never;
     }
   | {
       kind: 'ecdsa_authorized';
-      sessionId: string;
+      thresholdSessionId: string;
       signingGrantId?: never;
       authorization?: never;
     }
@@ -712,7 +712,7 @@ type LoginWarmupEd25519MintPlan =
       kind: 'local_material';
       stableServerScope: PasskeyEd25519YaoLocalMaterialLocatorV1['stableServerScope'];
       materialActivation: PasskeyEd25519YaoLocalMaterialLocatorV1['materialActivation'];
-      sessionId?: never;
+      thresholdSessionId?: never;
       signingGrantId?: never;
       authorization?: never;
     };
@@ -932,7 +932,7 @@ function loginEd25519ExactProvisionAuthBinding(
 function loginEd25519ExactProvisionLaneIdentity(args: {
   walletBinding: ResolvedLoginWalletBinding;
   signerSlot: number;
-  sessionId: string;
+  thresholdSessionId: string;
   signingGrantId: string;
   authority: Exclude<LoginWarmupEd25519SessionAuthority, { kind: 'not_requested' }>;
 }): ExactEd25519SigningLaneIdentity {
@@ -945,7 +945,7 @@ function loginEd25519ExactProvisionLaneIdentity(args: {
     }),
     auth: loginEd25519ExactProvisionAuthBinding(args.authority),
     signingGrantId: args.signingGrantId,
-    thresholdSessionId: args.sessionId,
+    thresholdSessionId: args.thresholdSessionId,
   });
 }
 
@@ -977,7 +977,7 @@ function resolveLoginWarmEd25519ProvisioningIdentity(args: {
         laneIdentity: loginEd25519ExactProvisionLaneIdentity({
           walletBinding: args.walletBinding,
           signerSlot: args.signerSlot,
-          sessionId: args.mintPlan.sessionId,
+          thresholdSessionId: args.mintPlan.thresholdSessionId,
           signingGrantId: args.ecdsaMint.signingGrantId,
           authority: args.authority,
         }),
@@ -1864,7 +1864,7 @@ async function unlockInternal(
         : ed25519DependsOnEcdsa
           ? {
               kind: 'ecdsa_authorized',
-              sessionId: plannedEd25519SessionId,
+              thresholdSessionId: plannedEd25519SessionId,
             }
           : {
               kind: 'fresh',
@@ -2608,7 +2608,7 @@ type ThresholdLoginWarmupTask = {
 };
 
 type ThresholdLoginWarmEd25519State = {
-  sessionId: string;
+  thresholdSessionId: string;
   signingGrantId: string;
   jwt: string;
   expiresAtMs: number;
@@ -3019,7 +3019,7 @@ async function primeThresholdLoginWarmSigners(args: {
       : args.ecdsaContextResolution.initialContext;
   let activeCanonicalEcdsaContext = initialCanonicalEcdsaContext;
   const warmState: ThresholdLoginWarmEd25519State = {
-    sessionId: '',
+    thresholdSessionId: '',
     signingGrantId: '',
     jwt: '',
     expiresAtMs: 0,
@@ -3200,7 +3200,7 @@ async function primeThresholdLoginWarmSigners(args: {
           });
         }
 
-        warmState.sessionId = String(connectedThresholdSessionId);
+        warmState.thresholdSessionId = String(connectedThresholdSessionId);
         warmState.signingGrantId = connectedSigningGrantId;
         warmState.jwt = connectedJwt;
         warmState.expiresAtMs = Math.floor(Number(connected.expiresAtMs) || 0);
