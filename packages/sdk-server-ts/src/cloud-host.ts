@@ -16,7 +16,17 @@ export * from './delegateAction';
 export * from './router/apiCredentialPorts';
 export * from './router/applyRouteMetering';
 export * from './router/cloudflare-adaptor';
-export * from './router/cloudflare/cloudflare.types';
+export type {
+  CfEmailMessage,
+  CfEnv,
+  CfExecutionContext,
+  CfScheduledEvent,
+  EmailHandler,
+  FetchHandler,
+  RouterApiCloudflareSignerWorkerEnv,
+  ScheduledHandler,
+  SeamsD1SignerTenantStorageWorkerEnv,
+} from './router/cloudflare/cloudflare.types';
 export * from './router/cloudflare/createCloudflareRouter';
 export * from './router/cloudflare/d1Ed25519YaoCapabilityPersistence';
 export * from './router/cloudflare/d1OidcBoundary';
@@ -52,7 +62,38 @@ export * from './router/runtimeSnapshotConsumer';
 export * from './storage/d1Sql';
 export * from './storage/tenantRoute';
 export * from './threshold/session/signingSessionSeal/options';
-export * from './threshold/session/signingSessionSeal/signingSessionSeal.types';
+export type {
+  CreateSigningSessionSealServiceOptions,
+  SigningSessionSealApplyServerSealRequest,
+  SigningSessionSealAuditEvent,
+  SigningSessionSealAuditSink,
+  SigningSessionSealAuthContext,
+  SigningSessionSealAuthorizeInput,
+  SigningSessionSealAuthorizeResult,
+  SigningSessionSealCipherAdapter,
+  SigningSessionSealCipherOperationInput,
+  SigningSessionSealCipherOperationResult,
+  SigningSessionSealCurve,
+  SigningSessionSealEcdsaThresholdSessionRecord,
+  SigningSessionSealEd25519ThresholdSessionRecord,
+  SigningSessionSealGuard,
+  SigningSessionSealGuardInput,
+  SigningSessionSealGuardResult,
+  SigningSessionSealIdempotencyGetInput,
+  SigningSessionSealIdempotencySetInput,
+  SigningSessionSealIdempotencyStore,
+  SigningSessionSealOperation,
+  SigningSessionSealRemoveServerSealRequest,
+  SigningSessionSealRouteHeaders,
+  SigningSessionSealRouteResult,
+  SigningSessionSealRoutesOptions,
+  SigningSessionSealService,
+  SigningSessionSealServiceIdempotencyOptions,
+  SigningSessionSealSessionAdapter,
+  SigningSessionSealSessionClaims,
+  SigningSessionSealStartupCapabilities,
+  SigningSessionSealThresholdSessionRecord,
+} from './threshold/session/signingSessionSeal/signingSessionSeal.types';
 export {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
   DEFAULT_WALLET_SESSION_TTL_MS,
