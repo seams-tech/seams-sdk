@@ -186,6 +186,13 @@ The canonical D1 authorization core remains covered independently: its
 reusable-session, replay, expiry, quota, ECDSA binding, and hostile-substitution
 cases pass 19/19 in the focused unit run.
 
+The obsolete Router budget-only TypeScript coverage was deleted in
+`5dbabdfc8`: the retired Yao reservation/provisioning suite, private budget
+provisioner suite, and Wallet Session reservation-store suite had no remaining
+canonical caller. Registration/retry/disposal coverage remains in the local-Yao
+tests. The Rust/TypeScript budget implementation itself remains open until the
+live Ed25519 callers are moved to the canonical claim/quota transaction.
+
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
 Replacement: the required-field `active | retired` ECDSA capability record,

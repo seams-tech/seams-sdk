@@ -1633,14 +1633,16 @@ local-Yao public-signing section were deleted. Registration, retry, and worker
 disposal coverage remains; the production legacy route has no caller and was
 removed in the same checkpoint.
 
-Current implementation checkpoint (`b34bf343f`, following `422268f7d`): the
+Current implementation checkpoint (`5dbabdfc8`, following `b34bf343f` and
+`422268f7d`): the
 Rust/TypeScript authorization-claim boundary is strict and the Rust ECDSA
 binding suite passes 31/31. Near Ed25519 lane and status diagnostics now use
 `WalletSessionId` plus `MpcWalletSigningQuotaId`; the old grant identity has
 been removed from shared Ed lane/session-state carriers, ECDSA registration
 bootstrap contracts, and registration-side budget provisioning. Server and
-web typechecks pass. Unit 3c remains open for the live Ed25519 reserve/commit
-store path, remaining grant-bearing worker/server surfaces, and final claim and
+web typechecks pass. Obsolete Router budget-only unit coverage was deleted in
+`5dbabdfc8`. Unit 3c remains open for the live Ed25519 reserve/commit store
+path, remaining grant-bearing worker/server surfaces, and final claim and
 quota migration.
 
 ### Canonical authorization identities
