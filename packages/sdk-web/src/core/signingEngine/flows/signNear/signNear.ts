@@ -650,7 +650,7 @@ function nearEd25519SigningGrantAdmissionQueueKey(args: {
   return buildSigningGrantAdmissionQueueKey({
     walletId: String(args.walletId),
     curve: 'ed25519',
-    signingGrantId: String(args.prepared.signingLane.signingGrantId),
+    signingGrantId: String(args.prepared.signingLane.quotaId),
     projectionVersion: 'server-owned',
     authorityKey: signingLaneAuthBindingKey(args.prepared.signingLane.auth),
     targetKey: `near:${String(args.nearAccountId)}`,
@@ -668,7 +668,7 @@ function nearAdHocEd25519SigningGrantAdmissionQueueKey(args: {
   return buildSigningGrantAdmissionQueueKey({
     walletId: String(args.walletId),
     curve: 'ed25519',
-    signingGrantId: String(args.prepared.selectedLane.signingGrantId),
+    signingGrantId: String(args.prepared.selectedLane.quotaId),
     projectionVersion: 'projection-unadmitted',
     authorityKey: signingLaneAuthBindingKey(args.prepared.selectedLane.auth),
     targetKey: `near:${String(args.nearAccountId)}`,
@@ -1146,7 +1146,8 @@ async function prepareNearEd25519TransactionOperation(args: {
       nearAccountId,
       readiness: readiness.readiness.status,
       thresholdSessionId: selectedSessionLane.thresholdSessionId,
-      signingGrantId: selectedSessionLane.signingGrantId,
+      walletSessionId: selectedSessionLane.walletSessionId,
+      quotaId: selectedSessionLane.quotaId,
       retention: lane.retention,
       remainingUses: readiness.remainingUses,
       expiresAtMs: readiness.expiresAtMs,
