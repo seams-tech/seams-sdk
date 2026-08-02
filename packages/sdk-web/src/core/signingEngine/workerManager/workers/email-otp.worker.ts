@@ -1415,13 +1415,13 @@ function toArrayBufferCopy(bytes: Uint8Array): ArrayBuffer {
   return out;
 }
 
-function deleteEmailOtpWarmSession(sessionId: string): void {
-  const entry = emailOtpWarmSessions.get(sessionId);
+function deleteEmailOtpWarmSession(thresholdSessionId: string): void {
+  const entry = emailOtpWarmSessions.get(thresholdSessionId);
   if (entry) {
     zeroizeBytes(entry.clientRootShare32);
     zeroizeBytes(entry.signingSessionSecret32);
     zeroizeBytes(entry.clientAdditiveShare32);
-    emailOtpWarmSessions.delete(sessionId);
+    emailOtpWarmSessions.delete(thresholdSessionId);
   }
 }
 
@@ -2843,12 +2843,15 @@ async function rehydrateEmailOtpEd25519YaoOperationMaterial(
 }
 
 function claimEmailOtpEcdsaSigningShare(
-  sessionIdRaw: unknown,
+  thresholdSessionIdRaw: unknown,
 ): EmailOtpEcdsaSigningShareClaimResult {
-  const sessionId = String(sessionIdRaw || '').trim();
-  const status = readEmailOtpWarmSessionStatus({ kind: 'ecdsa', thresholdSessionId: sessionId });
+  const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
+  const status = readEmailOtpWarmSessionStatus({
+    kind: 'ecdsa',
+    thresholdSessionId,
+  });
   if (!status.ok) return status;
-  const entry = emailOtpWarmSessions.get(sessionId);
+  const entry = emailOtpWarmSessions.get(thresholdSessionId);
   if (!entry?.clientAdditiveShare32) {
     return {
       ok: false,
@@ -2861,9 +2864,9 @@ function claimEmailOtpEcdsaSigningShare(
   const remainingUses = entry.remainingUses;
   const expiresAtMs = entry.expiresAtMs;
   if (remainingUses <= 0) {
-    deleteEmailOtpWarmSession(sessionId);
+    deleteEmailOtpWarmSession(thresholdSessionId);
   } else {
-    emailOtpWarmSessions.set(sessionId, entry);
+    emailOtpWarmSessions.set(thresholdSessionId, entry);
   }
   return {
     ok: true,
