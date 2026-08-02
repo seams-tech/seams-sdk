@@ -32,15 +32,11 @@ const validEcdsaFinalizePrepared = {
 const ecdsaFinalizeWithSessionTerms = {
   kind: 'd1_wallet_add_signer_finalize_ecdsa_prepared_v1',
   signerWriteAtMs: 1,
-  // @ts-expect-error ECDSA finalization cannot carry Ed25519 session terms.
-  signingGrantId: 'grant-1',
 } satisfies D1WalletAddSignerFinalizePreparedV1;
 
 const ed25519FinalizeWithSessionTerms = {
   kind: 'd1_wallet_add_signer_finalize_ed25519_prepared_v1',
   finalizingAtMs: 1,
-  // @ts-expect-error Add-signer preparation cannot mint or reserve reusable session terms.
-  signingGrantId: 'grant-1',
 } satisfies D1WalletAddSignerFinalizePreparedV1;
 
 void validEd25519FinalizePrepared;

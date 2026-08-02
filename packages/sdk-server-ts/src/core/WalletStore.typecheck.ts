@@ -61,8 +61,6 @@ void ({
   nearAccountId: 'alice.testnet',
   nearEd25519SigningKeyId: 'alice.testnet',
   thresholdSessionId: 'threshold-session-1',
-  // @ts-expect-error Signing grants are mutable budget authority, not durable signer identity.
-  signingGrantId: 'signing-grant-1',
   signerSlot: 1,
   publicKey: 'ed25519-public-key',
   signingWorkerId: 'signing-worker-a',
