@@ -1003,11 +1003,12 @@ authorized operations whose real execution can outlive the request or transfer
 between workers. Client material-owner queues and server authorized operations
 remain separate domains.
 
-Every signed MPC operation scope carries two independent proofs:
+Every signed MPC operation scope carries two independent domains:
 
-- `authorization` carries either the exact current authorization-grant reference
-  or verified one-time evidence and is checked for scope, lifecycle, wallet,
-  exact auth authority, and applicable allowance;
+- `authorizationMode` carries either the exact current authorization-grant
+  reference or a marker that this operation requires verified step-up; verified
+  evidence remains server-side and is bound to the resulting
+  `AuthorizedOperationId` plus operation fingerprint;
 - `materialActivation` identifies the exact activated material instance and is
   checked against the capability, owner, key, lifecycle, generation, and
   SigningWorker state.
@@ -1024,6 +1025,11 @@ The wire protocol replaces generic `session_id` and
 version and transcript vectors. Wallet Session replacement changes only
 authorization. Material re-activation changes only the activation reference.
 Neither value is accepted as a substitute for the other.
+
+The marker-only step-up branch avoids a circular prepare flow: operation
+preparation can precede confirmation, while the admitted server/worker effect
+carries the `AuthorizedOperationId`. No synthetic grant ID, evidence digest, or
+placeholder enters the public pre-authorization scope.
 
 Implementation order:
 

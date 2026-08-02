@@ -2422,8 +2422,15 @@ type MpcMaterialActivationRef = {
   signingWorker: MpcSigningWorkerRef;
 };
 
+type MpcOperationAuthorizationMode =
+  | {
+      kind: "authorization_grant";
+      authorizationGrantRef: AuthorizationGrantRef;
+    }
+  | { kind: "operation_step_up" };
+
 type MpcOperationExecutionScope = {
-  authorization: OperationAuthorizationSource;
+  authorizationMode: MpcOperationAuthorizationMode;
   materialActivation: MpcMaterialActivationRef;
   operation: CapabilityOperationRef;
 };
@@ -2558,7 +2565,7 @@ Wallet Session and exact material activation independently. An
 `AuthorizedOperation` is bound to the active `SeamsSession` and
 exact authorization source, while the reusable warm allowance remains bound to
 the exact Wallet Session authorization. The wire scope therefore uses
-branch-specific `authorization` and `material_activation`; the
+branch-specific `authorization_mode` and `material_activation`; the
 tactical `session_id` plus `active_state_session_id` pair is deleted rather than
 retained as aliases. Explicit unlock or Wallet Session refresh may replace the
 authorization session ID while preserving the exact activation. Ordinary page
@@ -2566,6 +2573,12 @@ refresh reuses the same valid Wallet Session and remaining allowance.
 Re-activation creates a new activation ID. Session renewal preserves the
 activation reference only when all capability, owner, key, lifecycle, and
 SigningWorker bindings still match.
+
+The public `operation_step_up` mode is marker-only because operation preparation
+precedes confirmation. Verified evidence stays inside Seams authorization. The
+atomic admission result binds its evidence digest, `AuthorizedOperationId`, and
+stable operation fingerprint; only that admitted operation reaches the
+server/worker effect boundary.
 
 Reusable Wallet Session expiry is an authorization transition. It cannot
 retire a capability manifest, replace a material activation, or select
