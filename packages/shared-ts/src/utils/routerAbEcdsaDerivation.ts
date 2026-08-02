@@ -305,7 +305,6 @@ export type RouterAbEcdsaPostRegistrationSessionActivationResponseV1 = {
   public_capability: RouterAbEcdsaDerivationPublicCapabilityV1;
   session: {
     threshold_session_id: ThresholdEcdsaSessionId;
-    signing_grant_id: SigningGrantId;
     expires_at_ms: number;
     remaining_uses: number;
     wallet_session_jwt: string;
@@ -1590,7 +1589,6 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
   const sessionRecord = requireRecord(record.session, `${label}.session`);
   requireExactKeys(sessionRecord, `${label}.session`, [
     'threshold_session_id',
-    'signing_grant_id',
     'expires_at_ms',
     'remaining_uses',
     'wallet_session_jwt',
@@ -1615,10 +1613,6 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
       threshold_session_id: requireThresholdEcdsaSessionId(
         sessionRecord.threshold_session_id,
         `${label}.session.threshold_session_id`,
-      ),
-      signing_grant_id: requireSigningGrantId(
-        sessionRecord.signing_grant_id,
-        `${label}.session.signing_grant_id`,
       ),
       expires_at_ms: requirePositiveUnixMs(
         sessionRecord.expires_at_ms,

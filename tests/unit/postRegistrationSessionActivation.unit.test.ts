@@ -59,7 +59,6 @@ async function activationFetchMock(
       public_capability: state.publicCapability,
       session: {
         threshold_session_id: state.thresholdSessionId,
-        signing_grant_id: state.signingGrantId,
         expires_at_ms: Date.now() + 120_000,
         remaining_uses: 5,
         wallet_session_jwt: 'wallet.session.fixture',

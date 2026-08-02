@@ -286,7 +286,7 @@ async function bootstrapStrictExistingEcdsaSession(
     participantIds: args.key.participantIds.map(Number),
     chainId: args.lanePolicy.chainTarget.chainId,
     sessionId: strict.sessionActivation.session.threshold_session_id,
-    signingGrantId: strict.sessionActivation.session.signing_grant_id,
+    signingGrantId: args.lanePolicy.signingGrantId,
     expiresAtMs: strict.sessionActivation.session.expires_at_ms,
     remainingUses: strict.sessionActivation.session.remaining_uses,
     runtimePolicyScope,
