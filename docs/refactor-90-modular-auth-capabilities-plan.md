@@ -1551,6 +1551,10 @@ the replacement and legacy MPC paths must not ship together.
       normal-signing vectors pass 3/3;
       the router-ab-core generated TypeScript binding check passes 1/1 and the
       signer-core generated schema check passes 1/1;
+      the focused ECDSA lifecycle, hydration, supersession, export, step-up,
+      sealed-runtime, presign-store, expiry, and authorization-seal matrix
+      passes 48/48 after refreshing current required-identity fixtures
+      (`12fc49a59`);
       SDK and unit typechecks pass; direct architecture, worker/WASM, bundle,
       and boundary guards pass. The source Playwright guard set passes 220/220;
       the D1 local-dev launcher contract is restored with SDK `.dev.vars`
