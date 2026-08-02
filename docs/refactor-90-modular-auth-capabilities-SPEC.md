@@ -130,13 +130,13 @@ implementing commit SHA as the evidence.
 
 ### Unit 1 — canonical hydration and canonical ECDSA state
 
-- [ ] `R90-INV-001` — hydration and ECDSA persistence boundaries parse raw
+- [x] `R90-INV-001` — hydration and ECDSA persistence boundaries parse raw
   records once and expose only precise internal branches.
   - [x] Warm ECDSA read-model authorization-required states carry an explicit
     nullable Email OTP context; negative `never` branches remain closed, and
     the identity-boundary guard tracks only live protocol-owned constructors
     (`e9ed27172`).
-- [ ] `R90-INV-002` — Near and ECDSA each have one durable material owner and one
+- [x] `R90-INV-002` — Near and ECDSA each have one durable material owner and one
   volatile runtime owner.
   - [x] The exact ECDSA runtime no longer reconstructs or owns an unbranded
     client-verifying-share copy. It carries the manifest-owned branded client
@@ -192,7 +192,7 @@ implementing commit SHA as the evidence.
 
 ### Units 1, 3a, and 4 — MPC cutover and consumers
 
-- [ ] `R90-INV-002` — registration, unlock, refresh, recovery, signing, and
+- [x] `R90-INV-002` — registration, unlock, refresh, recovery, signing, and
   export cannot publish or select a parallel active material record.
   - [x] Passkey export and warm-session MPC custody have one dedicated worker
     and one dedicated main-thread owner; generic confirmation no longer
@@ -293,7 +293,7 @@ implementing commit SHA as the evidence.
     normal-signing state through the server/D1/client boundaries; route JWT
     signing validates that state, and the client no longer derives signing
     control facts from the bearer JWT (`d2128b7d9`).
-- [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
+- [x] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
   - [x] Concrete ECDSA availability excludes the retired `restorable` state;
     export and runtime postconditions accept only canonical ready/deferred
@@ -530,7 +530,7 @@ implementing commit SHA as the evidence.
 - [x] `R90-INV-011` — Near post-commit verification creates no durable readback
   stage; readback converges through the two-state journal and direct
   recovery-source tests (`5db9ad87e`, `51b738d2a`).
-- [ ] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
+- [x] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
   and export use an exact material-activation reference independently from the
   discriminated reusable-session or operation-step-up authority; step-up
   carries no `WalletSessionId`.
