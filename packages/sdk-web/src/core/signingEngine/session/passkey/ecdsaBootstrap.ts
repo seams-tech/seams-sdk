@@ -44,7 +44,7 @@ import {
   toEvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
-  type EvmFamilyEcdsaSessionLanePolicy,
+  type EvmFamilyEcdsaActivationLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { PasskeyEcdsaReadyPersistInput } from '../warmCapabilities/persistencePorts';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
@@ -81,7 +81,7 @@ type EcdsaBootstrapTargetIdentity = {
 type EcdsaBootstrapExactIdentity = {
   keyHandle: EvmFamilyEcdsaKeyHandle | string;
   key: EvmFamilyEcdsaKeyIdentity;
-  lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  lanePolicy: EvmFamilyEcdsaActivationLanePolicy;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
   walletId?: never;
@@ -144,7 +144,8 @@ type PasskeyPrfCredentialBootstrapAuth = {
 
 export type EcdsaBootstrapSessionIdentityInput = {
   thresholdSessionId: EcdsaSessionIdentity['thresholdSessionId'] | string;
-  signingGrantId: EcdsaSessionIdentity['signingGrantId'] | string;
+  walletSessionId: EcdsaSessionIdentity['walletSessionId'] | string;
+  quotaId: EcdsaSessionIdentity['quotaId'] | string;
 };
 
 export type ReuseWarmEcdsaBootstrapRequest = EcdsaBootstrapRequestCommon &
@@ -376,11 +377,15 @@ export function ecdsaBootstrapChainTarget(
 }
 
 function ecdsaBootstrapSessionIdentityFromLanePolicy(
-  lanePolicy: EvmFamilyEcdsaSessionLanePolicy,
+  lanePolicy: EvmFamilyEcdsaActivationLanePolicy,
 ): EcdsaSessionIdentity {
+  if (!('walletSessionId' in lanePolicy) || !('quotaId' in lanePolicy)) {
+    throw new Error('[SigningEngine][ecdsa] reconnect lane policy has no Wallet Session identity');
+  }
   return buildEcdsaSessionIdentity({
     thresholdSessionId: lanePolicy.thresholdSessionId,
-    signingGrantId: lanePolicy.signingGrantId,
+    walletSessionId: lanePolicy.walletSessionId,
+    quotaId: lanePolicy.quotaId,
   });
 }
 
@@ -451,8 +456,10 @@ function toActivateEcdsaSessionRequest(
         ? {
             kind: 'requested_session' as const,
             sessionKind: targetRequest.sessionKind,
-            sessionId: buildEcdsaSessionIdentity(targetRequest.sessionIdentity).thresholdSessionId,
-            signingGrantId: buildEcdsaSessionIdentity(targetRequest.sessionIdentity).signingGrantId,
+            thresholdSessionId: buildEcdsaSessionIdentity(targetRequest.sessionIdentity)
+              .thresholdSessionId,
+            walletSessionId: buildEcdsaSessionIdentity(targetRequest.sessionIdentity).walletSessionId,
+            quotaId: buildEcdsaSessionIdentity(targetRequest.sessionIdentity).quotaId,
           }
         : undefined;
     return {
@@ -545,8 +552,9 @@ function toActivateEcdsaSessionRequest(
         sessionPlan: {
           kind: 'requested_session' as const,
           sessionKind: request.sessionKind,
-          sessionId: passkeyFreshIdentity.thresholdSessionId,
-          signingGrantId: passkeyFreshIdentity.signingGrantId,
+          thresholdSessionId: passkeyFreshIdentity.thresholdSessionId,
+          walletSessionId: passkeyFreshIdentity.walletSessionId,
+          quotaId: passkeyFreshIdentity.quotaId,
         },
         ...passkeyFreshActivationAuth(request),
         ...(routeAuth ? { walletSessionRouteAuth: routeAuth } : {}),
@@ -578,8 +586,9 @@ function toActivateEcdsaSessionRequest(
         sessionPlan: {
           kind: 'requested_session' as const,
           sessionKind: request.sessionKind,
-          sessionId: emailOtpIdentity.thresholdSessionId,
-          signingGrantId: emailOtpIdentity.signingGrantId,
+          thresholdSessionId: emailOtpIdentity.thresholdSessionId,
+          walletSessionId: emailOtpIdentity.walletSessionId,
+          quotaId: emailOtpIdentity.quotaId,
         },
         authKind: 'email_otp',
         emailOtpWorkerSessionHandle: request.emailOtpWorkerSessionHandle,
@@ -704,7 +713,8 @@ export async function bootstrapEcdsaSessionValue(
     walletId: String(walletId),
     chainTarget,
     relayerUrl,
-    signingGrantId: activation.session.signingGrantId,
+    walletSessionId: activation.session.walletSessionId,
+    quotaId: activation.session.quotaId,
     walletSessionJwt,
   };
   const thresholdEcdsaKeyRef = requireCanonicalThresholdEcdsaKeyRefIdentity(
@@ -760,7 +770,8 @@ export async function bootstrapEcdsaSessionValue(
       curve: 'ecdsa',
       walletId,
       chainTarget,
-      signingGrantId: SigningSessionIds.signingGrant(activation.session.signingGrantId),
+      walletSessionId: activation.session.walletSessionId,
+      quotaId: activation.session.quotaId,
       thresholdSessionId,
       persistenceSource: passkeyPersistenceSource,
       passkeyPrfSealMaterial: {

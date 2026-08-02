@@ -30,7 +30,8 @@ declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
 
 const sessionIdentity = buildEcdsaSessionIdentity({
   thresholdSessionId: 'threshold-session-id',
-  signingGrantId: 'signing-grant-id',
+  walletSessionId: 'wallet-session-id',
+  quotaId: 'quota-id',
 });
 
 const validReuseBootstrap = {

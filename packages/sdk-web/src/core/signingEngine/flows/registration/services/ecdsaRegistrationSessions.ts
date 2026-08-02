@@ -286,10 +286,11 @@ async function hydratePasskeyRegistrationSession(args: {
   bootstrap: WalletRegistrationEcdsaSessionBootstrap;
 }): Promise<void> {
   const thresholdSessionId = String(args.bootstrap.session.thresholdSessionId).trim();
-  const signingGrantId = String(args.bootstrap.session.signingGrantId).trim();
+  const walletSessionId = String(args.bootstrap.session.walletSessionId).trim();
+  const quotaId = String(args.bootstrap.session.quotaId).trim();
   const walletSessionJwt = String(args.bootstrap.session.jwt).trim();
   const passkeyPrfFirstB64u = String(args.auth.passkeyPrfFirstB64u).trim();
-  if (!thresholdSessionId || !signingGrantId || !walletSessionJwt || !passkeyPrfFirstB64u) {
+  if (!thresholdSessionId || !walletSessionId || !quotaId || !walletSessionJwt || !passkeyPrfFirstB64u) {
     throw new Error(
       '[SigningEngine] passkey ECDSA registration requires exact warm-session material',
     );
@@ -300,13 +301,15 @@ async function hydratePasskeyRegistrationSession(args: {
     walletId: String(args.walletId),
     chainTarget: args.walletKey.chainTarget,
     relayerUrl: args.relayerUrl,
-    signingGrantId,
+    walletSessionId,
+    quotaId,
     walletSessionJwt,
     serverSealedSecretCacheScope: {
       kind: 'passkey_registration',
       walletId: String(args.walletId),
       credentialIdB64u: args.auth.credentialIdB64u,
-      signingGrantId,
+      walletSessionId,
+      quotaId,
     },
     ...(args.deps.signingSessionSeal.signingSessionSealKeyVersion
       ? {
