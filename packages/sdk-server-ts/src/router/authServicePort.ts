@@ -162,7 +162,7 @@ import type {
   RedeemHostedWalletSeamsSessionExchangeResult,
   ReusableWalletSessionStatus,
   SessionOrigin,
-  VerifiedGrantEvidenceSet,
+  VerifiedAuthorizationEvidenceSet,
 } from '../authorization/domain';
 import type {
   VerifiedFactorEvidenceSetInput,
@@ -1441,10 +1441,10 @@ export interface RouterApiAuthorizationClaimService {
   readonly tenantId: TenantId;
   recordVerifiedFactorEvidenceSet(
     input: VerifiedFactorEvidenceSetInput,
-  ): Promise<VerifiedGrantEvidenceSet>;
+  ): Promise<VerifiedAuthorizationEvidenceSet>;
   recordVerifiedSessionEvidenceSet(
     input: VerifiedSessionEvidenceSetInput,
-  ): Promise<VerifiedGrantEvidenceSet>;
+  ): Promise<VerifiedAuthorizationEvidenceSet>;
   readAuthorizedOperation(input: {
     readonly tenantId: TenantId;
     readonly operationFingerprintDigest: import('@shared/authorization/operationFingerprint').CapabilityOperationFingerprintDigest;

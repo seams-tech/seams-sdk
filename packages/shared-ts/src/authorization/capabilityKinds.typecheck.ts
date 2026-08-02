@@ -2,17 +2,17 @@ import {
   AUTH_FACTOR_KINDS,
   CAPABILITY_KINDS,
   EVM_ECDSA_MPC_OPERATION_KINDS,
-  GRANT_EVIDENCE_KINDS,
+  AUTHORIZATION_EVIDENCE_KINDS,
   NEAR_ED25519_MPC_OPERATION_KINDS,
   VAULT_OPERATION_KINDS,
   buildEvmEcdsaMpcOperationRef,
-  buildGrantEvidenceRequirement,
+  buildAuthorizationEvidenceRequirement,
   buildNearEd25519MpcOperationRef,
   buildVaultOperationRef,
   type AuthFactorId,
   type CapabilityOperationRef,
-  type GrantEvidenceKind,
-  type GrantEvidenceRequirement,
+  type AuthorizationEvidenceKind,
+  type AuthorizationEvidenceRequirement,
   type AuthorizationGrantRef,
   type WalletSessionAuthorizationId,
   type AuthorizedOperationId,
@@ -32,14 +32,17 @@ const operationRefs: readonly CapabilityOperationRef[] = [
 ];
 void operationRefs;
 
-buildGrantEvidenceRequirement({
+buildAuthorizationEvidenceRequirement({
   mode: 'any',
-  evidenceKinds: [GRANT_EVIDENCE_KINDS.passkeyAssertion, GRANT_EVIDENCE_KINDS.emailOtp],
+  evidenceKinds: [
+    AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion,
+    AUTHORIZATION_EVIDENCE_KINDS.emailOtp,
+  ],
 });
 
-const canonicalRequirement: GrantEvidenceRequirement = {
+const canonicalRequirement: AuthorizationEvidenceRequirement = {
   mode: 'all',
-  evidenceKinds: [GRANT_EVIDENCE_KINDS.seamsSession],
+  evidenceKinds: [AUTHORIZATION_EVIDENCE_KINDS.seamsSession],
 };
 void canonicalRequirement;
 
@@ -61,10 +64,10 @@ const invalidEvmOperation: CapabilityOperationRef = {
 void invalidEvmOperation;
 
 // @ts-expect-error Evidence requirements must be nonempty.
-buildGrantEvidenceRequirement({ mode: 'all', evidenceKinds: [] });
+buildAuthorizationEvidenceRequirement({ mode: 'all', evidenceKinds: [] });
 
 // @ts-expect-error mpc_signer_proof is follow-on work and is outside the closed union.
-const unsupportedEvidence: GrantEvidenceKind = 'mpc_signer_proof';
+const unsupportedEvidence: AuthorizationEvidenceKind = 'mpc_signer_proof';
 void unsupportedEvidence;
 
 declare const seamsSessionId: SeamsSessionId;

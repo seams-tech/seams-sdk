@@ -3,7 +3,7 @@ import type { AuthorizationService } from './service';
 import {
   buildVerifiedEmailOtpFactorResult,
   buildVerifiedPasskeyFactorResult,
-  type VerifiedGrantEvidenceSet,
+  type VerifiedAuthorizationEvidenceSet,
 } from './factorEvidence';
 
 type EmailOtpFactorInput = Parameters<typeof buildVerifiedEmailOtpFactorResult>[0];
@@ -14,7 +14,7 @@ declare const passkeyWithOtpReceipt: Omit<PasskeyFactorInput, 'assertionDigest'>
   readonly verificationReceiptDigest: DigestB64u;
 };
 type StructuralEvidenceSet = {
-  readonly [K in keyof VerifiedGrantEvidenceSet]: VerifiedGrantEvidenceSet[K];
+  readonly [K in keyof VerifiedAuthorizationEvidenceSet]: VerifiedAuthorizationEvidenceSet[K];
 };
 declare const structuralEvidenceSet: StructuralEvidenceSet;
 declare const service: AuthorizationService;
@@ -26,7 +26,7 @@ buildVerifiedEmailOtpFactorResult(missingOtpReceipt);
 buildVerifiedPasskeyFactorResult(passkeyWithOtpReceipt);
 
 // @ts-expect-error verified evidence sets retain nominal post-verification proof
-const forgedEvidenceSet: VerifiedGrantEvidenceSet = structuralEvidenceSet;
+const forgedEvidenceSet: VerifiedAuthorizationEvidenceSet = structuralEvidenceSet;
 
 // @ts-expect-error the service exposes no generic verified-evidence persistence bypass
 service.recordVerifiedEvidenceSet(forgedEvidenceSet);

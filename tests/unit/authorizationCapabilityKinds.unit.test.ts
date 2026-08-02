@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import {
   CAPABILITY_KINDS,
-  GRANT_EVIDENCE_KINDS,
-  buildGrantEvidenceRequirement,
-  isGrantEvidenceKind,
+  AUTHORIZATION_EVIDENCE_KINDS,
+  buildAuthorizationEvidenceRequirement,
+  isAuthorizationEvidenceKind,
   parseCapabilityOperationRef,
 } from '@shared/authorization/capabilityKinds';
 
@@ -35,19 +35,19 @@ test('capability operation parsing enforces exact capability ownership', () => {
   });
 });
 
-test('grant evidence requirements are flat, canonical, and current-scope only', () => {
+test('authorization evidence requirements are flat, canonical, and current-scope only', () => {
   expect(
-    buildGrantEvidenceRequirement({
+    buildAuthorizationEvidenceRequirement({
       mode: 'any',
       evidenceKinds: [
-        GRANT_EVIDENCE_KINDS.passkeyAssertion,
-        GRANT_EVIDENCE_KINDS.emailOtp,
-        GRANT_EVIDENCE_KINDS.passkeyAssertion,
+        AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion,
+        AUTHORIZATION_EVIDENCE_KINDS.emailOtp,
+        AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion,
       ],
     }),
   ).toEqual({
     mode: 'any',
     evidenceKinds: ['email_otp', 'passkey_assertion'],
   });
-  expect(isGrantEvidenceKind('mpc_signer_proof')).toBe(false);
+  expect(isAuthorizationEvidenceKind('mpc_signer_proof')).toBe(false);
 });

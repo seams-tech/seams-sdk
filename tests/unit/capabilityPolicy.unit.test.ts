@@ -1,36 +1,39 @@
 import { expect, test } from '@playwright/test';
 import {
-  GRANT_EVIDENCE_KINDS,
-  buildGrantEvidenceRequirement,
+  AUTHORIZATION_EVIDENCE_KINDS,
+  buildAuthorizationEvidenceRequirement,
 } from '@shared/authorization/capabilityKinds';
 import {
-  evaluateGrantEvidenceRequirement,
-  parseGrantEvidenceRequirement,
+  evaluateAuthorizationEvidenceRequirement,
+  parseAuthorizationEvidenceRequirement,
 } from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
 import { buildReusableAuthorizationCoreFixture } from './helpers/authorizationCore.fixtures';
 
 test('flat policy parsing canonicalizes current evidence kinds', () => {
   expect(
-    parseGrantEvidenceRequirement({
+    parseAuthorizationEvidenceRequirement({
       mode: 'all',
       evidenceKinds: [
-        GRANT_EVIDENCE_KINDS.passkeyAssertion,
-        GRANT_EVIDENCE_KINDS.emailOtp,
-        GRANT_EVIDENCE_KINDS.passkeyAssertion,
+        AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion,
+        AUTHORIZATION_EVIDENCE_KINDS.emailOtp,
+        AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion,
       ],
     }),
   ).toEqual({
     kind: 'parsed',
     requirement: {
       mode: 'all',
-      evidenceKinds: [GRANT_EVIDENCE_KINDS.emailOtp, GRANT_EVIDENCE_KINDS.passkeyAssertion],
+      evidenceKinds: [
+        AUTHORIZATION_EVIDENCE_KINDS.emailOtp,
+        AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion,
+      ],
     },
   });
 });
 
 test('raw policies fail closed for MPC signer proof and recursive shapes', () => {
   expect(
-    parseGrantEvidenceRequirement({
+    parseAuthorizationEvidenceRequirement({
       mode: 'any',
       evidenceKinds: ['mpc_signer_proof'],
     }),
@@ -43,19 +46,20 @@ test('raw policies fail closed for MPC signer proof and recursive shapes', () =>
   });
 
   expect(
-    parseGrantEvidenceRequirement({
+    parseAuthorizationEvidenceRequirement({
       mode: 'all',
-      evidenceKinds: [GRANT_EVIDENCE_KINDS.passkeyAssertion],
+      evidenceKinds: [AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion],
       nested: {
         mode: 'any',
-        evidenceKinds: [GRANT_EVIDENCE_KINDS.emailOtp],
+        evidenceKinds: [AUTHORIZATION_EVIDENCE_KINDS.emailOtp],
       },
     }),
   ).toEqual({
     kind: 'rejected',
     reason: {
       kind: 'invalid_requirement',
-      message: 'grant evidence requirement must contain exact mode and evidenceKinds fields',
+      message:
+        'authorization evidence requirement must contain exact mode and evidenceKinds fields',
     },
   });
 });
@@ -64,30 +68,36 @@ test('all requires every kind and any accepts one kind', async () => {
   const { evidenceSet } = await buildReusableAuthorizationCoreFixture();
 
   expect(
-    evaluateGrantEvidenceRequirement(
-      buildGrantEvidenceRequirement({
+    evaluateAuthorizationEvidenceRequirement(
+      buildAuthorizationEvidenceRequirement({
         mode: 'all',
-        evidenceKinds: [GRANT_EVIDENCE_KINDS.seamsSession, GRANT_EVIDENCE_KINDS.emailOtp],
+        evidenceKinds: [
+          AUTHORIZATION_EVIDENCE_KINDS.seamsSession,
+          AUTHORIZATION_EVIDENCE_KINDS.emailOtp,
+        ],
       }),
       evidenceSet,
     ),
   ).toEqual({
     kind: 'unsatisfied',
     mode: 'all',
-    missingEvidenceKinds: [GRANT_EVIDENCE_KINDS.emailOtp],
+    missingEvidenceKinds: [AUTHORIZATION_EVIDENCE_KINDS.emailOtp],
   });
 
   expect(
-    evaluateGrantEvidenceRequirement(
-      buildGrantEvidenceRequirement({
+    evaluateAuthorizationEvidenceRequirement(
+      buildAuthorizationEvidenceRequirement({
         mode: 'any',
-        evidenceKinds: [GRANT_EVIDENCE_KINDS.passkeyAssertion, GRANT_EVIDENCE_KINDS.seamsSession],
+        evidenceKinds: [
+          AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion,
+          AUTHORIZATION_EVIDENCE_KINDS.seamsSession,
+        ],
       }),
       evidenceSet,
     ),
   ).toEqual({
     kind: 'satisfied',
     mode: 'any',
-    matchedEvidenceKinds: [GRANT_EVIDENCE_KINDS.seamsSession],
+    matchedEvidenceKinds: [AUTHORIZATION_EVIDENCE_KINDS.seamsSession],
   });
 });

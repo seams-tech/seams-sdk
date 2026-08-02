@@ -70,7 +70,10 @@ import type {
   RouterAbEcdsaStrictExportAuthority,
   RouterAbEcdsaStrictRegistrationAuthority,
 } from '../../routerAbEcdsaStrictRegistration';
-import type { RouterApiAuthorizationClaimService } from '../../authServicePort';
+import type {
+  RouterApiAuthorizationClaimService,
+  RouterApiAuthorizationSessionService,
+} from '../../authServicePort';
 import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
 import {
   walletSessionFailure,
@@ -99,8 +102,8 @@ import {
   parseAuthorizedOperationId,
   parseCapabilityId,
   parseCapabilityOperationId,
-  parseGrantEvidenceId,
-  parseGrantEvidenceSetId,
+  parseAuthorizationEvidenceId,
+  parseAuthorizationEvidenceSetId,
 } from '@shared/authorization/capabilityKinds';
 import {
   buildCapabilityOperationEnvelope,
@@ -112,7 +115,7 @@ import type { AuthorizedOperation } from '../../../authorization/domain';
 import {
   buildVerifiedEmailOtpFactorResult,
   buildVerifiedPasskeyFactorResult,
-  type VerifiedGrantFactorResult,
+  type VerifiedAuthorizationFactorResult,
 } from '../../../authorization/factorEvidence';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
@@ -282,11 +285,24 @@ async function readRouterAbEcdsaReusableWalletSessionOperation(input: {
   readonly claims: RouterAbEcdsaDerivationWalletSessionClaims;
   readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   readonly authorizationClaims: RouterApiAuthorizationClaimService;
+  readonly authorizationSessions: RouterApiAuthorizationSessionService;
 }): Promise<AuthorizedOperation | null> {
   const runtimePolicyScope = input.claims.runtimePolicyScope;
   const tenantId = input.authorizationClaims.tenantId;
   if (!runtimePolicyScope || runtimePolicyScope.orgId !== tenantId) return null;
   const principalId = requireAuthorizationValue(parsePrincipalId(input.claims.sub));
+  const activeSession = await input.authorizationSessions.readActiveSession({
+    tenantId,
+    sessionId: input.claims.authorizationSessionId,
+    nowMs: Date.now(),
+  });
+  if (
+    tenantId !== input.authorizationSessions.tenantId ||
+    !activeSession ||
+    activeSession.principalId !== principalId
+  ) {
+    return null;
+  }
   const capabilityId = requireAuthorizationValue(
     parseCapabilityId(input.materialActivation.capability),
   );
@@ -379,6 +395,7 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
               claims: authorization.validated.claims,
               materialActivation: authorization.admission.materialActivation,
               authorizationClaims: input.ctx.service.authorizationClaims,
+              authorizationSessions: input.ctx.service.authorizationSessions,
             }),
           };
     if (!operation.ok) {
@@ -606,13 +623,13 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
     );
   }
   const evidenceId = requireAuthorizationValue(
-    parseGrantEvidenceId(`ecdsa-step-up-evidence:${requestId}`),
+    parseAuthorizationEvidenceId(`ecdsa-step-up-evidence:${requestId}`),
   );
   const evidenceSetId = requireAuthorizationValue(
-    parseGrantEvidenceSetId(`ecdsa-step-up-evidence-set:${requestId}`),
+    parseAuthorizationEvidenceSetId(`ecdsa-step-up-evidence-set:${requestId}`),
   );
   const expiresAtMs = Math.min(operation.expires_at_ms, authenticated.expiresAtMs);
-  let factor!: VerifiedGrantFactorResult;
+  let factor!: VerifiedAuthorizationFactorResult;
   switch (proof.kind) {
     case 'passkey': {
       if (

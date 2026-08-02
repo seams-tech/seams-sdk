@@ -68,21 +68,23 @@ export const AUTH_FACTOR_KINDS = {
 
 export type AuthFactorKind = (typeof AUTH_FACTOR_KINDS)[keyof typeof AUTH_FACTOR_KINDS];
 
-export const GRANT_EVIDENCE_KINDS = {
+export const AUTHORIZATION_EVIDENCE_KINDS = {
   seamsSession: 'seams_session',
   passkeyAssertion: 'passkey_assertion',
   emailOtp: 'email_otp',
 } as const;
 
-export type SessionGrantEvidenceKind = typeof GRANT_EVIDENCE_KINDS.seamsSession;
-export type InteractiveGrantEvidenceKind =
-  | typeof GRANT_EVIDENCE_KINDS.passkeyAssertion
-  | typeof GRANT_EVIDENCE_KINDS.emailOtp;
-export type GrantEvidenceKind = SessionGrantEvidenceKind | InteractiveGrantEvidenceKind;
+export type SessionAuthorizationEvidenceKind = typeof AUTHORIZATION_EVIDENCE_KINDS.seamsSession;
+export type InteractiveAuthorizationEvidenceKind =
+  | typeof AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion
+  | typeof AUTHORIZATION_EVIDENCE_KINDS.emailOtp;
+export type AuthorizationEvidenceKind =
+  | SessionAuthorizationEvidenceKind
+  | InteractiveAuthorizationEvidenceKind;
 
-export type GrantEvidenceRequirement = {
+export type AuthorizationEvidenceRequirement = {
   readonly mode: 'all' | 'any';
-  readonly evidenceKinds: readonly [GrantEvidenceKind, ...GrantEvidenceKind[]];
+  readonly evidenceKinds: readonly [AuthorizationEvidenceKind, ...AuthorizationEvidenceKind[]];
 };
 
 export type TenantId = DomainId<'TenantId'>;
@@ -106,8 +108,8 @@ export type AuthorizedOperationId = DomainId<'AuthorizedOperationId'>;
 export type WalletSessionId = DomainId<'WalletSessionId'>;
 export type MpcWalletSigningQuotaId = DomainId<'MpcWalletSigningQuotaId'>;
 export type ReusableWalletSessionMintId = DomainId<'ReusableWalletSessionMintId'>;
-export type GrantEvidenceId = DomainId<'GrantEvidenceId'>;
-export type GrantEvidenceSetId = DomainId<'GrantEvidenceSetId'>;
+export type AuthorizationEvidenceId = DomainId<'AuthorizationEvidenceId'>;
+export type AuthorizationEvidenceSetId = DomainId<'AuthorizationEvidenceSetId'>;
 export type GrantChallengeId = DomainId<'GrantChallengeId'>;
 export type PolicyId = DomainId<'PolicyId'>;
 export type AuthorizationAuditEventId = DomainId<'AuthorizationAuditEventId'>;
@@ -125,17 +127,18 @@ const NEAR_ED25519_MPC_OPERATION_KIND_VALUES = Object.values(
 const EVM_ECDSA_MPC_OPERATION_KIND_VALUES = Object.values(
   EVM_ECDSA_MPC_OPERATION_KINDS,
 ) as readonly EvmEcdsaMpcOperationKind[];
-const GRANT_EVIDENCE_KIND_VALUES = Object.values(
-  GRANT_EVIDENCE_KINDS,
-) as readonly GrantEvidenceKind[];
+const AUTHORIZATION_EVIDENCE_KIND_VALUES = Object.values(
+  AUTHORIZATION_EVIDENCE_KINDS,
+) as readonly AuthorizationEvidenceKind[];
 
 export function isCapabilityKind(value: unknown): value is CapabilityKind {
   return typeof value === 'string' && CAPABILITY_KIND_VALUES.includes(value as CapabilityKind);
 }
 
-export function isGrantEvidenceKind(value: unknown): value is GrantEvidenceKind {
+export function isAuthorizationEvidenceKind(value: unknown): value is AuthorizationEvidenceKind {
   return (
-    typeof value === 'string' && GRANT_EVIDENCE_KIND_VALUES.includes(value as GrantEvidenceKind)
+    typeof value === 'string' &&
+    AUTHORIZATION_EVIDENCE_KIND_VALUES.includes(value as AuthorizationEvidenceKind)
   );
 }
 
@@ -194,14 +197,17 @@ export function parseCapabilityOperationRef(
   return invalidResult('capability kind is unsupported');
 }
 
-export function buildGrantEvidenceRequirement(input: {
-  readonly mode: GrantEvidenceRequirement['mode'];
-  readonly evidenceKinds: readonly [GrantEvidenceKind, ...GrantEvidenceKind[]];
-}): GrantEvidenceRequirement {
+export function buildAuthorizationEvidenceRequirement(input: {
+  readonly mode: AuthorizationEvidenceRequirement['mode'];
+  readonly evidenceKinds: readonly [
+    AuthorizationEvidenceKind,
+    ...AuthorizationEvidenceKind[],
+  ];
+}): AuthorizationEvidenceRequirement {
   const canonicalKinds = [...new Set(input.evidenceKinds)].sort();
   const [firstKind, ...remainingKinds] = canonicalKinds;
   if (!firstKind) {
-    throw new Error('grant evidence requirement must contain at least one evidence kind');
+    throw new Error('authorization evidence requirement must contain at least one evidence kind');
   }
   return {
     mode: input.mode,
@@ -317,14 +323,16 @@ export function parseReusableWalletSessionMintId(
   return parseAuthorizationId(value, 'reusableWalletSessionMintId');
 }
 
-export function parseGrantEvidenceId(value: unknown): AuthorizationParseResult<GrantEvidenceId> {
-  return parseAuthorizationId(value, 'grantEvidenceId');
+export function parseAuthorizationEvidenceId(
+  value: unknown,
+): AuthorizationParseResult<AuthorizationEvidenceId> {
+  return parseAuthorizationId(value, 'authorizationEvidenceId');
 }
 
-export function parseGrantEvidenceSetId(
+export function parseAuthorizationEvidenceSetId(
   value: unknown,
-): AuthorizationParseResult<GrantEvidenceSetId> {
-  return parseAuthorizationId(value, 'grantEvidenceSetId');
+): AuthorizationParseResult<AuthorizationEvidenceSetId> {
+  return parseAuthorizationId(value, 'authorizationEvidenceSetId');
 }
 
 export function parseGrantChallengeId(value: unknown): AuthorizationParseResult<GrantChallengeId> {

@@ -1,10 +1,10 @@
 import {
-  GRANT_EVIDENCE_KINDS,
-  isGrantEvidenceKind,
+  AUTHORIZATION_EVIDENCE_KINDS,
+  isAuthorizationEvidenceKind,
   parseCapabilityOperationRef,
   parseDeviceId,
-  parseGrantEvidenceId,
-  parseGrantEvidenceSetId,
+  parseAuthorizationEvidenceId,
+  parseAuthorizationEvidenceSetId,
   parsePrincipalId,
   parseSeamsSessionId,
   parseTenantId,
@@ -12,8 +12,8 @@ import {
   type AuthorizationParseResult,
   type CapabilityOperationRef,
   type DeviceId,
-  type GrantEvidenceId,
-  type GrantEvidenceSetId,
+  type AuthorizationEvidenceId,
+  type AuthorizationEvidenceSetId,
   type PrincipalId,
   type SeamsSessionId,
   type TenantId,
@@ -30,20 +30,20 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type {
   ActiveAuthorizationSession,
-  VerifiedGrantEvidence,
+  VerifiedAuthorizationEvidence,
 } from './domain';
 
 const FACTOR_EVIDENCE_DIGEST_DOMAIN_V1 = 'seams:authorization:factor-evidence:v1';
 const SESSION_EVIDENCE_DIGEST_DOMAIN_V1 = 'seams:authorization:session-evidence:v1';
 const EVIDENCE_SET_DIGEST_DOMAIN_V1 = 'seams:authorization:evidence-set:v1';
 
-type VerifiedGrantEvidenceSetFields = {
+type VerifiedAuthorizationEvidenceSetFields = {
   readonly tenantId: TenantId;
   readonly principalId: PrincipalId;
   readonly sessionId: SeamsSessionId;
   readonly deviceId: DeviceId;
-  readonly evidenceSetId: GrantEvidenceSetId;
-  readonly evidence: readonly [VerifiedGrantEvidence, ...VerifiedGrantEvidence[]];
+  readonly evidenceSetId: AuthorizationEvidenceSetId;
+  readonly evidence: readonly [VerifiedAuthorizationEvidence, ...VerifiedAuthorizationEvidence[]];
   readonly evidenceSetDigest: DigestB64u;
   readonly operation: CapabilityOperationRef;
   readonly laneDigest: DigestB64u;
@@ -53,14 +53,14 @@ type VerifiedGrantEvidenceSetFields = {
   readonly expiresAtMs: number;
 };
 
-class VerifiedGrantEvidenceSetProof {
-  readonly kind = 'verified_grant_evidence_set' as const;
+class VerifiedAuthorizationEvidenceSetProof {
+  readonly kind = 'verified_authorization_evidence_set' as const;
   readonly tenantId: TenantId;
   readonly principalId: PrincipalId;
   readonly sessionId: SeamsSessionId;
   readonly deviceId: DeviceId;
-  readonly evidenceSetId: GrantEvidenceSetId;
-  readonly evidence: readonly [VerifiedGrantEvidence, ...VerifiedGrantEvidence[]];
+  readonly evidenceSetId: AuthorizationEvidenceSetId;
+  readonly evidence: readonly [VerifiedAuthorizationEvidence, ...VerifiedAuthorizationEvidence[]];
   readonly evidenceSetDigest: DigestB64u;
   readonly operation: CapabilityOperationRef;
   readonly laneDigest: DigestB64u;
@@ -73,7 +73,7 @@ class VerifiedGrantEvidenceSetProof {
     return true;
   }
 
-  constructor(fields: VerifiedGrantEvidenceSetFields) {
+  constructor(fields: VerifiedAuthorizationEvidenceSetFields) {
     void this.retainVerifiedEvidenceProof();
     requireEvidenceSetFields(fields);
     this.tenantId = fields.tenantId;
@@ -92,7 +92,7 @@ class VerifiedGrantEvidenceSetProof {
   }
 }
 
-export type VerifiedGrantEvidenceSet = VerifiedGrantEvidenceSetProof;
+export type VerifiedAuthorizationEvidenceSet = VerifiedAuthorizationEvidenceSetProof;
 
 type VerifiedFactorBinding = {
   readonly tenantId: ActiveAuthorizationSession['tenantId'];
@@ -118,21 +118,23 @@ export type VerifiedEmailOtpFactorResult = VerifiedFactorBinding & {
   readonly verificationReceiptDigest: DigestB64u;
 };
 
-export type VerifiedGrantFactorResult = VerifiedPasskeyFactorResult | VerifiedEmailOtpFactorResult;
+export type VerifiedAuthorizationFactorResult =
+  | VerifiedPasskeyFactorResult
+  | VerifiedEmailOtpFactorResult;
 
 export type VerifiedFactorEvidenceSetInput = {
   readonly session: ActiveAuthorizationSession;
   readonly operation: CapabilityOperationEnvelope;
-  readonly evidenceId: GrantEvidenceId;
-  readonly evidenceSetId: GrantEvidenceSetId;
-  readonly factor: VerifiedGrantFactorResult;
+  readonly evidenceId: AuthorizationEvidenceId;
+  readonly evidenceSetId: AuthorizationEvidenceSetId;
+  readonly factor: VerifiedAuthorizationFactorResult;
 };
 
 export type VerifiedSessionEvidenceSetInput = {
   readonly session: ActiveAuthorizationSession;
   readonly operation: CapabilityOperationEnvelope;
-  readonly evidenceId: GrantEvidenceId;
-  readonly evidenceSetId: GrantEvidenceSetId;
+  readonly evidenceId: AuthorizationEvidenceId;
+  readonly evidenceSetId: AuthorizationEvidenceSetId;
   readonly expiresAtMs: number;
 };
 
@@ -178,7 +180,7 @@ export function buildVerifiedEmailOtpFactorResult(
 
 export async function buildVerifiedFactorEvidenceSet(
   input: VerifiedFactorEvidenceSetInput,
-): Promise<VerifiedGrantEvidenceSet> {
+): Promise<VerifiedAuthorizationEvidenceSet> {
   await requireExactFactorBinding(input);
   const evidence = await buildFactorEvidence(input.evidenceId, input.factor);
   return await buildVerifiedEvidenceSet({
@@ -193,7 +195,7 @@ export async function buildVerifiedFactorEvidenceSet(
 
 export async function buildVerifiedSessionEvidenceSet(
   input: VerifiedSessionEvidenceSetInput,
-): Promise<VerifiedGrantEvidenceSet> {
+): Promise<VerifiedAuthorizationEvidenceSet> {
   requireOperationSessionMatch(input.session, input.operation);
   if (
     !Number.isSafeInteger(input.expiresAtMs) ||
@@ -205,9 +207,9 @@ export async function buildVerifiedSessionEvidenceSet(
   const operationFingerprintDigest = await computeCapabilityOperationFingerprintDigest(
     input.operation,
   );
-  const evidence: VerifiedGrantEvidence = {
+  const evidence: VerifiedAuthorizationEvidence = {
     evidenceId: input.evidenceId,
-    evidenceKind: GRANT_EVIDENCE_KINDS.seamsSession,
+    evidenceKind: AUTHORIZATION_EVIDENCE_KINDS.seamsSession,
     evidenceDigest: await digestCanonical(SESSION_EVIDENCE_DIGEST_DOMAIN_V1, {
       tenantId: input.session.tenantId,
       principalId: input.session.principalId,
@@ -231,11 +233,11 @@ export async function buildVerifiedSessionEvidenceSet(
 async function buildVerifiedEvidenceSet(input: {
   readonly session: ActiveAuthorizationSession;
   readonly operation: CapabilityOperationEnvelope;
-  readonly evidenceSetId: GrantEvidenceSetId;
-  readonly evidence: VerifiedGrantEvidence;
-  readonly assurance: VerifiedGrantEvidenceSet['assurance'];
+  readonly evidenceSetId: AuthorizationEvidenceSetId;
+  readonly evidence: VerifiedAuthorizationEvidence;
+  readonly assurance: VerifiedAuthorizationEvidenceSet['assurance'];
   readonly expiresAtMs: number;
-}): Promise<VerifiedGrantEvidenceSet> {
+}): Promise<VerifiedAuthorizationEvidenceSet> {
   const evidenceSetDigest = await digestCanonicalEvidenceSet({
     tenantId: input.session.tenantId,
     principalId: input.session.principalId,
@@ -244,7 +246,7 @@ async function buildVerifiedEvidenceSet(input: {
     operationFingerprintDigest: await computeCapabilityOperationFingerprintDigest(input.operation),
     evidence: input.evidence,
   });
-  return new VerifiedGrantEvidenceSetProof({
+  return new VerifiedAuthorizationEvidenceSetProof({
     tenantId: input.session.tenantId,
     principalId: input.session.principalId,
     sessionId: input.session.sessionId,
@@ -261,9 +263,9 @@ async function buildVerifiedEvidenceSet(input: {
   });
 }
 
-export function parseVerifiedGrantEvidenceSetFromPersistence(
+export function parseVerifiedAuthorizationEvidenceSetFromPersistence(
   raw: unknown,
-): VerifiedGrantEvidenceSet {
+): VerifiedAuthorizationEvidenceSet {
   const record = requireExactRecord(raw, [
     'kind',
     'tenantId',
@@ -280,7 +282,7 @@ export function parseVerifiedGrantEvidenceSetFromPersistence(
     'assurance',
     'expiresAtMs',
   ]);
-  if (record.kind !== 'verified_grant_evidence_set') {
+  if (record.kind !== 'verified_authorization_evidence_set') {
     throw new Error('persisted evidence set kind is invalid');
   }
   const evidence = parsePersistedEvidence(record.evidence);
@@ -288,14 +290,14 @@ export function parseVerifiedGrantEvidenceSetFromPersistence(
   if (assurance !== 'session' && assurance !== 'step_up') {
     throw new Error('persisted evidence set assurance is invalid');
   }
-  return new VerifiedGrantEvidenceSetProof({
+  return new VerifiedAuthorizationEvidenceSetProof({
     tenantId: parseAuthorizationField(record.tenantId, parseTenantId, 'tenantId'),
     principalId: parseAuthorizationField(record.principalId, parsePrincipalId, 'principalId'),
     sessionId: parseAuthorizationField(record.sessionId, parseSeamsSessionId, 'sessionId'),
     deviceId: parseAuthorizationField(record.deviceId, parseDeviceId, 'deviceId'),
     evidenceSetId: parseAuthorizationField(
       record.evidenceSetId,
-      parseGrantEvidenceSetId,
+      parseAuthorizationEvidenceSetId,
       'evidenceSetId',
     ),
     evidence,
@@ -344,9 +346,9 @@ function requireOperationSessionMatch(
 }
 
 async function buildFactorEvidence(
-  evidenceId: GrantEvidenceId,
-  factor: VerifiedGrantFactorResult,
-): Promise<VerifiedGrantEvidence> {
+  evidenceId: AuthorizationEvidenceId,
+  factor: VerifiedAuthorizationFactorResult,
+): Promise<VerifiedAuthorizationEvidence> {
   const operationFingerprintDigest = await computeCapabilityOperationFingerprintDigest(
     factor.operation,
   );
@@ -354,7 +356,7 @@ async function buildFactorEvidence(
     case 'verified_passkey_factor':
       return {
         evidenceId,
-        evidenceKind: GRANT_EVIDENCE_KINDS.passkeyAssertion,
+        evidenceKind: AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion,
         evidenceDigest: await digestCanonicalEvidence({
           kind: factor.kind,
           tenantId: factor.tenantId,
@@ -373,7 +375,7 @@ async function buildFactorEvidence(
     case 'verified_email_otp_factor':
       return {
         evidenceId,
-        evidenceKind: GRANT_EVIDENCE_KINDS.emailOtp,
+        evidenceKind: AUTHORIZATION_EVIDENCE_KINDS.emailOtp,
         evidenceDigest: await digestCanonicalEvidence({
           kind: factor.kind,
           tenantId: factor.tenantId,
@@ -420,24 +422,24 @@ async function digestCanonical(
   );
 }
 
-function requireEvidenceSetFields(fields: VerifiedGrantEvidenceSetFields): void {
+function requireEvidenceSetFields(fields: VerifiedAuthorizationEvidenceSetFields): void {
   if (fields.evidence.length === 0) {
-    throw new Error('verified grant evidence set requires evidence');
+    throw new Error('verified authorization evidence set requires evidence');
   }
   const evidenceIds = new Set(fields.evidence.map(evidenceIdFromEvidence));
   if (evidenceIds.size !== fields.evidence.length) {
-    throw new Error('verified grant evidence set cannot repeat evidence');
+    throw new Error('verified authorization evidence set cannot repeat evidence');
   }
   requirePositiveSafeInteger(fields.expiresAtMs, 'evidence set expiry');
 }
 
-function evidenceIdFromEvidence(evidence: VerifiedGrantEvidence): GrantEvidenceId {
+function evidenceIdFromEvidence(evidence: VerifiedAuthorizationEvidence): AuthorizationEvidenceId {
   return evidence.evidenceId;
 }
 
 function parsePersistedEvidence(
   raw: unknown,
-): readonly [VerifiedGrantEvidence, ...VerifiedGrantEvidence[]] {
+): readonly [VerifiedAuthorizationEvidence, ...VerifiedAuthorizationEvidence[]] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new Error('persisted evidence set requires evidence');
   }
@@ -447,13 +449,17 @@ function parsePersistedEvidence(
   return [first, ...remaining];
 }
 
-function parsePersistedEvidenceEntry(raw: unknown): VerifiedGrantEvidence {
+function parsePersistedEvidenceEntry(raw: unknown): VerifiedAuthorizationEvidence {
   const record = requireExactRecord(raw, ['evidenceId', 'evidenceKind', 'evidenceDigest']);
-  if (!isGrantEvidenceKind(record.evidenceKind)) {
+  if (!isAuthorizationEvidenceKind(record.evidenceKind)) {
     throw new Error('persisted evidence kind is invalid');
   }
   return {
-    evidenceId: parseAuthorizationField(record.evidenceId, parseGrantEvidenceId, 'evidenceId'),
+    evidenceId: parseAuthorizationField(
+      record.evidenceId,
+      parseAuthorizationEvidenceId,
+      'evidenceId',
+    ),
     evidenceKind: record.evidenceKind,
     evidenceDigest: parsePersistenceDigest(record.evidenceDigest, 'evidenceDigest'),
   };

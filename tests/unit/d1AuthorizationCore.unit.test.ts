@@ -30,7 +30,7 @@ import type {
 } from '../../packages/sdk-server-ts/src/authorization/domain';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
-import { parseVerifiedGrantEvidenceSetFromPersistence } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
+import { parseVerifiedAuthorizationEvidenceSetFromPersistence } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
 import { capabilityPolicyPort } from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
 import { parseReusableWalletSessionMintId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 
@@ -491,7 +491,9 @@ test.describe('D1 authorization core', () => {
       expect(emailOtpEvidence.assurance).toBe('step_up');
       await expect(rowCount(temporary.database, 'verified_grant_evidence_sets')).resolves.toBe(2);
       expect(
-        parseVerifiedGrantEvidenceSetFromPersistence(JSON.parse(JSON.stringify(passkeyEvidence))),
+        parseVerifiedAuthorizationEvidenceSetFromPersistence(
+          JSON.parse(JSON.stringify(passkeyEvidence)),
+        ),
       ).toMatchObject({
         evidenceSetId: passkeyEvidence.evidenceSetId,
         evidenceSetDigest: passkeyEvidence.evidenceSetDigest,

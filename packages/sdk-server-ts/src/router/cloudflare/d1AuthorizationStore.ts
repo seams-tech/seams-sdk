@@ -27,7 +27,7 @@ import type {
   RedeemHostedWalletSeamsSessionExchangeInput,
   RedeemHostedWalletSeamsSessionExchangeResult,
   ReusableWalletSessionStatus,
-  VerifiedGrantEvidenceSet,
+  VerifiedAuthorizationEvidenceSet,
   WalletSessionId,
 } from '../../authorization/domain';
 import {
@@ -392,7 +392,7 @@ export class CloudflareD1AuthorizationStore
     return { kind: 'redeemed', session };
   }
 
-  async putVerifiedEvidenceSet(evidenceSet: VerifiedGrantEvidenceSet): Promise<void> {
+  async putVerifiedEvidenceSet(evidenceSet: VerifiedAuthorizationEvidenceSet): Promise<void> {
     const result = await this.database
       .prepare(
         `INSERT OR IGNORE INTO verified_grant_evidence_sets (
@@ -447,7 +447,7 @@ export class CloudflareD1AuthorizationStore
       )
       .run();
     if (d1ChangedRows(result) > 1) {
-      throw new Error('verified grant evidence set changed more than one row');
+      throw new Error('verified authorization evidence set changed more than one row');
     }
   }
 

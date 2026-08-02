@@ -52,6 +52,26 @@ export type EmailOtpEd25519YaoCapabilityRecoveryResult = {
   walletSessionState: NearResolvedEd25519SigningSessionState;
 };
 
+export type EmailOtpEd25519YaoRecoveryContinuityFailure = {
+  readonly kind: 'wallet_binding_mismatch';
+};
+
+export class EmailOtpEd25519YaoRecoveryContinuityError extends Error {
+  readonly failure: EmailOtpEd25519YaoRecoveryContinuityFailure;
+
+  constructor(failure: EmailOtpEd25519YaoRecoveryContinuityFailure) {
+    super('Email OTP Ed25519 Yao recovery Wallet Session binding is invalid');
+    this.name = 'EmailOtpEd25519YaoRecoveryContinuityError';
+    this.failure = failure;
+  }
+}
+
+export function isEmailOtpEd25519YaoRecoveryContinuityError(
+  error: unknown,
+): error is EmailOtpEd25519YaoRecoveryContinuityError {
+  return error instanceof EmailOtpEd25519YaoRecoveryContinuityError;
+}
+
 export type PreparedColdEmailOtpEd25519YaoRecoveryV1 = {
   kind: 'prepared_cold_email_otp_ed25519_yao_recovery_v1';
   identity: Ed25519YaoActiveClientIdentityV1;
@@ -228,7 +248,9 @@ function assertColdBootstrapContinuity(args: {
     claims.quotaId !== session.quotaId ||
     claims.thresholdSessionId !== session.thresholdSessionId
   ) {
-    throw new Error('wallet_binding_mismatch');
+    throw new EmailOtpEd25519YaoRecoveryContinuityError({
+      kind: 'wallet_binding_mismatch',
+    });
   }
   if (
     session.authorityScope.kind !== 'email_otp' ||

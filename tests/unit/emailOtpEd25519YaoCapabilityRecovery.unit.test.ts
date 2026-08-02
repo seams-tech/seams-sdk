@@ -4,6 +4,7 @@ import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import type { NearEd25519YaoOperationMaterial } from '../../packages/sdk-web/src/core/signingEngine/interfaces/near';
 import {
   activateColdEmailOtpEd25519YaoUnlockedRecoveryV1,
+  isEmailOtpEd25519YaoRecoveryContinuityError,
   prepareColdEmailOtpEd25519YaoRecoveryV1,
 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoCapabilityRecovery';
 import { resolveEmailOtpEd25519YaoColdRecoveryV1 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoLogin';
@@ -1036,8 +1037,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       resolveActiveCapability: resolveNoActiveCapability,
     });
 
-    await expect(
-      activateColdEmailOtpEd25519YaoUnlockedRecoveryV1({
+    const recovery = activateColdEmailOtpEd25519YaoUnlockedRecoveryV1({
         prepared,
         bootstrap: recoveryBootstrap({
           remainingUses: 3,
@@ -1050,8 +1050,13 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
         pendingFactorHandle: pendingFactorHandle(),
         workerContext: worker.context(),
         activateCapability: activation.activate.bind(activation),
-      }),
-    ).rejects.toThrow('wallet_binding_mismatch');
+      });
+    const recoveryError: unknown = await recovery.catch((error: unknown) => error);
+    expect(isEmailOtpEd25519YaoRecoveryContinuityError(recoveryError)).toBe(true);
+    if (!isEmailOtpEd25519YaoRecoveryContinuityError(recoveryError)) {
+      throw new Error('Expected typed Email OTP Ed25519 recovery continuity failure');
+    }
+    expect(recoveryError.failure.kind).toBe('wallet_binding_mismatch');
     expect(activation.activateCalls).toBe(0);
   });
 

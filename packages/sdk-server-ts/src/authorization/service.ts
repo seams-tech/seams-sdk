@@ -13,7 +13,7 @@ import type {
   RedeemHostedWalletSeamsSessionExchangeResult,
   ReusableWalletSessionStatus,
   SessionOrigin,
-  VerifiedGrantEvidenceSet,
+  VerifiedAuthorizationEvidenceSet,
   WalletSessionAuthorization,
 } from './domain';
 import {
@@ -49,10 +49,10 @@ import {
 } from './factorEvidence';
 import type {
   CapabilityPolicyPort,
-  GrantEvidenceRequirementEvaluation,
-  ParseGrantEvidenceRequirementResult,
+  AuthorizationEvidenceRequirementEvaluation,
+  ParseAuthorizationEvidenceRequirementResult,
 } from './capabilityPolicy';
-import type { GrantEvidenceRequirement } from '@shared/authorization/capabilityKinds';
+import type { AuthorizationEvidenceRequirement } from '@shared/authorization/capabilityKinds';
 import type { WalletId } from '@shared/utils/domainIds';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
@@ -82,7 +82,7 @@ export interface AuthorizationSessionPort {
 }
 
 export interface AuthorizationEvidencePort {
-  putVerifiedEvidenceSet(evidenceSet: VerifiedGrantEvidenceSet): Promise<void>;
+  putVerifiedEvidenceSet(evidenceSet: VerifiedAuthorizationEvidenceSet): Promise<void>;
 }
 
 export interface AuthorizationGrantPort {
@@ -258,7 +258,7 @@ export class AuthorizationService {
 
   async recordVerifiedFactorEvidenceSet(
     input: VerifiedFactorEvidenceSetInput,
-  ): Promise<VerifiedGrantEvidenceSet> {
+  ): Promise<VerifiedAuthorizationEvidenceSet> {
     const evidenceSet = await buildVerifiedFactorEvidenceSet(input);
     await this.ports.evidence.putVerifiedEvidenceSet(evidenceSet);
     return evidenceSet;
@@ -266,7 +266,7 @@ export class AuthorizationService {
 
   async recordVerifiedSessionEvidenceSet(
     input: VerifiedSessionEvidenceSetInput,
-  ): Promise<VerifiedGrantEvidenceSet> {
+  ): Promise<VerifiedAuthorizationEvidenceSet> {
     const evidenceSet = await buildVerifiedSessionEvidenceSet(input);
     await this.ports.evidence.putVerifiedEvidenceSet(evidenceSet);
     return evidenceSet;
@@ -332,14 +332,14 @@ export class AuthorizationService {
     return { session, quota };
   }
 
-  parseEvidenceRequirement(value: unknown): ParseGrantEvidenceRequirementResult {
+  parseEvidenceRequirement(value: unknown): ParseAuthorizationEvidenceRequirementResult {
     return this.ports.policy.parseEvidenceRequirement(value);
   }
 
   evaluateEvidenceRequirement(
-    requirement: GrantEvidenceRequirement,
-    evidenceSet: VerifiedGrantEvidenceSet,
-  ): GrantEvidenceRequirementEvaluation {
+    requirement: AuthorizationEvidenceRequirement,
+    evidenceSet: VerifiedAuthorizationEvidenceSet,
+  ): AuthorizationEvidenceRequirementEvaluation {
     return this.ports.policy.evaluateEvidenceRequirement(requirement, evidenceSet);
   }
 }
