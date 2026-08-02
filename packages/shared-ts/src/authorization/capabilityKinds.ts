@@ -98,12 +98,6 @@ export type CapabilityBindingId = DomainId<'CapabilityBindingId'>;
 export type CapabilityOperationId = DomainId<'CapabilityOperationId'>;
 export type CapabilityGrantId = DomainId<'CapabilityGrantId'>;
 export type CapabilityGrantUseId = DomainId<'CapabilityGrantUseId'>;
-/** Independent authority identity for a reusable Wallet Session grant. */
-export type AuthorizationGrantRef = DomainId<'AuthorizationGrantRef'>;
-/** Identity of a reusable Wallet Session authorization instance. */
-export type WalletSessionAuthorizationId = DomainId<'WalletSessionAuthorizationId'>;
-/** Identity of one replay-safe authorized operation. */
-export type AuthorizedOperationId = DomainId<'AuthorizedOperationId'>;
 export type WalletSessionId = DomainId<'WalletSessionId'>;
 export type MpcWalletSigningQuotaId = DomainId<'MpcWalletSigningQuotaId'>;
 export type ReusableWalletSessionMintId = DomainId<'ReusableWalletSessionMintId'>;
@@ -270,24 +264,6 @@ export function parseCapabilityGrantUseId(
   value: unknown,
 ): AuthorizationParseResult<CapabilityGrantUseId> {
   return parseAuthorizationId(value, 'capabilityGrantUseId');
-}
-
-export function parseAuthorizationGrantRef(
-  value: unknown,
-): AuthorizationParseResult<AuthorizationGrantRef> {
-  return parseAuthorizationId(value, 'authorizationGrantRef');
-}
-
-export function parseWalletSessionAuthorizationId(
-  value: unknown,
-): AuthorizationParseResult<WalletSessionAuthorizationId> {
-  return parseAuthorizationId(value, 'walletSessionAuthorizationId');
-}
-
-export function parseAuthorizedOperationId(
-  value: unknown,
-): AuthorizationParseResult<AuthorizedOperationId> {
-  return parseAuthorizationId(value, 'authorizedOperationId');
 }
 
 export function parseWalletSessionId(
