@@ -22,7 +22,6 @@ const ecdsaAuth = {
   kind: 'wallet_session',
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
-  signingGrantId: 'signing-grant-ecdsa',
   walletSessionId,
   quotaId,
   userId: 'wallet-ecdsa',
@@ -57,10 +56,12 @@ void requireVerifiedWalletSessionAuth(ed25519Auth);
 // @ts-expect-error Core wallet-session auth consumers require a verified object.
 requireVerifiedWalletSessionAuth('threshold-session-id');
 
-const invalidMissingSigningGrant = {
+const invalidEcdsaWithSigningGrant = {
   kind: 'wallet_session',
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
+  // @ts-expect-error ECDSA verified auth must not carry the legacy signing grant identity.
+  signingGrantId: 'signing-grant-ecdsa',
   walletSessionId,
   quotaId,
   userId: 'wallet-ecdsa',
@@ -68,15 +69,13 @@ const invalidMissingSigningGrant = {
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
   keyHandle: 'ederivation-key-1',
-  // @ts-expect-error signingGrantId is required on verified Wallet Session auth.
 } satisfies VerifiedEcdsaWalletSessionAuth;
-void invalidMissingSigningGrant;
+void invalidEcdsaWithSigningGrant;
 
 const invalidEcdsaWithEd25519OnlyField = {
   kind: 'wallet_session',
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
-  signingGrantId: 'signing-grant-ecdsa',
   walletSessionId,
   quotaId,
   userId: 'wallet-ecdsa',
@@ -93,7 +92,6 @@ const invalidEcdsaWithSigningSlot = {
   kind: 'wallet_session',
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
-  signingGrantId: 'signing-grant-ecdsa',
   walletSessionId,
   quotaId,
   userId: 'wallet-ecdsa',
