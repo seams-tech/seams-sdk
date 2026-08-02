@@ -630,9 +630,10 @@ implementing commit SHA as the evidence.
     identity independently from the material-activation single-flight key;
     the focused substitution test passes (`57849eda9`).
   - [x] The focused signing, refresh, coordinator, wire, and hostile-claim
-    substitution matrix passes 48/48; SDK/unit typechecks, Rust protocol and
-    vector tests, and direct worker/WASM/boundary guards pass at the current
-    checkpoint (`b37ce26b0`).
+    substitution matrix passes 72/72; the Rust Cloudflare ECDSA binding suite
+    passes 36/36 and the ECDSA wire crate passes 1/1; SDK/unit typechecks, Rust
+    protocol and vector tests, and direct worker/WASM/boundary guards pass at
+    the current checkpoint (`b37ce26b0`).
   - [x] Rust workspace checks for the core, ECDSA protocol, Cloudflare worker,
     and Ed25519-Yao client crates pass; the source Playwright guard set passes
     220/220 after restoring SDK-before-console `.dev.vars` precedence in the

@@ -51,6 +51,11 @@ Google-identity, and UI timing cases; the focused identity regression passed.
 The broad acceptance box remains open until those failures are reconciled or
 their owning environment is supplied.
 
+The follow-up focused operating-path run passes 72/72. The Rust Cloudflare
+ECDSA binding subset passes 36/36 and the ECDSA wire crate passes 1/1. Intended
+test typechecking passes after the declaration build; the Google OIDC token
+prerequisite is absent, so the intended browser run remains environment-gated.
+
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
 Replacement: the required-field `active | retired` ECDSA capability record,
