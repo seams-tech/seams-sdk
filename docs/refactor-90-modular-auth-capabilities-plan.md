@@ -1627,6 +1627,12 @@ fixtures and generated `dist` output. The ECDSA post-registration activation
 field remains coupled to Wallet Session JWT issuance and downstream bootstrap;
 it is owned by the coordinated Rust/TypeScript claim-verifier cutover below.
 
+The first Ed25519 cleanup checkpoint is recorded in the deletion ledger and
+commit `73140759e`: the reservation-only route-core unit test and its test-slice
+entry were deleted as obsolete coverage. The local-Yao operating test remains
+until it is migrated to the canonical atomic-claim route, so the production
+legacy route is intentionally still present at this checkpoint.
+
 ### Canonical authorization identities
 
 - [x] Remove the inert ECDSA admission-policy `signingGrantId` input and make
