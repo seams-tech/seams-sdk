@@ -1633,6 +1633,14 @@ entry were deleted as obsolete coverage. The local-Yao operating test remains
 until it is migrated to the canonical atomic-claim route, so the production
 legacy route is intentionally still present at this checkpoint.
 
+Current implementation checkpoint (`ea5e9a9d5`, following `908459dc4`): the
+Rust/TypeScript authorization-claim boundary is strict and the Rust ECDSA
+binding suite passes 31/31. Near Ed25519 lane and status diagnostics now use
+`WalletSessionId` plus `MpcWalletSigningQuotaId`; the old grant identity has
+been removed from the shared Ed lane/session-state carriers. Unit 3c remains
+open while the server-side legacy Ed route, readiness/expiry consumers, and
+the remaining ECDSA activation/provisioning fields are migrated.
+
 ### Canonical authorization identities
 
 - [x] Remove the inert ECDSA admission-policy `signingGrantId` input and make
