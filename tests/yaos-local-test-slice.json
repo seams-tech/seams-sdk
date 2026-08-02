@@ -5,7 +5,6 @@
     "unit/routerAbLocalD1RuntimeConfig.script.unit.test.ts",
     "unit/demoNearFundingState.unit.test.ts",
     "unit/walletSessionNearIdentityProjection.unit.test.ts",
-    "unit/routerAbEd25519BudgetRouteCore.unit.test.ts",
     "unit/routerAbEd25519YaoContracts.unit.test.ts",
     "unit/routerAbEd25519YaoExport.server.unit.test.ts",
     "unit/routerAbEd25519YaoRegistrationIntentAuthorization.unit.test.ts",

@@ -139,6 +139,9 @@ Yao test must first be migrated to the canonical route or replaced with an
 equivalent atomic-claim operating-path test. The runtime's provisioning and
 refresh methods remain live and are not part of this deletion until their
 Wallet Session/quota inputs have moved to the canonical authorization owner.
+The standalone `routerAbEd25519BudgetRouteCore.unit.test.ts` was obsolete
+coverage for that retired reservation protocol and was deleted in the same
+checkpoint; the local-Yao test remains as the migration work item.
 
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
