@@ -133,6 +133,28 @@ rg -l 'SigningGrantId|signingGrantId|signing_grant_id' \
   --glob '!**/dist/**' --glob '!**/*.typecheck.ts'
 ```
 
+### Unit 3c wire-boundary verification checkpoint — `ad1db862b`
+
+The latest local `dev` tip (`e95887fdc`) is already an ancestor of the
+Refactor-90 branch; the merge is complete with no unresolved conflicts. The
+current ECDSA wire deliberately remains on the coordinated pre-cutover shape:
+the activation response still carries `signing_grant_id` because client
+provisioning and the Wallet Session JWT still consume that value. The partial
+response-only deletion from `e95887fdc` is therefore not re-applied in
+isolation. Unit 3c owns the atomic Rust/TypeScript/client replacement.
+
+The existing canonical claim boundary was rechecked at this checkpoint:
+
+- Rust `router-ab-cloudflare` ECDSA hostile-substitution test: **1/1 passed**.
+- Rust ECDSA finalize parser rejects missing `authorization_claim`, legacy
+  `sessionId`, and public budget fields: **1/1 passed**.
+- TypeScript Router A/B normal-signing claim validation suite: **5/5 passed**.
+- Shared TypeScript, SDK-server, and unit type checks remain green at the
+  merge checkpoint; `git diff --check` is clean.
+
+These checks verify the current claim boundary. They do not close the
+`SigningGrantId` deletion entry or the final conformance gate.
+
 ### Unit 3c Ed25519 atomic-claim checkpoint — 2026-08-02
 
 The Cloudflare Ed25519 public normal-signing route already owns the canonical
