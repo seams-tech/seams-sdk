@@ -4,9 +4,6 @@ import { coerceLogger, type Logger } from '../logger';
 import type { ThresholdStoreConfigInput } from '../types';
 import { createThresholdEcdsaSigningStores } from '../ThresholdService/stores/EcdsaSigningStore';
 import {
-  createThresholdEd25519KeyStore,
-} from '../ThresholdService/stores/KeyStore';
-import {
   createEcdsaWalletSessionStore,
   createEd25519WalletSessionStore,
   createWalletSigningBudgetSessionStore,
@@ -15,7 +12,6 @@ import {
   parseRouterAbEcdsaPresignRuntimeConfig,
   RouterAbEcdsaPresignRuntime,
 } from './RouterAbEcdsaPresignRuntime';
-import { RouterAbLocalSigningSeedRuntime } from './RouterAbLocalSigningSeedRuntime';
 import {
   parseRouterAbNormalSigningRuntimeConfig,
   requireRouterAbConfiguredSigningWorkerPrivateTransport,
@@ -24,7 +20,6 @@ import {
 
 export type RouterAbSigningRuntimeBundle = {
   readonly normalSigning: RouterAbNormalSigningRuntime;
-  readonly localSigningSeed: RouterAbLocalSigningSeedRuntime;
   readonly ecdsaPresign: RouterAbEcdsaPresignRuntime;
 };
 
@@ -106,7 +101,6 @@ export function createRouterAbSigningRuntimes(input: {
   });
   const configRecord = isObject(config) ? config : {};
 
-  const ed25519KeyStore = createThresholdEd25519KeyStore({ config, logger, isNode });
   const ed25519WalletSessionStore = createEd25519WalletSessionStore({ config, logger, isNode });
   const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({
     config,
@@ -127,17 +121,11 @@ export function createRouterAbSigningRuntimes(input: {
     walletBudgetSessionStore,
     config: normalSigningConfig,
   });
-  const localSigningSeed = new RouterAbLocalSigningSeedRuntime({
-    ed25519KeyStore,
-    ed25519WalletSessionStore,
-    ecdsaWalletSessionStore,
-    normalSigningRuntime: normalSigning,
-  });
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({
     config: parseRouterAbEcdsaPresignRuntimeConfig(configRecord),
     signingWorkerTransport,
     ensureReady,
   });
 
-  return { normalSigning, localSigningSeed, ecdsaPresign };
+  return { normalSigning, ecdsaPresign };
 }
