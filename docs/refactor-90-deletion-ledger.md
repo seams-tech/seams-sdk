@@ -120,6 +120,9 @@ The internal verified ECDSA authorization carrier no longer exposes the legacy
 grant identity (`13e7a9844`). Strict JWT claims and Rust wire fields remain
 until the coordinated claim-verifier cutover; this slice removes the projection
 without weakening boundary validation or creating a fallback.
+The targeted `verified Wallet Session auth preserves authorization and threshold
+identities separately` check passed 1/1; the broader claims file still has one
+unrelated pre-existing Ed25519 scope-mismatch failure.
 
 Inventory command (rerun before each Unit 3c deletion slice):
 
