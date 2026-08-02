@@ -654,11 +654,11 @@ the replacement and legacy MPC paths must not ship together.
       return `authorization_required` when authorization is absent.
 - [x] Delete the client-side ECDSA wallet-budget lane path; keep the remaining
       client budget subsystem Ed25519-only and fail closed for other curves.
-- [x] Record the retained Ed25519 server quota boundary explicitly: the
-      authenticated Router A/B reserve/commit/release path remains live for
-      Ed25519 normal signing, while ECDSA public budget fields and compatibility
-      aliases are removed at the wire boundary (`41ed8f9cb`). Its possible
-      rehome is outside Refactor 90 and is tracked as a ledger reassignment.
+- [x] Record the canonical Ed25519 server quota boundary explicitly: the
+      authenticated Router A/B reserve/commit/release fallback was removed and
+      normal signing uses the shared atomic claim/quota path, while ECDSA public
+      budget fields and compatibility aliases are rejected at the wire boundary
+      (`4885bed62`, `41ed8f9cb`, `fa5791630`).
 - [x] Remove reusable NEAR transaction admission and finalization from the
       client budget subsystem. The relayer now owns the exact operation claim,
       quota consumption, replay, and terminal completion for that path
@@ -1286,9 +1286,10 @@ the replacement and legacy MPC paths must not ship together.
           Ed25519/ECDSA sealed restore metadata, recovery records, boundary
           parsers, writers, and fixtures. Current authorization remains an
           independent transport input; record-level protocol/session identity
-          remains separate (`22ccd0c26`). The remaining record-level
-          `signingGrantId` is a separate grant/lease identity that still needs
-          a coordinated re-key; it is not a bearer credential.
+          remains separate (`22ccd0c26`). Unit 3c removed the remaining
+          record-level grant/lease identity; current authorization is carried
+          explicitly by the Wallet Session/quota or one-operation claim path
+          (`fa5791630`, `acd3a5a04`).
     - [x] Remove `signingGrantId` from restore-lease payloads and validation;
           leases are coordination records keyed by the sealed-store key and
           owner/attempt, and old grant-bearing lease rows are rejected
@@ -1305,12 +1306,12 @@ the replacement and legacy MPC paths must not ship together.
           activation-keyed rows in one IndexedDB transaction, deleting the
           legacy row and its restore lease only after the canonical write
           succeeds (`e824bfda2`).
-    - [x] Complete the separate operation-authorization cutover for any
-          remaining record-level `signingGrantId` protocol/lease identity; do
-          not treat it as sealed restore bearer state. Durable ECDSA sealed
-          records, restore sources, cache keys, worker transports, and
-          recovered-material activation requests are grant-free; live reusable
-          authorization remains an independent carrier (`ec050a05d`).
+    - [x] Complete the operation-authorization cutover for the former
+          record-level grant/lease identity. Durable ECDSA sealed records,
+          restore sources, cache keys, worker transports, and recovered-material
+          activation requests are grant-free; live reusable authorization is an
+          independent Wallet Session/quota carrier (`ec050a05d`, `fa5791630`,
+          `acd3a5a04`).
     - [x] Re-key durable Ed25519 sealed records by stable material identity,
           atomically migrate legacy grant-keyed rows and restore leases, and
           require authenticated warm-bootstrap authorization independently of
