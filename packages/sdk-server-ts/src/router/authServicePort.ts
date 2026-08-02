@@ -170,13 +170,6 @@ import type {
   VerifiedGrantEvidenceSet,
 } from '../authorization/domain';
 import type {
-  AuthorizationGrant,
-  AuthorizedOperation,
-  AuthorizedOperationInput,
-  AuthorizedOperationResult,
-  AuthorizedOperationResultRef,
-} from '../authorization/operationAuthorization';
-import type {
   CapabilityGrantRequestInput,
   VerifiedFactorEvidenceSetInput,
   VerifiedSessionEvidenceSetInput,
@@ -1465,28 +1458,6 @@ export interface RouterApiAuthorizationClaimService {
   recordVerifiedSessionEvidenceSet(
     input: VerifiedSessionEvidenceSetInput,
   ): Promise<VerifiedGrantEvidenceSet>;
-  putAuthorizationGrant(grant: AuthorizationGrant): Promise<void>;
-  claimAuthorizedOperation(input: {
-    readonly operation: AuthorizedOperationInput;
-    readonly material?: EcdsaMaterialActivationScope;
-  }): Promise<
-    | { readonly kind: 'claimed'; readonly operation: AuthorizedOperation }
-    | { readonly kind: 'replayed'; readonly operation: AuthorizedOperation }
-    | { readonly kind: 'operation_in_progress'; readonly operation: AuthorizedOperation }
-    | {
-        readonly kind:
-          | 'authorization_grant_rejected'
-          | 'verified_step_up_rejected'
-          | 'wallet_session_quota_exhausted'
-          | 'material_mismatch';
-      }
-  >;
-  completeAuthorizedOperation(input: {
-    readonly operation: AuthorizedOperation;
-    readonly result: AuthorizedOperationResult;
-    readonly resultRef: AuthorizedOperationResultRef;
-    readonly completedAtMs: number;
-  }): Promise<AuthorizedOperation>;
   issueGrant(input: {
     readonly operation: CapabilityGrantRequestInput['operation'];
     readonly evidenceSet: VerifiedGrantEvidenceSet;

@@ -440,10 +440,6 @@ export class AuthorizationService {
     await this.ports.grants.putActiveWalletSessionQuota(quota);
   }
 
-  async putAuthorizationGrant(grant: AuthorizationGrant): Promise<void> {
-    await this.ports.grants.putAuthorizationGrant(grant);
-  }
-
   async claimAuthorizedOperation(input: {
     readonly operation: AuthorizedOperationInput;
     readonly material?: EcdsaMaterialActivationScope;
