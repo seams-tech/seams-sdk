@@ -67,6 +67,16 @@ import {
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RootShareEpoch } from '@shared/utils/domainIds';
+import type {
+  MpcWalletSigningQuotaId,
+  SeamsSessionId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { PersistedEcdsaRoleLocalMaterial } from '../../session/persistence/records';
 import type { ExistingEcdsaRoleLocalActivation } from './postRegistrationSessionActivation';
 
@@ -83,14 +93,32 @@ export const TEMPO_ECDSA_CHAIN_TARGET: ThresholdEcdsaTempoChainTarget = {
   networkSlug: 'tempo-moderato',
 };
 
+function requireSeamsSessionId(value: unknown): SeamsSessionId {
+  const parsed = parseSeamsSessionId(value);
+  if (!parsed.ok) throw new Error('threshold-ecdsa bootstrap returned invalid authorizationSessionId');
+  return parsed.value;
+}
+
+function requireWalletSessionId(value: unknown): WalletSessionId {
+  const parsed = parseWalletSessionId(value);
+  if (!parsed.ok) throw new Error('threshold-ecdsa bootstrap returned invalid walletSessionId');
+  return parsed.value;
+}
+
+function requireQuotaId(value: unknown): MpcWalletSigningQuotaId {
+  const parsed = parseMpcWalletSigningQuotaId(value);
+  if (!parsed.ok) throw new Error('threshold-ecdsa bootstrap returned invalid quotaId');
+  return parsed.value;
+}
+
 function buildWalletBudgetProjectionVersion(args: {
-  signingGrantId: string;
+  quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   remainingUses: number;
 }): string {
   return [
     'wallet-budget',
-    args.signingGrantId,
+    args.quotaId,
     args.expiresAtMs,
     Math.max(0, Math.floor(Number(args.remainingUses) || 0)),
   ].join(':');
@@ -106,7 +134,9 @@ export type ThresholdEcdsaSessionBootstrapResult = {
   keygen: EcdsaKeygenSuccess;
   session: EcdsaSessionSuccess & {
     thresholdSessionId: string;
-    signingGrantId: string;
+    authorizationSessionId: SeamsSessionId;
+    walletSessionId: WalletSessionId;
+    quotaId: MpcWalletSigningQuotaId;
     expiresAtMs: number;
     remainingUses: number;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -135,7 +165,9 @@ export type ThresholdEcdsaExplicitKeyExportActivationResult = {
     ethereumAddress: string;
     relayerVerifyingShareB64u: string;
     thresholdSessionId: string;
-    signingGrantId: string;
+    authorizationSessionId: SeamsSessionId;
+    walletSessionId: WalletSessionId;
+    quotaId: MpcWalletSigningQuotaId;
     expiresAtMs: number;
     remainingUses: number;
     walletSessionJwt: string;
@@ -315,8 +347,9 @@ type ActivateEcdsaSessionRequestCommon = {
 type ActivateEcdsaRegistrationSessionPlan = {
   kind: 'requested_session';
   sessionKind: 'jwt';
-  sessionId: string;
-  signingGrantId: string;
+  thresholdSessionId: string;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
 };
 
 type ActivateEcdsaRegistrationRequestBase = ActivateEcdsaSessionRequestCommon & {
@@ -335,8 +368,9 @@ type ActivateEcdsaRegistrationRequestBase = ActivateEcdsaSessionRequestCommon & 
   ecdsaThresholdKeyId?: never;
   participantIds?: never;
   sessionKind?: never;
-  sessionId?: never;
-  signingGrantId?: never;
+  thresholdSessionId?: never;
+  walletSessionId?: never;
+  quotaId?: never;
 };
 
 type ActivateEcdsaExistingSessionRequestBase = ActivateEcdsaSessionRequestCommon & {
@@ -353,8 +387,9 @@ type ActivateEcdsaExistingSessionRequestBase = ActivateEcdsaSessionRequestCommon
   ecdsaThresholdKeyId?: never;
   participantIds?: never;
   sessionKind?: never;
-  sessionId?: never;
-  signingGrantId?: never;
+  thresholdSessionId?: never;
+  walletSessionId?: never;
+  quotaId?: never;
   runtimePolicyScope?: never;
   ttlMs?: never;
   remainingUses?: never;
@@ -590,10 +625,13 @@ async function activateEcdsaSessionByPurpose(
   const chainTarget = exactActivation ? args.lanePolicy.chainTarget : args.chainTarget;
 
   const requestedSessionId = String(
-    exactActivation ? args.lanePolicy.thresholdSessionId : args.sessionPlan?.sessionId || '',
+    exactActivation ? args.lanePolicy.thresholdSessionId : args.sessionPlan?.thresholdSessionId || '',
   ).trim();
-  const requestedSigningGrantId = String(
-    exactActivation ? args.lanePolicy.signingGrantId : args.sessionPlan?.signingGrantId || '',
+  const requestedWalletSessionId = String(
+    exactActivation ? args.lanePolicy.walletSessionId : args.sessionPlan?.walletSessionId || '',
+  ).trim();
+  const requestedQuotaId = String(
+    exactActivation ? args.lanePolicy.quotaId : args.sessionPlan?.quotaId || '',
   ).trim();
   const requestedEcdsaThresholdKeyId = String(
     exactActivation ? '' : args.keyIntent?.ecdsaThresholdKeyId || '',
@@ -644,13 +682,15 @@ async function activateEcdsaSessionByPurpose(
       : {}),
     chainTargetKey: thresholdEcdsaChainTargetKey(chainTarget),
     ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId || null,
-    signingGrantId: requestedSigningGrantId || null,
+    walletSessionId: requestedWalletSessionId || null,
+    quotaId: requestedQuotaId || null,
     thresholdSessionId: requestedSessionId || null,
     budgetProjectionVersion: undefined,
     freshAuthRetrySideEffectState: 'not_applicable',
     hasRequestedEcdsaThresholdKeyId: Boolean(requestedEcdsaThresholdKeyId),
     requestedSessionId: requestedSessionId || null,
-    requestedSigningGrantId: requestedSigningGrantId || null,
+    requestedWalletSessionId: requestedWalletSessionId || null,
+    requestedQuotaId: requestedQuotaId || null,
     sessionKind: exactActivation
       ? args.lanePolicy.thresholdSessionKind
       : args.sessionPlan?.sessionKind || 'jwt',
@@ -669,7 +709,8 @@ async function activateEcdsaSessionByPurpose(
       args.walletSessionRouteAuth &&
       requestedEcdsaThresholdKeyId &&
       requestedSessionId &&
-      requestedSigningGrantId
+      requestedWalletSessionId &&
+      requestedQuotaId
     ) {
       throw new Error(
         'Threshold ECDSA session bootstrap requires shared key identity and lane policy',
@@ -704,10 +745,11 @@ async function activateEcdsaSessionByPurpose(
             ...(requestedEcdsaThresholdKeyId
               ? { ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId }
               : {}),
-            sessionId:
+            thresholdSessionId:
               requestedSessionId ||
               deps.getOrCreateActiveThresholdEcdsaSessionId(walletId, chainTarget),
-            ...(requestedSigningGrantId ? { signingGrantId: requestedSigningGrantId } : {}),
+            ...(requestedWalletSessionId ? { walletSessionId: requestedWalletSessionId } : {}),
+            ...(requestedQuotaId ? { quotaId: requestedQuotaId } : {}),
           });
   } catch (error: unknown) {
     try {
@@ -754,14 +796,13 @@ async function activateEcdsaSessionByPurpose(
   }
   const clientVerifyingShareB64u = parseEcdsaClientVerifyingShareB64u(clientVerifyingShareB64uRaw);
 
-  const sessionId = String(bootstrap.sessionId || '').trim();
-  if (!sessionId) {
-    throw new Error('threshold-ecdsa bootstrap returned empty sessionId');
+  const thresholdSessionId = String(bootstrap.thresholdSessionId || '').trim();
+  if (!thresholdSessionId) {
+    throw new Error('threshold-ecdsa bootstrap returned empty thresholdSessionId');
   }
-  const signingGrantId = String(bootstrap.signingGrantId || '').trim();
-  if (!signingGrantId) {
-    throw new Error('threshold-ecdsa bootstrap returned empty signingGrantId');
-  }
+  const authorizationSessionId = requireSeamsSessionId(bootstrap.authorizationSessionId);
+  const walletSessionId = requireWalletSessionId(bootstrap.walletSessionId);
+  const quotaId = requireQuotaId(bootstrap.quotaId);
   const walletSessionJwt = String(bootstrap.jwt || '').trim();
   if (!walletSessionJwt) {
     throw new Error('threshold-ecdsa bootstrap returned empty Wallet Session JWT');
@@ -838,8 +879,10 @@ async function activateEcdsaSessionByPurpose(
         thresholdEcdsaPublicKeyB64u: String(bootstrap.thresholdEcdsaPublicKeyB64u || '').trim(),
         ethereumAddress: thresholdOwnerAddress,
         relayerVerifyingShareB64u: String(bootstrap.relayerVerifyingShareB64u || '').trim(),
-        thresholdSessionId: sessionId,
-        signingGrantId,
+        thresholdSessionId,
+        authorizationSessionId,
+        walletSessionId,
+        quotaId,
         expiresAtMs,
         remainingUses,
         walletSessionJwt,
@@ -874,13 +917,15 @@ async function activateEcdsaSessionByPurpose(
 
   const session: ThresholdEcdsaSessionBootstrapResult['session'] = {
     ok: true,
-    thresholdSessionId: sessionId,
-    signingGrantId,
+    thresholdSessionId,
+    authorizationSessionId,
+    walletSessionId,
+    quotaId,
     expiresAtMs,
     remainingUses,
     ...(bootstrap.runtimePolicyScope ? { runtimePolicyScope: bootstrap.runtimePolicyScope } : {}),
     projectionVersion: buildWalletBudgetProjectionVersion({
-      signingGrantId,
+      quotaId,
       expiresAtMs,
       remainingUses,
     }),
@@ -917,8 +962,7 @@ async function activateEcdsaSessionByPurpose(
     thresholdSessionKind: exactActivation
       ? args.lanePolicy.thresholdSessionKind
       : args.sessionPlan?.sessionKind || 'jwt',
-    thresholdSessionId: sessionId,
-    signingGrantId,
+    thresholdSessionId,
     routerAbEcdsaDerivationNormalSigning,
   };
 

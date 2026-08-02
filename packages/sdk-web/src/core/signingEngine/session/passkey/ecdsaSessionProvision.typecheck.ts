@@ -35,7 +35,8 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 const sessionIdentity = buildEcdsaSessionIdentity({
   thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
+  walletSessionId: 'wallet-session-1',
+  quotaId: 'quota-1',
 });
 const runtimePolicy = { kind: 'default_policy' } as const;
 const passkeyCredentialIdB64u = 'passkey-credential-id';
@@ -111,7 +112,8 @@ const walletKey = buildEvmFamilyEcdsaWalletKey({
 const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget,
   thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
+  walletSessionId: 'wallet-session-1',
+  quotaId: 'quota-1',
   thresholdSessionKind: 'jwt',
   ttlMs: 60_000,
   remainingUses: 1,

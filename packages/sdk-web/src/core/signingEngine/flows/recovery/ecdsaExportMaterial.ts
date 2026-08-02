@@ -1,5 +1,9 @@
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../interfaces/signing';
 import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import type {
   EmailOtpWalletAuthAuthority,
   PasskeyWalletAuthAuthority,
   WalletAuthAuthority,
@@ -18,7 +22,6 @@ import {
   type ReadyEvmFamilyEcdsaMaterial,
   type ThresholdEcdsaSessionId,
   type VerifiedEcdsaPublicFacts,
-  type SigningGrantId,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type {
   AvailableEcdsaSigningLane,
@@ -80,8 +83,9 @@ export type EcdsaExportMaterialAvailability =
 type ExactEcdsaExportSessionBase = {
   chainTarget: ThresholdEcdsaChainTarget;
   authMethod: 'email_otp' | 'passkey';
-  signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEcdsaSessionId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   material: EcdsaExportMaterialAvailability;
   ecdsaThresholdKeyId?: never;
   signingRootId?: never;
@@ -258,8 +262,9 @@ export function ecdsaExportSessionRecordKey(
     authMethod: lane.session.authMethod,
     curve: 'ecdsa',
     chainTarget: lane.session.chainTarget,
-    signingGrantId: String(lane.session.signingGrantId),
     thresholdSessionId: String(lane.session.thresholdSessionId),
+    walletSessionId: String(lane.session.walletSessionId),
+    quotaId: String(lane.session.quotaId),
   };
 }
 
@@ -488,7 +493,8 @@ function readReadyEcdsaExportMaterialBoundaryForExportLane(args: {
       authMethod: args.exportLane.session.authMethod,
       source: record.source,
       thresholdSessionId: args.exportLane.session.thresholdSessionId,
-      signingGrantId: args.exportLane.session.signingGrantId,
+      walletSessionId: args.exportLane.session.walletSessionId,
+      quotaId: args.exportLane.session.quotaId,
     },
   });
   if (materialResolution.kind !== 'ready') {
@@ -532,12 +538,14 @@ export async function resolveExactSealedEcdsaExportRecordForLane(
     })
   ).filter((record): record is CurrentEcdsaSealedSessionRecord => {
     if (record.curve !== 'ecdsa' || !record.ecdsaRestore) return false;
-    const signingGrantId = String(record.signingGrantId || '').trim();
+    const walletSessionId = String(record.walletSessionId || '').trim();
+    const quotaId = String(record.quotaId || '').trim();
     const thresholdSessionId = String(record.thresholdSessionIds.ecdsa || '').trim();
     const sealedWalletId = String(record.walletId || '').trim();
     const sealedKeyHandle = String(record.ecdsaRestore?.keyHandle || '').trim();
     return (
-      signingGrantId === String(exportLane.session.signingGrantId) &&
+      walletSessionId === String(exportLane.session.walletSessionId) &&
+      quotaId === String(exportLane.session.quotaId) &&
       thresholdSessionId === String(exportLane.session.thresholdSessionId) &&
       sealedWalletId === String(exportLane.key.walletId) &&
       sealedKeyHandle === String(exportLane.publicFacts.keyHandle)

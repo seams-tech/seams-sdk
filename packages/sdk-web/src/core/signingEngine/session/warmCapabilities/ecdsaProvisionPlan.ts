@@ -1,5 +1,9 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { decodeJwtPayloadRecord, type AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
@@ -21,13 +25,13 @@ import type {
 import {
   SigningSessionIds,
   type ThresholdEcdsaSessionId,
-  type SigningGrantId,
 } from '../operationState/types';
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from './routerAbEcdsaWalletSessionAuth';
 
 export type EcdsaSessionIdentity = {
   thresholdSessionId: ThresholdEcdsaSessionId;
-  signingGrantId: SigningGrantId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
 };
 
 export type EcdsaSigningKeyContext = {
@@ -296,17 +300,20 @@ function normalizeThresholdSessionKind(value: unknown): ThresholdSessionKind {
 
 export function buildEcdsaSessionIdentity(args: {
   thresholdSessionId: unknown;
-  signingGrantId: unknown;
+  walletSessionId: unknown;
+  quotaId: unknown;
 }): EcdsaSessionIdentity {
   return {
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
-    signingGrantId: SigningSessionIds.signingGrant(args.signingGrantId),
+    walletSessionId: SigningSessionIds.walletSession(args.walletSessionId),
+    quotaId: SigningSessionIds.walletSessionQuota(args.quotaId),
   };
 }
 
 export function tryBuildEcdsaSessionIdentity(args: {
   thresholdSessionId: unknown;
-  signingGrantId: unknown;
+  walletSessionId: unknown;
+  quotaId: unknown;
 }): EcdsaSessionIdentity | null {
   try {
     return buildEcdsaSessionIdentity(args);
@@ -321,13 +328,14 @@ export function ecdsaSessionIdentitiesEqual(
 ): boolean {
   return (
     left.thresholdSessionId === right.thresholdSessionId &&
-    left.signingGrantId === right.signingGrantId
+    left.walletSessionId === right.walletSessionId &&
+    left.quotaId === right.quotaId
   );
 }
 
 export function ecdsaSessionIdentityMatches(
   identity: EcdsaSessionIdentity,
-  candidate: { thresholdSessionId: unknown; signingGrantId: unknown },
+  candidate: { thresholdSessionId: unknown; walletSessionId: unknown; quotaId: unknown },
 ): boolean {
   const candidateIdentity = tryBuildEcdsaSessionIdentity(candidate);
   return Boolean(candidateIdentity && ecdsaSessionIdentitiesEqual(identity, candidateIdentity));
@@ -338,7 +346,8 @@ function tryBuildEcdsaSessionIdentityFromClaims(
 ): EcdsaSessionIdentity | null {
   return tryBuildEcdsaSessionIdentity({
     thresholdSessionId: claims.thresholdSessionId,
-    signingGrantId: claims.signingGrantId,
+    walletSessionId: claims.walletSessionId,
+    quotaId: claims.quotaId,
   });
 }
 

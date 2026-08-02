@@ -42,7 +42,8 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 const identity = buildEcdsaSessionIdentity({
   thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
+  walletSessionId: 'wallet-session-1',
+  quotaId: 'quota-1',
 });
 const signingKeyContext = {
   ecdsaThresholdKeyId: 'ecdsa-key-1',
@@ -124,7 +125,8 @@ const reconnectKeyRef = {
   thresholdSessionKind: 'jwt',
   walletSessionJwt: 'jwt-token',
   thresholdSessionId: identity.thresholdSessionId,
-  signingGrantId: identity.signingGrantId,
+  walletSessionId: identity.walletSessionId,
+  quotaId: identity.quotaId,
 } satisfies ThresholdEcdsaSecp256k1KeyRef;
 const invalidReconnectKeyRefThresholdSessionAuth = {
   ...reconnectKeyRef,
@@ -151,7 +153,8 @@ const reconnectRecord = {
   thresholdSessionKind: 'jwt',
   walletSessionJwt: 'jwt-token',
   thresholdSessionId: identity.thresholdSessionId,
-  signingGrantId: identity.signingGrantId,
+  walletSessionId: identity.walletSessionId,
+  quotaId: identity.quotaId,
   expiresAtMs: 1,
   remainingUses: 1,
   ethereumAddress: `0x${'11'.repeat(20)}`,
