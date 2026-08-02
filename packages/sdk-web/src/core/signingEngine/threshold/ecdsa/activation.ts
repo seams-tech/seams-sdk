@@ -51,12 +51,11 @@ import {
   parseRouterAbEcdsaOperationStepUpPreparationV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
-  CapabilityGrantId,
   MpcWalletSigningQuotaId,
   SeamsSessionId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { parseCapabilityGrantId } from '@shared/authorization/capabilityKinds';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   requireAppSessionJwt,
   type AppSessionJwtAuth,
@@ -115,8 +114,8 @@ export type ThresholdEcdsaSessionBootstrapResult = {
 export type EcdsaExplicitExportSessionAuth = AppSessionJwtAuth | CookieSessionAuth;
 
 export type EcdsaExplicitExportOperationAuthorization = {
-  readonly kind: 'operation_step_up';
-  readonly grantId: CapabilityGrantId;
+  readonly kind: 'verified_step_up';
+  readonly evidenceSetDigest: DigestB64u;
   readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
   readonly sessionAuth: EcdsaExplicitExportSessionAuth;
   readonly expiresAtMs: number;
@@ -639,21 +638,27 @@ export async function activateEcdsaSession(
 function normalizeEcdsaExplicitExportAuthorization(
   authorization: EcdsaExplicitExportOperationAuthorization,
 ): EcdsaExplicitExportOperationAuthorization {
-  const grantId = parseCapabilityGrantId(authorization.grantId);
-  if (!grantId.ok) throw new Error(grantId.error.message);
+  let evidenceSetDigest: DigestB64u;
+  try {
+    evidenceSetDigest = parseDigestB64u(authorization.evidenceSetDigest);
+  } catch (error) {
+    throw new Error(
+      error instanceof Error ? error.message : 'ECDSA explicit export evidence digest is invalid',
+    );
+  }
   const expiresAtMs = Math.floor(Number(authorization.expiresAtMs));
   const operation = parseRouterAbEcdsaOperationStepUpPreparationV1(authorization.operation);
   if (operation.operation_kind !== 'evm.export_key') {
     throw new Error('ECDSA explicit export operation kind is invalid');
   }
   if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
-    throw new Error('ECDSA explicit export operation grant expiry is invalid');
+    throw new Error('ECDSA explicit export operation authorization expiry is invalid');
   }
   switch (authorization.sessionAuth.kind) {
     case 'app_session':
       return {
-        kind: 'operation_step_up',
-        grantId: grantId.value,
+        kind: 'verified_step_up',
+        evidenceSetDigest,
         operation,
         sessionAuth: {
           kind: 'app_session',
@@ -664,8 +669,8 @@ function normalizeEcdsaExplicitExportAuthorization(
       };
     case 'cookie':
       return {
-        kind: 'operation_step_up',
-        grantId: grantId.value,
+        kind: 'verified_step_up',
+        evidenceSetDigest,
         operation,
         sessionAuth: { kind: 'cookie' },
         expiresAtMs,

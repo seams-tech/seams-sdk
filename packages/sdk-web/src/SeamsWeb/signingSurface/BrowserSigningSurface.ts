@@ -1804,7 +1804,7 @@ export class BrowserSigningSurface {
         activeClient: recovered.activeClient,
         facts: prepared.facts,
       },
-      issuedGrant: recovered.issuedGrant,
+      issuedAuthorization: recovered.issuedAuthorization,
     };
   }
 

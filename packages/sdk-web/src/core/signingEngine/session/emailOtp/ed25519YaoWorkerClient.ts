@@ -28,7 +28,7 @@ import type {
 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import { ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import type {
-  EmailOtpEd25519YaoIssuedOperationGrantV1,
+  EmailOtpEd25519YaoIssuedOperationAuthorizationV1,
   EmailOtpEd25519YaoOperationStepUpProofV1,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
 } from '@/core/signingEngine/workerManager/workerTypes';
@@ -524,7 +524,7 @@ export type RehydrateEmailOtpEd25519YaoOperationMaterialInputV1 = {
 
 export type RehydrateEmailOtpEd25519YaoOperationMaterialResultV1 = {
   activeClient: EmailOtpEd25519YaoWorkerActiveClientV1;
-  issuedGrant: EmailOtpEd25519YaoIssuedOperationGrantV1;
+  issuedAuthorization: EmailOtpEd25519YaoIssuedOperationAuthorizationV1;
 };
 
 export async function rehydrateEmailOtpEd25519YaoOperationMaterialV1(
@@ -555,7 +555,7 @@ export async function rehydrateEmailOtpEd25519YaoOperationMaterialV1(
       result.activeClientHandle,
       result.metadata,
     ),
-    issuedGrant: result.issuedGrant,
+    issuedAuthorization: result.issuedAuthorization,
   };
 }
 

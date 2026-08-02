@@ -142,7 +142,7 @@ import {
   RouterAbEd25519YaoClientSigningInputV1,
   RouterAbEd25519YaoClientSigningShareV1,
 } from '../../threshold/ed25519/yaoClient';
-import { issueEd25519OperationStepUpGrant } from '../../threshold/ed25519/walletSession';
+import { issueEd25519OperationStepUpAuthorization } from '../../threshold/ed25519/walletSession';
 import type { NearResolvedEd25519SigningSessionState } from '../../interfaces/near';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../../session/material/nearEd25519YaoMaterialActivation';
 import {
@@ -2782,7 +2782,7 @@ async function rehydrateEmailOtpEd25519YaoOperationMaterial(
       ciphertextB64u: readString(enrollment.encSB64u, 'enrollment.encSB64u'),
       keyHandle,
     });
-    const issuedGrant = await issueEd25519OperationStepUpGrant({
+    const issuedAuthorization = await issueEd25519OperationStepUpAuthorization({
       relayerUrl: readString(args.relayUrl, 'relayUrl'),
       normalSigningRequest: args.normalSigningRequest,
       displayDigest: readString(args.displayDigest, 'displayDigest'),
@@ -2793,13 +2793,13 @@ async function rehydrateEmailOtpEd25519YaoOperationMaterial(
         enrollmentSealKeyVersion: enrollment.enrollmentSealKeyVersion,
       },
     });
-    if (issuedGrant.materialRecovery.kind !== 'email_otp_local_material_v1') {
+    if (issuedAuthorization.materialRecovery.kind !== 'email_otp_local_material_v1') {
       throw new Error('Email OTP operation step-up did not return recovered material');
     }
     const unsealed = await removeClientSealToSecret32({
       runtime,
       keyHandle,
-      ciphertextB64u: issuedGrant.materialRecovery.ciphertext,
+      ciphertextB64u: issuedAuthorization.materialRecovery.ciphertext,
     });
     if (unsealed.kind !== 'secret32') {
       throw emailOtpCorruptLocalCustodyError(unsealed);
@@ -2823,11 +2823,10 @@ async function rehydrateEmailOtpEd25519YaoOperationMaterial(
     return {
       activeClientHandle: activeClient.activeClientHandle,
       metadata: activeClient.metadata,
-      issuedGrant: {
-        kind: issuedGrant.kind,
-        grantId: issuedGrant.grantId,
-        authorizationSessionId: issuedGrant.authorizationSessionId,
-        expiresAtMs: issuedGrant.expiresAtMs,
+      issuedAuthorization: {
+        kind: issuedAuthorization.kind,
+        authorization: issuedAuthorization.authorization,
+        expiresAtMs: issuedAuthorization.expiresAtMs,
       },
     };
   } finally {

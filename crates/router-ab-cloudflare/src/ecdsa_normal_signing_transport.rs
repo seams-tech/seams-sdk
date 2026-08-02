@@ -314,23 +314,21 @@ mod tests {
         let admission =
             trusted_admission(&request.scope, request.request_digest().expect("digest"));
         let effect_claim = match &request.authorization {
-            NormalSigningAuthorizationV1::ReusableWalletSession {
-                wallet_session_id,
-            } => CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
-                claim: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::new(
-                    wallet_session_id.clone(),
-                    "signing-grant-ecdsa-1",
-                    request.operation_id.clone(),
-                    request.operation_id.clone(),
-                    request.operation_digests.intent_digest_b64u.clone(),
-                )
-                .expect("ECDSA effect claim"),
-            },
-            NormalSigningAuthorizationV1::OperationStepUp { grant_id } => {
+            NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } => {
+                CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
+                    claim: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::new(
+                        wallet_session_id.clone(),
+                        request.operation_id.clone(),
+                        request.operation_id.clone(),
+                        request.operation_digests.intent_digest_b64u.clone(),
+                    )
+                    .expect("ECDSA effect claim"),
+                }
+            }
+            NormalSigningAuthorizationV1::OperationStepUp => {
                 CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
                     authorization_session_id: "authorization-session-ecdsa-1".to_owned(),
-                    grant_id: grant_id.clone(),
-                    use_id: request.operation_id.clone(),
+                    authorized_operation_id: request.operation_id.clone(),
                     operation_id: request.operation_id.clone(),
                     operation_fingerprint_digest: request
                         .operation_digests

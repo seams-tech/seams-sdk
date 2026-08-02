@@ -1,6 +1,6 @@
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
-  Ed25519OperationStepUpGrantRequest,
+  Ed25519OperationStepUpAuthorizationRequest,
   Ed25519OperationStepUpProof,
   Ed25519WalletSessionMintAuthorization,
   ThresholdEd25519WebAuthnPrfSecretSource,
@@ -24,14 +24,14 @@ const validPasskeyStepUpWithoutMaterialRecovery = {
   ...stepUpRequestBase,
   proof: passkeyStepUpProof,
   materialRecovery: { kind: 'not_requested' },
-} satisfies Ed25519OperationStepUpGrantRequest;
+} satisfies Ed25519OperationStepUpAuthorizationRequest;
 void validPasskeyStepUpWithoutMaterialRecovery;
 
 const validEmailOtpStepUpWithoutMaterialRecovery = {
   ...stepUpRequestBase,
   proof: emailOtpStepUpProof,
   materialRecovery: { kind: 'not_requested' },
-} satisfies Ed25519OperationStepUpGrantRequest;
+} satisfies Ed25519OperationStepUpAuthorizationRequest;
 void validEmailOtpStepUpWithoutMaterialRecovery;
 
 const validEmailOtpStepUpWithLocalMaterialRecovery = {
@@ -42,11 +42,11 @@ const validEmailOtpStepUpWithLocalMaterialRecovery = {
     wrappedCiphertext: 'wrapped-ciphertext',
     enrollmentSealKeyVersion: 'enrollment-seal-key-version',
   },
-} satisfies Ed25519OperationStepUpGrantRequest;
+} satisfies Ed25519OperationStepUpAuthorizationRequest;
 void validEmailOtpStepUpWithLocalMaterialRecovery;
 
 // @ts-expect-error Passkey operation step-up cannot request Email OTP local-material recovery.
-const invalidPasskeyStepUpWithLocalMaterialRecovery: Ed25519OperationStepUpGrantRequest = {
+const invalidPasskeyStepUpWithLocalMaterialRecovery: Ed25519OperationStepUpAuthorizationRequest = {
   ...stepUpRequestBase,
   proof: passkeyStepUpProof,
   materialRecovery: {
@@ -57,7 +57,7 @@ const invalidPasskeyStepUpWithLocalMaterialRecovery: Ed25519OperationStepUpGrant
 };
 void invalidPasskeyStepUpWithLocalMaterialRecovery;
 
-const invalidEmailOtpStepUpWithIncompleteLocalMaterialRecovery: Ed25519OperationStepUpGrantRequest =
+const invalidEmailOtpStepUpWithIncompleteLocalMaterialRecovery: Ed25519OperationStepUpAuthorizationRequest =
   {
     ...stepUpRequestBase,
     proof: emailOtpStepUpProof,

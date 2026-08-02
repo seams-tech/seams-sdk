@@ -64,7 +64,6 @@ import type {
 } from '../../session/availability/availableSigningLanes';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDelivery';
-import { createNearOperationStepUpGrantId } from './shared/operationStepUpPreparation';
 import {
   walletSessionFailureFromError,
   type WalletSessionFailure,
@@ -698,7 +697,6 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
       });
       const signer = args.signer;
       const thresholdSessionId = materialFacts.thresholdSessionId;
-      const requestedGrantId = createNearOperationStepUpGrantId();
       const authority = buildPasskeyWalletAuthAuthority({
         walletId: signer.account.wallet.walletId,
         rpId: auth.rpId,
@@ -706,7 +704,6 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
       });
       return {
         thresholdSessionId,
-        requestedGrantId,
         authority,
       };
     },

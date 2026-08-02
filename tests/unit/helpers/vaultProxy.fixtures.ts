@@ -2,11 +2,9 @@ import {
   buildGrantEvidenceRequirement,
   parseAuthorizationAuditEventId,
   parseAuthFactorId,
-  parseCapabilityBindingId,
-  parseCapabilityGrantId,
-  parseCapabilityGrantUseId,
   parseCapabilityId,
   parseCapabilityOperationId,
+  parseAuthorizedOperationId,
   parseDeviceId,
   parseGrantEvidenceId,
   parseGrantEvidenceSetId,
@@ -28,14 +26,16 @@ import {
 import { parseWalletAuthAuthorityRef } from '../../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
   buildActiveAuthorizationSession,
-  buildActiveCapabilityGrant,
+  buildAuthorizedOperation,
   parseSessionOrigin,
   type ActiveAuthorizationSession,
+  type AuthorizedOperation,
 } from '../../../packages/sdk-server-ts/src/authorization/domain';
 import {
   buildVerifiedPasskeyFactorResult,
   type VerifiedGrantEvidenceSet,
 } from '../../../packages/sdk-server-ts/src/authorization/factorEvidence';
+import { buildCapabilityOperationEnvelope } from '../../../packages/shared-ts/src/authorization/operationFingerprint';
 import {
   buildVaultProxyUseOperation,
   parseVaultProxyDestination,
@@ -65,10 +65,7 @@ export async function buildVaultProxyFixture() {
       sessionId: parsed('session-vault-app', parseSeamsSessionId),
       authSource: {
         kind: 'passkey',
-        credentialIdB64u: parsedDomain(
-          'credential-vault-app',
-          parseWebAuthnCredentialIdB64u,
-        ),
+        credentialIdB64u: parsedDomain('credential-vault-app', parseWebAuthnCredentialIdB64u),
       },
       deviceId: parsed('device-vault-browser', parseDeviceId),
       audience: {
@@ -94,10 +91,8 @@ export async function buildVaultProxyFixture() {
     }),
     evidenceId: parsed('evidence-vault-passkey', parseGrantEvidenceId),
     evidenceSetId: parsed('evidence-set-vault-passkey', parseGrantEvidenceSetId),
-    grantId: parsed('grant-vault-proxy-1', parseCapabilityGrantId),
-    useId: parsed('grant-use-vault-proxy-1', parseCapabilityGrantUseId),
+    authorizedOperationId: parsed('authorized-operation-vault-proxy-1', parseAuthorizedOperationId),
     auditEventId: parsed('audit-vault-proxy-1', parseAuthorizationAuditEventId),
-    bindingId: parsed('binding-vault-owner-1', parseCapabilityBindingId),
     evidenceRequirement: buildGrantEvidenceRequirement({
       mode: 'all',
       evidenceKinds: ['passkey_assertion'],
@@ -123,37 +118,35 @@ export function buildVaultProxyPasskeyFactor(input: {
     factorId: parsed('factor-vault-passkey', parseAuthFactorId),
     authorityRef,
     operation: input.fixture.operation,
-    credentialIdB64u: parsedDomain(
-      'credential-vault-assertion',
-      parseWebAuthnCredentialIdB64u,
-    ),
+    credentialIdB64u: parsedDomain('credential-vault-assertion', parseWebAuthnCredentialIdB64u),
     assertionDigest: fixtureDigest(8),
     verifiedAtMs: VAULT_PROXY_FIXTURE_TIME_MS + 20,
     expiresAtMs: VAULT_PROXY_FIXTURE_TIME_MS + 40_000,
   });
 }
 
-export function buildVaultProxyOneUseGrant(input: {
+export async function buildVaultProxyAuthorizedOperation(input: {
   readonly fixture: Awaited<ReturnType<typeof buildVaultProxyFixture>>;
   readonly evidenceSet: VerifiedGrantEvidenceSet;
-}) {
-  return buildActiveCapabilityGrant({
+}): Promise<AuthorizedOperation> {
+  return buildAuthorizedOperation({
     tenantId: input.fixture.tenantId,
-    principalId: input.fixture.principalId,
-    grantId: input.fixture.grantId,
-    bindingId: input.fixture.bindingId,
-    evidenceSetId: input.evidenceSet.evidenceSetId,
-    evidenceSetDigest: input.evidenceSet.evidenceSetDigest,
-    capabilityId: input.fixture.capabilityId,
-    operationId: input.fixture.operation.operationId,
-    operation: input.fixture.operation.operation,
-    laneDigest: input.fixture.operation.digests.laneDigest,
-    intentDigest: input.fixture.operation.digests.intentDigest,
-    displayDigest: input.fixture.operation.digests.displayDigest,
-    authority: { kind: 'operation_step_up' },
-    remainingUses: 1,
-    createdAtMs: VAULT_PROXY_FIXTURE_TIME_MS + 20,
-    expiresAtMs: VAULT_PROXY_FIXTURE_TIME_MS + 30_000,
+    authorizedOperationId: input.fixture.authorizedOperationId,
+    auditEventId: input.fixture.auditEventId,
+    operation: buildCapabilityOperationEnvelope({
+      tenantId: input.fixture.tenantId,
+      principalId: input.fixture.principalId,
+      capabilityId: input.fixture.capabilityId,
+      operationId: input.fixture.operation.operationId,
+      operation: input.fixture.operation.operation,
+      digests: input.fixture.operation.digests,
+    }),
+    authorization: {
+      kind: 'verified_step_up',
+      evidenceSetDigest: input.evidenceSet.evidenceSetDigest,
+    },
+    quota: { kind: 'quota_neutral' },
+    claimedAtMs: VAULT_PROXY_FIXTURE_TIME_MS + 20,
   });
 }
 

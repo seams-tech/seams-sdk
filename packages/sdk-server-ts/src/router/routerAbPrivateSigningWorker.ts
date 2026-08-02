@@ -53,22 +53,19 @@ import type {
 import {
   buildEvmEcdsaMpcOperationRef,
   buildNearEd25519MpcOperationRef,
-  parseCapabilityBindingId,
+  buildAuthorizationGrantRef,
   parseAuthorizationAuditEventId,
-  parseCapabilityGrantId,
-  parseCapabilityGrantUseId,
+  parseAuthorizedOperationId,
   parseCapabilityId,
   parseCapabilityOperationId,
   parseCapabilityOperationResultStorageRef,
-  parseGrantEvidenceId,
-  parseGrantEvidenceSetId,
+  parseWalletSessionAuthorizationId,
   parsePrincipalId,
   parseSeamsSessionId,
   parseTenantId,
   type AuthorizationParseResult,
   type AuthorizationAuditEventId,
-  type CapabilityGrantId,
-  type CapabilityGrantUseId,
+  type AuthorizedOperationId,
   type CapabilityId,
   type CapabilityOperationId,
   type CapabilityOperationRef,
@@ -76,13 +73,11 @@ import {
   type SeamsSessionId,
   type TenantId,
 } from '@shared/authorization/capabilityKinds';
-import { buildCapabilityOperationEnvelope } from '@shared/authorization/operationFingerprint';
 import {
-  buildActiveCapabilityGrant,
-  buildCapabilityOperationClaim,
-  type ClaimedCapabilityGrantUse,
-} from '../authorization/domain';
-import { buildVerifiedSessionEvidenceSet } from '../authorization/factorEvidence';
+  buildCapabilityOperationEnvelope,
+  computeCapabilityOperationFingerprintDigest,
+} from '@shared/authorization/operationFingerprint';
+import type { AuthorizedOperation, AuthorizedOperationInput } from '../authorization/domain';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
   sameRouterAbMpcMaterialActivationRef,
@@ -105,12 +100,7 @@ export function routerAbEcdsaAtomicAuthorizationConfigured(
   claims: RouterApiAuthorizationClaimService,
 ): boolean {
   const runtime = claims as unknown as Record<string, unknown>;
-  return (
-    typeof runtime.claimEcdsaOperation === 'function' &&
-    typeof runtime.claimEcdsaOperationStepUpFromGrant === 'function' &&
-    typeof runtime.putEcdsaEvidenceAndGrant === 'function' &&
-    typeof runtime.claimEcdsaReusableWalletSessionOperation === 'function'
-  );
+  return typeof runtime.claimAuthorizedOperation === 'function';
 }
 
 const PRIVATE_ED25519_SIGNING_PREPARE_PATH = '/router-ab/signing-worker/sign/prepare';
@@ -219,7 +209,7 @@ export type RouterAbEd25519NormalSigningAuthorizationResult =
       readonly kind: 'operation_step_up';
       readonly phase: 'prepare';
       readonly session: RouterAbOperationStepUpAppSession;
-      readonly use: ClaimedCapabilityGrantUse;
+      readonly operation: AuthorizedOperation;
       readonly operationDigests: {
         readonly laneDigest: ReturnType<typeof parseDigestB64u>;
         readonly intentDigest: ReturnType<typeof parseDigestB64u>;
@@ -241,7 +231,13 @@ export type RouterAbEcdsaNormalSigningAuthorizationResult =
       readonly validated: RouterAbEcdsaWalletSessionValidationSuccess;
       readonly admission: AcceptedEcdsaRouteAdmission;
     }
-  | { readonly ok: true; readonly kind: 'operation_step_up' }
+  | {
+      readonly ok: true;
+      readonly kind: 'operation_step_up';
+      readonly phase: 'prepare' | 'finalize';
+      readonly operation: AuthorizedOperation;
+      readonly session: RouterAbOperationStepUpAppSession;
+    }
   | { readonly ok: false; readonly result: RouterAbJsonRouteResult };
 
 export type RouterAbNormalSigningAdmissionFailureCode =
@@ -381,7 +377,7 @@ type RouterAbEd25519NormalSigningAuthorizationV2 =
     }
   | {
       readonly kind: 'operation_step_up';
-      readonly grant_id: string;
+      readonly evidence_set_digest: string;
       readonly wallet_session_id?: never;
     };
 
@@ -454,7 +450,7 @@ type RouterAbNormalSigningPrivateAuthorizationV2 =
   | {
       readonly kind: 'operation_step_up';
       readonly authorization_session_id: string;
-      readonly grant_id: string;
+      readonly evidence_set_digest: string;
       readonly wallet_session_id?: never;
     };
 
@@ -513,16 +509,14 @@ type RouterAbNormalSigningEffectClaimV1 =
   | {
       readonly kind: 'reusable_wallet_session';
       readonly wallet_session_id: string;
-      readonly grant_id: string;
-      readonly use_id: string;
+      readonly authorized_operation_id: string;
       readonly operation_id: string;
       readonly operation_fingerprint_digest: string;
     }
   | {
       readonly kind: 'operation_step_up';
       readonly authorization_session_id: string;
-      readonly grant_id: string;
-      readonly use_id: string;
+      readonly authorized_operation_id: string;
       readonly operation_id: string;
       readonly operation_fingerprint_digest: string;
     };
@@ -532,8 +526,7 @@ function validateRouterAbNormalSigningEffectClaim(
   scope: RouterAbEd25519NormalSigningScopeV2,
   authorizationSessionId: string,
 ): void {
-  requirePrivateSigningString(claim.grant_id, 'effect_claim.grant_id');
-  requirePrivateSigningString(claim.use_id, 'effect_claim.use_id');
+  requirePrivateSigningString(claim.authorized_operation_id, 'effect_claim.authorized_operation_id');
   requirePrivateSigningString(claim.operation_id, 'effect_claim.operation_id');
   requirePrivateSigningString(
     claim.operation_fingerprint_digest,
@@ -555,8 +548,7 @@ function validateRouterAbNormalSigningEffectClaim(
   );
   if (
     scope.authorization.kind !== 'operation_step_up' ||
-    claim.authorization_session_id !== authorizationSessionId ||
-    claim.grant_id !== scope.authorization.grant_id
+    claim.authorization_session_id !== authorizationSessionId
   ) {
     throw new Error('Operation step-up effect claim does not match request scope');
   }
@@ -744,12 +736,16 @@ function requirePrivateSigningAuthorization(
         ),
       };
     case 'operation_step_up':
-      requirePrivateSigningExactFields(authorization, ['kind', 'grant_id'], 'scope.authorization');
+      requirePrivateSigningExactFields(
+        authorization,
+        ['kind', 'evidence_set_digest'],
+        'scope.authorization',
+      );
       return {
         kind: 'operation_step_up',
-        grant_id: requirePrivateSigningString(
-          authorization.grant_id,
-          'scope.authorization.grant_id',
+        evidence_set_digest: requirePrivateSigningString(
+          authorization.evidence_set_digest,
+          'scope.authorization.evidence_set_digest',
         ),
       };
     default:
@@ -1070,7 +1066,7 @@ async function privateSigningRound1BindingDigest(input: {
       break;
     case 'operation_step_up':
       pushLen32(out, textBytes('operation_step_up'));
-      pushLen32(out, textBytes(input.scope.authorization.grant_id));
+      pushLen32(out, textBytes(input.scope.authorization.evidence_set_digest));
       break;
   }
   pushLen32(out, textBytes('mpc_material_activation_ref'));
@@ -1260,7 +1256,7 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
             : {
                 kind: 'operation_step_up',
                 authorization_session_id: signingContext.authorizationSessionId,
-                grant_id: scope.authorization.grant_id,
+                evidence_set_digest: scope.authorization.evidence_set_digest,
               },
         signing_worker_id: scope.signing_worker_id,
         request_id: scope.request_id,
@@ -1326,7 +1322,7 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
           : {
               kind: 'operation_step_up',
               authorization_session_id: signingContext.authorizationSessionId,
-              grant_id: scope.authorization.grant_id,
+              evidence_set_digest: scope.authorization.evidence_set_digest,
             },
       signing_worker_id: scope.signing_worker_id,
       request_id: scope.request_id,
@@ -1422,7 +1418,7 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
   | {
       readonly phase: 'prepare';
       readonly session: RouterAbOperationStepUpAppSession;
-      readonly use: ClaimedCapabilityGrantUse;
+      readonly operation: AuthorizedOperation;
       readonly operationDigests: {
         readonly laneDigest: ReturnType<typeof parseDigestB64u>;
         readonly intentDigest: ReturnType<typeof parseDigestB64u>;
@@ -1503,19 +1499,15 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
     if (!operation.ok) {
       return routerAbStepUpError(400, 'invalid_body', operation.message);
     }
-    let grantId: CapabilityGrantId;
-    let useId: CapabilityGrantUseId;
+    let authorizedOperationId: AuthorizedOperationId;
     let auditEventId: AuthorizationAuditEventId;
     let capabilityId: CapabilityId;
     let laneDigest: ReturnType<typeof parseDigestB64u>;
     let intentDigest: ReturnType<typeof parseDigestB64u>;
     let displayDigest: ReturnType<typeof parseDigestB64u>;
     try {
-      grantId = requireAuthorizationValue(
-        parseCapabilityGrantId(input.scope.authorization.grant_id),
-      );
-      useId = requireAuthorizationValue(
-        parseCapabilityGrantUseId(`normal-signing-use:${input.scope.request_id}`),
+      authorizedOperationId = requireAuthorizationValue(
+        parseAuthorizedOperationId(`normal-signing-operation:${input.scope.request_id}`),
       );
       auditEventId = requireAuthorizationValue(
         parseAuthorizationAuditEventId(`normal-signing-audit:${input.scope.request_id}`),
@@ -1542,24 +1534,31 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
     } catch (error: unknown) {
       return routerAbStepUpError(400, 'invalid_body', errorMessage(error));
     }
+    const operationEnvelope = buildCapabilityOperationEnvelope({
+      tenantId: authenticated.session.tenantId,
+      principalId: authenticated.session.principalId,
+      capabilityId,
+      operationId: operation.operationId,
+      operation: operation.operation,
+      digests: { laneDigest, intentDigest, displayDigest },
+    });
     let claimResult: Awaited<
-      ReturnType<RouterApiAuthorizationClaimService['claimOperationStepUpFromGrant']>
+      ReturnType<RouterApiAuthorizationClaimService['claimAuthorizedOperation']>
     >;
     try {
-      claimResult = await authenticated.claims.claimOperationStepUpFromGrant({
-        tenantId: authenticated.session.tenantId,
-        grantId,
-        useId,
-        auditEventId,
-        authorizationSessionId: authenticated.session.sessionId,
-        principalId: authenticated.session.principalId,
-        capabilityId,
-        operationId: operation.operationId,
-        operation: operation.operation,
-        laneDigest,
-        intentDigest,
-        displayDigest,
-        claimedAtMs: Date.now(),
+      claimResult = await authenticated.claims.claimAuthorizedOperation({
+        operation: {
+          tenantId: authenticated.session.tenantId,
+          authorizedOperationId,
+          auditEventId,
+          operation: operationEnvelope,
+          authorization: {
+            kind: 'verified_step_up',
+            evidenceSetDigest: parseDigestB64u(input.scope.authorization.evidence_set_digest),
+          },
+          quota: { kind: 'quota_neutral' },
+          claimedAtMs: Date.now(),
+        },
       });
     } catch (error: unknown) {
       return routerAbStepUpError(400, 'invalid_body', errorMessage(error));
@@ -1568,10 +1567,10 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
       return routerAbStepUpError(
         409,
         'operation_claim_completed',
-        'Operation step-up grant has already completed its operation',
+        'Operation step-up has already completed its operation',
       );
     }
-    const claimFailure = routerAbOperationStepUpClaimFailure(claimResult, useId);
+    const claimFailure = routerAbOperationStepUpClaimFailure(claimResult, authorizedOperationId);
     if (claimFailure) return claimFailure;
     if (claimResult.kind !== 'claimed' && claimResult.kind !== 'operation_in_progress') {
       return routerAbStepUpError(409, 'operation_claim_missing', 'Operation claim is unavailable');
@@ -1579,7 +1578,7 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
     return {
       phase: 'prepare',
       session: authenticated.session,
-      use: claimResult.use,
+      operation: claimResult.operation,
       operationDigests: { laneDigest, intentDigest, displayDigest },
     };
   }
@@ -1792,30 +1791,27 @@ function requireAuthorizationValue<T>(result: AuthorizationParseResult<T>): T {
 }
 
 function routerAbOperationStepUpClaimFailure(
-  result: Awaited<ReturnType<RouterApiAuthorizationClaimService['claimOperationStepUpFromGrant']>>,
-  expectedUseId: CapabilityGrantUseId,
+  result: Awaited<ReturnType<RouterApiAuthorizationClaimService['claimAuthorizedOperation']>>,
+  expectedOperationId: AuthorizedOperationId,
 ): RouterAbJsonRouteResult | null {
   switch (result.kind) {
     case 'claimed':
     case 'operation_in_progress':
     case 'replayed':
-      return result.use.useId === expectedUseId
+      return result.operation.authorizedOperationId === expectedOperationId
         ? null
         : routerAbStepUpError(
             409,
             'operation_claim_mismatch',
             'Operation step-up claim belongs to another request',
           );
-    case 'grant_expired':
-      return routerAbStepUpError(401, result.kind, 'Operation step-up grant is expired');
-    case 'grant_exhausted':
-      return routerAbStepUpError(409, result.kind, 'Operation step-up grant is exhausted');
-    case 'grant_mismatch':
-    case 'wallet_session_mismatch':
-      return routerAbStepUpError(403, result.kind, 'Operation step-up grant does not match');
-    case 'wallet_session_expired':
+    case 'authorization_grant_rejected':
+    case 'verified_step_up_rejected':
+      return routerAbStepUpError(403, result.kind, 'Operation step-up authorization is invalid');
     case 'wallet_session_quota_exhausted':
       return routerAbStepUpError(409, result.kind, 'Operation step-up authorization is invalid');
+    case 'material_mismatch':
+      return routerAbStepUpError(403, result.kind, 'Operation step-up material is invalid');
   }
 }
 
@@ -2233,7 +2229,7 @@ export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(inpu
   };
 }
 
-async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
+export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
   request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire;
   materialActivation: RouterAbMpcMaterialActivationRefWire;
   claims: RouterAbEcdsaDerivationWalletSessionClaims;
@@ -2243,11 +2239,7 @@ async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
 }): Promise<
   | {
       readonly ok: true;
-      readonly claim: NonNullable<
-        Awaited<
-          ReturnType<RouterApiAuthorizationClaimService['claimReusableWalletSessionOperation']>
-        >['claim']
-      >;
+      readonly operation: AuthorizedOperation;
     }
   | { readonly ok: false; readonly error: RouterAbJsonRouteResult }
 > {
@@ -2345,77 +2337,29 @@ async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
         displayDigest: parseDigestB64u(input.request.operation_digests.display_digest_b64u),
       },
     });
-    const evidenceId = requireAuthorizationValue(
-      parseGrantEvidenceId(`ecdsa-session-evidence:${operationId}`),
-    );
-    const evidenceSetId = requireAuthorizationValue(
-      parseGrantEvidenceSetId(`ecdsa-session-evidence-set:${operationId}`),
-    );
-    const expiresAtMs = Math.min(
-      input.request.expires_at_ms,
-      input.claims.thresholdExpiresAtMs,
-      activeSession.lifecycle.expiresAtMs,
-    );
-    const evidenceSet = await buildVerifiedSessionEvidenceSet({
-      session: activeSession,
-      operation: envelope,
-      evidenceId,
-      evidenceSetId,
-      expiresAtMs,
-    });
-    const grantId = requireAuthorizationValue(
-      parseCapabilityGrantId(`ecdsa-operation-grant:${operationId}`),
-    );
-    const grant = buildActiveCapabilityGrant({
-        tenantId,
-        principalId,
-        grantId,
-        bindingId: requireAuthorizationValue(
-          parseCapabilityBindingId(`ecdsa-operation-binding:${operationId}`),
-        ),
-        evidenceSetId,
-        evidenceSetDigest: evidenceSet.evidenceSetDigest,
-        capabilityId,
-        operationId,
-        operation,
-        laneDigest: envelope.digests.laneDigest,
-        intentDigest: envelope.digests.intentDigest,
-        displayDigest: envelope.digests.displayDigest,
-        authority: {
-          kind: 'reusable_wallet_session',
-          walletSessionId: input.claims.walletSessionId,
-          quotaId: input.claims.quotaId,
-        },
-        remainingUses: 1,
-        createdAtMs: nowMs,
-        expiresAtMs,
-      });
-    const useId = requireAuthorizationValue(
-      parseCapabilityGrantUseId(
+    const authorizedOperationId = requireAuthorizationValue(
+      parseAuthorizedOperationId(
         `ecdsa-operation-use:${operationId}:${input.request.request_id}`,
       ),
     );
     const auditEventId = requireAuthorizationValue(
       parseAuthorizationAuditEventId(`ecdsa-operation-audit:${operationId}`),
     );
-    const claim = await buildCapabilityOperationClaim({
-      tenantId,
-      useId,
-      auditEventId,
-      grantId,
-      operation: envelope,
-      evidenceSetDigest: evidenceSet.evidenceSetDigest,
-      claimedAtMs: nowMs,
-      authorization: {
-        kind: 'reusable_wallet_session',
-        walletSessionId: input.claims.walletSessionId,
-        quotaId: input.claims.quotaId,
+    const outcome = await input.authorizationClaims.claimAuthorizedOperation({
+      operation: {
+        tenantId,
+        authorizedOperationId,
+        auditEventId,
+        operation: envelope,
+        authorization: {
+          kind: 'authorization_grant',
+          authorizationGrantRef: buildAuthorizationGrantRef(
+            requireAuthorizationValue(parseWalletSessionAuthorizationId(input.claims.walletSessionId)),
+          ),
+        },
+        quota: { kind: 'consume_reusable_wallet_session', quotaId: input.claims.quotaId },
+        claimedAtMs: nowMs,
       },
-    });
-    const outcome = await input.authorizationClaims.claimEcdsaReusableWalletSessionOperation({
-      evidenceSet,
-      grant,
-      claim,
       material: {
         walletId: requireAuthorizationValue(parseWalletId(input.claims.walletId)),
         keyHandle: freshMaterial.keyHandle,
@@ -2423,29 +2367,12 @@ async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
         materialActivation: freshMaterial.materialActivation,
       },
     });
-    if (outcome.result.kind === 'material_mismatch') {
-      return {
-        ok: false,
-        error: routerAbStepUpError(
-          403,
-          'wallet_session_mismatch',
-          'ECDSA material activation is no longer active',
-        ),
-      };
-    }
-    const claimFailure = routerAbReusableWalletSessionClaimFailure(outcome.result, useId);
+    const claimFailure = routerAbReusableWalletSessionClaimFailure(outcome, authorizedOperationId);
     if (claimFailure) return { ok: false, error: claimFailure };
-    if (!outcome.claim) {
-      return {
-        ok: false,
-        error: routerAbStepUpError(
-          409,
-          outcome.result.kind,
-          'Exact ECDSA operation claim is unavailable',
-        ),
-      };
+    if (outcome.kind === 'claimed' || outcome.kind === 'operation_in_progress' || outcome.kind === 'replayed') {
+      return { ok: true, operation: outcome.operation };
     }
-    return { ok: true, claim: outcome.claim };
+    return { ok: false, error: routerAbStepUpError(409, outcome.kind, 'Operation claim is unavailable') };
   } catch (error: unknown) {
     return {
       ok: false,
@@ -2455,40 +2382,34 @@ async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
 }
 
 function routerAbReusableWalletSessionClaimFailure(
-  result: Awaited<ReturnType<RouterApiAuthorizationClaimService['claimReusableWalletSessionFromGrant']>>,
-  expectedUseId: CapabilityGrantUseId,
+  result: Awaited<ReturnType<RouterApiAuthorizationClaimService['claimAuthorizedOperation']>>,
+  expectedOperationId: AuthorizedOperationId,
 ): RouterAbJsonRouteResult | null {
   switch (result.kind) {
     case 'claimed':
     case 'operation_in_progress':
     case 'replayed':
-      return result.use.useId === expectedUseId
+      return result.operation.authorizedOperationId === expectedOperationId
         ? null
         : routerAbStepUpError(
             409,
             'operation_claim_mismatch',
             'Operation claim belongs to another request',
           );
-    case 'grant_expired':
-      return routerAbStepUpError(401, result.kind, 'Operation grant is expired');
-    case 'grant_exhausted':
     case 'wallet_session_quota_exhausted':
       return routerAbStepUpError(409, result.kind, 'Reusable Wallet Session quota is exhausted');
-    case 'grant_mismatch':
-    case 'wallet_session_mismatch':
-      return routerAbStepUpError(403, result.kind, 'Reusable Wallet Session grant does not match');
-    case 'wallet_session_expired':
-      return routerAbStepUpError(401, result.kind, 'Reusable Wallet Session is expired');
+    case 'authorization_grant_rejected':
+      return routerAbStepUpError(403, result.kind, 'Reusable Wallet Session authorization is invalid');
+    case 'verified_step_up_rejected':
+      return routerAbStepUpError(403, result.kind, 'Reusable Wallet Session authorization is invalid');
+    case 'material_mismatch':
+      return routerAbStepUpError(403, result.kind, 'ECDSA material activation is no longer active');
   }
 }
 
-async function completeRouterAbEcdsaOperation(input: {
+export async function completeRouterAbEcdsaOperation(input: {
   authorizationClaims: RouterApiAuthorizationClaimService;
-  claim: NonNullable<
-    Awaited<
-      ReturnType<RouterApiAuthorizationClaimService['claimReusableWalletSessionOperation']>
-    >['claim']
-  >;
+  operation: AuthorizedOperation;
   requestId: string;
   result: 'succeeded' | 'failed_before_side_effect' | 'failed_after_side_effect';
   response: unknown;
@@ -2499,8 +2420,8 @@ async function completeRouterAbEcdsaOperation(input: {
   const resultStorageRef = requireAuthorizationValue(
     parseCapabilityOperationResultStorageRef(`router-signing-result:${input.requestId}`),
   );
-  const completed = await input.authorizationClaims.completeOperation({
-    claim: input.claim,
+  await input.authorizationClaims.completeAuthorizedOperation({
+    operation: input.operation,
     result: input.result,
     resultRef: {
       resultDigest,
@@ -2508,9 +2429,6 @@ async function completeRouterAbEcdsaOperation(input: {
     },
     completedAtMs: Date.now(),
   });
-  if (completed.kind === 'claim_missing' || completed.kind === 'claim_mismatch') {
-    throw new Error('Exact ECDSA operation completion did not match its claim');
-  }
 }
 
 type RouterAbEcdsaOperationStepUpRequest =
@@ -2571,14 +2489,13 @@ export async function claimRouterAbEcdsaOperationStepUp(input: {
     RouterAbEcdsaOperationStepUpPreparationV1Wire,
     'operation_id' | 'operation_digests' | 'material_activation'
   >;
-  readonly grantId: string;
   readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   readonly keyHandle: string;
   readonly authenticated: Extract<
     Awaited<ReturnType<typeof authenticateRouterAbEcdsaOperationStepUpAppSession>>,
     { readonly ok: true }
   >;
-}): Promise<RouterAbJsonRouteResult | null> {
+}): Promise<RouterAbJsonRouteResult | { readonly operation: AuthorizedOperation } | null> {
   if (!routerAbEcdsaAtomicAuthorizationConfigured(input.authenticated.claims)) {
     return routerAbStepUpError(
       501,
@@ -2586,47 +2503,51 @@ export async function claimRouterAbEcdsaOperationStepUp(input: {
       'ECDSA atomic authorization is not configured',
     );
   }
-  let useId: CapabilityGrantUseId;
-  let claimInput: Parameters<
-    RouterApiAuthorizationClaimService['claimEcdsaOperationStepUpFromGrant']
-  >[0]['claim'];
+  let authorizedOperationId: AuthorizedOperationId;
+  let operationEnvelope: ReturnType<typeof buildCapabilityOperationEnvelope>;
   try {
     const operationId = requireAuthorizationValue(
       parseCapabilityOperationId(input.operation.operation_id),
     );
-    useId = requireAuthorizationValue(
-      parseCapabilityGrantUseId(
+    authorizedOperationId = requireAuthorizationValue(
+      parseAuthorizedOperationId(
         `ecdsa-operation-step-up-use:${input.operation.operation_id}`,
       ),
     );
-    claimInput = {
-      tenantId: input.authenticated.session.tenantId,
-      grantId: requireAuthorizationValue(
-        parseCapabilityGrantId(input.grantId),
-      ),
-      useId,
-      auditEventId: requireAuthorizationValue(
-        parseAuthorizationAuditEventId(
-          `ecdsa-operation-step-up-audit:${input.operation.operation_id}`,
+    operationEnvelope = buildCapabilityOperationEnvelope({
+        tenantId: input.authenticated.session.tenantId,
+        principalId: input.authenticated.session.principalId,
+        capabilityId: requireAuthorizationValue(
+          parseCapabilityId(input.materialActivation.capability),
         ),
-      ),
-      authorizationSessionId: input.authenticated.session.sessionId,
-      principalId: input.authenticated.session.principalId,
-      capabilityId: requireAuthorizationValue(
-        parseCapabilityId(input.materialActivation.capability),
-      ),
-      operationId,
-      operation: buildEvmEcdsaMpcOperationRef(input.operationKind),
-      laneDigest: parseDigestB64u(input.operation.operation_digests.lane_digest_b64u),
-      intentDigest: parseDigestB64u(input.operation.operation_digests.intent_digest_b64u),
-      displayDigest: parseDigestB64u(input.operation.operation_digests.display_digest_b64u),
-      claimedAtMs: Date.now(),
-    };
+        operationId,
+        operation: buildEvmEcdsaMpcOperationRef(input.operationKind),
+        digests: {
+          laneDigest: parseDigestB64u(input.operation.operation_digests.lane_digest_b64u),
+          intentDigest: parseDigestB64u(input.operation.operation_digests.intent_digest_b64u),
+          displayDigest: parseDigestB64u(input.operation.operation_digests.display_digest_b64u),
+        },
+      });
   } catch (error: unknown) {
     return routerAbStepUpError(400, 'invalid_body', errorMessage(error));
   }
-  const result = await input.authenticated.claims.claimEcdsaOperationStepUpFromGrant({
-    claim: claimInput,
+  const existing = await input.authenticated.claims.readAuthorizedOperation({
+    tenantId: input.authenticated.session.tenantId,
+    operationFingerprintDigest: await computeCapabilityOperationFingerprintDigest(operationEnvelope),
+  });
+  if (!existing || existing.authorizedOperationId !== authorizedOperationId) {
+    return routerAbStepUpError(409, 'operation_claim_missing', 'Operation authorization is unavailable');
+  }
+  const result = await input.authenticated.claims.claimAuthorizedOperation({
+    operation: {
+      tenantId: existing.tenantId,
+      authorizedOperationId: existing.authorizedOperationId,
+      auditEventId: existing.auditEventId,
+      operation: existing.operation,
+      authorization: existing.authorization,
+      quota: existing.quota,
+      claimedAtMs: Date.now(),
+    },
     material: {
       walletId: requireAuthorizationValue(
         parseWalletId(input.authenticated.session.walletId),
@@ -2643,7 +2564,12 @@ export async function claimRouterAbEcdsaOperationStepUp(input: {
       'ECDSA material activation changed before operation claim',
     );
   }
-  return routerAbOperationStepUpClaimFailure(result, useId);
+  const claimFailure = routerAbOperationStepUpClaimFailure(result, authorizedOperationId);
+  if (claimFailure) return claimFailure;
+  if (result.kind === 'claimed' || result.kind === 'operation_in_progress' || result.kind === 'replayed') {
+    return { operation: result.operation };
+  }
+  return routerAbStepUpError(409, 'operation_claim_missing', 'Operation claim is unavailable');
 }
 
 async function handleRouterAbEcdsaOperationStepUpRoute(input: {
@@ -2655,7 +2581,13 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
   readonly admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
   readonly resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
   readonly phase: 'prepare' | 'finalize';
-}): Promise<RouterAbJsonRouteResult | null> {
+}): Promise<
+  | RouterAbJsonRouteResult
+  | {
+      readonly operation: AuthorizedOperation;
+      readonly session: RouterAbOperationStepUpAppSession;
+    }
+> {
   let request: RouterAbEcdsaOperationStepUpRequest;
   try {
     request = parseRouterAbEcdsaOperationStepUpRequest(input);
@@ -2759,26 +2691,25 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
       'ECDSA operation step-up signer facts changed before operation claim',
     );
   }
-  if (input.phase === 'prepare') {
-    const prepareRequest = parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body);
-    const claimFailure = await claimRouterAbEcdsaOperationStepUp({
-      operationKind: 'evm.sign_transaction',
-      operation: {
-        operation_id: prepareRequest.operation_id,
-        operation_digests: prepareRequest.operation_digests,
-        material_activation: prepareRequest.material_activation,
-      },
-      materialActivation: freshMaterial.materialActivation,
-      keyHandle: freshMaterial.keyHandle,
-      grantId:
-        prepareRequest.authorization.kind === 'operation_step_up'
-          ? prepareRequest.authorization.grant_id
-          : '',
-      authenticated,
-    });
-    if (claimFailure) return claimFailure;
+  const claimResult = await claimRouterAbEcdsaOperationStepUp({
+    operationKind: 'evm.sign_transaction',
+    operation: {
+      operation_id: request.operation_id,
+      operation_digests: request.operation_digests,
+      material_activation: request.material_activation,
+    },
+    materialActivation: freshMaterial.materialActivation,
+    keyHandle: freshMaterial.keyHandle,
+    authenticated,
+  });
+  if (!claimResult) {
+    return routerAbStepUpError(409, 'operation_claim_missing', 'Operation claim is unavailable');
   }
-  return null;
+  if ('status' in claimResult) return claimResult;
+  return {
+    operation: claimResult.operation,
+    session: authenticated.session,
+  };
 }
 
 export async function authorizeRouterAbEcdsaDerivationNormalSigningRoute(input: {
@@ -2808,7 +2739,7 @@ export async function authorizeRouterAbEcdsaDerivationNormalSigningRoute(input: 
     return { ok: false, result: routerAbStepUpError(400, 'invalid_body', errorMessage(error)) };
   }
   if (requestedAuthorizationKind === 'operation_step_up') {
-    const failure = await handleRouterAbEcdsaOperationStepUpRoute({
+    const stepUp = await handleRouterAbEcdsaOperationStepUpRoute({
         body: input.body,
         headers: input.headers,
         session: input.session,
@@ -2818,9 +2749,14 @@ export async function authorizeRouterAbEcdsaDerivationNormalSigningRoute(input: 
         resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
         phase: input.phase,
       });
-    return failure
-      ? { ok: false, result: failure }
-      : { ok: true, kind: 'operation_step_up' };
+    if ('status' in stepUp) return { ok: false, result: stepUp };
+    return {
+      ok: true,
+      kind: 'operation_step_up',
+      phase: input.phase,
+      operation: stepUp.operation,
+      session: stepUp.session,
+    };
   }
 
   const validated = await validateRouterAbEcdsaDerivationWalletSessionInputs({
@@ -2978,7 +2914,7 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
     },
     headers: input.headers,
   });
-  let prepareClaim: Parameters<typeof completeRouterAbEcdsaOperation>[0]['claim'] | null = null;
+  let prepareOperation: Parameters<typeof completeRouterAbEcdsaOperation>[0]['operation'] | null = null;
   if (input.phase === 'prepare') {
     if (!input.authorizationClaims || !input.authorizationSessions) {
       return routerAbStepUpError(
@@ -2997,7 +2933,7 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
       resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
     });
     if (!claimed.ok) return claimed.error;
-    prepareClaim = claimed.claim;
+    prepareOperation = claimed.operation;
     const replay = await runtime.reservePrepareReplay({
       curve: 'ecdsa',
       authorizationIdentity: {
@@ -3010,7 +2946,7 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
     if (!replay.ok) {
       await completeRouterAbEcdsaOperation({
         authorizationClaims: input.authorizationClaims,
-        claim: prepareClaim,
+        operation: prepareOperation,
         requestId: request.request_id,
         result: 'failed_before_side_effect',
         response: { code: replay.code, message: replay.message },
@@ -3027,10 +2963,10 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
     path: input.privatePath,
     body: privateBody,
   });
-  if (prepareClaim && input.authorizationClaims) {
+  if (prepareOperation && input.authorizationClaims) {
     await completeRouterAbEcdsaOperation({
       authorizationClaims: input.authorizationClaims,
-      claim: prepareClaim,
+      operation: prepareOperation,
       requestId: admission.requestId,
       result: forwarded.ok
         ? 'succeeded'

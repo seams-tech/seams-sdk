@@ -13,7 +13,6 @@ import type {
 import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import type { NearPasskeyOperationStepUpPlan } from '@/core/signingEngine/interfaces/near';
 import type {
-  CapabilityGrantId,
   MpcWalletSigningQuotaId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -27,7 +26,6 @@ declare const nearEd25519SigningKeyId: NearEd25519SigningKeyId;
 declare const auth: SigningLaneAuthBinding;
 declare const walletSessionId: WalletSessionId;
 declare const quotaId: MpcWalletSigningQuotaId;
-declare const capabilityGrantId: CapabilityGrantId;
 declare const thresholdSessionId: ThresholdEd25519SessionId;
 declare const ecdsaLane: ExactEcdsaSigningLaneIdentity;
 
@@ -69,22 +67,21 @@ const ed25519LaneWithLegacyAccountId: ExactEd25519SigningLaneIdentity = {
 void ed25519LaneWithLegacyAccountId;
 
 declare const operationStepUpPlan: NearPasskeyOperationStepUpPlan;
-const exactOperationGrant: CapabilityGrantId = operationStepUpPlan.requestedGrantId;
-void exactOperationGrant;
+const exactOperationThresholdSession: ThresholdEd25519SessionId = operationStepUpPlan.thresholdSessionId;
+void exactOperationThresholdSession;
 
 const operationStepUpWithReusableGrant: NearPasskeyOperationStepUpPlan = {
   thresholdSessionId,
-  // @ts-expect-error Reusable Wallet Sessions cannot authorize one-operation step-up.
-  requestedGrantId: walletSessionId,
+  // @ts-expect-error A reusable Wallet Session ID cannot authorize a one-operation step-up.
+  authorizationGrantRef: walletSessionId,
   authority: operationStepUpPlan.authority,
 };
 void operationStepUpWithReusableGrant;
 
-const operationStepUpWithCapabilityGrant: NearPasskeyOperationStepUpPlan = {
+const operationStepUpWithoutGrant: NearPasskeyOperationStepUpPlan = {
   thresholdSessionId,
-  requestedGrantId: capabilityGrantId,
   authority: operationStepUpPlan.authority,
 };
-void operationStepUpWithCapabilityGrant;
+void operationStepUpWithoutGrant;
 
 export {};

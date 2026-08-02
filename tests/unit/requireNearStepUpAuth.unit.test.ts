@@ -13,7 +13,6 @@ import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interf
 import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import { parseCapabilityGrantId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 
 const WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
@@ -27,12 +26,6 @@ const EMAIL_OTP_AUTH = {
   kind: 'email_otp' as const,
   providerSubjectId: 'google:near-step-up',
 };
-const OPERATION_GRANT_ID = (() => {
-  const parsed = parseCapabilityGrantId('near-operation-grant:test-passkey');
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
-})();
-
 test.describe('requireNearStepUpAuth', () => {
   test('returns a warm-session branch without prompt wrappers', async () => {
     const signingAuthPlan = {
@@ -179,7 +172,6 @@ test.describe('requireNearStepUpAuth', () => {
         prepare: async () => {
           return {
             thresholdSessionId: 'threshold-session-passkey',
-            requestedGrantId: OPERATION_GRANT_ID,
             authority: buildPasskeyWalletAuthAuthority({
               walletId: WALLET_ID,
               rpId: PASSKEY_AUTH.rpId,
@@ -194,7 +186,6 @@ test.describe('requireNearStepUpAuth', () => {
     if (prepared.kind !== 'passkey') throw new Error('expected passkey branch');
     expect(prepared.plannedPasskeyOperationStepUp).toMatchObject({
       thresholdSessionId: 'threshold-session-passkey',
-      requestedGrantId: OPERATION_GRANT_ID,
     });
   });
 });

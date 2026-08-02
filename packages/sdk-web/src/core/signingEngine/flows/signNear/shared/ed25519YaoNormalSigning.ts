@@ -65,8 +65,6 @@ import {
   type CapabilityOperationEnvelope,
 } from '@shared/authorization/operationFingerprint';
 import {
-  type CapabilityGrantId,
-  parseCapabilityGrantId,
   parseCapabilityId,
   parseCapabilityOperationId,
   parsePrincipalId,
@@ -78,7 +76,7 @@ import {
   type PreparedNearOperationStepUp,
 } from './operationStepUpPreparation';
 import {
-  issueEd25519OperationStepUpGrant,
+  issueEd25519OperationStepUpAuthorization,
   type Ed25519OperationStepUpProof,
 } from '@/core/signingEngine/threshold/ed25519/walletSession';
 import type { NearEd25519YaoSigningPreparation } from '@/core/signingEngine/session/material/nearEd25519YaoSigningPreparation';
@@ -86,29 +84,25 @@ import type { SelectedEd25519Lane } from '@/core/signingEngine/session/identity/
 import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import type {
   NearEd25519StepUpAuthorization,
-  NearEd25519OperationStepUpGrant,
+  NearEd25519OperationStepUpAuthorization,
   NearEd25519YaoOperationMaterialFacts,
 } from '@/core/signingEngine/interfaces/near';
 
 const ROUTER_AB_NORMAL_SIGNING_REQUEST_TTL_MS = 120_000;
 
-export function requireIssuedNearEd25519OperationStepUpGrant(args: {
+export function requireIssuedNearEd25519OperationStepUpAuthorization(args: {
   prepared: Extract<
     PreparedNearOperationStepUp,
     { kind: 'near_signature_only' | 'near_transaction' }
   >;
-  issuedGrant: NearEd25519OperationStepUpGrant;
+  issuedAuthorization: NearEd25519OperationStepUpAuthorization;
 }): void {
   const authorization = args.prepared.prepare.request.scope.authorization;
   if (authorization.kind !== 'operation_step_up') {
-    throw new Error('[SigningEngine][near] operation step-up grant scope is missing');
+    throw new Error('[SigningEngine][near] operation step-up authorization scope is missing');
   }
-  const preparedGrantId = parseCapabilityGrantId(authorization.grant_id);
-  if (!preparedGrantId.ok) {
-    throw new Error(`[SigningEngine][near] ${preparedGrantId.error.message}`);
-  }
-  if (args.issuedGrant.grantId !== preparedGrantId.value) {
-    throw new Error('[SigningEngine][near] operation step-up grant changed identity');
+  if (args.issuedAuthorization.kind !== 'verified_step_up') {
+    throw new Error('[SigningEngine][near] operation step-up authorization is invalid');
   }
 }
 
@@ -136,14 +130,14 @@ export type RouterAbEd25519NearTransactionNormalSigningResult =
   | {
       kind: 'router_ab_ed25519_near_transaction_normal_signing_result_v1';
       authorization: 'operation_step_up';
-      issuedGrant: NearEd25519OperationStepUpGrant;
+      issuedAuthorization: NearEd25519OperationStepUpAuthorization;
       okResponse: WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions>;
       transactionHash: string;
     }
   | {
       kind: 'router_ab_ed25519_near_transaction_normal_signing_result_v1';
       authorization: 'reusable_wallet_session';
-      issuedGrant?: never;
+      issuedAuthorization?: never;
       okResponse: WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions>;
       transactionHash: string;
     };
@@ -155,7 +149,7 @@ export type RouterAbEd25519SignatureOnlyNormalSigningResult =
       operationId: string;
       signatureB64u: string;
       signerPublicKey: string;
-      issuedGrant: NearEd25519OperationStepUpGrant;
+      issuedAuthorization: NearEd25519OperationStepUpAuthorization;
     }
   | {
       kind: 'router_ab_ed25519_signature_only_normal_signing_result_v1';
@@ -270,7 +264,6 @@ function buildRouterAbOperationStepUpScope(args: {
   materialFacts: NearEd25519YaoOperationMaterialFacts;
   walletId: WalletId;
   operationId: SigningOperationId;
-  grantId: CapabilityGrantId;
 }): RouterAbNormalSigningScopeV2Wire {
   const routerAbState = args.materialFacts.routerAbNormalSigning;
   if (!routerAbState) {
@@ -281,7 +274,6 @@ function buildRouterAbOperationStepUpScope(args: {
     account_id: String(args.walletId),
     authorization: {
       kind: 'operation_step_up',
-      grant_id: String(args.grantId || '').trim(),
     },
     material_activation: {
       kind: 'mpc_material_activation_ref',
@@ -517,9 +509,6 @@ function requireActiveClientMatchesNormalSigningOperation(args: {
       if (authorization.kind !== 'operation_step_up') {
         throw new Error('Router A/B Ed25519 operation step-up authorization is missing');
       }
-      if (!authorization.grant_id) {
-        throw new Error('Router A/B Ed25519 operation step-up grant is missing');
-      }
       break;
     default:
       args.authorization satisfies never;
@@ -741,7 +730,7 @@ type RouterAbEd25519SignatureOnlyNormalSigningArgs =
             kind: 'operation_step_up';
             prepared: Extract<PreparedNearOperationStepUp, { kind: 'near_signature_only' }>;
             proof: Ed25519OperationStepUpProof;
-            issuedGrant: NearEd25519OperationStepUpGrant | null;
+            issuedAuthorization: NearEd25519OperationStepUpAuthorization | null;
           };
         }
     );
@@ -821,7 +810,6 @@ export async function prepareRouterAbEd25519SignatureOnlyOperationStepUp(args: {
   materialActivation: MpcMaterialActivationRef;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
-  grantId: CapabilityGrantId;
   displayDigest: string;
   signingDigestB64u: string;
   intent: RouterAbEd25519SignatureOnlyIntentWire;
@@ -834,7 +822,6 @@ export async function prepareRouterAbEd25519SignatureOnlyOperationStepUp(args: {
     materialFacts: args.materialFacts,
     walletId: args.walletId,
     operationId: args.operationId,
-    grantId: args.grantId,
   });
   const prepare = await buildRouterAbEd25519SignatureOnlyPrepareRequest({
     ctx: args.ctx,
@@ -961,15 +948,15 @@ function isRouterAbEd25519SignatureOnlyOperationStepUp(
   return args.authorization.kind === 'operation_step_up';
 }
 
-async function resolveIssuedEd25519OperationStepUpGrant(args: {
-  issuedGrant: NearEd25519OperationStepUpGrant | null;
+async function resolveIssuedEd25519OperationStepUpAuthorization(args: {
+  issuedAuthorization: NearEd25519OperationStepUpAuthorization | null;
   relayerUrl: string;
   normalSigningRequest: RouterAbNormalSigningPrepareRequestV2BuildResult['request'];
   displayDigest: string;
   proof: Ed25519OperationStepUpProof;
-}): Promise<NearEd25519OperationStepUpGrant> {
-  if (args.issuedGrant) return args.issuedGrant;
-  return await issueEd25519OperationStepUpGrant({
+}): Promise<NearEd25519OperationStepUpAuthorization> {
+  if (args.issuedAuthorization) return args.issuedAuthorization;
+  return await issueEd25519OperationStepUpAuthorization({
     relayerUrl: args.relayerUrl,
     normalSigningRequest: args.normalSigningRequest,
     displayDigest: args.displayDigest,
@@ -993,8 +980,8 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(
       throw new Error('[SigningEngine][near] signature-only operation digest changed');
     }
     const prepare = args.authorization.prepared.prepare;
-    const issued = await resolveIssuedEd25519OperationStepUpGrant({
-      issuedGrant: args.authorization.issuedGrant,
+    const issued = await resolveIssuedEd25519OperationStepUpAuthorization({
+      issuedAuthorization: args.authorization.issuedAuthorization,
       relayerUrl: args.materialFacts.relayerUrl,
       normalSigningRequest: prepare.request,
       displayDigest: args.displayDigest,
@@ -1002,9 +989,9 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(
     });
     if (
       prepare.request.scope.authorization.kind !== 'operation_step_up' ||
-      issued.grantId !== prepare.request.scope.authorization.grant_id
+      issued.kind !== 'verified_step_up'
     ) {
-      throw new Error('[SigningEngine][near] issued operation step-up grant changed identity');
+      throw new Error('[SigningEngine][near] issued operation step-up evidence changed identity');
     }
     const finalized = await tryFinalizeRouterAbEd25519NormalSigningSignature({
       thresholdSessionId: args.thresholdSessionId,
@@ -1023,7 +1010,7 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(
       kind: 'router_ab_ed25519_signature_only_normal_signing_result_v1',
       authorization: 'operation_step_up',
       operationId: args.operationId,
-      issuedGrant: issued,
+      issuedAuthorization: issued,
       ...finalized,
     };
   }
@@ -1085,7 +1072,6 @@ export async function prepareRouterAbEd25519NearTransactionOperationStepUp(args:
   nearAccountId: string;
   materialActivation: MpcMaterialActivationRef;
   operationId: SigningOperationId;
-  grantId: CapabilityGrantId;
   txSigningRequest: TransactionPayload;
   transactionContext: TransactionContext;
   displayDigest: string;
@@ -1119,7 +1105,6 @@ export async function prepareRouterAbEd25519NearTransactionOperationStepUp(args:
     materialFacts: args.materialFacts,
     walletId: args.walletId,
     operationId: args.operationId,
-    grantId: args.grantId,
   });
   const prepare = await buildRouterAbEd25519NearTransactionPrepareRequestV2({
     scope,
@@ -1198,7 +1183,7 @@ type RouterAbEd25519NearTransactionNormalSigningArgs =
             prepared: Extract<PreparedNearOperationStepUp, { kind: 'near_transaction' }>;
             displayDigest: string;
             proof: Ed25519OperationStepUpProof;
-            issuedGrant: NearEd25519OperationStepUpGrant | null;
+            issuedAuthorization: NearEd25519OperationStepUpAuthorization | null;
           };
         }
     );
@@ -1276,11 +1261,11 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(
   );
   let prepare: RouterAbNormalSigningPrepareRequestV2BuildResult;
   let credential: RouterAbEd25519NormalSigningCredential;
-  let issuedGrant: NearEd25519OperationStepUpGrant | undefined;
+  let issuedAuthorization: NearEd25519OperationStepUpAuthorization | undefined;
   if (operationStepUp) {
     prepare = args.authorization.prepared.prepare;
-    const issued = await resolveIssuedEd25519OperationStepUpGrant({
-      issuedGrant: args.authorization.issuedGrant,
+    const issued = await resolveIssuedEd25519OperationStepUpAuthorization({
+      issuedAuthorization: args.authorization.issuedAuthorization,
       relayerUrl: materialFacts.relayerUrl,
       normalSigningRequest: prepare.request,
       displayDigest: args.authorization.displayDigest,
@@ -1288,11 +1273,11 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(
     });
     if (
       prepare.request.scope.authorization.kind !== 'operation_step_up' ||
-      issued.grantId !== prepare.request.scope.authorization.grant_id
+      issued.kind !== 'verified_step_up'
     ) {
-      throw new Error('[SigningEngine][near] issued operation step-up grant changed identity');
+      throw new Error('[SigningEngine][near] issued operation step-up evidence changed identity');
     }
-    issuedGrant = issued;
+    issuedAuthorization = issued;
     credential = { kind: 'app_session_cookie' };
   } else {
     const scope = buildRouterAbNormalSigningScope({
@@ -1386,13 +1371,13 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(
     },
   } satisfies WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions>;
   if (operationStepUp) {
-    if (!issuedGrant) {
-      throw new Error('[SigningEngine][near] operation step-up grant was not issued');
+    if (!issuedAuthorization) {
+      throw new Error('[SigningEngine][near] operation step-up authorization was not issued');
     }
     return {
       kind: 'router_ab_ed25519_near_transaction_normal_signing_result_v1',
       authorization: 'operation_step_up',
-      issuedGrant,
+      issuedAuthorization,
       transactionHash,
       okResponse,
     };

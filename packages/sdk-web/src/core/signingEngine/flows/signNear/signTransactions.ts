@@ -89,7 +89,7 @@ import {
   buildNearEmailOtpEd25519OperationStepUpProof,
   prepareRouterAbEd25519NearTransactionOperationStepUp,
   requireNearEd25519OperationStepUpProof,
-  requireIssuedNearEd25519OperationStepUpGrant,
+  requireIssuedNearEd25519OperationStepUpAuthorization,
   tryFinalizeRouterAbEd25519NearTransactionNormalSigning,
 } from './shared/ed25519YaoNormalSigning';
 import { resolveConfirmedNearTransactionContext } from './implicitAccountFunding';
@@ -104,7 +104,6 @@ import {
 import {
   clearNearOperationStepUpBuilder,
   consumePreparedNearOperationStepUp,
-  createNearOperationStepUpGrantId,
   registerNearOperationStepUpBuilder,
   requireNearOperationStepUpMaterialActivation,
   type PreparedNearOperationStepUp,
@@ -383,10 +382,6 @@ async function runNearAuthorizationRequiredTransactionSigning(
   });
   const materialFacts = nearOperationStepUpMaterialFacts(operationStepUpMaterial);
   const signingOperationUses = requiredNearTransactionSignatureUses(transaction);
-  const requestedGrantId =
-    preparedStepUp.kind === 'passkey'
-      ? preparedStepUp.plannedPasskeyOperationStepUp.requestedGrantId
-      : createNearOperationStepUpGrantId();
   registerNearOperationStepUpBuilder({
     requestId: String(operationId),
     build: async (preparation) => {
@@ -402,7 +397,6 @@ async function runNearAuthorizationRequiredTransactionSigning(
         nearAccountId,
         materialActivation: operationStepUpMaterial.materialActivation,
         operationId,
-        grantId: requestedGrantId,
         txSigningRequest,
         transactionContext: preparation.transactionContext,
         displayDigest: preparation.displayDigest,
@@ -495,15 +489,15 @@ async function runNearAuthorizationRequiredTransactionSigning(
         prepared: preparedTransactionStepUp,
         displayDigest: confirmation.intentDigest,
         proof: requireNearEd25519OperationStepUpProof(operationStepUpProof),
-        issuedGrant: resolvedOperationStepUpMaterial.issuedGrant,
+        issuedAuthorization: resolvedOperationStepUpMaterial.issuedAuthorization,
       },
     });
     if (!result || result.authorization !== 'operation_step_up') {
       throw new Error('[SigningEngine][near] operation step-up transaction signing is unavailable');
     }
-    requireIssuedNearEd25519OperationStepUpGrant({
+    requireIssuedNearEd25519OperationStepUpAuthorization({
       prepared: preparedTransactionStepUp,
-      issuedGrant: result.issuedGrant,
+      issuedAuthorization: result.issuedAuthorization,
     });
     const signed = toSignedTransactionResult({
       okResponse: result.okResponse,
@@ -711,10 +705,6 @@ async function runAuthorizedNearTransactionWithActionsSigning({
     });
     const material = operationStepUpMaterial;
     const materialFacts = nearOperationStepUpMaterialFacts(material);
-    const requestedGrantId =
-      preparedStepUp.kind === 'passkey'
-        ? preparedStepUp.plannedPasskeyOperationStepUp.requestedGrantId
-        : createNearOperationStepUpGrantId();
     registerNearOperationStepUpBuilder({
       requestId: thresholdSessionId,
       build: async (preparation) => {
@@ -733,7 +723,6 @@ async function runAuthorizedNearTransactionWithActionsSigning({
           nearAccountId,
           materialActivation: material.materialActivation,
           operationId: signingOperation.operationId,
-          grantId: requestedGrantId,
           txSigningRequest,
           transactionContext: preparation.transactionContext,
           displayDigest: preparation.displayDigest,
@@ -914,9 +903,9 @@ async function runAuthorizedNearTransactionWithActionsSigning({
           resolvedMaterial.kind === 'operation_step_up'
             ? resolvedMaterial.resolved.material.facts
             : null,
-        issuedGrant:
+        issuedAuthorization:
           resolvedMaterial.kind === 'operation_step_up'
-            ? resolvedMaterial.resolved.issuedGrant
+            ? resolvedMaterial.resolved.issuedAuthorization
             : null,
         transactionContext: confirmedNearContext.transactionContext,
         nonceLeaseRefs: confirmedNearContext.nonceLeases,
@@ -933,7 +922,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
     activeClient: preparedActiveClient,
     walletSessionState,
     operationMaterialFacts,
-    issuedGrant,
+    issuedAuthorization,
     transactionContext,
     nonceLeaseRefs,
   } = preparedPayload;
@@ -990,7 +979,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
                         otpCode: stepUpAuthorization.otpCode,
                       }),
                     },
-              issuedGrant,
+              issuedAuthorization,
             },
           })
         : await tryFinalizeRouterAbEd25519NearTransactionNormalSigning({

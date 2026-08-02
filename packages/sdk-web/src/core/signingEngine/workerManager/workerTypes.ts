@@ -98,7 +98,7 @@ import type {
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import type {
   Ed25519OperationStepUpProof,
-  IssuedEd25519OperationStepUpGrant,
+  IssuedEd25519OperationStepUpAuthorization,
 } from '../threshold/ed25519/walletSession';
 
 export type EmailOtpEd25519YaoFactorRequest =
@@ -552,8 +552,8 @@ export type EmailOtpEd25519YaoOperationStepUpProofV1 = Extract<
   { kind: 'email_otp' }
 >;
 
-export type EmailOtpEd25519YaoIssuedOperationGrantV1 = Omit<
-  IssuedEd25519OperationStepUpGrant,
+export type EmailOtpEd25519YaoIssuedOperationAuthorizationV1 = Omit<
+  IssuedEd25519OperationStepUpAuthorization,
   'materialRecovery'
 >;
 
@@ -781,7 +781,7 @@ export interface EmailOtpWorkerOperationMap {
     result: {
       activeClientHandle: string;
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-      issuedGrant: EmailOtpEd25519YaoIssuedOperationGrantV1;
+      issuedAuthorization: EmailOtpEd25519YaoIssuedOperationAuthorizationV1;
     };
   };
   prepareEcdsaClientBootstrapFromEmailOtpHandle: {

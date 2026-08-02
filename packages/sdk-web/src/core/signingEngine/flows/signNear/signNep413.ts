@@ -53,7 +53,7 @@ import {
   buildNearEd25519OperationStepUpProof,
   prepareRouterAbEd25519SignatureOnlyOperationStepUp,
   requireNearEd25519OperationStepUpProof,
-  requireIssuedNearEd25519OperationStepUpGrant,
+  requireIssuedNearEd25519OperationStepUpAuthorization,
   tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning,
 } from './shared/ed25519YaoNormalSigning';
 import { base64Encode, base64UrlDecode } from '@shared/utils/base64';
@@ -69,7 +69,6 @@ import {
 import {
   clearNearOperationStepUpBuilder,
   consumePreparedNearOperationStepUp,
-  createNearOperationStepUpGrantId,
   registerNearOperationStepUpBuilder,
   type PreparedNearOperationStepUp,
 } from './shared/operationStepUpPreparation';
@@ -343,10 +342,6 @@ export async function signNep413Message({
       workerCtx: ctx,
     });
     operationStepUpSigningDigestB64u = signingDigest.signingDigestB64u;
-    const requestedGrantId =
-      preparedStepUp.kind === 'passkey'
-        ? preparedStepUp.plannedPasskeyOperationStepUp.requestedGrantId
-        : createNearOperationStepUpGrantId();
     registerNearOperationStepUpBuilder({
       requestId: String(operationId),
       build: async (preparation) => {
@@ -365,7 +360,6 @@ export async function signNep413Message({
           materialActivation: material.materialActivation,
           operationId: signingOperation.operationId,
           operationFingerprint: signingOperation.operationFingerprint!,
-          grantId: requestedGrantId,
           displayDigest: preparation.displayDigest,
           signingDigestB64u: signingDigest.signingDigestB64u,
           intent: signatureOnlyIntent,
@@ -515,7 +509,7 @@ export async function signNep413Message({
               kind: 'operation_step_up',
               prepared: requirePreparedNearNep413OperationStepUp(preparedOperationStepUp),
               proof: requireNearEd25519OperationStepUpProof(operationStepUpProof),
-              issuedGrant: preparedMaterial.resolved.issuedGrant,
+              issuedAuthorization: preparedMaterial.resolved.issuedAuthorization,
             },
           });
     if (routerAbNormalSigningResult) {
@@ -523,9 +517,9 @@ export async function signNep413Message({
         preparedMaterial.kind === 'operation_step_up' &&
         routerAbNormalSigningResult.authorization === 'operation_step_up'
       ) {
-        requireIssuedNearEd25519OperationStepUpGrant({
+        requireIssuedNearEd25519OperationStepUpAuthorization({
           prepared: requirePreparedNearNep413OperationStepUp(preparedOperationStepUp),
-          issuedGrant: routerAbNormalSigningResult.issuedGrant,
+          issuedAuthorization: routerAbNormalSigningResult.issuedAuthorization,
         });
       }
       return {

@@ -123,7 +123,11 @@ impl RouterAbEcdsaClientCeremonyV1 {
             },
             EcdsaPostRegistrationOperationV1::ExplicitExport {
                 authorization_kind: input.authorization.kind_label().to_owned(),
-                authorization_id: input.authorization.authorization_id().to_owned(),
+                authorization_id: input
+                    .authorization
+                    .authorization_id()
+                    .map_err(|error| JsValue::from_str(error))?
+                    .to_owned(),
                 material_activation: parse_material_activation(&input.material_activation)?,
                 authorization_digest_b64u: input.export_authorization_digest_b64u.clone(),
                 nonce: input.export_nonce.clone(),
@@ -403,7 +407,7 @@ struct PostRegistrationCommonInputV1 {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum NormalSigningAuthorizationInputV1 {
     ReusableWalletSession { wallet_session_id: String },
-    OperationStepUp { grant_id: String },
+    OperationStepUp,
 }
 
 impl NormalSigningAuthorizationInputV1 {
@@ -414,10 +418,10 @@ impl NormalSigningAuthorizationInputV1 {
         }
     }
 
-    fn authorization_id(&self) -> &str {
+    fn authorization_id(&self) -> Result<&str, &'static str> {
         match self {
-            Self::ReusableWalletSession { wallet_session_id } => wallet_session_id,
-            Self::OperationStepUp { grant_id } => grant_id,
+            Self::ReusableWalletSession { wallet_session_id } => Ok(wallet_session_id),
+            Self::OperationStepUp => Err("operation step-up authority has no public authorization id"),
         }
     }
 }

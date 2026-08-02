@@ -361,11 +361,10 @@ pub enum CloudflareSigningWorkerNormalSigningEffectClaimV1 {
     ReusableWalletSession {
         claim: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1,
     },
-    /// Operation step-up consumes only its one-operation grant.
+    /// Operation step-up consumes only its one-operation authorization.
     OperationStepUp {
         authorization_session_id: String,
-        grant_id: String,
-        use_id: String,
+        authorized_operation_id: String,
         operation_id: String,
         operation_fingerprint_digest: String,
     },
@@ -376,8 +375,7 @@ pub enum CloudflareSigningWorkerNormalSigningEffectClaimV1 {
 #[serde(deny_unknown_fields)]
 pub struct CloudflareSigningWorkerReusableWalletSessionEffectClaimV1 {
     pub wallet_session_id: String,
-    pub grant_id: String,
-    pub use_id: String,
+    pub authorized_operation_id: String,
     pub operation_id: String,
     pub operation_fingerprint_digest: String,
 }
@@ -385,15 +383,13 @@ pub struct CloudflareSigningWorkerReusableWalletSessionEffectClaimV1 {
 impl CloudflareSigningWorkerReusableWalletSessionEffectClaimV1 {
     pub fn new(
         wallet_session_id: impl Into<String>,
-        grant_id: impl Into<String>,
-        use_id: impl Into<String>,
+        authorized_operation_id: impl Into<String>,
         operation_id: impl Into<String>,
         operation_fingerprint_digest: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let claim = Self {
             wallet_session_id: wallet_session_id.into(),
-            grant_id: grant_id.into(),
-            use_id: use_id.into(),
+            authorized_operation_id: authorized_operation_id.into(),
             operation_id: operation_id.into(),
             operation_fingerprint_digest: operation_fingerprint_digest.into(),
         };
@@ -406,8 +402,10 @@ impl CloudflareSigningWorkerReusableWalletSessionEffectClaimV1 {
             "normal-signing effect claim wallet_session_id",
             &self.wallet_session_id,
         )?;
-        require_non_empty("normal-signing effect claim grant_id", &self.grant_id)?;
-        require_non_empty("normal-signing effect claim use_id", &self.use_id)?;
+        require_non_empty(
+            "normal-signing effect claim authorized_operation_id",
+            &self.authorized_operation_id,
+        )?;
         require_non_empty(
             "normal-signing effect claim operation_id",
             &self.operation_id,
@@ -496,28 +494,29 @@ impl CloudflareSigningWorkerNormalSigningEffectClaimV1 {
             (
                 Self::OperationStepUp {
                     authorization_session_id,
-                    grant_id,
-                    use_id,
+                    authorized_operation_id,
                     operation_id,
                     operation_fingerprint_digest,
                 },
                 CloudflareRouterNormalSigningAuthorizationV2::OperationStepUp {
                     authorization_session_id: admitted_session_id,
-                    grant_id: admitted_grant_id,
+                    ..
                 },
             ) => {
                 require_non_empty(
                     "normal-signing effect claim authorization_session_id",
                     authorization_session_id,
                 )?;
-                require_non_empty("normal-signing effect claim grant_id", grant_id)?;
-                require_non_empty("normal-signing effect claim use_id", use_id)?;
+                require_non_empty(
+                    "normal-signing effect claim authorized_operation_id",
+                    authorized_operation_id,
+                )?;
                 require_non_empty("normal-signing effect claim operation_id", operation_id)?;
                 require_non_empty(
                     "normal-signing effect claim operation_fingerprint_digest",
                     operation_fingerprint_digest,
                 )?;
-                authorization_session_id == admitted_session_id && grant_id == admitted_grant_id
+                authorization_session_id == admitted_session_id
             }
             _ => false,
         };
@@ -550,24 +549,27 @@ impl CloudflareSigningWorkerNormalSigningEffectClaimV1 {
             (
                 Self::OperationStepUp {
                     authorization_session_id,
-                    grant_id,
+                    authorized_operation_id,
                     operation_id,
                     operation_fingerprint_digest,
                     ..
                 },
-                router_ab_core::NormalSigningAuthorizationV1::OperationStepUp { grant_id: admitted_grant_id },
+                router_ab_core::NormalSigningAuthorizationV1::OperationStepUp,
             ) => {
                 require_non_empty(
                     "ECDSA effect claim authorization_session_id",
                     authorization_session_id,
                 )?;
-                require_non_empty("ECDSA effect claim grant_id", grant_id)?;
+                require_non_empty(
+                    "ECDSA effect claim authorized_operation_id",
+                    authorized_operation_id,
+                )?;
                 require_non_empty("ECDSA effect claim operation_id", operation_id)?;
                 require_non_empty(
                     "ECDSA effect claim operation_fingerprint_digest",
                     operation_fingerprint_digest,
                 )?;
-                grant_id == admitted_grant_id
+                true
             }
             _ => false,
         };
@@ -592,7 +594,6 @@ impl CloudflareSigningWorkerNormalSigningEffectClaimV1 {
             Self::OperationStepUp { operation_id, .. } => operation_id,
         }
     }
-
 }
 
 impl CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {

@@ -11,7 +11,7 @@ import {
   type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import {
-  issueEcdsaOperationStepUpGrant,
+  issueEcdsaOperationStepUpAuthorization,
   prepareEcdsaOperationStepUp,
   type EcdsaOperationStepUpSessionAuth,
   type PreparedEcdsaOperationStepUp,
@@ -72,11 +72,11 @@ export async function authorizeEvmFamilyEcdsaOperationStepUp(args: {
     authority: args.authority,
     authorization: args.authorization,
   });
-  const grant = await issueEcdsaOperationStepUpGrant({
+  const authorization = await issueEcdsaOperationStepUpAuthorization({
     relayerUrl: args.relayerUrl,
     sessionAuth: args.sessionAuth,
     request: {
-      kind: 'router_ab_ecdsa_operation_step_up_grant_v1',
+      kind: 'router_ab_ecdsa_operation_step_up_v1',
       operation: args.prepared.operation,
       proof,
     },
@@ -91,9 +91,9 @@ export async function authorizeEvmFamilyEcdsaOperationStepUp(args: {
   return buildReadySecp256k1SigningMaterial({
     walletId: args.material.walletId,
     signerSession: args.material,
-    authorization: grant.authorization,
+    authorization: authorization.authorization,
     credential,
-    expiresAtMs: grant.expires_at_ms,
+    expiresAtMs: authorization.expires_at_ms,
     singleUseEmailOtpSession: false,
     operationStepUpPreparation: args.prepared.operation,
   });

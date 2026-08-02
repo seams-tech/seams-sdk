@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test';
-import { parseCapabilityGrantId } from '@shared/authorization/capabilityKinds';
 import {
   buildEcdsaExportActivation,
   provisionPasskeyEcdsaExplicitExportSession,
@@ -10,16 +9,7 @@ import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.f
 import { buildEcdsaOperationStepUpPreparation } from '@/core/signingEngine/threshold/ecdsa/operationStepUp';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
-import {
-  buildMpcMaterialActivationRef,
-  parseMpcSigningWorkerRef,
-} from '@shared/utils/domainIds';
-
-function exportGrantId() {
-  const parsed = parseCapabilityGrantId('ecdsa-export-operation-grant');
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
-}
+import { buildMpcMaterialActivationRef, parseMpcSigningWorkerRef } from '@shared/utils/domainIds';
 
 function unexpectedDependencyUse(): never {
   throw new Error('auth-neutral export provision used a session dependency');
@@ -92,8 +82,7 @@ test('dedicated ECDSA export provision keeps material auth-neutral and quota-neu
       displayDigest: fixtureDigest(3),
     },
     materialActivation,
-    normalSigningScope:
-      bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning.scope,
+    normalSigningScope: bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning.scope,
     keyHandle: backendBinding.publicFacts.keyHandle,
     relayerKeyId: backendBinding.relayerKeyId,
     participantIds: backendBinding.publicFacts.participantIds,
@@ -106,8 +95,8 @@ test('dedicated ECDSA export provision keeps material auth-neutral and quota-neu
       relayerUrl: 'https://relay.example',
       existingRoleLocalMaterial: fixture.capability.material,
       authorization: {
-        kind: 'operation_step_up',
-        grantId: exportGrantId(),
+        kind: 'verified_step_up',
+        evidenceSetDigest: fixtureDigest(4),
         operation,
         sessionAuth: { kind: 'cookie' },
         expiresAtMs,
@@ -125,8 +114,8 @@ test('dedicated ECDSA export provision keeps material auth-neutral and quota-neu
       persistedMaterial: fixture.capability.material,
     },
     authorization: {
-      kind: 'operation_step_up',
-      grantId: exportGrantId(),
+      kind: 'verified_step_up',
+      evidenceSetDigest: fixtureDigest(4),
       operation,
       sessionAuth: { kind: 'cookie' },
       expiresAtMs,

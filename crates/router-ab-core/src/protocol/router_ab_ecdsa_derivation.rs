@@ -1221,7 +1221,7 @@ pub struct RouterAbEcdsaDerivationExplicitExportRequestV1 {
     pub client_id: String,
     /// Client ephemeral public key used for client-output encryption.
     pub client_ephemeral_public_key: String,
-    /// Exact operation authority for this export; session and grant identifiers
+    /// Exact operation authority for this export; session and authorization identifiers
     /// never re-enter this request outside the authorization branch.
     pub authorization: NormalSigningAuthorizationV1,
     /// Exact material activation this export binds.
@@ -2610,9 +2610,8 @@ fn push_normal_signing_authorization(
             push_len32(out, b"reusable_wallet_session");
             push_len32(out, wallet_session_id.as_bytes());
         }
-        NormalSigningAuthorizationV1::OperationStepUp { grant_id } => {
+        NormalSigningAuthorizationV1::OperationStepUp => {
             push_len32(out, b"operation_step_up");
-            push_len32(out, grant_id.as_bytes());
         }
     }
     Ok(())

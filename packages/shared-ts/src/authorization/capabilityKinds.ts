@@ -96,10 +96,12 @@ export type AuthFactorId = DomainId<'AuthFactorId'>;
 export type CapabilityId = DomainId<'CapabilityId'>;
 export type CapabilityBindingId = DomainId<'CapabilityBindingId'>;
 export type CapabilityOperationId = DomainId<'CapabilityOperationId'>;
-export type CapabilityGrantId = DomainId<'CapabilityGrantId'>;
-export type CapabilityGrantUseId = DomainId<'CapabilityGrantUseId'>;
-/** A Wallet Session authorization is identified by the Wallet Session itself. */
-export type AuthorizationGrantRef = WalletSessionId;
+export type WalletSessionAuthorizationId = DomainId<'WalletSessionAuthorizationId'>;
+/** The reusable authorization branch carries exactly one authorization identity. */
+export type AuthorizationGrantRef = {
+  readonly kind: 'wallet_session_authorization';
+  readonly authorizationId: WalletSessionAuthorizationId;
+};
 export type AuthorizedOperationId = DomainId<'AuthorizedOperationId'>;
 export type WalletSessionId = DomainId<'WalletSessionId'>;
 export type MpcWalletSigningQuotaId = DomainId<'MpcWalletSigningQuotaId'>;
@@ -257,22 +259,38 @@ export function parseCapabilityOperationId(
   return parseAuthorizationId(value, 'capabilityOperationId');
 }
 
-export function parseCapabilityGrantId(
-  value: unknown,
-): AuthorizationParseResult<CapabilityGrantId> {
-  return parseAuthorizationId(value, 'capabilityGrantId');
-}
-
-export function parseCapabilityGrantUseId(
-  value: unknown,
-): AuthorizationParseResult<CapabilityGrantUseId> {
-  return parseAuthorizationId(value, 'capabilityGrantUseId');
-}
-
 export function parseAuthorizationGrantRef(
   value: unknown,
 ): AuthorizationParseResult<AuthorizationGrantRef> {
-  return parseWalletSessionId(value);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return invalidResult('authorizationGrantRef must be an object');
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (keys.length !== 2 || !keys.includes('kind') || !keys.includes('authorizationId')) {
+    return invalidResult('authorizationGrantRef contains unexpected fields');
+  }
+  if (record.kind !== 'wallet_session_authorization') {
+    return invalidResult('authorizationGrantRef.kind is unsupported');
+  }
+  const authorizationId = parseWalletSessionAuthorizationId(record.authorizationId);
+  if (!authorizationId.ok) return authorizationId;
+  return {
+    ok: true,
+    value: { kind: 'wallet_session_authorization', authorizationId: authorizationId.value },
+  };
+}
+
+export function buildAuthorizationGrantRef(
+  authorizationId: WalletSessionAuthorizationId,
+): AuthorizationGrantRef {
+  return { kind: 'wallet_session_authorization', authorizationId };
+}
+
+export function parseWalletSessionAuthorizationId(
+  value: unknown,
+): AuthorizationParseResult<WalletSessionAuthorizationId> {
+  return parseAuthorizationId(value, 'walletSessionAuthorizationId');
 }
 
 export function parseAuthorizedOperationId(

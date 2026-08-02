@@ -161,7 +161,6 @@ use router_ab_core::RouterEd25519YaoExecuteFailureCodeV1;
 use router_ab_core::{
     parse_router_ab_ecdsa_derivation_recovery_request_v1_json,
     parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,
-    parse_router_ab_ed25519_normal_signing_prepare_request_v2_json,
     RouterAbEcdsaDerivationRegistrationPurposeV1,
 };
 #[cfg(any(
