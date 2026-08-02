@@ -1624,8 +1624,8 @@ material identifier substitute for another.
 The initial live-occurrence inventory is recorded in the deletion ledger
 (`b0da12eaf`): 118 production files and 1,245 references after excluding type
 fixtures and generated `dist` output. The ECDSA post-registration activation
-field remains coupled to Wallet Session JWT issuance and downstream bootstrap;
-it is owned by the coordinated Rust/TypeScript claim-verifier cutover below.
+field was coupled to Wallet Session JWT issuance and downstream bootstrap; the
+coordinated Rust/TypeScript claim-verifier cutover below removed it.
 
 The first Ed25519 cleanup checkpoint is recorded in the deletion ledger and
 commit `a37dbb65b`: the reservation-only route-core unit test and its obsolete
@@ -1648,33 +1648,32 @@ budget-only unit coverage was deleted in `5dbabdfc8`. Unit 3c's implementation
 cutover is complete: current production source has no live `SigningGrantId`,
 `signingGrantId`, or `signing_grant_id` occurrence outside the immutable
 historical migration, and both curves use the Gateway atomic claim/quota path.
-The remaining Unit 3c work is focused acceptance and conformance evidence.
+The focused acceptance and conformance evidence is closed by `fa5791630`.
 
-The next deletion checkpoint is `882dfd681`. It removes the remaining
+The deletion checkpoints `882dfd681`, `4885bed62`, `32be59fb1`, and
+`fa5791630` remove the remaining
 TypeScript Router budget persistence/parser surface, the callerless local
 signing-seed runtime and factory wiring, obsolete wallet-budget status and
 parser tests, and grant-named admission/cache identities in the SDK, local
 smoke wire, console admission fixture, and current documentation. The focused
-wallet-session quota admission suite is green (5/5); Router normal-signing
-validation and EVM retry suites are green (9/9); SDK-server, SDK-web, and
-shared TypeScript typechecks pass. The Unit 3c identity sweep and shared
-Ed25519 atomic claim/quota move remain open. Registration activation tests
-still expose the known Refactor 94C fixture/activation mismatch and are not
-claimed as Unit 3c evidence.
+wallet-session quota admission suite is green; Router normal-signing,
+Email OTP recovery/export, identity-fixture, and EVM retry coverage are green;
+SDK-server, SDK-web, console-server, and unit TypeScript typechecks pass. The
+Unit 3c implementation and focused acceptance gate are closed. Broader
+Refactor 90 environment-dependent acceptance remains tracked separately.
 
 ### Canonical authorization identities
 
 - [x] Remove the inert ECDSA admission-policy `signingGrantId` input and make
       Router A/B quota-key helpers accept only the Ed25519 admission subtype;
       the ECDSA policy/abuse path performs no legacy quota reservation
-      (`5cf433765`). The Rust reusable-claim binding remains open until the
-      shared durable claim verifier replaces its current Wallet Session grant
-      comparison.
+      (`5cf433765`). The Rust reusable-claim binding now uses the shared durable
+      claim verifier and canonical Wallet Session/quota identities.
 - [x] The focused Router A/B admission-store suite covers ECDSA policy without
       legacy quota reservation and passes 8/8 (`5cf433765`).
 - [x] Remove the legacy grant identity from the internal verified ECDSA Wallet
-      Session authorization carrier; the strict JWT boundary remains coupled
-      until the coordinated Rust/TypeScript claim cutover (`13e7a9844`).
+      Session authorization carrier and complete the coordinated strict
+      Rust/TypeScript JWT cutover (`13e7a9844`, `41ed8f9cb`).
 - [x] Add every live `SigningGrantId`, `signingGrantId`, and
       `signing_grant_id` production occurrence to the deletion ledger and
       classify it as reusable-session authorization, quota, operation grant,
@@ -1761,9 +1760,10 @@ claimed as Unit 3c evidence.
 - [x] One focused operation-step-up test proves a canonical capability grant
       authorizes exactly one operation and carries no Wallet Session or quota
       identity (authorization/claims suite 29/29).
-- [ ] Existing expiry, exhaustion, export-without-quota, hostile substitution,
+- [x] Existing expiry, exhaustion, export-without-quota, hostile substitution,
       and durable effect-replay cases pass after the cutover. Add no duplicate
-      enforcement for invariants already owned by those tests.
+      enforcement for invariants already owned by those tests (`fa5791630`;
+      focused Email OTP recovery 15/15, including exact quota substitution).
 - [x] Type fixtures reject `SigningGrantId`, `signingGrantId`, and
       `signing_grant_id` in current session, grant, quota, material, worker, and
       UI shapes.
@@ -1782,10 +1782,13 @@ claimed as Unit 3c evidence.
       (`b166b0bf1`, `41ed8f9cb`).
 - [x] The legacy Router reserve/commit/release budget protocol and its persisted
       rows, fixtures, and guards are deleted (`4885bed62`).
-- [ ] Focused reusable, step-up, expiry, exhaustion, export, replay, hostile
-      substitution, binding, and vector checks pass.
+- [x] Focused reusable, step-up, expiry, exhaustion, export, replay, hostile
+      substitution, binding, and vector checks pass (`4885bed62`,
+      `32be59fb1`, `fa5791630`; 109 identity fixtures, 38 admission/recovery/
+      export/coordinator checks, and the previously recorded Rust binding and
+      vector gates).
 - [x] All Unit 3c deletion-ledger entries are closed with implementing commit
-      evidence (`4885bed62`; remaining acceptance rows stay open separately).
+      evidence (`4885bed62`, `fa5791630`).
 
 ## Unit 4 — UI + Provisioning
 
