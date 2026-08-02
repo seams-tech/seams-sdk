@@ -432,7 +432,7 @@ type EmailOtpEd25519YaoLocalMaterialRehydrateResult =
   EmailOtpWorkerOperationMap['rehydrateEmailOtpEd25519YaoLocalMaterial']['result'];
 
 type ExactEmailOtpEcdsaWarmSessionRestore = {
-  sessionId: string;
+  thresholdSessionId: string;
   walletId: string;
   keyHandle: string;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -945,18 +945,18 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
   expiresAtMs: number;
   transport: SigningSessionSealTransport;
   restore: {
-    sessionId: string;
+    thresholdSessionId: string;
     walletId: string;
     keyHandle: string;
     chainTarget: ThresholdEcdsaChainTarget;
     authSubjectId: string;
   };
 }): ParseEmailOtpEcdsaWarmSessionRehydrateArgsResult {
-  const sessionId = normalizeOptionalTrimmedString(args.restore.sessionId);
-  if (!sessionId) {
+  const thresholdSessionId = normalizeOptionalTrimmedString(args.restore.thresholdSessionId);
+  if (!thresholdSessionId) {
     return {
       kind: 'error',
-      error: { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' },
+      error: { ok: false, code: 'invalid_args', message: 'Missing thresholdSessionId' },
     };
   }
   const sealedSecretB64u = normalizeOptionalTrimmedString(args.sealedSecretB64u);
@@ -994,7 +994,7 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
         groupId,
       },
       restore: {
-        sessionId,
+        thresholdSessionId,
         walletId,
         keyHandle,
         chainTarget: args.restore.chainTarget,
@@ -2293,14 +2293,14 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
   expiresAtMs: number;
   transport: SigningSessionSealTransport;
   restore: {
-    sessionId: string;
+    thresholdSessionId: string;
     walletId: string;
     keyHandle: string;
     chainTarget: ThresholdEcdsaChainTarget;
     authSubjectId: string;
   };
 }): Promise<EmailOtpEcdsaWarmSessionRehydrateResult> {
-  if (args.target.thresholdSessionId !== args.restore.sessionId) {
+  if (args.target.thresholdSessionId !== args.restore.thresholdSessionId) {
     return {
       ok: false,
       code: 'invalid_args',
@@ -2316,7 +2316,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
     transport,
     restore,
   } = parsed.value;
-  const sessionId = restore.sessionId;
+  const thresholdSessionId = restore.thresholdSessionId;
   if (localRemainingUses <= 0) {
     return { ok: false, code: 'exhausted', message: 'Email OTP signing-session seal exhausted' };
   }
@@ -2325,8 +2325,8 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
   }
   const singleFlightKey = makeSigningSessionSealSingleFlightKey({
     operation: 'remove-server-seal',
-    sessionId,
-    materialIdentity: sessionId,
+    sessionId: thresholdSessionId,
+    materialIdentity: thresholdSessionId,
     relayerUrl: transport.relayerUrl,
     keyVersion: transport.keyVersion,
     groupId: transport.groupId,
@@ -2352,7 +2352,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
         const removed = await callSigningSessionSealRoute({
           operation: 'remove-server-seal',
           transport,
-          thresholdSessionId: sessionId,
+          thresholdSessionId,
           ciphertext: readString(clientEncryptedCiphertext, 'clientEncryptedCiphertext'),
           keyVersion: transport.keyVersion,
         });
@@ -7235,7 +7235,10 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           expiresAtMs: readNumber(payload.expiresAtMs, 'expiresAtMs'),
           transport: parseWorkerSealTransport(payload.transport),
           restore: {
-            sessionId: readString(restore.sessionId, 'restore.sessionId'),
+            thresholdSessionId: readString(
+              restore.thresholdSessionId,
+              'restore.thresholdSessionId',
+            ),
             walletId: readString(restore.walletId, 'restore.walletId'),
             keyHandle: readString(restore.keyHandle, 'restore.keyHandle'),
             chainTarget: parseWorkerChainTarget(restore.chainTarget),

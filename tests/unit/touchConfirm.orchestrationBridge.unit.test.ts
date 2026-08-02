@@ -26,14 +26,16 @@ const passkeyPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }> = {
   method: 'passkey',
 };
 
-function warmSessionPlan(sessionId: string): Extract<SigningAuthPlan, { kind: 'warmSession' }> {
+function warmSessionPlan(
+  thresholdSessionId: string,
+): Extract<SigningAuthPlan, { kind: 'warmSession' }> {
   return {
     kind: 'warmSession',
     method: 'passkey',
     accountId: 'alice.testnet',
     intent: 'transaction_sign',
     curve: 'ed25519',
-    sessionId,
+    thresholdSessionId,
     retention: 'session',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 1,

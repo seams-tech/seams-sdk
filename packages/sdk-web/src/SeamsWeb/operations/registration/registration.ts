@@ -3607,6 +3607,7 @@ type RegistrationEd25519MaterialFacts = {
     walletId: string;
     nearAccountId: string;
     nearEd25519SigningKeyId: string;
+    thresholdSessionId: string;
     signerSlot: number;
     signingRootId: string;
     signingRootVersion: string;
@@ -3662,6 +3663,7 @@ function registrationEd25519MaterialFacts(args: {
       walletId: String(args.walletId),
       nearAccountId: args.finalized.nearAccountId,
       nearEd25519SigningKeyId: args.finalized.nearEd25519SigningKeyId,
+      thresholdSessionId: admission.scope.threshold_session_id,
       signerSlot: args.finalized.signerSlot,
       signingRootId: admission.application_binding.signing_root_id,
       signingRootVersion: admission.scope.root_share_epoch,
@@ -5787,6 +5789,7 @@ async function addPasskeyEd25519YaoWalletSigner(
           walletId: finalized.walletId,
           nearAccountId: finalized.ed25519.nearAccountId,
           nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+          thresholdSessionId: admission.scope.threshold_session_id,
           signerSlot: finalized.ed25519.signerSlot,
           signingRootId: admission.application_binding.signing_root_id,
           signingRootVersion: admission.scope.root_share_epoch,

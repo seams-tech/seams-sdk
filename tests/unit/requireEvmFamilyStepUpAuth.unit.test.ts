@@ -31,7 +31,7 @@ function warmSessionStepUp(
         accountId: 'alice.testnet',
         intent: 'transaction_sign',
         curve: 'ecdsa',
-        sessionId: 'threshold-session-warm',
+        thresholdSessionId: 'threshold-session-warm',
         expiresAtMs: 1_777_777_777_000,
         remainingUses: 2,
       },

@@ -700,7 +700,7 @@ test.describe('SeamsWeb chain signer modules', () => {
                     SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
                     'succeeded',
                     {
-                      sessionId: 'warm-session-1',
+                      thresholdSessionId: 'warm-session-1',
                     },
                   ),
                 );
@@ -797,7 +797,7 @@ test.describe('SeamsWeb chain signer modules', () => {
       ]);
       expect(events.at(0)).toMatchObject({
         flow: 'signing',
-        data: { sessionId: 'warm-session-1' },
+        data: { thresholdSessionId: 'warm-session-1' },
       });
       expect(events.at(-1)).toMatchObject({
         flow: 'signing',

@@ -32,7 +32,7 @@ export function buildEvmFamilyWarmSessionStepUpAuthorization(args: {
   return {
     kind: 'warm_session',
     signingAuthPlan: args.signingAuthPlan,
-    sessionId: args.signingAuthPlan.sessionId,
+    thresholdSessionId: args.signingAuthPlan.thresholdSessionId,
     expiresAtMs: args.signingAuthPlan.expiresAtMs,
     remainingUses: args.signingAuthPlan.remainingUses,
   };

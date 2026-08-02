@@ -449,7 +449,7 @@ export async function runNearDelegateActionSigning({
       status: 'succeeded',
       interaction: { kind: 'none', overlay: 'none' },
       data: {
-        sessionId: confirmationAuthPayload.signingAuthPlan.sessionId,
+        thresholdSessionId: confirmationAuthPayload.signingAuthPlan.thresholdSessionId,
         expiresAtMs: confirmationAuthPayload.signingAuthPlan.expiresAtMs,
         remainingUses: confirmationAuthPayload.signingAuthPlan.remainingUses,
       },
@@ -576,7 +576,7 @@ export async function runNearDelegateActionSigning({
         interaction: { kind: 'none', overlay: 'none' },
         data: {
           signer: 'threshold-ed25519',
-          sessionId: canonicalThresholdSessionId,
+          thresholdSessionId: canonicalThresholdSessionId,
           clientBaseSource: 'yao_active_client',
         },
       });

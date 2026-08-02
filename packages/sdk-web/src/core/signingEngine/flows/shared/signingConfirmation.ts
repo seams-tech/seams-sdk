@@ -155,7 +155,7 @@ export function signingAuthPlanFromSigningSessionPlan(args: {
       accountId: args.accountId,
       intent: args.intent,
       ...(args.curve ? { curve: args.curve } : {}),
-      sessionId: String(plan.keyRef.thresholdSessionId),
+      thresholdSessionId: String(plan.keyRef.thresholdSessionId),
       retention: plan.lane.retention,
       expiresAtMs,
       remainingUses,

@@ -1913,6 +1913,7 @@ export class BrowserSigningSurface {
       facts: nearEd25519YaoOperationMaterialFacts(walletSessionState),
       participantIds: [...runtime.participantIds],
       rehydrate: this.rehydratePreparedPasskeyEd25519YaoOperationStepUp.bind(this, {
+        input: authorizedArgs,
         walletSessionState,
         rpId,
         credentialIdB64u,
@@ -1924,6 +1925,7 @@ export class BrowserSigningSurface {
 
   private async rehydratePreparedPasskeyEd25519YaoOperationStepUp(
     prepared: {
+      input: PrepareNearEd25519YaoMaterialBoundaryInput;
       walletSessionState: NearResolvedEd25519SigningSessionState;
       rpId: string;
       credentialIdB64u: string;
@@ -1968,10 +1970,20 @@ export class BrowserSigningSurface {
       hydrated.activeClient.dispose();
       throw new Error('[SigningEngine][near] operation assertion changed material activation');
     }
-    return {
+    const material = {
       activeClient: hydrated.activeClient,
       facts: nearEd25519YaoOperationMaterialFacts(prepared.walletSessionState),
     };
+    try {
+      return validateExactNearEd25519YaoOperationMaterial({
+        material,
+        input: prepared.input,
+        expectedActivation: prepared.materialActivation,
+      });
+    } catch (error) {
+      material.activeClient.dispose();
+      throw error;
+    }
   }
 
   private async recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning(
@@ -2061,7 +2073,7 @@ export class BrowserSigningSurface {
     }
     const input = {
       subject: {
-        walletId: String(args.laneIdentity.signer.account.wallet.walletId),
+        walletId: toWalletId(String(args.laneIdentity.signer.account.wallet.walletId)),
         nearAccountId: String(args.laneIdentity.signer.account.nearAccountId),
         signerSlot: args.laneIdentity.signer.signerSlot,
         thresholdSessionId: args.laneIdentity.thresholdSessionId,
