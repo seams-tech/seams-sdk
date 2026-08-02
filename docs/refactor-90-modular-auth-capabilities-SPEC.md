@@ -19,6 +19,13 @@ product workflows, general route-module registries, and speculative package
 splits are follow-on work. Sections that describe those future product shapes
 are design context rather than Refactor 90 acceptance criteria.
 
+Authorization amendment: August 2, 2026 — Refactor 90's closed
+`AuthorizationGrant` union contains only `WalletSessionAuthorization`.
+Refactors 103 and 104 own the later linked-device and delegated-spend branches.
+Refactor 90 creates `AuthorizedOperation` directly from reusable wallet
+authorization or verified one-time evidence and adds no future authorization
+branches, generic revocation epochs, or parallel stores.
+
 Lifecycle dependency: [Refactor 92](./refactor-92-session-expiry-handling.md)
 owns the implemented reusable Wallet Session behavior. Refactor 90 may replace
 the underlying authorization and material representations only while preserving
@@ -58,13 +65,14 @@ invariant.
 - **R90-INV-008 — Exact material serialization.** One queue serializes material
   use per exact owner and checks the current generation/fence. There is no
   public affine lease-token lifecycle.
-- **R90-INV-009 — Exact operation claim.** The stable operation fingerprint
-  excludes rotating authorization, quota, session, and runtime identities. One
-  absent-claim transaction consumes the exact grant and applicable quota and
-  creates the claim and audit linkage. Operation descriptors declare quota
-  applicability: normal signing consumes one wallet-quota use beside its grant;
-  key export declares no quota use and consumes only its exact grant. Quota
-  exhaustion never blocks export, and export never spends signing quota.
+- **R90-INV-009 — Exact authorized operation.** The stable operation
+  fingerprint excludes rotating authorization, quota, session, and runtime
+  identities. One absent-operation transaction validates the exact active
+  `AuthorizationGrant` or verified one-time evidence, consumes applicable quota,
+  and creates the `AuthorizedOperation` plus audit linkage. Returning an
+  existing operation consumes neither authorization nor quota again. Normal
+  signing consumes one wallet-quota use; key export declares no quota use.
+  Quota exhaustion never blocks export, and export never spends signing quota.
 - **R90-INV-010 — Supersession invalidates preparation.** Authority or lifecycle
   replacement returns `superseded`; callers discard the prepared lane and
   resolve current canonical state again.
@@ -80,14 +88,16 @@ invariant.
   no checklist entry of its own.
 - **R90-INV-013 — Authorization/material identity separation.** A
   `SeamsSessionId` identifies app identity and general authorization, a
-  `WalletSessionId` identifies reusable wallet-signing authorization, an
-  `MpcWalletSigningQuotaId` identifies its remaining-use allowance, a
-  `CapabilityGrantId` identifies authority for one operation, and an opaque
+  `WalletSessionAuthorizationId` identifies reusable wallet-signing authority,
+  an `AuthorizedOperationId` identifies one exact operation, an
+  `MpcWalletSigningQuotaId` identifies the reusable allowance, and an opaque
   `MpcMaterialActivationId` identifies one exact activated MPC material
-  instance. None of these IDs locates, owns, or aliases another domain. Unlock
-  or refresh may replace the Wallet Session while preserving an unchanged exact
-  material activation through a validated `MpcMaterialActivationRef`;
-  registration or explicit material reactivation creates a new activation ID.
+  instance. Each authorization-grant reference contains only its
+  branch-specific authorization ID. None of these IDs locates, owns, or aliases
+  another domain. Unlock or refresh may replace wallet authorization while
+  preserving an unchanged exact material activation through a validated
+  `MpcMaterialActivationRef`; registration or explicit material reactivation
+  creates a new activation ID.
 - **R90-INV-014 — Refactor 92 wallet-session lifecycle preservation.**
   Refactor 92 is the normative behavior for reusable Wallet Sessions during
   this migration. Ordinary unlock creates a 24-hour session with three
@@ -126,12 +136,13 @@ implementing commit SHA as the evidence.
 
 ### Slice A — authorization proving vertical
 
-- [ ] `R90-INV-001` — session, evidence, grant, claim, vault, and audit requests
-  and rows normalize at their owning boundaries.
+- [ ] `R90-INV-001` — session, evidence, authorization, authorized-operation,
+  vault, and audit requests and rows normalize at their owning boundaries.
 - [ ] `R90-INV-009` — the minimal vault operation uses a stable fingerprint and
-  one atomic absent-claim grant-use transaction.
+  one atomic authorize-or-return-existing transaction.
 - [ ] `R90-INV-012` — the real minimal vault vertical proves session → Passkey
-  evidence → grant → operation → audit without future-provider scaffolding.
+  evidence → authorized operation → execution → audit without future-provider
+  scaffolding.
 
 ### Slice B — MPC migration
 
@@ -149,8 +160,9 @@ implementing commit SHA as the evidence.
   resumes the abandoned parent operation.
 - [ ] `R90-INV-008` — concurrent recovery, signing, refresh, and export serialize
   by exact owner and reject stale generations/fences.
-- [ ] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
-  applicable quota once; existing claims consume neither again.
+- [ ] `R90-INV-009` — MPC absent-operation transactions validate the exact
+  authorization source and consume applicable quota once; existing authorized
+  operations consume neither again.
 - [ ] `R90-INV-010` — authority/lifecycle replacement returns `superseded` and
   every SDK/UI adapter discards and re-resolves the stale lane.
 - [ ] `R90-INV-011` — Near post-commit verification creates no durable readback
@@ -193,9 +205,9 @@ to normalized session evidence and assurance levels.
 
 Build Seams authorization as first-party security infrastructure. `seams-auth`
 is the first-party auth provider. Better Auth can also be used through a
-session-provider adapter. The system of record for grant evidence,
-capability grants, capability grant policies, and audit envelopes lives
-inside Seams.
+session-provider adapter. The system of record for authorization evidence,
+reusable authorization grants, authorized operations, their policies, and audit
+envelopes lives inside Seams.
 
 `seams-auth` must store authentication data in the customer's configured
 database by default. This preserves data residency, compliance control, pricing
@@ -218,9 +230,10 @@ Split auth into four ownership layers:
    factor/provider verification.
 2. The session module normalizes verified evidence into an audience- and
    device-bound `SeamsSession`.
-3. Seams authorization evaluates verified evidence sets and capability grant
-   policy, then mints exact capability grants.
-4. Capability modules consume grants and own operation-specific side effects.
+3. Seams authorization validates a reusable `AuthorizationGrant` or verified
+   one-time evidence, then creates one exact `AuthorizedOperation`.
+4. Capability modules consume authorized operations and own operation-specific
+   side effects.
 
 `seams-auth` is the built-in auth provider. Better Auth is a supported upstream
 provider through `betterAuthSessionProvider(auth)`.
@@ -230,8 +243,9 @@ Use `SeamsSession` for app identity and general authorization. Keep Refactor
 allowance. MPC runtime material uses `MpcMaterialActivationRef`.
 
 `identity/` owns principals and auth accounts, `authFactor/` owns enrollments,
-and `session/` owns session state. Seams authorization owns grant evidence,
-capability grants, grant-use limits, and audit envelopes.
+and `session/` owns session state. Seams authorization owns evidence,
+authorization grants, authorized operations, quota consumption, and audit
+envelopes.
 MPC signing is a capability that uses this shared layer. Vault access is another
 capability that uses the same shared layer.
 
@@ -239,8 +253,8 @@ capability that uses the same shared layer.
 Auth account
   -> exact factor enrollment or provider identity
   -> SeamsSession
-  -> VerifiedGrantEvidenceSet
-  -> CapabilityGrant
+  -> WalletSessionAuthorization or verified one-time evidence
+  -> AuthorizedOperation
 
 Capability instances
   -> vault_access
@@ -248,8 +262,8 @@ Capability instances
   -> evm_ecdsa_mpc_signing
 ```
 
-Auth providers define mechanisms. Capabilities define resources. Capability
-grant policies bind grant evidence to capability operations.
+Auth providers define mechanisms. Capabilities define resources. Authorization
+policies bind reusable authority or verified evidence to exact operations.
 
 ## Current Incompatibilities And Refactor Moves
 
@@ -379,8 +393,8 @@ Refactor move:
 - resolve durable wallet identity into `WalletUnlockSubjectSet`;
 - receive the exact reusable Wallet Session lifecycle projection from the
   secure wallet origin after iframe initialization;
-- keep `SeamsSession`, reusable Wallet Session, operation-grant, wallet-quota,
-  and material-activation identities separate;
+- keep `SeamsSession`, `WalletSessionAuthorization`, `AuthorizedOperation`,
+  wallet-quota, and material-activation identities separate;
 - derive wallet-session display state from the exact Wallet Session lifecycle:
   active and exhausted remain unlocked, while missing and expired are locked;
 - surface missing, corrupt, or ambiguous durable identity as typed
@@ -426,15 +440,16 @@ type WalletIdentityResolveFailure =
   | "missing_requested_capability_subject"
   | "invalid_wallet_profile";
 
-type WalletSessionId = Brand<string, "WalletSessionId">;
+type WalletSessionAuthorizationId =
+  Brand<string, "WalletSessionAuthorizationId">;
 type MpcWalletSigningQuotaId =
   Brand<string, "MpcWalletSigningQuotaId">;
 
-type ReusableWalletSessionState =
+type WalletSessionAuthorizationState =
   | {
       kind: "active";
       walletId: WalletId;
-      walletSessionId: WalletSessionId;
+      authorizationId: WalletSessionAuthorizationId;
       authority: WalletAuthAuthorityRef;
       quotaId: MpcWalletSigningQuotaId;
       expiresAtMs: number;
@@ -443,7 +458,7 @@ type ReusableWalletSessionState =
   | {
       kind: "exhausted";
       walletId: WalletId;
-      walletSessionId: WalletSessionId;
+      authorizationId: WalletSessionAuthorizationId;
       authority: WalletAuthAuthorityRef;
       quotaId: MpcWalletSigningQuotaId;
       expiresAtMs: number;
@@ -452,7 +467,7 @@ type ReusableWalletSessionState =
   | {
       kind: "expired";
       walletId: WalletId;
-      walletSessionId: WalletSessionId;
+      authorizationId: WalletSessionAuthorizationId;
       authority: WalletAuthAuthorityRef;
       quotaId: MpcWalletSigningQuotaId;
       expiresAtMs: number;
@@ -480,7 +495,7 @@ type WalletSessionReadResolution =
       kind: "resolved";
       walletId: WalletId;
       subjectSet: WalletUnlockSubjectSet;
-      walletSession: ReusableWalletSessionState;
+      walletSessionAuthorization: WalletSessionAuthorizationState;
       source: WalletIdentitySource;
     }
   | {
@@ -503,13 +518,13 @@ type WalletSessionDisplayState =
         | {
             kind: "expired";
             walletId: WalletId;
-            walletSessionId: WalletSessionId;
+            authorizationId: WalletSessionAuthorizationId;
           };
     }
   | {
       kind: "active";
       walletId: WalletId;
-      walletSessionId: WalletSessionId;
+      authorizationId: WalletSessionAuthorizationId;
       subjectSet: WalletUnlockSubjectSet;
       warmAllowance:
         | { kind: "available"; remainingUses: PositiveInt }
@@ -532,13 +547,13 @@ below the session-read boundary. NEAR account identity exists only on the
 account validators or fabricate a NEAR account subject. Auth-method display
 must come from wallet-auth-method bindings or session evidence, never from
 `publicKey` heuristics. `WalletSessionDisplayState` cannot authorize signing,
-material recovery, or export. Generic operations consume the exact reusable
-Wallet Session state, operation grant, quota claim, and capability-local
+material recovery, or export. Generic operations consume the exact wallet
+authorization, `AuthorizedOperation`, applicable quota, and capability-local
 hydration plan. The live demo alone uses the display projection as lock policy:
 authoritative expiry locks once, exhaustion requests step-up while remaining
 unlocked, and app identity remains active.
 
-### Signing-Centered Grant-Evidence UI
+### Signing-Centered Operation-Authorization UI
 
 `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts` currently
 uses `SigningAuthPlan`, `WalletAuthIntent`, `WalletAuthCurve`,
@@ -547,32 +562,30 @@ system hard to reuse for vault access and IdP high-risk scope issuance.
 
 Refactor move:
 
-- rename shared client confirmation concepts to `CapabilityGrantPlan` and
-  `CapabilityGrantChallenge`;
+- rename shared client confirmation concepts to `OperationAuthorizationPlan`
+  and `OperationAuthorizationChallenge`;
 - replace threshold-session material locators inside MPC operation lanes with
   exact `MpcMaterialActivationRef` values;
-- replace `signingGrantId` in shared UI payloads with
-  `capabilityGrantId`;
+- remove `signingGrantId` from shared UI payloads;
 - move wallet-specific display data behind a capability display adapter;
 - let vault, IdP, and MPC modules provide operation-specific prompt metadata.
 
 Target UI shape:
 
 ```ts
-type CapabilityGrantPlan =
+type OperationAuthorizationPlan =
   | {
-      kind: "active_grant";
+      kind: "active_authorization";
       tenantId: TenantId;
       principalId: PrincipalId;
       sessionId: SeamsSessionId;
       capabilityId: CapabilityId;
       operation: CapabilityOperationRef;
-      grantId: CapabilityGrantId;
+      authorizationGrantRef: AuthorizationGrantRef;
       expiresAtMs: number;
-      remainingUses: PositiveInt;
     }
   | {
-      kind: "grant_evidence_required";
+      kind: "verified_step_up_required";
       tenantId: TenantId;
       principalId: PrincipalId;
       sessionId: SeamsSessionId;
@@ -722,7 +735,7 @@ same manifest contract tests.
 `packages/sdk-server-ts/src/router/routeAuthPolicy.ts` has
 `console`, `api_credentials`, `user_session`, `threshold_session`, and `public`
 planes. The target route policy should distinguish management access, normal
-session access, and exact capability grants. Threshold-session details belong to
+session access, and exact operation authorization. Threshold-session details belong to
 MPC routes and capability operation lanes.
 
 Management-plane decision:
@@ -738,7 +751,7 @@ Management-plane decision:
 - use `management_api_key` for programmatic administration and automation;
 - use `session_principal` for product routes that need an authenticated principal
   without an exact capability operation;
-- use `capability_grant` for vault reveal/export/proxy-use, MPC signing, key
+- use `operation_authorization` for vault reveal/export/proxy-use, MPC signing, key
   export, break-glass reveal, and IdP high-risk scope issuance;
 - keep `public` only for bootstrap, challenge, callback, and health routes that
   verify their own request-bound artifact.
@@ -746,7 +759,7 @@ Management-plane decision:
 Management planes can create policies, approvals, capabilities, vault metadata,
 and principals according to RBAC and scopes. They cannot reveal secrets, inject
 secrets, export keys, sign transactions, or issue high-risk IdP scopes unless
-the route also requires `capability_grant` context. API keys resolve to
+the route also requires `operation_authorization` context. API keys resolve to
 service-account principals by default, and their scopes are management scopes,
 not capability grants.
 
@@ -765,7 +778,8 @@ Scope decisions:
 - API credentials resolve to service-account principals and inherit tenant,
   project, and environment scope from the credential record;
 - capability operation access for service accounts or agents still flows through
-  `CapabilityGrant` and capability grant policy;
+  their follow-on `AuthorizationGrant` branch and one exact
+  `AuthorizedOperation`;
 - scope parsing happens at the request boundary, then core code receives a typed
   `ManagementApiKeyPrincipal`;
 - old wallet-only scope names are removed once route definitions move to the new
@@ -819,7 +833,7 @@ scopes.
 Management API keys can configure capabilities and policies. They cannot perform
 runtime use by themselves. Service accounts, CI jobs, rotations, vault proxy
 use, and signing bots must present grant evidence, satisfy policy, and receive a
-short-lived `CapabilityGrant`.
+exact `AuthorizedOperation` under their follow-on authorization branch.
 
 Universal capability grant shape:
 
@@ -828,8 +842,8 @@ principal
   + grant evidence
   + capability binding
   + operation envelope
-  + capability grant policy
-  -> CapabilityGrant
+  + operation authorization policy
+  -> AuthorizedOperation
 ```
 
 Phase-one automation should support only `service_account_api_key` evidence.
@@ -855,14 +869,14 @@ Route policy refactor move:
 - replace `console` with `management_console`;
 - replace `api_credentials` with `management_api_key`;
 - replace `user_session` with `session_principal`;
-- replace `threshold_session` with `capability_grant`;
+- replace `threshold_session` with `operation_authorization`;
 - add `managementOperationKind` and required tenant/project/environment scope to
   management route policies;
 - put capability kind, operation kind, and required grant semantics in route
   policy;
 - keep threshold session claims inside MPC capability request parsing;
 - make `RoutePrincipal` carry normalized management, session, public, or
-  capability-grant context.
+  operation-authorization context.
 
 Target route auth shape:
 
@@ -882,9 +896,8 @@ type RouteAuthPolicy =
     }
   | { plane: "session_principal" }
   | {
-      plane: "capability_grant";
+      plane: "operation_authorization";
       operation: CapabilityOperationRef;
-      grantUse: "consume" | "inspect";
     }
   | { plane: "public"; proof: PublicProofType; rationale: string };
 ```
@@ -911,13 +924,13 @@ type RoutePrincipal =
       session: ActiveSeamsSessionRecord;
     }
   | {
-      plane: "capability_grant";
-      grant: Extract<CapabilityGrant, { kind: "active" }>;
+      plane: "operation_authorization";
+      authorization: OperationAuthorizationSource;
     }
   | { plane: "public"; proof: PublicProof };
 ```
 
-MPC signing endpoints become capability-grant routes whose handler parses an
+MPC signing endpoints become operation-authorization routes whose handler parses an
 MPC operation lane and intent. Vault proxy use, reveal, export, permission
 changes, and IdP high-risk scope issuance use the same route policy plane with
 different capability and operation kinds.
@@ -1002,7 +1015,7 @@ support:
 
 External auth providers should feed normalized session evidence into
 Seams authorization. Seams authorization normalizes grant evidence and decides
-whether to issue a `CapabilityGrant`.
+whether to authorize the exact operation.
 
 ## Development Auth Provider Decision
 
@@ -1038,7 +1051,7 @@ Seams should own from the start:
 - MPC signer proof challenges bound to Seams lane, intent, and display digests;
 - confirmer modal payloads;
 - `GrantEvidence`;
-- `CapabilityGrant`;
+- `AuthorizationGrant` and `AuthorizedOperation`;
 - MPC threshold-session minting;
 - vault access grants;
 - audit envelopes for capability operations.
@@ -1050,7 +1063,7 @@ Better Auth session
   -> betterAuthSessionProvider(auth)
   -> SeamsSession
   -> Seams operation-bound grant evidence
-  -> CapabilityGrant
+  -> AuthorizedOperation
   -> capability operation
 ```
 
@@ -1100,7 +1113,7 @@ Verify endpoint responsibilities:
 - verify the challenge maps to the same tenant, principal, session, operation
   kind, lane digest, intent digest, display digest, and capability ID;
 - create `GrantEvidence` with `evidenceKind: "passkey_assertion"`;
-- mint a short-lived `CapabilityGrant` when policy allows;
+- create an `AuthorizedOperation` when policy allows;
 - return only grant metadata required by the capability caller.
 
 Security rules:
@@ -1321,7 +1334,7 @@ Default exchange behavior:
 - Refresh rotates refresh-token family state and records a session event.
 - Revocation operates on one session by default. Tenant forced logout and
   principal-wide logout are explicit commands.
-- Session exchange cannot mint `CapabilityGrant` records, provision
+- Session exchange cannot create `AuthorizedOperation` records, provision
   capabilities, or satisfy grant evidence requirements by itself.
 - Session construction resolves evidence records by ID and rejects mixed tenant,
   principal, provider, subject, audience, or device facts before constructing
@@ -1402,7 +1415,8 @@ Embedded wallet login should be modeled as an auth factor that can create a
 `SeamsSession`. Wallet-owned MPC signer material remains capability-owned and
 loads only when a policy requires MPC-backed presence or signing. External
 relying-party applications receive identity tokens or assertions. Seams
-`CapabilityGrant` records remain internal to Seams authorization.
+`AuthorizationGrant` and `AuthorizedOperation` records remain internal to Seams
+authorization.
 
 ## Vocabulary
 
@@ -1427,8 +1441,8 @@ Type-sketch amendments applied July 3, 2026:
 | Current term | Target term |
 | --- | --- |
 | app or general authorization session | `SeamsSession` |
-| reusable signing session | `WalletSessionId` plus its typed reusable Wallet Session lifecycle |
-| per-operation signing authority | `CapabilityGrant` |
+| reusable signing session | `WalletSessionAuthorization` plus its typed Wallet Session lifecycle |
+| accepted exact operation | `AuthorizedOperation` |
 | reusable signing budget | `MpcWalletSigningQuota` bound to the exact reusable Wallet Session |
 | capability-specific signing scope | capability-local lane |
 | signing auth method | `AuthFactorIdentity` plus durable `AuthFactorRecord` |
@@ -1437,7 +1451,7 @@ Type-sketch amendments applied July 3, 2026:
 
 Use `MpcMaterialActivationRef` for exact activated MPC material. Do not
 reintroduce `MpcSigningSession` as an aggregate of authorization, quota,
-operation grant, and runtime state.
+authorized-operation, and runtime state.
 
 `CapabilityLane` means a capability-local authorization path such as
 `vault.proxy_use`, `vault.reveal`, `near.sign_transaction`, or
@@ -1494,7 +1508,8 @@ vectors for its canonical bytes and digest output.
    policies. They do not instantiate auth factor modules directly.
 10. Auth providers verify provider artifacts and factor modules verify factor
     assertions. The session module alone creates sessions, and Seams
-    authorization alone mints `CapabilityGrant` records.
+    authorization alone creates or returns `AuthorizedOperation` records from
+    exact authorization sources.
 11. `seams-auth` persistence goes through an explicit database adapter. Raw
     database rows are normalized once at the adapter boundary.
 
@@ -1610,7 +1625,7 @@ type SeamsAuthDatabaseAdapter = {
 
 Core modules never receive a raw transaction or query object. Store ports expose
 domain commands such as `replaceAuthFactor`, `consumeHostedWalletExchangeCode`,
-`claimCapabilityGrantUse`, and `completeCapabilityGrantUse`. Each adapter
+`authorizeOperation`, and `completeAuthorizedOperation`. Each adapter
 implements those commands atomically using its native primitive: D1 batch/CAS,
 or a database transaction on PostgreSQL/Prisma/Drizzle. The conformance suite
 tests command semantics, not a shared transaction API that some runtimes cannot
@@ -2313,10 +2328,10 @@ type VerifiedGrantEvidenceSet = {
   expiresAt: IsoTimestamp;
 };
 
-declare const capabilityGrantRequestBrand: unique symbol;
+declare const operationAuthorizationRequestBrand: unique symbol;
 
-type CapabilityGrantRequest = {
-  readonly [capabilityGrantRequestBrand]: true;
+type OperationAuthorizationRequest = {
+  readonly [operationAuthorizationRequestBrand]: true;
   operation: CapabilityOperationEnvelope;
   bindingId: CapabilityBindingId;
   evidenceSet: VerifiedGrantEvidenceSet;
@@ -2327,7 +2342,7 @@ type GrantEvidenceRequirement = {
   evidenceKinds: NonEmptyArray<GrantEvidenceKind>;
 };
 
-type CapabilityGrantPolicy = {
+type OperationAuthorizationPolicy = {
   tenantId: TenantId;
   policyId: PolicyId;
   operation: CapabilityOperationRef;
@@ -2335,14 +2350,12 @@ type CapabilityGrantPolicy = {
   allowedBindingKinds: NonEmptyArray<CapabilityBindingKind>;
   requiredEvidence: GrantEvidenceRequirement;
   requiredAssurance: AssuranceRequirement;
-  maxTtlSeconds: PositiveInt;
-  maxUses: PositiveInt;
   state: AdministrativeRecordState;
   createdByPrincipalId: PrincipalId;
   createdAt: IsoTimestamp;
 };
 
-type CapabilityOperationGrantPolicyBinding = {
+type CapabilityOperationAuthorizationPolicyBinding = {
   tenantId: TenantId;
   capabilityId: CapabilityId;
   operation: CapabilityOperationRef;
@@ -2361,14 +2374,14 @@ alone never reactivates records tied to a replaced binding. Signing, export,
 recovery, restore, and admission lanes carry `WalletAuthAuthorityRef`, never raw
 credential IDs, provider subjects, or display data.
 
-`VerifiedGrantEvidenceSet` is the only evidence collection accepted by grant
-issuance. Its builder loads evidence records by ID and rejects mixed tenant,
+`VerifiedGrantEvidenceSet` is the only evidence collection accepted for direct
+operation authorization. Its builder loads evidence records by ID and rejects mixed tenant,
 principal, session, device, capability operation, or operation-digest facts.
 For interactive sets, every session-bound evidence row must resolve to the same
 active session and device. For non-interactive sets, every evidence provider
 must explicitly support non-interactive use. Diagnostics and raw arrays of
 `GrantEvidenceRef` never influence authorization directly.
-`CapabilityGrantRequest` is built only after the active capability binding,
+`OperationAuthorizationRequest` is built only after the active capability binding,
 operation envelope, and verified evidence set agree on tenant, principal,
 capability kind, operation kind, and operation digests.
 
@@ -2410,7 +2423,7 @@ type MpcMaterialActivationRef = {
 };
 
 type MpcOperationExecutionScope = {
-  authorizationSessionId: WalletSessionId;
+  authorization: OperationAuthorizationSource;
   materialActivation: MpcMaterialActivationRef;
   operation: CapabilityOperationRef;
 };
@@ -2434,7 +2447,7 @@ type MpcCapabilityPublicReauthAnchor = {
   bearerSessionCredential?: never;
   runtime?: never;
   materialActivation?: never;
-  operationGrant?: never;
+  operationAuthorization?: never;
   quotaState?: never;
   nonceState?: never;
 };
@@ -2530,7 +2543,7 @@ evidence; they do not infer authority, lifecycle, or policy from optional
 legacy records, source labels, or diagnostics.
 
 The public anchor is stable reauthorization input. Its policy reference names
-the capability's reauthorization policy and is never an operation grant. Core
+the capability's reauthorization policy and is never operation authorization. Core
 material, signing, and export functions receive `plan`, while diagnostics and
 tests may also receive `provenance`.
 
@@ -2541,10 +2554,11 @@ relocates activated MPC material. Activation creates a fresh opaque
 `MpcMaterialActivationId`; the durable material record, registered capability,
 SigningWorker state, and signed operation context bind the corresponding
 `MpcMaterialActivationRef`. Normal signing validates the active authorization
-Wallet Session and exact material activation independently. The operation grant
-remains bound to the active `SeamsSession`, while the reusable warm allowance
-remains bound to the exact Wallet Session. The wire scope therefore uses
-`authorization_session_id: WalletSessionId` and `material_activation`; the
+Wallet Session and exact material activation independently. An
+`AuthorizedOperation` is bound to the active `SeamsSession` and
+exact authorization source, while the reusable warm allowance remains bound to
+the exact Wallet Session authorization. The wire scope therefore uses
+branch-specific `authorization` and `material_activation`; the
 tactical `session_id` plus `active_state_session_id` pair is deleted rather than
 retained as aliases. Explicit unlock or Wallet Session refresh may replace the
 authorization session ID while preserving the exact activation. Ordinary page
@@ -2653,7 +2667,7 @@ type MpcWalletSigningQuotaRecord =
       kind: "active";
       quotaId: MpcWalletSigningQuotaId;
       walletId: WalletId;
-      walletSessionId: WalletSessionId;
+      authorizationId: WalletSessionAuthorizationId;
       remainingUses: PositiveInt;
       expiresAt: IsoTimestamp;
     }
@@ -2661,14 +2675,14 @@ type MpcWalletSigningQuotaRecord =
       kind: "exhausted";
       quotaId: MpcWalletSigningQuotaId;
       walletId: WalletId;
-      walletSessionId: WalletSessionId;
+      authorizationId: WalletSessionAuthorizationId;
       exhaustedAt: IsoTimestamp;
     }
   | {
       kind: "expired";
       quotaId: MpcWalletSigningQuotaId;
       walletId: WalletId;
-      walletSessionId: WalletSessionId;
+      authorizationId: WalletSessionAuthorizationId;
       expiredAt: IsoTimestamp;
     };
 
@@ -2980,7 +2994,7 @@ quota requirement before branding the lane. The same branded lane travels
 through recovery, authorization, quota claim, nonce preparation, signing or
 export, and finalization. Shared EVM-family projection may reuse only signer,
 scope, authority, material-owner, and durable material facts allowed by the
-manifest. It cannot project a threshold session, operation grant, quota use,
+manifest. It cannot project a threshold session, operation authorization, quota use,
 bearer credential, nonce, or runtime handle.
 
 Core ECDSA types have no optional identity, authority, session, material,
@@ -3070,15 +3084,7 @@ declare const authorizedEvmEcdsaOperationBrand: unique symbol;
 type AuthorizedEvmEcdsaOperation = {
   readonly [authorizedEvmEcdsaOperationBrand]: true;
   operation: EvmEcdsaTransactionOperationEnvelope;
-  grant: Extract<CapabilityGrant, { kind: "active" }>;
-};
-
-declare const claimedEvmEcdsaOperationBrand: unique symbol;
-
-type ClaimedEvmEcdsaOperation = {
-  readonly [claimedEvmEcdsaOperationBrand]: true;
-  authorization: AuthorizedEvmEcdsaOperation;
-  grantUse: Extract<CapabilityGrantUse, { kind: "claimed" }>;
+  authorizedOperation: Extract<AuthorizedOperation, { kind: "authorized" }>;
 };
 
 declare const boundReadyEcdsaMaterialBrand: unique symbol;
@@ -3152,17 +3158,20 @@ type EvmEcdsaReauthorizationAnchor = {
   previousLane: EvmEcdsaTransactionLane;
 };
 
-declare const evmEcdsaOperationGrantRequirementBrand: unique symbol;
+declare const evmEcdsaOperationAuthorizationRequirementBrand: unique symbol;
 
-type EvmEcdsaOperationGrantRequirement = {
-  readonly [evmEcdsaOperationGrantRequirementBrand]: true;
-  kind: "operation_grant";
+type EvmEcdsaOperationAuthorizationRequirement = {
+  readonly [evmEcdsaOperationAuthorizationRequirementBrand]: true;
+  kind: "operation_authorization";
   operation: EvmEcdsaTransactionOperationEnvelope;
-  plan: Extract<CapabilityGrantPlan, { kind: "grant_evidence_required" }>;
+  plan: Extract<
+    OperationAuthorizationPlan,
+    { kind: "verified_step_up_required" }
+  >;
 };
 
 type EvmEcdsaAuthorizationRequirement =
-  | EvmEcdsaOperationGrantRequirement
+  | EvmEcdsaOperationAuthorizationRequirement
   | MpcMaterialUnlockAuthorizationRequirement
   | {
       kind: "threshold_session_replacement";
@@ -3171,7 +3180,7 @@ type EvmEcdsaAuthorizationRequirement =
 
 type EvmEcdsaAuthorizationSuccessFor<
   Requirement extends EvmEcdsaAuthorizationRequirement,
-> = Requirement extends { kind: "operation_grant" }
+> = Requirement extends { kind: "operation_authorization" }
   ? { kind: "operation_authorized"; authorization: AuthorizedEvmEcdsaOperation }
   : Requirement extends { kind: "material_unlock" }
     ? {
@@ -3263,26 +3272,26 @@ type EvmEcdsaPreparationPort = {
 };
 ```
 
-Only boundary builders can create the branded authorization, claimed-use,
+Only boundary builders can create the branded authorized-operation,
 ready-material, committed-capability, unlock-authorization, recovery, and
-replacement-lane types, as well as transaction-selection and operation-grant
-requirements. They compare canonical material-owner keys, authority digests,
-parsed transaction targets and intents, transaction envelopes, operation
-digests, fingerprints, use state, and grant facts before construction. The EVM
-operation-grant requirement proves its evidence plan names the same EVM
+replacement-lane types, as well as transaction-selection and
+operation-authorization requirements. They compare canonical material-owner
+keys, authority digests, parsed transaction targets and intents, transaction
+envelopes, operation digests, fingerprints, use state, and authorization facts
+before construction. The EVM operation-authorization requirement proves its evidence plan names the same EVM
 transaction operation and digest set as its envelope. `any_authority` with more
 than one eligible exact authority returns a lane-selection
 `authority_ambiguous` failure before an exact lane exists; selection never uses
 diagnostics or factor-kind priority to break the tie.
 
-Resolution first proves an active wallet authority and an authorized,
-operation-bound active capability grant. It inspects signer material only after
-those checks. `recovery_required` therefore contains a branded recovery
+Resolution first proves an active wallet authority and exact operation
+authorization. It inspects signer material only after those checks.
+`recovery_required` therefore contains a branded recovery
 capability bound to the exact material owner, active authorization,
 session-retained use state, and recovery binding digest. Inventory labels such
-as `restorable` or `deferred` cannot construct it. Grant-use claim occurs after
-preparation reaches `ready` and immediately before signing; failed material
-recovery does not consume an operation use.
+as `restorable` or `deferred` cannot construct it. `AuthorizedOperation`
+creation occurs after preparation reaches `ready` and immediately before
+signing; failed material recovery does not create or consume an operation.
 
 The recovery binding digest covers the exact material owner, authority ref,
 canonical Phase 5 material binding, recovery ID, and authorized capability
@@ -3302,13 +3311,13 @@ that attempt to `recoverExact`. Recovery can return only session-retained ready
 material.
 
 Operation authorization and material-unlock authorization are distinct. The
-operation grant follows capability policy and may use any evidence set that
-policy accepts. Material unlock is bound to the exact
+authorized operation follows capability policy and may use any evidence set
+that policy accepts. Material unlock is bound to the exact
 `WalletAuthAuthorityRef`. Threshold-session replacement uses a reauthorization
 anchor and returns a branded replacement lane correlated to that anchor; the
 coordinator does not re-resolve an obsolete lane whose threshold-session
 identity changed. The generic authorization result is conditional on requirement
-kind, so an operation-grant request cannot return a replacement lane and a
+kind, so an operation-authorization request cannot return a replacement lane and a
 material-unlock request cannot return an unrelated operation authorization.
 
 The preparation coordinator executes each operation-bound authorization action
@@ -3398,9 +3407,9 @@ type CapabilityBinding = {
 
 Capability modules own rich operation lane, intent, and display types. They
 normalize parsed requests into a generic envelope before asking
-`seams-authorization` for a grant. Requests never carry `CapabilityGrantPolicy`;
-authorization resolves the policy server-side and records the selected
-`policyId`.
+`seams-authorization` to authorize the exact operation. Requests never carry
+server authorization policy; authorization resolves policy server-side and
+records the selected `policyId`.
 
 ```ts
 declare const capabilityOperationEnvelopeBrand: unique symbol;
@@ -3416,44 +3425,38 @@ type CapabilityOperationEnvelope = {
   operationDigests: OperationDigestSet;
 };
 
-type CapabilityGrantRecord = {
+type WalletSessionAuthorization = {
+  kind: "wallet_session_authorization";
+  authorizationId: WalletSessionAuthorizationId;
   tenantId: TenantId;
   principalId: PrincipalId;
-  principalKind: PrincipalKind;
-  grantId: CapabilityGrantId;
-  capabilityId: CapabilityId;
-  bindingId: CapabilityBindingId;
-  operation: CapabilityOperationRef;
-  operationDigests: OperationDigestSet;
-  evidenceSetId: GrantEvidenceSetId;
-  evidenceIds: NonEmptyArray<GrantEvidenceId>;
-  evidenceSetDigest: DigestB64u;
-  assurance: AssuranceProfile;
-  policyId: PolicyId;
+  walletId: WalletId;
+  quotaId: MpcWalletSigningQuotaId;
+  authAuthority: WalletAuthAuthorityRef;
   createdAt: IsoTimestamp;
   expiresAt: IsoTimestamp;
 };
 
-type CapabilityGrant =
-  | (CapabilityGrantRecord & {
-      kind: "active";
-      remainingUses: PositiveInt;
-    })
-  | (CapabilityGrantRecord & {
-      kind: "consumed";
-      consumedAt: IsoTimestamp;
-    })
-  | (CapabilityGrantRecord & {
-      kind: "expired";
-      expiredAt: IsoTimestamp;
-    })
-  | (CapabilityGrantRecord & {
-      kind: "revoked";
-      revokedAt: IsoTimestamp;
-      revokedByPrincipalId: PrincipalId;
-    });
+type AuthorizationGrant = WalletSessionAuthorization;
 
-type CompletedCapabilityGrantUseResult =
+type AuthorizationGrantRef = {
+  kind: "wallet_session_authorization";
+  authorizationId: WalletSessionAuthorizationId;
+};
+
+type OperationAuthorizationSource =
+  | {
+      kind: "authorization_grant";
+      authorizationGrantRef: AuthorizationGrantRef;
+      evidenceSetDigest?: never;
+    }
+  | {
+      kind: "verified_step_up";
+      authorizationGrantRef?: never;
+      evidenceSetDigest: DigestB64u;
+    };
+
+type AuthorizedOperationResult =
   | "succeeded"
   | "failed_before_side_effect"
   | "failed_after_side_effect";
@@ -3463,47 +3466,46 @@ type CapabilityOperationResultRef = {
   resultStorageRef: CapabilityOperationResultStorageRef;
 };
 
-type CapabilityGrantUseBase = {
+type AuthorizedOperationBase = {
   tenantId: TenantId;
-  useId: CapabilityGrantUseId;
-  grantId: CapabilityGrantId;
+  authorizedOperationId: AuthorizedOperationId;
   principalId: PrincipalId;
-  evidenceSetDigest: DigestB64u;
   capabilityId: CapabilityId;
   operationFingerprintDigest: CapabilityOperationFingerprintDigest;
   operation: CapabilityOperationRef;
   operationDigests: OperationDigestSet;
+  authorization: OperationAuthorizationSource;
+  quota:
+    | { kind: "consume_wallet_quota"; quotaId: MpcWalletSigningQuotaId }
+    | { kind: "no_wallet_quota"; quotaId?: never };
+  policyId: PolicyId;
 };
 
-type CapabilityGrantUse =
-  | (CapabilityGrantUseBase & {
-      kind: "claimed";
-      claimedAt: IsoTimestamp;
+type AuthorizedOperation =
+  | (AuthorizedOperationBase & {
+      kind: "authorized";
+      authorizedAt: IsoTimestamp;
     })
-  | (CapabilityGrantUseBase & {
+  | (AuthorizedOperationBase & {
       kind: "completed";
-      result: CompletedCapabilityGrantUseResult;
+      result: AuthorizedOperationResult;
       resultRef: CapabilityOperationResultRef;
       completedAt: IsoTimestamp;
     });
 
 ```
 
-Grant-use consumption is one-way. Handlers must complete cheap boundary parsing,
-route policy checks, capability lookup, and replay checks before consuming a
-use. Once the operation crosses the consume boundary, a later vault, network,
-signing, or downstream failure records a failed `capability_grant_uses` row and
-does not refund the use. Repeating the same operation fingerprint returns its
-recorded result. A deliberate retry uses a new operation ID/fingerprint and
-requires a remaining use on the same grant or a fresh grant. This is the
-intentional replacement for the old signing-budget reserve/commit/release
-lifecycle.
+Authorization and applicable quota consumption are one atomic operation.
+Handlers complete cheap boundary parsing, route policy checks, capability
+lookup, and replay lookup first. A later vault, network, signing, or downstream
+failure completes the `AuthorizedOperation` with the exact failure class and
+does not refund quota. Repeating the same operation fingerprint returns its
+recorded state or result. A deliberate retry uses a new operation
+ID/fingerprint and requires current reusable authorization or fresh one-time
+evidence.
 
-`capability_grant_uses.result_kind` distinguishes at least `succeeded`,
-`failed_before_side_effect`, and `failed_after_side_effect` so operators can
-audit failed consumed attempts without reconstructing them from logs. Rejected
-replay attempts that never claimed a use are authorization audit events, not
-grant-use rows.
+Rejected requests that never create an `AuthorizedOperation` are authorization
+audit events rather than operation rows.
 
 ## Capability Boundaries
 
@@ -3517,26 +3519,27 @@ contact/provider-identity data; they are not required principal identity fields.
 
 Owns `AuthFactorIdentity`, `AuthFactorRecord`, factor lifecycle, factor manifests,
 and runtime-specific factor modules. It emits exact factor evidence containing
-`factorId`; it does not mint sessions or capability grants.
+`factorId`; it does not create sessions or authorized operations.
 
 ### `session`
 
 Owns provider-session normalization, device resolution, session audience
 binding, `SeamsSession`, refresh-token families, hosted-wallet exchange codes,
 and session lifecycle. It consumes verified provider/factor evidence and does
-not mint capability grants.
+not create authorized operations.
 
 ### `seams-authorization`
 
 Owns:
 
 - grant evidence challenge selection;
-- capability grant policies;
+- operation authorization policies;
 - generic operation envelopes;
 - policy resolution from capability ID, operation kind, resource scope,
   principal binding, and grant evidence;
-- short-lived capability grants;
-- replay and grant-use accounting;
+- reusable Wallet Session authorization validation;
+- exact authorized-operation creation, replay, completion, and applicable quota
+  consumption;
 - audit envelopes.
 
 Does not own:
@@ -3572,13 +3575,13 @@ Owns:
 - a minimal local Worker-compatible broker/gateway adapter for Slice A
   proxy-use tests;
 - reveal, rotate, delegate, and proxy-only use policies;
-- capability-local default capability grant policy config.
+- capability-local default operation authorization policy config.
 
 Uses `seams-authorization` for:
 
 - auth session checks;
 - grant evidence verification;
-- capability grant minting;
+- exact authorized-operation creation;
 - server-side policy resolution;
 - audit envelope generation.
 
@@ -3606,10 +3609,10 @@ Owns:
 - Ed25519 export behavior where supported;
 - NEAR digest, display, and policy descriptors registered with
   `seams-authorization`;
-- capability-local default capability grant policy config.
+- capability-local default operation authorization policy config.
 
-Uses `seams-authorization` for session, grant evidence, grant-use limits, grants, and
-audit.
+Uses `seams-authorization` for session, evidence, authorized operations, quota,
+and audit.
 
 ### `capability-evm-ecdsa-mpc`
 
@@ -3621,13 +3624,13 @@ Owns:
 - HSS prepare/finalize;
 - signer WASM loading;
 - ECDSA key export;
-- EVM-family transaction display and nonce/grant-use coupling;
+- EVM-family transaction display and nonce/authorized-operation coupling;
 - EVM digest, display, and policy descriptors registered with
   `seams-authorization`;
-- capability-local default capability grant policy config.
+- capability-local default operation authorization policy config.
 
-Uses `seams-authorization` for session, grant evidence, grant-use limits, grants, and
-audit.
+Uses `seams-authorization` for session, evidence, authorized operations, quota,
+and audit.
 
 ### `capability-idp-access`
 
@@ -4091,13 +4094,13 @@ grant_evidence_set_members(
   created_at_ms
 )
 
-capability_grant_policies(
+operation_authorization_policies(
   namespace,
   tenant_id,
   policy_id,
   capability_kind,
   operation_kind,
-  policy_kind,          -- capability_grant_policy
+  policy_kind,          -- operation_authorization_policy
   policy_json,
   lifecycle_kind,
   created_by_principal_id,
@@ -4127,7 +4130,7 @@ capability_instances(
   deleted_at_ms
 )
 
-capability_operation_grant_policy_bindings(
+capability_operation_authorization_policy_bindings(
   namespace,
   tenant_id,
   capability_id,
@@ -4159,45 +4162,34 @@ capability_bindings(
   deleted_at_ms
 )
 
-capability_grants(
+wallet_session_authorizations(
   namespace,
   tenant_id,
-  grant_id,
-  grant_token_hash,
+  authorization_id,
   principal_id,
-  principal_kind,
-  binding_id,
-  evidence_set_id,
-  evidence_set_digest,
-  assurance_profile_json,
-  capability_kind,
-  capability_id,
-  operation_kind,
-  lane_digest,
-  intent_digest,
-  display_digest,
-  policy_id,
-  remaining_uses,
-  lifecycle_kind,       -- active | consumed | expired | revoked
+  wallet_id,
+  auth_authority_digest,
+  quota_id,
+  lifecycle_kind,       -- active | exhausted | expired | invalid
   created_at_ms,
   expires_at_ms,
-  consumed_at_ms,
-  revoked_by_principal_id,
-  revoked_at_ms
+  invalidated_at_ms
 )
 
-capability_grant_uses(
+authorized_operations(
   namespace,
   tenant_id,
-  use_id,
-  grant_id,
+  authorized_operation_id,
   principal_id,
   operation_fingerprint_digest,
+  authorization_source_kind, -- authorization_grant | verified_step_up
+  authorization_id,
   evidence_set_digest,
+  quota_id,
   capability_kind,
   capability_id,
   operation_kind,
-  lifecycle_kind,       -- claimed | completed
+  lifecycle_kind,       -- authorized | completed
   result_kind,          -- pending | succeeded | failed_before_side_effect | failed_after_side_effect
   result_digest,
   result_ref_json,
@@ -4254,57 +4246,57 @@ Required relational invariants:
   `(namespace, tenant_id, capability_id, operation_kind)`;
 - evidence-set membership is unique by both `(evidence_set_id, evidence_id)` and
   `(evidence_set_id, evidence_position)`;
-- grant token hashes are unique, and grant records reference an immutable
-  evidence set whose principal, operation, and digest facts match the grant;
-- grant-use claims are unique by
-  `(namespace, tenant_id, grant_id, operation_fingerprint_digest)`.
-- lifecycle CHECK constraints correlate branch fields: active grants have a
-  positive balance, consumed grants have zero balance and `consumed_at_ms`,
-  revoked grants have revocation actor/time, claimed uses have `pending` with no
-  result reference, and completed uses have a terminal result plus result
-  digest/reference.
+- wallet-session authorization IDs are unique within tenant scope and reference
+  the exact wallet, authority, and quota;
+- authorized operations are unique by
+  `(namespace, tenant_id, operation_fingerprint_digest)`;
+- authorization-source CHECK constraints require exactly one of
+  `authorization_id` or `evidence_set_digest` according to the source kind;
+- lifecycle CHECK constraints require authorized operations to have `pending`
+  with no result reference and completed operations to have a terminal result
+  plus result digest/reference.
 
-Atomic grant-use algorithm:
+Atomic authorized-operation algorithm:
 
 1. Parse the request into a `CapabilityOperationEnvelope`. The capability module
    computes `operationFingerprintDigest` from a versioned canonical preimage
-   containing tenant, grant, capability, correlated operation, operation ID,
+   containing tenant, capability, correlated operation, operation ID,
    and lane/intent/display digests.
-2. In one transaction, insert a `claimed` grant-use row and decrement
-   `remaining_uses` with a compare-and-swap that requires an active, unexpired
-   grant with a positive balance and matching operation/digests. A failed CAS
-   rolls back the claim and returns the typed exhausted/expired/mismatch result.
+2. In one transaction, validate the active `WalletSessionAuthorization` or
+   verified step-up evidence, consume applicable wallet quota, and insert the
+   `authorized` operation row. Failure rolls back every effect and returns the
+   typed expired, exhausted, invalid, or mismatch result.
 3. A duplicate fingerprint loads the existing row. A completed row returns its
    prior result as an idempotent replay; a claimed row returns
    `operation_in_progress`. Neither path consumes another use.
-4. Different fingerprints consume independently and serialize through the same
-   grant row. Once the claim transaction commits, downstream failure never
-   refunds the use.
-5. Completion transitions the use row from `claimed` to `completed` exactly
+4. Different fingerprints consume independently and serialize through the
+   applicable quota row. Once authorization commits, downstream failure never
+   refunds consumed quota.
+5. Completion transitions the operation row from `authorized` to `completed` exactly
    once and records `succeeded`, `failed_before_side_effect`, or
    `failed_after_side_effect` plus an integrity-bound operation-result reference.
-   Replay denial is written to the authorization audit log without another grant
+   Replay denial is written to the authorization audit log without another quota
    decrement. Idempotent retries return the result through that reference after
    validating its digest.
 
 Every database adapter must pass the same concurrent-consumption conformance
-suite. An adapter that cannot provide the claim-plus-decrement transaction
-cannot implement capability grants.
+suite. An adapter that cannot provide atomic authorize-plus-quota-consumption
+cannot implement wallet operation authorization.
 
 `CapabilityOperationResultRef` points to capability-local idempotency state.
 Vault plaintext, raw exported keys, bearer tokens, and unsealed signer material
 never appear in `result_ref_json`; sensitive replayable results stay sealed or
 are re-fetched through the capability's protected result store. Result
-retention cannot outlive the grant-use audit retention without an explicit
-capability policy.
+retention cannot outlive the authorized-operation audit retention without an
+explicit capability policy.
 
 Retention and abuse controls:
 
 - Phase 10 adds expiry indexes for challenges, evidence rows, refresh tokens, and
-  capability grants.
+  wallet-session authorizations.
 - Phase 12 owns a pruning job interface for expired grant challenges, expired or
-  consumed grant evidence, expired grants, revoked refresh-token families after
-  the retention window, and old audit-export scratch rows.
+  consumed grant evidence, expired wallet authorizations, revoked refresh-token
+  families after the retention window, and old audit-export scratch rows.
 - Phase 11 and Phase 14 add rate-limit ports for session exchange, OTP challenge
   minting, WebAuthn grant-evidence challenge minting, and verification attempts.
   Phase 15 adds the same controls for service-account grant requests.
@@ -4524,7 +4516,7 @@ may verify the high-value write through the same parser, but it is not durable
 lifecycle state. Browser/worker memory cannot make a partially committed
 manifest ready.
 
-These records exclude operation grants, wallet quotas, nonce state, bearer
+These records exclude authorized operations, wallet quotas, nonce state, bearer
 credentials, provider subjects, provenance source, diagnostics, and live worker
 handles. Those domains join only after exact manifest and runtime resolution.
 The migration rejects and clears obsolete ECDSA session-record stores at this
@@ -4552,10 +4544,10 @@ Auth factors prove who is present.
 
 Capabilities define what can be done.
 
-Capability grant policies define which auth factors can authorize each capability
-operation.
+Operation authorization policies define which reusable authority or verified
+evidence can authorize each capability operation.
 
-Capability grants authorize one exact capability operation.
+`AuthorizedOperation` records one exact accepted capability operation.
 
 Security invariants:
 
@@ -4565,25 +4557,25 @@ Security invariants:
   `SeamsSession`; they are never treated as digest-bound factor assertions;
 - capability kind and operation kind are parsed as one correlated
   `CapabilityOperationRef`;
-- grant policy receives only branded `CapabilityGrantRequest` values built from
+- authorization policy receives only branded `OperationAuthorizationRequest` values built from
   an active capability binding, exact operation envelope, and
   `VerifiedGrantEvidenceSet`;
-- grant use is claimed and decremented atomically by canonical operation
-  fingerprint; repeated fingerprints cannot repeat side effects or consume
-  another use;
+- operation authorization and applicable quota consumption are atomic by
+  canonical operation fingerprint; repeated fingerprints cannot repeat side
+  effects or consume quota again;
 - deployment availability and tenant enablement are both required before a
   capability handler can execute.
 
 Vault access default:
 
 ```text
-SeamsSession + capability grant policy + RBAC + short-lived grant + audit
+SeamsSession + operation authorization policy + RBAC + AuthorizedOperation + audit
 ```
 
 MPC signing default:
 
 ```text
-SeamsSession + capability grant policy + MPC operation lane + threshold signing runtime
+WalletSessionAuthorization or verified step-up + AuthorizedOperation + MPC operation lane + threshold signing runtime
 ```
 
 IdP token issuance default:

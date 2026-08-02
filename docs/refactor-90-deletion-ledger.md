@@ -104,12 +104,14 @@ exact parser, and two-state activation journal.
   `registrationAuthorityId`, and `signingGrantId` in durable Ed25519 restore
   records
 - ambiguous `remainingUses` / `expiresAtMs` rows (classify each: branded
-  recovery policy, quota, grant, session transport — never migrate ambiguously)
-- every `signingGrantId` occurrence (classify: delete, map to operation grant,
-  or map to `MpcWalletSigningQuotaId`; never a mechanical rename, never
-  material identity)
+  recovery policy, quota, reusable authorization, session transport — never
+  migrate ambiguously)
+- every `signingGrantId` occurrence (classify: delete, map to
+  `WalletSessionAuthorizationId`, map to `AuthorizedOperationId`, or map to
+  `MpcWalletSigningQuotaId`; never a mechanical rename, never material
+  identity)
 - `WalletSessionId = SigningGrantId`; replace it atomically with a distinct
-  branded `WalletSessionId` and boundary parser
+  branded `WalletSessionAuthorizationId` and boundary parser
 - interim shared exports of `SignerAuthMethod` / `WalletAuthMethod` only if a
   capability-local move ships both halves in one cut (Refactor 91's stable leaf
   module stays until then)
@@ -118,17 +120,17 @@ exact parser, and two-state activation journal.
 
 Replacement: branded `MpcMaterialActivationId`, exact
 `MpcMaterialActivationRef`, and an operation scope that carries an independent
-`authorizationSessionId`.
+`authorization` source.
 
 - `ActiveMpcMaterialSessionRef`
 - `ActiveEcdsaMaterialSession`
 - `rehydrate_active_session`
 - `active_state_session_id`
 - ambiguous normal-signing `session_id` fields that represent authorization;
-  the replacement wire field is `authorization_session_id`
+  the replacement wire field is the branch-specific `authorization`
 - `authorizationSessionId: SeamsSessionId` on MPC operation scopes; reusable
-  wallet authorization uses `WalletSessionId`, while operation grants retain
-  their independent `SeamsSessionId` binding
+  wallet authorization uses a `WalletSessionAuthorizationId`, while each
+  `AuthorizedOperation` retains its independent `SeamsSessionId` binding
 - every `thresholdSessionId` or Wallet Session ID used as a material activation
   locator, persistence key, worker-state key, or hydration identity
 - compatibility aliases between authorization session IDs and material
@@ -235,7 +237,7 @@ ports, and the two-state recovery journal.
   generic lifecycle/export-context boundary; strip `signingGrantId`, raw
   provider subject, and bearer JWT from the worker payload)
 - `signingGrantId` in export subject/context/worker requests (the exact
-  `near.export_key` grant lives only in operation authorization/claim state)
+  `near.export_key` authority lives only in `AuthorizedOperation` state)
 
 ## Phase 19 — factor-labelled assembly ports and Browser shortcuts
 
@@ -285,9 +287,32 @@ ports, and the two-state recovery journal.
   substitution fixtures that name no factor lane)
 - obsolete positive capability-source fixtures in `nearSigning.typecheck.ts`
 
-## Phase 20 — signing budget subsystem
+## Phase 20 — authorization and signing budget subsystem
 
-Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
+Replacement: reusable `AuthorizationGrant`, one exact `AuthorizedOperation`,
+and independent `MpcWalletSigningQuota` consumption.
+
+- `CapabilityGrant`, `CapabilityGrantRecord`, `CapabilityGrantRequest`, and
+  `CapabilityGrantPolicy`
+- `CapabilityGrantId`, `CapabilityGrantUse`, `CapabilityGrantUseId`, and all
+  grant-use claim/complete adapters
+- `OperationClaim` and common grant/claim base records, builders, parsers,
+  stores, route fields, and fixtures
+- operation-specific `*AuthorizationClaim*` shapes are classified by semantics:
+  an accepted exact operation becomes `AuthorizedOperation`; raw token or
+  evidence claims stay at their boundary and parse into
+  `OperationAuthorizationSource`
+- synthetic per-operation grant/evidence records constructed from a reusable
+  Wallet Session
+- transient one-use grants minted after Passkey or Email OTP step-up; verified
+  evidence creates the exact `AuthorizedOperation` directly
+- `grant_id`, `grant_use_id`, and compatibility aliases in current request and
+  persistence schemas; destructively reuse the current Wallet Session and
+  operation-use/claim storage for the branch authorization ID and
+  `AuthorizedOperationId`
+- any parallel authorization-grant/authorized-operation tables or store APIs
+  added beside the current persistence solely for this rename
+- any generic grant ID stored beside the exact branch-specific authorization ID
 
 - `BudgetCoordinator`, `budgetProjection`, `budgetFinalizer`,
   `budgetStatusReader`

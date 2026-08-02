@@ -81,8 +81,10 @@ The refactor is complete when:
 - Ed25519 and ECDSA each have one canonical durable material owner;
 - registration, unlock, and refresh feed the same hydration resolver;
 - exact authority and material bindings select one operation lane;
-- server admission atomically claims one operation grant and, when applicable,
-  one wallet-signing quota use under a stable operation fingerprint;
+- server authorization atomically creates or reuses one `AuthorizedOperation`
+  from current reusable authority or verified one-time evidence and, when
+  applicable, consumes one wallet-signing quota use under a stable operation
+  fingerprint;
 - recovery survives crashes through idempotent server reconciliation and a
   minimal client journal;
 - obsolete wallet-first paths, records, fixtures, and source guards are deleted.
@@ -96,9 +98,10 @@ The refactor is complete when:
 - Protocol-neutral hydration outcomes with protocol-local payloads.
 - Near Ed25519 Yao active-material rehydration and same-root recovery.
 - Exact ECDSA role-local material activation and rehydration.
-- DB-backed operation grants and MPC wallet-signing quota claims.
-- A minimal vault vertical proving session, evidence, grant, enforcement, and
-  audit before MPC migration.
+- DB-backed authorization grants, authorized operations, and MPC wallet-signing
+  quota state.
+- A minimal vault vertical proving session, evidence, one exact authorized
+  operation, enforcement, and audit before MPC migration.
 - Static route composition through narrow service ports.
 - Current Cloudflare, Node, SDK, worker, UI, and provisioning migrations needed
   by the two MPC capabilities.
@@ -113,7 +116,7 @@ These are separate refactors and do not block Refactor 90:
 - service-account evidence and workload identity;
 - Better Auth integration;
 - IdP/OIDC provider functionality;
-- Slack OTP grant evidence;
+- Slack OTP authorization evidence;
 - full vault administration, delegation, rotation, break-glass, export, and
   service-account workflows;
 - a general route-plugin or runtime module registry;
@@ -177,8 +180,9 @@ Foundation B replaces `ThresholdEcdsaSessionRecordCore` with one boundary-parsed
 - durable role-local material ref and authenticated binding digests;
 - lifecycle, revision, expiry, and activation receipt.
 
-Runtime handles, bearer credentials, operation grants, wallet quota, nonce,
-entry-point provenance, diagnostics, and provider data are separate domains.
+Runtime handles, bearer credentials, authorization grants, authorized
+operations, wallet quota, nonce, entry-point provenance, diagnostics, and
+provider data are separate domains.
 There is one IndexedDB capability adapter and one volatile worker-runtime
 registry.
 
@@ -278,34 +282,69 @@ Durable server execution leases remain separate and exist only for operations
 that can outlive a request, transfer between workers, or require delivery
 reconciliation.
 
-### 6. Operation claims
+### 6. Authorization grants and authorized operations
 
 Invariants: `R90-INV-009`.
 
-The operation fingerprint excludes rotating grant, quota, session, and runtime
-IDs. One server transaction on an absent fingerprint:
+`AuthorizationGrant` is the reusable authority union. Its branches use precise
+domain names and own their independent scope, lifecycle, expiry, suspension,
+revocation, and aggregate budget where applicable. The completed
+cross-refactor target is:
+
+```ts
+type AuthorizationGrant =
+  | WalletSessionAuthorization
+  | LinkedDeviceAuthorization
+  | DelegatedSpendAuthorization;
+```
+
+During Refactor 90, the closed union contains only
+`WalletSessionAuthorization`. Refactor 103 adds `LinkedDeviceAuthorization`;
+Refactor 104 adds `DelegatedSpendAuthorization`. Refactor 90 adds no placeholder
+records, route branches, or dormant union members for those follow-on models.
+
+`AuthorizedOperation` is the durable record for one exact operation. It binds
+an `AuthorizedOperationId`, stable request fingerprint, exact authorization
+source, required quota/budget consumption, audit linkage, and the minimal
+execution/result lifecycle demonstrated by that operation. It never acts as a
+reusable authorization grant.
+
+Each `AuthorizationGrantRef` branch contains exactly one domain-specific ID.
+Refactor 90 destructively renames the existing Wallet Session authorization ID;
+it does not add a second generic grant ID or a second reusable-authorization
+record.
+
+The operation fingerprint excludes rotating authorization, quota, session, and
+runtime IDs. One server transaction on an absent fingerprint:
 
 1. validates the exact capability operation and current authority/lifecycle;
-2. validates and consumes one operation-grant use;
+2. validates the referenced active `AuthorizationGrant`, or verified one-time
+   evidence for direct step-up authorization;
 3. validates and consumes one wallet quota use when the descriptor requires it;
-4. creates the operation claim and audit linkage.
+4. creates the `AuthorizedOperation` and audit linkage.
 
 Operation descriptors declare quota applicability: normal signing costs one
-wallet-quota use beside its grant; key export declares no quota use and consumes
-only its exact grant. Quota exhaustion therefore never blocks export, and export
-never spends signing quota.
+wallet-quota use; key export declares no quota use. Quota exhaustion therefore
+never blocks export, and export never spends signing quota.
 
-An existing claim returns its current or terminal result without consuming
-renewed resources. A server execution lease is added only for an operation whose
-execution semantics require retry by another worker or delivery reconciliation.
-Ordinary request-bound execution does not become a durable job scheduler.
+An existing `AuthorizedOperation` returns its current or terminal result without
+consuming renewed authorization or quota. A server execution lease is added only
+for an operation whose execution semantics require retry by another worker or
+delivery reconciliation. Ordinary request-bound execution does not become a
+durable job scheduler.
+
+One-time Passkey or Email OTP step-up creates an `AuthorizedOperation` directly
+after evidence verification. It does not mint a transient one-use
+`AuthorizationGrant`. This keeps reusable authority and exact operation state as
+the only two authorization layers.
 
 ### 7. Revocation
 
 Invariants: `R90-INV-006`, `R90-INV-009`.
 
-Server claims are revoked and reconciled by server-owned epochs and claim state.
-They are not local revocation-outbox targets.
+Authorization grants are revoked and reconciled by their server-owned lifecycle
+and epochs. Existing authorized operations follow their exact recorded terminal
+policy. Neither is a local revocation-outbox target.
 
 When offline local cleanup must eventually trigger a server revocation, the
 client stores one command containing an exact target, idempotency key, and
@@ -322,14 +361,14 @@ Slice A proves the shared authorization path before MPC migration:
 ```text
 native session
   -> operation-bound passkey evidence
-  -> one-use vault proxy/reveal grant
-  -> one vault operation
+  -> one exact AuthorizedOperation
+  -> vault proxy/reveal execution
   -> audit event
 ```
 
-It includes only the schema, route, SDK call, evidence verification, grant claim,
-operation, and audit readback needed for this vertical. Full vault product
-behavior remains in its own plan.
+It includes only the schema, route, SDK call, evidence verification, exact
+operation authorization, execution, and audit readback needed for this vertical.
+Full vault product behavior remains in its own plan.
 
 ### 9. Enforcement rule
 
@@ -362,7 +401,7 @@ boundaries make the prohibited path impossible.
 | seal and source deletion in separate commits | journal/source consistency | one finalization transaction that swaps/retire records and deletes journal | transaction-abort fault injection |
 | affine `MaterialUseLease` tokens | exclusive material use | owner queue plus generation/fence | concurrent recovery/sign/export test |
 | runtime disposal/zeroization journal facts | live secret cleanup | worker ownership and `finally` disposal | worker lifecycle tests |
-| target-specific revocation outbox union | eventual revocation | one exact idempotent command; server claims remain server-owned | offline/retry integration test |
+| target-specific revocation outbox union | eventual revocation | one exact idempotent command; server authorization grants and authorized operations remain server-owned | offline/retry integration test |
 | synthetic third-factor adapter | factor-neutral coordination | factor-free interfaces and literal/import guard | generic-module source guard plus Passkey/OTP tests |
 | recursive evidence expression in the critical path | composed authorization | named policies or flat `all \| any` requirements used by current operations | policy table tests |
 | repository-wide and phase-local inventory gates | migration coverage | the standing deletion ledger, appended during implementation | scoped search and diff review per phase |
@@ -389,7 +428,7 @@ journal. Their scope is reduced below.
 | Phases 4-5 | exact subjects and ECDSA role-local cache slimming | In progress |
 | Phases 7-9 | current vocabulary, SDK surface, narrow route ports/static assembly | Planning |
 | Phases 10-16 | minimal session/authorization/vault proving slice | Planning |
-| Phases 17-20 | authority/persistence migration, MPC modules and claims | Planning |
+| Phases 17-20 | authority/persistence migration, MPC modules, grants, and authorized operations | Planning |
 | Phases 21-23 | required worker, UI, and provisioning cutover | Planning |
 | Phase 24 | current-host assembly reconciliation only | Planning |
 | Phases 25-26 | Better Auth and IdP | Moved to follow-on plans |
@@ -400,8 +439,9 @@ Phase 7. Each phase performs its own scoped search as part of changing shared
 types, and records its deletions in the ledger before exit.
 
 The minimal Slice A vertical must pass before Phase 17 starts migrating live MPC
-signing. Phases 19-20 form one no-release cutover: a supported build cannot expose
-both the old signing authorization flow and the new capability-grant flow.
+signing. Phases 19-20 form one no-release cutover: a supported build cannot
+expose both the old signing authorization flow and the final
+`AuthorizationGrant`/`AuthorizedOperation` model.
 
 ## Phased Todo Tracker
 
@@ -436,7 +476,8 @@ Phase 4/5 sections; symbol-level deletion targets live in the
 - [x] Phase 2 — wallet-rooted confirmation subjects.
 - [x] Phase 3 — AuthService mechanical module split.
 - [ ] Phase 4 — exact capability-subject hardening closes against Foundation A.
-- [ ] Phase 5 — ECDSA role-local material contains no chain, grant, quota,
+- [ ] Phase 5 — ECDSA role-local material contains no chain, authorization,
+  quota,
   nonce, or broad session state.
 
 ### Slice A — authorization proving vertical
@@ -447,34 +488,35 @@ Phase 4/5 sections; symbol-level deletion targets live in the
   server capabilities.
 - [ ] Phase 9 — current routes use narrow ports and static assembly; replaced
   facade/helper/parallel paths are deleted.
-- [ ] Phase 10 — minimal session, factor, capability, grant, claim, vault, and
-  audit schema plus boundary parsers are complete.
+- [ ] Phase 10 — minimal session, factor, capability, authorization-grant,
+  authorized-operation, vault, and audit schema plus boundary parsers are
+  complete.
 - [ ] Phase 11 — native session exchange produces an opaque, correctly bound
   `SeamsSession`.
-- [ ] Phase 12 — verified evidence, exact grant issuance, stable fingerprints,
-  atomic claim/use, and audit linkage are complete.
+- [ ] Phase 12 — verified evidence, exact authorization sources, stable
+  fingerprints, atomic operation authorization, and audit linkage are complete.
 - [ ] Phase 13 — management/session routes use exact subjects and no obsolete
   wallet-first policy aliases.
 - [ ] Phase 14 — Passkey and Email OTP evidence flow through factor-neutral
   confirmation coordination.
 - [x] Phase 15 — service-account work is removed from Refactor 90 and assigned
   to a follow-on plan.
-- [ ] Phase 16 — the minimal real session → Passkey evidence → one-use grant →
-  vault operation → audit vertical passes end to end.
+- [ ] Phase 16 — the minimal real session → Passkey evidence →
+  `AuthorizedOperation` → vault execution → audit vertical passes end to end.
 
 ### Slice B — MPC migration
 
 - [ ] Phase 17 — active signing lanes use exact `WalletAuthAuthorityRef` without
   duplicate identity bags.
 - [ ] Phase 18 — ECDSA and Near persistence, two-state recovery, simple
-  revocation commands, grants, and wallet quota have canonical owners and strict
-  parsers.
+  revocation commands, wallet authorization, authorized operations, and wallet
+  quota have canonical owners and strict parsers.
 - [ ] Phase 18 — persisted capability and material records use opaque material
   activation IDs independently from authorization session IDs.
-- [ ] Phase 18 — `WalletSessionId`, `MpcWalletSigningQuotaId`,
-  `CapabilityGrantId`, `SeamsSessionId`, and `MpcMaterialActivationId` remain
-  independent branded identities; the `WalletSessionId = SigningGrantId` alias
-  is deleted.
+- [ ] Phase 18 — `WalletSessionAuthorizationId`, `AuthorizedOperationId`,
+  `MpcWalletSigningQuotaId`, `SeamsSessionId`, and
+  `MpcMaterialActivationId` remain independent branded identities; the
+  `WalletSessionId = SigningGrantId` alias is deleted.
 - [ ] Phase 19 — registration, unlock, refresh, signing, step-up, and export use
   the same capability modules and minimal recovery lifecycle.
 - [ ] Phase 19 — activation, hydration, and runtime publication resolve one exact
@@ -484,14 +526,16 @@ Phase 4/5 sections; symbol-level deletion targets live in the
   disposal, and `superseded` re-resolution tests pass.
 - [ ] Phase 19 — the tactical symbols in the deletion ledger owned by this phase
   are deleted in the same changes that replace them.
-- [ ] Phase 20 — MPC routes use exact operation grants and atomic absent-claim
-  grant/quota consumption; old threshold-session authorization is deleted.
-- [ ] Phase 20 — signed MPC operation scopes validate
-  `authorizationSessionId` and `materialActivation` independently.
-- [ ] Phase 20 — structured Wallet Session expiry races retry at most once
-  through same-method operation step-up; expiry never selects recovery.
-- [ ] Phase 20 — durable execution leases exist only for operations with a
-  demonstrated cross-request or cross-worker need.
+- [ ] Phase 20 — the SPEC and domain types use `AuthorizationGrant`,
+  `OperationAuthorizationSource`, and `AuthorizedOperation`.
+- [ ] Phase 20 — existing Wallet Session and operation-use/claim persistence is
+  destructively reused; every current consumer uses atomic
+  authorize-or-return-existing behavior, one-time step-up creates the operation
+  directly, and authorization remains independent from material activation.
+- [ ] Phase 20 — replaced grant/use/claim code, schemas, request fields,
+  fixtures, and exports are deleted.
+- [ ] Phase 20 — the narrow type, persistence, hostile-substitution, and
+  Ed25519/ECDSA checks pass.
 - [ ] Phase 21 — worker/WASM secret boundaries and required import/export guards
   pass without speculative artifact restructuring.
 - [ ] Phase 22 — React, Lit, iframe, and direct SDK adapters exhaustively handle
@@ -501,8 +545,9 @@ Phase 4/5 sections; symbol-level deletion targets live in the
   app identity survives either transition.
 - [ ] Phase 23 — auth-first per-capability provisioning replaces tactical
   combined cross-curve registration/unlock orchestration.
-- [ ] Phase 23 — only explicit wallet unlock creates a reusable Wallet Session;
-  transaction/export step-up grants exactly one operation.
+- [ ] Phase 23 — only explicit wallet unlock creates reusable
+  `WalletSessionAuthorization`; transaction/export step-up directly authorizes
+  exactly one operation.
 - [ ] Phase 24 — current Cloudflare, Node, local-test, and self-hosted assembly
   paths use the final static composition and thin adapters.
 - [x] Phases 25-26 — Better Auth and IdP are removed from Refactor 90 and
@@ -640,7 +685,7 @@ Open items:
       leaves it unlocked, and either state can coexist with active app identity;
 - [ ] iframe initialization supplies the exact secure-origin Wallet Session
       projection before React chooses locked or unlocked display state;
-- [ ] registered NEAR identity survives absent lane, grant, quota, and live
+- [ ] registered NEAR identity survives absent lane, authorization, quota, and live
       Client state;
 - [ ] delete `nearAccountId`-inference fallbacks, the
       `login.publicKey ? 'passkey' : null` auth-method inference, and silent
@@ -691,11 +736,12 @@ the minimal vault slice and the two MPC modules. Keep `WalletAuthMethod` and
 `SignerAuthMethod` in their stable Refactor 91 shared leaf module while both SDK
 and server consume them. Ownership purity alone does not justify moving them.
 
-Introduce exact tenant, principal, session, factor, capability, operation,
-grant, and evidence references required by the current verticals. Use named or
-flat `all | any` evidence requirements. Do not add recursive policy expressions,
-service-account evidence, provider-assurance taxonomies, IdP operations, Slack
-OTP, or an implemented `mpc_signer_proof` producer.
+Introduce exact tenant, principal, session, factor, capability, authorization,
+authorized-operation, and evidence references required by the current
+verticals. Use named or flat `all | any` evidence requirements. Do not add
+recursive policy expressions, service-account evidence, provider-assurance
+taxonomies, IdP operations, Slack OTP, or an implemented `mpc_signer_proof`
+producer.
 
 The Refactor 82B `WalletAuthAuthority` restructure lands as one coordinated cut
 with this phase: stage the 82B domain types and fixtures dark first, then flip
@@ -726,7 +772,8 @@ Add only the persistence required for:
 - Seams sessions and exchange codes;
 - current auth-factor records;
 - capability instances and bindings;
-- operation grants, uses, and claims;
+- the current `WalletSessionAuthorization` grant and exact
+  `AuthorizedOperation` records;
 - the minimal vault record;
 - authorization audit events.
 
@@ -743,20 +790,22 @@ operation authorization.
 
 ### Phase 12: Authorization core
 
-Implement verified evidence construction, exact operation-grant issuance,
-stable operation fingerprints, atomic claim/use behavior, and audit linkage for
-the operations currently in scope. `mpc_signer_proof` policy evaluation fails
-closed until a producer is designed.
+Implement verified evidence construction, exact authorization-source
+resolution, stable operation fingerprints, atomic `AuthorizedOperation`
+creation, and audit linkage for the operations currently in scope. Direct
+one-time evidence and reusable `WalletSessionAuthorization` converge only at
+the operation-authorizing transaction. `mpc_signer_proof` policy evaluation
+fails closed until a producer is designed.
 
 Invariants: `R90-INV-001`, `R90-INV-009`.
 
 ### Phase 13: Management and session route policy
 
 Move management and session routes to exact subject and session policies. Keep
-management authorization separate from capability-operation grants. Delete old
+management authorization separate from operation authorization. Delete old
 wallet-first policy aliases and fixtures.
 
-### Phase 14: Grant evidence and confirmation UI
+### Phase 14: Operation evidence and confirmation UI
 
 Implement operation-bound Passkey evidence and the existing Email OTP evidence
 needed by current MPC flows. The minimal vault E2E acceptance uses Passkey.
@@ -774,8 +823,8 @@ Implement one production-shaped proxy/reveal vertical proving:
 
 1. native session exchange;
 2. operation-bound Passkey evidence;
-3. one-use exact grant issuance and claim;
-4. one vault operation;
+3. one exact `AuthorizedOperation` created directly from verified evidence;
+4. one vault execution;
 5. an auditable terminal result.
 
 Exclude delegation, rotation, break-glass, export, broad administration,
@@ -794,9 +843,10 @@ boundary-constructed `WalletAuthAuthorityRef`. Put the authority on the canonica
 capability/material owner and pass narrow prepared contexts downward. Avoid
 threading a duplicate identity bag through every internal helper.
 
-Reusable Wallet Session parsing must bind that exact authority while keeping
-`WalletSessionId` independent from auth-method display data, app identity,
-operation grants, wallet quota IDs, and material activation IDs.
+Reusable Wallet Session parsing must construct and bind that exact
+`WalletSessionAuthorization` while keeping its ID independent from auth-method
+display data, app identity, authorized operations, wallet quota IDs, and
+material activation IDs.
 
 Invariants: `R90-INV-001`, `R90-INV-013`, `R90-INV-014`.
 
@@ -813,18 +863,20 @@ Implement:
 - the two-state Near recovery journal;
 - one simple revocation command outbox when offline server reconciliation is
   required;
-- independent operation grants and `MpcWalletSigningQuota`;
-- an opaque `WalletSessionId` for reusable wallet authorization and the exact
-  remaining-use quota attached to that session, independent from
-  `CapabilityGrantId` and `SeamsSessionId`;
+- `WalletSessionAuthorization`, exact `AuthorizedOperation` records, and an
+  independent `MpcWalletSigningQuota`;
+- an opaque `WalletSessionAuthorizationId` for reusable wallet authorization
+  and the exact remaining-use quota attached to it, independent from
+  `AuthorizedOperationId` and `SeamsSessionId`;
 - a branded `MpcMaterialActivationId` and exact activation reference persisted
   with each active capability/material manifest, separate from
-  `WalletSessionId` and `SeamsSessionId`;
+  `WalletSessionAuthorizationId` and `SeamsSessionId`;
 - strict boundary parsers with no dual-schema core reader.
 
-`signingGrantId` is classified and deleted, mapped to operation grant, or mapped
-to wallet quota according to semantics. It is never mechanically renamed or used
-as material identity.
+`signingGrantId` is classified and deleted, mapped to the reusable wallet
+authorization, mapped to the exact authorized operation, or mapped to wallet
+quota according to semantics. It is never mechanically renamed or used as
+material identity.
 
 The persisted/request cutover replaces `active_state_session_id` and any
 threshold-session-derived material locator with the exact activation reference.
@@ -833,11 +885,11 @@ the cutover may be rejected at the persistence boundary; development accounts
 can be recreated after the schema and protocol version advance.
 
 The current `WalletSessionId = SigningGrantId` alias is deleted in the same cut.
-Wallet Session, app session, operation grant, wallet quota, and material
-activation each receive a distinct branded identifier and boundary parser.
-Refactor 92's exact Wallet Session state remains owned by the secure wallet
-origin and is never reconstructed from an operation grant, JWT presence,
-optional persisted IDs, or a material record.
+Wallet-session authorization, app session, authorized operation, wallet quota,
+and material activation each receive a distinct branded identifier and boundary
+parser. Refactor 92's exact Wallet Session state remains owned by the secure
+wallet origin and is never reconstructed from an authorized operation, JWT
+presence, optional persisted IDs, or a material record.
 
 Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-005`, `R90-INV-006`,
 `R90-INV-013`, `R90-INV-014`. The record and symbol deletion targets are enumerated in the
@@ -877,12 +929,12 @@ durable journal.
 The capability module owns activation identity. Registration or explicit
 re-activation creates a new opaque activation ID and binds it to the capability,
 material owner, key, lifecycle, and SigningWorker. Explicit wallet unlock or a
-Wallet Session refresh may mint a fresh authorization session while preserving
-that exact activation reference. Ordinary page refresh reuses the same valid
-Wallet Session and remaining allowance. Operation step-up mints only the
-single-operation grant. No path derives material identity from a fresh session
-or grant ID. Hydration returns the same activation reference for live and sealed
-copies of the same exact material.
+Wallet Session refresh may mint a fresh `WalletSessionAuthorization` while
+preserving that exact activation reference. Ordinary page refresh reuses the
+same valid wallet authorization and remaining allowance. Operation step-up
+creates only the exact `AuthorizedOperation`. No path derives material identity
+from a fresh authorization or authorized-operation ID. Hydration returns the
+same activation reference for live and sealed copies of the same exact material.
 
 Refactor 92 remains the wallet-authorization front end to both modules. A valid
 Wallet Session retains its remaining warm allowance across page refresh while
@@ -901,38 +953,114 @@ The tactical resolver, lane, reconnect, recovery, and export symbols this phase
 deletes are enumerated in the
 [deletion ledger](./refactor-90-deletion-ledger.md).
 
-### Phase 20: MPC route policy and operation claims
+### Phase 20: Authorization grants and authorized operations
 
-Replace threshold-session authorization planes with exact capability-operation
-grants. Existing-claim lookup occurs before fresh authorization or recovery.
-Only an absent claim can consume new grant/quota resources.
+Replace threshold-session authorization planes and the old one-use
+grant/claim/use stack with two explicit concepts:
 
-The server atomically validates current promotion/revocation state, consumes the
-exact grant and applicable quota, creates the claim, and writes audit linkage.
+- `AuthorizationGrant` is reusable, scoped, independently revocable authority;
+- `AuthorizedOperation` is one exact, fingerprinted, replay-safe operation and
+  its minimal execution/result lifecycle.
+
+The initial closed union contains `WalletSessionAuthorization`. Refactors 103
+and 104 extend it with `LinkedDeviceAuthorization` and
+`DelegatedSpendAuthorization` when those features are implemented. Their
+fields, persistence, policy, and inactive variants do not land early in Refactor
+90.
+
+Existing-`AuthorizedOperation` lookup occurs before fresh authorization or
+recovery. Only an absent stable fingerprint can consume quota or create a new
+record. The server atomically validates current promotion/revocation state,
+validates the exact authorization source, consumes applicable quota, creates
+the `AuthorizedOperation`, and writes audit linkage. One-time Passkey or Email
+OTP step-up supplies verified evidence directly to that transaction and creates
+no transient `AuthorizationGrant`.
+
+The authorized-operation record makes its source branch explicit:
+
+```ts
+type OperationAuthorizationSource =
+  | {
+      kind: "authorization_grant";
+      authorizationGrantRef: AuthorizationGrantRef;
+      evidenceSetDigest?: never;
+    }
+  | {
+      kind: "verified_step_up";
+      authorizationGrantRef?: never;
+      evidenceSetDigest: DigestB64u;
+    };
+```
+
+Core code receives a parsed branch and never optional grant/evidence bags. A
+reusable branch revalidates the existing Wallet Session lifecycle before an
+irreversible effect. Refactor 90 adds no generic revocation-epoch mechanism.
+Refactors 103 and 104 add branch-specific suspension, revocation, and epoch
+fields when durable device and delegation authorization land.
+
 Add execution phases, leases, watchdogs, or delivery reconciliation only to
-operations whose real execution can outlive the request or transfer between
-workers. Client material-owner queues and server operation claims remain separate
-domains.
+authorized operations whose real execution can outlive the request or transfer
+between workers. Client material-owner queues and server authorized operations
+remain separate domains.
 
 Every signed MPC operation scope carries two independent proofs:
 
-- `authorizationSessionId` identifies the current reusable Wallet Session and
-  is checked for expiry, wallet, exact auth authority, and warm allowance;
+- `authorization` carries either the exact current authorization-grant reference
+  or verified one-time evidence and is checked for scope, lifecycle, wallet,
+  exact auth authority, and applicable allowance;
 - `materialActivation` identifies the exact activated material instance and is
   checked against the capability, owner, key, lifecycle, generation, and
   SigningWorker state.
 
-The operation grant remains bound to the active `SeamsSession` and exact
-operation. Server admission distinguishes expired, exhausted, missing,
-unavailable, and invalid Wallet Session results. An authoritative expiry race
-may trigger one same-method operation-step-up retry. A second expiry is
-terminal. Expiry never selects recovery, and key export declares no quota use.
+The `AuthorizedOperation` remains bound to the active `SeamsSession`, exact
+authorization source, and exact operation. Authorization distinguishes expired,
+exhausted, missing, unavailable, and invalid Wallet Session results. An
+authoritative expiry race may trigger one same-method operation-step-up retry. A
+second expiry is terminal. Expiry never selects recovery, and key export
+declares no quota use.
 
 The wire protocol replaces generic `session_id` and
 `active_state_session_id` fields with these explicit domains and advances its
 version and transcript vectors. Wallet Session replacement changes only
 authorization. Material re-activation changes only the activation reference.
 Neither value is accepted as a substitute for the other.
+
+Implementation order:
+
+1. replace the grant/claim model in the SPEC and domain types with
+   `AuthorizationGrant`, `OperationAuthorizationSource`, and
+   `AuthorizedOperation`;
+2. destructively reuse the existing Wallet Session and operation-use/claim
+   persistence for the new types, then cut every current consumer to atomic
+   authorize-or-return-existing behavior, including direct one-time step-up;
+3. delete the replaced grant/use/claim code, schemas, request fields, fixtures,
+   and exports;
+4. run the narrow type, persistence, hostile-substitution, and Ed25519/ECDSA
+   checks that prove the changed boundaries.
+
+Reuse existing tests where they own these invariants. Add only the missing type
+fixture for invalid source/ID substitution and the missing persistence assertion
+for atomic creation/idempotent lookup. Broad lifecycle and E2E gates remain
+Phase 27 acceptance.
+
+Do not add parallel grant/operation stores, dual-read adapters, a generic grant
+ID beside the branch ID, or a new migration framework. Use the repository's
+existing schema migration boundary only when persisted data must survive the
+destructive rename.
+
+Follow-on ownership stays precise:
+
+- Refactor 100 keeps custody/account authority separate and consumes these
+  authorization types without adding a grant layer;
+- Refactor 101 prepared execution refers to `AuthorizedOperationId`; an
+  execution lane cannot itself confer authority;
+- Refactor 102 may bind a lane to a stable authorization-grant reference and
+  epoch while every execution still has its own `AuthorizedOperation`;
+- Refactor 103 adds `LinkedDeviceAuthorization` only when linked-device
+  enrollment and revocation land;
+- Refactor 104 adds `DelegatedSpendAuthorization` with its scoped aggregate
+  budget and lifecycle; every agent request still creates one exact
+  `AuthorizedOperation`.
 
 Invariants: `R90-INV-008`, `R90-INV-009`, `R90-INV-013`, `R90-INV-014`.
 
@@ -975,9 +1103,9 @@ each requested capability independently. Each capability commits through its
 canonical persistence owner. Partial provisioning returns exact per-capability
 results and does not create a combined cross-curve active record.
 
-Only explicit wallet unlock creates a reusable Wallet Session. Same-method
-step-up for signing or export creates one operation grant and leaves reusable
-Wallet Session state unchanged.
+Only explicit wallet unlock creates reusable `WalletSessionAuthorization`.
+Same-method step-up for signing or export creates one `AuthorizedOperation`
+directly and leaves reusable wallet authorization unchanged.
 
 The tactical Email OTP registration/unlock coordination from Patch 2 is deleted
 after its exact-local and missing-material behavior is preserved by the two
@@ -1007,7 +1135,9 @@ Delete:
 - entry-point-specific registration/unlock/refresh material branches;
 - duplicate persistence owners and compatibility readers outside explicit raw
   request/persistence boundaries;
-- old signing-grant/budget/session aliases;
+- `CapabilityGrant`, `CapabilityGrantUse`, `OperationClaim`, their IDs,
+  builders, stores, schemas, request fields, fixtures, and old
+  signing-grant/budget/session aliases;
 - replaced AuthService facade/helper/route paths;
 - obsolete tests, fixtures, mocks, guards, docs, and public exports;
 - synthetic-factor scaffolding and placeholder future capability handlers.
@@ -1043,7 +1173,7 @@ These are load-bearing and are not trimmed:
   reconcilable;
 - recovery, signing, refresh, and export serialize per exact material owner, and
   a stale generation/fence cannot commit after replacement or revocation;
-- existing operation claims consume no renewed grant or quota;
+- existing authorized operations consume no renewed authorization or quota;
 - a server-side expiry race performs at most one step-up retry.
 
 ### Intended-behaviour E2E budget
@@ -1057,7 +1187,8 @@ Capped at eight scenarios:
 5. missing-material recovery followed by signing;
 6. corrupt or mismatched material failing closed;
 7. stale lane returning `superseded` and resolving the replacement;
-8. one minimal vault session/evidence/grant/operation/audit vertical.
+8. one minimal vault session/evidence/authorized-operation/execution/audit
+   vertical.
 
 Refactor 92 expiry, exhaustion, step-up, invalidation, demo-lock, and
 app-identity behavior is verified by running Refactor 92's existing contracts
@@ -1075,7 +1206,7 @@ Create stable commits at these boundaries:
 2. Foundations A-B types, parsers, persistence adapters, and focused tests;
 3. minimal Slice A authorization/vault vertical;
 4. exact authority and persistence migration;
-5. Phase 19-20 no-release MPC cutover;
+5. Phase 19-20 no-release MPC and authorization-model cutover;
 6. worker/UI/provisioning migration;
 7. final deletion and public-surface hardening.
 
@@ -1088,7 +1219,7 @@ IdP, service-account, full-vault, route-framework, or bundle-optimization work.
 | --- | --- | --- |
 | Which MPC capability produces `mpc_signer_proof`? | its follow-on implementation | deny all policies requiring it |
 | Does the current session threat model require device binding? | Phase 10 schema freeze | retain only the minimum existing binding; move broader management out |
-| Which operations require durable server execution leases? | Phase 20 per-operation review | request-bound claim without lease |
+| Which operations require durable server execution leases? | Phase 20 per-operation review | request-bound `AuthorizedOperation` without lease |
 
 ## Related Plans
 
@@ -1100,4 +1231,8 @@ IdP, service-account, full-vault, route-framework, or bundle-optimization work.
 - [Refactor 82B authority typing](./refactor-82B.md)
 - [Refactor 85 IndexedDB minimization](./refactor-85-indexedDB.md)
 - [Ed25519 Yao implementation plan](./router-ab/ed25519-yao/implementation-plan.md)
-- [Refactor 101 enterprise SSO](./refactor-101-enterprise-sso.md)
+- [Refactor 100 passkey account model](./refactor-100-passkey-account-refactor.md)
+- [Refactor 101 wallet execution lanes](./refactor-101-wallet-execution-lanes.md)
+- [Refactor 102 share rotation](./refactor-102-share-rotation.md)
+- [Refactor 103 device linking](./refactor-103-device-linking.md)
+- [Refactor 104 agent spending](./refactor-104-agent-id-spending.md)
