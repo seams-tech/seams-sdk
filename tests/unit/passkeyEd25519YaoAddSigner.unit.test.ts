@@ -127,7 +127,7 @@ const ADMISSION_MUTATIONS: readonly AdmissionMutation[] = [
   },
   {
     label: 'Wallet Session',
-    expectedError: /Yao Wallet Session ID does not match/,
+    expectedError: /Yao Threshold Session ID does not match/,
     mutate(input) {
       input.admissionRequest.scope.threshold_session_id = 'substituted-wallet-session';
     },
@@ -137,6 +137,8 @@ const ADMISSION_MUTATIONS: readonly AdmissionMutation[] = [
     expectedError: /Yao account ID does not match/,
     mutate(input) {
       input.admissionRequest.scope.account_id = 'wallet-substituted';
+      input.admissionRequest.scope.material_activation.material_owner =
+        'wallet-substituted';
     },
   },
   {
