@@ -1,5 +1,6 @@
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOkResult, withProgress } from './shared';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import type {
   EmailOtpEnrollmentResult,
   GoogleEmailOtpWalletAuthFlow,
@@ -78,10 +79,7 @@ type GoogleEmailOtpWalletAuthHandleRecord = {
 const googleEmailOtpWalletAuthFlows = new Map<string, GoogleEmailOtpWalletAuthHandleRecord>();
 
 function createFlowHandleId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `google-email-otp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return secureRandomId('google-email-otp', 16, 'Google Email OTP wallet auth flow handles');
 }
 
 function flowToWire(

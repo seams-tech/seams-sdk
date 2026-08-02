@@ -16,11 +16,16 @@ export type ExportViewerVariant = 'drawer' | 'modal';
 
 const HEX_REEL_ALPHABET = '0123456789abcdef';
 const BASE58_REEL_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-const REEL_GLYPH_INTERVAL_MS = 84;
-const REEL_GLYPH_PHASE_COUNT = 3;
-const REEL_SETTLE_REVEAL_DELAY_MS = 220;
-const REEL_SETTLE_CROSSFADE_MS = 140;
-const PRIVATE_KEY_MASKED_CHARACTER_COUNT = 24;
+const REEL_GLYPH_MIN_HOLD_MS = 90;
+const REEL_GLYPH_MAX_HOLD_MS = 150;
+const REEL_SETTLE_HOLD_EXTENSION_MS = 90;
+const REEL_SETTLE_STAGGER_MS = 700;
+const REEL_SETTLE_SPIN_MS = 300;
+
+type ReelSlot = {
+  glyph: string;
+  nextChangeAtMs: number;
+};
 
 type PrivateKeyRevealState =
   | {
@@ -28,19 +33,17 @@ type PrivateKeyRevealState =
       entryKey: string;
       prefix: string;
       alphabet: string;
-      slots: string[];
-      lastGlyphTick: number;
+      slots: ReelSlot[];
     }
   | {
       kind: 'settling';
       entryKey: string;
       prefix: string;
       alphabet: string;
-      slots: string[];
+      slots: ReelSlot[];
       targetSlots: string[];
       lockedSlots: number;
       startedAtMs: number;
-      lastGlyphTick: number;
     }
   | { kind: 'settled'; entryKey: string };
 
@@ -69,14 +72,23 @@ function randomReelGlyph(alphabet: string): string {
   return alphabet[Math.floor(Math.random() * alphabet.length)] ?? alphabet[0] ?? 'x';
 }
 
-function reelGlyphTick(now: number): number {
-  return Math.floor(now / REEL_GLYPH_INTERVAL_MS);
+function randomGlyphHoldMs(minimumMs: number, maximumMs: number): number {
+  return minimumMs + Math.random() * (maximumMs - minimumMs);
 }
 
-function createReelSlots(definition: ReelDefinition, reducedMotion: boolean): string[] {
-  return Array.from({ length: definition.slotCount }, () =>
-    reducedMotion ? 'x' : randomReelGlyph(definition.alphabet),
-  );
+function createReelSlots(
+  definition: ReelDefinition,
+  reducedMotion: boolean,
+  now: number,
+): ReelSlot[] {
+  const slots: ReelSlot[] = [];
+  for (let index = 0; index < definition.slotCount; index += 1) {
+    slots.push({
+      glyph: reducedMotion ? 'x' : randomReelGlyph(definition.alphabet),
+      nextChangeAtMs: reducedMotion ? Number.POSITIVE_INFINITY : now + ((index * 37) % 90),
+    });
+  }
+  return slots;
 }
 
 function createSpinningState(
@@ -91,26 +103,19 @@ function createSpinningState(
     entryKey,
     prefix: definition.prefix,
     alphabet: definition.alphabet,
-    slots: createReelSlots(definition, reducedMotion),
-    lastGlyphTick: reelGlyphTick(now) - 1,
+    slots: createReelSlots(definition, reducedMotion, now),
   };
 }
 
 function maskedPrivateKey(privateKey: string): string {
   if (!privateKey) return '';
-  const prefix = privateKey.startsWith('ed25519:')
-    ? 'ed25519:'
-    : privateKey.startsWith('0x')
-      ? '0x'
-      : '';
-  const keyBody = privateKey.slice(prefix.length);
-  const maskedCharacterCount = Math.min(PRIVATE_KEY_MASKED_CHARACTER_COUNT, keyBody.length);
-  const visibleCharacterCount = keyBody.length - maskedCharacterCount;
-  const visibleStartLength = Math.ceil(visibleCharacterCount / 2);
-  const maskedEnd = visibleStartLength + maskedCharacterCount;
-  return `${prefix}${keyBody.slice(0, visibleStartLength)}${'x'.repeat(
-    maskedCharacterCount,
-  )}${keyBody.slice(maskedEnd)}`;
+  const prefix = 'ed25519:';
+  const prefixLength = privateKey.startsWith(prefix) ? prefix.length : 0;
+  const visibleStartLength = prefixLength + 6;
+  const hiddenEnd = Math.max(visibleStartLength, privateKey.length - 6);
+  return `${privateKey.slice(0, visibleStartLength)}${'x'.repeat(
+    hiddenEnd - visibleStartLength,
+  )}${privateKey.slice(hiddenEnd)}`;
 }
 
 function renderCopyStatusIcon() {
@@ -141,7 +146,10 @@ function settlingState(
   const slots =
     targetSlots.length === state.slots.length
       ? state.slots
-      : targetSlots.map(() => randomReelGlyph(state.alphabet));
+      : targetSlots.map((_, index) => ({
+          glyph: randomReelGlyph(state.alphabet),
+          nextChangeAtMs: startedAtMs + ((index * 37) % 90),
+        }));
   return {
     kind: 'settling',
     entryKey: state.entryKey,
@@ -151,85 +159,100 @@ function settlingState(
     targetSlots,
     lockedSlots: 0,
     startedAtMs,
-    lastGlyphTick: state.lastGlyphTick,
   };
 }
 
-function lockedSlotCount(
-  state: Extract<PrivateKeyRevealState, { kind: 'settling' }>,
-  now: number,
-): number {
-  return now >= state.startedAtMs + REEL_SETTLE_REVEAL_DELAY_MS ? state.targetSlots.length : 0;
+function lockedSlotCount(state: Extract<PrivateKeyRevealState, { kind: 'settling' }>, now: number) {
+  const lastIndex = Math.max(1, state.targetSlots.length - 1);
+  let count = 0;
+  for (let index = 0; index < state.targetSlots.length; index += 1) {
+    const stagger = (index / lastIndex) * REEL_SETTLE_STAGGER_MS;
+    if (now >= state.startedAtMs + stagger + REEL_SETTLE_SPIN_MS) count += 1;
+  }
+  return count;
 }
 
-function settlingCompleteAtMs(state: Extract<PrivateKeyRevealState, { kind: 'settling' }>): number {
-  return state.startedAtMs + REEL_SETTLE_REVEAL_DELAY_MS + REEL_SETTLE_CROSSFADE_MS;
-}
-
-function shouldCycleSettlingSlot(
+function settlingProgress(
   state: Extract<PrivateKeyRevealState, { kind: 'settling' }>,
   index: number,
   now: number,
-  tick: number,
-): boolean {
-  const remainingMs = state.startedAtMs + REEL_SETTLE_REVEAL_DELAY_MS - now;
-  if (remainingMs <= 0) return false;
-  const progress = Math.max(0, Math.min(1, 1 - remainingMs / REEL_SETTLE_REVEAL_DELAY_MS));
-  const updateStride = progress < 0.34 ? 3 : progress < 0.67 ? 4 : 6;
-  return (tick + index) % updateStride === 0;
+): number {
+  const lastIndex = Math.max(1, state.targetSlots.length - 1);
+  const stagger = (index / lastIndex) * REEL_SETTLE_STAGGER_MS;
+  const slotStartedAtMs = state.startedAtMs + stagger;
+  return Math.max(0, Math.min(1, (now - slotStartedAtMs) / REEL_SETTLE_SPIN_MS));
 }
 
-function cycleSpinningSlots(slots: string[], alphabet: string, tick: number): string[] {
-  const nextSlots = [...slots];
-  for (let index = 0; index < nextSlots.length; index += 1) {
-    if ((tick + index) % REEL_GLYPH_PHASE_COUNT === 0) {
-      nextSlots[index] = randomReelGlyph(alphabet);
-    }
+function cycleSpinningSlots(slots: ReelSlot[], alphabet: string, now: number): ReelSlot[] {
+  let nextSlots: ReelSlot[] | null = null;
+  for (let index = 0; index < slots.length; index += 1) {
+    const slot = slots[index];
+    if (!slot || now < slot.nextChangeAtMs) continue;
+    if (nextSlots === null) nextSlots = [...slots];
+    nextSlots[index] = {
+      glyph: randomReelGlyph(alphabet),
+      nextChangeAtMs: now + randomGlyphHoldMs(REEL_GLYPH_MIN_HOLD_MS, REEL_GLYPH_MAX_HOLD_MS),
+    };
   }
-  return nextSlots;
+  return nextSlots ?? slots;
 }
 
 function cycleSettlingSlots(
   state: Extract<PrivateKeyRevealState, { kind: 'settling' }>,
   lockedSlots: number,
   now: number,
-  tick: number,
-): string[] {
-  const nextSlots = [...state.slots];
-  for (let index = lockedSlots; index < nextSlots.length; index += 1) {
-    if (shouldCycleSettlingSlot(state, index, now, tick)) {
-      nextSlots[index] = randomReelGlyph(state.alphabet);
+): ReelSlot[] {
+  let nextSlots: ReelSlot[] | null = null;
+  for (let index = 0; index < state.slots.length; index += 1) {
+    const slot = state.slots[index];
+    if (!slot) continue;
+    if (index < lockedSlots) {
+      const targetGlyph = state.targetSlots[index] ?? slot.glyph;
+      if (slot.glyph === targetGlyph && slot.nextChangeAtMs === Number.POSITIVE_INFINITY) continue;
+      if (nextSlots === null) nextSlots = [...state.slots];
+      nextSlots[index] = { glyph: targetGlyph, nextChangeAtMs: Number.POSITIVE_INFINITY };
+      continue;
     }
+    if (now < slot.nextChangeAtMs) continue;
+    const holdExtensionMs = settlingProgress(state, index, now) * REEL_SETTLE_HOLD_EXTENSION_MS;
+    if (nextSlots === null) nextSlots = [...state.slots];
+    nextSlots[index] = {
+      glyph: randomReelGlyph(state.alphabet),
+      nextChangeAtMs:
+        now +
+        randomGlyphHoldMs(
+          REEL_GLYPH_MIN_HOLD_MS + holdExtensionMs,
+          REEL_GLYPH_MAX_HOLD_MS + holdExtensionMs,
+        ),
+    };
   }
-  return nextSlots;
+  return nextSlots ?? state.slots;
 }
 
 function advanceRevealState(
   state: Exclude<PrivateKeyRevealState, { kind: 'settled' }>,
   now: number,
 ): PrivateKeyRevealState {
-  const tick = reelGlyphTick(now);
   if (state.kind === 'spinning') {
-    if (tick === state.lastGlyphTick) return state;
+    const slots = cycleSpinningSlots(state.slots, state.alphabet, now);
+    if (slots === state.slots) return state;
     return {
       ...state,
-      slots: cycleSpinningSlots(state.slots, state.alphabet, tick),
-      lastGlyphTick: tick,
+      slots,
     };
   }
 
   if (state.kind === 'settling') {
-    if (now >= settlingCompleteAtMs(state)) {
+    const nextLockedSlots = lockedSlotCount(state, now);
+    if (nextLockedSlots >= state.targetSlots.length) {
       return { kind: 'settled', entryKey: state.entryKey };
     }
-    const nextLockedSlots = lockedSlotCount(state, now);
-    const shouldCycle = tick !== state.lastGlyphTick;
-    if (!shouldCycle && nextLockedSlots === state.lockedSlots) return state;
+    const slots = cycleSettlingSlots(state, nextLockedSlots, now);
+    if (slots === state.slots && nextLockedSlots === state.lockedSlots) return state;
     return {
       ...state,
-      slots: shouldCycle ? cycleSettlingSlots(state, nextLockedSlots, now, tick) : state.slots,
+      slots,
       lockedSlots: nextLockedSlots,
-      lastGlyphTick: shouldCycle ? tick : state.lastGlyphTick,
     };
   }
 
@@ -244,23 +267,6 @@ function prefersReducedMotion(ownerDocument: Document | undefined): boolean {
   return (
     ownerDocument?.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
   );
-}
-
-function renderReelSlot(liveGlyph: string, targetGlyph: string | null, settled: boolean) {
-  return html`<span class="reel-slot ${settled ? 'settled' : ''}">
-    <span class="reel-glyph-live">${liveGlyph}</span>
-    ${targetGlyph === null ? null : html`<span class="reel-glyph-target">${targetGlyph}</span>`}
-  </span>`;
-}
-
-function renderReelSlots(state: Extract<PrivateKeyRevealState, { kind: 'spinning' | 'settling' }>) {
-  const slots = [];
-  for (let index = 0; index < state.slots.length; index += 1) {
-    const targetGlyph = state.kind === 'settling' ? (state.targetSlots[index] ?? '') : null;
-    const settled = state.kind === 'settling' && index < state.lockedSlots;
-    slots.push(renderReelSlot(state.slots[index] ?? '', targetGlyph, settled));
-  }
-  return slots;
 }
 
 export class ExportPrivateKeyViewer extends LitElementWithProps {
@@ -565,10 +571,16 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
   }
 
   private renderReel(state: Extract<PrivateKeyRevealState, { kind: 'spinning' | 'settling' }>) {
+    const lockedSlots = state.kind === 'settling' ? state.lockedSlots : 0;
     return html`
-      <span class="private-key-reel" aria-hidden="true"
-        ><span class="reel-prefix">${state.prefix}</span>${renderReelSlots(state)}</span
-      >
+      <span class="private-key-reel" aria-hidden="true">
+        <span class="reel-prefix">${state.prefix}</span>${state.slots.map(
+          (slot, index) =>
+            html`<span class="reel-slot ${index < lockedSlots ? 'settled' : ''}"
+              >${slot.glyph}</span
+            >`,
+        )}
+      </span>
       <span class="w3a-sr-only" role="status">Decrypting private key</span>
     `;
   }
