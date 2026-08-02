@@ -1531,10 +1531,10 @@ the replacement and legacy MPC paths must not ship together.
   - Evidence at the current checkpoint: the focused MPC/wire matrix passes 48/48;
       Rust ECDSA client-protocol tests pass 9/9 and normal-signing vectors 3/3;
       SDK and unit typechecks pass; direct architecture, worker/WASM, bundle,
-      and boundary guards pass. The source Playwright guard set passes 219/220;
-      its single failure is the environment-only D1 launcher fixture, which
-      requires a temporary SDK `.dev.vars` file. Workspace Rust checks for
-      router-ab-core, router-ab-ecdsa-client-protocol, router-ab-cloudflare,
+      and boundary guards pass. The source Playwright guard set passes 220/220;
+      the D1 local-dev launcher contract is restored with SDK `.dev.vars`
+      precedence before the console file (`a610be9dc`). Workspace Rust checks
+      for router-ab-core, router-ab-ecdsa-client-protocol, router-ab-cloudflare,
       and router-ab-ed25519-yao-client also pass (`c2a6bbf04`).
 - [ ] No legacy and replacement MPC path coexist in a releasable tree.
 
@@ -1679,8 +1679,8 @@ This is a validation gate, not a deferred cleanup phase.
       export, branding, Email OTP isolation, signing architecture, and ECDSA
       client-worker boundary checks pass.
   - Evidence: the current focused signing, refresh, coordinator, wire, and
-    claim-binding matrix passes 48/48; source-boundary checks are green except
-    for the environment-only D1 launcher fixture noted under Unit 3a.
+    claim-binding matrix passes 48/48; the source-boundary suite passes 220/220
+    after the D1 launcher contract fix (`a610be9dc`).
 - [ ] `pnpm test:intended` passes against a healthy environment.
 - [ ] `git diff --check` passes.
 
