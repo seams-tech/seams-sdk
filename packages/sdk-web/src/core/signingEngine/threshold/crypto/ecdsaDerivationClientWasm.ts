@@ -628,7 +628,7 @@ export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandl
 }
 
 export async function thresholdEcdsaEmailOtpPresignSessionInitWasm(input: {
-  emailOtpSessionId: string;
+  thresholdSessionId: string;
   sessionId: string;
   groupPublicKey33: Uint8Array;
   materialExpiresAtMs: number;
@@ -648,7 +648,7 @@ export async function thresholdEcdsaEmailOtpPresignSessionInitWasm(input: {
       payload: {
         authority: {
           kind: 'email_otp_worker_session',
-          emailOtpSessionId: input.emailOtpSessionId,
+          thresholdSessionId: input.thresholdSessionId,
         },
         sessionId: input.sessionId,
         groupPublicKey33: groupPublicKey33.buffer,

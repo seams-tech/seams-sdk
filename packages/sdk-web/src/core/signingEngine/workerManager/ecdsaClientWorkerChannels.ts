@@ -93,7 +93,7 @@ export type RehydrateEcdsaRoleLocalSigningMaterialResultV1 =
 export type EmailOtpEcdsaSigningShareRequest = {
   readonly kind: 'email_otp_ecdsa_signing_share_request_v1';
   readonly requestId: string;
-  readonly sessionId: string;
+  readonly thresholdSessionId: string;
 };
 
 export type EmailOtpEcdsaSigningShareResponse =

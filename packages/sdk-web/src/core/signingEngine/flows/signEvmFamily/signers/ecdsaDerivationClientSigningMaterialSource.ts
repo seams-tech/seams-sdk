@@ -63,17 +63,17 @@ async function updateEmailOtpSealedRecordPolicyAfterEcdsaClaim(args: {
 
 async function clearEmailOtpWorkerSessionBestEffort(args: {
   workerCtx: WorkerOperationContext;
-  sessionId: string;
+  thresholdSessionId: string;
 }): Promise<void> {
-  const sessionId = String(args.sessionId || '').trim();
-  if (!sessionId) return;
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  if (!thresholdSessionId) return;
   await args.workerCtx
     .requestWorkerOperation({
       kind: 'emailOtp',
       request: {
         type: 'clearEmailOtpWarmSessionMaterial',
         timeoutMs: 5_000,
-        payload: { target: { kind: 'ecdsa', thresholdSessionId: sessionId } },
+        payload: { target: { kind: 'ecdsa', thresholdSessionId } },
       },
     })
     .catch(() => undefined);
@@ -104,9 +104,9 @@ export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
   workerCtx: WorkerOperationContext;
 }): Promise<LoadedRouterAbEcdsaDerivationSigningMaterialSource> {
   const signerSession = args.signerSession;
-  const emailOtpWorkerShareSessionId =
+  const emailOtpWorkerShareThresholdSessionId =
     signerSession.clientShare.kind === 'email_otp_worker_share'
-      ? signerSession.clientShare.handle.sessionId
+      ? signerSession.clientShare.handle.thresholdSessionId
       : '';
   const emailOtpWorkerShareChain = readySignerSessionEmailOtpWorkerShareChain(signerSession);
   let emailOtpWorkerShareExhausted = false;
@@ -123,7 +123,7 @@ export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
             );
           }
           const initialized = await thresholdEcdsaEmailOtpPresignSessionInitWasm({
-            emailOtpSessionId: signerSession.clientShare.handle.sessionId,
+            thresholdSessionId: signerSession.clientShare.handle.thresholdSessionId,
             ...input,
           });
           emailOtpWorkerShareExhausted =
@@ -170,12 +170,12 @@ export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
     },
     cleanupAfterSign: async (cleanupArgs) => {
       if (
-        emailOtpWorkerShareSessionId &&
+        emailOtpWorkerShareThresholdSessionId &&
         (cleanupArgs.singleUseEmailOtpSession || emailOtpWorkerShareExhausted)
       ) {
         await clearEmailOtpWorkerSessionBestEffort({
           workerCtx: args.workerCtx,
-          sessionId: emailOtpWorkerShareSessionId,
+          thresholdSessionId: emailOtpWorkerShareThresholdSessionId,
         });
       }
     },

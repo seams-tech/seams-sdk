@@ -579,7 +579,7 @@ const invalidMixedEcdsaPresignAuthority: EcdsaPresignClientSessionInitRequest = 
   // @ts-expect-error Email OTP authority cannot carry a derivation material handle.
   authority: {
     kind: 'email_otp_worker_session',
-    emailOtpSessionId: 'email-otp-session',
+    thresholdSessionId: 'threshold-ecdsa-session',
     materialHandle: 'ecdsa-material-handle',
   },
   sessionId: 'presign-session',
@@ -597,7 +597,7 @@ const invalidRoleLocalPresignAuthorityWithEmailOtpSession: EcdsaPresignClientSes
       kind: 'runtime_loaded',
       expectedBindingDigest: 'ecdsa-binding-digest',
     },
-    emailOtpSessionId: 'email-otp-session',
+    thresholdSessionId: 'threshold-ecdsa-session',
   },
   sessionId: 'presign-session',
   groupPublicKey33: incomingMessage,

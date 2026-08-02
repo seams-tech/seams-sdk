@@ -2892,7 +2892,7 @@ function handleEmailOtpEcdsaSigningShareRequest(
   if (!ecdsaPresignPort) return;
   const request = event.data;
   if (request.kind !== 'email_otp_ecdsa_signing_share_request_v1') return;
-  const result = claimEmailOtpEcdsaSigningShare(request.sessionId);
+  const result = claimEmailOtpEcdsaSigningShare(request.thresholdSessionId);
   if (!result.ok) {
     const failure: EmailOtpEcdsaSigningShareResponse = {
       kind: 'email_otp_ecdsa_signing_share_result_v1',
@@ -4910,7 +4910,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     });
     const clientAdditiveShareHandle = {
       kind: 'email_otp_worker_session' as const,
-      sessionId: value.thresholdSessionId,
+      thresholdSessionId: value.thresholdSessionId,
     };
     const walletSessionJwt = readString(
       readOptionalString(value.jwt) ||

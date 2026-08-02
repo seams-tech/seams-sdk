@@ -1333,13 +1333,13 @@ export type EcdsaPresignClientSessionInitRequest = EcdsaPresignClientSessionPara
                 expectedBindingDigest: string;
                 materialRef?: never;
               };
-          emailOtpSessionId?: never;
+          thresholdSessionId?: never;
         };
       }
     | {
         authority: {
           kind: 'email_otp_worker_session';
-          emailOtpSessionId: string;
+          thresholdSessionId: string;
           materialHandle?: never;
           material?: never;
         };
