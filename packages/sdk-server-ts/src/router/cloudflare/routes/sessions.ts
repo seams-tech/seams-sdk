@@ -353,7 +353,6 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRouterApiCon
       appSessionVersion: string;
       sessionHash: string;
       thresholdSessionId: string;
-      signingGrantId: string;
     }
   | { ok: false; response: Response }
 > {
@@ -426,10 +425,9 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRouterApiCon
     ok: true,
     claims,
     userId: walletSession.walletId,
-    appSessionVersion: `signing-session:${walletSession.kind}:${walletSession.signingGrantId}:${walletSession.thresholdSessionId}`,
+    appSessionVersion: `signing-session:${walletSession.kind}:${walletSession.walletSessionId}:${walletSession.quotaId}:${walletSession.thresholdSessionId}`,
     sessionHash: await hashEmailOtpSigningSessionClaims(claims),
     thresholdSessionId: walletSession.thresholdSessionId,
-    signingGrantId: walletSession.signingGrantId,
   };
 }
 
