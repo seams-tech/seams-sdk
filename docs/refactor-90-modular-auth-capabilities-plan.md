@@ -1575,12 +1575,14 @@ the replacement and legacy MPC paths must not ship together.
       The latest local-no-server focused claim, recovery, coordinator,
       lifecycle, sealed-runtime, signing, export, and supersession matrix
       passes 104/104.
-  - [ ] Broad unit gate was rerun after the full build: 1,726 passed, 166
+  - [ ] Broad unit gate was rerun after the full build: 1,727 passed, 165
         failed, and 9 skipped out of 1,901 collected tests. The failures are
         primarily lower-authority stale inline fixtures plus environment/WASM,
         hosted-relay, configuration, and UI timing cases. Keep this gate open
         until the failures are classified and supported lifecycle cases are
-        rerun in an uncontended environment.
+        rerun in an uncontended environment. The run completed after rebuilding
+        the SDK with the isolated worktree; the changed count is evidence, not
+        a pass, and no production fix is inferred from the broad failure list.
   - [ ] Intended-test declaration generation currently stops on shared
         `packages/sdk-web/dist/types` EPERM writes; no lifecycle result is
         claimed until a healthy build environment is available.
