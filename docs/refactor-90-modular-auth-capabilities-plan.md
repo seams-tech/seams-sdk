@@ -1233,6 +1233,10 @@ the replacement and legacy MPC paths must not ship together.
         injection. Exact WASM payloads now carry their required protocol
         session identity directly; custom worker messages carry no invented
         session field (`53838a192`).
+  - [x] Rename the Email OTP ECDSA bootstrap worker payload's threshold-session
+        field from `sessionId` to `thresholdSessionId`, reject the retired field
+        at the worker parser, and keep role-local protocol/session-handle IDs
+        distinct (`cb3141f98`).
   - [x] Keep one-operation NEAR grants as fresh branded
         `CapabilityGrantId`s from preparation through server issuance and
         execution. They never become a reusable `SigningGrantId` or selected
