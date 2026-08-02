@@ -21,7 +21,6 @@ import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import {
   SigningSessionIds,
-  type SigningGrantId,
   type ThresholdEd25519SessionId,
 } from '../operationState/types';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -305,18 +304,11 @@ export function ed25519AuthorizationIdentityMatchesRuntime(args: {
   );
 }
 
-export function ed25519SigningGrantForAuthorization(args: {
+export function ed25519WalletSessionAuthorizationForRuntime(args: {
   runtime: ExactEd25519SealedSessionRuntime;
   authorization: ActiveWalletSessionAuthorizationProjection;
-}): SigningGrantId | null {
-  if (!ed25519AuthorizationIdentityMatchesRuntime(args)) {
-    return null;
-  }
-  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(
-    args.authorization.walletSessionJwt,
-  );
-  if (!claims) return null;
-  return SigningSessionIds.signingGrant(claims.signingGrantId);
+}): ActiveWalletSessionAuthorizationProjection | null {
+  return ed25519AuthorizationIdentityMatchesRuntime(args) ? args.authorization : null;
 }
 
 function authBindingsEqual(

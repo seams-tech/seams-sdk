@@ -368,6 +368,9 @@ function nearEd25519PublicLocatorObservation(args: {
 function exactEd25519LaneIdentityFromAvailableLane(
   lane: ConcreteAvailableEd25519SigningLane,
 ): ExactEd25519SigningLaneIdentity {
+  if (!lane.authorization) {
+    throw new Error('Available Ed25519 lane requires Wallet Session authorization');
+  }
   return exactEd25519SigningLaneIdentity({
     signer: nearEd25519SignerBindingFromBoundaryFields({
       walletId: lane.walletId,
@@ -376,7 +379,8 @@ function exactEd25519LaneIdentityFromAvailableLane(
       signerSlot: lane.signerSlot,
     }),
     auth: lane.auth,
-    signingGrantId: lane.signingGrantId,
+    walletSessionId: lane.authorization.walletSessionId,
+    quotaId: lane.authorization.quotaId,
     thresholdSessionId: lane.thresholdSessionId,
   });
 }

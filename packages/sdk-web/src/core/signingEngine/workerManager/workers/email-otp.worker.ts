@@ -2458,7 +2458,6 @@ function buildEmailOtpEd25519YaoRecoveryBootstrap(args: {
       nearEd25519SigningKeyId: session.nearEd25519SigningKeyId,
       authorityScope: session.authorityScope,
       thresholdSessionId: session.thresholdSessionId,
-      signingGrantId: session.signingGrantId,
       walletSessionId: session.walletSessionId,
       quotaId: session.quotaId,
       expiresAtMs: args.expiresAtMs,
@@ -5373,7 +5372,6 @@ function parseEmailOtpEd25519YaoBootstrapSession(
       'nearEd25519SigningKeyId',
       'authorityScope',
       'thresholdSessionId',
-      'signingGrantId',
       'walletSessionId',
       'quotaId',
       'expiresAtMs',
@@ -5436,7 +5434,6 @@ function parseEmailOtpEd25519YaoBootstrapSession(
       ),
     },
     thresholdSessionId: readString(obj.thresholdSessionId, 'session.thresholdSessionId'),
-    signingGrantId: readString(obj.signingGrantId, 'session.signingGrantId'),
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
     expiresAtMs,
@@ -5779,7 +5776,8 @@ function isEmailOtpEd25519YaoWalletSessionState(
     return false;
   }
   const thresholdSessionId = optionalWorkerString(obj.thresholdSessionId);
-  const signingGrantId = optionalWorkerString(obj.signingGrantId);
+  const walletSessionId = optionalWorkerString(obj.walletSessionId);
+  const quotaId = optionalWorkerString(obj.quotaId);
   const signingRootId = optionalWorkerString(obj.signingRootId);
   const signingRootVersion = optionalWorkerString(obj.signingRootVersion);
   const relayerUrl = optionalWorkerString(obj.relayerUrl);
@@ -5796,7 +5794,8 @@ function isEmailOtpEd25519YaoWalletSessionState(
   );
   if (
     !thresholdSessionId ||
-    !signingGrantId ||
+    !walletSessionId ||
+    !quotaId ||
     !signingRootId ||
     !signingRootVersion ||
     !relayerUrl ||
@@ -5824,12 +5823,16 @@ function isEmailOtpEd25519YaoWalletSessionState(
     laneIdentity.kind === 'exact_signing_lane' &&
     signingLane.thresholdSessionId === thresholdSessionId &&
     laneIdentity.thresholdSessionId === thresholdSessionId &&
-    signingLane.signingGrantId === signingGrantId &&
+    signingLane.walletSessionId === walletSessionId &&
+    signingLane.quotaId === quotaId &&
+    laneIdentity.walletSessionId === walletSessionId &&
+    laneIdentity.quotaId === quotaId &&
     routerAbNormalSigning.kind === 'router_ab_ed25519_normal_signing_v1' &&
     optionalWorkerString(routerAbNormalSigning.signingWorkerId) != null &&
     signingWalletSession.curve === 'ed25519' &&
     signingWalletSession.thresholdSessionId === thresholdSessionId &&
-    signingWalletSession.signingGrantId === signingGrantId &&
+    signingWalletSession.walletSessionId === walletSessionId &&
+    signingWalletSession.quotaId === quotaId &&
     signingWalletSession.remainingUses === remainingUses &&
     signingWalletSession.signingRootId === signingRootId &&
     signingWalletSession.signingRootVersion === signingRootVersion &&

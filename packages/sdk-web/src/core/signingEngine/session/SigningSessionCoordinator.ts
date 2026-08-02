@@ -1,4 +1,8 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import {
   createSigningSessionExpiredEvent,
   type SdkLifecycleEvent,
@@ -33,7 +37,7 @@ import {
 export type { WalletSessionStatusIdentity } from './lifecycle/walletSessionStatus';
 import {
   applyWalletSessionStatusToSigningSessionReadiness,
-  clearSigningGrant,
+  clearWalletSession,
   discoverLanesForWallet,
   normalizeNonEmpty,
   readDirectSigningSessionStatusForTargets,
@@ -41,8 +45,8 @@ import {
   readWalletScopedLaneClaimsForWallet,
   statusFromClaim,
   walletScopedClaimsForLanes,
-  type SigningGrantReadinessDeps,
-  type SigningGrantStatusOverride,
+  type WalletSessionReadinessDeps,
+  type WalletSessionStatusOverride,
 } from './availability/readiness';
 import {
   ClientWalletSessionExpiryInvalidator,
@@ -119,7 +123,8 @@ export type ResolveSigningSessionAuthPlanFromReadinessResult =
 export type SigningSessionStatusPort = {
   getStatus(args: {
     walletId: WalletId | string;
-    signingGrantId: string;
+    walletSessionId: WalletSessionId;
+    quotaId: MpcWalletSigningQuotaId;
     targetThresholdSessionIds?: string[];
     trustedStatusAuth?: WalletSessionStatusIdentity;
     sessionStatusCheck?: SigningSessionStatusCheck;
@@ -127,18 +132,22 @@ export type SigningSessionStatusPort = {
   getLaneClaimsForWallet(
     walletId: WalletId | string,
   ): Promise<Map<string, WarmSessionPrfClaim | null>>;
-  clear(args: { walletId: WalletId | string; signingGrantId: string }): Promise<void>;
+  clear(args: {
+    walletId: WalletId | string;
+    walletSessionId: WalletSessionId;
+    quotaId: MpcWalletSigningQuotaId;
+  }): Promise<void>;
 };
 
 export type SigningSessionStatusState = {
-  statusOverrides: Map<string, SigningGrantStatusOverride>;
+  statusOverrides: Map<string, WalletSessionStatusOverride>;
 };
 
 type WalletSessionStatusReadResult =
   | { readonly kind: 'authorization_missing' }
   | { readonly kind: 'status'; readonly status: SigningSessionStatus };
 
-export type SigningSessionCoordinatorDeps = SigningGrantReadinessDeps &
+export type SigningSessionCoordinatorDeps = WalletSessionReadinessDeps &
   ClientWalletSessionInvalidationReadinessDeps & {
     getStatus?: SigningSessionStatusReader;
     onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
@@ -197,7 +206,7 @@ function mapWalletSessionExpiredEvent(args: {
 export class SigningSessionCoordinator implements SigningSessionStatusPort {
   private readonly onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
   private readonly walletSessionStatusReader?: SigningSessionStatusReader;
-  private readonly walletSessionDeps: SigningGrantReadinessDeps;
+  private readonly walletSessionDeps: WalletSessionReadinessDeps;
   private readonly walletSessionState: SigningSessionStatusState;
   private readonly operationIdBindings: SigningOperationIdBindingRegistry;
   private readonly walletSessionExpiryInvalidator: ClientWalletSessionExpiryInvalidator;
@@ -332,7 +341,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     args: Parameters<SigningSessionStatusPort['getStatus']>[0],
   ): ReturnType<SigningSessionStatusPort['getStatus']> {
     const walletId = toWalletId(args.walletId);
-    const signingGrantId = normalizeSessionStatusRequired(args.signingGrantId, 'signingGrantId');
+    const walletSessionId = args.walletSessionId;
     const targetThreshold = new Set(
       (args.targetThresholdSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
     );
@@ -344,12 +353,13 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
       // restored, usable session.
       return await readDirectSigningSessionStatusForTargets({
         deps: this.walletSessionDeps,
-        signingGrantId,
+        walletSessionId,
+        quotaId: args.quotaId,
         targetThresholdSessionIds: targetThreshold,
       });
     };
     const lanes = (await discoverLanesForWallet(this.walletSessionDeps, walletId)).filter(
-      (lane) => lane.signingGrantId === signingGrantId,
+      (lane) => lane.walletSessionId === walletSessionId && lane.quotaId === args.quotaId,
     );
     if (!lanes.length) return await readDirectTargetStatus();
     const statusLanes = hasExplicitTarget
@@ -360,7 +370,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     if (hasExplicitTarget && !statusLanes.length) {
       return (
         (await readDirectTargetStatus()) || {
-          sessionId: signingGrantId,
+          sessionId: walletSessionId,
           status: 'not_found',
         }
       );
@@ -383,7 +393,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
       claims.find((candidate) => candidate?.state === 'unavailable') ||
       claims.find((candidate) => candidate?.state === 'warm') ||
       null;
-    return statusFromClaim({ signingGrantId, lanes: statusLanes, claim });
+    return statusFromClaim({ walletSessionId, quotaId: args.quotaId, lanes: statusLanes, claim });
   }
 
   async getLaneClaimsForWallet(
@@ -399,11 +409,12 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
   async clear(
     args: Parameters<SigningSessionStatusPort['clear']>[0],
   ): ReturnType<SigningSessionStatusPort['clear']> {
-    await clearSigningGrant({
+    await clearWalletSession({
       deps: this.walletSessionDeps,
       statusOverrides: this.walletSessionState.statusOverrides,
       walletId: toWalletId(args.walletId),
-      signingGrantId: args.signingGrantId,
+      walletSessionId: args.walletSessionId,
+      quotaId: args.quotaId,
     });
   }
 
@@ -480,7 +491,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     expiresAtMs: number;
     remainingUses: number;
   }> {
-    const signingGrantId = String(input.lane.signingGrantId).trim();
+    const walletSessionId = String(input.lane.walletSessionId).trim();
     const sessionStatusCheck = await buildSessionStatusCheckForLane({
       lane: input.lane,
       trustedStatusAuth: input.trustedStatusAuth,
@@ -527,14 +538,14 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
       sessionStatusForPlanning = null;
     } else if (emailOtpEd25519PreflightUnavailable) {
       sessionStatusForPlanning = {
-        sessionId: signingGrantId,
+        sessionId: walletSessionId,
         status: 'not_found',
         statusCode: walletSessionStatus.status,
       };
     }
     if (emailOtpEd25519PreflightUnavailable) {
       console.warn('[SigningSessionCoordinator][email-otp-ed25519] session-status preflight unavailable', {
-        signingGrantId,
+        walletSessionId,
         thresholdSessionId: input.lane.thresholdSessionId,
         sessionStatus: walletSessionStatus.status,
         readiness: input.readiness.status,
@@ -544,7 +555,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     }
     if (passkeyEd25519PreflightUnavailable) {
       console.debug('[SigningSessionCoordinator][passkey-ed25519] session-status preflight deferred', {
-        signingGrantId,
+        walletSessionId,
         thresholdSessionId: input.lane.thresholdSessionId,
         sessionStatus: walletSessionStatus.status,
         readiness: input.readiness.status,

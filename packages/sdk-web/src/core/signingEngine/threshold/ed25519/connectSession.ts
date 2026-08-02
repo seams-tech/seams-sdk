@@ -14,6 +14,10 @@ import {
 import type { RouterAbEd25519NormalSigningState } from './routerAbNormalSigningState';
 import type { ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { SigningSessionIds } from '../../session/operationState/types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import {
   buildThresholdEd25519WebAuthnPrfSecretSource,
   localPrfFirstForEd25519WalletSessionMintAuthorization,
@@ -25,7 +29,8 @@ export type ConnectEd25519SessionResult =
   | {
       ok: true;
       thresholdSessionId: ThresholdEd25519SessionId;
-      signingGrantId: string;
+      walletSessionId: WalletSessionId;
+      quotaId: MpcWalletSigningQuotaId;
       expiresAtMs: number;
       remainingUses: number;
       routerAbNormalSigning: RouterAbEd25519NormalSigningState;
@@ -40,7 +45,8 @@ export type ConnectEd25519SessionResult =
       code?: string;
       message?: string;
       thresholdSessionId?: never;
-      signingGrantId?: never;
+      walletSessionId?: never;
+      quotaId?: never;
       expiresAtMs?: never;
       remainingUses?: never;
       runtimePolicyScope?: never;
@@ -92,7 +98,6 @@ export async function connectEd25519Session(args: {
   };
   sessionKind?: 'jwt';
   thresholdSessionId?: ThresholdEd25519SessionId;
-  signingGrantId?: string;
   ttlMs?: number;
   remainingUses?: number;
   auth?: Ed25519WalletSessionMintAuthorization;
@@ -113,7 +118,6 @@ export async function connectEd25519Session(args: {
     routerAbNormalSigning: args.routerAbNormalSigning,
     participantIds: args.participantIds,
     thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
   });
@@ -174,13 +178,18 @@ export async function connectEd25519Session(args: {
   const requestedThresholdSessionId = policy.thresholdSessionId;
   const resolvedThresholdSessionId =
     minted.thresholdSessionId || requestedThresholdSessionId;
-  const signingGrantId = String(minted.signingGrantId || policy.signingGrantId || '').trim();
 
   const expiresAtMs = minted.expiresAtMs ?? Date.now() + policy.ttlMs;
   const remainingUses = minted.remainingUses ?? policy.remainingUses;
   const mintedRuntimePolicyScope = minted.runtimePolicyScope;
   const jwt = String(minted.jwt || '').trim();
-  if (!resolvedThresholdSessionId || !signingGrantId || !jwt || !mintedRuntimePolicyScope) {
+  if (
+    !resolvedThresholdSessionId ||
+    !minted.walletSessionId ||
+    !minted.quotaId ||
+    !jwt ||
+    !mintedRuntimePolicyScope
+  ) {
     return {
       ok: false,
       code: 'invalid_response',
@@ -191,7 +200,8 @@ export async function connectEd25519Session(args: {
   return {
     ok: true,
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(resolvedThresholdSessionId),
-    signingGrantId,
+    walletSessionId: minted.walletSessionId,
+    quotaId: minted.quotaId,
     expiresAtMs,
     remainingUses,
     runtimePolicyScope: mintedRuntimePolicyScope,

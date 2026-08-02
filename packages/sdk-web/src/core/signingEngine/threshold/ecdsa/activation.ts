@@ -99,7 +99,6 @@ export type ThresholdEcdsaSessionBootstrapResult = {
   session: {
     ok: true;
     thresholdSessionId: string;
-    signingGrantId: string;
     authorizationSessionId: SeamsSessionId;
     walletSessionId: WalletSessionId;
     quotaId: MpcWalletSigningQuotaId;
@@ -232,7 +231,6 @@ type ActivateEcdsaExistingSessionRequestBase = ActivateEcdsaSessionRequestCommon
   ecdsaThresholdKeyId?: never;
   participantIds?: never;
   sessionKind?: never;
-  signingGrantId?: never;
   runtimePolicyScope?: never;
   ttlMs?: never;
   remainingUses?: never;
@@ -434,8 +432,6 @@ async function activateEcdsaSessionByPurpose(
   const walletId = toWalletId(String(args.key.walletId));
   const chainTarget = args.lanePolicy.chainTarget;
   const requestedSessionId = String(args.lanePolicy.thresholdSessionId).trim();
-  const requestedSigningGrantId =
-    'signingGrantId' in args.lanePolicy ? String(args.lanePolicy.signingGrantId || '').trim() : '';
   const resolvedSessionKind = args.lanePolicy.thresholdSessionKind;
   if (resolvedSessionKind !== 'jwt') {
     throw new Error('Threshold ECDSA activation requires JWT Wallet Session state');
@@ -454,12 +450,10 @@ async function activateEcdsaSessionByPurpose(
     keyHandle: args.keyHandle,
     chainTargetKey: thresholdEcdsaChainTargetKey(chainTarget),
     ecdsaThresholdKeyId: String(args.key.ecdsaThresholdKeyId),
-    signingGrantId: requestedSigningGrantId || null,
     thresholdSessionId: requestedSessionId || null,
     freshAuthRetrySideEffectState: 'not_applicable',
     hasRequestedEcdsaThresholdKeyId: true,
     requestedSessionId: requestedSessionId || null,
-    requestedSigningGrantId: requestedSigningGrantId || null,
     sessionKind: args.lanePolicy.thresholdSessionKind,
     authKind: args.walletSessionRouteAuth?.kind || 'none',
     hasPasskeyPrfFirstB64u:
@@ -538,10 +532,6 @@ async function activateEcdsaSessionByPurpose(
   if (!thresholdSessionId) {
     throw new Error('threshold-ecdsa bootstrap returned empty thresholdSessionId');
   }
-  const signingGrantId = String(bootstrap.signingGrantId || '').trim();
-  if (!signingGrantId) {
-    throw new Error('threshold-ecdsa bootstrap returned empty signingGrantId');
-  }
   const walletSessionJwt = String(bootstrap.jwt || '').trim();
   if (!walletSessionJwt) {
     throw new Error('threshold-ecdsa bootstrap returned empty Wallet Session JWT');
@@ -592,7 +582,6 @@ async function activateEcdsaSessionByPurpose(
   const session: ThresholdEcdsaSessionBootstrapResult['session'] = {
     ok: true,
     thresholdSessionId,
-    signingGrantId,
     authorizationSessionId: bootstrap.authorizationSessionId,
     walletSessionId: bootstrap.walletSessionId,
     quotaId: bootstrap.quotaId,

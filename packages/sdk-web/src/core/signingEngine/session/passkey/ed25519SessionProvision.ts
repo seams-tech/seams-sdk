@@ -15,6 +15,10 @@ import {
 } from './ed25519YaoSealedSession';
 import type { PasskeyEd25519SealRestoreMetadata } from '@/core/types/secure-confirm-worker';
 import type { ThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 
@@ -26,7 +30,6 @@ type ResolvedEd25519ProvisionProtocol =
       nearEd25519SigningKeyId: string;
       signerSlot: number;
       thresholdSessionId: ThresholdEd25519SessionId;
-      signingGrantId?: never;
     }
   | {
       kind: 'exact';
@@ -35,7 +38,8 @@ type ResolvedEd25519ProvisionProtocol =
       nearEd25519SigningKeyId: string;
       signerSlot: number;
       thresholdSessionId: ThresholdEd25519SessionId;
-      signingGrantId: string;
+      walletSessionId: WalletSessionId;
+      quotaId: MpcWalletSigningQuotaId;
     };
 
 export type ProvisionThresholdEd25519SessionDeps = {
@@ -99,7 +103,8 @@ function resolveEd25519ProvisionProtocol(
         nearEd25519SigningKeyId: String(projection.nearEd25519SigningKeyId),
         signerSlot: projection.signerSlot,
         thresholdSessionId: args.laneIdentity.thresholdSessionId,
-        signingGrantId: String(args.laneIdentity.signingGrantId),
+        walletSessionId: args.laneIdentity.walletSessionId,
+        quotaId: args.laneIdentity.quotaId,
       };
     }
   }
@@ -110,7 +115,8 @@ function resolveEd25519ProvisionProtocol(
 function exactEd25519ProvisionReturnedDifferentIdentity(args: {
   requested: ResolvedEd25519ProvisionProtocol;
   returnedThresholdSessionId: ThresholdEd25519SessionId;
-  returnedSigningGrantId: string;
+  returnedWalletSessionId: WalletSessionId;
+  returnedQuotaId: MpcWalletSigningQuotaId;
 }): boolean {
   switch (args.requested.kind) {
     case 'fresh':
@@ -118,7 +124,8 @@ function exactEd25519ProvisionReturnedDifferentIdentity(args: {
     case 'exact':
       return (
         args.returnedThresholdSessionId !== args.requested.thresholdSessionId ||
-        args.returnedSigningGrantId !== args.requested.signingGrantId
+        args.returnedWalletSessionId !== args.requested.walletSessionId ||
+        args.returnedQuotaId !== args.requested.quotaId
       );
   }
   args.requested satisfies never;
@@ -157,9 +164,6 @@ export async function provisionThresholdEd25519Session(
     participantIds,
     sessionKind,
     thresholdSessionId: protocol.thresholdSessionId,
-    ...(protocol.kind === 'exact'
-      ? { signingGrantId: protocol.signingGrantId }
-      : {}),
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
     workerCtx,
@@ -174,7 +178,6 @@ export async function provisionThresholdEd25519Session(
 
   const resolvedThresholdSessionId =
     connected.thresholdSessionId || protocol.thresholdSessionId;
-  const signingGrantId = String(connected.signingGrantId || '').trim();
   const expiresAtMs = Number(connected.expiresAtMs);
   const remainingUses = Number(connected.remainingUses);
   const jwt = String(connected.jwt || '').trim();
@@ -182,7 +185,8 @@ export async function provisionThresholdEd25519Session(
   const runtimePolicyScope = connected.runtimePolicyScope;
   if (
     !resolvedThresholdSessionId ||
-    !signingGrantId ||
+    !connected.walletSessionId ||
+    !connected.quotaId ||
     !Number.isFinite(expiresAtMs) ||
     !Number.isFinite(remainingUses) ||
     !jwt
@@ -197,7 +201,8 @@ export async function provisionThresholdEd25519Session(
     exactEd25519ProvisionReturnedDifferentIdentity({
       requested: protocol,
       returnedThresholdSessionId: resolvedThresholdSessionId,
-      returnedSigningGrantId: signingGrantId,
+      returnedWalletSessionId: connected.walletSessionId,
+      returnedQuotaId: connected.quotaId,
     })
   ) {
     return {
@@ -260,7 +265,8 @@ export async function provisionThresholdEd25519Session(
   return {
     ok: true,
     thresholdSessionId: resolvedThresholdSessionId,
-    signingGrantId,
+    walletSessionId: connected.walletSessionId,
+    quotaId: connected.quotaId,
     expiresAtMs,
     remainingUses,
     runtimePolicyScope,

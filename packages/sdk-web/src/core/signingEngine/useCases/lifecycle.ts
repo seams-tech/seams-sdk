@@ -29,8 +29,11 @@ import type {
   EmailOtpChallengeId,
   SigningOperationId,
   ThresholdSessionId,
-  SigningGrantId,
 } from '../session/operationState/types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 export type NonEmptyReadonlyArray<T> = readonly [T, ...T[]];
 export type PositiveInt = number & { readonly __brand: 'PositiveInt' };
@@ -116,7 +119,8 @@ export type ReadyEd25519Lane = {
   walletId: WalletId;
   rpId: RpId;
   thresholdSessionId: ThresholdSessionId;
-  signingGrantId: SigningGrantId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   relayerKeyId: Ed25519RelayerKeyId;
   remainingUses: WarmSessionRemainingUses;
   expiresAtMs: UnixTimeMs;
@@ -133,7 +137,8 @@ export type EcdsaUseCaseReadyLane = {
   readyRecord: EcdsaRoleLocalReadyRecord;
   relayerKeyId: EcdsaRelayerKeyId;
   thresholdSessionId: ThresholdSessionId;
-  signingGrantId: SigningGrantId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   remainingUses: WarmSessionRemainingUses;
   expiresAtMs: UnixTimeMs;
 };
@@ -205,7 +210,8 @@ export type WalletSignerWrite =
 export type WarmSessionBudgetSpend = {
   kind: 'warm_session_budget_spend_v1';
   walletId: WalletId;
-  signingGrantId: SigningGrantId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   thresholdSessionId: ThresholdSessionId;
   uses: PositiveInt;
   remainingUses: WarmSessionRemainingUses;
@@ -475,14 +481,12 @@ export type SigningSessionActivationMaterial =
   | {
       kind: 'ed25519_session';
       thresholdSessionId: ThresholdSessionId;
-      signingGrantId: SigningGrantId;
       relayerKeyId: Ed25519RelayerKeyId;
       record?: never;
     }
   | {
       kind: 'ecdsa_session';
       thresholdSessionId: ThresholdSessionId;
-      signingGrantId: SigningGrantId;
       record: EcdsaRoleLocalReadyRecord;
       relayerKeyId?: never;
     };

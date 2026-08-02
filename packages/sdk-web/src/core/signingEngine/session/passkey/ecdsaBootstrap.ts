@@ -569,7 +569,8 @@ export async function bootstrapEcdsaSessionValue(
       curve: 'ecdsa',
       walletId,
       chainTarget,
-      signingGrantId: SigningSessionIds.signingGrant(activation.session.signingGrantId),
+      walletSessionId: activation.session.walletSessionId,
+      quotaId: activation.session.quotaId,
       thresholdSessionId,
       persistenceSource: passkeyPersistenceSource,
       passkeyPrfSealMaterial: {

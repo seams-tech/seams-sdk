@@ -53,8 +53,11 @@ import type {
   EmailOtpChallengeId,
   SigningOperationId,
   ThresholdSessionId,
-  SigningGrantId,
 } from '../session/operationState/types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 declare const walletId: WalletId;
 declare const rpId: RpId;
@@ -67,7 +70,8 @@ declare const emailOtpAuthSubjectId: EmailOtpAuthSubjectId;
 declare const appSession: VerifiedAppSessionJwt;
 declare const userHandle: WebAuthnUserHandle;
 declare const thresholdSessionId: ThresholdSessionId;
-declare const signingGrantId: SigningGrantId;
+declare const walletSessionId: WalletSessionId;
+declare const quotaId: MpcWalletSigningQuotaId;
 declare const operationId: SigningOperationId;
 declare const emailOtpEd25519WorkerHandle: Extract<
   EmailOtpWorkerIssuedSessionHandle,
@@ -246,7 +250,6 @@ emailOtpEcdsaAuthWithProvisioningSlot satisfies SigningSessionActivationEmailOtp
 const ecdsaActivationMaterial = {
   kind: 'ecdsa_session',
   thresholdSessionId,
-  signingGrantId,
   record: readyRecord,
 } satisfies SigningSessionActivationMaterial;
 
@@ -281,7 +284,6 @@ const emailOtpEd25519SealWithEcdsaAuth = {
   material: {
     kind: 'ed25519_session',
     thresholdSessionId,
-    signingGrantId,
     relayerKeyId: readyEd25519Lane.relayerKeyId,
   },
   expiresAtMs,

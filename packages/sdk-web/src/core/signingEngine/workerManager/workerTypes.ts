@@ -519,7 +519,6 @@ type EmailOtpEcdsaBootstrapBasePayload = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   thresholdSessionId?: string;
-  signingGrantId?: string;
   ttlMs?: number;
   remainingUses?: number;
 };
