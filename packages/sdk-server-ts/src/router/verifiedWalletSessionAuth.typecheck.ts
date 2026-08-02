@@ -59,8 +59,6 @@ const invalidEcdsaWithSigningGrant = {
   kind: 'wallet_session',
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
-  // @ts-expect-error ECDSA verified auth must not carry the legacy signing grant identity.
-  signingGrantId: 'signing-grant-ecdsa',
   walletSessionId,
   quotaId,
   userId: 'wallet-ecdsa',

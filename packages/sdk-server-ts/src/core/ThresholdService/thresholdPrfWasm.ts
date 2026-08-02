@@ -30,7 +30,6 @@ const MAX_THRESHOLD_PRF_SHARE_COUNT = 255;
 
 export type EcdsaDerivationStableKeyPrfContext = {
   readonly applicationBindingDigest: Uint8Array;
-  readonly signingGrantId?: never;
   readonly thresholdSessionId?: never;
 };
 
