@@ -116,6 +116,11 @@ reusable-claim verifier likewise still compares its durable claim to the
 Wallet Session grant; removing that field first would remove the only current
 claim-to-session binding.
 
+The internal verified ECDSA authorization carrier no longer exposes the legacy
+grant identity (`13e7a9844`). Strict JWT claims and Rust wire fields remain
+until the coordinated claim-verifier cutover; this slice removes the projection
+without weakening boundary validation or creating a fallback.
+
 Inventory command (rerun before each Unit 3c deletion slice):
 
 ```sh

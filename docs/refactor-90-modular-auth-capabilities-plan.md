@@ -1643,6 +1643,9 @@ legacy route is intentionally still present at this checkpoint.
       comparison.
 - [x] The focused Router A/B admission-store suite covers ECDSA policy without
       legacy quota reservation and passes 8/8 (`5cf433765`).
+- [x] Remove the legacy grant identity from the internal verified ECDSA Wallet
+      Session authorization carrier; the strict JWT boundary remains coupled
+      until the coordinated Rust/TypeScript claim cutover (`13e7a9844`).
 - [ ] Add every live `SigningGrantId`, `signingGrantId`, and
       `signing_grant_id` production occurrence to the deletion ledger and
       classify it as reusable-session authorization, quota, operation grant,
