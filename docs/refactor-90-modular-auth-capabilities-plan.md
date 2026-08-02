@@ -2087,10 +2087,11 @@ This is a validation gate, not a deferred cleanup phase.
     36/36 and the source-boundary suite passes 220/220
     after the D1 launcher contract fix (`a610be9dc`).
 - [ ] `pnpm test:intended` passes against a healthy environment.
-  - [ ] With the isolated outputs rebuilt, declaration generation passes; the
-        current run stops because the intended Google ID token is not
-        configured. Rerun after the healthy intended-test environment is
-        provisioned.
+  - [ ] With the isolated outputs rebuilt, declaration generation passes; a
+        fresh `pnpm test:intended` attempt on 2026-08-02 reached
+        `ensure:intended-google-token` and stopped because the intended Google
+        ID token is not configured. Rerun after the healthy intended-test
+        environment is provisioned.
 - [x] `git diff --check` passes.
 
 ## Verification Budgets

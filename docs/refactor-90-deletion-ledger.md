@@ -94,6 +94,11 @@ binding check passes 1/1, and the signer-core generated schema check passes
 the declaration build; the Google OIDC token prerequisite is absent, so the
 intended browser run remains environment-gated.
 
+The final `pnpm test:intended` attempt on 2026-08-02 completed declaration
+generation and intended-test typechecking, then stopped at
+`ensure:intended-google-token` because `SEAMS_INTENDED_GOOGLE_ID_TOKEN` is not
+configured. No browser assertions were run.
+
 The remaining generic-looking identifiers were audited before closeout. The
 `sessionId` fields that remain in ECDSA code are not threshold-session aliases:
 Rust registration/post-registration lifecycle records retain their ceremony
