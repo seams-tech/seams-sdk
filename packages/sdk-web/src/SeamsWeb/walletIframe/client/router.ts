@@ -516,6 +516,7 @@ function requireNonEmptyBoundaryString(value: unknown, label: string): string {
 
 function requireCompactExchangeValue(value: unknown, label: string): string {
   const parsed = requireNonEmptyBoundaryString(value, label);
+  // eslint-disable-next-line no-control-regex
   if (parsed.length > 512 || /[\s\u0000-\u001f\u007f]/.test(parsed)) {
     throw new Error(`${label} must be a compact opaque identifier`);
   }

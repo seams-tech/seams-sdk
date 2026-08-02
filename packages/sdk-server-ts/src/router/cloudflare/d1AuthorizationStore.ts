@@ -2804,6 +2804,7 @@ function requireOpaqueString<T extends string = string>(value: unknown, label: s
     value.trim() !== value ||
     value.length === 0 ||
     value.length > 512 ||
+    // eslint-disable-next-line no-control-regex
     /[\s\u0000-\u001f\u007f]/.test(value)
   ) {
     throw new Error(`${label} must be a compact opaque identifier`);
