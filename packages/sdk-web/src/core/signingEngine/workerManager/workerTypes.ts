@@ -115,13 +115,6 @@ export type EmailOtpEd25519YaoFactorResult =
       pendingFactorHandle?: never;
     };
 
-export type EmailOtpMixedWalletSigningBudgetV1 = {
-  readonly kind: 'email_otp_mixed_wallet_signing_budget_v1';
-  readonly signingGrantId: string;
-  readonly ttlMs: number;
-  readonly remainingUses: number;
-};
-
 export type EmailOtpEd25519YaoRecoveryAugmentationV1 = {
   readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1;
   readonly signerSlot: number;

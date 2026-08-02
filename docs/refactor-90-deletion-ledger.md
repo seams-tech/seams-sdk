@@ -397,6 +397,10 @@ ports, and the two-state recovery journal.
 - ~~`RouterAbEd25519YaoBudgetRefreshAuthorizationV1`~~ — retained as the
   canonical Ed25519 Yao refresh authorization boundary; it is not a generic
   wallet-session alias.
+- ~~`EmailOtpMixedWalletSigningBudgetV1` worker type~~ — deleted as a
+  misleading cross-curve wire-shaped alias; the Email OTP login path keeps its
+  narrow local session-policy value, while Ed25519 budget claims remain at the
+  authenticated Router boundary (`HEAD 2026-08-02`).
 - ~~factor-labelled Yao root/export transport unions deletion~~ — retained only
   at the Yao protocol boundary where the factors select different acquisition
   sessions.
