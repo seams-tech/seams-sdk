@@ -141,7 +141,6 @@ export async function persistEmailOtpEd25519YaoCapabilityForRefresh(
     throw new Error('Email OTP Ed25519 sealed refresh requires the dedicated Email OTP worker');
   }
   const thresholdSessionId = requireTrimmedString(state.thresholdSessionId, 'thresholdSessionId');
-  const signingGrantId = requireTrimmedString(state.signingGrantId, 'signingGrantId');
   const walletSessionJwt = requireTrimmedString(
     state.walletSessionAuth.walletSessionJwt,
     'walletSessionJwt',

@@ -362,11 +362,19 @@ ports, and the two-state recovery journal.
   deleted by `1f1d5bb11`; the required authority factor is the discriminant
 - ~~the redundant `Ready*EcdsaCommittedLane` aliases and copy-builders~~ —
   deleted by `ed1db6664`
-- Passkey source-priority and material-selection types
-- the Email OTP ECDSA authority resolver
-- method-specific reauth and restore assembly ports
-- old signing step-up types/files and the passkey-only restore branch
-- `reauth_required/missing_hot_material` as an implicit restore signal
+- ~~Passkey source-priority and material-selection types~~ — retained as the
+  canonical availability sort and factor-aware material-selection union; the
+  record-era source branches are gone.
+- ~~the Email OTP ECDSA authority resolver~~ — retained as the canonical
+  sealed-runtime/manifest resolver used by refresh, signing, and export.
+- ~~method-specific reauth and restore assembly ports~~ — retained where they
+  are factor-owned operation boundaries; generic forwarding aliases are gone.
+- ~~old signing step-up types/files and the passkey-only restore branch~~ —
+  replaced by the shared ECDSA operation-step-up union and exact factor-owned
+  restore paths.
+- ~~`missing_hot_material` as an implicit restore signal~~ — no production or
+  retained-test occurrence remains; `reauth_required` remains an explicit
+  current sealed-recovery outcome.
 
 ## Phase 19 — Yao capability sources and reconnect hooks
 
@@ -386,7 +394,9 @@ ports, and the two-state recovery journal.
 - ~~`RouterAbEd25519YaoClientRootFactorV1` deletion~~ — retained as the exact
   WASM protocol dispatch boundary for Passkey PRF-first and Email OTP factor
   sessions; it is not generic lifecycle state.
-- `RouterAbEd25519YaoBudgetRefreshAuthorizationV1`
+- ~~`RouterAbEd25519YaoBudgetRefreshAuthorizationV1`~~ — retained as the
+  canonical Ed25519 Yao refresh authorization boundary; it is not a generic
+  wallet-session alias.
 - ~~factor-labelled Yao root/export transport unions deletion~~ — retained only
   at the Yao protocol boundary where the factors select different acquisition
   sessions.
@@ -426,7 +436,12 @@ ports, and the two-state recovery journal.
 - ~~`Ed25519YaoExportFlowDeps.recoverPasskeyCapability`~~ — deleted in
   `a5d2d9ecc`; the canonical Passkey durable-context resolver owns recovery and
   exact readback.
-- the nested `emailOtp.resolveExportContext` callback bag
+- ~~the nested `emailOtp.resolveExportContext` callback bag~~ — retained as the
+  factor-specific Ed25519 export boundary; no ECDSA record or budget state
+  crosses it.
+- ~~the unused `signingGrantId` read in Email OTP Ed25519 sealed publication~~
+  — the refresh transport is authenticated by the Wallet Session bearer and
+  exact material activation; the dead local was removed (`HEAD 2026-08-02`).
 - ~~`exportEd25519YaoKeyWithFreshPasskey`,
   `exportEd25519YaoKeyWithFreshEmailOtp`~~ — replaced by one exhaustive
   same-method coordinator in `01bcabb29`
@@ -492,7 +507,9 @@ ports, and the two-state recovery journal.
   canonical exact-owner queue required by `R90-INV-008`; same-owner FIFO,
   stale-owner rejection, and different-owner concurrency are proved in
   `8c26a39bf`.
-- the `forceFreshAuth` and `retryingFreshAuth` planner booleans
+- ~~the `forceFreshAuth` and `retryingFreshAuth` planner booleans~~ — retained
+  for the bounded Refactor 92 same-method expiry retry; they are control-flow
+  state rather than identity aliases.
 - all `CreateSigningEnginePortsArgs` aliases/wiring for the ports above
 - ~~stale cross-curve companion envelopes, including
   `ecdsa_and_ed25519_yao_recovery`~~ — replaced by capability-specific material
@@ -528,6 +545,10 @@ ports, and the two-state recovery journal.
 - ~~obsolete positive capability-source fixtures in `nearSigning.typecheck.ts`~~
   — absent; the retained exact-lane and reusable-vs-operation-grant negative
   checks describe the current domain.
+- ~~`createEcdsaOnlyWalletSigningBudgetSessionStatus` and its
+  `walletSigningBudgetStatus.fixtures.ts` helper~~ — zero callers remained
+  after the ECDSA client-budget deletion; the fixture was removed without
+  changing the live Ed25519 budget boundary (`HEAD 2026-08-02`).
 
 ## Phase 20 — signing budget subsystem
 
