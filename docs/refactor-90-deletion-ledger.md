@@ -125,6 +125,21 @@ rg -l 'SigningGrantId|signingGrantId|signing_grant_id' \
   --glob '!**/dist/**' --glob '!**/*.typecheck.ts'
 ```
 
+### Unit 3c Ed25519 atomic-claim checkpoint — 2026-08-02
+
+The Cloudflare Ed25519 public normal-signing route already owns the canonical
+reusable-session flow: it claims a `CapabilityGrantUseId` atomically with the
+Wallet Session quota, sends the accepted claim to the MPC router, and validates
+the same claim before finalize. The direct
+`handleRouterAbEd25519NormalSigningRouteCore` helper still implements the old
+Router reserve/validate/commit/release protocol, but it has no production
+caller; only the local-Yao integration test and the legacy budget unit test
+invoke it. The helper is therefore a Unit 3c deletion target, while the local
+Yao test must first be migrated to the canonical route or replaced with an
+equivalent atomic-claim operating-path test. The runtime's provisioning and
+refresh methods remain live and are not part of this deletion until their
+Wallet Session/quota inputs have moved to the canonical authorization owner.
+
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
 Replacement: the required-field `active | retired` ECDSA capability record,
