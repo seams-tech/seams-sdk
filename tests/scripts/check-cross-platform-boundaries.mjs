@@ -69,6 +69,16 @@ const platformBoundaryFiles = guardBoundaryFiles([
     reason: 'receives browser storage and prompt ports for ECDSA bootstrap',
   },
   {
+    file: 'packages/sdk-web/src/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery.ts',
+    owner: 'passkey Ed25519 Yao recovery boundary',
+    reason: 'coordinates exact-owner recovery persistence at the browser recovery edge',
+  },
+  {
+    file: 'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoRecoverySource.ts',
+    owner: 'passkey Ed25519 Yao recovery source boundary',
+    reason: 'seals recovery source material with the browser WebCrypto boundary',
+  },
+  {
     file: 'packages/sdk-web/src/core/signingEngine/session/userPreferences.ts',
     owner: 'session preference persistence boundary',
     reason: 'reads browser local storage for user preferences',

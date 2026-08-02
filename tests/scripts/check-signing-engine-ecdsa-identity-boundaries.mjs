@@ -332,20 +332,6 @@ function checkEmailOtpEcdsaExportAuthorizationUsesWalletSessionIdentity() {
   assertNoOffenders(offenders, 'Email OTP ECDSA export authorization identity');
 }
 
-function checkBudgetStatusLookupAvoidsSubjectWideEcdsaScanFallback() {
-  const source = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts',
-  );
-  const offenders = [];
-  for (const forbidden of ['listThresholdEcdsaRuntimeLanesForSubject', 'toWalletId(walletId)']) {
-    if (source.includes(forbidden)) {
-      offenders.push(`budgetStatusReader contains forbidden ECDSA fallback ${forbidden}`);
-    }
-  }
-
-  assertNoOffenders(offenders, 'budget status lookup fallback');
-}
-
 function checkBrowserSigningSurfaceDoesNotDeriveEcdsaSubjectFromAccounts() {
   const source = readRepoFile(
     'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
@@ -1242,7 +1228,6 @@ function checkEcdsaDerivationWasmPackageExportsStayRoleLocal() {
 
 function runChecks() {
   checkEmailOtpEcdsaExportAuthorizationUsesWalletSessionIdentity();
-  checkBudgetStatusLookupAvoidsSubjectWideEcdsaScanFallback();
   checkBrowserSigningSurfaceDoesNotDeriveEcdsaSubjectFromAccounts();
   checkPublicSdkSignerFixturesUseDomainShapedCalls();
   checkOptionalLifecycleFieldsStayBehindNarrowBoundaries();

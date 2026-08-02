@@ -39,7 +39,7 @@ import {
   type EvmFamilyEcdsaSignerId,
 } from '@shared/utils/ecdsaCapabilityActivation';
 import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
-import type { EcdsaRoleLocalPublicFacts } from '@/core/platform/ecdsaRoleLocalRecords';
+import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import type { ParticipantId, VerifiedEcdsaPublicFacts } from '../identity/evmFamilyEcdsaIdentity';
 import type {
   EcdsaClientVerifyingPublicKey33B64u,

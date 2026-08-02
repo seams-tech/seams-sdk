@@ -3,10 +3,11 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 
 export type EcdsaSealedRecordKeyInput = {
   walletId: string;
-  authMethod: 'passkey' | 'email_otp';
+  authMethod: SigningSessionSealAuthMethod;
   chainTarget: ThresholdEcdsaChainTarget;
   materialActivation: MpcMaterialActivationRef;
 };

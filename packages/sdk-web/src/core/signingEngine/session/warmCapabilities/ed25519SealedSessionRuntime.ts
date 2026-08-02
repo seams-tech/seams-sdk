@@ -32,6 +32,7 @@ import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
+  type WalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 
@@ -257,20 +258,31 @@ export function parseExactEd25519SealedSessionRuntime(
 export async function ed25519SealedRuntimeAuthorityRef(
   runtime: ExactEd25519SealedSessionRuntime,
 ): Promise<WalletAuthAuthorityRef> {
-  const authority =
-    runtime.factor.kind === 'passkey'
-      ? buildPasskeyWalletAuthAuthority({
-          walletId: runtime.walletId,
-          rpId: runtime.factor.rpId,
-          credentialIdB64u: runtime.factor.credentialIdB64u,
-        })
-      : buildEmailOtpWalletAuthAuthority({
-          walletId: runtime.walletId,
-          provider: runtime.factor.provider,
-          providerUserId: runtime.factor.providerSubjectId,
-          emailHashHex: runtime.factor.emailHashHex,
-        });
+  let authority: WalletAuthAuthority;
+  switch (runtime.factor.kind) {
+    case 'passkey':
+      authority = buildPasskeyWalletAuthAuthority({
+        walletId: runtime.walletId,
+        rpId: runtime.factor.rpId,
+        credentialIdB64u: runtime.factor.credentialIdB64u,
+      });
+      break;
+    case 'email_otp':
+      authority = buildEmailOtpWalletAuthAuthority({
+        walletId: runtime.walletId,
+        provider: runtime.factor.provider,
+        providerUserId: runtime.factor.providerSubjectId,
+        emailHashHex: runtime.factor.emailHashHex,
+      });
+      break;
+    default:
+      return assertNeverEd25519Factor(runtime.factor);
+  }
   return await walletAuthAuthorityRef({ authority });
+}
+
+function assertNeverEd25519Factor(value: never): never {
+  throw new Error(`Unsupported Ed25519 factor: ${String(value)}`);
 }
 
 export function ed25519SigningGrantForAuthorization(args: {

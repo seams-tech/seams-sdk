@@ -3094,23 +3094,30 @@ async function primeThresholdLoginWarmSigners(args: {
                 ...ed25519ProvisioningIdentity,
                 ...sharedEd25519ConnectArgs,
               };
-        const connected =
-          ed25519SessionAuthority.kind === 'email_otp'
-            ? await args.signingEngine.connectEd25519Session({
-                ...commonEd25519ConnectArgs,
-                source: 'email_otp',
-                authority: ed25519SessionAuthority.authority,
-                emailOtpAuthContext: ed25519SessionAuthority.emailOtpAuthContext,
-                materialActivation: undefined,
-              })
-            : await args.signingEngine.connectEd25519Session({
-                ...commonEd25519ConnectArgs,
-                source: 'login',
-                authority: ed25519SessionAuthority.authority,
-                materialActivation: requireLoginPasskeyMaterialActivation(
-                  ed25519ProvisioningIdentity,
-                ),
-              });
+        let connected: Awaited<ReturnType<typeof args.signingEngine.connectEd25519Session>>;
+        switch (ed25519SessionAuthority.kind) {
+          case 'email_otp':
+            connected = await args.signingEngine.connectEd25519Session({
+              ...commonEd25519ConnectArgs,
+              source: 'email_otp',
+              authority: ed25519SessionAuthority.authority,
+              emailOtpAuthContext: ed25519SessionAuthority.emailOtpAuthContext,
+              materialActivation: undefined,
+            });
+            break;
+          case 'passkey':
+            connected = await args.signingEngine.connectEd25519Session({
+              ...commonEd25519ConnectArgs,
+              source: 'login',
+              authority: ed25519SessionAuthority.authority,
+              materialActivation: requireLoginPasskeyMaterialActivation(
+                ed25519ProvisioningIdentity,
+              ),
+            });
+            break;
+          default:
+            return assertNeverLoginState(ed25519SessionAuthority);
+        }
         if (!connected.ok) {
           const details = String(
             connected.message || connected.code || 'Failed to connect threshold Ed25519 session',

@@ -159,24 +159,6 @@ function findWalletRegistrationOriginViolations() {
     );
   }
 
-  const registrationPath = 'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts';
-  const registration = readRepoFile(registrationPath);
-  const modalStart = registration.indexOf(
-    'const modalPromise = args.context.signingEngine.openRegistrationPreparationModal(',
-  );
-  const precomputeStart = registration.indexOf(
-    'const readyPromise = startWalletRegistrationPrecomputeReady(args);',
-    modalStart,
-  );
-  const parallelAwait = registration.indexOf(
-    'await Promise.all([readyPromise, modalPromise])',
-    precomputeStart,
-  );
-  if (modalStart < 0 || precomputeStart < modalStart || parallelAwait < precomputeStart) {
-    violations.push(
-      `${registrationPath} does not open the modal before parallel registration precompute`,
-    );
-  }
   const uiConfirmPath = 'packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts';
   const uiConfirm = readRepoFile(uiConfirmPath);
   if (

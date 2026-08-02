@@ -1,15 +1,16 @@
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 
 export type Ed25519DurableMaterialLocator = {
   readonly kind: 'ed25519_durable_material';
-  readonly authMethod: 'passkey' | 'email_otp';
+  readonly authMethod: SigningSessionSealAuthMethod;
   readonly materialActivation: MpcMaterialActivationRef;
   readonly thresholdSessionId?: never;
   readonly signingGrantId?: never;
 };
 
 export function ed25519DurableMaterialLocator(args: {
-  authMethod: Ed25519DurableMaterialLocator['authMethod'];
+  authMethod: SigningSessionSealAuthMethod;
   materialActivation: MpcMaterialActivationRef;
 }): Ed25519DurableMaterialLocator {
   return {
