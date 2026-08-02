@@ -244,7 +244,7 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
 
     expect(result).toMatchObject({
       ok: true,
-      sessionId: 'threshold-session-1',
+      thresholdSessionId: 'threshold-session-1',
       signingGrantId: 'signing-grant-1',
       remainingUses: 3,
       jwt: 'refreshed-wallet-session-jwt',

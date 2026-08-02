@@ -3118,9 +3118,9 @@ async function primeThresholdLoginWarmSigners(args: {
           throw new Error(`[login] threshold Ed25519 warm-up failed: ${details}`);
         }
 
-        const connectedSessionId = String(connected.sessionId || '').trim();
-        if (!connectedSessionId) {
-          throw new Error('[login] threshold Ed25519 warm-up did not return a sessionId');
+        const connectedThresholdSessionId = connected.thresholdSessionId;
+        if (!connectedThresholdSessionId) {
+          throw new Error('[login] threshold Ed25519 warm-up did not return a thresholdSessionId');
         }
 
         const connectedJwt = String(connected.jwt || '').trim();
@@ -3159,7 +3159,7 @@ async function primeThresholdLoginWarmSigners(args: {
             });
           if (
             runtimeResolution.kind !== 'resolved' ||
-            runtimeResolution.runtime.thresholdSessionId !== connectedSessionId
+            runtimeResolution.runtime.thresholdSessionId !== connectedThresholdSessionId
           ) {
             throw new Error('[login] local Ed25519 material requires its exact sealed runtime');
           }
@@ -3200,7 +3200,7 @@ async function primeThresholdLoginWarmSigners(args: {
           });
         }
 
-        warmState.sessionId = connectedSessionId;
+        warmState.sessionId = String(connectedThresholdSessionId);
         warmState.signingGrantId = connectedSigningGrantId;
         warmState.jwt = connectedJwt;
         warmState.expiresAtMs = Math.floor(Number(connected.expiresAtMs) || 0);
