@@ -9,7 +9,6 @@ import {
   type EvmFamilyEcdsaKeyIdentity,
   type ThresholdEcdsaSessionId,
   type VerifiedEcdsaPublicFacts,
-  type SigningGrantId,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type {
   AvailableEcdsaSigningLane,
