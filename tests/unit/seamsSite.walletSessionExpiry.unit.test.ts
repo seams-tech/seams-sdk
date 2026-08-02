@@ -22,7 +22,7 @@ const WALLET_SESSION_ID = 'wallet-session-alpha';
 test('the public expiry parser preserves the event and strips secret fields', () => {
   const event = createSigningSessionExpiredEvent({
     walletId: toWalletId('refactor-92-demo-wallet'),
-    walletSessionId: SigningSessionIds.signingGrant('refactor-92-demo-session'),
+    walletSessionId: SigningSessionIds.walletSession('refactor-92-demo-session'),
     authMethod: SIGNER_AUTH_METHODS.passkey,
     expiresAtMs: 1_000,
     detectedAtMs: 1_001,
