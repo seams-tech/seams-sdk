@@ -1590,10 +1590,10 @@ the replacement and legacy MPC paths must not ship together.
         identity, dynamic-import, and UI-environment prerequisites. The count
         is evidence, not a pass; no production fix is inferred from the broad
         failure list.
-  - [ ] Intended-test declaration generation now completes in the isolated
-        worktree. The lifecycle run remains blocked at the missing intended
-        Google ID token; rerun after the healthy OIDC-backed environment is
-        provisioned.
+  - [x] Intended-test declaration generation and typechecking complete in the
+        isolated worktree (`b44dcb34d`). The lifecycle run remains blocked at
+        the missing intended Google ID token; rerun after the healthy
+        OIDC-backed environment is provisioned.
 - [x] No legacy and replacement MPC path coexist in a releasable tree; the
       composite ECDSA family and generic worker custody paths are absent, and
       the source/boundary guards pass. Full lifecycle acceptance remains open
