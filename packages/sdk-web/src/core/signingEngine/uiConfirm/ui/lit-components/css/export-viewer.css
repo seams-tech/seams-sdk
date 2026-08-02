@@ -232,35 +232,23 @@ w3a-export-key-viewer {
 }
 
 .reel-slot {
-  position: relative;
   width: 1ch;
   text-align: center;
   opacity: 0.62;
-  transition: opacity 140ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.reel-glyph-live,
-.reel-glyph-target {
-  display: block;
-  transition: opacity 140ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.reel-glyph-target {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
 }
 
 .reel-slot.settled {
   opacity: 1;
+  animation: reel-slot-settle 96ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.reel-slot.settled .reel-glyph-live {
-  opacity: 0;
-}
-
-.reel-slot.settled .reel-glyph-target {
-  opacity: 1;
+@keyframes reel-slot-settle {
+  from {
+    opacity: 0.24;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .w3a-sr-only {
@@ -282,12 +270,7 @@ w3a-export-key-viewer {
 @media (prefers-reduced-motion: reduce) {
   .reel-slot {
     opacity: 0.72;
-  }
-
-  .reel-slot,
-  .reel-glyph-live,
-  .reel-glyph-target {
-    transition-duration: 0.01ms;
+    animation: none;
   }
 
   .copy-field,

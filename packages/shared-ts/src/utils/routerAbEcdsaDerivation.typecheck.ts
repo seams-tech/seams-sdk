@@ -47,7 +47,7 @@ const invalidActivationResponse = {
   ...activationResponse,
   session: {
     ...activationResponse.session,
-    // @ts-expect-error Activation responses reject unparsed signing-grant ids.
+    // @ts-expect-error Activation responses do not carry signing-grant ids.
     signing_grant_id: 'grant-unparsed',
   },
 } satisfies RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
