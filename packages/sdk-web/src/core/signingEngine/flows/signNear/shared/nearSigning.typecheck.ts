@@ -12,9 +12,12 @@ import type {
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import type { NearPasskeyOperationStepUpPlan } from '@/core/signingEngine/interfaces/near';
-import type { CapabilityGrantId } from '@shared/authorization/capabilityKinds';
 import type {
-  SigningGrantId,
+  CapabilityGrantId,
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import type {
   ThresholdEd25519SessionId,
 } from '@/core/signingEngine/session/operationState/types';
 
@@ -22,7 +25,8 @@ declare const walletId: WalletId;
 declare const nearAccountId: NamedNearAccountId;
 declare const nearEd25519SigningKeyId: NearEd25519SigningKeyId;
 declare const auth: SigningLaneAuthBinding;
-declare const signingGrantId: SigningGrantId;
+declare const walletSessionId: WalletSessionId;
+declare const quotaId: MpcWalletSigningQuotaId;
 declare const capabilityGrantId: CapabilityGrantId;
 declare const thresholdSessionId: ThresholdEd25519SessionId;
 declare const ecdsaLane: ExactEcdsaSigningLaneIdentity;
@@ -42,7 +46,8 @@ const ed25519Lane: ExactEd25519SigningLaneIdentity = {
   kind: 'exact_signing_lane',
   signer,
   auth,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId,
 };
 void ed25519Lane;
@@ -55,7 +60,8 @@ const ed25519LaneWithLegacyAccountId: ExactEd25519SigningLaneIdentity = {
   kind: 'exact_signing_lane',
   signer,
   auth,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId,
   // @ts-expect-error Exact Ed25519 lane carries NEAR account identity under signer.account.
   accountId: nearAccountId,
@@ -69,7 +75,7 @@ void exactOperationGrant;
 const operationStepUpWithReusableGrant: NearPasskeyOperationStepUpPlan = {
   thresholdSessionId,
   // @ts-expect-error Reusable signing grants cannot authorize one-operation step-up.
-  requestedGrantId: signingGrantId,
+  requestedGrantId: walletSessionId,
   authority: operationStepUpPlan.authority,
 };
 void operationStepUpWithReusableGrant;
