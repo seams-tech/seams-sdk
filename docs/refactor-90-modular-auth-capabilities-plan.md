@@ -1535,7 +1535,7 @@ the replacement and legacy MPC paths must not ship together.
       concurrent expiry invalidates/emits once; corrupt or mismatched material
       fails closed; stale preparation returns `superseded` and re-resolves.
 - [ ] Passkey and Email OTP agree across signing and export.
-- [ ] Rust vectors, TS bindings, worker/WASM guards, host adapter tests, and
+- [x] Focused Rust vectors, TS bindings, worker/WASM guards, host adapter tests, and
       bundle checks pass.
   - Evidence at the current checkpoint: the focused Refactor 90 operating-path
       and wire matrix passes 72/72; the Rust Cloudflare ECDSA binding suite
