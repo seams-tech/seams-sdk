@@ -186,17 +186,18 @@ tests. The shared `SigningGrantId` brand/parser and sealed-record exclusion
 fields were deleted in `53ab721df`; the remaining TypeScript Router budget
 runtime/store surface was deleted in `882dfd681` and `4885bed62`.
 
-Checkpoint `882dfd681` and follow-up `4885bed62` close the next deletion slice:
-the remaining
+Checkpoints `882dfd681`, `4885bed62`, `32be59fb1`, and `fa5791630` close the
+Unit 3c deletion slice: the remaining
 TypeScript Router budget persistence/parser surface, callerless local signing
 seed runtime and factory wiring, obsolete wallet-budget status/parser tests,
 and grant-named admission/cache identities in the SDK, local smoke wire,
 console admission fixture, and current documentation. SDK-server, SDK-web,
-console-server, and shared TypeScript typechecks pass; focused admission and
-claims coverage is 8/8 plus 29/29. The implementation cutover is closed;
-lifecycle and final conformance acceptance remain open.
+console-server, and shared TypeScript typechecks pass. Focused admission,
+claims, identity, recovery, export, hostile-substitution, and lifecycle
+coverage is green. The Unit 3c implementation and focused conformance gate are
+closed.
 
-### Unit 3c current-source closeout — `4885bed62`
+### Unit 3c current-source closeout — `4885bed62`, `fa5791630`
 
 An exact source sweep over `packages`, `apps`, and `crates` finds no current
 `SigningGrantId`, `signingGrantId`, or `signing_grant_id` occurrence outside
@@ -769,23 +770,21 @@ Replacement: exact operation grants plus `MpcWalletSigningQuota` claims.
 - ~~zero-caller `WalletSigningSpendPlan`, its Ed25519-only target type, and
   normalizer~~ — deleted after claim-owned quota consumption left no producer
   or consumer
-- router reserve/commit/release budget methods
-- old development `signingGrantId` budget rows (reject and clear at the
+- ~~router reserve/commit/release budget methods~~ — deleted
+- ~~old development grant-keyed budget rows~~ (reject and clear at the
   persistence boundary; never fan one remaining-use count into multiple
   balances)
-- the transitional blanket readmission path after recovery
-- the legacy projection path copying `signingGrantId` or other operation
-  authorization across EVM/Tempo targets
+- ~~the transitional blanket readmission path after recovery~~ — deleted
+- ~~the legacy projection path copying reusable authorization across EVM/Tempo
+  targets~~ — deleted
 - keep only client-side concurrent-operation fingerprinting from the old
   subsystem
 
-Scope disposition: the router reserve/commit/release methods and their
-`signingGrantId`-keyed rows remain live only until Unit 3c moves Ed25519 to the
-shared authorization core's atomic claim-and-quota transaction. Unit 3c then
-deletes these methods, rows, wire fields, fixtures, and guards. The ECDSA public
-budget fields and compatibility aliases were removed by `41ed8f9cb`; Unit 3c
-also replaces the ECDSA reusable authorization claim's remaining
-`signing_grant_id` binding with the canonical `CapabilityGrantId`.
+Scope disposition: Unit 3c moved Ed25519 to the shared authorization core's
+atomic claim-and-quota transaction and deleted the Router methods, inert rows,
+wire fields, fixtures, and guards. The ECDSA public budget fields and
+compatibility aliases were removed by `41ed8f9cb`; reusable authorization now
+uses canonical capability-grant and Wallet Session/quota identities.
 
 ## Phase 21 — worker and WASM residue
 
