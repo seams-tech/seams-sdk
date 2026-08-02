@@ -257,7 +257,6 @@ test.describe('exact ECDSA sealed runtime resolution', () => {
     expect('expiresAtMs' in resolution.runtime).toBe(false);
     expect('remainingUses' in resolution.runtime).toBe(false);
     expect('thresholdSessionId' in resolution.runtime).toBe(false);
-    expect('signingGrantId' in resolution.runtime).toBe(false);
     expect('authorization' in resolution.runtime).toBe(false);
   });
 

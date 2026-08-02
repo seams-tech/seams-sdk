@@ -19,7 +19,6 @@ export type RouterAbEcdsaWalletSessionClaimsFixtureInput = {
   readonly authorizationSessionId?: string;
   readonly quotaId?: string;
   readonly thresholdSessionId?: string;
-  readonly signingGrantId?: string;
 };
 
 export function buildRouterAbEcdsaWalletSessionClaimsFixture(
@@ -30,7 +29,6 @@ export function buildRouterAbEcdsaWalletSessionClaimsFixture(
     sub: input.walletId,
     walletId: input.walletId,
     thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-fixture',
-    signingGrantId: input.signingGrantId ?? 'signing-grant-fixture',
     authorizationSessionId:
       input.authorizationSessionId ?? 'authorization-session-fixture',
     walletSessionId: input.walletSessionId ?? 'wallet-session-fixture',

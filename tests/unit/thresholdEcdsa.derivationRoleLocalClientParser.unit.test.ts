@@ -9,16 +9,9 @@ import {
   toEcdsaDerivationThresholdKeyId,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import { parseSigningGrantId } from '@shared/utils/domainIds';
 
 function toDerivationClientSharePublicKey33B64uForTest(value: string): DerivationClientSharePublicKey33B64u {
   return value as DerivationClientSharePublicKey33B64u;
-}
-
-function signingGrantIdForTest(value: string) {
-  const parsed = parseSigningGrantId(value);
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
 }
 
 function base64UrlEncodeJsonFixture(value: unknown): string {
@@ -36,7 +29,6 @@ const CLIENT_PUBLIC_KEY_33_B64U = 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC'
 const RELAYER_PUBLIC_KEY_33_B64U = 'AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD';
 const GROUP_PUBLIC_KEY_33_B64U = CLIENT_PUBLIC_KEY_33_B64U;
 const ETHEREUM_ADDRESS20_B64U = 'ERERERERERERERERERERERERERE';
-const SIGNING_GRANT_ID = signingGrantIdForTest('signing-grant');
 const ACTIVATION_EPOCH = 'activation-epoch';
 
 const NORMAL_SIGNING_STATE_FIXTURE = {
@@ -58,6 +50,15 @@ const NORMAL_SIGNING_STATE_FIXTURE = {
       client_share_retry_counter: 0,
       server_share_retry_counter: 0,
     },
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'activation-1',
+      capability: 'capability-1',
+      material_owner: 'wallet-user',
+      key_binding: 'key-handle',
+      lifecycle_binding: 'lifecycle-1',
+      signing_worker: 'signing-worker-test',
+    },
     signing_worker: {
       server_id: 'signing-worker-test',
       key_epoch: 'signing-worker-output-epoch',
@@ -73,7 +74,9 @@ function buildRouterAbEcdsaDerivationWalletSessionJwtFixture(args: { expiresAtMs
     sub: 'wallet-user',
     walletId: 'wallet-user',
     thresholdSessionId: 'threshold-session',
-    signingGrantId: 'signing-grant',
+    authorizationSessionId: 'authorization-session',
+    walletSessionId: 'wallet-session',
+    quotaId: 'wallet-signing-quota',
     keyScope: 'evm-family',
     keyHandle: 'key-handle',
     relayerKeyId: 'relayer-key',
@@ -98,7 +101,6 @@ const BOOTSTRAP_ARGS = {
   contextBinding32B64u: CONTEXT_BINDING_32_B64U,
   requestId: 'request-id',
   sessionId: 'threshold-session',
-  signingGrantId: SIGNING_GRANT_ID,
   ttlMs: 60_000,
   remainingUses: 2,
   participantIds: [1, 2],
@@ -132,7 +134,6 @@ function bootstrapValue(overrides?: Record<string, unknown>): Record<string, unk
     participantIds: [1, 2],
     thresholdSessionId: 'threshold-session',
     activationEpoch: ACTIVATION_EPOCH,
-    signingGrantId: 'signing-grant',
     authorizationSessionId: 'authorization-session',
     walletSessionId: 'wallet-session',
     quotaId: 'wallet-signing-quota',

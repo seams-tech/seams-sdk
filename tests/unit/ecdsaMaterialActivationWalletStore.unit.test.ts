@@ -760,7 +760,6 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
         walletSessionId: 'wallet-session-pool',
         quotaId: 'wallet-quota-pool',
         thresholdSessionId: 'threshold-session-pool',
-        signingGrantId: 'signing-grant-pool',
       });
       ctx.opts.session = {
         async parse() {
