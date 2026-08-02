@@ -1623,6 +1623,12 @@ material identifier substitute for another.
 
 ### Canonical authorization identities
 
+- [x] Remove the inert ECDSA admission-policy `signingGrantId` input and make
+      Router A/B quota-key helpers accept only the Ed25519 admission subtype;
+      the ECDSA policy/abuse path performs no legacy quota reservation
+      (`5cf433765`). The Rust reusable-claim binding remains open until the
+      shared durable claim verifier replaces its current Wallet Session grant
+      comparison.
 - [ ] Add every live `SigningGrantId`, `signingGrantId`, and
       `signing_grant_id` production occurrence to the deletion ledger and
       classify it as reusable-session authorization, quota, operation grant,
