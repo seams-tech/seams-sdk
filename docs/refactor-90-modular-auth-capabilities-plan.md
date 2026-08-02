@@ -2061,9 +2061,10 @@ This is a validation gate, not a deferred cleanup phase.
         normal-signing vectors pass 3/3 and the ECDSA client protocol passes
         9/9.
   - [x] Root declaration generation and repository-wide TypeScript typecheck
-        pass after rebuilding the isolated worktree. Root lint still reports
-        nine pre-existing errors outside this refactor and 1,291 warnings;
-        those remain a baseline blocker rather than a refactor regression.
+        pass after rebuilding the isolated worktree. The repository check now
+        passes through Rust format/lint, architecture, worker/WASM, and signer
+        parity checks; lint reports warnings only (1,291), with no errors
+        (`e2fd7d254`).
 - [x] Focused unit, crash, concurrency, host-adapter, worker/WASM, and vector
       tests pass.
   - [x] The current branch-specific Wallet Session claim and private-route
