@@ -89,6 +89,12 @@ export type DiscoverPersistedSessionsForWalletResult = {
 
 export type RestoreSealedRecordResult = 'restored' | 'ready' | 'deferred';
 
+export type RestoredWarmSessionStatus = {
+  ok: true;
+  remainingUses: number;
+  expiresAtMs: number;
+};
+
 export type SigningSessionRestoreCache = {
   hasSuccessfulRestore: (
     input: RestorePersistedSessionForSigningInput | RestorePersistedSessionPurpose,

@@ -347,6 +347,10 @@ ports, and the two-state recovery journal.
 - ~~`ecdsa_and_ed25519_yao_local_session`~~ — deleted by `def400d94`
 - ~~the implicit omitted-`sessionIntent` branch~~ — no production or retained
   test occurrence remains; capability requests are explicit.
+- ~~dead generic `recordAndVerifyRestoredWarmSessions` readback helper~~ — no
+  production or retained-test caller remained; the live
+  `RestoredWarmSessionStatus` type moved to `sealedRecovery.types.ts`
+  (`pending`).
 
 ## Phase 19 — committed lanes, step-up, and resolvers
 

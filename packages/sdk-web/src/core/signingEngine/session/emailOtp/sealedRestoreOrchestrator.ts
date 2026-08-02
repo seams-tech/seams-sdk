@@ -11,7 +11,6 @@ import {
   type readExactSealedSession,
   type releaseSigningSessionRestoreLease,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
-import type { RestoredWarmSessionStatus } from '@/core/signingEngine/session/sealedRecovery/readback';
 import {
   createSigningSessionRestoreAttemptRegistry,
   createSigningSessionRestoreCache,
@@ -25,6 +24,7 @@ import type {
   RestorePersistedSessionForSigningResult,
   RestorePersistedSessionPurpose,
   RestoreSealedRecordResult,
+  RestoredWarmSessionStatus,
   SigningSessionRestoreAttemptRegistry,
   SigningSessionRestoreCache,
 } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
