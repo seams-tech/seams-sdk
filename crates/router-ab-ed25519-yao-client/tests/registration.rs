@@ -2,7 +2,8 @@ use curve25519_dalek::{constants::ED25519_BASEPOINT_POINT, scalar::Scalar};
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoEncryptedPackageV1, Ed25519YaoOperationV1,
     Ed25519YaoPackageKindV1, Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1,
-    Ed25519YaoStateEpochV1, ExpensiveWorkKindV1, LifecycleScopeV1, RootShareEpoch,
+    Ed25519YaoStateEpochV1, ExpensiveWorkKindV1, LifecycleScopeV1, MpcMaterialActivationRefV1,
+    RootShareEpoch,
     RouterAbEd25519YaoActivationAdmissionReceiptV1, RouterAbEd25519YaoActivationKeysetV1,
     RouterAbEd25519YaoActivationPublicReceiptV1, RouterAbEd25519YaoActivationResultV1,
     RouterAbEd25519YaoApplicationBindingFactsV1, RouterAbEd25519YaoExportAdmissionReceiptV1,
@@ -227,11 +228,13 @@ fn run_client_export(
     let participant_ids = [1, 2];
     let context = stable_key_derivation_context_v1(&application, participant_ids)
         .expect("stable derivation context");
+    let material_activation = material_activation(session_byte);
     let ceremony = Ed25519YaoCeremonyBindingV1::new(
         lifecycle(ExpensiveWorkKindV1::KeyExport, session_byte),
         Ed25519YaoOperationV1::Export,
         Ed25519YaoSessionIdV1::new([session_byte; 32]).expect("session"),
         Ed25519YaoStableKeyContextBindingV1::new(context.binding_digest()),
+        material_activation,
     )
     .expect("export ceremony");
     let binding = RouterAbEd25519YaoExportBindingV1::new(
@@ -461,11 +464,13 @@ fn run_client_activation(case: ClientActivationTestCase) -> ClientActivationCirc
     let participant_ids = [1, 2];
     let context = stable_key_derivation_context_v1(&application, participant_ids)
         .expect("stable derivation context");
+    let material_activation = material_activation(case.session_byte());
     let binding = Ed25519YaoCeremonyBindingV1::new(
         lifecycle(case.work_kind(), case.session_byte()),
         case.operation(),
         Ed25519YaoSessionIdV1::new([case.session_byte(); 32]).expect("session"),
         Ed25519YaoStableKeyContextBindingV1::new(context.binding_digest()),
+        material_activation.clone(),
     )
     .expect("binding");
     let deriver_a_recipient =
@@ -539,6 +544,7 @@ fn run_client_activation(case: ClientActivationTestCase) -> ClientActivationCirc
         *receipt.joined_signing_worker_commitment(),
         *receipt.joined_signing_worker_commitment(),
         Ed25519YaoStateEpochV1::new(case.state_epoch()).expect("state epoch"),
+        material_activation,
     )
     .expect("Router public receipt");
     let result =
@@ -599,6 +605,18 @@ fn lifecycle(work_kind: ExpensiveWorkKindV1, session_byte: u8) -> LifecycleScope
     .expect("lifecycle")
 }
 
+fn material_activation(session_byte: u8) -> MpcMaterialActivationRefV1 {
+    MpcMaterialActivationRefV1::new(
+        format!("client-e2e-material-{session_byte:02x}"),
+        "near-ed25519-mpc-signing",
+        "account-1",
+        "ed25519ks_client_e2e",
+        format!("client-e2e-lifecycle-{session_byte:02x}"),
+        "signing-worker-1",
+    )
+    .expect("material activation")
+}
+
 fn deriver_a_config() -> LocalDeriverAWorkerConfigV1 {
     LocalDeriverAWorkerConfigV1 {
         deriver_a_url: "http://127.0.0.1:1".to_owned(),
@@ -609,7 +627,7 @@ fn deriver_a_config() -> LocalDeriverAWorkerConfigV1 {
         peer_signing_key: "local-test".to_owned(),
         deriver_a_peer_verifying_key: "local-test".to_owned(),
         deriver_b_peer_verifying_key: "local-test".to_owned(),
-        root_share_storage_path: "/tmp/local-test-a-root".to_owned(),
+        role_private_storage_path: "/tmp/local-test-a-root".to_owned(),
         sealed_root_shares_path: "/tmp/local-test-a-sealed".to_owned(),
     }
 }
@@ -624,7 +642,7 @@ fn deriver_b_config() -> LocalDeriverBWorkerConfigV1 {
         peer_signing_key: "local-test".to_owned(),
         deriver_a_peer_verifying_key: "local-test".to_owned(),
         deriver_b_peer_verifying_key: "local-test".to_owned(),
-        root_share_storage_path: "/tmp/local-test-b-root".to_owned(),
+        role_private_storage_path: "/tmp/local-test-b-root".to_owned(),
         sealed_root_shares_path: "/tmp/local-test-b-sealed".to_owned(),
     }
 }
