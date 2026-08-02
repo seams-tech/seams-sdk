@@ -21,6 +21,12 @@ import type {
   SessionOrigin,
   VerifiedGrantEvidenceSet,
 } from './domain';
+import type {
+  AuthorizationGrant,
+  AuthorizedOperation,
+  AuthorizedOperationInput,
+} from './operationAuthorization';
+import { buildWalletSessionAuthorization } from './operationAuthorization';
 import {
   buildActiveReusableWalletSession,
   buildActiveWalletSessionQuota,
@@ -32,7 +38,9 @@ import {
 } from './domain';
 import {
   CAPABILITY_KINDS,
+  parseAuthorizationGrantRef,
   parseHostedWalletSessionExchangeCodeId,
+  parseWalletSessionAuthorizationId,
   type AuthorizationAuditEventId,
   type CapabilityGrantId,
   type CapabilityGrantUseId,
@@ -127,6 +135,11 @@ export type CapabilityGrantClaimSource =
     });
 
 export interface AuthorizationGrantPort {
+  putAuthorizationGrant(grant: AuthorizationGrant): Promise<void>;
+  readAuthorizationGrant(input: {
+    readonly tenantId: TenantId;
+    readonly authorizationGrantRef: import('@shared/authorization/capabilityKinds').AuthorizationGrantRef;
+  }): Promise<AuthorizationGrant | null>;
   putActiveGrant(grant: ActiveCapabilityGrant): Promise<void>;
   putActiveWalletSessionQuota(quota: ActiveWalletSessionQuota): Promise<void>;
   putActiveReusableWalletSession(input: {
@@ -140,6 +153,31 @@ export interface AuthorizationGrantPort {
 }
 
 export interface AuthorizationClaimPort {
+  readAuthorizedOperation(input: {
+    readonly tenantId: TenantId;
+    readonly operationFingerprintDigest: import('@shared/authorization/operationFingerprint').CapabilityOperationFingerprintDigest;
+  }): Promise<AuthorizedOperation | null>;
+  claimAuthorizedOperation(input: {
+    readonly operation: AuthorizedOperationInput;
+    readonly material?: EcdsaMaterialActivationScope;
+  }): Promise<
+    | { readonly kind: 'claimed'; readonly operation: AuthorizedOperation }
+    | { readonly kind: 'replayed'; readonly operation: AuthorizedOperation }
+    | { readonly kind: 'operation_in_progress'; readonly operation: AuthorizedOperation }
+    | {
+        readonly kind:
+          | 'authorization_grant_rejected'
+          | 'verified_step_up_rejected'
+          | 'wallet_session_quota_exhausted'
+          | 'material_mismatch';
+      }
+  >;
+  completeAuthorizedOperation(input: {
+    readonly operation: AuthorizedOperation;
+    readonly result: import('./operationAuthorization').AuthorizedOperationResult;
+    readonly resultRef: import('./operationAuthorization').AuthorizedOperationResultRef;
+    readonly completedAtMs: number;
+  }): Promise<AuthorizedOperation>;
   readOperationUse(input: {
     readonly tenantId: TenantId;
     readonly operationFingerprintDigest: CapabilityOperationClaim['operationFingerprintDigest'];
@@ -268,6 +306,7 @@ export type IssueReusableWalletSessionInput = {
 export type IssuedReusableWalletSession = {
   readonly session: ActiveReusableWalletSession;
   readonly quota: ActiveWalletSessionQuota;
+  readonly authorization: AuthorizationGrant;
 };
 
 export class AuthorizationService {
@@ -401,6 +440,22 @@ export class AuthorizationService {
     await this.ports.grants.putActiveWalletSessionQuota(quota);
   }
 
+  async claimAuthorizedOperation(input: {
+    readonly operation: AuthorizedOperationInput;
+    readonly material?: EcdsaMaterialActivationScope;
+  }): ReturnType<AuthorizationClaimPort['claimAuthorizedOperation']> {
+    return await this.ports.claims.claimAuthorizedOperation(input);
+  }
+
+  async completeAuthorizedOperation(input: {
+    readonly operation: AuthorizedOperation;
+    readonly result: import('./operationAuthorization').AuthorizedOperationResult;
+    readonly resultRef: import('./operationAuthorization').AuthorizedOperationResultRef;
+    readonly completedAtMs: number;
+  }): ReturnType<AuthorizationClaimPort['completeAuthorizedOperation']> {
+    return await this.ports.claims.completeAuthorizedOperation(input);
+  }
+
   async issueReusableWalletSession(
     input: IssueReusableWalletSessionInput,
   ): Promise<IssuedReusableWalletSession> {
@@ -432,7 +487,26 @@ export class AuthorizationService {
       expiresAtMs: session.expiresAtMs,
     });
     await this.ports.grants.putActiveReusableWalletSession({ session, quota });
-    return { session, quota };
+    const authorization = buildWalletSessionAuthorization({
+      authorizationGrantRef: parseRequired(
+        await deriveReusableWalletSessionId(input, 'authorization-grant'),
+        parseAuthorizationGrantRef,
+      ),
+      authorizationId: parseRequired(
+        await deriveReusableWalletSessionId(input, 'authorization-id'),
+        parseWalletSessionAuthorizationId,
+      ),
+      tenantId: session.tenantId,
+      principalId: session.principalId,
+      walletId: session.walletId,
+      walletSessionId: session.walletSessionId,
+      quotaId: session.quotaId,
+      revocationEpoch: 1,
+      createdAtMs: session.createdAtMs,
+      expiresAtMs: session.expiresAtMs,
+    });
+    await this.ports.grants.putAuthorizationGrant(authorization);
+    return { session, quota, authorization };
   }
 
   async claimOperationStepUpFromGrant(
@@ -734,7 +808,7 @@ function operationStepUpGrantMatches(
 
 async function deriveReusableWalletSessionId(
   input: IssueReusableWalletSessionInput,
-  kind: 'wallet-session' | 'wallet-quota',
+  kind: 'wallet-session' | 'wallet-quota' | 'authorization-grant' | 'authorization-id',
 ): Promise<string> {
   const digest = base64UrlEncode(
     await sha256BytesUtf8(

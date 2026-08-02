@@ -37,6 +37,7 @@ import { parseVerifiedGrantEvidenceSetFromPersistence } from '../../packages/sdk
 import { capabilityPolicyPort } from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
 import {
   parseReusableWalletSessionMintId,
+  parseAuthorizedOperationId,
   parseCapabilityBindingId,
   parseCapabilityGrantUseId,
   parseAuthorizationAuditEventId,
@@ -1338,6 +1339,105 @@ test.describe('D1 authorization core', () => {
       cleanupTemporaryD1Database(temporary.tempDir);
     }
   });
+
+  test('claims direct Wallet Session operations and replays without a synthetic grant', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const service = createService(temporary.database, 'direct-wallet-session-operation');
+      const fixture = await buildReusableAuthorizationCoreFixture();
+      await service.recordActiveSession(fixture.session);
+      const issued = await service.issueReusableWalletSession({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletId: fixture.reusableWalletSession.walletId,
+        authority: fixture.reusableWalletSession.authority,
+        mintId: fixture.reusableWalletSession.mintId,
+        remainingUses: 2,
+        issuedAtMs: fixture.session.createdAtMs + 1,
+        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+      });
+      const operation = {
+        authorizedOperationId: requiredAuthorizedOperationId('authorized-operation-1'),
+        tenantId: fixture.claim.operation.tenantId,
+        operation: fixture.claim.operation,
+        auditEventId: requiredAuditEventId('authorized-audit-1'),
+        claimedAtMs: fixture.claim.claimedAtMs,
+        authorization: {
+          kind: 'authorization_grant' as const,
+          authorizationGrantRef: issued.authorization.authorizationGrantRef,
+        },
+        authorizationGrantRevocationEpoch: issued.authorization.revocationEpoch,
+        walletSessionId: issued.session.walletSessionId,
+        quotaId: issued.quota.quotaId,
+        quota: {
+          kind: 'consume_reusable_wallet_session' as const,
+          quotaId: issued.quota.quotaId,
+        },
+      };
+
+      const claimed = await service.claimAuthorizedOperation({ operation });
+      expect(claimed.kind).toBe('claimed');
+      if (claimed.kind !== 'claimed') throw new Error('direct operation was not claimed');
+      expect(claimed.operation.authorization.kind).toBe('authorization_grant');
+      await expect(
+        rowCount(temporary.database, 'capability_grants'),
+      ).resolves.toBe(0);
+      await expect(
+        readRemainingUses(temporary.database, 'authorization_wallet_session_quotas'),
+      ).resolves.toBe(1);
+
+      const inProgress = await service.claimAuthorizedOperation({ operation });
+      expect(inProgress).toMatchObject({ kind: 'operation_in_progress' });
+      const completed = await service.completeAuthorizedOperation({
+        operation: claimed.operation,
+        result: 'succeeded',
+        resultRef: fixture.resultRef,
+        completedAtMs: fixture.claim.claimedAtMs + 1,
+      });
+      expect(completed.lifecycle).toBe('completed');
+      await expect(service.claimAuthorizedOperation({ operation })).resolves.toMatchObject({
+        kind: 'replayed',
+      });
+      await expect(
+        rowCount(temporary.database, 'authorized_operations'),
+      ).resolves.toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('claims a step-up operation directly from verified evidence without a grant row', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const service = createService(temporary.database, 'direct-step-up-operation');
+      const fixture = await buildReusableAuthorizationCoreFixture();
+      await service.recordActiveSession(fixture.session);
+      await service.recordVerifiedSessionEvidenceSet(fixture.sessionEvidenceInput);
+      const operation = {
+        authorizedOperationId: requiredAuthorizedOperationId('authorized-step-up-1'),
+        tenantId: fixture.claim.operation.tenantId,
+        operation: fixture.claim.operation,
+        auditEventId: requiredAuditEventId('authorized-step-up-audit-1'),
+        claimedAtMs: fixture.claim.claimedAtMs,
+        authorization: {
+          kind: 'verified_step_up' as const,
+          evidenceSetDigest: fixture.evidenceSet.evidenceSetDigest,
+        },
+        quota: { kind: 'quota_neutral' as const },
+      };
+
+      const claimed = await service.claimAuthorizedOperation({ operation });
+      expect(claimed).toMatchObject({ kind: 'claimed' });
+      await expect(rowCount(temporary.database, 'capability_grants')).resolves.toBe(0);
+      await expect(
+        service.claimAuthorizedOperation({ operation }),
+      ).resolves.toMatchObject({ kind: 'operation_in_progress' });
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
 });
 
 function createService(
@@ -1546,6 +1646,12 @@ function requiredQuotaId(value: string) {
   return parsed.value;
 }
 
+function requiredAuthorizedOperationId(value: string) {
+  const parsed = parseAuthorizedOperationId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 function requiredWalletId(value: string) {
   const parsed = parseWalletId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
@@ -1584,7 +1690,9 @@ async function rowCount(
     | 'ecdsa_authorization_atomic_guards'
     | 'authorization_audit_events'
     | 'reusable_wallet_session_operation_uses'
-    | 'reusable_wallet_session_operation_audit_events',
+    | 'reusable_wallet_session_operation_audit_events'
+    | 'authorized_operations'
+    | 'authorized_operation_audit_events',
 ): Promise<number> {
   const row = await database
     .prepare(`SELECT COUNT(*) AS count FROM ${table}`)
