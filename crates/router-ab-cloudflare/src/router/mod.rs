@@ -1438,24 +1438,8 @@ impl CloudflareRouterCompactJwtV1 {
         }
         let header: CloudflareRouterJwtHeaderV1 =
             decode_base64url_json_v1("Router JWT header", header_segment)?;
-        let claims_value: serde_json::Value =
-            decode_base64url_json_v1("Router JWT claims", claims_segment)?;
-        if claims_value
-            .as_object()
-            .is_some_and(|claims| claims.contains_key("signingGrantId"))
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "Router Wallet Session no longer accepts signingGrantId",
-            ));
-        }
         let claims: CloudflareRouterJwtClaimsPayloadV1 =
-            serde_json::from_value(claims_value).map_err(|err| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::MalformedWirePayload,
-                    format!("Router JWT claims JSON parse failed: {err}"),
-                )
-            })?;
+            decode_base64url_json_v1("Router JWT claims", claims_segment)?;
         let signature = decode_base64url_fixed_64_v1("Router JWT signature", signature_segment)?;
         Ok(Self {
             signing_input: format!("{header_segment}.{claims_segment}"),
@@ -1467,6 +1451,7 @@ impl CloudflareRouterCompactJwtV1 {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CloudflareRouterJwtClaimsPayloadV1 {
     kind: Option<String>,
     iss: String,

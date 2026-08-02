@@ -29,8 +29,6 @@ use crate::{
     handle_cloudflare_router_ed25519_yao_recovery_promote_private_fetch_v1,
     handle_cloudflare_router_normal_signing_finalize_authenticated_public_request_v2,
     handle_cloudflare_router_normal_signing_prepare_authenticated_public_request_v2,
-    handle_cloudflare_router_wallet_budget_put_grant_private_fetch_v1,
-    handle_cloudflare_router_wallet_budget_status_authenticated_public_request_v1,
     parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_request_v1_json,
     parse_cloudflare_router_ab_ecdsa_derivation_activation_request_v1_json,
     parse_cloudflare_router_ab_ecdsa_derivation_export_command_v1_json,
@@ -54,8 +52,6 @@ use crate::{
     CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_PUBLIC_KEYSET_PATH, CLOUDFLARE_ROUTER_PUBLIC_KEYSET_WELL_KNOWN_PATH,
-    CLOUDFLARE_ROUTER_WALLET_BUDGET_PUT_GRANT_PRIVATE_REQUEST_PATH,
-    CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH,
 };
 #[cfg(any(
     feature = "strict-worker-deriver-a-entrypoint",
@@ -95,7 +91,6 @@ use crate::{
     handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_private_fetch_v1,
     handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_private_fetch_from_pool_v1,
     handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presignature_pool_put_private_fetch_v1,
-    handle_cloudflare_signing_worker_wallet_budget_private_fetch_v1,
     CloudflareEd25519YaoNormalSigningHandlerV1,
     CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1,
     CloudflareSigningWorkerRuntimeV1, CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH,
@@ -112,7 +107,6 @@ use crate::{
     CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
     CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
     CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PATH,
-    CLOUDFLARE_SIGNING_WORKER_WALLET_BUDGET_PATH_V1,
 };
 #[cfg(any(
     feature = "strict-worker-router-entrypoint",
