@@ -1,6 +1,5 @@
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { SigningGrantId } from '../operationState/types';
 import {
   exactSigningLaneWalletId,
   type ExactEcdsaSigningLaneIdentity,
@@ -31,17 +30,10 @@ type CommonWalletSessionAuthorizationIdentity = {
   readonly laneIdentity: ExactSigningLaneIdentity;
 };
 
-export type WalletSessionAuthorizationIdentity =
-  | (CommonWalletSessionAuthorizationIdentity & {
-      readonly signingGrantId: SigningGrantId;
-      readonly walletSessionId?: never;
-      readonly quotaId?: never;
-    })
-  | (CommonWalletSessionAuthorizationIdentity & {
-      readonly signingGrantId?: never;
-      readonly walletSessionId: WalletSessionId;
-      readonly quotaId: MpcWalletSigningQuotaId;
-    });
+export type WalletSessionAuthorizationIdentity = CommonWalletSessionAuthorizationIdentity & {
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+};
 
 export type WalletSessionAuthorizationIdentitySource =
   | {
@@ -114,7 +106,6 @@ export type WalletSessionAuthorizationState =
 function authorizationIdentity(
   source: WalletSessionAuthorizationIdentitySource,
 ): WalletSessionAuthorizationIdentity {
-  const laneIdentity = source.laneIdentity;
   const common = {
     walletId: exactSigningLaneWalletId(source.laneIdentity),
     authMethod: signingLaneAuthMethod(source.laneIdentity.auth),
@@ -129,7 +120,8 @@ function authorizationIdentity(
   }
   return {
     ...common,
-    signingGrantId: source.laneIdentity.signingGrantId,
+    walletSessionId: source.laneIdentity.walletSessionId,
+    quotaId: source.laneIdentity.quotaId,
   };
 }
 

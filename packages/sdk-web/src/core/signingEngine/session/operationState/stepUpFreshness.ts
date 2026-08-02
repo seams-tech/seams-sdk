@@ -18,8 +18,11 @@ import type {
   SigningCurve,
   SigningOperationFingerprint,
   SigningOperationId,
-  SigningGrantId,
 } from './types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 
 export type SigningStatusProvenance =
@@ -132,10 +135,9 @@ export type StepUpFreshnessDiagnostics = {
 export type StepUpFreshnessAuthority =
   | {
       kind: 'ed25519_threshold_session';
-      signingGrantId: SigningGrantId;
+      walletSessionId: WalletSessionId;
+      quotaId: MpcWalletSigningQuotaId;
       thresholdSessionIds: NonEmptyThresholdSessionIds;
-      walletSessionId?: never;
-      quotaId?: never;
     }
   | {
       kind: 'ecdsa_material_activation';
@@ -198,7 +200,8 @@ function validateBase(input: StepUpFreshnessBaseInput): {
         }
       : {
           kind: 'ed25519_threshold_session',
-          signingGrantId: input.laneIdentity.signingGrantId,
+          walletSessionId: input.laneIdentity.walletSessionId,
+          quotaId: input.laneIdentity.quotaId,
           thresholdSessionIds: thresholdSessionIdsFromExactSigningLaneIdentity(
             input.laneIdentity,
           ),
