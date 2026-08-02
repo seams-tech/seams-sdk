@@ -626,6 +626,10 @@ implementing commit SHA as the evidence.
     from Wallet Session and material-activation identities; obsolete public
     budget fields and `sessionId` aliases are rejected at the Rust/TypeScript
     boundary (`41ed8f9cb`).
+  - [x] The focused signing, refresh, coordinator, wire, and hostile-claim
+    substitution matrix passes 48/48; SDK/unit typechecks, Rust protocol and
+    vector tests, and direct worker/WASM/boundary guards pass at the current
+    checkpoint (`b37ce26b0`).
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.
