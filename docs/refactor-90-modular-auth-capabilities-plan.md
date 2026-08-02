@@ -1241,6 +1241,10 @@ the replacement and legacy MPC paths must not ship together.
         parameters that carry ECDSA threshold-session identity to
         `thresholdSessionId`; update the warm read-model fixtures to the same
         strict shape (`e659fb18d`).
+  - [x] Rename the remaining private Email OTP warm-session worker helpers and
+        batch-status wire fixture to `thresholdSessionId`; worker handles,
+        presign sessions, and role-local protocol IDs remain distinct
+        (`673426d2e`).
   - [x] Keep one-operation NEAR grants as fresh branded
         `CapabilityGrantId`s from preparation through server issuance and
         execution. They never become a reusable `SigningGrantId` or selected
