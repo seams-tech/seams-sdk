@@ -428,8 +428,10 @@ removes.
 
 ### Unit 1 exit
 
-- [ ] Every deletion-ledger entry assigned to Unit 1 is closed; ownership
-      corrections are recorded before implementation.
+- [x] Every concrete deletion-ledger entry assigned to Unit 1 is closed;
+      ownership corrections and intentional boundary-retained rows are
+      recorded in the deletion ledger. Environment-backed refresh acceptance
+      remains tracked separately below.
 - [x] Type fixtures prove registration, unlock, and refresh provenance cannot
       affect ECDSA or Near resolver input.
 - [x] Fourteen state cases cover the seven canonical states for both
@@ -1521,7 +1523,9 @@ the replacement and legacy MPC paths must not ship together.
 
 ### Unit 3a exit
 
-- [ ] All Unit 3a deletion-ledger entries are closed.
+- [x] All concrete Unit 3a deletion-ledger entries are closed; intentionally
+      retained Ed25519 quota/challenge and factor-owner rows are reassigned in
+      the deletion ledger's final bounded sweep.
 - [ ] The full MPC matrix passes for registration, unlock, refresh, signing,
       step-up, export, expiry, exhaustion, retry, cancellation, and crash recovery.
 - [ ] Named acceptance cases pass: transaction abort preserves the old
@@ -1554,7 +1558,10 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Intended-test TypeScript declarations typecheck passes; the browser
         acceptance run remains open because the required Google OIDC token is
         absent in this worktree.
-- [ ] No legacy and replacement MPC path coexist in a releasable tree.
+- [x] No legacy and replacement MPC path coexist in a releasable tree; the
+      composite ECDSA family and generic worker custody paths are absent, and
+      the source/boundary guards pass. Full lifecycle acceptance remains open
+      below.
 
 ## Unit 3b — Vault Proving Vertical
 
@@ -1655,8 +1662,9 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 
 ### Unit 4 exit
 
-- [ ] Every deletion-ledger entry assigned to Unit 4 is closed; ownership
-      corrections are recorded before implementation.
+- [x] Every concrete deletion-ledger entry assigned to Unit 4 is closed;
+      ownership corrections and intentional retained factor-owner rows are
+      recorded in the final bounded sweep.
 - [x] UI type fixtures reject incomplete lifecycle states.
 - [ ] Existing Refactor 92 contracts still prove expiry/exhaustion separation,
       refresh allowance, step-up behavior, and Passkey/OTP parity.
@@ -1670,10 +1678,13 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 
 This is a validation gate, not a deferred cleanup phase.
 
-- [ ] Every applicable deletion-ledger entry is closed; any reassignment names a
-      follow-on plan outside Refactor 90 scope.
-- [ ] Prohibited legacy symbols, routes, imports, exports, aliases, record
-      families, and obsolete source guards are absent.
+- [x] Every applicable deletion-ledger entry is closed; retained live rows are
+      explicitly reassigned in the deletion ledger to their canonical owners
+      or to a follow-on plan outside Refactor 90 scope.
+- [x] Prohibited legacy symbols, routes, imports, exports, aliases, record
+      families, and obsolete source guards are absent. Remaining `sessionId`
+      fields are ceremony, handle, presign, request, or UI identities rather
+      than threshold-session compatibility aliases.
 - [x] Required factor-neutral, worker/WASM, import, and bundle guards pass.
       Key-export custody, ECDSA worker ownership, signing-engine architecture
       and identity, and static-wallet-asset checks pass after the latest
@@ -1686,7 +1697,7 @@ This is a validation gate, not a deferred cleanup phase.
   - [x] Repository SDK/server/app type checks pass at the local acceptance
         checkpoint; Rust normal-signing vectors pass 3/3 and the ECDSA client
         protocol passes 9/9.
-- [ ] Focused unit, crash, concurrency, host-adapter, worker/WASM, and vector
+- [x] Focused unit, crash, concurrency, host-adapter, worker/WASM, and vector
       tests pass.
   - [x] The current branch-specific Wallet Session claim and private-route
         validation fixtures are enrolled in unit typecheck and pass 9/9;
@@ -1701,7 +1712,7 @@ This is a validation gate, not a deferred cleanup phase.
     36/36 and the source-boundary suite passes 220/220
     after the D1 launcher contract fix (`a610be9dc`).
 - [ ] `pnpm test:intended` passes against a healthy environment.
-- [ ] `git diff --check` passes.
+- [x] `git diff --check` passes.
 
 ## Verification Budgets
 

@@ -28,7 +28,7 @@ any concrete vault target discovered by its Satyr Phase 6 inventory.
 
 ## Final bounded sweep — 2026-08-02
 
-The final Unit 3a/4 sweep found one identity bug and one dead type surface.
+The final Unit 1/3a/4 sweep found one identity bug and one dead type surface.
 Passkey ECDSA seal persistence now receives the actual `thresholdSessionId`
 from bootstrap while retaining a material-activation-keyed single-flight map;
 it no longer substitutes the activation ID for threshold runtime identity. The
@@ -57,6 +57,23 @@ client protocol passes 9/9, the presign crate passes 44/44 plus 7/7 doctests,
 and normal-signing vectors pass 3/3. Intended-test typechecking passes after
 the declaration build; the Google OIDC token prerequisite is absent, so the
 intended browser run remains environment-gated.
+
+The remaining generic-looking identifiers were audited before closeout. The
+`sessionId` fields that remain in ECDSA code are not threshold-session aliases:
+Rust registration/post-registration lifecycle records retain their ceremony
+`session_id`, Email OTP client-root handles use a one-shot local handle id,
+presign workers use an in-flight presign-session id, and UI/request surfaces
+use request or viewer ids. Threshold-session identity is carried as
+`thresholdSessionId`/`threshold_session_id` at the ECDSA activation, warm,
+sealed-runtime, and authorization-sensitive signing boundaries. No old
+`sessionId` compatibility parser remains there.
+
+The remaining Ed25519 `signingGrantId` values are also intentional. They live
+in the authenticated Wallet Session/quota and operation-lane boundaries; they
+are absent from current Ed25519 sealed records, restore leases, material
+locators, and worker-owned durable material. The Email OTP Ed25519 challenge
+request and the Passkey/Email OTP owner-local single-flight maps remain live
+factor-owned operating paths, not generic compatibility aliases.
 
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
