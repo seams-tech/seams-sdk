@@ -14,7 +14,6 @@ import type {
   Ed25519WalletSessionStore,
   EcdsaWalletSessionStore,
 } from '../ThresholdService/stores/WalletSessionStore';
-import type { RouterAbNormalSigningRuntime } from './RouterAbNormalSigningRuntime';
 
 const THRESHOLD_ECDSA_DERIVATION_VERSION_V1 = 1;
 
@@ -25,7 +24,6 @@ export type LocalRouterAbEd25519NormalSigningSeedInput = {
   readonly nearEd25519SigningKeyId: string;
   readonly rpId: string;
   readonly thresholdSessionId: string;
-  readonly signingGrantId: string;
   readonly publicKey: string;
   readonly relayerSigningShareB64u: string;
   readonly relayerVerifyingShareB64u: string;
@@ -41,7 +39,6 @@ export type LocalRouterAbEd25519NormalSigningSeedResult =
       readonly ok: true;
       readonly relayerKeyId: string;
       readonly thresholdSessionId: string;
-      readonly signingGrantId: string;
       readonly remainingUses: number;
     }
   | { readonly ok: false; readonly code: string; readonly message: string };
@@ -55,7 +52,6 @@ export type LocalRouterAbEcdsaDerivationNormalSigningSeedInput = {
   readonly derivationVersion: number;
   readonly relayerKeyId: string;
   readonly thresholdSessionId: string;
-  readonly signingGrantId: string;
   readonly thresholdExpiresAtMs: number;
   readonly participantIds: readonly number[];
   readonly remainingUses: number;
@@ -66,7 +62,6 @@ export type LocalRouterAbEcdsaDerivationNormalSigningSeedResult =
       readonly ok: true;
       readonly relayerKeyId: string;
       readonly thresholdSessionId: string;
-      readonly signingGrantId: string;
       readonly remainingUses: number;
     }
   | { readonly ok: false; readonly code: string; readonly message: string };
@@ -87,18 +82,15 @@ export class RouterAbLocalSigningSeedRuntime {
   private readonly ed25519KeyStore: ThresholdEd25519KeyStore;
   private readonly ed25519WalletSessionStore: Ed25519WalletSessionStore;
   private readonly ecdsaWalletSessionStore: EcdsaWalletSessionStore;
-  private readonly normalSigningRuntime: RouterAbNormalSigningRuntime;
 
   constructor(input: {
     readonly ed25519KeyStore: ThresholdEd25519KeyStore;
     readonly ed25519WalletSessionStore: Ed25519WalletSessionStore;
     readonly ecdsaWalletSessionStore: EcdsaWalletSessionStore;
-    readonly normalSigningRuntime: RouterAbNormalSigningRuntime;
   }) {
     this.ed25519KeyStore = input.ed25519KeyStore;
     this.ed25519WalletSessionStore = input.ed25519WalletSessionStore;
     this.ecdsaWalletSessionStore = input.ecdsaWalletSessionStore;
-    this.normalSigningRuntime = input.normalSigningRuntime;
   }
 
   async seedLocalRouterAbEd25519NormalSigningSession(
@@ -109,7 +101,6 @@ export class RouterAbLocalSigningSeedRuntime {
     const nearAccountId = toOptionalTrimmedString(input.nearAccountId);
     const nearEd25519SigningKeyId = toOptionalTrimmedString(input.nearEd25519SigningKeyId);
     const thresholdSessionId = toOptionalTrimmedString(input.thresholdSessionId);
-    const signingGrantId = toOptionalTrimmedString(input.signingGrantId);
     const publicKey = toOptionalTrimmedString(input.publicKey);
     const relayerSigningShareB64u = toOptionalTrimmedString(input.relayerSigningShareB64u);
     const relayerVerifyingShareB64u = toOptionalTrimmedString(input.relayerVerifyingShareB64u);
@@ -124,7 +115,6 @@ export class RouterAbLocalSigningSeedRuntime {
       !nearAccountId ||
       !nearEd25519SigningKeyId ||
       !thresholdSessionId ||
-      !signingGrantId ||
       !publicKey ||
       !relayerSigningShareB64u ||
       !relayerVerifyingShareB64u ||
@@ -177,19 +167,7 @@ export class RouterAbLocalSigningSeedRuntime {
         },
         { ttlMs, remainingUses },
       );
-      const walletBudget = await this.normalSigningRuntime.ensureSigningGrantBudget({
-        signingGrantId,
-        curve: 'ed25519',
-        thresholdSessionId,
-        userId: walletId,
-        authorityScope,
-        participantIds,
-        ttlMs,
-        remainingUses,
-        operation: 'provision_curve_binding',
-      });
-      if (!walletBudget.ok) return walletBudget;
-      return { ok: true, relayerKeyId, thresholdSessionId, signingGrantId, remainingUses };
+      return { ok: true, relayerKeyId, thresholdSessionId, remainingUses };
     } catch (error: unknown) {
       return {
         ok: false,
@@ -220,7 +198,6 @@ export class RouterAbLocalSigningSeedRuntime {
     const walletKeyVersion = toOptionalTrimmedString(input.walletKeyVersion);
     const relayerKeyId = toOptionalTrimmedString(input.relayerKeyId);
     const thresholdSessionId = toOptionalTrimmedString(input.thresholdSessionId);
-    const signingGrantId = toOptionalTrimmedString(input.signingGrantId);
     const derivationVersion = Math.floor(Number(input.derivationVersion));
     const participantIds = normalizeThresholdEd25519ParticipantIds(input.participantIds);
     const remainingUses = Math.floor(Number(input.remainingUses));
@@ -233,7 +210,6 @@ export class RouterAbLocalSigningSeedRuntime {
       !walletKeyVersion ||
       !relayerKeyId ||
       !thresholdSessionId ||
-      !signingGrantId ||
       derivationVersion !== THRESHOLD_ECDSA_DERIVATION_VERSION_V1 ||
       !participantIds ||
       participantIds.length !== 2 ||
@@ -259,18 +235,6 @@ export class RouterAbLocalSigningSeedRuntime {
           signingRootVersion,
         }),
       );
-      const walletBudget = await this.normalSigningRuntime.ensureSigningGrantBudget({
-        signingGrantId,
-        curve: 'ecdsa',
-        thresholdSessionId,
-        userId: walletId.value,
-        keyHandle,
-        participantIds,
-        ttlMs,
-        remainingUses,
-        operation: 'provision_curve_binding',
-      });
-      if (!walletBudget.ok) return walletBudget;
       await this.ecdsaWalletSessionStore.putSession(
         thresholdSessionId,
         {
@@ -286,7 +250,7 @@ export class RouterAbLocalSigningSeedRuntime {
         },
         { ttlMs, remainingUses },
       );
-      return { ok: true, relayerKeyId, thresholdSessionId, signingGrantId, remainingUses };
+      return { ok: true, relayerKeyId, thresholdSessionId, remainingUses };
     } catch (error: unknown) {
       return {
         ok: false,

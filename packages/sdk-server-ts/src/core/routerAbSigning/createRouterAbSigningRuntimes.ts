@@ -108,11 +108,6 @@ export function createRouterAbSigningRuntimes(input: {
 
   const ed25519KeyStore = createThresholdEd25519KeyStore({ config, logger, isNode });
   const ed25519WalletSessionStore = createEd25519WalletSessionStore({ config, logger, isNode });
-  const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({
-    config,
-    logger,
-    isNode,
-  });
   const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({ config, logger, isNode });
   const ecdsaSigningStores = createThresholdEcdsaSigningStores({ config, logger, isNode });
   const ensureReady = ensureRouterAbSigningRuntimeReady.bind(input.authService);
@@ -124,14 +119,12 @@ export function createRouterAbSigningRuntimes(input: {
   const normalSigning = new RouterAbNormalSigningRuntime({
     walletSessionStore: ed25519WalletSessionStore,
     ecdsaWalletSessionStore,
-    walletBudgetSessionStore,
     config: normalSigningConfig,
   });
   const localSigningSeed = new RouterAbLocalSigningSeedRuntime({
     ed25519KeyStore,
     ed25519WalletSessionStore,
     ecdsaWalletSessionStore,
-    normalSigningRuntime: normalSigning,
   });
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({
     config: parseRouterAbEcdsaPresignRuntimeConfig(configRecord),
