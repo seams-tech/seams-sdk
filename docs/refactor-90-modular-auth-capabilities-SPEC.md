@@ -630,6 +630,10 @@ implementing commit SHA as the evidence.
     substitution matrix passes 48/48; SDK/unit typechecks, Rust protocol and
     vector tests, and direct worker/WASM/boundary guards pass at the current
     checkpoint (`b37ce26b0`).
+  - [x] Rust workspace checks for the core, ECDSA protocol, Cloudflare worker,
+    and Ed25519-Yao client crates pass; the source Playwright guard set is
+    219/220 with only the missing temporary SDK `.dev.vars` fixture blocked
+    (`c2a6bbf04`).
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.

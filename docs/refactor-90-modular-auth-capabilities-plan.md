@@ -1528,12 +1528,14 @@ the replacement and legacy MPC paths must not ship together.
 - [ ] Passkey and Email OTP agree across signing and export.
 - [ ] Rust vectors, TS bindings, worker/WASM guards, host adapter tests, and
       bundle checks pass.
-- Evidence at the current checkpoint: the focused MPC/wire matrix passes 48/48;
+  - Evidence at the current checkpoint: the focused MPC/wire matrix passes 48/48;
       Rust ECDSA client-protocol tests pass 9/9 and normal-signing vectors 3/3;
       SDK and unit typechecks pass; direct architecture, worker/WASM, bundle,
       and boundary guards pass. The source Playwright guard set passes 219/220;
       its single failure is the environment-only D1 launcher fixture, which
-      requires a temporary SDK `.dev.vars` file.
+      requires a temporary SDK `.dev.vars` file. Workspace Rust checks for
+      router-ab-core, router-ab-ecdsa-client-protocol, router-ab-cloudflare,
+      and router-ab-ed25519-yao-client also pass (`c2a6bbf04`).
 - [ ] No legacy and replacement MPC path coexist in a releasable tree.
 
 ## Unit 3b — Vault Proving Vertical
