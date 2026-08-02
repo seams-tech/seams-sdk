@@ -72,6 +72,12 @@ Google-identity, and UI timing cases; the focused identity regression passed.
 The broad acceptance box remains open until those failures are reconciled or
 their owning environment is supplied.
 
+The final focused closeout selection ran 97 tests: 92 passed. The five
+`sealedRefresh.parity` cases failed during harness setup with `ECONNREFUSED
+::1:5180`, before their assertions ran; they are environment failures rather
+than evidence against the sealed-refresh implementation and must be rerun with
+the local frontend available.
+
 The current post-fixture broad run collected the full 1,901-test unit surface:
 1,745 passed, 147 failed, and 9 skipped. This supersedes the earlier
 1,740/197/11 measurement for closeout tracking. The failures remain lower-tier
