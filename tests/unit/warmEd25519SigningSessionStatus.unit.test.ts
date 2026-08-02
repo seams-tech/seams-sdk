@@ -81,6 +81,42 @@ test('reads active Ed25519 status from exact runtime and active authorization', 
   });
 });
 
+test('reads active status from canonical authorization identity without a signing grant', async () => {
+  const record = buildPasskeyEd25519SealedSessionRecordFixture();
+  const runtime = parseExactEd25519SealedSessionRuntime(record);
+  if (!runtime) throw new Error('expected exact Ed25519 runtime fixture');
+  const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(record, {
+    signingGrantId: '',
+  });
+  const reader = createWarmSessionStatusReader({
+    touchConfirm: {
+      getWarmSessionStatus: async () => ({
+        ok: true,
+        remainingUses: 2,
+        expiresAtMs: runtime.expiresAtMs,
+      }),
+    },
+    getEmailOtpWarmSessionStatus: async () => ({
+      ok: false,
+      code: 'not_found',
+      message: 'unused',
+    }),
+  });
+
+  await expect(
+    reader.getEd25519SigningSessionStatus({
+      runtime,
+      authorization,
+      nowMs: 1_800_000_000_000,
+    }),
+  ).resolves.toMatchObject({
+    sessionId: runtime.thresholdSessionId,
+    status: 'active',
+    authMethod: 'passkey',
+    remainingUses: 2,
+  });
+});
+
 test('rejects missing Ed25519 authorization before reading worker state', async () => {
   const fixture = passkeyStatusFixture();
   let statusReads = 0;
