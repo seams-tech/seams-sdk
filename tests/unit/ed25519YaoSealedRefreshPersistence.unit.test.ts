@@ -176,7 +176,6 @@ test('renews Wallet Session authorization without changing Ed25519 material acti
     authorizationSessionId: 'authorization:ed25519-renewed',
     walletSessionId: 'wallet-session:ed25519-renewed',
     quotaId: 'quota:ed25519-renewed',
-    signingGrantId: 'grant:ed25519-renewed',
   });
   const originalState = buildRouterAbEd25519WalletSessionStateFromExactRuntime({
     runtime,

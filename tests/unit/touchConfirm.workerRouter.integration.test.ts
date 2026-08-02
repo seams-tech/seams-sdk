@@ -57,8 +57,6 @@ function materialRestoreIdentityFromPasskeyRecord(record: CurrentEcdsaSealedSess
         rpId: restore.rpId,
         credentialIdB64u: restore.credentialIdB64u,
       },
-      signingGrantId: record.signingGrantId,
-      thresholdSessionId: record.thresholdSessionId,
     }),
     ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
   };
@@ -73,7 +71,6 @@ function unsignedJwt(payload: Record<string, unknown>): string {
 function routerAbEcdsaWalletSessionJwt(args: {
   walletId: string;
   thresholdSessionId: string;
-  signingGrantId: string;
   keyHandle: string;
   chainTarget: Record<string, unknown>;
 }): string {
@@ -84,14 +81,12 @@ function routerAbEcdsaWalletSessionJwt(args: {
     keyHandle: args.keyHandle,
     chainTarget: args.chainTarget,
     thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId,
   });
 }
 
 function thresholdEd25519SessionJwt(args: {
   walletId: string;
   thresholdSessionId: string;
-  signingGrantId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
 }): string {
@@ -102,7 +97,6 @@ function thresholdEd25519SessionJwt(args: {
     nearAccountId: args.nearAccountId,
     nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId,
     relayerKeyId: 'relayer-key-ed25519-expiry-anchor',
     rpId: 'example.localhost',
     thresholdExpiresAtMs: Date.now() + 60_000,
@@ -779,7 +773,6 @@ test.describe('UserConfirm worker router', () => {
     const fixture = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('passkey');
     const sealedRecord = buildPasskeyEcdsaSealedRuntimeRecordFixture({
       manifest: fixture.manifest,
-      signingGrantId: 'wallet-session-rehydrate',
       thresholdSessionId: 'session-rehydrate',
       remainingUses: 10,
     });
@@ -854,7 +847,6 @@ test.describe('UserConfirm worker router', () => {
           walletId: String(sealedRecord.walletId),
           curve: 'ecdsa',
           chainTarget: sealedRecord.ecdsaRestore.chainTarget,
-          signingGrantId: 'wallet-session-rehydrate',
           thresholdSessionId: 'session-rehydrate',
           reason: 'transaction',
           materialRestoreIdentity,
@@ -953,7 +945,6 @@ test.describe('UserConfirm worker router', () => {
         };
         const record = sealedStoreMod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'session-ecdsa-policy-refresh',
-          signingGrantId: 'wallet-session-ecdsa-policy-refresh',
           curve: 'ecdsa',
           authMethod: 'passkey',
           walletId: 'alice.testnet',
@@ -1032,7 +1023,6 @@ test.describe('UserConfirm worker router', () => {
     const walletSessionJwt = thresholdEd25519SessionJwt({
       walletId: 'alice.testnet',
       thresholdSessionId: 'session-ed25519-expiry-anchor',
-      signingGrantId: 'wallet-session-ed25519-expiry-anchor',
       nearAccountId: 'alice.testnet',
       nearEd25519SigningKeyId: 'near-ed25519-key-expiry-anchor',
     });
@@ -1051,7 +1041,6 @@ test.describe('UserConfirm worker router', () => {
         });
 
         const thresholdSessionId = 'session-ed25519-expiry-anchor';
-        const signingGrantId = 'wallet-session-ed25519-expiry-anchor';
         const nowMs = Date.now();
         const ed25519Restore = {
           nearAccountId: 'alice.testnet',
@@ -1076,7 +1065,6 @@ test.describe('UserConfirm worker router', () => {
         };
         const initialRecord = sealedStoreMod.buildCurrentSealedSessionRecord({
           thresholdSessionId,
-          signingGrantId,
           thresholdSessionIds: { ed25519: thresholdSessionId },
           curve: 'ed25519',
           authMethod: 'passkey',
@@ -1223,7 +1211,6 @@ test.describe('UserConfirm worker router', () => {
     expect(result.retained).toMatchObject({
       curve: 'ed25519',
       authMethod: 'passkey',
-      signingGrantId: 'wallet-session-ed25519-expiry-anchor',
       remainingUses: 3,
       sealedSecretB64u: 'sealed-secret-ed25519-expiry-anchor',
     });
@@ -1231,7 +1218,6 @@ test.describe('UserConfirm worker router', () => {
     expect(result.availableEd25519Candidates[0]).toMatchObject({
       state: 'expired',
       source: 'durable_sealed_record',
-      signingGrantId: 'wallet-session-ed25519-expiry-anchor',
       thresholdSessionId: 'session-ed25519-expiry-anchor',
     });
     expect(result.selection).toMatchObject({
@@ -1248,7 +1234,6 @@ test.describe('UserConfirm worker router', () => {
     const fixture = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('passkey');
     const sealedRecord = buildPasskeyEcdsaSealedRuntimeRecordFixture({
       manifest: fixture.manifest,
-      signingGrantId: 'wallet-session-single-flight-remove',
       thresholdSessionId: 'session-single-flight-remove',
       remainingUses: 10,
     });
@@ -1323,7 +1308,6 @@ test.describe('UserConfirm worker router', () => {
           walletId: String(sealedRecord.walletId),
           curve: 'ecdsa' as const,
           chainTarget: sealedRecord.ecdsaRestore.chainTarget,
-          signingGrantId: 'wallet-session-single-flight-remove',
           thresholdSessionId: 'session-single-flight-remove',
           reason: 'transaction' as const,
           materialRestoreIdentity,
@@ -1382,7 +1366,6 @@ test.describe('UserConfirm worker router', () => {
     const fixture = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('passkey');
     const sealedRecord = buildPasskeyEcdsaSealedRuntimeRecordFixture({
       manifest: fixture.manifest,
-      signingGrantId: 'wallet-session-cross-manager-remove',
       thresholdSessionId: 'session-cross-manager-remove',
       remainingUses: 10,
     });
@@ -1477,7 +1460,6 @@ test.describe('UserConfirm worker router', () => {
           walletId: String(sealedRecord.walletId),
           curve: 'ecdsa' as const,
           chainTarget: sealedRecord.ecdsaRestore.chainTarget,
-          signingGrantId: 'wallet-session-cross-manager-remove',
           thresholdSessionId: 'session-cross-manager-remove',
           reason: 'transaction' as const,
           materialRestoreIdentity,
@@ -1596,7 +1578,6 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.writeExactSealedSession(
           sealedStoreMod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'session-no-rehydrate',
-            signingGrantId: 'wallet-session-no-rehydrate',
             curve: 'ecdsa',
             authMethod: 'passkey',
             relayerUrl: 'https://relay.example',
@@ -1746,7 +1727,6 @@ test.describe('UserConfirm worker router', () => {
     const fixture = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('passkey');
     const sealedRecord = buildPasskeyEcdsaSealedRuntimeRecordFixture({
       manifest: fixture.manifest,
-      signingGrantId: 'wallet-session-expired',
       thresholdSessionId: 'session-expired',
       remainingUses: 2,
     });
@@ -1821,7 +1801,6 @@ test.describe('UserConfirm worker router', () => {
           walletId: String(sealedRecord.walletId),
           curve: 'ecdsa',
           chainTarget: sealedRecord.ecdsaRestore.chainTarget,
-          signingGrantId: 'wallet-session-expired',
           thresholdSessionId: 'session-expired',
           reason: 'transaction',
           materialRestoreIdentity,

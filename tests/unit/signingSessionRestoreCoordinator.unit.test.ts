@@ -107,7 +107,6 @@ function ecdsaRestoreInput(
 ): Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }> {
   const authMethod = args.authMethod || 'email_otp';
   const chainTarget = args.chainTarget || TEST_ECDSA_CHAIN_TARGETS.tempo;
-  const signingGrantId = args.signingGrantId || 'wsess-restore';
   const thresholdSessionId = args.thresholdSessionId || 'tsess-restore';
   const wallet = walletIdFromString(args.walletId || 'restore.testnet');
   const key = buildEvmFamilyEcdsaKeyIdentity({
@@ -124,7 +123,6 @@ function ecdsaRestoreInput(
     authMethod,
     curve: 'ecdsa',
     chainTarget,
-    signingGrantId,
     thresholdSessionId,
     reason: args.reason || 'transaction',
     materialRestoreIdentity: {
@@ -145,8 +143,6 @@ function ecdsaRestoreInput(
                 credentialIdB64u: 'credential-restore',
               }
             : { kind: 'email_otp', providerSubjectId: 'google:restore' },
-        signingGrantId,
-        thresholdSessionId,
       }),
       ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
     },
@@ -157,7 +153,6 @@ function makeSealedRecord(args: {
   authMethod?: 'email_otp' | 'passkey';
   chain?: 'tempo' | 'evm';
   thresholdSessionId?: string;
-  signingGrantId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
   updatedAtMs?: number;
@@ -174,7 +169,6 @@ function makeSealedRecord(args: {
     keyHandle: 'key-handle-restore',
     ecdsaThresholdKeyId: 'ecdsa-key-restore',
     sessionId: thresholdSessionId,
-    signingGrantId: args.signingGrantId || 'wsess-restore',
     signingRootId: TEST_ECDSA_SIGNING_ROOT_ID,
     signingRootVersion: 'v1',
     passkeyCredentialIdB64u: 'credential-restore',
@@ -326,11 +320,9 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       curve: 'ecdsa',
       chain: 'tempo',
       thresholdSessionId: 'tsess-restore-after-miss',
-      signingGrantId: 'wsess-restore-after-miss',
     });
 
     const input = ecdsaRestoreInput({
-      signingGrantId: 'wsess-restore-after-miss',
       thresholdSessionId: 'tsess-restore-after-miss',
     });
 
