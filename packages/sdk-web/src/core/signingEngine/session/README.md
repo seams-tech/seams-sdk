@@ -42,7 +42,6 @@ Current child owners are explicit folders:
   `operationState/transactionState.ts`, and `operationState/trace.ts`.
 - Sealed recovery and persistence: `sealedRecovery/restoreCoordinator.ts`,
   `sealedRecovery/sealedRecovery.types.ts`, `sealedRecovery/exactRecordLookup.ts`,
-  `sealedRecovery/readback.ts`,
   `persistence/sealedSessionStore.ts` and
   persistence-specific normalization.
 - `sealedRecovery/*` owns only restore-boundary work:
