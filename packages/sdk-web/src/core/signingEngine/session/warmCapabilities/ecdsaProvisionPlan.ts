@@ -9,12 +9,10 @@ import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy'
 import {
   SigningSessionIds,
   type ThresholdEcdsaSessionId,
-  type SigningGrantId,
 } from '../operationState/types';
 
 export type EcdsaSessionIdentity = {
   thresholdSessionId: ThresholdEcdsaSessionId;
-  signingGrantId: SigningGrantId;
 };
 
 export type EcdsaSigningKeyContext = {
@@ -187,11 +185,9 @@ export function buildEmailOtpEcdsaProvisionSecretSource(args: {
 
 export function buildEcdsaSessionIdentity(args: {
   thresholdSessionId: unknown;
-  signingGrantId: unknown;
 }): EcdsaSessionIdentity {
   return {
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
-    signingGrantId: SigningSessionIds.signingGrant(args.signingGrantId),
   };
 }
 
