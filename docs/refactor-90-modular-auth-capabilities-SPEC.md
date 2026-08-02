@@ -509,10 +509,9 @@ implementing commit SHA as the evidence.
     exact operation claim and quota transaction (`cc4cf26ab`).
   - [x] Delegate and NEP-413 signing use that same server-owned claim path;
     their client reservation/finalization chain is deleted (`f16cfef7a`).
-  - [ ] Ed25519 Router A/B reserve/commit/release remains the current
-    authenticated server quota boundary for Ed25519 normal signing. Unit 3c
-    reopens this evidence: the path must move to the shared atomic claim/quota
-    owner before this invariant can be closed.
+  - [x] Ed25519 normal signing uses the shared authenticated atomic
+    claim/quota boundary; the Router A/B reserve/commit/release fallback and its
+    persisted rows are deleted (`4885bed62`, `fa5791630`).
 - [x] `R90-INV-010` — authority/lifecycle replacement returns `superseded` and
   every SDK/UI adapter discards and re-resolves the stale lane.
   (Typed `superseded` with three supersession kinds through the material plan;
@@ -549,9 +548,9 @@ implementing commit SHA as the evidence.
   with canonical Wallet Session, quota, and capability-grant identities.)
   - [x] Restore coordination leases carry only the exact sealed-store key,
     owner/attempt, and lease timing. They do not carry `signingGrantId`; old
-    grant-bearing lease rows are rejected at the persistence boundary
-  (`2d56e3a58`). The ECDSA sealed-record store key remains a separate,
-  follow-on activation re-key task.
+    grant-bearing lease rows are rejected at the persistence boundary. The
+    ECDSA sealed-record store key is now activation-derived as well
+    (`2d56e3a58`, `e824bfda2`).
   - [x] Passkey Ed25519 persistence accepts independently minted opaque
     capability, key-binding, and lifecycle-binding refs while retaining exact
     owner/SigningWorker checks; reusable NEAR signing validates authorization
