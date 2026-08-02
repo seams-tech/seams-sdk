@@ -6840,7 +6840,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           routerOrigin: readString(payload.routerOrigin, 'routerOrigin'),
         },
       };
-    case 'persistEmailOtpEd25519YaoRegistrationMaterial':
+    case 'persistEmailOtpEd25519YaoRegistrationMaterial': {
       rejectUnknownEmailOtpYaoFields(
         payload,
         [
@@ -6877,6 +6877,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           ),
         },
       };
+    }
     case 'disposeEmailOtpEd25519YaoRegistration':
       rejectUnknownEmailOtpYaoFields(payload, ['pendingHandle'], type);
       return {
@@ -7292,7 +7293,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         },
       };
     }
-    case 'exportEmailOtpEd25519YaoSeedWithAuthorization':
+    case 'exportEmailOtpEd25519YaoSeedWithAuthorization': {
       rejectUnknownEmailOtpYaoFields(
         payload,
         [
@@ -7362,6 +7363,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           },
         },
       };
+    }
     default:
       return null;
   }

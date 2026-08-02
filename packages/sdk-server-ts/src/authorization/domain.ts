@@ -586,6 +586,7 @@ function parseAuthorizationDomainId<TName extends string>(
     value.trim() !== value ||
     value.length === 0 ||
     value.length > 512 ||
+    // eslint-disable-next-line no-control-regex
     /[\s\u0000-\u001f\u007f]/.test(value)
   ) {
     throw new Error(`${fieldName} must be a compact opaque identifier`);

@@ -51,6 +51,7 @@ function assertExactFields(
 
 function compactExchangeValue(record: Record<string, unknown>, field: string): string {
   const value = requiredString(record, field);
+  // eslint-disable-next-line no-control-regex
   if (value.length > 512 || /[\s\u0000-\u001f\u007f]/.test(value)) {
     throw new Error(`${field} must be a compact opaque identifier`);
   }
