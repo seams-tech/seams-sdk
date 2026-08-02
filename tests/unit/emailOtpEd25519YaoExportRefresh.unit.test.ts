@@ -23,7 +23,8 @@ const NEAR_ACCOUNT_ID = toAccountId('email-otp-export-refresh.testnet');
 const NEAR_SIGNING_KEY_ID = nearEd25519SigningKeyIdFromString('email-otp-export-refresh-key');
 const PROVIDER_SUBJECT_ID = 'google:email-otp-export-refresh';
 const THRESHOLD_SESSION_ID = 'threshold-email-otp-export-refresh';
-const SIGNING_GRANT_ID = 'grant-email-otp-export-refresh';
+const WALLET_SESSION_ID = 'wallet-session-email-otp-export-refresh';
+const QUOTA_ID = 'quota-email-otp-export-refresh';
 const RUNTIME_POLICY_SCOPE = {
   orgId: 'org-email-otp-export-refresh',
   projectId: 'project-email-otp-export-refresh',
@@ -47,7 +48,7 @@ const CAPABILITY = {
     lifecycleId: 'lifecycle-email-otp-export-refresh',
     rootShareEpoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
     accountId: String(WALLET_ID),
-    walletSessionId: THRESHOLD_SESSION_ID,
+    walletSessionId: WALLET_SESSION_ID,
     signerSetId: 'near-ed25519-slot-1',
     signingWorkerId: 'signing-worker-email-otp-export-refresh',
   },
@@ -57,8 +58,6 @@ const CAPABILITY = {
 function durableEd25519AuthLane() {
   const authLane = resolveEmailOtpAuthLane({
     routeAuth: { kind: 'wallet_session', jwt: 'durable-wallet-session-jwt' },
-    thresholdSessionId: THRESHOLD_SESSION_ID,
-    authorizingSigningGrantId: SIGNING_GRANT_ID,
     curve: 'ed25519',
   });
   if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
@@ -81,7 +80,8 @@ function buildLaneIdentity() {
   return exactEd25519SigningLaneIdentity({
     signer,
     auth: { kind: 'email_otp', providerSubjectId: PROVIDER_SUBJECT_ID },
-    signingGrantId: SIGNING_GRANT_ID,
+    walletSessionId: WALLET_SESSION_ID,
+    quotaId: QUOTA_ID,
     thresholdSessionId: THRESHOLD_SESSION_ID,
   });
 }
@@ -131,7 +131,8 @@ class EmailOtpEd25519ExportRefreshHarness {
       nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
       signerSlot: 1,
       thresholdSessionId: THRESHOLD_SESSION_ID,
-      signingGrantId: SIGNING_GRANT_ID,
+      walletSessionId: WALLET_SESSION_ID,
+      quotaId: QUOTA_ID,
       providerSubjectId: PROVIDER_SUBJECT_ID,
     });
     return {

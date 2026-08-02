@@ -382,7 +382,8 @@ export async function buildLocalYaoExistingWalletFixture(input: {
           capability.admissionRequest.application_binding.near_ed25519_signing_key_id,
         signerSlot: capability.admissionRequest.application_binding.key_creation_signer_slot,
         thresholdSessionId: capability.admissionRequest.scope.wallet_session_id,
-        signingGrantId: localSigningGrantId(),
+        walletSessionId: localWalletSessionId(),
+        quotaId: localWalletSessionQuotaId(),
         signingWorkerId: capability.admissionRequest.scope.signing_worker_id,
         participantIds: capability.admissionRequest.participant_ids,
       }),
@@ -391,8 +392,9 @@ export async function buildLocalYaoExistingWalletFixture(input: {
     exportAdmission: {
       protocol: exportAdmission,
       authorizationIdentity: {
+        walletSessionId: localWalletSessionId(),
+        quotaId: localWalletSessionQuotaId(),
         thresholdSessionId: capability.admissionRequest.scope.wallet_session_id,
-        signingGrantId: localSigningGrantId(),
       },
       authorization: {
         kind: 'email_otp_factor' as const,
@@ -654,7 +656,8 @@ async function issueLocalWalletSessionToken(
     nearEd25519SigningKeyId:
       capability.admissionRequest.application_binding.near_ed25519_signing_key_id,
     thresholdSessionId: capability.admissionRequest.scope.wallet_session_id,
-    signingGrantId: localSigningGrantId(),
+    walletSessionId: localWalletSessionId(),
+    quotaId: localWalletSessionQuotaId(),
     relayerKeyId: SIGNING_WORKER_ID,
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
@@ -734,7 +737,8 @@ async function localExportAdmission(
     issuedAtMs,
     expiresAtMs,
     thresholdSessionId: localWalletSessionId(),
-    signingGrantId: localSigningGrantId(),
+    walletSessionId: localWalletSessionId(),
+    quotaId: localWalletSessionQuotaId(),
     authority: { kind: 'email_otp', providerSubjectId: EMAIL_PROVIDER_SUBJECT_ID },
   });
   return requireParsed(
@@ -816,8 +820,8 @@ function localWalletSessionId(): string {
   return 'wallet-session-local-existing-yao';
 }
 
-function localSigningGrantId(): string {
-  return 'signing-grant-local-existing-yao';
+function localWalletSessionQuotaId(): string {
+  return 'wallet-session-quota-local-existing-yao';
 }
 
 function localNearSigningKeyId(): string {
