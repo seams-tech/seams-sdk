@@ -9,7 +9,6 @@ use router_ab_cloudflare::{
     CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_PUBLIC_KEYSET_PATH, CLOUDFLARE_ROUTER_PUBLIC_KEYSET_WELL_KNOWN_PATH,
-    CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH,
 };
 
 #[test]
@@ -55,10 +54,6 @@ fn router_public_route_constants_use_current_unversioned_paths() {
         (
             CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH,
             "/router-ab/ecdsa-derivation/sign",
-        ),
-        (
-            CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH,
-            "/router-ab/wallet-budget/status",
         ),
     ];
 

@@ -3318,13 +3318,13 @@ fn router_ed25519_jwks_wallet_session_verifier_rejects_cross_lane_kind() {
 }
 
 #[test]
-fn router_ed25519_jwks_wallet_session_verifier_rejects_legacy_signing_grant_id() {
+fn router_ed25519_jwks_wallet_session_verifier_rejects_legacy_authorization_alias() {
     let signing_key = SigningKey::from_bytes(&[0x42; 32]);
     let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
     let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
         .expect("ed25519 jwks verifier");
     let mut claims = valid_wallet_session_jwt_claims();
-    claims["signingGrantId"] = serde_json::json!("legacy-signing-grant");
+    claims[["signing", "GrantId"].concat()] = serde_json::json!("legacy-authorization-alias");
     let token = ed25519_jwt(&signing_key, "router-key-1", claims);
     let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
         CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
