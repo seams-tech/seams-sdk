@@ -1212,7 +1212,7 @@ the replacement and legacy MPC paths must not ship together.
       its remaining Shamir3Pass recovery, publication, refresh, route, worker,
       browser, and test surfaces as capability operations (`82b439fc5`).
 - [x] Delete `active_state_session_id` from production types and wire shapes.
-- [ ] Delete remaining generic wire session aliases and
+- [x] Delete remaining generic wire session aliases and
       authorization/material-scope aliases owned by this cutover.
   - [x] Delete the generic threshold-session claim aliases and the one-use
         signing coordinator, PRF writer, and Passkey MPC manager aliases;
