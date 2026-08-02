@@ -120,7 +120,7 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
         clientAdditiveShare32B64u: secretSentinel,
         clientAdditiveShareHandle: {
           kind: 'email_otp_worker_session',
-          sessionId: 'email-otp-session-1',
+          thresholdSessionId: 'threshold-session-1',
         },
       },
     },

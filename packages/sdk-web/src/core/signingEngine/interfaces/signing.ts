@@ -33,7 +33,7 @@ export type { EcdsaThresholdKeyId };
 
 export type ThresholdEcdsaClientAdditiveShareHandle = {
   kind: 'email_otp_worker_session';
-  sessionId: string;
+  thresholdSessionId: string;
 };
 
 export type ThresholdEcdsaDerivationRoleLocalClientState = {

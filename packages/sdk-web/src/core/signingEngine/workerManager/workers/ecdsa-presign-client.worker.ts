@@ -268,7 +268,7 @@ function requestAdditiveShare(args: {
   return deferred.promise;
 }
 
-function requestEmailOtpSigningShare(sessionId: string): Promise<EmailOtpSigningShare> {
+function requestEmailOtpSigningShare(thresholdSessionId: string): Promise<EmailOtpSigningShare> {
   if (!emailOtpPort) {
     throw new Error('ECDSA presign client has no Email OTP material channel');
   }
@@ -278,7 +278,7 @@ function requestEmailOtpSigningShare(sessionId: string): Promise<EmailOtpSigning
   emailOtpPort.postMessage({
     kind: 'email_otp_ecdsa_signing_share_request_v1',
     requestId,
-    sessionId,
+    thresholdSessionId,
   });
   return deferred.promise;
 }
@@ -304,7 +304,7 @@ async function initializeSession(
       break;
     case 'email_otp_worker_session': {
       const claimed = await requestEmailOtpSigningShare(
-        requireString(payload.authority.emailOtpSessionId, 'emailOtpSessionId'),
+        requireString(payload.authority.thresholdSessionId, 'thresholdSessionId'),
       );
       additiveShare32 = claimed.additiveShare32;
       emailOtpAuthority = {

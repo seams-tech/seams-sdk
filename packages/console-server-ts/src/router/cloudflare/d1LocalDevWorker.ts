@@ -1520,7 +1520,7 @@ function routerApiRequest(request: Request, pathname: string): Request {
 function localAdmissionInput(
   env: LocalD1DevEnv,
   nowMs: number,
-): RouterAbNormalSigningAdmissionInput {
+): Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }> {
   const rpId = parseWebAuthnRpId('localhost');
   if (!rpId.ok) throw new Error('local D1/DO admission smoke rpId is invalid');
   return {

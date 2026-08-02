@@ -183,7 +183,7 @@ export type ResolvedEvmFamilyEcdsaKey<
 
 export type EmailOtpWorkerShareHandle = {
   kind: 'email_otp_worker_session';
-  sessionId: string;
+  thresholdSessionId: ThresholdEcdsaSessionId;
   laneIdentity: {
     kind: 'email_otp_worker_share_lane_identity';
     keyHandle: EvmFamilyEcdsaKeyHandle;
