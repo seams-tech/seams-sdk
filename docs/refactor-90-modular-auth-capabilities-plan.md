@@ -1621,6 +1621,12 @@ This is a coordinated breaking cutover. It is not a mechanical rename, and it
 must not introduce a compatibility alias or let a quota, grant, session, or
 material identifier substitute for another.
 
+The initial live-occurrence inventory is recorded in the deletion ledger
+(`b0da12eaf`): 118 production files and 1,245 references after excluding type
+fixtures and generated `dist` output. The ECDSA post-registration activation
+field remains coupled to Wallet Session JWT issuance and downstream bootstrap;
+it is owned by the coordinated Rust/TypeScript claim-verifier cutover below.
+
 ### Canonical authorization identities
 
 - [x] Remove the inert ECDSA admission-policy `signingGrantId` input and make
