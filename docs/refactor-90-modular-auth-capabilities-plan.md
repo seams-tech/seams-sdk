@@ -1240,7 +1240,7 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Rename warm-session status, restore, cleanup, and assembly callback
         parameters that carry ECDSA threshold-session identity to
         `thresholdSessionId`; update the warm read-model fixtures to the same
-        strict shape (`pending`).
+        strict shape (`e659fb18d`).
   - [x] Keep one-operation NEAR grants as fresh branded
         `CapabilityGrantId`s from preparation through server issuance and
         execution. They never become a reusable `SigningGrantId` or selected
