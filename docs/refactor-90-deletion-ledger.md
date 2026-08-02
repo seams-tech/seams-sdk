@@ -610,9 +610,9 @@ remaining auth, worker, platform, and bundle guards stay active. The current
 registration path uses the exact material-target rollback state and exhaustive
 factor switches (`b37ce26b0`).
 
-Verification disposition: the source guard suite is 219/220; its only failure
-is the D1 local-dev launcher fixture missing a temporary SDK `.dev.vars` file.
-This is environment evidence, not a production or Refactor 90 regression.
+Verification disposition: the source guard suite is now 220/220. The D1
+local-dev launcher again loads the sibling SDK `.dev.vars` before the console
+`.dev.vars`, matching the retained launcher contract (`a610be9dc`).
 
 - generic-named passkey-only WASM sessions (destructive rename to
   `WasmPasskeyClientRegistrationSessionV1` /
