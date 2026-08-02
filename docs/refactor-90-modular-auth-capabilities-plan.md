@@ -1585,7 +1585,9 @@ the replacement and legacy MPC paths must not ship together.
         a pass, and no production fix is inferred from the broad failure list.
   - [ ] Intended-test declaration generation currently stops on shared
         `packages/sdk-web/dist/types` EPERM writes; no lifecycle result is
-        claimed until a healthy build environment is available.
+        claimed until a healthy build environment is available. The rebuilt
+        isolated worktree now completes declaration generation; the next run
+        stops at the missing intended Google ID token.
 - [x] No legacy and replacement MPC path coexist in a releasable tree; the
       composite ECDSA family and generic worker custody paths are absent, and
       the source/boundary guards pass. Full lifecycle acceptance remains open
@@ -2058,10 +2060,10 @@ This is a validation gate, not a deferred cleanup phase.
   - [x] Package-level SDK, server, shared, and unit typechecks pass; Rust
         normal-signing vectors pass 3/3 and the ECDSA client protocol passes
         9/9.
-  - [ ] Root declaration generation is blocked by EPERM writes to shared
-        `packages/sdk-web/dist/types`; root lint also reports nine pre-existing
-        errors outside this refactor and 1,291 warnings. These remain recorded
-        as environment/baseline blockers rather than refactor regressions.
+  - [x] Root declaration generation and repository-wide TypeScript typecheck
+        pass after rebuilding the isolated worktree. Root lint still reports
+        nine pre-existing errors outside this refactor and 1,291 warnings;
+        those remain a baseline blocker rather than a refactor regression.
 - [x] Focused unit, crash, concurrency, host-adapter, worker/WASM, and vector
       tests pass.
   - [x] The current branch-specific Wallet Session claim and private-route
@@ -2077,9 +2079,10 @@ This is a validation gate, not a deferred cleanup phase.
     36/36 and the source-boundary suite passes 220/220
     after the D1 launcher contract fix (`a610be9dc`).
 - [ ] `pnpm test:intended` passes against a healthy environment.
-  - [ ] The current run stops during SDK declaration generation on the same
-        shared `dist/types` EPERM; rerun when the worktrees/build outputs are
-        isolated.
+  - [ ] With the isolated outputs rebuilt, declaration generation passes; the
+        current run stops because the intended Google ID token is not
+        configured. Rerun after the healthy intended-test environment is
+        provisioned.
 - [x] `git diff --check` passes.
 
 ## Verification Budgets
