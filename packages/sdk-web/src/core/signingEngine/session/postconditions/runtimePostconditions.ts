@@ -15,6 +15,10 @@ import { laneCandidateAuthMethod } from '../identity/laneIdentity';
 import type { NearEd25519TransactionReadyLane } from '../identity/selectLane';
 import { listNearEd25519TransactionReadyLanes } from '../identity/selectLane';
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 export type RuntimePostconditionSource = 'registration_finalize' | 'wallet_unlock';
 
@@ -34,7 +38,8 @@ export type UsableRuntimeLane =
       state: RuntimePostconditionLaneState;
       authMethod: SigningSessionSealAuthMethod;
       target: { curve: 'ed25519'; chainTarget?: never };
-      signingGrantId: string;
+      walletSessionId: WalletSessionId;
+      quotaId: MpcWalletSigningQuotaId;
       thresholdSessionId: string;
       remainingSignatureUses: number;
       expiresAtMs: number;
@@ -201,7 +206,9 @@ function readReadyEd25519Lane(args: {
   const remainingSignatureUses = laneRemainingUses(availableLane);
   const expiresAtMs = laneExpiresAtMs(availableLane, args.nowMs);
   if (
-    !availableLane.signingGrantId ||
+    availableLane.authorizationState !== 'authorized' ||
+    !availableLane.authorization.walletSessionId ||
+    !availableLane.authorization.quotaId ||
     !availableLane.thresholdSessionId ||
     !remainingSignatureUses ||
     !expiresAtMs
@@ -214,7 +221,8 @@ function readReadyEd25519Lane(args: {
     state: availableLane.state === 'restorable' ? 'restorable' : 'ready',
     authMethod: args.authMethod,
     target: { curve: 'ed25519' },
-    signingGrantId: availableLane.signingGrantId,
+    walletSessionId: availableLane.authorization.walletSessionId,
+    quotaId: availableLane.authorization.quotaId,
     thresholdSessionId: availableLane.thresholdSessionId,
     remainingSignatureUses,
     expiresAtMs,

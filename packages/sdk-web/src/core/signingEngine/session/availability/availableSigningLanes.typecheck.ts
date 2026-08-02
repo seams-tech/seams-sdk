@@ -246,7 +246,6 @@ const ed25519Lane: ConcreteAvailableEd25519SigningLane = {
   authorizationState: 'authorized',
   authorization: ed25519Authorization,
   state: 'ready',
-  signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
 };
 void ed25519Lane;
@@ -265,12 +264,15 @@ const readyEd25519LaneWithStoredAuthMethod: ConcreteAvailableEd25519SigningLane 
 };
 void readyEd25519LaneWithStoredAuthMethod;
 
-// @ts-expect-error authorized Ed25519 lanes require a signing grant id.
-const readyEd25519LaneMissingSigningGrantId: ConcreteAvailableEd25519SigningLane = {
+const readyEd25519LaneMissingQuotaId: ConcreteAvailableEd25519SigningLane = {
   ...ed25519Lane,
-  signingGrantId: undefined,
+  authorization: {
+    ...ed25519Authorization,
+    // @ts-expect-error authorized Ed25519 lanes require an exact quota identity.
+    quotaId: undefined,
+  },
 };
-void readyEd25519LaneMissingSigningGrantId;
+void readyEd25519LaneMissingQuotaId;
 
 const deferredEd25519Lane: ConcreteAvailableEd25519SigningLane = {
   auth: passkeyAuth,
