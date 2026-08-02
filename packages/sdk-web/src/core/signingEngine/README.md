@@ -103,7 +103,7 @@ sequenceDiagram
 
   SDK->>RT: "sign / export / register"
   RT->>OP: "delegate to operation"
-  OP->>SS: "select lane, restore, reserve budget"
+  OP->>SS: "select lane, restore, authorize operation"
   OP->>CF: "confirm passkey or email OTP"
   OP->>TH: "authorize/connect/sign threshold material"
   OP->>CH: "build payload/display/final tx"
@@ -124,11 +124,8 @@ sequenceDiagram
   planning-layer extension for operation planning, storage source, retention,
   and backing material context.
 - `SigningSessionPlan` (`session/planning/planner.ts`): planned operation
-  identity bound to one selected lane before confirmation, signing, and budget
-  stages execute.
-- `WalletSigningBudgetReservation` (`session/budget/budget.ts`): budget
-  reservation and spend identity that follows the selected lane through the
-  finalization path.
+  identity bound to one selected lane before confirmation, signing, and the
+  server-owned claim/quota transaction.
 - Ed25519 material and authorization use the capability and sealed-runtime
   boundaries; the retired in-memory session-record family is no longer a
   signing-engine state source.
@@ -146,7 +143,7 @@ sequenceDiagram
 | `warmSession`          | Secure-confirm worker PRF cache and volatile capability material.                   | `session/warmCapabilities/*`                    |
 | `warmSigning`          | Runtime aggregate of warm-session readers, status readers, and sealed-runtime access. | `assembly/ports/warmSigning.ts`                 |
 | `warmCapabilities`     | Public capability/status surface derived from warm material and budget state.       | `session/warmCapabilities/public.ts`            |
-| `signingSession`       | Operation lane, budget, and identity scope used while signing.                      | `session/planning/*`, `session/budget/*`        |
+| `signingSession`       | Operation lane, authorization, and identity scope used while signing.              | `session/planning/*`, `session/operationState/*` |
 | `walletSession` | Server-issued reusable Wallet Session authorization identity.                       | `session/lifecycle/*`, `session/availability/*` |
 | `thresholdSession`     | Cryptographic threshold-protocol authorization session.                             | `threshold/*`, sealed-runtime boundaries        |
 | `emailOtpSession`      | Email OTP step-up session and warm-session coordination.                            | `session/emailOtp/*`                            |
@@ -161,7 +158,7 @@ flowchart LR
   PREP --> SELECT["session/identity/selectLane.ts"]
   SELECT --> ID["session/identity/laneIdentity.ts"]
   OP --> PLAN["session/planning/planner.ts"]
-  OP --> BUDGET["session/budget/budget.ts"]
+  OP --> CLAIM["server-owned claim/quota admission"]
   OP --> AUTH["authPlanning.ts + stepUpConfirmation prompts"]
   OP --> TH["threshold/ecdsa/*"]
   OP --> CH["chains/evm + chains/tempo"]
