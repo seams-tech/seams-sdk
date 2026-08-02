@@ -131,18 +131,6 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
         credentialIdB64u,
       });
       const authorityRef = await walletAuthAuthorityRef({ authority });
-      const budgetProvisioner =
-        ctx.service.thresholdRuntime.getWalletBudgetGrantProvisioner?.() ?? null;
-      if (!budgetProvisioner) {
-        return json(
-          {
-            ok: false,
-            code: 'internal',
-            message: 'Ed25519 Wallet Session budget provisioner is not configured',
-          },
-          { status: 500 },
-        );
-      }
       const principalId = parsePrincipalId(walletId);
       const mintId = parseReusableWalletSessionMintId(parsed.request.challengeId);
       if (!principalId.ok || !mintId.ok) {

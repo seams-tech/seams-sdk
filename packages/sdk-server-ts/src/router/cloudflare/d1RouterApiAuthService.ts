@@ -1532,18 +1532,8 @@ function createD1ThresholdRuntimeRouteService(
   assembly: D1ThresholdRuntimeRouteServiceAssembly,
 ): CloudflareD1RouterApiAuthService['thresholdRuntime'] {
   return {
-    getWalletBudgetGrantProvisioner: getD1WalletBudgetGrantProvisioner.bind(
-      undefined,
-      assembly.options,
-    ),
     getRouterAbEcdsaPresignRuntime: () => assembly.options.routerAbEcdsaPresignRuntime || null,
   };
-}
-
-function getD1WalletBudgetGrantProvisioner(
-  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
-) {
-  return options.walletBudgetGrantProvisioner || null;
 }
 
 function createD1NearFundingRouteService(
