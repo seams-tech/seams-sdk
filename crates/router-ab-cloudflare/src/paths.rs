@@ -38,12 +38,6 @@ pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_P
 /// Public Router endpoint for finalizing Router A/B ECDSA derivation normal signing.
 pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH: &str =
     "/router-ab/ecdsa-derivation/sign";
-/// Public Router endpoint for reading server-authoritative Wallet Session budget status.
-pub const CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH: &str =
-    "/router-ab/wallet-budget/status";
-/// Private Router endpoint for issuing Wallet Session signing-budget grants.
-pub const CLOUDFLARE_ROUTER_WALLET_BUDGET_PUT_GRANT_PRIVATE_REQUEST_PATH: &str =
-    "/router-ab/router/wallet-budget/put-grant";
 /// Private Router endpoint for one admitted Ed25519 Yao ceremony execution.
 pub const CLOUDFLARE_ROUTER_ED25519_YAO_EXECUTE_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/router/ed25519-yao/execute";
@@ -224,11 +218,6 @@ const CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_ROUND1_PREPARE_URL: &str = concat
     "/router-ab/signing-worker/sign/prepare"
 );
 #[cfg(feature = "workers-rs")]
-const CLOUDFLARE_SIGNING_WORKER_WALLET_BUDGET_URL_V1: &str = concat!(
-    "https://router-ab-signing-worker.internal",
-    "/router-ab/signing-worker/wallet-budget"
-);
-#[cfg(feature = "workers-rs")]
 const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_URL: &str = concat!(
     "https://router-ab-signing-worker.internal",
     "/router-ab/signing-worker/ecdsa-derivation/sign/prepare"
@@ -402,17 +391,6 @@ pub(crate) fn cloudflare_signing_worker_normal_signing_round1_prepare_service_ur
 }
 
 #[cfg(feature = "workers-rs")]
-pub(crate) fn cloudflare_signing_worker_wallet_budget_service_url_v1(
-    peer: &CloudflarePeerBindingV1,
-) -> RouterAbProtocolResult<&'static str> {
-    cloudflare_signing_worker_url(
-        peer,
-        CLOUDFLARE_SIGNING_WORKER_WALLET_BUDGET_URL_V1,
-        "wallet budget requests can target only SigningWorker",
-    )
-}
-
-#[cfg(feature = "workers-rs")]
 pub(crate) fn cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_url(
     peer: &CloudflarePeerBindingV1,
 ) -> RouterAbProtocolResult<&'static str> {
@@ -432,30 +410,4 @@ pub(crate) fn cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_fi
         CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_URL,
         "Router A/B ECDSA derivation finalize can target only SigningWorker",
     )
-}
-
-#[cfg(all(test, feature = "workers-rs"))]
-mod tests {
-    use super::cloudflare_signing_worker_wallet_budget_service_url_v1;
-    use crate::{CloudflarePeerBindingV1, CloudflareWorkerRoleV1};
-
-    #[test]
-    fn wallet_budget_service_uses_absolute_signing_worker_url() {
-        let signing_worker = CloudflarePeerBindingV1::new(
-            CloudflareWorkerRoleV1::SigningWorker,
-            "ROUTER_AB_SIGNING_WORKER",
-        )
-        .expect("SigningWorker binding should be valid");
-
-        assert_eq!(
-            cloudflare_signing_worker_wallet_budget_service_url_v1(&signing_worker)
-                .expect("SigningWorker should be accepted"),
-            "https://router-ab-signing-worker.internal/router-ab/signing-worker/wallet-budget"
-        );
-
-        let router =
-            CloudflarePeerBindingV1::new(CloudflareWorkerRoleV1::Router, "ROUTER_AB_ROUTER")
-                .expect("Router binding should be valid");
-        assert!(cloudflare_signing_worker_wallet_budget_service_url_v1(&router).is_err());
-    }
 }

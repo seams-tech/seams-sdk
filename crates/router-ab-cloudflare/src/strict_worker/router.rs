@@ -33,27 +33,6 @@ pub(super) async fn handle_strict_router_fetch_v1(
         return cloudflare_router_public_keyset_response_v1(response, &request, &env);
     }
 
-    if path == CLOUDFLARE_ROUTER_WALLET_BUDGET_PUT_GRANT_PRIVATE_REQUEST_PATH {
-        if let Err(err) = require_cloudflare_internal_service_auth_request_v1(&request, &env) {
-            return cloudflare_private_service_auth_error_response_v1(err);
-        }
-        let runtime = match CloudflareRouterWorkerRuntimeV1::from_worker_env(&env) {
-            Ok(runtime) => runtime,
-            Err(err) => return cloudflare_protocol_error_response_v1(err),
-        };
-        let now_unix_ms = match cloudflare_now_unix_ms_v1() {
-            Ok(now_unix_ms) => now_unix_ms,
-            Err(err) => return cloudflare_protocol_error_response_v1(err),
-        };
-        return handle_cloudflare_router_wallet_budget_put_grant_private_fetch_v1(
-            request,
-            &env,
-            &runtime,
-            now_unix_ms,
-        )
-        .await;
-    }
-
     if path == CLOUDFLARE_ROUTER_ED25519_YAO_EXECUTE_PRIVATE_REQUEST_PATH {
         return handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(request, &env).await;
     }
@@ -91,11 +70,10 @@ pub(super) async fn handle_strict_router_fetch_v1(
         && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH
-        && path != CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH
     {
         return Response::error(
             format!(
-                "Router A/B strict public request must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
+                "Router A/B strict public request must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
                 CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH,
@@ -105,8 +83,7 @@ pub(super) async fn handle_strict_router_fetch_v1(
                 CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_PATH,
-                CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH,
-                CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH
+                CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH
             ),
             404,
         );
@@ -134,26 +111,6 @@ pub(super) async fn handle_strict_router_fetch_v1(
         Ok(verifier) => verifier,
         Err(err) => return cloudflare_protocol_error_response_v1(err),
     };
-
-    if path == CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH {
-        let credential = match router_wallet_session_credential_v1(&authorization, &request, &env)?
-        {
-            Ok(credential) => credential,
-            Err(response) => return Ok(response),
-        };
-        let response =
-            handle_cloudflare_router_wallet_budget_status_authenticated_public_request_v1(
-                &mut request,
-                &env,
-                &runtime,
-                now_unix_ms,
-                credential,
-                trusted_source_digest,
-                verifier,
-            )
-            .await?;
-        return cloudflare_router_normal_signing_response_v1(response, &request, &env);
-    }
 
     if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH {
         let request_body = match read_router_public_body_v1(
@@ -715,7 +672,6 @@ fn is_cloudflare_router_normal_signing_public_path(path: &str) -> bool {
     let normalized = path.strip_suffix('/').unwrap_or(path);
     normalized == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH
         || normalized == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH
-        || normalized == CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH
 }
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
