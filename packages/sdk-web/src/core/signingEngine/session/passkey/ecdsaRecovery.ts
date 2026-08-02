@@ -76,7 +76,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   transport: WarmSessionSealTransportInput;
   groupId: string;
   rehydrateWarmSessionMaterial: (args: {
-    sessionId: string;
+    thresholdSessionId: string;
     sealedSecretB64u: string;
     signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
     expiresAtMs: number;
@@ -108,7 +108,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   if (currentBeforeWorker.kind === 'superseded') return currentBeforeWorker.status;
 
   const rehydrated = await args.rehydrateWarmSessionMaterial({
-    sessionId: thresholdSessionId,
+    thresholdSessionId,
     sealedSecretB64u: args.record.sealedSecretB64u,
     signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(args.record.keyVersion),
     expiresAtMs: args.record.expiresAtMs,

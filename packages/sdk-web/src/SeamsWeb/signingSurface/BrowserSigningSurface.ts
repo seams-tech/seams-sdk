@@ -692,6 +692,9 @@ function validateExactNearEd25519YaoOperationMaterial(args: {
   ) {
     throw new Error('[SigningEngine][near] active Ed25519 Yao capability session mismatch');
   }
+  if (metadata.scope.threshold_session_id !== String(facts.thresholdSessionId)) {
+    throw new Error('[SigningEngine][near] active Ed25519 Yao metadata session mismatch');
+  }
   if (
     metadata.scope.account_id !== String(args.input.walletId) ||
     metadata.applicationBinding.wallet_id !== String(args.input.walletId)
@@ -2056,7 +2059,7 @@ export class BrowserSigningSurface {
     if (!relayerUrl) {
       throw new Error('[SigningEngine][ed25519-export] passkey export requires relayerUrl');
     }
-    return await resolvePasskeyEd25519YaoExportContextV1({
+    const input = {
       subject: {
         walletId: String(args.laneIdentity.signer.account.wallet.walletId),
         nearAccountId: String(args.laneIdentity.signer.account.nearAccountId),
@@ -2066,7 +2069,19 @@ export class BrowserSigningSurface {
       },
       relayerUrl,
       fetch: fetchWithGlobalThis,
+    } as const;
+    const resolved = await resolvePasskeyEd25519YaoExportContextV1(input);
+    if (resolved.kind !== 'capability_recovery_required') return resolved;
+    await this.ensureNearEd25519YaoCapabilityForSigning({
+      kind: 'export_exact_lane',
+      walletId: input.subject.walletId,
+      nearAccountId: input.subject.nearAccountId,
+      signerSlot: input.subject.signerSlot,
+      thresholdSessionId: input.subject.thresholdSessionId,
+      laneIdentity: args.laneIdentity,
+      materialActivation: input.subject.materialActivation,
     });
+    return await resolvePasskeyEd25519YaoExportContextV1(input);
   }
 
   private async resolveEmailOtpEd25519YaoExportContext(

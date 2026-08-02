@@ -1187,7 +1187,6 @@ test.describe('UserConfirm worker router', () => {
                     },
                   }),
             listRuntimeEcdsaLanesForWallet: async () => [],
-            listRuntimeEd25519RecordsForWallet: async () => [],
           },
         );
         const selection = selectLaneMod.selectTransactionLane({

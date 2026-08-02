@@ -665,14 +665,14 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   async hydrateSigningSession(
     input: Parameters<AccountSyncSigningSurface['hydrateSigningSession']>[0],
   ): Promise<void> {
-    this.hydratedSessionIds.push(input.sessionId);
+    this.hydratedSessionIds.push(input.thresholdSessionId);
   }
 
   async persistSigningSessionSealForThresholdSession(
     input: Parameters<AccountSyncSigningSurface['persistSigningSessionSealForThresholdSession']>[0],
   ): ReturnType<AccountSyncSigningSurface['persistSigningSessionSealForThresholdSession']> {
     this.sealedQueueStates.push(this.insideMaterialOwnerQueue);
-    this.sealedSessionIds.push(input.sessionId);
+    this.sealedSessionIds.push(input.thresholdSessionId);
     return {
       ok: true,
       sealedSecretB64u: 'sealed-session-refresh-secret',
