@@ -1575,19 +1575,18 @@ the replacement and legacy MPC paths must not ship together.
       The latest local-no-server focused claim, recovery, coordinator,
       lifecycle, sealed-runtime, signing, export, and supersession matrix
       passes 104/104.
-  - [ ] Broad unit gate was rerun after the full build: 1,727 passed, 165
-        failed, and 9 skipped out of 1,901 collected tests. The failures are
-        primarily lower-authority stale inline fixtures plus environment/WASM,
-        hosted-relay, configuration, and UI timing cases. Keep this gate open
-        until the failures are classified and supported lifecycle cases are
-        rerun in an uncontended environment. The run completed after rebuilding
-        the SDK with the isolated worktree; the changed count is evidence, not
-        a pass, and no production fix is inferred from the broad failure list.
-  - [ ] Intended-test declaration generation currently stops on shared
-        `packages/sdk-web/dist/types` EPERM writes; no lifecycle result is
-        claimed until a healthy build environment is available. The rebuilt
-        isolated worktree now completes declaration generation; the next run
-        stops at the missing intended Google ID token.
+  - [ ] Broad unit gate was rerun after the full build on the current fixture
+        checkpoint: **1,745 passed, 147 failed, and 9 skipped out of 1,901
+        collected tests**. This is an improvement over the prior 1,740/197/11
+        run, but it remains open. The failures are concentrated in lower-
+        authority stale expectations plus missing local ceremony/JWK, Google
+        identity, dynamic-import, and UI-environment prerequisites. The count
+        is evidence, not a pass; no production fix is inferred from the broad
+        failure list.
+  - [ ] Intended-test declaration generation now completes in the isolated
+        worktree. The lifecycle run remains blocked at the missing intended
+        Google ID token; rerun after the healthy OIDC-backed environment is
+        provisioned.
 - [x] No legacy and replacement MPC path coexist in a releasable tree; the
       composite ECDSA family and generic worker custody paths are absent, and
       the source/boundary guards pass. Full lifecycle acceptance remains open
@@ -2064,7 +2063,8 @@ This is a validation gate, not a deferred cleanup phase.
         pass after rebuilding the isolated worktree. The repository check now
         passes through Rust format/lint, architecture, worker/WASM, and signer
         parity checks; lint reports warnings only (1,291), with no errors
-        (`e2fd7d254`).
+        (`e2fd7d254`; `pnpm check` completed successfully at the current
+        checkpoint).
 - [x] Focused unit, crash, concurrency, host-adapter, worker/WASM, and vector
       tests pass.
   - [x] The current branch-specific Wallet Session claim and private-route

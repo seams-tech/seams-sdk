@@ -72,6 +72,14 @@ Google-identity, and UI timing cases; the focused identity regression passed.
 The broad acceptance box remains open until those failures are reconciled or
 their owning environment is supplied.
 
+The current post-fixture broad run collected the full 1,901-test unit surface:
+1,745 passed, 147 failed, and 9 skipped. This supersedes the earlier
+1,740/197/11 measurement for closeout tracking. The failures remain lower-tier
+expectation and local-environment cases; the Refactor 90 focused matrices and
+the complete `pnpm check` pass independently. Keep the broad gate open until
+the failure classes are reconciled and the supported lifecycle subset is rerun
+with the required local ceremony and identity configuration.
+
 The follow-up focused operating-path run passes 72/72. The Rust Cloudflare
 ECDSA binding subset passes 36/36, the ECDSA wire crate passes 1/1, the ECDSA
 client protocol passes 9/9, the presign crate passes 44/44 plus 7/7 doctests,
