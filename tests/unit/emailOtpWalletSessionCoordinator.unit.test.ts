@@ -563,7 +563,7 @@ function emailOtpWorkerEcdsaBootstrapFixture(args: {
     chainTarget: args.chainTarget,
   });
   const walletId = payload.walletId || 'alice.testnet';
-  const thresholdSessionId = payload.sessionId || 'ecdsa-session';
+  const thresholdSessionId = payload.thresholdSessionId || 'ecdsa-session';
   const signingGrantId = payload.signingGrantId || thresholdSessionId;
   const keyHandle = publicationTargetPlan?.keyHandle || payload.keyHandle || 'key-handle-ecdsa';
   const ecdsaThresholdKeyId = 'ecdsa-key';
@@ -1073,7 +1073,7 @@ function createCoordinator(overrides?: {
             type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
             payload: {
               walletId: String(walletKey.walletId || 'alice.testnet'),
-              sessionId: String(lanePolicy.thresholdSessionId || 'ecdsa-session'),
+              thresholdSessionId: String(lanePolicy.thresholdSessionId || 'ecdsa-session'),
               signingGrantId: String(
                 lanePolicy.signingGrantId || lanePolicy.thresholdSessionId || 'ecdsa-session',
               ),

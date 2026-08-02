@@ -4633,7 +4633,7 @@ type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
       participantIds?: number[];
       sessionKind?: 'jwt';
       chainTarget: ThresholdEcdsaChainTarget;
-      sessionId?: string;
+      thresholdSessionId?: string;
       signingGrantId?: string;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
       ttlMs?: number;
@@ -4646,7 +4646,7 @@ type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
       participantIds?: number[];
       sessionKind?: 'jwt';
       chainTarget: ThresholdEcdsaChainTarget;
-      sessionId?: string;
+      thresholdSessionId?: string;
       signingGrantId?: string;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
       ttlMs?: number;
@@ -4721,12 +4721,13 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     throw new Error('routeAuth is required for JWT threshold bootstrap sessions');
   }
   const keygenSessionId = generateKeygenSessionId();
-  const requestedSessionId = String(args.sessionId || '').trim();
+  const requestedThresholdSessionId = String(args.thresholdSessionId || '').trim();
   const requestedSigningGrantIdRaw = String(args.signingGrantId || '').trim();
   const requestedSigningGrantId = requestedSigningGrantIdRaw
     ? readSigningGrantId(requestedSigningGrantIdRaw, 'signingGrantId')
     : null;
-  const sessionId = requestedSessionId || generateThresholdSessionId();
+  const thresholdSessionId =
+    requestedThresholdSessionId || generateThresholdSessionId();
   const signingGrantId = requestedSigningGrantId || generateSigningGrantId();
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
   const runtimePolicyScope = args.runtimePolicyScope;
@@ -4795,7 +4796,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       clientShareRetryCounter,
       contextBinding32B64u,
       requestId: keygenSessionId,
-      sessionId,
+      sessionId: thresholdSessionId,
       signingGrantId,
       ttlMs,
       remainingUses,
@@ -5002,7 +5003,7 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
   publicationTargetPlans: EmailOtpEcdsaPublicationTargetPlan[];
   participantIds?: number[];
   sessionKind?: 'jwt';
-  sessionId?: string;
+  thresholdSessionId?: string;
   signingGrantId?: string;
   routeAuth?: AppOrWalletSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -5014,7 +5015,7 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
   if (!publicationTargetPlans.length) {
     throw new Error('Email OTP ECDSA bootstrap requires at least one publication target');
   }
-  if (publicationTargetPlans.length > 1 && String(args.sessionId || '').trim()) {
+  if (publicationTargetPlans.length > 1 && String(args.thresholdSessionId || '').trim()) {
     throw new Error('Email OTP multi-target ECDSA bootstrap requires per-target session ids');
   }
   const signingGrantId = String(args.signingGrantId || '').trim() || generateSigningGrantId();
@@ -5033,7 +5034,10 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
       operation: 'email_otp_bootstrap',
       participantIds: args.participantIds,
       sessionKind: args.sessionKind,
-      sessionId: publicationTargetPlans.length === 1 && args.sessionId ? args.sessionId : undefined,
+      thresholdSessionId:
+        publicationTargetPlans.length === 1 && args.thresholdSessionId
+          ? args.thresholdSessionId
+          : undefined,
       signingGrantId,
       chainTarget,
       routeAuth: args.routeAuth,
@@ -7122,6 +7126,27 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         },
       };
     case 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle': {
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        [
+          'relayUrl',
+          'walletId',
+          'walletSessionUserId',
+          'userId',
+          'clientRootShareHandle',
+          'chainTarget',
+          'publicationTargetPlans',
+          'runtimePolicyScope',
+          'participantIds',
+          'thresholdSessionId',
+          'signingGrantId',
+          'ttlMs',
+          'remainingUses',
+          'sessionKind',
+          'routeAuth',
+        ],
+        type,
+      );
       const chainTarget = parseWorkerChainTarget(payload.chainTarget);
       if (payload.sessionKind !== 'jwt') {
         throw new Error('Email OTP ECDSA bootstrap requires JWT signing sessions');
@@ -7155,8 +7180,8 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         ...(parseWorkerParticipantIds(payload.participantIds)
           ? { participantIds: parseWorkerParticipantIds(payload.participantIds)! }
           : {}),
-        ...(optionalWorkerString(payload.sessionId)
-          ? { sessionId: optionalWorkerString(payload.sessionId)! }
+        ...(optionalWorkerString(payload.thresholdSessionId)
+          ? { thresholdSessionId: optionalWorkerString(payload.thresholdSessionId)! }
           : {}),
         ...(optionalWorkerString(payload.signingGrantId)
           ? { signingGrantId: optionalWorkerString(payload.signingGrantId)! }
@@ -8174,7 +8199,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             publicationTargetPlans: msg.payload.publicationTargetPlans,
             participantIds: msg.payload.participantIds,
             sessionKind: msg.payload.sessionKind,
-            sessionId: msg.payload.sessionId,
+            thresholdSessionId: msg.payload.thresholdSessionId,
             signingGrantId: msg.payload.signingGrantId,
             routeAuth: msg.payload.routeAuth,
             runtimePolicyScope: msg.payload.runtimePolicyScope,
