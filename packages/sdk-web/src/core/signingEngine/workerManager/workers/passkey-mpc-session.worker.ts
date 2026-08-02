@@ -37,7 +37,8 @@ type PasskeyServerSealedSecretCacheScope = {
   kind: 'passkey_registration';
   walletId: string;
   credentialIdB64u: string;
-  signingGrantId: string;
+  walletSessionId: string;
+  quotaId: string;
 };
 
 type OkResult = { ok: true; remainingUses: number; expiresAtMs: number };
@@ -167,9 +168,7 @@ async function passkeyServerSealedSecretCacheKey(args: {
   const relayerUrl = normalizeOptionalTrimmedString(args.relayerUrl);
   const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
   const cacheScope = args.cacheScope;
-  if (!prfFirstB64u || !relayerUrl || !keyVersion || !cacheScope) {
-    return null;
-  }
+  if (!prfFirstB64u || !relayerUrl || !keyVersion || !cacheScope) return null;
   const prfDigestHex = await sha256HexUtf8(prfFirstB64u);
   return [
     'passkey-server-sealed-secret-v1',
@@ -178,7 +177,8 @@ async function passkeyServerSealedSecretCacheKey(args: {
     SIGNING_SESSION_SEAL_GROUP_ID,
     cacheScope.walletId,
     cacheScope.credentialIdB64u,
-    cacheScope.signingGrantId,
+    cacheScope.walletSessionId,
+    cacheScope.quotaId,
     prfDigestHex,
   ].join('|');
 }
@@ -186,9 +186,7 @@ async function passkeyServerSealedSecretCacheKey(args: {
 function prunePasskeyServerSealedSecretCache(): void {
   const now = nowMs();
   for (const [key, entry] of passkeyServerSealedSecretCache) {
-    if (entry.expiresAtMs <= now) {
-      passkeyServerSealedSecretCache.delete(key);
-    }
+    if (entry.expiresAtMs <= now) passkeyServerSealedSecretCache.delete(key);
   }
   while (passkeyServerSealedSecretCache.size > PASSKEY_SERVER_SEALED_SECRET_CACHE_MAX_ENTRIES) {
     const firstKey = passkeyServerSealedSecretCache.keys().next().value;
@@ -303,13 +301,15 @@ function parsePasskeyServerSealedSecretCacheScope(
   if (!scope || scope.kind !== 'passkey_registration') return undefined;
   const walletId = normalizeOptionalNonEmptyString(scope.walletId);
   const credentialIdB64u = normalizeOptionalNonEmptyString(scope.credentialIdB64u);
-  const signingGrantId = normalizeOptionalNonEmptyString(scope.signingGrantId);
-  if (!walletId || !credentialIdB64u || !signingGrantId) return undefined;
+  const walletSessionId = normalizeOptionalNonEmptyString(scope.walletSessionId);
+  const quotaId = normalizeOptionalNonEmptyString(scope.quotaId);
+  if (!walletId || !credentialIdB64u || !walletSessionId || !quotaId) return undefined;
   return {
     kind: 'passkey_registration',
     walletId,
     credentialIdB64u,
-    signingGrantId,
+    walletSessionId,
+    quotaId,
   };
 }
 

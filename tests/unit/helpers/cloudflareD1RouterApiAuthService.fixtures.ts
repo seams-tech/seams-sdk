@@ -423,7 +423,6 @@ export function testEcdsaClientBootstrap(
     contextBinding32B64u: 'test-context-binding-32',
     requestId: prepare.requestId,
     thresholdSessionId: prepare.thresholdSessionId,
-    signingGrantId: prepare.signingGrantId,
     ttlMs: prepare.ttlMs,
     remainingUses: prepare.remainingUses,
     participantIds: prepare.participantIds,

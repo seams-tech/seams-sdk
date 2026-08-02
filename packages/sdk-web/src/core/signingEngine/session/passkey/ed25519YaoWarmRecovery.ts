@@ -149,7 +149,6 @@ function exactResponseKeys(record: Record<string, unknown>): void {
     'routerAbNormalSigning',
     'runtimePolicyScope',
     'signerSlot',
-    'signingGrantId',
     'signingWorkerId',
     'thresholdExpiresAtMs',
     'thresholdSessionId',
@@ -354,7 +353,6 @@ async function parseWarmRecoveryDescriptor(args: {
     response.thresholdSessionId,
     'response.thresholdSessionId',
   );
-  const signingGrantId = requireString(response.signingGrantId, 'response.signingGrantId');
   const signingWorkerId = requireString(response.signingWorkerId, 'response.signingWorkerId');
   const thresholdExpiresAtMs = requirePositiveInteger(
     response.thresholdExpiresAtMs,
@@ -427,7 +425,6 @@ async function parseWarmRecoveryDescriptor(args: {
     session: {
       walletSessionJwt: args.authorization.walletSessionJwt,
       thresholdSessionId,
-      signingGrantId,
       walletSessionId: walletSessionId.value,
       quotaId: quotaId.value,
       expiresAtMs: thresholdExpiresAtMs,

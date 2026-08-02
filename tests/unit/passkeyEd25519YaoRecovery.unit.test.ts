@@ -133,7 +133,6 @@ function syncResponseFixture(
         walletSessionId: input.sessionWalletSessionId,
         quotaId: input.sessionQuotaId,
         thresholdSessionId: input.sessionId,
-        signingGrantId: 'signing-grant-recovery-1',
         expiresAtMs: Date.now() + 60_000,
         participantIds: [...input.sessionParticipantIds],
         remainingUses: 4,
@@ -267,7 +266,6 @@ test.describe('passkey Ed25519 Yao browser recovery boundary', () => {
         walletSessionId: WALLET_SESSION_ID,
         quotaId: 'wallet-session-quota-recovery-1',
         thresholdSessionId: THRESHOLD_SESSION_ID,
-        signingGrantId: 'signing-grant-recovery-1',
         remainingUses: 4,
       },
       capability: {

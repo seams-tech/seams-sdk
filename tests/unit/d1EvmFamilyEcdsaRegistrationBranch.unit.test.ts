@@ -140,7 +140,6 @@ test.describe('D1 EVM-family ECDSA registration prepare', () => {
     expect(prepared.ecdsa.kind).toBe('evm_family_ecdsa_keygen');
     expect(prepared.ecdsa.chainTargets).toEqual([tempoTarget, arcTarget]);
     const prepare = prepared.ecdsa.prepare;
-    expect(prepare.signingGrantId).not.toBe('');
     expect(prepare.thresholdSessionId).not.toBe('');
     expect(prepare.remainingUses).toBe(3);
     expect(prepare.participantIds).toEqual([1, 2]);

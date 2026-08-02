@@ -1,15 +1,9 @@
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEmailOtpRoutePlan,
-  toAuthorizingSigningGrantId,
-  toMintedSigningGrantId,
-  type AuthorizingSigningGrantId,
   type EmailOtpSigningSessionAuthLane,
-  type MintedSigningGrantId,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
-  assertPerOperationEmailOtpMintDoesNotReuseAuthorizingSession,
-  buildPerOperationEmailOtpEcdsaMintingSession,
   type EmailOtpEcdsaBootstrapAuthorization,
   type EmailOtpEcdsaBootstrapRouteAuth,
   type EmailOtpThresholdEd25519RouteAuth,
@@ -19,13 +13,6 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
 });
-const authorizingSigningGrantId = toAuthorizingSigningGrantId(
-  'authorizing-signing-grant',
-);
-const mintedSigningGrantId = toMintedSigningGrantId(
-  'minted-signing-grant',
-);
-
 void ({
   kind: 'signing_session',
   jwt: 'threshold-session-jwt',
@@ -34,7 +21,7 @@ void ({
   chainTarget,
 } satisfies EmailOtpSigningSessionAuthLane);
 
-const routePlan = buildEmailOtpRoutePlan({
+void buildEmailOtpRoutePlan({
   routeFamily: 'signing_session',
   authLane: {
     kind: 'signing_session',
@@ -44,11 +31,6 @@ const routePlan = buildEmailOtpRoutePlan({
     chainTarget,
   },
   operation: 'transaction_sign',
-});
-
-void buildPerOperationEmailOtpEcdsaMintingSession({
-  routePlan,
-  generateSigningGrantId: () => mintedSigningGrantId,
 });
 
 const ecdsaBootstrapRouteAuth = {
@@ -77,39 +59,5 @@ void ({
   // @ts-expect-error Ed25519 Wallet Session auth cannot authorize ECDSA bootstrap.
   routeAuth: ed25519RouteAuth,
 } satisfies EmailOtpEcdsaBootstrapAuthorization);
-
-assertPerOperationEmailOtpMintDoesNotReuseAuthorizingSession({
-  mintedSigningGrantId,
-  authorizingSigningGrantId,
-});
-
-// @ts-expect-error authorizing session ids cannot be used as minted session ids
-const invalidMintedSigningGrantId: MintedSigningGrantId =
-  authorizingSigningGrantId;
-
-// @ts-expect-error minted session ids cannot authorize signing-session routes
-const invalidAuthorizingSigningGrantId: AuthorizingSigningGrantId =
-  mintedSigningGrantId;
-
-const invalidAuthLane = {
-  kind: 'signing_session',
-  jwt: 'threshold-session-jwt',
-  thresholdSessionId: 'threshold-session',
-  signingGrantId: mintedSigningGrantId,
-  curve: 'ecdsa',
-  chainTarget,
-};
-
-// @ts-expect-error auth lanes carry authorizing ids, not minted ids
-void (invalidAuthLane satisfies EmailOtpSigningSessionAuthLane);
-
-assertPerOperationEmailOtpMintDoesNotReuseAuthorizingSession({
-  // @ts-expect-error per-operation minting requires a minted signing grant id
-  mintedSigningGrantId: authorizingSigningGrantId,
-  authorizingSigningGrantId,
-});
-
-void invalidMintedSigningGrantId;
-void invalidAuthorizingSigningGrantId;
 
 export {};

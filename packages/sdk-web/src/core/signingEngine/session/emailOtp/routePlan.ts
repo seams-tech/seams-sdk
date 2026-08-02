@@ -1,6 +1,5 @@
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type {
   WalletEmailOtpExportOperation,
@@ -10,12 +9,9 @@ import type {
 import {
   buildEmailOtpRoutePlan,
   routeFamilyForAuthLane,
-  toMintedSigningGrantId,
-  type AuthorizingSigningGrantId,
   type EmailOtpAuthLane,
   type EmailOtpRoutePlan,
   type EmailOtpSigningSessionAuthLane,
-  type MintedSigningGrantId,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 
 export type EmailOtpSigningSessionChallengeOperation =
@@ -63,7 +59,6 @@ export type EmailOtpAppSessionRouteAuth = {
   jwt: string;
   curve?: never;
   thresholdSessionId?: never;
-  signingGrantId?: never;
   chainTarget?: never;
 };
 
@@ -178,78 +173,4 @@ export function emailOtpEcdsaBootstrapRouteAuthToTransport(
       return { kind: 'wallet_session', jwt: auth.jwt };
   }
   return assertNever(auth);
-}
-
-export type EmailOtpEcdsaMintingSession =
-  | {
-      kind: 'per_operation';
-      signingGrantId: MintedSigningGrantId;
-      authorizingSigningGrantId?: AuthorizingSigningGrantId;
-    }
-  | {
-      kind: 'session';
-      signingGrantId: MintedSigningGrantId;
-      authorizingSigningGrantId?: AuthorizingSigningGrantId;
-    };
-
-export function authorizingSigningGrantIdFromRoutePlan(
-  routePlan: EmailOtpRoutePlan,
-): AuthorizingSigningGrantId | undefined {
-  return routePlan.authLane.kind === 'signing_session' && routePlan.authLane.curve === 'ecdsa'
-    ? routePlan.authLane.authorizingSigningGrantId
-    : undefined;
-}
-
-export function assertPerOperationEmailOtpMintDoesNotReuseAuthorizingSession(args: {
-  mintedSigningGrantId: MintedSigningGrantId;
-  authorizingSigningGrantId?: AuthorizingSigningGrantId;
-}): void {
-  if (!args.authorizingSigningGrantId) return;
-  if (String(args.mintedSigningGrantId) === String(args.authorizingSigningGrantId)) {
-    throw new Error(
-      'Email OTP per-operation ECDSA minting must create a fresh signing grant id',
-    );
-  }
-}
-
-export function buildPerOperationEmailOtpEcdsaMintingSession(args: {
-  routePlan: EmailOtpRoutePlan;
-  generateSigningGrantId: () => string;
-}): Extract<EmailOtpEcdsaMintingSession, { kind: 'per_operation' }> {
-  const mintedSigningGrantId = toMintedSigningGrantId(
-    args.generateSigningGrantId(),
-  );
-  const authorizingSigningGrantId = authorizingSigningGrantIdFromRoutePlan(
-    args.routePlan,
-  );
-  assertPerOperationEmailOtpMintDoesNotReuseAuthorizingSession({
-    mintedSigningGrantId,
-    ...(authorizingSigningGrantId ? { authorizingSigningGrantId } : {}),
-  });
-  return {
-    kind: 'per_operation',
-    signingGrantId: mintedSigningGrantId,
-    ...(authorizingSigningGrantId ? { authorizingSigningGrantId } : {}),
-  };
-}
-
-export function buildEmailOtpEcdsaMintingSession(args: {
-  emailOtpAuthPolicy: EmailOtpAuthPolicy;
-  routePlan: EmailOtpRoutePlan;
-  generateSigningGrantId: () => string;
-}): EmailOtpEcdsaMintingSession {
-  if (args.emailOtpAuthPolicy === 'per_operation') {
-    return buildPerOperationEmailOtpEcdsaMintingSession({
-      routePlan: args.routePlan,
-      generateSigningGrantId: args.generateSigningGrantId,
-    });
-  }
-  const authorizingSigningGrantId = authorizingSigningGrantIdFromRoutePlan(
-    args.routePlan,
-  );
-  return {
-    kind: 'session',
-    signingGrantId: toMintedSigningGrantId(args.generateSigningGrantId()),
-    ...(authorizingSigningGrantId ? { authorizingSigningGrantId } : {}),
-  };
 }

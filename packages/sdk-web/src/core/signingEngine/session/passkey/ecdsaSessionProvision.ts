@@ -149,7 +149,6 @@ type ThresholdEcdsaEmailOtpActivationRequestBase = ThresholdEcdsaActivationReque
         kind: 'recovered_material_session';
         thresholdSessionId: EcdsaSessionIdentity['thresholdSessionId'];
         materialActivation: PersistedEcdsaRoleLocalMaterial['materialActivation'];
-        signingGrantId?: never;
       };
   sessionKind: 'jwt';
   emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;

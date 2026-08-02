@@ -42,13 +42,6 @@ void ({
   ecdsaThresholdKeyId: 'ederivation-stable',
 } satisfies ThresholdEcdsaDerivationStableKeyContext);
 
-const stableContextWithSigningGrantId: ThresholdEcdsaDerivationStableKeyContext = {
-  ...locallyConstructedStableContext,
-  // @ts-expect-error stable ECDSA DERIVATION key context rejects volatile wallet session ids.
-  signingGrantId: 'wsess-1',
-};
-void stableContextWithSigningGrantId;
-
 const stableContextWithThresholdSessionId: ThresholdEcdsaDerivationStableKeyContext = {
   ...locallyConstructedStableContext,
   // @ts-expect-error stable ECDSA DERIVATION key context rejects volatile threshold session ids.

@@ -172,7 +172,6 @@ export type WebAuthnChallenge =
       digest32B64u?: never;
       requestId?: never;
       thresholdSessionId?: never;
-      signingGrantId?: never;
     }
   | {
       kind: 'threshold_session_policy';
@@ -180,14 +179,12 @@ export type WebAuthnChallenge =
       challengeB64u?: never;
       requestId?: never;
       thresholdSessionId?: never;
-      signingGrantId?: never;
     }
   | {
       kind: 'ecdsa_role_local_bootstrap';
       digest32B64u: string;
       requestId: string;
       thresholdSessionId: string;
-      signingGrantId: string;
       challengeB64u?: never;
     };
 

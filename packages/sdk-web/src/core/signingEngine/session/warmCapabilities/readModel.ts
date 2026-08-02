@@ -328,8 +328,6 @@ export function resolveEcdsaSealTransport(args: {
     walletId: String(args.runtime.walletId),
     chainTarget: args.runtime.chainTarget,
     relayerUrl,
-    // No signingGrantId: a grant is a distinct identity and the authorization
-    // boundary carries none. The Wallet Session is identified by its own JWT.
     ...(walletSessionJwt ? { walletSessionJwt } : {}),
     ...(args.signingSessionSealKeyVersion
       ? { signingSessionSealKeyVersion: args.signingSessionSealKeyVersion }

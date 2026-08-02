@@ -6,7 +6,6 @@ export type Ed25519DurableMaterialLocator = {
   readonly authMethod: SigningSessionSealAuthMethod;
   readonly materialActivation: MpcMaterialActivationRef;
   readonly thresholdSessionId?: never;
-  readonly signingGrantId?: never;
 };
 
 export function ed25519DurableMaterialLocator(args: {

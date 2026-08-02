@@ -75,7 +75,6 @@ export const SEAMS_WALLET_INDEXES = {
   walletSigningRootAuthMethod: 'wallet_signing_root_auth_method',
   ed25519ThresholdSessionId: 'ed25519_threshold_session_id',
   ecdsaThresholdSessionId: 'ecdsa_threshold_session_id',
-  signingGrantId: 'signing_grant_id',
   thresholdSessionId: 'threshold_session_id',
   exactSigningLaneIdentityKey: 'exact_signing_lane_identity_key',
   budgetReservationKey: 'budget_reservation_key',
@@ -272,11 +271,6 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
       { name: SEAMS_WALLET_INDEXES.authMethod, keyPath: 'auth_method', unique: false },
       { name: SEAMS_WALLET_INDEXES.curve, keyPath: 'curve', unique: false },
       {
-        name: SEAMS_WALLET_INDEXES.signingGrantId,
-        keyPath: 'signing_grant_id',
-        unique: false,
-      },
-      {
         name: SEAMS_WALLET_INDEXES.ed25519ThresholdSessionId,
         keyPath: 'ed25519_threshold_session_id',
         unique: false,
@@ -306,11 +300,6 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
     store: SEAMS_WALLET_STORES.signingSessionRestoreLeases,
     keyPath: 'lease_key',
     indexes: [
-      {
-        name: SEAMS_WALLET_INDEXES.signingGrantId,
-        keyPath: 'signing_grant_id',
-        unique: false,
-      },
       {
         name: SEAMS_WALLET_INDEXES.thresholdSessionId,
         keyPath: 'threshold_session_id',

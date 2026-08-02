@@ -47,13 +47,6 @@ const invalidInactiveRestoreWithSessionKind: EcdsaInactiveMaterialPublicRestore 
 };
 void invalidInactiveRestoreWithSessionKind;
 
-const invalidInactiveMaterialWithGrant: EcdsaInactiveSealedMaterialRecord = {
-  ...inactiveEcdsaMaterial,
-  // @ts-expect-error inactive material contains no reusable signing grant.
-  signingGrantId: 'grant-retired',
-};
-void invalidInactiveMaterialWithGrant;
-
 const invalidInactiveMaterialWithThresholdSession: EcdsaInactiveSealedMaterialRecord = {
   ...inactiveEcdsaMaterial,
   // @ts-expect-error inactive material is keyed by exact activation, not session ids.
@@ -279,13 +272,6 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   subjectId: 'wallet-alice',
 };
 void invalidEcdsaWriteInput;
-
-const invalidGrantBearingEcdsaWriteInput = {
-  ...invalidEcdsaWriteInput,
-  // @ts-expect-error durable ECDSA writes do not accept Wallet Session grants.
-  signingGrantId: 'wsess-ecdsa',
-} satisfies BuildCurrentEcdsaSealedSessionRecordInput;
-void invalidGrantBearingEcdsaWriteInput;
 
 const invalidEcdsaWriteWithoutIssuedAtMs = {
   ...invalidEcdsaWriteInput,

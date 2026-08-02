@@ -899,14 +899,6 @@ export function createRouterApiRouteDefinitions(
       'Refresh current app session',
       ROUTER_API_SESSION_VERSION_SERVICES,
     ),
-    capabilityGrantRoute(
-      'session_signing_budget_status',
-      'POST',
-      '/router-ab/wallet-budget/status',
-      'Read signing grant budget status',
-      'ed25519',
-      ['session'],
-    ),
     publicRoute(
       'wallet_unlock_challenge',
       'POST',

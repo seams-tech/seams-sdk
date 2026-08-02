@@ -695,19 +695,16 @@ type LoginWarmupEd25519MintPlan =
   | {
       kind: 'not_requested';
       thresholdSessionId?: never;
-      signingGrantId?: never;
       authorization?: never;
     }
   | {
       kind: 'fresh';
       thresholdSessionId?: never;
-      signingGrantId?: never;
       authorization?: never;
     }
   | {
       kind: 'ecdsa_authorized';
       thresholdSessionId: string;
-      signingGrantId?: never;
       authorization?: never;
     }
   | {
@@ -715,7 +712,6 @@ type LoginWarmupEd25519MintPlan =
       stableServerScope: PasskeyEd25519YaoLocalMaterialLocatorV1['stableServerScope'];
       materialActivation: PasskeyEd25519YaoLocalMaterialLocatorV1['materialActivation'];
       thresholdSessionId?: never;
-      signingGrantId?: never;
       authorization?: never;
     };
 
@@ -3035,8 +3031,7 @@ async function primeThresholdLoginWarmSigners(args: {
     runtimePolicyScope: null,
     ecdsaDerivationPasskeyPrfFirstB64u: '',
   };
-  const ecdsaSigningGrantState: ThresholdLoginWarmEcdsaSigningGrantState = {
-    generatedSigningGrantId: '',
+  const ecdsaThresholdSessionState: ThresholdLoginWarmEcdsaThresholdSessionState = {
     generatedThresholdSessionId:
       args.passkeyExchangeEcdsaActivation?.request.session_policy.threshold_session_id || '',
   };
@@ -3345,7 +3340,7 @@ async function primeThresholdLoginWarmSigners(args: {
           const thresholdSessionId = matchingExchangeActivation
             ? matchingExchangeActivation.response.session.threshold_session_id
             : resolveThresholdLoginWarmEcdsaThresholdSessionId({
-                sharedState: ecdsaSigningGrantState,
+                sharedState: ecdsaThresholdSessionState,
               });
           const runtimePolicyScope = activeCanonicalEcdsaContext.runtimePolicyScope;
           if (!runtimePolicyScope) {
@@ -3941,29 +3936,18 @@ function createThresholdEd25519DeviceLinkRequiredError(): Error & {
   return error;
 }
 
-type ThresholdLoginWarmEcdsaSigningGrantState = {
-  generatedSigningGrantId: string;
+type ThresholdLoginWarmEcdsaThresholdSessionState = {
   generatedThresholdSessionId: string;
 };
 
 function resolveThresholdLoginWarmEcdsaThresholdSessionId(input: {
-  sharedState: ThresholdLoginWarmEcdsaSigningGrantState;
+  sharedState: ThresholdLoginWarmEcdsaThresholdSessionState;
 }): string {
   const current = String(input.sharedState.generatedThresholdSessionId || '').trim();
   if (current) return current;
   const generated = createThresholdLoginWarmSessionId('threshold-ecdsa-login');
   input.sharedState.generatedThresholdSessionId = generated;
   return generated;
-}
-
-function resolveThresholdLoginWarmEcdsaSigningGrantId(input: {
-  sharedState: ThresholdLoginWarmEcdsaSigningGrantState;
-}): string {
-  const generatedSigningGrantId = String(input.sharedState.generatedSigningGrantId || '').trim();
-  if (generatedSigningGrantId) return generatedSigningGrantId;
-  const nextSigningGrantId = createThresholdLoginWarmSessionId('wallet-ecdsa-login');
-  input.sharedState.generatedSigningGrantId = nextSigningGrantId;
-  return nextSigningGrantId;
 }
 
 async function resolveWalletEcdsaKeyFactsInventoryWithWebAuthn(args: {

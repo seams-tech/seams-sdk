@@ -83,18 +83,6 @@ test.describe('Email OTP auth lane route planning', () => {
     });
   });
 
-  test('rejects an ECDSA lane carrying the retired signing-grant alias', () => {
-    expect(
-      resolveEmailOtpAuthLane({
-        routeAuth: { kind: 'wallet_session', jwt: 'threshold-session-jwt' },
-        thresholdSessionId: 'threshold-session',
-        authorizingSigningGrantId: 'legacy-signing-grant',
-        curve: 'ecdsa',
-        chainTarget: TEMPO_CHAIN_TARGET,
-      }),
-    ).toBeUndefined();
-  });
-
   test('normalizes the canonical grant-free ECDSA worker route plan', () => {
     expect(
       normalizeEmailOtpRoutePlan({
@@ -125,7 +113,6 @@ test.describe('Email OTP auth lane route planning', () => {
     const signingLane = resolveEmailOtpAuthLane({
       routeAuth: { kind: 'wallet_session', jwt: 'threshold-session-jwt' },
       thresholdSessionId: 'threshold-session',
-      authorizingSigningGrantId: 'signing-grant',
       curve: 'ed25519',
     });
     const appLane = resolveEmailOtpAuthLane({ appSessionJwt: 'app-session-jwt' });

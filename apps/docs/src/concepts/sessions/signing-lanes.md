@@ -12,7 +12,7 @@ It answers:
 Who is signing?
 Which auth method or delegated lane owns the capability?
 Which curve and chain target are being used?
-Which signing grant budget is being spent?
+Which Wallet Session quota or operation capability grant authorizes it?
 Which threshold session and key material must be used?
 ```
 
@@ -35,7 +35,7 @@ identity:
 
 ```text
 sign-ready =
-  active signingGrantId
+  exact WalletSessionId + quotaId or one-operation CapabilityGrantId
   + exact thresholdSessionId
   + Router A/B scope
   + valid budget

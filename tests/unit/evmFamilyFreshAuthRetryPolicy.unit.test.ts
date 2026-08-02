@@ -5,8 +5,8 @@ import {
   type EvmFamilyFreshAuthRetryDecision,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/freshAuthRetryPolicy';
 import {
-  SIGNING_GRANT_EXHAUSTED_ERROR,
-  SIGNING_GRANT_IN_FLIGHT_ERROR,
+  WALLET_SESSION_QUOTA_EXHAUSTED_ERROR,
+  WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR,
 } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/authorizationAdmission';
 
 function classifyBudgetRetry(
@@ -40,7 +40,7 @@ function classifyBudgetRetry(
 test.describe('EVM-family fresh-auth retry policy', () => {
   test('treats server in-flight budget admission as a fresh-auth retry trigger', () => {
     expect(
-      classifyBudgetRetry(new Error(SIGNING_GRANT_IN_FLIGHT_ERROR), {
+      classifyBudgetRetry(new Error(WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR), {
         authMethod: 'passkey',
         admissionRetryState: 'initial_admission',
         hasStepUpAuthPlan: false,
@@ -57,7 +57,7 @@ test.describe('EVM-family fresh-auth retry policy', () => {
         failure: {
           kind: 'in_flight',
           source: 'local_projection',
-          detail: SIGNING_GRANT_IN_FLIGHT_ERROR,
+          detail: WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR,
           retryAfterMs: 150,
         },
       },
@@ -66,7 +66,7 @@ test.describe('EVM-family fresh-auth retry policy', () => {
 
   test('does not loop when authoritative readiness still reports admission in flight', () => {
     expect(
-      classifyBudgetRetry(new Error(SIGNING_GRANT_IN_FLIGHT_ERROR), {
+      classifyBudgetRetry(new Error(WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR), {
         authMethod: 'passkey',
         admissionRetryState: 'authoritative_readiness_reread',
         hasStepUpAuthPlan: false,
@@ -82,7 +82,7 @@ test.describe('EVM-family fresh-auth retry policy', () => {
 
   test('allows budget exhaustion retry after auth side effects when server admission loses the race', () => {
     expect(
-      classifyBudgetRetry(new Error(SIGNING_GRANT_EXHAUSTED_ERROR), {
+      classifyBudgetRetry(new Error(WALLET_SESSION_QUOTA_EXHAUSTED_ERROR), {
         authMethod: 'passkey',
         admissionRetryState: 'initial_admission',
         hasStepUpAuthPlan: true,
@@ -97,7 +97,7 @@ test.describe('EVM-family fresh-auth retry policy', () => {
   });
 
   test('uses a single-operation Email OTP step-up after authoritative exhaustion', () => {
-    const decision = classifyBudgetRetry(new Error(SIGNING_GRANT_EXHAUSTED_ERROR), {
+    const decision = classifyBudgetRetry(new Error(WALLET_SESSION_QUOTA_EXHAUSTED_ERROR), {
       authMethod: 'email_otp',
       admissionRetryState: 'initial_admission',
       hasStepUpAuthPlan: false,

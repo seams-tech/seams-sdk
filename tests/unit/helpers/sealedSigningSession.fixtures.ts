@@ -133,7 +133,6 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
     authorizationSessionId?: string;
     walletSessionId?: string;
     quotaId?: string;
-    signingGrantId?: string;
   } = {},
 ) {
   if (!('credentialIdB64u' in record.ed25519Restore)) {
@@ -149,7 +148,6 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
   const walletSessionId =
     args.walletSessionId ?? `wallet-session:${record.thresholdSessionIds.ed25519}`;
   const quotaId = args.quotaId ?? `quota:${record.thresholdSessionIds.ed25519}`;
-  const signingGrantId = args.signingGrantId ?? `grant:${record.thresholdSessionIds.ed25519}`;
   return buildActiveWalletSessionAuthorizationProjection({
     walletId: authority.walletId,
     authorizationSessionId: requireFixtureDomainId(
@@ -168,7 +166,6 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
       walletSessionId,
       quotaId,
       thresholdSessionId: record.thresholdSessionIds.ed25519,
-      signingGrantId,
     }),
     authMethod: 'passkey',
     authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),
@@ -268,7 +265,6 @@ export function buildEmailOtpEd25519AuthorizationProjectionFixture(
       walletSessionId: `wallet-session:${record.thresholdSessionIds.ed25519}`,
       quotaId: `quota:${record.thresholdSessionIds.ed25519}`,
       thresholdSessionId: record.thresholdSessionIds.ed25519,
-      signingGrantId: `grant:${record.thresholdSessionIds.ed25519}`,
     }),
     authMethod: 'email_otp',
     authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),
@@ -287,7 +283,6 @@ export type EmailOtpEcdsaSealedRestorePayload = NonNullable<
 
 type EmailOtpEcdsaSealedFixtureParts = {
   walletId: string;
-  signingGrantId: string;
   thresholdSessionId: string;
   relayerUrl: string;
   restore: EmailOtpEcdsaSealedRestorePayload;
@@ -298,7 +293,6 @@ function fixtureSealedEcdsaWalletSessionJwt(args: {
   walletId: string;
   keyHandle: string;
   thresholdSessionId: string;
-  signingGrantId: string;
 }): string {
   const encode = (value: unknown): string =>
     Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -310,7 +304,6 @@ function fixtureSealedEcdsaWalletSessionJwt(args: {
       walletId: args.walletId,
       keyHandle: args.keyHandle,
       thresholdSessionId: args.thresholdSessionId,
-      signingGrantId: args.signingGrantId,
       thresholdExpiresAtMs: Date.now() + 120_000,
     }),
     'fixture',
@@ -328,7 +321,6 @@ function emailOtpEcdsaSealedFixtureParts(
     providerUserId: providerSubjectId,
     emailHashHex: 'email-hash',
   });
-  const signingGrantId = 'wallet-session-1';
   const signingRootId = 'root:dev';
   const signingRootVersion = 'v1';
   const bootstrap = createThresholdEcdsaBootstrapFixture({
@@ -341,12 +333,10 @@ function emailOtpEcdsaSealedFixtureParts(
     keyHandle: 'key-handle',
     relayerKeyId: 'relayer-key',
     sessionId: 'ec-session',
-    signingGrantId,
     walletSessionJwt: fixtureSealedEcdsaWalletSessionJwt({
       walletId,
       keyHandle: 'key-handle',
       thresholdSessionId: 'ec-session',
-      signingGrantId,
     }),
   });
   const keyRef = bootstrap.thresholdEcdsaKeyRef;
@@ -363,7 +353,6 @@ function emailOtpEcdsaSealedFixtureParts(
   }
   return {
     walletId,
-    signingGrantId,
     thresholdSessionId: bootstrap.session.thresholdSessionId,
     relayerUrl: keyRef.relayerUrl,
     restore: {

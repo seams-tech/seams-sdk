@@ -16,10 +16,6 @@ import {
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
-import type {
-  RouterAbWalletBudgetGrantProvisionInputV1,
-  RouterAbWalletBudgetGrantProvisionerV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import {
   mintRouterAbEd25519YaoWalletSessionV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
@@ -331,7 +327,6 @@ function syncAccountVerifyRequestWithObsoleteSessionPolicy(): Request {
 
 function createBaseService(
   database: Parameters<typeof createCloudflareD1RouterApiAuthService>[0]['database'],
-  walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null = null,
 ) {
   return createCloudflareD1RouterApiAuthService({
     database,
@@ -342,25 +337,8 @@ function createBaseService(
     relayerAccount: 'relay.testnet',
     relayerPublicKey: 'ed25519:relay-public-key',
     accountIdDerivationSecret: 'sync-account-test-derivation-secret',
-    walletBudgetGrantProvisioner,
     ecdsaStrictRegistration: new FixtureRouterAbEcdsaStrictRegistrationPort(),
   });
-}
-
-class RecordingWalletBudgetGrantProvisioner implements RouterAbWalletBudgetGrantProvisionerV1 {
-  readonly calls: RouterAbWalletBudgetGrantProvisionInputV1[] = [];
-
-  async provisionGrant(input: RouterAbWalletBudgetGrantProvisionInputV1) {
-    this.calls.push(input);
-    return {
-      ok: true as const,
-      signingGrantId: input.signingGrantId,
-      remainingUses: input.initialSignatureUses,
-      reservedUses: 0,
-      availableUses: input.initialSignatureUses,
-      expiresAtMs: input.expiresAtMs,
-    };
-  }
 }
 
 async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
@@ -370,8 +348,7 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
       temporary.database,
       listD1MigrationFiles('d1-signer'),
     );
-    const walletBudgetGrantProvisioner = new RecordingWalletBudgetGrantProvisioner();
-    const baseService = createBaseService(temporary.database, walletBudgetGrantProvisioner);
+    const baseService = createBaseService(temporary.database);
     const webAuthn = new RecordingSyncAccountWebAuthnService(
       baseService.webAuthn,
       verifiedEd25519WalletFixture(),
@@ -455,24 +432,6 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
         capability: activeCapabilityFixture(),
       },
     });
-    const responseSession = responseBody.thresholdEd25519.session;
-    expect(walletBudgetGrantProvisioner.calls).toEqual([
-      {
-        walletId: WALLET_ID,
-        signingGrantId: responseSession.signingGrantId,
-        relyingPartyId: RP_ID,
-        authorizedSigners: [
-          {
-            curve: 'ed25519',
-            threshold_session_id: responseSession.thresholdSessionId,
-            signing_worker_id: SIGNING_WORKER_ID,
-          },
-        ],
-        initialSignatureUses: responseSession.remainingUses,
-        expiresAtMs: responseSession.expiresAtMs,
-        issuerIdempotencyKey: `sync-account:${responseSession.signingGrantId}`,
-      },
-    ]);
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }

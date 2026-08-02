@@ -118,7 +118,6 @@ export type PasskeyEd25519YaoLocalMaterialLocatorV1 = {
   sealedMaterial: ReturnType<typeof buildRestorableMpcMaterialRefInternal>;
   stableServerScope: PasskeyEd25519YaoStableServerScopeV1;
   thresholdSessionId?: never;
-  signingGrantId?: never;
 };
 
 export type ReadPasskeyEd25519YaoLocalMaterialLocatorInputV1 = {

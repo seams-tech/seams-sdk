@@ -142,7 +142,6 @@ export type StepUpFreshnessAuthority =
   | {
       kind: 'ecdsa_material_activation';
       materialActivation: MpcMaterialActivationRef;
-      signingGrantId?: never;
       thresholdSessionIds?: never;
     };
 

@@ -1,36 +1,36 @@
 import { expect, test } from '@playwright/test';
 import {
-  buildSigningGrantAdmissionQueueKey,
-  classifySigningGrantAdmissionFailure,
-  decideSigningGrantAdmissionError,
-  SigningGrantAdmissionError,
+  buildWalletSessionQuotaAdmissionQueueKey,
+  classifyWalletSessionQuotaAdmissionFailure,
+  decideWalletSessionQuotaAdmissionError,
+  WalletSessionQuotaAdmissionError,
 } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/authorizationAdmission';
 import { routerAbNormalSigningAdmissionErrorFromPayload } from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
 import { signingLaneAuthBindingKey } from '../../packages/sdk-web/src/core/signingEngine/session/identity/signingLaneAuthBinding';
 import {
-  SIGNING_GRANT_EXHAUSTED_ERROR,
-  SIGNING_GRANT_IN_FLIGHT_ERROR,
+  WALLET_SESSION_QUOTA_EXHAUSTED_ERROR,
+  WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR,
 } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/authorizationAdmission';
 import { SigningSessionCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
 
-test.describe('signing grant admission boundary', () => {
+test.describe('wallet-session quota admission boundary', () => {
   test('parses Router A/B exhausted payloads into typed admission errors', () => {
     const error = routerAbNormalSigningAdmissionErrorFromPayload({
       code: 'wallet_budget_exhausted',
-      message: 'signing grant exhausted',
+      message: 'wallet-session quota exhausted',
       path: '/router-ab/ecdsa-derivation/sign/prepare',
       status: 409,
     });
 
-    expect(error).toBeInstanceOf(SigningGrantAdmissionError);
+    expect(error).toBeInstanceOf(WalletSessionQuotaAdmissionError);
     expect(error?.failure).toEqual({
       kind: 'exhausted',
       source: 'server_prepare',
       detail:
-        'Router A/B signing /router-ab/ecdsa-derivation/sign/prepare returned HTTP 409: signing grant exhausted',
+        'Router A/B signing /router-ab/ecdsa-derivation/sign/prepare returned HTTP 409: wallet-session quota exhausted',
     });
-    expect(error?.message).toContain(SIGNING_GRANT_EXHAUSTED_ERROR);
-    expect(decideSigningGrantAdmissionError(error)).toEqual({
+    expect(error?.message).toContain(WALLET_SESSION_QUOTA_EXHAUSTED_ERROR);
+    expect(decideWalletSessionQuotaAdmissionError(error)).toEqual({
       kind: 'request_fresh_step_up',
       reason: 'exhausted',
       failure: error?.failure,
@@ -40,14 +40,14 @@ test.describe('signing grant admission boundary', () => {
   test('parses Router A/B in-flight payloads into wait-and-retry decisions', () => {
     const error = routerAbNormalSigningAdmissionErrorFromPayload({
       code: 'wallet_budget_reserved',
-      message: 'signing grant reserved',
+      message: 'wallet-session quota reserved',
       path: '/router-ab/ed25519/sign/prepare',
       status: 409,
     });
 
-    expect(error).toBeInstanceOf(SigningGrantAdmissionError);
-    expect(error?.message).toContain(SIGNING_GRANT_IN_FLIGHT_ERROR);
-    expect(decideSigningGrantAdmissionError(error)).toEqual({
+    expect(error).toBeInstanceOf(WalletSessionQuotaAdmissionError);
+    expect(error?.message).toContain(WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR);
+    expect(decideWalletSessionQuotaAdmissionError(error)).toEqual({
       kind: 'wait_and_retry_admission',
       retryAfterMs: 150,
       failure: error?.failure,
@@ -56,20 +56,21 @@ test.describe('signing grant admission boundary', () => {
 
   test('classifies existing local admission errors at the shared boundary', () => {
     expect(
-      classifySigningGrantAdmissionFailure(new Error(SIGNING_GRANT_EXHAUSTED_ERROR)),
+      classifyWalletSessionQuotaAdmissionFailure(new Error(WALLET_SESSION_QUOTA_EXHAUSTED_ERROR)),
     ).toEqual({
       kind: 'exhausted',
       source: 'local_projection',
-      detail: SIGNING_GRANT_EXHAUSTED_ERROR,
+      detail: WALLET_SESSION_QUOTA_EXHAUSTED_ERROR,
     });
   });
 
   test('builds queue keys from required admission identity fields', () => {
     expect(
-      buildSigningGrantAdmissionQueueKey({
+      buildWalletSessionQuotaAdmissionQueueKey({
         walletId: 'wallet-1',
         curve: 'ecdsa',
-        signingGrantId: 'grant-1',
+        walletSessionId: 'wallet-session-1',
+        quotaId: 'quota-1',
         projectionVersion: 'projection-1',
         authorityKey: signingLaneAuthBindingKey({
           kind: 'passkey',
@@ -79,16 +80,17 @@ test.describe('signing grant admission boundary', () => {
         targetKey: 'tempo:42431',
       }),
     ).toBe(
-      'signing-grant-admission:wallet-1:ecdsa:grant-1:projection-1:passkey:localhost:credential-1:tempo:42431',
+      'wallet-session-quota-admission:wallet-1:ecdsa:wallet-session-1:quota-1:projection-1:passkey:localhost:credential-1:tempo:42431',
     );
   });
 
   test('queues concurrent fresh-admission retries behind the active refresh', async () => {
     const coordinator = new SigningSessionCoordinator({});
-    const queueKey = buildSigningGrantAdmissionQueueKey({
+    const queueKey = buildWalletSessionQuotaAdmissionQueueKey({
       walletId: 'wallet-1',
       curve: 'ecdsa',
-      signingGrantId: 'grant-1',
+      walletSessionId: 'wallet-session-1',
+      quotaId: 'quota-1',
       projectionVersion: 'projection-1',
       authorityKey: 'passkey',
       targetKey: 'evm:eip155:5042002',
@@ -96,7 +98,7 @@ test.describe('signing grant admission boundary', () => {
     const events: string[] = [];
     let releaseRefresh: (() => void) | null = null;
     const refreshStarted = new Promise<void>((resolve) => {
-      const first = coordinator.runSigningGrantAdmissionRetry({
+      const first = coordinator.runWalletSessionQuotaAdmissionRetry({
         queueKey,
         refresh: async () => {
           events.push('refresh-started');
@@ -118,7 +120,7 @@ test.describe('signing grant admission boundary', () => {
     });
     await refreshStarted;
 
-    const follower = coordinator.runSigningGrantAdmissionRetry({
+    const follower = coordinator.runWalletSessionQuotaAdmissionRetry({
       queueKey,
       refresh: async () => {
         events.push('follower-refresh-unexpected');

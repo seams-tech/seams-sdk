@@ -88,9 +88,9 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import {
-  buildSigningGrantAdmissionQueueKey,
-  decideSigningGrantAdmissionError,
-  waitForSigningGrantAdmissionRetry,
+  buildWalletSessionQuotaAdmissionQueueKey,
+  decideWalletSessionQuotaAdmissionError,
+  waitForWalletSessionQuotaAdmissionRetry,
 } from '../../session/operationState/authorizationAdmission';
 import { signingLaneAuthBindingKey } from '../../session/identity/signingLaneAuthBinding';
 import type { WalletSessionStatusIdentity } from '../../session/lifecycle/walletSessionStatus';
@@ -647,33 +647,35 @@ function buildPreparedNearTransactionExecutionState(args: {
   };
 }
 
-function nearEd25519SigningGrantAdmissionQueueKey(args: {
+function nearEd25519WalletSessionQuotaAdmissionQueueKey(args: {
   walletId: WalletId | string;
   nearAccountId: AccountId | string;
   prepared: PreparedNearEd25519TransactionSigningSession;
-}): ReturnType<typeof buildSigningGrantAdmissionQueueKey> {
-  return buildSigningGrantAdmissionQueueKey({
+}): ReturnType<typeof buildWalletSessionQuotaAdmissionQueueKey> {
+  return buildWalletSessionQuotaAdmissionQueueKey({
     walletId: String(args.walletId),
     curve: 'ed25519',
-    signingGrantId: String(args.prepared.signingLane.quotaId),
+    walletSessionId: String(args.prepared.signingLane.walletSessionId),
+    quotaId: String(args.prepared.signingLane.quotaId),
     projectionVersion: 'server-owned',
     authorityKey: signingLaneAuthBindingKey(args.prepared.signingLane.auth),
     targetKey: `near:${String(args.nearAccountId)}`,
   });
 }
 
-function nearAdHocEd25519SigningGrantAdmissionQueueKey(args: {
+function nearAdHocEd25519WalletSessionQuotaAdmissionQueueKey(args: {
   walletId: WalletId | string;
   nearAccountId: AccountId | string;
   prepared: PreparedNearAdHocSigningSession;
-}): ReturnType<typeof buildSigningGrantAdmissionQueueKey> {
+}): ReturnType<typeof buildWalletSessionQuotaAdmissionQueueKey> {
   if (args.prepared.kind !== 'authorized') {
-    throw new Error('[SigningEngine][near] deferred Ed25519 material has no reusable grant');
+    throw new Error('[SigningEngine][near] deferred Ed25519 material has no reusable session');
   }
-  return buildSigningGrantAdmissionQueueKey({
+  return buildWalletSessionQuotaAdmissionQueueKey({
     walletId: String(args.walletId),
     curve: 'ed25519',
-    signingGrantId: String(args.prepared.selectedLane.quotaId),
+    walletSessionId: String(args.prepared.selectedLane.walletSessionId),
+    quotaId: String(args.prepared.selectedLane.quotaId),
     projectionVersion: 'projection-unadmitted',
     authorityKey: signingLaneAuthBindingKey(args.prepared.selectedLane.auth),
     targetKey: `near:${String(args.nearAccountId)}`,
@@ -1478,7 +1480,7 @@ export async function signTransactionWithActions(
     const alreadyAttemptedFreshAuth =
       signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth ||
       signingAuthPlan.kind === SigningAuthPlanKind.EmailOtpReauth;
-    const admissionDecision = decideSigningGrantAdmissionError(error);
+    const admissionDecision = decideWalletSessionQuotaAdmissionError(error);
     const walletSessionFailure = walletSessionFailureFromError(error);
     const walletSessionRequiresStepUp =
       walletSessionFailure?.kind === 'expired' || walletSessionFailure?.kind === 'missing';
@@ -1490,7 +1492,7 @@ export async function signTransactionWithActions(
     ) {
       const nextOperationId = operationId || createNearTransactionSigningOperationId();
       if (admissionDecision?.kind === 'wait_and_retry_admission') {
-        await waitForSigningGrantAdmissionRetry(admissionDecision.retryAfterMs);
+        await waitForWalletSessionQuotaAdmissionRetry(admissionDecision.retryAfterMs);
         return await signTransactionWithActions(deps, args, {
           forceFreshAuth: false,
           operationId: nextOperationId,
@@ -1527,12 +1529,12 @@ export async function signTransactionWithActions(
         },
       });
       if (admissionDecision?.kind === 'request_fresh_step_up') {
-        const queueKey = nearEd25519SigningGrantAdmissionQueueKey({
+        const queueKey = nearEd25519WalletSessionQuotaAdmissionQueueKey({
           walletId: args.commandSubject.walletSession.walletId,
           nearAccountId,
           prepared: preparedSigningSession,
         });
-        return await signingSessionCoordinator.runSigningGrantAdmissionRetry({
+        return await signingSessionCoordinator.runWalletSessionQuotaAdmissionRetry({
           queueKey,
           refresh: async () =>
             await signTransactionWithActions(deps, args, {
@@ -1636,18 +1638,18 @@ async function executeNearDelegateSigningAttempt(
       }),
     });
   } catch (error: unknown) {
-    const admissionDecision = decideSigningGrantAdmissionError(error);
+    const admissionDecision = decideWalletSessionQuotaAdmissionError(error);
     if (args.attempt.kind === 'initial' && admissionDecision) {
       if (admissionDecision.kind === 'wait_and_retry_admission') {
-        await waitForSigningGrantAdmissionRetry(admissionDecision.retryAfterMs);
+        await waitForWalletSessionQuotaAdmissionRetry(admissionDecision.retryAfterMs);
         return await executeNearDelegateSigningAttempt(args);
       }
-      const queueKey = nearAdHocEd25519SigningGrantAdmissionQueueKey({
+      const queueKey = nearAdHocEd25519WalletSessionQuotaAdmissionQueueKey({
         walletId: args.input.commandSubject.walletSession.walletId,
         nearAccountId,
         prepared,
       });
-      return await args.deps.signingSessionCoordinator.runSigningGrantAdmissionRetry({
+      return await args.deps.signingSessionCoordinator.runWalletSessionQuotaAdmissionRetry({
         queueKey,
         refresh: async () =>
           await executeNearDelegateSigningAttempt({
