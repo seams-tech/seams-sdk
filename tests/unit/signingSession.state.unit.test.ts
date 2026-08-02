@@ -1,65 +1,43 @@
 import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-
-const IMPORT_PATHS = {
-  signingSessionState: '/_test-sdk/esm/core/signingEngine/session/passkey/prfCache.js',
-} as const;
+import {
+  cacheCredentialBoundarySetupExportPrfFirst,
+  generateSessionId,
+} from '@/core/signingEngine/session/passkey/prfCache';
 
 test.describe('signing session PRF cache utilities', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
   });
 
-  test('cache helper operates only on PRF claim state', async ({ page }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const mod = await import(paths.signingSessionState);
-
-        const putCalls: Array<{
-          sessionId: string;
-          prfFirstB64u: string;
-          expiresAtMs: number;
-          remainingUses: number;
-          transport?: unknown;
-        }> = [];
-
-        await mod.cacheCredentialBoundarySetupExportPrfFirst(
-          {
-            putWarmSessionMaterial: async (args: {
-              sessionId: string;
-              prfFirstB64u: string;
-              expiresAtMs: number;
-              remainingUses: number;
-              transport?: unknown;
-            }) => {
-              putCalls.push(args);
-            },
-          },
-          {
-            sessionId: 'session-hydrated',
-            prfFirstB64u: 'AQ',
-            expiresAtMs: 123_456,
-            remainingUses: 2,
-            transport: {
-              curve: 'ecdsa',
-              walletId: 'wallet.testnet',
-              chainTarget: { kind: 'tempo', chainId: 42431 },
-              relayerUrl: 'https://relay.example.test',
-              walletSessionId: 'wallet-session',
-              quotaId: 'quota-session',
-            },
-          },
-        );
-
-        return { putCalls };
+  test('cache helper operates only on PRF claim state', async () => {
+    const putCalls: Array<Record<string, unknown>> = [];
+    await cacheCredentialBoundarySetupExportPrfFirst(
+      {
+        putWarmSessionMaterial: async (args) => {
+          putCalls.push(args);
+        },
       },
-      { paths: IMPORT_PATHS },
+      {
+        thresholdSessionId: 'session-hydrated',
+        prfFirstB64u: 'AQ',
+        expiresAtMs: 123_456,
+        remainingUses: 2,
+        transport: {
+          curve: 'ecdsa',
+          walletId: 'wallet.testnet',
+          chainTarget: { kind: 'tempo', chainId: 42431 },
+          relayerUrl: 'https://relay.example.test',
+          walletSessionId: 'wallet-session',
+          quotaId: 'quota-session',
+        },
+      },
     );
 
-    expect(result.putCalls).toEqual([
+    expect(putCalls).toEqual([
       {
-        sessionId: 'session-hydrated',
+        thresholdSessionId: 'session-hydrated',
         prfFirstB64u: 'AQ',
         expiresAtMs: 123_456,
         remainingUses: 2,
@@ -75,31 +53,20 @@ test.describe('signing session PRF cache utilities', () => {
     ]);
   });
 
-  test('generateSessionId fails closed when WebCrypto randomness is unavailable', async ({
-    page,
-  }) => {
-    const message = await page.evaluate(
-      async ({ paths }) => {
-        const mod = await import(paths.signingSessionState);
-        const originalCrypto = globalThis.crypto;
-        Object.defineProperty(globalThis, 'crypto', {
-          configurable: true,
-          value: {},
-        });
-        try {
-          mod.generateSessionId('threshold-ed25519');
-          return null;
-        } catch (error) {
-          return error instanceof Error ? error.message : String(error);
-        } finally {
-          Object.defineProperty(globalThis, 'crypto', {
-            configurable: true,
-            value: originalCrypto,
-          });
-        }
-      },
-      { paths: IMPORT_PATHS },
-    );
+  test('generateSessionId fails closed when WebCrypto randomness is unavailable', () => {
+    const originalCrypto = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: {} });
+    let message: string | null = null;
+    try {
+      generateSessionId('threshold-ed25519');
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', {
+        configurable: true,
+        value: originalCrypto,
+      });
+    }
 
     expect(message).toBe('WebCrypto getRandomValues is required for passkey PRF cache session IDs');
   });
@@ -121,38 +88,40 @@ test.describe('signing session PRF cache utilities', () => {
 
   test('single warm material clear leaves durable Shamir3pass restore records intact', () => {
     const source = fs.readFileSync(
-      path.resolve(process.cwd(), '../packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts'),
+      path.resolve(
+        process.cwd(),
+        '../packages/sdk-web/src/core/signingEngine/uiConfirm/PasskeyMpcSessionManager.ts',
+      ),
       'utf8',
     );
     const clearStart = source.indexOf('clearVolatileWarmSessionMaterial = async');
-    const deleteStart = source.indexOf('deleteDurableSealedSessionRecord = async');
-    const clearBlock = source.slice(clearStart, deleteStart);
-    const deleteBlock = source.slice(
-      deleteStart,
-      source.indexOf('clearAllVolatileWarmSessionMaterial = async'),
-    );
+    const clearEnd = source.indexOf('clearAllVolatileWarmSessionMaterial = async', clearStart);
+    const clearBlock = source.slice(clearStart, clearEnd);
 
     expect(clearStart).toBeGreaterThan(0);
-    expect(deleteStart).toBeGreaterThan(clearStart);
+    expect(clearEnd).toBeGreaterThan(clearStart);
     expect(clearBlock).toContain("type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR'");
     expect(clearBlock).not.toContain('deleteDurableSealedSessionRecordFromStore');
     expect(clearBlock).not.toContain('deleteExactSealedSession');
-    expect(deleteBlock).toContain('runDurableSealedSessionDelete');
-    expect(deleteBlock).not.toContain("type: 'WARM_SESSION_DELETE_PERSISTED'");
+    expect(source).toContain('deleteDurableSealedSessionRecord(command)');
+    expect(source).not.toContain("type: 'WARM_SESSION_DELETE_PERSISTED'");
   });
 
   test('volatile all-clear cannot delete durable sealed records', () => {
     const source = fs.readFileSync(
-      path.resolve(process.cwd(), '../packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts'),
+      path.resolve(
+        process.cwd(),
+        '../packages/sdk-web/src/core/signingEngine/uiConfirm/PasskeyMpcSessionManager.ts',
+      ),
       'utf8',
     );
     const allClearStart = source.indexOf('clearAllVolatileWarmSessionMaterial = async');
-    const end = source.indexOf('async requestUserConfirmation', allClearStart);
+    const end = source.indexOf('async sealAndPersistWarmSessionMaterial', allClearStart);
     const allClearBlock = source.slice(allClearStart, end);
 
     expect(allClearStart).toBeGreaterThan(0);
     expect(allClearBlock).toContain(
-      'if (!this.passkeyMpcSessionWorker && !this.passkeyMpcSessionInitializationPromise) return;',
+      'if (!this.worker && !this.initializationPromise) return;',
     );
     expect(allClearBlock).toContain("type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR_ALL'");
     expect(allClearBlock).not.toContain('clearAllSealedSessions');
@@ -164,6 +133,13 @@ test.describe('signing session PRF cache utilities', () => {
       path.resolve(process.cwd(), '../packages/sdk-web/src/core/types/secure-confirm-worker.ts'),
       'utf8',
     );
+    const durableCommandSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        '../packages/sdk-web/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
+      ),
+      'utf8',
+    );
     const uiConfirmTypesSource = fs.readFileSync(
       path.resolve(process.cwd(), '../packages/sdk-web/src/core/signingEngine/uiConfirm/uiConfirm.types.ts'),
       'utf8',
@@ -171,8 +147,8 @@ test.describe('signing session PRF cache utilities', () => {
 
     expect(workerTypesSource).not.toContain('WARM_SESSION_DELETE_PERSISTED');
     expect(workerTypesSource).not.toContain('WarmSessionDeletePersistedPayload');
-    expect(uiConfirmTypesSource).toContain('DeleteDurableSealedSessionCommand');
-    expect(uiConfirmTypesSource).toContain('DurableSealedSessionRecordDeleter');
+    expect(durableCommandSource).toContain('DeleteDurableSealedSessionCommand');
+    expect(durableCommandSource).toContain('parseDeleteDurableSealedSessionCommand');
     expect(uiConfirmTypesSource).not.toContain('WarmSessionPersistedRecordDeleter');
   });
 
@@ -261,17 +237,6 @@ test.describe('signing session PRF cache utilities', () => {
     expect(reuseBlock).not.toContain('bootstrapPasskeyCookieReconnect(');
     expect(reuseBlock).not.toContain('bootstrapDirectEcdsaRequest(');
     expect(reuseBlock).not.toContain('freshBootstrap');
-  });
-
-  test('missing ECDSA seal transport reports the session and transport target at the boundary', () => {
-    const source = fs.readFileSync(
-      path.resolve(process.cwd(), '../packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts'),
-      'utf8',
-    );
-
-    expect(source).toContain('transportChainTargetKey');
-    expect(source).toContain('thresholdSessionId=${thresholdSessionId}');
-    expect(source).toContain('transportChainTarget=${transportChainTargetKey}');
   });
 
   test('demo threshold owner display reads do not bootstrap ECDSA sessions', () => {

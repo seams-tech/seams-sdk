@@ -136,7 +136,7 @@ function ed25519Lane(
     remainingUses: 3,
     expiresAtMs: 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,
-    source: 'runtime_session_record',
+    source: 'durable_sealed_record',
     authorization: ED25519_AUTHORIZATION,
     ...overrides,
   };
