@@ -108,6 +108,8 @@ type AuthorizedOperationGrant = AuthorizedOperationIdentity &
       { readonly kind: 'authorization_grant' }
     >;
     readonly authorizationGrantRevocationEpoch: number;
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: MpcWalletSigningQuotaId;
     readonly quota: AuthorizedOperationQuota;
   };
 
@@ -133,6 +135,8 @@ export type AuthorizedOperationInput =
         { readonly kind: 'authorization_grant' }
       >;
       readonly authorizationGrantRevocationEpoch: number;
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
       readonly quota: AuthorizedOperationQuota;
     })
   | (AuthorizedOperationInputBase & {
@@ -208,6 +212,8 @@ function buildGrantAuthorizedOperation(input: {
     claimedAtMs: input.input.claimedAtMs,
     authorization: input.input.authorization,
     authorizationGrantRevocationEpoch: input.input.authorizationGrantRevocationEpoch,
+    walletSessionId: input.input.walletSessionId,
+    quotaId: input.input.quotaId,
     quota: input.input.quota,
     lifecycle: 'claimed',
   };

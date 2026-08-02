@@ -89,6 +89,8 @@ const reusableInput: AuthorizedOperationInput = {
   claimedAtMs: 1,
   authorization: reusableSource,
   authorizationGrantRevocationEpoch: 1,
+  walletSessionId,
+  quotaId,
   quota: { kind: 'consume_reusable_wallet_session', quotaId },
 };
 void reusableInput;
