@@ -8,7 +8,6 @@ import {
   parseRouterAbEcdsaDerivationPoolFillSessionRecord,
   parseEcdsaWalletSessionRecord,
   parseEd25519WalletSessionRecord,
-  parseWalletSigningBudgetSessionRecord,
   parseThresholdEcdsaMpcSessionRecord,
   parseThresholdEd25519CoordinatorSigningSessionRecord,
   parseThresholdEd25519KeyRecord,
@@ -27,17 +26,6 @@ import {
 import type {
   WalletSessionReplayGuardResult,
   WalletSessionConsumeUsesResult,
-  WalletSessionBudgetCommitReservedUseCountInput,
-  WalletSessionBudgetReleaseReservedUseCountForIdentityInput,
-  WalletSessionBudgetValidateReservedUseCountInput,
-  WalletSessionBudgetReleaseReservedUseCountInput,
-  WalletSessionBudgetReleaseResult,
-  WalletSessionBudgetReservationResult,
-  WalletSessionBudgetReserveUseCountInput,
-  WalletSigningBudgetReservation,
-  WalletSigningBudgetSessionRecord,
-  WalletSigningBudgetSessionStore,
-  EcdsaNormalSigningSessionProvisioner,
   EcdsaWalletSessionRecord,
   EcdsaWalletSessionStore,
   Ed25519WalletSessionRecord,
@@ -47,7 +35,6 @@ import type {
   WalletSessionStore,
   WalletSessionStatusLookupResult,
 } from './WalletSessionStore';
-import { walletSigningBudgetSessionId } from '../walletSigningBudget';
 import type { ThresholdEd25519ReadyKeyRecord, ThresholdEd25519KeyStore } from './KeyStore';
 import type {
   ThresholdEd25519CoordinatorSigningSessionRecord,
@@ -115,48 +102,14 @@ type DoAuthHasConsumedUseCountOnceRequest = {
   key: string;
   idempotencyKey: string;
 };
-type DoAuthGetBudgetStatusRequest = {
-  op: 'authGetBudgetStatus';
+type DoAuthGetSessionStatusRequest = {
+  op: 'authGetSessionStatus';
   key: string;
-};
-type DoAuthReserveBudgetUseCountRequest = {
-  op: 'authReserveBudgetUseCount';
-  key: string;
-  input: WalletSessionBudgetReserveUseCountInput;
-};
-type DoAuthCommitReservedBudgetUseCountRequest = {
-  op: 'authCommitReservedBudgetUseCount';
-  key: string;
-  input: WalletSessionBudgetCommitReservedUseCountInput;
-};
-type DoAuthValidateReservedBudgetUseCountRequest = {
-  op: 'authValidateReservedBudgetUseCount';
-  key: string;
-  input: WalletSessionBudgetValidateReservedUseCountInput;
-};
-type DoAuthReleaseReservedBudgetUseCountRequest = {
-  op: 'authReleaseReservedBudgetUseCount';
-  key: string;
-  input: WalletSessionBudgetReleaseReservedUseCountInput;
-};
-type DoAuthReleaseReservedBudgetUseCountForIdentityRequest = {
-  op: 'authReleaseReservedBudgetUseCountForIdentity';
-  key: string;
-  input: WalletSessionBudgetReleaseReservedUseCountForIdentityInput;
 };
 type DoAuthReserveReplayGuardRequest = {
   op: 'authReserveReplayGuard';
   key: string;
   expiresAtMs: number;
-};
-type DoEcdsaNormalSigningSessionProvisionRequest = {
-  op: 'ecdsaNormalSigningSessionProvision';
-  sessionKey: string;
-  budgetKey: string;
-  thresholdSessionId: string;
-  signingGrantId: string;
-  session: EcdsaWalletSessionRecord;
-  remainingUses: number;
 };
 type DoRouterAbEcdsaDerivationPoolFillSessionCreateRequest = {
   op: 'routerAbEcdsaDerivationPoolFillSessionCreate';
@@ -195,14 +148,8 @@ type DoRequest =
   | DoAuthConsumeUseCountRequest
   | DoAuthConsumeUseCountOnceRequest
   | DoAuthHasConsumedUseCountOnceRequest
-  | DoAuthGetBudgetStatusRequest
-  | DoAuthReserveBudgetUseCountRequest
-  | DoAuthCommitReservedBudgetUseCountRequest
-  | DoAuthValidateReservedBudgetUseCountRequest
-  | DoAuthReleaseReservedBudgetUseCountRequest
-  | DoAuthReleaseReservedBudgetUseCountForIdentityRequest
+  | DoAuthGetSessionStatusRequest
   | DoAuthReserveReplayGuardRequest
-  | DoEcdsaNormalSigningSessionProvisionRequest
   | DoRouterAbEcdsaDerivationPoolFillSessionCreateRequest
   | DoRouterAbEcdsaDerivationPoolFillSessionAdvanceCasRequest
   | DoRouterAbEcdsaDerivationPoolFillLiveSessionCreateRequest
@@ -213,8 +160,6 @@ type DoAuthEntry<TRecord extends WalletSessionRecord> = {
   record: TRecord;
   remainingUses: number;
   expiresAtMs: number;
-  reservedUses?: number;
-  availableUses?: number;
 };
 
 function isDurableObjectNamespaceLike(v: unknown): v is CloudflareDurableObjectNamespaceLike {
@@ -398,7 +343,7 @@ export class CloudflareDurableObjectWalletSessionStore<
       remainingUses: number;
       reservedUses: number;
       availableUses: number;
-    } | null>(this.stub, { op: 'authGetBudgetStatus', key: this.key(id) });
+    } | null>(this.stub, { op: 'authGetSessionStatus', key: this.key(id) });
     if (!resp.ok) {
       switch (resp.code) {
         case 'wallet_session_missing':
@@ -412,9 +357,7 @@ export class CloudflareDurableObjectWalletSessionStore<
     const record = this.parseRecord(resp.value.record);
     if (!record) return { ok: false, code: 'wallet_session_unavailable' };
     const expiresAtMs = Number(resp.value.expiresAtMs);
-    const committedRemainingUses = Math.max(0, Math.floor(Number(resp.value.remainingUses) || 0));
-    const activeReservedUses = Math.max(0, Math.floor(Number(resp.value.reservedUses) || 0));
-    const activeAvailableUses = Math.max(0, Math.floor(Number(resp.value.availableUses) || 0));
+    const remainingUses = Math.max(0, Math.floor(Number(resp.value.remainingUses) || 0));
     if (!Number.isFinite(expiresAtMs)) {
       return { ok: false, code: 'wallet_session_unavailable' };
     }
@@ -424,10 +367,7 @@ export class CloudflareDurableObjectWalletSessionStore<
       status: {
         record,
         expiresAtMs,
-        committedRemainingUses,
-        reservedUses: activeReservedUses,
-        availableUses: activeAvailableUses,
-        remainingUses: activeAvailableUses,
+        remainingUses,
       },
     };
   }
@@ -452,99 +392,6 @@ export class CloudflareDurableObjectWalletSessionStore<
     });
     if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
     return { ok: true, remainingUses: resp.value.remainingUses };
-  }
-
-  async reserveUseCountOnce(
-    input: WalletSessionBudgetReserveUseCountInput,
-  ): Promise<WalletSessionBudgetReservationResult> {
-    const resp = await callDo<{
-      reservation: WalletSigningBudgetReservation;
-      remainingUses: number;
-      reservedUses: number;
-      availableUses: number;
-    }>(this.stub, {
-      op: 'authReserveBudgetUseCount',
-      key: this.key(input.signingGrantId),
-      input,
-    });
-    if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
-    return {
-      ok: true,
-      reservation: resp.value.reservation,
-      remainingUses: resp.value.remainingUses,
-      reservedUses: resp.value.reservedUses,
-      availableUses: resp.value.availableUses,
-    };
-  }
-
-  async commitReservedUseCountOnce(
-    input: WalletSessionBudgetCommitReservedUseCountInput,
-  ): Promise<WalletSessionConsumeUsesResult> {
-    const resp = await callDo<{ remainingUses: number }>(this.stub, {
-      op: 'authCommitReservedBudgetUseCount',
-      key: this.key(input.signingGrantId),
-      input,
-    });
-    if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
-    return { ok: true, remainingUses: resp.value.remainingUses };
-  }
-
-  async validateReservedUseCount(
-    input: WalletSessionBudgetValidateReservedUseCountInput,
-  ): Promise<WalletSessionConsumeUsesResult> {
-    const resp = await callDo<{ remainingUses: number }>(this.stub, {
-      op: 'authValidateReservedBudgetUseCount',
-      key: this.key(input.signingGrantId),
-      input,
-    });
-    if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
-    return { ok: true, remainingUses: resp.value.remainingUses };
-  }
-
-  async releaseReservedUseCount(
-    input: WalletSessionBudgetReleaseReservedUseCountInput,
-  ): Promise<WalletSessionBudgetReleaseResult> {
-    const resp = await callDo<{
-      released: boolean;
-      remainingUses: number;
-      reservedUses: number;
-      availableUses: number;
-    }>(this.stub, {
-      op: 'authReleaseReservedBudgetUseCount',
-      key: this.key(input.signingGrantId),
-      input,
-    });
-    if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
-    return {
-      ok: true,
-      released: resp.value.released,
-      remainingUses: resp.value.remainingUses,
-      reservedUses: resp.value.reservedUses,
-      availableUses: resp.value.availableUses,
-    };
-  }
-
-  async releaseReservedUseCountForIdentity(
-    input: WalletSessionBudgetReleaseReservedUseCountForIdentityInput,
-  ): Promise<WalletSessionBudgetReleaseResult> {
-    const resp = await callDo<{
-      released: boolean;
-      remainingUses: number;
-      reservedUses: number;
-      availableUses: number;
-    }>(this.stub, {
-      op: 'authReleaseReservedBudgetUseCountForIdentity',
-      key: this.key(input.signingGrantId),
-      input,
-    });
-    if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
-    return {
-      ok: true,
-      released: resp.value.released,
-      remainingUses: resp.value.remainingUses,
-      reservedUses: resp.value.reservedUses,
-      availableUses: resp.value.availableUses,
-    };
   }
 
   async hasConsumedUseCountOnce(
@@ -572,46 +419,6 @@ export class CloudflareDurableObjectWalletSessionStore<
     });
     if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
     return { ok: true };
-  }
-}
-
-class CloudflareDurableObjectEcdsaNormalSigningSessionProvisioner implements EcdsaNormalSigningSessionProvisioner {
-  private readonly stub: DurableObjectStubLike;
-  private readonly sessionKeyPrefix: string;
-  private readonly budgetKeyPrefix: string;
-
-  constructor(input: {
-    namespace: CloudflareDurableObjectNamespaceLike;
-    objectName: string;
-    sessionKeyPrefix: string;
-    budgetKeyPrefix: string;
-  }) {
-    this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
-    this.sessionKeyPrefix = input.sessionKeyPrefix;
-    this.budgetKeyPrefix = input.budgetKeyPrefix;
-  }
-
-  async provisionSessionWithBudget(input: {
-    readonly thresholdSessionId: string;
-    readonly signingGrantId: string;
-    readonly session: EcdsaWalletSessionRecord;
-    readonly remainingUses: number;
-  }): Promise<
-    | { readonly ok: true; readonly expiresAtMs: number; readonly remainingUses: number }
-    | { readonly ok: false; readonly code: string; readonly message: string }
-  > {
-    const response = await callDo<{ expiresAtMs: number; remainingUses: number }>(this.stub, {
-      op: 'ecdsaNormalSigningSessionProvision',
-      sessionKey: `${this.sessionKeyPrefix}${input.thresholdSessionId}`,
-      budgetKey: `${this.budgetKeyPrefix}${walletSigningBudgetSessionId({
-        signingGrantId: input.signingGrantId,
-      })}`,
-      thresholdSessionId: input.thresholdSessionId,
-      signingGrantId: input.signingGrantId,
-      session: input.session,
-      remainingUses: input.remainingUses,
-    });
-    return response.ok ? { ok: true, ...response.value } : response;
   }
 }
 
@@ -1017,52 +824,12 @@ export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
   };
 }
 
-export function createCloudflareDurableObjectWalletSigningBudgetStores(input: {
-  config?: ThresholdStoreConfigInput | null;
-  logger: NormalizedLogger;
-}): {
-  walletSessionStore: WalletSigningBudgetSessionStore;
-} | null {
-  const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
-  const kind = toOptionalTrimmedString(config.kind);
-  if (kind !== 'cloudflare-do') return null;
-
-  const namespace = resolveDoNamespaceFromConfig(config);
-  if (!namespace) {
-    throw new Error(
-      'cloudflare-do threshold store selected but no Durable Object namespace was provided (expected config.namespace)',
-    );
-  }
-
-  const objectName =
-    toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
-    toOptionalTrimmedString((config as { name?: unknown }).name) ||
-    THRESHOLD_DO_OBJECT_NAME_DEFAULT;
-
-  const walletSessionPrefix = computeWalletSigningBudgetSessionPrefix(config);
-
-  input.logger.info(
-    '[threshold-budget] Using Cloudflare Durable Object store for wallet budget session persistence',
-  );
-
-  return {
-    walletSessionStore:
-      new CloudflareDurableObjectWalletSessionStore<WalletSigningBudgetSessionRecord>({
-        namespace,
-        objectName,
-        keyPrefix: walletSessionPrefix,
-        parseRecord: parseWalletSigningBudgetSessionRecord,
-      }),
-  };
-}
-
 export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
 }): {
   sessionStore: ThresholdEcdsaSessionStore;
   walletSessionStore: EcdsaWalletSessionStore;
-  normalSigningProvisioner: EcdsaNormalSigningSessionProvisioner;
   poolFillSessionStore: RouterAbEcdsaDerivationPoolFillSessionStore;
   poolFillLiveSessionOwner: RouterAbEcdsaDerivationPoolFillLiveSessionOwner;
 } | null {
@@ -1084,7 +851,6 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   const walletSessionObjectName = configuredObjectName || THRESHOLD_DO_OBJECT_NAME_DEFAULT;
 
   const walletSessionPrefix = computeWalletSessionPrefixEcdsa(config);
-  const walletBudgetSessionPrefix = computeWalletSigningBudgetSessionPrefix(config);
   const sessionPrefix = computeSessionPrefixEcdsa(config);
   const presignPrefix = computePresignPrefixEcdsa(config);
 
@@ -1105,12 +871,6 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
       objectName: walletSessionObjectName,
       keyPrefix: walletSessionPrefix,
       parseRecord: parseEcdsaWalletSessionRecord,
-    }),
-    normalSigningProvisioner: new CloudflareDurableObjectEcdsaNormalSigningSessionProvisioner({
-      namespace,
-      objectName: walletSessionObjectName,
-      sessionKeyPrefix: walletSessionPrefix,
-      budgetKeyPrefix: walletBudgetSessionPrefix,
     }),
     poolFillSessionStore: new CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillSessionStore({
       namespace,

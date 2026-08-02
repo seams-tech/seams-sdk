@@ -18,10 +18,8 @@ import {
   toThresholdEd25519PrefixFromBase,
   parseEd25519WalletSessionRecord,
   parseEcdsaWalletSessionRecord,
-  parseWalletSigningBudgetSessionRecord,
 } from '../validation';
 import {
-  createCloudflareDurableObjectWalletSigningBudgetStores,
   createCloudflareDurableObjectThresholdEcdsaStores,
   createCloudflareDurableObjectThresholdEd25519Stores,
 } from './CloudflareDurableObjectStore';
@@ -59,119 +57,10 @@ export type EcdsaWalletSessionRecord = EcdsaWalletSessionRecordCore &
     | ThresholdEcdsaSigningRootMetadata
   );
 
-export type WalletSigningBudgetEd25519Binding = {
-  thresholdSessionId: string;
-  authorityScope: ThresholdEd25519AuthorityScope;
-  participantIds: number[];
-};
-
-export type WalletSigningBudgetEcdsaBinding = {
-  thresholdSessionId: string;
-  keyHandle: EcdsaKeyHandle;
-  participantIds: number[];
-};
-
-export type WalletSigningBudgetEcdsaBindings = readonly [
-  WalletSigningBudgetEcdsaBinding,
-  ...WalletSigningBudgetEcdsaBinding[],
-];
-
-export type WalletSigningBudgetBindings =
-  | {
-      kind: 'ed25519_only';
-      ed25519: WalletSigningBudgetEd25519Binding;
-      ecdsa?: never;
-    }
-  | {
-      kind: 'ecdsa_only';
-      ecdsa: WalletSigningBudgetEcdsaBindings;
-      ed25519?: never;
-    }
-  | {
-      kind: 'ed25519_and_ecdsa';
-      ed25519: WalletSigningBudgetEd25519Binding;
-      ecdsa: WalletSigningBudgetEcdsaBindings;
-    };
-
-export type WalletSigningBudgetSessionRecord = {
-  kind: 'wallet_signing_budget_session';
-  expiresAtMs: number;
-  walletId: string;
-  bindings: WalletSigningBudgetBindings;
-};
-
-export type WalletSessionRecord =
-  | Ed25519WalletSessionRecord
-  | EcdsaWalletSessionRecord
-  | WalletSigningBudgetSessionRecord;
+export type WalletSessionRecord = Ed25519WalletSessionRecord | EcdsaWalletSessionRecord;
 
 export type WalletSessionConsumeUsesResult =
   | { ok: true; remainingUses: number }
-  | { ok: false; code: string; message: string };
-
-export type WalletSessionBudgetCurve = 'ed25519' | 'ecdsa';
-
-export type WalletSigningBudgetReservation = {
-  kind: 'wallet_signing_budget_reservation_v1';
-  signingGrantId: string;
-  curve: WalletSessionBudgetCurve;
-  thresholdSessionId: string;
-  signingWorkerId: string;
-  operationId: string;
-  requestDigest: string;
-  signatureUses: number;
-  reservationId: string;
-  expiresAtMs: number;
-};
-
-export type WalletSessionBudgetReserveUseCountInput = {
-  signingGrantId: string;
-  curve: WalletSessionBudgetCurve;
-  thresholdSessionId: string;
-  signingWorkerId: string;
-  operationId: string;
-  requestDigest: string;
-  signatureUses: number;
-  expiresAtMs: number;
-};
-
-export type WalletSessionBudgetCommitReservedUseCountInput = {
-  signingGrantId: string;
-  reservationId: string;
-  signingWorkerId: string;
-  operationId: string;
-  requestDigest: string;
-};
-
-export type WalletSessionBudgetValidateReservedUseCountInput =
-  WalletSessionBudgetCommitReservedUseCountInput;
-
-export type WalletSessionBudgetReleaseReservedUseCountInput = {
-  signingGrantId: string;
-  reservationId: string;
-};
-
-export type WalletSessionBudgetReleaseReservedUseCountForIdentityInput =
-  WalletSessionBudgetCommitReservedUseCountInput;
-
-export type WalletSessionBudgetReservationResult =
-  | {
-      ok: true;
-      reservation: WalletSigningBudgetReservation;
-      remainingUses: number;
-      reservedUses: number;
-      availableUses: number;
-    }
-  | { ok: false; code: string; message: string };
-
-export type WalletSessionBudgetReleaseResult =
-  | {
-      ok: true;
-      released: boolean;
-      remainingUses: number;
-      reservedUses: number;
-      availableUses: number;
-    }
   | { ok: false; code: string; message: string };
 
 export type WalletSessionConsumedUseResult =
@@ -185,9 +74,6 @@ export type WalletSessionReplayGuardResult =
 export type WalletSessionStatus<TRecord extends WalletSessionRecord> = {
   record: TRecord;
   expiresAtMs: number;
-  committedRemainingUses: number;
-  reservedUses: number;
-  availableUses: number;
   remainingUses: number;
 };
 
@@ -205,14 +91,8 @@ export type WalletSessionStatusLookupResult<TRecord extends WalletSessionRecord>
 
 export type Ed25519WalletSessionStatus = WalletSessionStatus<Ed25519WalletSessionRecord>;
 export type EcdsaWalletSessionStatus = WalletSessionStatus<EcdsaWalletSessionRecord>;
-export type WalletSigningBudgetSessionStatus =
-  WalletSessionStatus<WalletSigningBudgetSessionRecord>;
-
 const EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS = 5 * 60_000;
 const EXPORT_REPLAY_GUARD_MIN_RETENTION_MS = 24 * 60 * 60_000;
-const DEFAULT_WALLET_SIGNING_BUDGET_SESSION_PREFIX = 'w3a:threshold-wallet-budget:sess:';
-export const WALLET_SIGNING_BUDGET_STATUS_AUTHORITY_ID = 'wallet-signing-budget';
-
 type WalletSessionStoreConfigRecord = Record<string, unknown>;
 
 export interface WalletSessionStore<TRecord extends WalletSessionRecord> {
@@ -231,21 +111,6 @@ export interface WalletSessionStore<TRecord extends WalletSessionRecord> {
    */
   consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult>;
   consumeUseCountOnce(id: string, idempotencyKey: string): Promise<WalletSessionConsumeUsesResult>;
-  reserveUseCountOnce(
-    input: WalletSessionBudgetReserveUseCountInput,
-  ): Promise<WalletSessionBudgetReservationResult>;
-  commitReservedUseCountOnce(
-    input: WalletSessionBudgetCommitReservedUseCountInput,
-  ): Promise<WalletSessionConsumeUsesResult>;
-  validateReservedUseCount(
-    input: WalletSessionBudgetValidateReservedUseCountInput,
-  ): Promise<WalletSessionConsumeUsesResult>;
-  releaseReservedUseCount(
-    input: WalletSessionBudgetReleaseReservedUseCountInput,
-  ): Promise<WalletSessionBudgetReleaseResult>;
-  releaseReservedUseCountForIdentity(
-    input: WalletSessionBudgetReleaseReservedUseCountForIdentityInput,
-  ): Promise<WalletSessionBudgetReleaseResult>;
   hasConsumedUseCountOnce(
     id: string,
     idempotencyKey: string,
@@ -259,29 +124,6 @@ export interface WalletSessionStore<TRecord extends WalletSessionRecord> {
 
 export type Ed25519WalletSessionStore = WalletSessionStore<Ed25519WalletSessionRecord>;
 export type EcdsaWalletSessionStore = WalletSessionStore<EcdsaWalletSessionRecord>;
-export type WalletSigningBudgetSessionStore = WalletSessionStore<WalletSigningBudgetSessionRecord>;
-
-export type EcdsaNormalSigningSessionProvisionResult =
-  | {
-      readonly ok: true;
-      readonly expiresAtMs: number;
-      readonly remainingUses: number;
-    }
-  | {
-      readonly ok: false;
-      readonly code: string;
-      readonly message: string;
-    };
-
-export interface EcdsaNormalSigningSessionProvisioner {
-  provisionSessionWithBudget(input: {
-    readonly thresholdSessionId: string;
-    readonly signingGrantId: string;
-    readonly session: EcdsaWalletSessionRecord;
-    readonly remainingUses: number;
-  }): Promise<EcdsaNormalSigningSessionProvisionResult>;
-}
-
 export type WalletSessionRecordParser<TRecord extends WalletSessionRecord> = (
   raw: unknown,
 ) => TRecord | null;
@@ -297,19 +139,6 @@ class InMemoryWalletSessionStore<
       remainingUses: number;
       expiresAtMs: number;
       consumedIdempotencyKeys: Set<string>;
-      budgetReservations: Map<string, WalletSigningBudgetReservation>;
-      reservationIdsByOperation: Map<string, string>;
-      committedBudgetReservations: Map<
-        string,
-        {
-          operationKey: string;
-          signingWorkerId: string;
-          operationId: string;
-          requestDigest: string;
-          remainingUses: number;
-          expiresAtMs: number;
-        }
-      >;
     }
   >();
   private readonly replayGuards = new Map<string, number>();
@@ -339,9 +168,6 @@ class InMemoryWalletSessionStore<
       remainingUses: Math.max(0, Number(opts.remainingUses) || 0),
       expiresAtMs,
       consumedIdempotencyKeys: new Set(),
-      budgetReservations: new Map(),
-      reservationIdsByOperation: new Map(),
-      committedBudgetReservations: new Map(),
     });
   }
 
@@ -364,16 +190,12 @@ class InMemoryWalletSessionStore<
       this.map.delete(key);
       return { ok: false, code: 'wallet_session_expired' };
     }
-    const budget = inMemoryBudgetProjection(entry);
     return {
       ok: true,
       status: {
         record: entry.record,
         expiresAtMs: entry.expiresAtMs,
-        committedRemainingUses: budget.committedRemainingUses,
-        reservedUses: budget.reservedUses,
-        availableUses: budget.availableUses,
-        remainingUses: budget.availableUses,
+        remainingUses: entry.remainingUses,
       },
     };
   }
@@ -387,9 +209,8 @@ class InMemoryWalletSessionStore<
       this.map.delete(key);
       return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
     }
-    const budget = inMemoryBudgetProjection(entry);
-    if (budget.availableUses <= 0) {
-      return inMemoryBudgetUnavailable(entry.remainingUses, budget.reservedUses);
+    if (entry.remainingUses <= 0) {
+      return { ok: false, code: 'wallet_budget_exhausted', message: 'Wallet Session exhausted' };
     }
     entry.remainingUses -= 1;
     return { ok: true, remainingUses: entry.remainingUses };
@@ -411,252 +232,12 @@ class InMemoryWalletSessionStore<
     if (consumeKey && entry.consumedIdempotencyKeys.has(consumeKey)) {
       return { ok: true, remainingUses: entry.remainingUses };
     }
-    const budget = inMemoryBudgetProjection(entry);
-    if (budget.availableUses <= 0) {
-      return inMemoryBudgetUnavailable(entry.remainingUses, budget.reservedUses);
+    if (entry.remainingUses <= 0) {
+      return { ok: false, code: 'wallet_budget_exhausted', message: 'Wallet Session exhausted' };
     }
     entry.remainingUses -= 1;
     if (consumeKey) entry.consumedIdempotencyKeys.add(consumeKey);
     return { ok: true, remainingUses: entry.remainingUses };
-  }
-
-  async reserveUseCountOnce(
-    input: WalletSessionBudgetReserveUseCountInput,
-  ): Promise<WalletSessionBudgetReservationResult> {
-    const key = this.key(input.signingGrantId);
-    const entry = this.map.get(key);
-    const nowMs = Date.now();
-    if (!entry)
-      return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
-    if (entry.expiresAtMs <= nowMs) {
-      this.map.delete(key);
-      return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
-    }
-    const parsed = parseBudgetReservationInput(input, entry.expiresAtMs, nowMs);
-    if (!parsed.ok) return parsed;
-    const operationKey = budgetOperationKey(parsed.value);
-    const existingReservationId = entry.reservationIdsByOperation.get(operationKey);
-    if (existingReservationId) {
-      const existing = entry.budgetReservations.get(existingReservationId);
-      if (existing && existing.expiresAtMs > nowMs) {
-        const budget = inMemoryBudgetProjection(entry);
-        return {
-          ok: true,
-          reservation: existing,
-          remainingUses: budget.committedRemainingUses,
-          reservedUses: budget.reservedUses,
-          availableUses: budget.availableUses,
-        };
-      }
-      entry.reservationIdsByOperation.delete(operationKey);
-      if (existingReservationId) entry.budgetReservations.delete(existingReservationId);
-    }
-    if (inMemoryCommittedBudgetOperationExists(entry, operationKey, nowMs)) {
-      return budgetOperationAlreadyCommitted();
-    }
-    const budget = inMemoryBudgetProjection(entry);
-    if (budget.availableUses < parsed.value.signatureUses) {
-      return inMemoryBudgetReservationUnavailable({
-        committedRemainingUses: budget.committedRemainingUses,
-        reservedUses: budget.reservedUses,
-        signatureUses: parsed.value.signatureUses,
-      });
-    }
-    const reservation: WalletSigningBudgetReservation = {
-      kind: 'wallet_signing_budget_reservation_v1',
-      signingGrantId: parsed.value.signingGrantId,
-      curve: parsed.value.curve,
-      thresholdSessionId: parsed.value.thresholdSessionId,
-      signingWorkerId: parsed.value.signingWorkerId,
-      operationId: parsed.value.operationId,
-      requestDigest: parsed.value.requestDigest,
-      signatureUses: parsed.value.signatureUses,
-      reservationId: createBudgetReservationId(),
-      expiresAtMs: parsed.value.expiresAtMs,
-    };
-    entry.budgetReservations.set(reservation.reservationId, reservation);
-    entry.reservationIdsByOperation.set(operationKey, reservation.reservationId);
-    const nextBudget = inMemoryBudgetProjection(entry);
-    return {
-      ok: true,
-      reservation,
-      remainingUses: nextBudget.committedRemainingUses,
-      reservedUses: nextBudget.reservedUses,
-      availableUses: nextBudget.availableUses,
-    };
-  }
-
-  async commitReservedUseCountOnce(
-    input: WalletSessionBudgetCommitReservedUseCountInput,
-  ): Promise<WalletSessionConsumeUsesResult> {
-    const key = this.key(input.signingGrantId);
-    const entry = this.map.get(key);
-    const nowMs = Date.now();
-    if (!entry)
-      return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
-    if (entry.expiresAtMs <= nowMs) {
-      this.map.delete(key);
-      return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
-    }
-    const parsed = parseBudgetCommitInput(input);
-    if (!parsed.ok) return parsed;
-    const committed = entry.committedBudgetReservations.get(parsed.value.reservationId);
-    const operationKey = budgetOperationKey(parsed.value);
-    if (committed) {
-      if (
-        committed.operationKey !== operationKey ||
-        committed.signingWorkerId !== parsed.value.signingWorkerId ||
-        committed.operationId !== parsed.value.operationId ||
-        committed.requestDigest !== parsed.value.requestDigest
-      ) {
-        return budgetReservationMismatch();
-      }
-      return { ok: true, remainingUses: committed.remainingUses };
-    }
-    const reservation = entry.budgetReservations.get(parsed.value.reservationId);
-    if (!reservation) return budgetReservationExpired();
-    if (reservation.expiresAtMs <= nowMs) {
-      entry.budgetReservations.delete(reservation.reservationId);
-      entry.reservationIdsByOperation.delete(budgetOperationKey(reservation));
-      return budgetReservationExpired();
-    }
-    if (
-      reservation.operationId !== parsed.value.operationId ||
-      reservation.signingWorkerId !== parsed.value.signingWorkerId ||
-      reservation.requestDigest !== parsed.value.requestDigest
-    ) {
-      return budgetReservationMismatch();
-    }
-    if (entry.remainingUses < reservation.signatureUses) {
-      return budgetExhausted();
-    }
-    entry.remainingUses -= reservation.signatureUses;
-    entry.budgetReservations.delete(reservation.reservationId);
-    entry.reservationIdsByOperation.delete(budgetOperationKey(reservation));
-    entry.committedBudgetReservations.set(reservation.reservationId, {
-      operationKey,
-      signingWorkerId: parsed.value.signingWorkerId,
-      operationId: parsed.value.operationId,
-      requestDigest: parsed.value.requestDigest,
-      remainingUses: entry.remainingUses,
-      expiresAtMs: entry.expiresAtMs,
-    });
-    return { ok: true, remainingUses: entry.remainingUses };
-  }
-
-  async validateReservedUseCount(
-    input: WalletSessionBudgetValidateReservedUseCountInput,
-  ): Promise<WalletSessionConsumeUsesResult> {
-    const key = this.key(input.signingGrantId);
-    const entry = this.map.get(key);
-    const nowMs = Date.now();
-    if (!entry)
-      return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
-    if (entry.expiresAtMs <= nowMs) {
-      this.map.delete(key);
-      return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
-    }
-    const parsed = parseBudgetCommitInput(input);
-    if (!parsed.ok) return parsed;
-    const committed = entry.committedBudgetReservations.get(parsed.value.reservationId);
-    const operationKey = budgetOperationKey(parsed.value);
-    if (committed) {
-      if (
-        committed.operationKey !== operationKey ||
-        committed.signingWorkerId !== parsed.value.signingWorkerId ||
-        committed.operationId !== parsed.value.operationId ||
-        committed.requestDigest !== parsed.value.requestDigest
-      ) {
-        return budgetReservationMismatch();
-      }
-      return { ok: true, remainingUses: committed.remainingUses };
-    }
-    const reservation = entry.budgetReservations.get(parsed.value.reservationId);
-    if (!reservation) return budgetReservationExpired();
-    if (reservation.expiresAtMs <= nowMs) {
-      entry.budgetReservations.delete(reservation.reservationId);
-      entry.reservationIdsByOperation.delete(budgetOperationKey(reservation));
-      return budgetReservationExpired();
-    }
-    if (
-      reservation.operationId !== parsed.value.operationId ||
-      reservation.signingWorkerId !== parsed.value.signingWorkerId ||
-      reservation.requestDigest !== parsed.value.requestDigest
-    ) {
-      return budgetReservationMismatch();
-    }
-    if (entry.remainingUses < reservation.signatureUses) return budgetExhausted();
-    return { ok: true, remainingUses: entry.remainingUses };
-  }
-
-  async releaseReservedUseCount(
-    input: WalletSessionBudgetReleaseReservedUseCountInput,
-  ): Promise<WalletSessionBudgetReleaseResult> {
-    const key = this.key(input.signingGrantId);
-    const entry = this.map.get(key);
-    const nowMs = Date.now();
-    if (!entry)
-      return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
-    if (entry.expiresAtMs <= nowMs) {
-      this.map.delete(key);
-      return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
-    }
-    const reservationId = normalizeBudgetField(input.reservationId);
-    if (!reservationId) {
-      return {
-        ok: false,
-        code: 'invalid_budget_request',
-        message: 'budget reservation id is required',
-      };
-    }
-    const existing = entry.budgetReservations.get(reservationId);
-    const released = !!existing;
-    if (existing) {
-      entry.budgetReservations.delete(reservationId);
-      entry.reservationIdsByOperation.delete(budgetOperationKey(existing));
-    }
-    const budget = inMemoryBudgetProjection(entry);
-    return {
-      ok: true,
-      released,
-      remainingUses: budget.committedRemainingUses,
-      reservedUses: budget.reservedUses,
-      availableUses: budget.availableUses,
-    };
-  }
-
-  async releaseReservedUseCountForIdentity(
-    input: WalletSessionBudgetReleaseReservedUseCountForIdentityInput,
-  ): Promise<WalletSessionBudgetReleaseResult> {
-    const parsed = parseBudgetCommitInput(input);
-    if (!parsed.ok) return parsed;
-    const key = this.key(parsed.value.signingGrantId);
-    const entry = this.map.get(key);
-    const nowMs = Date.now();
-    if (!entry)
-      return { ok: false, code: 'wallet_session_missing', message: 'Wallet Session is missing' };
-    if (entry.expiresAtMs <= nowMs) {
-      this.map.delete(key);
-      return { ok: false, code: 'wallet_session_expired', message: 'Wallet Session expired' };
-    }
-    const existing = entry.budgetReservations.get(parsed.value.reservationId);
-    const released =
-      !!existing &&
-      existing.operationId === parsed.value.operationId &&
-      existing.signingWorkerId === parsed.value.signingWorkerId &&
-      existing.requestDigest === parsed.value.requestDigest;
-    if (released) {
-      entry.budgetReservations.delete(parsed.value.reservationId);
-      entry.reservationIdsByOperation.delete(budgetOperationKey(existing));
-    }
-    const budget = inMemoryBudgetProjection(entry);
-    return {
-      ok: true,
-      released,
-      remainingUses: budget.committedRemainingUses,
-      reservedUses: budget.reservedUses,
-      availableUses: budget.availableUses,
-    };
   }
 
   async hasConsumedUseCountOnce(
@@ -701,239 +282,6 @@ function normalizeConsumeOnceKey(value: string): string {
     .trim()
     .replace(/[^A-Za-z0-9._:-]/g, '_')
     .slice(0, 512);
-}
-
-function normalizeBudgetField(value: unknown): string {
-  return String(value || '').trim();
-}
-
-function errorMessage(error: unknown): string {
-  return String(
-    error && typeof error === 'object' && 'message' in error
-      ? (error as { message?: unknown }).message
-      : error || '',
-  );
-}
-
-function normalizeBudgetToken(value: unknown): string {
-  return normalizeBudgetField(value)
-    .replace(/[^A-Za-z0-9._:-]/g, '_')
-    .slice(0, 512);
-}
-
-function createBudgetReservationId(): string {
-  return `wbudget_${secureRandomIdFragment()}`;
-}
-
-function budgetOperationKey(input: {
-  signingWorkerId: string;
-  operationId: string;
-  requestDigest: string;
-}): string {
-  return [
-    'wallet-signing-budget',
-    normalizeBudgetToken(input.signingWorkerId),
-    normalizeBudgetToken(input.operationId),
-    normalizeBudgetToken(input.requestDigest),
-  ].join(':');
-}
-
-function parseBudgetSignatureUses(value: unknown): number | null {
-  const parsed = Math.floor(Number(value));
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) return null;
-  return parsed;
-}
-
-function parseBudgetReservationInput(
-  input: WalletSessionBudgetReserveUseCountInput,
-  sessionExpiresAtMs: number,
-  nowMs: number,
-):
-  | { ok: true; value: WalletSessionBudgetReserveUseCountInput }
-  | { ok: false; code: string; message: string } {
-  const signingGrantId = normalizeBudgetField(input.signingGrantId);
-  const thresholdSessionId = normalizeBudgetField(input.thresholdSessionId);
-  const signingWorkerId = normalizeBudgetField(input.signingWorkerId);
-  const operationId = normalizeBudgetField(input.operationId);
-  const requestDigest = normalizeBudgetField(input.requestDigest);
-  const signatureUses = parseBudgetSignatureUses(input.signatureUses);
-  const expiresAtMs = Math.min(Number(input.expiresAtMs), sessionExpiresAtMs);
-  if (
-    !signingGrantId ||
-    !thresholdSessionId ||
-    !signingWorkerId ||
-    !operationId ||
-    !requestDigest ||
-    !signatureUses ||
-    !Number.isFinite(expiresAtMs) ||
-    expiresAtMs <= nowMs
-  ) {
-    return {
-      ok: false,
-      code: 'invalid_budget_request',
-      message:
-        'budget reservation requires session, threshold session, SigningWorker, operation, request digest, signature uses, and future expiry',
-    };
-  }
-  return {
-    ok: true,
-    value: {
-      signingGrantId,
-      curve: input.curve,
-      thresholdSessionId,
-      signingWorkerId,
-      operationId,
-      requestDigest,
-      signatureUses,
-      expiresAtMs: Math.floor(expiresAtMs),
-    },
-  };
-}
-
-function parseBudgetCommitInput(
-  input: WalletSessionBudgetCommitReservedUseCountInput,
-):
-  | { ok: true; value: WalletSessionBudgetCommitReservedUseCountInput }
-  | { ok: false; code: string; message: string } {
-  const signingGrantId = normalizeBudgetField(input.signingGrantId);
-  const reservationId = normalizeBudgetField(input.reservationId);
-  const signingWorkerId = normalizeBudgetField(input.signingWorkerId);
-  const operationId = normalizeBudgetField(input.operationId);
-  const requestDigest = normalizeBudgetField(input.requestDigest);
-  if (!signingGrantId || !reservationId || !signingWorkerId || !operationId || !requestDigest) {
-    return {
-      ok: false,
-      code: 'invalid_budget_request',
-      message:
-        'budget commit requires signing grant, reservation, SigningWorker, operation, and request digest',
-    };
-  }
-  return {
-    ok: true,
-    value: {
-      signingGrantId,
-      reservationId,
-      signingWorkerId,
-      operationId,
-      requestDigest,
-    },
-  };
-}
-
-function budgetReservationMismatch(): WalletSessionConsumeUsesResult {
-  return {
-    ok: false,
-    code: 'wallet_budget_reservation_mismatch',
-    message: 'wallet signing budget reservation does not match this operation',
-  };
-}
-
-function budgetOperationAlreadyCommitted(): {
-  ok: false;
-  code: 'wallet_budget_reservation_mismatch';
-  message: string;
-} {
-  return {
-    ok: false,
-    code: 'wallet_budget_reservation_mismatch',
-    message: 'wallet signing budget operation was already committed',
-  };
-}
-
-function budgetReservationExpired(): WalletSessionConsumeUsesResult {
-  return {
-    ok: false,
-    code: 'wallet_budget_reservation_expired',
-    message: 'wallet signing budget reservation expired',
-  };
-}
-
-function budgetExhausted(): WalletSessionConsumeUsesResult {
-  return {
-    ok: false,
-    code: 'wallet_budget_exhausted',
-    message: 'signing grant exhausted',
-  };
-}
-
-function budgetInFlight(): WalletSessionConsumeUsesResult {
-  return {
-    ok: false,
-    code: 'wallet_budget_in_flight',
-    message: 'signing grant budget is reserved by another signing operation',
-  };
-}
-
-function inMemoryBudgetUnavailable(
-  committedRemainingUses: number,
-  reservedUses: number,
-): WalletSessionConsumeUsesResult {
-  if (committedRemainingUses > 0 && reservedUses > 0) return budgetInFlight();
-  return budgetExhausted();
-}
-
-function inMemoryBudgetReservationUnavailable(input: {
-  committedRemainingUses: number;
-  reservedUses: number;
-  signatureUses: number;
-}): WalletSessionBudgetReservationResult {
-  if (input.committedRemainingUses >= input.signatureUses && input.reservedUses > 0) {
-    return {
-      ok: false,
-      code: 'wallet_budget_in_flight',
-      message: 'signing grant budget is reserved by another signing operation',
-    };
-  }
-  return {
-    ok: false,
-    code: 'wallet_budget_exhausted',
-    message: 'signing grant exhausted',
-  };
-}
-
-function inMemoryBudgetProjection(entry: {
-  remainingUses: number;
-  budgetReservations: Map<string, WalletSigningBudgetReservation>;
-  reservationIdsByOperation: Map<string, string>;
-}): {
-  committedRemainingUses: number;
-  reservedUses: number;
-  availableUses: number;
-} {
-  const nowMs = Date.now();
-  let reservedUses = 0;
-  for (const [reservationId, reservation] of [...entry.budgetReservations.entries()]) {
-    if (reservation.expiresAtMs <= nowMs) {
-      entry.budgetReservations.delete(reservationId);
-      entry.reservationIdsByOperation.delete(budgetOperationKey(reservation));
-      continue;
-    }
-    reservedUses += reservation.signatureUses;
-  }
-  const committedRemainingUses = Math.max(0, Math.floor(Number(entry.remainingUses) || 0));
-  return {
-    committedRemainingUses,
-    reservedUses,
-    availableUses: Math.max(0, committedRemainingUses - reservedUses),
-  };
-}
-
-function inMemoryCommittedBudgetOperationExists(
-  entry: {
-    committedBudgetReservations: Map<string, { operationKey: string; expiresAtMs: number }>;
-  },
-  operationKey: string,
-  nowMs: number,
-): boolean {
-  let found = false;
-  for (const [reservationId, committed] of entry.committedBudgetReservations.entries()) {
-    if (committed.expiresAtMs <= nowMs) {
-      entry.committedBudgetReservations.delete(reservationId);
-      continue;
-    }
-    if (committed.operationKey === operationKey) found = true;
-  }
-  return found;
 }
 
 function replayGuardTtlMs(expiresAtMs: number, nowMs = Date.now()): number {
@@ -1022,166 +370,6 @@ function parseRedisJsonObject(raw: unknown): Record<string, unknown> | null {
   }
 }
 
-function parseRedisBudgetReservation(raw: unknown): WalletSessionBudgetReservationResult {
-  const record = parseRedisJsonObject(raw);
-  if (!record) {
-    return {
-      ok: false,
-      code: 'internal',
-      message: 'Redis budget reserve returned invalid response',
-    };
-  }
-  if (record.ok === false) {
-    return {
-      ok: false,
-      code: normalizeBudgetField(record.code) || 'internal',
-      message: normalizeBudgetField(record.message) || 'Redis budget reserve failed',
-    };
-  }
-  const reservationRaw = isObject(record.reservation)
-    ? (record.reservation as Record<string, unknown>)
-    : null;
-  const reservation = parseWalletSigningBudgetReservation(reservationRaw);
-  const remainingUses = Number(record.remainingUses);
-  const reservedUses = Number(record.reservedUses);
-  const availableUses = Number(record.availableUses);
-  if (
-    !reservation ||
-    !Number.isFinite(remainingUses) ||
-    !Number.isFinite(reservedUses) ||
-    !Number.isFinite(availableUses)
-  ) {
-    return {
-      ok: false,
-      code: 'internal',
-      message: 'Redis budget reserve returned invalid payload',
-    };
-  }
-  return {
-    ok: true,
-    reservation,
-    remainingUses,
-    reservedUses,
-    availableUses,
-  };
-}
-
-function parseRedisBudgetCommit(raw: unknown): WalletSessionConsumeUsesResult {
-  const record = parseRedisJsonObject(raw);
-  if (!record) {
-    return {
-      ok: false,
-      code: 'internal',
-      message: 'Redis budget commit returned invalid response',
-    };
-  }
-  if (record.ok === false) {
-    return {
-      ok: false,
-      code: normalizeBudgetField(record.code) || 'internal',
-      message: normalizeBudgetField(record.message) || 'Redis budget commit failed',
-    };
-  }
-  const remainingUses = Number(record.remainingUses);
-  if (!Number.isFinite(remainingUses)) {
-    return { ok: false, code: 'internal', message: 'Redis budget commit returned invalid uses' };
-  }
-  return { ok: true, remainingUses };
-}
-
-function parseRedisBudgetRelease(raw: unknown): WalletSessionBudgetReleaseResult {
-  const record = parseRedisJsonObject(raw);
-  if (!record) {
-    return {
-      ok: false,
-      code: 'internal',
-      message: 'Redis budget release returned invalid response',
-    };
-  }
-  if (record.ok === false) {
-    return {
-      ok: false,
-      code: normalizeBudgetField(record.code) || 'internal',
-      message: normalizeBudgetField(record.message) || 'Redis budget release failed',
-    };
-  }
-  const remainingUses = Number(record.remainingUses);
-  const reservedUses = Number(record.reservedUses);
-  const availableUses = Number(record.availableUses);
-  if (
-    !Number.isFinite(remainingUses) ||
-    !Number.isFinite(reservedUses) ||
-    !Number.isFinite(availableUses)
-  ) {
-    return { ok: false, code: 'internal', message: 'Redis budget release returned invalid uses' };
-  }
-  return {
-    ok: true,
-    released: record.released === true,
-    remainingUses,
-    reservedUses,
-    availableUses,
-  };
-}
-
-function parseRedisBudgetProjection(
-  raw: unknown,
-): { committedRemainingUses: number; reservedUses: number; availableUses: number } | null {
-  const record = parseRedisJsonObject(raw);
-  if (!record || record.ok === false) return null;
-  const committedRemainingUses = Number(record.remainingUses);
-  const reservedUses = Number(record.reservedUses);
-  const availableUses = Number(record.availableUses);
-  if (
-    !Number.isFinite(committedRemainingUses) ||
-    !Number.isFinite(reservedUses) ||
-    !Number.isFinite(availableUses)
-  ) {
-    return null;
-  }
-  return { committedRemainingUses, reservedUses, availableUses };
-}
-
-function parseWalletSigningBudgetReservation(
-  record: Record<string, unknown> | null,
-): WalletSigningBudgetReservation | null {
-  if (!record || record.kind !== 'wallet_signing_budget_reservation_v1') return null;
-  const signingGrantId = normalizeBudgetField(record.signingGrantId);
-  const curve = record.curve === 'ed25519' || record.curve === 'ecdsa' ? record.curve : null;
-  const thresholdSessionId = normalizeBudgetField(record.thresholdSessionId);
-  const signingWorkerId = normalizeBudgetField(record.signingWorkerId);
-  const operationId = normalizeBudgetField(record.operationId);
-  const requestDigest = normalizeBudgetField(record.requestDigest);
-  const reservationId = normalizeBudgetField(record.reservationId);
-  const signatureUses = parseBudgetSignatureUses(record.signatureUses);
-  const expiresAtMs = Number(record.expiresAtMs);
-  if (
-    !signingGrantId ||
-    !curve ||
-    !thresholdSessionId ||
-    !signingWorkerId ||
-    !operationId ||
-    !requestDigest ||
-    !reservationId ||
-    !signatureUses ||
-    !Number.isFinite(expiresAtMs)
-  ) {
-    return null;
-  }
-  return {
-    kind: 'wallet_signing_budget_reservation_v1',
-    signingGrantId,
-    curve,
-    thresholdSessionId,
-    signingWorkerId,
-    operationId,
-    requestDigest,
-    signatureUses,
-    reservationId,
-    expiresAtMs: Math.floor(expiresAtMs),
-  };
-}
-
 const CONSUME_ONCE_EXISTS_LUA = `
 local marker_key = KEYS[1]
 return redis.call('EXISTS', marker_key)
@@ -1239,310 +427,6 @@ redis.call('SET', key, '1', 'EX', ttl_seconds)
 return 'ok'
 `;
 
-const BUDGET_STATUS_LUA = `
-local uses_key = KEYS[1]
-local index_key = KEYS[2]
-local now_ms = tonumber(ARGV[1] or '')
-local current = tonumber(redis.call('GET', uses_key) or '')
-if current == nil or now_ms == nil then
-  return cjson.encode({ ok = false, code = 'wallet_session_missing', message = 'Wallet Session is missing' })
-end
-local reserved = 0
-local keys = redis.call('SMEMBERS', index_key)
-for _, reservation_key in ipairs(keys) do
-  local raw = redis.call('GET', reservation_key)
-  if raw then
-    local reservation = cjson.decode(raw)
-    if tonumber(reservation.expiresAtMs or 0) <= now_ms then
-      redis.call('DEL', reservation_key)
-      if reservation.operationKey then redis.call('DEL', reservation.operationKey) end
-      redis.call('SREM', index_key, reservation_key)
-    else
-      reserved = reserved + tonumber(reservation.signatureUses or 0)
-    end
-  else
-    redis.call('SREM', index_key, reservation_key)
-  end
-end
-local available = current - reserved
-if available < 0 then available = 0 end
-return cjson.encode({ ok = true, remainingUses = current, reservedUses = reserved, availableUses = available })
-`;
-
-const BUDGET_RESERVE_LUA = `
-local uses_key = KEYS[1]
-local index_key = KEYS[2]
-local operation_key = KEYS[3]
-local reservation_key = KEYS[4]
-local current = tonumber(redis.call('GET', uses_key) or '')
-	local now_ms = tonumber(ARGV[10] or '')
-if current == nil then
-  return cjson.encode({ ok = false, code = 'wallet_session_missing', message = 'Wallet Session is missing' })
-end
-if now_ms == nil then
-  return cjson.encode({ ok = false, code = 'invalid_budget_request', message = 'invalid budget clock' })
-end
-local reserved = 0
-local keys = redis.call('SMEMBERS', index_key)
-for _, active_key in ipairs(keys) do
-  local raw = redis.call('GET', active_key)
-  if raw then
-    local active = cjson.decode(raw)
-    if tonumber(active.expiresAtMs or 0) <= now_ms then
-      redis.call('DEL', active_key)
-      if active.operationKey then redis.call('DEL', active.operationKey) end
-      redis.call('SREM', index_key, active_key)
-    else
-      reserved = reserved + tonumber(active.signatureUses or 0)
-    end
-  else
-    redis.call('SREM', index_key, active_key)
-  end
-end
-local existing_key = redis.call('GET', operation_key)
-if existing_key then
-  local existing_raw = redis.call('GET', existing_key)
-  if existing_raw then
-	  local existing = cjson.decode(existing_raw)
-	    if existing.kind == 'wallet_signing_budget_commit_v1' then
-	      return cjson.encode({ ok = false, code = 'wallet_budget_reservation_mismatch', message = 'wallet signing budget operation was already committed' })
-	    end
-	    if tonumber(existing.expiresAtMs or 0) > now_ms then
-	      local available = current - reserved
-	      if available < 0 then available = 0 end
-      return cjson.encode({ ok = true, reservation = existing, remainingUses = current, reservedUses = reserved, availableUses = available })
-    end
-    redis.call('DEL', existing_key)
-    redis.call('SREM', index_key, existing_key)
-  end
-  redis.call('DEL', operation_key)
-end
-local signing_worker_id = ARGV[6]
-if not signing_worker_id or signing_worker_id == '' then
-  return cjson.encode({ ok = false, code = 'invalid_budget_request', message = 'invalid budget SigningWorker' })
-end
-local signature_uses = tonumber(ARGV[8] or '')
-if signature_uses == nil or signature_uses <= 0 then
-  return cjson.encode({ ok = false, code = 'invalid_budget_request', message = 'invalid budget signature uses' })
-end
-local available = current - reserved
-if available < signature_uses then
-  if current >= signature_uses and reserved > 0 then
-    return cjson.encode({ ok = false, code = 'wallet_budget_in_flight', message = 'signing grant budget is reserved by another signing operation' })
-  end
-  return cjson.encode({ ok = false, code = 'wallet_budget_exhausted', message = 'signing grant exhausted' })
-end
-local expires_at_ms = tonumber(ARGV[9] or '')
-if expires_at_ms == nil or expires_at_ms <= now_ms then
-  return cjson.encode({ ok = false, code = 'invalid_budget_request', message = 'budget reservation expiry must be in the future' })
-end
-local ttl_seconds = math.max(1, math.ceil((expires_at_ms - now_ms) / 1000))
-local reservation = {
-  kind = 'wallet_signing_budget_reservation_v1',
-  signingGrantId = ARGV[1],
-  curve = ARGV[2],
-  thresholdSessionId = ARGV[3],
-  operationId = ARGV[4],
-  requestDigest = ARGV[5],
-  signingWorkerId = signing_worker_id,
-  reservationId = ARGV[7],
-  signatureUses = signature_uses,
-  expiresAtMs = expires_at_ms,
-  operationKey = operation_key
-}
-local reservation_json = cjson.encode(reservation)
-redis.call('SET', reservation_key, reservation_json, 'EX', ttl_seconds)
-redis.call('SET', operation_key, reservation_key, 'EX', ttl_seconds)
-redis.call('SADD', index_key, reservation_key)
-redis.call('EXPIRE', index_key, ttl_seconds)
-local next_reserved = reserved + signature_uses
-local next_available = current - next_reserved
-if next_available < 0 then next_available = 0 end
-return cjson.encode({ ok = true, reservation = reservation, remainingUses = current, reservedUses = next_reserved, availableUses = next_available })
-`;
-
-const BUDGET_COMMIT_LUA = `
-local uses_key = KEYS[1]
-local index_key = KEYS[2]
-local reservation_key = KEYS[3]
-local committed_key = KEYS[4]
-local operation_id = ARGV[1]
-local request_digest = ARGV[2]
-local signing_worker_id = ARGV[3]
-local now_ms = tonumber(ARGV[4] or '')
-local session_ttl_seconds = tonumber(redis.call('TTL', uses_key) or '0')
-if session_ttl_seconds == nil or session_ttl_seconds <= 0 then
-  session_ttl_seconds = tonumber(ARGV[5] or '60')
-end
-local committed_raw = redis.call('GET', committed_key)
-if committed_raw then
-  local committed = cjson.decode(committed_raw)
-  if committed.operationId ~= operation_id or committed.requestDigest ~= request_digest or committed.signingWorkerId ~= signing_worker_id then
-    return cjson.encode({ ok = false, code = 'wallet_budget_reservation_mismatch', message = 'wallet signing budget reservation does not match this operation' })
-  end
-  return cjson.encode({ ok = true, remainingUses = tonumber(committed.remainingUses or 0) })
-end
-local reservation_raw = redis.call('GET', reservation_key)
-if not reservation_raw then
-  return cjson.encode({ ok = false, code = 'wallet_budget_reservation_expired', message = 'wallet signing budget reservation expired' })
-end
-local reservation = cjson.decode(reservation_raw)
-if reservation.operationId ~= operation_id or reservation.requestDigest ~= request_digest or reservation.signingWorkerId ~= signing_worker_id then
-  return cjson.encode({ ok = false, code = 'wallet_budget_reservation_mismatch', message = 'wallet signing budget reservation does not match this operation' })
-end
-if now_ms == nil or tonumber(reservation.expiresAtMs or 0) <= now_ms then
-  redis.call('DEL', reservation_key)
-  if reservation.operationKey then redis.call('DEL', reservation.operationKey) end
-  redis.call('SREM', index_key, reservation_key)
-  return cjson.encode({ ok = false, code = 'wallet_budget_reservation_expired', message = 'wallet signing budget reservation expired' })
-end
-local current = tonumber(redis.call('GET', uses_key) or '')
-if current == nil then
-  return cjson.encode({ ok = false, code = 'wallet_session_missing', message = 'Wallet Session is missing' })
-end
-local signature_uses = tonumber(reservation.signatureUses or 0)
-if current < signature_uses then
-  return cjson.encode({ ok = false, code = 'wallet_budget_exhausted', message = 'signing grant exhausted' })
-end
-	local remaining = redis.call('INCRBY', uses_key, -signature_uses)
-	redis.call('DEL', reservation_key)
-	redis.call('SREM', index_key, reservation_key)
-	local committed = cjson.encode({
-	  kind = 'wallet_signing_budget_commit_v1',
-	  operationKey = reservation.operationKey,
-	  signingWorkerId = signing_worker_id,
-	  operationId = operation_id,
-	  requestDigest = request_digest,
-	  remainingUses = remaining
-	})
-	redis.call('SET', committed_key, committed, 'EX', math.max(1, session_ttl_seconds))
-	if reservation.operationKey then redis.call('SET', reservation.operationKey, committed_key, 'EX', math.max(1, session_ttl_seconds)) end
-	return cjson.encode({ ok = true, remainingUses = remaining })
-	`;
-
-const BUDGET_VALIDATE_LUA = `
-local uses_key = KEYS[1]
-local reservation_key = KEYS[2]
-local committed_key = KEYS[3]
-local operation_id = ARGV[1]
-local request_digest = ARGV[2]
-local signing_worker_id = ARGV[3]
-local now_ms = tonumber(ARGV[4] or '')
-local committed_raw = redis.call('GET', committed_key)
-if committed_raw then
-  local committed = cjson.decode(committed_raw)
-  if committed.operationId ~= operation_id or committed.requestDigest ~= request_digest or committed.signingWorkerId ~= signing_worker_id then
-    return cjson.encode({ ok = false, code = 'wallet_budget_reservation_mismatch', message = 'wallet signing budget reservation does not match this operation' })
-  end
-  return cjson.encode({ ok = true, remainingUses = tonumber(committed.remainingUses or 0) })
-end
-local reservation_raw = redis.call('GET', reservation_key)
-if not reservation_raw then
-  return cjson.encode({ ok = false, code = 'wallet_budget_reservation_expired', message = 'wallet signing budget reservation expired' })
-end
-local reservation = cjson.decode(reservation_raw)
-if reservation.operationId ~= operation_id or reservation.requestDigest ~= request_digest or reservation.signingWorkerId ~= signing_worker_id then
-  return cjson.encode({ ok = false, code = 'wallet_budget_reservation_mismatch', message = 'wallet signing budget reservation does not match this operation' })
-end
-if now_ms == nil or tonumber(reservation.expiresAtMs or 0) <= now_ms then
-  return cjson.encode({ ok = false, code = 'wallet_budget_reservation_expired', message = 'wallet signing budget reservation expired' })
-end
-local current = tonumber(redis.call('GET', uses_key) or '')
-if current == nil then
-  return cjson.encode({ ok = false, code = 'wallet_session_missing', message = 'Wallet Session is missing' })
-end
-local signature_uses = tonumber(reservation.signatureUses or 0)
-if current < signature_uses then
-  return cjson.encode({ ok = false, code = 'wallet_budget_exhausted', message = 'signing grant exhausted' })
-end
-return cjson.encode({ ok = true, remainingUses = current })
-`;
-
-const BUDGET_RELEASE_LUA = `
-local uses_key = KEYS[1]
-local index_key = KEYS[2]
-local reservation_key = KEYS[3]
-local now_ms = tonumber(ARGV[1] or '')
-local released = false
-local reservation_raw = redis.call('GET', reservation_key)
-if reservation_raw then
-  local reservation = cjson.decode(reservation_raw)
-  redis.call('DEL', reservation_key)
-  if reservation.operationKey then redis.call('DEL', reservation.operationKey) end
-  redis.call('SREM', index_key, reservation_key)
-  released = true
-end
-local current = tonumber(redis.call('GET', uses_key) or '')
-if current == nil or now_ms == nil then
-  return cjson.encode({ ok = false, code = 'wallet_session_missing', message = 'Wallet Session is missing' })
-end
-local reserved = 0
-local keys = redis.call('SMEMBERS', index_key)
-for _, active_key in ipairs(keys) do
-  local raw = redis.call('GET', active_key)
-  if raw then
-    local active = cjson.decode(raw)
-    if tonumber(active.expiresAtMs or 0) <= now_ms then
-      redis.call('DEL', active_key)
-      if active.operationKey then redis.call('DEL', active.operationKey) end
-      redis.call('SREM', index_key, active_key)
-    else
-      reserved = reserved + tonumber(active.signatureUses or 0)
-    end
-  else
-    redis.call('SREM', index_key, active_key)
-  end
-end
-local available = current - reserved
-if available < 0 then available = 0 end
-return cjson.encode({ ok = true, released = released, remainingUses = current, reservedUses = reserved, availableUses = available })
-`;
-
-const BUDGET_RELEASE_BY_IDENTITY_LUA = `
-local uses_key = KEYS[1]
-local index_key = KEYS[2]
-local reservation_key = KEYS[3]
-local operation_id = ARGV[1]
-local request_digest = ARGV[2]
-local signing_worker_id = ARGV[3]
-local now_ms = tonumber(ARGV[4] or '')
-local released = false
-local reservation_raw = redis.call('GET', reservation_key)
-if reservation_raw then
-  local reservation = cjson.decode(reservation_raw)
-  if reservation.operationId == operation_id and reservation.requestDigest == request_digest and reservation.signingWorkerId == signing_worker_id then
-    redis.call('DEL', reservation_key)
-    if reservation.operationKey then redis.call('DEL', reservation.operationKey) end
-    redis.call('SREM', index_key, reservation_key)
-    released = true
-  end
-end
-local current = tonumber(redis.call('GET', uses_key) or '')
-if current == nil or now_ms == nil then
-  return cjson.encode({ ok = false, code = 'wallet_session_missing', message = 'Wallet Session is missing' })
-end
-local reserved = 0
-local keys = redis.call('SMEMBERS', index_key)
-for _, active_key in ipairs(keys) do
-  local raw = redis.call('GET', active_key)
-  if raw then
-    local active = cjson.decode(raw)
-    if tonumber(active.expiresAtMs or 0) <= now_ms then
-      redis.call('DEL', active_key)
-      if active.operationKey then redis.call('DEL', active.operationKey) end
-      redis.call('SREM', index_key, active_key)
-    else
-      reserved = reserved + tonumber(active.signatureUses or 0)
-    end
-  else
-    redis.call('SREM', index_key, active_key)
-  end
-end
-local available = current - reserved
-if available < 0 then available = 0 end
-return cjson.encode({ ok = true, released = released, remainingUses = current, reservedUses = reserved, availableUses = available })
-`;
-
 class UpstashRedisRestWalletSessionStore<
   TRecord extends WalletSessionRecord,
 > implements WalletSessionStore<TRecord> {
@@ -1578,31 +462,6 @@ class UpstashRedisRestWalletSessionStore<
     return `${this.usesKey(id)}:once:${normalizeConsumeOnceKey(idempotencyKey)}`;
   }
 
-  private budgetReservationIndexKey(id: string): string {
-    return `${this.usesKey(id)}:budget-reservations`;
-  }
-
-  private budgetReservationKey(id: string, reservationId: string): string {
-    return `${this.usesKey(id)}:budget-reservation:${normalizeBudgetToken(reservationId)}`;
-  }
-
-  private budgetOperationKey(
-    id: string,
-    signingWorkerId: string,
-    operationId: string,
-    requestDigest: string,
-  ): string {
-    return `${this.usesKey(id)}:${budgetOperationKey({
-      signingWorkerId,
-      operationId,
-      requestDigest,
-    })}`;
-  }
-
-  private budgetCommitKey(id: string, reservationId: string): string {
-    return `${this.usesKey(id)}:budget-commit:${normalizeBudgetToken(reservationId)}`;
-  }
-
   private replayGuardKey(scopeId: string, replayKey: string): string {
     return `${this.keyPrefix}replay:${normalizeConsumeOnceKey(scopeId)}:${normalizeConsumeOnceKey(replayKey)}`;
   }
@@ -1633,23 +492,16 @@ class UpstashRedisRestWalletSessionStore<
       if (record.expiresAtMs <= Date.now()) {
         return { ok: false, code: 'wallet_session_expired' };
       }
-      const budget = parseRedisBudgetProjection(
-        await this.client.eval(
-          BUDGET_STATUS_LUA,
-          [this.usesKey(id), this.budgetReservationIndexKey(id)],
-          [String(Date.now())],
-        ),
-      );
-      if (!budget) return { ok: false, code: 'wallet_session_unavailable' };
+      const remainingUses = Number(await this.client.getRaw(this.usesKey(id)));
+      if (!Number.isSafeInteger(remainingUses) || remainingUses < 0) {
+        return { ok: false, code: 'wallet_session_unavailable' };
+      }
       return {
         ok: true,
         status: {
           record,
           expiresAtMs: record.expiresAtMs,
-          committedRemainingUses: budget.committedRemainingUses,
-          reservedUses: budget.reservedUses,
-          availableUses: budget.availableUses,
-          remainingUses: budget.availableUses,
+          remainingUses,
         },
       };
     } catch {
@@ -1688,159 +540,6 @@ class UpstashRedisRestWalletSessionStore<
           ? (e as { message?: unknown }).message
           : e || 'Failed to consume threshold session',
       );
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  async reserveUseCountOnce(
-    input: WalletSessionBudgetReserveUseCountInput,
-  ): Promise<WalletSessionBudgetReservationResult> {
-    const nowMs = Date.now();
-    const parsed = parseBudgetReservationInput(input, Number.MAX_SAFE_INTEGER, nowMs);
-    if (!parsed.ok) return parsed;
-    const reservationId = createBudgetReservationId();
-    try {
-      const raw = await this.client.eval(
-        BUDGET_RESERVE_LUA,
-        [
-          this.usesKey(parsed.value.signingGrantId),
-          this.budgetReservationIndexKey(parsed.value.signingGrantId),
-          this.budgetOperationKey(
-            parsed.value.signingGrantId,
-            parsed.value.signingWorkerId,
-            parsed.value.operationId,
-            parsed.value.requestDigest,
-          ),
-          this.budgetReservationKey(parsed.value.signingGrantId, reservationId),
-        ],
-        [
-          parsed.value.signingGrantId,
-          parsed.value.curve,
-          parsed.value.thresholdSessionId,
-          parsed.value.operationId,
-          parsed.value.requestDigest,
-          parsed.value.signingWorkerId,
-          reservationId,
-          String(parsed.value.signatureUses),
-          String(parsed.value.expiresAtMs),
-          String(nowMs),
-        ],
-      );
-      return parseRedisBudgetReservation(raw);
-    } catch (e: unknown) {
-      const msg = errorMessage(e) || 'Failed to reserve threshold session budget';
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  async commitReservedUseCountOnce(
-    input: WalletSessionBudgetCommitReservedUseCountInput,
-  ): Promise<WalletSessionConsumeUsesResult> {
-    const parsed = parseBudgetCommitInput(input);
-    if (!parsed.ok) return parsed;
-    try {
-      const raw = await this.client.eval(
-        BUDGET_COMMIT_LUA,
-        [
-          this.usesKey(parsed.value.signingGrantId),
-          this.budgetReservationIndexKey(parsed.value.signingGrantId),
-          this.budgetReservationKey(parsed.value.signingGrantId, parsed.value.reservationId),
-          this.budgetCommitKey(parsed.value.signingGrantId, parsed.value.reservationId),
-        ],
-        [
-          parsed.value.operationId,
-          parsed.value.requestDigest,
-          parsed.value.signingWorkerId,
-          String(Date.now()),
-          '60',
-        ],
-      );
-      return parseRedisBudgetCommit(raw);
-    } catch (e: unknown) {
-      const msg = errorMessage(e) || 'Failed to commit threshold session budget';
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  async validateReservedUseCount(
-    input: WalletSessionBudgetValidateReservedUseCountInput,
-  ): Promise<WalletSessionConsumeUsesResult> {
-    const parsed = parseBudgetCommitInput(input);
-    if (!parsed.ok) return parsed;
-    try {
-      const raw = await this.client.eval(
-        BUDGET_VALIDATE_LUA,
-        [
-          this.usesKey(parsed.value.signingGrantId),
-          this.budgetReservationKey(parsed.value.signingGrantId, parsed.value.reservationId),
-          this.budgetCommitKey(parsed.value.signingGrantId, parsed.value.reservationId),
-        ],
-        [
-          parsed.value.operationId,
-          parsed.value.requestDigest,
-          parsed.value.signingWorkerId,
-          String(Date.now()),
-        ],
-      );
-      return parseRedisBudgetCommit(raw);
-    } catch (e: unknown) {
-      const msg = errorMessage(e) || 'Failed to validate threshold session budget';
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  async releaseReservedUseCount(
-    input: WalletSessionBudgetReleaseReservedUseCountInput,
-  ): Promise<WalletSessionBudgetReleaseResult> {
-    const signingGrantId = normalizeBudgetField(input.signingGrantId);
-    const reservationId = normalizeBudgetField(input.reservationId);
-    if (!signingGrantId || !reservationId) {
-      return {
-        ok: false,
-        code: 'invalid_budget_request',
-        message: 'budget release requires signing grant and reservation',
-      };
-    }
-    try {
-      const raw = await this.client.eval(
-        BUDGET_RELEASE_LUA,
-        [
-          this.usesKey(signingGrantId),
-          this.budgetReservationIndexKey(signingGrantId),
-          this.budgetReservationKey(signingGrantId, reservationId),
-        ],
-        [String(Date.now())],
-      );
-      return parseRedisBudgetRelease(raw);
-    } catch (e: unknown) {
-      const msg = errorMessage(e) || 'Failed to release threshold session budget';
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  async releaseReservedUseCountForIdentity(
-    input: WalletSessionBudgetReleaseReservedUseCountForIdentityInput,
-  ): Promise<WalletSessionBudgetReleaseResult> {
-    const parsed = parseBudgetCommitInput(input);
-    if (!parsed.ok) return parsed;
-    try {
-      const raw = await this.client.eval(
-        BUDGET_RELEASE_BY_IDENTITY_LUA,
-        [
-          this.usesKey(parsed.value.signingGrantId),
-          this.budgetReservationIndexKey(parsed.value.signingGrantId),
-          this.budgetReservationKey(parsed.value.signingGrantId, parsed.value.reservationId),
-        ],
-        [
-          parsed.value.operationId,
-          parsed.value.requestDigest,
-          parsed.value.signingWorkerId,
-          String(Date.now()),
-        ],
-      );
-      return parseRedisBudgetRelease(raw);
-    } catch (e: unknown) {
-      const msg = errorMessage(e) || 'Failed to release threshold session budget by identity';
       return { ok: false, code: 'internal', message: msg };
     }
   }
@@ -1925,31 +624,6 @@ class RedisTcpWalletSessionStore<
     return `${this.usesKey(id)}:once:${normalizeConsumeOnceKey(idempotencyKey)}`;
   }
 
-  private budgetReservationIndexKey(id: string): string {
-    return `${this.usesKey(id)}:budget-reservations`;
-  }
-
-  private budgetReservationKey(id: string, reservationId: string): string {
-    return `${this.usesKey(id)}:budget-reservation:${normalizeBudgetToken(reservationId)}`;
-  }
-
-  private budgetOperationKey(
-    id: string,
-    signingWorkerId: string,
-    operationId: string,
-    requestDigest: string,
-  ): string {
-    return `${this.usesKey(id)}:${budgetOperationKey({
-      signingWorkerId,
-      operationId,
-      requestDigest,
-    })}`;
-  }
-
-  private budgetCommitKey(id: string, reservationId: string): string {
-    return `${this.usesKey(id)}:budget-commit:${normalizeBudgetToken(reservationId)}`;
-  }
-
   private replayGuardKey(scopeId: string, replayKey: string): string {
     return `${this.keyPrefix}replay:${normalizeConsumeOnceKey(scopeId)}:${normalizeConsumeOnceKey(replayKey)}`;
   }
@@ -1979,26 +653,18 @@ class RedisTcpWalletSessionStore<
       if (record.expiresAtMs <= Date.now()) {
         return { ok: false, code: 'wallet_session_expired' };
       }
-      const budgetResp = await this.client.send([
-        'EVAL',
-        BUDGET_STATUS_LUA,
-        '2',
-        this.usesKey(id),
-        this.budgetReservationIndexKey(id),
-        String(Date.now()),
-      ]);
-      if (budgetResp.type === 'error') return { ok: false, code: 'wallet_session_unavailable' };
-      const budget = parseRedisBudgetProjection(redisRawValue(budgetResp));
-      if (!budget) return { ok: false, code: 'wallet_session_unavailable' };
+      const usesResponse = await this.client.send(['GET', this.usesKey(id)]);
+      if (usesResponse.type === 'error') return { ok: false, code: 'wallet_session_unavailable' };
+      const remainingUses = Number(redisRawValue(usesResponse));
+      if (!Number.isSafeInteger(remainingUses) || remainingUses < 0) {
+        return { ok: false, code: 'wallet_session_unavailable' };
+      }
       return {
         ok: true,
         status: {
           record,
           expiresAtMs: record.expiresAtMs,
-          committedRemainingUses: budget.committedRemainingUses,
-          reservedUses: budget.reservedUses,
-          availableUses: budget.availableUses,
-          remainingUses: budget.availableUses,
+          remainingUses,
         },
       };
     } catch {
@@ -2045,166 +711,6 @@ class RedisTcpWalletSessionStore<
           ? (e as { message?: unknown }).message
           : e || 'Failed to consume threshold session',
       );
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  async reserveUseCountOnce(
-    input: WalletSessionBudgetReserveUseCountInput,
-  ): Promise<WalletSessionBudgetReservationResult> {
-    const nowMs = Date.now();
-    const parsed = parseBudgetReservationInput(input, Number.MAX_SAFE_INTEGER, nowMs);
-    if (!parsed.ok) return parsed;
-    const reservationId = createBudgetReservationId();
-    try {
-      const resp = await this.client.send([
-        'EVAL',
-        BUDGET_RESERVE_LUA,
-        '4',
-        this.usesKey(parsed.value.signingGrantId),
-        this.budgetReservationIndexKey(parsed.value.signingGrantId),
-        this.budgetOperationKey(
-          parsed.value.signingGrantId,
-          parsed.value.signingWorkerId,
-          parsed.value.operationId,
-          parsed.value.requestDigest,
-        ),
-        this.budgetReservationKey(parsed.value.signingGrantId, reservationId),
-        parsed.value.signingGrantId,
-        parsed.value.curve,
-        parsed.value.thresholdSessionId,
-        parsed.value.operationId,
-        parsed.value.requestDigest,
-        parsed.value.signingWorkerId,
-        reservationId,
-        String(parsed.value.signatureUses),
-        String(parsed.value.expiresAtMs),
-        String(nowMs),
-      ]);
-      if (resp.type === 'error') {
-        return { ok: false, code: 'internal', message: `Redis EVAL error: ${resp.value}` };
-      }
-      return parseRedisBudgetReservation(redisRawValue(resp));
-    } catch (e: unknown) {
-      const msg = errorMessage(e) || 'Failed to reserve threshold session budget';
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  async commitReservedUseCountOnce(
-    input: WalletSessionBudgetCommitReservedUseCountInput,
-  ): Promise<WalletSessionConsumeUsesResult> {
-    const parsed = parseBudgetCommitInput(input);
-    if (!parsed.ok) return parsed;
-    try {
-      const resp = await this.client.send([
-        'EVAL',
-        BUDGET_COMMIT_LUA,
-        '4',
-        this.usesKey(parsed.value.signingGrantId),
-        this.budgetReservationIndexKey(parsed.value.signingGrantId),
-        this.budgetReservationKey(parsed.value.signingGrantId, parsed.value.reservationId),
-        this.budgetCommitKey(parsed.value.signingGrantId, parsed.value.reservationId),
-        parsed.value.operationId,
-        parsed.value.requestDigest,
-        parsed.value.signingWorkerId,
-        String(Date.now()),
-        '60',
-      ]);
-      if (resp.type === 'error') {
-        return { ok: false, code: 'internal', message: `Redis EVAL error: ${resp.value}` };
-      }
-      return parseRedisBudgetCommit(redisRawValue(resp));
-    } catch (e: unknown) {
-      const msg = errorMessage(e) || 'Failed to commit threshold session budget';
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  async validateReservedUseCount(
-    input: WalletSessionBudgetValidateReservedUseCountInput,
-  ): Promise<WalletSessionConsumeUsesResult> {
-    const parsed = parseBudgetCommitInput(input);
-    if (!parsed.ok) return parsed;
-    try {
-      const resp = await this.client.send([
-        'EVAL',
-        BUDGET_VALIDATE_LUA,
-        '3',
-        this.usesKey(parsed.value.signingGrantId),
-        this.budgetReservationKey(parsed.value.signingGrantId, parsed.value.reservationId),
-        this.budgetCommitKey(parsed.value.signingGrantId, parsed.value.reservationId),
-        parsed.value.operationId,
-        parsed.value.requestDigest,
-        parsed.value.signingWorkerId,
-        String(Date.now()),
-      ]);
-      if (resp.type === 'error') {
-        return { ok: false, code: 'internal', message: `Redis EVAL error: ${resp.value}` };
-      }
-      return parseRedisBudgetCommit(redisRawValue(resp));
-    } catch (e: unknown) {
-      const msg = errorMessage(e) || 'Failed to validate threshold session budget';
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  async releaseReservedUseCount(
-    input: WalletSessionBudgetReleaseReservedUseCountInput,
-  ): Promise<WalletSessionBudgetReleaseResult> {
-    const signingGrantId = normalizeBudgetField(input.signingGrantId);
-    const reservationId = normalizeBudgetField(input.reservationId);
-    if (!signingGrantId || !reservationId) {
-      return {
-        ok: false,
-        code: 'invalid_budget_request',
-        message: 'budget release requires signing grant and reservation',
-      };
-    }
-    try {
-      const resp = await this.client.send([
-        'EVAL',
-        BUDGET_RELEASE_LUA,
-        '3',
-        this.usesKey(signingGrantId),
-        this.budgetReservationIndexKey(signingGrantId),
-        this.budgetReservationKey(signingGrantId, reservationId),
-        String(Date.now()),
-      ]);
-      if (resp.type === 'error') {
-        return { ok: false, code: 'internal', message: `Redis EVAL error: ${resp.value}` };
-      }
-      return parseRedisBudgetRelease(redisRawValue(resp));
-    } catch (e: unknown) {
-      const msg = errorMessage(e) || 'Failed to release threshold session budget';
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  async releaseReservedUseCountForIdentity(
-    input: WalletSessionBudgetReleaseReservedUseCountForIdentityInput,
-  ): Promise<WalletSessionBudgetReleaseResult> {
-    const parsed = parseBudgetCommitInput(input);
-    if (!parsed.ok) return parsed;
-    try {
-      const resp = await this.client.send([
-        'EVAL',
-        BUDGET_RELEASE_BY_IDENTITY_LUA,
-        '3',
-        this.usesKey(parsed.value.signingGrantId),
-        this.budgetReservationIndexKey(parsed.value.signingGrantId),
-        this.budgetReservationKey(parsed.value.signingGrantId, parsed.value.reservationId),
-        parsed.value.operationId,
-        parsed.value.requestDigest,
-        parsed.value.signingWorkerId,
-        String(Date.now()),
-      ]);
-      if (resp.type === 'error') {
-        return { ok: false, code: 'internal', message: `Redis EVAL error: ${resp.value}` };
-      }
-      return parseRedisBudgetRelease(redisRawValue(resp));
-    } catch (e: unknown) {
-      const msg = errorMessage(e) || 'Failed to release threshold session budget by identity';
       return { ok: false, code: 'internal', message: msg };
     }
   }
@@ -2488,125 +994,4 @@ export function createEcdsaWalletSessionStore(input: {
   }
   input.logger.info('[threshold-ecdsa] Using in-memory Wallet Session store (non-persistent)');
   return new InMemoryWalletSessionStore<EcdsaWalletSessionRecord>({ keyPrefix: envPrefix });
-}
-
-export function createWalletSigningBudgetSessionStore(input: {
-  config?: ThresholdStoreConfigInput | null;
-  logger: NormalizedLogger;
-  isNode: boolean;
-}): WalletSigningBudgetSessionStore {
-  const doStores = createCloudflareDurableObjectWalletSigningBudgetStores({
-    config: input.config,
-    logger: input.logger,
-  });
-  if (doStores) return doStores.walletSessionStore;
-
-  const config = (isObject(input.config) ? input.config : {}) as WalletSessionStoreConfigRecord;
-  const allowInMemory = toOptionalTrimmedString(config.THRESHOLD_ALLOW_IN_MEMORY_STORES) === '1';
-  const requirePersistent = !input.isNode && !allowInMemory;
-  const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
-  const baseBudgetPrefix = toThresholdEd25519PrefixFromBase(basePrefix, 'wallet-session');
-  const envPrefix =
-    toOptionalTrimmedString(config.THRESHOLD_WALLET_SIGNING_BUDGET_SESSION_PREFIX) ||
-    (baseBudgetPrefix
-      ? `${baseBudgetPrefix}budget:`
-      : DEFAULT_WALLET_SIGNING_BUDGET_SESSION_PREFIX);
-
-  const kind = readNonDurableObjectThresholdStoreKind(config, 'threshold-budget');
-  if (kind === 'in-memory') {
-    if (requirePersistent) {
-      throw new Error(
-        '[threshold-budget] In-memory wallet budget session store is not supported in this runtime; configure Upstash/Redis or Durable Objects',
-      );
-    }
-    return new InMemoryWalletSessionStore<WalletSigningBudgetSessionRecord>({
-      keyPrefix: envPrefix,
-    });
-  }
-  if (kind === 'upstash-redis-rest') {
-    return new UpstashRedisRestWalletSessionStore<WalletSigningBudgetSessionRecord>({
-      url:
-        toOptionalTrimmedString(config.url) ||
-        toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
-      token:
-        toOptionalTrimmedString(config.token) ||
-        toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN),
-      keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
-      parseRecord: parseWalletSigningBudgetSessionRecord,
-    });
-  }
-  if (kind === 'redis-tcp') {
-    if (!input.isNode) {
-      if (requirePersistent) {
-        throw new Error(
-          '[threshold-budget] redis-tcp wallet budget session store is not supported in this runtime; configure Upstash/Redis REST or Durable Objects',
-        );
-      }
-      input.logger.warn(
-        '[threshold-budget] redis-tcp wallet budget session store is not supported in this runtime; falling back to in-memory',
-      );
-      return new InMemoryWalletSessionStore<WalletSigningBudgetSessionRecord>({
-        keyPrefix: envPrefix,
-      });
-    }
-    return new RedisTcpWalletSessionStore<WalletSigningBudgetSessionRecord>({
-      redisUrl:
-        toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
-      keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
-      parseRecord: parseWalletSigningBudgetSessionRecord,
-    });
-  }
-  const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
-  const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
-  if (upstashUrl || upstashToken) {
-    if (!upstashUrl || !upstashToken) {
-      throw new Error(
-        'Upstash wallet budget session store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
-      );
-    }
-    input.logger.info(
-      '[threshold-budget] Using Upstash REST store for Wallet Budget Session records',
-    );
-    return new UpstashRedisRestWalletSessionStore<WalletSigningBudgetSessionRecord>({
-      url: upstashUrl,
-      token: upstashToken,
-      keyPrefix: envPrefix,
-      parseRecord: parseWalletSigningBudgetSessionRecord,
-    });
-  }
-
-  const redisUrl = toOptionalTrimmedString(config.REDIS_URL);
-  if (redisUrl) {
-    if (!input.isNode) {
-      if (requirePersistent) {
-        throw new Error(
-          '[threshold-budget] REDIS_URL is set but TCP Redis is not supported in this runtime; use Upstash/Redis REST or Durable Objects',
-        );
-      }
-      input.logger.warn(
-        '[threshold-budget] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
-      );
-      return new InMemoryWalletSessionStore<WalletSigningBudgetSessionRecord>({
-        keyPrefix: envPrefix,
-      });
-    }
-    input.logger.info('[threshold-budget] Using redis-tcp store for Wallet Budget Session records');
-    return new RedisTcpWalletSessionStore<WalletSigningBudgetSessionRecord>({
-      redisUrl,
-      keyPrefix: envPrefix,
-      parseRecord: parseWalletSigningBudgetSessionRecord,
-    });
-  }
-
-  if (requirePersistent) {
-    throw new Error(
-      '[threshold-budget] Wallet Budget Session records require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects',
-    );
-  }
-  input.logger.info(
-    '[threshold-budget] Using in-memory Wallet Budget Session store (non-persistent)',
-  );
-  return new InMemoryWalletSessionStore<WalletSigningBudgetSessionRecord>({
-    keyPrefix: envPrefix,
-  });
 }
