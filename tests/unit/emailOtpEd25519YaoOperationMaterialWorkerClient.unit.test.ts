@@ -47,6 +47,15 @@ function activeMetadata(): RouterAbEd25519YaoActiveClientMetadataV1 {
       threshold_session_id: THRESHOLD_SESSION_ID,
       signer_set_id: 'near_ed25519:slot:1',
       signing_worker_id: 'email-otp-operation-signing-worker',
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: 'email-otp-operation-activation',
+        capability: 'email-otp-operation-capability',
+        material_owner: WALLET_ID,
+        key_binding: 'email-otp-operation-key',
+        lifecycle_binding: 'email-otp-operation-lifecycle-binding',
+        signing_worker: 'email-otp-operation-signing-worker',
+      },
     },
     applicationBinding: {
       wallet_id: WALLET_ID,
@@ -60,6 +69,15 @@ function activeMetadata(): RouterAbEd25519YaoActiveClientMetadataV1 {
     stateEpoch: 1n,
     transcript: new Uint8Array(32).fill(9),
     activeCapabilityBinding: new Array<number>(32).fill(10),
+    materialActivation: {
+      kind: 'mpc_material_activation_ref',
+      activationId: 'email-otp-operation-activation',
+      capability: 'email-otp-operation-capability',
+      materialOwner: WALLET_ID,
+      keyBinding: 'email-otp-operation-key',
+      lifecycleBinding: 'email-otp-operation-lifecycle-binding',
+      signingWorker: 'email-otp-operation-signing-worker',
+    },
   };
 }
 
