@@ -3344,11 +3344,9 @@ async function primeThresholdLoginWarmSigners(args: {
             : resolveThresholdLoginWarmEcdsaThresholdSessionId({
                 sharedState: ecdsaSigningGrantState,
               });
-          const signingGrantId = matchingExchangeActivation
-            ? matchingExchangeActivation.response.session.signing_grant_id
-            : resolveThresholdLoginWarmEcdsaSigningGrantId({
-                sharedState: ecdsaSigningGrantState,
-              });
+          const signingGrantId = resolveThresholdLoginWarmEcdsaSigningGrantId({
+            sharedState: ecdsaSigningGrantState,
+          });
           const runtimePolicyScope = activeCanonicalEcdsaContext.runtimePolicyScope;
           if (!runtimePolicyScope) {
             throw new Error('[login] ECDSA session lane requires runtimePolicyScope');

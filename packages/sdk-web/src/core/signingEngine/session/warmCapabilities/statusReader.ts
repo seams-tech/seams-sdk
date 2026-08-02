@@ -13,7 +13,7 @@ import type {
   WarmSessionPrfClaim,
 } from './types';
 import {
-  ed25519SigningGrantForAuthorization,
+  ed25519AuthorizationIdentityMatchesRuntime,
   type ExactEd25519SealedSessionRuntime,
 } from './ed25519SealedSessionRuntime';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -79,12 +79,7 @@ async function ed25519AuthorizationMatchesRuntime(args: {
   ) {
     return false;
   }
-  const signingGrantId = ed25519SigningGrantForAuthorization({ runtime, authorization });
-  if (
-    !signingGrantId
-  ) {
-    return false;
-  }
+  if (!ed25519AuthorizationIdentityMatchesRuntime({ runtime, authorization })) return false;
   try {
     const authority = ed25519WalletAuthAuthority(runtime);
     const expected = await walletAuthAuthorityRef({ authority });

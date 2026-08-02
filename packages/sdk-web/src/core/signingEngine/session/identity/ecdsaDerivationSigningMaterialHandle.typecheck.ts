@@ -11,7 +11,7 @@ import type {
   EcdsaRelayerKeyId,
   EcdsaThresholdKeyId,
 } from '../keyMaterialBrands';
-import type { SigningGrantId, ThresholdEcdsaSessionId } from '../operationState/types';
+import type { ThresholdEcdsaSessionId } from '../operationState/types';
 
 declare const keyHandle: EcdsaKeyHandle;
 declare const clientVerifyingPublicKey33B64u: EcdsaClientVerifyingPublicKey33B64u;
@@ -21,7 +21,6 @@ declare const relayerKeyId: EcdsaRelayerKeyId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const walletId: WalletId;
 declare const thresholdSessionId: ThresholdEcdsaSessionId;
-declare const signingGrantId: SigningGrantId;
 declare const activeStateId: EcdsaActiveStateId;
 
 const materialIdentity: BuildEcdsaRoleLocalSigningMaterialHandleInput = {
@@ -65,14 +64,6 @@ const materialIdentityWithThresholdSession = {
 
 // @ts-expect-error threshold sessions do not identify material, including through broad inputs.
 buildEcdsaRoleLocalSigningMaterialHandle(materialIdentityWithThresholdSession);
-
-const materialIdentityWithSigningGrant = {
-  ...materialIdentity,
-  signingGrantId,
-};
-
-// @ts-expect-error signing grants do not identify material, including through broad inputs.
-buildEcdsaRoleLocalSigningMaterialHandle(materialIdentityWithSigningGrant);
 
 const materialIdentityWithActiveState = {
   ...materialIdentity,

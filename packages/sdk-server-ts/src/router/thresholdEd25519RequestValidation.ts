@@ -7,9 +7,7 @@ import { isPlainObject } from '@shared/utils/validation';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import {
-  parseSigningGrantId,
   parseThresholdEd25519SessionId,
-  type SigningGrantId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import {
@@ -82,7 +80,6 @@ const SESSION_POLICY_KEYS = [
   'authority',
   'relayerKeyId',
   'thresholdSessionId',
-  'signingGrantId',
   'runtimePolicyScope',
   'routerAbNormalSigning',
   'participantIds',
@@ -112,18 +109,6 @@ function requiredThresholdEd25519SessionId(
   const value = requiredStringField(record, field);
   if (!value.ok) return value;
   const parsed = parseThresholdEd25519SessionId(value.request);
-  return parsed.ok
-    ? { ok: true, request: parsed.value }
-    : invalidThresholdEd25519Body(`${field} is invalid`);
-}
-
-function requiredSigningGrantId(
-  record: Record<string, unknown>,
-  field: string,
-): ThresholdEd25519RouteParseResult<SigningGrantId> {
-  const value = requiredStringField(record, field);
-  if (!value.ok) return value;
-  const parsed = parseSigningGrantId(value.request);
   return parsed.ok
     ? { ok: true, request: parsed.value }
     : invalidThresholdEd25519Body(`${field} is invalid`);
@@ -173,8 +158,6 @@ export function parseRouterAbEd25519YaoSessionPolicyV1(
   if (!relayerKeyId.ok) return relayerKeyId;
   const thresholdSessionId = requiredThresholdEd25519SessionId(raw, 'thresholdSessionId');
   if (!thresholdSessionId.ok) return thresholdSessionId;
-  const signingGrantId = requiredSigningGrantId(raw, 'signingGrantId');
-  if (!signingGrantId.ok) return signingGrantId;
   if (
     typeof raw.ttlMs !== 'number' ||
     !Number.isSafeInteger(raw.ttlMs) ||
@@ -216,7 +199,6 @@ export function parseRouterAbEd25519YaoSessionPolicyV1(
       authority,
       relayerKeyId: relayerKeyId.request,
       thresholdSessionId: thresholdSessionId.request,
-      signingGrantId: signingGrantId.request,
       runtimePolicyScope,
       routerAbNormalSigning,
       participantIds: [participantIds[0]!, participantIds[1]!],

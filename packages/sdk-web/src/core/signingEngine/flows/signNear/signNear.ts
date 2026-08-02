@@ -429,8 +429,9 @@ function requireResolvedNearEd25519SigningLane(
     throw new Error('[SigningEngine][near] prepared Ed25519 lane must target NEAR');
   }
   const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
-  const signingGrantId = String(lane.signingGrantId || '').trim();
-  if (!thresholdSessionId || !signingGrantId) {
+  const walletSessionId = String(lane.walletSessionId || '').trim();
+  const quotaId = String(lane.quotaId || '').trim();
+  if (!thresholdSessionId || !walletSessionId || !quotaId) {
     throw new Error('[SigningEngine][near] prepared Ed25519 lane is missing session identity');
   }
   // Resolved lane metadata is copied from the executable lane so challenge, budget,
@@ -440,7 +441,8 @@ function requireResolvedNearEd25519SigningLane(
     curve: 'ed25519',
     keyKind: 'threshold_ed25519',
     chainFamily: 'near',
-    signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
+    walletSessionId: SigningSessionIds.walletSession(walletSessionId),
+    quotaId: SigningSessionIds.walletSessionQuota(quotaId),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
   };
 }
@@ -482,7 +484,8 @@ async function resolveNearTransactionWalletAuth(args: {
       authMethod: signingLaneAuthMethod(lane.auth),
       reason: plan.reason,
       readiness: preparedOperation.readiness.status,
-      signingGrantId: lane.signingGrantId,
+      walletSessionId: lane.walletSessionId,
+      quotaId: lane.quotaId,
       thresholdSessionId: lane.thresholdSessionId,
       retention: lane.retention,
       remainingUses: preparedOperation.remainingUses,

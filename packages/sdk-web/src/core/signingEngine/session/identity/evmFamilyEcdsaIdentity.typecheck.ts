@@ -52,7 +52,8 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
 const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget: evmTarget,
   thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
+  walletSessionId: 'wallet-session-1',
+  quotaId: 'quota-1',
   thresholdSessionKind: 'jwt',
   ttlMs: 60_000,
   remainingUses: 1,
@@ -63,7 +64,8 @@ const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
 buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget: evmTarget,
   thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
+  walletSessionId: 'wallet-session-1',
+  quotaId: 'quota-1',
   thresholdSessionKind: 'jwt',
   ttlMs: 60_000,
   remainingUses: 1,

@@ -337,7 +337,8 @@ function selectedEd25519LaneForTransactionCandidate(
     nearEd25519SigningKeyId: candidate.nearEd25519SigningKeyId,
     signerSlot: candidate.signerSlot,
     auth: candidate.auth,
-    signingGrantId: candidate.signingGrantId,
+    walletSessionId: candidate.authorization.walletSessionId,
+    quotaId: candidate.authorization.quotaId,
     thresholdSessionId: candidate.thresholdSessionId,
   });
 }
@@ -425,7 +426,8 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
       nearEd25519SigningKeyId: candidate.nearEd25519SigningKeyId,
       signerSlot: candidate.signerSlot,
       auth: candidate.auth,
-      signingGrantId: candidate.signingGrantId,
+      walletSessionId: candidate.authorization.walletSessionId,
+      quotaId: candidate.authorization.quotaId,
       thresholdSessionId: candidate.thresholdSessionId,
     });
   }

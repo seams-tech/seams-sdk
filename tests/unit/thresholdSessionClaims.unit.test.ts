@@ -108,7 +108,6 @@ function routerAbEd25519Claims(input: { readonly thresholdExpiresAtMs?: number }
     nearAccountId: 'alice.testnet',
     nearEd25519SigningKeyId: 'alice.testnet',
     thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
     walletSessionId: 'wallet-session-1',
     quotaId: 'wallet-quota-1',
     relayerKeyId: 'relayer-key-1',
@@ -171,7 +170,6 @@ function routerAbEcdsaClaims() {
     authorizationSessionId: 'authorization-session-1',
     quotaId: 'wallet-quota-1',
     thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
   });
 }
 
@@ -354,7 +352,6 @@ test.describe('Router A/B Wallet Session token claims', () => {
 
     expect(buildVerifiedEd25519WalletSessionAuth(claims)).toMatchObject({
       thresholdSessionId: 'threshold-session-1',
-      signingGrantId: 'signing-grant-1',
       walletSessionId: 'wallet-session-1',
       quotaId: 'wallet-quota-1',
     });
@@ -424,7 +421,6 @@ test.describe('Router A/B Wallet Session token claims', () => {
           walletSessionId: 'wallet-session-ed25519',
           quotaId: 'wallet-quota-ed25519',
           thresholdSessionId: 'threshold-ed25519-session',
-          signingGrantId: 'signing-grant-ed25519',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
           runtimePolicyScope,
@@ -449,7 +445,6 @@ test.describe('Router A/B Wallet Session token claims', () => {
           walletSessionId: 'wallet-session-ed25519',
           quotaId: 'wallet-quota-ed25519',
           thresholdSessionId: 'threshold-ed25519-session',
-          signingGrantId: 'signing-grant-ed25519',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
           runtimePolicyScope,
@@ -482,7 +477,6 @@ test.describe('Router A/B Wallet Session token claims', () => {
           walletSessionId: 'wallet-session-1',
           quotaId: 'wallet-quota-1',
           thresholdSessionId: ecdsaBootstrap.thresholdSessionId,
-          signingGrantId: ecdsaBootstrap.signingGrantId,
           expiresAtMs: ecdsaBootstrap.expiresAtMs,
           participantIds: ecdsaBootstrap.participantIds,
           runtimePolicyScope,
@@ -543,7 +537,6 @@ test.describe('Router A/B Wallet Session token claims', () => {
           walletSessionId: 'wallet-session-1',
           quotaId: 'wallet-quota-1',
           thresholdSessionId: 'threshold-ecdsa-session',
-          signingGrantId: 'signing-grant-ecdsa',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
           runtimePolicyScope,
@@ -780,6 +773,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
             message: 'Ed25519 material activation is not active for this wallet',
           };
     const baseBody = {
+      sessionKind: 'jwt',
       scope: {
         request_id: 'router-ab-ed25519-material-substitution',
         account_id: claims.walletId,
@@ -801,16 +795,21 @@ test.describe('Router A/B Wallet Session token claims', () => {
       { signing_worker: 'signing-worker-substituted' },
     ] as const;
     for (const substitution of substitutions) {
+      const substitutedMaterial = {
+        ...baseBody.scope.material_activation,
+        ...substitution,
+      };
+      const substitutedScope = {
+        ...baseBody.scope,
+        material_activation: substitutedMaterial,
+        ...(substitution.signing_worker
+          ? { signing_worker_id: substitution.signing_worker }
+          : {}),
+      };
       const result = await authorizeRouterAbEd25519NormalSigningRoute({
         body: {
           ...baseBody,
-          scope: {
-            ...baseBody.scope,
-            material_activation: {
-              ...baseBody.scope.material_activation,
-              ...substitution,
-            },
-          },
+          scope: substitutedScope,
         },
         rawBody: baseBody,
         headers: {},

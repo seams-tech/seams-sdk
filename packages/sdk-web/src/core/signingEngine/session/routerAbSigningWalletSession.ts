@@ -7,13 +7,13 @@ import {
   decodeJwtPayloadRecord,
 } from '@shared/utils/sessionTokens';
 import {
-  parseSigningGrantId,
   parseThresholdEd25519SessionId,
-  type SigningGrantId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import {
+  parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
+  type MpcWalletSigningQuotaId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
@@ -27,8 +27,8 @@ export type RouterAbEd25519SigningWalletSession = {
   curve: 'ed25519';
   auth: RouterAbSigningWalletSessionAuth;
   walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   thresholdSessionId: ThresholdEd25519SessionId;
-  signingGrantId: SigningGrantId;
   remainingUses: number;
   expiresAtMs: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -42,7 +42,7 @@ export type RouterAbSigningWalletSessionParseFailureReason =
   | 'cookie_session'
   | 'missing_session_identity'
   | 'missing_wallet_session_jwt'
-  | 'missing_signing_grant_id'
+  | 'missing_quota_id'
   | 'missing_threshold_session_id'
   | 'missing_signing_root'
   | 'signing_root_mismatch'
@@ -101,9 +101,8 @@ export type RouterAbEd25519WalletSessionIdentityClaims = {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   walletSessionId: WalletSessionId;
-  quotaId: string;
+  quotaId: MpcWalletSigningQuotaId;
   thresholdSessionId: ThresholdEd25519SessionId;
-  signingGrantId: SigningGrantId;
 };
 
 export function parseRouterAbEd25519WalletSessionIdentityClaims(
@@ -115,17 +114,15 @@ export function parseRouterAbEd25519WalletSessionIdentityClaims(
   const nearAccountId = nonEmptyString(payload.nearAccountId);
   const nearEd25519SigningKeyId = nonEmptyString(payload.nearEd25519SigningKeyId);
   const walletSessionId = parseWalletSessionId(payload.walletSessionId);
-  const quotaId = nonEmptyString(payload.quotaId);
+  const quotaId = parseMpcWalletSigningQuotaId(payload.quotaId);
   const thresholdSessionId = parseThresholdEd25519SessionId(payload.thresholdSessionId);
-  const signingGrantId = parseSigningGrantId(payload.signingGrantId);
   if (
     !walletId ||
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
     !walletSessionId.ok ||
-    !quotaId ||
-    !thresholdSessionId.ok ||
-    !signingGrantId.ok
+    !quotaId.ok ||
+    !thresholdSessionId.ok
   ) {
     return null;
   }
@@ -134,9 +131,8 @@ export function parseRouterAbEd25519WalletSessionIdentityClaims(
     nearAccountId,
     nearEd25519SigningKeyId,
     walletSessionId: walletSessionId.value,
-    quotaId,
+    quotaId: quotaId.value,
     thresholdSessionId: thresholdSessionId.value,
-    signingGrantId: signingGrantId.value,
   };
 }
 
@@ -145,8 +141,8 @@ export type BuildRouterAbEd25519SigningWalletSessionInput = {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   walletSessionId: string;
+  quotaId: string;
   thresholdSessionId: string;
-  signingGrantId: string;
   remainingUses: number;
   expiresAtMs: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -166,11 +162,11 @@ export function buildRouterAbEd25519SigningWalletSession(
   const nearAccountId = nonEmptyString(input.nearAccountId);
   const nearEd25519SigningKeyId = nonEmptyString(input.nearEd25519SigningKeyId);
   const walletSessionId = parseWalletSessionId(input.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(input.quotaId);
   const thresholdSessionId = parseThresholdEd25519SessionId(input.thresholdSessionId);
-  const signingGrantId = parseSigningGrantId(input.signingGrantId);
   if (!walletSessionId.ok) return { ok: false, reason: 'missing_session_identity' };
+  if (!quotaId.ok) return { ok: false, reason: 'missing_quota_id' };
   if (!thresholdSessionId.ok) return { ok: false, reason: 'missing_threshold_session_id' };
-  if (!signingGrantId.ok) return { ok: false, reason: 'missing_signing_grant_id' };
   const claims = parseRouterAbEd25519WalletSessionIdentityClaims(auth.walletSessionJwt);
   if (
     !claims ||
@@ -178,8 +174,8 @@ export function buildRouterAbEd25519SigningWalletSession(
     claims.nearAccountId !== nearAccountId ||
     claims.nearEd25519SigningKeyId !== nearEd25519SigningKeyId ||
     claims.walletSessionId !== walletSessionId.value ||
-    claims.thresholdSessionId !== thresholdSessionId.value ||
-    claims.signingGrantId !== signingGrantId.value
+    claims.quotaId !== quotaId.value ||
+    claims.thresholdSessionId !== thresholdSessionId.value
   ) {
     return { ok: false, reason: 'wallet_binding_mismatch' };
   }
@@ -220,8 +216,8 @@ export function buildRouterAbEd25519SigningWalletSession(
       curve: 'ed25519',
       auth,
       walletSessionId: walletSessionId.value,
+      quotaId: quotaId.value,
       thresholdSessionId: thresholdSessionId.value,
-      signingGrantId: signingGrantId.value,
       remainingUses,
       expiresAtMs,
       runtimePolicyScope: input.runtimePolicyScope,

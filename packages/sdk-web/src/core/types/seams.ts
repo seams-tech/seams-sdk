@@ -25,7 +25,6 @@ import type {
   WalletId,
 } from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodBinding } from '@shared/utils/walletCapabilityBindings';
-import type { SigningGrantId } from '@shared/utils/domainIds';
 import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
 import type { ThresholdEcdsaChainTarget } from '../signingEngine/interfaces/ecdsaChainTarget';
 import type {

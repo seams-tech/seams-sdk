@@ -232,7 +232,6 @@ type ActivateEcdsaExistingSessionRequestBase = ActivateEcdsaSessionRequestCommon
   ecdsaThresholdKeyId?: never;
   participantIds?: never;
   sessionKind?: never;
-  sessionId?: never;
   signingGrantId?: never;
   runtimePolicyScope?: never;
   ttlMs?: never;
@@ -535,9 +534,9 @@ async function activateEcdsaSessionByPurpose(
   }
   const clientVerifyingShareB64u = parseEcdsaClientVerifyingShareB64u(clientVerifyingShareB64uRaw);
 
-  const sessionId = String(bootstrap.sessionId || '').trim();
-  if (!sessionId) {
-    throw new Error('threshold-ecdsa bootstrap returned empty sessionId');
+  const thresholdSessionId = String(bootstrap.thresholdSessionId || '').trim();
+  if (!thresholdSessionId) {
+    throw new Error('threshold-ecdsa bootstrap returned empty thresholdSessionId');
   }
   const signingGrantId = String(bootstrap.signingGrantId || '').trim();
   if (!signingGrantId) {
@@ -592,7 +591,7 @@ async function activateEcdsaSessionByPurpose(
 
   const session: ThresholdEcdsaSessionBootstrapResult['session'] = {
     ok: true,
-    thresholdSessionId: sessionId,
+    thresholdSessionId,
     signingGrantId,
     authorizationSessionId: bootstrap.authorizationSessionId,
     walletSessionId: bootstrap.walletSessionId,

@@ -541,7 +541,6 @@ async function attachEcdsaWalletSessionJwt(
       sessionKind: 'jwt',
       authorizationSessionId: bootstrap.authorizationSessionId,
       thresholdSessionId: bootstrap.thresholdSessionId,
-      signingGrantId: bootstrap.signingGrantId,
       walletSessionId: bootstrap.walletSessionId,
       quotaId: bootstrap.quotaId,
       expiresAtMs: bootstrap.expiresAtMs,

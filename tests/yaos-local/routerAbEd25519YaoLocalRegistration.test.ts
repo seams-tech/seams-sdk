@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
-import { createPublicKey, verify } from 'node:crypto';
+import { createPublicKey } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,35 +18,15 @@ import {
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistration';
 import type { RouterApiRouteExtension } from '../../packages/sdk-server-ts/src/router/routeExtensions';
 import type { RouteDefinition } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
-import {
-  handleRouterAbEd25519NormalSigningRouteCore,
-  ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS,
-  type RouterAbNormalSigningAdmissionAdapter,
-  type RouterAbNormalSigningRouteRuntime,
-} from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
-import type {
-  RouterAbNormalSigningBudgetFinalizeInput,
-  RouterAbNormalSigningBudgetReleaseInput,
-  RouterAbNormalSigningBudgetReservationInput,
-  RouterAbNormalSigningPrepareReplayReservationInput,
-  RouterAbSigningWorkerPrivateTransport,
-} from '../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime';
-import {
-  buildRouterAbEd25519Nep413PrepareRequestV2,
-  routerAbEd25519Nep413CanonicalMessageB64uV2,
-} from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
 import {
   RouterAbEd25519YaoClientV1,
-  type RouterAbEd25519YaoActiveClientV1,
-  type RouterAbEd25519YaoClientSigningInputV1,
   type RouterAbEd25519YaoRegistrationTransportRequestV1,
   type RouterAbEd25519YaoRegistrationTransportResultV1,
   type RouterAbEd25519YaoRegistrationTransportV1,
 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
-import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const DEV_MANIFEST = join(REPO_ROOT, 'crates/router-ab-dev/Cargo.toml');
@@ -56,25 +36,6 @@ const ROUTER_ENV_FILE = '.env.router-ab.router.local';
 
 type LocalProcessState = { kind: 'running' } | { kind: 'stopped' };
 
-type LocalSigningBudgetState =
-  | { kind: 'available' }
-  | {
-      kind: 'reserved';
-      reservationId: string;
-      signingGrantId: string;
-      signingWorkerId: string;
-      operationId: string;
-      requestDigest: string;
-    }
-  | { kind: 'committed'; reservationId: string }
-  | { kind: 'released'; reservationId: string };
-
-type LocalPublicSigningRoutePhase = 'prepare' | 'finalize';
-
-type LocalPublicSigningRouteResult = {
-  status: number;
-  body: unknown;
-};
 
 type LocalRegistrationTransportState =
   | { kind: 'awaiting_execution' }
@@ -157,281 +118,6 @@ class InProcessRouterAbEd25519YaoRegistrationTransport implements RouterAbEd2551
         return assertNever(this.state);
     }
   }
-}
-
-class AllowLocalSigningAdmission implements RouterAbNormalSigningAdmissionAdapter {
-  async evaluate(): Promise<{ ok: true }> {
-    return { ok: true };
-  }
-}
-
-function replayAuthorizationIdentity(
-  input: RouterAbNormalSigningPrepareReplayReservationInput,
-): string {
-  switch (input.authorizationIdentity.kind) {
-    case 'reusable_wallet_session':
-      return `reusable_wallet_session:${input.authorizationIdentity.walletSessionId}`;
-    case 'operation_step_up':
-      return `operation_step_up:${input.authorizationIdentity.materialActivationId}`;
-  }
-}
-
-class LocalWalletSessionAdapter implements SessionAdapter {
-  constructor(private readonly claims: Readonly<Record<string, unknown>>) {}
-
-  async signJwt(): Promise<string> {
-    return 'unused.local.jwt';
-  }
-
-  async parse(): Promise<{ ok: true; claims: Record<string, unknown> }> {
-    return { ok: true, claims: { ...this.claims } };
-  }
-
-  buildSetCookie(): string {
-    return 'unused-local-cookie';
-  }
-
-  buildClearCookie(): string {
-    return 'unused-local-clear-cookie';
-  }
-
-  async refresh(): Promise<{ ok: false }> {
-    return { ok: false };
-  }
-}
-
-type ConfiguredSigningWorkerTransport = Extract<
-  RouterAbSigningWorkerPrivateTransport,
-  { readonly kind: 'configured' }
->;
-
-class LocalNormalSigningRuntime implements RouterAbNormalSigningRouteRuntime {
-  private readonly replayRequestIds = new Set<string>();
-  private budget: LocalSigningBudgetState = { kind: 'available' };
-
-  constructor(private readonly config: ConfiguredSigningWorkerTransport) {}
-
-  getSigningWorkerPrivateTransport(): ConfiguredSigningWorkerTransport {
-    return this.config;
-  }
-
-  async reservePrepareReplay(
-    input: RouterAbNormalSigningPrepareReplayReservationInput,
-  ): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }> {
-    const key = `${input.curve}:prepare:${replayAuthorizationIdentity(input)}:${input.requestId}`;
-    if (this.replayRequestIds.has(key)) {
-      return {
-        ok: false,
-        status: 400,
-        code: 'one_use_replay_rejected',
-        message: 'Router A/B normal-signing prepare request id already used',
-      };
-    }
-    this.replayRequestIds.add(key);
-    return { ok: true };
-  }
-
-  async reserveBudget(input: RouterAbNormalSigningBudgetReservationInput): Promise<
-    | {
-        ok: true;
-        reservationId: string;
-        remainingUses: number;
-        reservedUses: number;
-        availableUses: number;
-      }
-    | { ok: false; status: number; code: string; message: string }
-  > {
-    if (this.budget.kind !== 'available') return localBudgetUnavailable();
-    const reservationId = 'local-yao-budget-reservation-1';
-    this.budget = {
-      kind: 'reserved',
-      reservationId,
-      signingGrantId: input.signingGrantId,
-      signingWorkerId: input.signingWorkerId,
-      operationId: input.operationId,
-      requestDigest: input.requestDigest,
-    };
-    return {
-      ok: true,
-      reservationId,
-      remainingUses: 1,
-      reservedUses: 1,
-      availableUses: 0,
-    };
-  }
-
-  async validateBudget(
-    input: RouterAbNormalSigningBudgetFinalizeInput,
-  ): Promise<{ ok: true; remainingUses: number } | ReturnType<typeof localBudgetUnavailable>> {
-    return this.matchesReservedBudget(input)
-      ? { ok: true, remainingUses: 1 }
-      : localBudgetUnavailable();
-  }
-
-  async commitBudget(
-    input: RouterAbNormalSigningBudgetFinalizeInput,
-  ): Promise<{ ok: true; remainingUses: number } | ReturnType<typeof localBudgetUnavailable>> {
-    if (!this.matchesReservedBudget(input)) return localBudgetUnavailable();
-    this.budget = { kind: 'committed', reservationId: input.reservationId };
-    return { ok: true, remainingUses: 0 };
-  }
-
-  async releaseBudget(input: RouterAbNormalSigningBudgetReleaseInput): Promise<
-    | {
-        ok: true;
-        released: boolean;
-        remainingUses: number;
-        reservedUses: number;
-        availableUses: number;
-      }
-    | ReturnType<typeof localBudgetUnavailable>
-  > {
-    if (this.budget.kind !== 'reserved' || this.budget.reservationId !== input.reservationId) {
-      return localBudgetUnavailable();
-    }
-    this.budget = { kind: 'released', reservationId: input.reservationId };
-    return localBudgetReleased();
-  }
-
-  async releaseBudgetForIdentity(input: RouterAbNormalSigningBudgetFinalizeInput): Promise<
-    | {
-        ok: true;
-        released: boolean;
-        remainingUses: number;
-        reservedUses: number;
-        availableUses: number;
-      }
-    | ReturnType<typeof localBudgetUnavailable>
-  > {
-    if (!this.matchesReservedBudget(input)) return localBudgetUnavailable();
-    this.budget = { kind: 'released', reservationId: input.reservationId };
-    return localBudgetReleased();
-  }
-
-  private matchesReservedBudget(input: RouterAbNormalSigningBudgetFinalizeInput): boolean {
-    return (
-      this.budget.kind === 'reserved' &&
-      this.budget.reservationId === input.reservationId &&
-      this.budget.signingGrantId === input.signingGrantId &&
-      this.budget.signingWorkerId === input.signingWorkerId &&
-      this.budget.operationId === input.operationId &&
-      this.budget.requestDigest === input.requestDigest
-    );
-  }
-}
-
-class LocalPublicEd25519SigningRouter {
-  private readonly admission = new AllowLocalSigningAdmission();
-  private readonly session: SessionAdapter;
-  private readonly runtime: LocalNormalSigningRuntime;
-
-  constructor(input: {
-    processes: LocalWorkerProcesses;
-    walletId: string;
-    nearAccountId: string;
-    thresholdSessionId: string;
-    signingGrantId: string;
-    signingWorkerId: string;
-    expiresAtMs: number;
-  }) {
-    this.session = new LocalWalletSessionAdapter(localWalletSessionClaims(input));
-    this.runtime = new LocalNormalSigningRuntime({
-      kind: 'configured',
-      signingWorkerBaseUrl: requireEnv(input.processes.routerEnv, 'SIGNING_WORKER_URL'),
-      auth: {
-        kind: 'internal_service_auth_secret',
-        secret: requireEnv(input.processes.routerEnv, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET'),
-      },
-    });
-  }
-
-  async handle(
-    phase: LocalPublicSigningRoutePhase,
-    body: Record<string, unknown>,
-  ): Promise<LocalPublicSigningRouteResult> {
-    return await handleRouterAbEd25519NormalSigningRouteCore({
-      body,
-      rawBody: body,
-      headers: { authorization: 'Bearer local-wallet-session.jwt' },
-      session: this.session,
-      runtime: this.runtime,
-      admissionAdapter: this.admission,
-      privatePath:
-        phase === 'prepare'
-          ? ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare
-          : ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize,
-      phase,
-    });
-  }
-}
-
-function localBudgetUnavailable(): {
-  ok: false;
-  status: number;
-  code: string;
-  message: string;
-} {
-  return {
-    ok: false,
-    status: 409,
-    code: 'wallet_budget_exhausted',
-    message: 'Local Router A/B signing reservation is unavailable',
-  };
-}
-
-function localBudgetReleased(): {
-  ok: true;
-  released: true;
-  remainingUses: number;
-  reservedUses: number;
-  availableUses: number;
-} {
-  return {
-    ok: true,
-    released: true,
-    remainingUses: 1,
-    reservedUses: 0,
-    availableUses: 1,
-  };
-}
-
-function localWalletSessionClaims(input: {
-  walletId: string;
-  nearAccountId: string;
-  thresholdSessionId: string;
-  signingGrantId: string;
-  signingWorkerId: string;
-  expiresAtMs: number;
-}): Record<string, unknown> {
-  return {
-    sub: input.walletId,
-    walletId: input.walletId,
-    nearAccountId: input.nearAccountId,
-    nearEd25519SigningKeyId: 'near-ed25519-key-local-yao',
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    thresholdSessionId: input.thresholdSessionId,
-    signingGrantId: input.signingGrantId,
-    relayerKeyId: 'near-relayer-key-local-yao',
-    authority: {
-      walletId: input.walletId,
-      factor: { kind: 'passkey', credentialIdB64u: 'local-yao-credential' },
-      verifier: { kind: 'webauthn', rpId: 'localhost' },
-      bindingId: 'passkey:localhost:local-yao-credential',
-    },
-    authorityScope: { kind: 'passkey_rp', rpId: 'localhost' },
-    runtimePolicyScope: {
-      orgId: 'local-org',
-      projectId: 'local-project',
-      envId: 'local-development',
-      signingRootVersion: 'local-root-v1',
-    },
-    thresholdExpiresAtMs: input.expiresAtMs,
-    participantIds: [1, 2],
-    routerAbNormalSigning: {
-      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-      signingWorkerId: input.signingWorkerId,
-    },
-  };
 }
 
 class LocalWorkerProcesses {

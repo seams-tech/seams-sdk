@@ -349,9 +349,6 @@ async function mockedRegistrationEcdsaStart(
     registrationPreparationId: body.registrationPreparationId,
     requestId: 'request-ecdsa',
     thresholdSessionId: 'session-ecdsa',
-    signingGrantId: mixedRegistration
-      ? 'email-otp-ed25519-signing-grant'
-      : 'wallet-session-ecdsa',
     ttlMs: 600_000,
     remainingUses: mixedRegistration ? 3 : 1,
     participantIds: [1, 2],
@@ -527,7 +524,6 @@ function mockedEcdsaServerBootstrap(
     participantIds: [1, 2],
     thresholdSessionId: prepare.thresholdSessionId,
     activationEpoch: facts.lifecycle.root_share_epoch,
-    signingGrantId: prepare.signingGrantId,
     authorizationSessionId: `auth-session:${walletId}`,
     walletSessionId: `wallet-session:${walletId}`,
     quotaId: `wallet-quota:${walletId}`,
@@ -633,8 +629,7 @@ function ethereumAddress20B64u(address: string): string {
 
 function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): string {
   const publicIdentity = bootstrap.publicIdentity as Record<string, unknown>;
-  const sessionId = String(bootstrap.sessionId || bootstrap.thresholdSessionId || '').trim();
-  const signingGrantId = String(bootstrap.signingGrantId || '').trim();
+  const thresholdSessionId = String(bootstrap.thresholdSessionId || '').trim();
   const walletId = String(bootstrap.walletId || '').trim();
   const applicationBindingDigestB64u = String(bootstrap.applicationBindingDigestB64u || '').trim();
   const ecdsaThresholdKeyId = String(bootstrap.ecdsaThresholdKeyId || '').trim();
@@ -650,8 +645,7 @@ function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): 
     kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     sub: walletId,
     walletId,
-    thresholdSessionId: sessionId,
-    signingGrantId,
+    thresholdSessionId,
     authorizationSessionId: `auth-session:${walletId}`,
     walletSessionId: `wallet-session:${walletId}`,
     quotaId: `wallet-quota:${walletId}`,
@@ -3083,7 +3077,8 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
           registrationPreparationId: 'add-signer-preparation',
           requestId: 'request-ecdsa',
           thresholdSessionId: 'session-ecdsa',
-          signingGrantId: 'wallet-session-ecdsa',
+          walletSessionId: `wallet-session:${WALLET_SUBJECT_ID}`,
+          quotaId: `wallet-quota:${WALLET_SUBJECT_ID}`,
           ttlMs: 600_000,
           remainingUses: 1,
           participantIds: [1, 2],
@@ -3151,6 +3146,9 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
           ethereumAddress: '0x1111111111111111111111111111111111111111',
           relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_33_B64U,
           thresholdSessionId: String(clientEntry.clientBootstrap.thresholdSessionId || ''),
+          authorizationSessionId: `auth-session:${WALLET_SUBJECT_ID}`,
+          walletSessionId: `wallet-session:${WALLET_SUBJECT_ID}`,
+          quotaId: `wallet-quota:${WALLET_SUBJECT_ID}`,
           expiresAtMs: addSignerEcdsaExpiresAtMs,
           expiresAt: new Date(addSignerEcdsaExpiresAtMs).toISOString(),
         } as Record<string, unknown>;

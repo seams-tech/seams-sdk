@@ -24,8 +24,11 @@ import type {
   SigningSessionStorageSource,
   ThresholdEcdsaSessionId,
   ThresholdEd25519SessionId,
-  SigningGrantId,
 } from './types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 export type Ed25519PasskeySigningLaneSource = Exclude<
   ThresholdEd25519SessionStoreSource,
@@ -37,7 +40,8 @@ type CommonSigningLaneInput = {
   retention?: SigningSessionRetention;
 };
 type BaseEd25519SigningLaneInput = CommonSigningLaneInput & {
-  signingGrantId: SigningGrantId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   walletId: WalletId;
   nearAccountId: AccountId;
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
@@ -114,7 +118,8 @@ export function buildEd25519PasskeySigningLane(
     nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
     signerSlot: input.signerSlot,
     auth: input.auth,
-    signingGrantId: input.signingGrantId,
+    walletSessionId: input.walletSessionId,
+    quotaId: input.quotaId,
     thresholdSessionId: input.thresholdSessionId,
   });
   return buildSigningLane<NearTransactionSigningLane>({
@@ -137,7 +142,8 @@ export function buildEd25519EmailOtpSigningLane(
     nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
     signerSlot: input.signerSlot,
     auth: input.auth,
-    signingGrantId: input.signingGrantId,
+    walletSessionId: input.walletSessionId,
+    quotaId: input.quotaId,
     thresholdSessionId: input.thresholdSessionId,
   });
   return buildSigningLane<NearTransactionSigningLane>({

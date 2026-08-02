@@ -26,7 +26,6 @@ export type BuildEcdsaRoleLocalSigningMaterialHandleInput = {
   chainTarget?: never;
   walletId?: never;
   thresholdSessionId?: never;
-  signingGrantId?: never;
   activeStateId?: never;
   capabilityGrantId?: never;
   mpcWalletSigningQuotaId?: never;

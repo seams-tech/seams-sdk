@@ -112,7 +112,6 @@ export function resolveThresholdEd25519SessionPolicyForBinding(args: {
     throw new Error('threshold-ed25519 session binding rpId is invalid');
   }
   const thresholdSessionId = toOptionalTrimmedString(args.requestedSessionPolicy.thresholdSessionId);
-  const signingGrantId = toOptionalTrimmedString(args.requestedSessionPolicy.signingGrantId);
   const ttlMs = Number(args.requestedSessionPolicy.ttlMs);
   const remainingUses = Number(args.requestedSessionPolicy.remainingUses);
   const participantIds = Array.isArray(args.requestedSessionPolicy.participantIds)
@@ -138,7 +137,6 @@ export function resolveThresholdEd25519SessionPolicyForBinding(args: {
   if (
     args.requestedSessionPolicy.version !== 'threshold_session_v1' ||
     !thresholdSessionId ||
-    !signingGrantId ||
     !Number.isFinite(ttlMs) ||
     ttlMs <= 0 ||
     !Number.isFinite(remainingUses) ||
@@ -153,7 +151,6 @@ export function resolveThresholdEd25519SessionPolicyForBinding(args: {
     authority: expectedAuthority,
     relayerKeyId: args.relayerKeyId,
     thresholdSessionId,
-    signingGrantId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
     ...(participantIds && participantIds.length > 0 ? { participantIds } : {}),
@@ -214,7 +211,6 @@ export function resolveRecoveryThresholdEd25519SessionPolicyForBinding(args: {
     normalizeThresholdRuntimePolicyScope(args.requestedSessionPolicy.runtimePolicyScope) ||
     args.persistedRuntimePolicyScope;
   const thresholdSessionId = toOptionalTrimmedString(args.requestedSessionPolicy.thresholdSessionId);
-  const signingGrantId = toOptionalTrimmedString(args.requestedSessionPolicy.signingGrantId);
   const ttlMs = Number(args.requestedSessionPolicy.ttlMs);
   const remainingUses = Number(args.requestedSessionPolicy.remainingUses);
   const participantIds = Array.isArray(args.requestedSessionPolicy.participantIds)
@@ -228,7 +224,6 @@ export function resolveRecoveryThresholdEd25519SessionPolicyForBinding(args: {
   if (
     args.requestedSessionPolicy.version !== 'threshold_session_v1' ||
     !thresholdSessionId ||
-    !signingGrantId ||
     !Number.isFinite(ttlMs) ||
     ttlMs <= 0 ||
     !Number.isFinite(remainingUses) ||
@@ -243,7 +238,6 @@ export function resolveRecoveryThresholdEd25519SessionPolicyForBinding(args: {
     authority: requestedAuthority,
     relayerKeyId: args.relayerKeyId,
     thresholdSessionId,
-    signingGrantId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
     ...(participantIds && participantIds.length > 0 ? { participantIds } : {}),

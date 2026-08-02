@@ -17,8 +17,11 @@ import {
   type SigningCurve,
   type ThresholdEd25519SessionId,
   type ThresholdSessionId,
-  type SigningGrantId,
 } from '../operationState/types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import {
   toEvmFamilyEcdsaKeyHandle,
@@ -339,7 +342,8 @@ type CommonSelectedLane = {
 };
 
 export type BaseSelectedLane = CommonSelectedLane & {
-  signingGrantId: SigningGrantId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   thresholdSessionId: ThresholdSessionId;
 };
 
@@ -367,7 +371,8 @@ export type SelectedEd25519LaneInput = {
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signerSlot: unknown;
   auth: SigningLaneAuthBinding;
-  signingGrantId: unknown;
+  walletSessionId: unknown;
+  quotaId: unknown;
   thresholdSessionId: unknown;
 };
 
@@ -386,7 +391,8 @@ export function selectedEd25519Lane(input: SelectedEd25519LaneInput): SelectedEd
   if (signerSlot == null) {
     throw new Error('[SigningSession] selected Ed25519 lane requires signerSlot >= 1');
   }
-  const signingGrantId = SigningSessionIds.signingGrant(input.signingGrantId);
+  const walletSessionId = SigningSessionIds.walletSession(input.walletSessionId);
+  const quotaId = SigningSessionIds.walletSessionQuota(input.quotaId);
   const thresholdSessionId = SigningSessionIds.thresholdEd25519Session(input.thresholdSessionId);
   const identity = exactEd25519SigningLaneIdentity({
     signer: nearEd25519SignerBindingFromBoundaryFields({
@@ -396,7 +402,8 @@ export function selectedEd25519Lane(input: SelectedEd25519LaneInput): SelectedEd
       signerSlot,
     }),
     auth: input.auth,
-    signingGrantId,
+    walletSessionId,
+    quotaId,
     thresholdSessionId,
   });
   return {
@@ -405,7 +412,8 @@ export function selectedEd25519Lane(input: SelectedEd25519LaneInput): SelectedEd
     auth: input.auth,
     curve: 'ed25519',
     chain: 'near',
-    signingGrantId,
+    walletSessionId,
+    quotaId,
     thresholdSessionId,
   };
 }
@@ -492,12 +500,10 @@ export type Ed25519LaneCandidate = BaseEd25519LaneCandidate &
     | {
         authorizationState: 'authorized';
         authorization: ActiveWalletSessionAuthorizationProjection;
-        signingGrantId: SigningGrantId;
       }
     | {
         authorizationState: 'authorization_required';
         authorization?: never;
-        signingGrantId?: never;
         state: 'deferred';
       }
   );

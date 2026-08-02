@@ -1,6 +1,6 @@
 import { alphabetizeStringify, sha256Bytes, sha256BytesUtf8 } from '../utils/digests';
 import { base64UrlDecode, base64UrlEncode } from '../utils/encoders';
-import type { SigningGrantId, WalletId } from '../utils/domainIds';
+import type { WalletId } from '../utils/domainIds';
 import { deriveEvmFamilySigningKeySlotId } from '../signing-lanes/evmFamilySigningKeySlotId';
 
 const THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID = 'threshold-secp256k1-ecdsa-2p-v1';
@@ -67,7 +67,6 @@ export type EcdsaDerivationRoleLocalBootstrapIdentity = {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  signingGrantId: SigningGrantId;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -196,7 +195,6 @@ export async function computeEcdsaDerivationRoleLocalFirstBootstrapRootProofDige
       contextBinding32B64u: input.contextBinding32B64u,
       requestId: input.requestId,
       sessionId: input.sessionId,
-      signingGrantId: input.signingGrantId,
       ttlMs: input.ttlMs,
       remainingUses: input.remainingUses,
       participantIds: input.participantIds,
@@ -226,7 +224,6 @@ export async function computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest3
       relayerKeyId: input.relayerKeyId,
       requestId: input.requestId,
       sessionId: input.sessionId,
-      signingGrantId: input.signingGrantId,
       ttlMs: input.ttlMs,
       remainingUses: input.remainingUses,
       participantIds: input.participantIds,

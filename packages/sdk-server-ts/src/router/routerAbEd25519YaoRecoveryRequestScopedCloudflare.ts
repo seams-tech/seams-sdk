@@ -44,9 +44,7 @@ import {
 import { warmBootstrapCapabilityMatchesStableIdentity } from './routerAbEd25519YaoRecovery';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
-  parseSigningGrantId,
   parseThresholdEd25519SessionId,
-  type SigningGrantId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import {
@@ -105,19 +103,15 @@ type TraceResolution =
 
 type WarmRecoveryWalletSessionIdentity = {
   readonly thresholdSessionId: ThresholdEd25519SessionId;
-  readonly signingGrantId: SigningGrantId;
 };
 
 function parseWarmRecoveryWalletSessionIdentity(input: {
   readonly thresholdSessionId: unknown;
-  readonly signingGrantId: unknown;
 }): WarmRecoveryWalletSessionIdentity | null {
   const thresholdSessionId = parseThresholdEd25519SessionId(input.thresholdSessionId);
-  const signingGrantId = parseSigningGrantId(input.signingGrantId);
-  if (!thresholdSessionId.ok || !signingGrantId.ok) return null;
+  if (!thresholdSessionId.ok) return null;
   return {
     thresholdSessionId: thresholdSessionId.value,
-    signingGrantId: signingGrantId.value,
   };
 }
 
@@ -528,7 +522,6 @@ async function runWarmRecoveryBootstrapRequest(
   }
   const identity = parseWarmRecoveryWalletSessionIdentity({
     thresholdSessionId: authorized.claims.thresholdSessionId,
-    signingGrantId: authorized.claims.signingGrantId,
   });
   if (!identity) {
     return json(
@@ -547,7 +540,6 @@ async function runWarmRecoveryBootstrapRequest(
     nearEd25519SigningKeyId: authorized.claims.nearEd25519SigningKeyId,
     signerSlot: request.signerSlot,
     thresholdSessionId: identity.thresholdSessionId,
-    signingGrantId: identity.signingGrantId,
     walletSessionId: authorized.claims.walletSessionId,
     quotaId: authorized.claims.quotaId,
     signingWorkerId: authorized.claims.routerAbNormalSigning.signingWorkerId,

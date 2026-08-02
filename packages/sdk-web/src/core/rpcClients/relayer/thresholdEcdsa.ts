@@ -7,9 +7,7 @@ import {
 } from '@shared/utils/sessionTokens';
 import {
   parseRootShareEpoch,
-  parseSigningGrantId,
   type RootShareEpoch,
-  type SigningGrantId,
 } from '@shared/utils/domainIds';
 import {
   parseMpcWalletSigningQuotaId,
@@ -55,12 +53,6 @@ const WRANGLER_WORKER_RESTARTED_MID_REQUEST = 'Your worker restarted mid-request
 
 function requireThresholdEcdsaRootShareEpoch(value: unknown, field: string) {
   const parsed = parseRootShareEpoch(value);
-  if (!parsed.ok) throw new Error(`${field} is invalid`);
-  return parsed.value;
-}
-
-function requireThresholdEcdsaSigningGrantId(value: unknown, field: string): SigningGrantId {
-  const parsed = parseSigningGrantId(value);
   if (!parsed.ok) throw new Error(`${field} is invalid`);
   return parsed.value;
 }
@@ -111,7 +103,6 @@ export type ThresholdEcdsaDerivationRoleLocalBootstrapRequest = {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  signingGrantId: SigningGrantId;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -146,7 +137,6 @@ type ThresholdEcdsaDerivationRoleLocalBootstrapBodyBase = {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -183,7 +173,6 @@ type ThresholdEcdsaDerivationRoleLocalBootstrapBody = {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -224,7 +213,6 @@ export type ThresholdEcdsaDerivationRoleLocalBootstrapValue = {
   participantIds: number[];
   thresholdSessionId: string;
   activationEpoch: RootShareEpoch;
-  signingGrantId: SigningGrantId;
   authorizationSessionId: SeamsSessionId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
@@ -318,7 +306,6 @@ const NON_EXPORT_BOOTSTRAP_RESPONSE_FIELDS = new Set([
   'participantIds',
   'thresholdSessionId',
   'activationEpoch',
-  'signingGrantId',
   'authorizationSessionId',
   'walletSessionId',
   'quotaId',
@@ -402,10 +389,6 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
     record.activationEpoch,
     'activationEpoch',
   );
-  const signingGrantId = requireThresholdEcdsaSigningGrantId(
-    record.signingGrantId,
-    'signingGrantId',
-  );
   const authorizationSessionId = parseSeamsSessionId(record.authorizationSessionId);
   const walletSessionId = parseWalletSessionId(record.walletSessionId);
   const quotaId = parseMpcWalletSigningQuotaId(record.quotaId);
@@ -448,7 +431,6 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
     participantIds,
     thresholdSessionId,
     activationEpoch,
-    signingGrantId,
     authorizationSessionId: authorizationSessionId.value,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
@@ -709,7 +691,6 @@ export async function thresholdEcdsaDerivationRoleLocalBootstrap(
       ),
       requestId: requireNonEmptyString(args.requestId, 'requestId'),
       sessionId: requireNonEmptyString(args.sessionId, 'sessionId'),
-      signingGrantId: requireNonEmptyString(args.signingGrantId, 'signingGrantId'),
       ttlMs: requireNonNegativeInteger(args.ttlMs, 'ttlMs'),
       remainingUses: requireNonNegativeInteger(args.remainingUses, 'remainingUses'),
       participantIds: requireParticipantIds(args.participantIds),

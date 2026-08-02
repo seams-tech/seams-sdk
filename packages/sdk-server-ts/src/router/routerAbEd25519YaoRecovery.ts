@@ -51,8 +51,6 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import {
   parseThresholdEd25519SessionId,
-  parseSigningGrantId,
-  type SigningGrantId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import {
@@ -70,14 +68,6 @@ function requireThresholdEd25519SessionId(
   label: string,
 ): ThresholdEd25519SessionId {
   const parsed = parseThresholdEd25519SessionId(value);
-  if (!parsed.ok) {
-    throw new Error(`${label} is invalid`);
-  }
-  return parsed.value;
-}
-
-function requireSigningGrantId(value: unknown, label: string): SigningGrantId {
-  const parsed = parseSigningGrantId(value);
   if (!parsed.ok) {
     throw new Error(`${label} is invalid`);
   }
@@ -456,7 +446,6 @@ export type RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
   readonly nearEd25519SigningKeyId: string;
   readonly signerSlot: number;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
-  readonly signingGrantId: SigningGrantId;
   readonly walletSessionId: RouterAbEd25519WalletSessionClaims['walletSessionId'];
   readonly quotaId: RouterAbEd25519WalletSessionClaims['quotaId'];
   readonly signingWorkerId: string;
@@ -2401,15 +2390,10 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       );
     }
     let thresholdSessionId: ThresholdEd25519SessionId;
-    let signingGrantId: SigningGrantId;
     try {
       thresholdSessionId = requireThresholdEd25519SessionId(
         authorization.claims.thresholdSessionId,
         'Wallet Session threshold session identity',
-      );
-      signingGrantId = requireSigningGrantId(
-        authorization.claims.signingGrantId,
-        'Wallet Session signing grant identity',
       );
     } catch {
       return json(
@@ -2428,7 +2412,6 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       nearEd25519SigningKeyId: authorization.claims.nearEd25519SigningKeyId,
       signerSlot: parsed.value.signerSlot,
       thresholdSessionId,
-      signingGrantId,
       walletSessionId: authorization.claims.walletSessionId,
       quotaId: authorization.claims.quotaId,
       signingWorkerId: authorization.claims.routerAbNormalSigning.signingWorkerId,

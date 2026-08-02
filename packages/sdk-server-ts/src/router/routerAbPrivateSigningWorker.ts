@@ -1,6 +1,5 @@
 import type {
   RouterAbNormalSigningAuthorizationIdentity,
-  RouterAbNormalSigningBudgetFinalizeInput,
   RouterAbSigningWorkerPrivateTransport,
 } from '../core/routerAbSigning/RouterAbNormalSigningRuntime';
 import type { RouterAbNormalSigningRuntime } from '../core/routerAbSigning/RouterAbNormalSigningRuntime';
@@ -212,11 +211,6 @@ export type RouterAbNormalSigningRouteRuntime = Pick<
   RouterAbNormalSigningRuntime,
   | 'getSigningWorkerPrivateTransport'
   | 'reservePrepareReplay'
-  | 'reserveBudget'
-  | 'commitBudget'
-  | 'validateBudget'
-  | 'releaseBudget'
-  | 'releaseBudgetForIdentity'
 >;
 
 type AcceptedRouteAdmission = {
@@ -320,7 +314,8 @@ export type RouterAbNormalSigningAdmissionInput =
       walletId: string;
       authorityScope: ThresholdEd25519AuthorityScope;
       thresholdSessionId: string;
-      signingGrantId: string;
+      walletSessionId: string;
+      quotaId: string;
       requestId: string;
       expiresAtMs: number;
       signingWorkerId: string;
@@ -387,7 +382,8 @@ export async function evaluateRouterAbNormalSigningAdmission(
         input.walletSessionAuth.authority,
       ),
       thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
-      signingGrantId: input.walletSessionAuth.signingGrantId,
+      walletSessionId: input.walletSessionAuth.walletSessionId,
+      quotaId: input.walletSessionAuth.quotaId,
       requestId: input.admission.requestId,
       expiresAtMs: input.admission.expiresAtMs,
       signingWorkerId: input.claims.routerAbNormalSigning.signingWorkerId,
@@ -481,15 +477,6 @@ type RouterAbEcdsaPrivateSigningAuthorization =
       readonly session: RouterAbOperationStepUpAppSession;
     };
 
-function reusableEd25519SigningGrantId(
-  authorization: RouterAbEd25519PrivateSigningAuthorization,
-): string {
-  if (authorization.kind !== 'reusable_wallet_session') {
-    throw new Error('Router A/B reusable authorization is unavailable');
-  }
-  return authorization.claims.signingGrantId;
-}
-
 type RouterAbAuthenticatedSessionContextV1 =
   | {
       readonly auth: 'authenticated_session';
@@ -508,7 +495,6 @@ type RouterAbNormalSigningPrivateAuthorizationV2 =
   | {
       readonly kind: 'reusable_wallet_session';
       readonly wallet_session_id: string;
-      readonly grant_id: string;
       readonly authorization_session_id?: never;
     }
   | {
@@ -572,19 +558,55 @@ type RouterAbNormalSigningFinalizeAdmissionCandidateV2 = {
 type RouterAbNormalSigningEffectClaimV1 =
   | {
       readonly kind: 'reusable_wallet_session';
-      readonly budget: {
-        readonly signing_grant_id: string;
-        readonly reservation_id: string;
-        readonly signing_worker_id: string;
-        readonly operation_id: string;
-        readonly request_digest: RouterAbPublicDigest32V1Wire;
-      };
+      readonly wallet_session_id: string;
+      readonly grant_id: string;
+      readonly use_id: string;
+      readonly operation_id: string;
+      readonly operation_fingerprint_digest: string;
     }
   | {
       readonly kind: 'operation_step_up';
       readonly authorization_session_id: string;
       readonly grant_id: string;
+      readonly use_id: string;
+      readonly operation_id: string;
+      readonly operation_fingerprint_digest: string;
     };
+
+function validateRouterAbNormalSigningEffectClaim(
+  claim: RouterAbNormalSigningEffectClaimV1,
+  scope: RouterAbEd25519NormalSigningScopeV2,
+  authorizationSessionId: string,
+): void {
+  requirePrivateSigningString(claim.grant_id, 'effect_claim.grant_id');
+  requirePrivateSigningString(claim.use_id, 'effect_claim.use_id');
+  requirePrivateSigningString(claim.operation_id, 'effect_claim.operation_id');
+  requirePrivateSigningString(
+    claim.operation_fingerprint_digest,
+    'effect_claim.operation_fingerprint_digest',
+  );
+  if (claim.kind === 'reusable_wallet_session') {
+    requirePrivateSigningString(claim.wallet_session_id, 'effect_claim.wallet_session_id');
+    if (
+      scope.authorization.kind !== 'reusable_wallet_session' ||
+      claim.wallet_session_id !== scope.authorization.wallet_session_id
+    ) {
+      throw new Error('Reusable Wallet Session effect claim does not match request scope');
+    }
+    return;
+  }
+  requirePrivateSigningString(
+    claim.authorization_session_id,
+    'effect_claim.authorization_session_id',
+  );
+  if (
+    scope.authorization.kind !== 'operation_step_up' ||
+    claim.authorization_session_id !== authorizationSessionId ||
+    claim.grant_id !== scope.authorization.grant_id
+  ) {
+    throw new Error('Operation step-up effect claim does not match request scope');
+  }
+}
 
 type RouterAbEd25519PrivatePrepareSigningWorkerBody = {
   readonly scope: RouterAbEd25519NormalSigningScopeV2;
@@ -655,196 +677,6 @@ async function sha256B64u(bytes: Uint8Array): Promise<string> {
 
 async function sha256Digest32(bytes: Uint8Array): Promise<RouterAbPublicDigest32V1Wire> {
   return digest32FromB64u(await sha256B64u(bytes));
-}
-
-function signingPayloadDigestFromWire(value: unknown): string {
-  const record = isPlainObject(value) ? value : null;
-  const bytes = Array.isArray(record?.bytes) ? record.bytes.map((entry) => Number(entry)) : [];
-  if (
-    bytes.length !== 32 ||
-    !bytes.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)
-  ) {
-    return '';
-  }
-  return base64UrlEncode(Uint8Array.from(bytes));
-}
-
-const ED25519_BUDGET_REQUEST_DIGEST_VERSION_V1 = 'router_ab_ed25519_budget_request_digest_v1';
-
-async function ed25519SigningPayloadDigestB64u(value: unknown): Promise<string> {
-  const payload = isPlainObject(value) ? value : null;
-  if (!payload) return '';
-  const out: number[] = [];
-  pushLen32(out, textBytes(ED25519_SIGNING_PAYLOAD_VERSION_V2));
-  const kind = nonEmptyString(payload.kind);
-  switch (kind) {
-    case 'near_unsigned_transaction_borsh_v1':
-      pushLen32(out, textBytes(kind));
-      pushLen32(out, textBytes(nonEmptyString(payload.unsigned_transaction_borsh_b64u)));
-      pushLen32(out, textBytes(nonEmptyString(payload.expected_signing_digest_b64u)));
-      return sha256B64u(Uint8Array.from(out));
-    case 'nep413_message_v1':
-      pushLen32(out, textBytes(kind));
-      pushLen32(out, textBytes(nonEmptyString(payload.canonical_message_b64u)));
-      pushLen32(out, textBytes(nonEmptyString(payload.expected_signing_digest_b64u)));
-      return sha256B64u(Uint8Array.from(out));
-    case 'near_delegate_action_v1':
-      pushLen32(out, textBytes(kind));
-      pushLen32(out, textBytes(nonEmptyString(payload.canonical_delegate_borsh_b64u)));
-      pushLen32(out, textBytes(nonEmptyString(payload.expected_signing_digest_b64u)));
-      return sha256B64u(Uint8Array.from(out));
-    default:
-      return '';
-  }
-}
-
-function routerAbScopeField(body: Record<string, unknown>, key: string): string {
-  const scope = isPlainObject(body.scope) ? body.scope : null;
-  return nonEmptyString(scope?.[key]);
-}
-
-function expiresAtMsField(body: Record<string, unknown>): string {
-  const value = Number(body.expires_at_ms);
-  if (!Number.isFinite(value) || value <= 0) return '';
-  return String(Math.floor(value));
-}
-
-function pushBudgetDigestField(out: number[], name: string, value: string): void {
-  pushLen32(out, textBytes(name));
-  pushLen32(out, textBytes(value));
-}
-
-type BudgetDigestField = readonly [name: string, value: string];
-type BudgetDigestBytesField = readonly [name: string, value: Uint8Array];
-
-async function hashBudgetFields(input: {
-  version: string;
-  fields: readonly BudgetDigestField[];
-  bytesFields?: readonly BudgetDigestBytesField[];
-  prefix?: string;
-}): Promise<string> {
-  if (input.fields.some(([, value]) => !nonEmptyString(value))) return '';
-  const out: number[] = [];
-  pushLen32(out, textBytes(input.version));
-  for (const [name, value] of input.bytesFields || []) {
-    pushLen32(out, textBytes(name));
-    pushLen32(out, value);
-  }
-  for (const [name, value] of input.fields) {
-    pushBudgetDigestField(out, name, value);
-  }
-  const digest = await sha256B64u(Uint8Array.from(out));
-  return input.prefix ? `${input.prefix}:${digest}` : digest;
-}
-
-async function ed25519BudgetSigningPayloadDigestB64u(
-  body: Record<string, unknown>,
-): Promise<string> {
-  const prepareBinding = isPlainObject(body.prepare_binding) ? body.prepare_binding : null;
-  const finalizePayloadDigest = signingPayloadDigestFromWire(
-    prepareBinding?.signing_payload_digest,
-  );
-  if (finalizePayloadDigest) return finalizePayloadDigest;
-  return ed25519SigningPayloadDigestB64u(body.signing_payload);
-}
-
-async function ed25519BudgetRequestDigestB64u(input: {
-  body: Record<string, unknown>;
-  operationId: string;
-  signingWorkerId: string;
-  signingGrantId: string;
-}): Promise<string> {
-  const requestId = routerAbScopeField(input.body, 'request_id');
-  const accountId = routerAbScopeField(input.body, 'account_id');
-  const scopeSigningWorkerId = routerAbScopeField(input.body, 'signing_worker_id');
-  const scope = requirePrivateSigningScope(input.body.scope);
-  if (scope.authorization.kind !== 'reusable_wallet_session') return '';
-  const walletSessionId = scope.authorization.wallet_session_id;
-  const materialActivationId = scope.material_activation.activation_id;
-  const expiresAtMs = expiresAtMsField(input.body);
-  const payloadDigest = await ed25519BudgetSigningPayloadDigestB64u(input.body);
-  if (
-    !requestId ||
-    !accountId ||
-    !walletSessionId ||
-    !input.signingGrantId ||
-    !materialActivationId ||
-    !scopeSigningWorkerId ||
-    !input.signingWorkerId ||
-    !input.operationId ||
-    !expiresAtMs ||
-    !payloadDigest
-  ) {
-    return '';
-  }
-  return hashBudgetFields({
-    version: ED25519_BUDGET_REQUEST_DIGEST_VERSION_V1,
-    fields: [
-      ['request_id', requestId],
-      ['account_id', accountId],
-      ['wallet_session_id', walletSessionId],
-      ['signing_grant_id', input.signingGrantId],
-      ['material_activation_id', materialActivationId],
-      ['scope_signing_worker_id', scopeSigningWorkerId],
-      ['claims_signing_worker_id', input.signingWorkerId],
-      ['operation_id', input.operationId],
-      ['expires_at_ms', expiresAtMs],
-      ['signing_payload_digest', payloadDigest],
-    ],
-  });
-}
-
-function ed25519PrepareOperationId(body: Record<string, unknown>): string {
-  const intent = isPlainObject(body.intent) ? body.intent : null;
-  return nonEmptyString(intent?.operation_id);
-}
-
-function ed25519FinalizeOperationId(body: Record<string, unknown>): string {
-  return nonEmptyString(body.budget_operation_id);
-}
-
-function ed25519BudgetSigningWorkerId(claims: RouterAbEd25519WalletSessionClaims): string {
-  return nonEmptyString(claims.routerAbNormalSigning.signingWorkerId);
-}
-
-function budgetReservationId(body: Record<string, unknown>): string {
-  return nonEmptyString(body.budget_reservation_id);
-}
-
-function budgetOperationId(body: Record<string, unknown>): string {
-  return nonEmptyString(body.budget_operation_id);
-}
-
-function stripRouterAbBudgetMetadata(body: Record<string, unknown>): Record<string, unknown> {
-  const {
-    budget_reservation_id: _budgetReservationId,
-    budget_operation_id: _budgetOperationId,
-    ...rest
-  } = body;
-  return rest;
-}
-
-function withBudgetReservationMetadata(
-  body: unknown,
-  input: {
-    reservationId: string;
-    operationId?: string;
-    remainingUses: number;
-    reservedUses: number;
-    availableUses: number;
-  },
-): unknown {
-  if (!isPlainObject(body)) return body;
-  return {
-    ...body,
-    budget_reservation_id: input.reservationId,
-    ...(input.operationId ? { budget_operation_id: input.operationId } : {}),
-    budget_status: {
-      committed_remaining_uses: input.remainingUses,
-      reserved_uses: input.reservedUses,
-      available_uses: input.availableUses,
-    },
-  };
 }
 
 function routerAbSigningError(
@@ -1432,6 +1264,11 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
   const signingContext = privateSigningAuthorizationContext(scope, input.authorization);
   const trustedSourceDigest = await privateSigningTrustedSourceDigest(input.headers);
   if (input.phase === 'finalize') {
+    validateRouterAbNormalSigningEffectClaim(
+      input.effectClaim,
+      scope,
+      signingContext.authorizationSessionId,
+    );
     const prepareBinding = requirePrivateSigningRecord(
       input.body.prepare_binding,
       'prepare_binding',
@@ -1453,7 +1290,7 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
       'expires_at_ms',
     );
     return {
-      request: stripRouterAbBudgetMetadata(input.body),
+      request: input.body,
       admission_candidate: {
         org_id: signingContext.runtimePolicyScope.orgId,
         project_id: signingContext.runtimePolicyScope.projectId,
@@ -1465,7 +1302,6 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
             ? {
                 kind: 'reusable_wallet_session',
                 wallet_session_id: scope.authorization.wallet_session_id,
-                grant_id: reusableEd25519SigningGrantId(input.authorization),
               }
             : {
                 kind: 'operation_step_up',
@@ -1532,7 +1368,6 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
           ? {
               kind: 'reusable_wallet_session',
               wallet_session_id: scope.authorization.wallet_session_id,
-              grant_id: reusableEd25519SigningGrantId(input.authorization),
             }
           : {
               kind: 'operation_step_up',
@@ -1695,38 +1530,21 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
       'Router A/B Ed25519 step-up request is expired',
     );
   }
-  let privateBody: RouterAbEd25519PrivateSigningWorkerBody;
-  try {
-    privateBody =
-      input.phase === 'prepare'
-        ? await buildRouterAbEd25519PrivateSigningWorkerBody({
-            phase: 'prepare',
-            body: input.body,
-            authorization: {
-              kind: 'operation_step_up',
-              session: authenticated.session,
-            },
-            headers: input.headers,
-          })
-        : await buildRouterAbEd25519PrivateSigningWorkerBody({
-            phase: 'finalize',
-            body: input.body,
-            authorization: {
-              kind: 'operation_step_up',
-              session: authenticated.session,
-            },
-            headers: input.headers,
-            effectClaim: {
-              kind: 'operation_step_up',
-              authorization_session_id: authenticated.session.sessionId,
-              grant_id: input.scope.authorization.grant_id,
-            },
-          });
-  } catch (error: unknown) {
-    return routerAbStepUpError(400, 'invalid_body', errorMessage(error));
-  }
-
   if (input.phase === 'prepare') {
+    let privateBody: RouterAbEd25519PrivateSigningWorkerBody;
+    try {
+      privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
+        phase: 'prepare',
+        body: input.body,
+        authorization: {
+          kind: 'operation_step_up',
+          session: authenticated.session,
+        },
+        headers: input.headers,
+      });
+    } catch (error: unknown) {
+      return routerAbStepUpError(400, 'invalid_body', errorMessage(error));
+    }
     const operation = parseRouterAbOperationStepUpOperation(input.body.intent);
     if (!operation.ok) {
       return routerAbStepUpError(400, 'invalid_body', operation.message);
@@ -2188,7 +2006,7 @@ export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
   return { ok: true, kind: 'reusable_wallet_session', validated, admission };
 }
 
-export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
+async function handleRouterAbEd25519NormalSigningRouteCore(input: {
   body: Record<string, unknown>;
   rawBody: unknown;
   headers: Record<string, string | string[] | undefined>;
@@ -2381,16 +2199,14 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
         headers: input.headers,
         effectClaim: {
           kind: 'reusable_wallet_session',
-          budget: {
-            signing_grant_id: validated.walletSessionAuth.signingGrantId,
-            reservation_id: reservationId,
-            signing_worker_id: signingWorkerId,
-            operation_id: operationId,
-            request_digest: requirePrivateSigningDigestB64u(
-              requestDigest,
-              'budget request digest',
-            ),
-          },
+          wallet_session_id: validated.walletSessionAuth.walletSessionId,
+          grant_id: validated.walletSessionAuth.signingGrantId,
+          use_id: reservationId,
+          operation_id: operationId,
+          operation_fingerprint_digest: requirePrivateSigningDigestB64u(
+            requestDigest,
+            'budget request digest',
+          ),
         },
       });
     } catch (error: unknown) {

@@ -684,7 +684,7 @@ function sameAuthorizationIdentity(
 ): boolean {
   return (
     left.thresholdSessionId === right.thresholdSessionId &&
-    left.signingGrantId === right.signingGrantId
+    left.walletSessionId === right.walletSessionId
   );
 }
 

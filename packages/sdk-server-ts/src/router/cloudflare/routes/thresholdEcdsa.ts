@@ -1925,7 +1925,6 @@ export async function handleStrictEcdsaSessionActivation(
       sessionKind: 'jwt',
       authorizationSessionId: authorized.authorizationSessionId,
       thresholdSessionId: activated.session.thresholdSessionId,
-      signingGrantId: activated.session.signingGrantId,
       walletSessionId,
       quotaId,
       expiresAtMs: activated.session.expiresAtMs,
@@ -1974,7 +1973,6 @@ export async function handleStrictEcdsaSessionActivation(
       session: {
         authorization_session_id: authorized.authorizationSessionId,
         threshold_session_id: activated.session.thresholdSessionId,
-        signing_grant_id: activated.session.signingGrantId,
         wallet_session_id: walletSessionId,
         quota_id: quotaId,
         expires_at_ms: activated.session.expiresAtMs,

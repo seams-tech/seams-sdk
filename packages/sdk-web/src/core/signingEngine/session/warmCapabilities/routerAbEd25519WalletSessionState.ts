@@ -71,10 +71,6 @@ export function buildEmailOtpRouterAbEd25519WalletSessionState(
       'thresholdSessionId',
     ),
   );
-  const signingGrantId = requireNonEmptyStateValue(
-    input.signingWalletSession.signingGrantId,
-    'signingGrantId',
-  );
   const walletSessionJwt = requireNonEmptyStateValue(
     input.signingWalletSession.auth.walletSessionJwt,
     'walletSessionJwt',
@@ -95,8 +91,9 @@ export function buildEmailOtpRouterAbEd25519WalletSessionState(
   };
   return {
     walletSessionAuth,
+    walletSessionId: input.signingWalletSession.walletSessionId,
+    quotaId: input.signingWalletSession.quotaId,
     thresholdSessionId,
-    signingGrantId,
     signingLane: buildNearTransactionSigningLane({
       walletId: input.walletId,
       nearAccountId: input.nearAccountId,
@@ -106,7 +103,8 @@ export function buildEmailOtpRouterAbEd25519WalletSessionState(
         kind: 'email_otp',
         providerSubjectId,
       },
-      signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
+      walletSessionId: input.signingWalletSession.walletSessionId,
+      quotaId: input.signingWalletSession.quotaId,
       thresholdSessionId,
       retention: 'session',
       sessionOrigin: 'login',
@@ -130,10 +128,6 @@ export function buildPasskeyRouterAbEd25519WalletSessionState(
       'thresholdSessionId',
     ),
   );
-  const signingGrantId = requireNonEmptyStateValue(
-    input.signingWalletSession.signingGrantId,
-    'signingGrantId',
-  );
   const walletSessionJwt = requireNonEmptyStateValue(
     input.signingWalletSession.auth.walletSessionJwt,
     'walletSessionJwt',
@@ -149,8 +143,9 @@ export function buildPasskeyRouterAbEd25519WalletSessionState(
       kind: 'wallet_session_jwt',
       walletSessionJwt,
     },
+    walletSessionId: input.signingWalletSession.walletSessionId,
+    quotaId: input.signingWalletSession.quotaId,
     thresholdSessionId,
-    signingGrantId,
     signingLane: buildNearTransactionSigningLane({
       walletId: input.walletId,
       nearAccountId: input.nearAccountId,
@@ -161,7 +156,8 @@ export function buildPasskeyRouterAbEd25519WalletSessionState(
         rpId: input.rpId,
         credentialIdB64u,
       },
-      signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
+      walletSessionId: input.signingWalletSession.walletSessionId,
+      quotaId: input.signingWalletSession.quotaId,
       thresholdSessionId,
       storageSource: 'login',
     }),
@@ -196,8 +192,8 @@ export function buildRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
     nearAccountId: runtime.nearAccountId,
     nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
     walletSessionId: claims.walletSessionId,
+    quotaId: claims.quotaId,
     thresholdSessionId: runtime.thresholdSessionId,
-    signingGrantId: claims.signingGrantId,
     remainingUses: runtime.remainingUses,
     expiresAtMs: runtime.expiresAtMs,
     runtimePolicyScope: runtime.runtimePolicyScope,
@@ -232,7 +228,8 @@ export function buildRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
             nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
             signerSlot: runtime.signerSlot,
             auth: runtime.auth,
-            signingGrantId: SigningSessionIds.signingGrant(claims.signingGrantId),
+            walletSessionId: claims.walletSessionId,
+            quotaId: claims.quotaId,
             thresholdSessionId: runtime.thresholdSessionId,
             retention: 'session',
             sessionOrigin: 'login',
@@ -243,8 +240,9 @@ export function buildRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
   }
   return {
     walletSessionAuth: signingWalletSession.value.auth,
+    walletSessionId: claims.walletSessionId,
+    quotaId: claims.quotaId,
     thresholdSessionId: runtime.thresholdSessionId,
-    signingGrantId: claims.signingGrantId,
     signingLane,
     remainingUses: runtime.remainingUses,
     signingRootId: runtime.signingRootId,

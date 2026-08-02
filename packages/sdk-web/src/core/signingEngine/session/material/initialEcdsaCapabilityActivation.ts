@@ -75,7 +75,6 @@ type PlannerOwnedIdentityExclusions = {
   readonly durableMaterialRef?: never;
   readonly thresholdSessionId?: never;
   readonly walletSessionId?: never;
-  readonly signingGrantId?: never;
   readonly materialHandle?: never;
   readonly pendingPayloadB64u?: never;
 };
