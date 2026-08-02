@@ -60,7 +60,6 @@ function ecdsaAdmissionInput(overrides: Partial<EcdsaAdmissionInput> = {}): Ecds
       kind: 'reusable_wallet_session',
       walletSessionId: 'ecdsa-session-1',
     },
-    signingGrantId: 'signing-grant-1',
     requestId: 'ecdsa-request-1',
     expiresAtMs: BASE_EXPIRES_AT_MS,
     signingWorkerId: 'signing-worker-a',
