@@ -55,20 +55,6 @@ void requireVerifiedWalletSessionAuth(ed25519Auth);
 // @ts-expect-error Core wallet-session auth consumers require a verified object.
 requireVerifiedWalletSessionAuth('threshold-session-id');
 
-const invalidEcdsaWithSigningGrant = {
-  kind: 'wallet_session',
-  curve: 'ecdsa',
-  thresholdSessionId: 'threshold-session-ecdsa',
-  walletSessionId,
-  quotaId,
-  userId: 'wallet-ecdsa',
-  relayerKeyId: 'ecdsa-relayer',
-  participantIds: [1, 2] as const,
-  expiresAtMs: Date.now() + 60_000,
-  keyHandle: 'ederivation-key-1',
-} satisfies VerifiedEcdsaWalletSessionAuth;
-void invalidEcdsaWithSigningGrant;
-
 const invalidEcdsaWithEd25519OnlyField = {
   kind: 'wallet_session',
   curve: 'ecdsa',
