@@ -186,18 +186,19 @@ tests. The shared `SigningGrantId` brand/parser and sealed-record exclusion
 fields were deleted in `53ab721df`; the remaining TypeScript Router budget
 runtime/store surface was deleted in `882dfd681` and `4885bed62`.
 
-Checkpoints `882dfd681`, `4885bed62`, `32be59fb1`, and `fa5791630` close the
-Unit 3c deletion slice: the remaining
+Checkpoints `882dfd681`, `4885bed62`, `32be59fb1`, `fa5791630`, and
+`f4c8c7423` close the Unit 3c deletion slice: the remaining
 TypeScript Router budget persistence/parser surface, callerless local signing
 seed runtime and factory wiring, obsolete wallet-budget status/parser tests,
-and grant-named admission/cache identities in the SDK, local smoke wire,
-console admission fixture, and current documentation. SDK-server, SDK-web,
+grant-named admission/cache identities in the SDK and console admission
+fixture, and the local smoke wire's legacy budget-field injection. SDK-server,
+SDK-web,
 console-server, and shared TypeScript typechecks pass. Focused admission,
 claims, identity, recovery, export, hostile-substitution, and lifecycle
 coverage is green. The Unit 3c implementation and focused conformance gate are
 closed.
 
-### Unit 3c current-source closeout — `4885bed62`, `fa5791630`
+### Unit 3c current-source closeout — `4885bed62`, `fa5791630`, `f4c8c7423`
 
 An exact source sweep over `packages`, `apps`, and `crates` finds no current
 `SigningGrantId`, `signingGrantId`, or `signing_grant_id` occurrence outside
@@ -205,6 +206,13 @@ the immutable historical migration. Current tests and generated source are
 clean as well. Historical refactor documents retain their original names as
 archival evidence; current Refactor 90 documents describe the canonical
 Wallet Session/quota and capability-grant identities.
+
+`f4c8c7423` removes the last active local-smoke compatibility behavior: the
+Router A/B ECDSA prepare response is parsed in its strict current shape, and
+finalize/replay requests are sent without injecting `budget_reservation_id`,
+`budget_operation_id`, or `budget_status`. The remaining occurrences are
+negative type fixtures that prove those fields are rejected, plus historical
+documentation and immutable migration records.
 
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
