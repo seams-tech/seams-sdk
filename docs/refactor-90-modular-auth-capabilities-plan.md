@@ -1512,6 +1512,10 @@ the replacement and legacy MPC paths must not ship together.
   - [x] Name the ECDSA worker-share and presign handoff field
         `thresholdSessionId`; one-shot Email OTP client-root handles and
         presign-session IDs remain separate (`fae146131`).
+  - [x] Rename the volatile warm-material clear command scope from generic
+        `sessionId` to branded `ThresholdSessionId`; reject the retired
+        payload shape at the worker boundary and remove the local volatile-ID
+        alias (`0c341f40a`; boundary test 1/1).
   - [x] Delete zero-caller budget owner, availability, and unknown-status
         adapters; live admission and status readers remain unchanged
         (`20f1bcfca`, `1ce066cf9`, `69b0e6b30`).

@@ -76,6 +76,9 @@ sealed-runtime, and authorization-sensitive signing boundaries. No old
 The ECDSA worker-share and presign handoff now use `thresholdSessionId`; the
 one-shot Email OTP client-root handle retains its own local `sessionId`
 (`fae146131`).
+Volatile warm-material clear commands now use branded `ThresholdSessionId` in
+their worker scope; the retired generic `sessionId` field and local volatile-ID
+alias were deleted (`0c341f40a`).
 
 The remaining Ed25519 `signingGrantId` values are Unit 3c deletion targets.
 Until that cutover lands, they live only in authenticated Wallet Session/quota
