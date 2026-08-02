@@ -81,10 +81,12 @@ impl LifecycleScopeV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NormalSigningAuthorizationV1 {
-    /// Reusable Wallet Session authority. The Gateway derives the exact operation grant.
+    /// Reusable Wallet Session authority. The Gateway derives the exact operation authorization.
     ReusableWalletSession { wallet_session_id: String },
-    /// Single-operation step-up authority.
-    OperationStepUp { grant_id: String },
+    /// Single-operation step-up authority. Verified evidence and the resulting
+    /// authorized operation remain server-side; the public request carries only
+    /// this marker.
+    OperationStepUp,
 }
 
 impl NormalSigningAuthorizationV1 {
@@ -100,10 +102,8 @@ impl NormalSigningAuthorizationV1 {
     }
 
     /// Creates validated single-operation step-up authority.
-    pub fn operation_step_up(grant_id: impl Into<String>) -> RouterAbProtocolResult<Self> {
-        let authorization = Self::OperationStepUp {
-            grant_id: grant_id.into(),
-        };
+    pub fn operation_step_up() -> RouterAbProtocolResult<Self> {
+        let authorization = Self::OperationStepUp;
         authorization.validate()?;
         Ok(authorization)
     }
@@ -114,9 +114,7 @@ impl NormalSigningAuthorizationV1 {
             Self::ReusableWalletSession { wallet_session_id } => {
                 require_non_empty("authorization.wallet_session_id", wallet_session_id)
             }
-            Self::OperationStepUp { grant_id } => {
-                require_non_empty("authorization.grant_id", grant_id)
-            }
+            Self::OperationStepUp => Ok(()),
         }
     }
 
@@ -124,15 +122,18 @@ impl NormalSigningAuthorizationV1 {
     pub fn kind_label(&self) -> &'static str {
         match self {
             Self::ReusableWalletSession { .. } => "reusable_wallet_session",
-            Self::OperationStepUp { .. } => "operation_step_up",
+            Self::OperationStepUp => "operation_step_up",
         }
     }
 
     /// Returns the exact identifier carried by the authorization branch.
-    pub fn authorization_id(&self) -> &str {
+    pub fn authorization_id(&self) -> RouterAbProtocolResult<&str> {
         match self {
-            Self::ReusableWalletSession { wallet_session_id } => wallet_session_id,
-            Self::OperationStepUp { grant_id } => grant_id,
+            Self::ReusableWalletSession { wallet_session_id } => Ok(wallet_session_id),
+            Self::OperationStepUp => Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "operation step-up authority has no public authorization id",
+            )),
         }
     }
 
@@ -143,24 +144,13 @@ impl NormalSigningAuthorizationV1 {
             Self::ReusableWalletSession {
                 wallet_session_id, ..
             } => Ok(wallet_session_id),
-            Self::OperationStepUp { .. } => Err(RouterAbProtocolError::new(
+            Self::OperationStepUp => Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
                 "operation step-up authority has no reusable Wallet Session id",
             )),
         }
     }
 
-    /// Returns the pre-issued capability grant id for operation step-up authority.
-    pub fn operation_step_up_grant_id(&self) -> RouterAbProtocolResult<&str> {
-        self.validate()?;
-        match self {
-            Self::OperationStepUp { grant_id } => Ok(grant_id),
-            Self::ReusableWalletSession { .. } => Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "reusable Wallet Session authority has no pre-issued operation grant",
-            )),
-        }
-    }
 }
 
 /// Exact activated MPC material used by one normal-signing request.

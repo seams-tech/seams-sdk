@@ -93,10 +93,9 @@ const request: RouterAbNormalSigningPrepareRequestV2Wire = {
 function prepareResponse(signingWorkerId: string): RouterAbNormalSigningPrepareResponseV1Wire {
   return {
     scope: request.scope,
-    authorization_claim: {
-      kind: 'reusable_wallet_session_operation_claim_v1',
-      use_id: 'operation-use-1',
-      grant_id: 'operation-grant-1',
+    authorized_operation: {
+      kind: 'reusable_wallet_session_authorized_operation_v1',
+      authorized_operation_id: 'authorized-operation-1',
       operation_id: 'operation-1',
       capability_kind: 'near_ed25519_mpc_signing',
       operation_kind: 'near.sign_transaction',
@@ -267,30 +266,29 @@ test(
 );
 test('maps server budget failures to signing-session budget domain errors', mapsBudgetFailures);
 
-test('parses the reusable Wallet Session operation-claim receipt', async () => {
+test('parses the reusable Wallet Session authorized-operation receipt', async () => {
   const response = prepareResponse('signing-worker-a');
   await expect(prepareWithHttpResponse(response)).resolves.toEqual(response);
 
   const { operation_fingerprint_digest: _operationFingerprintDigest, ...truncatedClaim } =
-    response.authorization_claim;
+    response.authorized_operation;
   await expect(
-    prepareWithHttpResponse({ ...response, authorization_claim: truncatedClaim }),
-  ).rejects.toThrow('authorization_claim has invalid fields');
+    prepareWithHttpResponse({ ...response, authorized_operation: truncatedClaim }),
+  ).rejects.toThrow('authorized_operation has invalid fields');
 });
 
-test('parses and echoes the operation step-up claim receipt', async () => {
+test('parses and echoes the verified step-up authorized operation receipt', async () => {
   const stepUpRequest: RouterAbNormalSigningPrepareRequestV2Wire = {
     ...request,
     scope: {
       ...request.scope,
-      authorization: { kind: 'operation_step_up', grant_id: 'step-up-grant-1' },
+      authorization: { kind: 'operation_step_up' },
     },
   };
   const stepUpClaim = {
-    kind: 'operation_step_up_operation_claim_v1' as const,
+    kind: 'verified_step_up_authorized_operation_v1' as const,
     authorization_session_id: 'authorization-session-1',
-    use_id: 'operation-use-2',
-    grant_id: 'step-up-grant-1',
+    authorized_operation_id: 'authorized-operation-2',
     operation_id: 'operation-1',
     capability_kind: 'near_ed25519_mpc_signing' as const,
     operation_kind: 'near.sign_transaction' as const,
@@ -302,7 +300,7 @@ test('parses and echoes the operation step-up claim receipt', async () => {
   const response: RouterAbNormalSigningPrepareResponseV1Wire = {
     ...prepareResponse('signing-worker-a'),
     scope: stepUpRequest.scope,
-    authorization_claim: stepUpClaim,
+    authorized_operation: stepUpClaim,
   };
   await expect(prepareRequestWithHttpResponse(stepUpRequest, response)).resolves.toEqual(response);
 
@@ -319,13 +317,13 @@ test('parses and echoes the operation step-up claim receipt', async () => {
     clientVerifyingShareB64u: 'client-verifying-share',
     clientSignatureShareB64u: 'client-signature-share',
   });
-  expect(finalize.authorization_claim).toEqual(stepUpClaim);
+  expect(finalize.authorized_operation).toEqual(stepUpClaim);
 
-  const { authorization_session_id: _authorizationSessionId, ...truncatedClaim } = stepUpClaim;
+  const { authorized_operation_id: _authorizedOperationId, ...truncatedClaim } = stepUpClaim;
   await expect(
     prepareRequestWithHttpResponse(stepUpRequest, {
       ...response,
-      authorization_claim: truncatedClaim,
+      authorized_operation: truncatedClaim,
     }),
-  ).rejects.toThrow('authorization_claim has invalid fields');
+  ).rejects.toThrow('authorized_operation has invalid fields');
 });

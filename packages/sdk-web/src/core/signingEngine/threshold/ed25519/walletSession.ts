@@ -22,11 +22,7 @@ import {
 import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
-  parseCapabilityGrantId,
-  parseSeamsSessionId,
-  type CapabilityGrantId,
   type MpcWalletSigningQuotaId,
-  type SeamsSessionId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
@@ -340,13 +336,13 @@ type Ed25519EmailOtpLocalMaterialRecoveryRequest = Extract<
   { kind: 'email_otp_local_material_v1' }
 >;
 
-type Ed25519OperationStepUpGrantRequestBase = {
+type Ed25519OperationStepUpAuthorizationRequestBase = {
   relayerUrl: string;
   normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
   displayDigest: string;
 };
 
-export type Ed25519OperationStepUpGrantRequest = Ed25519OperationStepUpGrantRequestBase &
+export type Ed25519OperationStepUpAuthorizationRequest = Ed25519OperationStepUpAuthorizationRequestBase &
   (
     | {
         proof: Ed25519OperationStepUpProof;
@@ -402,10 +398,9 @@ function serializeEd25519OperationStepUpProof(
   }
 }
 
-export type IssuedEd25519OperationStepUpGrant = {
-  kind: 'operation_step_up';
-  grantId: CapabilityGrantId;
-  authorizationSessionId: SeamsSessionId;
+export type IssuedEd25519OperationStepUpAuthorization = {
+  kind: 'verified_step_up';
+  authorization: { kind: 'operation_step_up' };
   expiresAtMs: number;
   materialRecovery: Ed25519OperationStepUpMaterialRecoveryResponse;
 };
@@ -444,24 +439,8 @@ function requireNormalizedEd25519OperationStepUpString(value: unknown, field: st
   return value;
 }
 
-function requireEd25519OperationStepUpGrantId(value: unknown) {
-  const parsed = parseCapabilityGrantId(value);
-  if (!parsed.ok) {
-    throw new Error(`[threshold-ed25519] ${parsed.error.message}`);
-  }
-  return parsed.value;
-}
-
-function requireEd25519OperationStepUpAuthorizationSessionId(value: unknown) {
-  const parsed = parseSeamsSessionId(value);
-  if (!parsed.ok) {
-    throw new Error(`[threshold-ed25519] ${parsed.error.message}`);
-  }
-  return parsed.value;
-}
-
 function buildEd25519OperationStepUpMaterialRecoveryRequest(
-  request: Ed25519OperationStepUpGrantRequest,
+  request: Ed25519OperationStepUpAuthorizationRequest,
 ): Ed25519OperationStepUpMaterialRecoveryRequest {
   switch (request.materialRecovery.kind) {
     case 'not_requested':
@@ -547,18 +526,30 @@ function parseEd25519OperationStepUpMaterialRecoveryResponse(args: {
   }
 }
 
-function parseIssuedEd25519OperationStepUpGrant(args: {
+function parseIssuedEd25519OperationStepUpAuthorization(args: {
   body: unknown;
   requestedMaterialRecovery: Ed25519OperationStepUpMaterialRecoveryRequest;
-}): IssuedEd25519OperationStepUpGrant {
+}): IssuedEd25519OperationStepUpAuthorization {
   const body = requireEd25519OperationStepUpResponseRecord(args.body, 'operation step-up response');
   requireExactEd25519OperationStepUpResponseKeys(
     body,
-    ['ok', 'kind', 'grantId', 'authorizationSessionId', 'expiresAtMs', 'materialRecovery'],
+    ['ok', 'kind', 'authorization', 'expiresAtMs', 'materialRecovery'],
     'operation step-up response',
   );
-  if (body.ok !== true || body.kind !== 'operation_step_up') {
+  if (body.ok !== true || body.kind !== 'verified_step_up') {
     throw new Error('[threshold-ed25519] operation step-up response kind is invalid');
+  }
+  const authorization = requireEd25519OperationStepUpResponseRecord(
+    body.authorization,
+    'operation step-up authorization',
+  );
+  requireExactEd25519OperationStepUpResponseKeys(
+    authorization,
+    ['kind'],
+    'operation step-up authorization',
+  );
+  if (authorization.kind !== 'operation_step_up') {
+    throw new Error('[threshold-ed25519] operation step-up authorization marker is invalid');
   }
   if (
     typeof body.expiresAtMs !== 'number' ||
@@ -568,11 +559,8 @@ function parseIssuedEd25519OperationStepUpGrant(args: {
     throw new Error('[threshold-ed25519] operation step-up expiry is invalid');
   }
   return {
-    kind: 'operation_step_up',
-    grantId: requireEd25519OperationStepUpGrantId(body.grantId),
-    authorizationSessionId: requireEd25519OperationStepUpAuthorizationSessionId(
-      body.authorizationSessionId,
-    ),
+    kind: 'verified_step_up',
+    authorization: { kind: 'operation_step_up' },
     expiresAtMs: body.expiresAtMs,
     materialRecovery: parseEd25519OperationStepUpMaterialRecoveryResponse({
       value: body.materialRecovery,
@@ -581,9 +569,9 @@ function parseIssuedEd25519OperationStepUpGrant(args: {
   };
 }
 
-export async function issueEd25519OperationStepUpGrant(
-  args: Ed25519OperationStepUpGrantRequest,
-): Promise<IssuedEd25519OperationStepUpGrant> {
+export async function issueEd25519OperationStepUpAuthorization(
+  args: Ed25519OperationStepUpAuthorizationRequest,
+): Promise<IssuedEd25519OperationStepUpAuthorization> {
   const relayerUrl = stripTrailingSlashes(toTrimmedString(args.relayerUrl));
   if (!relayerUrl) throw new Error('[threshold-ed25519] operation step-up relayerUrl is required');
   const materialRecovery = buildEd25519OperationStepUpMaterialRecoveryRequest(args);
@@ -592,7 +580,7 @@ export async function issueEd25519OperationStepUpGrant(
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: JSON.stringify({
-      kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
+      kind: 'router_ab_ed25519_yao_operation_step_up_v1',
       normalSigningRequest: args.normalSigningRequest,
       displayDigest: args.displayDigest,
       proof: serializeEd25519OperationStepUpProof(args.proof),
@@ -611,7 +599,7 @@ export async function issueEd25519OperationStepUpGrant(
       )}`,
     );
   }
-  return parseIssuedEd25519OperationStepUpGrant({
+  return parseIssuedEd25519OperationStepUpAuthorization({
     body,
     requestedMaterialRecovery: materialRecovery,
   });

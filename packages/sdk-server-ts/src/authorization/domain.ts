@@ -2,16 +2,10 @@ import type {
   AuthorizationAuditEventId,
   AuthorizationGrantRef,
   AuthorizedOperationId,
-  CapabilityBindingId,
-  CapabilityGrantId,
-  CapabilityGrantUseId,
-  CapabilityId,
-  CapabilityOperationId,
-  CapabilityOperationRef,
+  WalletSessionAuthorizationId,
   DeviceId,
   GrantEvidenceId,
   GrantEvidenceKind,
-  GrantEvidenceSetId,
   HostedWalletSessionExchangeCodeId,
   MpcWalletSigningQuotaId,
   PrincipalId,
@@ -26,6 +20,7 @@ export {
 } from '@shared/authorization/capabilityKinds';
 export type {
   MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type {
@@ -142,63 +137,6 @@ export type VerifiedGrantEvidence = {
 
 export type { VerifiedGrantEvidenceSet } from './factorEvidence';
 
-type ActiveCapabilityGrantBase = {
-  readonly kind: 'active_capability_grant';
-  readonly tenantId: TenantId;
-  readonly principalId: PrincipalId;
-  readonly grantId: CapabilityGrantId;
-  readonly bindingId: CapabilityBindingId;
-  readonly evidenceSetId: GrantEvidenceSetId;
-  readonly evidenceSetDigest: DigestB64u;
-  readonly capabilityId: CapabilityId;
-  readonly operationId: CapabilityOperationId;
-  readonly operation: CapabilityOperationRef;
-  readonly laneDigest: DigestB64u;
-  readonly intentDigest: DigestB64u;
-  readonly displayDigest: DigestB64u;
-  readonly remainingUses: number;
-  readonly createdAtMs: number;
-  readonly expiresAtMs: number;
-};
-
-export type ActiveCapabilityGrant =
-  | (ActiveCapabilityGrantBase & {
-      readonly authority: {
-        readonly kind: 'reusable_wallet_session';
-        readonly walletSessionId: WalletSessionId;
-        readonly quotaId: MpcWalletSigningQuotaId;
-      };
-      readonly remainingUses: 1;
-    })
-  | (ActiveCapabilityGrantBase & {
-      readonly authority: {
-        readonly kind: 'operation_step_up';
-        readonly walletSessionId?: never;
-        readonly quotaId?: never;
-      };
-      readonly remainingUses: 1;
-    });
-
-export type ActiveCapabilityGrantInput = Omit<ActiveCapabilityGrantBase, 'kind'> &
-  (
-    | {
-        readonly authority: {
-          readonly kind: 'reusable_wallet_session';
-          readonly walletSessionId: WalletSessionId;
-          readonly quotaId: MpcWalletSigningQuotaId;
-        };
-        readonly remainingUses: 1;
-      }
-    | {
-        readonly authority: {
-          readonly kind: 'operation_step_up';
-          readonly walletSessionId?: never;
-          readonly quotaId?: never;
-        };
-        readonly remainingUses: 1;
-      }
-  );
-
 export type ActiveWalletSessionQuota = {
   readonly kind: 'active_wallet_session_quota';
   readonly tenantId: TenantId;
@@ -216,7 +154,7 @@ export type WalletSessionAuthorization = {
   readonly walletId: WalletId;
   readonly authority: WalletAuthAuthorityRef;
   readonly mintId: ReusableWalletSessionMintId;
-  readonly walletSessionId: WalletSessionId;
+  readonly authorizationId: WalletSessionAuthorizationId;
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
@@ -255,6 +193,7 @@ export type AuthorizedOperation = AuthorizedOperationLifecycle & {
   readonly tenantId: TenantId;
   readonly authorizedOperationId: AuthorizedOperationId;
   readonly auditEventId: AuthorizationAuditEventId;
+  readonly claimedAtMs: number;
   readonly operation: CapabilityOperationEnvelope;
   readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
   readonly authorization: OperationAuthorizationSource;
@@ -327,92 +266,6 @@ export type ReusableWalletSessionStatus =
       readonly expiresAtMs?: never;
     });
 
-type CapabilityOperationClaimBase = {
-  readonly tenantId: TenantId;
-  readonly useId: CapabilityGrantUseId;
-  readonly auditEventId: AuthorizationAuditEventId;
-  readonly grantId: CapabilityGrantId;
-  readonly operation: CapabilityOperationEnvelope;
-  readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
-  readonly evidenceSetDigest: DigestB64u;
-  readonly claimedAtMs: number;
-};
-
-const capabilityOperationClaimBrand: unique symbol = Symbol('CapabilityOperationClaim');
-
-export type CapabilityOperationClaim =
-  | (CapabilityOperationClaimBase & {
-      readonly [capabilityOperationClaimBrand]: true;
-      readonly authorization: {
-        readonly kind: 'reusable_wallet_session';
-        readonly walletSessionId: WalletSessionId;
-        readonly quotaId: MpcWalletSigningQuotaId;
-      };
-      readonly quota: { readonly kind: 'consume_reusable_wallet_session' };
-    })
-  | (CapabilityOperationClaimBase & {
-      readonly [capabilityOperationClaimBrand]: true;
-      readonly authorization: {
-        readonly kind: 'reusable_wallet_session';
-        readonly walletSessionId: WalletSessionId;
-        readonly quotaId: MpcWalletSigningQuotaId;
-      };
-      readonly quota: { readonly kind: 'quota_neutral' };
-    })
-  | (CapabilityOperationClaimBase & {
-      readonly [capabilityOperationClaimBrand]: true;
-      readonly authorization: {
-        readonly kind: 'operation_step_up';
-        readonly walletSessionId?: never;
-        readonly quotaId?: never;
-      };
-      readonly quota: { readonly kind: 'quota_neutral' };
-    });
-
-export type CapabilityOperationClaimInput = CapabilityOperationClaimBase &
-  (
-    | {
-        readonly authorization: {
-          readonly kind: 'reusable_wallet_session';
-          readonly walletSessionId: WalletSessionId;
-          readonly quotaId: MpcWalletSigningQuotaId;
-        };
-      }
-    | {
-        readonly authorization: {
-          readonly kind: 'operation_step_up';
-          readonly walletSessionId?: never;
-          readonly quotaId?: never;
-        };
-      }
-  );
-
-type CapabilityOperationCompletionClaimRefFields = Pick<
-  CapabilityOperationClaimBase,
-  'tenantId' | 'useId' | 'grantId' | 'operationFingerprintDigest'
->;
-
-const capabilityOperationCompletionClaimRefBrand: unique symbol = Symbol(
-  'CapabilityOperationCompletionClaimRef',
-);
-
-export type CapabilityOperationCompletionClaimRef =
-  CapabilityOperationCompletionClaimRefFields & {
-    readonly [capabilityOperationCompletionClaimRefBrand]: true;
-  };
-
-export function buildCapabilityOperationCompletionClaimRef(
-  input: CapabilityOperationCompletionClaimRefFields,
-): CapabilityOperationCompletionClaimRef {
-  return {
-    [capabilityOperationCompletionClaimRefBrand]: true,
-    tenantId: input.tenantId,
-    useId: input.useId,
-    grantId: input.grantId,
-    operationFingerprintDigest: input.operationFingerprintDigest,
-  };
-}
-
 export type CompletedCapabilityOperationResult =
   | 'succeeded'
   | 'failed_before_side_effect'
@@ -422,82 +275,6 @@ export type CapabilityOperationResultRef = {
   readonly resultDigest: DigestB64u;
   readonly resultStorageRef: DomainId<'CapabilityOperationResultStorageRef'>;
 };
-
-export type ClaimedCapabilityGrantUse = {
-  readonly kind: 'claimed';
-  readonly tenantId: TenantId;
-  readonly useId: CapabilityGrantUseId;
-  readonly grantId: CapabilityGrantId;
-  readonly principalId: PrincipalId;
-  readonly capabilityId: CapabilityId;
-  readonly operationId: CapabilityOperationId;
-  readonly operation: CapabilityOperationRef;
-  readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
-  readonly evidenceSetDigest: DigestB64u;
-  readonly claimedAtMs: number;
-};
-
-export type CompletedCapabilityGrantUse = Omit<ClaimedCapabilityGrantUse, 'kind'> & {
-  readonly kind: 'completed';
-  readonly result: CompletedCapabilityOperationResult;
-  readonly resultRef: CapabilityOperationResultRef;
-  readonly completedAtMs: number;
-};
-
-export type CapabilityGrantUse = ClaimedCapabilityGrantUse | CompletedCapabilityGrantUse;
-
-export type ClaimCapabilityOperationResult =
-  | { readonly kind: 'claimed'; readonly use: ClaimedCapabilityGrantUse }
-  | { readonly kind: 'operation_in_progress'; readonly use: ClaimedCapabilityGrantUse }
-  | { readonly kind: 'replayed'; readonly use: CompletedCapabilityGrantUse }
-  | {
-      readonly kind:
-        | 'grant_exhausted'
-        | 'grant_expired'
-        | 'grant_mismatch'
-        | 'wallet_session_quota_exhausted'
-        | 'wallet_session_expired'
-        | 'wallet_session_mismatch';
-    };
-
-export type CompleteCapabilityOperationResult =
-  | { readonly kind: 'completed'; readonly use: CompletedCapabilityGrantUse }
-  | { readonly kind: 'already_completed'; readonly use: CompletedCapabilityGrantUse }
-  | { readonly kind: 'claim_missing' }
-  | { readonly kind: 'claim_mismatch' };
-
-type AuthorizationAuditEventBase = {
-  readonly kind: 'authorization_audit_event';
-  readonly tenantId: TenantId;
-  readonly eventId: AuthorizationAuditEventId;
-  readonly principalId: PrincipalId;
-  readonly grantId: CapabilityGrantId;
-  readonly useId: CapabilityGrantUseId;
-  readonly capabilityId: CapabilityId;
-  readonly operationId: CapabilityOperationId;
-  readonly operation: CapabilityOperationRef;
-  readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
-  readonly evidenceSetDigest: DigestB64u;
-  readonly result: 'claimed' | CompletedCapabilityOperationResult;
-  readonly createdAtMs: number;
-};
-
-export type AuthorizationAuditEvent = AuthorizationAuditEventBase &
-  (
-    | {
-        readonly authorization: {
-          readonly kind: 'operation_step_up';
-          readonly sessionId: SeamsSessionId;
-          readonly deviceId: DeviceId;
-        };
-      }
-    | {
-        readonly authorization: {
-          readonly kind: 'reusable_wallet_session';
-          readonly walletSessionId: WalletSessionId;
-        };
-      }
-  );
 
 export function parseHostedWalletSeamsSessionExchangeCode(
   value: unknown,
@@ -555,58 +332,6 @@ export function buildActiveAuthorizationSession(
   };
 }
 
-export function buildActiveCapabilityGrant(
-  fields: ActiveCapabilityGrantInput,
-): ActiveCapabilityGrant {
-  requireOrderedTimes(fields.createdAtMs, fields.expiresAtMs, 'capability grant');
-  requirePositiveCount(fields.remainingUses, 'capability grant remaining uses');
-  if (fields.remainingUses !== 1) {
-    throw new Error('capability grants require exactly one use');
-  }
-  switch (fields.authority.kind) {
-    case 'reusable_wallet_session':
-      return {
-        kind: 'active_capability_grant',
-        tenantId: fields.tenantId,
-        principalId: fields.principalId,
-        grantId: fields.grantId,
-        bindingId: fields.bindingId,
-        evidenceSetId: fields.evidenceSetId,
-        evidenceSetDigest: fields.evidenceSetDigest,
-        capabilityId: fields.capabilityId,
-        operationId: fields.operationId,
-        operation: fields.operation,
-        laneDigest: fields.laneDigest,
-        intentDigest: fields.intentDigest,
-        displayDigest: fields.displayDigest,
-        authority: fields.authority,
-        remainingUses: fields.remainingUses,
-        createdAtMs: fields.createdAtMs,
-        expiresAtMs: fields.expiresAtMs,
-      };
-    case 'operation_step_up':
-      return {
-        kind: 'active_capability_grant',
-        tenantId: fields.tenantId,
-        principalId: fields.principalId,
-        grantId: fields.grantId,
-        bindingId: fields.bindingId,
-        evidenceSetId: fields.evidenceSetId,
-        evidenceSetDigest: fields.evidenceSetDigest,
-        capabilityId: fields.capabilityId,
-        operationId: fields.operationId,
-        operation: fields.operation,
-        laneDigest: fields.laneDigest,
-        intentDigest: fields.intentDigest,
-        displayDigest: fields.displayDigest,
-        authority: fields.authority,
-        remainingUses: 1,
-        createdAtMs: fields.createdAtMs,
-        expiresAtMs: fields.expiresAtMs,
-      };
-  }
-}
-
 export function buildActiveWalletSessionQuota(
   fields: Omit<ActiveWalletSessionQuota, 'kind'>,
 ): ActiveWalletSessionQuota {
@@ -637,22 +362,11 @@ export function buildWalletSessionAuthorization(
     walletId: fields.walletId,
     authority: fields.authority,
     mintId: fields.mintId,
-    walletSessionId: fields.walletSessionId,
+    authorizationId: fields.authorizationId,
     quotaId: fields.quotaId,
     createdAtMs: fields.createdAtMs,
     expiresAtMs: fields.expiresAtMs,
   };
-}
-
-export function operationConsumesWalletSessionQuota(operation: CapabilityOperationRef): boolean {
-  switch (operation.capabilityKind) {
-    case 'vault_access':
-      return false;
-    case 'near_ed25519_mpc_signing':
-      return operation.operationKind !== 'near.export_key';
-    case 'evm_ecdsa_mpc_signing':
-      return operation.operationKind !== 'evm.export_key';
-  }
 }
 
 function parseAuthorizationDomainId<TName extends string>(
@@ -730,61 +444,4 @@ function requireDomainIdParse(
   label: string,
 ): void {
   if (!result.ok) throw new Error(`${label}: ${result.error.message}`);
-}
-
-export async function buildCapabilityOperationClaim(
-  input: Omit<CapabilityOperationClaimInput, 'operationFingerprintDigest'>,
-): Promise<CapabilityOperationClaim> {
-  if (input.tenantId !== input.operation.tenantId) {
-    throw new Error('capability operation claim tenant must match its operation envelope');
-  }
-  const operationFingerprintDigest = await computeCapabilityOperationFingerprintDigest(
-    input.operation,
-  );
-  const consumesQuota = operationConsumesWalletSessionQuota(input.operation.operation);
-  switch (input.authorization.kind) {
-    case 'reusable_wallet_session':
-      if (consumesQuota) {
-        return {
-          [capabilityOperationClaimBrand]: true,
-          tenantId: input.tenantId,
-          useId: input.useId,
-          auditEventId: input.auditEventId,
-          grantId: input.grantId,
-          operation: input.operation,
-          operationFingerprintDigest,
-          evidenceSetDigest: input.evidenceSetDigest,
-          claimedAtMs: input.claimedAtMs,
-          authorization: input.authorization,
-          quota: { kind: 'consume_reusable_wallet_session' },
-        };
-      }
-      return {
-        [capabilityOperationClaimBrand]: true,
-        tenantId: input.tenantId,
-        useId: input.useId,
-        auditEventId: input.auditEventId,
-        grantId: input.grantId,
-        operation: input.operation,
-        operationFingerprintDigest,
-        evidenceSetDigest: input.evidenceSetDigest,
-        claimedAtMs: input.claimedAtMs,
-        authorization: input.authorization,
-        quota: { kind: 'quota_neutral' },
-      };
-    case 'operation_step_up':
-      return {
-        [capabilityOperationClaimBrand]: true,
-        tenantId: input.tenantId,
-        useId: input.useId,
-        auditEventId: input.auditEventId,
-        grantId: input.grantId,
-        operation: input.operation,
-        operationFingerprintDigest,
-        evidenceSetDigest: input.evidenceSetDigest,
-        claimedAtMs: input.claimedAtMs,
-        authorization: input.authorization,
-        quota: { kind: 'quota_neutral' },
-      };
-  }
 }

@@ -40,7 +40,7 @@ const invalidGrantOperationMaterial: NearEd25519YaoOperationMaterial = {
   activeClient: material.activeClient,
   facts: materialFacts,
   // @ts-expect-error An issued grant belongs beside resolved material.
-  issuedGrant: null,
+  issuedAuthorization: null,
 };
 
 const transactionPreparation: PreparedNearOperationStepUp = {

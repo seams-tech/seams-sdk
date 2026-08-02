@@ -71,7 +71,7 @@ type ResolvedEcdsaDerivationExportMaterial = {
 function exportAuthorizationWire(
   authorization: EcdsaExplicitExportOperationAuthorization,
 ): RouterAbNormalSigningAuthorizationWire {
-  return { kind: 'operation_step_up', grant_id: authorization.grantId };
+  return { kind: 'operation_step_up' };
 }
 
 function exportAuthorizationDigestFields(
@@ -80,7 +80,10 @@ function exportAuthorizationDigestFields(
   authorizationKind: EcdsaExplicitExportOperationAuthorization['kind'];
   authorizationId: string;
 } {
-  return { authorizationKind: authorization.kind, authorizationId: authorization.grantId };
+  return {
+    authorizationKind: authorization.kind,
+    authorizationId: authorization.evidenceSetDigest,
+  };
 }
 
 type EcdsaDerivationExportPublicIdentity = {

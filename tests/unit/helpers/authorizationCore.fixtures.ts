@@ -2,21 +2,21 @@ import {
   buildEvmEcdsaMpcOperationRef,
   parseAuthorizationAuditEventId,
   parseAuthFactorId,
-  parseCapabilityBindingId,
-  parseCapabilityGrantId,
-  parseCapabilityGrantUseId,
   parseCapabilityId,
   parseCapabilityOperationId,
   parseCapabilityOperationResultStorageRef,
+  parseAuthorizedOperationId,
   parseDeviceId,
   parseGrantEvidenceId,
   parseGrantEvidenceSetId,
+  parseWalletSessionAuthorizationId,
   parsePrincipalId,
   parseSeamsSessionId,
   parseTenantId,
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
   parseReusableWalletSessionMintId,
+  buildAuthorizationGrantRef,
   type AuthorizationParseResult,
   type EvmEcdsaMpcOperationKind,
   type GrantEvidenceId,
@@ -42,17 +42,14 @@ import {
 } from '../../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
   buildActiveAuthorizationSession,
-  buildActiveCapabilityGrant,
+  buildAuthorizedOperation,
   buildWalletSessionAuthorization,
   buildActiveWalletSessionQuota,
-  buildCapabilityOperationClaim,
   parseSessionOrigin,
   type ActiveAuthorizationSession,
-  type ActiveCapabilityGrant,
   type ActiveWalletSessionQuota,
   type WalletSessionAuthorization,
-  type CapabilityOperationClaim,
-  type ClaimCapabilityOperationResult,
+  type AuthorizedOperation,
   type CapabilityOperationResultRef,
 } from '../../../packages/sdk-server-ts/src/authorization/domain';
 import {
@@ -71,10 +68,9 @@ export type ReusableAuthorizationCoreFixture = {
   readonly session: ActiveAuthorizationSession;
   readonly sessionEvidenceInput: VerifiedSessionEvidenceSetInput;
   readonly evidenceSet: VerifiedGrantEvidenceSet;
-  readonly grant: ActiveCapabilityGrant;
   readonly quota: ActiveWalletSessionQuota;
   readonly reusableWalletSession: WalletSessionAuthorization;
-  readonly claim: CapabilityOperationClaim;
+  readonly authorizedOperation: AuthorizedOperation;
   readonly resultRef: CapabilityOperationResultRef;
 };
 
@@ -117,8 +113,8 @@ export async function buildReusableAuthorizationCoreFixture(
   const deviceId = parsed('device-browser', parseDeviceId);
   const capabilityId = parsed('capability-evm', parseCapabilityId);
   const evidenceSetId = parsed('evidence-set-1', parseGrantEvidenceSetId);
-  const grantId = parsed('grant-1', parseCapabilityGrantId);
   const walletSessionId = parsed('wallet-session-1', parseWalletSessionId);
+  const authorizationId = parsed('wallet-session-1', parseWalletSessionAuthorizationId);
   const quotaId = parsed('wallet-quota-1', parseMpcWalletSigningQuotaId);
   const walletId = parsed('wallet-authorization', parseWalletId);
   const walletSessionExpiresAtMs = input.quotaExpiresAtMs ?? FIXTURE_NOW_MS + 80_000;
@@ -173,28 +169,6 @@ export async function buildReusableAuthorizationCoreFixture(
     session,
     sessionEvidenceInput,
     evidenceSet,
-    grant: buildActiveCapabilityGrant({
-      tenantId,
-      principalId,
-      grantId,
-      bindingId: parsed('binding-owner-1', parseCapabilityBindingId),
-      evidenceSetId,
-      evidenceSetDigest: evidenceSet.evidenceSetDigest,
-      capabilityId,
-      operationId: envelope.operationId,
-      operation,
-      laneDigest,
-      intentDigest,
-      displayDigest,
-      authority: {
-        kind: 'reusable_wallet_session',
-        walletSessionId,
-        quotaId,
-      },
-      remainingUses: 1,
-      createdAtMs: FIXTURE_NOW_MS,
-      expiresAtMs: walletSessionExpiresAtMs,
-    }),
     quota: buildActiveWalletSessionQuota({
       tenantId,
       principalId,
@@ -209,24 +183,25 @@ export async function buildReusableAuthorizationCoreFixture(
       walletId,
       authority,
       mintId: parsed('wallet-session-mint-1', parseReusableWalletSessionMintId),
-      walletSessionId,
+      authorizationId,
       quotaId,
       createdAtMs: FIXTURE_NOW_MS,
       expiresAtMs: walletSessionExpiresAtMs,
     }),
-    claim: await buildCapabilityOperationClaim({
+    authorizedOperation: await buildAuthorizedOperation({
       tenantId,
-      useId: parsed('grant-use-1', parseCapabilityGrantUseId),
+      authorizedOperationId: parsed('authorized-operation-1', parseAuthorizedOperationId),
       auditEventId: parsed('audit-event-1', parseAuthorizationAuditEventId),
-      grantId,
       operation: envelope,
-      evidenceSetDigest: evidenceSet.evidenceSetDigest,
-      claimedAtMs: FIXTURE_NOW_MS + 1_000,
       authorization: {
-        kind: 'reusable_wallet_session',
-        walletSessionId,
-        quotaId,
+        kind: 'authorization_grant',
+        authorizationGrantRef: buildAuthorizationGrantRef(authorizationId),
       },
+      quota:
+        operation.operationKind === 'evm.export_key'
+          ? { kind: 'quota_neutral' }
+          : { kind: 'consume_reusable_wallet_session', quotaId },
+      claimedAtMs: FIXTURE_NOW_MS + 1_000,
     }),
     resultRef: {
       resultDigest: fixtureDigest(6),
@@ -235,90 +210,49 @@ export async function buildReusableAuthorizationCoreFixture(
   };
 }
 
-export async function buildAdditionalAuthorizationClaim(
+export async function buildAdditionalAuthorizedOperation(
   fixture: ReusableAuthorizationCoreFixture,
   suffix: string,
-): Promise<CapabilityOperationClaim> {
+): Promise<AuthorizedOperation> {
   const operation = buildCapabilityOperationEnvelope({
-    tenantId: fixture.claim.operation.tenantId,
-    principalId: fixture.claim.operation.principalId,
-    capabilityId: fixture.claim.operation.capabilityId,
+    tenantId: fixture.authorizedOperation.operation.tenantId,
+    principalId: fixture.authorizedOperation.operation.principalId,
+    capabilityId: fixture.authorizedOperation.operation.capabilityId,
     operationId: parsed(`operation-${suffix}`, parseCapabilityOperationId),
-    operation: fixture.claim.operation.operation,
-    digests: fixture.claim.operation.digests,
+    operation: fixture.authorizedOperation.operation.operation,
+    digests: fixture.authorizedOperation.operation.digests,
   });
-  return await buildCapabilityOperationClaim({
-    tenantId: fixture.claim.tenantId,
-    useId: parsed(`grant-use-${suffix}`, parseCapabilityGrantUseId),
+  return await buildAuthorizedOperation({
+    tenantId: fixture.authorizedOperation.tenantId,
+    authorizedOperationId: parsed(`authorized-operation-${suffix}`, parseAuthorizedOperationId),
     auditEventId: parsed(`audit-event-${suffix}`, parseAuthorizationAuditEventId),
-    grantId: fixture.claim.grantId,
     operation,
-    evidenceSetDigest: fixture.claim.evidenceSetDigest,
-    claimedAtMs: fixture.claim.claimedAtMs,
-    authorization: fixture.claim.authorization,
+    authorization: fixture.authorizedOperation.authorization,
+    quota: fixture.authorizedOperation.quota,
+    claimedAtMs: FIXTURE_NOW_MS + 1_000,
   });
 }
 
 export async function buildStepUpAuthorizationCoreFixture(): Promise<StepUpAuthorizationCoreFixture> {
   const reusable = await buildReusableAuthorizationCoreFixture();
-  const operation = reusable.evidenceSet.operation;
+  const operation = reusable.authorizedOperation.operation;
   return {
     session: reusable.session,
     sessionEvidenceInput: reusable.sessionEvidenceInput,
     evidenceSet: reusable.evidenceSet,
-    grant: buildActiveCapabilityGrant({
-      tenantId: reusable.grant.tenantId,
-      principalId: reusable.grant.principalId,
-      grantId: reusable.grant.grantId,
-      bindingId: reusable.grant.bindingId,
-      evidenceSetId: reusable.grant.evidenceSetId,
-      evidenceSetDigest: reusable.grant.evidenceSetDigest,
-      capabilityId: reusable.grant.capabilityId,
-      operationId: reusable.grant.operationId,
+    authorizedOperation: await buildAuthorizedOperation({
+      tenantId: reusable.authorizedOperation.tenantId,
+      authorizedOperationId: reusable.authorizedOperation.authorizedOperationId,
+      auditEventId: reusable.authorizedOperation.auditEventId,
       operation,
-      laneDigest: reusable.grant.laneDigest,
-      intentDigest: reusable.grant.intentDigest,
-      displayDigest: reusable.grant.displayDigest,
-      authority: { kind: 'operation_step_up' },
-      remainingUses: 1,
-      createdAtMs: reusable.grant.createdAtMs,
-      expiresAtMs: reusable.grant.expiresAtMs,
-    }),
-    claim: await buildCapabilityOperationClaim({
-      tenantId: reusable.claim.tenantId,
-      useId: reusable.claim.useId,
-      auditEventId: reusable.claim.auditEventId,
-      grantId: reusable.claim.grantId,
-      operation: reusable.claim.operation,
-      evidenceSetDigest: reusable.claim.evidenceSetDigest,
-      claimedAtMs: reusable.claim.claimedAtMs,
-      authorization: { kind: 'operation_step_up' },
+      authorization: {
+        kind: 'verified_step_up',
+        evidenceSetDigest: reusable.evidenceSet.evidenceSetDigest,
+      },
+      quota: { kind: 'quota_neutral' },
+      claimedAtMs: FIXTURE_NOW_MS + 1_000,
     }),
     resultRef: reusable.resultRef,
-  };
-}
-
-export function buildClaimedCapabilityOperationResult(
-  fixture: StepUpAuthorizationCoreFixture,
-  input: {
-    readonly useId?: CapabilityOperationClaim['useId'];
-  } = {},
-): ClaimCapabilityOperationResult {
-  return {
-    kind: 'claimed',
-    use: {
-      kind: 'claimed',
-      tenantId: fixture.claim.tenantId,
-      useId: input.useId ?? fixture.claim.useId,
-      grantId: fixture.claim.grantId,
-      principalId: fixture.claim.operation.principalId,
-      capabilityId: fixture.claim.operation.capabilityId,
-      operationId: fixture.claim.operation.operationId,
-      operation: fixture.claim.operation.operation,
-      operationFingerprintDigest: fixture.claim.operationFingerprintDigest,
-      evidenceSetDigest: fixture.claim.evidenceSetDigest,
-      claimedAtMs: fixture.claim.claimedAtMs,
-    },
   };
 }
 
@@ -341,7 +275,7 @@ export async function buildPasskeyVerifiedFactorFixture(): Promise<PasskeyVerifi
       deviceId: authorization.session.deviceId,
       factorId: parsed('factor-passkey-adapter', parseAuthFactorId),
       authorityRef,
-      operation: authorization.claim.operation,
+      operation: authorization.authorizedOperation.operation,
       credentialIdB64u: parsedDomain('credential-passkey-adapter', parseWebAuthnCredentialIdB64u),
       assertionDigest: fixtureDigest(8),
       verifiedAtMs: authorization.session.createdAtMs + 1_000,
@@ -412,7 +346,7 @@ export async function buildEmailOtpVerifiedFactorFixture(): Promise<EmailOtpVeri
       deviceId: authorization.session.deviceId,
       factorId: parsed('factor-email-otp-adapter', parseAuthFactorId),
       authorityRef,
-      operation: authorization.claim.operation,
+      operation: authorization.authorizedOperation.operation,
       challengeId: parsedDomain('challenge-email-otp-adapter', parseEmailOtpChallengeId),
       verificationReceiptDigest: fixtureDigest(10),
       verifiedAtMs: authorization.session.createdAtMs + 1_000,

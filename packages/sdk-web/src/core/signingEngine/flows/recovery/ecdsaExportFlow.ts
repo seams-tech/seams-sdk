@@ -48,7 +48,7 @@ import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/acti
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
 import {
-  issueEcdsaOperationStepUpGrant,
+  issueEcdsaOperationStepUpAuthorization,
   prepareEcdsaOperationStepUp,
   type EcdsaOperationStepUpSessionAuth,
   type PreparedEcdsaOperationStepUp,
@@ -61,10 +61,9 @@ import {
   walletAuthAuthorityRef,
   type EmailOtpWalletAuthAuthority as CanonicalEmailOtpWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
-import { parseCapabilityGrantId } from '@shared/authorization/capabilityKinds';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/base64';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   buildPersistedEcdsaRoleLocalMaterial,
   type PersistedEcdsaRoleLocalMaterial,
@@ -478,23 +477,29 @@ async function issueExplicitEcdsaExportAuthorization(args: {
   readonly prepared: PreparedEcdsaOperationStepUp;
   readonly proof: ReturnType<typeof passkeyExportProof> | ReturnType<typeof emailOtpExportProof>;
 }) {
-  const grant = await issueEcdsaOperationStepUpGrant({
+  const authorization = await issueEcdsaOperationStepUpAuthorization({
     relayerUrl: args.relayerUrl,
     sessionAuth: operationStepUpSessionAuth(args.sessionAuth),
     request: {
-      kind: 'router_ab_ecdsa_operation_step_up_grant_v1',
+      kind: 'router_ab_ecdsa_operation_step_up_v1',
       operation: args.prepared.operation,
       proof: args.proof,
     },
   });
-  const grantId = parseCapabilityGrantId(grant.authorization.grant_id);
-  if (!grantId.ok) throw new Error(grantId.error.message);
+  let evidenceSetDigest: DigestB64u;
+  try {
+    evidenceSetDigest = parseDigestB64u(authorization.authorization.evidence_set_digest);
+  } catch (error) {
+    throw new Error(
+      error instanceof Error ? error.message : 'ECDSA export evidence digest is invalid',
+    );
+  }
   return {
-    kind: 'operation_step_up' as const,
-    grantId: grantId.value,
+    kind: 'verified_step_up' as const,
+    evidenceSetDigest,
     operation: args.prepared.operation,
     sessionAuth: args.sessionAuth,
-    expiresAtMs: grant.expires_at_ms,
+    expiresAtMs: authorization.expires_at_ms,
     quotaUse: 'none' as const,
   };
 }

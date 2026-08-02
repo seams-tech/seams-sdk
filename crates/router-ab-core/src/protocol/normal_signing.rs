@@ -1992,9 +1992,8 @@ fn push_normal_signing_scope(out: &mut Vec<u8>, scope: &NormalSigningScopeV1) {
             push_len32(out, b"reusable_wallet_session");
             push_len32(out, wallet_session_id.as_bytes());
         }
-        NormalSigningAuthorizationV1::OperationStepUp { grant_id } => {
+        NormalSigningAuthorizationV1::OperationStepUp => {
             push_len32(out, b"operation_step_up");
-            push_len32(out, grant_id.as_bytes());
         }
     }
     push_len32(out, b"mpc_material_activation_ref");

@@ -1,5 +1,5 @@
 import type {
-  NearEd25519OperationStepUpGrant,
+  NearEd25519OperationStepUpAuthorization,
   NearEd25519YaoOperationMaterial,
 } from '@/core/signingEngine/interfaces/near';
 import type { NearOperationStepUpMaterial } from '@/core/signingEngine/flows/signNear/shared/ed25519YaoCapabilityResolution';
@@ -55,7 +55,7 @@ export function nearEd25519OperationMaterialFixture(args: {
 export function sealedEmailOtpNearOperationMaterialFixture(args: {
   materialActivation: MpcMaterialActivationRef;
   material: NearEd25519YaoOperationMaterial;
-  issuedGrant: NearEd25519OperationStepUpGrant;
+  issuedAuthorization: NearEd25519OperationStepUpAuthorization;
   onAuthorize: (args: {
     normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
     displayDigest: string;
@@ -70,7 +70,7 @@ export function sealedEmailOtpNearOperationMaterialFixture(args: {
       args.onAuthorize(authorization);
       return {
         material: args.material,
-        issuedGrant: args.issuedGrant,
+        issuedAuthorization: args.issuedAuthorization,
       };
     },
   };

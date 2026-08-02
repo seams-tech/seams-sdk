@@ -14,10 +14,10 @@ function sameRouterAbScope(
     left.request_id === right.request_id &&
     left.account_id === right.account_id &&
     left.authorization.kind === right.authorization.kind &&
-    left.authorization.grant_id === right.authorization.grant_id &&
-    (left.authorization.kind !== 'reusable_wallet_session' ||
-      (right.authorization.kind === 'reusable_wallet_session' &&
-        left.authorization.wallet_session_id === right.authorization.wallet_session_id)) &&
+    (left.authorization.kind === 'reusable_wallet_session'
+      ? right.authorization.kind === 'reusable_wallet_session' &&
+        left.authorization.wallet_session_id === right.authorization.wallet_session_id
+      : right.authorization.kind === 'operation_step_up') &&
     left.material_activation.kind === right.material_activation.kind &&
     left.material_activation.activation_id === right.material_activation.activation_id &&
     left.material_activation.capability === right.material_activation.capability &&

@@ -2,7 +2,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
-  EmailOtpEd25519YaoIssuedOperationGrantV1,
+  EmailOtpEd25519YaoIssuedOperationAuthorizationV1,
   EmailOtpEd25519YaoOperationStepUpProofV1,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpWarmMaterialTarget,
@@ -212,7 +212,7 @@ export async function requestRehydrateEmailOtpEd25519YaoOperationMaterial(args: 
 }): Promise<{
   activeClientHandle: string;
   metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-  issuedGrant: EmailOtpEd25519YaoIssuedOperationGrantV1;
+  issuedAuthorization: EmailOtpEd25519YaoIssuedOperationAuthorizationV1;
 }> {
   return await args.workerContext.requestWorkerOperation({
     kind: 'emailOtp',

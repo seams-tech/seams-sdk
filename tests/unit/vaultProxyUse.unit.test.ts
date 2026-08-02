@@ -19,13 +19,12 @@ import {
 import {
   VAULT_PROXY_FIXTURE_TIME_MS,
   buildVaultProxyFixture,
-  buildVaultProxyOneUseGrant,
   buildVaultProxyPasskeyFactor,
 } from './helpers/vaultProxy.fixtures';
 
 const signerMigrations = listD1MigrationFiles('d1-signer');
 
-test('routes one persisted vault secret through a one-use Passkey grant and records audit', async () => {
+test('routes one persisted vault secret through a direct Passkey step-up operation and records audit', async () => {
   const temporary = createTemporaryD1Database();
   try {
     await applyD1MigrationFiles(temporary.database, signerMigrations);
@@ -70,12 +69,6 @@ test('routes one persisted vault secret through a one-use Passkey grant and reco
     expect(
       authorization.evaluateEvidenceRequirement(fixture.evidenceRequirement, evidenceSet),
     ).toMatchObject({ kind: 'satisfied', mode: 'all' });
-    await authorization.issueGrant({
-      operation: fixture.operation,
-      evidenceSet,
-      grant: buildVaultProxyOneUseGrant({ fixture, evidenceSet }),
-    });
-
     const secretStore = new CloudflareD1VaultProxyStore(
       temporary.database,
       'vault-proxy-test',
@@ -108,8 +101,7 @@ test('routes one persisted vault secret through a one-use Passkey grant and reco
         principalId: fixture.principalId,
         capabilityId: fixture.capabilityId,
         operationId: fixture.operationId,
-        grantId: fixture.grantId,
-        useId: fixture.useId,
+        authorizedOperationId: fixture.authorizedOperationId,
         auditEventId: fixture.auditEventId,
         evidenceSetDigest: evidenceSet.evidenceSetDigest,
         vaultId: fixture.vaultId,
@@ -137,13 +129,23 @@ test('routes one persisted vault secret through a one-use Passkey grant and reco
     await expect(
       temporary.database
         .prepare(
-          `SELECT remaining_uses
-             FROM capability_grants
-            WHERE namespace = ? AND tenant_id = ? AND grant_id = ?`,
+          `SELECT COUNT(*) AS count
+             FROM capability_grant_uses
+            WHERE namespace = ? AND tenant_id = ? AND use_id = ?`,
         )
-        .bind('vault-proxy-test', fixture.tenantId, fixture.grantId)
-        .first<{ readonly remaining_uses: number }>(),
-    ).resolves.toEqual({ remaining_uses: 0 });
+        .bind('vault-proxy-test', fixture.tenantId, fixture.authorizedOperationId)
+        .first<{ readonly count: number }>(),
+    ).resolves.toEqual({ count: 1 });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT COUNT(*) AS count
+             FROM capability_grants
+            WHERE namespace = ? AND tenant_id = ?`,
+        )
+        .bind('vault-proxy-test', fixture.tenantId)
+        .first<{ readonly count: number }>(),
+    ).resolves.toEqual({ count: 0 });
     await expect(
       authorization.readAuditEvent({
         tenantId: fixture.tenantId,

@@ -2,11 +2,10 @@ export type RouterAbNormalSigningAuthorizationWire =
   | {
       readonly kind: 'reusable_wallet_session';
       readonly wallet_session_id: string;
-      readonly grant_id?: never;
     }
   | {
       readonly kind: 'operation_step_up';
-      readonly grant_id: string;
+      readonly evidence_set_digest?: never;
       readonly wallet_session_id?: never;
     };
 
@@ -71,11 +70,8 @@ export function parseRouterAbNormalSigningAuthorization(
         ),
       };
     case 'operation_step_up':
-      requireExactFields(authorization, ['kind', 'grant_id'], 'authorization');
-      return {
-        kind: 'operation_step_up',
-        grant_id: requireAsciiString(authorization.grant_id, 'authorization.grant_id'),
-      };
+      requireExactFields(authorization, ['kind'], 'authorization');
+      return { kind: 'operation_step_up' };
     default:
       throw new Error('authorization.kind is not supported');
   }
@@ -166,7 +162,6 @@ export function canonicalRouterAbNormalSigningAuthorizationBytes(
       appendLen32(out, authorization.wallet_session_id);
       break;
     case 'operation_step_up':
-      appendLen32(out, authorization.grant_id);
       break;
   }
   return new Uint8Array(out);

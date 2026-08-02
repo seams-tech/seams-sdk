@@ -494,7 +494,9 @@ pub async fn claim_cloudflare_signing_worker_near_effect_v1(
                 encode_json("SigningWorker effect authorization", &request.effect_claim)?;
             let authorization_key = format!(
                 "reusable-wallet-session/{}/{}/{}",
-                claim.wallet_session_id, claim.grant_id, claim.use_id
+                claim.wallet_session_id,
+                claim.authorized_operation_id,
+                claim.operation_fingerprint_digest
             );
             claim_cloudflare_signing_worker_authorization_effect_v1(
                 &session,
@@ -508,14 +510,16 @@ pub async fn claim_cloudflare_signing_worker_near_effect_v1(
         }
         CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
             authorization_session_id,
-            grant_id,
-            use_id,
+            authorized_operation_id,
+            operation_fingerprint_digest,
             ..
         } => {
             let authorization_json =
                 encode_json("SigningWorker effect authorization", &request.effect_claim)?;
             let authorization_key =
-                format!("operation-step-up/{authorization_session_id}/{grant_id}/{use_id}");
+                format!(
+                    "operation-step-up/{authorization_session_id}/{authorized_operation_id}/{operation_fingerprint_digest}"
+                );
             claim_cloudflare_signing_worker_authorization_effect_v1(
                 &session,
                 &operation_key,
@@ -562,7 +566,9 @@ pub async fn claim_cloudflare_signing_worker_ecdsa_effect_v1(
     let database = signing_worker_private_d1_from_env_v1(env)?;
     let session = database
         .with_session_constraint(D1SessionConstraint::FirstPrimary)
-        .map_err(|error| map_d1_error("SigningWorker ECDSA effect primary session failed", error))?;
+        .map_err(|error| {
+            map_d1_error("SigningWorker ECDSA effect primary session failed", error)
+        })?;
     if let Some(response_json) = load_cloudflare_signing_worker_terminal_response_v1(
         &session,
         &operation_key,
@@ -575,22 +581,26 @@ pub async fn claim_cloudflare_signing_worker_ecdsa_effect_v1(
         });
     }
     request.request.validate_at(claimed_at_ms)?;
-    let authorization_json =
-        encode_json("SigningWorker ECDSA effect authorization", &request.effect_claim)?;
+    let authorization_json = encode_json(
+        "SigningWorker ECDSA effect authorization",
+        &request.effect_claim,
+    )?;
     let authorization_key = match &request.effect_claim {
         CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession { claim } => {
             format!(
                 "ecdsa-reusable-wallet-session/{}/{}/{}",
-                claim.wallet_session_id, claim.grant_id, claim.use_id
+                claim.wallet_session_id,
+                claim.authorized_operation_id,
+                claim.operation_fingerprint_digest
             )
         }
         CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
             authorization_session_id,
-            grant_id,
-            use_id,
+            authorized_operation_id,
+            operation_fingerprint_digest,
             ..
         } => format!(
-            "ecdsa-operation-step-up/{authorization_session_id}/{grant_id}/{use_id}"
+            "ecdsa-operation-step-up/{authorization_session_id}/{authorized_operation_id}/{operation_fingerprint_digest}"
         ),
     };
     claim_cloudflare_signing_worker_authorization_effect_v1(
@@ -808,13 +818,10 @@ async fn activate_output_v1(
     let active_key = request.active_state_index_key()?;
     let material_activation = match request {
         CloudflareSigningWorkerPrivateD1RequestV1::OutputActivate {
-            material_activation, ..
+            material_activation,
+            ..
         } => material_activation.clone(),
-        _ => {
-            return Err(d1_error(
-                "SigningWorker activation request kind is invalid",
-            ))
-        }
+        _ => return Err(d1_error("SigningWorker activation request kind is invalid")),
     };
     let active_state = cloudflare_active_signing_worker_state_from_activation_request_v1(
         activation,

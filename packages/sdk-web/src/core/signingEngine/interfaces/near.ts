@@ -35,12 +35,7 @@ import type {
   ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type {
-  CapabilityGrantId,
-  MpcWalletSigningQuotaId,
-  SeamsSessionId,
-  WalletSessionId,
-} from '@shared/authorization/capabilityKinds';
+import type { MpcWalletSigningQuotaId, WalletSessionId } from '@shared/authorization/capabilityKinds';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { NearEd25519YaoSigningPreparation } from '../session/material/nearEd25519YaoSigningPreparation';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
@@ -54,7 +49,6 @@ export type NearResolvedEd25519WalletSessionAuth = {
 
 export type NearPasskeyOperationStepUpPlan = {
   thresholdSessionId: ThresholdEd25519SessionId;
-  requestedGrantId: CapabilityGrantId;
   authority: PasskeyWalletAuthAuthority;
 };
 
@@ -113,10 +107,9 @@ export type NearEd25519YaoOperationMaterial = {
   facts: NearEd25519YaoOperationMaterialFacts;
 };
 
-export type NearEd25519OperationStepUpGrant = {
-  kind: 'operation_step_up';
-  grantId: CapabilityGrantId;
-  authorizationSessionId: SeamsSessionId;
+export type NearEd25519OperationStepUpAuthorization = {
+  kind: 'verified_step_up';
+  authorization: { kind: 'operation_step_up' };
   expiresAtMs: number;
 };
 
@@ -145,7 +138,7 @@ export type NearEmailOtpEd25519OperationStepUpCapabilityPreparation =
         proof: Extract<Ed25519OperationStepUpProof, { kind: 'email_otp' }>;
       }): Promise<{
         material: NearEd25519YaoOperationMaterial;
-        issuedGrant: NearEd25519OperationStepUpGrant;
+        issuedAuthorization: NearEd25519OperationStepUpAuthorization;
       }>;
     };
 
@@ -170,7 +163,6 @@ export type NearEd25519YaoPreparedMaterialBoundary = {
 export type NearPasskeyEd25519OperationStepUpHook = {
   prepare: () => Promise<{
     thresholdSessionId: ThresholdEd25519SessionId;
-    requestedGrantId: CapabilityGrantId;
     authority: PasskeyWalletAuthAuthority;
   }>;
 };

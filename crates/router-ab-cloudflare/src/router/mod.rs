@@ -12,7 +12,7 @@ pub enum CloudflareRouterAuthContextV1 {
         /// Canonical session id from verified auth.
         session_id: String,
     },
-    /// Authenticated app session carrying a claimed single-operation grant.
+    /// Authenticated app session carrying a claimed single-operation authorization.
     OperationStepUpSession {
         /// Canonical subject id from verified auth.
         subject_id: String,
@@ -321,7 +321,7 @@ impl CloudflareRouterNormalSigningTrustedMetadataV1 {
             ) if session_id == wallet_session_id => {}
             (
                 CloudflareRouterAuthContextV1::OperationStepUpSession { .. },
-                NormalSigningAuthorizationV1::OperationStepUp { .. },
+                NormalSigningAuthorizationV1::OperationStepUp,
             ) => {}
             _ => {
                 return Err(RouterAbProtocolError::new(
@@ -815,7 +815,7 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
                     ));
                 }
             }
-            NormalSigningAuthorizationV1::OperationStepUp { .. } => {
+            NormalSigningAuthorizationV1::OperationStepUp => {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::InvalidGateDecision,
                     "Wallet Session bearer cannot authorize operation-step-up signing",
@@ -866,7 +866,7 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
                     ));
                 }
             }
-            NormalSigningAuthorizationV1::OperationStepUp { .. } => {
+            NormalSigningAuthorizationV1::OperationStepUp => {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::InvalidGateDecision,
                     "Wallet Session bearer cannot authorize operation-step-up signing",
@@ -2225,10 +2225,11 @@ pub enum CloudflareRouterNormalSigningAuthorizationV2 {
     },
     /// Single-operation step-up authority.
     OperationStepUp {
-        /// Exact Seams authorization-session id that claimed the grant.
+        /// Exact Seams authorization-session id that verified the evidence.
         authorization_session_id: String,
-        /// Exact capability grant id.
-        grant_id: String,
+        /// Digest of the verified evidence set. This field is server-private;
+        /// the public normal-signing marker carries no evidence data.
+        evidence_set_digest: String,
     },
 }
 
@@ -2240,12 +2241,15 @@ impl CloudflareRouterNormalSigningAuthorizationV2 {
         }
     }
 
-    pub fn authorization_id(&self) -> &str {
+    pub fn authorization_id(&self) -> RouterAbProtocolResult<&str> {
         match self {
             Self::ReusableWalletSession {
                 wallet_session_id, ..
-            } => wallet_session_id,
-            Self::OperationStepUp { grant_id, .. } => grant_id,
+            } => Ok(wallet_session_id),
+            Self::OperationStepUp { .. } => Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "operation step-up authority has no public authorization id",
+            )),
         }
     }
 
@@ -2263,11 +2267,11 @@ impl CloudflareRouterNormalSigningAuthorizationV2 {
     /// Creates single-operation step-up authority.
     pub fn operation_step_up(
         authorization_session_id: impl Into<String>,
-        grant_id: impl Into<String>,
+        evidence_set_digest: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let authorization = Self::OperationStepUp {
             authorization_session_id: authorization_session_id.into(),
-            grant_id: grant_id.into(),
+            evidence_set_digest: evidence_set_digest.into(),
         };
         authorization.validate()?;
         Ok(authorization)
@@ -2282,13 +2286,16 @@ impl CloudflareRouterNormalSigningAuthorizationV2 {
             ),
             Self::OperationStepUp {
                 authorization_session_id,
-                grant_id,
+                evidence_set_digest,
             } => {
                 require_non_empty(
                     "normal-signing authorization authorization_session_id",
                     authorization_session_id,
                 )?;
-                require_non_empty("normal-signing authorization grant_id", grant_id)
+                require_non_empty(
+                    "normal-signing authorization evidence_set_digest",
+                    evidence_set_digest,
+                )
             }
         }
     }
@@ -2309,12 +2316,7 @@ impl CloudflareRouterNormalSigningAuthorizationV2 {
                     wallet_session_id: scope_session_id,
                 },
             ) => wallet_session_id == scope_session_id,
-            (
-                Self::OperationStepUp { grant_id, .. },
-                NormalSigningAuthorizationV1::OperationStepUp {
-                    grant_id: scope_grant_id,
-                },
-            ) => grant_id == scope_grant_id,
+            (Self::OperationStepUp { .. }, NormalSigningAuthorizationV1::OperationStepUp) => true,
             _ => false,
         };
         if matches {
@@ -2436,7 +2438,7 @@ impl CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
                     wallet_session.wallet_session_id.clone(),
                 )?
             }
-            NormalSigningAuthorizationV1::OperationStepUp { .. } => {
+            NormalSigningAuthorizationV1::OperationStepUp => {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::InvalidGateDecision,
                     "Wallet Session bearer cannot authorize operation-step-up signing",
@@ -2659,7 +2661,7 @@ impl CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
                     wallet_session.wallet_session_id.clone(),
                 )?
             }
-            NormalSigningAuthorizationV1::OperationStepUp { .. } => {
+            NormalSigningAuthorizationV1::OperationStepUp => {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::InvalidGateDecision,
                     "Wallet Session bearer cannot authorize operation-step-up signing",

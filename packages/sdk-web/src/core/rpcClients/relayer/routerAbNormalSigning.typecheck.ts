@@ -36,9 +36,8 @@ const digest32 = {
 };
 
 const authorizationClaim = {
-  kind: 'reusable_wallet_session_operation_claim_v1' as const,
-  use_id: 'operation-use-1',
-  grant_id: 'operation-grant-1',
+  kind: 'reusable_wallet_session_authorized_operation_v1' as const,
+  authorized_operation_id: 'authorized-operation-1',
   operation_id: 'operation-1',
   capability_kind: 'near_ed25519_mpc_signing' as const,
   operation_kind: 'near.sign_transaction' as const,
@@ -77,7 +76,7 @@ void prepareRequest;
 const finalizeRequest = {
   scope,
   expires_at_ms: 1_900_000_000_000,
-  authorization_claim: authorizationClaim,
+  authorized_operation: authorizationClaim,
   prepare_binding: {
     server_round1_handle: 'round-1-handle',
     round1_binding_digest: digest32,
@@ -104,7 +103,7 @@ void finalizeRequest;
 const finalizeWithClientGroupPublicKey = {
   scope,
   expires_at_ms: 1_900_000_000_000,
-  authorization_claim: finalizeRequest.authorization_claim,
+  authorized_operation: finalizeRequest.authorized_operation,
   prepare_binding: finalizeRequest.prepare_binding,
   protocol: {
     kind: 'ed25519_two_party_frost_finalize_v1' as const,
@@ -149,7 +148,6 @@ const stepUpWithWalletSession = {
     ...scope,
     authorization: {
       kind: 'operation_step_up' as const,
-      grant_id: 'grant-2',
       wallet_session_id: 'wallet-session-1',
     },
   },
@@ -164,7 +162,6 @@ const stepUpFinalizeWithReusableClaim = {
     ...scope,
     authorization: {
       kind: 'operation_step_up' as const,
-      grant_id: 'step-up-grant-1',
     },
   },
 };
@@ -174,10 +171,9 @@ const invalidStepUpFinalize: RouterAbNormalSigningFinalizeRequestV2Wire =
 void invalidStepUpFinalize;
 
 const stepUpAuthorizationClaim = {
-  kind: 'operation_step_up_operation_claim_v1' as const,
+  kind: 'verified_step_up_authorized_operation_v1' as const,
   authorization_session_id: 'authorization-session-1',
-  use_id: 'operation-use-2',
-  grant_id: 'step-up-grant-1',
+  authorized_operation_id: 'authorized-operation-2',
   operation_id: 'operation-1',
   capability_kind: 'near_ed25519_mpc_signing' as const,
   operation_kind: 'near.sign_transaction' as const,
@@ -190,7 +186,7 @@ const stepUpAuthorizationClaim = {
 const validStepUpFinalize = {
   ...finalizeRequest,
   scope: stepUpFinalizeWithReusableClaim.scope,
-  authorization_claim: stepUpAuthorizationClaim,
+  authorized_operation: stepUpAuthorizationClaim,
 } satisfies RouterAbNormalSigningFinalizeRequestV2Wire;
 void validStepUpFinalize;
 
@@ -200,7 +196,7 @@ const stepUpFinalizeWithoutClaim = {
   prepare_binding: validStepUpFinalize.prepare_binding,
   protocol: validStepUpFinalize.protocol,
 };
-// @ts-expect-error operation step-up finalize requires its exact operation claim.
+// @ts-expect-error operation step-up finalize requires its exact authorized operation.
 const invalidStepUpFinalizeWithoutClaim: RouterAbNormalSigningFinalizeRequestV2Wire =
   stepUpFinalizeWithoutClaim;
 void invalidStepUpFinalizeWithoutClaim;

@@ -30,7 +30,6 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type {
   ActiveAuthorizationSession,
-  ActiveCapabilityGrant,
   VerifiedGrantEvidence,
 } from './domain';
 
@@ -136,15 +135,6 @@ export type VerifiedSessionEvidenceSetInput = {
   readonly evidenceSetId: GrantEvidenceSetId;
   readonly expiresAtMs: number;
 };
-
-export type CapabilityGrantRequest = {
-  readonly kind: 'capability_grant_request';
-  readonly operation: CapabilityOperationEnvelope;
-  readonly evidenceSet: VerifiedGrantEvidenceSet;
-  readonly grant: ActiveCapabilityGrant;
-};
-
-export type CapabilityGrantRequestInput = Omit<CapabilityGrantRequest, 'kind'>;
 
 export function buildVerifiedPasskeyFactorResult(
   fields: Omit<VerifiedPasskeyFactorResult, 'kind'>,
@@ -319,55 +309,6 @@ export function parseVerifiedGrantEvidenceSetFromPersistence(
   });
 }
 
-export function buildCapabilityGrantRequest(
-  input: CapabilityGrantRequestInput,
-): CapabilityGrantRequest {
-  const operation = input.operation;
-  const evidenceSet = input.evidenceSet;
-  const grant = input.grant;
-  if (
-    operation.tenantId !== evidenceSet.tenantId ||
-    operation.tenantId !== grant.tenantId ||
-    operation.principalId !== evidenceSet.principalId ||
-    operation.principalId !== grant.principalId ||
-    operation.capabilityId !== grant.capabilityId ||
-    operation.operationId !== grant.operationId
-  ) {
-    throw new Error('capability grant identity does not match verified evidence');
-  }
-  if (
-    !sameOperation(operation.operation, evidenceSet.operation) ||
-    !sameOperation(operation.operation, grant.operation)
-  ) {
-    throw new Error('capability grant operation does not match verified evidence');
-  }
-  if (
-    operation.digests.laneDigest !== evidenceSet.laneDigest ||
-    operation.digests.laneDigest !== grant.laneDigest ||
-    operation.digests.intentDigest !== evidenceSet.intentDigest ||
-    operation.digests.intentDigest !== grant.intentDigest ||
-    operation.digests.displayDigest !== evidenceSet.displayDigest ||
-    operation.digests.displayDigest !== grant.displayDigest
-  ) {
-    throw new Error('capability grant digests do not match verified evidence');
-  }
-  if (
-    evidenceSet.evidenceSetId !== grant.evidenceSetId ||
-    evidenceSet.evidenceSetDigest !== grant.evidenceSetDigest
-  ) {
-    throw new Error('capability grant evidence reference does not match verified evidence');
-  }
-  if (grant.expiresAtMs > evidenceSet.expiresAtMs) {
-    throw new Error('capability grant cannot outlive verified evidence');
-  }
-  return {
-    kind: 'capability_grant_request',
-    operation,
-    evidenceSet,
-    grant,
-  };
-}
-
 async function requireExactFactorBinding(input: VerifiedFactorEvidenceSetInput): Promise<void> {
   const session = input.session;
   const factor = input.factor;
@@ -449,13 +390,6 @@ async function buildFactorEvidence(
         }),
       };
   }
-}
-
-function sameOperation(
-  left: CapabilityOperationEnvelope['operation'],
-  right: CapabilityOperationEnvelope['operation'],
-): boolean {
-  return left.capabilityKind === right.capabilityKind && left.operationKind === right.operationKind;
 }
 
 function requireVerificationWindow(verifiedAtMs: number, expiresAtMs: number): void {

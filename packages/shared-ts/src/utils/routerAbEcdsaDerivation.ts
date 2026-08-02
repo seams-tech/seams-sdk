@@ -72,8 +72,8 @@ export const ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH =
   '/router-ab/ecdsa-derivation/refresh' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH =
   '/router-ab/ecdsa-derivation/session/activate' as const;
-export const ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH =
-  '/router-ab/ecdsa-derivation/operation-step-up/grant' as const;
+export const ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH =
+  '/router-ab/ecdsa-derivation/operation-step-up' as const;
 const ROUTER_AB_ECDSA_OPERATION_STEP_UP_CHALLENGE_DOMAIN_V1 =
   'router-ab-ecdsa-operation-step-up/challenge/v1' as const;
 const ECDSA_DERIVATION_CONTEXT_DOMAIN_TAG_V1 = 'router-ab-ecdsa-derivation/context/v1' as const;
@@ -242,9 +242,9 @@ export type RouterAbEcdsaStrictForwardedProofResponseV1 =
 function requireExportShareAuthorizationKind(
   value: unknown,
   label: string,
-): 'reusable_wallet_session' | 'operation_step_up' {
-  if (value === 'reusable_wallet_session' || value === 'operation_step_up') return value;
-  throw new Error(`${label} must be reusable_wallet_session or operation_step_up`);
+): 'reusable_wallet_session' | 'verified_step_up' {
+  if (value === 'reusable_wallet_session' || value === 'verified_step_up') return value;
+  throw new Error(`${label} must be reusable_wallet_session or verified_step_up`);
 }
 
 export type RouterAbEcdsaSigningWorkerExportShareBindingV1 = {
@@ -260,7 +260,7 @@ export type RouterAbEcdsaSigningWorkerExportShareBindingV1 = {
   export_request_digest_b64u: string;
   export_authorization_digest_b64u: string;
   export_nonce: string;
-  authorization_kind: 'reusable_wallet_session' | 'operation_step_up';
+  authorization_kind: 'reusable_wallet_session' | 'verified_step_up';
   authorization_id: string;
   material_activation: RouterAbMpcMaterialActivationRefWire;
   lifecycle_id: string;
@@ -649,20 +649,19 @@ export type RouterAbEcdsaOperationStepUpProofV1Wire =
       readonly webauthn_authentication?: never;
     };
 
-export type RouterAbEcdsaOperationStepUpGrantRequestV1Wire = {
-  readonly kind: 'router_ab_ecdsa_operation_step_up_grant_v1';
+export type RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire = {
+  readonly kind: 'router_ab_ecdsa_operation_step_up_v1';
   readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
   readonly proof: RouterAbEcdsaOperationStepUpProofV1Wire;
 };
 
-export type RouterAbEcdsaOperationStepUpGrantResponseV1Wire = {
+export type RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire = {
   readonly ok: true;
-  readonly kind: 'operation_step_up';
+  readonly kind: 'verified_step_up';
   readonly authorization: Extract<
     RouterAbNormalSigningAuthorizationWire,
     { readonly kind: 'operation_step_up' }
   >;
-  readonly authorization_session_id: string;
   readonly expires_at_ms: number;
 };
 
@@ -2932,29 +2931,29 @@ function parseRouterAbEcdsaOperationStepUpWebAuthnCredentialV1(
   };
 }
 
-export function parseRouterAbEcdsaOperationStepUpGrantRequestV1(
+export function parseRouterAbEcdsaOperationStepUpAuthorizationRequestV1(
   value: unknown,
-): RouterAbEcdsaOperationStepUpGrantRequestV1Wire {
-  const request = requireRecord(value, 'operationStepUpGrantRequest');
-  requireExactKeys(request, 'operationStepUpGrantRequest', ['kind', 'operation', 'proof']);
-  if (request.kind !== 'router_ab_ecdsa_operation_step_up_grant_v1') {
+): RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire {
+  const request = requireRecord(value, 'operationStepUpAuthorizationRequest');
+  requireExactKeys(request, 'operationStepUpAuthorizationRequest', ['kind', 'operation', 'proof']);
+  if (request.kind !== 'router_ab_ecdsa_operation_step_up_v1') {
     throw new Error(
-      'operationStepUpGrantRequest.kind must be router_ab_ecdsa_operation_step_up_grant_v1',
+      'operationStepUpAuthorizationRequest.kind must be router_ab_ecdsa_operation_step_up_v1',
     );
   }
   const operation = parseRouterAbEcdsaOperationStepUpPreparationV1(request.operation);
-  const proof = requireRecord(request.proof, 'operationStepUpGrantRequest.proof');
+  const proof = requireRecord(request.proof, 'operationStepUpAuthorizationRequest.proof');
   const authority = parseWalletAuthAuthority(proof.authority);
   let parsedProof: RouterAbEcdsaOperationStepUpProofV1Wire;
   switch (proof.kind) {
     case 'passkey':
-      requireExactKeys(proof, 'operationStepUpGrantRequest.proof', [
+      requireExactKeys(proof, 'operationStepUpAuthorizationRequest.proof', [
         'kind',
         'authority',
         'webauthn_authentication',
       ]);
       if (!authority || !isPasskeyWalletAuthAuthority(authority)) {
-        throw new Error('operationStepUpGrantRequest.proof requires an exact passkey authority');
+          throw new Error('operationStepUpAuthorizationRequest.proof requires an exact passkey authority');
       }
       parsedProof = {
         kind: 'passkey',
@@ -2965,33 +2964,33 @@ export function parseRouterAbEcdsaOperationStepUpGrantRequestV1(
       };
       break;
     case 'email_otp':
-      requireExactKeys(proof, 'operationStepUpGrantRequest.proof', [
+      requireExactKeys(proof, 'operationStepUpAuthorizationRequest.proof', [
         'kind',
         'authority',
         'challenge_id',
         'otp_code',
       ]);
       if (!authority || !isEmailOtpWalletAuthAuthority(authority)) {
-        throw new Error('operationStepUpGrantRequest.proof requires an exact Email OTP authority');
+        throw new Error('operationStepUpAuthorizationRequest.proof requires an exact Email OTP authority');
       }
       parsedProof = {
         kind: 'email_otp',
         authority,
         challenge_id: requireAsciiNonEmptyString(
           proof.challenge_id,
-          'operationStepUpGrantRequest.proof.challenge_id',
+          'operationStepUpAuthorizationRequest.proof.challenge_id',
         ),
         otp_code: requireAsciiNonEmptyString(
           proof.otp_code,
-          'operationStepUpGrantRequest.proof.otp_code',
+          'operationStepUpAuthorizationRequest.proof.otp_code',
         ),
       };
       break;
     default:
-      throw new Error('operationStepUpGrantRequest.proof.kind is invalid');
+      throw new Error('operationStepUpAuthorizationRequest.proof.kind is invalid');
   }
   return {
-    kind: 'router_ab_ecdsa_operation_step_up_grant_v1',
+    kind: 'router_ab_ecdsa_operation_step_up_v1',
     operation,
     proof: parsedProof,
   };

@@ -1,12 +1,12 @@
 import {
-  ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH,
   computeRouterAbEcdsaOperationStepUpChallengeB64u,
-  parseRouterAbEcdsaOperationStepUpGrantRequestV1,
+  parseRouterAbEcdsaOperationStepUpAuthorizationRequestV1,
   parseRouterAbEcdsaDerivationNormalSigningScopeV1,
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
   type RouterAbEcdsaOperationStepUpPreparationV1Wire,
-  type RouterAbEcdsaOperationStepUpGrantRequestV1Wire,
-  type RouterAbEcdsaOperationStepUpGrantResponseV1Wire,
+  type RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire,
+  type RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   parseRouterAbNormalSigningAuthorization,
@@ -39,14 +39,13 @@ function requireResponseRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function parseEcdsaOperationStepUpGrantResponse(
+function parseEcdsaOperationStepUpAuthorizationResponse(
   value: unknown,
-): RouterAbEcdsaOperationStepUpGrantResponseV1Wire {
+): RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire {
   const response = requireResponseRecord(value);
   const fields = Object.keys(response).sort();
   const expectedFields = [
     'authorization',
-    'authorization_session_id',
     'expires_at_ms',
     'kind',
     'ok',
@@ -58,13 +57,11 @@ function parseEcdsaOperationStepUpGrantResponse(
     throw new Error('ECDSA operation step-up response has invalid fields');
   }
   const authorization = parseRouterAbNormalSigningAuthorization(response.authorization);
-  const authorizationSessionId = String(response.authorization_session_id || '').trim();
   const expiresAtMs = Number(response.expires_at_ms);
   if (
     response.ok !== true ||
-    response.kind !== 'operation_step_up' ||
+    response.kind !== 'verified_step_up' ||
     authorization.kind !== 'operation_step_up' ||
-    !authorizationSessionId ||
     !Number.isSafeInteger(expiresAtMs) ||
     expiresAtMs <= Date.now()
   ) {
@@ -72,9 +69,8 @@ function parseEcdsaOperationStepUpGrantResponse(
   }
   return {
     ok: true,
-    kind: 'operation_step_up',
+    kind: 'verified_step_up',
     authorization,
-    authorization_session_id: authorizationSessionId,
     expires_at_ms: expiresAtMs,
   };
 }
@@ -84,7 +80,7 @@ function operationStepUpEndpoint(relayerUrl: string): string {
     .trim()
     .replace(/\/+$/g, '');
   if (!baseUrl) throw new Error('ECDSA operation step-up relayerUrl is required');
-  return `${baseUrl}${ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH}`;
+  return `${baseUrl}${ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH}`;
 }
 
 export function buildEcdsaOperationStepUpPreparation(args: {
@@ -156,13 +152,13 @@ export async function prepareEcdsaOperationStepUp(args: Parameters<
   };
 }
 
-export async function issueEcdsaOperationStepUpGrant(args: {
+export async function issueEcdsaOperationStepUpAuthorization(args: {
   readonly relayerUrl: string;
   readonly sessionAuth: EcdsaOperationStepUpSessionAuth;
-  readonly request: RouterAbEcdsaOperationStepUpGrantRequestV1Wire;
+  readonly request: RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire;
   readonly fetchImpl?: typeof fetch;
-}): Promise<RouterAbEcdsaOperationStepUpGrantResponseV1Wire> {
-  const request = parseRouterAbEcdsaOperationStepUpGrantRequestV1(args.request);
+}): Promise<RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire> {
+  const request = parseRouterAbEcdsaOperationStepUpAuthorizationRequestV1(args.request);
   const fetchImpl = args.fetchImpl ?? globalThis.fetch;
   if (typeof fetchImpl !== 'function') {
     throw new Error('fetch is unavailable for ECDSA operation step-up');
@@ -185,5 +181,5 @@ export async function issueEcdsaOperationStepUpGrant(args: {
       `ECDSA operation step-up failed: ${String(error.message || `HTTP ${response.status}`)}`,
     );
   }
-  return parseEcdsaOperationStepUpGrantResponse(body);
+  return parseEcdsaOperationStepUpAuthorizationResponse(body);
 }

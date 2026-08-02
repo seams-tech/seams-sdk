@@ -197,10 +197,9 @@ export type RouterAbEd25519NormalSigningFinalizeProtocolV2Wire = {
   client_signature_share_b64u: string;
 };
 
-export type RouterAbReusableWalletSessionOperationClaimV1Wire = {
-  kind: 'reusable_wallet_session_operation_claim_v1';
-  use_id: string;
-  grant_id: string;
+export type RouterAbReusableWalletSessionAuthorizedOperationV1Wire = {
+  kind: 'reusable_wallet_session_authorized_operation_v1';
+  authorized_operation_id: string;
   operation_id: string;
   capability_kind: 'near_ed25519_mpc_signing';
   operation_kind:
@@ -213,11 +212,10 @@ export type RouterAbReusableWalletSessionOperationClaimV1Wire = {
   operation_fingerprint_digest: string;
 };
 
-export type RouterAbOperationStepUpOperationClaimV1Wire = {
-  kind: 'operation_step_up_operation_claim_v1';
+export type RouterAbVerifiedStepUpAuthorizedOperationV1Wire = {
+  kind: 'verified_step_up_authorized_operation_v1';
   authorization_session_id: string;
-  use_id: string;
-  grant_id: string;
+  authorized_operation_id: string;
   operation_id: string;
   capability_kind: 'near_ed25519_mpc_signing';
   operation_kind:
@@ -245,7 +243,7 @@ export type RouterAbNormalSigningFinalizeRequestV2Wire =
           { kind: 'reusable_wallet_session' }
         >;
       };
-      authorization_claim: RouterAbReusableWalletSessionOperationClaimV1Wire;
+      authorized_operation: RouterAbReusableWalletSessionAuthorizedOperationV1Wire;
     })
   | (RouterAbNormalSigningFinalizeRequestV2BaseWire & {
       scope: RouterAbNormalSigningScopeV2Wire & {
@@ -254,7 +252,7 @@ export type RouterAbNormalSigningFinalizeRequestV2Wire =
           { kind: 'operation_step_up' }
         >;
       };
-      authorization_claim: RouterAbOperationStepUpOperationClaimV1Wire;
+      authorized_operation: RouterAbVerifiedStepUpAuthorizedOperationV1Wire;
     });
 
 type RouterAbNormalSigningPrepareResponseV1BaseWire = {
@@ -278,7 +276,7 @@ export type RouterAbNormalSigningPrepareResponseV1Wire =
           { kind: 'reusable_wallet_session' }
         >;
       };
-      authorization_claim: RouterAbReusableWalletSessionOperationClaimV1Wire;
+      authorized_operation: RouterAbReusableWalletSessionAuthorizedOperationV1Wire;
     })
   | (RouterAbNormalSigningPrepareResponseV1BaseWire & {
       scope: RouterAbNormalSigningScopeV2Wire & {
@@ -287,7 +285,7 @@ export type RouterAbNormalSigningPrepareResponseV1Wire =
           { kind: 'operation_step_up' }
         >;
       };
-      authorization_claim: RouterAbOperationStepUpOperationClaimV1Wire;
+      authorized_operation: RouterAbVerifiedStepUpAuthorizedOperationV1Wire;
     });
 
 export type RouterAbNormalSigningResponseV1Wire = {
@@ -654,9 +652,9 @@ export function buildRouterAbEd25519NormalSigningFinalizeRequestV2(args: {
         ...scope,
         authorization: scope.authorization,
       },
-      authorization_claim: parseReusableWalletSessionOperationClaim(
-        args.prepareResponse.authorization_claim,
-        'authorization_claim',
+      authorized_operation: parseReusableWalletSessionAuthorizedOperation(
+        args.prepareResponse.authorized_operation,
+        'authorized_operation',
       ),
     };
   }
@@ -670,9 +668,9 @@ export function buildRouterAbEd25519NormalSigningFinalizeRequestV2(args: {
         ...scope,
         authorization: scope.authorization,
       },
-      authorization_claim: parseOperationStepUpOperationClaim(
-        args.prepareResponse.authorization_claim,
-        'authorization_claim',
+      authorized_operation: parseVerifiedStepUpAuthorizedOperation(
+        args.prepareResponse.authorized_operation,
+        'authorized_operation',
       ),
     };
   }
@@ -773,18 +771,17 @@ function parseServerIdentity(value: unknown, label: string): RouterAbServerIdent
   };
 }
 
-function parseReusableWalletSessionOperationClaim(
+function parseReusableWalletSessionAuthorizedOperation(
   value: unknown,
   label: string,
-): RouterAbReusableWalletSessionOperationClaimV1Wire {
+): RouterAbReusableWalletSessionAuthorizedOperationV1Wire {
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!record) throw new Error(`${label} must be an object`);
   requireExactFields(
     record,
     [
       'kind',
-      'use_id',
-      'grant_id',
+      'authorized_operation_id',
       'operation_id',
       'capability_kind',
       'operation_kind',
@@ -796,7 +793,7 @@ function parseReusableWalletSessionOperationClaim(
     label,
   );
   const kind = requireNonEmptyString(record.kind, `${label}.kind`);
-  if (kind !== 'reusable_wallet_session_operation_claim_v1') {
+  if (kind !== 'reusable_wallet_session_authorized_operation_v1') {
     throw new Error(`${label}.kind is invalid`);
   }
   const capabilityKind = requireNonEmptyString(
@@ -816,8 +813,10 @@ function parseReusableWalletSessionOperationClaim(
   }
   return {
     kind,
-    use_id: requireNonEmptyString(record.use_id, `${label}.use_id`),
-    grant_id: requireNonEmptyString(record.grant_id, `${label}.grant_id`),
+    authorized_operation_id: requireNonEmptyString(
+      record.authorized_operation_id,
+      `${label}.authorized_operation_id`,
+    ),
     operation_id: requireNonEmptyString(record.operation_id, `${label}.operation_id`),
     capability_kind: capabilityKind,
     operation_kind: operationKind,
@@ -840,10 +839,10 @@ function parseReusableWalletSessionOperationClaim(
   };
 }
 
-function parseOperationStepUpOperationClaim(
+function parseVerifiedStepUpAuthorizedOperation(
   value: unknown,
   label: string,
-): RouterAbOperationStepUpOperationClaimV1Wire {
+): RouterAbVerifiedStepUpAuthorizedOperationV1Wire {
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!record) throw new Error(`${label} must be an object`);
   requireExactFields(
@@ -851,8 +850,7 @@ function parseOperationStepUpOperationClaim(
     [
       'kind',
       'authorization_session_id',
-      'use_id',
-      'grant_id',
+      'authorized_operation_id',
       'operation_id',
       'capability_kind',
       'operation_kind',
@@ -864,7 +862,7 @@ function parseOperationStepUpOperationClaim(
     label,
   );
   const kind = requireNonEmptyString(record.kind, `${label}.kind`);
-  if (kind !== 'operation_step_up_operation_claim_v1') {
+  if (kind !== 'verified_step_up_authorized_operation_v1') {
     throw new Error(`${label}.kind is invalid`);
   }
   const capabilityKind = requireNonEmptyString(
@@ -883,13 +881,15 @@ function parseOperationStepUpOperationClaim(
     throw new Error(`${label}.operation_kind is invalid`);
   }
   return {
-    kind: 'operation_step_up_operation_claim_v1',
+    kind: 'verified_step_up_authorized_operation_v1',
     authorization_session_id: requireNonEmptyString(
       record.authorization_session_id,
       `${label}.authorization_session_id`,
     ),
-    use_id: requireNonEmptyString(record.use_id, `${label}.use_id`),
-    grant_id: requireNonEmptyString(record.grant_id, `${label}.grant_id`),
+    authorized_operation_id: requireNonEmptyString(
+      record.authorized_operation_id,
+      `${label}.authorized_operation_id`,
+    ),
     operation_id: requireNonEmptyString(record.operation_id, `${label}.operation_id`),
     capability_kind: 'near_ed25519_mpc_signing',
     operation_kind: operationKind,
@@ -953,16 +953,16 @@ function parsePrepareResponse(value: unknown): RouterAbNormalSigningPrepareRespo
           'signature_scheme',
           'prepared_at_ms',
           'expires_at_ms',
-          'authorization_claim',
+          'authorized_operation',
         ],
         'Router A/B reusable Wallet Session prepare response',
       );
       return {
         ...base,
         scope: { ...scope, authorization: scope.authorization },
-        authorization_claim: parseReusableWalletSessionOperationClaim(
-          record.authorization_claim,
-          'authorization_claim',
+        authorized_operation: parseReusableWalletSessionAuthorizedOperation(
+          record.authorized_operation,
+          'authorized_operation',
         ),
       };
     case 'operation_step_up':
@@ -979,16 +979,16 @@ function parsePrepareResponse(value: unknown): RouterAbNormalSigningPrepareRespo
           'signature_scheme',
           'prepared_at_ms',
           'expires_at_ms',
-          'authorization_claim',
+          'authorized_operation',
         ],
         'Router A/B operation step-up prepare response',
       );
       return {
         ...base,
         scope: { ...scope, authorization: scope.authorization },
-        authorization_claim: parseOperationStepUpOperationClaim(
-          record.authorization_claim,
-          'authorization_claim',
+        authorized_operation: parseVerifiedStepUpAuthorizedOperation(
+          record.authorized_operation,
+          'authorized_operation',
         ),
       };
   }

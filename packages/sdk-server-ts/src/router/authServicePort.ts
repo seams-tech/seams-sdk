@@ -154,37 +154,24 @@ import type {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   ActiveAuthorizationSession,
-  ActiveCapabilityGrant,
+  AuthorizedOperation,
+  AuthorizedOperationInput,
   HostedWalletSeamsSessionExchangeCode,
   HostedWalletSeamsSessionExchangeDelivery,
   HostedWalletSeamsSessionExchangeNonce,
-  ClaimCapabilityOperationResult,
-  CompleteCapabilityOperationResult,
-  CapabilityOperationClaim,
-  CapabilityOperationCompletionClaimRef,
-  CapabilityOperationResultRef,
-  CompletedCapabilityOperationResult,
   RedeemHostedWalletSeamsSessionExchangeResult,
   ReusableWalletSessionStatus,
   SessionOrigin,
   VerifiedGrantEvidenceSet,
 } from '../authorization/domain';
 import type {
-  CapabilityGrantRequestInput,
   VerifiedFactorEvidenceSetInput,
   VerifiedSessionEvidenceSetInput,
 } from '../authorization/factorEvidence';
-import type { CapabilityOperationEnvelope } from '@shared/authorization/operationFingerprint';
 import type {
   IssueReusableWalletSessionInput,
   IssuedReusableWalletSession,
-  OperationStepUpClaimInput,
-  ReusableWalletSessionClaimInput,
-  ReusableWalletSessionClaimOutcome,
-  EcdsaAtomicAuthorizationResult,
-  EcdsaAtomicClaimResult,
   EcdsaMaterialActivationScope,
-  EcdsaReusableWalletSessionClaimOutcome,
 } from '../authorization/service';
 import type { PrincipalId, SeamsSessionId, TenantId } from '@shared/authorization/capabilityKinds';
 
@@ -1458,48 +1445,31 @@ export interface RouterApiAuthorizationClaimService {
   recordVerifiedSessionEvidenceSet(
     input: VerifiedSessionEvidenceSetInput,
   ): Promise<VerifiedGrantEvidenceSet>;
-  issueGrant(input: {
-    readonly operation: CapabilityGrantRequestInput['operation'];
-    readonly evidenceSet: VerifiedGrantEvidenceSet;
-    readonly grant: ActiveCapabilityGrant;
-  }): Promise<void>;
-  lookupOperationClaim(
-    operation: CapabilityOperationEnvelope,
-  ): Promise<ClaimCapabilityOperationResult | null>;
-  claimOperationStepUpFromGrant(
-    input: OperationStepUpClaimInput,
-  ): Promise<ClaimCapabilityOperationResult>;
-  claimEcdsaOperation(input: {
-    readonly claim: import('../authorization/domain').CapabilityOperationClaim;
-    readonly material: EcdsaMaterialActivationScope;
-  }): Promise<EcdsaAtomicClaimResult>;
-  claimEcdsaOperationStepUpFromGrant(input: {
-    readonly claim: OperationStepUpClaimInput;
-    readonly material: EcdsaMaterialActivationScope;
-  }): Promise<EcdsaAtomicClaimResult>;
-  putEcdsaEvidenceAndGrant(input: {
-    readonly evidenceSet: VerifiedGrantEvidenceSet;
-    readonly grant: ActiveCapabilityGrant;
-    readonly material: EcdsaMaterialActivationScope;
-  }): Promise<EcdsaAtomicAuthorizationResult>;
-  claimEcdsaReusableWalletSessionOperation(input: {
-    readonly evidenceSet: VerifiedGrantEvidenceSet;
-    readonly grant: ActiveCapabilityGrant;
-    readonly claim: import('../authorization/domain').CapabilityOperationClaim;
-    readonly material: EcdsaMaterialActivationScope;
-  }): Promise<EcdsaReusableWalletSessionClaimOutcome>;
-  claimReusableWalletSessionFromGrant(
-    input: ReusableWalletSessionClaimInput,
-  ): Promise<ClaimCapabilityOperationResult>;
-  claimReusableWalletSessionOperation(
-    input: ReusableWalletSessionClaimInput,
-  ): Promise<ReusableWalletSessionClaimOutcome>;
-  completeOperation(input: {
-    readonly claim: CapabilityOperationClaim | CapabilityOperationCompletionClaimRef;
-    readonly result: CompletedCapabilityOperationResult;
-    readonly resultRef: CapabilityOperationResultRef;
+  readAuthorizedOperation(input: {
+    readonly tenantId: TenantId;
+    readonly operationFingerprintDigest: import('@shared/authorization/operationFingerprint').CapabilityOperationFingerprintDigest;
+  }): Promise<AuthorizedOperation | null>;
+  claimAuthorizedOperation(input: {
+    readonly operation: AuthorizedOperationInput;
+    readonly material?: EcdsaMaterialActivationScope;
+  }): Promise<
+    | { readonly kind: 'claimed'; readonly operation: AuthorizedOperation }
+    | { readonly kind: 'replayed'; readonly operation: AuthorizedOperation }
+    | { readonly kind: 'operation_in_progress'; readonly operation: AuthorizedOperation }
+    | {
+        readonly kind:
+          | 'authorization_grant_rejected'
+          | 'verified_step_up_rejected'
+          | 'wallet_session_quota_exhausted'
+          | 'material_mismatch';
+      }
+  >;
+  completeAuthorizedOperation(input: {
+    readonly operation: AuthorizedOperation;
+    readonly result: import('../authorization/domain').CompletedCapabilityOperationResult;
+    readonly resultRef: import('../authorization/domain').CapabilityOperationResultRef;
     readonly completedAtMs: number;
-  }): Promise<CompleteCapabilityOperationResult>;
+  }): Promise<AuthorizedOperation>;
 }
 
 export interface RouterApiAuthorizationSessionService {

@@ -1,8 +1,7 @@
 import {
   buildVaultOperationRef,
   parseAuthorizationAuditEventId,
-  parseCapabilityGrantId,
-  parseCapabilityGrantUseId,
+  parseAuthorizedOperationId,
   parseCapabilityId,
   parseCapabilityOperationId,
   parseCapabilityOperationResultStorageRef,
@@ -26,8 +25,8 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import {
-  buildCapabilityOperationClaim,
-  type CapabilityOperationClaim,
+  type AuthorizedOperation,
+  type AuthorizedOperationInput,
   type CapabilityOperationResultRef,
 } from './domain';
 import type { AuthorizationService } from './service';
@@ -116,7 +115,7 @@ export class VaultProxyUseService {
   ) {}
 
   async execute(input: {
-    readonly claim: CapabilityOperationClaim;
+    readonly claim: AuthorizedOperationInput;
     readonly secretRef: VaultProxySecretRef;
     readonly payload: string;
     readonly completedAtMs: number;
@@ -141,27 +140,26 @@ export class VaultProxyUseService {
     ) {
       return { kind: 'rejected', reason: 'authorization_failed' };
     }
-    const claimResult = await this.authorization.claimOperation(input.claim);
+    const claimResult = await this.authorization.claimAuthorizedOperation({ operation: input.claim });
     switch (claimResult.kind) {
       case 'operation_in_progress':
         return { kind: 'operation_in_progress' };
       case 'replayed':
         return { kind: 'replayed' };
-      case 'grant_exhausted':
-      case 'grant_expired':
-      case 'grant_mismatch':
+      case 'authorization_grant_rejected':
+      case 'verified_step_up_rejected':
       case 'wallet_session_quota_exhausted':
-      case 'wallet_session_expired':
-      case 'wallet_session_mismatch':
+      case 'material_mismatch':
         return { kind: 'rejected', reason: 'authorization_failed' };
       case 'claimed':
         break;
     }
+    const operation = claimResult.operation;
 
     const secret = await this.secrets.openSecret(input.secretRef);
     if (!secret) {
       await this.complete(
-        input.claim,
+        operation,
         'failed_before_side_effect',
         { kind: 'secret_unavailable' },
         input.completedAtMs,
@@ -177,7 +175,7 @@ export class VaultProxyUseService {
       });
       const body = await response.text();
       await this.complete(
-        input.claim,
+        operation,
         'succeeded',
         { kind: 'succeeded', status: response.status, body },
         input.completedAtMs,
@@ -185,7 +183,7 @@ export class VaultProxyUseService {
       return { kind: 'succeeded', status: response.status, body };
     } catch {
       await this.complete(
-        input.claim,
+        operation,
         'failed_after_side_effect',
         { kind: 'gateway_failed_after_side_effect' },
         input.completedAtMs,
@@ -197,25 +195,22 @@ export class VaultProxyUseService {
   }
 
   private async complete(
-    claim: CapabilityOperationClaim,
+    claim: AuthorizedOperation,
     result: 'succeeded' | 'failed_before_side_effect' | 'failed_after_side_effect',
     safeResult: Record<string, unknown>,
     completedAtMs: number,
   ): Promise<void> {
-    const completion = await this.authorization.completeOperation({
-      claim,
+    await this.authorization.completeAuthorizedOperation({
+      operation: claim,
       result,
       resultRef: await buildVaultProxyResultRef(claim, safeResult),
       completedAtMs,
     });
-    if (completion.kind !== 'completed' && completion.kind !== 'already_completed') {
-      throw new Error(`vault proxy authorization completion failed: ${completion.kind}`);
-    }
   }
 }
 
 type ParsedVaultProxyUseRequest = {
-  readonly claim: CapabilityOperationClaim;
+  readonly claim: AuthorizedOperationInput;
   readonly secretRef: VaultProxySecretRef;
   readonly payload: string;
 };
@@ -334,8 +329,7 @@ async function parseVaultProxyUseRequest(
       'principalId',
       'capabilityId',
       'operationId',
-      'grantId',
-      'useId',
+      'authorizedOperationId',
       'auditEventId',
       'evidenceSetDigest',
       'vaultId',
@@ -366,21 +360,23 @@ async function parseVaultProxyUseRequest(
   return {
     secretRef: { tenantId, capabilityId, vaultId, itemId, destination },
     payload: raw.payload,
-    claim: await buildCapabilityOperationClaim({
+    claim: {
       tenantId,
-      grantId: requireAuthorizationId(raw.grantId, parseCapabilityGrantId),
-      useId: requireAuthorizationId(raw.useId, parseCapabilityGrantUseId),
+      authorizedOperationId: requireAuthorizationId(raw.authorizedOperationId, parseAuthorizedOperationId),
       auditEventId: requireAuthorizationId(raw.auditEventId, parseAuthorizationAuditEventId),
-      evidenceSetDigest: parseDigestB64u(raw.evidenceSetDigest),
       operation,
       claimedAtMs,
-      authorization: { kind: 'operation_step_up' },
-    }),
+      authorization: {
+        kind: 'verified_step_up',
+        evidenceSetDigest: parseDigestB64u(raw.evidenceSetDigest),
+      },
+      quota: { kind: 'quota_neutral' },
+    },
   };
 }
 
 async function buildVaultProxyResultRef(
-  claim: CapabilityOperationClaim,
+  claim: AuthorizedOperation,
   result: Record<string, unknown>,
 ): Promise<CapabilityOperationResultRef> {
   const resultStorageRef = requireAuthorizationId(

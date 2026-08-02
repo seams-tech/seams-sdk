@@ -90,14 +90,14 @@ test('normal-signing proxy forwards the trusted body selected by the gateway', a
   const request = new Request('https://gateway.example/router-ab/ed25519/sign', {
     method: 'POST',
     headers: { authorization: 'Bearer wallet-session-jwt' },
-    body: JSON.stringify({ authorization_claim: { kind: 'untrusted' } }),
+    body: JSON.stringify({ authorized_operation: { kind: 'untrusted' } }),
   });
   const response = await proxyNormalSigningRequestToMpcRouter({
     request,
     body: {
-      authorization_claim: {
-        kind: 'reusable_wallet_session_operation_claim_v1',
-        use_id: 'use-1',
+      authorized_operation: {
+        kind: 'reusable_wallet_session_authorized_operation_v1',
+        authorized_operation_id: 'authorized-operation-1',
       },
     },
     proxy: {
@@ -111,9 +111,9 @@ test('normal-signing proxy forwards the trusted body selected by the gateway', a
 
   expect(response.status).toBe(200);
   expect(forwardedBody).toEqual({
-    authorization_claim: {
-      kind: 'reusable_wallet_session_operation_claim_v1',
-      use_id: 'use-1',
+    authorized_operation: {
+      kind: 'reusable_wallet_session_authorized_operation_v1',
+      authorized_operation_id: 'authorized-operation-1',
     },
   });
 });

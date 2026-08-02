@@ -57,14 +57,14 @@ export type NearOperationStepUpMaterial =
 
 export type ResolvedNearOperationStepUpMaterial = {
   material: NearEd25519YaoOperationMaterial;
-  issuedGrant: Awaited<
+  issuedAuthorization: Awaited<
     ReturnType<
       Extract<
         NearEmailOtpEd25519OperationStepUpCapabilityPreparation,
         { kind: 'sealed' }
       >['authorizeAndRehydrate']
     >
-  >['issuedGrant'] | null;
+  >['issuedAuthorization'] | null;
 };
 
 export function nearOperationStepUpMaterialFacts(
@@ -204,7 +204,7 @@ export async function resolveNearOperationStepUpMaterial(
     actual: args.material.materialActivation,
   });
   let material: NearEd25519YaoOperationMaterial;
-  let issuedGrant: ResolvedNearOperationStepUpMaterial['issuedGrant'] = null;
+  let issuedAuthorization: ResolvedNearOperationStepUpMaterial['issuedAuthorization'] = null;
   if (args.kind === 'email_otp_live' || args.kind === 'email_otp_sealed') {
     if (args.kind === 'email_otp_live') {
       material = args.material.material;
@@ -215,7 +215,7 @@ export async function resolveNearOperationStepUpMaterial(
         proof: args.proof,
       });
       material = resolved.material;
-      issuedGrant = resolved.issuedGrant;
+      issuedAuthorization = resolved.issuedAuthorization;
     }
   } else {
     material =
@@ -228,7 +228,7 @@ export async function resolveNearOperationStepUpMaterial(
       expected: args.expectedActivation,
       actual: nearEd25519YaoMaterialActivationFromMetadata(material.activeClient.metadata()),
     });
-    return { material, issuedGrant };
+    return { material, issuedAuthorization };
   } catch (error) {
     if (
       args.material.kind === 'passkey_sealed' ||

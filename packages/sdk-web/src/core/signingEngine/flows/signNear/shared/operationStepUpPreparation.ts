@@ -3,10 +3,6 @@ import type { RouterAbNormalSigningPrepareRequestV2BuildResult } from '@/core/rp
 import type { CapabilityOperationEnvelope } from '@shared/authorization/operationFingerprint';
 import { computeCapabilityOperationFingerprintDigest } from '@shared/authorization/operationFingerprint';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import {
-  parseCapabilityGrantId,
-  type CapabilityGrantId,
-} from '@shared/authorization/capabilityKinds';
 import type {
   NearOperationStepUpPreparationPort,
   NearOperationStepUpPreparationRef,
@@ -64,16 +60,6 @@ function requirePreparationIdentity(value: unknown, field: string): string {
   const normalized = String(value || '').trim();
   if (!normalized) throw new Error(`[SigningEngine][near] ${field} is required`);
   return normalized;
-}
-
-export function createNearOperationStepUpGrantId(): CapabilityGrantId {
-  const parsed = parseCapabilityGrantId(
-    `near-operation-grant:${secureRandomBase64Url(24, 'operation step-up grant')}`,
-  );
-  if (!parsed.ok) {
-    throw new Error(`[SigningEngine][near] ${parsed.error.message}`);
-  }
-  return parsed.value;
 }
 
 export function registerNearOperationStepUpBuilder(input: {

@@ -1493,38 +1493,16 @@ function createD1AuthorizationClaimRouteService(
       assembly.authorizationService.recordVerifiedSessionEvidenceSet.bind(
         assembly.authorizationService,
       ),
-    issueGrant: assembly.authorizationService.issueGrant.bind(assembly.authorizationService),
-    claimOperationStepUpFromGrant: assembly.authorizationService.claimOperationStepUpFromGrant.bind(
+    readAuthorizedOperation: assembly.authorizationService.readAuthorizedOperation.bind(
       assembly.authorizationService,
     ),
-    claimEcdsaOperation: assembly.authorizationService.claimEcdsaOperation.bind(
+    claimAuthorizedOperation: assembly.authorizationService.claimAuthorizedOperation.bind(
       assembly.authorizationService,
     ),
-    claimEcdsaOperationStepUpFromGrant:
-      assembly.authorizationService.claimEcdsaOperationStepUpFromGrant.bind(
+    completeAuthorizedOperation:
+      assembly.authorizationService.completeAuthorizedOperation.bind(
         assembly.authorizationService,
       ),
-    putEcdsaEvidenceAndGrant: assembly.authorizationService.putEcdsaEvidenceAndGrant.bind(
-      assembly.authorizationService,
-    ),
-    claimEcdsaReusableWalletSessionOperation:
-      assembly.authorizationService.claimEcdsaReusableWalletSessionOperation.bind(
-        assembly.authorizationService,
-      ),
-    lookupOperationClaim: assembly.authorizationService.lookupOperationClaim.bind(
-      assembly.authorizationService,
-    ),
-    claimReusableWalletSessionFromGrant:
-      assembly.authorizationService.claimReusableWalletSessionFromGrant.bind(
-        assembly.authorizationService,
-      ),
-    claimReusableWalletSessionOperation:
-      assembly.authorizationService.claimReusableWalletSessionOperation.bind(
-        assembly.authorizationService,
-      ),
-    completeOperation: assembly.authorizationService.completeOperation.bind(
-      assembly.authorizationService,
-    ),
   };
 }
 

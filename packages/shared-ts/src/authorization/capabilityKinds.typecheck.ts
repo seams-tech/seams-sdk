@@ -10,10 +10,12 @@ import {
   buildNearEd25519MpcOperationRef,
   buildVaultOperationRef,
   type AuthFactorId,
-  type CapabilityGrantId,
   type CapabilityOperationRef,
   type GrantEvidenceKind,
   type GrantEvidenceRequirement,
+  type AuthorizationGrantRef,
+  type WalletSessionAuthorizationId,
+  type AuthorizedOperationId,
   type SeamsSessionId,
 } from './capabilityKinds';
 
@@ -66,9 +68,19 @@ const unsupportedEvidence: GrantEvidenceKind = 'mpc_signer_proof';
 void unsupportedEvidence;
 
 declare const seamsSessionId: SeamsSessionId;
-// @ts-expect-error Session and capability-grant identities are independent.
-const grantId: CapabilityGrantId = seamsSessionId;
-void grantId;
+declare const authorizationId: WalletSessionAuthorizationId;
+declare const authorizedOperationId: AuthorizedOperationId;
+const authorizationRef: AuthorizationGrantRef = {
+  kind: 'wallet_session_authorization',
+  authorizationId,
+};
+void authorizationRef;
+// @ts-expect-error Session identity cannot substitute for reusable authorization identity.
+const invalidAuthorizationId: WalletSessionAuthorizationId = seamsSessionId;
+void invalidAuthorizationId;
+// @ts-expect-error Wallet authorization identity cannot substitute for operation identity.
+const invalidOperationId: AuthorizedOperationId = authorizationId;
+void invalidOperationId;
 
 declare const factorId: AuthFactorId;
 // @ts-expect-error Factor and session identities are independent.
