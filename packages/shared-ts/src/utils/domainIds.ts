@@ -101,10 +101,6 @@ class MpcMaterialActivationReference {
 
 export type MpcMaterialActivationRef = MpcMaterialActivationReference;
 
-// Client signing grant id. This groups one local approval/session
-// budget and can cover multiple threshold-session ids.
-export type SigningGrantId = DomainId<'SigningGrantId'>;
-
 // Server threshold Ed25519 session id used for NEAR signing and Ed25519 export.
 export type ThresholdEd25519SessionId = DomainId<'ThresholdEd25519SessionId'>;
 
@@ -492,10 +488,6 @@ export function parseMpcMaterialActivationRef(
 
 export function formatWebAuthnRpIdForWire(value: WebAuthnRpId): string {
   return value;
-}
-
-export function parseSigningGrantId(raw: unknown): DomainIdParseResult<SigningGrantId> {
-  return parseDomainId(raw, 'signingGrantId');
 }
 
 export function parseThresholdEd25519SessionId(

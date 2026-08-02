@@ -1,4 +1,4 @@
-import type { SigningGrantId, ThresholdEcdsaSessionId } from './domainIds';
+import type { ThresholdEcdsaSessionId } from './domainIds';
 import type {
   RouterAbEcdsaDerivationActivationCommitQueryResultV1,
   RouterAbEcdsaDerivationActivationPrepareResultV1,
@@ -12,7 +12,6 @@ import type { RuntimePolicyScope } from '../threshold/signingRootScope';
 import type { CorrelationId } from './canonicalPrimitives';
 import type { ReusableWalletSessionMintId } from '../authorization/capabilityKinds';
 
-declare const signingGrantId: SigningGrantId;
 declare const thresholdSessionId: ThresholdEcdsaSessionId;
 declare const walletSessionMintId: ReusableWalletSessionMintId;
 declare const runtimePolicyScope: RuntimePolicyScope;
@@ -29,26 +28,6 @@ const sessionPolicy = {
   runtime_policy_scope: runtimePolicyScope,
 } satisfies RouterAbEcdsaPostRegistrationSessionPolicyV1;
 void sessionPolicy;
-
-const invalidSessionPolicy = {
-  threshold_session_id: thresholdSessionId,
-  // @ts-expect-error Signing grants cannot be used as Wallet Session mint identities.
-  wallet_session_mint_id: signingGrantId,
-  ttl_ms: 60_000,
-  remaining_uses: 2,
-  runtime_policy_scope: runtimePolicyScope,
-} satisfies RouterAbEcdsaPostRegistrationSessionPolicyV1;
-void invalidSessionPolicy;
-
-const invalidActivationResponse = {
-  ...activationResponse,
-  session: {
-    ...activationResponse.session,
-    // @ts-expect-error Activation responses do not carry signing-grant ids.
-    signing_grant_id: 'grant-unparsed',
-  },
-} satisfies RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
-void invalidActivationResponse;
 
 const registrationActivation = {
   registrationCeremonyId: 'registration-ceremony',

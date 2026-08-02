@@ -33,7 +33,6 @@ import type {
   VerifiedGoogleEmail,
   WalletId,
   WalletKeyId,
-  SigningGrantId,
 } from './domainIds';
 import {
   buildMpcMaterialActivationRef,
@@ -59,7 +58,6 @@ declare const orgId: OrgId;
 declare const appSessionVersion: AppSessionVersion;
 declare const emailOtpChallengeId: EmailOtpChallengeId;
 declare const registrationAttemptId: EmailOtpRegistrationAttemptId;
-declare const signingGrantId: SigningGrantId;
 declare const walletSessionId: WalletSessionId;
 declare const thresholdEd25519SessionId: ThresholdEd25519SessionId;
 declare const thresholdEcdsaSessionId: ThresholdEcdsaSessionId;
@@ -128,10 +126,6 @@ function acceptsOrgId(value: OrgId): void {
 }
 
 function acceptsAppSessionVersion(value: AppSessionVersion): void {
-  void value;
-}
-
-function acceptsSigningGrantId(value: SigningGrantId): void {
   void value;
 }
 
@@ -245,7 +239,6 @@ acceptsOrgId(orgId);
 acceptsAppSessionVersion(appSessionVersion);
 acceptsEmailOtpChallengeId(emailOtpChallengeId);
 acceptsEmailOtpRegistrationAttemptId(registrationAttemptId);
-acceptsSigningGrantId(signingGrantId);
 acceptsWalletSessionId(walletSessionId);
 acceptsThresholdEd25519SessionId(thresholdEd25519SessionId);
 acceptsThresholdEcdsaSessionId(thresholdEcdsaSessionId);
@@ -328,9 +321,6 @@ acceptsEmailOtpChallengeId(registrationAttemptId);
 // @ts-expect-error OTP challenge ids are not registration attempt ids.
 acceptsEmailOtpRegistrationAttemptId(emailOtpChallengeId);
 
-// @ts-expect-error Signing grant ids are not threshold Ed25519 session ids.
-acceptsThresholdEd25519SessionId(signingGrantId);
-
 // @ts-expect-error Wallet Session ids are not threshold Ed25519 session ids.
 acceptsThresholdEd25519SessionId(walletSessionId);
 
@@ -345,9 +335,6 @@ acceptsMpcMaterialActivationId(thresholdEd25519SessionId);
 
 // @ts-expect-error Threshold Ed25519 and ECDSA session ids are curve-specific.
 acceptsThresholdEcdsaSessionId(thresholdEd25519SessionId);
-
-// @ts-expect-error Threshold ECDSA session ids are not signing grant ids.
-acceptsSigningGrantId(thresholdEcdsaSessionId);
 
 // @ts-expect-error Threshold ECDSA session ids are not root-share epochs.
 acceptsRootShareEpoch(thresholdEcdsaSessionId);
@@ -366,12 +353,6 @@ acceptsWalletId(walletKeyId);
 
 // @ts-expect-error Wallet ids are not wallet keys.
 acceptsWalletKeyId(walletId);
-
-// @ts-expect-error Signing lanes are not signing grants.
-acceptsSigningGrantId(signingLaneId);
-
-// @ts-expect-error Signing grants are not signing lanes.
-acceptsSigningLaneId(signingGrantId);
 
 // @ts-expect-error Lane share epochs are not signing lanes.
 acceptsSigningLaneId(laneShareEpoch);
@@ -396,9 +377,6 @@ acceptsMpcMaterialOwnerRef(capabilityInstanceRef);
 
 // @ts-expect-error Material owners are not capability instances.
 acceptsCapabilityInstanceRef(mpcMaterialOwnerRef);
-
-// @ts-expect-error Material activation ids are independent from signing grants.
-acceptsMpcMaterialActivationId(signingGrantId);
 
 // @ts-expect-error Signing-worker references are not runtime references.
 acceptsMpcCapabilityRuntimeRef(mpcSigningWorkerRef);
