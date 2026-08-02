@@ -44,6 +44,13 @@ safe source-only deletions. The historical `missing_hot_material` and removed
 ECDSA budget fixture references in older refactor documents are documentation
 history, not production symbols.
 
+The broad unit gate was rerun after the build and WASM outputs were regenerated:
+1,740 passed, 197 failed, and 11 skipped out of 1,948 collected tests. The
+failures are lower-authority stale fixtures and environment-gated local D1/JWK,
+Google-identity, and UI timing cases; the focused identity regression passed.
+The broad acceptance box remains open until those failures are reconciled or
+their owning environment is supplied.
+
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
 Replacement: the required-field `active | retired` ECDSA capability record,
