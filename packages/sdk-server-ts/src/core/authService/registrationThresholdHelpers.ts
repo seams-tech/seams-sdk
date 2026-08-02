@@ -210,7 +210,6 @@ export function isMatchingEcdsaClientBootstrap(
     actual.registrationPreparationId === expected.registrationPreparationId &&
     actual.requestId === expected.requestId &&
     actual.thresholdSessionId === expected.thresholdSessionId &&
-    actual.signingGrantId === expected.signingGrantId &&
     actual.ttlMs === expected.ttlMs &&
     actual.remainingUses === expected.remainingUses &&
     JSON.stringify(actual.participantIds) === JSON.stringify(expected.participantIds) &&
@@ -238,7 +237,6 @@ export function toEcdsaDerivationClientBootstrapRequest(
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
     requestId: clientBootstrap.requestId,
     sessionId: clientBootstrap.thresholdSessionId,
-    signingGrantId: clientBootstrap.signingGrantId,
     ttlMs: clientBootstrap.ttlMs,
     remainingUses: clientBootstrap.remainingUses,
     participantIds: [...clientBootstrap.participantIds],

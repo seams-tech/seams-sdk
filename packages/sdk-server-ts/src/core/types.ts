@@ -783,7 +783,6 @@ interface EcdsaDerivationClientBootstrapRequestBase {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -826,7 +825,6 @@ export interface EcdsaDerivationServerBootstrapResponse {
   participantIds: number[];
   thresholdSessionId: string;
   activationEpoch: RootShareEpoch;
-  signingGrantId: string;
   authorizationSessionId?: SeamsSessionId;
   walletSessionId?: WalletSessionId;
   quotaId?: MpcWalletSigningQuotaId;

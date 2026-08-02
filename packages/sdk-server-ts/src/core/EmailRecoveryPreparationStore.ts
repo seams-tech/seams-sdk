@@ -340,7 +340,6 @@ function parseEcdsaPrepareTarget(raw: unknown): EmailRecoveryEcdsaPrepareTarget 
     registrationPreparationId: toOptionalTrimmedString(prepare.registrationPreparationId),
     requestId: toOptionalTrimmedString(prepare.requestId),
     thresholdSessionId: toOptionalTrimmedString(prepare.thresholdSessionId),
-    signingGrantId: toOptionalTrimmedString(prepare.signingGrantId),
   };
   if (
     required.formatVersion !== 'ecdsa-derivation-role-local' ||
@@ -354,7 +353,6 @@ function parseEcdsaPrepareTarget(raw: unknown): EmailRecoveryEcdsaPrepareTarget 
     !required.registrationPreparationId ||
     !required.requestId ||
     !required.thresholdSessionId ||
-    !required.signingGrantId ||
     ttlMs === undefined ||
     remainingUses === undefined ||
     !participantIds ||
@@ -384,7 +382,6 @@ function parseEcdsaPrepareTarget(raw: unknown): EmailRecoveryEcdsaPrepareTarget 
       ),
       requestId: required.requestId,
       thresholdSessionId: required.thresholdSessionId,
-      signingGrantId: required.signingGrantId,
       ttlMs,
       remainingUses,
       participantIds: [1, 2],
