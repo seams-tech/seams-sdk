@@ -96,7 +96,9 @@ fn router_ab_ecdsa_derivation_active_state_lookup_uses_exact_material_activation
         "validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_material_v1",
     );
     assert!(
-        active_material_body.contains("cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1"),
+        active_material_body.contains(
+            "active_signing_worker.material_activation != scope.material_activation",
+        ),
         "Router A/B ECDSA derivation active material validation must use the exact material activation id"
     );
     assert!(
@@ -184,8 +186,12 @@ fn router_ab_ecdsa_derivation_finalize_consumes_before_fallible_signing_work() {
         consume < state_lookup && state_lookup < material_lookup && material_lookup < handler,
         "Router A/B ECDSA derivation finalize must consume before all later state, material, and signing work"
     );
-    let output = body
+    let terminal_commit = body
+        .find("CloudflareSigningWorkerTerminalResponseCommitV1::Committed")
+        .expect("Router A/B ECDSA derivation finalize must persist terminal response");
+    let output = body[terminal_commit..]
         .find("worker::Response::from_json(&response)")
+        .map(|offset| terminal_commit + offset)
         .expect("Router A/B ECDSA derivation finalize must return response");
     assert!(
         handler < output,
