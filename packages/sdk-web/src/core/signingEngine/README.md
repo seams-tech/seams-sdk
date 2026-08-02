@@ -147,7 +147,7 @@ sequenceDiagram
 | `warmSigning`          | Runtime aggregate of warm-session readers, status readers, and sealed-runtime access. | `assembly/ports/warmSigning.ts`                 |
 | `warmCapabilities`     | Public capability/status surface derived from warm material and budget state.       | `session/warmCapabilities/public.ts`            |
 | `signingSession`       | Operation lane, budget, and identity scope used while signing.                      | `session/planning/*`, `session/budget/*`        |
-| `signingGrant` | Server-issued wallet-scoped budget session identifier.                              | `session/budget/*`                              |
+| `walletSession` | Server-issued reusable Wallet Session authorization identity.                       | `session/lifecycle/*`, `session/availability/*` |
 | `thresholdSession`     | Cryptographic threshold-protocol authorization session.                             | `threshold/*`, sealed-runtime boundaries        |
 | `emailOtpSession`      | Email OTP step-up session and warm-session coordination.                            | `session/emailOtp/*`                            |
 | `appSession`           | Outer application JWT/policy used to authorize wallet operations.                   | `stepUpConfirmation/*`, relayer clients         |
