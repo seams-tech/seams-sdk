@@ -509,6 +509,10 @@ implementing commit SHA as the evidence.
     exact operation claim and quota transaction (`cc4cf26ab`).
   - [x] Delegate and NEP-413 signing use that same server-owned claim path;
     their client reservation/finalization chain is deleted (`f16cfef7a`).
+  - [x] Ed25519 Router A/B reserve/commit/release remains the canonical
+    authenticated server quota boundary for Ed25519 normal signing. Refactor 90
+    removes ECDSA public budget fields and aliases without deleting this live
+    Ed25519 path; any quota rehome is a separately scoped follow-on.
 - [x] `R90-INV-010` — authority/lifecycle replacement returns `superseded` and
   every SDK/UI adapter discards and re-resolves the stale lane.
   (Typed `superseded` with three supersession kinds through the material plan;
