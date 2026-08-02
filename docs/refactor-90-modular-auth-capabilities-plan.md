@@ -1505,6 +1505,9 @@ the replacement and legacy MPC paths must not ship together.
         `thresholdSessionId`; material activation remains the in-flight
         coalescing key, and the zero-caller `WarmSessionProvisioner` alias is
         deleted (`57849eda9`).
+  - [x] Name the ECDSA worker-share and presign handoff field
+        `thresholdSessionId`; one-shot Email OTP client-root handles and
+        presign-session IDs remain separate (`fae146131`).
   - [x] Delete zero-caller budget owner, availability, and unknown-status
         adapters; live admission and status readers remain unchanged
         (`20f1bcfca`, `1ce066cf9`, `69b0e6b30`).

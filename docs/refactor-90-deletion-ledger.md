@@ -69,6 +69,9 @@ use request or viewer ids. Threshold-session identity is carried as
 `thresholdSessionId`/`threshold_session_id` at the ECDSA activation, warm,
 sealed-runtime, and authorization-sensitive signing boundaries. No old
 `sessionId` compatibility parser remains there.
+The ECDSA worker-share and presign handoff now use `thresholdSessionId`; the
+one-shot Email OTP client-root handle retains its own local `sessionId`
+(`fae146131`).
 
 The remaining Ed25519 `signingGrantId` values are also intentional. They live
 in the authenticated Wallet Session/quota and operation-lane boundaries; they
