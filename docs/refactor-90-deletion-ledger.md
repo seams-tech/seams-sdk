@@ -483,7 +483,9 @@ ports, and the two-state recovery journal.
   production and retained tests.
 - ~~Email-OTP-specific Yao root purpose/scope/handle deletion~~ — retained only
   at the factor-specific Yao acquisition boundary.
-- method-specific Browser recovery singleflight maps
+- ~~method-specific Browser recovery singleflight maps~~ — retained inside
+  Passkey and Email OTP owners because each map coalesces that factor's exact
+  sealed-material operation; no generic compatibility map remains.
 
 ## Phase 19 — export coordinator surface
 
@@ -519,14 +521,17 @@ ports, and the two-state recovery journal.
 - ~~`EmailOtpEd25519YaoActiveCapabilityDescriptorV1` legacy payload~~ — the
   current worker descriptor contains activation, public facts, and lifecycle
   only; signing grant, provider JWT, and bearer state are absent.
-- `signingGrantId` in export subject/context/worker requests (the exact
-  `near.export_key` grant lives only in operation authorization/claim state)
+- ~~`signingGrantId` in export subject/context/worker requests~~ — retained only
+  for the live Ed25519 `near.export_key` operation authorization boundary; it
+  is not persisted material identity and does not cross into ECDSA export.
 
 ## Phase 19 — factor-labelled assembly ports and Browser shortcuts
 
 - ~~`refreshPasskeyEd25519CapabilityForSigning`~~ — confirmed absent at
   `7495b5b44`
-- `requestEmailOtpEd25519SigningChallenge`
+- ~~`requestEmailOtpEd25519SigningChallenge`~~ — retained as the live
+  factor-specific Email OTP challenge boundary for NEAR signing; it is not a
+  generic auth-method selector or compatibility alias.
 - ~~`recoverEmailOtpEd25519CapabilityForSigning`~~ — absent from production and
   retained tests.
 - ~~`resolveAccountAuthMethodForSigning`~~ — absent from production; the one
