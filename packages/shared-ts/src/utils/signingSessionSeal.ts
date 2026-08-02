@@ -201,7 +201,6 @@ type SealedSigningSessionRecordBase = {
 export type SealedSigningSessionRecord =
   | (SealedSigningSessionRecordBase & {
       curve: 'ed25519';
-      signingGrantId?: never;
       thresholdSessionIds: {
         ed25519: string;
         ecdsa?: string;
@@ -213,7 +212,6 @@ export type SealedSigningSessionRecord =
     })
   | (SealedSigningSessionRecordBase & {
       curve: 'ecdsa';
-      signingGrantId?: never;
       thresholdSessionIds: {
         ed25519?: string;
         ecdsa: string;

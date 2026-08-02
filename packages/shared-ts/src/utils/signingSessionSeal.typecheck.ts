@@ -64,13 +64,6 @@ const validEcdsaSealedSessionRecord = {
 } satisfies SealedSigningSessionRecord;
 void validEcdsaSealedSessionRecord;
 
-const invalidGrantBearingEcdsaSealedSessionRecord: SealedSigningSessionRecord = {
-  ...validEcdsaSealedSessionRecord,
-  // @ts-expect-error durable ECDSA material is keyed by activation, not a signing grant.
-  signingGrantId: 'wallet-session-1',
-};
-void invalidGrantBearingEcdsaSealedSessionRecord;
-
 const validEd25519SealedSessionRecord = {
   v: 2,
   alg: 'shamir3pass-v2',
