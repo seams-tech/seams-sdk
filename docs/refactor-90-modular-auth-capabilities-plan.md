@@ -1536,7 +1536,8 @@ the replacement and legacy MPC paths must not ship together.
   - Evidence at the current checkpoint: the focused Refactor 90 operating-path
       and wire matrix passes 72/72; the Rust Cloudflare ECDSA binding suite
       passes 36/36, the ECDSA wire crate passes 1/1, the ECDSA client-protocol
-      tests pass 9/9, and normal-signing vectors pass 3/3;
+      tests pass 9/9, the presign crate passes 44/44 plus 7/7 doctests, and
+      normal-signing vectors pass 3/3;
       SDK and unit typechecks pass; direct architecture, worker/WASM, bundle,
       and boundary guards pass. The source Playwright guard set passes 220/220;
       the D1 local-dev launcher contract is restored with SDK `.dev.vars`
