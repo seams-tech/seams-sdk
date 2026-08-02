@@ -82,7 +82,8 @@ type NearEd25519TransactionLane = {
   authMethod: 'email_otp' | 'passkey';
   curve: 'ed25519';
   chain: 'near';
-  signingGrantId: string;
+  walletSessionId: string;
+  quotaId: string;
   thresholdSessionId: string;
 };
 ```
@@ -98,7 +99,8 @@ type EcdsaTransactionLane = {
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
-  signingGrantId: string;
+  walletSessionId: string;
+  quotaId: string;
   thresholdSessionId: string;
 };
 ```
@@ -156,7 +158,8 @@ Signing-session identity is protocol-specific after the system boundary.
 | NEAR Ed25519      | `NearAccountRef`                    | NEAR account identity                               |
 | ECDSA principal   | `walletId`                          | Threshold ECDSA wallet principal                    |
 | ECDSA target      | `ThresholdEcdsaChainTarget`         | Concrete EVM-family or Tempo target                 |
-| Signing grant     | `signingGrantId`                    | User-approved signing allowance, budget, and TTL id |
+| Wallet session    | `walletSessionId`                   | Reusable authenticated signing session              |
+| Session quota     | `quotaId`                           | Authoritative TTL and remaining-use counter          |
 | Threshold session | `thresholdSessionId`                | Curve-specific signing session id                   |
 
 Funds-safety invariant: EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the
@@ -179,7 +182,8 @@ type EcdsaLaneIdentity = {
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
-  signingGrantId: string;
+  walletSessionId: string;
+  quotaId: string;
   thresholdSessionId: string;
 };
 ```
@@ -214,14 +218,12 @@ Use threshold-session auth for:
 The threshold session token should be named `thresholdSessionAuthToken` in
 client/server boundaries so it is never confused with app-session JWTs.
 
-### Signing Grant
+### Wallet Session and Operation Grant
 
-`signingGrantId` is the user-approved signing allowance. It ties curve-specific
-threshold sessions to one server-authoritative TTL and `remainingUses` counter.
-`thresholdSessionId` identifies the concrete curve-specific threshold session.
-
-Both ids are required for transaction signing. The wallet id alone is
-insufficient, and the threshold session id alone is insufficient.
+Reusable signing authority is the exact `walletSessionId` plus `quotaId` pair.
+Each signing operation receives a capability grant and use identity bound to
+the selected capability, operation digest, and material activation.
+`thresholdSessionId` identifies only the curve-specific cryptographic session.
 
 ## Lifecycle State Machine
 

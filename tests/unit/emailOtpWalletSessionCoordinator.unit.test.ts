@@ -383,7 +383,6 @@ function thresholdEcdsaSessionJwt(args: {
   walletId: string;
   keyHandle: string;
   thresholdSessionId: string;
-  signingGrantId: string;
   evmFamilySigningKeySlotId?: string;
   relayerKeyId?: string;
   thresholdExpiresAtMs?: number;
@@ -410,7 +409,6 @@ function thresholdEcdsaSessionJwt(args: {
     evmFamilySigningKeySlotId,
     relayerKeyId: args.relayerKeyId || 'relayer-key',
     thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId,
     thresholdExpiresAtMs: args.thresholdExpiresAtMs ?? Date.now() + 60_000,
     participantIds: args.participantIds || [1, 2],
     ...(args.chainTarget ? { chainTarget: args.chainTarget } : {}),
@@ -564,7 +562,6 @@ function emailOtpWorkerEcdsaBootstrapFixture(args: {
   });
   const walletId = payload.walletId || 'alice.testnet';
   const thresholdSessionId = payload.thresholdSessionId || 'ecdsa-session';
-  const signingGrantId = payload.signingGrantId || thresholdSessionId;
   const keyHandle = publicationTargetPlan?.keyHandle || payload.keyHandle || 'key-handle-ecdsa';
   const ecdsaThresholdKeyId = 'ecdsa-key';
   const runtimePolicyScope = payload.runtimePolicyScope;
@@ -595,7 +592,6 @@ function emailOtpWorkerEcdsaBootstrapFixture(args: {
     walletId,
     keyHandle,
     thresholdSessionId,
-    signingGrantId,
     evmFamilySigningKeySlotId,
     relayerKeyId: 'relayer-key',
     thresholdExpiresAtMs: Date.now() + 60_000,
@@ -618,7 +614,6 @@ function emailOtpWorkerEcdsaBootstrapFixture(args: {
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
       thresholdSessionId,
-      signingGrantId,
       thresholdSessionKind: 'jwt',
       walletSessionJwt,
       participantIds: [1, 3],
@@ -639,7 +634,6 @@ function emailOtpWorkerEcdsaBootstrapFixture(args: {
       ok: true,
       thresholdSessionId,
       sessionId: thresholdSessionId,
-      signingGrantId,
       expiresAtMs: Date.now() + 60_000,
       remainingUses,
       jwt: walletSessionJwt,
@@ -1074,9 +1068,6 @@ function createCoordinator(overrides?: {
             payload: {
               walletId: String(walletKey.walletId || 'alice.testnet'),
               thresholdSessionId: String(lanePolicy.thresholdSessionId || 'ecdsa-session'),
-              signingGrantId: String(
-                lanePolicy.signingGrantId || lanePolicy.thresholdSessionId || 'ecdsa-session',
-              ),
               ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
               publicationTargetPlans: [
                 {
@@ -1420,7 +1411,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       preauthorizedSessionActivation: {
         session: {
           threshold_session_id: expect.any(String),
-          signing_grant_id: expect.any(String),
         },
       },
     });

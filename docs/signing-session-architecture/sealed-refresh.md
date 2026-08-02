@@ -68,7 +68,7 @@ Indexes:
 Rules:
 
 1. keep at most one current record for an exact material identity;
-2. do not persist Wallet Session JWTs, `signingGrantId`, or `authorizationSessionId` in durable sealed records;
+2. do not persist Wallet Session JWTs or authorization-session identities in durable sealed records;
 3. resolve current authorization independently from the secure wallet origin and correlate it with the exact material activation;
 4. expiry or remaining-use exhaustion invalidates authorization/readiness projections and live worker bindings while preserving sealed material;
 5. delete only malformed/invalid records or records explicitly retired by the material lifecycle.

@@ -78,7 +78,8 @@ type EcdsaLaneIdentity = {
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
-  signingGrantId: string;
+  walletSessionId: string;
+  quotaId: string;
   thresholdSessionId: string;
 };
 ```
@@ -170,8 +171,8 @@ Stable flow:
 1. Enrollment creates or binds Email OTP-specific secret material.
 2. Login or step-up verifies a fresh Email OTP challenge.
 3. The Email OTP worker reconstructs required signing material.
-4. Transaction signing uses a threshold session tied to a
-   `signingGrantId`.
+4. Transaction signing uses an exact Wallet Session/quota authorization and a
+   separately identified threshold session.
 5. Durable sealed refresh records allow exact restore after page refresh while
    server budget remains valid.
 

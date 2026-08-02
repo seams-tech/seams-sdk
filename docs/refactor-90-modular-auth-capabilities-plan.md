@@ -4,8 +4,8 @@ Created: 2026-06-28
 
 Consolidated: 2026-07-27
 
-Status: **in progress — Units 1, 2, and 3b complete; Unit 3a and Unit 4
-implementation complete with acceptance open; Unit 3c in progress**
+Status: **in progress — Units 1, 2, 3a, 3b, 3c, and Unit 4 implementation
+complete; lifecycle, broad-gate, and deployment acceptance remain open**
 
 This document is the execution tracker for
 [the normative SPEC](./refactor-90-modular-auth-capabilities-SPEC.md). If this plan
@@ -1644,9 +1644,11 @@ and the shared branded-ID/parser surface. The Rust Router reserve/validate/
 commit/release budget protocol, its public route/types, and current-row wiring
 were deleted in `cb7bc901c`; stale boundary guards were aligned in
 `c92b7d4a0` and `daeda0d7e`. Server and web typechecks pass. Obsolete Router
-budget-only unit coverage was deleted in `5dbabdfc8`. Unit 3c remains open for
-the live TypeScript Ed25519 reserve/commit store path, remaining grant-bearing
-worker/server surfaces, and final claim and quota migration.
+budget-only unit coverage was deleted in `5dbabdfc8`. Unit 3c's implementation
+cutover is complete: current production source has no live `SigningGrantId`,
+`signingGrantId`, or `signing_grant_id` occurrence outside the immutable
+historical migration, and both curves use the Gateway atomic claim/quota path.
+The remaining Unit 3c work is focused acceptance and conformance evidence.
 
 The next deletion checkpoint is `882dfd681`. It removes the remaining
 TypeScript Router budget persistence/parser surface, the callerless local
@@ -1673,47 +1675,50 @@ claimed as Unit 3c evidence.
 - [x] Remove the legacy grant identity from the internal verified ECDSA Wallet
       Session authorization carrier; the strict JWT boundary remains coupled
       until the coordinated Rust/TypeScript claim cutover (`13e7a9844`).
-- [ ] Add every live `SigningGrantId`, `signingGrantId`, and
+- [x] Add every live `SigningGrantId`, `signingGrantId`, and
       `signing_grant_id` production occurrence to the deletion ledger and
       classify it as reusable-session authorization, quota, operation grant,
-      persistence boundary, or obsolete projection. No live occurrence may be
-      classified as material identity.
-- [ ] Make reusable authorization carry only the exact `WalletSessionId`,
+      persistence boundary, or obsolete projection. Current source search is
+      empty outside the immutable historical migration; no live occurrence is
+      classified as material identity (`4885bed62`).
+- [x] Make reusable authorization carry only the exact `WalletSessionId`,
       `MpcWalletSigningQuotaId`, authority, expiry, and operation context.
       Remove `signingGrantId` from Wallet Session JWT claims, verified session
       auth, mint/bootstrap responses, session exchange, refresh, and status
-      projections for both curves.
-- [ ] Issue and consume canonical `CapabilityGrantId` and
+      projections for both curves (`13e7a9844`, `4885bed62`).
+- [x] Issue and consume canonical `CapabilityGrantId` and
       `CapabilityGrantUseId` values for each authorized signing operation.
       Bind the grant to the exact capability, operation, digests, material
       activation, and reusable Wallet Session/quota branch or operation-step-up
-      branch.
-- [ ] Change the ECDSA `authorization_claim` reusable branch to carry the
+      branch (`b166b0bf1`, `41ed8f9cb`).
+- [x] Change the ECDSA `authorization_claim` reusable branch to carry the
       canonical capability grant rather than the verified Wallet Session's
       `signing_grant_id`. Keep strict Rust and TypeScript parsing atomic and
-      reject the old field.
-- [ ] Keep `MpcMaterialActivationRef` and curve-specific threshold-session
+      reject the old field (`41ed8f9cb`, `9196afd69`).
+- [x] Keep `MpcMaterialActivationRef` and curve-specific threshold-session
       identity independent from Wallet Session, quota, and capability-grant
       identities. Material, sealed records, restore leases, worker handles,
-      and hydration state must reject every authorization identifier.
+      and hydration state reject every authorization identifier
+      (`57849eda9`, `0c341f40a`).
 
 ### Atomic claim and quota ownership
 
-- [ ] Move Ed25519 reusable-session quota consumption from the Router
+- [x] Move Ed25519 reusable-session quota consumption from the Router
       reserve/commit/release protocol to the Unit 2 authorization core's atomic
       absent-claim transaction at the durable Gateway D1 owner. The transaction
       validates the exact grant, consumes the applicable quota once, creates
-      the operation claim, and records audit linkage.
-- [ ] Keep SigningWorker private D1 responsible only for cryptographic effect
+      the operation claim, and records audit linkage (`b166b0bf1`; focused
+      authorization/claims suite 29/29).
+- [x] Keep SigningWorker private D1 responsible only for cryptographic effect
       deduplication, presignature or Yao material consumption, and terminal
       response replay. It must receive a typed accepted claim and must not own
-      Wallet Session quota state.
-- [ ] Preserve lifecycle semantics: reusable signing consumes one quota use;
+      Wallet Session quota state (`4885bed62`; Rust worker claim validation).
+- [x] Preserve lifecycle semantics: reusable signing consumes one quota use;
       replay consumes none; operation step-up consumes only its one-operation
       grant; export consumes no signing quota; expiry and exhaustion remain
       distinct; failed, stale, mismatched, or superseded operations consume
-      nothing.
-- [ ] Delete Router, runtime, store, Redis, Durable Object, worker, client, and
+      nothing (focused authorization/claims and lifecycle matrix evidence).
+- [x] Delete Router, runtime, store, Redis, Durable Object, worker, client, and
       test reserve/commit/release APIs and rows after their final Ed25519 caller
       moves. Reject or clear old persisted rows at the owning persistence
       boundary without exposing a dual-schema core path.
@@ -1721,61 +1726,66 @@ claimed as Unit 3c evidence.
         current-row wiring, TypeScript Router budget runtime/store/provisioner,
         and callerless local-seed runtime deleted (`cb7bc901c`, `8cfd03530`,
         `a68f73437`, `f79921609`, `805521710`, `882dfd681`).
-  - [ ] Move the remaining live Ed25519 reusable-session quota caller to the
-        shared atomic claim/quota owner, then close this parent item.
+  - [x] Move the remaining live Ed25519 reusable-session quota caller to the
+        shared atomic claim/quota owner, then close this parent item
+        (`b166b0bf1`).
 
 ### Client, UI, and persistence cleanup
 
-- [ ] Remove `signingGrantId` from signing lanes, readiness and availability
+- [x] Remove `signingGrantId` from signing lanes, readiness and availability
       records, warm-capability state, session policies, expiry invalidation,
       browser/iframe envelopes, UI confirmation payloads, local persistence,
-      worker requests, logs, and public APIs.
-- [ ] Use `CapabilityGrantPlan`/`CapabilityGrantId` for operation confirmation
+      worker requests, logs, and public APIs (`4885bed62`; current-source
+      search is empty).
+- [x] Use `CapabilityGrantPlan`/`CapabilityGrantId` for operation confirmation
       and use `WalletSessionId` plus `MpcWalletSigningQuotaId` for reusable
       lifecycle display and status. Display state must remain non-authoritative.
-- [ ] Delete the `SigningGrantId` branded type, parser, generator, exports,
+- [x] Delete the `SigningGrantId` branded type, parser, generator, exports,
       builders, adapters, source guards, fixtures, mocks, and documentation
-      after all production callers move.
-- [ ] Remove `signing_grant_id` from current Rust and TypeScript wire schemas
+      after all production callers move (`4885bed62`; historical refactor docs
+      remain archival references).
+- [x] Remove `signing_grant_id` from current Rust and TypeScript wire schemas
       and generated bindings in the same change. Historical migrations may
       retain the old column name only when migration immutability requires it;
       the current schema and boundary parsers must reject or remove it, and the
-      deletion ledger must record that boundary-only exception.
-- [ ] Regenerate authoritative Rust-to-TypeScript bindings and affected vectors
+      deletion ledger records that boundary-only exception (`41ed8f9cb`,
+      `9196afd69`).
+- [x] Regenerate authoritative Rust-to-TypeScript bindings and affected vectors
       once after the wire shapes stabilize. Never hand-edit generated output.
 
 ### Focused verification
 
-- [ ] One focused reusable-session operating-path test per curve proves exact
+- [x] One focused reusable-session operating-path test per curve proves exact
       Wallet Session/quota binding, one atomic quota consumption, operation
       claim creation, signing success, and replay without another consumption.
-- [ ] One focused operation-step-up test proves a canonical capability grant
+- [x] One focused operation-step-up test proves a canonical capability grant
       authorizes exactly one operation and carries no Wallet Session or quota
-      identity.
+      identity (authorization/claims suite 29/29).
 - [ ] Existing expiry, exhaustion, export-without-quota, hostile substitution,
       and durable effect-replay cases pass after the cutover. Add no duplicate
       enforcement for invariants already owned by those tests.
-- [ ] Type fixtures reject `SigningGrantId`, `signingGrantId`, and
+- [x] Type fixtures reject `SigningGrantId`, `signingGrantId`, and
       `signing_grant_id` in current session, grant, quota, material, worker, and
       UI shapes.
-- [ ] Run focused type, wire, claim/quota, worker, binding, and vector checks
+- [x] Run focused type, wire, claim/quota, worker, binding, and vector checks
       while implementing. Run the broad unit and intended-behavior gates once
       at final conformance.
 
 ### Unit 3c exit
 
-- [ ] No live production, test, generated-binding, public-documentation, or
+- [x] No live production, test, generated-binding, public-documentation, or
       current-schema occurrence of `SigningGrantId`, `signingGrantId`, or
       `signing_grant_id` remains. Any immutable historical migration occurrence
-      is boundary-only and explicitly recorded.
-- [ ] Ed25519 and ECDSA use the same reusable-session → capability grant →
-      atomic claim/quota → exact material activation authorization sequence.
-- [ ] The legacy Router reserve/commit/release budget protocol and its persisted
-      rows, fixtures, and guards are deleted.
+      is boundary-only and explicitly recorded (`4885bed62`, `41ed8f9cb`).
+- [x] Ed25519 and ECDSA use the same reusable-session → capability grant →
+      atomic claim/quota → exact material activation authorization sequence
+      (`b166b0bf1`, `41ed8f9cb`).
+- [x] The legacy Router reserve/commit/release budget protocol and its persisted
+      rows, fixtures, and guards are deleted (`4885bed62`).
 - [ ] Focused reusable, step-up, expiry, exhaustion, export, replay, hostile
       substitution, binding, and vector checks pass.
-- [ ] All Unit 3c deletion-ledger entries are closed with implementing commit
-      evidence.
+- [x] All Unit 3c deletion-ledger entries are closed with implementing commit
+      evidence (`4885bed62`; remaining acceptance rows stay open separately).
 
 ## Unit 4 — UI + Provisioning
 

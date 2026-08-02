@@ -73,8 +73,7 @@ export type EmailOtpThresholdEcdsaRouteAuth = {
   kind: 'threshold_ecdsa_session';
   jwt: string;
   curve: 'ecdsa';
-  // Session-scoped runtime state only. No signing grant: ECDSA authorization
-  // carries none, and one is attached at operation authorization.
+  // Session-scoped runtime state only. Operation authority is attached later.
   thresholdSessionId: string;
   chainTarget: ThresholdEcdsaChainTarget;
 };

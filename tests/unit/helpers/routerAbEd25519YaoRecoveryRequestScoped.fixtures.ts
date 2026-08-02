@@ -61,7 +61,6 @@ type RecoveryFixtureIdentity = {
   readonly walletSessionId: string;
   readonly thresholdSessionId: string;
   readonly quotaId: string;
-  readonly signingGrantId: string;
   readonly signingWorkerId: string;
   readonly signerSetId: string;
   readonly credentialId: string;
@@ -79,7 +78,6 @@ const PRIMARY_IDENTITY: RecoveryFixtureIdentity = {
   walletSessionId: 'wallet-session-recovery-1',
   thresholdSessionId: 'threshold-session-recovery-1',
   quotaId: 'wallet-session-quota-recovery-1',
-  signingGrantId: 'signing-grant-recovery-1',
   signingWorkerId: 'signing-worker-recovery-1',
   signerSetId: 'signer-set-recovery-1',
   credentialId: 'recovery-request-scoped-credential-1',
@@ -97,7 +95,6 @@ const SECONDARY_IDENTITY: RecoveryFixtureIdentity = {
   walletSessionId: 'wallet-session-recovery-2',
   thresholdSessionId: 'threshold-session-recovery-2',
   quotaId: 'wallet-session-quota-recovery-2',
-  signingGrantId: 'signing-grant-recovery-2',
   signingWorkerId: 'signing-worker-recovery-2',
   signerSetId: 'signer-set-recovery-2',
   credentialId: 'recovery-request-scoped-credential-2',
@@ -631,7 +628,6 @@ function recoveryClaims(identity: RecoveryFixtureIdentity) {
     walletSessionId: identity.walletSessionId,
     quotaId: identity.quotaId,
     thresholdSessionId: identity.thresholdSessionId,
-    signingGrantId: identity.signingGrantId,
     relayerKeyId: identity.signingWorkerId,
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
