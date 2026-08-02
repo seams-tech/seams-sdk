@@ -1877,9 +1877,11 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 - [ ] Existing Refactor 92 contracts still prove expiry/exhaustion separation,
       refresh allowance, step-up behavior, and Passkey/OTP parity.
   - [x] The local Refactor 92 boundary, retry, invalidation, planning, demo,
-        persistence, and policy set passes 38/38 and proves typed
-        expiry/exhaustion separation plus same-method step-up. Refresh
-        allowance and cross-factor parity remain environment-backed gates.
+      persistence, and policy set passes 38/38 and proves typed
+      expiry/exhaustion separation plus same-method step-up. Refresh
+      allowance and cross-factor parity remain environment-backed gates. The
+      demo expiry fixture now constructs a canonical `WalletSessionId` rather
+      than the retired signing-grant helper (`a7de243ce`).
 - [x] Registration and provisioning expose no partial legacy capability shape.
 
 ## Final Conformance Gate
