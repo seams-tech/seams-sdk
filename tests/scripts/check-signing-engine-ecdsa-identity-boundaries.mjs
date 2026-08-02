@@ -443,7 +443,6 @@ function checkOptionalLifecycleFieldsStayBehindNarrowBoundaries() {
     'packages/sdk-web/src/core/signingEngine/session/warmCapabilities',
     'packages/sdk-web/src/core/signingEngine/session/passkey',
     'packages/sdk-web/src/core/signingEngine/session/emailOtp',
-    'packages/sdk-web/src/core/signingEngine/session/budget',
     'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily',
   ];
   const optionalLifecycleFieldAllowlist = new Set([
@@ -680,7 +679,6 @@ function checkNearAccountIdResidueStaysOutOfEcdsaOnlyPaths() {
     'packages/sdk-web/src/SeamsWeb/operations/tempo',
     'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily',
     'packages/sdk-web/src/core/signingEngine/nonce/evmNonceLane.ts',
-    'packages/sdk-web/src/core/signingEngine/session/budget',
     'packages/sdk-web/src/core/signingEngine/chains/evm',
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa',
     'packages/sdk-web/src/core/rpcClients/evm',

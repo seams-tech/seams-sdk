@@ -937,7 +937,6 @@ function checkSessionChildDomainsAvoidFlowAndAssemblyImports() {
     'packages/sdk-web/src/core/signingEngine/session/identity',
     'packages/sdk-web/src/core/signingEngine/session/availability',
     'packages/sdk-web/src/core/signingEngine/session/planning',
-    'packages/sdk-web/src/core/signingEngine/session/budget',
     'packages/sdk-web/src/core/signingEngine/session/persistence',
     'packages/sdk-web/src/core/signingEngine/session/sealedRecovery',
     'packages/sdk-web/src/core/signingEngine/session/operationState',
