@@ -1628,18 +1628,20 @@ field remains coupled to Wallet Session JWT issuance and downstream bootstrap;
 it is owned by the coordinated Rust/TypeScript claim-verifier cutover below.
 
 The first Ed25519 cleanup checkpoint is recorded in the deletion ledger and
-commit `73140759e`: the reservation-only route-core unit test and its test-slice
-entry were deleted as obsolete coverage. The local-Yao operating test remains
-until it is migrated to the canonical atomic-claim route, so the production
-legacy route is intentionally still present at this checkpoint.
+commit `a37dbb65b`: the reservation-only route-core unit test and its obsolete
+local-Yao public-signing section were deleted. Registration, retry, and worker
+disposal coverage remains; the production legacy route has no caller and was
+removed in the same checkpoint.
 
-Current implementation checkpoint (`ea5e9a9d5`, following `908459dc4`): the
+Current implementation checkpoint (`b34bf343f`, following `422268f7d`): the
 Rust/TypeScript authorization-claim boundary is strict and the Rust ECDSA
 binding suite passes 31/31. Near Ed25519 lane and status diagnostics now use
 `WalletSessionId` plus `MpcWalletSigningQuotaId`; the old grant identity has
-been removed from the shared Ed lane/session-state carriers. Unit 3c remains
-open while the server-side legacy Ed route, readiness/expiry consumers, and
-the remaining ECDSA activation/provisioning fields are migrated.
+been removed from shared Ed lane/session-state carriers, ECDSA registration
+bootstrap contracts, and registration-side budget provisioning. Server and
+web typechecks pass. Unit 3c remains open for the live Ed25519 reserve/commit
+store path, remaining grant-bearing worker/server surfaces, and final claim and
+quota migration.
 
 ### Canonical authorization identities
 

@@ -36,9 +36,10 @@ The strict Rust/TypeScript ECDSA `authorization_claim` boundary now rejects
 the retired public budget fields and binds reusable claims to the verified
 Wallet Session plus canonical capability grant. Rust binding tests pass 31/31,
 the shared TypeScript check passes, and the Email OTP warm worker names its
-volatile map key `thresholdSessionId`. The local-Yao signing harness remains
-the final caller of the retired Router reserve/commit/release adapter and is
-held for an explicit canonical-route migration or coverage decision.
+volatile map key `thresholdSessionId`. The final local-Yao public-signing
+caller of the retired Router reserve/commit/release adapter was removed with
+the obsolete route section in `a37dbb65b`; registration, retry, and disposal
+coverage remains.
 
 The final Unit 1/3a/4 sweep found one identity bug and one dead type surface.
 Passkey ECDSA seal persistence now receives the actual `thresholdSessionId`
@@ -171,17 +172,16 @@ The Cloudflare Ed25519 public normal-signing route already owns the canonical
 reusable-session flow: it claims a `CapabilityGrantUseId` atomically with the
 Wallet Session quota, sends the accepted claim to the MPC router, and validates
 the same claim before finalize. The direct
-`handleRouterAbEd25519NormalSigningRouteCore` helper still implements the old
-Router reserve/validate/commit/release protocol, but it has no production
-caller; only the local-Yao integration test and the legacy budget unit test
-invoke it. The helper is therefore a Unit 3c deletion target, while the local
-Yao test must first be migrated to the canonical route or replaced with an
-equivalent atomic-claim operating-path test. The runtime's provisioning and
-refresh methods remain live and are not part of this deletion until their
-Wallet Session/quota inputs have moved to the canonical authorization owner.
+`handleRouterAbEd25519NormalSigningRouteCore` helper implemented the old
+Router reserve/validate/commit/release protocol and had no production caller;
+it and the obsolete local-Yao public-signing section were deleted in
+`a37dbb65b`. The local-Yao registration, retry, and disposal coverage remains.
+The runtime's provisioning and refresh methods remain live and are not part of
+this deletion until their Wallet Session/quota inputs move to the canonical
+authorization owner.
 The standalone `routerAbEd25519BudgetRouteCore.unit.test.ts` was obsolete
 coverage for that retired reservation protocol and was deleted in the same
-checkpoint; the local-Yao test remains as the migration work item.
+checkpoint.
 The canonical D1 authorization core remains covered independently: its
 reusable-session, replay, expiry, quota, ECDSA binding, and hostile-substitution
 cases pass 19/19 in the focused unit run.
