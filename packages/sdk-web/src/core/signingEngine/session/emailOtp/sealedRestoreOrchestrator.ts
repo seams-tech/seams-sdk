@@ -47,7 +47,9 @@ export type EmailOtpSealedRestoreOrchestratorPorts = {
   readExactSealedSession: typeof readExactSealedSession;
   acquireSigningSessionRestoreLease: typeof acquireSigningSessionRestoreLease;
   releaseSigningSessionRestoreLease: typeof releaseSigningSessionRestoreLease;
-  readWarmSessionStatusFromWorker: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  readWarmSessionStatusFromWorker: (
+    thresholdSessionId: string,
+  ) => Promise<WarmSessionStatusResult>;
   restoreEcdsaSigningSessionMaterialFromSealedRecord: (
     args: EmailOtpEcdsaSealedRecoveryRecordInput,
   ) => Promise<EmailOtpThresholdEcdsaRehydrateResult | null>;

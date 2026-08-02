@@ -43,7 +43,7 @@ test.describe('warmSessionReadModel', () => {
   test('maps warm-session status results into canonical claim states', () => {
     expect(
       toWarmSessionClaimFromStatusResult({
-        sessionId: 'warm-session',
+        thresholdSessionId: 'warm-session',
         status: {
           ok: true,
           remainingUses: 3,
@@ -52,14 +52,14 @@ test.describe('warmSessionReadModel', () => {
       }),
     ).toMatchObject({
       state: 'warm',
-      sessionId: 'warm-session',
+      thresholdSessionId: 'warm-session',
       remainingUses: 3,
       expiresAtMs: 1234,
     });
 
     expect(
       toWarmSessionClaimFromStatusResult({
-        sessionId: 'missing-session',
+        thresholdSessionId: 'missing-session',
         status: {
           ok: false,
           code: 'not_found',
@@ -68,12 +68,12 @@ test.describe('warmSessionReadModel', () => {
       }),
     ).toMatchObject({
       state: 'missing',
-      sessionId: 'missing-session',
+      thresholdSessionId: 'missing-session',
     });
 
     expect(
       toWarmSessionClaimFromStatusResult({
-        sessionId: 'unavailable-session',
+        thresholdSessionId: 'unavailable-session',
         status: {
           ok: false,
           code: 'worker_error',
@@ -82,7 +82,7 @@ test.describe('warmSessionReadModel', () => {
       }),
     ).toMatchObject({
       state: 'unavailable',
-      sessionId: 'unavailable-session',
+      thresholdSessionId: 'unavailable-session',
       code: 'worker_error',
     });
   });
@@ -95,13 +95,13 @@ test.describe('warmSessionReadModel', () => {
         singleReads += 1;
         return { ok: false, code: 'worker_error', message: 'should not be called' };
       },
-      getWarmSessionStatuses: async ({ sessionIds }) => {
+      getWarmSessionStatuses: async ({ thresholdSessionIds }) => {
         batchCalls += 1;
         return {
-          results: sessionIds.map((sessionId) => ({
-            sessionId,
+          results: thresholdSessionIds.map((thresholdSessionId) => ({
+            thresholdSessionId,
             result:
-              sessionId === 'warm-session'
+              thresholdSessionId === 'warm-session'
                 ? {
                     ok: true as const,
                     remainingUses: 2,
@@ -118,19 +118,19 @@ test.describe('warmSessionReadModel', () => {
     });
     const claims = await readWarmSessionClaims({
       touchConfirm,
-      sessionIds: ['warm-session', 'missing-session'],
+      thresholdSessionIds: ['warm-session', 'missing-session'],
     });
 
     expect(batchCalls).toBe(1);
     expect(singleReads).toBe(0);
     expect(claims.get('warm-session')).toMatchObject({
       state: 'warm',
-      sessionId: 'warm-session',
+      thresholdSessionId: 'warm-session',
       remainingUses: 2,
     });
     expect(claims.get('missing-session')).toMatchObject({
       state: 'missing',
-      sessionId: 'missing-session',
+      thresholdSessionId: 'missing-session',
     });
   });
 

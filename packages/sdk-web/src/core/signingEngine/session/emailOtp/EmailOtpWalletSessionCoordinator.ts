@@ -46,9 +46,9 @@ export class EmailOtpWalletSessionCoordinator {
   }
 
   readWarmSessionStatusOnly(
-    sessionId: Parameters<EmailOtpWalletSessionRuntime['readWarmSessionStatusOnly']>[0],
+    target: Parameters<EmailOtpWalletSessionRuntime['readWarmSessionStatusOnly']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['readWarmSessionStatusOnly']> {
-    return this.runtime.readWarmSessionStatusOnly(sessionId);
+    return this.runtime.readWarmSessionStatusOnly(target);
   }
 
   consumeWarmSessionUses(
@@ -58,9 +58,9 @@ export class EmailOtpWalletSessionCoordinator {
   }
 
   clearVolatileWarmSessionMaterial(
-    sessionId: Parameters<EmailOtpWalletSessionRuntime['clearVolatileWarmSessionMaterial']>[0],
+    target: Parameters<EmailOtpWalletSessionRuntime['clearVolatileWarmSessionMaterial']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['clearVolatileWarmSessionMaterial']> {
-    return this.runtime.clearVolatileWarmSessionMaterial(sessionId);
+    return this.runtime.clearVolatileWarmSessionMaterial(target);
   }
 
   rememberAppSessionJwt(

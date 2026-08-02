@@ -96,10 +96,10 @@ export function createStepUpRuntime(args: {
   const passkeyMpcSession = createWarmSessionAwarePasskeyMpcSession({
     base: args.passkeyMpcSession,
     secondary: {
-      readWarmSessionStatusOnly: (sessionId) =>
+      readWarmSessionStatusOnly: (thresholdSessionId) =>
         emailOtpSessions.readWarmSessionStatusOnly({
           kind: 'ecdsa',
-          thresholdSessionId: String(sessionId),
+          thresholdSessionId: String(thresholdSessionId),
         }),
       clearVolatileWarmSessionMaterial: (command) =>
         emailOtpSessions.clearVolatileWarmSessionMaterial({

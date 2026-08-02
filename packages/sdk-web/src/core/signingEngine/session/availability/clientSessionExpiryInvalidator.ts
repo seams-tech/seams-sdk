@@ -18,7 +18,7 @@ export type ClientWalletSessionInvalidationReadinessDeps = {
       command: ClearVolatileWarmSessionMaterialCommand,
     ) => Promise<void>;
   };
-  readonly clearEmailOtpWarmSessionMaterial: (sessionId: string) => Promise<void>;
+  readonly clearEmailOtpWarmSessionMaterial: (thresholdSessionId: string) => Promise<void>;
 };
 
 export type ClientWalletSessionExpiryInvalidatorDeps = {

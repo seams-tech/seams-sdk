@@ -64,8 +64,8 @@ export function createEvmFamilySigningDeps(args: {
     readAvailableSigningLanesForSigning: (snapshotArgs) =>
       createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
     signingSessionCoordinator,
-    getEmailOtpWarmSessionStatus: (sessionId) =>
-      getEmailOtpWarmSessionStatus({ kind: 'ecdsa', thresholdSessionId: sessionId }),
+    getEmailOtpWarmSessionStatus: (thresholdSessionId) =>
+      getEmailOtpWarmSessionStatus({ kind: 'ecdsa', thresholdSessionId }),
     provisionThresholdEcdsaSession: (provisionArgs) =>
       createArgs.provisionThresholdEcdsaSession(provisionArgs),
     withThresholdEcdsaSigningQueue: (queueArgs) =>

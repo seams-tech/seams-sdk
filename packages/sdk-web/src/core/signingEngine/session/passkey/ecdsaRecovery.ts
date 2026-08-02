@@ -85,7 +85,9 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   }) => Promise<WarmSessionStatusResult>;
   deletePersistedRecord: () => Promise<void>;
   recordSessionMaterialRestored: (status: WarmSessionStatusResult) => Promise<void>;
-  readWarmSessionStatusFromWorker: (sessionId: string) => Promise<WarmSessionStatusResult | null>;
+  readWarmSessionStatusFromWorker: (
+    thresholdSessionId: string,
+  ) => Promise<WarmSessionStatusResult | null>;
   resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
   updatePersistedPolicy: (args: {
     expiresAtMs: number;

@@ -123,10 +123,10 @@ export class EmailOtpWalletSessionRuntime {
       readExactSealedSession: deps.readExactSealedSession,
       acquireSigningSessionRestoreLease: deps.acquireSigningSessionRestoreLease,
       releaseSigningSessionRestoreLease: deps.releaseSigningSessionRestoreLease,
-      readWarmSessionStatusFromWorker: (sessionId) =>
+      readWarmSessionStatusFromWorker: (thresholdSessionId) =>
         warmSessionWorkerClient.readStatus({
           kind: 'ecdsa',
-          thresholdSessionId: sessionId,
+          thresholdSessionId,
         }),
       restoreEcdsaSigningSessionMaterialFromSealedRecord: (restoreArgs) =>
         restoreEcdsaSigningSessionMaterialFromSealedRecord(restoreArgs),
