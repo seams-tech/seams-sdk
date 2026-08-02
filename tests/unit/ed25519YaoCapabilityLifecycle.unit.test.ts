@@ -7,6 +7,7 @@ import {
   IndexedDbEd25519YaoPublicCapabilityReferenceStore,
   parseEd25519YaoPublicCapabilityReferencesV1,
 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const APP_STATE_KEY = 'ed25519YaoPublicCapabilityReferencesV1';
 
@@ -34,7 +35,10 @@ function publicIdentityFixture() {
   return {
     walletId: toWalletId('wallet-yao-lifecycle'),
     nearAccountId: toAccountId('wallet-yao-lifecycle.testnet'),
-    thresholdSessionId: 'threshold-session-yao-lifecycle',
+    materialActivation: buildMpcMaterialActivationRefFixture(
+      'activation-yao-lifecycle',
+      'wallet-yao-lifecycle',
+    ),
   };
 }
 
@@ -52,7 +56,7 @@ test.describe('Ed25519 Yao public capability lifecycle', () => {
     });
     expect(await store.list()).toEqual([identity]);
 
-    await store.clear();
+    await store.remove(identity);
     expect(await store.list()).toEqual([]);
   });
 
@@ -64,6 +68,7 @@ test.describe('Ed25519 Yao public capability lifecycle', () => {
       'rootShare',
       'walletSessionJwt',
       'activationPackage',
+      'thresholdSessionId',
     ];
 
     for (const forbiddenField of forbiddenFields) {
