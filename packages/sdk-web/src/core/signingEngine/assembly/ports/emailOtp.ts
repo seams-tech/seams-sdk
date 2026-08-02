@@ -26,8 +26,8 @@ export function createSigningSessionCoordinatorPort(args: {
   return new SigningSessionCoordinator({
     getStatus: createArgs.getWalletSessionStatus,
     touchConfirm: createArgs.passkeyMpcSession,
-    getEmailOtpWarmSessionStatus: (sessionId) =>
-      getEmailOtpWarmSessionStatus({ kind: 'ecdsa', thresholdSessionId: sessionId }),
+    getEmailOtpWarmSessionStatus: (thresholdSessionId) =>
+      getEmailOtpWarmSessionStatus({ kind: 'ecdsa', thresholdSessionId }),
     clearEmailOtpWarmSessionMaterial: createArgs.clearEmailOtpWarmSessionMaterial,
   });
 }

@@ -80,10 +80,10 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
   const statusUiConfirm = createWarmSessionStatusOnlyUiConfirm({
     base: args.passkeyMpcSession,
     secondary: {
-      readWarmSessionStatusOnly: (sessionId) =>
+      readWarmSessionStatusOnly: (thresholdSessionId) =>
         args.getEmailOtpWarmSessionStatus({
           kind: 'ecdsa',
-          thresholdSessionId: sessionId,
+          thresholdSessionId,
         }),
     },
   });

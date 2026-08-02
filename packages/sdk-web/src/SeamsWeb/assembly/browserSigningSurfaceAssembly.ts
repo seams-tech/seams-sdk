@@ -545,10 +545,10 @@ export function createBrowserSigningSurfaceEnginePorts(
       args.emailOtpSessions.readWarmSessionStatusOnly(target),
     consumeEmailOtpWarmSessionUses: (consumeArgs) =>
       args.emailOtpSessions.consumeWarmSessionUses(consumeArgs),
-    clearEmailOtpWarmSessionMaterial: (sessionId) =>
+    clearEmailOtpWarmSessionMaterial: (thresholdSessionId) =>
       args.emailOtpSessions.clearVolatileWarmSessionMaterial({
         kind: 'ecdsa',
-        thresholdSessionId: sessionId,
+        thresholdSessionId,
       }),
     getWalletSessionStatus: (statusArgs) =>
       readCanonicalWalletSessionStatus(statusArgs),

@@ -1237,6 +1237,10 @@ the replacement and legacy MPC paths must not ship together.
         field from `sessionId` to `thresholdSessionId`, reject the retired field
         at the worker parser, and keep role-local protocol/session-handle IDs
         distinct (`cb3141f98`).
+  - [x] Rename warm-session status, restore, cleanup, and assembly callback
+        parameters that carry ECDSA threshold-session identity to
+        `thresholdSessionId`; update the warm read-model fixtures to the same
+        strict shape (`pending`).
   - [x] Keep one-operation NEAR grants as fresh branded
         `CapabilityGrantId`s from preparation through server issuance and
         execution. They never become a reusable `SigningGrantId` or selected

@@ -130,7 +130,7 @@ export type CreateSigningEnginePortsArgs = {
   consumeEmailOtpWarmSessionUses?: (args: WarmSessionMaterialOperationTarget & {
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
-  clearEmailOtpWarmSessionMaterial: (sessionId: string) => Promise<void>;
+  clearEmailOtpWarmSessionMaterial: (thresholdSessionId: string) => Promise<void>;
   getWalletSessionStatus: (
     args: SigningSessionStatusCheck,
   ) => Promise<SigningSessionStatus | null>;
