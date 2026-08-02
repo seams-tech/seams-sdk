@@ -350,7 +350,7 @@ ports, and the two-state recovery journal.
 - ~~dead generic `recordAndVerifyRestoredWarmSessions` readback helper~~ — no
   production or retained-test caller remained; the live
   `RestoredWarmSessionStatus` type moved to `sealedRecovery.types.ts`
-  (`pending`).
+  (`f8a56cc0f`).
 
 ## Phase 19 — committed lanes, step-up, and resolvers
 
