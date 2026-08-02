@@ -1817,6 +1817,46 @@ Refactor 90 environment-dependent acceptance remains tracked separately.
 Invariants: `R90-INV-009`, `R90-INV-012`, `R90-INV-013`,
 `R90-INV-014`.
 
+### Direction amendment — AuthorizationGrant / AuthorizedOperation
+
+The implementation target for Unit 3d is now the WalletSession-only
+authorization model below. This amendment supersedes the older wording in
+this section that described reusable operations as capability grants or grant
+uses; those names remain only where the migration history or an independently
+scoped follow-on vertical still requires them.
+
+```ts
+type AuthorizationGrant = WalletSessionAuthorization;
+
+type AuthorizedOperation = {
+  authorization: OperationAuthorizationSource;
+  operationFingerprintDigest: DigestB64u;
+  lifecycle: 'claimed' | 'completed';
+};
+
+type OperationAuthorizationSource =
+  | {
+      kind: 'authorization_grant';
+      authorizationGrantRef: AuthorizationGrantRef;
+      evidenceSetDigest?: never;
+    }
+  | {
+      kind: 'verified_step_up';
+      authorizationGrantRef?: never;
+      evidenceSetDigest: DigestB64u;
+    };
+```
+
+Refactor 90 implements only `WalletSessionAuthorization`. Linked-device and
+delegated-spend branches are owned by Refactors 103 and 104 and must not be
+introduced here. `WalletSessionAuthorizationId`, `AuthorizedOperationId`,
+`WalletSessionId`, `MpcWalletSigningQuotaId`, app-session identity, and MPC
+material activation remain independent branded identities. A reusable grant's
+revocation epoch is checked again before every irreversible queued or prepared
+effect. A stable operation fingerprint is admitted atomically with grant
+validation, applicable quota consumption, operation persistence, and audit
+linkage; replay returns the recorded operation without consuming again.
+
 Unit 3c removed the legacy signing-grant identity and the duplicate Router
 quota protocol. Its shared operation-claim base still requires
 `CapabilityGrantId`, `CapabilityGrantUseId`, and `evidenceSetDigest` for both
