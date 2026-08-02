@@ -18,7 +18,6 @@ import {
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import { generateSigningGrantId } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
   EcdsaExplicitExportOperationAuthorization,
   ThresholdEcdsaExplicitKeyExportActivationResult,
@@ -81,7 +80,6 @@ import {
 } from '../../threshold/sessionPolicy';
 import {
   assertEmailOtpSigningSessionAuthLane,
-  buildEmailOtpEcdsaMintingSession,
   buildEmailOtpSigningSessionRoutePlan,
   emailOtpEcdsaBootstrapRouteAuthFromRoutePlan,
   emailOtpEcdsaBootstrapRouteAuthToTransport,
@@ -126,8 +124,7 @@ import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/e
 import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
 import { parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
 
-type EmailOtpLoginSigningBudget = {
-  readonly signingGrantId: string;
+type EmailOtpLoginSessionPolicy = {
   readonly ttlMs: number;
   readonly remainingUses: number;
 };
@@ -418,16 +415,14 @@ function requireEmailOtpEcdsaExportAuthContext(
 }
 
 function buildEmailOtpEcdsaOnlySigningBudget(args: {
-  signingGrantId: string;
   ttlMs: number | undefined;
   remainingUses: number;
-}): EmailOtpLoginSigningBudget {
+}): EmailOtpLoginSessionPolicy {
   const policy = clampThresholdSessionPolicy({
     ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
     remainingUses: args.remainingUses,
   });
   return {
-    signingGrantId: args.signingGrantId,
     ttlMs: policy.ttlMs,
     remainingUses: policy.remainingUses,
   };
@@ -436,20 +431,18 @@ function buildEmailOtpEcdsaOnlySigningBudget(args: {
 function buildAuthoritativeEmailOtpMixedWalletSigningBudget(args: {
   bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   expectedRemainingUses: number;
-}): EmailOtpLoginSigningBudget {
+}): EmailOtpLoginSessionPolicy {
   const session = args.bootstrap.session;
-  const signingGrantId = String(session.signingGrantId || '').trim();
   const expiresAtMs = Math.floor(Number(session.expiresAtMs));
   const remainingUses = Math.floor(Number(session.remainingUses));
   const ttlMs = expiresAtMs - Date.now();
-  if (!signingGrantId || !Number.isSafeInteger(expiresAtMs) || ttlMs < 1) {
+  if (!Number.isSafeInteger(expiresAtMs) || ttlMs < 1) {
     throw new Error('Email OTP capability unlock returned an invalid server signing budget');
   }
   if (remainingUses !== args.expectedRemainingUses) {
     throw new Error('Email OTP capability unlock changed the requested signing budget uses');
   }
   return {
-    signingGrantId,
     ttlMs,
     remainingUses,
   };
@@ -462,7 +455,7 @@ function resolveEmailOtpLoginSigningBudget(args: {
   routePlan: EmailOtpRoutePlan;
   requestedTtlMs: number | undefined;
   requestedRemainingUses: number;
-}): EmailOtpLoginSigningBudget {
+}): EmailOtpLoginSessionPolicy {
   if (args.ed25519YaoResult) {
     return buildAuthoritativeEmailOtpMixedWalletSigningBudget({
       bootstrap:
@@ -473,11 +466,6 @@ function resolveEmailOtpLoginSigningBudget(args: {
     });
   }
   return buildEmailOtpEcdsaOnlySigningBudget({
-    signingGrantId: buildEmailOtpEcdsaMintingSession({
-      emailOtpAuthPolicy: args.emailOtpAuthPolicy,
-      routePlan: args.routePlan,
-      generateSigningGrantId,
-    }).signingGrantId,
     ttlMs: args.requestedTtlMs,
     remainingUses: args.requestedRemainingUses,
   });
@@ -584,7 +572,6 @@ export function buildEmailOtpExistingKeyActivation(args: {
   existingKey: ResolvedEmailOtpExistingEcdsaKey;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
-  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -606,12 +593,10 @@ export function buildEmailOtpExistingKeyActivation(args: {
   }
   const sessionIdentity = buildEcdsaSessionIdentity({
     thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId,
   });
   const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
     chainTarget: args.chainTarget,
     thresholdSessionId: sessionIdentity.thresholdSessionId,
-    signingGrantId: sessionIdentity.signingGrantId,
     thresholdSessionKind: 'jwt',
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
@@ -742,7 +727,6 @@ function resolveEmailOtpPrimaryEcdsaSessionProvisioning(
       return {
         sessionIdentity: buildEcdsaSessionIdentity({
           thresholdSessionId: session.threshold_session_id,
-          signingGrantId: session.signing_grant_id,
         }),
         authorization: {
           kind: 'preauthorized_wallet_unlock',
@@ -850,7 +834,6 @@ async function provisionEmailOtpExistingKeySessionForTarget(
       existingKey,
       chainTarget,
       thresholdSessionId: context.sessionIdentity.thresholdSessionId,
-      signingGrantId: context.sessionIdentity.signingGrantId,
       ttlMs: context.args.ttlMs,
       remainingUses: context.args.remainingUses,
       runtimePolicyScope: context.args.runtimePolicyScope,
@@ -1246,9 +1229,8 @@ async function runEmailOtpEcdsaCapability(
     const preparedUnlockSessionResponse = preparedUnlockSessionActivation
       ? requireEmailOtpUnlockSessionResponse(workerResult)
       : null;
-    const signingBudget = preparedUnlockSessionResponse
+    const sessionPolicy = preparedUnlockSessionResponse
       ? buildEmailOtpEcdsaOnlySigningBudget({
-          signingGrantId: preparedUnlockSessionResponse.session.signing_grant_id,
           ttlMs: args.ttlMs,
           remainingUses,
         })
@@ -1260,7 +1242,6 @@ async function runEmailOtpEcdsaCapability(
           requestedTtlMs: args.ttlMs,
           requestedRemainingUses: remainingUses,
         });
-    const signingGrantId = signingBudget.signingGrantId;
     timingStartedAtMs = nowMs();
     if (operation === WALLET_EMAIL_OTP_EXPORT_OPERATION) {
       if (!exportClientRootShareHandle || !exportEmailOtpAuthContext) {
@@ -1284,8 +1265,8 @@ async function runEmailOtpEcdsaCapability(
       publicationChainTargets,
       runtimePolicyScope,
       relayerUrl: relayUrl,
-      ttlMs: signingBudget.ttlMs,
-      remainingUses: signingBudget.remainingUses,
+      ttlMs: sessionPolicy.ttlMs,
+      remainingUses: sessionPolicy.remainingUses,
       emailOtpAuthContext,
       clientRootShareHandle: workerResult.clientRootShareHandle,
       primarySession: preparedUnlockSessionActivation
@@ -1298,7 +1279,6 @@ async function runEmailOtpEcdsaCapability(
             kind: 'route_authorized',
             sessionIdentity: buildEcdsaSessionIdentity({
               thresholdSessionId: generateSessionId('threshold-ecdsa-login'),
-              signingGrantId,
             }),
             routeAuth: requireEmailOtpBootstrapTransportAuth(bootstrapTransportAuth),
           },
@@ -1315,7 +1295,6 @@ async function runEmailOtpEcdsaCapability(
         walletId: toWalletId(args.walletSession.walletId),
         publicationChainTargets,
         bootstraps,
-        signingGrantId,
         runtimePolicyScope,
         emailOtpAuthContext,
         relayerUrl: relayUrl,

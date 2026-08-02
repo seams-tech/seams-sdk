@@ -296,7 +296,8 @@ export async function resolveEmailOtpExistingEcdsaKey(args: {
 export function buildEmailOtpEcdsaReadyPersistInput(args: {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
-  signingGrantId: string;
+  walletSessionId: EmailOtpEcdsaReadyPersistInput['walletSessionId'];
+  quotaId: EmailOtpEcdsaReadyPersistInput['quotaId'];
   thresholdSessionId: string;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 }): EmailOtpEcdsaReadyPersistInput {
@@ -305,7 +306,8 @@ export function buildEmailOtpEcdsaReadyPersistInput(args: {
     curve: 'ecdsa',
     walletId: args.walletId,
     chainTarget: args.chainTarget,
-    signingGrantId: SigningSessionIds.signingGrant(args.signingGrantId),
+    walletSessionId: args.walletSessionId,
+    quotaId: args.quotaId,
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
     emailOtpAuthContext: args.emailOtpAuthContext,
     material: {
@@ -320,7 +322,6 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
     walletId: WalletId;
     publicationChainTargets: ThresholdEcdsaChainTarget[];
     bootstraps: ThresholdEcdsaSessionBootstrapResult[];
-    signingGrantId: string;
     runtimePolicyScope: ThresholdRuntimePolicyScope;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
     relayerUrl: string;
@@ -341,6 +342,8 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
   }
   const timings = createEmailOtpEcdsaPublicationTimings();
   const lanes: EmailOtpEcdsaPublicationLane[] = [];
+  const expectedSession = args.bootstraps[0]?.session;
+  if (!expectedSession) throw new Error('Email OTP ECDSA publication has no primary session');
   for (const [index, rawBootstrap] of args.bootstraps.entries()) {
     const expectedTarget = args.publicationChainTargets[index];
     const actualTarget = rawBootstrap.thresholdEcdsaKeyRef.chainTarget;
@@ -348,6 +351,12 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
       throw new Error(
         `Email OTP ECDSA publication returned ${thresholdEcdsaChainTargetKey(actualTarget)} for ${thresholdEcdsaChainTargetKey(expectedTarget)}`,
       );
+    }
+    if (
+      rawBootstrap.session.walletSessionId !== expectedSession.walletSessionId ||
+      rawBootstrap.session.quotaId !== expectedSession.quotaId
+    ) {
+      throw new Error('Email OTP ECDSA publication returned mismatched Wallet Session authority');
     }
     lanes.push({ chainTarget: expectedTarget, bootstrap: rawBootstrap });
   }
@@ -404,9 +413,6 @@ async function commitEmailOtpEcdsaPublicationLane(
 ): Promise<CommittedEmailOtpEcdsaPublicationLane> {
   const timings = createEmailOtpEcdsaPublicationTimings();
   const workerBootstrap = lane.bootstrap;
-  if (workerBootstrap.session.signingGrantId !== context.args.signingGrantId) {
-    throw new Error('Email OTP ECDSA bootstrap returned mismatched signing grant identity');
-  }
   const commitStartedAtMs = nowMs();
   const result = await context.ports.commitEvmFamilyThresholdEcdsaSessions({
     walletId: context.args.walletId,
@@ -456,19 +462,19 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
   const session = args.bootstrap.session;
   const thresholdSessionId = String(session.thresholdSessionId || '').trim();
-  const signingGrantId = String(session.signingGrantId || '').trim();
   const relayerUrl = String(args.relayerUrl || keyRef.relayerUrl || '').trim();
   if (args.groupId && args.groupId !== SIGNING_SESSION_SEAL_GROUP_ID) {
     throw new Error('Email OTP sealed refresh received an unsupported Shamir group');
   }
   const groupId = SIGNING_SESSION_SEAL_GROUP_ID;
-  if (!thresholdSessionId || !signingGrantId || !relayerUrl) {
+  if (!thresholdSessionId || !relayerUrl) {
     throw new Error('Email OTP sealed refresh is missing threshold-session persistence metadata');
   }
   const readyPersistenceInput = buildEmailOtpEcdsaReadyPersistInput({
     walletId: args.walletId,
     chainTarget: args.chainTarget,
-    signingGrantId,
+    walletSessionId: session.walletSessionId,
+    quotaId: session.quotaId,
     thresholdSessionId,
     emailOtpAuthContext: args.emailOtpAuthContext,
   });
