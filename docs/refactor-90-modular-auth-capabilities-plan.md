@@ -1629,6 +1629,46 @@ normative plans are amended together.
 Invariants: `R90-INV-009`, `R90-INV-012`, `R90-INV-013`,
 `R90-INV-014`.
 
+### Phase 20 direction correction — one existing operation store
+
+This is a destructive rename of the existing Wallet Session and
+operation-claim/use model. It does not add a parallel grant or
+`authorized_operations` table. `AuthorizationGrant` is the Wallet Session
+branch implemented by Refactor 90; linked-device and delegated-spend branches
+belong to Refactors 103 and 104. `AuthorizedOperation` replaces the existing
+operation claim/use record in place and preserves its stable fingerprint,
+atomic quota claim, replay lookup, execution lifecycle, result, and audit
+linkage.
+
+The only source union is:
+
+```ts
+type OperationAuthorizationSource =
+  | {
+      kind: 'authorization_grant';
+      authorizationGrantRef: AuthorizationGrantRef;
+      evidenceSetDigest?: never;
+    }
+  | {
+      kind: 'verified_step_up';
+      authorizationGrantRef?: never;
+      evidenceSetDigest: DigestB64u;
+    };
+```
+
+Reusable Wallet Session operations reference the existing Wallet Session
+authorization and consume its quota once. Passkey and Email OTP step-up
+operations are created directly from verified evidence and never mint a
+transient grant. Existing operation rows replay without consuming authorization
+or quota. Wallet Session, operation, quota, Seams session, threshold-session,
+and material-activation identities remain independent.
+
+Replace the current domain types, ports, parsers, schemas, fixtures, and
+builders in place. No compatibility aliases, synthetic grant/evidence
+construction, generic revocation-epoch subsystem, or second authorization
+store is permitted. Raw legacy column names may be handled only inside the
+persistence boundary while the forward migration removes them.
+
 `SigningGrantId` is a legacy signing-session identity that overlaps the
 canonical authorization model. A reusable operation already has an exact
 `WalletSessionId` and `MpcWalletSigningQuotaId`; a one-operation authority has
@@ -1818,20 +1858,13 @@ Invariants: `R90-INV-009`, `R90-INV-012`, `R90-INV-013`,
 `R90-INV-014`.
 
 Unit 3c removed the legacy signing-grant identity and the duplicate Router
-quota protocol. Its shared operation-claim base still requires
-`CapabilityGrantId`, `CapabilityGrantUseId`, and `evidenceSetDigest` for both
-authorization branches. That forces Ed25519 reusable authorization to invent a
-grant identifier and evidence digest without a grant record. ECDSA instead
-creates short-lived evidence and grant records for the same reusable Wallet
-Session authority. The two curves therefore reach the same quota owner through
-different domain models.
-
-Unit 3d makes the authority branches exact:
+quota protocol. Unit 3d removes the remaining capability-grant/use model from
+operation admission and makes the two authority branches exact:
 
 | Authority branch          | Required authorization identity                                      | Forbidden identity                                      |
 | ------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------- |
-| Reusable Wallet Session   | `WalletSessionId` + `MpcWalletSigningQuotaId` + operation-use identity | Capability grant, grant-use, and grant-evidence identity |
-| One-operation step-up     | `CapabilityGrantId` + `CapabilityGrantUseId` + verified evidence      | Wallet Session and reusable quota identity              |
+| Reusable Wallet Session   | `WalletSessionId` + `MpcWalletSigningQuotaId` + `AuthorizedOperationId` | Capability grant/use/evidence identity |
+| One-operation step-up     | `AuthorizedOperationId` + verified evidence digest                   | Wallet Session and reusable quota identity              |
 | MPC material              | `MpcMaterialActivationRef` + curve-local threshold-session identity   | Every authorization and operation-use identity          |
 
 This is a coordinated breaking cutover. Add no compatibility alias, synthetic
@@ -1845,16 +1878,11 @@ new model.
       and operation-step-up claim branches, their forbidden fields, their
       operation-use identities, and their atomic storage obligations before
       changing production types.
-- [ ] Replace the common `CapabilityOperationClaimBase` with a discriminated
-      union whose reusable branch requires Wallet Session, quota, operation,
-      fingerprint, direct operation-use, audit, and claim-time fields. Require
-      grant and evidence fields only in the step-up branch.
-- [ ] Introduce a reusable-operation use identity distinct from
-      `CapabilityGrantUseId`. Rename shared use/result types so a reusable
-      Wallet Session operation is never represented as a capability-grant use.
-- [ ] Make completion references branch-specific. A reusable completion binds
-      its exact operation use and fingerprint; a step-up completion additionally
-      binds its exact grant and grant use.
+- [ ] Replace the common `CapabilityOperationClaimBase` and
+      `CapabilityGrantUse` with the `AuthorizedOperation` discriminated union.
+      Reusable and verified-step-up sources reject each other's fields.
+- [ ] Make completion references bind the exact `AuthorizedOperationId` and
+      operation fingerprint. Step-up completion carries no transient grant.
 - [ ] Provide branch-specific builders and exhaustive switches. Type fixtures
       must reject grant or evidence fields on reusable claims and Wallet Session
       or quota fields on step-up claims.

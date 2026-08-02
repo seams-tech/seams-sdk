@@ -70,15 +70,15 @@ invariant.
 - **R90-INV-008 — Exact material serialization.** One queue serializes material
   use per exact owner and checks the current generation/fence. There is no
   public affine lease-token lifecycle.
-- **R90-INV-009 — Exact operation claim.** The stable operation fingerprint
-  excludes rotating authorization, quota, session, and runtime identities. One
-  absent-claim transaction at the durable effect owner validates the exact
-  logical grant or signed admitted policy, consumes the applicable quota, and
-  creates the claim and audit linkage. A standalone durable grant row is not
-  required. Operation descriptors and authorization branches declare quota
-  applicability. Warm signing through
-  `reusable_wallet_session` consumes one wallet-quota use beside its grant.
-  Signing through `operation_step_up` consumes only its one-operation grant.
+- **R90-INV-009 — Exact authorized operation.** The stable operation
+  fingerprint excludes rotating authorization, quota, session, and runtime
+  identities. One absent-fingerprint transaction at the durable effect owner
+  validates the exact `OperationAuthorizationSource`, consumes applicable
+  quota, creates one `AuthorizedOperation`, and writes audit linkage. An
+  existing `AuthorizedOperation` replays its recorded state/result without
+  consuming authorization or quota again. Reusable Wallet Session operations
+  reference `AuthorizationGrant` directly. Passkey and Email OTP step-up
+  operations use verified evidence directly and never mint a transient grant.
   Key export declares no quota use in either branch. Quota exhaustion never
   blocks export, and export never spends signing quota.
 - **R90-INV-010 — Supersession invalidates preparation.** Authority or lifecycle
@@ -97,12 +97,12 @@ invariant.
 - **R90-INV-013 — Authorization/material identity separation.** A
   `SeamsSessionId` identifies app identity and general authorization, a
   `WalletSessionId` identifies reusable wallet-signing authorization, an
-  `MpcWalletSigningQuotaId` identifies its remaining-use allowance, a
-  `CapabilityGrantId` identifies authority for one operation, and an opaque
+  `MpcWalletSigningQuotaId` identifies its remaining-use allowance, an
+  `AuthorizedOperationId` identifies one exact operation, and an opaque
   `MpcMaterialActivationId` identifies one exact activated MPC material
-  instance. None of these IDs locates, owns, or aliases another domain. An MPC
-  execution scope carries either reusable-session authority plus its operation
-  grant or an operation-step-up grant with no `WalletSessionId`. Explicit unlock
+  instance. `AuthorizationGrantRef` identifies the Wallet Session
+  authorization branch; verified step-up carries only its evidence digest.
+  None of these IDs locates, owns, or aliases another domain. Explicit unlock
   or Wallet Session renewal may replace the Wallet Session while preserving an
   unchanged exact material activation through a validated
   `MpcMaterialActivationRef`; ordinary page refresh does not replace it.
