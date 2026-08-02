@@ -1528,6 +1528,12 @@ the replacement and legacy MPC paths must not ship together.
 - [ ] Passkey and Email OTP agree across signing and export.
 - [ ] Rust vectors, TS bindings, worker/WASM guards, host adapter tests, and
       bundle checks pass.
+- Evidence at the current checkpoint: the focused MPC/wire matrix passes 48/48;
+      Rust ECDSA client-protocol tests pass 9/9 and normal-signing vectors 3/3;
+      SDK and unit typechecks pass; direct architecture, worker/WASM, bundle,
+      and boundary guards pass. The source Playwright guard set passes 219/220;
+      its single failure is the environment-only D1 launcher fixture, which
+      requires a temporary SDK `.dev.vars` file.
 - [ ] No legacy and replacement MPC path coexist in a releasable tree.
 
 ## Unit 3b — Vault Proving Vertical
@@ -1667,9 +1673,12 @@ This is a validation gate, not a deferred cleanup phase.
         branded identity fixtures reject Wallet Session, threshold-session,
         activation, and grant substitution (`7efc569b7`).
   - [x] Focused Refactor 92 lifecycle tests pass 38/38; hosted-recovery,
-        activation-pair, escrow, and operation-material tests pass 18/18; key
-        export, branding, Email OTP isolation, signing architecture, and ECDSA
-        client-worker boundary checks pass.
+      activation-pair, escrow, and operation-material tests pass 18/18; key
+      export, branding, Email OTP isolation, signing architecture, and ECDSA
+      client-worker boundary checks pass.
+  - Evidence: the current focused signing, refresh, coordinator, wire, and
+    claim-binding matrix passes 48/48; source-boundary checks are green except
+    for the environment-only D1 launcher fixture noted under Unit 3a.
 - [ ] `pnpm test:intended` passes against a healthy environment.
 - [ ] `git diff --check` passes.
 

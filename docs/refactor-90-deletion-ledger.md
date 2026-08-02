@@ -604,6 +604,12 @@ Refactor 90 deletion.
 
 ## Phase 21 — worker and WASM residue
 
+Guard disposition: the stale registration-modal source assertion and the
+deleted `session/budget/budgetStatusReader.ts` probe were removed, while the
+remaining auth, worker, platform, and bundle guards stay active. The current
+registration path uses the exact material-target rollback state and exhaustive
+factor switches (`b37ce26b0`).
+
 - generic-named passkey-only WASM sessions (destructive rename to
   `WasmPasskeyClientRegistrationSessionV1` /
   `WasmPasskeyClientRecoverySessionV1`; no aliases)
