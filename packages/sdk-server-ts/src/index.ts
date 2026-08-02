@@ -18,7 +18,6 @@ export {
   createThresholdEd25519SessionStore,
   createEd25519WalletSessionStore,
   createEcdsaWalletSessionStore,
-  createWalletSigningBudgetSessionStore,
   CloudflareDurableObjectSigningRootSecretStore,
   D1SigningRootSecretStore,
   SIGNING_ROOT_SECRET_SHARE_D1_SCHEMA_SQL,

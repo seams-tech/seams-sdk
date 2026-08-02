@@ -9,7 +9,6 @@ import {
 import {
   createEcdsaWalletSessionStore,
   createEd25519WalletSessionStore,
-  createWalletSigningBudgetSessionStore,
 } from '../ThresholdService/stores/WalletSessionStore';
 import {
   parseRouterAbEcdsaPresignRuntimeConfig,

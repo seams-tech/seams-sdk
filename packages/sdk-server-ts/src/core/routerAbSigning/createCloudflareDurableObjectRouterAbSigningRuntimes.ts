@@ -8,7 +8,6 @@ import type {
 import {
   createCloudflareDurableObjectThresholdEcdsaStores,
   createCloudflareDurableObjectThresholdEd25519Stores,
-  createCloudflareDurableObjectWalletSigningBudgetStores,
 } from '../ThresholdService/stores/CloudflareDurableObjectStore';
 import type { RouterAbSigningRuntimeBundle } from './createRouterAbSigningRuntimes';
 import {
