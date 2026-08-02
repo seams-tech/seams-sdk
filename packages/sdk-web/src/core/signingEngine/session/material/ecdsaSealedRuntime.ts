@@ -103,7 +103,6 @@ export type ExactInactiveEcdsaMaterialRuntime = ExactEcdsaMaterialRuntime & {
   readonly remainingUses?: never;
   readonly sealedRecord?: never;
   readonly thresholdSessionId?: never;
-  readonly signingGrantId?: never;
   readonly authorization?: never;
 };
 

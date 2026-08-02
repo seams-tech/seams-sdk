@@ -73,7 +73,8 @@ function buildPlanningLane(args: {
     nearAccountId: signer.account.nearAccountId,
     nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
     signerSlot: signer.signerSlot,
-    signingGrantId: args.selectedLane.signingGrantId,
+    walletSessionId: args.selectedLane.walletSessionId,
+    quotaId: args.selectedLane.quotaId,
     thresholdSessionId: args.selectedLane.thresholdSessionId,
   };
   switch (args.selectedLane.auth.kind) {

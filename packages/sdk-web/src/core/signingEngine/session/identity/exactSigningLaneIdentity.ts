@@ -40,8 +40,11 @@ import {
   type ThresholdEcdsaSessionId,
   type ThresholdEd25519SessionId,
   type ThresholdSessionId,
-  type SigningGrantId,
 } from '../operationState/types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 export type ExactSigningLaneIdentityKey = string & {
   readonly __brand: 'ExactSigningLaneIdentityKey';
@@ -64,7 +67,8 @@ export type ExactEd25519SigningLaneIdentity<
   readonly kind: 'exact_signing_lane';
   readonly signer: NearEd25519SignerBinding;
   readonly auth: A;
-  readonly signingGrantId: SigningGrantId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
 };
 
@@ -95,7 +99,8 @@ export type ExactEd25519SigningLaneIdentityInput<
 > = {
   signer: NearEd25519SignerBinding;
   auth: A;
-  signingGrantId: unknown;
+  walletSessionId: unknown;
+  quotaId: unknown;
   thresholdSessionId: unknown;
 };
 
@@ -310,7 +315,8 @@ type CanonicalEd25519SigningLaneIdentity = {
     signerSlot: number;
   };
   auth: CanonicalSigningLaneAuthBinding;
-  signingGrantId: string;
+  walletSessionId: string;
+  quotaId: string;
   thresholdSessionId: string;
 };
 
@@ -442,7 +448,8 @@ function canonicalExactSigningLaneIdentity(identity: ExactSigningLaneIdentity):
       signerSlot: Number(identity.signer.signerSlot),
     },
     auth: canonicalAuthBinding(identity.auth),
-    signingGrantId: String(identity.signingGrantId),
+    walletSessionId: String(identity.walletSessionId),
+    quotaId: String(identity.quotaId),
     thresholdSessionId: String(identity.thresholdSessionId),
   };
 }
@@ -478,7 +485,8 @@ export function exactEd25519SigningLaneIdentity<A extends SigningLaneAuthBinding
     kind: 'exact_signing_lane',
     signer: lane.signer,
     auth: lane.auth,
-    signingGrantId: SigningSessionIds.signingGrant(lane.signingGrantId),
+    walletSessionId: SigningSessionIds.walletSession(lane.walletSessionId),
+    quotaId: SigningSessionIds.walletSessionQuota(lane.quotaId),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(lane.thresholdSessionId),
   };
 }
@@ -499,13 +507,18 @@ export function exactSigningLaneIdentity(
   const signer = lane.signer;
   switch (signer.kind) {
     case 'near_ed25519_signer':
-      if (!('signingGrantId' in lane) || !('thresholdSessionId' in lane)) {
+      if (
+        !('walletSessionId' in lane) ||
+        !('quotaId' in lane) ||
+        !('thresholdSessionId' in lane)
+      ) {
         throw new Error('[SigningSession] Ed25519 exact lane requires session identity');
       }
       return exactEd25519SigningLaneIdentity({
         signer,
         auth: lane.auth,
-        signingGrantId: lane.signingGrantId,
+        walletSessionId: lane.walletSessionId,
+        quotaId: lane.quotaId,
         thresholdSessionId: lane.thresholdSessionId,
       });
     case 'evm_family_ecdsa_signer':
@@ -582,7 +595,8 @@ export function parseExactSigningLaneIdentity(value: unknown): ExactSigningLaneI
       return exactEd25519SigningLaneIdentity({
         signer: signer.value,
         auth,
-        signingGrantId: lane.signingGrantId,
+        walletSessionId: lane.walletSessionId,
+        quotaId: lane.quotaId,
         thresholdSessionId: lane.thresholdSessionId,
       });
     }

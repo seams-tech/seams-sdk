@@ -518,7 +518,6 @@ export type Ed25519SessionPolicy = {
   authority: WalletAuthAuthority;
   relayerKeyId: string;
   thresholdSessionId: string;
-  signingGrantId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   /** Optional participant ids that scope the session to a signer set. */
@@ -546,7 +545,8 @@ export type ThresholdEd25519VerifiedWalletAuth =
         walletId: string;
         kind: 'router_ab_ecdsa_derivation_wallet_session_v1';
         thresholdSessionId: string;
-        signingGrantId: string;
+        walletSessionId: WalletSessionId;
+        quotaId: MpcWalletSigningQuotaId;
         keyScope: 'evm-family';
         keyHandle: string;
         relayerKeyId: string;
@@ -585,7 +585,8 @@ export interface ThresholdEd25519SessionResponse {
   nearEd25519SigningKeyId?: string;
   authorityScope?: ThresholdEd25519AuthorityScope;
   thresholdSessionId?: string;
-  signingGrantId?: string;
+  walletSessionId?: WalletSessionId;
+  quotaId?: MpcWalletSigningQuotaId;
   /** Server-enforced expiry (ms since epoch). */
   expiresAtMs?: number;
   expiresAt?: string;
@@ -706,7 +707,6 @@ export interface ThresholdEcdsaDerivationFinalizeResponse {
   relayerVerifyingShareB64u?: string;
   chainId?: number;
   thresholdSessionId?: string;
-  signingGrantId?: string;
   chainTarget?: ThresholdEcdsaChainTarget;
   expiresAtMs?: number;
   expiresAt?: string;
@@ -846,7 +846,6 @@ export type EcdsaSessionPolicy = {
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   thresholdSessionId: string;
-  signingGrantId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];
@@ -862,7 +861,6 @@ export type ThresholdEcdsaBootstrapSessionPolicy = {
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   thresholdSessionId: string;
-  signingGrantId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];

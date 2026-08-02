@@ -127,8 +127,6 @@ type BootstrapEcdsaExactSessionArgsBase = BootstrapEcdsaSessionBaseArgs &
     existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
     evmFamilySigningKeySlotId?: never;
     ecdsaThresholdKeyId?: never;
-    sessionId?: never;
-    signingGrantId?: never;
   };
 
 type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaExactSessionArgsBase &
@@ -165,8 +163,7 @@ type BootstrapEcdsaSessionSuccessCommon = {
   relayerShareRetryCounter: number;
   participantIds: number[];
   chainId: number;
-  sessionId: string;
-  signingGrantId: string;
+  thresholdSessionId: string;
   authorizationSessionId: SeamsSessionId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
@@ -292,8 +289,7 @@ async function bootstrapStrictExistingEcdsaSession(
     relayerShareRetryCounter: publicIdentity.server_share_retry_counter,
     participantIds: args.key.participantIds.map(Number),
     chainId: args.lanePolicy.chainTarget.chainId,
-    sessionId: strict.sessionActivation.session.threshold_session_id,
-    signingGrantId: strict.sessionActivation.session.signing_grant_id,
+    thresholdSessionId: strict.sessionActivation.session.threshold_session_id,
     authorizationSessionId: strict.sessionActivation.session.authorization_session_id,
     walletSessionId: strict.sessionActivation.session.wallet_session_id,
     quotaId: strict.sessionActivation.session.quota_id,

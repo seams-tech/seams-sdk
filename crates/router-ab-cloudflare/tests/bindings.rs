@@ -88,8 +88,9 @@ use router_ab_cloudflare::{
     CloudflareRouterAuthContextV1, CloudflareRouterBearerAuthorizationV1,
     CloudflareRouterBindingsV1, CloudflareRouterCompositeAdmissionProviderV1,
     CloudflareRouterConfiguredAbuseProviderV1, CloudflareRouterConfiguredQuotaProviderV1,
-    CloudflareRouterEcdsaAuthorizationClaimV1, CloudflareRouterEcdsaCapabilityKindV1,
-    CloudflareRouterEcdsaOperationKindV1,
+    CloudflareRouterEcdsaAcceptedCapabilityBindingV1,
+    CloudflareRouterEcdsaAcceptedCapabilityClaimV1, CloudflareRouterEcdsaAuthorizationClaimV1,
+    CloudflareRouterEcdsaCapabilityKindV1, CloudflareRouterEcdsaOperationKindV1,
     CloudflareRouterEd25519JwksJwtVerifierV1, CloudflareRouterJwtSessionProviderV1,
     CloudflareRouterJwtVerifierBindingV1, CloudflareRouterJwtVerifierV1,
     CloudflareRouterNormalSigningAuthorizationV2,
@@ -292,8 +293,8 @@ fn normal_signing_v2_wallet_session(expires_at_ms: u64) -> CloudflareRouterVerif
         "account.near",
         "authorization-session-1",
         "wallet-session-1",
+        "quota-1",
         "threshold-session-1",
-        "signing-grant-1",
         "org-1",
         "project-1",
         "dev",
@@ -967,8 +968,8 @@ fn valid_wallet_session_jwt_claims() -> serde_json::Value {
     let mut claims = valid_router_jwt_claims();
     claims["kind"] = serde_json::json!("router_ab_ed25519_wallet_session_v1");
     claims["walletSessionId"] = serde_json::json!("wallet-session-1");
+    claims["quotaId"] = serde_json::json!("quota-1");
     claims["thresholdSessionId"] = serde_json::json!("ed25519-material-lifecycle-1");
-    claims["signingGrantId"] = serde_json::json!("signing-grant-1");
     claims["routerAbNormalSigning"] = serde_json::json!({
         "signingWorkerId": "server-a",
     });
@@ -1678,8 +1679,8 @@ fn router_ab_ecdsa_derivation_wallet_session(
         request.scope.wallet_id.clone(),
         "authorization-session-ecdsa-1",
         "wallet-session-ecdsa-1",
+        "quota-ecdsa-1",
         active_session_id,
-        "signing-grant-ecdsa-1",
         "org-1",
         "project-1",
         "dev",
@@ -3280,8 +3281,8 @@ fn router_ed25519_jwks_wallet_session_verifier_accepts_normal_signing_claims() {
     assert_eq!(session.subject_id, "user-1");
     assert_eq!(session.account_id, "account.near");
     assert_eq!(session.wallet_session_id, "wallet-session-1");
+    assert_eq!(session.quota_id, "quota-1");
     assert_eq!(session.threshold_session_id, "ed25519-material-lifecycle-1");
-    assert_eq!(session.signing_grant_id, "signing-grant-1");
     assert_eq!(session.authorization_level, "near-ed25519");
     assert_eq!(session.signing_worker_id, "server-a");
     assert_eq!(session.expires_at_ms, 3_000);
@@ -3317,16 +3318,13 @@ fn router_ed25519_jwks_wallet_session_verifier_rejects_cross_lane_kind() {
 }
 
 #[test]
-fn router_ed25519_jwks_wallet_session_verifier_rejects_missing_signing_grant_id() {
+fn router_ed25519_jwks_wallet_session_verifier_rejects_legacy_signing_grant_id() {
     let signing_key = SigningKey::from_bytes(&[0x42; 32]);
     let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
     let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
         .expect("ed25519 jwks verifier");
     let mut claims = valid_wallet_session_jwt_claims();
-    claims
-        .as_object_mut()
-        .expect("claims object")
-        .remove("signingGrantId");
+    claims["signingGrantId"] = serde_json::json!("legacy-signing-grant");
     let token = ed25519_jwt(&signing_key, "router-key-1", claims);
     let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
         CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
@@ -3343,7 +3341,39 @@ fn router_ed25519_jwks_wallet_session_verifier_rejects_missing_signing_grant_id(
             digest(0x90),
             1_000,
         )
-        .expect_err("missing signing grant must fail");
+        .expect_err("legacy signing grant must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+}
+
+#[test]
+fn router_ed25519_jwks_wallet_session_verifier_rejects_missing_quota_id() {
+    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
+    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
+    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
+        .expect("ed25519 jwks verifier");
+    let mut claims = valid_wallet_session_jwt_claims();
+    claims
+        .as_object_mut()
+        .expect("claims object")
+        .remove("quotaId");
+    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
+    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
+        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
+            "Bearer {token}"
+        ))
+        .expect("authorization"),
+    )
+    .expect("wallet session credential");
+
+    let err = verifier
+        .verify_wallet_session(
+            &router_admission_bindings().jwt,
+            &credential,
+            digest(0x90),
+            1_000,
+        )
+        .expect_err("missing quota must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
 }
@@ -6354,7 +6384,7 @@ fn router_ab_ecdsa_reusable_authorization_claim_rejects_grant_substitution() {
     let wallet_session = router_ab_ecdsa_derivation_wallet_session(&prepare_request);
     let claim = CloudflareRouterEcdsaAuthorizationClaimV1::ReusableWalletSessionOperationClaimV1 {
         use_id: "use-ecdsa-1".to_owned(),
-        grant_id: wallet_session.signing_grant_id.clone(),
+        grant_id: "signing-grant-ecdsa-1".to_owned(),
         operation_id: request.operation_id.clone(),
         capability_kind: CloudflareRouterEcdsaCapabilityKindV1::EvmEcdsaMpcSigning,
         operation_kind: CloudflareRouterEcdsaOperationKindV1::SignTransaction,
@@ -6367,7 +6397,7 @@ fn router_ab_ecdsa_reusable_authorization_claim_rejects_grant_substitution() {
         .validate_for_finalize_request_with_session_and_grant(
             &request,
             Some(&wallet_session.authorization_session_id),
-            Some(&wallet_session.signing_grant_id),
+            Some("signing-grant-ecdsa-1"),
         )
         .expect("matching reusable claim");
 
@@ -6401,7 +6431,7 @@ fn router_ab_ecdsa_reusable_authorization_claim_rejects_grant_substitution() {
         .validate_for_finalize_request_with_session_and_grant(
             &request,
             Some(&wallet_session.authorization_session_id),
-            Some(&wallet_session.signing_grant_id),
+            Some("signing-grant-ecdsa-1"),
         )
         .expect_err("substituted reusable grant must fail before signing");
     assert_eq!(error.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
@@ -6434,10 +6464,23 @@ fn router_ab_ecdsa_authorized_finalize_parser_requires_claim_and_rejects_legacy_
         display_digest_b64u: request.operation_digests.display_digest_b64u.clone(),
         operation_fingerprint_digest: request.operation_digests.intent_digest_b64u.clone(),
     };
+    let accepted_claim = CloudflareRouterEcdsaAcceptedCapabilityClaimV1 {
+        binding: CloudflareRouterEcdsaAcceptedCapabilityBindingV1::ReusableWalletSession {
+            wallet_session_id: "wallet-ecdsa-parser-1".to_owned(),
+            quota_id: "quota-ecdsa-parser-1".to_owned(),
+            capability_grant_id: "ecdsa-grant-1".to_owned(),
+        },
+        claim,
+    };
     body.insert(
         "authorization_claim".to_owned(),
-        serde_json::to_value(claim).expect("ECDSA authorization claim JSON"),
+        serde_json::to_value(&accepted_claim).expect("ECDSA accepted authorization claim JSON"),
     );
+    let parsed = parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_finalize_request_v1_json(
+        &serde_json::to_vec(&body).expect("ECDSA accepted finalize request JSON"),
+    )
+    .expect("ECDSA finalize parser accepts a bound capability claim");
+    assert_eq!(parsed.0.operation_id, request.operation_id);
     body.insert("sessionId".to_owned(), serde_json::json!("legacy-session"));
     let legacy_alias = serde_json::to_vec(&body).expect("ECDSA legacy alias request JSON");
     let error = parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_finalize_request_v1_json(
@@ -7697,7 +7740,7 @@ fn signing_worker_production_v2_finalize_signs_router_admitted_digest_from_round
         CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
             claim: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::new(
                 wallet_session.wallet_session_id,
-                wallet_session.signing_grant_id,
+                "signing-grant-1".to_owned(),
                 "use-1",
                 "operation-1",
                 "fingerprint-1",
@@ -7912,28 +7955,21 @@ fn normal_signing_finalize_boundary_extracts_operation_step_up_claim() {
 }
 
 #[test]
-fn normal_signing_finalize_admission_derives_operation_step_up_from_verified_session() {
+fn normal_signing_finalize_admission_rejects_operation_step_up_from_wallet_session() {
     let mut request = normal_signing_v2_finalize_request(2_000);
     request.scope.authorization =
         NormalSigningAuthorizationV1::operation_step_up("signing-grant-1")
             .expect("operation step-up");
     let wallet_session = normal_signing_v2_wallet_session(3_000);
 
-    let admission =
-        CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2::from_finalize_request(
-            &wallet_session,
-            &request,
-            1_000,
-        )
-        .expect("operation-step-up admission");
+    let error = CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2::from_finalize_request(
+        &wallet_session,
+        &request,
+        1_000,
+    )
+    .expect_err("Wallet Session bearer cannot authorize operation-step-up signing");
 
-    assert_eq!(
-        admission.authorization,
-        CloudflareRouterNormalSigningAuthorizationV2::OperationStepUp {
-            authorization_session_id: "authorization-session-1".to_owned(),
-            grant_id: "signing-grant-1".to_owned(),
-        }
-    );
+    assert_eq!(error.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 }
 
 #[test]
@@ -7957,7 +7993,7 @@ fn normal_signing_effect_digest_binds_policy_principal_capability_and_terminal_f
     let effect_claim = CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
         claim: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::new(
             wallet_session.wallet_session_id.clone(),
-            wallet_session.signing_grant_id.clone(),
+            "signing-grant-1".to_owned(),
             "use-1",
             "operation-1",
             "fingerprint-1",
@@ -7973,7 +8009,7 @@ fn normal_signing_effect_digest_binds_policy_principal_capability_and_terminal_f
     .expect("admitted finalize");
     let retry_claim = CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::new(
         wallet_session.wallet_session_id.clone(),
-        wallet_session.signing_grant_id.clone(),
+        "signing-grant-1".to_owned(),
         "use-1",
         "operation-1",
         "fingerprint-1",

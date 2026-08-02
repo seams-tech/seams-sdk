@@ -815,7 +815,6 @@ export type WalletRegistrationEd25519YaoBootstrapSession = {
   nearEd25519SigningKeyId: string;
   authorityScope: ThresholdEd25519AuthorityScope;
   thresholdSessionId: string;
-  signingGrantId: string;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;

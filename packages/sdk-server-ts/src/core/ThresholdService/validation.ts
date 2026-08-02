@@ -1451,7 +1451,6 @@ export type Ed25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionC
   nearEd25519SigningKeyId: string;
   kind: Kind;
   thresholdSessionId: string;
-  signingGrantId: string;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   relayerKeyId: string;
@@ -1496,7 +1495,6 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
   const thresholdSessionId = toOptionalString(
     (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
   );
-  const signingGrantId = toOptionalString((raw as { signingGrantId?: unknown }).signingGrantId);
   const walletSessionId = parseWalletSessionId(
     (raw as { walletSessionId?: unknown }).walletSessionId,
   );
@@ -1513,7 +1511,6 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
     !thresholdSessionId ||
-    !signingGrantId ||
     !walletSessionId.ok ||
     !quotaId.ok ||
     !relayerKeyId ||
@@ -1539,7 +1536,6 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     nearEd25519SigningKeyId,
     kind: expectedKind,
     thresholdSessionId,
-    signingGrantId,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
     relayerKeyId,
@@ -1736,7 +1732,6 @@ export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaim
   walletId: string;
   kind: Kind;
   thresholdSessionId: string;
-  signingGrantId: string;
   authorizationSessionId: SeamsSessionId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
@@ -1770,7 +1765,6 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
   const thresholdSessionId = toOptionalString(
     (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
   );
-  const signingGrantId = toOptionalString((raw as { signingGrantId?: unknown }).signingGrantId);
   const authorizationSessionId = parseSeamsSessionId(
     (raw as { authorizationSessionId?: unknown }).authorizationSessionId,
   );
@@ -1786,7 +1780,6 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     !walletId ||
     walletId !== sub ||
     !thresholdSessionId ||
-    !signingGrantId ||
     !authorizationSessionId.ok ||
     !walletSessionId.ok ||
     !quotaId.ok ||
@@ -1806,7 +1799,6 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     walletId,
     kind: expectedKind,
     thresholdSessionId,
-    signingGrantId,
     authorizationSessionId: authorizationSessionId.value,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,

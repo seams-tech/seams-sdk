@@ -180,7 +180,7 @@ export class EmailRecoveryAuthOperations {
           ),
           requestId: `${input.registrationCeremonyId}:ecdsa:${encodeURIComponent(chainTargetKey)}`,
           thresholdSessionId: `tederivation_${randomBase64Url(24)}`,
-          signingGrantId: `wss_${randomBase64Url(24)}`,
+          signingGrantId: `grant_${randomBase64Url(24)}`,
           ttlMs: 10 * 60_000,
           remainingUses: REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES,
           participantIds: [1, 2],

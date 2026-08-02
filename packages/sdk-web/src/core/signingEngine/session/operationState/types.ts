@@ -32,14 +32,12 @@ import {
   parseEmailOtpChallengeId,
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
-  parseSigningGrantId,
   type DomainIdParseResult,
 } from '@shared/utils/domainIds';
 import type {
   ThresholdEcdsaSessionId,
   ThresholdEd25519SessionId,
   ThresholdSessionId,
-  SigningGrantId,
   EmailOtpChallengeId,
 } from '@shared/utils/domainIds';
 
@@ -48,8 +46,14 @@ export type {
   ThresholdEcdsaSessionId,
   ThresholdEd25519SessionId,
   ThresholdSessionId,
-  SigningGrantId,
 } from '@shared/utils/domainIds';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+  type AuthorizationParseResult,
+  type MpcWalletSigningQuotaId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
@@ -95,7 +99,8 @@ export type Ed25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane &
     curve: 'ed25519';
     keyKind: 'threshold_ed25519';
     chainFamily: 'near';
-    signingGrantId: SigningGrantId;
+    walletSessionId: WalletSessionId;
+    quotaId: MpcWalletSigningQuotaId;
     thresholdSessionId: ThresholdEd25519SessionId;
   };
 
@@ -118,7 +123,8 @@ export type DeferredEd25519SigningSessionPlanningLane = BaseSigningSessionPlanni
     storageSource: 'sealed_restore';
     retention: 'single_use';
     materialActivation: MpcMaterialActivationRef;
-    signingGrantId?: never;
+    walletSessionId?: never;
+    quotaId?: never;
     thresholdSessionId: ThresholdEd25519SessionId;
   };
 
@@ -129,7 +135,6 @@ export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane & {
     chainFamily: ThresholdEcdsaChainTarget['kind'];
     materialActivation: MpcMaterialActivationRef;
     authorization: ActiveEvmFamilyWalletSessionAuthorization;
-    signingGrantId?: never;
     thresholdSessionId?: never;
   };
 
@@ -150,7 +155,8 @@ export type SelectedEd25519SigningLaneIdentity =
   identity: ExactEd25519SigningLaneIdentity;
   curve: 'ed25519';
   chainFamily: 'near';
-  signingGrantId: SigningGrantId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   thresholdSessionId: ThresholdEd25519SessionId;
 };
 
@@ -161,7 +167,6 @@ export type SelectedEcdsaSigningLaneIdentity =
   chainFamily: ThresholdEcdsaChainTarget['kind'];
   materialActivation: MpcMaterialActivationRef;
   authorization: ActiveEvmFamilyWalletSessionAuthorization;
-  signingGrantId?: never;
   thresholdSessionId?: never;
 };
 
@@ -193,7 +198,8 @@ export type ResolvedEd25519SigningSessionIdentity =
   curve: 'ed25519';
   keyKind: 'threshold_ed25519';
   chainFamily: 'near';
-  signingGrantId: SigningGrantId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   thresholdSessionId: ThresholdEd25519SessionId;
 };
 
@@ -374,9 +380,19 @@ function requireDomainId<T>(result: DomainIdParseResult<T>, label: string): T {
   return result.value;
 }
 
+function requireAuthorizationId<T>(result: AuthorizationParseResult<T>, label: string): T {
+  if (!result.ok) {
+    throw new Error(`[SigningSession] ${result.error.message || `${label} is required`}`);
+  }
+  return result.value;
+}
+
 export const SigningSessionIds = {
-  signingGrant(value: unknown): SigningGrantId {
-    return requireDomainId(parseSigningGrantId(value), 'signingGrantId');
+  walletSession(value: unknown): WalletSessionId {
+    return requireAuthorizationId(parseWalletSessionId(value), 'walletSessionId');
+  },
+  walletSessionQuota(value: unknown): MpcWalletSigningQuotaId {
+    return requireAuthorizationId(parseMpcWalletSigningQuotaId(value), 'quotaId');
   },
   thresholdEd25519Session(value: unknown): ThresholdEd25519SessionId {
     return requireDomainId(parseThresholdEd25519SessionId(value), 'thresholdEd25519SessionId');
@@ -412,7 +428,7 @@ export function summarizeSigningLane(lane: SigningSessionPlanningLane): SigningL
         ...summary,
         curve: 'ecdsa',
         walletId: signer.walletId,
-      };
+};
     case 'near_ed25519_signer':
       return {
         ...summary,

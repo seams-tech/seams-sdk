@@ -285,26 +285,37 @@ function assertNeverEd25519Factor(value: never): never {
   throw new Error(`Unsupported Ed25519 factor: ${String(value)}`);
 }
 
+export function ed25519AuthorizationIdentityMatchesRuntime(args: {
+  runtime: ExactEd25519SealedSessionRuntime;
+  authorization: ActiveWalletSessionAuthorizationProjection;
+}): boolean {
+  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(
+    args.authorization.walletSessionJwt,
+  );
+  return Boolean(
+    claims &&
+      String(args.authorization.walletId) === String(args.runtime.walletId) &&
+      args.authorization.authMethod === args.runtime.factor.kind &&
+      claims.walletId === args.runtime.walletId &&
+      claims.nearAccountId === args.runtime.nearAccountId &&
+      claims.nearEd25519SigningKeyId === args.runtime.nearEd25519SigningKeyId &&
+      claims.walletSessionId === args.authorization.walletSessionId &&
+      claims.quotaId === args.authorization.quotaId &&
+      claims.thresholdSessionId === args.runtime.thresholdSessionId
+  );
+}
+
 export function ed25519SigningGrantForAuthorization(args: {
   runtime: ExactEd25519SealedSessionRuntime;
   authorization: ActiveWalletSessionAuthorizationProjection;
 }): SigningGrantId | null {
+  if (!ed25519AuthorizationIdentityMatchesRuntime(args)) {
+    return null;
+  }
   const claims = parseRouterAbEd25519WalletSessionIdentityClaims(
     args.authorization.walletSessionJwt,
   );
-  if (
-    !claims ||
-    String(args.authorization.walletId) !== String(args.runtime.walletId) ||
-    args.authorization.authMethod !== args.runtime.factor.kind ||
-    claims.walletId !== args.runtime.walletId ||
-    claims.nearAccountId !== args.runtime.nearAccountId ||
-    claims.nearEd25519SigningKeyId !== args.runtime.nearEd25519SigningKeyId ||
-    claims.walletSessionId !== args.authorization.walletSessionId ||
-    claims.quotaId !== args.authorization.quotaId ||
-    claims.thresholdSessionId !== args.runtime.thresholdSessionId
-  ) {
-    return null;
-  }
+  if (!claims) return null;
   return SigningSessionIds.signingGrant(claims.signingGrantId);
 }
 

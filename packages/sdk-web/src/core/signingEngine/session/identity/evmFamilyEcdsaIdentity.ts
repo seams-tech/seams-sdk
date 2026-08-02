@@ -10,6 +10,14 @@ import {
 import { type RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { type EcdsaActiveStateId, type MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
   deriveEvmFamilySigningKeySlotId as deriveSharedEvmFamilySigningKeySlotId,
   requireEvmFamilySigningKeySlotId,
   type EvmFamilySigningKeySlotId,
@@ -33,7 +41,6 @@ import {
 import {
   SigningSessionIds,
   type ThresholdEcdsaSessionId,
-  type SigningGrantId,
 } from '../operationState/types';
 import {
   type EcdsaRoleLocalPersistedMaterialRef,
@@ -52,7 +59,6 @@ export type {
   SigningRootVersion,
   WalletId,
   ThresholdEcdsaSessionId,
-  SigningGrantId,
   EvmFamilySigningKeySlotId,
 };
 export type ParticipantId = number & { readonly __brand: 'ParticipantId' };
@@ -91,7 +97,6 @@ export type VerifiedEcdsaPublicFacts = {
   subjectId?: never;
   rpId?: never;
   thresholdSessionId?: never;
-  signingGrantId?: never;
   chainTarget?: never;
   authMethod?: never;
 };
@@ -188,8 +193,9 @@ export type EmailOtpWorkerShareHandle = {
     kind: 'email_otp_worker_share_lane_identity';
     keyHandle: EvmFamilyEcdsaKeyHandle;
     chainTarget: ThresholdEcdsaChainTarget;
-    signingGrantId: SigningGrantId;
     thresholdSessionId: ThresholdEcdsaSessionId;
+    walletSessionId: WalletSessionId;
+    quotaId: MpcWalletSigningQuotaId;
   };
 };
 
@@ -259,7 +265,6 @@ export type EvmFamilyEcdsaKeyIdentity = {
   signingRootVersion: SigningRootVersion;
   participantIds: readonly ParticipantId[];
   thresholdOwnerAddress: ThresholdOwnerAddress;
-  signingGrantId?: never;
   thresholdSessionId?: never;
   chainTarget?: never;
   authMethod?: never;
@@ -269,7 +274,8 @@ export type EvmFamilyEcdsaKeyIdentity = {
 export type EvmFamilyEcdsaSessionLanePolicy = {
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: ThresholdEcdsaSessionId;
-  signingGrantId: SigningGrantId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   thresholdSessionKind: ThresholdSessionKind;
   ttlMs: number;
   remainingUses: number;
@@ -283,9 +289,10 @@ export type EvmFamilyEcdsaSessionLanePolicy = {
 
 export type EvmFamilyEcdsaRecoveredMaterialLanePolicy = Omit<
   EvmFamilyEcdsaSessionLanePolicy,
-  'signingGrantId'
+  'walletSessionId' | 'quotaId'
 > & {
-  signingGrantId?: never;
+  walletSessionId?: never;
+  quotaId?: never;
 };
 
 export type EvmFamilyEcdsaActivationLanePolicy =
@@ -348,7 +355,8 @@ export type BuildHydratedEcdsaSignerMaterialInput = {
 export type BuildEvmFamilyEcdsaSessionLanePolicyInput = {
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: unknown;
-  signingGrantId: unknown;
+  walletSessionId: unknown;
+  quotaId: unknown;
   thresholdSessionKind: ThresholdSessionKind;
   ttlMs: unknown;
   remainingUses: unknown;
@@ -357,13 +365,25 @@ export type BuildEvmFamilyEcdsaSessionLanePolicyInput = {
 
 export type BuildEvmFamilyEcdsaRecoveredMaterialLanePolicyInput = Omit<
   BuildEvmFamilyEcdsaSessionLanePolicyInput,
-  'signingGrantId'
+  'walletSessionId' | 'quotaId'
 >;
 
 function requiredString(value: unknown, field: string): string {
   const normalized = String(value ?? '').trim();
   if (!normalized) throw new Error(`[evm-family-ecdsa] ${field} is required`);
   return normalized;
+}
+
+function normalizeWalletSessionId(value: unknown): WalletSessionId {
+  const parsed = parseWalletSessionId(value);
+  if (!parsed.ok) throw new Error('[evm-family-ecdsa] walletSessionId is invalid');
+  return parsed.value;
+}
+
+function normalizeMpcWalletSigningQuotaId(value: unknown): MpcWalletSigningQuotaId {
+  const parsed = parseMpcWalletSigningQuotaId(value);
+  if (!parsed.ok) throw new Error('[evm-family-ecdsa] quotaId is invalid');
+  return parsed.value;
 }
 
 function normalizeRpId(value: unknown): RpId {
@@ -741,7 +761,8 @@ export function buildEvmFamilyEcdsaSessionLanePolicy(
   return {
     chainTarget: input.chainTarget,
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
-    signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
+    walletSessionId: normalizeWalletSessionId(input.walletSessionId),
+    quotaId: normalizeMpcWalletSigningQuotaId(input.quotaId),
     thresholdSessionKind: input.thresholdSessionKind,
     ttlMs,
     remainingUses,

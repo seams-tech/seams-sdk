@@ -11,10 +11,6 @@ import type {
   EcdsaClientRootPublicKey33B64u,
   DerivationClientSharePublicKey33B64u,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import type { SigningGrantId } from '@shared/utils/domainIds';
-
-declare const signingGrantId: SigningGrantId;
-
 const bootstrapBase = {
   formatVersion: 'ecdsa-derivation-role-local',
   walletId: toWalletId('wallet-user'),
@@ -30,7 +26,6 @@ const bootstrapBase = {
   contextBinding32B64u: 'context-binding',
   requestId: 'request-id',
   sessionId: 'threshold-session',
-  signingGrantId,
   ttlMs: 60_000,
   remainingUses: 2,
   participantIds: [1, 2],
@@ -38,8 +33,8 @@ const bootstrapBase = {
 
 void ({
   ...bootstrapBase,
-  // @ts-expect-error Bootstrap requests require a parsed signing-grant id.
-  signingGrantId: 'signing-grant-unparsed',
+  // @ts-expect-error Bootstrap requests reject the removed signing-grant identity.
+  signingGrantId: 'legacy-signing-grant',
 } satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest);
 
 const clientRootProof = {

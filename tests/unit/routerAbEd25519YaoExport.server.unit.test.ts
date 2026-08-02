@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import { parseSigningGrantId, parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import { parseWalletSessionId } from '@shared/authorization/capabilityKinds';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
@@ -82,7 +83,6 @@ const NEAR_SIGNING_KEY_ID = 'ed25519ks_export_1';
 const ROOT_SHARE_EPOCH = 'root-export-1';
 const WALLET_SESSION_ID = 'wallet-session-export-1';
 const THRESHOLD_SESSION_ID_RAW = 'threshold-session-export-1';
-const SIGNING_GRANT_ID = 'signing-grant-export-1';
 const SIGNING_WORKER_ID = 'signing-worker-export-1';
 const PARTICIPANTS = [11, 29] as const;
 const CREDENTIAL_ID = 'ZXhwb3J0LWNyZWRlbnRpYWwtMQ';
@@ -213,8 +213,6 @@ async function admissionFixture(
     nonce: options.nonce,
     issuedAtMs: options.issuedAtMs,
     expiresAtMs: options.expiresAtMs,
-    thresholdSessionId: THRESHOLD_SESSION_ID_RAW,
-    signingGrantId: SIGNING_GRANT_ID,
     authority: options.authority || { kind: 'passkey', credentialIdB64u: CREDENTIAL_ID },
   });
   return requireParsed(
@@ -631,7 +629,6 @@ function claimsForAuthority(authority: WalletAuthAuthority): SessionClaims {
     nearAccountId: NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
     thresholdSessionId: THRESHOLD_SESSION_ID_RAW,
-    signingGrantId: SIGNING_GRANT_ID,
     walletSessionId: WALLET_SESSION_ID,
     quotaId: 'wallet-session-quota-export-1',
     relayerKeyId: SIGNING_WORKER_ID,
@@ -683,7 +680,6 @@ function namedAccountClaimsForCapability(
     nearAccountId: capability.nearAccountId,
     nearEd25519SigningKeyId: capability.applicationBinding.near_ed25519_signing_key_id,
     thresholdSessionId: capability.lifecycle.thresholdSessionId,
-    signingGrantId: SIGNING_GRANT_ID,
     walletSessionId: WALLET_SESSION_ID,
     quotaId: 'wallet-session-quota-export-1',
     relayerKeyId: capability.lifecycle.signingWorkerId,
@@ -751,13 +747,13 @@ function authorizationInput(
 
 function exportAuthorizationIdentity(): RouterAbEd25519YaoExportServerAuthorizationIdentityV1 {
   const thresholdSessionId = parseThresholdEd25519SessionId(THRESHOLD_SESSION_ID_RAW);
-  const signingGrantId = parseSigningGrantId(SIGNING_GRANT_ID);
-  if (!thresholdSessionId.ok || !signingGrantId.ok) {
+  const walletSessionId = parseWalletSessionId(WALLET_SESSION_ID);
+  if (!thresholdSessionId.ok || !walletSessionId.ok) {
     throw new Error('invalid export authorization fixture identity');
   }
   return {
     thresholdSessionId: thresholdSessionId.value,
-    signingGrantId: signingGrantId.value,
+    walletSessionId: walletSessionId.value,
   };
 }
 
@@ -878,8 +874,6 @@ async function admissionFixtureForActiveCapability(
     nonce,
     issuedAtMs,
     expiresAtMs,
-    thresholdSessionId: capability.lifecycle.thresholdSessionId,
-    signingGrantId: SIGNING_GRANT_ID,
     authority: { kind: 'passkey', credentialIdB64u: CREDENTIAL_ID },
   });
   return requireParsed(

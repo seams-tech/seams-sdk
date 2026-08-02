@@ -638,7 +638,8 @@ export function quotaScopeKey(
     input.curve,
     input.phase,
     admissionAuthorizationIdentityKey(input),
-    input.signingGrantId,
+    input.walletSessionId,
+    input.quotaId,
     input.requestId,
     input.signingWorkerId,
   ];
@@ -661,7 +662,8 @@ export function normalSigningLifecycleId(
     input.walletId,
     admissionAuthorityScope(input),
     admissionAuthorizationIdentityKey(input),
-    input.signingGrantId,
+    input.walletSessionId,
+    input.quotaId,
     input.requestId,
     input.signingWorkerId,
   ];

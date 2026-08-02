@@ -188,27 +188,6 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
           { status: 500 },
         );
       }
-      const provisioned = await budgetProvisioner.provisionGrant({
-        walletId,
-        signingGrantId: walletSession.session.signingGrantId,
-        relyingPartyId: walletBinding.rpId,
-        authorizedSigners: [
-          {
-            curve: 'ed25519',
-            threshold_session_id: walletSession.session.thresholdSessionId,
-            signing_worker_id: signingWorkerId,
-          },
-        ],
-        initialSignatureUses: walletSession.session.remainingUses,
-        expiresAtMs: walletSession.session.expiresAtMs,
-        issuerIdempotencyKey: `sync-account:${walletSession.session.signingGrantId}`,
-      });
-      if (!provisioned.ok) {
-        return json(
-          { ok: false, code: provisioned.code, message: provisioned.message },
-          { status: 500 },
-        );
-      }
       responseBody = {
         ...result,
         thresholdEd25519: {

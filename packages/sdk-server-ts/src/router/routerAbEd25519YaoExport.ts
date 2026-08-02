@@ -21,11 +21,10 @@ import {
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
 import {
-  parseSigningGrantId,
   parseThresholdEd25519SessionId,
-  type SigningGrantId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
+import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
 import type { AuthFactorIdentity, WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { isPlainObject } from '@shared/utils/validation';
@@ -262,7 +261,7 @@ export type RouterAbEd25519YaoExportAuthorizationResult =
 
 export type RouterAbEd25519YaoExportServerAuthorizationIdentityV1 = {
   readonly thresholdSessionId: ThresholdEd25519SessionId;
-  readonly signingGrantId: SigningGrantId;
+  readonly walletSessionId: WalletSessionId;
 };
 
 type RouterAbEd25519YaoExportAuthorizationAdapterResult =
@@ -1134,11 +1133,10 @@ function serverDerivedExportAuthorizationIdentity(
   claims: RouterAbEd25519WalletSessionClaims,
 ): ServerDerivedExportAuthorizationIdentity | null {
   const thresholdSessionId = parseThresholdEd25519SessionId(claims.thresholdSessionId);
-  const signingGrantId = parseSigningGrantId(claims.signingGrantId);
-  if (!thresholdSessionId.ok || !signingGrantId.ok) return null;
+  if (!thresholdSessionId.ok) return null;
   return {
     thresholdSessionId: thresholdSessionId.value,
-    signingGrantId: signingGrantId.value,
+    walletSessionId: claims.walletSessionId,
   };
 }
 
@@ -1153,7 +1151,7 @@ function claimsMatchExportAdmission(
     claims.walletId === request.scope.account_id &&
     claims.nearEd25519SigningKeyId === request.application_binding.near_ed25519_signing_key_id &&
     claims.thresholdSessionId === authorizationIdentity.thresholdSessionId &&
-    claims.signingGrantId === authorizationIdentity.signingGrantId &&
+    claims.walletSessionId === authorizationIdentity.walletSessionId &&
     claims.thresholdSessionId === request.scope.threshold_session_id &&
     claims.relayerKeyId === request.scope.signing_worker_id &&
     claims.routerAbNormalSigning.signingWorkerId === request.scope.signing_worker_id &&
@@ -1237,7 +1235,7 @@ function authorizeExportExecution(
   if (
     claims.walletId !== lifecycle.account_id ||
     claims.thresholdSessionId !== authorizationIdentity.thresholdSessionId ||
-    claims.signingGrantId !== authorizationIdentity.signingGrantId ||
+    claims.walletSessionId !== authorizationIdentity.walletSessionId ||
     claims.thresholdSessionId !== lifecycle.session_id ||
     claims.relayerKeyId !== lifecycle.selected_server_id
   ) {

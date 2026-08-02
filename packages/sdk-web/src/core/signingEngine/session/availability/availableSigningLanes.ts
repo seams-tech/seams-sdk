@@ -525,7 +525,6 @@ export function ed25519LaneCandidateFromAvailableLane(args: {
     ...base,
     authorizationState: 'authorized',
     authorization: args.lane.authorization,
-    signingGrantId: SigningSessionIds.signingGrant(args.lane.signingGrantId),
   };
 }
 

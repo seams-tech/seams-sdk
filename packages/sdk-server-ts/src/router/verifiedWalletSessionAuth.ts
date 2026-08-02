@@ -29,7 +29,6 @@ export type VerifiedEcdsaWalletSessionAuth = BaseVerifiedWalletSessionAuth & {
 
 export type VerifiedEd25519WalletSessionAuth = BaseVerifiedWalletSessionAuth & {
   curve: 'ed25519';
-  signingGrantId: string;
   authority: WalletAuthAuthority;
   authorityScope?: never;
   ed25519RelayerKeyId: string;
@@ -66,7 +65,6 @@ export function buildVerifiedEd25519WalletSessionAuth(
     kind: 'wallet_session',
     curve: 'ed25519',
     thresholdSessionId: claims.thresholdSessionId,
-    signingGrantId: claims.signingGrantId,
     walletSessionId: claims.walletSessionId,
     quotaId: claims.quotaId,
     userId: claims.walletId,

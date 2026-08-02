@@ -216,7 +216,6 @@ type RouterAbWalletSessionJwtSigningInput = {
   sessionInfo: {
     sessionKind: 'jwt';
     thresholdSessionId?: unknown;
-    signingGrantId?: unknown;
     walletSessionId?: unknown;
     quotaId?: unknown;
     expiresAtMs?: unknown;
@@ -279,7 +278,8 @@ export function parseRouterAbEd25519WalletSessionJwtSessionInfo(
     nearAccountId: input.nearAccountId,
     nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
     thresholdSessionId: input.thresholdSessionId,
-    signingGrantId: input.signingGrantId,
+    walletSessionId: input.walletSessionId,
+    quotaId: input.quotaId,
     expiresAtMs: input.expiresAtMs,
     participantIds: input.participantIds,
     runtimePolicyScope: input.runtimePolicyScope,
@@ -297,7 +297,8 @@ export function parseRouterAbEd25519BootstrapSessionJwtSessionInfo(
     nearAccountId: input.nearAccountId,
     nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
     thresholdSessionId: input.thresholdSessionId,
-    signingGrantId: input.signingGrantId,
+    walletSessionId: input.walletSessionId,
+    quotaId: input.quotaId,
     expiresAtMs: input.expiresAtMs,
     participantIds: input.participantIds,
     runtimePolicyScope: input.runtimePolicyScope,
@@ -324,7 +325,6 @@ type NormalizedRouterAbWalletSessionSigningBase = {
   userId: string;
   relayerKeyId: string;
   thresholdSessionId: string;
-  signingGrantId: string;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   thresholdExpiresAtMs: number;
@@ -344,7 +344,6 @@ function normalizeRouterAbWalletSessionSigningBase(
   const userId = String(args.userId || '').trim();
   const relayerKeyId = String(args.relayerKeyId || '').trim();
   const thresholdSessionId = String(args.sessionInfo?.thresholdSessionId || '').trim();
-  const signingGrantId = String(args.sessionInfo?.signingGrantId || '').trim();
   const walletSessionId = parseWalletSessionId(args.sessionInfo?.walletSessionId);
   const quotaId = parseMpcWalletSigningQuotaId(args.sessionInfo?.quotaId);
   const thresholdExpiresAtMs = Number(args.sessionInfo?.expiresAtMs);
@@ -356,7 +355,6 @@ function normalizeRouterAbWalletSessionSigningBase(
     !userId ||
     !relayerKeyId ||
     !thresholdSessionId ||
-    !signingGrantId ||
     !walletSessionId.ok ||
     !quotaId.ok ||
     !Number.isFinite(thresholdExpiresAtMs) ||
@@ -378,7 +376,6 @@ function normalizeRouterAbWalletSessionSigningBase(
       userId,
       relayerKeyId,
       thresholdSessionId,
-      signingGrantId,
       walletSessionId: walletSessionId.value,
       quotaId: quotaId.value,
       thresholdExpiresAtMs,
@@ -646,7 +643,6 @@ function buildRouterAbEd25519WalletSessionClaims(
     nearAccountId: input.binding.nearAccountId,
     nearEd25519SigningKeyId: input.binding.nearEd25519SigningKeyId,
     thresholdSessionId: input.base.thresholdSessionId,
-    signingGrantId: input.base.signingGrantId,
     walletSessionId: input.base.walletSessionId,
     quotaId: input.base.quotaId,
     relayerKeyId: input.base.relayerKeyId,
@@ -669,7 +665,6 @@ function buildRouterAbEcdsaDerivationWalletSessionClaims(
     kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     walletId: input.base.userId,
     thresholdSessionId: input.base.thresholdSessionId,
-    signingGrantId: input.base.signingGrantId,
     authorizationSessionId: input.authorizationSessionId,
     walletSessionId: input.base.walletSessionId,
     quotaId: input.base.quotaId,

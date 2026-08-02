@@ -37,6 +37,7 @@ import type {
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
   CapabilityGrantId,
+  MpcWalletSigningQuotaId,
   SeamsSessionId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -79,8 +80,9 @@ export type NearEd25519StepUpAuthorization =
 
 export type NearResolvedEd25519SigningSessionState = {
   walletSessionAuth: NearResolvedEd25519WalletSessionAuth;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   thresholdSessionId: ThresholdEd25519SessionId;
-  signingGrantId: string;
   signingLane: NearTransactionSigningLane;
   remainingUses: number;
   signingRootId: string;
@@ -93,7 +95,6 @@ export type NearResolvedEd25519SigningSessionState = {
 };
 
 export type NearAuthorizedEd25519SigningSessionState = NearResolvedEd25519SigningSessionState & {
-  walletSessionId: WalletSessionId;
   walletSessionAuthorization: ActiveWalletSessionAuthorizationProjection;
 };
 

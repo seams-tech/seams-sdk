@@ -44,11 +44,7 @@ import type {
   MpcWalletSigningQuotaId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import {
-  parseSigningGrantId,
-  type SigningGrantId,
-  type ThresholdEd25519SessionId,
-} from '@shared/utils/domainIds';
+import type { ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { deriveSigningRootId, type RuntimePolicyScope } from '@shared/threshold/signingRootScope';
@@ -102,14 +98,12 @@ type RouterAbEd25519YaoWalletSessionMintIdentityV1 = {
 export type RouterAbEd25519YaoWalletSessionMintInputV1 =
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'verified_wallet_unlock_v1';
-      readonly signingGrantId?: never;
       readonly ttlMs?: never;
       readonly expiresAtMs: number;
       readonly remainingUses: number;
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'same_identity_budget_refresh_v1';
-      readonly signingGrantId?: never;
       readonly expiresAtMs?: never;
       readonly remainingUses: number;
     });
@@ -372,16 +366,9 @@ export function createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV
 }
 
 type RouterAbEd25519YaoWalletSessionTermsV1 = {
-  readonly signingGrantId: SigningGrantId;
   readonly expiresAtMs: number;
   readonly remainingUses: number;
 };
-
-function requireSigningGrantId(value: string): SigningGrantId {
-  const parsed = parseSigningGrantId(value);
-  if (!parsed.ok) throw new Error('Ed25519 Yao signing grant identity is invalid');
-  return parsed.value;
-}
 
 function assertNeverWalletSessionMintInput(value: never): never {
   throw new Error(`Unexpected Ed25519 Yao Wallet Session mint kind: ${String(value)}`);
@@ -397,7 +384,6 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
         throw new Error('Verified wallet unlock expiry must follow issuance');
       }
       return {
-        signingGrantId: requireSigningGrantId(`wss_${secureRandomBase64Url(24)}`),
         expiresAtMs: input.expiresAtMs,
         remainingUses: Math.min(
           DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -406,7 +392,6 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
       };
     case 'same_identity_budget_refresh_v1':
       return {
-        signingGrantId: requireSigningGrantId(`wss_${secureRandomBase64Url(24)}`),
         expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
         remainingUses: Math.min(
           DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -514,7 +499,6 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
       nearAccountId: sessionInput.nearAccountId,
       nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
       thresholdSessionId: sessionInput.thresholdSessionId,
-      signingGrantId: terms.signingGrantId,
       walletSessionId: sessionInput.walletSessionId,
       quotaId: sessionInput.quotaId,
       expiresAtMs: terms.expiresAtMs,
@@ -537,7 +521,6 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
       nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
       authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(sessionInput.authority),
       thresholdSessionId: signed.thresholdSessionId,
-      signingGrantId: terms.signingGrantId,
       walletSessionId: sessionInput.walletSessionId,
       quotaId: sessionInput.quotaId,
       expiresAtMs: signed.thresholdExpiresAtMs,

@@ -1533,7 +1533,6 @@ export class CloudflareD1WalletRegistrationService {
             current.nearAccountId !== policy.nearAccountId ||
             current.nearEd25519SigningKeyId !== policy.nearEd25519SigningKeyId ||
             current.thresholdSessionId !== policy.thresholdSessionId ||
-            current.signingGrantId !== policy.signingGrantId ||
             current.relayerKeyId !== policy.relayerKeyId ||
             !walletAuthAuthoritiesMatch(authority, current.authority) ||
             alphabetizeStringify(current.participantIds) !==
@@ -1619,24 +1618,6 @@ export class CloudflareD1WalletRegistrationService {
       });
       if (!minted.ok) return minted;
       const session = minted.session;
-      const provisioned = await budgetProvisioner.provisionGrant({
-        walletId: authority.walletId,
-        signingGrantId: session.signingGrantId,
-        relyingPartyId: walletSessionBudgetRelyingPartyId(authority, runtimePolicyScope.orgId),
-        authorizedSigners: [
-          ed25519RegistrationWalletBudgetSigner({
-            thresholdSessionId: session.thresholdSessionId,
-            signingWorkerId: yaoRuntime.signingWorkerId,
-          }),
-        ],
-        initialSignatureUses: session.remainingUses,
-        expiresAtMs: session.expiresAtMs,
-        issuerIdempotencyKey: walletSessionBudgetIssuerId(
-          'ed25519-refresh',
-          session.signingGrantId,
-        ),
-      });
-      if (!provisioned.ok) return provisioned;
       return {
         ok: true,
         walletId: session.walletId,
@@ -1644,7 +1625,6 @@ export class CloudflareD1WalletRegistrationService {
         nearEd25519SigningKeyId: session.nearEd25519SigningKeyId,
         authorityScope: session.authorityScope,
         thresholdSessionId: session.thresholdSessionId,
-        signingGrantId: session.signingGrantId,
         walletSessionId: session.walletSessionId,
         quotaId: session.quotaId,
         expiresAtMs: session.expiresAtMs,
@@ -1813,24 +1793,6 @@ export class CloudflareD1WalletRegistrationService {
       });
       if (!minted.ok) return minted;
       const session = minted.session;
-      const provisioned = await budgetProvisioner.provisionGrant({
-        walletId,
-        signingGrantId: session.signingGrantId,
-        relyingPartyId: `email-otp:${orgId}`,
-        authorizedSigners: [
-          ed25519RegistrationWalletBudgetSigner({
-            thresholdSessionId: session.thresholdSessionId,
-            signingWorkerId: signer.signingWorkerId,
-          }),
-        ],
-        initialSignatureUses: session.remainingUses,
-        expiresAtMs: session.expiresAtMs,
-        issuerIdempotencyKey: walletSessionBudgetIssuerId(
-          'email-otp-recovery',
-          session.signingGrantId,
-        ),
-      });
-      if (!provisioned.ok) return provisioned;
       return { ok: true, session, capability: descriptor };
     } catch (error: unknown) {
       return {

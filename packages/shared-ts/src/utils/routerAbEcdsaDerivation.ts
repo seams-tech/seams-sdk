@@ -12,11 +12,9 @@ import { requireRouterAbX25519PublicKey } from './routerAbPublicKeyset';
 import {
   parseEcdsaActiveStateId,
   parseRootShareEpoch,
-  parseSigningGrantId,
   parseThresholdEcdsaSessionId,
   type EcdsaActiveStateId,
   type RootShareEpoch,
-  type SigningGrantId,
   type ThresholdEcdsaSessionId,
 } from './domainIds';
 import { parseCorrelationId, type CorrelationId } from './canonicalPrimitives';
@@ -378,7 +376,6 @@ export type RouterAbEcdsaPostRegistrationSessionActivationResponseV1 = {
   session: {
     authorization_session_id: SeamsSessionId;
     threshold_session_id: ThresholdEcdsaSessionId;
-    signing_grant_id: SigningGrantId;
     wallet_session_id: WalletSessionId;
     quota_id: MpcWalletSigningQuotaId;
     expires_at_ms: number;
@@ -756,12 +753,6 @@ function requireAsciiNonEmptyString(value: unknown, label: string): string {
 
 function requireRootShareEpoch(value: unknown, label: string): RootShareEpoch {
   const parsed = parseRootShareEpoch(requireAsciiNonEmptyString(value, label));
-  if (!parsed.ok) throw new Error(`${label} is invalid`);
-  return parsed.value;
-}
-
-function requireSigningGrantId(value: unknown, label: string): SigningGrantId {
-  const parsed = parseSigningGrantId(requireAsciiNonEmptyString(value, label));
   if (!parsed.ok) throw new Error(`${label} is invalid`);
   return parsed.value;
 }
@@ -2005,7 +1996,6 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
   requireExactKeys(sessionRecord, `${label}.session`, [
     'authorization_session_id',
     'threshold_session_id',
-    'signing_grant_id',
     'wallet_session_id',
     'quota_id',
     'expires_at_ms',
@@ -2036,10 +2026,6 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
       threshold_session_id: requireThresholdEcdsaSessionId(
         sessionRecord.threshold_session_id,
         `${label}.session.threshold_session_id`,
-      ),
-      signing_grant_id: requireSigningGrantId(
-        sessionRecord.signing_grant_id,
-        `${label}.session.signing_grant_id`,
       ),
       wallet_session_id: requireWalletSessionId(
         sessionRecord.wallet_session_id,

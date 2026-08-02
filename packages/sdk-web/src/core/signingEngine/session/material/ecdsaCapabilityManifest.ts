@@ -150,7 +150,6 @@ type EcdsaRoleLocalMaterialExclusions = {
   readonly walletId?: never;
   readonly chainTarget?: never;
   readonly thresholdSessionId?: never;
-  readonly signingGrantId?: never;
   readonly quotaState?: never;
   readonly remainingUses?: never;
   readonly expiresAtMs?: never;

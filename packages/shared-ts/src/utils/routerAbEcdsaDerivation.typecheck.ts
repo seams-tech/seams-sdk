@@ -40,9 +40,6 @@ const invalidSessionPolicy = {
 } satisfies RouterAbEcdsaPostRegistrationSessionPolicyV1;
 void invalidSessionPolicy;
 
-const responseSigningGrantId: SigningGrantId = activationResponse.session.signing_grant_id;
-void responseSigningGrantId;
-
 const invalidActivationResponse = {
   ...activationResponse,
   session: {

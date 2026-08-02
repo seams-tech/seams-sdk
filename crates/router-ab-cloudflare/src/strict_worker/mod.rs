@@ -34,6 +34,7 @@ use crate::{
     parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_request_v1_json,
     parse_cloudflare_router_ab_ecdsa_derivation_activation_request_v1_json,
     parse_cloudflare_router_ab_ecdsa_derivation_export_command_v1_json,
+    parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_prepare_request_v1_json,
     parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json,
     parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_finalize_request_v1_json,
     parse_cloudflare_router_bearer_authorization_from_request_v1,
@@ -164,7 +165,6 @@ use router_ab_core::RouterAbProtocolError;
 use router_ab_core::RouterEd25519YaoExecuteFailureCodeV1;
 #[cfg(feature = "strict-worker-router-entrypoint")]
 use router_ab_core::{
-    parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json,
     parse_router_ab_ecdsa_derivation_recovery_request_v1_json,
     parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,
     parse_router_ab_ed25519_normal_signing_prepare_request_v2_json,

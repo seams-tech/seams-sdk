@@ -304,7 +304,8 @@ function exactEd25519IdentityForExportLane(
       signerSlot: lane.signerSlot,
     }),
     auth: lane.auth,
-    signingGrantId: lane.signingGrantId,
+    walletSessionId: lane.authorization.walletSessionId,
+    quotaId: lane.authorization.quotaId,
     thresholdSessionId: lane.thresholdSessionId,
   });
 }
