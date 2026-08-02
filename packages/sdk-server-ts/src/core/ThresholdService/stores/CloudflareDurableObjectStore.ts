@@ -253,14 +253,6 @@ function computeWalletSessionPrefixEcdsa(config: Record<string, unknown>): strin
   );
 }
 
-function computeWalletSigningBudgetSessionPrefix(config: Record<string, unknown>): string {
-  const explicit = toOptionalTrimmedString(config.THRESHOLD_WALLET_SIGNING_BUDGET_SESSION_PREFIX);
-  if (explicit) return explicit.endsWith(':') ? explicit : `${explicit}:`;
-  const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
-  const base = toThresholdEd25519PrefixFromBase(basePrefix, 'wallet-session');
-  return base ? `${base}budget:` : 'w3a:threshold-wallet-budget:sess:';
-}
-
 function computeSessionPrefixEcdsa(config: Record<string, unknown>): string {
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const explicit = toOptionalTrimmedString(config.THRESHOLD_ECDSA_SESSION_PREFIX);
@@ -341,8 +333,6 @@ export class CloudflareDurableObjectWalletSessionStore<
       record: TRecord;
       expiresAtMs: number;
       remainingUses: number;
-      reservedUses: number;
-      availableUses: number;
     } | null>(this.stub, { op: 'authGetSessionStatus', key: this.key(id) });
     if (!resp.ok) {
       switch (resp.code) {
