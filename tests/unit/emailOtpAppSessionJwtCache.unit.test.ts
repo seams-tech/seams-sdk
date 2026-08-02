@@ -49,7 +49,8 @@ function makeIdentity() {
       kind: 'email_otp',
       providerSubjectId: 'google:wallet.testnet',
     },
-    signingGrantId: SigningSessionIds.signingGrant('wallet-session-1'),
+    walletSessionId: SigningSessionIds.walletSession('wallet-session-1'),
+    quotaId: SigningSessionIds.walletSessionQuota('wallet-quota-1'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-1'),
   });
   return emailOtpRefreshIdentity({

@@ -59,7 +59,8 @@ type RecoveryFixtureIdentity = {
   readonly nearAccountId: string;
   readonly nearSigningKeyId: string;
   readonly walletSessionId: string;
-  readonly signingGrantId: string;
+  readonly thresholdSessionId: string;
+  readonly quotaId: string;
   readonly signingWorkerId: string;
   readonly signerSetId: string;
   readonly credentialId: string;
@@ -75,7 +76,8 @@ const PRIMARY_IDENTITY: RecoveryFixtureIdentity = {
   nearAccountId: 'wallet-recovery-1.testnet',
   nearSigningKeyId: 'ed25519ks_recovery_1',
   walletSessionId: 'wallet-session-recovery-1',
-  signingGrantId: 'signing-grant-recovery-1',
+  thresholdSessionId: 'threshold-session-recovery-1',
+  quotaId: 'wallet-session-quota-recovery-1',
   signingWorkerId: 'signing-worker-recovery-1',
   signerSetId: 'signer-set-recovery-1',
   credentialId: 'recovery-request-scoped-credential-1',
@@ -91,7 +93,8 @@ const SECONDARY_IDENTITY: RecoveryFixtureIdentity = {
   nearAccountId: 'wallet-recovery-2.testnet',
   nearSigningKeyId: 'ed25519ks_recovery_2',
   walletSessionId: 'wallet-session-recovery-2',
-  signingGrantId: 'signing-grant-recovery-2',
+  thresholdSessionId: 'threshold-session-recovery-2',
+  quotaId: 'wallet-session-quota-recovery-2',
   signingWorkerId: 'signing-worker-recovery-2',
   signerSetId: 'signer-set-recovery-2',
   credentialId: 'recovery-request-scoped-credential-2',
@@ -399,7 +402,7 @@ function registrationAdmission(identity: RecoveryFixtureIdentity) {
         lifecycle_id: identity.registrationLifecycleId,
         root_share_epoch: ROOT_SHARE_EPOCH,
         account_id: identity.walletId,
-        wallet_session_id: identity.walletSessionId,
+        threshold_session_id: identity.thresholdSessionId,
         signer_set_id: identity.signerSetId,
         signing_worker_id: identity.signingWorkerId,
       },
@@ -422,7 +425,7 @@ function registrationBinding(identity: RecoveryFixtureIdentity) {
       primitive_request_kind: 'registration' as const,
       root_share_epoch: ROOT_SHARE_EPOCH,
       account_id: identity.walletId,
-      session_id: identity.walletSessionId,
+      session_id: identity.thresholdSessionId,
       signer_set_id: identity.signerSetId,
       selected_server_id: identity.signingWorkerId,
     },
@@ -453,7 +456,7 @@ function recoveryAdmission(
         lifecycle_id: identity.lifecycleId,
         root_share_epoch: ROOT_SHARE_EPOCH,
         account_id: identity.walletId,
-        wallet_session_id: identity.walletSessionId,
+        threshold_session_id: identity.thresholdSessionId,
         signer_set_id: identity.signerSetId,
         signing_worker_id: identity.signingWorkerId,
       },
@@ -513,7 +516,7 @@ function recoveryBinding(request: RouterAbEd25519YaoRecoveryAdmissionRequestV1) 
       primitive_request_kind: 'recovery' as const,
       root_share_epoch: request.scope.root_share_epoch,
       account_id: request.scope.account_id,
-      session_id: request.scope.wallet_session_id,
+      session_id: request.scope.threshold_session_id,
       signer_set_id: request.scope.signer_set_id,
       selected_server_id: request.scope.signing_worker_id,
     },
@@ -575,8 +578,9 @@ function recoveryClaims(identity: RecoveryFixtureIdentity) {
     walletId: identity.walletId,
     nearAccountId: identity.nearAccountId,
     nearEd25519SigningKeyId: identity.nearSigningKeyId,
-    thresholdSessionId: identity.walletSessionId,
-    signingGrantId: identity.signingGrantId,
+    thresholdSessionId: identity.thresholdSessionId,
+    walletSessionId: identity.walletSessionId,
+    quotaId: identity.quotaId,
     relayerKeyId: identity.signingWorkerId,
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
