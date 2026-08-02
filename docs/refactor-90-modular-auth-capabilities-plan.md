@@ -1567,14 +1567,18 @@ the replacement and legacy MPC paths must not ship together.
       (`57849eda9`). Workspace Rust checks
       for router-ab-core, router-ab-ecdsa-client-protocol, router-ab-cloudflare,
       and router-ab-ed25519-yao-client also pass (`c2a6bbf04`).
-  - [ ] Broad unit gate was rerun after the full build: 1,740 passed, 197
-        failed, and 11 skipped out of 1,948 collected tests. The failures are
-        lower-authority stale fixtures and environment-gated local D1/JWK,
-        Google-identity, and UI timing cases; the focused identity regression
-        remains green. Keep this gate open until the failures are reconciled.
-  - [x] Intended-test TypeScript declarations typecheck passes; the browser
-        acceptance run remains open because the required Google OIDC token is
-        absent in this worktree.
+      The latest local-no-server focused claim, recovery, coordinator,
+      lifecycle, sealed-runtime, signing, export, and supersession matrix
+      passes 104/104.
+  - [ ] Broad unit gate was rerun after the full build: 1,726 passed, 166
+        failed, and 9 skipped out of 1,901 collected tests. The failures are
+        primarily lower-authority stale inline fixtures plus environment/WASM,
+        hosted-relay, configuration, and UI timing cases. Keep this gate open
+        until the failures are classified and supported lifecycle cases are
+        rerun in an uncontended environment.
+  - [ ] Intended-test declaration generation currently stops on shared
+        `packages/sdk-web/dist/types` EPERM writes; no lifecycle result is
+        claimed until a healthy build environment is available.
 - [x] No legacy and replacement MPC path coexist in a releasable tree; the
       composite ECDSA family and generic worker custody paths are absent, and
       the source/boundary guards pass. Full lifecycle acceptance remains open
@@ -1898,9 +1902,13 @@ This is a validation gate, not a deferred cleanup phase.
       `dev` merge.
 - [ ] Shared, SDK, server, worker, intended-test, and Rust type/build checks
       pass.
-  - [x] Repository SDK/server/app type checks pass at the local acceptance
-        checkpoint; Rust normal-signing vectors pass 3/3 and the ECDSA client
-        protocol passes 9/9.
+  - [x] Package-level SDK, server, shared, and unit typechecks pass; Rust
+        normal-signing vectors pass 3/3 and the ECDSA client protocol passes
+        9/9.
+  - [ ] Root declaration generation is blocked by EPERM writes to shared
+        `packages/sdk-web/dist/types`; root lint also reports nine pre-existing
+        errors outside this refactor and 1,291 warnings. These remain recorded
+        as environment/baseline blockers rather than refactor regressions.
 - [x] Focused unit, crash, concurrency, host-adapter, worker/WASM, and vector
       tests pass.
   - [x] The current branch-specific Wallet Session claim and private-route
@@ -1916,6 +1924,9 @@ This is a validation gate, not a deferred cleanup phase.
     36/36 and the source-boundary suite passes 220/220
     after the D1 launcher contract fix (`a610be9dc`).
 - [ ] `pnpm test:intended` passes against a healthy environment.
+  - [ ] The current run stops during SDK declaration generation on the same
+        shared `dist/types` EPERM; rerun when the worktrees/build outputs are
+        isolated.
 - [x] `git diff --check` passes.
 
 ## Verification Budgets
