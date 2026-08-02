@@ -22,7 +22,8 @@ const NEAR_ACCOUNT_ID = toAccountId('passkey-export-refresh.testnet');
 const NEAR_SIGNING_KEY_ID = nearEd25519SigningKeyIdFromString('passkey-export-refresh-key');
 const THRESHOLD_SESSION_ID = 'threshold-passkey-export-refresh';
 const RETIRED_THRESHOLD_SESSION_ID = 'threshold-passkey-export-refresh-retired';
-const STALE_SIGNING_GRANT_ID = 'grant-before-cold-recovery';
+const WALLET_SESSION_ID = 'wallet-session-passkey-export-refresh';
+const QUOTA_ID = 'quota-passkey-export-refresh';
 const CREDENTIAL_ID = 'passkey-export-refresh-credential';
 const RP_ID = 'localhost';
 const RELAYER_URL = 'https://relay.example.test';
@@ -49,7 +50,8 @@ const DURABLE_EXPORT_AUTHORIZATION = availableLaneEd25519Authorization({
 });
 
 function passkeyLaneIdentity(
-  signingGrantId: string,
+  walletSessionId: string,
+  quotaId: string = QUOTA_ID,
   thresholdSessionId: string = THRESHOLD_SESSION_ID,
 ): ExactEd25519SigningLaneIdentity {
   return exactEd25519SigningLaneIdentity({
@@ -64,7 +66,8 @@ function passkeyLaneIdentity(
       rpId: toRpId(RP_ID),
       credentialIdB64u: CREDENTIAL_ID,
     },
-    signingGrantId,
+    walletSessionId,
+    quotaId,
     thresholdSessionId,
   });
 }
@@ -219,7 +222,7 @@ test('page-refresh passkey export prompts from durable context without activatin
   const result = await exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
-    laneIdentity: passkeyLaneIdentity(STALE_SIGNING_GRANT_ID, RETIRED_THRESHOLD_SESSION_ID),
+    laneIdentity: passkeyLaneIdentity(WALLET_SESSION_ID, QUOTA_ID, RETIRED_THRESHOLD_SESSION_ID),
     materialActivation: MATERIAL_ACTIVATION,
     options: {},
     flowId: 'flow-passkey-export-durable-context',
@@ -237,7 +240,7 @@ test('page-refresh passkey export prompts from durable context without activatin
 
 test('page-refresh passkey export uses the exact durable context returned after recovery', async () => {
   const harness = new PasskeyEd25519ExportRefreshHarness(CREDENTIAL_ID);
-  const selectedLane = passkeyLaneIdentity(STALE_SIGNING_GRANT_ID);
+  const selectedLane = passkeyLaneIdentity(WALLET_SESSION_ID);
   const result = await exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
@@ -267,7 +270,7 @@ test('page-refresh passkey export rejects durable-context authenticator drift', 
     exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
-      laneIdentity: passkeyLaneIdentity(STALE_SIGNING_GRANT_ID),
+      laneIdentity: passkeyLaneIdentity(WALLET_SESSION_ID),
       materialActivation: MATERIAL_ACTIVATION,
       options: {},
       flowId: 'flow-passkey-export-refresh-authenticator-drift',

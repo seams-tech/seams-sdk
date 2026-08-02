@@ -13,7 +13,6 @@ import type { SigningSessionSealCipherAdapter } from '../../packages/sdk-server-
 const NOW_MS = 2_000_000_000_000;
 const WALLET_ID = 'seal-authorization.testnet';
 const THRESHOLD_SESSION_ID = 'threshold-session-seal-authorization';
-const SIGNING_GRANT_ID = 'signing-grant-seal-authorization';
 const SIGNING_WORKER_ID = 'signing-worker-seal-authorization';
 
 class WalletSessionClaimsFixture implements SessionAdapter {
@@ -72,7 +71,6 @@ async function walletSessionFixture(
       nearAccountId: WALLET_ID,
       nearEd25519SigningKeyId: 'near-ed25519-signing-key-seal-authorization',
       thresholdSessionId: THRESHOLD_SESSION_ID,
-      signingGrantId: SIGNING_GRANT_ID,
       walletSessionId: 'wallet-session-seal-authorization',
       quotaId: 'quota-seal-authorization',
       expiresAtMs: thresholdExpiresAtMs,
