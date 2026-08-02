@@ -112,11 +112,18 @@ export type CurrentEd25519RestoreMetadata =
 
 export type CurrentEd25519SealedSessionRecord = Omit<
   Extract<SigningSessionSealedStoreRecord, { curve: 'ed25519' }>,
-  'curve' | 'thresholdSessionIds' | 'walletId' | 'relayerUrl' | 'ed25519Restore' | 'ecdsaRestore'
+  | 'curve'
+  | 'thresholdSessionIds'
+  | 'walletId'
+  | 'relayerUrl'
+  | 'signingGrantId'
+  | 'ed25519Restore'
+  | 'ecdsaRestore'
 > & {
   curve: 'ed25519';
   thresholdSessionIds: Ed25519SealedRecordThresholdSessionIds;
   walletId: string;
+  signingGrantId?: never;
   relayerUrl: string;
   ed25519Restore: CurrentEd25519RestoreMetadata;
   ecdsaRestore?: SealedSigningSessionEcdsaRestoreMetadata;

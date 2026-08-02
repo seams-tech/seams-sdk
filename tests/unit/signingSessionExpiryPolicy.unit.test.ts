@@ -7,7 +7,6 @@ import {
   applyWalletSessionStatusToSigningSessionReadiness,
   warmClaimFromRecordPolicy,
 } from '../../packages/sdk-web/src/core/signingEngine/session/availability/readiness';
-import { durableRecordPolicyAdvisory } from '../../packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes';
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import {
   clampThresholdSessionPolicy,
@@ -111,27 +110,13 @@ test.describe('signing session expiry policy', () => {
   test('record policy gives elapsed time precedence over an empty budget', () => {
     expect(
       warmClaimFromRecordPolicy({
-        sessionId: String(THRESHOLD_SESSION_ID),
-        remainingUses: 0,
-        expiresAtMs: 1,
-      }),
-    ).toEqual({
-      state: 'expired',
-      sessionId: String(THRESHOLD_SESSION_ID),
-    });
-
-    expect(
-      durableRecordPolicyAdvisory({
         thresholdSessionId: String(THRESHOLD_SESSION_ID),
         remainingUses: 0,
         expiresAtMs: 1,
-        state: 'ready',
       }),
     ).toEqual({
-      kind: 'durable_policy',
-      remainingUses: 0,
-      expiresAtMs: 1,
       state: 'expired',
+      thresholdSessionId: String(THRESHOLD_SESSION_ID),
     });
   });
 });
