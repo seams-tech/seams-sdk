@@ -91,6 +91,40 @@ The Email OTP Ed25519 challenge request and the Passkey/Email OTP owner-local
 single-flight maps remain live factor-owned operating paths, not generic
 compatibility aliases.
 
+### Unit 3c live-occurrence inventory — 2026-08-02
+
+The first Unit 3c inventory found **118 production files / 1,245 references**
+to `SigningGrantId`, `signingGrantId`, or `signing_grant_id` after excluding
+type-fixture files and generated `dist` output. The references are grouped by
+the boundary that must move them:
+
+| Boundary | Representative owners | Replacement / disposition |
+| --- | --- | --- |
+| Wallet Session auth and JWT verification | `verifiedWalletSessionAuth.ts`, `validation.ts`, `routerAbSigningWalletSession.ts`, Rust `router/mod.rs` | `WalletSessionId` + `MpcWalletSigningQuotaId`, with claim verification at the authorization boundary |
+| Ed25519 normal signing | `routerAbPrivateSigningWorker.ts`, `thresholdEd25519RequestValidation.ts`, `RouterAbNormalSigningRuntime.ts`, Rust `signing_worker/*` | Move reusable quota consumption to the shared atomic claim transaction; then delete Router reserve/commit/release and its rows |
+| ECDSA registration and activation wire | `routerAbEcdsaDerivation.ts`, `thresholdEcdsa.ts`, `ecdsaSessionProvision.ts`, `bootstrapSession.ts` | Remove `signing_grant_id` atomically from Rust, TypeScript, generated bindings, and fixtures; retain `thresholdSessionId` and Wallet Session/quota identities separately |
+| ECDSA/Ed25519 client lanes and lifecycle | `operationState/*`, `availability/*`, `SigningSessionCoordinator.ts`, `threshold/ecdsa/*`, `threshold/ed25519/*` | Use reusable Wallet Session authorization or `CapabilityGrantId`/`CapabilityGrantUseId`; never use a grant identifier as material identity |
+| Persistence and worker boundaries | `sealedSessionStore.ts`, `schemaNames.ts`, `passkey-mpc-session.worker.ts`, Rust private D1 | Reject current-schema grant fields at the boundary; retain only immutable historical migration names where required |
+| Registration, recovery, export, and status projections | `routerAbEd25519Yao*`, `d1WalletRegistrationService.ts`, `login.ts`, Email OTP flows | Replace live authorization projections together; delete legacy projections after their canonical consumer lands |
+
+The ECDSA post-registration activation response is not an isolated deletion:
+`thresholdEcdsa.ts` copies its grant into the Wallet Session JWT, while
+`sessions.ts`, `ecdsaLogin.ts`, `bootstrapSession.ts`, and Email OTP
+provisioning consume the parsed field. It remains open until the shared claim
+verifier and JWT/schema cutover land in one Rust/TypeScript change. The Rust
+reusable-claim verifier likewise still compares its durable claim to the
+Wallet Session grant; removing that field first would remove the only current
+claim-to-session binding.
+
+Inventory command (rerun before each Unit 3c deletion slice):
+
+```sh
+rg -l 'SigningGrantId|signingGrantId|signing_grant_id' \
+  packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src \
+  packages/console-server-ts/src crates/router-ab-cloudflare/src wasm apps \
+  --glob '!**/dist/**' --glob '!**/*.typecheck.ts'
+```
+
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
 Replacement: the required-field `active | retired` ECDSA capability record,
