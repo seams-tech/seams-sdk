@@ -725,7 +725,6 @@ async function handleStrictEcdsaSessionActivation(input: {
       public_capability: request.public_capability,
       session: {
         threshold_session_id: activated.session.thresholdSessionId,
-        signing_grant_id: activated.session.signingGrantId,
         expires_at_ms: activated.session.expiresAtMs,
         remaining_uses: activated.session.remainingUses,
         wallet_session_jwt: signed.jwt,

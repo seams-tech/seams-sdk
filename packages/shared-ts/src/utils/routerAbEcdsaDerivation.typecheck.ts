@@ -32,15 +32,15 @@ const invalidSessionPolicy = {
 } satisfies RouterAbEcdsaPostRegistrationSessionPolicyV1;
 void invalidSessionPolicy;
 
-const responseSigningGrantId: SigningGrantId =
-  activationResponse.session.signing_grant_id;
+// @ts-expect-error Activation responses derive authorization from the Wallet Session JWT.
+const responseSigningGrantId: SigningGrantId = activationResponse.session.signing_grant_id;
 void responseSigningGrantId;
 
 const invalidActivationResponse = {
   ...activationResponse,
   session: {
     ...activationResponse.session,
-    // @ts-expect-error Activation responses reject unparsed signing-grant ids.
+    // @ts-expect-error Activation responses do not carry signing-grant ids.
     signing_grant_id: 'grant-unparsed',
   },
 } satisfies RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
