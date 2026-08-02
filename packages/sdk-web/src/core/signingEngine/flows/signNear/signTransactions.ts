@@ -640,7 +640,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
   }
   if (
     isWarmSessionSigningAuthPlan(providedSigningAuthPlan) &&
-    providedSigningAuthPlan.sessionId !== providedThresholdSessionId
+    providedSigningAuthPlan.thresholdSessionId !== providedThresholdSessionId
   ) {
     throw new Error(
       '[SigningEngine][near] warm-session auth plan must match prepared session identity',
@@ -648,7 +648,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
   }
   const signingSessionAuthPlan = {
     thresholdSessionId: isWarmSessionSigningAuthPlan(providedSigningAuthPlan)
-      ? providedSigningAuthPlan.sessionId
+      ? providedSigningAuthPlan.thresholdSessionId
       : providedThresholdSessionId,
     lane: signingLane,
     signingAuthPlan: providedSigningAuthPlan,
@@ -690,7 +690,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
       status: 'succeeded',
       interaction: { kind: 'none', overlay: 'none' },
       data: {
-        sessionId: confirmationAuthPayload.signingAuthPlan.sessionId,
+        thresholdSessionId: confirmationAuthPayload.signingAuthPlan.thresholdSessionId,
         expiresAtMs: confirmationAuthPayload.signingAuthPlan.expiresAtMs,
         remainingUses: confirmationAuthPayload.signingAuthPlan.remainingUses,
       },
@@ -902,7 +902,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
         interaction: { kind: 'none', overlay: 'none' },
         data: {
           signer: 'threshold-ed25519',
-          sessionId: canonicalThresholdSessionId,
+          thresholdSessionId: canonicalThresholdSessionId,
           clientBaseSource: 'yao_active_client',
         },
       });

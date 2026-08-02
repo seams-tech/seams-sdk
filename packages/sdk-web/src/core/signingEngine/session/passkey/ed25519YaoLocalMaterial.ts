@@ -72,6 +72,7 @@ export type Ed25519YaoLocalMaterialIdentity = {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
+  thresholdSessionId: string;
   signerSlot: number;
   rpId: string;
   credentialIdB64u: string;
@@ -330,6 +331,10 @@ function walletSessionIdentity(
       signer.nearEd25519SigningKeyId,
       'nearEd25519SigningKeyId',
     ),
+    thresholdSessionId: requireThresholdSessionId(
+      walletSessionState.signingLane.identity.thresholdSessionId,
+      'thresholdSessionId',
+    ),
     signerSlot: requirePositiveSafeInteger(signer.signerSlot, 'signerSlot'),
     rpId: requireNonEmpty(rpId, 'rpId'),
     credentialIdB64u: requireNonEmpty(credentialIdB64u, 'credentialIdB64u'),
@@ -368,6 +373,7 @@ function bindingFromActiveClient(args: {
     metadata.applicationBinding.wallet_id !== args.identity.walletId ||
     metadata.applicationBinding.near_ed25519_signing_key_id !==
       args.identity.nearEd25519SigningKeyId ||
+    metadata.scope.threshold_session_id !== args.identity.thresholdSessionId ||
     metadata.applicationBinding.key_creation_signer_slot !== args.identity.signerSlot ||
     metadata.applicationBinding.signing_root_id !== args.identity.signingRootId ||
     metadata.scope.root_share_epoch !== args.identity.signingRootVersion ||
@@ -446,6 +452,7 @@ function assertBindingIdentity(
     binding.walletId !== identity.walletId ||
     binding.nearAccountId !== identity.nearAccountId ||
     binding.nearEd25519SigningKeyId !== identity.nearEd25519SigningKeyId ||
+    binding.thresholdSessionId !== identity.thresholdSessionId ||
     binding.signerSlot !== identity.signerSlot ||
     binding.rpId !== identity.rpId ||
     binding.credentialIdB64u !== identity.credentialIdB64u ||

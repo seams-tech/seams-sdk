@@ -150,7 +150,7 @@ export type SigningAuthPlan =
       accountId: string;
       intent: WalletAuthIntent;
       curve?: WalletAuthCurve;
-      sessionId: string;
+      thresholdSessionId: string;
       retention?: SigningSessionRetention | null;
       expiresAtMs: number;
       remainingUses: number;
@@ -229,7 +229,7 @@ export type PasskeyPromptPlan = {
 
 export type StepUpWarmSessionAuthorization = {
   method: SignerAuthMethod;
-  sessionId: string;
+  thresholdSessionId: string;
   expiresAtMs: number;
   remainingUses: number;
 };
@@ -277,7 +277,7 @@ export type WarmSessionStepUpAuthorization<
 > = {
   kind: 'warm_session';
   signingAuthPlan: TSigningAuthPlan;
-  sessionId: string;
+  thresholdSessionId: string;
   expiresAtMs: number;
   remainingUses: number;
 };

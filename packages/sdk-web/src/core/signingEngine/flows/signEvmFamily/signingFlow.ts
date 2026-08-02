@@ -643,7 +643,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         status: 'succeeded',
         interaction: { kind: 'none', overlay: 'none' },
         data: {
-          sessionId: confirmationAuthPayload.signingAuthPlan.sessionId,
+          thresholdSessionId: confirmationAuthPayload.signingAuthPlan.thresholdSessionId,
           expiresAtMs: confirmationAuthPayload.signingAuthPlan.expiresAtMs,
           remainingUses: confirmationAuthPayload.signingAuthPlan.remainingUses,
         },

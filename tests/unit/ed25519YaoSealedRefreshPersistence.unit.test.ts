@@ -133,7 +133,7 @@ test('persists and verifies a passkey Yao session seal for page refresh', async 
 
   expect(persistence.calls.map(sessionPersistenceCallKind)).toEqual(['hydrate', 'persist']);
   expect(persistence.calls[0].input).toMatchObject({
-    sessionId: THRESHOLD_SESSION_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
     remainingUses: 3,
     transport: {
       curve: 'ed25519',
@@ -144,7 +144,7 @@ test('persists and verifies a passkey Yao session seal for page refresh', async 
     },
   });
   expect(persistence.calls[1].input).toMatchObject({
-    sessionId: THRESHOLD_SESSION_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
     transport: {
       ed25519Restore: fixture.ed25519Restore,
     },

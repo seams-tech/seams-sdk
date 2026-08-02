@@ -358,7 +358,7 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
       groupId: restoreSource.signingSessionSealGroupId,
     },
     restore: {
-      sessionId: restoreSource.thresholdSessionId,
+      thresholdSessionId: restoreSource.thresholdSessionId,
       walletId: sealedRecord.walletId,
       keyHandle: restoreSource.keyHandle,
       chainTarget: restoreSource.chainTarget,

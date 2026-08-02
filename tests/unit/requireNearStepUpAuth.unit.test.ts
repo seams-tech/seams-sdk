@@ -40,7 +40,7 @@ test.describe('requireNearStepUpAuth', () => {
       method: 'passkey' as const,
       accountId: 'alice.testnet',
       intent: 'transaction_sign' as const,
-      sessionId: 'threshold-session-warm',
+      thresholdSessionId: 'threshold-session-warm',
       expiresAtMs: 1_777_777_777_000,
       remainingUses: 3,
     };
@@ -91,7 +91,7 @@ test.describe('requireNearStepUpAuth', () => {
       method: 'passkey' as const,
       accountId: 'alice.testnet',
       intent: 'transaction_sign' as const,
-      sessionId: 'threshold-session-warm-one',
+      thresholdSessionId: 'threshold-session-warm-one',
       expiresAtMs: 1_777_777_777_000,
       remainingUses: 1,
     };
@@ -174,7 +174,7 @@ test.describe('requireNearStepUpAuth', () => {
       passkeyEd25519OperationStepUp: {
         prepare: async () => {
           return {
-            sessionId: 'threshold-session-passkey',
+            thresholdSessionId: 'threshold-session-passkey',
             requestedGrantId: OPERATION_GRANT_ID,
             authority: buildPasskeyWalletAuthAuthority({
               walletId: WALLET_ID,
@@ -189,7 +189,7 @@ test.describe('requireNearStepUpAuth', () => {
     expect(prepared.kind).toBe('passkey');
     if (prepared.kind !== 'passkey') throw new Error('expected passkey branch');
     expect(prepared.plannedPasskeyOperationStepUp).toMatchObject({
-      sessionId: 'threshold-session-passkey',
+      thresholdSessionId: 'threshold-session-passkey',
       requestedGrantId: OPERATION_GRANT_ID,
     });
   });

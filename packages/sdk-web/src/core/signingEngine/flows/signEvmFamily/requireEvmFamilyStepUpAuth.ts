@@ -226,7 +226,7 @@ function stepUpPolicyFromSigningAuthPlan(
       kind: 'reuse_warm_session',
       authorization: {
         method: signingAuthPlan.method,
-        sessionId: signingAuthPlan.sessionId,
+        thresholdSessionId: signingAuthPlan.thresholdSessionId,
         expiresAtMs: signingAuthPlan.expiresAtMs,
         remainingUses: signingAuthPlan.remainingUses,
       },

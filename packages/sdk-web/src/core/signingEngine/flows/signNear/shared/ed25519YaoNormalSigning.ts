@@ -462,6 +462,11 @@ function requireActiveClientMatchesNormalSigningOperation(args: {
     args.prepare.request.scope.account_id,
     'scope account',
   );
+  requireMatchingRouterAbEd25519Identity(
+    metadata.scope.threshold_session_id,
+    args.materialFacts.thresholdSessionId,
+    'threshold session',
+  );
   requireMatchingRouterAbEd25519Identity(metadata.scope.account_id, args.walletId, 'scope wallet');
   requireMatchingRouterAbEd25519Identity(
     materialActivation.activationId,

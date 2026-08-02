@@ -978,7 +978,7 @@ export interface EmailOtpWorkerOperationMap {
         groupId?: string;
       };
       restore: {
-        sessionId: string;
+        thresholdSessionId: string;
         walletId: string;
         keyHandle: string;
         chainTarget: ThresholdEcdsaChainTarget;

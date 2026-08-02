@@ -1312,7 +1312,7 @@ test.describe('confirmTxFlow – success paths', () => {
               method: 'passkey',
               accountId: 'wallet.testnet',
               intent: 'transaction_sign',
-              sessionId: 'threshold-session-delegate',
+              thresholdSessionId: 'threshold-session-delegate',
               retention: 'volatile',
               expiresAtMs: Date.now() + 60_000,
               remainingUses: 1,

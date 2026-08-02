@@ -1790,7 +1790,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
             groupId: 'rfc2409-group2',
           },
           restore: {
-            sessionId: 'ecdsa-session',
+            thresholdSessionId: 'ecdsa-session',
             walletId: sealedRecord.walletId,
             chainTarget: tempoChainTarget,
             keyHandle: sealedRecord.ecdsaRestore.keyHandle,
@@ -1985,7 +1985,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
             walletSessionJwt: expect.any(String),
           },
           restore: {
-            sessionId: 'ecdsa-session',
+            thresholdSessionId: 'ecdsa-session',
             chainTarget: tempoChainTarget,
           },
         },

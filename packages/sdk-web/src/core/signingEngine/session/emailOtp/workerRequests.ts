@@ -42,7 +42,7 @@ export type EmailOtpWarmSessionTransport = {
 };
 
 export type EmailOtpEcdsaWarmSessionRestore = {
-  sessionId: string;
+  thresholdSessionId: string;
   walletId: string;
   keyHandle: string;
   chainTarget: ThresholdEcdsaChainTarget;

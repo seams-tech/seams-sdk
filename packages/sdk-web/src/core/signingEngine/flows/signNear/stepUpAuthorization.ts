@@ -24,7 +24,7 @@ export function buildNearEd25519WarmSessionStepUpAuthorization(
   return {
     kind: 'warm_session',
     signingAuthPlan,
-    sessionId: signingAuthPlan.sessionId,
+    thresholdSessionId: signingAuthPlan.thresholdSessionId,
     expiresAtMs: signingAuthPlan.expiresAtMs,
     remainingUses: signingAuthPlan.remainingUses,
   };

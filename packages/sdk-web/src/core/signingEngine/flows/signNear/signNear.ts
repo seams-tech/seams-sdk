@@ -205,7 +205,7 @@ export type SignTransactionWithActionsInput = {
   title?: string;
   body?: string;
   onEvent?: (update: SigningFlowEvent) => void;
-  sessionId?: string;
+  thresholdSessionId?: string;
   sensitivePolicy?: SensitiveOperationPolicy;
 };
 
@@ -510,14 +510,14 @@ async function resolveNearTransactionWalletAuth(args: {
 }
 
 function resolvePreparedSigningRequestSessionId(args: {
-  providedSessionId?: string;
+  providedThresholdSessionId?: string;
   identity: ResolvedEd25519SigningSessionIdentity;
 }): string {
-  const provided = String(args.providedSessionId || '').trim();
+  const provided = String(args.providedThresholdSessionId || '').trim();
   const prepared = String(args.identity.thresholdSessionId || '').trim();
   if (provided && provided !== prepared) {
     throw new Error(
-      '[SigningEngine][near] transaction sessionId must match prepared Ed25519 identity',
+      '[SigningEngine][near] transaction thresholdSessionId must match prepared Ed25519 identity',
     );
   }
   return prepared;
@@ -1291,7 +1291,7 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     identity,
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
       resolvePreparedSigningRequestSessionId({
-        providedSessionId: args.input.sessionId,
+        providedThresholdSessionId: args.input.thresholdSessionId,
         identity,
       }),
     ),
