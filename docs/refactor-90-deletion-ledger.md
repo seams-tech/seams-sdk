@@ -50,9 +50,13 @@ focused regression test proves the two identifiers stay distinct
 `EnsureWarmEcdsaCapabilityReadyResult` carrier were deleted in the same
 checkpoint. No additional safe production deletions were found.
 
-The Ed25519 `signingGrantId` quota boundary is temporarily retained until Unit
-3c replaces it with canonical Wallet Session, quota, capability-grant, and
-operation-claim identities. The Email OTP NEAR challenge remains a live
+The Ed25519 `signingGrantId` quota boundary is temporarily retained in the
+TypeScript runtime until Unit 3c replaces it with canonical Wallet Session,
+quota, capability-grant, and operation-claim identities. The Rust Router
+reserve/validate/commit/release protocol and its current public route/types are
+already deleted in `cb7bc901c`, with stale boundary guards aligned in
+`c92b7d4a0` and `daeda0d7e`; the remaining TypeScript runtime/store surface is
+the open deletion target. The Email OTP NEAR challenge remains a live
 operation-owned interface; generated
 passkey-only WASM class names require a coordinated binding rebuild and are not
 safe source-only deletions. The historical `missing_hot_material` and removed
@@ -190,8 +194,10 @@ The obsolete Router budget-only TypeScript coverage was deleted in
 `5dbabdfc8`: the retired Yao reservation/provisioning suite, private budget
 provisioner suite, and Wallet Session reservation-store suite had no remaining
 canonical caller. Registration/retry/disposal coverage remains in the local-Yao
-tests. The Rust/TypeScript budget implementation itself remains open until the
-live Ed25519 callers are moved to the canonical claim/quota transaction.
+tests. The shared `SigningGrantId` brand/parser and sealed-record exclusion
+fields were deleted in `53ab721df`. The remaining TypeScript budget runtime and
+store APIs remain open until the live Ed25519 callers are moved to the
+canonical claim/quota transaction.
 
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
