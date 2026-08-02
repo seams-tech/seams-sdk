@@ -63,8 +63,6 @@ keyRef.walletSessionJwt;
 keyRef.mpcSessionId;
 // @ts-expect-error material key references never carry threshold-session identity.
 keyRef.thresholdSessionId;
-// @ts-expect-error material key references never carry authorization-grant identity.
-keyRef.signingGrantId;
 
 const validEnsureWarmEcdsaProvisionPlanReadyArgs = {
   walletId,

@@ -1,5 +1,4 @@
-import { ed25519 } from '@noble/curves/ed25519.js';
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { base64UrlDecode } from '@shared/utils/encoders';
 import { normalizeLogger, type Logger } from '@server/core/logger';
 import {
   createHostedSigningRootShareResolver,
@@ -9,16 +8,13 @@ import {
 import {
   createEcdsaWalletSessionStore,
   createEd25519WalletSessionStore,
-  createWalletSigningBudgetSessionStore,
   type Ed25519WalletSessionStore,
 } from '@server/core/ThresholdService/stores/WalletSessionStore';
-import { parseThresholdEd25519KeyRecord } from '@server/core/ThresholdService/validation';
 import type { RouterAbSigningRuntimeBundle } from '@server/core/routerAbSigning/createRouterAbSigningRuntimes';
 import {
   parseRouterAbEcdsaPresignRuntimeConfig,
   RouterAbEcdsaPresignRuntime,
 } from '@server/core/routerAbSigning/RouterAbEcdsaPresignRuntime';
-import { RouterAbLocalSigningSeedRuntime } from '@server/core/routerAbSigning/RouterAbLocalSigningSeedRuntime';
 import {
   parseRouterAbNormalSigningRuntimeConfig,
   requireRouterAbConfiguredSigningWorkerPrivateTransport,
@@ -29,7 +25,7 @@ import {
   type RouterAbEcdsaStrictRegistrationPort,
   type RouterAbEcdsaStrictRegistrationTopology,
 } from '@server/router/routerAbEcdsaStrictRegistration';
-import type { ThresholdEd25519AuthorityScope, ThresholdStoreConfigInput } from '@server/core/types';
+import type { ThresholdStoreConfigInput } from '@server/core/types';
 import {
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
   parseRouterAbEcdsaRegistrationRequestV1,
@@ -43,8 +39,6 @@ import {
 import { readFileSync } from 'node:fs';
 
 let fixtureSigningRootShareWires: Map<number, Uint8Array> | null = null;
-const ED25519_SCALAR_ORDER =
-  7_237_005_577_332_262_213_973_186_563_042_994_240_857_116_359_379_907_606_001_950_938_285_454_250_989n;
 const FIXTURE_THRESHOLD_PRF_POLICY = {
   protocol: 'threshold-prf',
   threshold: 2,
@@ -267,28 +261,8 @@ function fixtureActivationRequestDigest(requestDigestB64u: string): { bytes: num
   return { bytes: Array.from(bytes) };
 }
 
-function littleEndianBytesToBigInt(bytes: Uint8Array): bigint {
-  let value = 0n;
-  for (let index = bytes.length - 1; index >= 0; index -= 1) {
-    value = (value << 8n) | BigInt(bytes[index]);
-  }
-  return value;
-}
-
 export function silentLogger(): Logger {
   return { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
-}
-
-export function deriveThresholdEd25519VerifyingShareForUnitTests(input: {
-  readonly signingShareB64u: string;
-}): string {
-  const signingShare = base64UrlDecode(input.signingShareB64u);
-  if (signingShare.length !== 32) {
-    throw new Error('Threshold Ed25519 signing share must be 32 bytes');
-  }
-  const scalar = littleEndianBytesToBigInt(signingShare) % ED25519_SCALAR_ORDER;
-  if (scalar === 0n) throw new Error('Threshold Ed25519 signing share must be non-zero');
-  return base64UrlEncode(ed25519.Point.BASE.multiply(scalar).toBytes());
 }
 
 function loadFixtureSigningRootShareWiresForUnitTests(): Map<number, Uint8Array> {
@@ -359,29 +333,14 @@ export function createFixtureSigningRootShareResolverForUnitTests(): SigningRoot
 export function createRouterAbSigningRuntimesForUnitTests(input: {
   readonly config?: ThresholdStoreConfigInput | null;
   readonly logger?: Logger | null;
-  readonly keyRecord?: {
-    readonly walletId?: string;
-    readonly nearAccountId?: string;
-    readonly nearEd25519SigningKeyId?: string;
-    readonly authorityScope?: ThresholdEd25519AuthorityScope;
-    readonly rpId?: string;
-    readonly publicKey: string;
-    readonly relayerSigningShareB64u: string;
-    readonly relayerVerifyingShareB64u?: string;
-    readonly keyVersion?: string;
-    readonly recoveryExportCapable?: boolean;
-  } | null;
   readonly walletSessionStore?: Ed25519WalletSessionStore | null;
 }): {
   readonly runtimes: RouterAbSigningRuntimeBundle;
   readonly normalSigning: RouterAbNormalSigningRuntime;
-  readonly localSigningSeed: RouterAbLocalSigningSeedRuntime;
   readonly ecdsaPresign: RouterAbEcdsaPresignRuntime;
   readonly routerAbNormalSigningRuntime: RouterAbNormalSigningRuntime;
-  readonly routerAbLocalSigningSeedRuntime: RouterAbLocalSigningSeedRuntime;
   readonly walletSessionStore: Ed25519WalletSessionStore;
   readonly ecdsaWalletSessionStore: ReturnType<typeof createEcdsaWalletSessionStore>;
-  readonly walletBudgetSessionStore: ReturnType<typeof createWalletSigningBudgetSessionStore>;
 } {
   const logger = normalizeLogger(input.logger || silentLogger());
   const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({
@@ -392,38 +351,6 @@ export function createRouterAbSigningRuntimesForUnitTests(input: {
   const walletSessionStore =
     input.walletSessionStore ||
     createEd25519WalletSessionStore({ config: { kind: 'in-memory' }, logger, isNode: true });
-  const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({
-    config: { kind: 'in-memory' },
-    logger,
-    isNode: true,
-  });
-  const keyRecord = input.keyRecord ?? null;
-  const parsedKeyRecord = parseThresholdEd25519KeyRecord(
-    keyRecord
-      ? {
-          kind: 'ready',
-          walletId: keyRecord.walletId || keyRecord.nearAccountId || 'alice.testnet',
-          nearAccountId: keyRecord.nearAccountId || 'alice.testnet',
-          nearEd25519SigningKeyId:
-            keyRecord.nearEd25519SigningKeyId || keyRecord.nearAccountId || 'alice.testnet',
-          authorityScope: keyRecord.authorityScope || {
-            kind: 'passkey_rp',
-            rpId: keyRecord.rpId || 'wallet.example.test',
-          },
-          publicKey: keyRecord.publicKey,
-          routerMaterial: {
-            signingShareB64u: keyRecord.relayerSigningShareB64u,
-            verifyingShareB64u:
-              keyRecord.relayerVerifyingShareB64u ||
-              deriveThresholdEd25519VerifyingShareForUnitTests({
-                signingShareB64u: keyRecord.relayerSigningShareB64u,
-              }),
-          },
-          keyVersion: keyRecord.keyVersion,
-          recoveryExportCapable: keyRecord.recoveryExportCapable,
-        }
-      : null,
-  );
   const config = {
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker.local',
     ROUTER_AB_SIGNING_WORKER_URL: 'https://signing-worker.example.test',
@@ -433,19 +360,7 @@ export function createRouterAbSigningRuntimesForUnitTests(input: {
   const normalSigning = new RouterAbNormalSigningRuntime({
     walletSessionStore,
     ecdsaWalletSessionStore,
-    walletBudgetSessionStore,
     config: parseRouterAbNormalSigningRuntimeConfig(config),
-  });
-  const ed25519KeyStore = {
-    get: async () => parsedKeyRecord,
-    put: async () => {},
-    del: async () => {},
-  };
-  const localSigningSeed = new RouterAbLocalSigningSeedRuntime({
-    ed25519KeyStore,
-    ed25519WalletSessionStore: walletSessionStore,
-    ecdsaWalletSessionStore,
-    normalSigningRuntime: normalSigning,
   });
   const normalSigningConfig = parseRouterAbNormalSigningRuntimeConfig(config);
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({
@@ -459,16 +374,12 @@ export function createRouterAbSigningRuntimesForUnitTests(input: {
   return {
     runtimes: {
       normalSigning,
-      localSigningSeed,
       ecdsaPresign,
     },
     normalSigning,
-    localSigningSeed,
     ecdsaPresign,
     routerAbNormalSigningRuntime: normalSigning,
-    routerAbLocalSigningSeedRuntime: localSigningSeed,
     walletSessionStore,
     ecdsaWalletSessionStore,
-    walletBudgetSessionStore,
   };
 }

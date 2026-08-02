@@ -77,7 +77,6 @@ import {
 export type ParsedYaoRecoverySessionV1 = {
   readonly walletSessionJwt: string;
   readonly thresholdSessionId: string;
-  readonly signingGrantId: string;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly expiresAtMs: number;
@@ -227,7 +226,6 @@ function parseRecoverySession(
   return {
     walletSessionJwt: requireString(raw.walletSessionJwt, 'session.walletSessionJwt'),
     thresholdSessionId: requireString(raw.thresholdSessionId, 'session.thresholdSessionId'),
-    signingGrantId: requireString(raw.signingGrantId, 'session.signingGrantId'),
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
     expiresAtMs: requirePositiveInteger(raw.expiresAtMs, 'session.expiresAtMs'),

@@ -7,16 +7,6 @@ import {
   buildStoredWalletRegistrationPreparedContext,
   type StoredWalletRegistrationCeremony,
 } from '../../../packages/sdk-server-ts/src/core/RegistrationCeremonyStore';
-import { normalizeLogger } from '../../../packages/sdk-server-ts/src/core/logger';
-import {
-  parseRouterAbNormalSigningRuntimeConfig,
-  RouterAbNormalSigningRuntime,
-} from '../../../packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime';
-import {
-  createEcdsaWalletSessionStore,
-  createEd25519WalletSessionStore,
-  createWalletSigningBudgetSessionStore,
-} from '../../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
 import type { WalletRegistrationFinalizeRequest } from '../../../packages/sdk-server-ts/src/core/registrationContracts';
 import {
   createCloudflareD1RouterApiAuthService,
@@ -79,10 +69,6 @@ import { buildEd25519YaoCapabilityFixture } from '../../helpers/ed25519YaoCapabi
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../../helpers/sqliteD1';
 import { applySignerMigrations } from './cloudflareD1RouterApiAuthService.fixtures';
 import { StaticWalletSessionAdapter } from './routerAbEd25519YaoRegistrationBridge.fixtures';
-import type {
-  RouterAbWalletBudgetGrantProvisionInputV1,
-  RouterAbWalletBudgetGrantProvisionerV1,
-} from '../../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 
 const TEST_SCOPE = {
   namespace: 'registration-finalize-convergence',
@@ -112,7 +98,6 @@ type DeterministicNearCredentials = {
 export type FinalizeConvergenceFault =
   | 'activation_consume_response_loss'
   | 'session_mint_response_loss'
-  | 'normal_signing_response_loss'
   | 'wallet_commit_response_loss'
   | 'capability_install_response_loss'
   | 'ceremony_delete_response_loss'
@@ -648,64 +633,6 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
   }
 }
 
-class FailureInjectingNormalSigningRuntime
-  extends RouterAbNormalSigningRuntime
-  implements RouterAbWalletBudgetGrantProvisionerV1
-{
-  private loseProvisionResponse = false;
-
-  constructor() {
-    const config = {
-      kind: 'in-memory' as const,
-      ROUTER_AB_NORMAL_SIGNING_WORKER_ID: SIGNING_WORKER_ID,
-    };
-    const storeInput = { config, logger: normalizeLogger(null), isNode: true };
-    super({
-      walletSessionStore: createEd25519WalletSessionStore(storeInput),
-      ecdsaWalletSessionStore: createEcdsaWalletSessionStore(storeInput),
-      walletBudgetSessionStore: createWalletSigningBudgetSessionStore(storeInput),
-      config: parseRouterAbNormalSigningRuntimeConfig(config),
-    });
-  }
-
-  armProvisionResponseLoss(): void {
-    this.loseProvisionResponse = true;
-  }
-
-  async provisionGrant(input: RouterAbWalletBudgetGrantProvisionInputV1) {
-    const result = {
-      ok: true as const,
-      signingGrantId: input.signingGrantId,
-      remainingUses: input.initialSignatureUses,
-      reservedUses: 0,
-      availableUses: input.initialSignatureUses,
-      expiresAtMs: input.expiresAtMs,
-    };
-    if (this.loseProvisionResponse) {
-      this.loseProvisionResponse = false;
-      throw new Error('simulated normal-signing provision response loss');
-    }
-    return result;
-  }
-
-  override async provisionRouterAbEd25519YaoNormalSigningSession(
-    input: Parameters<
-      RouterAbNormalSigningRuntime['provisionRouterAbEd25519YaoNormalSigningSession']
-    >[0],
-  ): Promise<
-    Awaited<
-      ReturnType<RouterAbNormalSigningRuntime['provisionRouterAbEd25519YaoNormalSigningSession']>
-    >
-  > {
-    const result = await super.provisionRouterAbEd25519YaoNormalSigningSession(input);
-    if (this.loseProvisionResponse) {
-      this.loseProvisionResponse = false;
-      throw new Error('simulated normal-signing provision response loss');
-    }
-    return result;
-  }
-}
-
 function buildAdmissionReceipt(
   activationResult: RouterAbEd25519YaoActivationResultV1<'registration'>,
 ): RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'> {
@@ -995,11 +922,9 @@ async function createFinalizeConvergenceHarnessForMode(
   await applySignerMigrations(temporary.database);
   const database = new ResponseLossD1Database(temporary.database);
   const yao = await createActivatedFinalizeYaoRuntimeFixture();
-  const normalSigning = new FailureInjectingNormalSigningRuntime();
   const service = createCloudflareD1RouterApiAuthService({
     database,
     ...TEST_SCOPE,
-    walletBudgetGrantProvisioner: normalSigning,
     ed25519YaoProductRegistration: yao.runtime,
     ecdsaStrictRegistration: new UnusedEcdsaStrictRegistration(),
     ...(mode.kind === 'sponsored'
@@ -1063,9 +988,6 @@ async function createFinalizeConvergenceHarnessForMode(
         case 'session_mint_response_loss':
         case 'capability_install_response_loss':
           yao.runtime.arm(fault);
-          return;
-        case 'normal_signing_response_loss':
-          normalSigning.armProvisionResponseLoss();
           return;
         case 'wallet_commit_response_loss':
           database.armBatchResponseLoss();

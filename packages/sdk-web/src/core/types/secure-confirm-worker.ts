@@ -32,7 +32,8 @@ type PasskeyWarmSessionSealTransportCommon = WarmSessionSealTransportCommon & {
     kind: 'passkey_registration';
     walletId: string;
     credentialIdB64u: string;
-    signingGrantId: string;
+    walletSessionId: string;
+    quotaId: string;
   };
 };
 
@@ -88,7 +89,6 @@ export type WarmSessionSealTransportInput =
   | (EmailOtpWarmSessionSealTransportCommon & {
       curve: 'ecdsa';
       authMethod: 'email_otp';
-      signingGrantId?: never;
       chainTarget: ThresholdEcdsaChainTarget;
       ecdsaRestore?: never;
       ed25519Restore?: never;
@@ -97,7 +97,6 @@ export type WarmSessionSealTransportInput =
   | (PasskeyWarmSessionSealTransportCommon & {
       curve: 'ecdsa';
       authMethod?: 'passkey';
-      signingGrantId?: never;
       chainTarget: ThresholdEcdsaChainTarget;
       ecdsaRestore?: Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }>;
       ed25519Restore?: never;

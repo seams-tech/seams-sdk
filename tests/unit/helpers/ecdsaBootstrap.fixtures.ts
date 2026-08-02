@@ -229,7 +229,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   passkeyCredentialIdB64u?: string;
   participantIds?: number[];
   ethereumAddress?: string;
-  signingGrantId?: string;
   signingRootId?: string;
   signingRootVersion?: string;
   expiresAtMs?: number;
@@ -244,6 +243,12 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   );
   const keyHandle = String(args.keyHandle || `ederivation-key-${ecdsaThresholdKeyId}`).trim();
   const sessionId = String(args.sessionId || `sess-${chainLabel}-1`).trim();
+  const walletSessionId = requireBootstrapAuthorizationId(
+    parseWalletSessionId(`ecdsa-bootstrap-wallet-session:${sessionId}`),
+  );
+  const quotaId = requireBootstrapAuthorizationId(
+    parseMpcWalletSigningQuotaId(`ecdsa-bootstrap-quota:${sessionId}`),
+  );
   const relayerUrl = String(args.relayerUrl || 'https://relay.example').trim();
   const rpId = String(args.rpId || 'localhost').trim();
   const relayerKeyId = String(args.relayerKeyId || `rk-${chainLabel}-1`).trim();
@@ -255,7 +260,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   ).trim();
   const participantIds = args.participantIds || [1, 2];
   const ethereumAddress = args.ethereumAddress || `0x${'11'.repeat(20)}`;
-  const signingGrantId = String(args.signingGrantId || `wsess-${sessionId}`).trim();
   const signingRootId = String(args.signingRootId || 'sr-test:dev').trim();
   const signingRootVersion = String(args.signingRootVersion || 'default').trim();
   const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
@@ -326,7 +330,8 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     {
       nearAccountId: args.nearAccountId,
       sessionId,
-      signingGrantId,
+      walletSessionId,
+      quotaId,
       relayerKeyId,
       ecdsaThresholdKeyId,
       participantIds,
@@ -383,16 +388,11 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     session: {
       ok: true,
       thresholdSessionId: sessionId,
-      signingGrantId,
       authorizationSessionId: requireBootstrapAuthorizationId(
         parseSeamsSessionId(`ecdsa-bootstrap-authorization-session:${sessionId}`),
       ),
-      walletSessionId: requireBootstrapAuthorizationId(
-        parseWalletSessionId(`ecdsa-bootstrap-wallet-session:${sessionId}`),
-      ),
-      quotaId: requireBootstrapAuthorizationId(
-        parseMpcWalletSigningQuotaId(`ecdsa-bootstrap-quota:${sessionId}`),
-      ),
+      walletSessionId,
+      quotaId,
       expiresAtMs: args.expiresAtMs ?? Date.now() + 120_000,
       remainingUses: args.remainingUses ?? 5,
       runtimePolicyScope,
@@ -465,7 +465,6 @@ export function createEcdsaSessionActivationFixture(args: {
       session: {
         authorization_session_id: bootstrap.session.authorizationSessionId,
         threshold_session_id: bootstrap.session.thresholdSessionId,
-        signing_grant_id: bootstrap.session.signingGrantId,
         wallet_session_id: bootstrap.session.walletSessionId,
         quota_id: bootstrap.session.quotaId,
         expires_at_ms: bootstrap.session.expiresAtMs,
@@ -505,7 +504,8 @@ function toFixtureWalletSessionJwt(
   args: {
     nearAccountId: string;
     sessionId: string;
-    signingGrantId: string;
+    walletSessionId: string;
+    quotaId: string;
     relayerKeyId: string;
     ecdsaThresholdKeyId: string;
     participantIds: number[];
@@ -521,7 +521,8 @@ function toFixtureWalletSessionJwt(
       walletId: args.nearAccountId,
       kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
       thresholdSessionId: args.sessionId,
-      signingGrantId: args.signingGrantId,
+      walletSessionId: args.walletSessionId,
+      quotaId: args.quotaId,
       subjectId: args.nearAccountId,
       chainTarget: args.chainTarget,
       ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,

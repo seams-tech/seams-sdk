@@ -4,9 +4,9 @@ import {
   type SignerAuthMethod,
 } from '@shared/utils/signerDomain';
 import {
-  decideSigningGrantAdmissionError,
+  decideWalletSessionQuotaAdmissionError,
   type OperationAuthorizationQueueKey,
-  type SigningGrantAdmissionDecision,
+  type WalletSessionQuotaAdmissionDecision,
 } from '../../session/operationState/authorizationAdmission';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import { walletSessionFailureFromError } from '../../session/lifecycle/walletSessionFailure';
@@ -61,7 +61,7 @@ export type EvmFamilyFreshAuthRetryDecision =
       retryMode: 'await_admission_owner_completion';
       retryAfterMs?: never;
       admissionDecision: Extract<
-        SigningGrantAdmissionDecision,
+        WalletSessionQuotaAdmissionDecision,
         { kind: 'wait_and_retry_admission' }
       >;
       blockedReason?: never;
@@ -73,7 +73,7 @@ export type EvmFamilyFreshAuthRetryDecision =
       retryMode: 'email_otp_single_operation_step_up';
       retryAfterMs?: never;
       admissionDecision: Extract<
-        SigningGrantAdmissionDecision,
+        WalletSessionQuotaAdmissionDecision,
         { kind: 'request_fresh_step_up' }
       >;
       blockedReason?: never;
@@ -94,14 +94,14 @@ export async function runEvmFamilyFreshAuthRetry<TValue>(args: {
 }): Promise<TValue> {
   switch (args.decision.retryMode) {
     case 'await_admission_owner_completion':
-      return await args.signingSessionCoordinator.runSigningGrantAdmissionRetry({
+      return await args.signingSessionCoordinator.runWalletSessionQuotaAdmissionRetry({
         queueKey: args.queueKey,
         refresh: args.rereadAuthoritativeReadiness,
         retryAfterRefresh: args.rereadAuthoritativeReadiness,
       });
     case 'email_otp_single_operation_step_up':
     case 'fresh_auth':
-      return await args.signingSessionCoordinator.runSigningGrantAdmissionRetry({
+      return await args.signingSessionCoordinator.runWalletSessionQuotaAdmissionRetry({
         queueKey: args.queueKey,
         refresh: args.performFreshAuth,
         retryAfterRefresh: args.rereadAuthoritativeReadiness,
@@ -193,7 +193,7 @@ export function classifyEvmFamilyFreshAuthRetry(
   }
   const admissionDecision =
     args.trigger === 'wallet_signing_budget_exhausted'
-      ? decideSigningGrantAdmissionError(args.error)
+      ? decideWalletSessionQuotaAdmissionError(args.error)
       : null;
   const admissionCanRetryAfterSideEffect =
     admissionDecision?.kind === 'request_fresh_step_up' ||

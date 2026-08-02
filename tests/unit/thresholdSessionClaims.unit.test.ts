@@ -225,7 +225,6 @@ function routerAbEcdsaBootstrap(): Omit<
     participantIds: [1, 2],
     thresholdSessionId: 'threshold-ecdsa-session',
     activationEpoch: fixtureRootShareEpoch('activation-epoch-1'),
-    signingGrantId: 'signing-grant-ecdsa',
     expiresAtMs: Date.now() + 60_000,
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
     remainingUses: 3,
@@ -561,7 +560,6 @@ test.describe('Router A/B Wallet Session token claims', () => {
       walletSessionId: 'wallet-session-1',
       quotaId: 'wallet-quota-1',
       thresholdSessionId: ecdsaBootstrap.thresholdSessionId,
-      signingGrantId: ecdsaBootstrap.signingGrantId,
       expiresAtMs: ecdsaBootstrap.expiresAtMs,
       participantIds: ecdsaBootstrap.participantIds,
       runtimePolicyScope,
@@ -802,7 +800,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       const substitutedScope = {
         ...baseBody.scope,
         material_activation: substitutedMaterial,
-        ...(substitution.signing_worker
+        ...('signing_worker' in substitution
           ? { signing_worker_id: substitution.signing_worker }
           : {}),
       };

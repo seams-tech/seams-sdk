@@ -1,19 +1,19 @@
-export const SIGNING_GRANT_EXHAUSTED_ERROR =
-  '[SigningGrantAdmission] signing grant is exhausted';
-export const SIGNING_GRANT_IN_FLIGHT_ERROR =
-  '[SigningGrantAdmission] signing grant is reserved by an in-flight operation';
+export const WALLET_SESSION_QUOTA_EXHAUSTED_ERROR =
+  '[WalletSessionQuotaAdmission] wallet-session quota is exhausted';
+export const WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR =
+  '[WalletSessionQuotaAdmission] wallet-session quota is reserved by an in-flight operation';
 
-export type SigningGrantAdmissionFailureSource =
+export type WalletSessionQuotaAdmissionFailureSource =
   | 'local_projection'
   | 'server_prepare'
   | 'trusted_status';
 
-export type SigningGrantAdmissionRetryReason = 'exhausted' | 'stale_projection';
+export type WalletSessionQuotaAdmissionRetryReason = 'exhausted' | 'stale_projection';
 
-export type SigningGrantAdmissionFailure =
+export type WalletSessionQuotaAdmissionFailure =
   | {
       kind: 'exhausted';
-      source: SigningGrantAdmissionFailureSource;
+      source: WalletSessionQuotaAdmissionFailureSource;
       detail: string;
       retryAfterMs?: never;
       localProjectionVersion?: never;
@@ -21,7 +21,7 @@ export type SigningGrantAdmissionFailure =
     }
   | {
       kind: 'in_flight';
-      source: SigningGrantAdmissionFailureSource;
+      source: WalletSessionQuotaAdmissionFailureSource;
       detail: string;
       retryAfterMs: number;
       localProjectionVersion?: never;
@@ -29,29 +29,29 @@ export type SigningGrantAdmissionFailure =
     }
   | {
       kind: 'stale_projection';
-      source: SigningGrantAdmissionFailureSource;
+      source: WalletSessionQuotaAdmissionFailureSource;
       detail: string;
       localProjectionVersion: string;
       serverProjectionVersion: string;
       retryAfterMs?: never;
     };
 
-export type SigningGrantAdmissionDecision =
+export type WalletSessionQuotaAdmissionDecision =
   | {
       kind: 'request_fresh_step_up';
-      reason: SigningGrantAdmissionRetryReason;
-      failure: Extract<SigningGrantAdmissionFailure, { kind: 'exhausted' | 'stale_projection' }>;
+      reason: WalletSessionQuotaAdmissionRetryReason;
+      failure: Extract<WalletSessionQuotaAdmissionFailure, { kind: 'exhausted' | 'stale_projection' }>;
       retryAfterMs?: never;
     }
   | {
       kind: 'wait_and_retry_admission';
       retryAfterMs: number;
-      failure: Extract<SigningGrantAdmissionFailure, { kind: 'in_flight' }>;
+      failure: Extract<WalletSessionQuotaAdmissionFailure, { kind: 'in_flight' }>;
       reason?: never;
     };
 
-export type SigningGrantAdmissionQueueKey = string & {
-  readonly __brand: 'SigningGrantAdmissionQueueKey';
+export type WalletSessionQuotaAdmissionQueueKey = string & {
+  readonly __brand: 'WalletSessionQuotaAdmissionQueueKey';
 };
 
 export type OperationAuthorizationQueueKey = string & {
@@ -59,64 +59,64 @@ export type OperationAuthorizationQueueKey = string & {
 };
 
 export type SigningAdmissionQueueKey =
-  | SigningGrantAdmissionQueueKey
+  | WalletSessionQuotaAdmissionQueueKey
   | OperationAuthorizationQueueKey;
 
-export class SigningGrantAdmissionError extends Error {
-  readonly failure: SigningGrantAdmissionFailure;
+export class WalletSessionQuotaAdmissionError extends Error {
+  readonly failure: WalletSessionQuotaAdmissionFailure;
 
-  constructor(failure: SigningGrantAdmissionFailure) {
-    super(signingGrantAdmissionFailureMessage(failure));
-    this.name = 'SigningGrantAdmissionError';
+  constructor(failure: WalletSessionQuotaAdmissionFailure) {
+    super(walletSessionQuotaAdmissionFailureMessage(failure));
+    this.name = 'WalletSessionQuotaAdmissionError';
     this.failure = failure;
   }
 }
 
-export function isSigningGrantAdmissionError(
+export function isWalletSessionQuotaAdmissionError(
   error: unknown,
-): error is SigningGrantAdmissionError {
-  return error instanceof SigningGrantAdmissionError;
+): error is WalletSessionQuotaAdmissionError {
+  return error instanceof WalletSessionQuotaAdmissionError;
 }
 
-export function signingGrantAdmissionFailureMessage(
-  failure: SigningGrantAdmissionFailure,
+export function walletSessionQuotaAdmissionFailureMessage(
+  failure: WalletSessionQuotaAdmissionFailure,
 ): string {
   switch (failure.kind) {
     case 'exhausted':
-      return `${SIGNING_GRANT_EXHAUSTED_ERROR}: ${failure.detail}`;
+      return `${WALLET_SESSION_QUOTA_EXHAUSTED_ERROR}: ${failure.detail}`;
     case 'in_flight':
-      return `${SIGNING_GRANT_IN_FLIGHT_ERROR}: ${failure.detail}`;
+      return `${WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR}: ${failure.detail}`;
     case 'stale_projection':
-      return `${SIGNING_GRANT_EXHAUSTED_ERROR}: stale projection ${failure.localProjectionVersion} -> ${failure.serverProjectionVersion}: ${failure.detail}`;
+      return `${WALLET_SESSION_QUOTA_EXHAUSTED_ERROR}: stale projection ${failure.localProjectionVersion} -> ${failure.serverProjectionVersion}: ${failure.detail}`;
   }
 }
 
-export function classifySigningGrantAdmissionFailure(
+export function classifyWalletSessionQuotaAdmissionFailure(
   error: unknown,
-): SigningGrantAdmissionFailure | null {
-  if (isSigningGrantAdmissionError(error)) return error.failure;
+): WalletSessionQuotaAdmissionFailure | null {
+  if (isWalletSessionQuotaAdmissionError(error)) return error.failure;
   const message = error instanceof Error ? error.message : String(error || '');
-  if (message.includes(SIGNING_GRANT_IN_FLIGHT_ERROR)) {
+  if (message.includes(WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR)) {
     return {
       kind: 'in_flight',
       source: 'local_projection',
-      detail: message || SIGNING_GRANT_IN_FLIGHT_ERROR,
+      detail: message || WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR,
       retryAfterMs: 150,
     };
   }
-  if (message.includes(SIGNING_GRANT_EXHAUSTED_ERROR)) {
+  if (message.includes(WALLET_SESSION_QUOTA_EXHAUSTED_ERROR)) {
     return {
       kind: 'exhausted',
       source: 'local_projection',
-      detail: message || SIGNING_GRANT_EXHAUSTED_ERROR,
+      detail: message || WALLET_SESSION_QUOTA_EXHAUSTED_ERROR,
     };
   }
   return null;
 }
 
-export function decideSigningGrantAdmissionFailure(
-  failure: SigningGrantAdmissionFailure,
-): SigningGrantAdmissionDecision {
+export function decideWalletSessionQuotaAdmissionFailure(
+  failure: WalletSessionQuotaAdmissionFailure,
+): WalletSessionQuotaAdmissionDecision {
   switch (failure.kind) {
     case 'in_flight':
       return {
@@ -139,35 +139,38 @@ export function decideSigningGrantAdmissionFailure(
   }
 }
 
-export function decideSigningGrantAdmissionError(
+export function decideWalletSessionQuotaAdmissionError(
   error: unknown,
-): SigningGrantAdmissionDecision | null {
-  const failure = classifySigningGrantAdmissionFailure(error);
-  return failure ? decideSigningGrantAdmissionFailure(failure) : null;
+): WalletSessionQuotaAdmissionDecision | null {
+  const failure = classifyWalletSessionQuotaAdmissionFailure(error);
+  return failure ? decideWalletSessionQuotaAdmissionFailure(failure) : null;
 }
 
-export function buildSigningGrantAdmissionQueueKey(args: {
+export function buildWalletSessionQuotaAdmissionQueueKey(args: {
   walletId: string;
   curve: 'ed25519' | 'ecdsa';
-  signingGrantId: string;
+  walletSessionId: string;
+  quotaId: string;
   projectionVersion: string;
   authorityKey: string;
   targetKey: string;
-}): SigningGrantAdmissionQueueKey {
+}): WalletSessionQuotaAdmissionQueueKey {
   const walletId = normalizeQueueKeyPart(args.walletId, 'wallet');
-  const signingGrantId = normalizeQueueKeyPart(args.signingGrantId, 'grant');
+  const walletSessionId = normalizeQueueKeyPart(args.walletSessionId, 'wallet session');
+  const quotaId = normalizeQueueKeyPart(args.quotaId, 'quota');
   const projectionVersion = normalizeQueueKeyPart(args.projectionVersion, 'projection');
   const authorityKey = normalizeQueueKeyPart(args.authorityKey, 'authority');
   const targetKey = normalizeQueueKeyPart(args.targetKey, 'target');
   return [
-    'signing-grant-admission',
+    'wallet-session-quota-admission',
     walletId,
     args.curve,
-    signingGrantId,
+    walletSessionId,
+    quotaId,
     projectionVersion,
     authorityKey,
     targetKey,
-  ].join(':') as SigningGrantAdmissionQueueKey;
+  ].join(':') as WalletSessionQuotaAdmissionQueueKey;
 }
 
 export function buildOperationAuthorizationQueueKey(args: {
@@ -187,7 +190,7 @@ export function buildOperationAuthorizationQueueKey(args: {
   ].join(':') as OperationAuthorizationQueueKey;
 }
 
-export async function waitForSigningGrantAdmissionRetry(retryAfterMs: number): Promise<void> {
+export async function waitForWalletSessionQuotaAdmissionRetry(retryAfterMs: number): Promise<void> {
   const delayMs = Math.max(0, Math.floor(Number(retryAfterMs) || 0));
   if (delayMs <= 0) return;
   await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -196,7 +199,7 @@ export async function waitForSigningGrantAdmissionRetry(retryAfterMs: number): P
 function normalizeQueueKeyPart(value: string, label: string): string {
   const normalized = String(value || '').trim();
   if (!normalized) {
-    throw new Error(`[SigningGrantAdmission] ${label} is required for admission queue key`);
+    throw new Error(`[WalletSessionQuotaAdmission] ${label} is required for admission queue key`);
   }
   return normalized;
 }

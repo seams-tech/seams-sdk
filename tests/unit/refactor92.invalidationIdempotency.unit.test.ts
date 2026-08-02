@@ -8,7 +8,9 @@ import { SigningSessionIds } from '@/core/signingEngine/session/operationState/t
 import { toAccountId } from '@/core/types/accountIds';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
+  parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
+  type MpcWalletSigningQuotaId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { seedExpiredWalletSessionAuthorizationState } from './helpers/sealedSigningSession.fixtures';
@@ -26,9 +28,8 @@ const LANE = buildEd25519PasskeySigningLane({
     rpId: toRpId('localhost'),
     credentialIdB64u: 'refactor-92-invalidation-credential',
   },
-  signingGrantId: SigningSessionIds.signingGrant(
-    'refactor-92-invalidation-grant',
-  ),
+  walletSessionId: fixtureWalletSessionId('refactor-92-invalidation-wallet-session'),
+  quotaId: fixtureQuotaId('refactor-92-invalidation-quota'),
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
     'refactor-92-invalidation-session',
   ),
@@ -43,6 +44,12 @@ const EXPIRED_STATE = seedExpiredWalletSessionAuthorizationState({
 
 function fixtureWalletSessionId(value: string): WalletSessionId {
   const parsed = parseWalletSessionId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function fixtureQuotaId(value: string): MpcWalletSigningQuotaId {
+  const parsed = parseMpcWalletSigningQuotaId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
 }

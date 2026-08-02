@@ -24,28 +24,29 @@ the already-derived shares and presignature state.
 
 ## Session Identity Versus Signing Authority
 
-Threshold signing tracks two separate identities:
+Threshold signing tracks independent lifecycle identities:
 
 | Identity | Purpose |
 | --- | --- |
 | `thresholdSessionId` | Identifies the threshold protocol session and its signing material. Protocol state, restored holder material, and server material must all refer to this id. |
-| `signingGrantId` | Identifies the Wallet Session signing grant. This is the auth and budget boundary for remaining uses, expiry, and step-up. |
+| `walletSessionId` + `quotaId` | Identify reusable authorization and its server-owned expiry and remaining uses. |
+| `CapabilityGrantId` + `CapabilityGrantUseId` | Identify one authorized operation and its single claim/use. |
 
-The protocol session says which threshold material must be used. The signing
-grant says whether the wallet is currently authorized to use it.
+The protocol session selects threshold material. Wallet Session quota or an
+operation capability grant determines whether the operation is authorized.
 
 ## Material Readiness
 
 Worker-owned material is not sign-ready just because a persisted record mentions
 it. Browser workers are runtime-local, so material must be loaded and validated
-against the current Wallet Session, signing grant, threshold session, signing
+against the current Wallet Session quota, capability claim, threshold session, signing
 root, Router A/B scope, and worker identity.
 
 The practical states are:
 
 | State | Meaning |
 | --- | --- |
-| Auth-ready | The signing grant and Wallet Session auth exist. |
+| Auth-ready | Wallet Session auth and quota exist. |
 | Restore-ready | Durable sealed material exists and can be restored before signing. |
 | Material pending | The record has a material hint, but the worker has not validated it. |
 | Sign-ready | The worker has validated the material for the exact current binding. |

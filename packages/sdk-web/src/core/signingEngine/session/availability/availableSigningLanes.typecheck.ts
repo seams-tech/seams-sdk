@@ -108,13 +108,6 @@ const invalidCanonicalLaneWithSessionAlias: ConcreteAvailableEcdsaSigningLane = 
 };
 void invalidCanonicalLaneWithSessionAlias;
 
-const invalidCanonicalLaneWithGrantAlias: ConcreteAvailableEcdsaSigningLane = {
-  ...canonicalAuthorizationRequiredLane,
-  // @ts-expect-error canonical ECDSA availability never carries grant aliases.
-  signingGrantId: 'signing-grant-legacy',
-};
-void invalidCanonicalLaneWithGrantAlias;
-
 const invalidRestorableCanonicalEcdsaLane: ConcreteAvailableEcdsaSigningLane = {
   ...canonicalAuthorizationRequiredLane,
   // @ts-expect-error ECDSA hydration uses explicit outcomes; restorable remains Ed25519-only.
@@ -160,13 +153,6 @@ const invalidLaneIdentityWithSessionAlias: EcdsaAvailableLaneIdentityInput = {
   thresholdSessionId: 'threshold-session-legacy',
 };
 void invalidLaneIdentityWithSessionAlias;
-
-const invalidLaneIdentityWithGrantAlias: EcdsaAvailableLaneIdentityInput = {
-  ...passkeyLaneIdentity,
-  // @ts-expect-error ECDSA availability identity is independent of grants.
-  signingGrantId: 'signing-grant-legacy',
-};
-void invalidLaneIdentityWithGrantAlias;
 
 const invalidPasskeyLaneWithSubjectId: ConcreteAvailableEcdsaSigningLane = {
   ...passkeyLane,

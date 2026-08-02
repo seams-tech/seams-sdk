@@ -670,8 +670,10 @@ const LOCAL_SMOKE_JWT_AUDIENCE: &str = "seams-local-d1";
 const LOCAL_SMOKE_JWT_IAT: u64 = 1_700_000_000;
 const LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS: u64 = 4_102_444_800_000;
 const LOCAL_SMOKE_WALLET_SESSION_REMAINING_USES: u32 = 32;
-const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_GRANT_ID: &str =
-    "local-router-ab-ecdsa-derivation-signing-grant";
+const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_ID: &str =
+    "local-router-ab-ecdsa-derivation-wallet-session";
+const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_QUOTA_ID: &str =
+    "local-router-ab-ecdsa-derivation-quota";
 const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_SESSION_ID: &str =
     "local-router-ab-ecdsa-derivation-session";
 const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_ID: &str =
@@ -694,7 +696,8 @@ fn local_smoke_router_ab_ecdsa_derivation_wallet_session_authorization_v1(
         "kind": ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
         "walletId": fixture.scope.wallet_id,
         "thresholdSessionId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_SESSION_ID,
-        "signingGrantId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_GRANT_ID,
+        "walletSessionId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_ID,
+        "quotaId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_QUOTA_ID,
         "keyScope": "evm-family",
         "keyHandle": "local-router-ab-ecdsa-derivation-key-handle",
         "relayerKeyId": fixture.scope.ecdsa_threshold_key_id,

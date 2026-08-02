@@ -31,12 +31,6 @@ const bootstrapBase = {
   participantIds: [1, 2],
 } satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest;
 
-void ({
-  ...bootstrapBase,
-  // @ts-expect-error Bootstrap requests reject the removed signing-grant identity.
-  signingGrantId: 'legacy-signing-grant',
-} satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest);
-
 const clientRootProof = {
   version: 'ecdsa-derivation:role-local:first-bootstrap-root-proof:v2',
   clientRootPublicKey33B64u: 'public-key' as EcdsaClientRootPublicKey33B64u,

@@ -159,7 +159,6 @@ export type ThresholdEcdsaDerivationStableKeyContext = {
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
-  signingGrantId?: never;
   thresholdSessionId?: never;
 };
 

@@ -21,23 +21,8 @@ const thresholdSessionLocator: Ed25519DurableMaterialLocator = {
 };
 void thresholdSessionLocator;
 
-const signingGrantLocator: Ed25519DurableMaterialLocator = {
-  kind: 'ed25519_durable_material',
-  authMethod: 'email_otp',
-  materialActivation,
-  // @ts-expect-error Signing grant identity cannot locate durable Ed25519 material.
-  signingGrantId: 'signing-grant-1',
-};
-void signingGrantLocator;
-
 ed25519DurableMaterialLocator({
   authMethod: 'passkey',
   // @ts-expect-error Threshold session identity cannot replace the exact activation reference.
   thresholdSessionId: 'threshold-session-1',
-});
-
-ed25519DurableMaterialLocator({
-  authMethod: 'email_otp',
-  // @ts-expect-error Signing grant identity cannot replace the exact activation reference.
-  signingGrantId: 'signing-grant-1',
 });

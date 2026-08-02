@@ -14,7 +14,6 @@ import {
   parseRouterAbEcdsaPresignRuntimeConfig,
   RouterAbEcdsaPresignRuntime,
 } from './RouterAbEcdsaPresignRuntime';
-import { RouterAbLocalSigningSeedRuntime } from './RouterAbLocalSigningSeedRuntime';
 import {
   parseRouterAbNormalSigningRuntimeConfig,
   requireRouterAbConfiguredSigningWorkerPrivateTransport,
@@ -74,16 +73,11 @@ export function createCloudflareDurableObjectRouterAbSigningRuntimes(input: {
     ecdsaWalletSessionStore: ecdsaStores.walletSessionStore,
     config: normalSigningConfig,
   });
-  const localSigningSeed = new RouterAbLocalSigningSeedRuntime({
-    ed25519KeyStore: ed25519Stores.keyStore,
-    ed25519WalletSessionStore: ed25519Stores.walletSessionStore,
-    ecdsaWalletSessionStore: ecdsaStores.walletSessionStore,
-  });
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({
     config: parseRouterAbEcdsaPresignRuntimeConfig(input.thresholdStore),
     signingWorkerTransport,
     ensureReady,
   });
 
-  return { normalSigning, localSigningSeed, ecdsaPresign };
+  return { normalSigning, ecdsaPresign };
 }

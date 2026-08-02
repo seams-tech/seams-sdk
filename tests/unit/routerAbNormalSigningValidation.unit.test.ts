@@ -10,13 +10,13 @@ import {
   prepareRouterAbNormalSigningV2,
 } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import {
-  isSigningGrantAdmissionError,
-  SIGNING_GRANT_EXHAUSTED_ERROR,
-  SIGNING_GRANT_IN_FLIGHT_ERROR,
+  isWalletSessionQuotaAdmissionError,
+  WALLET_SESSION_QUOTA_EXHAUSTED_ERROR,
+  WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR,
 } from '@/core/signingEngine/session/operationState/authorizationAdmission';
 import {
-  classifySigningGrantAdmissionFailure,
-  SigningGrantAdmissionError,
+  classifyWalletSessionQuotaAdmissionFailure,
+  WalletSessionQuotaAdmissionError,
 } from '@/core/signingEngine/session/operationState/authorizationAdmission';
 import {
   requireRouterAbNormalSigningPrepareMatchesRequest,
@@ -247,14 +247,14 @@ async function mapsBudgetFailures(): Promise<void> {
     },
   });
 
-  expect(exhausted).toBeInstanceOf(SigningGrantAdmissionError);
-  expect(inFlight).toBeInstanceOf(SigningGrantAdmissionError);
-  expect(String((exhausted as Error).message)).toContain(SIGNING_GRANT_EXHAUSTED_ERROR);
-  expect(String((inFlight as Error).message)).toContain(SIGNING_GRANT_IN_FLIGHT_ERROR);
-  expect(classifySigningGrantAdmissionFailure(exhausted)?.kind).toBe('exhausted');
-  expect(classifySigningGrantAdmissionFailure(inFlight)?.kind).toBe('in_flight');
-  expect(isSigningGrantAdmissionError(exhausted)).toBe(true);
-  expect(isSigningGrantAdmissionError(inFlight)).toBe(true);
+  expect(exhausted).toBeInstanceOf(WalletSessionQuotaAdmissionError);
+  expect(inFlight).toBeInstanceOf(WalletSessionQuotaAdmissionError);
+  expect(String((exhausted as Error).message)).toContain(WALLET_SESSION_QUOTA_EXHAUSTED_ERROR);
+  expect(String((inFlight as Error).message)).toContain(WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR);
+  expect(classifyWalletSessionQuotaAdmissionFailure(exhausted)?.kind).toBe('exhausted');
+  expect(classifyWalletSessionQuotaAdmissionFailure(inFlight)?.kind).toBe('in_flight');
+  expect(isWalletSessionQuotaAdmissionError(exhausted)).toBe(true);
+  expect(isWalletSessionQuotaAdmissionError(inFlight)).toBe(true);
 }
 
 test(

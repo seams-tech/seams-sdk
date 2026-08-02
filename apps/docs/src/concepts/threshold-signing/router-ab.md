@@ -51,16 +51,17 @@ after activation and use Router plus SigningWorker for normal signing.
 Router A/B separates signing authority from signing material readiness.
 
 ```text
-Wallet Session auth + signingGrantId -> may spend budget
+Wallet Session auth + quotaId -> reusable authority
+CapabilityGrantId + CapabilityGrantUseId -> operation authority
 thresholdSessionId + worker material -> may participate in threshold signing
 both validated together -> sign-ready
 ```
 
-The Router owns Wallet Session verification, signing grant budget, quota, replay,
+The Router owns Wallet Session verification, atomic claim/quota consumption, replay,
 and request admission. The browser worker owns holder-side signing material. The
 SigningWorker owns server-side signing material. A public signing route should
 only be called after the SDK has selected a lane whose current browser worker
-material is runtime-validated for the same Router A/B scope and signing grant.
+material is runtime-validated for the same Router A/B scope and accepted claim.
 
 State names used by the SDK:
 

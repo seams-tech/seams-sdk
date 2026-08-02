@@ -211,7 +211,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
   private readonly operationIdBindings: SigningOperationIdBindingRegistry;
   private readonly walletSessionExpiryInvalidator: ClientWalletSessionExpiryInvalidator;
   private readonly lifecycleListeners = new Set<SdkLifecycleEventListener>();
-  private readonly signingGrantAdmissionRefreshQueues = new Map<string, Promise<unknown>>();
+  private readonly walletSessionQuotaAdmissionRefreshQueues = new Map<string, Promise<unknown>>();
 
   constructor(deps: SigningSessionCoordinatorDeps) {
     this.onPlannerTrace = deps.onPlannerTrace;
@@ -461,13 +461,13 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     return { kind: 'status', status };
   }
 
-  async runSigningGrantAdmissionRetry<TValue>(args: {
+  async runWalletSessionQuotaAdmissionRetry<TValue>(args: {
     queueKey: SigningAdmissionQueueKey;
     refresh: () => Promise<TValue>;
     retryAfterRefresh: () => Promise<TValue>;
   }): Promise<TValue> {
     const queueKey = String(args.queueKey);
-    const existing = this.signingGrantAdmissionRefreshQueues.get(queueKey);
+    const existing = this.walletSessionQuotaAdmissionRefreshQueues.get(queueKey);
     if (existing) {
       await existing.catch(() => undefined);
       return await args.retryAfterRefresh();
@@ -476,11 +476,11 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort {
     const queueEntry = refreshPromise
       .catch(() => undefined)
       .then(() => {
-        if (this.signingGrantAdmissionRefreshQueues.get(queueKey) === queueEntry) {
-          this.signingGrantAdmissionRefreshQueues.delete(queueKey);
+        if (this.walletSessionQuotaAdmissionRefreshQueues.get(queueKey) === queueEntry) {
+          this.walletSessionQuotaAdmissionRefreshQueues.delete(queueKey);
         }
       });
-    this.signingGrantAdmissionRefreshQueues.set(queueKey, queueEntry);
+    this.walletSessionQuotaAdmissionRefreshQueues.set(queueKey, queueEntry);
     return await refreshPromise;
   }
 

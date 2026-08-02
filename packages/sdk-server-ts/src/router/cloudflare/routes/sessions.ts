@@ -62,7 +62,6 @@ import {
   parseRouterAbEcdsaDerivationWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
 } from '../../../core/ThresholdService/validation';
-import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
 import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/utils/domainIds';
 import { parseWalletUnlockRequestedCapabilitiesRequest } from '../../walletUnlockRequestedCapabilitiesValidation';
 import {
@@ -1555,16 +1554,6 @@ export async function handleSessionRefresh(
     } catch {}
   }
   return res;
-}
-
-export async function handleSigningBudgetStatus(
-  ctx: CloudflareRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/router-ab/wallet-budget/status') return null;
-  return await proxyNormalSigningRequestToMpcRouter({
-    request: ctx.request,
-    proxy: ctx.opts.routerAbNormalSigningRouterProxy,
-  });
 }
 
 function parseReusableWalletSessionStatusBody(body: unknown): {
