@@ -1556,9 +1556,9 @@ the replacement and legacy MPC paths must not ship together.
       the router-ab-core generated TypeScript binding check passes 1/1 and the
       signer-core generated schema check passes 1/1;
       the focused ECDSA lifecycle, hydration, supersession, export, step-up,
-      sealed-runtime, presign-store, expiry, and authorization-seal matrix
-      passes 48/48 after refreshing current required-identity fixtures
-      (`12fc49a59`);
+      sealed-runtime, presign-store, expiry, authorization-seal, warm-read-model,
+      and volatile-threshold-session-boundary matrix passes 55/55 after
+      refreshing current required-identity fixtures (`12fc49a59`, `0c341f40a`);
       SDK and unit typechecks pass; direct architecture, worker/WASM, bundle,
       and boundary guards pass. The source Playwright guard set passes 220/220;
       the D1 local-dev launcher contract is restored with SDK `.dev.vars`
@@ -1629,6 +1629,8 @@ material identifier substitute for another.
       (`5cf433765`). The Rust reusable-claim binding remains open until the
       shared durable claim verifier replaces its current Wallet Session grant
       comparison.
+- [x] The focused Router A/B admission-store suite covers ECDSA policy without
+      legacy quota reservation and passes 8/8 (`5cf433765`).
 - [ ] Add every live `SigningGrantId`, `signingGrantId`, and
       `signing_grant_id` production occurrence to the deletion ledger and
       classify it as reusable-session authorization, quota, operation grant,
