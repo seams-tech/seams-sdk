@@ -400,7 +400,7 @@ ports, and the two-state recovery journal.
 - ~~`EmailOtpMixedWalletSigningBudgetV1` worker type~~ — deleted as a
   misleading cross-curve wire-shaped alias; the Email OTP login path keeps its
   narrow local session-policy value, while Ed25519 budget claims remain at the
-  authenticated Router boundary (`HEAD 2026-08-02`).
+  authenticated Router boundary (`f989273d4`).
 - ~~factor-labelled Yao root/export transport unions deletion~~ — retained only
   at the Yao protocol boundary where the factors select different acquisition
   sessions.
@@ -445,7 +445,7 @@ ports, and the two-state recovery journal.
   crosses it.
 - ~~the unused `signingGrantId` read in Email OTP Ed25519 sealed publication~~
   — the refresh transport is authenticated by the Wallet Session bearer and
-  exact material activation; the dead local was removed (`HEAD 2026-08-02`).
+  exact material activation; the dead local was removed (`afd2ba04c`).
 - ~~`exportEd25519YaoKeyWithFreshPasskey`,
   `exportEd25519YaoKeyWithFreshEmailOtp`~~ — replaced by one exhaustive
   same-method coordinator in `01bcabb29`
@@ -552,7 +552,7 @@ ports, and the two-state recovery journal.
 - ~~`createEcdsaOnlyWalletSigningBudgetSessionStatus` and its
   `walletSigningBudgetStatus.fixtures.ts` helper~~ — zero callers remained
   after the ECDSA client-budget deletion; the fixture was removed without
-  changing the live Ed25519 budget boundary (`HEAD 2026-08-02`).
+  changing the live Ed25519 budget boundary (`afd2ba04c`).
 
 ## Phase 20 — signing budget subsystem
 
