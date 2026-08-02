@@ -1313,7 +1313,7 @@ function parseSigningSessionSealRouteResult(value: unknown): SigningSessionSealR
 
 function makeSigningSessionSealSingleFlightKey(args: {
   operation: 'apply-server-seal' | 'remove-server-seal';
-  sessionId: string;
+  thresholdSessionId: string;
   materialIdentity: string;
   relayerUrl: string;
   keyVersion?: string;
@@ -1324,7 +1324,7 @@ function makeSigningSessionSealSingleFlightKey(args: {
     args.operation === 'remove-server-seal' ? 'remove-server-seal' : 'apply-server-seal';
   return [
     operation,
-    normalizeOptionalTrimmedString(args.sessionId) || '',
+    normalizeOptionalTrimmedString(args.thresholdSessionId) || '',
     normalizeOptionalTrimmedString(args.materialIdentity) || '',
     normalizeOptionalTrimmedString(args.relayerUrl) || '',
     normalizeOptionalNonEmptyString(args.keyVersion) || '',
@@ -2042,14 +2042,14 @@ function readEmailOtpWarmSessionStatus(
 }
 
 function putEmailOtpWarmSessionMaterial(args: {
-  sessionId: string;
+  thresholdSessionId: string;
   clientRootShare32: Uint8Array;
   signingSessionSecret32: Uint8Array;
   clientAdditiveShare32?: Uint8Array;
   expiresAtMs: number;
   remainingUses: number;
 }): void {
-  const sessionId = readString(args.sessionId, 'sessionId');
+  const thresholdSessionId = readString(args.thresholdSessionId, 'thresholdSessionId');
   const expiresAtMs = Math.floor(Number(args.expiresAtMs) || 0);
   const remainingUses = Math.floor(Number(args.remainingUses) || 0);
   if (!(args.clientRootShare32 instanceof Uint8Array) || args.clientRootShare32.length !== 32) {
@@ -2071,8 +2071,8 @@ function putEmailOtpWarmSessionMaterial(args: {
   if (expiresAtMs <= Date.now() || remainingUses <= 0) {
     throw new Error('Invalid Email OTP warm-session ttl or remainingUses');
   }
-  deleteEmailOtpWarmSession(sessionId);
-  emailOtpWarmSessions.set(sessionId, {
+  deleteEmailOtpWarmSession(thresholdSessionId);
+  emailOtpWarmSessions.set(thresholdSessionId, {
     clientRootShare32: Uint8Array.from(args.clientRootShare32),
     signingSessionSecret32: Uint8Array.from(args.signingSessionSecret32),
     ...(args.clientAdditiveShare32
@@ -2100,7 +2100,7 @@ function bindEmailOtpEcdsaWarmSessionFromWorkerHandle(args: {
       chainTarget: handle.chainTarget,
     });
     putEmailOtpWarmSessionMaterial({
-      sessionId: readString(args.thresholdSessionId, 'thresholdSessionId'),
+      thresholdSessionId: readString(args.thresholdSessionId, 'thresholdSessionId'),
       clientRootShare32,
       signingSessionSecret32: clientRootShare32,
       expiresAtMs: args.expiresAtMs,
@@ -2170,7 +2170,7 @@ async function sealEmailOtpWarmSessionMaterial(args: {
   target: EmailOtpWarmMaterialTarget;
   transport: SigningSessionSealTransport;
 }): Promise<EmailOtpWarmSessionSealResult> {
-  const sessionId = args.target.thresholdSessionId;
+  const thresholdSessionId = args.target.thresholdSessionId;
   const groupId = normalizeOptionalNonEmptyString(args.transport.groupId);
   if (!groupId) {
     return {
@@ -2193,7 +2193,7 @@ async function sealEmailOtpWarmSessionMaterial(args: {
   const payloadB64u = base64UrlEncode(secret32);
   const singleFlightKey = makeSigningSessionSealSingleFlightKey({
     operation: 'apply-server-seal',
-    sessionId,
+    thresholdSessionId,
     materialIdentity:
       args.target.kind === 'ecdsa'
         ? args.target.thresholdSessionId
@@ -2220,7 +2220,7 @@ async function sealEmailOtpWarmSessionMaterial(args: {
         const applied = await callSigningSessionSealRoute({
           operation: 'apply-server-seal',
           transport: args.transport,
-          thresholdSessionId: sessionId,
+          thresholdSessionId,
           ciphertext: readString(clientEncryptedCiphertext, 'clientEncryptedCiphertext'),
           keyVersion: args.transport.keyVersion,
         });
@@ -2325,7 +2325,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
   }
   const singleFlightKey = makeSigningSessionSealSingleFlightKey({
     operation: 'remove-server-seal',
-    sessionId: thresholdSessionId,
+    thresholdSessionId,
     materialIdentity: thresholdSessionId,
     relayerUrl: transport.relayerUrl,
     keyVersion: transport.keyVersion,
@@ -2498,7 +2498,7 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
   };
 }): Promise<EmailOtpEd25519YaoLocalMaterialRehydrateResult> {
   const session = args.restore.session;
-  const sessionId = normalizeOptionalTrimmedString(session.thresholdSessionId);
+  const thresholdSessionId = normalizeOptionalTrimmedString(session.thresholdSessionId);
   const walletId = normalizeOptionalTrimmedString(String(session.walletId));
   const providerSubject = normalizeOptionalTrimmedString(args.restore.providerSubject);
   const expectedOperationalPublicKey = normalizeOptionalTrimmedString(
@@ -2508,7 +2508,7 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
   const groupId = normalizeOptionalNonEmptyString(args.transport.groupId);
   const walletSessionJwt = normalizeOptionalNonEmptyString(args.transport.walletSessionJwt);
   if (
-    !sessionId ||
+    !thresholdSessionId ||
     !walletId ||
     !providerSubject ||
     !expectedOperationalPublicKey ||
@@ -2525,7 +2525,7 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
       message: 'Email OTP Ed25519 exact-local restore requires exact session identity',
     };
   }
-  if (args.target.thresholdSessionId !== sessionId) {
+  if (args.target.thresholdSessionId !== thresholdSessionId) {
     return {
       ok: false,
       code: 'invalid_args',
@@ -2581,7 +2581,7 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
       const removed = await callSigningSessionSealRoute({
         operation: 'remove-server-seal',
         transport: args.transport,
-        thresholdSessionId: sessionId,
+        thresholdSessionId,
         ciphertext: readString(clientEncryptedCiphertext, 'clientEncryptedCiphertext'),
         keyVersion: args.transport.keyVersion,
       });
@@ -2615,13 +2615,13 @@ async function rehydrateEmailOtpEd25519YaoLocalMaterial(args: {
     });
     importedClient = await importEmailOtpEd25519YaoLocalMaterial({
       material: localMaterial.material,
-      expectedThresholdSessionId: sessionId,
+      expectedThresholdSessionId: thresholdSessionId,
       enrollmentSecret32: factorSecret32,
     });
     assertEmailOtpEd25519YaoCapabilityContinuity({
       material: localMaterial.material,
       bootstrap,
-      expectedThresholdSessionId: sessionId,
+      expectedThresholdSessionId: thresholdSessionId,
     });
     const restoredMaterialActivation = nearEd25519YaoMaterialActivationFromMetadata(
       importedClient.metadata,
@@ -5051,7 +5051,10 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
     let signingSessionSecret32: Uint8Array | null = Uint8Array.from(args.clientRootShare32);
     try {
       putEmailOtpWarmSessionMaterial({
-        sessionId: readString(bootstrap.session?.thresholdSessionId, 'thresholdSessionId'),
+        thresholdSessionId: readString(
+          bootstrap.session?.thresholdSessionId,
+          'thresholdSessionId',
+        ),
         clientRootShare32: args.clientRootShare32,
         signingSessionSecret32,
         clientAdditiveShare32: emailOtpClientAdditiveShare32,
