@@ -12,10 +12,6 @@ import {
   SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort,
 } from '../helpers/routerAbSigningRuntimeTestUtils';
 import { createActivatedFinalizeYaoRuntimeFixture } from './helpers/d1WalletRegistrationFinalizeConvergence.fixtures';
-import type {
-  RouterAbWalletBudgetGrantProvisionInputV1,
-  RouterAbWalletBudgetGrantProvisionerV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import {
   applySignerMigrations,
   makeRecoveryWrappedEnrollmentEscrows,
@@ -83,34 +79,16 @@ class CountingStrictRegistrationPort extends SuccessfulFixtureRouterAbEcdsaStric
   }
 }
 
-class RecordingPrivateD1BudgetProvisioner implements RouterAbWalletBudgetGrantProvisionerV1 {
-  readonly requests: RouterAbWalletBudgetGrantProvisionInputV1[] = [];
-
-  async provisionGrant(input: RouterAbWalletBudgetGrantProvisionInputV1) {
-    this.requests.push(input);
-    return {
-      ok: true as const,
-      signingGrantId: input.signingGrantId,
-      remainingUses: input.initialSignatureUses,
-      reservedUses: 0,
-      availableUses: input.initialSignatureUses,
-      expiresAtMs: input.expiresAtMs,
-    };
-  }
-}
-
 /** Drives a ceremony through setup and respond, ready to activate. */
 async function respondedCeremony(database: unknown, strictRegistration: unknown) {
   const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
     config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-activate' },
   });
   const thresholdStore = new RecordingDurableObjectNamespace();
-  const budgetProvisioner = new RecordingPrivateD1BudgetProvisioner();
   const service = createCloudflareD1RouterApiAuthService({
     database: database as never,
     ...SCOPE,
     routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
-    walletBudgetGrantProvisioner: budgetProvisioner,
     ecdsaStrictRegistration: strictRegistration,
     thresholdStore: {
       kind: 'cloudflare-do',
@@ -173,7 +151,7 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
     verifier: signer,
     minter: signer,
   };
-  return { service, signer, setup, activateRequest, budgetProvisioner, thresholdStore };
+  return { service, signer, setup, activateRequest, thresholdStore };
 }
 
 test('a conflicting activate retry is refused before any custody effect', async () => {
@@ -216,7 +194,7 @@ test('an identical activate retry returns the stored terminal bytes without repe
   try {
     await applySignerMigrations(database);
     const strictRegistration = new CountingStrictRegistrationPort();
-    const { service, activateRequest, budgetProvisioner, thresholdStore } =
+    const { service, activateRequest, thresholdStore } =
       await respondedCeremony(database, strictRegistration);
 
     const first = await service.walletRegistration.activateWalletRegistration(
@@ -244,14 +222,6 @@ test('an identical activate retry returns the stored terminal bytes without repe
     expect(first.ecdsa.activation).toBeTruthy();
     expect(first.ecdsa.bootstrap).toBeTruthy();
     expect(replayed.ok && replayed.ecdsa.activation).toBeTruthy();
-    expect(budgetProvisioner.requests).toHaveLength(1);
-    expect(budgetProvisioner.requests[0]?.authorizedSigners).toEqual([
-      {
-        curve: 'ecdsa',
-        threshold_session_id: first.ecdsa.bootstrap.thresholdSessionId,
-        signing_worker_id: 'signing-worker-unit-fixture',
-      },
-    ]);
     expect(thresholdStore.objectNames).toEqual([]);
     expect(replayed.ok && replayed.ecdsa.bootstrap).toBeTruthy();
   } finally {
