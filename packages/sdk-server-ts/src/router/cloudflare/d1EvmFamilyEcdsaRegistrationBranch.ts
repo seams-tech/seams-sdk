@@ -103,7 +103,6 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
     signingRootVersion: input.signingRootVersion,
     activationEpoch: rootShareEpoch,
   });
-  const signingGrantId = `wss_${secureRandomBase64Url(24)}`;
   const thresholdSessionId = `tederivation_${secureRandomBase64Url(24)}`;
   const ttlMs = 10 * 60_000;
   const requestId = `${input.registrationCeremonyId}:ecdsa:evm-family`;
@@ -119,7 +118,6 @@ export async function buildD1EvmFamilyEcdsaRegistrationPrepare(input: {
     registrationPreparationId: input.registrationPreparationId,
     requestId,
     thresholdSessionId,
-    signingGrantId,
     ttlMs,
     remainingUses: REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES,
     participantIds: [1, 2],

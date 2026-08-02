@@ -27,7 +27,6 @@ import {
   type RegistrationAuthMethodInput,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import { parseSigningGrantId, type SigningGrantId } from '@shared/utils/domainIds';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 import {
   sameRouterAbMpcMaterialActivationRef,
@@ -165,10 +164,6 @@ import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService
 import type { D1WalletRegistrationCommitStore } from './d1WalletRegistrationCommitStore';
 import { buildD1EvmFamilyEcdsaRegistrationPrepare } from './d1EvmFamilyEcdsaRegistrationBranch';
 import { sha256BytesPortable } from './d1RouterApiAuthBoundary';
-import type {
-  RouterAbWalletBudgetGrantProvisionerV1,
-  RouterAbWalletBudgetSignerBindingV1,
-} from '../routerAbPrivateSigningWorker';
 import { alphabetizeStringify, bytesToUnprefixedHex, sha256BytesUtf8 } from '@shared/utils/digests';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
@@ -278,26 +273,6 @@ function reusableWalletSessionPrincipalId(authority: WalletAuthAuthority): Princ
       ? String(authority.factor.providerUserId)
       : String(authority.walletId),
   );
-}
-
-async function deriveEcdsaPostRegistrationSigningGrantId(input: {
-  readonly mintId: ReusableWalletSessionMintId;
-  readonly walletId: WalletId;
-  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
-}): Promise<SigningGrantId> {
-  const digest = base64UrlEncode(
-    await sha256BytesUtf8(
-      alphabetizeStringify({
-        version: 'ecdsa-post-registration-signing-grant/v1',
-        mintId: input.mintId,
-        walletId: input.walletId,
-        publicCapability: input.publicCapability,
-      }),
-    ),
-  );
-  const parsed = parseSigningGrantId(`ecdsa-grant_${digest}`);
-  if (!parsed.ok) throw new Error('Failed to derive ECDSA signing grant identity');
-  return parsed.value;
 }
 
 type D1RegistrationEcdsaFinalizeState =
@@ -715,54 +690,6 @@ function finalizePasskeyRpId(authority: StoredRegistrationAuthority): string {
   return authority.rpId;
 }
 
-function registrationWalletBudgetRelyingPartyId(authority: StoredRegistrationAuthority): string {
-  switch (authority.kind) {
-    case 'passkey':
-      return authority.rpId;
-    case 'email_otp':
-      return `email-otp:${authority.orgId}`;
-  }
-}
-
-function ecdsaRegistrationWalletBudgetSigner(input: {
-  readonly thresholdSessionId: string;
-  readonly signingWorkerId: string;
-}): RouterAbWalletBudgetSignerBindingV1 {
-  return {
-    curve: 'ecdsa',
-    threshold_session_id: input.thresholdSessionId,
-    signing_worker_id: input.signingWorkerId,
-  };
-}
-
-function ed25519RegistrationWalletBudgetSigner(input: {
-  readonly thresholdSessionId: string;
-  readonly signingWorkerId: string;
-}): RouterAbWalletBudgetSignerBindingV1 {
-  return {
-    curve: 'ed25519',
-    threshold_session_id: input.thresholdSessionId,
-    signing_worker_id: input.signingWorkerId,
-  };
-}
-
-function registrationWalletBudgetIssuerId(signingGrantId: string): string {
-  return `registration:${signingGrantId}`;
-}
-
-function walletSessionBudgetRelyingPartyId(
-  authority: WalletAuthAuthority,
-  orgId: string,
-): string {
-  return isPasskeyWalletAuthAuthority(authority)
-    ? authority.verifier.rpId
-    : `email-otp:${orgId}`;
-}
-
-function walletSessionBudgetIssuerId(operation: string, signingGrantId: string): string {
-  return `${operation}:${signingGrantId}`;
-}
-
 export function ecdsaStrictRegistrationAuthority(facts: RouterAbEcdsaRegistrationRequestFactsV1): {
   readonly subjectId: string;
   readonly sessionId: string;
@@ -911,7 +838,6 @@ export async function buildActivatedEcdsaFamilyBootstrap(input: {
       activationEpoch: input.activation.ecdsa_activation.activation_epoch,
     }),
     activationEpoch: input.activation.ecdsa_activation.activation_epoch,
-    signingGrantId: prepare.signingGrantId,
     expiresAtMs,
     expiresAt: new Date(expiresAtMs).toISOString(),
     remainingUses: prepare.remainingUses,
@@ -1065,7 +991,6 @@ export class CloudflareD1WalletRegistrationService {
   private readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
-  private readonly walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null;
   private readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
   private readonly getWalletStore: WalletStoreProvider;
   /** The single Gateway operation row for activate-with-finalize (94C). */
@@ -1082,7 +1007,6 @@ export class CloudflareD1WalletRegistrationService {
     readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
-    readonly walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null;
     readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
     readonly getWalletStore: WalletStoreProvider;
     readonly activateSideEffects: D1WalletRegistrationActivateSideEffectStore;
@@ -1096,7 +1020,6 @@ export class CloudflareD1WalletRegistrationService {
     this.emailOtpRegistrationEnrollmentFinalizer = input.emailOtpRegistrationEnrollmentFinalizer;
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getEd25519YaoProductRegistration = input.getEd25519YaoProductRegistration;
-    this.walletBudgetGrantProvisioner = input.walletBudgetGrantProvisioner;
     this.ecdsaStrictRegistration = input.ecdsaStrictRegistration;
     this.getWalletStore = input.getWalletStore;
     this.activateSideEffects = input.activateSideEffects;
@@ -1325,7 +1248,6 @@ export class CloudflareD1WalletRegistrationService {
         readonly walletKey: WalletEcdsaSignerKey;
         readonly session: {
           readonly thresholdSessionId: string;
-          readonly signingGrantId: string;
           readonly expiresAtMs: number;
           readonly remainingUses: number;
         };
@@ -1367,52 +1289,14 @@ export class CloudflareD1WalletRegistrationService {
         publicCapability: input.public_capability,
       });
       const activeThresholdSessionId = input.session_policy.threshold_session_id;
-      const signingGrantId = await deriveEcdsaPostRegistrationSigningGrantId({
-        mintId: requireReusableWalletSessionMintId(input.session_policy.wallet_session_mint_id),
-        walletId,
-        publicCapability: input.public_capability,
-      });
       const expiresAtMs = nowMs + input.session_policy.ttl_ms;
-      const budgetProvisioner = this.walletBudgetGrantProvisioner;
-      if (!budgetProvisioner) {
-        return {
-          ok: false,
-          code: 'not_configured',
-          message: 'Router A/B private-D1 wallet-budget provisioning is not configured',
-        };
-      }
-      const provisioned = await budgetProvisioner.provisionGrant({
-        walletId,
-        signingGrantId,
-        relyingPartyId: `wallet-session:${walletId}`,
-        authorizedSigners: [
-          ecdsaRegistrationWalletBudgetSigner({
-            thresholdSessionId: activeThresholdSessionId,
-            signingWorkerId: normalSigning.scope.signing_worker.server_id,
-          }),
-        ],
-        initialSignatureUses: input.session_policy.remaining_uses,
-        expiresAtMs,
-        issuerIdempotencyKey: walletSessionBudgetIssuerId(
-          'ecdsa-session',
-          signingGrantId,
-        ),
-      });
-      if (!provisioned.ok) {
-        return {
-          ok: false,
-          code: provisioned.code,
-          message: provisioned.message,
-        };
-      }
       return {
         ok: true,
         walletKey,
         session: {
           thresholdSessionId: activeThresholdSessionId,
-          signingGrantId: provisioned.signingGrantId,
-          expiresAtMs: provisioned.expiresAtMs,
-          remainingUses: provisioned.remainingUses,
+          expiresAtMs,
+          remainingUses: input.session_policy.remaining_uses,
         },
         normalSigning,
       };
@@ -1513,8 +1397,7 @@ export class CloudflareD1WalletRegistrationService {
         secondParticipantId,
       ];
       const yaoRuntime = this.getEd25519YaoProductRegistration();
-      const budgetProvisioner = this.walletBudgetGrantProvisioner;
-      if (!yaoRuntime || !budgetProvisioner) {
+      if (!yaoRuntime) {
         return {
           ok: false,
           code: 'not_configured',
@@ -1671,8 +1554,7 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
       const yaoRuntime = this.getEd25519YaoProductRegistration();
-      const budgetProvisioner = this.walletBudgetGrantProvisioner;
-      if (!yaoRuntime || !budgetProvisioner) {
+      if (!yaoRuntime) {
         return {
           ok: false,
           code: 'not_configured',
@@ -3077,41 +2959,6 @@ export class CloudflareD1WalletRegistrationService {
           activation: activated.value,
         });
         markServerTiming('ecdsa_activate_bootstrap', bootstrapStartedAtMs);
-        const budgetProvisioner = this.walletBudgetGrantProvisioner;
-        if (!budgetProvisioner) {
-          throw new Error('Router A/B private-D1 wallet-budget provisioning is not configured');
-        }
-        const registrationAuthority = verifiedRegistrationCeremonyAuthority(ceremony);
-        if (!registrationAuthority) {
-          throw new Error('ECDSA activation ceremony has no verified registration authority');
-        }
-        const sessionProvisionStartedAtMs = Date.now();
-        const signingWorkerId = ecdsaBranch.strictRegistration.lifecycle.selected_server_id;
-        const provisioned = await budgetProvisioner.provisionGrant({
-          walletId: bootstrap.walletId,
-          signingGrantId: bootstrap.signingGrantId,
-          relyingPartyId: registrationWalletBudgetRelyingPartyId(registrationAuthority),
-          authorizedSigners: [
-            ecdsaRegistrationWalletBudgetSigner({
-              thresholdSessionId: bootstrap.thresholdSessionId,
-              signingWorkerId,
-            }),
-          ],
-          initialSignatureUses: bootstrap.remainingUses,
-          expiresAtMs: bootstrap.expiresAtMs,
-          issuerIdempotencyKey: registrationWalletBudgetIssuerId(bootstrap.signingGrantId),
-        });
-        markServerTiming('ecdsa_activate_session_provision', sessionProvisionStartedAtMs);
-        if (!provisioned.ok) {
-          throw new Error(provisioned.message);
-        }
-        if (
-          provisioned.remainingUses !== bootstrap.remainingUses ||
-          provisioned.availableUses !== bootstrap.remainingUses ||
-          provisioned.reservedUses !== 0
-        ) {
-          throw new Error('SigningWorker returned an unexpected registration wallet budget');
-        }
         const activatedBranch: StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch = {
           kind: 'evm_family_ecdsa_activated',
           activationOwner: ecdsaBranch.activationOwner,
@@ -3150,10 +2997,9 @@ export class CloudflareD1WalletRegistrationService {
             relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
             thresholdSessionId: bootstrap.thresholdSessionId,
             activationEpoch: bootstrap.activationEpoch,
-            signingGrantId: bootstrap.signingGrantId,
-            expiresAtMs: provisioned.expiresAtMs,
-            expiresAt: new Date(provisioned.expiresAtMs).toISOString(),
-            remainingUses: provisioned.remainingUses,
+            expiresAtMs: bootstrap.expiresAtMs,
+            expiresAt: bootstrap.expiresAt,
+            remainingUses: bootstrap.remainingUses,
             participantIds: [...exactEcdsaParticipantPair(bootstrap.participantIds)],
             routerAbEcdsaDerivationNormalSigning:
               bootstrap.routerAbEcdsaDerivationNormalSigning,
@@ -3405,14 +3251,6 @@ export class CloudflareD1WalletRegistrationService {
             ok: false,
             code: 'not_configured',
             message: 'Ed25519 Yao product registration is not configured',
-          };
-        }
-        const budgetProvisioner = this.walletBudgetGrantProvisioner;
-        if (!budgetProvisioner) {
-          return {
-            ok: false,
-            code: 'not_configured',
-            message: 'Router A/B private-D1 wallet-budget provisioning is not configured',
           };
         }
         const storedYao = findStoredWalletRegistrationNearEd25519YaoBranch(ceremony.signerState);

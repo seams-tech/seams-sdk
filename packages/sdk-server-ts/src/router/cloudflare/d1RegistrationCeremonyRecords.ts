@@ -1554,7 +1554,6 @@ function parseD1WalletRegistrationEcdsaPrepare(
   const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
   const requestId = toOptionalTrimmedString(record.requestId);
   const thresholdSessionId = toOptionalTrimmedString(record.thresholdSessionId);
-  const signingGrantId = toOptionalTrimmedString(record.signingGrantId);
   const ttlMs = safeInteger(record.ttlMs);
   const remainingUses = safeInteger(record.remainingUses);
   const participantIds = parseD1EcdsaParticipantPair(record.participantIds);
@@ -1569,7 +1568,6 @@ function parseD1WalletRegistrationEcdsaPrepare(
     !relayerKeyId ||
     !requestId ||
     !thresholdSessionId ||
-    !signingGrantId ||
     ttlMs === null ||
     remainingUses === null ||
     !participantIds ||
@@ -1589,7 +1587,6 @@ function parseD1WalletRegistrationEcdsaPrepare(
     registrationPreparationId: registrationPreparationIdFromString(registrationPreparationId),
     requestId,
     thresholdSessionId,
-    signingGrantId,
     ttlMs,
     remainingUses,
     participantIds,
@@ -1622,7 +1619,6 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
   const thresholdSessionId = toOptionalTrimmedString(record.thresholdSessionId);
   const activationEpochResult = parseRootShareEpoch(record.activationEpoch);
   const activationEpoch = activationEpochResult.ok ? activationEpochResult.value : null;
-  const signingGrantId = toOptionalTrimmedString(record.signingGrantId);
   const expiresAtMs = safeInteger(record.expiresAtMs);
   const expiresAt = toOptionalTrimmedString(record.expiresAt);
   const remainingUses = safeInteger(record.remainingUses);
@@ -1650,7 +1646,6 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
     !participantIds ||
     !thresholdSessionId ||
     !activationEpoch ||
-    !signingGrantId ||
     expiresAtMs === null ||
     !expiresAt ||
     remainingUses === null
@@ -1679,7 +1674,6 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
     participantIds: [...participantIds],
     thresholdSessionId,
     activationEpoch,
-    signingGrantId,
     expiresAtMs,
     expiresAt,
     remainingUses,
@@ -1779,7 +1773,6 @@ export function isMatchingD1EcdsaClientBootstrap(input: {
     actual.registrationPreparationId === expected.registrationPreparationId &&
     actual.requestId === expected.requestId &&
     actual.thresholdSessionId === expected.thresholdSessionId &&
-    actual.signingGrantId === expected.signingGrantId &&
     actual.ttlMs === expected.ttlMs &&
     actual.remainingUses === expected.remainingUses &&
     positiveIntegerArraysEqual(actual.participantIds, expected.participantIds) &&
@@ -1807,7 +1800,6 @@ export function toD1EcdsaDerivationClientBootstrapRequest(
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
     requestId: clientBootstrap.requestId,
     sessionId: clientBootstrap.thresholdSessionId,
-    signingGrantId: clientBootstrap.signingGrantId,
     ttlMs: clientBootstrap.ttlMs,
     remainingUses: clientBootstrap.remainingUses,
     participantIds: [...clientBootstrap.participantIds],

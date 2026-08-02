@@ -76,10 +76,6 @@ import {
   type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
   type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
 } from '../routerAbEd25519YaoRegistrationSideEffectBoundary';
-import type {
-  RouterAbWalletBudgetGrantProvisionerV1,
-  RouterAbWalletBudgetSignerBindingV1,
-} from '../routerAbPrivateSigningWorker';
 
 type StartWalletAddSignerInput = WalletAddSignerStartRequest;
 type RespondWalletAddSignerDerivationInput = WalletAddSignerEcdsaDerivationRespondRequest;
@@ -90,30 +86,6 @@ type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyI
 type WalletStoreProvider = () => D1WalletStore;
 type Ed25519YaoProductRegistrationProvider =
   () => RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
-
-function addSignerWalletBudgetRelyingPartyId(
-  ceremony: StoredWalletAddSignerCeremony,
-): string {
-  return ceremony.auth.kind === 'webauthn_assertion'
-    ? ceremony.auth.rpId
-    : `app-session:${ceremony.intent.walletId}`;
-}
-
-function addSignerWalletBudgetSigner(input: {
-  readonly curve: RouterAbWalletBudgetSignerBindingV1['curve'];
-  readonly thresholdSessionId: string;
-  readonly signingWorkerId: string;
-}): RouterAbWalletBudgetSignerBindingV1 {
-  return {
-    curve: input.curve,
-    threshold_session_id: input.thresholdSessionId,
-    signing_worker_id: input.signingWorkerId,
-  };
-}
-
-function addSignerWalletBudgetIssuerId(signingGrantId: string): string {
-  return `add-signer:${signingGrantId}`;
-}
 
 type Ed25519AddSignerIntent = AddSignerIntentV1 & {
   readonly signerSelection: Extract<AddSignerIntentV1['signerSelection'], { mode: 'ed25519' }>;
@@ -534,48 +506,45 @@ function updateAddSignerCeremonyState(input: {
   };
 }
 
-function bootstrapWithProvisionedSession(input: {
-  readonly bootstrap: StoredEcdsaAddSignerActivated['bootstrap'];
-  readonly provisioned: {
-    readonly expiresAtMs: number;
-    readonly remainingUses: number;
-    readonly participantIds: readonly number[];
-  };
-}): StoredEcdsaAddSignerActivated['bootstrap'] {
+function storedEcdsaAddSignerBootstrap(
+  bootstrap: StoredEcdsaAddSignerActivated['bootstrap'],
+): StoredEcdsaAddSignerActivated['bootstrap'] {
   return {
-    formatVersion: input.bootstrap.formatVersion,
-    walletId: input.bootstrap.walletId,
-    evmFamilySigningKeySlotId: input.bootstrap.evmFamilySigningKeySlotId,
-    ecdsaThresholdKeyId: input.bootstrap.ecdsaThresholdKeyId,
-    relayerKeyId: input.bootstrap.relayerKeyId,
-    applicationBindingDigestB64u: input.bootstrap.applicationBindingDigestB64u,
-    contextBinding32B64u: input.bootstrap.contextBinding32B64u,
-    publicIdentity: input.bootstrap.publicIdentity,
-    clientShareRetryCounter: input.bootstrap.clientShareRetryCounter,
-    relayerShareRetryCounter: input.bootstrap.relayerShareRetryCounter,
-    publicTranscriptDigest32B64u: input.bootstrap.publicTranscriptDigest32B64u,
-    keyHandle: input.bootstrap.keyHandle,
-    signingRootId: input.bootstrap.signingRootId,
-    signingRootVersion: input.bootstrap.signingRootVersion,
-    thresholdEcdsaPublicKeyB64u: input.bootstrap.thresholdEcdsaPublicKeyB64u,
-    ethereumAddress: input.bootstrap.ethereumAddress,
-    relayerVerifyingShareB64u: input.bootstrap.relayerVerifyingShareB64u,
-    thresholdSessionId: input.bootstrap.thresholdSessionId,
-    activationEpoch: input.bootstrap.activationEpoch,
-    signingGrantId: input.bootstrap.signingGrantId,
-    expiresAtMs: input.provisioned.expiresAtMs,
-    expiresAt: new Date(input.provisioned.expiresAtMs).toISOString(),
-    remainingUses: input.provisioned.remainingUses,
-    participantIds: [...input.provisioned.participantIds],
+    formatVersion: bootstrap.formatVersion,
+    walletId: bootstrap.walletId,
+    evmFamilySigningKeySlotId: bootstrap.evmFamilySigningKeySlotId,
+    ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
+    relayerKeyId: bootstrap.relayerKeyId,
+    applicationBindingDigestB64u: bootstrap.applicationBindingDigestB64u,
+    contextBinding32B64u: bootstrap.contextBinding32B64u,
+    publicIdentity: bootstrap.publicIdentity,
+    clientShareRetryCounter: bootstrap.clientShareRetryCounter,
+    relayerShareRetryCounter: bootstrap.relayerShareRetryCounter,
+    publicTranscriptDigest32B64u: bootstrap.publicTranscriptDigest32B64u,
+    keyHandle: bootstrap.keyHandle,
+    signingRootId: bootstrap.signingRootId,
+    signingRootVersion: bootstrap.signingRootVersion,
+    thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u,
+    ethereumAddress: bootstrap.ethereumAddress,
+    relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
+    thresholdSessionId: bootstrap.thresholdSessionId,
+    activationEpoch: bootstrap.activationEpoch,
+    authorizationSessionId: bootstrap.authorizationSessionId,
+    walletSessionId: bootstrap.walletSessionId,
+    quotaId: bootstrap.quotaId,
+    expiresAtMs: bootstrap.expiresAtMs,
+    expiresAt: bootstrap.expiresAt,
+    remainingUses: bootstrap.remainingUses,
+    participantIds: [...exactEcdsaParticipantPair(bootstrap.participantIds)],
     routerAbEcdsaDerivationNormalSigning:
-      input.bootstrap.routerAbEcdsaDerivationNormalSigning,
+      bootstrap.routerAbEcdsaDerivationNormalSigning,
+    jwt: bootstrap.jwt,
   };
 }
 
 export class CloudflareD1WalletAddSignerService {
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
-  private readonly walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null;
   private readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
   private readonly getWalletStore: WalletStoreProvider;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
@@ -585,7 +554,6 @@ export class CloudflareD1WalletAddSignerService {
   constructor(input: {
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
-    readonly walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null;
     readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
     readonly getWalletStore: WalletStoreProvider;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
@@ -594,7 +562,6 @@ export class CloudflareD1WalletAddSignerService {
   }) {
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getEd25519YaoProductRegistration = input.getEd25519YaoProductRegistration;
-    this.walletBudgetGrantProvisioner = input.walletBudgetGrantProvisioner;
     this.ecdsaStrictRegistration = input.ecdsaStrictRegistration;
     this.getWalletStore = input.getWalletStore;
     this.walletAuthMethods = input.walletAuthMethods;
@@ -820,7 +787,7 @@ export class CloudflareD1WalletAddSignerService {
         );
       }
       yaoRuntime = this.getEd25519YaoProductRegistration();
-      if (!yaoRuntime || !this.walletBudgetGrantProvisioner) {
+      if (!yaoRuntime) {
         return rejectedWalletAddSignerStartTerminal(
           'not_configured',
           'Ed25519 Yao add-signer is not configured on this server',
@@ -1108,33 +1075,6 @@ export class CloudflareD1WalletAddSignerService {
         publicFacts: request.ecdsa.publicFacts,
         activation: activated.value,
       });
-      const budgetProvisioner = this.walletBudgetGrantProvisioner;
-      if (!budgetProvisioner) {
-        throw new Error('Router A/B private-D1 wallet-budget provisioning is not configured');
-      }
-      const provisioned = await budgetProvisioner.provisionGrant({
-        walletId: bootstrap.walletId,
-        signingGrantId: bootstrap.signingGrantId,
-        relyingPartyId: addSignerWalletBudgetRelyingPartyId(ceremony),
-        authorizedSigners: [
-          addSignerWalletBudgetSigner({
-            curve: 'ecdsa',
-            thresholdSessionId: bootstrap.thresholdSessionId,
-            signingWorkerId: state.strictRegistration.lifecycle.selected_server_id,
-          }),
-        ],
-        initialSignatureUses: bootstrap.remainingUses,
-        expiresAtMs: bootstrap.expiresAtMs,
-        issuerIdempotencyKey: addSignerWalletBudgetIssuerId(bootstrap.signingGrantId),
-      });
-      if (!provisioned.ok) throw new Error(provisioned.message);
-      if (
-        provisioned.remainingUses !== bootstrap.remainingUses ||
-        provisioned.availableUses !== bootstrap.remainingUses ||
-        provisioned.reservedUses !== 0
-      ) {
-        throw new Error('SigningWorker returned an unexpected add-signer wallet budget');
-      }
       const activatedState: StoredEcdsaAddSignerActivated = {
         kind: 'ecdsa_add_signer_activated',
         derivationKind: state.derivationKind,
@@ -1150,14 +1090,7 @@ export class CloudflareD1WalletAddSignerService {
           clientActivation: request.ecdsa.publicFacts,
           activationReceipt: activated.value,
         }),
-        bootstrap: bootstrapWithProvisionedSession({
-          bootstrap,
-          provisioned: {
-            expiresAtMs: provisioned.expiresAtMs,
-            remainingUses: provisioned.remainingUses,
-            participantIds: exactEcdsaParticipantPair(bootstrap.participantIds),
-          },
-        }),
+        bootstrap: storedEcdsaAddSignerBootstrap(bootstrap),
       };
       await store.updateAddSignerCeremony({
         expected: ceremony,

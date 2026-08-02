@@ -1198,7 +1198,6 @@ export interface RouterApiWalletRegistrationService {
         readonly walletKey: WalletEcdsaSignerKey;
         readonly session: {
           readonly thresholdSessionId: string;
-          readonly signingGrantId: string;
           readonly expiresAtMs: number;
           readonly remainingUses: number;
         };

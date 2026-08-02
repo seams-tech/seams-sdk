@@ -498,7 +498,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
   const contextBinding32B64u = parseB64uFixed(raw.contextBinding32B64u, 32);
   const requestId = toOptionalString(raw.requestId);
   const sessionId = toOptionalString(raw.sessionId);
-  const signingGrantId = toOptionalString(raw.signingGrantId);
   const clientShareRetryCounter = raw.clientShareRetryCounter;
   const ttlMs = raw.ttlMs;
   const remainingUses = raw.remainingUses;
@@ -529,7 +528,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
     !requestId ||
     sessionKind === null ||
     !sessionId ||
-    !signingGrantId ||
     !isNonNegativeInteger(clientShareRetryCounter) ||
     !isPositiveIntegerAtMost(ttlMs, MAX_WALLET_SESSION_TTL_MS) ||
     !isPositiveIntegerAtMost(remainingUses, MAX_WALLET_SESSION_REMAINING_USES) ||
@@ -564,7 +562,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
     contextBinding32B64u,
     requestId,
     sessionId,
-    signingGrantId,
     ttlMs,
     remainingUses,
     participantIds,
@@ -603,7 +600,6 @@ export function parseWalletRegistrationEcdsaClientBootstrap(
     contextBinding32B64u: raw.contextBinding32B64u,
     requestId: raw.requestId,
     sessionId: thresholdSessionId,
-    signingGrantId: raw.signingGrantId,
     ttlMs: raw.ttlMs,
     remainingUses: raw.remainingUses,
     participantIds: raw.participantIds,
@@ -637,7 +633,6 @@ export function parseWalletRegistrationEcdsaClientBootstrap(
     contextBinding32B64u: parsed.contextBinding32B64u,
     requestId: parsed.requestId,
     thresholdSessionId: parsed.sessionId,
-    signingGrantId: parsed.signingGrantId,
     ttlMs: parsed.ttlMs,
     remainingUses: parsed.remainingUses,
     participantIds: [1, 2],

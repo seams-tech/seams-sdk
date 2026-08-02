@@ -516,7 +516,6 @@ export type WalletRegistrationEcdsaPrepareContext = {
   registrationPreparationId: RegistrationPreparationId;
   requestId: string;
   thresholdSessionId: string;
-  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: readonly [1, 2];
@@ -547,7 +546,6 @@ export type WalletRegistrationEcdsaClientBootstrap = {
   contextBinding32B64u: string;
   requestId: string;
   thresholdSessionId: string;
-  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: readonly [1, 2];
