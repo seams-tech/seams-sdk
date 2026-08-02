@@ -54,7 +54,9 @@ their owning environment is supplied.
 The follow-up focused operating-path run passes 72/72. The Rust Cloudflare
 ECDSA binding subset passes 36/36, the ECDSA wire crate passes 1/1, the ECDSA
 client protocol passes 9/9, the presign crate passes 44/44 plus 7/7 doctests,
-and normal-signing vectors pass 3/3. Intended-test typechecking passes after
+and normal-signing vectors pass 3/3. The router-ab-core generated TypeScript
+binding check passes 1/1, and the signer-core generated schema check passes
+1/1. Intended-test typechecking passes after
 the declaration build; the Google OIDC token prerequisite is absent, so the
 intended browser run remains environment-gated.
 

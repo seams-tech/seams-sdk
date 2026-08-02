@@ -1542,6 +1542,8 @@ the replacement and legacy MPC paths must not ship together.
       passes 36/36, the ECDSA wire crate passes 1/1, the ECDSA client-protocol
       tests pass 9/9, the presign crate passes 44/44 plus 7/7 doctests, and
       normal-signing vectors pass 3/3;
+      the router-ab-core generated TypeScript binding check passes 1/1 and the
+      signer-core generated schema check passes 1/1;
       SDK and unit typechecks pass; direct architecture, worker/WASM, bundle,
       and boundary guards pass. The source Playwright guard set passes 220/220;
       the D1 local-dev launcher contract is restored with SDK `.dev.vars`
