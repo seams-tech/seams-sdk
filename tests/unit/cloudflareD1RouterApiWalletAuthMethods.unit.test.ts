@@ -106,6 +106,7 @@ function yaoRegistrationBinding(
     operation: 'registration',
     session_id: TEST_YAO_SESSION_ID,
     stable_key_context_binding: yaoBytes(8),
+    material_activation: request.scope.material_activation,
   };
 }
 
@@ -151,8 +152,6 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
   consumeCalls = 0;
   freshConsumptions = 0;
   installCalls = 0;
-  mintCalls = 0;
-  readonly mintInputs: RouterAbEd25519YaoWalletSessionMintInputV1[] = [];
 
   async bindVerifiedIntent(
     input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['bindVerifiedIntent']>[0],
@@ -216,6 +215,7 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
             joined_signing_worker_commitment: yaoBytes(14),
             signing_worker_verifying_share: yaoBytes(14),
             state_epoch: 1,
+            material_activation: binding.material_activation,
           },
         },
       },
@@ -268,8 +268,6 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
   async mintWalletSession(
     input: RouterAbEd25519YaoWalletSessionMintInputV1,
   ): ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['mintWalletSession']> {
-    this.mintCalls += 1;
-    this.mintInputs.push(input);
     const expiresAtMs =
       input.kind === 'verified_wallet_unlock_v1' ? input.expiresAtMs : Date.now() + 60_000;
     return {
@@ -401,8 +399,7 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       ed25519YaoProductRegistration: yaoRuntime,
     });
 
-    await expect(
-      service.walletRegistration.refreshEd25519YaoWalletSession({
+    const refreshed = await service.walletRegistration.refreshEd25519YaoWalletSession({
         kind: 'router_ab_ed25519_yao_budget_refresh_v1',
         sessionPolicy: {
           version: 'threshold_session_v1',
@@ -425,16 +422,18 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
         authorization: {
           kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
           authority,
+          verifiedChallengeId: 'passkey-budget-refresh-challenge',
         },
-      }),
-    ).resolves.toMatchObject({
+      });
+    expect(refreshed).toMatchObject({
       ok: true,
       walletId,
       thresholdSessionId: currentThresholdSessionId,
-      walletSessionId: currentWalletSessionId,
-      quotaId: currentQuotaId,
       remainingUses: 1,
     });
+    if (!refreshed.ok) throw new Error(refreshed.message);
+    expect(refreshed.walletSessionId).not.toBe(currentWalletSessionId);
+    expect(refreshed.quotaId).not.toBe(currentQuotaId);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -1006,16 +1005,10 @@ test('partitioned D1 finalizes and replays Ed25519 Yao add-signer without reques
         signerSlot: 3,
         relayerKeyId: TEST_YAO_SIGNING_WORKER_ID,
         participantIds: [1, 2],
-        session: {
-          thresholdSessionId: started.addSignerCeremonyId,
-          routerAbNormalSigning: { signingWorkerId: TEST_YAO_SIGNING_WORKER_ID },
-        },
       },
     });
     expect(yaoRuntime.consumeCalls).toBe(1);
     expect(yaoRuntime.freshConsumptions).toBe(1);
-    expect(yaoRuntime.mintCalls).toBe(1);
-    expect(yaoRuntime.mintInputs).toHaveLength(1);
     expect(yaoRuntime.installCalls).toBe(1);
 
     await expect(
