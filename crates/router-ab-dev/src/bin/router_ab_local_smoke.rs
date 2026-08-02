@@ -220,20 +220,6 @@ fn run_smoke(
     })
 }
 
-fn required_json_string(
-    value: &Value,
-    field: &str,
-    context: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let parsed = value
-        .get(field)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|entry| !entry.is_empty())
-        .ok_or_else(|| format!("{context} missing {field}"))?;
-    Ok(parsed.to_owned())
-}
-
 fn run_router_ab_ecdsa_derivation_live_http_smoke(
     root: &Path,
     urls: &LocalWorkerUrls,
@@ -312,26 +298,8 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
         )
         .into());
     }
-    let prepare_value: Value = serde_json::from_str(&prepare_body)?;
-    let budget_reservation_id = required_json_string(
-        &prepare_value,
-        "budget_reservation_id",
-        "Router A/B ECDSA derivation prepare",
-    )?;
-    let budget_operation_id = required_json_string(
-        &prepare_value,
-        "budget_operation_id",
-        "Router A/B ECDSA derivation prepare",
-    )?;
-    let mut prepare_core_value = prepare_value;
-    let prepare_core_object = prepare_core_value
-        .as_object_mut()
-        .ok_or("Router A/B ECDSA derivation prepare response must serialize to an object")?;
-    prepare_core_object.remove("budget_reservation_id");
-    prepare_core_object.remove("budget_operation_id");
-    prepare_core_object.remove("budget_status");
     let prepare_response: RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1 =
-        serde_json::from_value(prepare_core_value)?;
+        serde_json::from_str(&prepare_body)?;
     prepare_response.validate_for_request(&prepare_request)?;
 
     let signing_worker_rerandomization_contribution32: [u8; 32] = URL_SAFE_NO_PAD
@@ -373,23 +341,11 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
         b64u(&client_signature_share32),
         b64u(&client_rerandomization_contribution32),
     )?;
-    let mut finalize_request_body = serde_json::to_value(&finalize_request)?;
-    let finalize_request_object = finalize_request_body
-        .as_object_mut()
-        .ok_or("Router A/B ECDSA derivation finalize request must serialize to an object")?;
-    finalize_request_object.insert(
-        "budget_reservation_id".to_owned(),
-        Value::String(budget_reservation_id),
-    );
-    finalize_request_object.insert(
-        "budget_operation_id".to_owned(),
-        Value::String(budget_operation_id),
-    );
     let (finalize_status, finalize_body) = post_json_to_path_with_authorization(
         &urls.router,
         LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
         authorization.as_str(),
-        &finalize_request_body,
+        &finalize_request,
     )?;
     if finalize_status != 200 {
         return Err(format!(
@@ -412,7 +368,7 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
         &urls.router,
         LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
         authorization.as_str(),
-        &finalize_request_body,
+        &finalize_request,
     )?;
     if replay_status != 400 || !replay_body.contains("prepared presignature is not available") {
         return Err(format!(
