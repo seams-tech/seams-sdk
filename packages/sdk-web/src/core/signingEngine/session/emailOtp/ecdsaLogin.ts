@@ -71,7 +71,6 @@ import {
   type EmailOtpWalletUnlockResult,
 } from './walletUnlock';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from './ed25519YaoRootVault';
-import type { EmailOtpMixedWalletSigningBudgetV1 } from '../../workerManager/workerTypes';
 import {
   disposeEmailOtpEd25519YaoActiveClientV1,
   disposeEmailOtpEd25519YaoPendingFactorV1,
@@ -108,6 +107,7 @@ import {
 } from '../passkey/ecdsaSessionProvision';
 import { SigningSessionIds } from '../operationState/types';
 import { buildStrictEcdsaPostRegistrationSessionActivationRequest } from '../../threshold/ecdsa/postRegistrationSessionActivation';
+
 import type { RouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbEcdsaPostRegistrationSessionActivationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { EmailOtpEcdsaExplicitExportBootstrapResult } from '../passkey/ecdsaBootstrap';
@@ -125,6 +125,12 @@ import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocal
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
 import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
 import { parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
+
+type EmailOtpLoginSigningBudget = {
+  readonly signingGrantId: string;
+  readonly ttlMs: number;
+  readonly remainingUses: number;
+};
 
 export type EmailOtpThresholdEcdsaLoginTimingBucket =
   | 'emailOtpProofVerificationMs'
@@ -415,13 +421,12 @@ function buildEmailOtpEcdsaOnlySigningBudget(args: {
   signingGrantId: string;
   ttlMs: number | undefined;
   remainingUses: number;
-}): EmailOtpMixedWalletSigningBudgetV1 {
+}): EmailOtpLoginSigningBudget {
   const policy = clampThresholdSessionPolicy({
     ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
     remainingUses: args.remainingUses,
   });
   return {
-    kind: 'email_otp_mixed_wallet_signing_budget_v1',
     signingGrantId: args.signingGrantId,
     ttlMs: policy.ttlMs,
     remainingUses: policy.remainingUses,
@@ -431,7 +436,7 @@ function buildEmailOtpEcdsaOnlySigningBudget(args: {
 function buildAuthoritativeEmailOtpMixedWalletSigningBudget(args: {
   bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   expectedRemainingUses: number;
-}): EmailOtpMixedWalletSigningBudgetV1 {
+}): EmailOtpLoginSigningBudget {
   const session = args.bootstrap.session;
   const signingGrantId = String(session.signingGrantId || '').trim();
   const expiresAtMs = Math.floor(Number(session.expiresAtMs));
@@ -444,7 +449,6 @@ function buildAuthoritativeEmailOtpMixedWalletSigningBudget(args: {
     throw new Error('Email OTP capability unlock changed the requested signing budget uses');
   }
   return {
-    kind: 'email_otp_mixed_wallet_signing_budget_v1',
     signingGrantId,
     ttlMs,
     remainingUses,
@@ -458,7 +462,7 @@ function resolveEmailOtpLoginSigningBudget(args: {
   routePlan: EmailOtpRoutePlan;
   requestedTtlMs: number | undefined;
   requestedRemainingUses: number;
-}): EmailOtpMixedWalletSigningBudgetV1 {
+}): EmailOtpLoginSigningBudget {
   if (args.ed25519YaoResult) {
     return buildAuthoritativeEmailOtpMixedWalletSigningBudget({
       bootstrap:
