@@ -54,7 +54,6 @@ import type { EmailOtpEd25519YaoPublicationInput } from './ed25519YaoPublication
 import { requestRehydrateEmailOtpEd25519YaoLocalMaterial } from './workerRequests';
 import {
   SigningSessionIds,
-  type SigningGrantId,
   type ThresholdEd25519SessionId,
 } from '../operationState/types';
 import type {
@@ -218,7 +217,6 @@ function exactBootstrapResponseKeys(record: Record<string, unknown>): void {
     'routerAbNormalSigning',
     'runtimePolicyScope',
     'signerSlot',
-    'signingGrantId',
     'signingWorkerId',
     'thresholdExpiresAtMs',
     'thresholdSessionId',
@@ -491,7 +489,6 @@ async function parseWarmBootstrap(args: {
     response.thresholdSessionId,
     'response.thresholdSessionId',
   );
-  const signingGrantId = requireString(response.signingGrantId, 'response.signingGrantId');
   const walletSessionId = parseWalletSessionId(response.walletSessionId);
   const quotaId = parseMpcWalletSigningQuotaId(response.quotaId);
   const signingWorkerId = requireString(response.signingWorkerId, 'response.signingWorkerId');
@@ -581,7 +578,6 @@ async function parseWarmBootstrap(args: {
         providerUserId,
       },
       thresholdSessionId,
-      signingGrantId,
       walletSessionId: walletSessionId.value,
       quotaId: quotaId.value,
       expiresAtMs: thresholdExpiresAtMs,
