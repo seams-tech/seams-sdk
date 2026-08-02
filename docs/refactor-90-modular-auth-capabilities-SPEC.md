@@ -496,7 +496,7 @@ implementing commit SHA as the evidence.
     store and proves source sealing, journal finalization, promoted activation
     publication, capability activation, and refresh-seal persistence remain
     inside one exact-owner queue.
-- [x] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
+- [ ] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
   applicable quota once; existing claims consume neither again. Reusable Near
   claims, operation-step-up Near claims, and one-use ECDSA export claims commit
   at their durable owner and replay from the recorded outcome without another
@@ -509,10 +509,10 @@ implementing commit SHA as the evidence.
     exact operation claim and quota transaction (`cc4cf26ab`).
   - [x] Delegate and NEP-413 signing use that same server-owned claim path;
     their client reservation/finalization chain is deleted (`f16cfef7a`).
-  - [x] Ed25519 Router A/B reserve/commit/release remains the canonical
-    authenticated server quota boundary for Ed25519 normal signing. Refactor 90
-    removes ECDSA public budget fields and aliases without deleting this live
-    Ed25519 path; any quota rehome is a separately scoped follow-on.
+  - [ ] Ed25519 Router A/B reserve/commit/release remains the current
+    authenticated server quota boundary for Ed25519 normal signing. Unit 3c
+    reopens this evidence: the path must move to the shared atomic claim/quota
+    owner before this invariant can be closed.
 - [x] `R90-INV-010` — authority/lifecycle replacement returns `superseded` and
   every SDK/UI adapter discards and re-resolves the stale lane.
   (Typed `superseded` with three supersession kinds through the material plan;
@@ -530,7 +530,7 @@ implementing commit SHA as the evidence.
 - [x] `R90-INV-011` — Near post-commit verification creates no durable readback
   stage; readback converges through the two-state journal and direct
   recovery-source tests (`5db9ad87e`, `51b738d2a`).
-- [x] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
+- [ ] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
   and export use an exact material-activation reference independently from the
   discriminated reusable-session or operation-step-up authority; step-up
   carries no `WalletSessionId`.
@@ -545,7 +545,9 @@ implementing commit SHA as the evidence.
   while Ed25519 continues to require its authorizing grant. Covered by the
   canonical operating-path, challenge-binding, auth-neutral prepared-signing,
   and Email OTP auth-lane suites. Commits 847ded366, 96612453b, dc1fda487,
-  440e3dd10.)
+  440e3dd10. Unit 3c reopens this invariant until the remaining live
+  Ed25519 `SigningGrantId` authorization surfaces are replaced by the
+  canonical Wallet Session, quota, and capability-grant identities.)
   - [x] Restore coordination leases carry only the exact sealed-store key,
     owner/attempt, and lease timing. They do not carry `signingGrantId`; old
     grant-bearing lease rows are rejected at the persistence boundary
