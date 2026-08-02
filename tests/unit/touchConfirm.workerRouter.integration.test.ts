@@ -387,7 +387,7 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).worker = fakeWorker;
 
         const batchPromise = manager.getWarmSessionStatuses({
-          sessionIds: ['sess-a', 'sess-b', 'sess-a'],
+          thresholdSessionIds: ['sess-a', 'sess-b', 'sess-a'],
         });
 
         const posted = await waitForPosted(0);
@@ -397,7 +397,7 @@ test.describe('UserConfirm worker router', () => {
           data: {
             results: [
               {
-                sessionId: 'sess-a',
+                thresholdSessionId: 'sess-a',
                 result: {
                   ok: true,
                   remainingUses: 4,
@@ -405,7 +405,7 @@ test.describe('UserConfirm worker router', () => {
                 },
               },
               {
-                sessionId: 'sess-b',
+                thresholdSessionId: 'sess-b',
                 result: {
                   ok: false,
                   code: 'not_found',
@@ -419,7 +419,7 @@ test.describe('UserConfirm worker router', () => {
         const batchResult = await batchPromise;
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
-          payloadSessionIds: postedMessages[0]?.payload?.sessionIds,
+          payloadThresholdSessionIds: postedMessages[0]?.payload?.thresholdSessionIds,
           batchResult,
         };
       },
@@ -427,11 +427,11 @@ test.describe('UserConfirm worker router', () => {
     );
 
     expect(result.postedTypes).toEqual(['WARM_SESSION_STATUS_BATCH_READ']);
-    expect(result.payloadSessionIds).toEqual(['sess-a', 'sess-b']);
+    expect(result.payloadThresholdSessionIds).toEqual(['sess-a', 'sess-b']);
     expect(result.batchResult).toEqual({
       results: [
         {
-          sessionId: 'sess-a',
+          thresholdSessionId: 'sess-a',
           result: {
             ok: true,
             remainingUses: expect.any(Number),
@@ -439,7 +439,7 @@ test.describe('UserConfirm worker router', () => {
           },
         },
         {
-          sessionId: 'sess-b',
+          thresholdSessionId: 'sess-b',
           result: {
             ok: false,
             code: 'not_found',
