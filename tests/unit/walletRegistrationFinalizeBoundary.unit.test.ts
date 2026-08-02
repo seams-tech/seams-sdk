@@ -4,6 +4,7 @@ import {
   type WalletRegistrationEcdsaWalletKey,
 } from '@/core/rpcClients/relayer/walletRegistration';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   createThresholdEcdsaBootstrapFixture,
   thresholdEcdsaBootstrapPublicFactsFixture,
@@ -27,7 +28,11 @@ function registrationFinalizeEcdsaWalletKey(): WalletRegistrationEcdsaWalletKey 
     keyScope: 'evm-family',
     chainTarget: bootstrap.thresholdEcdsaKeyRef.chainTarget,
     walletId: WALLET_ID,
-    evmFamilySigningKeySlotId: bootstrap.thresholdEcdsaKeyRef.evmFamilySigningKeySlotId,
+    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+      walletId: WALLET_ID,
+      signingRootId: publicFacts.signingRootId,
+      signingRootVersion: publicFacts.signingRootVersion,
+    }),
     keyHandle: bootstrap.thresholdEcdsaKeyRef.keyHandle,
     ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
     signingRootId: publicFacts.signingRootId,
