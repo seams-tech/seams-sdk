@@ -49,7 +49,7 @@ import type {
   WarmSessionMaterialWriteDiagnostics,
 } from '../session/passkey/warmSessionMaterialWriter';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { VolatileWarmSessionId } from '../session/warmCapabilities/volatileWarmSessionId';
+import type { ThresholdSessionId } from '@shared/utils/domainIds';
 import type { DurableRecordStore } from '@/core/platform';
 import type { NearOperationStepUpPreparationPort } from '../interfaces/operationStepUpPreparation';
 
@@ -129,7 +129,7 @@ export interface WarmSessionMaterialConsumer {
 export type VolatileWarmSessionScope =
   | {
       kind: 'session';
-      sessionId: VolatileWarmSessionId;
+      thresholdSessionId: ThresholdSessionId;
     }
   | {
       kind: 'all';

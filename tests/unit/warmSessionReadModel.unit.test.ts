@@ -146,7 +146,7 @@ test.describe('warmSessionReadModel', () => {
         auth,
         prfClaim: {
           state: 'warm',
-          sessionId: runtime.thresholdSessionId,
+          thresholdSessionId: runtime.thresholdSessionId,
           remainingUses: 4,
           expiresAtMs: runtime.expiresAtMs,
         },
@@ -158,7 +158,7 @@ test.describe('warmSessionReadModel', () => {
         auth,
         prfClaim: {
           state: 'unavailable',
-          sessionId: runtime.thresholdSessionId,
+          thresholdSessionId: runtime.thresholdSessionId,
           code: 'worker_error',
         },
       }),
@@ -169,7 +169,7 @@ test.describe('warmSessionReadModel', () => {
         auth: null,
         prfClaim: {
           state: 'warm',
-          sessionId: runtime.thresholdSessionId,
+          thresholdSessionId: runtime.thresholdSessionId,
           remainingUses: 4,
           expiresAtMs: runtime.expiresAtMs,
         },

@@ -10,9 +10,9 @@ import {
   createClearVolatileWarmSessionMaterialCommand,
 } from './volatileWarmMaterialCommands';
 import {
-  parseVolatileWarmSessionId,
-  type VolatileWarmSessionId,
-} from './volatileWarmSessionId';
+  parseThresholdEd25519SessionId,
+  type ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
 
 export type ClearVolatileWarmSigningMaterialDeps = {
   touchConfirm: VolatileWarmSessionMaterialClearer | VolatileWarmSessionMaterialClearAll;
@@ -41,8 +41,8 @@ function hasVolatileWarmSessionMaterialClearer(
 
 async function collectWarmSigningSessionIdsForWallet(
   walletId: WalletId,
-): Promise<VolatileWarmSessionId[]> {
-  const sessionIds = new Set<VolatileWarmSessionId>();
+): Promise<ThresholdEd25519SessionId[]> {
+  const thresholdSessionIds = new Set<ThresholdEd25519SessionId>();
   const records = await Promise.all([
     listExactSealedSessionsForWallet({
       walletId,
@@ -54,10 +54,12 @@ async function collectWarmSigningSessionIdsForWallet(
     }),
   ]);
   for (const record of records.flat()) {
-    const sessionId = parseVolatileWarmSessionId(record.thresholdSessionIds.ed25519);
-    if (sessionId) sessionIds.add(sessionId);
+    const thresholdSessionId = parseThresholdEd25519SessionId(
+      record.thresholdSessionIds.ed25519,
+    );
+    if (thresholdSessionId.ok) thresholdSessionIds.add(thresholdSessionId.value);
   }
-  return [...sessionIds];
+  return [...thresholdSessionIds];
 }
 
 export async function clearVolatileWarmSigningMaterial(
@@ -71,15 +73,15 @@ export async function clearVolatileWarmSigningMaterial(
     return;
   }
 
-  const sessionIds =
+  const thresholdSessionIds =
     walletId != null ? await collectWarmSigningSessionIdsForWallet(walletId) : [];
   if (!hasVolatileWarmSessionMaterialClearer(deps.touchConfirm)) return;
 
   await Promise.all(
-    sessionIds.map((sessionId) =>
+    thresholdSessionIds.map((thresholdSessionId) =>
       deps
         .clearVolatileThresholdSessionMaterial(
-          createClearVolatileWarmSessionMaterialCommand(sessionId),
+          createClearVolatileWarmSessionMaterialCommand(thresholdSessionId),
         )
         .catch(() => undefined),
     ),

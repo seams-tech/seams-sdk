@@ -937,7 +937,7 @@ self.onmessage = (event: MessageEvent) => {
   if (eventType === 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR') {
     const command = parseClearVolatileWarmMaterialCommand(incoming.payload);
     if (command?.scope.kind === 'session') {
-      deleteWarmSessionPrfHandle(command.scope.sessionId);
+      deleteWarmSessionPrfHandle(String(command.scope.thresholdSessionId));
     }
     postPasskeyMpcSessionWorkerResponse(id, { success: true, data: { ok: true } });
     return;
