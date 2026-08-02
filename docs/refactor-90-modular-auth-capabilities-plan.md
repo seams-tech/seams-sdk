@@ -5,7 +5,7 @@ Created: 2026-06-28
 Consolidated: 2026-07-27
 
 Status: **in progress — Units 1, 2, and 3b complete; Unit 3a and Unit 4
-implementation complete with acceptance open; Unit 3c planned**
+implementation complete with acceptance open; Unit 3c in progress**
 
 This document is the execution tracker for
 [the normative SPEC](./refactor-90-modular-auth-capabilities-SPEC.md). If this plan
