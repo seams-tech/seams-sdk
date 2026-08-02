@@ -1493,6 +1493,16 @@ function createD1AuthorizationClaimRouteService(
       assembly.authorizationService.recordVerifiedSessionEvidenceSet.bind(
         assembly.authorizationService,
       ),
+    putAuthorizationGrant: assembly.authorizationService.putAuthorizationGrant.bind(
+      assembly.authorizationService,
+    ),
+    claimAuthorizedOperation: assembly.authorizationService.claimAuthorizedOperation.bind(
+      assembly.authorizationService,
+    ),
+    completeAuthorizedOperation:
+      assembly.authorizationService.completeAuthorizedOperation.bind(
+        assembly.authorizationService,
+      ),
     issueGrant: assembly.authorizationService.issueGrant.bind(assembly.authorizationService),
     claimOperationStepUpFromGrant: assembly.authorizationService.claimOperationStepUpFromGrant.bind(
       assembly.authorizationService,
