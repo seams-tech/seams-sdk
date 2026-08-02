@@ -90,7 +90,6 @@ export type TransactionLane = SelectedLane;
 
 export type TransactionReadiness =
   | { status: 'ready'; remainingUses: number; expiresAtMs: number }
-  | { status: 'missing_hot_material' }
   | { status: 'expired' }
   | { status: 'exhausted' }
   | { status: 'restore_failed'; reason: string }
@@ -362,7 +361,9 @@ function transactionReadinessFromThresholdOperation(
       expiresAtMs: Math.max(0, Math.floor(Number(operation.expiresAtMs) || 0)),
     };
   }
-  if (status === 'missing_session') return { status: 'missing_hot_material' };
+  if (status === 'missing_session') {
+    return { status: 'status_unavailable', reason: 'missing_session' };
+  }
   if (status === 'expired') return { status: 'expired' };
   if (status === 'exhausted') return { status: 'exhausted' };
   if (status === 'auth_unavailable') {

@@ -1,5 +1,4 @@
 import type { WarmSessionMaterialOperationTarget } from '../../session/emailOtp/sealedRuntimePurpose';
-import type { AccountId } from '../../../types/accountIds';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { ProfileAuthenticatorRecord } from '../../../indexedDB';
 import {
@@ -21,20 +20,6 @@ export type ThresholdAuthenticatorRecord = ProfileAuthenticatorRecord & WebAuthn
 export type ThresholdCredentialStorePort =
   WebAuthnCredentialStorePort<ThresholdAuthenticatorRecord>;
 export type ThresholdWebAuthnPromptPort = WebAuthnPromptPort;
-
-export type ThresholdEd25519ClientShareDeriverPort = {
-  deriveThresholdEd25519ClientVerifyingShare: (args: {
-    sessionId: string;
-    nearAccountId: AccountId;
-    prfFirstB64u: string;
-    wrapKeySalt: string;
-  }) => Promise<{
-    success: boolean;
-    nearAccountId?: string;
-    clientVerifyingShareB64u: string;
-    error?: string;
-  }>;
-};
 
 export type ThresholdWarmSessionMaterialPort = {
   putWarmSessionMaterial: (args: {
