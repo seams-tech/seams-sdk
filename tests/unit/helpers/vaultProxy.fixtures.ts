@@ -1,13 +1,13 @@
 import {
-  buildGrantEvidenceRequirement,
+  buildAuthorizationEvidenceRequirement,
   parseAuthorizationAuditEventId,
   parseAuthFactorId,
   parseCapabilityId,
   parseCapabilityOperationId,
   parseAuthorizedOperationId,
   parseDeviceId,
-  parseGrantEvidenceId,
-  parseGrantEvidenceSetId,
+  parseAuthorizationEvidenceId,
+  parseAuthorizationEvidenceSetId,
   parsePrincipalId,
   parseSeamsSessionId,
   parseTenantId,
@@ -33,7 +33,7 @@ import {
 } from '../../../packages/sdk-server-ts/src/authorization/domain';
 import {
   buildVerifiedPasskeyFactorResult,
-  type VerifiedGrantEvidenceSet,
+  type VerifiedAuthorizationEvidenceSet,
 } from '../../../packages/sdk-server-ts/src/authorization/factorEvidence';
 import { buildCapabilityOperationEnvelope } from '../../../packages/shared-ts/src/authorization/operationFingerprint';
 import {
@@ -89,11 +89,11 @@ export async function buildVaultProxyFixture() {
       itemId,
       destination,
     }),
-    evidenceId: parsed('evidence-vault-passkey', parseGrantEvidenceId),
-    evidenceSetId: parsed('evidence-set-vault-passkey', parseGrantEvidenceSetId),
+    evidenceId: parsed('evidence-vault-passkey', parseAuthorizationEvidenceId),
+    evidenceSetId: parsed('evidence-set-vault-passkey', parseAuthorizationEvidenceSetId),
     authorizedOperationId: parsed('authorized-operation-vault-proxy-1', parseAuthorizedOperationId),
     auditEventId: parsed('audit-vault-proxy-1', parseAuthorizationAuditEventId),
-    evidenceRequirement: buildGrantEvidenceRequirement({
+    evidenceRequirement: buildAuthorizationEvidenceRequirement({
       mode: 'all',
       evidenceKinds: ['passkey_assertion'],
     }),
@@ -127,7 +127,7 @@ export function buildVaultProxyPasskeyFactor(input: {
 
 export async function buildVaultProxyAuthorizedOperation(input: {
   readonly fixture: Awaited<ReturnType<typeof buildVaultProxyFixture>>;
-  readonly evidenceSet: VerifiedGrantEvidenceSet;
+  readonly evidenceSet: VerifiedAuthorizationEvidenceSet;
 }): Promise<AuthorizedOperation> {
   return buildAuthorizedOperation({
     tenantId: input.fixture.tenantId,

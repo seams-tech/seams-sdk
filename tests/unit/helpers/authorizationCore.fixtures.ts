@@ -7,8 +7,8 @@ import {
   parseCapabilityOperationResultStorageRef,
   parseAuthorizedOperationId,
   parseDeviceId,
-  parseGrantEvidenceId,
-  parseGrantEvidenceSetId,
+  parseAuthorizationEvidenceId,
+  parseAuthorizationEvidenceSetId,
   parseWalletSessionAuthorizationId,
   parsePrincipalId,
   parseSeamsSessionId,
@@ -19,8 +19,8 @@ import {
   buildAuthorizationGrantRef,
   type AuthorizationParseResult,
   type EvmEcdsaMpcOperationKind,
-  type GrantEvidenceId,
-  type GrantEvidenceSetId,
+  type AuthorizationEvidenceId,
+  type AuthorizationEvidenceSetId,
 } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
 import { buildCapabilityOperationEnvelope } from '../../../packages/shared-ts/src/authorization/operationFingerprint';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
@@ -57,7 +57,7 @@ import {
   buildVerifiedPasskeyFactorResult,
   buildVerifiedSessionEvidenceSet,
   type VerifiedEmailOtpFactorResult,
-  type VerifiedGrantEvidenceSet,
+  type VerifiedAuthorizationEvidenceSet,
   type VerifiedPasskeyFactorResult,
   type VerifiedSessionEvidenceSetInput,
 } from '../../../packages/sdk-server-ts/src/authorization/factorEvidence';
@@ -67,7 +67,7 @@ const FIXTURE_NOW_MS = 1_900_000_000_000;
 export type ReusableAuthorizationCoreFixture = {
   readonly session: ActiveAuthorizationSession;
   readonly sessionEvidenceInput: VerifiedSessionEvidenceSetInput;
-  readonly evidenceSet: VerifiedGrantEvidenceSet;
+  readonly evidenceSet: VerifiedAuthorizationEvidenceSet;
   readonly quota: ActiveWalletSessionQuota;
   readonly reusableWalletSession: WalletSessionAuthorization;
   readonly authorizedOperation: AuthorizedOperation;
@@ -81,15 +81,15 @@ export type StepUpAuthorizationCoreFixture = Omit<
 
 export type PasskeyVerifiedFactorFixture = {
   readonly authorization: ReusableAuthorizationCoreFixture;
-  readonly evidenceId: GrantEvidenceId;
-  readonly evidenceSetId: GrantEvidenceSetId;
+  readonly evidenceId: AuthorizationEvidenceId;
+  readonly evidenceSetId: AuthorizationEvidenceSetId;
   readonly factor: VerifiedPasskeyFactorResult;
 };
 
 export type EmailOtpVerifiedFactorFixture = {
   readonly authorization: ReusableAuthorizationCoreFixture;
-  readonly evidenceId: GrantEvidenceId;
-  readonly evidenceSetId: GrantEvidenceSetId;
+  readonly evidenceId: AuthorizationEvidenceId;
+  readonly evidenceSetId: AuthorizationEvidenceSetId;
   readonly factor: VerifiedEmailOtpFactorResult;
 };
 
@@ -112,7 +112,7 @@ export async function buildReusableAuthorizationCoreFixture(
   const sessionId = parsed('session-browser', parseSeamsSessionId);
   const deviceId = parsed('device-browser', parseDeviceId);
   const capabilityId = parsed('capability-evm', parseCapabilityId);
-  const evidenceSetId = parsed('evidence-set-1', parseGrantEvidenceSetId);
+  const evidenceSetId = parsed('evidence-set-1', parseAuthorizationEvidenceSetId);
   const walletSessionId = parsed('wallet-session-1', parseWalletSessionId);
   const authorizationId = parsed('wallet-session-1', parseWalletSessionAuthorizationId);
   const quotaId = parsed('wallet-quota-1', parseMpcWalletSigningQuotaId);
@@ -160,7 +160,7 @@ export async function buildReusableAuthorizationCoreFixture(
   const sessionEvidenceInput = {
     session,
     operation: envelope,
-    evidenceId: parsed('evidence-session-1', parseGrantEvidenceId),
+    evidenceId: parsed('evidence-session-1', parseAuthorizationEvidenceId),
     evidenceSetId,
     expiresAtMs: FIXTURE_NOW_MS + 90_000,
   };
@@ -266,8 +266,8 @@ export async function buildPasskeyVerifiedFactorFixture(): Promise<PasskeyVerifi
   if (!authorityRef) throw new Error('Passkey authority ref fixture is invalid');
   return {
     authorization,
-    evidenceId: parsed('evidence-passkey-adapter', parseGrantEvidenceId),
-    evidenceSetId: parsed('evidence-set-passkey-adapter', parseGrantEvidenceSetId),
+    evidenceId: parsed('evidence-passkey-adapter', parseAuthorizationEvidenceId),
+    evidenceSetId: parsed('evidence-set-passkey-adapter', parseAuthorizationEvidenceSetId),
     factor: buildVerifiedPasskeyFactorResult({
       tenantId: authorization.session.tenantId,
       principalId: authorization.session.principalId,
@@ -337,8 +337,8 @@ export async function buildEmailOtpVerifiedFactorFixture(): Promise<EmailOtpVeri
   if (!authorityRef) throw new Error('Email OTP authority ref fixture is invalid');
   return {
     authorization,
-    evidenceId: parsed('evidence-email-otp-adapter', parseGrantEvidenceId),
-    evidenceSetId: parsed('evidence-set-email-otp-adapter', parseGrantEvidenceSetId),
+    evidenceId: parsed('evidence-email-otp-adapter', parseAuthorizationEvidenceId),
+    evidenceSetId: parsed('evidence-set-email-otp-adapter', parseAuthorizationEvidenceSetId),
     factor: buildVerifiedEmailOtpFactorResult({
       tenantId: authorization.session.tenantId,
       principalId: authorization.session.principalId,

@@ -39,8 +39,8 @@ import {
   parseCapabilityId,
   parseCapabilityOperationId,
   parseCapabilityOperationResultStorageRef,
-  parseGrantEvidenceId,
-  parseGrantEvidenceSetId,
+  parseAuthorizationEvidenceId,
+  parseAuthorizationEvidenceSetId,
   parsePrincipalId,
   parseTenantId,
   parseWalletSessionAuthorizationId,
@@ -54,7 +54,7 @@ import type { AuthorizedOperation } from '../../../authorization/domain';
 import {
   buildVerifiedEmailOtpFactorResult,
   buildVerifiedPasskeyFactorResult,
-  type VerifiedGrantFactorResult,
+  type VerifiedAuthorizationFactorResult,
 } from '../../../authorization/factorEvidence';
 import {
   parseAppSessionClaims,
@@ -1142,11 +1142,13 @@ async function issueEd25519OperationStepUpGrant(input: {
     authenticated.expiresAtMs,
   );
   const requestId = String(scope.request_id);
-  const evidenceId = requireAuthorizationValue(parseGrantEvidenceId(`evidence:${requestId}`));
-  const evidenceSetId = requireAuthorizationValue(
-    parseGrantEvidenceSetId(`evidence-set:${requestId}`),
+  const evidenceId = requireAuthorizationValue(
+    parseAuthorizationEvidenceId(`evidence:${requestId}`),
   );
-  let factor: VerifiedGrantFactorResult;
+  const evidenceSetId = requireAuthorizationValue(
+    parseAuthorizationEvidenceSetId(`evidence-set:${requestId}`),
+  );
+  let factor: VerifiedAuthorizationFactorResult;
   let materialRecovery: RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse;
   switch (proof.kind) {
     case 'passkey': {

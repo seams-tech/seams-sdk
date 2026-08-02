@@ -4,8 +4,8 @@ import type {
   AuthorizedOperationId,
   WalletSessionAuthorizationId,
   DeviceId,
-  GrantEvidenceId,
-  GrantEvidenceKind,
+  AuthorizationEvidenceId,
+  AuthorizationEvidenceKind,
   HostedWalletSessionExchangeCodeId,
   MpcWalletSigningQuotaId,
   PrincipalId,
@@ -129,13 +129,13 @@ export type RedeemHostedWalletSeamsSessionExchangeInput = {
   readonly redeemedAtMs: number;
 };
 
-export type VerifiedGrantEvidence = {
-  readonly evidenceId: GrantEvidenceId;
-  readonly evidenceKind: GrantEvidenceKind;
+export type VerifiedAuthorizationEvidence = {
+  readonly evidenceId: AuthorizationEvidenceId;
+  readonly evidenceKind: AuthorizationEvidenceKind;
   readonly evidenceDigest: DigestB64u;
 };
 
-export type { VerifiedGrantEvidenceSet } from './factorEvidence';
+export type { VerifiedAuthorizationEvidenceSet } from './factorEvidence';
 
 export type ActiveWalletSessionQuota = {
   readonly kind: 'active_wallet_session_quota';

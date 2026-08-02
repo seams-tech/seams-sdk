@@ -47,6 +47,7 @@ import { ed25519DurableMaterialLocator } from '../sealedRecovery/materialActivat
 import { parseSigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import {
   activateEmailOtpEd25519YaoLocalCapabilityV1,
+  isEmailOtpEd25519YaoRecoveryContinuityError,
   prepareColdEmailOtpEd25519YaoRecoveryV1,
   type EmailOtpEd25519YaoCapabilityRecoveryResult,
 } from './ed25519YaoCapabilityRecovery';
@@ -79,6 +80,7 @@ export type EmailOtpEd25519YaoSilentRecoveryUnavailableReason =
   | 'sealed_session_expired'
   | 'sealed_session_exhausted'
   | 'wallet_session_expired'
+  | 'wallet_binding_mismatch'
   | 'local_material_unavailable';
 
 export type EmailOtpEd25519YaoSilentRecoveryResultV1 =
@@ -760,14 +762,22 @@ async function runFencedEmailOtpEd25519YaoSealedRecovery(
       `[SigningEngine][near] Email OTP Ed25519 sealed factor restore failed (${rehydrated.code}): ${rehydrated.message}`,
     );
   }
-  const recovery = await activateEmailOtpEd25519YaoLocalCapabilityV1({
-    prepared,
-    bootstrap: rehydrated.ed25519YaoCapability,
-    activeClientHandle: rehydrated.activeClientHandle,
-    metadata: rehydrated.metadata,
-    workerContext: input.ports.workerContext,
-    activateCapability: input.ports.activateCapability,
-  });
+  let recovery: EmailOtpEd25519YaoCapabilityRecoveryResult;
+  try {
+    recovery = await activateEmailOtpEd25519YaoLocalCapabilityV1({
+      prepared,
+      bootstrap: rehydrated.ed25519YaoCapability,
+      activeClientHandle: rehydrated.activeClientHandle,
+      metadata: rehydrated.metadata,
+      workerContext: input.ports.workerContext,
+      activateCapability: input.ports.activateCapability,
+    });
+  } catch (error) {
+    if (isEmailOtpEd25519YaoRecoveryContinuityError(error)) {
+      return { kind: 'reauth_required', reason: error.failure.kind };
+    }
+    throw error;
+  }
   await input.ports.persistRecoveredSession({
     material: recovery.material,
     walletSessionState: recovery.walletSessionState,

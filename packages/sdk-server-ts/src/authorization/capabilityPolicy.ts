@@ -1,15 +1,15 @@
 import {
-  buildGrantEvidenceRequirement,
-  isGrantEvidenceKind,
-  type GrantEvidenceKind,
-  type GrantEvidenceRequirement,
+  buildAuthorizationEvidenceRequirement,
+  isAuthorizationEvidenceKind,
+  type AuthorizationEvidenceKind,
+  type AuthorizationEvidenceRequirement,
 } from '@shared/authorization/capabilityKinds';
-import type { VerifiedGrantEvidenceSet } from './domain';
+import type { VerifiedAuthorizationEvidenceSet } from './domain';
 
-export type ParseGrantEvidenceRequirementResult =
+export type ParseAuthorizationEvidenceRequirementResult =
   | {
       readonly kind: 'parsed';
-      readonly requirement: GrantEvidenceRequirement;
+      readonly requirement: AuthorizationEvidenceRequirement;
     }
   | {
       readonly kind: 'rejected';
@@ -24,50 +24,61 @@ export type ParseGrantEvidenceRequirementResult =
           };
     };
 
-export type GrantEvidenceRequirementEvaluation =
+export type AuthorizationEvidenceRequirementEvaluation =
   | {
       readonly kind: 'satisfied';
-      readonly mode: GrantEvidenceRequirement['mode'];
-      readonly matchedEvidenceKinds: readonly [GrantEvidenceKind, ...GrantEvidenceKind[]];
+      readonly mode: AuthorizationEvidenceRequirement['mode'];
+      readonly matchedEvidenceKinds: readonly [
+        AuthorizationEvidenceKind,
+        ...AuthorizationEvidenceKind[],
+      ];
     }
   | {
       readonly kind: 'unsatisfied';
       readonly mode: 'all';
-      readonly missingEvidenceKinds: readonly [GrantEvidenceKind, ...GrantEvidenceKind[]];
+      readonly missingEvidenceKinds: readonly [
+        AuthorizationEvidenceKind,
+        ...AuthorizationEvidenceKind[],
+      ];
     }
   | {
       readonly kind: 'unsatisfied';
       readonly mode: 'any';
-      readonly acceptableEvidenceKinds: readonly [GrantEvidenceKind, ...GrantEvidenceKind[]];
+      readonly acceptableEvidenceKinds: readonly [
+        AuthorizationEvidenceKind,
+        ...AuthorizationEvidenceKind[],
+      ];
     };
 
 export interface CapabilityPolicyPort {
-  parseEvidenceRequirement(value: unknown): ParseGrantEvidenceRequirementResult;
+  parseEvidenceRequirement(value: unknown): ParseAuthorizationEvidenceRequirementResult;
   evaluateEvidenceRequirement(
-    requirement: GrantEvidenceRequirement,
-    evidenceSet: VerifiedGrantEvidenceSet,
-  ): GrantEvidenceRequirementEvaluation;
+    requirement: AuthorizationEvidenceRequirement,
+    evidenceSet: VerifiedAuthorizationEvidenceSet,
+  ): AuthorizationEvidenceRequirementEvaluation;
 }
 
-export function parseGrantEvidenceRequirement(value: unknown): ParseGrantEvidenceRequirementResult {
+export function parseAuthorizationEvidenceRequirement(
+  value: unknown,
+): ParseAuthorizationEvidenceRequirementResult {
   if (!isExactRequirementRecord(value)) {
     return rejectInvalidRequirement(
-      'grant evidence requirement must contain exact mode and evidenceKinds fields',
+      'authorization evidence requirement must contain exact mode and evidenceKinds fields',
     );
   }
   if (value.mode !== 'all' && value.mode !== 'any') {
-    return rejectInvalidRequirement('grant evidence requirement mode must be all or any');
+    return rejectInvalidRequirement('authorization evidence requirement mode must be all or any');
   }
   if (!Array.isArray(value.evidenceKinds) || value.evidenceKinds.length === 0) {
-    return rejectInvalidRequirement('grant evidence requirement must contain evidence kinds');
+    return rejectInvalidRequirement('authorization evidence requirement must contain evidence kinds');
   }
 
-  const evidenceKinds: GrantEvidenceKind[] = [];
+  const evidenceKinds: AuthorizationEvidenceKind[] = [];
   for (const evidenceKind of value.evidenceKinds) {
     if (typeof evidenceKind !== 'string') {
-      return rejectInvalidRequirement('grant evidence kinds must be strings');
+      return rejectInvalidRequirement('authorization evidence kinds must be strings');
     }
-    if (!isGrantEvidenceKind(evidenceKind)) {
+    if (!isAuthorizationEvidenceKind(evidenceKind)) {
       return {
         kind: 'rejected',
         reason: {
@@ -81,21 +92,21 @@ export function parseGrantEvidenceRequirement(value: unknown): ParseGrantEvidenc
 
   const [firstEvidenceKind, ...remainingEvidenceKinds] = evidenceKinds;
   if (!firstEvidenceKind) {
-    return rejectInvalidRequirement('grant evidence requirement must contain evidence kinds');
+    return rejectInvalidRequirement('authorization evidence requirement must contain evidence kinds');
   }
   return {
     kind: 'parsed',
-    requirement: buildGrantEvidenceRequirement({
+    requirement: buildAuthorizationEvidenceRequirement({
       mode: value.mode,
       evidenceKinds: [firstEvidenceKind, ...remainingEvidenceKinds],
     }),
   };
 }
 
-export function evaluateGrantEvidenceRequirement(
-  requirement: GrantEvidenceRequirement,
-  evidenceSet: VerifiedGrantEvidenceSet,
-): GrantEvidenceRequirementEvaluation {
+export function evaluateAuthorizationEvidenceRequirement(
+  requirement: AuthorizationEvidenceRequirement,
+  evidenceSet: VerifiedAuthorizationEvidenceSet,
+): AuthorizationEvidenceRequirementEvaluation {
   const availableKinds = collectEvidenceKinds(evidenceSet);
   switch (requirement.mode) {
     case 'all':
@@ -108,15 +119,15 @@ export function evaluateGrantEvidenceRequirement(
 }
 
 export const capabilityPolicyPort: CapabilityPolicyPort = {
-  parseEvidenceRequirement: parseGrantEvidenceRequirement,
-  evaluateEvidenceRequirement: evaluateGrantEvidenceRequirement,
+  parseEvidenceRequirement: parseAuthorizationEvidenceRequirement,
+  evaluateEvidenceRequirement: evaluateAuthorizationEvidenceRequirement,
 };
 
 function evaluateAllEvidenceRequirement(
-  requiredKinds: readonly [GrantEvidenceKind, ...GrantEvidenceKind[]],
-  availableKinds: ReadonlySet<GrantEvidenceKind>,
-): GrantEvidenceRequirementEvaluation {
-  const missingKinds: GrantEvidenceKind[] = [];
+  requiredKinds: readonly [AuthorizationEvidenceKind, ...AuthorizationEvidenceKind[]],
+  availableKinds: ReadonlySet<AuthorizationEvidenceKind>,
+): AuthorizationEvidenceRequirementEvaluation {
+  const missingKinds: AuthorizationEvidenceKind[] = [];
   for (const evidenceKind of requiredKinds) {
     if (!availableKinds.has(evidenceKind)) {
       missingKinds.push(evidenceKind);
@@ -138,10 +149,10 @@ function evaluateAllEvidenceRequirement(
 }
 
 function evaluateAnyEvidenceRequirement(
-  acceptableKinds: readonly [GrantEvidenceKind, ...GrantEvidenceKind[]],
-  availableKinds: ReadonlySet<GrantEvidenceKind>,
-): GrantEvidenceRequirementEvaluation {
-  const matchedKinds: GrantEvidenceKind[] = [];
+  acceptableKinds: readonly [AuthorizationEvidenceKind, ...AuthorizationEvidenceKind[]],
+  availableKinds: ReadonlySet<AuthorizationEvidenceKind>,
+): AuthorizationEvidenceRequirementEvaluation {
+  const matchedKinds: AuthorizationEvidenceKind[] = [];
   for (const evidenceKind of acceptableKinds) {
     if (availableKinds.has(evidenceKind)) {
       matchedKinds.push(evidenceKind);
@@ -163,9 +174,9 @@ function evaluateAnyEvidenceRequirement(
 }
 
 function collectEvidenceKinds(
-  evidenceSet: VerifiedGrantEvidenceSet,
-): ReadonlySet<GrantEvidenceKind> {
-  const evidenceKinds = new Set<GrantEvidenceKind>();
+  evidenceSet: VerifiedAuthorizationEvidenceSet,
+): ReadonlySet<AuthorizationEvidenceKind> {
+  const evidenceKinds = new Set<AuthorizationEvidenceKind>();
   for (const evidence of evidenceSet.evidence) {
     evidenceKinds.add(evidence.evidenceKind);
   }
@@ -181,7 +192,9 @@ function isExactRequirementRecord(value: unknown): value is {
   return keys.length === 2 && keys.includes('mode') && keys.includes('evidenceKinds');
 }
 
-function rejectInvalidRequirement(message: string): ParseGrantEvidenceRequirementResult {
+function rejectInvalidRequirement(
+  message: string,
+): ParseAuthorizationEvidenceRequirementResult {
   return {
     kind: 'rejected',
     reason: {
@@ -192,5 +205,5 @@ function rejectInvalidRequirement(message: string): ParseGrantEvidenceRequiremen
 }
 
 function assertNeverRequirementMode(value: never): never {
-  throw new Error(`unsupported grant evidence requirement mode: ${String(value)}`);
+  throw new Error(`unsupported authorization evidence requirement mode: ${String(value)}`);
 }

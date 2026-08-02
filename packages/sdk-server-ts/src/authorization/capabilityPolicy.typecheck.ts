@@ -1,31 +1,34 @@
 import {
-  GRANT_EVIDENCE_KINDS,
-  type GrantEvidenceRequirement,
+  AUTHORIZATION_EVIDENCE_KINDS,
+  type AuthorizationEvidenceRequirement,
 } from '@shared/authorization/capabilityKinds';
-import type { VerifiedGrantEvidenceSet } from './domain';
-import { evaluateGrantEvidenceRequirement } from './capabilityPolicy';
+import type { VerifiedAuthorizationEvidenceSet } from './domain';
+import { evaluateAuthorizationEvidenceRequirement } from './capabilityPolicy';
 
-declare const evidenceSet: VerifiedGrantEvidenceSet;
+declare const evidenceSet: VerifiedAuthorizationEvidenceSet;
 
-evaluateGrantEvidenceRequirement(
+evaluateAuthorizationEvidenceRequirement(
   {
     mode: 'any',
-    evidenceKinds: [GRANT_EVIDENCE_KINDS.passkeyAssertion, GRANT_EVIDENCE_KINDS.emailOtp],
+    evidenceKinds: [
+      AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion,
+      AUTHORIZATION_EVIDENCE_KINDS.emailOtp,
+    ],
   },
   evidenceSet,
 );
 
 const recursiveRequirement = {
   mode: 'all',
-  evidenceKinds: [GRANT_EVIDENCE_KINDS.passkeyAssertion],
+  evidenceKinds: [AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion],
   nested: {
     mode: 'any',
-    evidenceKinds: [GRANT_EVIDENCE_KINDS.emailOtp],
+    evidenceKinds: [AUTHORIZATION_EVIDENCE_KINDS.emailOtp],
   },
 };
 
 // @ts-expect-error Recursive policy nodes are outside the flat requirement type.
-recursiveRequirement satisfies GrantEvidenceRequirement;
+recursiveRequirement satisfies AuthorizationEvidenceRequirement;
 
 const unsupportedSignerProof = {
   mode: 'all',
@@ -33,13 +36,13 @@ const unsupportedSignerProof = {
 } as const;
 
 // @ts-expect-error MPC signer proof remains outside the closed evidence union.
-unsupportedSignerProof satisfies GrantEvidenceRequirement;
+unsupportedSignerProof satisfies AuthorizationEvidenceRequirement;
 
-evaluateGrantEvidenceRequirement(
+evaluateAuthorizationEvidenceRequirement(
   {
     mode: 'all',
-    evidenceKinds: [GRANT_EVIDENCE_KINDS.passkeyAssertion],
+    evidenceKinds: [AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion],
   },
   // @ts-expect-error Policy evaluation requires the normalized evidence-set record.
-  [{ evidenceKind: GRANT_EVIDENCE_KINDS.passkeyAssertion }],
+  [{ evidenceKind: AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion }],
 );
