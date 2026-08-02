@@ -349,7 +349,12 @@ function summarizeNearEd25519Lane(lane: AvailableEd25519SigningLane): Record<str
     signerSlot: lane.signerSlot,
     state: lane.state,
     source: lane.source || 'unknown',
-    signingGrantId: lane.signingGrantId,
+    ...(lane.authorizationState === 'authorized'
+      ? {
+          walletSessionId: lane.authorization.walletSessionId,
+          quotaId: lane.authorization.quotaId,
+        }
+      : {}),
     thresholdSessionId: lane.thresholdSessionId,
     remainingUses: lane.remainingUses,
     expiresAtMs: lane.expiresAtMs,

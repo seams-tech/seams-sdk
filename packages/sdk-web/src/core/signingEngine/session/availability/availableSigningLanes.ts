@@ -67,7 +67,6 @@ export type MissingAvailableEcdsaSigningLane = {
   publicFacts?: never;
   authMethod?: never;
   resolvedKey?: never;
-  signingGrantId?: never;
   thresholdSessionId?: never;
   remainingUses?: never;
   expiresAtMs?: never;
@@ -105,7 +104,6 @@ export type ConcreteAvailableEcdsaSigningLane = ConcreteAvailableEcdsaSigningLan
   source: 'canonical_capability';
   sourceChainTarget?: never;
   publicReauthAuthority?: never;
-  signingGrantId?: never;
   thresholdSessionId?: never;
 } & (
     | {
@@ -201,7 +199,6 @@ export type MissingAvailableEd25519SigningLane = {
   nearEd25519SigningKeyId?: never;
   signerSlot?: never;
   authMethod?: never;
-  signingGrantId?: never;
   thresholdSessionId?: never;
   remainingUses?: never;
   expiresAtMs?: never;
@@ -233,13 +230,11 @@ export type ConcreteAvailableEd25519SigningLane =
       | {
           authorizationState: 'authorized';
           authorization: ActiveWalletSessionAuthorizationProjection;
-          signingGrantId: string;
           state: Exclude<AvailableSigningLaneState, 'deferred'>;
         }
       | {
           authorizationState: 'authorization_required';
           authorization?: never;
-          signingGrantId?: never;
           state: 'deferred';
         }
     );
@@ -328,12 +323,10 @@ export type InvalidAvailableSigningLaneDiagnostic =
       reason:
         | 'missing_router_ab_state'
         | 'missing_threshold_session_id'
-        | 'missing_signing_grant_id'
         | 'ambiguous_material'
         | 'conflicting_key_material';
       authMethod?: 'email_otp' | 'passkey';
       thresholdSessionId?: string;
-      signingGrantId?: string;
       message?: string;
     }
   | {
@@ -348,7 +341,6 @@ export type InvalidAvailableSigningLaneDiagnostic =
         | 'ambiguous_material';
       authMethod?: 'email_otp' | 'passkey';
       thresholdSessionId?: string;
-      signingGrantId?: string;
       targetKey?: string;
       message?: string;
       groupKey?: EcdsaLaneGroupKey;
@@ -429,10 +421,9 @@ export function isConcreteAvailableSigningLane(
     if (lane.thresholdSessionId !== thresholdSessionId) return false;
     if (!thresholdSessionId) return false;
     if (lane.authorizationState === 'authorization_required') {
-      return lane.state === 'deferred' && lane.signingGrantId === undefined;
+      return lane.state === 'deferred';
     }
-    const signingGrantId = String(lane.signingGrantId || '').trim();
-    if (lane.signingGrantId !== signingGrantId || !signingGrantId) return false;
+    if (!lane.authorization.walletSessionId || !lane.authorization.quotaId) return false;
     return lane.auth.kind === 'email_otp' || lane.auth.kind === 'passkey';
   }
   if (lane.auth.kind !== 'email_otp' && lane.auth.kind !== 'passkey') return false;
@@ -619,7 +610,6 @@ type Ed25519AvailableLaneIdentityInput = {
   nearAccountId?: unknown;
   nearEd25519SigningKeyId?: unknown;
   signerSlot?: unknown;
-  signingGrantId?: unknown;
   thresholdSessionId?: unknown;
   state?: AvailableSigningLaneState | 'missing';
 };
@@ -939,7 +929,12 @@ function ed25519CanonicalTieBreak(
 }
 
 function ed25519CanonicalStableTieBreakKey(lane: ConcreteAvailableEd25519SigningLane): string {
-  return [lane.thresholdSessionId, lane.signingGrantId, lane.source || 'durable_sealed_record']
+  return [
+    lane.thresholdSessionId,
+    lane.authorizationState === 'authorized' ? lane.authorization.walletSessionId : '',
+    lane.authorizationState === 'authorized' ? lane.authorization.quotaId : '',
+    lane.source || 'durable_sealed_record',
+  ]
     .map((part) => String(part))
     .join('|');
 }
@@ -1026,10 +1021,9 @@ function canonicalizeEd25519AvailableLanes(
 
 function ed25519CompanionIdentityKey(lane: AvailableEd25519SigningLane): string | null {
   if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') return null;
-  const signingGrantId = String(lane.signingGrantId || '').trim();
   const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
-  if (!signingGrantId || !thresholdSessionId) return null;
-  return `${signingGrantId}:${thresholdSessionId}`;
+  if (lane.authorizationState !== 'authorized' || !thresholdSessionId) return null;
+  return `${lane.authorization.walletSessionId}:${lane.authorization.quotaId}:${thresholdSessionId}`;
 }
 
 function emailOtpPreferredEd25519PrimaryLane(args: {
