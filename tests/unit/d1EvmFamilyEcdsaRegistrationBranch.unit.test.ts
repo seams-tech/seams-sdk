@@ -120,7 +120,7 @@ function testRegistrationRequestFromFacts(
 }
 
 test.describe('D1 EVM-family ECDSA registration prepare', () => {
-  test('uses one signing grant for all chain targets in one registration', async () => {
+  test('uses one Wallet Session quota for all chain targets in one registration', async () => {
     const prepared = await buildD1EvmFamilyEcdsaRegistrationPrepare({
       registrationPurpose: 'wallet_registration',
       registrationCeremonyId: 'wrc_shared_budget',

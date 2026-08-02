@@ -541,13 +541,12 @@ implementing commit SHA as the evidence.
   `WalletSessionId` cannot ride along; persistence, expiry, warm-capability,
   seal, and export consumers receive authorization only through their explicit
   operation carrier. The Email OTP worker route boundary likewise accepts
-  grant-free ECDSA signing-session lanes and rejects the retired grant alias,
-  while Ed25519 continues to require its authorizing grant. Covered by the
+  authorization-neutral signing-session lanes and rejects retired aliases for
+  both curves. Covered by the
   canonical operating-path, challenge-binding, auth-neutral prepared-signing,
   and Email OTP auth-lane suites. Commits 847ded366, 96612453b, dc1fda487,
-  440e3dd10. Unit 3c reopens this invariant until the remaining live
-  Ed25519 `SigningGrantId` authorization surfaces are replaced by the
-  canonical Wallet Session, quota, and capability-grant identities.)
+  440e3dd10. Unit 3c replaced the remaining Ed25519 authorization surfaces
+  with canonical Wallet Session, quota, and capability-grant identities.)
   - [x] Restore coordination leases carry only the exact sealed-store key,
     owner/attempt, and lease timing. They do not carry `signingGrantId`; old
     grant-bearing lease rows are rejected at the persistence boundary
@@ -1039,10 +1038,10 @@ identity remains active.
 
 ### Signing-Centered Grant-Evidence UI
 
-`packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts` currently
-uses `SigningAuthPlan`, `WalletAuthIntent`, `WalletAuthCurve`,
-`thresholdSessionId`, and `signingGrantId`. That makes the browser confirmation
-system hard to reuse for vault access and IdP high-risk scope issuance.
+`packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts` uses the
+capability-centered grant plan and challenge model. Browser confirmation can
+therefore serve MPC signing, vault access, and IdP high-risk scope issuance
+without carrying reusable-session identity in operation-grant payloads.
 
 Refactor move:
 
@@ -1050,8 +1049,7 @@ Refactor move:
   `CapabilityGrantChallenge`;
 - replace threshold-session material locators inside MPC operation lanes with
   exact `MpcMaterialActivationRef` values;
-- replace `signingGrantId` in shared UI payloads with
-  `capabilityGrantId`;
+- carry `capabilityGrantId` in shared UI operation payloads;
 - move wallet-specific display data behind a capability display adapter;
 - let vault, IdP, and MPC modules provide operation-specific prompt metadata.
 

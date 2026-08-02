@@ -68,8 +68,6 @@ const WALLET_SESSION_ID = unwrapDomainId(parseWalletSessionId('email-otp-ed25519
 const WALLET_SESSION_QUOTA_ID = unwrapDomainId(
   parseMpcWalletSigningQuotaId('email-otp-ed25519-wallet-session-quota'),
 );
-const SIGNING_GRANT_ID = 'email-otp-ed25519-signing-grant';
-const RECOVERED_SIGNING_GRANT_ID = 'email-otp-ed25519-recovered-signing-grant';
 const PROVIDER_SUBJECT = 'google:email-otp-ed25519-runtime';
 const EMAIL_HASH_HEX = 'email-otp-ed25519-runtime-hash';
 const RP_ID = 'wallet.example.test';
@@ -129,7 +127,8 @@ function exportLaneIdentity() {
       signerSlot: 1,
     }),
     auth: { kind: 'email_otp', providerSubjectId: PROVIDER_SUBJECT },
-    signingGrantId: SIGNING_GRANT_ID,
+    walletSessionId: WALLET_SESSION_ID,
+    quotaId: WALLET_SESSION_QUOTA_ID,
     thresholdSessionId: THRESHOLD_SESSION_ID,
   });
 }
@@ -145,7 +144,7 @@ function jsonB64u(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 }
 
-function walletSessionJwt(version: string, signingGrantId = SIGNING_GRANT_ID): string {
+function walletSessionJwt(version: string, quotaId = WALLET_SESSION_QUOTA_ID): string {
   return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
     kind: 'router_ab_ed25519_wallet_session_v1',
     sub: String(WALLET_ID),
@@ -153,9 +152,8 @@ function walletSessionJwt(version: string, signingGrantId = SIGNING_GRANT_ID): s
     nearAccountId: String(NEAR_ACCOUNT_ID),
     nearEd25519SigningKeyId: String(NEAR_ED25519_SIGNING_KEY_ID),
     walletSessionId: WALLET_SESSION_ID,
-    quotaId: WALLET_SESSION_QUOTA_ID,
+    quotaId,
     thresholdSessionId: THRESHOLD_SESSION_ID,
-    signingGrantId,
     relayerKeyId: SIGNING_WORKER_ID,
     rpId: RP_ID,
     participantIds: [...PARTICIPANT_IDS],
@@ -234,7 +232,7 @@ function recoveryBootstrap(args: {
     session: {
       sessionKind: 'jwt',
       walletSessionJwt:
-        args.walletSessionJwt ?? walletSessionJwt('recovered', RECOVERED_SIGNING_GRANT_ID),
+        args.walletSessionJwt ?? walletSessionJwt('recovered'),
       walletId: WALLET_ID,
       nearAccountId: String(NEAR_ACCOUNT_ID),
       nearEd25519SigningKeyId: String(NEAR_ED25519_SIGNING_KEY_ID),
@@ -244,7 +242,6 @@ function recoveryBootstrap(args: {
         providerUserId: PROVIDER_SUBJECT,
       },
       thresholdSessionId: THRESHOLD_SESSION_ID,
-      signingGrantId: RECOVERED_SIGNING_GRANT_ID,
       walletSessionId: WALLET_SESSION_ID,
       quotaId: WALLET_SESSION_QUOTA_ID,
       expiresAtMs: Date.now() + 60_000,
@@ -578,7 +575,6 @@ async function warmRecoveryBootstrapResponse(args: {
     nearEd25519SigningKeyId: String(NEAR_ED25519_SIGNING_KEY_ID),
     signerSlot: 1,
     thresholdSessionId: THRESHOLD_SESSION_ID,
-    signingGrantId: SIGNING_GRANT_ID,
     walletSessionId: WALLET_SESSION_ID,
     quotaId: WALLET_SESSION_QUOTA_ID,
     signingWorkerId: SIGNING_WORKER_ID,
@@ -598,7 +594,7 @@ async function warmRecoveryBootstrapResponse(args: {
 }
 
 test.describe('Email OTP Ed25519 Yao capability recovery', () => {
-  test('silently recovers a valid sealed Email OTP grant after page refresh', async () => {
+  test('silently recovers valid sealed Email OTP material after page refresh', async () => {
     const expiresAtMs = Date.now() + 60_000;
     const sealedRecord = buildEmailOtpSealedRecord({ expiresAtMs, remainingUses: 3 });
     const prior = activeMetadata();
@@ -743,7 +739,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
     expect(persistCalls).toBe(0);
   });
 
-  test('routes an exhausted sealed Email OTP grant to step-up without attempting recovery', async () => {
+  test('routes exhausted Email OTP authorization to step-up without attempting recovery', async () => {
     const sealedRecord = buildEmailOtpSealedRecord({
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 0,
@@ -787,7 +783,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
     expect(activation.activateCalls).toBe(0);
   });
 
-  test('routes an expired sealed Email OTP grant to step-up without attempting Yao recovery', async () => {
+  test('routes expired Email OTP authorization to step-up without attempting Yao recovery', async () => {
     const nowMs = Date.now();
     const sealedRecord = buildEmailOtpSealedRecord({
       expiresAtMs: nowMs,
@@ -832,7 +828,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
     expect(activation.activateCalls).toBe(0);
   });
 
-  test('resolves an exact export context after refresh from an exhausted signing grant', async () => {
+  test('resolves an exact export context after refresh from exhausted authorization', async () => {
     const expiresAtMs = Date.now() + 60_000;
     const thresholdExpiresAtMs = expiresAtMs + 60_000;
     const sealedRecord = buildEmailOtpSealedRecord({ expiresAtMs, remainingUses: 0 });
@@ -873,7 +869,8 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       kind: 'email_otp_ed25519_yao_export_context_v1',
       lane: {
         thresholdSessionId: THRESHOLD_SESSION_ID,
-        signingGrantId: SIGNING_GRANT_ID,
+        walletSessionId: WALLET_SESSION_ID,
+        quotaId: WALLET_SESSION_QUOTA_ID,
       },
       authorization: {
         walletSessionJwt: walletSessionJwt('sealed-refresh'),
@@ -1000,7 +997,8 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
     expect(activation.activateCalls).toBe(1);
     expect(result.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
     expect(result.walletSessionState.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
-    expect(result.walletSessionState.signingGrantId).toBe(RECOVERED_SIGNING_GRANT_ID);
+    expect(result.walletSessionState.walletSessionId).toBe(WALLET_SESSION_ID);
+    expect(result.walletSessionState.quotaId).toBe(WALLET_SESSION_QUOTA_ID);
     expect(result.walletSessionState.remainingUses).toBe(3);
     expect(result.walletSessionState.signingLane.identity.signer.signerSlot).toBe(
       result.material.activeClient.metadata().applicationBinding.key_creation_signer_slot,
@@ -1014,7 +1012,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       .toBe(false);
   });
 
-  test('cold activation rejects a Wallet Session bearer bound to another grant', async () => {
+  test('cold activation rejects a Wallet Session bearer bound to another quota', async () => {
     const priorMetadata = activeMetadata();
     const worker = new RecoveryWorkerFixture({
       prior: priorMetadata,
@@ -1047,7 +1045,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
           substitutePublicKey: false,
           substituteParticipantIds: false,
           substituteSignerSetId: false,
-          walletSessionJwt: walletSessionJwt('wrong-grant', 'substituted-signing-grant'),
+          walletSessionJwt: walletSessionJwt('wrong-quota', 'substituted-wallet-session-quota'),
         }),
         pendingFactorHandle: pendingFactorHandle(),
         workerContext: worker.context(),

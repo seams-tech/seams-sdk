@@ -15,8 +15,9 @@ flowchart TD
   Intent["Wallet intent<br/>transaction, message, or delegate action"] --> Digest["Canonical intent digest"]
   Digest --> Proof["Wallet proof and auth method"]
   Proof --> Session["Wallet Session"]
-  Session --> Grant["Signing grant<br/>TTL and remaining uses"]
-  Grant --> Router["Router policy, replay, quota, budget"]
+  Session --> Quota["Wallet Session quota<br/>TTL and remaining uses"]
+  Quota --> Claim["Operation capability claim"]
+  Claim --> Router["Router policy, replay, and admission"]
   Router --> SigningWorker["SigningWorker"]
   SigningWorker --> Signature["Signature"]
   Signature --> Audit["Audit trail"]
@@ -28,7 +29,8 @@ flowchart TD
 | --- | --- |
 | Wallet Session | Confirms the wallet-user operation is admitted. |
 | Signing lane | Selects the exact wallet capability for the operation. |
-| Signing grant | Enforces TTL, remaining uses, and budget. |
+| Wallet Session quota | Enforces TTL and remaining uses for reusable signing. |
+| Capability claim | Binds one operation to its exact capability and material. |
 | Policy | Checks mandate, constraints, revocation state, and risk rules. |
 | Replay and idempotency | Prevents request reuse and ambiguous execution. |
 

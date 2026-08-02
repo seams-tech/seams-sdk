@@ -21,14 +21,12 @@ flows or browser assembly.
 - `flows/shared/`: shared operation state machine, command ports, and
   confirmation command runner.
 - `session/`: selected lane identity, available lanes, readiness, record
-  normalization, restore, planning, budget, sealed persistence, and
+  normalization, restore, planning, authorization admission, sealed persistence, and
   warm-session state.
 - `session/emailOtp/`: Email OTP threshold-session provisioning, restoration,
   export recovery, and warm-session status coordination.
 - `session/planning/`: signing-operation planning, operation fingerprints, and
   operation-id binding.
-- `session/budget/`: signing grant budget reads, projection,
-  reservation, and spend finalization.
 - `stepUpConfirmation/`: confirmation contracts, email-OTP/passkey prompts,
   wallet-auth policy resolution, intent digest preparation, and channel message
   contracts.

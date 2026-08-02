@@ -546,11 +546,6 @@ const LIFECYCLE_FAILURE_MATCHER_TABLE_VERSION = 'refactor-88-2026-07-04';
 
 const LIFECYCLE_FAILURE_MATCHERS: readonly LifecycleFailureMatcher[] = [
   {
-    id: 'remaining_spend_indeterminate_budget_unknown',
-    pattern: /\[SigningSessionBudget\] signing grant budget is budget_unknown/i,
-    reason: 'remaining spend state was indeterminate in a signing path',
-  },
-  {
     id: 'exact_lane_selection_failure',
     pattern: /exact selected lane/i,
     reason: 'signing did not use a single exact lane',

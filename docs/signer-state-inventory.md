@@ -75,7 +75,7 @@ Several identities have different cardinalities and lifetimes.
 | material owner | one role-local key-material owner | key/session dependent | represented through optional handle, ref, or ready record |
 | runtime handle | one worker-local handle | worker lifetime | sometimes treated as lane readiness |
 | durable material reference | one pointer to encrypted worker material | session/material lifetime | can disappear with runtime records |
-| exact lane | key + target + auth + grant + threshold session | operation/session | selected separately from material in some flows |
+| exact lane | key + target + auth + Wallet Session/quota + threshold session | operation/session | selected separately from material in some flows |
 
 The shared EVM-family key is the clearest mismatch. The key is family-wide.
 Target membership, policy scope, nonce scope, and operation lane can be
@@ -87,7 +87,7 @@ the shared key:
 - `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2578`
 - `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2614`
 
-That projection copies `signingGrantId` and `thresholdSessionId`. The model
+That projection copies Wallet Session/quota identity and `thresholdSessionId`. The model
 needs an explicit server-authorized capability scope before this copy is safe:
 
 ```ts
@@ -205,7 +205,7 @@ At the time of this snapshot, ECDSA expiry and exhaustion produced a
 public-only reauthorization anchor. Refactor 90 removed that record shape in
 `fe07fea5b`. The replacement inactive record retains the sealed secret,
 role-local persisted-material reference, and exact material activation while
-excluding `signingGrantId`, threshold-session identity, Wallet Session JWT,
+excluding Wallet Session/quota identity, threshold-session identity, Wallet Session JWT,
 allowance, and other reusable-session authorization state.
 The retired anchor could support fresh reauthorization but could not address
 the encrypted role-local material by itself. The replacement closes that
@@ -580,7 +580,8 @@ type ActiveEcdsaCapabilityManifest = {
   scope: EcdsaCapabilityScope;
   authority: WalletAuthAuthority;
   policy: {
-    signingGrantId: SigningGrantId;
+    walletSessionId: WalletSessionId;
+    quotaId: MpcWalletSigningQuotaId;
     thresholdSessionId: ThresholdEcdsaSessionId;
     serverGeneration: ServerIssuedGeneration;
     remainingUses: PositiveInteger;

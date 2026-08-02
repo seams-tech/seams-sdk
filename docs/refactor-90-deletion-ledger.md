@@ -50,18 +50,18 @@ focused regression test proves the two identifiers stay distinct
 `EnsureWarmEcdsaCapabilityReadyResult` carrier were deleted in the same
 checkpoint. No additional safe production deletions were found.
 
-The Ed25519 `signingGrantId` quota boundary is temporarily retained in the
-TypeScript runtime until Unit 3c replaces it with canonical Wallet Session,
-quota, capability-grant, and operation-claim identities. The Rust Router
-reserve/validate/commit/release protocol and its current public route/types are
-already deleted in `cb7bc901c`, with stale boundary guards aligned in
-`c92b7d4a0` and `daeda0d7e`; the remaining TypeScript runtime/store surface is
-the open deletion target. The Email OTP NEAR challenge remains a live
-operation-owned interface; generated
-passkey-only WASM class names require a coordinated binding rebuild and are not
-safe source-only deletions. The historical `missing_hot_material` and removed
-ECDSA budget fixture references in older refactor documents are documentation
-history, not production symbols.
+Unit 3c has replaced the Ed25519 `signingGrantId` quota boundary with the
+canonical Wallet Session/quota and capability-operation-claim flow. The public
+NEAR route claims the operation atomically at Gateway D1 before forwarding to
+the MPC router (`b166b0bf1`); replay, expiry, exhaustion, and claim-binding
+coverage pass in the focused authorization suite. The Rust Router
+reserve/validate/commit/release protocol, TypeScript runtime/store surface,
+and obsolete fixtures are deleted (`cb7bc901c`, `882dfd681`, `4885bed62`).
+The Email OTP NEAR challenge remains a live operation-owned interface;
+generated passkey-only WASM class names require a coordinated binding rebuild
+and are not safe source-only deletions. Historical `missing_hot_material` and
+removed ECDSA budget fixture references in older refactor documents are
+documentation history, not production symbols.
 
 The broad unit gate was rerun after the build and WASM outputs were regenerated:
 1,740 passed, 197 failed, and 11 skipped out of 1,948 collected tests. The
@@ -95,18 +95,14 @@ Volatile warm-material clear commands now use branded `ThresholdSessionId` in
 their worker scope; the retired generic `sessionId` field and local volatile-ID
 alias were deleted (`0c341f40a`).
 The inert ECDSA Router A/B admission-policy `signingGrantId` input and its
-ECDSA quota-key branches were deleted; quota reservation remains statically
-Ed25519-only until Unit 3c moves that live boundary (`5cf433765`).
-
-The remaining Ed25519 `signingGrantId` values are Unit 3c deletion targets.
-Until that cutover lands, they live only in authenticated Wallet Session/quota
-and operation-lane boundaries and remain absent from current Ed25519 sealed
-records, restore leases, material locators, and worker-owned durable material.
+ECDSA quota-key branches were deleted (`5cf433765`). The current Ed25519 and
+ECDSA reusable-session routes both use the Gateway atomic claim/quota path;
+neither curve retains a Router reserve/commit/release caller.
 The Email OTP Ed25519 challenge request and the Passkey/Email OTP owner-local
 single-flight maps remain live factor-owned operating paths, not generic
 compatibility aliases.
 
-### Unit 3c live-occurrence inventory — 2026-08-02
+### Unit 3c pre-cutover live-occurrence inventory — 2026-08-02 (historical)
 
 The first Unit 3c inventory found **118 production files / 1,245 references**
 to `SigningGrantId`, `signingGrantId`, or `signing_grant_id` after excluding
@@ -122,22 +118,16 @@ the boundary that must move them:
 | Persistence and worker boundaries | `sealedSessionStore.ts`, `schemaNames.ts`, `passkey-mpc-session.worker.ts`, Rust private D1 | Reject current-schema grant fields at the boundary; retain only immutable historical migration names where required |
 | Registration, recovery, export, and status projections | `routerAbEd25519Yao*`, `d1WalletRegistrationService.ts`, `login.ts`, Email OTP flows | Replace live authorization projections together; delete legacy projections after their canonical consumer lands |
 
-The ECDSA post-registration activation response is not an isolated deletion:
-`thresholdEcdsa.ts` copies its grant into the Wallet Session JWT, while
+The ECDSA post-registration activation response was not an isolated deletion:
+`thresholdEcdsa.ts` copied its grant into the Wallet Session JWT, while
 `sessions.ts`, `ecdsaLogin.ts`, `bootstrapSession.ts`, and Email OTP
-provisioning consume the parsed field. It remains open until the shared claim
-verifier and JWT/schema cutover land in one Rust/TypeScript change. The Rust
-reusable-claim verifier likewise still compares its durable claim to the
-Wallet Session grant; removing that field first would remove the only current
-claim-to-session binding.
+provisioning consumed the parsed field. The coordinated Rust/TypeScript
+claim-verifier and JWT/schema cutover landed in `41ed8f9cb` and `9196afd69`.
 
-The internal verified ECDSA authorization carrier no longer exposes the legacy
-grant identity (`13e7a9844`). Strict JWT claims and Rust wire fields remain
-until the coordinated claim-verifier cutover; this slice removes the projection
-without weakening boundary validation or creating a fallback.
-The targeted `verified Wallet Session auth preserves authorization and threshold
-identities separately` check passed 1/1; the broader claims file still has one
-unrelated pre-existing Ed25519 scope-mismatch failure.
+The internal verified ECDSA authorization carrier and strict JWT/Rust wire
+claims no longer expose the legacy grant identity. The targeted `verified
+Wallet Session auth preserves authorization and threshold identities
+separately` check passed 1/1; the current claims suite passes 29/29.
 
 Inventory command (rerun before each Unit 3c deletion slice):
 
@@ -148,15 +138,14 @@ rg -l 'SigningGrantId|signingGrantId|signing_grant_id' \
   --glob '!**/dist/**' --glob '!**/*.typecheck.ts'
 ```
 
-### Unit 3c wire-boundary verification checkpoint — `ad1db862b`
+### Unit 3c wire-boundary verification checkpoint — `41ed8f9cb`, `9196afd69`
 
-The latest local `dev` tip (`e95887fdc`) is already an ancestor of the
-Refactor-90 branch; the merge is complete with no unresolved conflicts. The
-current ECDSA wire deliberately remains on the coordinated pre-cutover shape:
-the activation response still carries `signing_grant_id` because client
-provisioning and the Wallet Session JWT still consume that value. The partial
-response-only deletion from `e95887fdc` is therefore not re-applied in
-isolation. Unit 3c owns the atomic Rust/TypeScript/client replacement.
+The latest local `dev` tip is an ancestor of the Refactor-90 branch; the merge
+is complete with no unresolved conflicts. The ECDSA wire uses the coordinated
+breaking shape: `authorization_claim` is required, public budget fields and
+legacy `sessionId` aliases are rejected, and reusable claims bind to the
+verified Wallet Session plus canonical capability grant. Threshold-session,
+Wallet Session, quota, and material-activation identities remain separate.
 
 The existing canonical claim boundary was rechecked at this checkpoint:
 
@@ -167,8 +156,8 @@ The existing canonical claim boundary was rechecked at this checkpoint:
 - Shared TypeScript, SDK-server, and unit type checks remain green at the
   merge checkpoint; `git diff --check` is clean.
 
-These checks verify the current claim boundary. They do not close the
-`SigningGrantId` deletion entry or the final conformance gate.
+These checks verify the current claim boundary. Lifecycle, broad-gate, and
+final conformance acceptance remain open.
 
 ### Unit 3c Ed25519 atomic-claim checkpoint — 2026-08-02
 
@@ -180,9 +169,8 @@ the same claim before finalize. The direct
 Router reserve/validate/commit/release protocol and had no production caller;
 it and the obsolete local-Yao public-signing section were deleted in
 `a37dbb65b`. The local-Yao registration, retry, and disposal coverage remains.
-The runtime's provisioning and refresh methods remain live and are not part of
-this deletion until their Wallet Session/quota inputs move to the canonical
-authorization owner.
+The live public route now supplies the Wallet Session/quota identities directly
+to the Gateway claim transaction (`b166b0bf1`).
 The standalone `routerAbEd25519BudgetRouteCore.unit.test.ts` was obsolete
 coverage for that retired reservation protocol and was deleted in the same
 checkpoint.
@@ -195,19 +183,27 @@ The obsolete Router budget-only TypeScript coverage was deleted in
 provisioner suite, and Wallet Session reservation-store suite had no remaining
 canonical caller. Registration/retry/disposal coverage remains in the local-Yao
 tests. The shared `SigningGrantId` brand/parser and sealed-record exclusion
-fields were deleted in `53ab721df`. The remaining TypeScript budget runtime and
-store APIs remain open until the live Ed25519 callers are moved to the
-canonical claim/quota transaction.
+fields were deleted in `53ab721df`; the remaining TypeScript Router budget
+runtime/store surface was deleted in `882dfd681` and `4885bed62`.
 
-Checkpoint `882dfd681` closes the next deletion slice: the remaining
+Checkpoint `882dfd681` and follow-up `4885bed62` close the next deletion slice:
+the remaining
 TypeScript Router budget persistence/parser surface, callerless local signing
 seed runtime and factory wiring, obsolete wallet-budget status/parser tests,
 and grant-named admission/cache identities in the SDK, local smoke wire,
-console admission fixture, and current documentation. SDK-server, SDK-web, and
-shared TypeScript typechecks pass; focused wallet-session quota admission is
-5/5 and Router normal-signing validation plus EVM retry coverage is 9/9. The
-live Ed25519 atomic-claim migration and remaining grant-bearing current
-boundaries are still open.
+console admission fixture, and current documentation. SDK-server, SDK-web,
+console-server, and shared TypeScript typechecks pass; focused admission and
+claims coverage is 8/8 plus 29/29. The implementation cutover is closed;
+lifecycle and final conformance acceptance remain open.
+
+### Unit 3c current-source closeout — `4885bed62`
+
+An exact source sweep over `packages`, `apps`, and `crates` finds no current
+`SigningGrantId`, `signingGrantId`, or `signing_grant_id` occurrence outside
+the immutable historical migration. Current tests and generated source are
+clean as well. Historical refactor documents retain their original names as
+archival evidence; current Refactor 90 documents describe the canonical
+Wallet Session/quota and capability-grant identities.
 
 ## Foundation B / Phase 18 — legacy ECDSA record family
 

@@ -42,6 +42,7 @@ import type { EmailOtpEd25519YaoPublicationContext } from './ed25519YaoPublicati
 import {
   buildRouterAbEd25519SigningWalletSession,
   parseRouterAbEd25519WalletSessionIdentityClaims,
+  type RouterAbEd25519WalletSessionIdentityClaims,
 } from '../routerAbSigningWalletSession';
 
 export type EmailOtpEd25519YaoCapabilityRecoveryResult = {
@@ -212,11 +213,23 @@ export function prepareColdEmailOtpEd25519YaoRecoveryV1(args: {
 function assertColdBootstrapContinuity(args: {
   prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
   bootstrap: EmailOtpEd25519YaoUnlockBootstrapV1;
-}): void {
+}): RouterAbEd25519WalletSessionIdentityClaims {
   const prepared = args.prepared;
   const session = args.bootstrap.session;
   const capability = args.bootstrap.capability;
   const metadata = prepared.previousMetadata;
+  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(session.walletSessionJwt);
+  if (
+    claims === null ||
+    claims.walletId !== String(session.walletId) ||
+    claims.nearAccountId !== session.nearAccountId ||
+    claims.nearEd25519SigningKeyId !== session.nearEd25519SigningKeyId ||
+    claims.walletSessionId !== session.walletSessionId ||
+    claims.quotaId !== session.quotaId ||
+    claims.thresholdSessionId !== session.thresholdSessionId
+  ) {
+    throw new Error('wallet_binding_mismatch');
+  }
   if (
     session.authorityScope.kind !== 'email_otp' ||
     session.authorityScope.providerUserId !== prepared.providerSubject ||
@@ -246,6 +259,7 @@ function assertColdBootstrapContinuity(args: {
   ) {
     throw new Error('Email OTP Ed25519 Yao cold recovery changed the registered wallet identity');
   }
+  return claims;
 }
 
 async function assertColdBootstrapContinuityOrDisposePending(args: {
@@ -253,9 +267,9 @@ async function assertColdBootstrapContinuityOrDisposePending(args: {
   bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   workerContext: WorkerOperationContext;
   pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
-}): Promise<void> {
+}): Promise<RouterAbEd25519WalletSessionIdentityClaims> {
   try {
-    assertColdBootstrapContinuity(args);
+    return assertColdBootstrapContinuity(args);
   } catch (error) {
     try {
       const removed = await disposeEmailOtpEd25519YaoPendingFactorV1(args);
@@ -275,19 +289,18 @@ async function assertColdBootstrapContinuityOrDisposePending(args: {
 function buildColdRecoveredWalletSessionState(args: {
   prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
   bootstrap: EmailOtpEd25519YaoUnlockBootstrapV1;
+  claims: RouterAbEd25519WalletSessionIdentityClaims;
 }) {
   const session = args.bootstrap.session;
   if (session.authorityScope.kind !== 'email_otp') {
     throw new Error('Email OTP Ed25519 Yao recovery returned another authority kind');
   }
-  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(session.walletSessionJwt);
-  if (!claims) throw new Error('Email OTP Ed25519 Yao recovery returned invalid Wallet Session claims');
   const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
     walletId: String(session.walletId),
     nearAccountId: session.nearAccountId,
     nearEd25519SigningKeyId: session.nearEd25519SigningKeyId,
-    walletSessionId: claims.walletSessionId,
-    quotaId: claims.quotaId,
+    walletSessionId: args.claims.walletSessionId,
+    quotaId: args.claims.quotaId,
     thresholdSessionId: session.thresholdSessionId,
     remainingUses: session.remainingUses,
     expiresAtMs: session.expiresAtMs,
@@ -329,7 +342,7 @@ export async function activateEmailOtpEd25519YaoLocalCapabilityV1(args: {
     material: NearEd25519YaoOperationMaterial,
   ) => Promise<Ed25519YaoActiveClientIdentityV1>;
 }): Promise<EmailOtpEd25519YaoCapabilityRecoveryResult> {
-  assertColdBootstrapContinuity(args);
+  const claims = assertColdBootstrapContinuity(args);
   let activeClient: NearEd25519YaoOperationMaterial['activeClient'] | null =
     new EmailOtpEd25519YaoWorkerActiveClientV1(
       args.workerContext,
@@ -337,7 +350,11 @@ export async function activateEmailOtpEd25519YaoLocalCapabilityV1(args: {
       args.metadata,
     );
   try {
-    const walletSessionState = buildColdRecoveredWalletSessionState(args);
+    const walletSessionState = buildColdRecoveredWalletSessionState({
+      prepared: args.prepared,
+      bootstrap: args.bootstrap,
+      claims,
+    });
     const material: NearEd25519YaoOperationMaterial = {
       activeClient,
       facts: {
@@ -382,7 +399,7 @@ export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
     material: NearEd25519YaoOperationMaterial,
   ) => Promise<Ed25519YaoActiveClientIdentityV1>;
 }): Promise<EmailOtpEd25519YaoCapabilityRecoveryResult> {
-  await assertColdBootstrapContinuityOrDisposePending(args);
+  const claims = await assertColdBootstrapContinuityOrDisposePending(args);
   const expectedPriorMetadata =
     args.prepared.previousMetadata ??
     buildEmailOtpEd25519YaoRecoveryContinuityMetadataV1(args.bootstrap);
@@ -410,7 +427,11 @@ export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
   });
   let activeClient: NearEd25519YaoOperationMaterial['activeClient'] | null = recovered.activeClient;
   try {
-    const walletSessionState = buildColdRecoveredWalletSessionState(args);
+    const walletSessionState = buildColdRecoveredWalletSessionState({
+      prepared: args.prepared,
+      bootstrap: args.bootstrap,
+      claims,
+    });
     const material: NearEd25519YaoOperationMaterial = {
       activeClient,
       facts: {

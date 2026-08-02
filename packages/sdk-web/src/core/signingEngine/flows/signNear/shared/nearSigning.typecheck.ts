@@ -74,7 +74,7 @@ void exactOperationGrant;
 
 const operationStepUpWithReusableGrant: NearPasskeyOperationStepUpPlan = {
   thresholdSessionId,
-  // @ts-expect-error Reusable signing grants cannot authorize one-operation step-up.
+  // @ts-expect-error Reusable Wallet Sessions cannot authorize one-operation step-up.
   requestedGrantId: walletSessionId,
   authority: operationStepUpPlan.authority,
 };

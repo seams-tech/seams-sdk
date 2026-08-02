@@ -9,7 +9,7 @@ while ordinary signing remains share-based.
 
 ## Sealed Refresh
 
-Sealed refresh restores an already-authenticated signing grant after accidental
+Sealed refresh restores sealed signing material after accidental
 iframe or page reload. It stores sealed session material in wallet-origin
 IndexedDB and relies on live server participation plus valid server-side
 session state.
