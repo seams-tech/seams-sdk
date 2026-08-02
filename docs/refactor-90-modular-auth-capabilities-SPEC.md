@@ -626,6 +626,9 @@ implementing commit SHA as the evidence.
     from Wallet Session and material-activation identities; obsolete public
     budget fields and `sessionId` aliases are rejected at the Rust/TypeScript
     boundary (`41ed8f9cb`).
+  - [x] Passkey ECDSA seal persistence carries the actual threshold-session
+    identity independently from the material-activation single-flight key;
+    the focused substitution test passes (`57849eda9`).
   - [x] The focused signing, refresh, coordinator, wire, and hostile-claim
     substitution matrix passes 48/48; SDK/unit typechecks, Rust protocol and
     vector tests, and direct worker/WASM/boundary guards pass at the current
