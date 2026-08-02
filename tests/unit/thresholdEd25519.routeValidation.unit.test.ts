@@ -37,7 +37,6 @@ function validThresholdEd25519SessionPolicy(): Record<string, unknown> {
     }),
     relayerKeyId: 'ed25519:relayer',
     thresholdSessionId: 'tsess-route-validation',
-    signingGrantId: 'grant-route-validation',
     runtimePolicyScope: {
       orgId: 'org-route-validation',
       projectId: 'project-route-validation',
@@ -278,7 +277,6 @@ function acceptsExactYaoBudgetRefreshBody(): void {
     routeAuth: { kind: 'passkey' },
     sessionPolicy: {
       thresholdSessionId: 'tsess-route-validation',
-      signingGrantId: 'grant-route-validation',
       participantIds: [1, 2],
     },
   });
@@ -350,17 +348,6 @@ function normalizesThresholdSessionIdentityAtRouteBoundary(): void {
   expect(parsed.request.sessionPolicy.thresholdSessionId).toBe('tsess-route-validation');
 }
 
-function normalizesSigningGrantIdentityAtRouteBoundary(): void {
-  const body = validThresholdEd25519SessionBody();
-  const policy = validThresholdEd25519SessionPolicy();
-  policy.signingGrantId = '  grant-route-validation  ';
-  body.sessionPolicy = policy;
-  const parsed = parseThresholdEd25519SessionRouteRequest(body);
-  expect(parsed.ok).toBe(true);
-  if (!parsed.ok) throw new Error(parsed.body.message);
-  expect(parsed.request.sessionPolicy.signingGrantId).toBe('grant-route-validation');
-}
-
 function rejectsBodyOwnedAppSessionClaims(): void {
   const body = validThresholdEd25519SessionBody();
   body.appSessionClaims = {
@@ -401,10 +388,6 @@ test(
 test(
   'threshold-ed25519 session route normalizes threshold-session identity once',
   normalizesThresholdSessionIdentityAtRouteBoundary,
-);
-test(
-  'threshold-ed25519 session route normalizes signing-grant identity once',
-  normalizesSigningGrantIdentityAtRouteBoundary,
 );
 test('threshold-ed25519 session route requires jwt session kind', rejectsMissingJwtSessionKind);
 test(

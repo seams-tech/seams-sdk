@@ -28,7 +28,8 @@ function makeNearPasskeyLane() {
     nearEd25519SigningKeyId,
     signerSlot: 1,
     auth: passkeyAuth,
-    signingGrantId: SigningSessionIds.signingGrant('wsess-step-up-near-passkey'),
+    walletSessionId: SigningSessionIds.walletSession('wsess-step-up-near-passkey'),
+    quotaId: SigningSessionIds.walletSessionQuota('quota-step-up-near-passkey'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session('ted25519-step-up-passkey'),
     storageSource: 'registration',
   });

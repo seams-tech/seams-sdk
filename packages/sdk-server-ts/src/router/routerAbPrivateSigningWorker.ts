@@ -246,7 +246,6 @@ export type RouterAbEcdsaNormalSigningAuthorizationResult =
 
 export type RouterAbNormalSigningAdmissionFailureCode =
   | 'project_policy_rejected'
-  | 'quota_saturated'
   | 'abuse_rejected'
   | 'rate_limited'
   | 'unauthorized'
@@ -296,9 +295,6 @@ export interface RouterAbNormalSigningAdmissionAdapter {
   evaluatePolicy(
     input: RouterAbNormalSigningAdmissionInput,
   ): Promise<RouterAbNormalSigningAdmissionResult>;
-  evaluate(
-    input: Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }>,
-  ): Promise<RouterAbNormalSigningAdmissionResult>;
 }
 
 export type RouterAbNormalSigningAdmissionEvaluationInput =
@@ -332,7 +328,7 @@ export async function evaluateRouterAbNormalSigningAdmission(
   }
 
   if (input.curve === 'ed25519') {
-    return await input.adapter.evaluate({
+    return await input.adapter.evaluatePolicy({
       curve: 'ed25519',
       phase: input.phase,
       walletId: input.walletSessionAuth.userId,

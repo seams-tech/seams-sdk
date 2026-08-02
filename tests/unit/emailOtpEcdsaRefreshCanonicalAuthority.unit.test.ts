@@ -59,7 +59,6 @@ test.describe('Email OTP ECDSA refresh canonical authority', () => {
     // The Email OTP lane names the sealed threshold session. Reusable Wallet
     // Session identity remains on the independent authorization projection.
     expect(authLane.thresholdSessionId).toBe(runtime.sealedRecord.thresholdSessionId);
-    expect(authLane.authorizingSigningGrantId).toBeUndefined();
     expect(authLane.jwt).toBe('wallet-session-jwt');
   });
 

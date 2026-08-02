@@ -40,14 +40,11 @@ export {
 } from './routerAbNormalSigningAdmissionCore';
 export type {
   CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
-  InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
   RouterAbNormalSigningAdmissionStore,
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningProjectPolicyProvider,
-  RouterAbNormalSigningQuotaDecision,
-  RouterAbNormalSigningQuotaStore,
 } from './routerAbNormalSigningAdmissionCore';
 export type {
   RouterApiCloudflareRouteExtension,

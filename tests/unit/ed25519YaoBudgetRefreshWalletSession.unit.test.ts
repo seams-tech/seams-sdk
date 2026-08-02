@@ -29,6 +29,7 @@ type RefreshFetchCapture = {
 };
 
 let activeRefreshFetchCapture: RefreshFetchCapture | null = null;
+let activeRefreshResponseIncludesRuntimePolicyScope = true;
 let activeOperationStepUpFetchCapture: RefreshFetchCapture | null = null;
 let activeOperationStepUpResponseBody: Record<string, unknown> | null = null;
 
@@ -69,9 +70,20 @@ async function refreshWalletSessionFetch(
     JSON.stringify({
       ok: true,
       thresholdSessionId: 'threshold-session-1',
-      signingGrantId: 'signing-grant-1',
+      walletSessionId: 'wallet-session-1',
+      quotaId: 'quota-1',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       remainingUses: 3,
+      ...(activeRefreshResponseIncludesRuntimePolicyScope
+        ? {
+            runtimePolicyScope: {
+              orgId: 'org-refresh',
+              projectId: 'project-refresh',
+              envId: 'env-refresh',
+              signingRootVersion: 'root-version-refresh',
+            },
+          }
+        : {}),
       jwt: 'refreshed-wallet-session-jwt',
     }),
     {
@@ -198,7 +210,6 @@ function refreshSessionPolicyFixture(): Ed25519SessionPolicy {
     }),
     relayerKeyId: 'ed25519:relayer-key',
     thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
     runtimePolicyScope: {
       orgId: 'org-refresh',
       projectId: 'project-refresh',
@@ -245,7 +256,8 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
     expect(result).toMatchObject({
       ok: true,
       thresholdSessionId: 'threshold-session-1',
-      signingGrantId: 'signing-grant-1',
+      walletSessionId: 'wallet-session-1',
+      quotaId: 'quota-1',
       remainingUses: 3,
       jwt: 'refreshed-wallet-session-jwt',
     });
@@ -258,6 +270,7 @@ test('Wallet Session mint uses environment auth with a PRF-redacted WebAuthn ass
     expect(capture.body).toContain('"projectEnvironmentId":"env-refresh"');
   } finally {
     activeRefreshFetchCapture = null;
+    activeRefreshResponseIncludesRuntimePolicyScope = true;
     globalThis.fetch = originalFetch;
   }
 });
@@ -270,6 +283,7 @@ test('Ed25519 session connection rejects success without a runtime policy scope'
     credentials: undefined,
   };
   activeRefreshFetchCapture = capture;
+  activeRefreshResponseIncludesRuntimePolicyScope = false;
   globalThis.fetch = refreshWalletSessionFetch;
 
   try {
@@ -311,6 +325,7 @@ test('Ed25519 session connection rejects success without a runtime policy scope'
     });
   } finally {
     activeRefreshFetchCapture = null;
+    activeRefreshResponseIncludesRuntimePolicyScope = true;
     globalThis.fetch = originalFetch;
   }
 });

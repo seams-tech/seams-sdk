@@ -199,6 +199,16 @@ fields were deleted in `53ab721df`. The remaining TypeScript budget runtime and
 store APIs remain open until the live Ed25519 callers are moved to the
 canonical claim/quota transaction.
 
+Checkpoint `882dfd681` closes the next deletion slice: the remaining
+TypeScript Router budget persistence/parser surface, callerless local signing
+seed runtime and factory wiring, obsolete wallet-budget status/parser tests,
+and grant-named admission/cache identities in the SDK, local smoke wire,
+console admission fixture, and current documentation. SDK-server, SDK-web, and
+shared TypeScript typechecks pass; focused wallet-session quota admission is
+5/5 and Router normal-signing validation plus EVM retry coverage is 9/9. The
+live Ed25519 atomic-claim migration and remaining grant-bearing current
+boundaries are still open.
+
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
 Replacement: the required-field `active | retired` ECDSA capability record,

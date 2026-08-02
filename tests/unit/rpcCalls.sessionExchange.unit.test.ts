@@ -57,7 +57,6 @@ function ecdsaSessionActivationFixture() {
       session: {
         authorization_session_id: bootstrap.session.authorizationSessionId,
         threshold_session_id: bootstrap.session.thresholdSessionId,
-        signing_grant_id: bootstrap.session.signingGrantId,
         wallet_session_id: bootstrap.session.walletSessionId,
         quota_id: bootstrap.session.quotaId,
         expires_at_ms: bootstrap.session.expiresAtMs,

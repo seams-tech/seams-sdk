@@ -18,7 +18,6 @@ import {
 
 const RECORD = buildPasskeyEd25519SealedSessionRecordFixture();
 const AUTHORIZATION = buildPasskeyEd25519AuthorizationProjectionFixture(RECORD);
-const SIGNING_GRANT_ID = `grant:${RECORD.thresholdSessionIds.ed25519}`;
 const CURRENT_WALLET_SESSION_JWT = AUTHORIZATION.walletSessionJwt;
 const LANE = buildEd25519PasskeySigningLane({
   walletId: toWalletId(RECORD.walletId),
@@ -32,7 +31,8 @@ const LANE = buildEd25519PasskeySigningLane({
     rpId: toRpId('wallet.example.test'),
     credentialIdB64u: 'ed25519-sealed-runtime-credential',
   },
-  signingGrantId: SigningSessionIds.signingGrant(SIGNING_GRANT_ID),
+  walletSessionId: AUTHORIZATION.walletSessionId,
+  quotaId: AUTHORIZATION.quotaId,
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
     RECORD.thresholdSessionIds.ed25519,
   ),
@@ -85,7 +85,8 @@ test('builds passkey hydration state from the exact sealed runtime and active JW
   });
 
   expect(state.thresholdSessionId).toBe(RECORD.thresholdSessionIds.ed25519);
-  expect(state.signingGrantId).toBe(SIGNING_GRANT_ID);
+  expect(state.walletSessionId).toBe(AUTHORIZATION.walletSessionId);
+  expect(state.quotaId).toBe(AUTHORIZATION.quotaId);
   expect(state.signingLane.identity.signer.nearEd25519SigningKeyId).toBe(
     RECORD.ed25519Restore.nearEd25519SigningKeyId,
   );

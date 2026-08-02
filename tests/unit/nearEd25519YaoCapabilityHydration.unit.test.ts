@@ -192,7 +192,8 @@ test('authorization-required Near material plans same-method step-up without a s
     nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('near-key-hydration'),
     signerSlot: 1,
     auth: requirement,
-    signingGrantId: 'stale-grant-does-not-authorize',
+    walletSessionId: 'wallet-session-near-hydration',
+    quotaId: 'quota-near-hydration',
     thresholdSessionId: 'threshold-session-near-hydration',
   });
   const context = resolveNearSigningSessionAuthContext({

@@ -50,7 +50,8 @@ test.describe('requireNearStepUpAuth', () => {
       nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       signerSlot: 1,
       auth: PASSKEY_AUTH,
-      signingGrantId: SigningSessionIds.signingGrant('wallet-session-warm'),
+      walletSessionId: SigningSessionIds.walletSession('wallet-session-warm'),
+      quotaId: SigningSessionIds.walletSessionQuota('quota-warm'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-warm'),
       storageSource: 'login',
     });
@@ -101,7 +102,8 @@ test.describe('requireNearStepUpAuth', () => {
       nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       signerSlot: 1,
       auth: PASSKEY_AUTH,
-      signingGrantId: SigningSessionIds.signingGrant('wallet-session-warm-one'),
+      walletSessionId: SigningSessionIds.walletSession('wallet-session-warm-one'),
+      quotaId: SigningSessionIds.walletSessionQuota('quota-warm-one'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-warm-one'),
       storageSource: 'login',
     });
@@ -126,7 +128,8 @@ test.describe('requireNearStepUpAuth', () => {
       nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       signerSlot: 1,
       auth: EMAIL_OTP_AUTH,
-      signingGrantId: SigningSessionIds.signingGrant('wallet-session-email'),
+      walletSessionId: SigningSessionIds.walletSession('wallet-session-email'),
+      quotaId: SigningSessionIds.walletSessionQuota('quota-email'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-email'),
     });
     let challengeRequests = 0;
@@ -163,7 +166,8 @@ test.describe('requireNearStepUpAuth', () => {
       nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       signerSlot: 1,
       auth: PASSKEY_AUTH,
-      signingGrantId: SigningSessionIds.signingGrant('wallet-session-passkey'),
+      walletSessionId: SigningSessionIds.walletSession('wallet-session-passkey'),
+      quotaId: SigningSessionIds.walletSessionQuota('quota-passkey'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-passkey'),
       storageSource: 'login',
     });

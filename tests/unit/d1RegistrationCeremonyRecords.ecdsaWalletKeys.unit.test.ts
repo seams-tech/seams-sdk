@@ -60,7 +60,6 @@ function makeBootstrap(args: {
     relayerVerifyingShareB64u: 'relayer-verifying-evm-family',
     participantIds: [1, 2],
     thresholdSessionId: `threshold-session-${args.targetLabel}`,
-    signingGrantId: `signing-grant-${args.targetLabel}`,
     expiresAtMs: 1_800_000_000_000,
     expiresAt: '2027-01-15T08:00:00.000Z',
     remainingUses: 10,

@@ -220,7 +220,6 @@ function validEcdsaClientBootstrap() {
     requestId: 'request-1',
     registrationPreparationId: 'wrp_123',
     thresholdSessionId: 'session-1',
-    signingGrantId: 'signing-grant-1',
     ttlMs: 300_000,
     remainingUses: 1,
     participantIds: [1, 2],
