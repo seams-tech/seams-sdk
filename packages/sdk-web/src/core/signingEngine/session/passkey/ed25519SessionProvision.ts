@@ -9,10 +9,12 @@ import type {
 } from '../warmCapabilities/types';
 import type { PasskeyEd25519SessionPolicyAuthority } from '../../threshold/sessionPolicy';
 import { nearProtocolProjectionFromExactLane } from '../identity/exactSigningLaneIdentity';
+import { SigningSessionIds } from '../operationState/types';
 import {
   buildPasskeyEd25519RestoreMetadata,
 } from './ed25519YaoSealedSession';
 import type { PasskeyEd25519SealRestoreMetadata } from '@/core/types/secure-confirm-worker';
+import type { ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 
@@ -23,7 +25,7 @@ type ResolvedEd25519ProvisionProtocol =
       nearAccountId: AccountId | string;
       nearEd25519SigningKeyId: string;
       signerSlot: number;
-      sessionId: string;
+      thresholdSessionId: ThresholdEd25519SessionId;
       signingGrantId?: never;
     }
   | {
@@ -32,7 +34,7 @@ type ResolvedEd25519ProvisionProtocol =
       nearAccountId: AccountId | string;
       nearEd25519SigningKeyId: string;
       signerSlot: number;
-      sessionId: string;
+      thresholdSessionId: ThresholdEd25519SessionId;
       signingGrantId: string;
     };
 
@@ -81,7 +83,9 @@ function resolveEd25519ProvisionProtocol(
         nearAccountId: args.nearAccountId,
         nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
         signerSlot: args.signerSlot,
-        sessionId: generateSessionId('threshold-ed25519'),
+        thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+          generateSessionId('threshold-ed25519'),
+        ),
       };
     case 'exact_ed25519_provisioning': {
       const projection = nearProtocolProjectionFromExactLane(
@@ -94,7 +98,7 @@ function resolveEd25519ProvisionProtocol(
         nearAccountId: projection.nearAccountId,
         nearEd25519SigningKeyId: String(projection.nearEd25519SigningKeyId),
         signerSlot: projection.signerSlot,
-        sessionId: String(args.laneIdentity.thresholdSessionId),
+        thresholdSessionId: args.laneIdentity.thresholdSessionId,
         signingGrantId: String(args.laneIdentity.signingGrantId),
       };
     }
@@ -105,7 +109,7 @@ function resolveEd25519ProvisionProtocol(
 
 function exactEd25519ProvisionReturnedDifferentIdentity(args: {
   requested: ResolvedEd25519ProvisionProtocol;
-  returnedSessionId: string;
+  returnedThresholdSessionId: ThresholdEd25519SessionId;
   returnedSigningGrantId: string;
 }): boolean {
   switch (args.requested.kind) {
@@ -113,7 +117,7 @@ function exactEd25519ProvisionReturnedDifferentIdentity(args: {
       return false;
     case 'exact':
       return (
-        args.returnedSessionId !== args.requested.sessionId ||
+        args.returnedThresholdSessionId !== args.requested.thresholdSessionId ||
         args.returnedSigningGrantId !== args.requested.signingGrantId
       );
   }
@@ -152,7 +156,7 @@ export async function provisionThresholdEd25519Session(
     nearAccountId,
     participantIds,
     sessionKind,
-    sessionId: protocol.sessionId,
+    thresholdSessionId: protocol.thresholdSessionId,
     ...(protocol.kind === 'exact'
       ? { signingGrantId: protocol.signingGrantId }
       : {}),
@@ -168,7 +172,8 @@ export async function provisionThresholdEd25519Session(
     };
   }
 
-  const resolvedSessionId = String(connected.sessionId || protocol.sessionId).trim();
+  const resolvedThresholdSessionId =
+    connected.thresholdSessionId || protocol.thresholdSessionId;
   const signingGrantId = String(connected.signingGrantId || '').trim();
   const expiresAtMs = Number(connected.expiresAtMs);
   const remainingUses = Number(connected.remainingUses);
@@ -176,7 +181,7 @@ export async function provisionThresholdEd25519Session(
   const prfFirstB64u = String(connected.ecdsaDerivationPasskeyPrfFirstB64u || '').trim();
   const runtimePolicyScope = connected.runtimePolicyScope;
   if (
-    !resolvedSessionId ||
+    !resolvedThresholdSessionId ||
     !signingGrantId ||
     !Number.isFinite(expiresAtMs) ||
     !Number.isFinite(remainingUses) ||
@@ -191,7 +196,7 @@ export async function provisionThresholdEd25519Session(
   if (
     exactEd25519ProvisionReturnedDifferentIdentity({
       requested: protocol,
-      returnedSessionId: resolvedSessionId,
+      returnedThresholdSessionId: resolvedThresholdSessionId,
       returnedSigningGrantId: signingGrantId,
     })
   ) {
@@ -232,7 +237,7 @@ export async function provisionThresholdEd25519Session(
     });
     try {
       await cacheCredentialBoundarySetupExportPrfFirst(deps.touchConfirm, {
-        sessionId: resolvedSessionId,
+        sessionId: String(resolvedThresholdSessionId),
         prfFirstB64u,
         expiresAtMs,
         remainingUses,
@@ -254,7 +259,7 @@ export async function provisionThresholdEd25519Session(
 
   return {
     ok: true,
-    sessionId: resolvedSessionId,
+    thresholdSessionId: resolvedThresholdSessionId,
     signingGrantId,
     expiresAtMs,
     remainingUses,

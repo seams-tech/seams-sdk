@@ -16,6 +16,10 @@ import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClient
 import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
+  parseThresholdEd25519SessionId,
+  type ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import {
   parseCapabilityGrantId,
   parseSeamsSessionId,
   type CapabilityGrantId,
@@ -148,7 +152,7 @@ export async function mintEd25519WalletSession(args: {
   publishableKey?: string;
 }): Promise<{
   ok: boolean;
-  sessionId?: string;
+  thresholdSessionId?: ThresholdEd25519SessionId;
   signingGrantId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
@@ -234,9 +238,19 @@ export async function mintEd25519WalletSession(args: {
       return Number.isFinite(raw) ? raw : undefined;
     })();
 
+    const thresholdSessionId = data.thresholdSessionId
+      ? parseThresholdEd25519SessionId(data.thresholdSessionId)
+      : null;
+    if (data.thresholdSessionId && !thresholdSessionId?.ok) {
+      return {
+        ok: false,
+        code: 'invalid_response',
+        message: 'Wallet Session mint returned an invalid thresholdSessionId',
+      };
+    }
     return {
       ok: data.ok === true,
-      sessionId: data.thresholdSessionId,
+      ...(thresholdSessionId?.ok ? { thresholdSessionId: thresholdSessionId.value } : {}),
       signingGrantId: data.signingGrantId,
       expiresAtMs,
       remainingUses: data.remainingUses,

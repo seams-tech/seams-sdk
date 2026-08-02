@@ -47,7 +47,10 @@ import type {
 } from '../identity/exactSigningLaneIdentity';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type {
+  MpcMaterialActivationRef,
+  ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
 
 function authMethodForThresholdEcdsaSessionSource(
   source: ThresholdEcdsaSessionStoreSource,
@@ -659,7 +662,7 @@ export type ProvisionWarmEd25519CapabilityArgs =
 
 export type ProvisionWarmEd25519CapabilitySuccessResult = {
   ok: true;
-  sessionId: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   signingGrantId: string;
   expiresAtMs: number;
   remainingUses: number;
