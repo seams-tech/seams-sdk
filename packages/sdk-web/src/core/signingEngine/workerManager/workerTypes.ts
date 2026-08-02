@@ -525,7 +525,7 @@ type EmailOtpEcdsaBootstrapBasePayload = {
   publicationTargetPlans: EmailOtpEcdsaPublicationTargetPlan[];
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   participantIds?: number[];
-  sessionId?: string;
+  thresholdSessionId?: string;
   signingGrantId?: string;
   ttlMs?: number;
   remainingUses?: number;
