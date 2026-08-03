@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import { parseSigningGrantId, parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import { parseWalletSessionId } from '@shared/authorization/capabilityKinds';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
@@ -13,7 +14,6 @@ import {
   parseRouterAbEd25519YaoExportExecuteRequestV1,
   type RouterAbEd25519YaoExportAdmissionRequestV1,
   type RouterAbEd25519YaoExportAuthorizationIdentityV1,
-  type RouterAbEd25519YaoExportFreshAuthorizationIdentityV1,
   type RouterAbEd25519YaoExportAuthorityBindingV1,
   type RouterAbEd25519YaoExportExecuteRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -36,7 +36,7 @@ import {
   createRouterAbEd25519YaoExportModule,
   type RouterAbEd25519YaoExportAuthorizationAdapter,
   type RouterAbEd25519YaoExportAuthorizationInput,
-  type RouterAbEd25519YaoExportAuthorizationResult,
+  type RouterAbEd25519YaoExportServerAuthorizationIdentityV1,
   type RouterAbEd25519YaoExportBackend,
   type RouterAbEd25519YaoExportBackendResult,
 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoExport';
@@ -82,11 +82,23 @@ const NEAR_ACCOUNT_ID = '0c'.repeat(32);
 const NEAR_SIGNING_KEY_ID = 'ed25519ks_export_1';
 const ROOT_SHARE_EPOCH = 'root-export-1';
 const WALLET_SESSION_ID = 'wallet-session-export-1';
-const SIGNING_GRANT_ID = 'signing-grant-export-1';
+const THRESHOLD_SESSION_ID_RAW = 'threshold-session-export-1';
 const SIGNING_WORKER_ID = 'signing-worker-export-1';
 const PARTICIPANTS = [11, 29] as const;
 const CREDENTIAL_ID = 'ZXhwb3J0LWNyZWRlbnRpYWwtMQ';
 const RP_ID = 'router.example.test';
+
+function materialActivation(materialOwner = WALLET_ID, signingWorker = SIGNING_WORKER_ID) {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: 'export-material-activation-1',
+    capability: 'export-capability-1',
+    material_owner: materialOwner,
+    key_binding: 'export-key-1',
+    lifecycle_binding: 'export-lifecycle-binding-1',
+    signing_worker: signingWorker,
+  };
+}
 const ORIGIN = 'https://router.example.test';
 const RUNTIME_POLICY_SCOPE = {
   orgId: 'org-export',
@@ -94,6 +106,12 @@ const RUNTIME_POLICY_SCOPE = {
   envId: 'test',
   signingRootVersion: ROOT_SHARE_EPOCH,
 } as const;
+
+function requireThresholdSessionId(value: string) {
+  const parsed = parseThresholdEd25519SessionId(value);
+  if (!parsed.ok) throw new Error('fixture threshold session identity is invalid');
+  return parsed.value;
+}
 
 type WebAuthnVerificationInput = Parameters<
   RouterApiWebAuthnService['verifyWebAuthnAuthenticationLite']
@@ -120,7 +138,7 @@ type ReceiptScopeSubstitution =
   | 'none'
   | 'root'
   | 'account'
-  | 'wallet_session'
+  | 'threshold_session'
   | 'signer_set'
   | 'worker';
 
@@ -155,9 +173,10 @@ function exportIdentity(input: {
       lifecycle_id: input.lifecycleId,
       root_share_epoch: ROOT_SHARE_EPOCH,
       account_id: WALLET_ID,
-      wallet_session_id: WALLET_SESSION_ID,
+      threshold_session_id: THRESHOLD_SESSION_ID_RAW,
       signer_set_id: 'signer-set-export-1',
       signing_worker_id: SIGNING_WORKER_ID,
+      material_activation: materialActivation(),
     },
     application_binding: {
       wallet_id: WALLET_ID,
@@ -194,8 +213,6 @@ async function admissionFixture(
     nonce: options.nonce,
     issuedAtMs: options.issuedAtMs,
     expiresAtMs: options.expiresAtMs,
-    thresholdSessionId: WALLET_SESSION_ID,
-    signingGrantId: SIGNING_GRANT_ID,
     authority: options.authority || { kind: 'passkey', credentialIdB64u: CREDENTIAL_ID },
   });
   return requireParsed(
@@ -226,13 +243,14 @@ function exportBinding(request: RouterAbEd25519YaoExportAdmissionRequestV1) {
         primitive_request_kind: 'export' as const,
         root_share_epoch: request.scope.root_share_epoch,
         account_id: request.scope.account_id,
-        session_id: request.scope.wallet_session_id,
+        session_id: request.scope.threshold_session_id,
         signer_set_id: request.scope.signer_set_id,
         selected_server_id: request.scope.signing_worker_id,
       },
       operation: 'export' as const,
-      session_id: bytes(request.authorization.nonce[0] ?? 71),
-      stable_key_context_binding: bytes(72),
+        session_id: bytes(request.authorization.nonce[0] ?? 71),
+        stable_key_context_binding: bytes(72),
+        material_activation: request.scope.material_activation,
     },
     registered_public_key: request.registered_public_key,
     state_epoch: request.state_epoch,
@@ -259,7 +277,9 @@ function exportReceipt(
           account_id:
             substitution === 'account' ? 'substituted-account.testnet' : lifecycle.account_id,
           session_id:
-            substitution === 'wallet_session' ? 'substituted-wallet-session' : lifecycle.session_id,
+            substitution === 'threshold_session'
+              ? 'substituted-threshold-session'
+              : lifecycle.session_id,
           signer_set_id:
             substitution === 'signer_set' ? 'substituted-signer-set' : lifecycle.signer_set_id,
           selected_server_id:
@@ -268,6 +288,17 @@ function exportReceipt(
         operation: binding.ceremony.operation,
         session_id: binding.ceremony.session_id,
         stable_key_context_binding: binding.ceremony.stable_key_context_binding,
+        material_activation: {
+          ...binding.ceremony.material_activation,
+          material_owner:
+            substitution === 'account'
+              ? 'substituted-account.testnet'
+              : binding.ceremony.material_activation.material_owner,
+          signing_worker:
+            substitution === 'worker'
+              ? 'substituted-worker'
+              : binding.ceremony.material_activation.signing_worker,
+        },
       },
       registered_public_key: binding.registered_public_key,
       state_epoch: binding.state_epoch,
@@ -379,6 +410,7 @@ class ActiveCapabilityFixture implements RouterAbEd25519YaoActiveCapabilityResol
       ok: true,
       capability: {
         kind: 'router_ab_ed25519_yao_active_capability_v1',
+        materialActivation: materialActivation(),
         activeCapabilityBinding: bytes(110),
         registeredPublicKey: bytes(12),
         nearAccountId: NEAR_ACCOUNT_ID,
@@ -395,7 +427,7 @@ class ActiveCapabilityFixture implements RouterAbEd25519YaoActiveCapabilityResol
           lifecycleId: 'export-lifecycle-1',
           rootShareEpoch: ROOT_SHARE_EPOCH,
           accountId: WALLET_ID,
-          walletSessionId: WALLET_SESSION_ID,
+          thresholdSessionId: requireThresholdSessionId(THRESHOLD_SESSION_ID_RAW),
           signerSetId:
             this.substitution === 'scope' ? 'substituted-signer-set' : 'signer-set-export-1',
           signingWorkerId: SIGNING_WORKER_ID,
@@ -460,9 +492,13 @@ class AuthorizationFixture implements RouterAbEd25519YaoExportAuthorizationAdapt
 
   authorize(
     input: RouterAbEd25519YaoExportAuthorizationInput,
-  ): RouterAbEd25519YaoExportAuthorizationResult {
+  ) {
     this.inputs.push(input);
-    return { ok: true };
+    return { ok: true, authorizationIdentity: exportAuthorizationIdentity() };
+  }
+
+  resolveAuthorizationIdentity() {
+    return { ok: true, authorizationIdentity: exportAuthorizationIdentity() };
   }
 }
 
@@ -473,12 +509,16 @@ class RequestScopedAuthorizationFixture implements RouterAbEd25519YaoExportAutho
 
   authorize(
     input: RouterAbEd25519YaoExportAuthorizationInput,
-  ): RouterAbEd25519YaoExportAuthorizationResult {
+  ) {
     this.calls += 1;
     if (this.throwOnAdmission && input.kind === 'admit') {
       throw new Error('WebAuthn counter update outcome was lost');
     }
-    return { ok: true };
+    return { ok: true, authorizationIdentity: exportAuthorizationIdentity() };
+  }
+
+  resolveAuthorizationIdentity() {
+    return { ok: true, authorizationIdentity: exportAuthorizationIdentity() };
   }
 }
 
@@ -588,8 +628,9 @@ function claimsForAuthority(authority: WalletAuthAuthority): SessionClaims {
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-    thresholdSessionId: WALLET_SESSION_ID,
-    signingGrantId: SIGNING_GRANT_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID_RAW,
+    walletSessionId: WALLET_SESSION_ID,
+    quotaId: 'wallet-session-quota-export-1',
     relayerKeyId: SIGNING_WORKER_ID,
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
@@ -638,8 +679,9 @@ function namedAccountClaimsForCapability(
     walletId,
     nearAccountId: capability.nearAccountId,
     nearEd25519SigningKeyId: capability.applicationBinding.near_ed25519_signing_key_id,
-    thresholdSessionId: capability.lifecycle.walletSessionId,
-    signingGrantId: SIGNING_GRANT_ID,
+    thresholdSessionId: capability.lifecycle.thresholdSessionId,
+    walletSessionId: WALLET_SESSION_ID,
+    quotaId: 'wallet-session-quota-export-1',
     relayerKeyId: capability.lifecycle.signingWorkerId,
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
@@ -695,7 +737,6 @@ function authorizationInput(
       headers: { authorization: 'Bearer export-wallet-session' },
     }),
     body,
-    authorizationIdentity: exportAuthorizationIdentity(),
     authorization: {
       kind: 'passkey',
       webauthnAuthentication: webAuthnCredential(),
@@ -704,36 +745,21 @@ function authorizationInput(
   };
 }
 
-function exportAuthorizationIdentity(): RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 {
-  const thresholdSessionId = parseThresholdEd25519SessionId(WALLET_SESSION_ID);
-  const signingGrantId = parseSigningGrantId(SIGNING_GRANT_ID);
-  if (!thresholdSessionId.ok || !signingGrantId.ok) {
+function exportAuthorizationIdentity(): RouterAbEd25519YaoExportServerAuthorizationIdentityV1 {
+  const thresholdSessionId = parseThresholdEd25519SessionId(THRESHOLD_SESSION_ID_RAW);
+  const walletSessionId = parseWalletSessionId(WALLET_SESSION_ID);
+  if (!thresholdSessionId.ok || !walletSessionId.ok) {
     throw new Error('invalid export authorization fixture identity');
   }
   return {
     thresholdSessionId: thresholdSessionId.value,
-    signingGrantId: signingGrantId.value,
-  };
-}
-
-function exportAuthorizationIdentityForCapability(
-  capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1,
-): RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 {
-  const thresholdSessionId = parseThresholdEd25519SessionId(capability.lifecycle.walletSessionId);
-  const signingGrantId = parseSigningGrantId(SIGNING_GRANT_ID);
-  if (!thresholdSessionId.ok || !signingGrantId.ok) {
-    throw new Error('invalid export authorization fixture identity');
-  }
-  return {
-    thresholdSessionId: thresholdSessionId.value,
-    signingGrantId: signingGrantId.value,
+    walletSessionId: walletSessionId.value,
   };
 }
 
 function jsonAdmissionRequest(
   body: RouterAbEd25519YaoExportAdmissionRequestV1,
   origin: string | null,
-  authorizationIdentity = exportAuthorizationIdentity(),
 ): Request {
   return jsonAdmissionEnvelopeRequest(
     body,
@@ -742,7 +768,6 @@ function jsonAdmissionRequest(
       webauthnAuthentication: webAuthnCredential(),
     },
     origin,
-    authorizationIdentity,
   );
 }
 
@@ -750,7 +775,6 @@ function jsonAdmissionEnvelopeRequest(
   body: RouterAbEd25519YaoExportAdmissionRequestV1,
   authorization: unknown,
   origin: string | null,
-  authorizationIdentity = exportAuthorizationIdentity(),
 ): Request {
   const headers = new Headers({
     authorization: 'Bearer export-wallet-session',
@@ -762,7 +786,6 @@ function jsonAdmissionEnvelopeRequest(
     headers,
     body: JSON.stringify({
       protocol: body,
-      authorizationIdentity,
       authorization,
     }),
   });
@@ -770,7 +793,6 @@ function jsonAdmissionEnvelopeRequest(
 
 function jsonExecutionEnvelopeRequest(
   body: RouterAbEd25519YaoExportExecuteRequestV1,
-  authorizationIdentity = exportAuthorizationIdentity(),
 ): Request {
   return new Request(`${ORIGIN}${ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1}`, {
     method: 'POST',
@@ -780,7 +802,6 @@ function jsonExecutionEnvelopeRequest(
     },
     body: JSON.stringify({
       protocol: body,
-      authorizationIdentity,
     }),
   });
 }
@@ -825,9 +846,10 @@ async function admissionFixtureForActiveCapability(
       lifecycle_id: 'export-existing-recovered-1',
       root_share_epoch: capability.lifecycle.rootShareEpoch,
       account_id: capability.lifecycle.accountId,
-      wallet_session_id: capability.lifecycle.walletSessionId,
+      threshold_session_id: capability.lifecycle.thresholdSessionId,
       signer_set_id: capability.lifecycle.signerSetId,
       signing_worker_id: capability.lifecycle.signingWorkerId,
+      material_activation: capability.materialActivation,
     },
     application_binding: capability.applicationBinding,
     participant_ids: capability.participantIds,
@@ -852,8 +874,6 @@ async function admissionFixtureForActiveCapability(
     nonce,
     issuedAtMs,
     expiresAtMs,
-    thresholdSessionId: capability.lifecycle.walletSessionId,
-    signingGrantId: SIGNING_GRANT_ID,
     authority: { kind: 'passkey', credentialIdB64u: CREDENTIAL_ID },
   });
   return requireParsed(
@@ -899,7 +919,6 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     try {
       const request = await admissionFixtureForActiveCapability(capability, Date.now());
       const execution = executeFixture(request);
-      const authorizationIdentity = exportAuthorizationIdentityForCapability(capability);
       const initial = await d1.store.load(request.scope.lifecycle_id);
       expect(initial.state.recovery.capabilities.size).toBe(0);
       const backend = new RequestScopedExportBackend();
@@ -912,7 +931,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
 
       const admitted = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
         requestScopedInput({
-          request: jsonAdmissionRequest(request, ORIGIN, authorizationIdentity),
+          request: jsonAdmissionRequest(request, ORIGIN),
           store: d1.store,
           backend,
           authorization,
@@ -923,7 +942,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       const admissionBody = await admitted.text();
       const admissionReplay = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
         requestScopedInput({
-          request: jsonAdmissionRequest(request, ORIGIN, authorizationIdentity),
+          request: jsonAdmissionRequest(request, ORIGIN),
           store: d1.store,
           backend,
           authorization,
@@ -935,7 +954,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
 
       const executed = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
         requestScopedInput({
-          request: jsonExecutionEnvelopeRequest(execution, authorizationIdentity),
+          request: jsonExecutionEnvelopeRequest(execution),
           store: d1.store,
           backend,
           authorization,
@@ -946,7 +965,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       const executionBody = await executed.text();
       const executionReplay = await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
         requestScopedInput({
-          request: jsonExecutionEnvelopeRequest(execution, authorizationIdentity),
+          request: jsonExecutionEnvelopeRequest(execution),
           store: d1.store,
           backend,
           authorization,
@@ -974,7 +993,10 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       webAuthn,
     );
 
-    await expect(authorization.authorize(authorizationInput(body))).resolves.toEqual({ ok: true });
+    await expect(authorization.authorize(authorizationInput(body))).resolves.toMatchObject({
+      ok: true,
+      authorizationIdentity: exportAuthorizationIdentity(),
+    });
     expect(webAuthn.input).toEqual({
       userId: WALLET_ID,
       rpId: RP_ID,
@@ -1053,7 +1075,6 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       kind: 'admit',
       request: input.request,
       body: input.body,
-      authorizationIdentity: input.authorizationIdentity,
       authorization: {
         kind: 'passkey',
         webauthnAuthentication: substitutedWebAuthnCredential(),
@@ -1089,7 +1110,10 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
         ...input,
         authorization: { kind: 'email_otp_factor', providerSubjectId },
       }),
-    ).resolves.toEqual({ ok: true });
+    ).resolves.toMatchObject({
+      ok: true,
+      authorizationIdentity: exportAuthorizationIdentity(),
+    });
     expect(webAuthn.input).toBeNull();
 
     await expect(
@@ -1128,7 +1152,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
         new ActiveCapabilityFixture(substitution),
       );
 
-      expect(await service.admitExport(request), substitution).toMatchObject({
+      expect(await service.admitExport(request, exportAuthorizationIdentity()), substitution).toMatchObject({
         ok: false,
         status: 409,
         code: 'active_identity_mismatch',
@@ -1141,7 +1165,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     const substitutions: readonly ReceiptScopeSubstitution[] = [
       'root',
       'account',
-      'wallet_session',
+      'threshold_session',
       'signer_set',
       'worker',
     ];
@@ -1164,7 +1188,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
         new ActiveCapabilityFixture(),
       );
 
-      expect(await service.admitExport(request), substitution).toMatchObject({
+      expect(await service.admitExport(request, exportAuthorizationIdentity()), substitution).toMatchObject({
         ok: false,
         status: 502,
         code: 'invalid_backend_response',
@@ -1181,19 +1205,23 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       backend,
       new ActiveCapabilityFixture(),
     );
-    expect((await service.admitExport(request)).ok).toBe(true);
-    expect(await service.admitExport(request)).toEqual(await service.admitExport(request));
+    expect((await service.admitExport(request, exportAuthorizationIdentity())).ok).toBe(true);
+    expect(await service.admitExport(request, exportAuthorizationIdentity())).toEqual(
+      await service.admitExport(request, exportAuthorizationIdentity()),
+    );
     expect(backend.admitCalls).toBe(1);
 
     const substitutedBinding = exportBinding(request);
     substitutedBinding.authorization_digest = bytes(251);
     const substituted = executeFixture(request, substitutedBinding);
-    expect(await service.executeExport(substituted)).toMatchObject({
+    expect(await service.executeExport(substituted, exportAuthorizationIdentity())).toMatchObject({
       ok: false,
       status: 409,
       code: 'binding_mismatch',
     });
-    expect(await service.executeExport(executeFixture(request))).toMatchObject({
+    expect(
+      await service.executeExport(executeFixture(request), exportAuthorizationIdentity()),
+    ).toMatchObject({
       ok: false,
       status: 409,
       code: 'export_consumed',
@@ -1217,14 +1245,18 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       failingBackend,
       new ActiveCapabilityFixture(),
     );
-    expect((await failingService.admitExport(failureRequest)).ok).toBe(true);
+    expect((await failingService.admitExport(failureRequest, exportAuthorizationIdentity())).ok).toBe(true);
     const failureExecute = executeFixture(failureRequest);
-    expect(await failingService.executeExport(failureExecute)).toMatchObject({
+    expect(
+      await failingService.executeExport(failureExecute, exportAuthorizationIdentity()),
+    ).toMatchObject({
       ok: false,
       status: 503,
       code: 'execution_failed',
     });
-    expect(await failingService.executeExport(failureExecute)).toMatchObject({
+    expect(
+      await failingService.executeExport(failureExecute, exportAuthorizationIdentity()),
+    ).toMatchObject({
       ok: false,
       status: 503,
       code: 'execution_failed',
@@ -1250,11 +1282,11 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       new ActiveCapabilityFixture(),
     );
 
-    expect((await service.admitExport(first)).ok).toBe(true);
-    expect((await service.executeExport(executeFixture(first))).ok).toBe(true);
-    expect((await service.admitExport(second)).ok).toBe(true);
-    expect((await service.executeExport(executeFixture(second))).ok).toBe(true);
-    expect((await service.admitExport(second)).ok).toBe(true);
+    expect((await service.admitExport(first, exportAuthorizationIdentity())).ok).toBe(true);
+    expect((await service.executeExport(executeFixture(first), exportAuthorizationIdentity())).ok).toBe(true);
+    expect((await service.admitExport(second, exportAuthorizationIdentity())).ok).toBe(true);
+    expect((await service.executeExport(executeFixture(second), exportAuthorizationIdentity())).ok).toBe(true);
+    expect((await service.admitExport(second, exportAuthorizationIdentity())).ok).toBe(true);
     expect(backend.admitCalls).toBe(2);
     expect(backend.executeCalls).toBe(2);
   });
@@ -1319,7 +1351,7 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       new ActiveCapabilityFixture(),
       decoded.export,
     );
-    expect(reloaded.prepareExecuteExport(execution)).toEqual({
+    expect(reloaded.prepareExecuteExport(execution, exportAuthorizationIdentity())).toEqual({
       kind: 'completed',
       value: JSON.parse(firstBody),
     });

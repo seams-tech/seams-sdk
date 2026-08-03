@@ -63,6 +63,7 @@ async function buildFromVector(
         expiresAtMs: readNumber(vector.builderArgs, 'expiresAtMs'),
         operationId: readString(vector.builderArgs, 'operationId'),
         operationFingerprint: readString(vector.builderArgs, 'operationFingerprint'),
+        displayDigestB64u: readString(vector.builderArgs, 'displayDigestB64u'),
         nearAccountId: readString(vector.builderArgs, 'nearAccountId'),
         nearNetworkId: readNetworkId(vector.builderArgs, 'nearNetworkId'),
         transactions: readArray(vector.builderArgs, 'transactions').map((entry, index) => {
@@ -84,6 +85,7 @@ async function buildFromVector(
         expiresAtMs: readNumber(vector.builderArgs, 'expiresAtMs'),
         operationId: readString(vector.builderArgs, 'operationId'),
         operationFingerprint: readString(vector.builderArgs, 'operationFingerprint'),
+        displayDigestB64u: readString(vector.builderArgs, 'displayDigestB64u'),
         nearAccountId: readString(vector.builderArgs, 'nearAccountId'),
         nearNetworkId: readNetworkId(vector.builderArgs, 'nearNetworkId'),
         message: readString(vector.builderArgs, 'message'),
@@ -99,6 +101,7 @@ async function buildFromVector(
         expiresAtMs: readNumber(vector.builderArgs, 'expiresAtMs'),
         operationId: readString(vector.builderArgs, 'operationId'),
         operationFingerprint: readString(vector.builderArgs, 'operationFingerprint'),
+        displayDigestB64u: readString(vector.builderArgs, 'displayDigestB64u'),
         nearAccountId: readString(vector.builderArgs, 'nearAccountId'),
         nearNetworkId: readNetworkId(vector.builderArgs, 'nearNetworkId'),
         delegate: {

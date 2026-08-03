@@ -1,25 +1,19 @@
 import type { RuntimePorts } from '@/core/platform';
+import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
+import { IndexedDbEcdsaCapabilityManifestStore } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
-import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningOperation } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
-import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusOperation } from '@/core/signingEngine/session/budget/budgetStatusReader';
-import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import {
-  clearThresholdEcdsaSessionRecordForExactIdentity as clearThresholdEcdsaSessionRecordForExactIdentityOperation,
-  consumeSingleUseEmailOtpEcdsaLane as consumeSingleUseEmailOtpEcdsaLaneOperation,
-  getThresholdEcdsaSessionRecordByKey as getThresholdEcdsaSessionRecordByIdentityOperation,
-  getThresholdEcdsaSessionRecordForWalletTarget as getThresholdEcdsaSessionRecordForWalletTargetOperation,
-  listThresholdEcdsaKeyRefsForWalletTarget as listThresholdEcdsaKeyRefsForWalletTargetOperation,
-  listThresholdEcdsaSessionRecordsForWalletTarget as listThresholdEcdsaSessionRecordsForWalletTargetOperation,
-  markThresholdEd25519EmailOtpSessionConsumedForWallet as markThresholdEd25519EmailOtpSessionConsumedForWalletOperation,
-  upsertThresholdEcdsaSessionFromBootstrap as upsertThresholdEcdsaSessionFromBootstrapOperation,
-  type ThresholdEcdsaSessionRecord,
-} from '@/core/signingEngine/session/persistence/records';
-import { markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+  createRelayerReusableWalletSessionStatusPort,
+  type ReusableWalletSessionStatusAuth,
+} from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningOperation } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
+import { createCanonicalWalletSessionStatusReader } from '@/core/signingEngine/session/lifecycle/canonicalWalletSessionStatus';
+import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
+import type { BrowserSealedSigningSessionStorePorts } from './createBrowserSigningStores';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { provisionThresholdEcdsaSession as provisionThresholdEcdsaSessionOperation } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
-import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import { provisionThresholdEd25519Session as provisionThresholdEd25519SessionOperation } from '@/core/signingEngine/session/passkey/ed25519SessionProvision';
 import {
   persistThresholdEcdsaBootstrapForWalletTarget as persistThresholdEcdsaBootstrapForWalletTargetOperation,
@@ -29,9 +23,25 @@ import { createSigningEnginePorts } from '@/core/signingEngine/assembly/createPo
 import type { SigningEngineStorePorts } from '@/core/signingEngine/assembly/ports/shared';
 import {
   configuredThresholdEcdsaChainTargets,
+  thresholdEcdsaChainTargetKey,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  authorizeEvmFamilyEcdsaSigningCapability,
+  buildCanonicalEvmFamilyEcdsaSigningCapability,
+  type ActiveEvmFamilyWalletSessionAuthorization,
+  type AuthorizedEvmFamilyEcdsaSigningCapability,
+  type CanonicalEvmFamilyEcdsaSigningCapability,
+  type EvmFamilyEcdsaSigningCapabilityAvailability,
+} from '@/core/signingEngine/session/material/ecdsaSigningCapability';
+import {
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
+import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
+import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import { signEvmFamily as signEvmFamilyOperation } from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
+import { EvmFamilyEcdsaMaterialSupersededError } from '@/core/signingEngine/flows/signEvmFamily/signingFlow';
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import {
   withThresholdEcdsaSigningQueue,
@@ -42,34 +52,398 @@ import {
   type ThresholdEd25519CommitQueueByKey,
 } from '@/core/signingEngine/threshold/ed25519/commitQueue';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
-import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import type {
+  PasskeyMpcExportPort,
+  PasskeyMpcSessionPort,
+  UiConfirmRuntimeBridgePort,
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { WarmSigningPorts } from '@/core/signingEngine/assembly/ports/warmSigning';
 import type { WorkerResourceWarmupPolicy } from '@/core/signingEngine/assembly/warmup';
 import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
-import type { AccountId } from '@/core/types/accountIds';
 import * as registrationPublic from '@/core/signingEngine/flows/registration/public';
 import type { Ed25519YaoPublicCapabilityReferenceStorePort } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
-import { rehydrateEmailOtpEd25519CapabilityForSigningV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
-import type {
-  EmailOtpEcdsaChallengeAuthority,
-  EmailOtpEcdsaStepUpAuthority,
-} from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
+import type { EmailOtpEcdsaChallengeAuthority } from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import { parseAppSessionJwt } from '@shared/utils/domainIds';
+import {
+  SIGNER_AUTH_METHODS,
+  WALLET_AUTH_METHODS,
+  type SignerAuthMethod,
+} from '@shared/utils/signerDomain';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type WalletAuthAuthority,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import type { EmailOtpTransactionSigningChallenge } from '@/core/signingEngine/session/emailOtp/publicTypes';
+import type { RestorePersistedSessionForSigningInput } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
-type EmailOtpEd25519RecoveryRequest = Omit<
-  Parameters<typeof rehydrateEmailOtpEd25519CapabilityForSigningV1>[0],
-  | 'workerContext'
-  | 'groupId'
-  | 'resolveActiveCapability'
-  | 'activateCapability'
-  | 'expectedOperationalPublicKey'
+
+const ecdsaCapabilityManifestStore = new IndexedDbEcdsaCapabilityManifestStore();
+
+type BrowserEcdsaCapabilityReaderContext = Pick<
+  BrowserSigningSurfaceEnginePortsArgs,
+  'seamsWebConfigs' | 'emailOtpSessions' | 'sealedSigningSessionStore'
 >;
+
+function omitPasskeyRestoreAuthMethod(
+  input: RestorePersistedSessionForSigningInput,
+): Omit<RestorePersistedSessionForSigningInput, 'authMethod'> {
+  if (input.authMethod !== 'passkey') {
+    throw new Error('Passkey restore adapter received a non-Passkey request');
+  }
+  const { authMethod: _authMethod, ...passkeyRestore } = input;
+  return passkeyRestore;
+}
+
+async function resolveExactWalletAuthAuthority(
+  authorityRef: WalletAuthAuthorityRef,
+  sealedSigningSessionStore: BrowserSealedSigningSessionStorePorts,
+): Promise<WalletAuthAuthority> {
+  const authMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(authorityRef.walletId);
+  for (const authMethod of authMethods) {
+    if (
+      authMethod.kind !== 'passkey' ||
+      authMethod.status !== 'active' ||
+      authMethod.localStatus !== 'synced'
+    ) {
+      continue;
+    }
+    const authority = buildPasskeyWalletAuthAuthority({
+      walletId: authMethod.walletId,
+      rpId: authMethod.rpId,
+      credentialIdB64u: authMethod.credentialIdB64u,
+    });
+    const candidateRef = await walletAuthAuthorityRef({ authority });
+    if (candidateRef.authorityDigest === authorityRef.authorityDigest) return authority;
+  }
+  const sealedRecords = await sealedSigningSessionStore.listEcdsaSealedSessionsForWallet({
+    walletId: authorityRef.walletId,
+    filter: { curve: 'ecdsa', authMethod: WALLET_AUTH_METHODS.emailOtp },
+  });
+  for (const sealedRecord of sealedRecords) {
+    if (
+      !('recordKind' in sealedRecord) ||
+      sealedRecord.ecdsaRestore.source !== 'email_otp' ||
+      sealedRecord.ecdsaRestore.authority.authorityDigest !== authorityRef.authorityDigest
+    ) {
+      continue;
+    }
+    return sealedRecord.ecdsaRestore.emailOtpAuthority;
+  }
+  throw new Error('Exact wallet authentication authority is unavailable');
+}
+
+export function createBrowserCanonicalWalletSessionStatusReader(
+  args: BrowserEcdsaCapabilityReaderContext,
+) {
+  return createCanonicalWalletSessionStatusReader({
+    relayerUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
+    readAuthorization: async (walletId) => {
+      const read = await walletSessionAuthorizations.readActiveForWallet(walletId);
+      return read.kind === 'found' ? read.projection : null;
+    },
+    resolveAppSessionJwt: async (projection) => {
+      const raw = await args.emailOtpSessions
+        .resolveAppSessionJwt({
+          walletSession: {
+            walletId: projection.walletId,
+            walletSessionUserId: String(projection.authority.authorityDigest),
+          },
+          relayUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
+        })
+        .catch(() => '');
+      const parsed = parseAppSessionJwt(raw);
+      return parsed.ok ? parsed.value : null;
+    },
+  });
+}
+
+export type BrowserWalletSessionAuthorizationResolution =
+  | { kind: 'active'; authorization: ActiveEvmFamilyWalletSessionAuthorization }
+  | { kind: 'inactive'; reason: string };
+
+// Resolves the wallet's reusable Wallet Session authorization pair (persisted
+// projection + live relayer status). Configuration failures throw; inactive
+// session states return `inactive` so warm-capability readers can degrade to
+// `authorization_required` without treating them as errors.
+export async function resolveBrowserActiveEcdsaWalletSessionAuthorization(
+  args: BrowserEcdsaCapabilityReaderContext,
+  walletId: Parameters<
+    Parameters<typeof createSigningEnginePorts>[0]['resolveAuthorizedEcdsaSigningCapability']
+  >[0]['walletId'],
+): Promise<BrowserWalletSessionAuthorizationResolution> {
+  const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(walletId);
+  if (authorizationRead.kind !== 'found') {
+    return {
+      kind: 'inactive',
+      reason: `Reusable Wallet Session authorization is ${authorizationRead.kind}`,
+    };
+  }
+  const projection = authorizationRead.projection;
+  if (projection.expiresAtMs <= Date.now()) {
+    return { kind: 'inactive', reason: 'Reusable Wallet Session authorization is expired' };
+  }
+  const relayerUrl = String(args.seamsWebConfigs.network.relayer?.url || '').trim();
+  if (!relayerUrl) throw new Error('Reusable Wallet Session status requires a relayer URL');
+  let auth: ReusableWalletSessionStatusAuth;
+  if (projection.authMethod === WALLET_AUTH_METHODS.emailOtp) {
+    const jwt = await args.emailOtpSessions.resolveAppSessionJwt({
+      walletSession: {
+        walletId,
+        walletSessionUserId: String(projection.authority.authorityDigest),
+      },
+      relayUrl: relayerUrl,
+    });
+    const parsedJwt = parseAppSessionJwt(jwt);
+    if (!parsedJwt.ok) throw new Error(parsedJwt.error.message);
+    auth = { kind: 'app_session_jwt', appSessionJwt: parsedJwt.value };
+  } else {
+    auth = { kind: 'app_session_cookie' };
+  }
+  const status = await createRelayerReusableWalletSessionStatusPort({ relayerUrl, auth }).read({
+    walletSessionId: projection.walletSessionId,
+    quotaId: projection.quotaId,
+  });
+  if (status.status !== 'active') {
+    return { kind: 'inactive', reason: `Reusable Wallet Session is ${status.status}` };
+  }
+  return {
+    kind: 'active',
+    authorization: {
+      kind: 'active_reusable_wallet_session_authorization',
+      projection,
+      status,
+    },
+  };
+}
+
+export function createBrowserActiveEcdsaWalletSessionAuthorizationResolver(
+  args: BrowserEcdsaCapabilityReaderContext,
+): (
+  walletId: Parameters<typeof resolveBrowserActiveEcdsaWalletSessionAuthorization>[1],
+) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null> {
+  return async (walletId) => {
+    const resolution = await resolveBrowserActiveEcdsaWalletSessionAuthorization(args, walletId);
+    return resolution.kind === 'active' ? resolution.authorization : null;
+  };
+}
+
+/** The wallet's current active manifest covering the requested target, if one
+ * exists. This is what a replacement race resolves against: the prepared
+ * capability's manifest is gone or retired, but the wallet still signs for the
+ * target -- through the replacement. */
+async function activeEcdsaReplacementManifestForTarget(args: {
+  walletId: ReturnType<typeof toWalletId>;
+  subjects: readonly Parameters<typeof ecdsaCapabilityManifestStore.lookup>[0][];
+  chainTarget: ThresholdEcdsaChainTarget;
+}): Promise<ActiveEcdsaCapabilityManifest | null> {
+  for (const subject of args.subjects) {
+    const lookup = await ecdsaCapabilityManifestStore.lookup(subject);
+    if (lookup.kind !== 'active') continue;
+    const manifest = lookup.manifest;
+    if (manifest.signer.walletId !== args.walletId) continue;
+    if (
+      manifest.signer.scope.targetMemberships.some(
+        (target) =>
+          thresholdEcdsaChainTargetKey(target) === thresholdEcdsaChainTargetKey(args.chainTarget),
+      )
+    ) {
+      return manifest;
+    }
+  }
+  return null;
+}
+
+async function getBrowserCanonicalEcdsaSigningCapability(
+  args: BrowserEcdsaCapabilityReaderContext,
+  input: Parameters<
+    Parameters<typeof createSigningEnginePorts>[0]['resolveCanonicalEcdsaSigningCapability']
+  >[0],
+): Promise<CanonicalEvmFamilyEcdsaSigningCapability> {
+  const walletId = toWalletId(input.walletId);
+  const subjects = await ecdsaCapabilityManifestStore.listActiveWalletCapabilitySubjects(walletId);
+  if (subjects.kind !== 'resolved') {
+    throw new Error(`ECDSA capability subjects are ${subjects.kind}`);
+  }
+  // Replacement race: preparation named a capability whose manifest has since
+  // been replaced. That surfaces here as either no active subject for the
+  // prepared capability ref, or a lookup that returns `retired`. Both are
+  // R90-INV-010 supersession, not a missing wallet: when a replacement
+  // covering the same target exists, throw the typed superseded error so
+  // `signEvmFamily` performs its one bounded re-resolution instead of
+  // reporting a terminal signing failure.
+  const throwSupersededByReplacement = async (fallback: () => never): Promise<never> => {
+    const replacement = await activeEcdsaReplacementManifestForTarget({
+      walletId,
+      subjects: subjects.subjects,
+      chainTarget: input.chainTarget,
+    });
+    if (replacement) {
+      throw new EvmFamilyEcdsaMaterialSupersededError({
+        kind: 'superseded',
+        supersessionKind: 'material_activation_replaced',
+        preparedMaterialActivation: input.materialActivation,
+        currentMaterialActivation: replacement.activation.materialActivation,
+      });
+    }
+    return fallback();
+  };
+  const matches = subjects.subjects.filter(
+    (subject) => subject.capability === input.materialActivation.capability,
+  );
+  if (matches.length !== 1) {
+    if (matches.length === 0) {
+      await throwSupersededByReplacement(() => {
+        throw new Error('ECDSA capability manifest is missing');
+      });
+    }
+    throw new Error('ECDSA capability manifest is ambiguous');
+  }
+  const manifestLookup = await ecdsaCapabilityManifestStore.lookup(matches[0]);
+  if (manifestLookup.kind === 'retired') {
+    await throwSupersededByReplacement(() => {
+      throw new Error('ECDSA capability manifest is retired');
+    });
+  }
+  if (manifestLookup.kind !== 'active') {
+    throw new Error(`ECDSA capability manifest is ${manifestLookup.kind}`);
+  }
+  const manifest = manifestLookup.manifest;
+  if (
+    manifest.signer.walletId !== walletId ||
+    !manifest.signer.scope.targetMemberships.some(
+      (target) =>
+        thresholdEcdsaChainTargetKey(target) === thresholdEcdsaChainTargetKey(input.chainTarget),
+    )
+  ) {
+    throw new Error('ECDSA capability manifest does not match the requested signer');
+  }
+  // Return the current manifest for this capability even when preparation named
+  // an older activation. The signing runtime compares the two exact activation
+  // references and returns the typed `superseded` outcome, which owns the single
+  // canonical re-resolution. Throwing here would turn routine replacement into
+  // a terminal signing failure before that boundary can classify it.
+  return await buildCanonicalEvmFamilyEcdsaSigningCapability({
+    authority: await resolveExactWalletAuthAuthority(
+      manifest.signer.authority,
+      args.sealedSigningSessionStore,
+    ),
+    manifest,
+    material: buildPersistedEcdsaRoleLocalMaterial({
+      authority: manifest.signer.authority,
+      materialActivation: manifest.activation.materialActivation,
+      publicFacts: manifest.durableMaterial.roleLocalPublicFacts,
+    }),
+  });
+}
+
+async function getBrowserEcdsaSigningCapability(
+  args: BrowserEcdsaCapabilityReaderContext,
+  input: Parameters<
+    Parameters<typeof createSigningEnginePorts>[0]['resolveAuthorizedEcdsaSigningCapability']
+  >[0],
+): Promise<AuthorizedEvmFamilyEcdsaSigningCapability> {
+  const resolution = await resolveBrowserActiveEcdsaWalletSessionAuthorization(
+    args,
+    input.walletId,
+  );
+  if (resolution.kind !== 'active') {
+    throw new Error(resolution.reason);
+  }
+  const browserAuthorization = resolution.authorization;
+  return authorizeEvmFamilyEcdsaSigningCapability({
+    capability: await getBrowserCanonicalEcdsaSigningCapability(args, input),
+    authorization: browserAuthorization,
+  });
+}
+
+export async function listBrowserEcdsaSigningCapabilitiesForWallet(
+  args: BrowserEcdsaCapabilityReaderContext,
+  input: {
+    walletId: string;
+    chainTargets: readonly ThresholdEcdsaChainTarget[];
+    authMethod?: SignerAuthMethod;
+  },
+): Promise<readonly EvmFamilyEcdsaSigningCapabilityAvailability[]> {
+  const walletId = toWalletId(input.walletId);
+  const subjects = await ecdsaCapabilityManifestStore.listActiveWalletCapabilitySubjects(walletId);
+  if (subjects.kind !== 'resolved') return [];
+  const authorizationResolution = await resolveBrowserActiveEcdsaWalletSessionAuthorization(
+    args,
+    walletId,
+  );
+  const capabilities: EvmFamilyEcdsaSigningCapabilityAvailability[] = [];
+  for (const subject of subjects.subjects) {
+    const lookup = await ecdsaCapabilityManifestStore.lookup(subject);
+    if (lookup.kind !== 'active') continue;
+    const manifest = lookup.manifest;
+    if (
+      !manifest.signer.scope.targetMemberships.some((membership) =>
+        input.chainTargets.some(
+          (target) =>
+            thresholdEcdsaChainTargetKey(target) === thresholdEcdsaChainTargetKey(membership),
+        ),
+      )
+    ) {
+      continue;
+    }
+    const matchingTarget = input.chainTargets.find((target) =>
+      manifest.signer.scope.targetMemberships.some(
+        (membership) =>
+          thresholdEcdsaChainTargetKey(target) === thresholdEcdsaChainTargetKey(membership),
+      ),
+    );
+    if (!matchingTarget) continue;
+    const capability = await getBrowserCanonicalEcdsaSigningCapability(args, {
+      walletId,
+      chainTarget: matchingTarget,
+      materialActivation: manifest.activation.materialActivation,
+    });
+    const capabilityAuthMethod = isPasskeyWalletAuthAuthority(capability.authority)
+      ? 'passkey'
+      : isEmailOtpWalletAuthAuthority(capability.authority)
+        ? 'email_otp'
+        : null;
+    if (!capabilityAuthMethod || (input.authMethod && capabilityAuthMethod !== input.authMethod)) {
+      continue;
+    }
+    if (
+      authorizationResolution.kind === 'active' &&
+      authorizationResolution.authorization.projection.authority.authorityDigest ===
+        capability.manifest.signer.authority.authorityDigest
+    ) {
+      capabilities.push(
+        authorizeEvmFamilyEcdsaSigningCapability({
+          capability,
+          authorization: authorizationResolution.authorization,
+        }),
+      );
+      continue;
+    }
+    capabilities.push({ kind: 'authorization_required', capability });
+  }
+  return capabilities;
+}
+
+export async function listBrowserActiveEcdsaCapabilityManifestsForWallet(
+  walletIdInput: string,
+): Promise<readonly ActiveEcdsaCapabilityManifest[]> {
+  const walletId = toWalletId(walletIdInput);
+  const subjects = await ecdsaCapabilityManifestStore.listActiveWalletCapabilitySubjects(walletId);
+  if (subjects.kind !== 'resolved') return [];
+  const manifests: ActiveEcdsaCapabilityManifest[] = [];
+  for (const subject of subjects.subjects) {
+    const lookup = await ecdsaCapabilityManifestStore.lookup(subject);
+    if (lookup.kind === 'active') manifests.push(lookup.manifest);
+  }
+  return manifests;
+}
 
 async function requestEmailOtpEcdsaStepUpChallenge(args: {
   coordinator: EmailOtpWalletSessionCoordinator;
@@ -85,96 +459,38 @@ async function requestEmailOtpEcdsaStepUpChallenge(args: {
         chain: args.chain,
         authLane: args.authority.authLane,
       });
-    case 'public_reauth_anchor':
-      return await args.coordinator.requestPublicReauthTransactionSigningChallenge({
+    case 'capability_step_up':
+      // Auth-neutral material has no warm signing lane to mint against, so the
+      // challenge is minted against the wallet's own app session. The mailbox
+      // is the capability's: the authority was already checked against the
+      // selected capability before it got here.
+      return await args.coordinator.requestCapabilityStepUpTransactionSigningChallenge({
         walletSession: args.walletSession,
         chain: args.chain,
       });
   }
 }
 
-async function loginWithEmailOtpEcdsaStepUp(args: {
-  coordinator: EmailOtpWalletSessionCoordinator;
+async function resolveBrowserEcdsaOperationStepUpSessionAuth(args: {
+  context: BrowserEcdsaCapabilityReaderContext;
   walletSession: WalletSessionRef;
-  chainTarget: ThresholdEcdsaChainTarget;
-  challengeId: string;
-  otpCode: string;
-  authority: EmailOtpEcdsaStepUpAuthority;
-  remainingUses: number;
+  authMethod: SignerAuthMethod;
 }) {
-  switch (args.authority.kind) {
-    case 'live_session':
-      return await args.coordinator.loginWithEcdsaCapabilityForSigning({
+  switch (args.authMethod) {
+    case 'passkey':
+      return { kind: 'app_session_cookie' } as const;
+    case 'email_otp': {
+      const relayerUrl = String(args.context.seamsWebConfigs.network.relayer?.url || '').trim();
+      if (!relayerUrl) throw new Error('ECDSA operation step-up requires a relayer URL');
+      const jwt = await args.context.emailOtpSessions.resolveAppSessionJwt({
         walletSession: args.walletSession,
-        chainTarget: args.chainTarget,
-        challengeId: args.challengeId,
-        otpCode: args.otpCode,
-        committedLane: args.authority.committedLane,
-        remainingUses: args.remainingUses,
+        relayUrl: relayerUrl,
       });
-    case 'public_reauth_anchor':
-      return await args.coordinator.loginWithEcdsaPublicReauthCapabilityForSigning({
-        walletSession: args.walletSession,
-        chainTarget: args.chainTarget,
-        challengeId: args.challengeId,
-        otpCode: args.otpCode,
-        reauthLane: args.authority.reauthLane,
-        remainingUses: args.remainingUses,
-      });
+      const parsedJwt = parseAppSessionJwt(jwt);
+      if (!parsedJwt.ok) throw new Error(parsedJwt.error.message);
+      return { kind: 'app_session_jwt', appSessionJwt: parsedJwt.value } as const;
+    }
   }
-}
-
-function markEcdsaBootstrapWorkerMaterialRuntimeValidated(args: {
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  record: ThresholdEcdsaSessionRecord;
-}): void {
-  if (
-    args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.materialKind !== 'role_local_worker_handle'
-  ) {
-    return;
-  }
-  if (markRouterAbEcdsaDerivationWorkerMaterialRuntimeValidated(args.record)) return;
-  throw new Error(
-    '[SigningEngine] Router A/B ECDSA derivation bootstrap returned worker material that could not be runtime-validated',
-  );
-}
-
-async function rehydrateEmailOtpEd25519CapabilityForSigning(args: {
-  assembly: BrowserSigningSurfaceEnginePortsArgs;
-  request: EmailOtpEd25519RecoveryRequest;
-}) {
-  const user = await registrationPublic.getUserBySignerSlot(
-    args.assembly.getRegistrationPublicDeps(),
-    args.request.nearAccountId,
-    args.request.record.signerSlot,
-  );
-  if (
-    !user ||
-    String(user.walletId) !== String(args.request.record.walletId) ||
-    user.authMethod !== SIGNER_AUTH_METHODS.emailOtp
-  ) {
-    throw new Error('Email OTP Ed25519 recovery requires one exact persisted signer projection');
-  }
-  const recovered = await rehydrateEmailOtpEd25519CapabilityForSigningV1({
-    nearAccountId: args.request.nearAccountId,
-    record: args.request.record,
-    committedLane: args.request.committedLane,
-    challengeId: args.request.challengeId,
-    otpCode: args.request.otpCode,
-    remainingUses: args.request.remainingUses,
-    expectedOperationalPublicKey: user.operationalPublicKey,
-    workerContext: args.assembly.signerWorkerManager.getContext(),
-    groupId: SIGNING_SESSION_SEAL_GROUP_ID,
-    resolveActiveCapability: (identity) =>
-      args.assembly.getEnginePorts().ed25519YaoActiveClients.resolve(identity),
-    activateCapability: (capability) =>
-      args.assembly.getEnginePorts().ed25519YaoActiveClients.activate(capability),
-  });
-  await args.assembly.emailOtpSessions.persistEd25519YaoSessionForRefresh({
-    record: recovered.record,
-    rpId: args.assembly.touchIdPrompt.getRpId(),
-  });
-  return recovered;
 }
 
 export type BrowserSigningSurfaceEnginePortsArgs = {
@@ -187,9 +503,12 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
+  passkeyMpcExport: PasskeyMpcExportPort;
   signerWorkerManager: SignerWorkerManager;
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
   warmSigning: WarmSigningPorts;
+  sealedSigningSessionStore: BrowserSealedSigningSessionStorePorts;
   ecdsaBootstrapStore: ThresholdEcdsaBootstrapStorePort;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
@@ -200,20 +519,15 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
   ensureSealedRefreshStartupParity: () => Promise<void>;
   getEnginePorts: () => SigningEnginePorts;
   getRegistrationPublicDeps: () => registrationPublic.RegistrationPublicDeps;
-  rehydratePasskeyEd25519YaoCapabilityForSigning: Parameters<
+  prepareNearEd25519YaoMaterialBoundary: Parameters<
     typeof createSigningEnginePorts
-  >[0]['rehydratePasskeyEd25519YaoCapabilityForSigning'];
-  rehydratePasskeyEd25519YaoCapabilityAfterRefresh: Parameters<
-    typeof createSigningEnginePorts
-  >[0]['rehydratePasskeyEd25519YaoCapabilityAfterRefresh'];
-  recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning: Parameters<
-    typeof createSigningEnginePorts
-  >[0]['recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning'];
+  >[0]['prepareNearEd25519YaoMaterialBoundary'];
 };
 
 export function createBrowserSigningSurfaceEnginePorts(
   args: BrowserSigningSurfaceEnginePortsArgs,
 ): SigningEnginePorts {
+  const readCanonicalWalletSessionStatus = createBrowserCanonicalWalletSessionStatusReader(args);
   return createSigningEnginePorts({
     runtimePorts: args.runtimePorts,
     stores: args.stores,
@@ -225,19 +539,31 @@ export function createBrowserSigningSurfaceEnginePorts(
     nonceCoordinator: args.nonceCoordinator,
     ensureSealedRefreshStartupParity: args.ensureSealedRefreshStartupParity,
     touchConfirm: args.touchConfirm,
-    getEmailOtpWarmSessionStatus: (sessionId) =>
-      args.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
+    passkeyMpcSession: args.passkeyMpcSession,
+    passkeyMpcExport: args.passkeyMpcExport,
+    getEmailOtpWarmSessionStatus: (target) =>
+      args.emailOtpSessions.readWarmSessionStatusOnly(target),
     consumeEmailOtpWarmSessionUses: (consumeArgs) =>
       args.emailOtpSessions.consumeWarmSessionUses(consumeArgs),
-    clearEmailOtpWarmSessionMaterial:
-      args.emailOtpSessions.clearVolatileWarmSessionMaterial.bind(args.emailOtpSessions),
-    getWalletSigningBudgetStatus: (statusArgs) =>
-      readTrustedWalletSigningBudgetStatusOperation(
-        {
-          ecdsaSessions: args.warmSigning.ecdsaSessions,
-        },
-        statusArgs,
-      ),
+    clearEmailOtpWarmSessionMaterial: (thresholdSessionId) =>
+      args.emailOtpSessions.clearVolatileWarmSessionMaterial({
+        kind: 'ecdsa',
+        thresholdSessionId,
+      }),
+    getWalletSessionStatus: (statusArgs) =>
+      readCanonicalWalletSessionStatus(statusArgs),
+    resolveCanonicalEcdsaSigningCapability: (input) =>
+      getBrowserCanonicalEcdsaSigningCapability(args, input),
+    resolveAuthorizedEcdsaSigningCapability: (input) =>
+      getBrowserEcdsaSigningCapability(args, input),
+    resolveActiveEcdsaWalletSessionAuthorization:
+      createBrowserActiveEcdsaWalletSessionAuthorizationResolver(args),
+    resolveEcdsaOperationStepUpSessionAuth: (input) =>
+      resolveBrowserEcdsaOperationStepUpSessionAuth({
+        context: args,
+        walletSession: input.walletSession,
+        authMethod: input.authMethod,
+      }),
     signerWorkerManager: args.signerWorkerManager,
     getWorkerBaseOrigin: args.getWorkerBaseOrigin,
     workerWarmupPolicy: args.workerWarmupPolicy,
@@ -259,55 +585,6 @@ export function createBrowserSigningSurfaceEnginePorts(
         bootstrap: persistArgs.bootstrap,
         signerAuth: persistArgs.signerAuth,
       }),
-    upsertThresholdEcdsaSessionFromBootstrap: (upsertArgs) => {
-      if (upsertArgs.hasEmailOtpAuthContext) {
-        const record = upsertThresholdEcdsaSessionFromBootstrapOperation(
-          args.warmSigning.ecdsaSessions,
-          {
-            purpose: 'transaction_signing',
-            walletId: upsertArgs.walletId,
-            chainTarget: upsertArgs.chainTarget,
-            bootstrap: upsertArgs.bootstrap,
-            source: 'email_otp',
-            emailOtpAuthContext: upsertArgs.emailOtpAuthContext,
-          },
-        );
-        markEcdsaBootstrapWorkerMaterialRuntimeValidated({
-          bootstrap: upsertArgs.bootstrap,
-          record,
-        });
-        return;
-      }
-      const record = upsertThresholdEcdsaSessionFromBootstrapOperation(
-        args.warmSigning.ecdsaSessions,
-        {
-          purpose: 'transaction_signing',
-          walletId: upsertArgs.walletId,
-          chainTarget: upsertArgs.chainTarget,
-          bootstrap: upsertArgs.bootstrap,
-          source: upsertArgs.source,
-        },
-      );
-      markEcdsaBootstrapWorkerMaterialRuntimeValidated({
-        bootstrap: upsertArgs.bootstrap,
-        record,
-      });
-    },
-    listThresholdEcdsaKeyRefsForWalletTarget: (listArgs) =>
-      listThresholdEcdsaKeyRefsForWalletTargetOperation(args.warmSigning.ecdsaSessions, listArgs),
-    listThresholdEcdsaSessionRecordsForWalletTarget: (listArgs) =>
-      listThresholdEcdsaSessionRecordsForWalletTargetOperation(
-        args.warmSigning.ecdsaSessions,
-        listArgs,
-      ),
-    getThresholdEcdsaSessionRecordByKey: (identity) =>
-      getThresholdEcdsaSessionRecordByIdentityOperation(args.warmSigning.ecdsaSessions, identity),
-    getPasskeyThresholdEcdsaSessionRecordForSigning: (recordArgs) =>
-      getThresholdEcdsaSessionRecordForWalletTargetOperation(args.warmSigning.ecdsaSessions, {
-        walletId: recordArgs.walletId,
-        chainTarget: recordArgs.chainTarget,
-        source: recordArgs.source,
-      }),
     requestEmailOtpTransactionSigningChallenge: (challengeArgs) =>
       requestEmailOtpEcdsaStepUpChallenge({
         coordinator: args.emailOtpSessions,
@@ -316,83 +593,51 @@ export function createBrowserSigningSurfaceEnginePorts(
         authority: challengeArgs.authority,
       }),
     requestEmailOtpEd25519SigningChallenge: (challengeArgs) =>
-      args.emailOtpSessions.requestTransactionSigningChallenge({
-        kind: 'near_account_challenge',
+      args.emailOtpSessions.requestCapabilityStepUpTransactionSigningChallenge({
         walletSession: challengeArgs.walletSession,
-        nearAccountId: challengeArgs.nearAccountId,
         chain: 'near',
-        authLane: challengeArgs.authLane,
       }),
-    rehydrateEmailOtpEd25519CapabilityForSigning: (recoveryArgs) =>
-      rehydrateEmailOtpEd25519CapabilityForSigning({ assembly: args, request: recoveryArgs }),
-    rehydratePasskeyEd25519YaoCapabilityForSigning:
-      args.rehydratePasskeyEd25519YaoCapabilityForSigning,
-    rehydratePasskeyEd25519YaoCapabilityAfterRefresh:
-      args.rehydratePasskeyEd25519YaoCapabilityAfterRefresh,
-    recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning:
-      args.recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning,
+    prepareNearEd25519YaoMaterialBoundary:
+      args.prepareNearEd25519YaoMaterialBoundary,
     provisionThresholdEd25519Session: (provisionArgs) =>
       provisionThresholdEd25519SessionOperation(
         {
           credentialStore: args.stores.recoveryAndDeviceLinking.credentialStore,
           touchIdPrompt: args.touchIdPrompt,
-          touchConfirm: args.touchConfirm,
+          touchConfirm: args.passkeyMpcSession,
           defaultRelayerUrl: args.seamsWebConfigs.network.relayer?.url || '',
           getSignerWorkerContext: () =>
             args.getEnginePorts().walletSessionActivationDeps.getSignerWorkerContext(),
         },
         provisionArgs,
       ),
-    loginWithEmailOtpEcdsaCapabilityForSigning: (loginArgs) =>
-      loginWithEmailOtpEcdsaStepUp({
-        coordinator: args.emailOtpSessions,
-        walletSession: loginArgs.walletSession,
-        chainTarget: loginArgs.chainTarget,
-        challengeId: loginArgs.challengeId,
-        otpCode: loginArgs.otpCode,
-        authority: loginArgs.authority,
-        remainingUses: loginArgs.remainingUses,
-      }),
     restorePersistedSessionForSigning: (restoreArgs) =>
       restoreArgs.authMethod === 'passkey'
-        ? args.touchConfirm.restorePersistedSessionForSigning({
-            ...restoreArgs,
-            authMethod: 'passkey',
-          })
+        ? args.passkeyMpcSession.restorePersistedSessionForSigning(
+            omitPasskeyRestoreAuthMethod(restoreArgs),
+          )
         : args.emailOtpSessions.restorePersistedSessionForSigning(restoreArgs),
     readAvailableSigningLanesForSigning: (readArgs) =>
       readPersistedAvailableSigningLanesForSigningOperation(
         {
-          ecdsaSessions: args.warmSigning.ecdsaSessions,
-          statusReader: args.warmSigning.statusUiConfirm,
-          getEmailOtpWarmSessionStatus: (sessionId) =>
-            args.warmSigning.statusUiConfirm.getWarmSessionStatus({ sessionId }),
-          getWalletSigningBudgetStatus: (statusArgs) =>
-            args.getEnginePorts().signingSessionCoordinator.getAvailableStatus(statusArgs),
+          listEcdsaSigningCapabilitiesForWallet: (input) =>
+            listBrowserEcdsaSigningCapabilitiesForWallet(args, input),
         },
         readArgs,
         configuredThresholdEcdsaChainTargets(args.seamsWebConfigs.network.chains),
-      ),
-    consumeSingleUseEmailOtpEcdsaLane: (command) =>
-      consumeSingleUseEmailOtpEcdsaLaneOperation(args.warmSigning.ecdsaSessions, command),
-    markThresholdEd25519EmailOtpSessionConsumedForWallet: (markArgs) =>
-      markThresholdEd25519EmailOtpSessionConsumedForWalletOperation(markArgs),
-    clearThresholdEcdsaSessionRecordForExactIdentity: (identity) =>
-      clearThresholdEcdsaSessionRecordForExactIdentityOperation(
-        args.warmSigning.ecdsaSessions,
-        identity,
       ),
     provisionThresholdEcdsaSession: (provisionArgs) =>
       provisionThresholdEcdsaSessionOperation(
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           activationDeps: args.getEnginePorts().walletSessionActivationDeps,
-          touchConfirm: args.touchConfirm,
+          sealPersistence: args.passkeyMpcSession,
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-          resolveSealTransport: ({ lane }) =>
-            args.warmSigning.capabilityReader.resolveEcdsaSealTransportByThresholdSessionId({
+          resolveSealTransport: ({ lane, authorization }) =>
+            args.warmSigning.capabilityReader.resolveEcdsaSealTransportForLane({
               lane,
+              authorization,
             }),
         },
         provisionArgs,

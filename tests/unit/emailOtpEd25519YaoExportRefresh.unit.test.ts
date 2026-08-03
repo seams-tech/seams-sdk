@@ -2,11 +2,10 @@ import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  exportEd25519YaoKeyWithFreshEmailOtp,
+  exportEd25519YaoKeyWithFreshAuthorization,
   type Ed25519YaoExportFlowDeps,
 } from '@/core/signingEngine/flows/recovery/ed25519YaoExportFlow';
 import { exactEd25519SigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
-import type { EmailOtpEd25519YaoExportSubjectV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery';
 import type { UserConfirmDecision } from '@/core/signingEngine/stepUpConfirmation/types';
 import type { UserConfirmRequest } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import {
@@ -17,6 +16,7 @@ import {
 import { parseNamedNearAccountId } from '@shared/utils/near';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { resolveEmailOtpAuthLane } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const WALLET_ID = toWalletId('email-otp-export-refresh-wallet');
 const NEAR_ACCOUNT_ID = toAccountId('email-otp-export-refresh.testnet');
@@ -48,12 +48,17 @@ const CAPABILITY = {
     lifecycleId: 'lifecycle-email-otp-export-refresh',
     rootShareEpoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
     accountId: String(WALLET_ID),
-    walletSessionId: WALLET_SESSION_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
     signerSetId: 'near-ed25519-slot-1',
     signingWorkerId: 'signing-worker-email-otp-export-refresh',
   },
   stateEpoch: 1,
 } as const;
+
+const MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'email-otp-export-refresh',
+  CAPABILITY.applicationBinding.wallet_id,
+);
 
 function durableEd25519AuthLane() {
   const authLane = resolveEmailOtpAuthLane({
@@ -88,7 +93,6 @@ function buildLaneIdentity() {
 
 class EmailOtpEd25519ExportRefreshHarness {
   contextCalls = 0;
-  passkeyRecoveryCalls = 0;
   exportCalls = 0;
   exportedCapability: unknown = null;
 
@@ -110,37 +114,23 @@ class EmailOtpEd25519ExportRefreshHarness {
 
   async initialize(): Promise<void> {}
 
-  resolveActiveCapability(): null {
-    return null;
-  }
-
-  async recoverPasskeyCapability(): Promise<never> {
-    this.passkeyRecoveryCalls += 1;
-    throw new Error('Email OTP export must not recover a passkey capability');
-  }
-
   async resolvePasskeyExportContext(): Promise<never> {
     throw new Error('Email OTP export must not resolve a passkey export context');
   }
 
-  async resolveExportContext(subject: EmailOtpEd25519YaoExportSubjectV1) {
+  async resolveExportContext(
+    subject: Parameters<Ed25519YaoExportFlowDeps['emailOtp']['resolveExportContext']>[0],
+  ) {
     this.contextCalls += 1;
     expect(subject).toEqual({
-      walletId: WALLET_ID,
-      nearAccountId: NEAR_ACCOUNT_ID,
-      nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-      signerSlot: 1,
-      thresholdSessionId: THRESHOLD_SESSION_ID,
-      walletSessionId: WALLET_SESSION_ID,
-      quotaId: QUOTA_ID,
-      providerSubjectId: PROVIDER_SUBJECT_ID,
+      laneIdentity: buildLaneIdentity(),
+      materialActivation: MATERIAL_ACTIVATION,
     });
     return {
       kind: 'email_otp_ed25519_yao_export_context_v1' as const,
-      authLane: durableEd25519AuthLane(),
-      walletSessionJwt: 'durable-wallet-session-jwt',
-      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-      capability: CAPABILITY,
+      lane: buildLaneIdentity(),
+      authorization: { walletSessionJwt: 'durable-wallet-session-jwt' },
+      material: { materialActivation: MATERIAL_ACTIVATION, capability: CAPABILITY },
     };
   }
 
@@ -167,9 +157,10 @@ class EmailOtpEd25519ExportRefreshHarness {
     args: Parameters<Ed25519YaoExportFlowDeps['emailOtp']['exportSeedWithFreshAuthorization']>[0],
   ) {
     this.exportCalls += 1;
-    this.exportedCapability = args.capability;
-    expect(args.walletSessionJwt).toBe('durable-wallet-session-jwt');
-    expect(args.authLane).toEqual(durableEd25519AuthLane());
+    this.exportedCapability = args.exportContext.material.capability;
+    expect(args.exportContext.authorization.walletSessionJwt).toBe(
+      'durable-wallet-session-jwt',
+    );
     return {
       artifactKind: 'near-ed25519-seed-v1' as const,
       publicKey: 'ed25519:exported-public-key',
@@ -177,16 +168,23 @@ class EmailOtpEd25519ExportRefreshHarness {
     };
   }
 
+  async withThresholdEd25519CommitQueue<T>(
+    args: Parameters<Ed25519YaoExportFlowDeps['withThresholdEd25519CommitQueue']>[0],
+  ): Promise<T> {
+    return await args.task();
+  }
+
   deps(): Ed25519YaoExportFlowDeps {
     return {
       touchConfirm: {
         requestUserConfirmation: this.requestUserConfirmation.bind(this),
-        exportPrivateKeysWithUi: this.unexpectedPasskeyExport.bind(this),
         initialize: this.initialize.bind(this),
       },
-      resolveActiveCapability: this.resolveActiveCapability.bind(this),
-      recoverPasskeyCapability: this.recoverPasskeyCapability.bind(this),
+      passkeyMpcExport: {
+        exportPrivateKeysWithUi: this.unexpectedPasskeyExport.bind(this),
+      },
       resolvePasskeyExportContext: this.resolvePasskeyExportContext.bind(this),
+      withThresholdEd25519CommitQueue: this.withThresholdEd25519CommitQueue.bind(this),
       emailOtp: {
         requestExportChallenge: this.requestExportChallenge.bind(this),
         resolveExportContext: this.resolveExportContext.bind(this),
@@ -198,10 +196,11 @@ class EmailOtpEd25519ExportRefreshHarness {
 
 test('page-refresh Email OTP Ed25519 export resolves durable context without passkey recovery', async () => {
   const harness = new EmailOtpEd25519ExportRefreshHarness();
-  const result = await exportEd25519YaoKeyWithFreshEmailOtp(harness.deps(), {
+  const result = await exportEd25519YaoKeyWithFreshAuthorization(harness.deps(), {
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     laneIdentity: buildLaneIdentity(),
+    materialActivation: MATERIAL_ACTIVATION,
     options: {},
     flowId: 'flow-email-otp-export-refresh',
   });
@@ -211,7 +210,6 @@ test('page-refresh Email OTP Ed25519 export resolves durable context without pas
     exportedSchemes: ['ed25519'],
   });
   expect(harness.contextCalls).toBe(1);
-  expect(harness.passkeyRecoveryCalls).toBe(0);
   expect(harness.exportCalls).toBe(1);
   expect(harness.exportedCapability).toEqual(CAPABILITY);
 });

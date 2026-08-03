@@ -1,4 +1,4 @@
-export function normalizeRequiredString(value: unknown, label: string): string {
+export function normalizeSessionStatusRequiredString(value: unknown, label: string): string {
   const normalized = String(value || '').trim();
   if (!normalized) {
     throw new Error(`[NonceCoordinator] ${label} is required`);

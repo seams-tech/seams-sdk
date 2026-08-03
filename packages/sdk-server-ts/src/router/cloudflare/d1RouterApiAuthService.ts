@@ -30,6 +30,10 @@ import type {
 } from '../../core/types';
 import { EmailRecoveryAuthOperations } from '../../core/authService/emailRecoveryAuthOperations';
 import type { RouterApiServiceBag } from '../authServicePort';
+import { AuthorizationService } from '../../authorization/service';
+import { capabilityPolicyPort } from '../../authorization/capabilityPolicy';
+import { CloudflareD1AuthorizationStore } from './d1AuthorizationStore';
+import { parseTenantId } from '@shared/authorization/capabilityKinds';
 import type { RouterApiEmailRecoveryAuthService } from '../routerApi';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import { isRecordValue, sha256BytesPortable } from './d1RouterApiAuthBoundary';
@@ -147,6 +151,7 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly identityService: CloudflareD1IdentityService;
   readonly oidcVerification: CloudflareD1OidcVerificationService;
   readonly sessionService: CloudflareD1SessionService;
+  readonly authorizationService: AuthorizationService;
   readonly googleEmailOtpSessions: CloudflareD1GoogleEmailOtpSessionResolver;
   readonly nearPublicKeys: CloudflareD1NearPublicKeyStore;
   readonly webAuthnAuthService: CloudflareD1WebAuthnAuthService;
@@ -194,6 +199,11 @@ type D1IdentityRouteServiceAssembly = Pick<
 type D1SessionVersionRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
   'sessionService'
+>;
+
+type D1AuthorizationSessionRouteServiceAssembly = Pick<
+  CloudflareD1RouterApiAuthAssembly,
+  'authorizationService' | 'options'
 >;
 
 type D1ThresholdRuntimeRouteServiceAssembly = Pick<
@@ -991,6 +1001,18 @@ function createCloudflareD1RouterApiAuthAssembly(
   const linkIdentity = linkD1Identity.bind(undefined, identityStore);
   const sessionStore = new CloudflareD1SessionStore({ prepare });
   const sessionService = new CloudflareD1SessionService({ sessionStore });
+  const authorizationStore = new CloudflareD1AuthorizationStore({
+    database: options.database,
+    namespace: options.namespace,
+  });
+  const authorizationService = new AuthorizationService({
+    policy: capabilityPolicyPort,
+    sessions: authorizationStore,
+    evidence: authorizationStore,
+    grants: authorizationStore,
+    authorizedOperations: authorizationStore,
+    audit: authorizationStore,
+  });
   const googleEmailOtpRegistrationAttempts = new CloudflareD1GoogleEmailOtpRegistrationAttemptStore(
     {
       prepare,
@@ -1076,12 +1098,19 @@ function createCloudflareD1RouterApiAuthAssembly(
     envId: options.envId,
   });
   const signedDelegateExecutor = new CloudflareD1SignedDelegateExecutor(options);
+  const authorizationTenantId = parseTenantId(options.orgId);
+  if (!authorizationTenantId.ok) {
+    throw new Error(
+      `orgId cannot identify an authorization tenant: ${authorizationTenantId.error.message}`,
+    );
+  }
   const walletRegistrations = new CloudflareD1WalletRegistrationService({
+    authorizationService,
+    authorizationTenantId: authorizationTenantId.value,
     createSponsoredNamedNearAccount,
     emailOtpRegistrationEnrollmentFinalizer,
     getRegistrationCeremonyIntentStore,
     getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
-    walletBudgetGrantProvisioner: options.walletBudgetGrantProvisioner || null,
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
     activateSideEffects: walletRegistrationActivateSideEffectStore(options),
@@ -1092,7 +1121,6 @@ function createCloudflareD1RouterApiAuthAssembly(
   const walletAddSigners = new CloudflareD1WalletAddSignerService({
     getRegistrationCeremonyIntentStore,
     getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
-    walletBudgetGrantProvisioner: options.walletBudgetGrantProvisioner || null,
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
     walletAuthMethods,
@@ -1143,6 +1171,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     identityService,
     oidcVerification,
     sessionService,
+    authorizationService,
     googleEmailOtpSessions,
     nearPublicKeys,
     webAuthnAuthService,
@@ -1158,6 +1187,14 @@ function createD1WalletRegistrationRouteService(
   assembly: D1WalletRegistrationRouteServiceAssembly,
 ): RouterApiServiceBag['walletRegistration'] {
   return {
+    resolveEd25519MaterialActivation:
+      assembly.walletRegistrations.resolveEd25519MaterialActivation.bind(
+        assembly.walletRegistrations,
+      ),
+    resolveEcdsaMaterialActivation:
+      assembly.walletRegistrations.resolveEcdsaMaterialActivation.bind(
+        assembly.walletRegistrations,
+      ),
     listWalletEcdsaKeyFactsInventory:
       assembly.walletRegistrations.listWalletEcdsaKeyFactsInventory.bind(
         assembly.walletRegistrations,
@@ -1179,8 +1216,8 @@ function createD1WalletRegistrationRouteService(
       assembly.walletRegistrations.refreshEd25519YaoWalletSession.bind(
         assembly.walletRegistrations,
       ),
-    recoverEd25519YaoEmailOtpWalletSession:
-      assembly.walletRegistrations.recoverEd25519YaoEmailOtpWalletSession.bind(
+    provisionEd25519YaoWalletSession:
+      assembly.walletRegistrations.provisionEd25519YaoWalletSession.bind(
         assembly.walletRegistrations,
       ),
     recordEcdsaPostRegistrationProof:
@@ -1406,22 +1443,75 @@ function createD1SessionVersionRouteService(
   };
 }
 
+function createD1AuthorizationSessionRouteService(
+  assembly: D1AuthorizationSessionRouteServiceAssembly,
+): RouterApiServiceBag['authorizationSessions'] {
+  const tenantId = parseTenantId(assembly.options.orgId);
+  if (!tenantId.ok) {
+    throw new Error(`orgId cannot identify an authorization tenant: ${tenantId.error.message}`);
+  }
+  return {
+    tenantId: tenantId.value,
+    recordActiveSession: assembly.authorizationService.recordActiveSession.bind(
+      assembly.authorizationService,
+    ),
+    issueReusableWalletSession: assembly.authorizationService.issueReusableWalletSession.bind(
+      assembly.authorizationService,
+    ),
+    readActiveSession: assembly.authorizationService.readActiveSession.bind(
+      assembly.authorizationService,
+    ),
+    readReusableWalletSessionStatus:
+      assembly.authorizationService.readReusableWalletSessionStatus.bind(
+        assembly.authorizationService,
+      ),
+    mintHostedWalletSeamsSessionExchange:
+      assembly.authorizationService.mintHostedWalletSeamsSessionExchange.bind(
+        assembly.authorizationService,
+      ),
+    redeemHostedWalletSeamsSessionExchange:
+      assembly.authorizationService.redeemHostedWalletSeamsSessionExchange.bind(
+        assembly.authorizationService,
+      ),
+  };
+}
+
+function createD1AuthorizedOperationRouteService(
+  assembly: D1AuthorizationSessionRouteServiceAssembly,
+): RouterApiServiceBag['authorizedOperations'] {
+  const tenantId = parseTenantId(assembly.options.orgId);
+  if (!tenantId.ok) {
+    throw new Error(`orgId cannot identify an authorization tenant: ${tenantId.error.message}`);
+  }
+  return {
+    tenantId: tenantId.value,
+    recordVerifiedFactorEvidenceSet:
+      assembly.authorizationService.recordVerifiedFactorEvidenceSet.bind(
+        assembly.authorizationService,
+      ),
+    recordVerifiedSessionEvidenceSet:
+      assembly.authorizationService.recordVerifiedSessionEvidenceSet.bind(
+        assembly.authorizationService,
+      ),
+    readAuthorizedOperation: assembly.authorizationService.readAuthorizedOperation.bind(
+      assembly.authorizationService,
+    ),
+    admitAuthorizedOperation: assembly.authorizationService.admitAuthorizedOperation.bind(
+      assembly.authorizationService,
+    ),
+    completeAuthorizedOperation:
+      assembly.authorizationService.completeAuthorizedOperation.bind(
+        assembly.authorizationService,
+      ),
+  };
+}
+
 function createD1ThresholdRuntimeRouteService(
   assembly: D1ThresholdRuntimeRouteServiceAssembly,
 ): CloudflareD1RouterApiAuthService['thresholdRuntime'] {
   return {
-    getWalletBudgetGrantProvisioner: getD1WalletBudgetGrantProvisioner.bind(
-      undefined,
-      assembly.options,
-    ),
     getRouterAbEcdsaPresignRuntime: () => assembly.options.routerAbEcdsaPresignRuntime || null,
   };
-}
-
-function getD1WalletBudgetGrantProvisioner(
-  options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
-) {
-  return options.walletBudgetGrantProvisioner || null;
 }
 
 function createD1NearFundingRouteService(
@@ -1478,6 +1568,8 @@ export function createCloudflareD1RouterApiAuthService(
     webAuthn: createD1WebAuthnRouteService(assembly),
     identity: createD1IdentityRouteService(assembly),
     sessionVersions: createD1SessionVersionRouteService(assembly),
+    authorizationSessions: createD1AuthorizationSessionRouteService(assembly),
+    authorizedOperations: createD1AuthorizedOperationRouteService(assembly),
     thresholdRuntime: createD1ThresholdRuntimeRouteService(assembly),
     nearFunding: createD1NearFundingRouteService(assembly),
     recovery: createD1RecoveryRouteService(assembly),

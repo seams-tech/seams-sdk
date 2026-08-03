@@ -20,6 +20,16 @@ import {
 } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 
+const materialActivation = {
+  kind: 'mpc_material_activation_ref' as const,
+  activation_id: 'registration-activation-1',
+  capability: 'registration-capability-1',
+  material_owner: 'wallet_alice',
+  key_binding: 'near-key-1',
+  lifecycle_binding: 'registration-lifecycle',
+  signing_worker: 'signing-worker-1',
+};
+
 function unwrapDomainId<T>(result: { ok: true; value: T } | { ok: false }): T {
   if (!result.ok) throw new Error('invalid type fixture domain id');
   return result.value;
@@ -168,9 +178,10 @@ const yaoAdmissionRequest = {
     lifecycle_id: 'registration-lifecycle',
     root_share_epoch: 'root-epoch-1',
     account_id: 'alice.testnet',
-    wallet_session_id: 'wallet-session-1',
+    threshold_session_id: 'threshold-session-1',
     signer_set_id: 'signer-set-1',
     signing_worker_id: 'signing-worker-1',
+    material_activation: materialActivation,
   },
   application_binding: {
     wallet_id: 'wallet_alice',
@@ -276,12 +287,12 @@ const invalidEd25519FinalizeSuccessWithEcdsa: WalletRegistrationFinalizeResponse
 };
 void invalidEd25519FinalizeSuccessWithEcdsa;
 
-const invalidEd25519SessionWithoutJwt = {
-  ...validEd25519FinalizeSuccess.ed25519.session,
-  // @ts-expect-error an activated Ed25519 signing session requires its Wallet Session JWT.
-  walletSessionJwt: undefined,
-} satisfies typeof validEd25519FinalizeSuccess.ed25519.session;
-void invalidEd25519SessionWithoutJwt;
+const invalidEd25519FinalizeSuccessWithSession = {
+  ...validEd25519FinalizeSuccess.ed25519,
+  // @ts-expect-error registration returns durable material facts and cannot mint a Wallet Session.
+  session: {},
+} satisfies typeof validEd25519FinalizeSuccess.ed25519;
+void invalidEd25519FinalizeSuccessWithSession;
 
 const invalidEcdsaFinalizeSuccessWithNearIdentity: WalletRegistrationFinalizeResponse = {
   ...validEcdsaFinalizeSuccess,

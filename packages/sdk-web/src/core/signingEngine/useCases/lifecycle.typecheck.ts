@@ -1,5 +1,4 @@
 import type {
-  ActivateSigningSessionTransition,
   EcdsaProvisioningTransition,
   RegisterWalletAuth,
   RegisterWalletTransition,
@@ -50,16 +49,17 @@ import type { EvmSigningRequest, Hex } from '../chains/evm/evmSigning.types';
 import type { TempoSigningRequest } from '../chains/tempo/tempoSigning.types';
 import type { EmailOtpAuthSubjectId } from '../session/identity/emailOtpEcdsaDerivationIdentity';
 import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
-import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type {
   EmailOtpChallengeId,
   SigningOperationId,
   ThresholdSessionId,
-  SigningGrantId,
 } from '../session/operationState/types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 declare const walletId: WalletId;
-declare const evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
 declare const rpId: RpId;
 declare const accountId: AccountId;
 declare const credentialIdB64u: CredentialIdB64u;
@@ -70,7 +70,8 @@ declare const emailOtpAuthSubjectId: EmailOtpAuthSubjectId;
 declare const appSession: VerifiedAppSessionJwt;
 declare const userHandle: WebAuthnUserHandle;
 declare const thresholdSessionId: ThresholdSessionId;
-declare const signingGrantId: SigningGrantId;
+declare const walletSessionId: WalletSessionId;
+declare const quotaId: MpcWalletSigningQuotaId;
 declare const operationId: SigningOperationId;
 declare const emailOtpEd25519WorkerHandle: Extract<
   EmailOtpWorkerIssuedSessionHandle,
@@ -150,6 +151,13 @@ const ecdsaLaneMissingTarget = {
 // @ts-expect-error ready ECDSA lanes require an exact chain target
 ecdsaLaneMissingTarget satisfies EcdsaUseCaseReadyLane;
 
+const ecdsaLaneWithProvisioningSlot = {
+  ...readyEcdsaLane,
+  evmFamilySigningKeySlotId: 'provisioning-slot',
+};
+// @ts-expect-error Provisioning slots are not ready-lane identity.
+ecdsaLaneWithProvisioningSlot satisfies EcdsaUseCaseReadyLane;
+
 const passkeyUnlockWithOtp = {
   kind: 'passkey_unlock',
   credentialId: credentialIdB64u,
@@ -199,7 +207,6 @@ const emailOtpEd25519ActivationAuth = {
 const emailOtpEcdsaActivationAuth = {
   kind: 'email_otp',
   walletId,
-  evmFamilySigningKeySlotId,
   authSubjectId: emailOtpAuthSubjectId,
   workerHandle: emailOtpEcdsaWorkerHandle,
 } satisfies SigningSessionActivationEmailOtpEcdsaAuth;
@@ -207,7 +214,6 @@ const emailOtpEcdsaActivationAuth = {
 const emailOtpEcdsaActivationAuthWithRp = {
   kind: 'email_otp',
   walletId,
-  evmFamilySigningKeySlotId,
   rpId,
   authSubjectId: emailOtpAuthSubjectId,
   workerHandle: emailOtpEcdsaWorkerHandle,
@@ -228,17 +234,22 @@ emailOtpEd25519AuthWithEcdsaHandle satisfies SigningSessionActivationEmailOtpEd2
 const emailOtpEcdsaAuthWithEd25519Handle = {
   kind: 'email_otp',
   walletId,
-  evmFamilySigningKeySlotId,
   authSubjectId: emailOtpAuthSubjectId,
   workerHandle: emailOtpEd25519WorkerHandle,
 };
 // @ts-expect-error Email OTP ECDSA activation requires an ECDSA worker handle with chainTarget
 emailOtpEcdsaAuthWithEd25519Handle satisfies SigningSessionActivationEmailOtpEcdsaAuth;
 
+const emailOtpEcdsaAuthWithProvisioningSlot = {
+  ...emailOtpEcdsaActivationAuth,
+  evmFamilySigningKeySlotId: 'provisioning-slot',
+};
+// @ts-expect-error Provisioning slots are not runtime activation authority.
+emailOtpEcdsaAuthWithProvisioningSlot satisfies SigningSessionActivationEmailOtpEcdsaAuth;
+
 const ecdsaActivationMaterial = {
   kind: 'ecdsa_session',
   thresholdSessionId,
-  signingGrantId,
   record: readyRecord,
 } satisfies SigningSessionActivationMaterial;
 
@@ -273,7 +284,6 @@ const emailOtpEd25519SealWithEcdsaAuth = {
   material: {
     kind: 'ed25519_session',
     thresholdSessionId,
-    signingGrantId,
     relayerKeyId: readyEd25519Lane.relayerKeyId,
   },
   expiresAtMs,
@@ -426,13 +436,6 @@ const invalidRegisterTransition = {
 };
 // @ts-expect-error register-wallet ready state is terminal
 invalidRegisterTransition satisfies RegisterWalletTransition;
-
-const invalidActivationTransition = {
-  from: 'activated',
-  to: 'writing_seals',
-};
-// @ts-expect-error activated signing-session state is terminal
-invalidActivationTransition satisfies ActivateSigningSessionTransition;
 
 const invalidRestoreTransition = {
   from: 'ready',

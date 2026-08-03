@@ -1,16 +1,13 @@
-import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
-import type {
-  SigningSessionBudgetStatusAuth,
-  SigningSessionPreparedBudgetIdentity,
-} from '../budget/budget';
+import type { SensitiveOperationPolicy, SignerAuthMethod } from '@shared/utils/signerDomain';
+import type { WalletSessionStatusIdentity } from '../lifecycle/walletSessionStatus';
 import type {
   SigningPlannerDecisionTraceEvent,
   SigningSessionReadiness,
 } from '../planning/planner';
 import type {
-  SigningAuthMethod,
   SigningChainFamily,
   SigningCurve,
+  SelectedEd25519SigningSessionPlanningLane,
   SelectedSigningSessionPlanningLane,
   SigningOperationContext,
   SigningSessionPlan,
@@ -38,7 +35,7 @@ export type ThresholdSigningReadinessInput = {
   expiresAtMs?: number;
   remainingUses?: number;
   usesNeeded?: number;
-  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+  trustedStatusAuth?: WalletSessionStatusIdentity;
 };
 
 export type ThresholdSigningOperationCoordinator = {
@@ -49,7 +46,7 @@ export type ThresholdSigningOperationCoordinator = {
       expiresAtMs?: number;
       remainingUses?: number;
       usesNeeded?: number;
-      trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+      trustedStatusAuth?: WalletSessionStatusIdentity;
       forceFreshAuth?: boolean;
       sensitiveOperationPolicy?: SensitiveOperationPolicy | null;
       missingWhenExpiresAtMissing?: boolean;
@@ -61,11 +58,6 @@ export type ThresholdSigningOperationCoordinator = {
     expiresAtMs: number;
     remainingUses: number;
   }>;
-  prepareBudgetIdentity(input: {
-    lane: SelectedSigningSessionPlanningLane;
-    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-    operationUsesNeeded?: number;
-  }): Promise<SigningSessionPreparedBudgetIdentity>;
 };
 
 export type PreparedThresholdSigningOperation<
@@ -75,12 +67,12 @@ export type PreparedThresholdSigningOperation<
   intent: ThresholdSigningIntent;
   operation?: SigningOperationContext;
   lane: TLane;
-  authMethod: SigningAuthMethod;
+  authMethod: SignerAuthMethod;
   signingSessionPlan: SigningSessionPlan;
   readiness: SigningSessionReadiness;
   expiresAtMs: number;
   remainingUses: number;
-  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+  trustedStatusAuth?: WalletSessionStatusIdentity;
   availableLanesGeneration: number;
   metadata: TMetadata;
 };
@@ -115,6 +107,9 @@ export async function prepareThresholdSigningOperation<
     intent: args.intent,
     ...(args.operation ? { operation: args.operation } : {}),
   });
+  if (lifecycle.lane.curve !== lifecycle.readiness.readiness.curve) {
+    throw new Error('[SigningSession] prepared lane and readiness curves do not match');
+  }
   const coordinatorInput = {
     lane: lifecycle.lane,
     readiness: lifecycle.readiness.readiness,

@@ -23,7 +23,7 @@ const warmPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }> = {
   method: 'passkey',
   accountId: 'wallet',
   intent: 'transaction_sign',
-  sessionId: 'threshold-session',
+  thresholdSessionId: 'threshold-session',
   expiresAtMs: Date.now() + 60_000,
   remainingUses: 1,
 };

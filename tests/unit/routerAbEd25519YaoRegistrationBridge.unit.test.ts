@@ -2,8 +2,6 @@ import { expect, test } from '@playwright/test';
 import { alphabetizeStringify, sha256BytesUtf8 } from '../../packages/shared-ts/src/utils/digests';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import { mintRouterAbEd25519YaoWalletSessionV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
 import {
   runRouterAbEd25519YaoRegistrationSideEffectV1,
   throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1,
@@ -17,7 +15,6 @@ import {
   createRegistrationBridgePartitionStore,
   OneConflictRegistrationBridgePartitionStore,
   RegistrationSideEffectMemoryStore,
-  StaticWalletSessionAdapter,
   UnavailableRouterAbEd25519YaoRegistrationBackend,
   UnusedSessionAdapter,
 } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
@@ -117,47 +114,6 @@ function registrationCapabilityFixture() {
 }
 
 test.describe('registration side-effect persistence bridge', () => {
-  test('derives the generated registration signing grant from exact lifecycle identity', async () => {
-    const session = new StaticWalletSessionAdapter();
-    const walletId = walletIdFromString('wallet-registration-bridge');
-    const sessionInput = {
-      kind: 'registration_wallet_session_v1' as const,
-      walletId,
-      nearAccountId: 'wallet-registration-bridge.testnet',
-      nearEd25519SigningKeyId: 'near-ed25519-registration-bridge',
-      authority: buildPasskeyWalletAuthAuthority({
-        walletId,
-        rpId: 'example.test',
-        credentialIdB64u: 'Y3JlZGVudGlhbA',
-      }),
-      thresholdSessionId: 'threshold-registration-bridge',
-      participantIds: [1, 2] as const,
-      runtimePolicyScope: {
-        orgId: 'org-registration-bridge',
-        projectId: 'project-registration-bridge',
-        envId: 'env-registration-bridge',
-        signingRootVersion: 'root-registration-bridge-v1',
-      },
-    };
-
-    const first = await mintRouterAbEd25519YaoWalletSessionV1({
-      session,
-      signingWorkerId: 'signing-worker-bridge',
-      sessionInput,
-    });
-    const retried = await mintRouterAbEd25519YaoWalletSessionV1({
-      session,
-      signingWorkerId: 'signing-worker-bridge',
-      sessionInput,
-    });
-
-    expect(first.ok).toBe(true);
-    expect(retried.ok).toBe(true);
-    if (!first.ok || !retried.ok) return;
-    expect(retried.session.signingGrantId).toBe(first.session.signingGrantId);
-    expect(first.session.signingGrantId).toMatch(/^wss_[A-Za-z0-9_-]{43}$/);
-  });
-
   test('claims before effects and replays the exact terminal response without repeating them', async () => {
     const store = new RegistrationSideEffectMemoryStore<TestResponse, PreparedMarker>();
     const probe = new SideEffectProbe(store);

@@ -386,7 +386,9 @@ function poolHitFixture() {
     reservationId: 'pool-hit-reservation-1',
     poolIdentity: {
       poolKey: 'pool-hit-key-1',
-      walletKeyId: 'wallet-key-1',
+      materialActivationId: 'pool-hit-material-activation-1',
+      capability: 'ecdsa.sign',
+      keyBinding: 'pool-hit-key-binding-1',
       walletId: 'wallet-1',
       signingScopeB64u: 'scope-1',
       pairRole: 'client' as const,

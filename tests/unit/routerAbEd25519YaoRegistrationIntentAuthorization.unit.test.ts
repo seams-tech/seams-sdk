@@ -78,7 +78,7 @@ function admissionRequest(input: {
       lifecycle_id: input.lifecycleId,
       root_share_epoch: 'root-share-epoch-1',
       account_id: 'account-1',
-      wallet_session_id: 'wallet-session-1',
+      threshold_session_id: 'wallet-session-1',
       signer_set_id: 'signer-set-1',
       signing_worker_id: 'signing-worker-1',
     },
@@ -129,7 +129,7 @@ async function registrationBinding(
       primitive_request_kind: 'registration',
       root_share_epoch: request.scope.root_share_epoch,
       account_id: request.scope.account_id,
-      session_id: request.scope.wallet_session_id,
+      session_id: request.scope.threshold_session_id,
       signer_set_id: request.scope.signer_set_id,
       selected_server_id: request.scope.signing_worker_id,
     },
@@ -208,7 +208,7 @@ test.describe('Router A/B Ed25519 Yao registration-intent authorization', () => 
 
     await expect(adapter.bindVerifiedIntent(verified)).resolves.toEqual({ ok: true });
     await expect(adapter.bindVerifiedIntent(verified)).resolves.toEqual({ ok: true });
-    request.scope.wallet_session_id = 'mutated-after-binding';
+    request.scope.threshold_session_id = 'mutated-after-binding';
     const exactRequest = admissionRequest({
       lifecycleId: 'registration-lifecycle-1',
       walletId: 'wallet-1',

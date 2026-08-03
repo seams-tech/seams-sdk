@@ -1,80 +1,60 @@
-import type { PrivateKeyExportRecoveryDeps } from '../../interfaces/operationDeps';
 import { configuredThresholdEcdsaChainTargets } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { readPersistedAvailableSigningLanesForTargets } from '../../session/availability/persistedAvailableSigningLanes';
 import type {
+  PasskeyMpcExportPort,
+  PasskeyMpcSessionPort,
   UiConfirmRuntimeBridgePort,
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
-import type { WarmSessionCapabilityReader } from '../../session/warmCapabilities/types';
-import type { WarmSigningStatusReader } from '../../session/warmCapabilities/statusReader';
-import type { WalletSigningBudgetAvailableStatusDeps } from '../../session/budget/budgetStatusReader';
+import type { WalletSigningSessionStatusDeps } from '../../session/lifecycle/walletSessionStatus';
 import type {
   RecoveryPublicDeps,
   RecoveryPublicEcdsaSessionStoreDeps,
 } from '../../flows/recovery/public';
 import type {
-  EmailOtpEcdsaExportAuthorizationDeps,
   EmailOtpWalletSessionExportAuthorizationDeps,
 } from '../../flows/recovery/keyExportConfirmation';
 import type { CreateSigningEnginePortsArgs } from './shared';
 import type {
   EmailOtpEcdsaExportArtifact,
-  ExportEcdsaKeyWithAuthorizationArgs,
   ExportEcdsaKeyWithDurableAuthorizationArgs,
-  ExportEcdsaKeyWithPublicReauthAuthorizationArgs,
 } from '../../session/emailOtp/exportRecoveryRuntime';
-
-export function createPrivateKeyExportRecoveryDeps(
-  args: CreateSigningEnginePortsArgs,
-  runtimeDeps: { keyMaterialStore: PrivateKeyExportRecoveryDeps['keyMaterialStore'] },
-): PrivateKeyExportRecoveryDeps {
-  return {
-    keyMaterialStore: runtimeDeps.keyMaterialStore,
-    relayerUrl: args.seamsWebConfigs.network.relayer.url,
-    getRpId: () => args.touchIdPrompt.getRpId(),
-    requestExportPrivateKeysWithUi: (payload) =>
-      args.signerWorkerManager.requestExportPrivateKeysWithUi(payload),
-    getTheme: args.getTheme,
-  };
-}
+import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
+import type { EcdsaExportFlowDeps } from '../../flows/recovery/ecdsaExportFlow';
+import type { Ed25519YaoExportFlowDeps } from '../../flows/recovery/ed25519YaoExportFlow';
+import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 
 export function createRecoveryPublicDeps(args: {
   seamsWebConfigs: CreateSigningEnginePortsArgs['seamsWebConfigs'];
   signerWorkerManager: CreateSigningEnginePortsArgs['signerWorkerManager'];
-  getTheme: PrivateKeyExportRecoveryDeps['getTheme'];
+  getTheme: CreateSigningEnginePortsArgs['getTheme'];
+  withThresholdEcdsaSigningQueue: EcdsaExportFlowDeps['withThresholdEcdsaSigningQueue'];
+  withThresholdEd25519CommitQueue: Ed25519YaoExportFlowDeps['withThresholdEd25519CommitQueue'];
   ecdsaSessions: RecoveryPublicEcdsaSessionStoreDeps;
+  listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcExport: PasskeyMpcExportPort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   emailOtpSessions: {
-    readWarmSessionStatusOnly: (sessionId: string) => Promise<WarmSessionStatusResult>;
+    readWarmSessionStatusOnly: (
+      target: EmailOtpWarmMaterialTarget,
+    ) => Promise<WarmSessionStatusResult>;
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
-    requestPublicReauthExportChallenge: EmailOtpEcdsaExportAuthorizationDeps['requestPublicReauthExportChallenge'];
-    exportEcdsaKeyWithAuthorization: (
-      request: ExportEcdsaKeyWithAuthorizationArgs,
-    ) => Promise<EmailOtpEcdsaExportArtifact>;
     exportEcdsaKeyWithDurableAuthorization: (
       request: ExportEcdsaKeyWithDurableAuthorizationArgs,
-    ) => Promise<EmailOtpEcdsaExportArtifact>;
-    exportEcdsaKeyWithPublicReauthAuthorization: (
-      request: Omit<ExportEcdsaKeyWithPublicReauthAuthorizationArgs, 'appSessionJwt'>,
     ) => Promise<EmailOtpEcdsaExportArtifact>;
     exportEd25519YaoSeedWithFreshEmailOtpLane: RecoveryPublicDeps['ed25519Yao']['emailOtp']['exportSeedWithFreshAuthorization'];
   };
   provisionPasskeyEcdsaExplicitExportSession: RecoveryPublicDeps['ecdsa']['provisionPasskeyEcdsaExplicitExportSession'];
   resolvePasskeyEcdsaExportRouteAuth: RecoveryPublicDeps['ecdsa']['resolvePasskeyEcdsaExportRouteAuth'];
-  warmSessionPolicy: {
-    getWarmSession: WarmSessionCapabilityReader['getWarmSession'];
-    resolveExactEcdsaRecord: WarmSigningStatusReader['resolveExactEcdsaRecord'];
-  };
-  getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
-  resolveActiveEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['resolveActiveCapability'];
-  recoverPasskeyEd25519YaoCapability: RecoveryPublicDeps['ed25519Yao']['recoverPasskeyCapability'];
+  getWalletSessionStatus: WalletSigningSessionStatusDeps['getAvailableStatus'];
   resolvePasskeyEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['resolvePasskeyExportContext'];
   resolveEmailOtpEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['emailOtp']['resolveExportContext'];
   sessionLifecycle: RecoveryPublicDeps['sessionLifecycle'];
 }): RecoveryPublicDeps {
-  const getEmailOtpWarmSessionStatus = (sessionId: string) =>
-    args.emailOtpSessions.readWarmSessionStatusOnly(sessionId);
+  const getEmailOtpWarmSessionStatus = (target: EmailOtpWarmMaterialTarget) =>
+    args.emailOtpSessions.readWarmSessionStatusOnly(target);
   const configuredChainTargets = configuredThresholdEcdsaChainTargets(
     args.seamsWebConfigs.network.chains,
   );
@@ -101,10 +81,7 @@ export function createRecoveryPublicDeps(args: {
       readPersistedAvailableSigningLanesForTargets: (availableLanesArgs) =>
         readPersistedAvailableSigningLanesForTargets(
           {
-            ecdsaSessions: args.ecdsaSessions,
-            statusReader: args.touchConfirm,
-            getEmailOtpWarmSessionStatus,
-            getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
+            listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
           },
           completeConfiguredEcdsaTargets(availableLanesArgs),
         ),
@@ -118,26 +95,20 @@ export function createRecoveryPublicDeps(args: {
             EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge']
           >[0],
         ) => args.emailOtpSessions.requestExportChallenge(request),
-        requestPublicReauthExportChallenge: (request) =>
-          args.emailOtpSessions.requestPublicReauthExportChallenge(request),
-        exportEcdsaKeyWithAuthorization: (request) =>
-          args.emailOtpSessions.exportEcdsaKeyWithAuthorization(request),
         exportEcdsaKeyWithDurableAuthorization: (request) =>
           args.emailOtpSessions.exportEcdsaKeyWithDurableAuthorization(request),
-        exportEcdsaKeyWithPublicReauthAuthorization: (request) =>
-          args.emailOtpSessions.exportEcdsaKeyWithPublicReauthAuthorization(request),
       },
-      warmSessionPolicy: args.warmSessionPolicy,
       provisionPasskeyEcdsaExplicitExportSession: (request) =>
         args.provisionPasskeyEcdsaExplicitExportSession(request),
       resolvePasskeyEcdsaExportRouteAuth: args.resolvePasskeyEcdsaExportRouteAuth,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
+      withThresholdEcdsaSigningQueue: args.withThresholdEcdsaSigningQueue,
     },
     ed25519Yao: {
       touchConfirm: args.touchConfirm,
-      resolveActiveCapability: args.resolveActiveEd25519YaoCapability,
-      recoverPasskeyCapability: args.recoverPasskeyEd25519YaoCapability,
+      passkeyMpcExport: args.passkeyMpcExport,
       resolvePasskeyExportContext: args.resolvePasskeyEd25519YaoExportContext,
+      withThresholdEd25519CommitQueue: args.withThresholdEd25519CommitQueue,
       emailOtp: {
         requestExportChallenge: (request) => args.emailOtpSessions.requestExportChallenge(request),
         resolveExportContext: (subject) => args.resolveEmailOtpEd25519YaoExportContext(subject),

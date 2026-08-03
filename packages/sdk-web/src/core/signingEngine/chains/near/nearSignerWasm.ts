@@ -21,7 +21,6 @@ import {
 const NEAR_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 
 export async function computeThresholdEd25519Nep413SigningDigestWasm(args: {
-  sessionId: string;
   message: string;
   recipient: string;
   nonce: string;
@@ -32,7 +31,6 @@ export async function computeThresholdEd25519Nep413SigningDigestWasm(args: {
     ctx: args.workerCtx,
     kind: 'nearSigner',
     request: {
-      sessionId: args.sessionId,
       type: NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeNep413SigningDigest,
       timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
@@ -47,7 +45,6 @@ export async function computeThresholdEd25519Nep413SigningDigestWasm(args: {
 }
 
 export async function computeThresholdEd25519DelegateSigningDigestWasm(args: {
-  sessionId: string;
   delegate: DelegatePayload;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519ComputeSigningDigestResult> {
@@ -55,7 +52,6 @@ export async function computeThresholdEd25519DelegateSigningDigestWasm(args: {
     ctx: args.workerCtx,
     kind: 'nearSigner',
     request: {
-      sessionId: args.sessionId,
       type: NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeDelegateSigningDigest,
       timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
@@ -67,7 +63,6 @@ export async function computeThresholdEd25519DelegateSigningDigestWasm(args: {
 }
 
 export async function buildThresholdEd25519DelegateSigningPayloadWasm(args: {
-  sessionId: string;
   delegate: DelegatePayload;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519BuildDelegateSigningPayloadResult> {
@@ -75,7 +70,6 @@ export async function buildThresholdEd25519DelegateSigningPayloadWasm(args: {
     ctx: args.workerCtx,
     kind: 'nearSigner',
     request: {
-      sessionId: args.sessionId,
       type: NearSignerWorkerCustomRequestType.ThresholdEd25519BuildDelegateSigningPayload,
       timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
@@ -87,7 +81,6 @@ export async function buildThresholdEd25519DelegateSigningPayloadWasm(args: {
 }
 
 export async function finalizeThresholdEd25519DelegateFromSignatureWasm(args: {
-  sessionId: string;
   delegate: DelegatePayload;
   signingDigestB64u: string;
   signatureB64u: string;
@@ -97,7 +90,6 @@ export async function finalizeThresholdEd25519DelegateFromSignatureWasm(args: {
     ctx: args.workerCtx,
     kind: 'nearSigner',
     request: {
-      sessionId: args.sessionId,
       type: NearSignerWorkerCustomRequestType.ThresholdEd25519FinalizeDelegateFromSignature,
       timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
@@ -111,7 +103,6 @@ export async function finalizeThresholdEd25519DelegateFromSignatureWasm(args: {
 }
 
 export async function buildThresholdEd25519NearTxUnsignedBorshWasm(args: {
-  sessionId: string;
   txSigningRequest: TransactionPayload;
   transactionContext: TransactionContext;
   workerCtx: WorkerOperationContext;
@@ -120,7 +111,6 @@ export async function buildThresholdEd25519NearTxUnsignedBorshWasm(args: {
     ctx: args.workerCtx,
     kind: 'nearSigner',
     request: {
-      sessionId: args.sessionId,
       type: NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh,
       timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
@@ -138,7 +128,6 @@ export async function buildThresholdEd25519NearTxUnsignedBorshWasm(args: {
 }
 
 export async function finalizeThresholdEd25519NearTxFromSignatureWasm(args: {
-  sessionId: string;
   unsignedTransactionBorshB64u: string;
   signingDigestB64u: string;
   signatureB64u: string;
@@ -150,7 +139,6 @@ export async function finalizeThresholdEd25519NearTxFromSignatureWasm(args: {
     ctx: args.workerCtx,
     kind: 'nearSigner',
     request: {
-      sessionId: args.sessionId,
       type: NearSignerWorkerCustomRequestType.ThresholdEd25519FinalizeNearTxFromSignature,
       timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
@@ -166,7 +154,6 @@ export async function finalizeThresholdEd25519NearTxFromSignatureWasm(args: {
 }
 
 export async function decodeThresholdEd25519SignedNearTxBorshWasm(args: {
-  sessionId: string;
   signedTransactionBorshB64u: string;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519DecodeSignedNearTxBorshResult> {
@@ -174,7 +161,6 @@ export async function decodeThresholdEd25519SignedNearTxBorshWasm(args: {
     ctx: args.workerCtx,
     kind: 'nearSigner',
     request: {
-      sessionId: args.sessionId,
       type: NearSignerWorkerCustomRequestType.ThresholdEd25519DecodeSignedNearTxBorsh,
       timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
@@ -281,10 +267,10 @@ export async function deriveThresholdEd25519ClientVerifyingShareWasm(args: {
     ctx: args.workerCtx,
     kind: 'nearSigner',
     request: {
-      sessionId,
       type: WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare,
       timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
+        sessionId,
         nearAccountId,
         prfFirstB64u,
         wrapKeySalt,

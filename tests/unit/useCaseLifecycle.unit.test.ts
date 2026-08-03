@@ -1,7 +1,5 @@
 import { expect, test } from '@playwright/test';
 import {
-  activateSigningSessionAllowedTransitions,
-  activateSigningSessionTerminalStates,
   ecdsaProvisioningAllowedTransitions,
   ecdsaProvisioningTerminalStates,
   registerWalletAllowedTransitions,
@@ -37,11 +35,6 @@ const lifecycleTables: readonly {
     name: 'unlock wallet',
     transitions: unlockWalletAllowedTransitions,
     terminalStates: unlockWalletTerminalStates,
-  },
-  {
-    name: 'activate signing session',
-    transitions: activateSigningSessionAllowedTransitions,
-    terminalStates: activateSigningSessionTerminalStates,
   },
   {
     name: 'sign EVM family',

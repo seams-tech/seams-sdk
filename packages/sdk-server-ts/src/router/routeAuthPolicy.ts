@@ -1,11 +1,15 @@
 import type {
-  ThresholdEcdsaSessionClaims,
-  ThresholdEd25519SessionClaims,
+  RouterAbEcdsaDerivationWalletSessionClaims,
+  RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
 import type { RouterApiKeyPrincipal, SessionClaims } from './routerApi';
 import { ROUTER_API_CREDENTIAL_SCOPES } from './apiCredentialPorts';
 
-export type RouteAuthPlane = 'api_credentials' | 'user_session' | 'threshold_session' | 'public';
+export type RouteAuthPlane =
+  | 'api_credentials'
+  | 'session_principal'
+  | 'capability_grant'
+  | 'public';
 
 export const API_CREDENTIAL_TYPES = ['publishable_key', 'secret_key'] as const;
 export type ApiCredentialType = (typeof API_CREDENTIAL_TYPES)[number];
@@ -36,10 +40,10 @@ export type RouteAuthPolicy =
       ipBinding?: 'required' | 'optional';
     }
   | {
-      plane: 'user_session';
+      plane: 'session_principal';
     }
   | {
-      plane: 'threshold_session';
+      plane: 'capability_grant';
       scheme?: ThresholdSessionScheme;
     }
   | {
@@ -55,12 +59,12 @@ export type RoutePrincipal =
       credentialType: ApiCredentialType;
     }
   | {
-      kind: 'user_session';
+      kind: 'session_principal';
       claims: SessionClaims;
     }
   | {
-      kind: 'threshold_session';
-      claims: ThresholdEd25519SessionClaims | ThresholdEcdsaSessionClaims;
+      kind: 'capability_grant';
+      claims: RouterAbEd25519WalletSessionClaims | RouterAbEcdsaDerivationWalletSessionClaims;
     }
   | {
       kind: 'public';

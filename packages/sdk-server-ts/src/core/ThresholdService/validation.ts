@@ -47,14 +47,22 @@ import {
 import type {
   EcdsaDerivationClientBootstrapRequest,
   EcdsaDerivationPasskeyBootstrapAuthorization,
-  EcdsaDerivationExportShareRequest,
   EcdsaDerivationPublicIdentity,
-  EcdsaDerivationRoleLocalKeyRecord,
   ThresholdEd25519AuthorityScope,
   WebAuthnAuthenticationCredential,
 } from '../types';
-import type { WalletRegistrationEcdsaClientBootstrap } from '../registrationContracts';
 import { registrationPreparationIdFromString } from '../registrationContracts';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+  type MpcWalletSigningQuotaId,
+  type SeamsSessionId,
+  type WalletSessionAuthorizationId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import { parseEcdsaKeyHandle, type EcdsaKeyHandle } from '../keyMaterialBrands';
 
 export type ThresholdValidationOk = { ok: true };
 export type ThresholdValidationErr = { ok: false; code: string; message: string };
@@ -414,27 +422,6 @@ const ECDSA_DERIVATION_V1_CONTEXT_FORBIDDEN_FIELDS = [
   'key_version',
 ] as const;
 
-const ECDSA_DERIVATION_ROLE_LOCAL_KEY_RECORD_FIELDS = [
-  'version',
-  'ecdsaThresholdKeyId',
-  'keyHandle',
-  'walletId',
-  'evmFamilySigningKeySlotId',
-  'signingRootId',
-  'signingRootVersion',
-  'keyScope',
-  'relayerKeyId',
-  'contextBinding32B64u',
-  'relayerShare32B64u',
-  'relayerPublicKey33B64u',
-  'clientPublicKey33B64u',
-  'groupPublicKey33B64u',
-  'ethereumAddress',
-  'publicTranscriptDigest32B64u',
-  'createdAtMs',
-  'updatedAtMs',
-] as const;
-
 function hasExactFields(raw: Record<string, unknown>, fields: readonly string[]): boolean {
   const allowed = new Set(fields);
   const actual = Object.keys(raw);
@@ -456,22 +443,6 @@ const ECDSA_DERIVATION_BOOTSTRAP_FORBIDDEN_FIELDS = [
   'yRelayer32LeB64u',
   'xRelayer32',
   'xRelayer32B64u',
-  'relayerShare32B64u',
-  'serverExportShare32B64u',
-  'canonicalPrivateKeyHex',
-  'privateKeyHex',
-] as const;
-
-const ECDSA_DERIVATION_EXPORT_REQUEST_FORBIDDEN_FIELDS = [
-  ...ECDSA_DERIVATION_V1_CONTEXT_FORBIDDEN_FIELDS,
-  'rpId',
-  'rp_id',
-  'chainTarget',
-  'yClient32Le',
-  'yClient32LeB64u',
-  'yRelayer32Le',
-  'yRelayer32LeB64u',
-  'clientShare32B64u',
   'relayerShare32B64u',
   'serverExportShare32B64u',
   'canonicalPrivateKeyHex',
@@ -527,7 +498,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
   const contextBinding32B64u = parseB64uFixed(raw.contextBinding32B64u, 32);
   const requestId = toOptionalString(raw.requestId);
   const sessionId = toOptionalString(raw.sessionId);
-  const signingGrantId = toOptionalString(raw.signingGrantId);
   const clientShareRetryCounter = raw.clientShareRetryCounter;
   const ttlMs = raw.ttlMs;
   const remainingUses = raw.remainingUses;
@@ -558,7 +528,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
     !requestId ||
     sessionKind === null ||
     !sessionId ||
-    !signingGrantId ||
     !isNonNegativeInteger(clientShareRetryCounter) ||
     !isPositiveIntegerAtMost(ttlMs, MAX_WALLET_SESSION_TTL_MS) ||
     !isPositiveIntegerAtMost(remainingUses, MAX_WALLET_SESSION_REMAINING_USES) ||
@@ -593,7 +562,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
     contextBinding32B64u,
     requestId,
     sessionId,
-    signingGrantId,
     ttlMs,
     remainingUses,
     participantIds,
@@ -605,197 +573,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
     return { ...base, passkeyBootstrapAuthorization };
   }
   return base;
-}
-
-export function parseWalletRegistrationEcdsaClientBootstrap(
-  raw: unknown,
-): WalletRegistrationEcdsaClientBootstrap | null {
-  if (!isObject(raw)) return null;
-  if (toOptionalString(raw.sessionId)) return null;
-  if (raw.clientRootProof !== undefined || raw.passkeyBootstrapAuthorization !== undefined) {
-    return null;
-  }
-  const thresholdSessionId = toOptionalString(raw.thresholdSessionId);
-  if (!thresholdSessionId) return null;
-  const parsed = parseEcdsaDerivationClientBootstrapRequest({
-    formatVersion: raw.formatVersion,
-    walletId: raw.walletId,
-    evmFamilySigningKeySlotId: raw.evmFamilySigningKeySlotId,
-    ecdsaThresholdKeyId: raw.ecdsaThresholdKeyId,
-    signingRootId: raw.signingRootId,
-    signingRootVersion: raw.signingRootVersion,
-    keyScope: raw.keyScope,
-    relayerKeyId: raw.relayerKeyId,
-    registrationPreparationId: raw.registrationPreparationId,
-    derivationClientSharePublicKey33B64u: raw.derivationClientSharePublicKey33B64u,
-    clientShareRetryCounter: raw.clientShareRetryCounter,
-    contextBinding32B64u: raw.contextBinding32B64u,
-    requestId: raw.requestId,
-    sessionId: thresholdSessionId,
-    signingGrantId: raw.signingGrantId,
-    ttlMs: raw.ttlMs,
-    remainingUses: raw.remainingUses,
-    participantIds: raw.participantIds,
-    runtimePolicyScope: raw.runtimePolicyScope,
-  });
-  if (
-    !parsed ||
-    !parsed.registrationPreparationId ||
-    !parsed.runtimePolicyScope ||
-    parsed.participantIds.length !== 2 ||
-    parsed.participantIds[0] !== 1 ||
-    parsed.participantIds[1] !== 2 ||
-    parsed.clientRootProof ||
-    parsed.passkeyBootstrapAuthorization ||
-    parsed.sessionKind
-  ) {
-    return null;
-  }
-  return {
-    formatVersion: parsed.formatVersion,
-    walletId: parsed.walletId,
-    evmFamilySigningKeySlotId: parsed.evmFamilySigningKeySlotId,
-    ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
-    signingRootId: parsed.signingRootId,
-    signingRootVersion: parsed.signingRootVersion,
-    keyScope: parsed.keyScope,
-    relayerKeyId: parsed.relayerKeyId,
-    registrationPreparationId: parsed.registrationPreparationId,
-    derivationClientSharePublicKey33B64u: parsed.derivationClientSharePublicKey33B64u,
-    clientShareRetryCounter: parsed.clientShareRetryCounter,
-    contextBinding32B64u: parsed.contextBinding32B64u,
-    requestId: parsed.requestId,
-    thresholdSessionId: parsed.sessionId,
-    signingGrantId: parsed.signingGrantId,
-    ttlMs: parsed.ttlMs,
-    remainingUses: parsed.remainingUses,
-    participantIds: [1, 2],
-    runtimePolicyScope: parsed.runtimePolicyScope,
-  };
-}
-
-export function parseEcdsaDerivationExportShareRequest(
-  raw: unknown,
-): EcdsaDerivationExportShareRequest | null {
-  if (!isObject(raw)) return null;
-  if (hasForbiddenFields(raw, ECDSA_DERIVATION_EXPORT_REQUEST_FORBIDDEN_FIELDS)) return null;
-  if (toOptionalString(raw.formatVersion) !== 'ecdsa-derivation-role-local-export') return null;
-  const walletId = toOptionalString(raw.walletId);
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    raw.evmFamilySigningKeySlotId,
-  );
-  const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
-  const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const contextBinding32B64u = parseB64uFixed(raw.contextBinding32B64u, 32);
-  const publicIdentity = parseEcdsaDerivationPublicIdentity(raw.publicIdentity);
-  const exportRequestNonce32B64u = parseB64uFixed(raw.exportRequestNonce32B64u, 32);
-  const confirmationDigest32B64u = parseB64uFixed(raw.confirmationDigest32B64u, 32);
-  const authorizationDigest32B64u = parseB64uFixed(raw.authorizationDigest32B64u, 32);
-  const issuedAtUnixMs = raw.issuedAtUnixMs;
-  const expiresAtUnixMs = raw.expiresAtUnixMs;
-  const clientDeviceId = toOptionalString(raw.clientDeviceId);
-  const clientSessionId = toOptionalString(raw.clientSessionId);
-  if (
-    !walletId ||
-    !evmFamilySigningKeySlotId ||
-    !ecdsaThresholdKeyId ||
-    !relayerKeyId ||
-    !contextBinding32B64u ||
-    !publicIdentity ||
-    !exportRequestNonce32B64u ||
-    !confirmationDigest32B64u ||
-    !authorizationDigest32B64u ||
-    !isNonNegativeInteger(issuedAtUnixMs) ||
-    !isNonNegativeInteger(expiresAtUnixMs) ||
-    expiresAtUnixMs <= issuedAtUnixMs ||
-    !clientDeviceId ||
-    !clientSessionId
-  ) {
-    return null;
-  }
-  return {
-    formatVersion: 'ecdsa-derivation-role-local-export',
-    walletId,
-    evmFamilySigningKeySlotId,
-    ecdsaThresholdKeyId,
-    relayerKeyId,
-    contextBinding32B64u,
-    publicIdentity,
-    exportRequestNonce32B64u,
-    confirmationDigest32B64u,
-    authorizationDigest32B64u,
-    issuedAtUnixMs,
-    expiresAtUnixMs,
-    clientDeviceId,
-    clientSessionId,
-  };
-}
-
-export function parseEcdsaDerivationRoleLocalKeyRecord(
-  raw: unknown,
-): EcdsaDerivationRoleLocalKeyRecord | null {
-  if (!isObject(raw)) return null;
-  if (!hasExactFields(raw, ECDSA_DERIVATION_ROLE_LOCAL_KEY_RECORD_FIELDS)) return null;
-  if (toOptionalString(raw.version) !== 'threshold_ecdsa_derivation_role_local_v2') return null;
-  if (toOptionalString(raw.keyScope) !== 'evm-family') return null;
-  const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
-  const keyHandle = toOptionalString(raw.keyHandle);
-  const walletId = toOptionalString(raw.walletId);
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    raw.evmFamilySigningKeySlotId,
-  );
-  const signingRootId = toOptionalString(raw.signingRootId);
-  const signingRootVersion = toOptionalString(raw.signingRootVersion);
-  const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const contextBinding32B64u = parseB64uFixed(raw.contextBinding32B64u, 32);
-  const relayerShare32B64u = parseB64uFixed(raw.relayerShare32B64u, 32);
-  const relayerPublicKey33B64u = parseSec1CompressedPublicKey33B64u(raw.relayerPublicKey33B64u);
-  const clientPublicKey33B64u = parseSec1CompressedPublicKey33B64u(raw.clientPublicKey33B64u);
-  const groupPublicKey33B64u = parseSec1CompressedPublicKey33B64u(raw.groupPublicKey33B64u);
-  const ethereumAddress = toOptionalString(raw.ethereumAddress);
-  const publicTranscriptDigest32B64u = parseB64uFixed(raw.publicTranscriptDigest32B64u, 32);
-  const createdAtMs = raw.createdAtMs;
-  const updatedAtMs = raw.updatedAtMs;
-  if (
-    !ecdsaThresholdKeyId ||
-    !keyHandle ||
-    !walletId ||
-    !evmFamilySigningKeySlotId ||
-    !signingRootId ||
-    !signingRootVersion ||
-    !relayerKeyId ||
-    !contextBinding32B64u ||
-    !relayerShare32B64u ||
-    !relayerPublicKey33B64u ||
-    !clientPublicKey33B64u ||
-    !groupPublicKey33B64u ||
-    !ethereumAddress ||
-    !publicTranscriptDigest32B64u ||
-    !isValidNumber(createdAtMs) ||
-    !isValidNumber(updatedAtMs)
-  ) {
-    return null;
-  }
-  return {
-    version: 'threshold_ecdsa_derivation_role_local_v2',
-    ecdsaThresholdKeyId,
-    keyHandle,
-    walletId,
-    evmFamilySigningKeySlotId,
-    signingRootId,
-    signingRootVersion,
-    keyScope: 'evm-family',
-    relayerKeyId,
-    contextBinding32B64u,
-    relayerShare32B64u,
-    relayerPublicKey33B64u,
-    clientPublicKey33B64u,
-    groupPublicKey33B64u,
-    ethereumAddress,
-    publicTranscriptDigest32B64u,
-    createdAtMs,
-    updatedAtMs,
-  };
 }
 
 export type ParsedThresholdEd25519Commitments = { hiding: string; binding: string };
@@ -933,7 +710,6 @@ export type ParsedThresholdEcdsaMpcSessionRecord = {
   intentDigestB64u: string;
   signingDigestB64u: string;
   walletId: string;
-  evmFamilySigningKeySlotId: string;
   clientVerifyingShareB64u?: string;
   participantIds: number[];
 } & Partial<ParsedThresholdEcdsaSigningRootMetadata>;
@@ -997,9 +773,6 @@ export function parseThresholdEcdsaMpcSessionRecord(
   const intentDigestB64u = toOptionalString(raw.intentDigestB64u);
   const signingDigestB64u = toOptionalString(raw.signingDigestB64u);
   const walletId = toOptionalString(raw.walletId);
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    raw.evmFamilySigningKeySlotId,
-  );
   const clientVerifyingShareB64u = toOptionalString(raw.clientVerifyingShareB64u);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
@@ -1007,14 +780,7 @@ export function parseThresholdEcdsaMpcSessionRecord(
   const signingRootMetadata = parseOptionalThresholdEcdsaSigningRootMetadataFields(raw);
   if (!signingRootMetadata.ok) return null;
   if (!isValidNumber(expiresAtMs)) return null;
-  if (
-    !relayerKeyId ||
-    !purpose ||
-    !intentDigestB64u ||
-    !signingDigestB64u ||
-    !walletId ||
-    !evmFamilySigningKeySlotId
-  ) {
+  if (!relayerKeyId || !purpose || !intentDigestB64u || !signingDigestB64u || !walletId) {
     return null;
   }
   return {
@@ -1026,7 +792,6 @@ export function parseThresholdEcdsaMpcSessionRecord(
     intentDigestB64u,
     signingDigestB64u,
     walletId,
-    evmFamilySigningKeySlotId,
     ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
     participantIds,
     ...(signingRootMetadata.value ? signingRootMetadata.value : {}),
@@ -1269,7 +1034,7 @@ type ParsedEcdsaWalletSessionRecordCore = {
   expiresAtMs: number;
   relayerKeyId: string;
   walletId: string;
-  evmFamilySigningKeySlotId: string;
+  keyHandle: EcdsaKeyHandle;
   participantIds: number[];
 };
 
@@ -1286,167 +1051,32 @@ export type ParsedEcdsaWalletSessionRecord = ParsedEcdsaWalletSessionRecordCore 
 
 export function parseEcdsaWalletSessionRecord(raw: unknown): ParsedEcdsaWalletSessionRecord | null {
   if (!isObject(raw)) return null;
+  if ('evmFamilySigningKeySlotId' in raw) return null;
   const expiresAtMs = raw.expiresAtMs;
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const walletId = toOptionalString(raw.walletId);
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    raw.evmFamilySigningKeySlotId,
-  );
+  let keyHandle: EcdsaKeyHandle;
+  try {
+    keyHandle = parseEcdsaKeyHandle(raw.keyHandle);
+  } catch {
+    return null;
+  }
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   ];
   const signingRootMetadata = parseOptionalThresholdEcdsaSigningRootMetadataFields(raw);
   if (!signingRootMetadata.ok) return null;
   if (!isValidNumber(expiresAtMs)) return null;
-  if (!relayerKeyId || !walletId || !evmFamilySigningKeySlotId) return null;
+  if (!relayerKeyId || !walletId) return null;
   const core: ParsedEcdsaWalletSessionRecordCore = {
     expiresAtMs,
     relayerKeyId,
     walletId,
-    evmFamilySigningKeySlotId,
+    keyHandle,
     participantIds,
   };
   if (!signingRootMetadata.value) return core;
   return { ...core, ...signingRootMetadata.value };
-}
-
-export type ParsedWalletSigningBudgetEd25519Binding = {
-  thresholdSessionId: string;
-  authorityScope: ThresholdEd25519AuthorityScope;
-  participantIds: number[];
-};
-
-export type ParsedWalletSigningBudgetEcdsaBinding = {
-  thresholdSessionId: string;
-  evmFamilySigningKeySlotId: string;
-  participantIds: number[];
-};
-
-export type ParsedWalletSigningBudgetEcdsaBindings = readonly [
-  ParsedWalletSigningBudgetEcdsaBinding,
-  ...ParsedWalletSigningBudgetEcdsaBinding[],
-];
-
-export type ParsedWalletSigningBudgetBindings =
-  | {
-      kind: 'ed25519_only';
-      ed25519: ParsedWalletSigningBudgetEd25519Binding;
-      ecdsa?: never;
-    }
-  | {
-      kind: 'ecdsa_only';
-      ecdsa: ParsedWalletSigningBudgetEcdsaBindings;
-      ed25519?: never;
-    }
-  | {
-      kind: 'ed25519_and_ecdsa';
-      ed25519: ParsedWalletSigningBudgetEd25519Binding;
-      ecdsa: ParsedWalletSigningBudgetEcdsaBindings;
-    };
-
-export type ParsedWalletSigningBudgetSessionRecord = {
-  kind: 'wallet_signing_budget_session';
-  expiresAtMs: number;
-  walletId: string;
-  bindings: ParsedWalletSigningBudgetBindings;
-};
-
-function parseWalletSigningBudgetEd25519Binding(
-  raw: unknown,
-): ParsedWalletSigningBudgetEd25519Binding | null {
-  if (!isObject(raw)) return null;
-  const thresholdSessionId = toOptionalString(raw.thresholdSessionId);
-  const authorityScope = parseThresholdEd25519AuthorityScope(raw.authorityScope);
-  const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
-  if (!thresholdSessionId || !authorityScope || !participantIds) return null;
-  return { thresholdSessionId, authorityScope, participantIds };
-}
-
-function parseWalletSigningBudgetEcdsaBinding(
-  raw: unknown,
-): ParsedWalletSigningBudgetEcdsaBinding | null {
-  if (!isObject(raw)) return null;
-  const thresholdSessionId = toOptionalString(raw.thresholdSessionId);
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    raw.evmFamilySigningKeySlotId,
-  );
-  const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
-  if (!thresholdSessionId || !evmFamilySigningKeySlotId || !participantIds) return null;
-  return { thresholdSessionId, evmFamilySigningKeySlotId, participantIds };
-}
-
-function walletSigningBudgetParticipantIdsMatch(
-  left: readonly number[],
-  right: readonly number[],
-): boolean {
-  if (left.length !== right.length) return false;
-  for (let index = 0; index < left.length; index += 1) {
-    if (left[index] !== right[index]) return false;
-  }
-  return true;
-}
-
-function parseWalletSigningBudgetEcdsaBindings(
-  raw: unknown,
-): ParsedWalletSigningBudgetEcdsaBindings | null {
-  if (!Array.isArray(raw) || raw.length === 0) return null;
-  const first = parseWalletSigningBudgetEcdsaBinding(raw[0]);
-  if (!first) return null;
-  const additionalBindings: ParsedWalletSigningBudgetEcdsaBinding[] = [];
-  const thresholdSessionIds = new Set<string>([first.thresholdSessionId]);
-  const sharedKeySlotId = first.evmFamilySigningKeySlotId;
-  const sharedParticipantIds = first.participantIds;
-  for (const candidate of raw.slice(1)) {
-    const binding = parseWalletSigningBudgetEcdsaBinding(candidate);
-    if (!binding || thresholdSessionIds.has(binding.thresholdSessionId)) return null;
-    if (
-      binding.evmFamilySigningKeySlotId !== sharedKeySlotId ||
-      !walletSigningBudgetParticipantIdsMatch(binding.participantIds, sharedParticipantIds)
-    ) {
-      return null;
-    }
-    thresholdSessionIds.add(binding.thresholdSessionId);
-    additionalBindings.push(binding);
-  }
-  return [first, ...additionalBindings];
-}
-
-function parseWalletSigningBudgetBindings(raw: unknown): ParsedWalletSigningBudgetBindings | null {
-  if (!isObject(raw)) return null;
-  switch (raw.kind) {
-    case 'ed25519_only': {
-      if (raw.ecdsa !== undefined) return null;
-      const ed25519 = parseWalletSigningBudgetEd25519Binding(raw.ed25519);
-      return ed25519 ? { kind: 'ed25519_only', ed25519 } : null;
-    }
-    case 'ecdsa_only': {
-      if (raw.ed25519 !== undefined) return null;
-      const ecdsa = parseWalletSigningBudgetEcdsaBindings(raw.ecdsa);
-      return ecdsa ? { kind: 'ecdsa_only', ecdsa } : null;
-    }
-    case 'ed25519_and_ecdsa': {
-      const ed25519 = parseWalletSigningBudgetEd25519Binding(raw.ed25519);
-      const ecdsa = parseWalletSigningBudgetEcdsaBindings(raw.ecdsa);
-      return ed25519 && ecdsa ? { kind: 'ed25519_and_ecdsa', ed25519, ecdsa } : null;
-    }
-    default:
-      return null;
-  }
-}
-
-export function parseWalletSigningBudgetSessionRecord(
-  raw: unknown,
-): ParsedWalletSigningBudgetSessionRecord | null {
-  if (!isObject(raw)) return null;
-  if (raw.participantIds !== undefined) return null;
-  const kind = toOptionalString(raw.kind);
-  const expiresAtMs = raw.expiresAtMs;
-  const walletId = toOptionalString(raw.walletId);
-  const bindings = parseWalletSigningBudgetBindings(raw.bindings);
-  if (kind !== 'wallet_signing_budget_session') return null;
-  if (!isValidNumber(expiresAtMs)) return null;
-  if (!walletId || !bindings) return null;
-  return { kind, expiresAtMs, walletId, bindings };
 }
 
 export type ParsedRouterAbEcdsaDerivationPoolFillSessionStage =
@@ -1466,7 +1096,7 @@ export type ParsedRouterAbEcdsaDerivationPoolFillSessionDestination = {
 export type ParsedRouterAbEcdsaDerivationPoolFillSessionRecord = {
   expiresAtMs: number;
   walletId: string;
-  evmFamilySigningKeySlotId: string;
+  keyHandle: EcdsaKeyHandle;
   relayerKeyId: string;
   presignPoolKey: string;
   poolFill: ParsedRouterAbEcdsaDerivationPoolFillSessionDestination;
@@ -1512,11 +1142,15 @@ export function parseRouterAbEcdsaDerivationPoolFillSessionRecord(
   raw: unknown,
 ): ParsedRouterAbEcdsaDerivationPoolFillSessionRecord | null {
   if (!isObject(raw)) return null;
+  if ('evmFamilySigningKeySlotId' in raw) return null;
   const expiresAtMs = raw.expiresAtMs;
   const walletId = toOptionalString(raw.walletId);
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    raw.evmFamilySigningKeySlotId,
-  );
+  let keyHandle: EcdsaKeyHandle;
+  try {
+    keyHandle = parseEcdsaKeyHandle(raw.keyHandle);
+  } catch {
+    return null;
+  }
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const presignPoolKey = toOptionalString(raw.presignPoolKey);
   const ownerInstanceId = toOptionalString(raw.ownerInstanceId);
@@ -1551,7 +1185,6 @@ export function parseRouterAbEcdsaDerivationPoolFillSessionRecord(
   );
   if (
     !walletId ||
-    !evmFamilySigningKeySlotId ||
     !relayerKeyId ||
     !presignPoolKey ||
     !poolFill ||
@@ -1574,7 +1207,7 @@ export function parseRouterAbEcdsaDerivationPoolFillSessionRecord(
   return {
     expiresAtMs,
     walletId,
-    evmFamilySigningKeySlotId,
+    keyHandle,
     relayerKeyId,
     presignPoolKey,
     poolFill,
@@ -1599,7 +1232,9 @@ export type Ed25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionC
   nearEd25519SigningKeyId: string;
   kind: Kind;
   thresholdSessionId: string;
-  signingGrantId: string;
+  authorizationId: WalletSessionAuthorizationId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   relayerKeyId: string;
   authority: WalletAuthAuthority;
   authorityScope: ThresholdEd25519AuthorityScope;
@@ -1617,8 +1252,6 @@ export type RouterAbEd25519WalletSessionClaims = Ed25519WalletSessionClaimsForKi
   runtimePolicyScope: RuntimePolicyScope;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
-
-export type ThresholdEd25519SessionClaims = RouterAbEd25519WalletSessionClaims;
 
 function parseRuntimePolicyScope(raw: unknown): RuntimePolicyScope | null {
   try {
@@ -1644,7 +1277,13 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
   const thresholdSessionId = toOptionalString(
     (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
   );
-  const signingGrantId = toOptionalString((raw as { signingGrantId?: unknown }).signingGrantId);
+  const authorizationId = parseWalletSessionAuthorizationId(
+    (raw as { authorizationId?: unknown }).authorizationId,
+  );
+  const walletSessionId = parseWalletSessionId(
+    (raw as { walletSessionId?: unknown }).walletSessionId,
+  );
+  const quotaId = parseMpcWalletSigningQuotaId((raw as { quotaId?: unknown }).quotaId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const authorityScope = parseThresholdEd25519AuthorityScope(
     (raw as { authorityScope?: unknown }).authorityScope,
@@ -1657,7 +1296,9 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
     !thresholdSessionId ||
-    !signingGrantId ||
+    !authorizationId.ok ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
     !relayerKeyId ||
     !authorityScope ||
     !authority ||
@@ -1681,7 +1322,9 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     nearEd25519SigningKeyId,
     kind: expectedKind,
     thresholdSessionId,
-    signingGrantId,
+    authorizationId: authorizationId.value,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
     relayerKeyId,
     authority,
     authorityScope,
@@ -1753,6 +1396,7 @@ export type AppSessionClaims = {
   sub: string;
   kind: 'app_session_v1';
   appSessionVersion: string;
+  seamsSessionId?: SeamsSessionId;
   walletId?: string;
   walletAuthAuthorityRef?: WalletAuthAuthorityRef;
   googleEmailOtpRegistrationAttemptId?: string;
@@ -1775,6 +1419,12 @@ export function parseAppSessionClaims(raw: unknown): AppSessionClaims | null {
     kind,
     appSessionVersion,
   };
+  const seamsSessionIdRaw = (raw as { seamsSessionId?: unknown }).seamsSessionId;
+  if (seamsSessionIdRaw !== undefined) {
+    const seamsSessionId = parseSeamsSessionId(seamsSessionIdRaw);
+    if (!seamsSessionId.ok) return null;
+    out.seamsSessionId = seamsSessionId.value;
+  }
   const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
   if (walletId) out.walletId = walletId;
   const walletAuthAuthorityRefRaw = (raw as { walletAuthAuthorityRef?: unknown })
@@ -1869,11 +1519,13 @@ export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaim
   walletId: string;
   kind: Kind;
   thresholdSessionId: string;
-  signingGrantId: string;
+  authorizationId: WalletSessionAuthorizationId;
+  authorizationSessionId: SeamsSessionId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   keyScope: 'evm-family';
   keyHandle: string;
   relayerKeyId: string;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
   runtimePolicyScope?: RuntimePolicyScope;
   thresholdExpiresAtMs: number;
   participantIds: number[];
@@ -1888,13 +1540,12 @@ export type RouterAbEcdsaDerivationWalletSessionClaims = EcdsaWalletSessionClaim
   routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
 
-export type ThresholdEcdsaSessionClaims = RouterAbEcdsaDerivationWalletSessionClaims;
-
 function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaimKind>(
   raw: unknown,
   expectedKind: Kind,
 ): EcdsaWalletSessionClaimsForKind<Kind> | null {
   if (!isObject(raw)) return null;
+  if ('evmFamilySigningKeySlotId' in raw) return null;
   const kind = toOptionalString(raw.kind);
   if (kind !== expectedKind) return null;
   const sub = toOptionalString(raw.sub);
@@ -1902,23 +1553,31 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
   const thresholdSessionId = toOptionalString(
     (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
   );
-  const signingGrantId = toOptionalString((raw as { signingGrantId?: unknown }).signingGrantId);
+  const authorizationId = parseWalletSessionAuthorizationId(
+    (raw as { authorizationId?: unknown }).authorizationId,
+  );
+  const authorizationSessionId = parseSeamsSessionId(
+    (raw as { authorizationSessionId?: unknown }).authorizationSessionId,
+  );
+  const walletSessionId = parseWalletSessionId(
+    (raw as { walletSessionId?: unknown }).walletSessionId,
+  );
+  const quotaId = parseMpcWalletSigningQuotaId((raw as { quotaId?: unknown }).quotaId);
   const keyScope = toOptionalString((raw as { keyScope?: unknown }).keyScope);
   const keyHandle = toOptionalString((raw as { keyHandle?: unknown }).keyHandle);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const evmFamilySigningKeySlotId = parseEvmFamilySigningKeySlotIdOrNull(
-    (raw as { evmFamilySigningKeySlotId?: unknown }).evmFamilySigningKeySlotId,
-  );
   if (
     !sub ||
     !walletId ||
     walletId !== sub ||
     !thresholdSessionId ||
-    !signingGrantId ||
+    !authorizationId.ok ||
+    !authorizationSessionId.ok ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
     keyScope !== 'evm-family' ||
     !keyHandle ||
-    !relayerKeyId ||
-    !evmFamilySigningKeySlotId
+    !relayerKeyId
   )
     return null;
   const thresholdExpiresAtMs = (raw as { thresholdExpiresAtMs?: unknown }).thresholdExpiresAtMs;
@@ -1932,11 +1591,13 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     walletId,
     kind: expectedKind,
     thresholdSessionId,
-    signingGrantId,
+    authorizationId: authorizationId.value,
+    authorizationSessionId: authorizationSessionId.value,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
     keyScope,
     keyHandle,
     relayerKeyId,
-    evmFamilySigningKeySlotId,
     thresholdExpiresAtMs,
     participantIds,
   };

@@ -1,30 +1,49 @@
 import { createWarmSessionStatusReader } from './helpers/warmSessionUiConfirm.fixtures';
 import { expect, test } from '@playwright/test';
 import {
-  deriveEcdsaCapabilityState,
   deriveEd25519CapabilityState,
   normalizeWarmSessionReadPorts,
   readWarmSessionClaims,
-  resolveEcdsaAuthMaterial,
   resolveEcdsaSealTransport,
-  resolveEd25519AuthMaterial,
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
 } from '@/core/signingEngine/session/warmCapabilities/readModel';
-
-import {
-  resetWarmSessionFixtureState,
-  seedEd25519WarmSessionRecord,
-  seedEcdsaWarmSessionRecord,
-  createThresholdEcdsaStoreFixture,
-} from './helpers/signingSessionRecord.fixtures';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
+import {
+  activeEvmFamilyWalletSessionAuthorizationFixture,
+  ecdsaCapabilityHydrationLookupFixture,
+} from './helpers/ecdsaCapabilityManifest.fixtures';
+import {
+  buildEmailOtpEcdsaSealedRuntimeRecordFixture,
+  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyEd25519SealedSessionRecordFixture,
+} from './helpers/sealedSigningSession.fixtures';
+import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
+
+/** Manifest plus the sealed record that correlates with it, resolved through
+ * production correlation rather than assembled by hand. */
+function resolvedEcdsaRuntime() {
+  const manifest = ecdsaCapabilityHydrationLookupFixture().active.manifest;
+  const record = buildEmailOtpEcdsaSealedRuntimeRecordFixture({ manifest });
+  const resolution = resolveExactEcdsaSealedRuntime({
+    manifest,
+    walletId: toWalletId(String(manifest.signer.walletId)),
+    chainTarget: record.ecdsaRestore.chainTarget,
+    sealedRecords: [record],
+  });
+  if (resolution.kind !== 'resolved') {
+    throw new Error(`sealed runtime fixture did not resolve: ${resolution.reason}`);
+  }
+  return { manifest, runtime: resolution.runtime };
+}
 
 test.describe('warmSessionReadModel', () => {
   test('maps warm-session status results into canonical claim states', () => {
     expect(
       toWarmSessionClaimFromStatusResult({
-        sessionId: 'warm-session',
+        thresholdSessionId: 'warm-session',
         status: {
           ok: true,
           remainingUses: 3,
@@ -33,14 +52,14 @@ test.describe('warmSessionReadModel', () => {
       }),
     ).toMatchObject({
       state: 'warm',
-      sessionId: 'warm-session',
+      thresholdSessionId: 'warm-session',
       remainingUses: 3,
       expiresAtMs: 1234,
     });
 
     expect(
       toWarmSessionClaimFromStatusResult({
-        sessionId: 'missing-session',
+        thresholdSessionId: 'missing-session',
         status: {
           ok: false,
           code: 'not_found',
@@ -49,12 +68,12 @@ test.describe('warmSessionReadModel', () => {
       }),
     ).toMatchObject({
       state: 'missing',
-      sessionId: 'missing-session',
+      thresholdSessionId: 'missing-session',
     });
 
     expect(
       toWarmSessionClaimFromStatusResult({
-        sessionId: 'unavailable-session',
+        thresholdSessionId: 'unavailable-session',
         status: {
           ok: false,
           code: 'worker_error',
@@ -63,7 +82,7 @@ test.describe('warmSessionReadModel', () => {
       }),
     ).toMatchObject({
       state: 'unavailable',
-      sessionId: 'unavailable-session',
+      thresholdSessionId: 'unavailable-session',
       code: 'worker_error',
     });
   });
@@ -76,13 +95,13 @@ test.describe('warmSessionReadModel', () => {
         singleReads += 1;
         return { ok: false, code: 'worker_error', message: 'should not be called' };
       },
-      getWarmSessionStatuses: async ({ sessionIds }) => {
+      getWarmSessionStatuses: async ({ thresholdSessionIds }) => {
         batchCalls += 1;
         return {
-          results: sessionIds.map((sessionId) => ({
-            sessionId,
+          results: thresholdSessionIds.map((thresholdSessionId) => ({
+            thresholdSessionId,
             result:
-              sessionId === 'warm-session'
+              thresholdSessionId === 'warm-session'
                 ? {
                     ok: true as const,
                     remainingUses: 2,
@@ -99,288 +118,103 @@ test.describe('warmSessionReadModel', () => {
     });
     const claims = await readWarmSessionClaims({
       touchConfirm,
-      sessionIds: ['warm-session', 'missing-session'],
+      thresholdSessionIds: ['warm-session', 'missing-session'],
     });
 
     expect(batchCalls).toBe(1);
     expect(singleReads).toBe(0);
     expect(claims.get('warm-session')).toMatchObject({
       state: 'warm',
-      sessionId: 'warm-session',
+      thresholdSessionId: 'warm-session',
       remainingUses: 2,
     });
     expect(claims.get('missing-session')).toMatchObject({
       state: 'missing',
-      sessionId: 'missing-session',
+      thresholdSessionId: 'missing-session',
     });
   });
 
-  test('resolves curve-owned auth material without cross-curve fallback', () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
-
-    const ed25519Record = seedEd25519WarmSessionRecord({
-      nearAccountId: 'auth.testnet',
-      thresholdSessionId: 'ed-wallet-session',
-      walletSessionJwt: 'jwt:ed-wallet-session',
-    });
-    const ecdsaRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
-      nearAccountId: 'auth.testnet',
-      chain: 'evm',
-    });
-
-    expect(resolveEd25519AuthMaterial(ed25519Record)).toMatchObject({
-      capability: 'ed25519',
-      walletSessionJwt: ed25519Record.walletSessionJwt,
-      walletSessionJwtSource: 'ed25519_record',
-    });
-    expect(resolveEcdsaAuthMaterial(ecdsaRecord)).toMatchObject({
-      capability: 'ecdsa',
-      walletSessionJwt: ecdsaRecord.walletSessionJwt,
-      walletSessionJwtSource: 'ecdsa_record',
-    });
-  });
-
-  test('derives ready state from runtime-validated material before claim state', () => {
-    const ed25519Record = seedEd25519WarmSessionRecord({
-      nearAccountId: 'derive.testnet',
-      thresholdSessionId: 'derive-ed25519-session',
-      walletSessionJwt: 'jwt:derive-ed25519-session',
-    });
-    const unavailableRecord = seedEd25519WarmSessionRecord({
-      nearAccountId: 'derive-unavailable.testnet',
-      thresholdSessionId: 'derive-unavailable-ed25519-session',
-      walletSessionJwt: 'jwt:derive-unavailable-ed25519-session',
-    });
+  test('derives Ed25519 state from exact runtime, independent authorization, and claim', () => {
+    const record = buildPasskeyEd25519SealedSessionRecordFixture();
+    const runtime = parseExactEd25519SealedSessionRuntime(record);
+    if (!runtime) throw new Error('expected exact Ed25519 runtime fixture');
+    const auth = buildPasskeyEd25519AuthorizationProjectionFixture(record);
 
     expect(
       deriveEd25519CapabilityState({
-        record: ed25519Record,
-        auth: resolveEd25519AuthMaterial(ed25519Record),
+        runtime,
+        auth,
         prfClaim: {
           state: 'warm',
-          sessionId: ed25519Record.thresholdSessionId,
+          thresholdSessionId: runtime.thresholdSessionId,
           remainingUses: 4,
-          expiresAtMs: ed25519Record.expiresAtMs,
+          expiresAtMs: runtime.expiresAtMs,
         },
       }),
     ).toBe('ready');
-
     expect(
       deriveEd25519CapabilityState({
-        record: unavailableRecord,
-        auth: resolveEd25519AuthMaterial(unavailableRecord),
+        runtime,
+        auth,
         prfClaim: {
           state: 'unavailable',
-          sessionId: unavailableRecord.thresholdSessionId,
+          thresholdSessionId: runtime.thresholdSessionId,
           code: 'worker_error',
         },
       }),
-    ).toBe('ready');
-  });
-
-  test('derives invalid for Ed25519 records missing Router A/B state', () => {
-    const ed25519Record = seedEd25519WarmSessionRecord({
-      nearAccountId: 'missing-router-ab-ed25519.testnet',
-      thresholdSessionId: 'missing-router-ab-ed25519-session',
-      walletSessionJwt: 'jwt:missing-router-ab-ed25519-session',
-    });
-    delete ed25519Record.routerAbNormalSigning;
-
+    ).toBe('prf_unavailable');
     expect(
       deriveEd25519CapabilityState({
-        record: ed25519Record,
-        auth: resolveEd25519AuthMaterial(ed25519Record),
+        runtime,
+        auth: null,
         prfClaim: {
           state: 'warm',
-          sessionId: ed25519Record.thresholdSessionId,
+          thresholdSessionId: runtime.thresholdSessionId,
           remainingUses: 4,
-          expiresAtMs: ed25519Record.expiresAtMs,
+          expiresAtMs: runtime.expiresAtMs,
         },
       }),
-    ).toBe('invalid');
+    ).toBe('authorization_required');
   });
 
-  test('derives auth_missing for cookie passkey Ed25519 state without Wallet Session auth', () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
-
-    const ed25519Record = seedEd25519WarmSessionRecord({
-      nearAccountId: 'cookie-record-backed.testnet',
-      thresholdSessionId: 'cookie-record-backed-session',
-      thresholdSessionKind: 'cookie',
-    });
-
-    expect(
-      deriveEd25519CapabilityState({
-        record: ed25519Record,
-        auth: resolveEd25519AuthMaterial(ed25519Record),
-        prfClaim: {
-          state: 'missing',
-          sessionId: ed25519Record.thresholdSessionId,
-        },
-      }),
-    ).toBe('auth_missing');
-  });
-
-  test('derives auth_missing for ECDSA cookie or missing Wallet Session JWT records', () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
-
-    const currentRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
-      nearAccountId: 'cookie-ecdsa.testnet',
-      chain: 'evm',
-    });
-    const cookieRecord = {
-      ...currentRecord,
-      thresholdSessionKind: 'cookie' as const,
-      walletSessionJwt: '',
-    };
-    const cookieAuth = resolveEcdsaAuthMaterial(cookieRecord);
-
-    expect(cookieAuth).toMatchObject({
-      capability: 'ecdsa',
-      state: 'unavailable',
-      walletSessionJwtSource: 'none',
-      unavailableReason: 'cookie_session',
-    });
-    expect(
-      deriveEcdsaCapabilityState({
-        record: cookieRecord,
-        auth: cookieAuth,
-        prfClaim: {
-          state: 'warm',
-          sessionId: cookieRecord.thresholdSessionId,
-          remainingUses: 4,
-          expiresAtMs: cookieRecord.expiresAtMs,
-        },
-      }),
-    ).toBe('auth_missing');
-
-    const jwtRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
-      nearAccountId: 'missing-jwt-ecdsa.testnet',
-      chain: 'tempo',
-    });
-    const missingJwtRecord = {
-      ...jwtRecord,
-      walletSessionJwt: '',
-    };
-    const missingJwtAuth = resolveEcdsaAuthMaterial(missingJwtRecord);
-
-    expect(missingJwtAuth).toMatchObject({
-      capability: 'ecdsa',
-      state: 'unavailable',
-      walletSessionJwtSource: 'none',
-      unavailableReason: 'missing_wallet_session_jwt',
-    });
-    expect(
-      deriveEcdsaCapabilityState({
-        record: missingJwtRecord,
-        auth: missingJwtAuth,
-        prfClaim: {
-          state: 'warm',
-          sessionId: missingJwtRecord.thresholdSessionId,
-          remainingUses: 4,
-          expiresAtMs: missingJwtRecord.expiresAtMs,
-        },
-      }),
-    ).toBe('auth_missing');
-  });
-
-  test('does not derive ready for ECDSA records missing Router A/B state', () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
-
-    const ecdsaRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
-      nearAccountId: 'missing-router-ab-ecdsa.testnet',
-      chain: 'evm',
-    });
-    delete ecdsaRecord.routerAbEcdsaDerivationNormalSigning;
-
-    expect(
-      deriveEcdsaCapabilityState({
-        record: ecdsaRecord,
-        auth: resolveEcdsaAuthMaterial(ecdsaRecord),
-        prfClaim: {
-          state: 'warm',
-          sessionId: ecdsaRecord.thresholdSessionId,
-          remainingUses: 4,
-          expiresAtMs: ecdsaRecord.expiresAtMs,
-        },
-      }),
-    ).toBe('material_pending');
-  });
-
-  test('resolves ECDSA seal transport from the stored capability record', () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
-
-    const ecdsaRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
-      nearAccountId: 'seal-read-model.testnet',
-      chain: 'evm',
-      signingSessionSeal: {
-        keyVersion: 'signing-session-seal-kek-2026-02-r1',
-        shamirPrimeB64u: 'AQAB',
-      },
-    });
+  test('resolves ECDSA seal transport from the sealed runtime and active authorization', () => {
+    const { runtime, manifest } = resolvedEcdsaRuntime();
+    const authorization = activeEvmFamilyWalletSessionAuthorizationFixture({ manifest });
 
     expect(
       resolveEcdsaSealTransport({
-        record: ecdsaRecord,
-        auth: resolveEcdsaAuthMaterial(ecdsaRecord),
+        runtime,
+        auth: authorization,
         signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
           'signing-session-seal-kek-2026-02-r1',
         ),
-        shamirPrimeB64u: 'AQAB',
       }),
     ).toMatchObject({
       curve: 'ecdsa',
-      relayerUrl: ecdsaRecord.relayerUrl,
-      walletSessionJwt: ecdsaRecord.walletSessionJwt,
-      walletSessionJwtSource: 'ecdsa',
+      // Transport identity is the runtime's; the bearer proof is the Wallet
+      // Session's. The two halves are read from their own owners, and no grant
+      // is carried: a grant is a distinct identity from a Wallet Session and
+      // the authorization boundary has none to give.
+      walletId: String(runtime.walletId),
+      chainTarget: runtime.chainTarget,
+      relayerUrl: runtime.relayerUrl,
+      walletSessionJwt: String(authorization.projection.walletSessionJwt),
       signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
         'signing-session-seal-kek-2026-02-r1',
       ),
-      shamirPrimeB64u: 'AQAB',
     });
   });
 
-  test('rejects Email OTP ECDSA seal transport without record-owned Wallet Session auth', () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
+  test('withholds Email OTP ECDSA seal transport without an active Wallet Session', () => {
+    const { runtime } = resolvedEcdsaRuntime();
+    expect(runtime.authBinding.kind).toBe('email_otp');
 
-    const ecdsaRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
-      nearAccountId: 'seal-email-otp-missing-auth.testnet',
-      chain: 'tempo',
-      source: 'email_otp',
-      signingSessionSeal: {
-        keyVersion: 'signing-session-seal-kek-2026-02-r1',
-        shamirPrimeB64u: 'AQAB',
-      },
-    });
-    const missingJwtRecord = {
-      ...ecdsaRecord,
-      walletSessionJwt: '',
-    };
-
+    // An Email-OTP-bound runtime has no standing authorization of its own, so
+    // with no live Wallet Session there is nothing to seal against.
     expect(
       resolveEcdsaSealTransport({
-        record: missingJwtRecord,
-        auth: resolveEcdsaAuthMaterial(missingJwtRecord),
-        signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
-          'signing-session-seal-kek-2026-02-r1',
-        ),
-        shamirPrimeB64u: 'AQAB',
-      }),
-    ).toBeNull();
-    expect(
-      resolveEcdsaSealTransport({
-        record: missingJwtRecord,
+        runtime,
         auth: null,
-        signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
-          'signing-session-seal-kek-2026-02-r1',
-        ),
-        shamirPrimeB64u: 'AQAB',
       }),
     ).toBeNull();
   });

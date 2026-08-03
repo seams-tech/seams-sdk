@@ -13,6 +13,7 @@ use crate::protocol::error::{
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
 use crate::protocol::identity::{ServerIdentityV1, SignerIdentityV1};
+use crate::protocol::lifecycle::MpcMaterialActivationRefV1;
 use crate::protocol::normal_signing::ActiveSigningWorkerStateV1;
 use crate::protocol::output::{
     decode_recipient_proof_bundle_ciphertext_v1,
@@ -1128,10 +1129,12 @@ impl LocalSigningWorkerServiceV1 {
     pub fn accept_recipient_proof_bundle_activation(
         &self,
         activation_context: &SigningWorkerActivationContextV1,
+        material_activation: MpcMaterialActivationRefV1,
         activation: LocalSigningWorkerRecipientProofBundleActivationV1,
         activated_at_ms: u64,
     ) -> RouterAbProtocolResult<LocalSigningWorkerActivationReceiptV1> {
         activation.validate_for_activation_context(activation_context)?;
+        material_activation.validate()?;
         let deriver_a = decode_local_recipient_proof_bundle_wire_v1(
             "deriver_a_signing_worker_bundle",
             &activation.deriver_a_signing_worker_bundle,
@@ -1197,9 +1200,17 @@ impl LocalSigningWorkerServiceV1 {
             activation_digest,
         );
         let lifecycle = activation_context.lifecycle();
+        if material_activation.material_owner != lifecycle.account_id
+            || material_activation.signing_worker != self.server.server_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "explicit material activation does not match the local activation context",
+            ));
+        }
         let active_signing_worker_state = ActiveSigningWorkerStateV1::new(
             lifecycle.account_id.clone(),
-            lifecycle.session_id.clone(),
+            material_activation,
             activation_context
                 .transcript_metadata
                 .account_public_key
@@ -1452,6 +1463,7 @@ impl LocalServiceStackV1 {
     pub fn run_deterministic_ceremony(
         &self,
         lifecycle_id: impl Into<String>,
+        material_activation: MpcMaterialActivationRefV1,
         deriver_a_request: WireMessageV1,
         deriver_b_request: WireMessageV1,
     ) -> RouterAbProtocolResult<LocalInProcessCeremonyResultV1> {
@@ -1513,6 +1525,7 @@ impl LocalServiceStackV1 {
             .signing_worker
             .accept_recipient_proof_bundle_activation(
                 &signing_worker_activation_context,
+                material_activation,
                 signing_worker_activation.clone(),
                 LOCAL_DEV_SIGNING_WORKER_ACTIVATED_AT_MS_V1,
             )?;
@@ -1529,6 +1542,7 @@ impl LocalServiceStackV1 {
     pub fn run_deterministic_http_ceremony(
         &self,
         lifecycle_id: impl Into<String>,
+        material_activation: MpcMaterialActivationRefV1,
         deriver_a_request: LocalHttpRequestV1,
         deriver_b_request: LocalHttpRequestV1,
     ) -> RouterAbProtocolResult<LocalHttpCeremonyResultV1> {
@@ -1536,6 +1550,7 @@ impl LocalServiceStackV1 {
         require_http_path(&deriver_b_request, LocalHttpPathV1::RouterToSignerB)?;
         let result = self.run_deterministic_ceremony(
             lifecycle_id,
+            material_activation,
             deriver_a_request.envelope.message,
             deriver_b_request.envelope.message,
         )?;
@@ -1565,6 +1580,7 @@ impl LocalServiceStackV1 {
         request.validate_at(now_unix_ms)?;
         self.run_deterministic_http_ceremony(
             request.lifecycle_id,
+            request.material_activation,
             request.deriver_a_request,
             request.deriver_b_request,
         )
@@ -1581,6 +1597,7 @@ impl LocalServiceStackV1 {
         replay_cache.check_and_record(&request)?;
         self.run_deterministic_http_ceremony(
             request.lifecycle_id,
+            request.material_activation,
             request.deriver_a_request,
             request.deriver_b_request,
         )
@@ -1735,6 +1752,8 @@ pub struct LocalClientRouterRequestV1 {
     pub request_nonce: String,
     /// Expiry timestamp in Unix milliseconds.
     pub expires_at_ms: u64,
+    /// Exact opaque MPC material activation assigned by registration or reactivation.
+    pub material_activation: MpcMaterialActivationRefV1,
     /// Local HTTP request carrying the Signer A envelope.
     pub deriver_a_request: LocalHttpRequestV1,
     /// Local HTTP request carrying the Signer B envelope.
@@ -1747,6 +1766,7 @@ impl LocalClientRouterRequestV1 {
         lifecycle_id: impl Into<String>,
         request_nonce: impl Into<String>,
         expires_at_ms: u64,
+        material_activation: MpcMaterialActivationRefV1,
         deriver_a_request: LocalHttpRequestV1,
         deriver_b_request: LocalHttpRequestV1,
     ) -> RouterAbProtocolResult<Self> {
@@ -1754,6 +1774,7 @@ impl LocalClientRouterRequestV1 {
             lifecycle_id: lifecycle_id.into(),
             request_nonce: request_nonce.into(),
             expires_at_ms,
+            material_activation,
             deriver_a_request,
             deriver_b_request,
         };
@@ -1765,6 +1786,7 @@ impl LocalClientRouterRequestV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty("lifecycle_id", &self.lifecycle_id)?;
         require_non_empty("request_nonce", &self.request_nonce)?;
+        self.material_activation.validate()?;
         if self.expires_at_ms == 0 {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidTimeRange,

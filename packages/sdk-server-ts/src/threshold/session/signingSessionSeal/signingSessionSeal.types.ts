@@ -2,6 +2,7 @@ import type { SigningSessionSealProtocol } from '@shared/utils/signingSessionSea
 import type { NormalizedLogger } from '../../../core/logger';
 import type { ThresholdEd25519AuthorityScope } from '../../../core/types';
 import type { SessionParseResult } from '../../../core/sessionValidation';
+import type { EcdsaKeyHandle } from '../../../core/keyMaterialBrands';
 
 export type SigningSessionSealRouteHeaders = Record<string, string | string[] | undefined>;
 
@@ -123,7 +124,7 @@ type SigningSessionSealThresholdSessionRecordBase = {
 export type SigningSessionSealEcdsaThresholdSessionRecord =
   SigningSessionSealThresholdSessionRecordBase & {
     curve: 'ecdsa';
-    evmFamilySigningKeySlotId: string;
+    keyHandle: EcdsaKeyHandle;
     authorityScope?: never;
   };
 
@@ -131,7 +132,7 @@ export type SigningSessionSealEd25519ThresholdSessionRecord =
   SigningSessionSealThresholdSessionRecordBase & {
     curve: 'ed25519';
     authorityScope: ThresholdEd25519AuthorityScope;
-    evmFamilySigningKeySlotId?: never;
+    keyHandle?: never;
   };
 
 export type SigningSessionSealThresholdSessionRecord =

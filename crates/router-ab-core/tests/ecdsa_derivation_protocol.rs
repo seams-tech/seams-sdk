@@ -9,15 +9,17 @@ use router_ab_core::{
     parse_router_ab_ecdsa_derivation_normal_signing_scope_v1_json,
     parse_router_ab_ecdsa_derivation_recovery_request_v1_json,
     parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,
-    router_ab_ecdsa_derivation_active_state_session_id_v1,
+    router_ab_ecdsa_derivation_material_activation_id_v1,
     router_ab_ecdsa_rerandomization_client_commitment_v1, EncryptedPayloadV1, ExpensiveWorkKindV1,
-    LifecycleScopeV1, PublicDigest32, Role, RoleEncryptedEnvelopeV1, RootShareEpoch,
+    LifecycleScopeV1, MpcMaterialActivationRefV1, NormalSigningAuthorizationV1, PublicDigest32,
+    Role, RoleEncryptedEnvelopeV1, RootShareEpoch,
     RouterAbEcdsaDerivationActivationRefreshRequestV1,
     RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
     RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
+    RouterAbEcdsaDerivationOperationDigestsV1,
     RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
     RouterAbEcdsaDerivationOutputKindV1, RouterAbEcdsaDerivationPublicIdentityV1,
     RouterAbEcdsaDerivationRecoveryRequestV1,
@@ -43,7 +45,6 @@ fn digest_b64u(bytes: &[u8]) -> String {
     b64u(digest(bytes).as_bytes())
 }
 
-const ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID: &str = "wallet-key-1";
 const ROUTER_AB_ECDSA_DERIVATION_WALLET_ID: &str = "wallet-1";
 const ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID: &str = "ecdsa-threshold-key-1";
 const ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID: &str = "signing-root-1";
@@ -74,13 +75,13 @@ fn lifecycle_at_epoch(
     activation_epoch: &str,
 ) -> LifecycleScopeV1 {
     let root_share_epoch = RootShareEpoch::new(activation_epoch).expect("root epoch");
-    let session_id = router_ab_ecdsa_derivation_active_state_session_id_v1(
+    let session_id = router_ab_ecdsa_derivation_material_activation_id_v1(
         ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
         ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
         ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
         root_share_epoch.as_str(),
     )
-    .expect("Router A/B ECDSA derivation active state session id");
+    .expect("Router A/B ECDSA derivation material activation id");
     LifecycleScopeV1::new(
         lifecycle_id,
         work_kind,
@@ -132,6 +133,18 @@ fn public_identity() -> RouterAbEcdsaDerivationPublicIdentityV1 {
     .expect("public identity")
 }
 
+fn export_material_activation() -> MpcMaterialActivationRefV1 {
+    MpcMaterialActivationRefV1::new(
+        "material-activation-1",
+        "capability-1",
+        ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
+        "key-binding-1",
+        "lifecycle-binding-1",
+        "signing-worker-1",
+    )
+    .expect("material activation")
+}
+
 fn registration_request() -> RouterAbEcdsaDerivationRegistrationBootstrapRequestV1 {
     registration_request_for(RouterAbEcdsaDerivationRegistrationPurposeV1::WalletRegistration)
 }
@@ -167,6 +180,9 @@ fn export_request() -> RouterAbEcdsaDerivationExplicitExportRequestV1 {
         router_id: "router-1".to_owned(),
         client_id: "client-device-1".to_owned(),
         client_ephemeral_public_key: "client-ephemeral-public-key-1".to_owned(),
+        authorization: NormalSigningAuthorizationV1::reusable_wallet_session("wallet-session-1")
+            .expect("export authorization"),
+        material_activation: export_material_activation(),
         export_authorization_digest_b64u: digest_b64u(b"export authorization"),
         export_nonce: "export-nonce-1".to_owned(),
         expires_at_ms: 1_900_000_000_000,
@@ -209,6 +225,15 @@ fn activation_refresh_request() -> RouterAbEcdsaDerivationActivationRefreshReque
         refresh_nonce: "refresh-nonce-1".to_owned(),
         previous_activation_epoch: "root-epoch-1".to_owned(),
         next_activation_epoch: "root-epoch-2".to_owned(),
+        material_activation: MpcMaterialActivationRefV1::new(
+            "activation-refresh-2",
+            "capability-1",
+            ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
+            "key-binding-1",
+            "lifecycle-binding-1",
+            "signing-worker-1",
+        )
+        .expect("refresh material activation"),
         expires_at_ms: 1_900_000_000_000,
         deriver_a_refresh_envelope: envelope(Role::SignerA, b"refresh-a"),
         deriver_b_refresh_envelope: envelope(Role::SignerB, b"refresh-b"),
@@ -216,8 +241,22 @@ fn activation_refresh_request() -> RouterAbEcdsaDerivationActivationRefreshReque
 }
 
 fn normal_signing_scope() -> RouterAbEcdsaDerivationNormalSigningScopeV1 {
+    let material_activation = MpcMaterialActivationRefV1::new(
+        router_ab_ecdsa_derivation_material_activation_id_v1(
+            ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
+            ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
+            ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
+            "root-epoch-1",
+        )
+        .expect("material activation id"),
+        "capability-1",
+        ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
+        "key-binding-1",
+        "lifecycle-binding-1",
+        "signing-worker-1",
+    )
+    .expect("material activation");
     RouterAbEcdsaDerivationNormalSigningScopeV1::new(
-        ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
         ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
         ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
         ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
@@ -226,14 +265,36 @@ fn normal_signing_scope() -> RouterAbEcdsaDerivationNormalSigningScopeV1 {
         public_identity(),
         server_identity(),
         "root-epoch-1",
+        material_activation,
     )
     .expect("normal signing scope")
+}
+
+fn normal_signing_authorization() -> NormalSigningAuthorizationV1 {
+    NormalSigningAuthorizationV1::reusable_wallet_session("wallet-session-1")
+        .expect("normal signing authorization")
+}
+
+fn operation_digests() -> RouterAbEcdsaDerivationOperationDigestsV1 {
+    RouterAbEcdsaDerivationOperationDigestsV1 {
+        lane_digest_b64u: b64u(&[0x11; 32]),
+        intent_digest_b64u: b64u(&[0x66; 32]),
+        display_digest_b64u: b64u(&[0x22; 32]),
+    }
+}
+
+fn material_activation() -> MpcMaterialActivationRefV1 {
+    normal_signing_scope().material_activation
 }
 
 fn normal_signing_request() -> RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
         normal_signing_scope(),
         "ecdsa-sign-request-1",
+        "operation-1",
+        operation_digests(),
+        normal_signing_authorization(),
+        material_activation(),
         "server-presignature-1",
         1_900_000_000_000,
         b64u(&[0x66; 32]),
@@ -248,6 +309,10 @@ fn normal_signing_finalize_request() -> RouterAbEcdsaDerivationEvmDigestSigningF
     RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1::new(
         normal_signing_scope(),
         "ecdsa-sign-request-1",
+        "operation-1",
+        operation_digests(),
+        normal_signing_authorization(),
+        material_activation(),
         1_900_000_000_000,
         b64u(&[0x66; 32]),
         "server-presignature-1",
@@ -593,7 +658,7 @@ fn router_ab_ecdsa_derivation_deriver_plaintext_rejects_wrong_signing_worker_ide
         ExpensiveWorkKindV1::RegistrationPrepare,
         RootShareEpoch::new("root-epoch-1").expect("root epoch"),
         ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
-        router_ab_ecdsa_derivation_active_state_session_id_v1(
+        router_ab_ecdsa_derivation_material_activation_id_v1(
             ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
             ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
@@ -732,6 +797,58 @@ fn router_ab_ecdsa_derivation_request_digests_bind_replay_nonces() {
 }
 
 #[test]
+fn router_ab_ecdsa_derivation_export_digest_binds_complete_material_activation_ref() {
+    let request = export_request();
+    let mut changed = request.clone();
+    changed.material_activation.capability = "capability-2".to_owned();
+    assert_ne!(
+        changed.request_header_digest().expect("changed header digest"),
+        request.request_header_digest().expect("header digest")
+    );
+    let mut changed = request.clone();
+    changed.material_activation.activation_id = "material-activation-2".to_owned();
+    assert_ne!(
+        changed.request_header_digest().expect("changed header digest"),
+        request.request_header_digest().expect("header digest")
+    );
+    let mut changed = request.clone();
+    changed.material_activation.key_binding = "key-binding-2".to_owned();
+    assert_ne!(
+        changed.request_header_digest().expect("changed header digest"),
+        request.request_header_digest().expect("header digest")
+    );
+    let mut changed = request.clone();
+    changed.material_activation.lifecycle_binding = "lifecycle-binding-2".to_owned();
+    assert_ne!(
+        changed.request_header_digest().expect("changed header digest"),
+        request.request_header_digest().expect("header digest")
+    );
+    let mut changed = request.clone();
+    changed.material_activation.material_owner = "wallet-2".to_owned();
+    changed.lifecycle.account_id = "wallet-2".to_owned();
+    assert_ne!(
+        changed.request_header_digest().expect("changed header digest"),
+        request.request_header_digest().expect("header digest")
+    );
+    let mut changed = request.clone();
+    changed.material_activation.signing_worker = "signing-worker-2".to_owned();
+    changed.lifecycle.selected_server_id = "signing-worker-2".to_owned();
+    changed.signer_set.selected_server.server_id = "signing-worker-2".to_owned();
+    assert_ne!(
+        changed.request_header_digest().expect("changed header digest"),
+        request.request_header_digest().expect("header digest")
+    );
+}
+
+#[test]
+fn router_ab_ecdsa_derivation_export_rejects_material_activation_scope_mismatch() {
+    let mut request = export_request();
+    request.material_activation.material_owner = "wallet-2".to_owned();
+    let err = request.validate().expect_err("owner mismatch rejects");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
+}
+
+#[test]
 fn router_ab_ecdsa_derivation_export_request_parses_and_binds_public_identity() {
     let request = export_request();
     let json = serde_json::to_vec(&request).expect("serialize");
@@ -773,6 +890,24 @@ fn router_ab_ecdsa_derivation_export_request_rejects_bad_authorization_digest() 
 
     let err = request.validate().expect_err("bad digest rejects");
     assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+}
+
+#[test]
+fn router_ab_ecdsa_derivation_export_request_rejects_activation_id_only_wire() {
+    let mut value = serde_json::to_value(export_request()).expect("serialize export request");
+    let object = value.as_object_mut().expect("export request object");
+    object.remove("material_activation");
+    object.insert(
+        "material_activation_id".to_owned(),
+        serde_json::json!("material-activation-1"),
+    );
+    let error = parse_router_ab_ecdsa_derivation_explicit_export_request_v1_json(
+        serde_json::to_string(&value)
+            .expect("legacy export request JSON")
+            .as_bytes(),
+    )
+    .expect_err("activation-id-only export wire must reject");
+    assert_eq!(error.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
 }
 
 #[test]

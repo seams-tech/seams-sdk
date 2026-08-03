@@ -22,24 +22,34 @@ import type { SigningSessionCoordinator } from '../session/SigningSessionCoordin
 import type { SigningOperationId, SigningSessionPlan } from '../session/operationState/types';
 import type { NearTransactionSigningLane } from '../session/operationState/lanes';
 import type { SelectedEd25519Lane } from '../session/identity/laneIdentity';
-import type {
-  BudgetAdmittedOperation,
-  PreparedTransactionOperation,
-} from '../session/operationState/transactionState';
+import type { AuthorizationRequiredEd25519LaneCandidate } from '../session/identity/selectLane';
+import type { PreparedTransactionOperation } from '../session/operationState/transactionState';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type { RouterAbEd25519SigningWalletSession } from '../session/routerAbSigningWalletSession';
 import type { RouterAbEd25519YaoActiveClientV1 } from '../threshold/ed25519/yaoClient';
 import type { EmailOtpTransactionSigningChallenge } from '../session/emailOtp/publicTypes';
+import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type {
+  MpcMaterialActivationRef,
+  ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import type { MpcWalletSigningQuotaId, WalletSessionId } from '@shared/authorization/capabilityKinds';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { NearEd25519YaoSigningPreparation } from '../session/material/nearEd25519YaoSigningPreparation';
+import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
+import type {
+  Ed25519OperationStepUpProof,
+} from '../threshold/ed25519/walletSession';
 export type NearResolvedEd25519WalletSessionAuth = {
   kind: 'wallet_session_jwt';
   walletSessionJwt: string;
 };
 
-export type NearPasskeyReconnectPlan = {
-  sessionId: string;
-  signingGrantId: string;
-  sessionPolicyDigest32: string;
+export type NearPasskeyOperationStepUpPlan = {
+  thresholdSessionId: ThresholdEd25519SessionId;
+  authority: PasskeyWalletAuthAuthority;
 };
 
 export type NearEd25519WarmSessionStepUpAuthorization = WarmSessionStepUpAuthorization<
@@ -49,7 +59,7 @@ export type NearEd25519WarmSessionStepUpAuthorization = WarmSessionStepUpAuthori
 export type NearEd25519PasskeyStepUpAuthorization = PasskeyStepUpAuthorization<
   Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>,
   {
-    plannedPasskeyReconnect: NearPasskeyReconnectPlan;
+    plannedPasskeyOperationStepUp: NearPasskeyOperationStepUpPlan;
   }
 >;
 
@@ -64,8 +74,9 @@ export type NearEd25519StepUpAuthorization =
 
 export type NearResolvedEd25519SigningSessionState = {
   walletSessionAuth: NearResolvedEd25519WalletSessionAuth;
-  thresholdSessionId: string;
-  signingGrantId: string;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
+  thresholdSessionId: ThresholdEd25519SessionId;
   signingLane: NearTransactionSigningLane;
   remainingUses: number;
   signingRootId: string;
@@ -77,81 +88,100 @@ export type NearResolvedEd25519SigningSessionState = {
   sessionKind?: never;
 };
 
-export type NearEd25519YaoSigningCapability = {
-  activeClient: RouterAbEd25519YaoActiveClientV1;
-  walletSessionState: NearResolvedEd25519SigningSessionState;
+export type NearAuthorizedEd25519SigningSessionState = NearResolvedEd25519SigningSessionState & {
+  walletSessionAuthorization: ActiveWalletSessionAuthorizationProjection;
 };
 
-export type NearEd25519YaoCapabilitySource =
+export type NearEd25519YaoOperationMaterialFacts = {
+  thresholdSessionId: ThresholdEd25519SessionId;
+  signer: NearTransactionSigningLane['identity']['signer'];
+  signingRootId: string;
+  signingRootVersion: string;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  relayerUrl: string;
+};
+
+export type NearEd25519YaoOperationMaterial = {
+  activeClient: RouterAbEd25519YaoActiveClientV1;
+  facts: NearEd25519YaoOperationMaterialFacts;
+};
+
+export type NearEd25519OperationStepUpAuthorization = {
+  kind: 'verified_step_up';
+  authorization: { kind: 'operation_step_up' };
+  expiresAtMs: number;
+};
+
+export type NearPasskeyEd25519OperationStepUpCapabilityPreparation = {
+  materialActivation: MpcMaterialActivationRef;
+  facts: NearEd25519YaoOperationMaterialFacts;
+  participantIds: readonly number[];
+  rehydrate(credential: WebAuthnAuthenticationCredential): Promise<NearEd25519YaoOperationMaterial>;
+};
+
+export type NearEmailOtpEd25519OperationStepUpCapabilityPreparation =
   | {
-      kind: 'active_capability';
-      capability: NearEd25519YaoSigningCapability;
-      rehydrate?: never;
+      kind: 'live';
+      materialActivation: MpcMaterialActivationRef;
+      material: NearEd25519YaoOperationMaterial;
+      authorizeAndRehydrate?: never;
     }
   | {
-      kind: 'capability_rehydration';
-      rehydrate: () => Promise<NearEd25519YaoSigningCapability>;
-      capability?: never;
-    }
-  | {
-      kind: 'email_otp_reconnect';
-      capability?: never;
-      rehydrate?: never;
+      kind: 'sealed';
+      materialActivation: MpcMaterialActivationRef;
+      facts: NearEd25519YaoOperationMaterialFacts;
+      material?: never;
+      authorizeAndRehydrate(args: {
+        normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
+        displayDigest: string;
+        proof: Extract<Ed25519OperationStepUpProof, { kind: 'email_otp' }>;
+      }): Promise<{
+        material: NearEd25519YaoOperationMaterial;
+        issuedAuthorization: NearEd25519OperationStepUpAuthorization;
+      }>;
     };
 
-export type NearPasskeyEd25519ReconnectHook = {
-  prepare: (args: { requiredSignatureUses: number }) => Promise<{
-    sessionId: string;
-    signingGrantId: string;
-    sessionPolicyDigest32: string;
-  }>;
-  reconnect: (args: {
-    authorization: NearEd25519PasskeyStepUpAuthorization;
-    requiredSignatureUses: number;
-  }) => Promise<{
-    sessionId: string;
-    activeClient: RouterAbEd25519YaoActiveClientV1;
-    sessionState: NearResolvedEd25519SigningSessionState;
+export type NearEd25519YaoMaterialExecutor = {
+  resolve: (
+    preparation: NearEd25519YaoSigningPreparation,
+  ) => Promise<NearEd25519YaoOperationMaterial>;
+  resolveWalletSessionState: () => Promise<NearResolvedEd25519SigningSessionState>;
+  preparePasskeyOperationStepUp: (
+    preparation: NearEd25519YaoSigningPreparation,
+  ) => Promise<NearPasskeyEd25519OperationStepUpCapabilityPreparation>;
+  prepareEmailOtpOperationStepUp: (
+    preparation: NearEd25519YaoSigningPreparation,
+  ) => Promise<NearEmailOtpEd25519OperationStepUpCapabilityPreparation>;
+};
+
+export type NearEd25519YaoPreparedMaterialBoundary = {
+  preparation: NearEd25519YaoSigningPreparation;
+  executor: NearEd25519YaoMaterialExecutor;
+};
+
+export type NearPasskeyEd25519OperationStepUpHook = {
+  prepare: () => Promise<{
+    thresholdSessionId: ThresholdEd25519SessionId;
+    authority: PasskeyWalletAuthAuthority;
   }>;
 };
 
-export type NearEmailOtpEd25519ReconnectHook = {
+export type NearEmailOtpEd25519StepUpHook = {
   prepare: () => Promise<EmailOtpTransactionSigningChallenge>;
   resend?: () => Promise<EmailOtpTransactionSigningChallenge>;
-  reconnect: (args: {
-    authorization: NearEd25519EmailOtpStepUpAuthorization;
-    requiredSignatureUses: number;
-  }) => Promise<{
-    sessionId: string;
-    activeClient: RouterAbEd25519YaoActiveClientV1;
-    sessionState: NearResolvedEd25519SigningSessionState;
-  }>;
 };
-
-export type NearSigningSessionFinalizationHook = {
-  recordSuccess: () => Promise<void>;
-  recordZeroSpend: (error: unknown) => Promise<void> | void;
-};
-
-export type NearPreparedSigningSessionFinalizer = (args: {
-  status: 'success' | 'zero_spend';
-  hooks: NearSigningSessionFinalizationHook;
-  result?: unknown;
-  error?: unknown;
-}) => Promise<void>;
 
 export type NearEd25519TransactionAdmissionBoundary = {
-  sessionId: string;
-  walletSessionJwt: string;
+  thresholdSessionId: ThresholdEd25519SessionId;
   signingSessionPlan: SigningSessionPlan;
   signingAuthPlan: SigningAuthPlan;
   signingLane: NearTransactionSigningLane;
-  initialBudgetAdmittedOperation: BudgetAdmittedOperation<SelectedEd25519Lane> | null;
 };
 
 export type NearEd25519TransactionSigningBoundary = NearEd25519TransactionAdmissionBoundary;
 
-export type NearTransactionWithActionsPayload = {
+type NearTransactionWithActionsPayloadBase = {
   ctx: NearSigningRuntimeDeps;
   commandSubject: NearCommandSubject;
   nearAccount: NearAccountRef;
@@ -164,14 +194,44 @@ export type NearTransactionWithActionsPayload = {
   signerSlot?: number;
   signingOperationId?: SigningOperationId;
   signingSessionCoordinator: SigningSessionCoordinator;
-  transactionOperation: PreparedTransactionOperation<SelectedEd25519Lane>;
-  ed25519SigningBoundary: NearEd25519TransactionSigningBoundary;
-  finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
-  passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
-  emailOtpEd25519Reconnect?: NearEmailOtpEd25519ReconnectHook;
+  passkeyEd25519OperationStepUp?: NearPasskeyEd25519OperationStepUpHook;
+  emailOtpEd25519StepUp?: NearEmailOtpEd25519StepUpHook;
   sensitivePolicy?: SensitiveOperationPolicy;
-  yaoCapabilitySource: NearEd25519YaoCapabilitySource;
+  yaoSigningPreparation: NearEd25519YaoSigningPreparation;
+  yaoMaterialExecutor: NearEd25519YaoMaterialExecutor;
 };
+
+export type NearTransactionWithActionsPayload =
+  | (NearTransactionWithActionsPayloadBase & {
+      selection: {
+        kind: 'authorized';
+        selectedLane: SelectedEd25519Lane;
+        candidate?: never;
+      };
+      transactionOperation: PreparedTransactionOperation<SelectedEd25519Lane>;
+      ed25519SigningBoundary: NearEd25519TransactionSigningBoundary;
+    })
+  | (NearTransactionWithActionsPayloadBase & {
+      selection: {
+        kind: 'authorization_required';
+        selectedLane?: never;
+        candidate: AuthorizationRequiredEd25519LaneCandidate;
+      };
+      transactionOperation?: never;
+      ed25519SigningBoundary?: never;
+    });
+
+export type NearAdHocEd25519Selection =
+  | {
+      kind: 'authorized';
+      selectedLane: SelectedEd25519Lane;
+      candidate?: never;
+    }
+  | {
+      kind: 'authorization_required';
+      selectedLane?: never;
+      candidate: AuthorizationRequiredEd25519LaneCandidate;
+    };
 
 export type NearDelegateActionPayload = {
   ctx: NearSigningRuntimeDeps;
@@ -187,9 +247,11 @@ export type NearDelegateActionPayload = {
   operationId: SigningOperationId;
   signerSlot?: number;
   forceFreshAuth: boolean;
-  passkeyEd25519Reconnect: NearPasskeyEd25519ReconnectHook | null;
-  emailOtpEd25519Reconnect: NearEmailOtpEd25519ReconnectHook | null;
-  yaoCapabilitySource: NearEd25519YaoCapabilitySource;
+  selection: NearAdHocEd25519Selection;
+  passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
+  emailOtpEd25519StepUp: NearEmailOtpEd25519StepUpHook | null;
+  yaoSigningPreparation: NearEd25519YaoSigningPreparation;
+  yaoMaterialExecutor: NearEd25519YaoMaterialExecutor;
 };
 
 export type NearNep413Payload = {
@@ -198,9 +260,11 @@ export type NearNep413Payload = {
   nearAccount: NearAccountRef;
   signingSessionCoordinator: SigningSessionCoordinator;
   forceFreshAuth: boolean;
-  passkeyEd25519Reconnect: NearPasskeyEd25519ReconnectHook | null;
-  emailOtpEd25519Reconnect: NearEmailOtpEd25519ReconnectHook | null;
-  yaoCapabilitySource: NearEd25519YaoCapabilitySource;
+  selection: NearAdHocEd25519Selection;
+  passkeyEd25519OperationStepUp: NearPasskeyEd25519OperationStepUpHook | null;
+  emailOtpEd25519StepUp: NearEmailOtpEd25519StepUpHook | null;
+  yaoSigningPreparation: NearEd25519YaoSigningPreparation;
+  yaoMaterialExecutor: NearEd25519YaoMaterialExecutor;
   payload: {
     message: string;
     recipient: string;

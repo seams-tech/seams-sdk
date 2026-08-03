@@ -2,6 +2,7 @@ import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
 } from '../signingEngine/interfaces/ecdsaChainTarget';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import { toRpId } from '../signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { deriveEvmFamilySigningKeySlotId, parseWalletKeyId } from '@shared/signing-lanes';
 import {
@@ -42,6 +43,8 @@ import type {
   RequiredPrfAuthenticatorSuccess,
   SignerCryptoResult,
 } from './types';
+
+declare const materialActivation: MpcMaterialActivationRef;
 import type {
   DerivationClientSharePublicKey33B64u,
   EcdsaDerivationRelayerPublicKey33B64u,
@@ -83,7 +86,7 @@ const genericWalletKeyId = genericWalletKeyIdResult.value;
 const emailOtpWorkerIssuedSessionHandleFromBuilder = buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
   walletId,
-  evmFamilySigningKeySlotId,
+  keyHandle: 'ecdsa-key-handle',
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
@@ -302,7 +305,7 @@ const directEmailOtpWorkerSessionHandle = {
   kind: 'email_otp_worker_session_handle_v1',
   sessionId: 'otp-session',
   walletId,
-  evmFamilySigningKeySlotId,
+  keyHandle: 'ecdsa-key-handle',
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
@@ -321,7 +324,7 @@ broadSpreadEmailOtpWorkerSessionHandle satisfies EmailOtpWorkerIssuedSessionHand
 buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
   walletId,
-  evmFamilySigningKeySlotId,
+  keyHandle: 'ecdsa-key-handle',
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
@@ -331,7 +334,7 @@ buildEmailOtpWorkerIssuedSessionHandle({
 buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
   walletId,
-  evmFamilySigningKeySlotId,
+  keyHandle: 'ecdsa-key-handle',
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
@@ -340,11 +343,33 @@ buildEmailOtpWorkerIssuedSessionHandle({
 buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
   walletId,
-  // @ts-expect-error ECDSA worker-session handles require EVM-family signing key slots.
+  // @ts-expect-error Runtime ECDSA worker-session handles forbid provisioning slots.
   evmFamilySigningKeySlotId: genericWalletKeyId,
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
+  chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
+});
+
+// @ts-expect-error Generic ECDSA registration worker-session handles are retired.
+buildEmailOtpWorkerIssuedSessionHandle({
+  sessionId: 'otp-registration-session',
+  walletId,
+  authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
+  action: 'threshold_ecdsa_bootstrap',
+  operation: 'registration',
+  chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
+});
+
+buildEmailOtpWorkerIssuedSessionHandle({
+  sessionId: 'otp-export-session',
+  walletId,
+  // @ts-expect-error Runtime ECDSA handles cannot carry provisioning slots.
+  evmFamilySigningKeySlotId,
+  keyHandle: 'ecdsa-key-handle',
+  authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
+  action: 'threshold_ecdsa_bootstrap',
+  operation: 'export',
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
 });
 
@@ -388,7 +413,7 @@ const passkeyDurableRoleLocalState = {
     rpId: toRpId('wallet.example'),
   }),
   publicFacts,
-  durableMaterialRef: 'router-ab-ecdsa-registration:ceremony',
+  materialActivation,
 } satisfies EcdsaRoleLocalSessionRecordState;
 void passkeyDurableRoleLocalState;
 
@@ -453,7 +478,6 @@ broadSpreadMixedReadyRecord satisfies EcdsaRoleLocalReadyRecord;
 
 const validEcdsaLoadInput = {
   walletId: toWalletId('wallet_alice'),
-  evmFamilySigningKeySlotId,
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
   keyHandle: 'key-handle',
   ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId('ederivation-key'),

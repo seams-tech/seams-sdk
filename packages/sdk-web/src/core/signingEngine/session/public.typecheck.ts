@@ -1,12 +1,4 @@
-import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
-import type {
-  ThresholdEcdsaChainTarget,
-  WalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  ListThresholdEcdsaSessionRecordsForWalletTargetInput,
-  UpsertThresholdEcdsaSessionFromBootstrapInput,
-} from './public';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ConnectEd25519SessionArgs } from './passkey/public';
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type {
@@ -15,7 +7,9 @@ import type {
   Ed25519AuthorityScope,
 } from '../threshold/sessionPolicy';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
-import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  buildPasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import {
   buildEmailOtpAuthContextForWalletAuthMethod,
   type EmailOtpAuthUse,
@@ -23,8 +17,6 @@ import {
 import type { ExactEd25519SigningLaneIdentity } from './identity/exactSigningLaneIdentity';
 
 declare const walletId: WalletId;
-declare const chainTarget: ThresholdEcdsaChainTarget;
-declare const bootstrap: ThresholdEcdsaSessionBootstrapResult;
 declare const routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 declare const rpId: WebAuthnRpId;
 declare const exactEd25519LaneIdentity: ExactEd25519SigningLaneIdentity;
@@ -57,77 +49,6 @@ const invalidConsumedSingleUseEmailOtpAuthUse = {
   reason: 'sign',
 } satisfies EmailOtpAuthUse;
 void invalidConsumedSingleUseEmailOtpAuthUse;
-
-const upsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaSessionFromBootstrapInput =
-  {
-    purpose: 'transaction_signing',
-    walletId,
-    chainTarget,
-    bootstrap,
-    source: 'registration',
-  };
-void upsertThresholdEcdsaSessionFromBootstrapArgs;
-
-const emailOtpUpsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaSessionFromBootstrapInput =
-  {
-    purpose: 'transaction_signing',
-    walletId,
-    chainTarget,
-    bootstrap,
-    source: 'email_otp',
-    emailOtpAuthContext,
-  };
-void emailOtpUpsertThresholdEcdsaSessionFromBootstrapArgs;
-
-// @ts-expect-error Email OTP ECDSA upsert requires the auth context.
-const invalidEmailOtpUpsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaSessionFromBootstrapInput =
-  {
-    purpose: 'transaction_signing',
-    walletId,
-    chainTarget,
-    bootstrap,
-    source: 'email_otp',
-  };
-void invalidEmailOtpUpsertThresholdEcdsaSessionFromBootstrapArgs;
-
-const invalidUpsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaSessionFromBootstrapInput =
-  {
-    purpose: 'transaction_signing',
-    // @ts-expect-error wallet-domain ECDSA bootstrap upsert requires WalletId.
-    walletId: 'alice.testnet',
-    chainTarget,
-    bootstrap,
-    source: 'registration',
-  };
-void invalidUpsertThresholdEcdsaSessionFromBootstrapArgs;
-
-const explicitExportCannotBecomeTransactionLane: UpsertThresholdEcdsaSessionFromBootstrapInput = {
-  // @ts-expect-error explicit export sessions cannot cross the transaction persistence boundary.
-  purpose: 'explicit_key_export',
-  walletId,
-  chainTarget,
-  bootstrap,
-  source: 'login',
-};
-void explicitExportCannotBecomeTransactionLane;
-
-const listThresholdEcdsaSessionRecordsForWalletTargetArgs: ListThresholdEcdsaSessionRecordsForWalletTargetInput =
-  {
-    walletId,
-    chainTarget,
-    source: 'registration',
-  };
-void listThresholdEcdsaSessionRecordsForWalletTargetArgs;
-
-const invalidListThresholdEcdsaSessionRecordsForWalletTargetArgs: ListThresholdEcdsaSessionRecordsForWalletTargetInput =
-  {
-    walletId,
-    chainTarget,
-    source: 'registration',
-    // @ts-expect-error public wallet-target session listing no longer accepts signing-root filters.
-    signingRootId: 'project:dev',
-  };
-void invalidListThresholdEcdsaSessionRecordsForWalletTargetArgs;
 
 const connectEmailOtpEd25519SessionArgs: ConnectEd25519SessionArgs = {
   kind: 'exact_ed25519_provisioning',

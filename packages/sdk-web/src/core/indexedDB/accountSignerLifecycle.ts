@@ -147,7 +147,7 @@ function normalizeOptionalPositiveInteger(value: unknown, label: string): number
   return normalized;
 }
 
-function normalizeRequiredPositiveInteger(value: unknown, label: string): number {
+function normalizeSessionStatusRequiredPositiveInteger(value: unknown, label: string): number {
   const normalized = normalizeOptionalPositiveInteger(value, label);
   if (normalized == null) {
     throw new SignerLifecycleError({
@@ -256,7 +256,7 @@ export function planAccountSignerActivation(
         expectedFingerprint: input.activationPolicy.materialFingerprint,
       });
     }
-    const signerSlot = normalizeRequiredPositiveInteger(existingSigner.signerSlot, 'signerSlot');
+    const signerSlot = normalizeSessionStatusRequiredPositiveInteger(existingSigner.signerSlot, 'signerSlot');
     return {
       signerSlot,
     };
@@ -278,7 +278,7 @@ export function planAccountSignerActivation(
   }
 
   if (input.activationPolicy.mode === 'fail_if_occupied') {
-    const signerSlot = normalizeRequiredPositiveInteger(
+    const signerSlot = normalizeSessionStatusRequiredPositiveInteger(
       input.activationPolicy.signerSlot,
       'signerSlot',
     );
@@ -303,7 +303,7 @@ export function planAccountSignerActivation(
     input.activationPolicy.mode === 'replace_profile_chain_kind'
   ) {
     return {
-      signerSlot: normalizeRequiredPositiveInteger(
+      signerSlot: normalizeSessionStatusRequiredPositiveInteger(
         input.activationPolicy.signerSlot,
         'signerSlot',
       ),

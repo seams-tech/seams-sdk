@@ -169,7 +169,11 @@ test.describe('signing wallet flow events', () => {
           accountId: 'alice.testnet',
           authMethod: 'warm_session',
           interaction: { kind: 'none', overlay: 'none' },
-          data: { sessionId: 'warm-session-1', remainingUses: 3, expiresAtMs: 123 },
+          data: {
+            thresholdSessionId: 'warm-session-1',
+            remainingUses: 3,
+            expiresAtMs: 123,
+          },
         });
         const readinessEvent = events.createSigningFlowEvent({
           phase: events.SigningEventPhase.STEP_04_ACCOUNT_READINESS_SUCCEEDED,

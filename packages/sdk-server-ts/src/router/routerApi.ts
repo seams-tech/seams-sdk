@@ -1,6 +1,5 @@
 import type { RouterLogger } from './logger';
 import type {
-  ThresholdEd25519BootstrapSession,
   ThresholdEd25519AuthorityScope,
 } from '../core/types';
 import type { RouterApiRorOptions } from './ror/provider';
@@ -187,7 +186,6 @@ export type RouterApiEmailRecoveryResult =
         relayerKeyId: string;
         authorityScope: ThresholdEd25519AuthorityScope;
         participantIds?: number[];
-        session?: ThresholdEd25519BootstrapSession;
       };
     }
   | { ok: false; code: string; message: string };
@@ -253,6 +251,7 @@ export interface RouterApiEmailOtpExportPolicyAdapter {
 }
 
 export interface RouterAbNormalSigningRouterProxy {
+  readonly internalServiceAuthSecret: string;
   fetch(request: Request): Promise<Response>;
 }
 

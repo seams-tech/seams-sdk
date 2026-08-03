@@ -25,13 +25,15 @@ import type { EvmAddress, EvmSigningRequest, Hex } from '../chains/evm/evmSignin
 import type { TempoSigningRequest } from '../chains/tempo/tempoSigning.types';
 import type { EmailOtpAuthSubjectId } from '../session/identity/emailOtpEcdsaDerivationIdentity';
 import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
-import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type {
   EmailOtpChallengeId,
   SigningOperationId,
   ThresholdSessionId,
-  SigningGrantId,
 } from '../session/operationState/types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 export type NonEmptyReadonlyArray<T> = readonly [T, ...T[]];
 export type PositiveInt = number & { readonly __brand: 'PositiveInt' };
@@ -117,7 +119,8 @@ export type ReadyEd25519Lane = {
   walletId: WalletId;
   rpId: RpId;
   thresholdSessionId: ThresholdSessionId;
-  signingGrantId: SigningGrantId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   relayerKeyId: Ed25519RelayerKeyId;
   remainingUses: WarmSessionRemainingUses;
   expiresAtMs: UnixTimeMs;
@@ -128,13 +131,14 @@ export type ReadyEd25519Lane = {
 export type EcdsaUseCaseReadyLane = {
   kind: 'ecdsa_ready_lane_v1';
   walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+  evmFamilySigningKeySlotId?: never;
   rpId: RpId;
   chainTarget: ThresholdEcdsaChainTarget;
   readyRecord: EcdsaRoleLocalReadyRecord;
   relayerKeyId: EcdsaRelayerKeyId;
   thresholdSessionId: ThresholdSessionId;
-  signingGrantId: SigningGrantId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   remainingUses: WarmSessionRemainingUses;
   expiresAtMs: UnixTimeMs;
 };
@@ -206,7 +210,8 @@ export type WalletSignerWrite =
 export type WarmSessionBudgetSpend = {
   kind: 'warm_session_budget_spend_v1';
   walletId: WalletId;
-  signingGrantId: SigningGrantId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   thresholdSessionId: ThresholdSessionId;
   uses: PositiveInt;
   remainingUses: WarmSessionRemainingUses;
@@ -457,7 +462,7 @@ export type SigningSessionActivationEmailOtpEd25519Auth = {
 export type SigningSessionActivationEmailOtpEcdsaAuth = {
   kind: 'email_otp';
   walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+  evmFamilySigningKeySlotId?: never;
   authSubjectId: EmailOtpAuthSubjectId;
   workerHandle: Extract<EmailOtpWorkerIssuedSessionHandle, { action: 'threshold_ecdsa_bootstrap' }>;
   rpId?: never;
@@ -476,14 +481,12 @@ export type SigningSessionActivationMaterial =
   | {
       kind: 'ed25519_session';
       thresholdSessionId: ThresholdSessionId;
-      signingGrantId: SigningGrantId;
       relayerKeyId: Ed25519RelayerKeyId;
       record?: never;
     }
   | {
       kind: 'ecdsa_session';
       thresholdSessionId: ThresholdSessionId;
-      signingGrantId: SigningGrantId;
       record: EcdsaRoleLocalReadyRecord;
       relayerKeyId?: never;
     };
@@ -517,63 +520,6 @@ export type SigningSessionSealWriteInput =
       expiresAtMs: UnixTimeMs;
       remainingUses: WarmSessionRemainingUses;
     };
-
-export type ActivateSigningSessionInput = {
-  walletId: WalletId;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  rpId: RpId;
-  auth: SigningSessionActivationAuth;
-  material: NonEmptyReadonlyArray<SigningSessionActivationMaterial>;
-};
-
-export type ActivateSigningSessionSuccess = {
-  ok: true;
-  sealedWrites: readonly SigningSessionSealWriteInput[];
-  activatedMaterials: readonly SigningSessionActivationMaterial[];
-  code?: never;
-  message?: never;
-  retryable?: never;
-};
-
-export type ActivateSigningSessionFailureCode =
-  | 'auth_branch_mismatch'
-  | 'material_branch_mismatch'
-  | 'session_expired'
-  | 'seal_failed'
-  | 'storage_failed'
-  | 'relayer_failed'
-  | 'invalid_state';
-
-export type ActivateSigningSessionResult =
-  | ActivateSigningSessionSuccess
-  | UseCaseFailure<ActivateSigningSessionFailureCode>;
-
-export type ActivateSigningSessionLifecycleState =
-  | ({ kind: 'received_input' } & ActivateSigningSessionInput)
-  | {
-      kind: 'validating_material';
-      walletId: WalletId;
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-      rpId: RpId;
-      auth: SigningSessionActivationAuth;
-      material: NonEmptyReadonlyArray<SigningSessionActivationMaterial>;
-    }
-  | {
-      kind: 'writing_seals';
-      walletId: WalletId;
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-      rpId: RpId;
-      sealWrites: NonEmptyReadonlyArray<SigningSessionSealWriteInput>;
-    }
-  | {
-      kind: 'activated';
-      result: ActivateSigningSessionSuccess;
-      failed?: never;
-    }
-  | ({
-      kind: 'failed';
-      result?: never;
-    } & UseCaseFailure<ActivateSigningSessionFailureCode>);
 
 export type SignEvmFamilyAuthPolicy =
   | { kind: 'warm_session_only'; auth?: never }
@@ -926,7 +872,6 @@ export type RestorePersistedSessionsLifecycleState =
 export type EcdsaProvisioningStateKind = EcdsaProvisioningState['kind'];
 export type RegisterWalletLifecycleStateKind = RegisterWalletLifecycleState['kind'];
 export type UnlockWalletLifecycleStateKind = UnlockWalletLifecycleState['kind'];
-export type ActivateSigningSessionLifecycleStateKind = ActivateSigningSessionLifecycleState['kind'];
 export type SignEvmFamilyLifecycleStateKind = SignEvmFamilyLifecycleState['kind'];
 export type SignNearLifecycleStateKind = SignNearLifecycleState['kind'];
 export type RestorePersistedSessionsLifecycleStateKind =
@@ -962,14 +907,6 @@ export const unlockWalletAllowedTransitions = {
   ready: [],
   failed: [],
 } as const satisfies LifecycleTransitionTable<UnlockWalletLifecycleStateKind>;
-
-export const activateSigningSessionAllowedTransitions = {
-  received_input: ['validating_material', 'failed'],
-  validating_material: ['writing_seals', 'failed'],
-  writing_seals: ['activated', 'failed'],
-  activated: [],
-  failed: [],
-} as const satisfies LifecycleTransitionTable<ActivateSigningSessionLifecycleStateKind>;
 
 export const signEvmFamilyAllowedTransitions = {
   received_input: ['resolving_ready_lane', 'failed'],
@@ -1009,9 +946,6 @@ export type RegisterWalletTransition = LifecycleTransitionFromTable<
 export type UnlockWalletTransition = LifecycleTransitionFromTable<
   typeof unlockWalletAllowedTransitions
 >;
-export type ActivateSigningSessionTransition = LifecycleTransitionFromTable<
-  typeof activateSigningSessionAllowedTransitions
->;
 export type SignEvmFamilyTransition = LifecycleTransitionFromTable<
   typeof signEvmFamilyAllowedTransitions
 >;
@@ -1032,10 +966,6 @@ export const unlockWalletTerminalStates = [
   'ready',
   'failed',
 ] as const satisfies readonly UnlockWalletLifecycleStateKind[];
-export const activateSigningSessionTerminalStates = [
-  'activated',
-  'failed',
-] as const satisfies readonly ActivateSigningSessionLifecycleStateKind[];
 export const signEvmFamilyTerminalStates = [
   'signed',
   'failed',
@@ -1071,12 +1001,6 @@ export const unlockWalletRetryableFailureCodes = [
   'relayer_failed',
   'storage_cleanup_failed',
 ] as const satisfies readonly UnlockWalletFailureCode[];
-
-export const activateSigningSessionRetryableFailureCodes = [
-  'seal_failed',
-  'storage_failed',
-  'relayer_failed',
-] as const satisfies readonly ActivateSigningSessionFailureCode[];
 
 export const signEvmFamilyRetryableFailureCodes = [
   'relayer_failed',

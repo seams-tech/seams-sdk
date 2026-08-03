@@ -4,14 +4,10 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
-  EmailOtpEcdsaChallengeAuthority,
   EmailOtpEcdsaSigningSessionDeps,
   EmailOtpEcdsaStepUpAuthority,
 } from './emailOtpSigningSession';
-import type {
-  EmailOtpEcdsaCommittedLane,
-  EmailOtpEcdsaPublicReauthLane,
-} from './ecdsaSelection';
+import type { EcdsaCommittedLane } from './ecdsaSelection';
 import type { EmailOtpPublicDeps } from './emailOtpPublic';
 import { requestEmailOtpSigningSessionChallenge } from './emailOtpPublic';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
@@ -22,28 +18,12 @@ declare const walletId: WalletId;
 declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const ecdsaAuthLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
-declare const committedLane: EmailOtpEcdsaCommittedLane;
-declare const publicReauthLane: EmailOtpEcdsaPublicReauthLane;
-
-const publicStepUpAuthority: EmailOtpEcdsaStepUpAuthority = {
-  kind: 'public_reauth_anchor',
-  reauthLane: publicReauthLane,
-};
-void publicStepUpAuthority;
-
-// @ts-expect-error public reauth challenge rejects an exhausted Wallet Session auth lane.
-const invalidPublicChallengeWithOldAuthLane: EmailOtpEcdsaChallengeAuthority = {
-  kind: 'public_reauth_anchor',
-  reauthLane: publicReauthLane,
-  authLane: ecdsaAuthLane,
-};
-void invalidPublicChallengeWithOldAuthLane;
-
-// @ts-expect-error live authority and public reauth authority are mutually exclusive.
+declare const committedLane: EcdsaCommittedLane;
 const invalidLiveStepUpWithPublicLane: EmailOtpEcdsaStepUpAuthority = {
   kind: 'live_session',
   committedLane,
-  reauthLane: publicReauthLane,
+  // @ts-expect-error live authority cannot carry a second reauth lane.
+  reauthLane: committedLane,
 };
 void invalidLiveStepUpWithPublicLane;
 

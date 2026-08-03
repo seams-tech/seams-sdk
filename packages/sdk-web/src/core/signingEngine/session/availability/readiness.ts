@@ -1,35 +1,30 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
-import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
 import type {
   VolatileWarmMaterialPort,
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
 import {
-  clearStoredThresholdEd25519SessionRecordForLaneKey,
-  listStoredThresholdEd25519SessionLaneRecordsForWallet,
-  listStoredThresholdEcdsaSessionRecordsForWallet,
-  serializeThresholdEd25519SessionLaneKey,
-  thresholdEd25519SessionRecordKeyFromRecord,
-  toExactEcdsaSigningLaneIdentity,
-  type ThresholdEd25519SessionRecordKey,
-  type ThresholdEcdsaSessionRecord,
-  type ThresholdEd25519SessionRecord,
-} from '../persistence/records';
-import type {
+  listExactSealedSessionsForWallet,
   SigningSessionSealedRecordFilter,
-  deleteExactSealedSession,
-  updateExactSealedSessionPolicy,
+  type updateExactSealedSessionPolicy,
 } from '../persistence/sealedSessionStore';
-import {
-  readWarmSessionCapabilityRecordsForWallet,
-  readWarmSessionEd25519RecordByThresholdSessionId,
-} from '../warmCapabilities/store';
-import { classifyRouterAbEcdsaDerivationPersistedSigningRecord } from '../routerAbSigningWalletSession';
 import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabilities/volatileWarmMaterialCommands';
-import { parseVolatileWarmSessionId } from '../warmCapabilities/volatileWarmSessionId';
-import type { WarmSessionPrfClaim } from '../warmCapabilities/types';
-import { emailOtpAuthContextRetention } from '../identity/laneIdentity';
+import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import type {
+  WarmSessionExhaustedPrfClaim,
+  WarmSessionExpiredPrfClaim,
+  WarmSessionMissingPrfClaim,
+  WarmSessionPrfClaim,
+  WarmSessionUnavailablePrfClaim,
+  WarmSessionWarmPrfClaim,
+} from '../warmCapabilities/types';
+import {
+  ed25519WalletSessionAuthorizationForRuntime,
+  parseExactEd25519SealedSessionRuntime,
+  type ExactEd25519SealedSessionRuntime,
+} from '../warmCapabilities/ed25519SealedSessionRuntime';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   normalizeWarmSessionReadPorts,
   readWarmSessionClaim,
@@ -38,108 +33,74 @@ import {
   toWarmSessionClaimFromStatusResult,
   type WarmSessionReadPortsInput,
 } from '../warmCapabilities/readModel';
-import { budgetUnknownSigningSessionStatus } from '../budget/budgetProjection';
+import { unknownSigningSessionStatus } from '../lifecycle/walletSessionStatus';
 import {
-  committedUsesForBudgetAdmission,
-  ecdsaWalletBudgetOwner,
-  ed25519WalletBudgetOwner,
-  isEcdsaLaneBudgetStatusCheck,
-  thresholdSessionIdsForBudgetStatusCheck,
-  walletBudgetOwnerId,
-  walletBudgetOwnerKey,
-  type SigningSessionBudgetStatusAuth,
-  type SigningSessionBudgetStatusCheck,
-  type WalletBudgetOwner,
-} from '../budget/budget';
-import type { SigningSessionReadiness } from '../planning/planner';
+  ed25519WalletSessionStatusOwner,
+  normalizeSessionStatusRequired,
+  walletSessionStatusOwnerKey,
+  walletSessionStatusIdentityKey,
+  type SigningSessionStatusCheck,
+  type WalletSessionStatusOwner,
+} from '../lifecycle/walletSessionStatus';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import type {
+  Ed25519SigningSessionReadiness,
+} from '../planning/planner';
+import type { ThresholdEd25519SessionId } from '../operationState/types';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
-  thresholdEcdsaChainTargetKey,
   toWalletId,
-  type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  exactSigningLaneIdentityKey,
-  type ExactEcdsaSigningLaneIdentity,
-} from '../identity/exactSigningLaneIdentity';
 
 export type SigningSessionLane = {
-  curve: 'ed25519' | 'ecdsa';
-  chain?: 'near' | 'tempo' | 'evm';
-  chainTarget?: ThresholdEcdsaChainTarget;
+  curve: 'ed25519';
+  chain: 'near';
   source: SignerAuthMethod;
   thresholdSessionId: string;
-  signingGrantId: string;
-  backingMaterialSessionId: string;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
+  materialActivation: MpcMaterialActivationRef;
 };
 
 export type DiscoveredSigningSessionLane = SigningSessionLane & {
-  record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord;
+  runtime: ExactEd25519SealedSessionRuntime;
   backing: 'touch_confirm' | 'email_otp_worker' | 'record_policy';
 };
 
-export type SigningGrantStatusOverride = {
-  owner: WalletBudgetOwner;
-  signingGrantId: string;
+export type WalletSessionStatusOverride = {
+  owner: WalletSessionStatusOwner;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   status: SigningSessionStatus;
   thresholdSessionIds: Set<string>;
   updatedAtMs: number;
 };
 
-export type SigningGrantReadinessDeps = {
+export type WalletSessionReadinessDeps = {
+  listExactSealedSessionsForWallet?: typeof listExactSealedSessionsForWallet;
   touchConfirm?: Partial<
     Pick<
       VolatileWarmMaterialPort,
       | 'getWarmSessionStatus'
       | 'getWarmSessionStatuses'
-      | 'consumeWarmSessionUses'
       | 'clearVolatileWarmSessionMaterial'
     >
   >;
-  getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  consumeEmailOtpWarmSessionUses?: (args: {
-    sessionId: string;
-    uses?: number;
-  }) => Promise<WarmSessionStatusResult>;
-  clearEmailOtpWarmSessionMaterial?: (sessionId: string) => Promise<void>;
-  clearThresholdEcdsaSessionRecordForExactIdentity?: (
-    identity: ExactEcdsaSigningLaneIdentity,
-  ) => void;
-  updateExactSealedSessionPolicy?: typeof updateExactSealedSessionPolicy;
-  deleteExactSealedSession?: typeof deleteExactSealedSession;
-  markThresholdEd25519EmailOtpSessionConsumedForWallet?: (args: {
-    walletId: WalletId;
-    thresholdSessionId?: string;
-    uses?: number;
-  }) => void;
+  getEmailOtpWarmSessionStatus?: (thresholdSessionId: string) => Promise<WarmSessionStatusResult>;
+  clearEmailOtpWarmSessionMaterial?: (thresholdSessionId: string) => Promise<void>;
 };
 
-export type SigningGrantClaimReaderDeps = {
+export type WalletSessionClaimReaderDeps = {
   touchConfirm?: WarmSessionReadPortsInput;
-  getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  getEmailOtpWarmSessionStatus?: (thresholdSessionId: string) => Promise<WarmSessionStatusResult>;
 };
 
-export type ConsumeResultEntry = {
-  lane: DiscoveredSigningSessionLane;
-  result: WarmSessionStatusResult;
-  laneIsExplicitTarget: boolean;
-};
-
-export type SigningGrantConsumeUseInput = {
-  owner: WalletBudgetOwner;
-  signingGrantId: string;
-  uses: number;
-  budgetStatusCheck: SigningSessionBudgetStatusCheck;
-  alreadyConsumedBackingMaterialSessionIds?: string[];
-  alreadyConsumedThresholdSessionIds?: string[];
-};
-
-export type SigningGrantStatusReader = (
-  args: SigningSessionBudgetStatusCheck,
-) => Promise<SigningSessionStatus | null>;
-
-export type SigningSessionReadinessWithBudget = {
-  readiness: SigningSessionReadiness;
+export type SigningSessionReadinessWithStatus = {
+  readiness: Ed25519SigningSessionReadiness;
   expiresAtMs: number;
   remainingUses: number;
 };
@@ -149,65 +110,65 @@ export function normalizeNonEmpty(value: unknown): string {
 }
 
 export function warmClaimFromRecordPolicy(args: {
-  sessionId: string;
+  thresholdSessionId: string;
   remainingUses: number;
   expiresAtMs: number;
 }): WarmSessionPrfClaim {
-  const sessionId = normalizeNonEmpty(args.sessionId);
+  const thresholdSessionId = normalizeNonEmpty(args.thresholdSessionId);
   const remainingUses = Math.max(0, Math.floor(Number(args.remainingUses) || 0));
   const expiresAtMs = Math.floor(Number(args.expiresAtMs) || 0);
-  if (expiresAtMs <= Date.now()) return { state: 'expired', sessionId };
-  if (remainingUses <= 0) return { state: 'exhausted', sessionId };
+  if (expiresAtMs <= Date.now()) return { state: 'expired', thresholdSessionId };
+  if (remainingUses <= 0) return { state: 'exhausted', thresholdSessionId };
   return {
     state: 'warm',
-    sessionId,
+    thresholdSessionId,
     remainingUses,
     expiresAtMs,
   };
 }
 
-export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
-  status: SigningSessionReadiness['status'];
-  thresholdSessionId: SigningSessionReadiness['thresholdSessionId'];
+export function applyWalletSessionStatusToSigningSessionReadiness(args: {
+  status: Ed25519SigningSessionReadiness['status'];
+  thresholdSessionId: ThresholdEd25519SessionId;
   expiresAtMs: number;
   remainingUses: number;
-  walletBudgetStatus?: SigningSessionStatus | null;
+  walletSessionStatus?: SigningSessionStatus | null;
   usesNeeded?: number;
   nowMs?: number;
   missingWhenExpiresAtMissing?: boolean;
-}): SigningSessionReadinessWithBudget {
+}): SigningSessionReadinessWithStatus {
   let status = args.status;
   let expiresAtMs = Math.floor(Number(args.expiresAtMs) || 0);
   let remainingUses = Math.max(0, Math.floor(Number(args.remainingUses) || 0));
-  const walletBudgetStatus = args.walletBudgetStatus;
-  if (walletBudgetStatus) {
-    if (walletBudgetStatus.status === 'not_found') {
+  const walletSessionStatus = args.walletSessionStatus;
+  if (walletSessionStatus) {
+    if (walletSessionStatus.status === 'not_found') {
       status = 'missing_session';
       remainingUses = 0;
-    } else if (walletBudgetStatus.status === 'budget_unknown' && status === 'ready') {
-      status = 'budget_unknown';
+    } else if (walletSessionStatus.status === 'status_unknown' && status === 'ready') {
+      status = 'status_unknown';
       remainingUses = 0;
-    } else if (walletBudgetStatus.status === 'unavailable') {
+    } else if (walletSessionStatus.status === 'unavailable') {
       status = 'status_unavailable';
       remainingUses = 0;
-    } else if (walletBudgetStatus.status === 'expired') {
+    } else if (walletSessionStatus.status === 'expired') {
       status = 'expired';
       remainingUses = 0;
-    } else if (walletBudgetStatus.status === 'exhausted') {
+    } else if (walletSessionStatus.status === 'exhausted') {
       status = 'exhausted';
       remainingUses = 0;
-    } else if (walletBudgetStatus.status === 'active') {
-      const budgetRemainingUses = Math.max(
+    } else if (walletSessionStatus.status === 'active') {
+      const sessionRemainingUses = Math.max(
         0,
-        Math.floor(Number(walletBudgetStatus.remainingUses) || 0),
+        Math.floor(Number(walletSessionStatus.remainingUses) || 0),
       );
-      const budgetExpiresAtMs = Math.floor(Number(walletBudgetStatus.expiresAtMs) || 0);
+      const sessionExpiresAtMs = Math.floor(Number(walletSessionStatus.expiresAtMs) || 0);
       // Local/session-store counters are availability hints after restore. The
-      // wallet budget service is the trusted source for terminal budget state.
+      // session status service is the trusted source for terminal budget state.
       // Same-projection local availability can gate admission, but it must not
       // turn a server-active session into step-up reauth.
-      remainingUses = budgetRemainingUses;
-      if (budgetExpiresAtMs > 0) expiresAtMs = budgetExpiresAtMs;
+      remainingUses = sessionRemainingUses;
+      if (sessionExpiresAtMs > 0) expiresAtMs = sessionExpiresAtMs;
       if (status === 'exhausted') {
         status = 'ready';
       }
@@ -219,12 +180,18 @@ export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
   }
   if (status === 'ready' && expiresAtMs <= (args.nowMs ?? Date.now())) status = 'expired';
   if (status === 'ready' && remainingUses < usesNeeded) status = 'exhausted';
-  const readiness: SigningSessionReadiness =
+  const readiness: Ed25519SigningSessionReadiness =
     status === 'ready' || status === 'exhausted'
-      ? { status, thresholdSessionId: args.thresholdSessionId, remainingUses, expiresAtMs }
+      ? {
+          status,
+          curve: 'ed25519',
+          thresholdSessionId: args.thresholdSessionId,
+          remainingUses,
+          expiresAtMs,
+        }
       : status === 'expired'
-        ? { status, thresholdSessionId: args.thresholdSessionId, expiresAtMs }
-        : { status, thresholdSessionId: args.thresholdSessionId };
+        ? { status, curve: 'ed25519', thresholdSessionId: args.thresholdSessionId, expiresAtMs }
+        : { status, curve: 'ed25519', thresholdSessionId: args.thresholdSessionId };
   return {
     readiness,
     expiresAtMs,
@@ -232,33 +199,13 @@ export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
   };
 }
 
-function resolveSigningGrantId(
-  record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord | null | undefined,
-): string {
-  return normalizeNonEmpty(record?.signingGrantId);
-}
-
-function toLaneSource(
-  record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord,
-): SignerAuthMethod {
-  const source = record.source;
-  switch (source) {
-    case SIGNER_AUTH_METHODS.emailOtp:
+function toLaneSource(runtime: ExactEd25519SealedSessionRuntime): SignerAuthMethod {
+  switch (runtime.factor.kind) {
+    case 'email_otp':
       return SIGNER_AUTH_METHODS.emailOtp;
-    case 'login':
-    case 'registration':
-    case 'manual-bootstrap':
-    case 'add-signer':
-    case 'manual-connect':
-    case 'bootstrap':
+    case 'passkey':
       return SIGNER_AUTH_METHODS.passkey;
-    default:
-      return assertNeverSigningSessionStoreSource(source);
   }
-}
-
-function assertNeverSigningSessionStoreSource(value: never): never {
-  throw new Error(`Unsupported signing session store source: ${String(value)}`);
 }
 
 function authMethodForSigningSessionLanes(
@@ -282,112 +229,10 @@ function assertNeverSigningSessionLaneAuthMethod(value: never): never {
   throw new Error(`Unsupported signing session lane auth method: ${String(value)}`);
 }
 
-function resolveRecordWalletOwnerId(
-  record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord,
-): WalletBudgetOwner {
-  return 'chainTarget' in record
-    ? ecdsaWalletBudgetOwner(toWalletId(record.walletId))
-    : ed25519WalletBudgetOwner(record.walletId);
-}
-
-export function resolveEmailOtpEcdsaWorkerSessionId(
-  record: ThresholdEcdsaSessionRecord,
-): string | null {
-  if (record.source !== 'email_otp') return null;
-  const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
-  if (record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session') {
-    const workerSessionId = normalizeNonEmpty(record.clientAdditiveShareHandle.sessionId);
-    const ed25519Companion =
-      workerSessionId && workerSessionId !== thresholdSessionId
-        ? readWarmSessionEd25519RecordByThresholdSessionId(workerSessionId)
-        : null;
-    if (ed25519Companion?.source === 'email_otp') {
-      // A stale cross-curve companion id here causes sealed restore to read the
-      // Ed25519 half of the seal as if it were the ECDSA lane.
-      console.debug(
-        '[SigningSessionCoordinator] ignoring mismatched Email OTP ECDSA worker session id',
-        {
-          thresholdSessionId,
-          workerSessionId,
-        },
-      );
-      return null;
-    } else if (workerSessionId) {
-      return workerSessionId;
-    }
-  }
-  return null;
-}
-
-function buildEmailOtpEcdsaDiscoveredLaneForRecord(args: {
-  record: ThresholdEcdsaSessionRecord;
-  chain: 'tempo' | 'evm';
-  chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionId: string;
-  signingGrantId: string;
-}): DiscoveredSigningSessionLane | null {
-  const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
-    record: args.record,
-    nowMs: Date.now(),
-  });
-  switch (roleLocalState.kind) {
-    case 'ready_email_otp_role_local_material_v1':
-      switch (roleLocalState.inlineSigningMaterial.kind) {
-        case 'email_otp_worker_share': {
-          const workerSessionId = resolveEmailOtpEcdsaWorkerSessionId(args.record);
-          if (!workerSessionId) return null;
-          return {
-            curve: 'ecdsa',
-            chain: args.chain,
-            chainTarget: args.chainTarget,
-            source: 'email_otp',
-            thresholdSessionId: args.thresholdSessionId,
-            signingGrantId: args.signingGrantId,
-            backingMaterialSessionId: workerSessionId,
-            backing: 'email_otp_worker',
-            record: args.record,
-          };
-        }
-        case 'role_local_ready_state_blob':
-        case 'role_local_durable_material':
-          return {
-            curve: 'ecdsa',
-            chain: args.chain,
-            chainTarget: args.chainTarget,
-            source: 'email_otp',
-            thresholdSessionId: args.thresholdSessionId,
-            signingGrantId: args.signingGrantId,
-            backingMaterialSessionId: args.thresholdSessionId,
-            backing: 'record_policy',
-            record: args.record,
-          };
-      }
-      roleLocalState.inlineSigningMaterial satisfies never;
-      return null;
-    case 'reauth_required_role_local_material_v1':
-      if (
-        roleLocalState.authMethod.kind === 'email_otp' &&
-        (roleLocalState.reason === 'expired' || roleLocalState.reason === 'exhausted')
-      ) {
-        return {
-          curve: 'ecdsa',
-          chain: args.chain,
-          chainTarget: args.chainTarget,
-          source: 'email_otp',
-          thresholdSessionId: args.thresholdSessionId,
-          signingGrantId: args.signingGrantId,
-          backingMaterialSessionId: args.thresholdSessionId,
-          backing: 'record_policy',
-          record: args.record,
-        };
-      }
-      return null;
-    case 'ready_passkey_role_local_material_v1':
-    case 'cleanup_only_raw_role_local_record_v1':
-      return null;
-  }
-  roleLocalState satisfies never;
-  return null;
+function resolveRuntimeWalletOwnerId(
+  runtime: ExactEd25519SealedSessionRuntime,
+): WalletSessionStatusOwner {
+  return ed25519WalletSessionStatusOwner(runtime.walletId);
 }
 
 function addLane(
@@ -395,147 +240,111 @@ function addLane(
   lane: DiscoveredSigningSessionLane | null,
 ): void {
   if (!lane) return;
-  if (!lane.thresholdSessionId || !lane.signingGrantId || !lane.backingMaterialSessionId) {
+  if (!lane.thresholdSessionId || !lane.walletSessionId) {
     return;
   }
   lanes.push(lane);
 }
 
-export function buildDiscoveredLaneForRecord(
-  record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord,
-): DiscoveredSigningSessionLane | null {
-  if ('chainTarget' in record) {
-    const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
-    if (!thresholdSessionId) return null;
-    const source = toLaneSource(record);
-    const chain = record.chainTarget.kind;
-    const chainTarget = record.chainTarget;
-    const signingGrantId = resolveSigningGrantId(record);
-    if (source === 'email_otp') {
-      return buildEmailOtpEcdsaDiscoveredLaneForRecord({
-        record,
-        chain,
-        chainTarget,
-        thresholdSessionId,
-        signingGrantId,
-      });
-    }
-    if (
-      classifyRouterAbEcdsaDerivationPersistedSigningRecord(record).kind !== 'runtime_validated'
-    ) {
-      return null;
-    }
-    return {
-      curve: 'ecdsa',
-      chain,
-      chainTarget,
-      source,
-      thresholdSessionId,
-      signingGrantId,
-      backingMaterialSessionId: thresholdSessionId,
-      backing: 'record_policy',
-      record,
-    };
-  }
-
-  const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
-  if (!thresholdSessionId) return null;
+export function buildDiscoveredLaneForRuntime(
+  runtime: ExactEd25519SealedSessionRuntime,
+  walletSessionId: WalletSessionId,
+  quotaId: MpcWalletSigningQuotaId,
+): DiscoveredSigningSessionLane {
   return {
     curve: 'ed25519',
     chain: 'near',
-    source: toLaneSource(record),
-    thresholdSessionId,
-    signingGrantId: resolveSigningGrantId(record),
-    backingMaterialSessionId: thresholdSessionId,
-    backing: 'touch_confirm',
-    record,
+    source: toLaneSource(runtime),
+    thresholdSessionId: runtime.thresholdSessionId,
+    walletSessionId,
+    quotaId,
+    materialActivation: runtime.sealedRecord.ed25519Restore.materialActivation,
+    backing: 'record_policy',
+    runtime,
   };
 }
 
-function addDiscoveredEd25519LaneRecord(args: {
-  lanes: DiscoveredSigningSessionLane[];
-  seenLaneKeys: Set<string>;
-  record: ThresholdEd25519SessionRecord | null;
-}): void {
-  if (!args.record) return;
-  const laneKey = thresholdEd25519SessionRecordKeyFromRecord(args.record);
-  if (!laneKey) return;
-  const serializedLaneKey = serializeThresholdEd25519SessionLaneKey(laneKey);
-  if (args.seenLaneKeys.has(serializedLaneKey)) return;
-  args.seenLaneKeys.add(serializedLaneKey);
-  addLane(args.lanes, buildDiscoveredLaneForRecord(args.record));
-}
-
-export function discoverLanesForWallet(
-  deps: SigningGrantReadinessDeps,
+export async function discoverLanesForWallet(
+  deps: WalletSessionReadinessDeps,
   walletId: WalletId,
-): DiscoveredSigningSessionLane[] {
-  const records = readWarmSessionCapabilityRecordsForWallet(walletId);
+): Promise<DiscoveredSigningSessionLane[]> {
+  const listSealed = deps.listExactSealedSessionsForWallet ?? listExactSealedSessionsForWallet;
+  const records = (
+    await Promise.all([
+      listSealed({
+        walletId,
+        filter: { authMethod: SIGNER_AUTH_METHODS.passkey, curve: 'ed25519' },
+      }),
+      listSealed({
+        walletId,
+        filter: { authMethod: SIGNER_AUTH_METHODS.emailOtp, curve: 'ed25519' },
+      }),
+    ])
+  ).flat();
   const lanes: DiscoveredSigningSessionLane[] = [];
-  const seenEd25519LaneKeys = new Set<string>();
-  for (const record of listStoredThresholdEd25519SessionLaneRecordsForWallet(walletId)) {
-    addDiscoveredEd25519LaneRecord({
-      lanes,
-      seenLaneKeys: seenEd25519LaneKeys,
-      record,
+  const seenThresholdSessionIds = new Set<string>();
+  for (const record of records) {
+    if (record.curve !== 'ed25519') continue;
+    const runtime = parseExactEd25519SealedSessionRuntime(record);
+    if (!runtime || runtime.walletId !== walletId) continue;
+    const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(walletId);
+    if (authorizationRead.kind !== 'found') continue;
+    const authorization = ed25519WalletSessionAuthorizationForRuntime({
+      runtime,
+      authorization: authorizationRead.projection,
     });
-  }
-  addDiscoveredEd25519LaneRecord({
-    lanes,
-    seenLaneKeys: seenEd25519LaneKeys,
-    record: records.ed25519,
-  });
-
-  const candidateRecords = listStoredThresholdEcdsaSessionRecordsForWallet(walletId);
-  const seen = new Set<string>();
-  for (const record of candidateRecords) {
-    const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
-    const chainTarget = record.chainTarget;
-    const key = [
-      String(record.walletId),
-      thresholdEcdsaChainTargetKey(chainTarget),
-      record.source,
-      record.keyHandle,
-      record.signingGrantId,
-      thresholdSessionId,
-    ].join(':');
-    if (!thresholdSessionId || seen.has(key)) continue;
-    seen.add(key);
-    addLane(lanes, buildDiscoveredLaneForRecord(record));
+    if (!authorization) continue;
+    if (seenThresholdSessionIds.has(runtime.thresholdSessionId)) continue;
+    seenThresholdSessionIds.add(runtime.thresholdSessionId);
+    addLane(
+      lanes,
+      buildDiscoveredLaneForRuntime(
+        runtime,
+        authorization.walletSessionId,
+        authorization.quotaId,
+      ),
+    );
   }
   return lanes;
 }
 
-export function getLanesForWalletSession(args: {
-  deps: SigningGrantReadinessDeps;
+export async function getLanesForWalletSession(args: {
+  deps: WalletSessionReadinessDeps;
   walletId: WalletId;
-  signingGrantId?: string;
-}): DiscoveredSigningSessionLane[] {
-  const signingGrantId = normalizeNonEmpty(args.signingGrantId);
-  return discoverLanesForWallet(args.deps, args.walletId).filter(
-    (lane) => !signingGrantId || lane.signingGrantId === signingGrantId,
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
+}): Promise<DiscoveredSigningSessionLane[]> {
+  const walletSessionId = normalizeSessionStatusRequired(args.walletSessionId, 'walletSessionId');
+  return (await discoverLanesForWallet(args.deps, args.walletId)).filter(
+    (lane) => lane.walletSessionId === walletSessionId && lane.quotaId === args.quotaId,
   );
 }
 
 export function walletScopedClaimsForLanes(args: {
   lanes: DiscoveredSigningSessionLane[];
   claimsByThresholdSessionId: Map<string, WarmSessionPrfClaim | null>;
-  statusOverrides?: Map<string, SigningGrantStatusOverride>;
+  statusOverrides?: Map<string, WalletSessionStatusOverride>;
 }): Map<string, WarmSessionPrfClaim | null> {
   const grouped = new Map<string, DiscoveredSigningSessionLane[]>();
   for (const lane of args.lanes) {
-    const group = grouped.get(lane.signingGrantId) || [];
+    const groupKey = walletSessionStatusIdentityKey({
+      walletSessionId: lane.walletSessionId,
+      quotaId: lane.quotaId,
+    });
+    const group = grouped.get(groupKey) || [];
     group.push(lane);
-    grouped.set(lane.signingGrantId, group);
+    grouped.set(groupKey, group);
   }
 
   const scoped = new Map<string, WarmSessionPrfClaim | null>();
   for (const group of grouped.values()) {
     const firstLane = group[0];
     if (!firstLane) continue;
-    const signingGrantId = firstLane.signingGrantId;
-    const applicableOverride = resolveApplicableSigningGrantStatusOverrideForGroup({
-      signingGrantId,
+    const walletSessionId = firstLane.walletSessionId;
+    const quotaId = firstLane.quotaId;
+    const applicableOverride = resolveApplicableWalletSessionStatusOverrideForGroup({
+      walletSessionId,
+      quotaId,
       lanes: group,
       claimsByThresholdSessionId: args.claimsByThresholdSessionId,
       statusOverrides: args.statusOverrides,
@@ -569,16 +378,16 @@ export function walletScopedClaimsForLanes(args: {
 
       for (const entry of rawEntries) {
         if (terminal) {
-          scoped.set(entry.lane.thresholdSessionId, {
-            ...terminal,
-            sessionId: entry.lane.thresholdSessionId,
-          });
+          scoped.set(
+            entry.lane.thresholdSessionId,
+            attachWarmClaimToThresholdSession(terminal, entry.lane.thresholdSessionId),
+          );
           continue;
         }
         if (entry.claim?.state === 'warm') {
           scoped.set(entry.lane.thresholdSessionId, {
             state: 'warm',
-            sessionId: entry.lane.thresholdSessionId,
+            thresholdSessionId: entry.lane.thresholdSessionId,
             remainingUses: walletRemainingUses ?? entry.claim.remainingUses,
             expiresAtMs: walletExpiresAtMs ?? entry.claim.expiresAtMs,
           });
@@ -588,7 +397,7 @@ export function walletScopedClaimsForLanes(args: {
       }
     };
     if (applicableOverride) {
-      const overrideClaim = claimFromSigningGrantStatusOverride(applicableOverride);
+      const overrideClaim = claimFromWalletSessionStatusOverride(applicableOverride);
       const overrideEntries = entries.filter((entry) =>
         applicableOverride.thresholdSessionIds.has(
           normalizeNonEmpty(entry.lane.thresholdSessionId),
@@ -604,7 +413,12 @@ export function walletScopedClaimsForLanes(args: {
         for (const entry of entries) {
           scoped.set(
             entry.lane.thresholdSessionId,
-            overrideClaim ? { ...overrideClaim, sessionId: entry.lane.thresholdSessionId } : null,
+            overrideClaim
+              ? attachWarmClaimToThresholdSession(
+                  overrideClaim,
+                  entry.lane.thresholdSessionId,
+                )
+              : null,
           );
         }
         continue;
@@ -612,7 +426,9 @@ export function walletScopedClaimsForLanes(args: {
       for (const entry of overrideEntries) {
         scoped.set(
           entry.lane.thresholdSessionId,
-          overrideClaim ? { ...overrideClaim, sessionId: entry.lane.thresholdSessionId } : null,
+          overrideClaim
+            ? attachWarmClaimToThresholdSession(overrideClaim, entry.lane.thresholdSessionId)
+            : null,
         );
       }
       applyRawScopedClaims(rawEntries);
@@ -623,20 +439,21 @@ export function walletScopedClaimsForLanes(args: {
   return scoped;
 }
 
-function resolveApplicableSigningGrantStatusOverrideForGroup(args: {
-  signingGrantId: string;
+function resolveApplicableWalletSessionStatusOverrideForGroup(args: {
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   lanes: DiscoveredSigningSessionLane[];
   claimsByThresholdSessionId: Map<string, WarmSessionPrfClaim | null>;
-  statusOverrides?: Map<string, SigningGrantStatusOverride>;
-}): SigningGrantStatusOverride | null {
+  statusOverrides?: Map<string, WalletSessionStatusOverride>;
+}): WalletSessionStatusOverride | null {
   const statusOverrides = args.statusOverrides;
   if (!statusOverrides) return null;
-  for (const owner of signingGrantStatusOverrideOwnersForLanes(args.lanes)) {
+  for (const owner of walletSessionStatusOverrideOwnersForLanes(args.lanes)) {
     const override = statusOverrides.get(
-      walletOwnerSigningSessionStatusOverrideKey(owner, args.signingGrantId),
+      walletOwnerSigningSessionStatusOverrideKey(owner, args.walletSessionId, args.quotaId),
     );
     if (!override) continue;
-    const applicable = resolveApplicableSigningGrantStatusOverride({
+    const applicable = resolveApplicableWalletSessionStatusOverride({
       override,
       lanes: args.lanes,
       claimsByThresholdSessionId: args.claimsByThresholdSessionId,
@@ -647,97 +464,86 @@ function resolveApplicableSigningGrantStatusOverrideForGroup(args: {
   return null;
 }
 
-function signingGrantStatusOverrideOwnersForLanes(
+function walletSessionStatusOverrideOwnersForLanes(
   lanes: DiscoveredSigningSessionLane[],
-): WalletBudgetOwner[] {
-  const ownersByKey = new Map<string, WalletBudgetOwner>();
+): WalletSessionStatusOwner[] {
+  const ownersByKey = new Map<string, WalletSessionStatusOwner>();
   for (const lane of lanes) {
-    const owner = resolveRecordWalletOwnerId(lane.record);
-    ownersByKey.set(walletBudgetOwnerKey(owner), owner);
+    const owner = resolveRuntimeWalletOwnerId(lane.runtime);
+    ownersByKey.set(walletSessionStatusOwnerKey(owner), owner);
   }
   return [...ownersByKey.values()];
 }
 
 export function walletOwnerSigningSessionStatusOverrideKey(
-  owner: WalletBudgetOwner,
-  signingGrantId: string,
+  owner: WalletSessionStatusOwner,
+  walletSessionId: WalletSessionId,
+  quotaId: MpcWalletSigningQuotaId,
 ): string {
-  return `${walletBudgetOwnerKey(owner)}:${normalizeNonEmpty(signingGrantId)}`;
+  return `${walletSessionStatusOwnerKey(owner)}:${walletSessionStatusIdentityKey({
+    walletSessionId,
+    quotaId,
+  })}`;
 }
 
-function ed25519LaneKeyFromDiscoveredLane(
-  lane: DiscoveredSigningSessionLane,
-): ThresholdEd25519SessionRecordKey | null {
-  if (lane.curve !== 'ed25519') return null;
-  return thresholdEd25519SessionRecordKeyFromRecord(lane.record as ThresholdEd25519SessionRecord);
-}
-
-function ecdsaExactIdentityFromDiscoveredLane(
-  lane: DiscoveredSigningSessionLane,
-): ExactEcdsaSigningLaneIdentity | null {
-  if (lane.curve !== 'ecdsa') return null;
-  try {
-    return toExactEcdsaSigningLaneIdentity(lane.record as ThresholdEcdsaSessionRecord);
-  } catch {
-    return null;
-  }
-}
-
-function signingGrantStatusOverrideOwners(args: {
-  owner: WalletBudgetOwner;
+function walletSessionStatusOverrideOwners(args: {
+  owner: WalletSessionStatusOwner;
   lanes: DiscoveredSigningSessionLane[];
-}): WalletBudgetOwner[] {
-  const ownersByKey = new Map<string, WalletBudgetOwner>();
-  ownersByKey.set(walletBudgetOwnerKey(args.owner), args.owner);
+}): WalletSessionStatusOwner[] {
+  const ownersByKey = new Map<string, WalletSessionStatusOwner>();
+  ownersByKey.set(walletSessionStatusOwnerKey(args.owner), args.owner);
   for (const lane of args.lanes) {
-    const owner = resolveRecordWalletOwnerId(lane.record);
-    ownersByKey.set(walletBudgetOwnerKey(owner), owner);
+    const owner = resolveRuntimeWalletOwnerId(lane.runtime);
+    ownersByKey.set(walletSessionStatusOwnerKey(owner), owner);
   }
   return [...ownersByKey.values()];
 }
 
-export function rememberSigningGrantStatusOverride(args: {
-  overrides: Map<string, SigningGrantStatusOverride>;
-  owner: WalletBudgetOwner;
-  signingGrantId: string;
+export function rememberWalletSessionStatusOverride(args: {
+  overrides: Map<string, WalletSessionStatusOverride>;
+  owner: WalletSessionStatusOwner;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   lanes: DiscoveredSigningSessionLane[];
   status: SigningSessionStatus;
 }): void {
-  const signingGrantId = normalizeNonEmpty(args.signingGrantId);
-  if (!signingGrantId) return;
+  const walletSessionId = args.walletSessionId;
   const now = Date.now();
   const thresholdSessionIds = new Set(
     args.lanes.map((lane) => normalizeNonEmpty(lane.thresholdSessionId)).filter(Boolean),
   );
-  for (const owner of signingGrantStatusOverrideOwners({
+  for (const owner of walletSessionStatusOverrideOwners({
     owner: args.owner,
     lanes: args.lanes,
   })) {
-    args.overrides.set(walletOwnerSigningSessionStatusOverrideKey(owner, signingGrantId), {
-      owner,
-      signingGrantId,
-      status: {
-        ...args.status,
-        sessionId: signingGrantId,
+    args.overrides.set(
+      walletOwnerSigningSessionStatusOverrideKey(owner, walletSessionId, args.quotaId),
+      {
+        owner,
+        walletSessionId,
+        quotaId: args.quotaId,
+        status: {
+          ...args.status,
+          sessionId: walletSessionId,
+        },
+        thresholdSessionIds,
+        updatedAtMs: now,
       },
-      thresholdSessionIds,
-      updatedAtMs: now,
-    });
+    );
   }
 }
 
-function resolveApplicableSigningGrantStatusOverride(args: {
-  override: SigningGrantStatusOverride;
+function resolveApplicableWalletSessionStatusOverride(args: {
+  override: WalletSessionStatusOverride;
   lanes: DiscoveredSigningSessionLane[];
   claimsByThresholdSessionId: Map<string, WarmSessionPrfClaim | null>;
-  statusOverrides?: Map<string, SigningGrantStatusOverride>;
-}): SigningGrantStatusOverride | null {
+  statusOverrides?: Map<string, WalletSessionStatusOverride>;
+}): WalletSessionStatusOverride | null {
   if (!args.lanes.length) return null;
   const freshActiveLane = args.lanes.find((lane) => {
     const thresholdSessionId = normalizeNonEmpty(lane.thresholdSessionId);
     if (args.override.thresholdSessionIds.has(thresholdSessionId)) return false;
-    const recordUpdatedAtMs = Math.floor(Number(lane.record.updatedAtMs) || 0);
-    if (recordUpdatedAtMs <= args.override.updatedAtMs) return false;
+    if (lane.runtime.sealedRecord.updatedAtMs <= args.override.updatedAtMs) return false;
     const claim = args.claimsByThresholdSessionId.get(thresholdSessionId) || null;
     return claim?.state === 'warm';
   });
@@ -745,8 +551,9 @@ function resolveApplicableSigningGrantStatusOverride(args: {
     for (const lane of args.lanes) {
       args.statusOverrides?.delete(
         walletOwnerSigningSessionStatusOverrideKey(
-          resolveRecordWalletOwnerId(lane.record),
-          args.override.signingGrantId,
+          resolveRuntimeWalletOwnerId(lane.runtime),
+          args.override.walletSessionId,
+          args.override.quotaId,
         ),
       );
     }
@@ -755,108 +562,100 @@ function resolveApplicableSigningGrantStatusOverride(args: {
   return args.override;
 }
 
-function claimFromSigningGrantStatusOverride(
-  override: SigningGrantStatusOverride,
-): WarmSessionPrfClaim | null {
+type WarmSessionPrfClaimWithoutThresholdSessionId =
+  | Omit<WarmSessionWarmPrfClaim, 'thresholdSessionId'>
+  | Omit<WarmSessionUnavailablePrfClaim, 'thresholdSessionId'>
+  | Omit<WarmSessionMissingPrfClaim, 'thresholdSessionId'>
+  | Omit<WarmSessionExpiredPrfClaim, 'thresholdSessionId'>
+  | Omit<WarmSessionExhaustedPrfClaim, 'thresholdSessionId'>;
+
+function claimFromWalletSessionStatusOverride(
+  override: WalletSessionStatusOverride,
+): WarmSessionPrfClaimWithoutThresholdSessionId | null {
   const status = override.status;
   if (status.status === 'active') {
+    if (
+      typeof status.remainingUses !== 'number' ||
+      typeof status.expiresAtMs !== 'number'
+    ) {
+      return { state: 'unavailable', code: 'invalid_wallet_budget_status' };
+    }
     const remainingUses = Math.max(0, Math.floor(Number(status.remainingUses) || 0));
     const expiresAtMs = Math.floor(Number(status.expiresAtMs) || 0);
     if (expiresAtMs <= Date.now()) {
-      return { state: 'expired', sessionId: override.signingGrantId };
+      return { state: 'expired' };
     }
     if (remainingUses <= 0) {
-      return { state: 'exhausted', sessionId: override.signingGrantId };
+      return { state: 'exhausted' };
     }
     return {
       state: 'warm',
-      sessionId: override.signingGrantId,
       remainingUses,
       expiresAtMs,
     };
   }
   if (status.status === 'expired') {
-    return { state: 'expired', sessionId: override.signingGrantId };
+    return { state: 'expired' };
   }
   if (status.status === 'exhausted') {
-    return { state: 'exhausted', sessionId: override.signingGrantId };
+    return { state: 'exhausted' };
   }
   if (status.status === 'unavailable') {
     return {
       state: 'unavailable',
-      sessionId: override.signingGrantId,
-      code: status.statusCode || 'wallet_budget_status_override',
+      code: String(status.statusCode || 'wallet_budget_status_override'),
     };
   }
   return null;
 }
 
 export async function readClaimsForLanes(args: {
-  deps: SigningGrantClaimReaderDeps;
+  deps: WalletSessionClaimReaderDeps;
   lanes: DiscoveredSigningSessionLane[];
 }): Promise<Map<string, WarmSessionPrfClaim | null>> {
   const claims = new Map<string, WarmSessionPrfClaim | null>();
-  for (const lane of args.lanes.filter((candidate) => candidate.backing === 'record_policy')) {
-    const record = lane.record;
-    if (!('chainTarget' in record)) {
-      claims.set(lane.thresholdSessionId, null);
-      continue;
-    }
+  for (const lane of args.lanes) {
     claims.set(
       lane.thresholdSessionId,
       warmClaimFromRecordPolicy({
-        sessionId: lane.thresholdSessionId,
-        remainingUses: record.remainingUses,
-        expiresAtMs: record.expiresAtMs,
+        thresholdSessionId: lane.thresholdSessionId,
+        remainingUses: lane.runtime.remainingUses,
+        expiresAtMs: lane.runtime.expiresAtMs,
       }),
     );
   }
-  const touchConfirm = normalizeWarmSessionReadPorts(args.deps.touchConfirm);
-  const touchConfirmLanes = args.lanes.filter((lane) => lane.backing === 'touch_confirm');
-  const touchConfirmClaims = await readWarmSessionClaims({
-    touchConfirm,
-    sessionIds: touchConfirmLanes.map((lane) => lane.backingMaterialSessionId),
-  });
-  for (const lane of touchConfirmLanes) {
-    const backingClaim = touchConfirmClaims.get(lane.backingMaterialSessionId) || null;
-    claims.set(
-      lane.thresholdSessionId,
-      backingClaim ? { ...backingClaim, sessionId: lane.thresholdSessionId } : null,
-    );
-  }
-
-  await Promise.all(
-    args.lanes
-      .filter((lane) => lane.backing === 'email_otp_worker')
-      .map(async (lane) => {
-        if (typeof args.deps.getEmailOtpWarmSessionStatus !== 'function') {
-          claims.set(lane.thresholdSessionId, null);
-          return;
-        }
-        const status = await args.deps
-          .getEmailOtpWarmSessionStatus(lane.backingMaterialSessionId)
-          .catch(() => null);
-        claims.set(
-          lane.thresholdSessionId,
-          status
-            ? toWarmSessionClaimFromStatusResult({
-                sessionId: lane.thresholdSessionId,
-                status,
-              })
-            : null,
-        );
-      }),
-  );
-
   return claims;
 }
 
+function attachWarmClaimToThresholdSession(
+  claim: WarmSessionPrfClaim | WarmSessionPrfClaimWithoutThresholdSessionId,
+  thresholdSessionId: string,
+): WarmSessionPrfClaim {
+  switch (claim.state) {
+    case 'warm':
+      return {
+        state: 'warm',
+        thresholdSessionId,
+        remainingUses: claim.remainingUses,
+        expiresAtMs: claim.expiresAtMs,
+      };
+    case 'unavailable':
+      return { state: 'unavailable', thresholdSessionId, code: claim.code };
+    case 'missing':
+      return { state: 'missing', thresholdSessionId };
+    case 'expired':
+      return { state: 'expired', thresholdSessionId };
+    case 'exhausted':
+      return { state: 'exhausted', thresholdSessionId };
+  }
+}
+
 export async function readWalletScopedLaneClaimsForWallet(args: {
-  deps: SigningGrantReadinessDeps;
+  deps: WalletSessionReadinessDeps;
   walletId: WalletId;
-  statusOverrides?: Map<string, SigningGrantStatusOverride>;
+  statusOverrides?: Map<string, WalletSessionStatusOverride>;
 }): Promise<Map<string, WarmSessionPrfClaim | null>> {
-  const lanes = discoverLanesForWallet(args.deps, args.walletId);
+  const lanes = await discoverLanesForWallet(args.deps, args.walletId);
   return readWalletScopedLaneClaimsForLanes({
     deps: args.deps,
     lanes,
@@ -865,9 +664,9 @@ export async function readWalletScopedLaneClaimsForWallet(args: {
 }
 
 export async function readWalletScopedLaneClaimsForLanes(args: {
-  deps: SigningGrantClaimReaderDeps;
+  deps: WalletSessionClaimReaderDeps;
   lanes: DiscoveredSigningSessionLane[];
-  statusOverrides?: Map<string, SigningGrantStatusOverride>;
+  statusOverrides?: Map<string, WalletSessionStatusOverride>;
 }): Promise<Map<string, WarmSessionPrfClaim | null>> {
   const rawClaims = await readClaimsForLanes({ deps: args.deps, lanes: args.lanes });
   return walletScopedClaimsForLanes({
@@ -877,46 +676,27 @@ export async function readWalletScopedLaneClaimsForLanes(args: {
   });
 }
 
-function targetSessionSetsForBudgetStatusCheck(check: SigningSessionBudgetStatusCheck): {
-  backingMaterialSessionIds: Set<string>;
-  thresholdSessionIds: Set<string>;
-} {
-  return {
-    backingMaterialSessionIds:
-      check.kind === 'backing_material_budget_status_check'
-        ? new Set(check.targetBackingMaterialSessionIds.map(normalizeNonEmpty).filter(Boolean))
-        : new Set<string>(),
-    thresholdSessionIds:
-      check.kind === 'threshold_budget_status_check' ||
-      check.kind === 'authenticated_threshold_budget_status_check' ||
-      isEcdsaLaneBudgetStatusCheck(check)
-        ? new Set(
-            thresholdSessionIdsForBudgetStatusCheck(check).map(normalizeNonEmpty).filter(Boolean),
-          )
-        : new Set<string>(),
-  };
-}
-
 export async function readDirectSigningSessionStatusForTargets(args: {
-  deps: SigningGrantReadinessDeps;
-  signingGrantId: string;
-  targetBackingMaterialSessionIds?: Iterable<string>;
+  deps: WalletSessionReadinessDeps;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   targetThresholdSessionIds?: Iterable<string>;
 }): Promise<SigningSessionStatus | null> {
-  const signingGrantId = normalizeNonEmpty(args.signingGrantId);
-  if (!signingGrantId) return null;
-  const targetSessionIds = Array.from(
+  const walletSessionId = args.walletSessionId;
+  const targetThresholdSessionIds = Array.from(
     new Set(
-      [...(args.targetBackingMaterialSessionIds || []), ...(args.targetThresholdSessionIds || [])]
+      [...(args.targetThresholdSessionIds || [])]
         .map(normalizeNonEmpty)
         .filter(Boolean),
     ),
   );
-  if (!targetSessionIds.length) return null;
+  if (!targetThresholdSessionIds.length) return null;
 
   const touchConfirm = normalizeWarmSessionReadPorts(args.deps.touchConfirm);
   const claims = await Promise.all(
-    targetSessionIds.map((sessionId) => readWarmSessionClaim(touchConfirm, sessionId)),
+    targetThresholdSessionIds.map((thresholdSessionId) =>
+      readWarmSessionClaim(touchConfirm, thresholdSessionId),
+    ),
   );
   const claim =
     claims.find((candidate) => candidate?.state === 'expired') ||
@@ -925,558 +705,85 @@ export async function readDirectSigningSessionStatusForTargets(args: {
     claims.find((candidate) => candidate?.state === 'warm') ||
     null;
   return toSigningSessionStatus({
-    sessionId: signingGrantId,
+    sessionId: walletSessionId,
     claim,
   });
 }
 
 export function statusFromClaim(args: {
-  signingGrantId: string;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   lanes: DiscoveredSigningSessionLane[];
   claim: WarmSessionPrfClaim | null;
 }): SigningSessionStatus {
-  const emailOtpLane = args.lanes.find((lane) => lane.source === SIGNER_AUTH_METHODS.emailOtp);
-  const emailOtpAuthContext =
-    emailOtpLane?.record.source === SIGNER_AUTH_METHODS.emailOtp
-      ? emailOtpLane.record.emailOtpAuthContext
-      : null;
-  const emailOtpRetention = emailOtpAuthContext
-    ? emailOtpAuthContextRetention(emailOtpAuthContext)
-    : null;
+  const hasEmailOtpLane = args.lanes.some(
+    (lane) => lane.source === SIGNER_AUTH_METHODS.emailOtp,
+  );
   return toSigningSessionStatus({
-    sessionId: args.signingGrantId,
+    sessionId: args.walletSessionId,
     claim: args.claim,
     authMethod: authMethodForSigningSessionLanes(args.lanes),
-    retention: emailOtpRetention,
+    retention: hasEmailOtpLane ? 'session' : null,
   });
 }
 
-export function statusFromConsumedLanes(args: {
-  signingGrantId: string;
-  lanes: DiscoveredSigningSessionLane[];
-}): SigningSessionStatus {
-  const emailOtpLane = args.lanes.find((lane) => lane.source === SIGNER_AUTH_METHODS.emailOtp);
-  const emailOtpAuthContext =
-    emailOtpLane?.record.source === SIGNER_AUTH_METHODS.emailOtp
-      ? emailOtpLane.record.emailOtpAuthContext
-      : null;
-  const emailOtpRetention = emailOtpAuthContext
-    ? emailOtpAuthContextRetention(emailOtpAuthContext)
-    : null;
-  return {
-    sessionId: args.signingGrantId,
-    status: 'exhausted',
-    remainingUses: 0,
-    authMethod: authMethodForSigningSessionLanes(args.lanes),
-    ...(emailOtpRetention ? { retention: emailOtpRetention } : {}),
-  };
-}
-
-export function assertConsumeResult(args: {
-  result: WarmSessionStatusResult | undefined;
-  backing: 'touch_confirm' | 'email_otp_worker';
-  required: boolean;
-}): void {
-  const result = args.result;
-  if (!result || result.ok || result.code === 'exhausted') return;
-  if (!args.required && result.code === 'not_found') return;
-  throw new Error(
-    `[SigningSessionCoordinator] ${args.backing} signing-session consume returned ${result.code}`,
-  );
-}
-
-export function statusFromConsumeResults(args: {
-  signingGrantId: string;
-  lanes: DiscoveredSigningSessionLane[];
-  results: ConsumeResultEntry[];
-  hasExplicitTarget: boolean;
-}): SigningSessionStatus | null {
-  const relevantEntries = args.hasExplicitTarget
-    ? args.results.filter((entry) => entry.laneIsExplicitTarget)
-    : args.results;
-  const relevantResults = relevantEntries.map((entry) => entry.result);
-  const relevantLanes = relevantEntries.map((entry) => entry.lane);
-  const statusLanes = relevantLanes.length ? relevantLanes : args.lanes;
-  if (relevantResults.some((result) => !result.ok && result.code === 'exhausted')) {
-    return statusFromConsumedLanes({
-      signingGrantId: args.signingGrantId,
-      lanes: statusLanes,
-    });
-  }
-  if (relevantResults.some((result) => !result.ok && result.code === 'budget_status_required')) {
-    return budgetUnknownSigningSessionStatus({
-      signingGrantId: args.signingGrantId,
-      reason: 'missing_trusted_status',
-    });
-  }
-  const okResults = relevantResults.filter(
-    (result): result is Extract<WarmSessionStatusResult, { ok: true }> => result.ok,
-  );
-  if (!okResults.length) return null;
-  const remainingUses = Math.min(
-    ...okResults.map((result) => Math.max(0, Math.floor(Number(result.remainingUses) || 0))),
-  );
-  if (remainingUses <= 0) {
-    return statusFromConsumedLanes({
-      signingGrantId: args.signingGrantId,
-      lanes: statusLanes,
-    });
-  }
-  return statusFromClaim({
-    signingGrantId: args.signingGrantId,
-    lanes: statusLanes,
-    claim: {
-      state: 'warm',
-      sessionId: args.signingGrantId,
-      remainingUses,
-      expiresAtMs: Math.min(
-        ...okResults.map((result) => Math.floor(Number(result.expiresAtMs) || 0)),
-      ),
-    },
-  });
-}
-
-function laneMatchesBudgetTargets(args: {
-  lane: DiscoveredSigningSessionLane;
-  hasExplicitTarget: boolean;
-  targetBacking: Set<string>;
-  targetThreshold: Set<string>;
-}): boolean {
-  if (!args.hasExplicitTarget) return true;
-  return (
-    args.targetBacking.has(args.lane.backingMaterialSessionId) ||
-    args.targetThreshold.has(args.lane.thresholdSessionId)
-  );
-}
-
-function lanesMatchingBudgetTargets(args: {
-  lanes: DiscoveredSigningSessionLane[];
-  hasExplicitTarget: boolean;
-  targetBacking: Set<string>;
-  targetThreshold: Set<string>;
-}): DiscoveredSigningSessionLane[] {
-  if (!args.hasExplicitTarget) return args.lanes;
-  return args.lanes.filter((lane) =>
-    laneMatchesBudgetTargets({
-      lane,
-      hasExplicitTarget: args.hasExplicitTarget,
-      targetBacking: args.targetBacking,
-      targetThreshold: args.targetThreshold,
-    }),
-  );
-}
-
-function invalidRecordPolicyBudgetStatus(message: string): WarmSessionStatusResult {
-  return {
-    ok: false,
-    code: 'budget_status_required',
-    message,
-  };
-}
-
-function parseRecordPolicyBudgetInteger(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) ? parsed : null;
-}
-
-function assertNeverSigningSessionStatus(value: never): never {
-  throw new Error(`Unhandled signing session status: ${String(value)}`);
-}
-
-function admitActiveRecordPolicyLaneFromTrustedStatus(args: {
-  status: SigningSessionStatus & { status: 'active' };
-  uses: number;
-  nowMs: number;
-}): WarmSessionStatusResult {
-  const expiresAtMs = parseRecordPolicyBudgetInteger(args.status.expiresAtMs);
-  if (expiresAtMs === null || expiresAtMs <= 0) {
-    return invalidRecordPolicyBudgetStatus('active server budget status is missing expiresAtMs');
-  }
-  const remainingUses = parseRecordPolicyBudgetInteger(args.status.remainingUses);
-  if (remainingUses === null || remainingUses < 0) {
-    return invalidRecordPolicyBudgetStatus('active server budget status is missing remainingUses');
-  }
-  const availableUsesValue =
-    args.status.availableUses === undefined
-      ? undefined
-      : parseRecordPolicyBudgetInteger(args.status.availableUses);
-  if (availableUsesValue !== undefined && (availableUsesValue === null || availableUsesValue < 0)) {
-    return invalidRecordPolicyBudgetStatus('active server budget status has invalid availableUses');
-  }
-  const activeStatus: SigningSessionStatus & { status: 'active' } = {
-    sessionId: args.status.sessionId,
-    status: 'active',
-    remainingUses,
-    expiresAtMs,
-    ...(availableUsesValue !== undefined ? { availableUses: availableUsesValue } : {}),
-  };
-  const committedUses = committedUsesForBudgetAdmission(activeStatus);
-  if (expiresAtMs <= args.nowMs) {
-    return {
-      ok: false,
-      code: 'expired',
-      message: 'record-policy signing session expired',
-    };
-  }
-  if (committedUses < args.uses) {
-    return {
-      ok: false,
-      code: 'exhausted',
-      message: 'record-policy signing session exhausted',
-    };
-  }
-  return {
-    ok: true,
-    remainingUses: committedUses - args.uses,
-    expiresAtMs,
-  };
-}
-
-function admitRecordPolicyLaneFromTrustedStatus(args: {
-  uses: number;
-  nowMs: number;
-  trustedBudgetStatus: SigningSessionStatus | null;
-}): WarmSessionStatusResult {
-  const status = args.trustedBudgetStatus;
-  if (!status) {
-    return invalidRecordPolicyBudgetStatus(
-      'server budget status is required for record-policy signing session',
-    );
-  }
-  switch (status.status) {
-    case 'active':
-      return admitActiveRecordPolicyLaneFromTrustedStatus({
-        status: status as SigningSessionStatus & { status: 'active' },
-        uses: args.uses,
-        nowMs: args.nowMs,
-      });
-    case 'expired':
-      return {
-        ok: false,
-        code: 'expired',
-        message: 'record-policy signing session expired',
-      };
-    case 'exhausted':
-      return {
-        ok: false,
-        code: 'exhausted',
-        message: 'record-policy signing session exhausted',
-      };
-    case 'active_restorable':
-      return invalidRecordPolicyBudgetStatus(
-        'active server budget status is required for record-policy signing session',
-      );
-    case 'not_found':
-    case 'unavailable':
-    case 'budget_unknown':
-      return invalidRecordPolicyBudgetStatus(
-        'current server budget status is required for record-policy signing session',
-      );
-    default:
-      return assertNeverSigningSessionStatus(status.status);
-  }
-}
-
-export function resolveStatusAfterConsume(args: {
-  signingGrantId: string;
-  lanes: DiscoveredSigningSessionLane[];
-  status: SigningSessionStatus;
-  consumedStatus: SigningSessionStatus | null;
-  skippedAlreadyConsumedBacking: boolean;
-}): SigningSessionStatus {
-  if (args.consumedStatus?.status === 'exhausted') return args.consumedStatus;
-  if (args.consumedStatus?.status === 'budget_unknown') return args.consumedStatus;
-  if (args.consumedStatus?.status === 'unavailable') return args.consumedStatus;
-  if (args.status.status === 'not_found' && args.skippedAlreadyConsumedBacking) {
-    return statusFromConsumedLanes(args);
-  }
-  const consumedStatus = args.consumedStatus;
-  const trustedStatus = args.status;
-  if (consumedStatus?.status === 'active') {
-    if (trustedStatus.status !== 'active') return consumedStatus;
-    const projectedConsumedStatus = statusWithTrustedBudgetProjection({
-      consumedStatus,
-      trustedStatus,
-    });
-    const trustedRemainingUses = Math.floor(Number(trustedStatus.remainingUses) || 0);
-    const consumedRemainingUses = Math.floor(Number(projectedConsumedStatus.remainingUses) || 0);
-    if (consumedRemainingUses < trustedRemainingUses) return projectedConsumedStatus;
-  }
-  return trustedStatus;
-}
-
-function statusWithTrustedBudgetProjection(args: {
-  consumedStatus: SigningSessionStatus;
-  trustedStatus: SigningSessionStatus;
-}): SigningSessionStatus {
-  const projectionVersion = String(args.trustedStatus.projectionVersion || '').trim();
-  return projectionVersion ? { ...args.consumedStatus, projectionVersion } : args.consumedStatus;
-}
-
-export async function consumeSigningGrantUse(args: {
-  deps: SigningGrantReadinessDeps;
-  statusOverrides: Map<string, SigningGrantStatusOverride>;
-  readStatus: SigningGrantStatusReader;
-  input: SigningGrantConsumeUseInput;
-}): Promise<SigningSessionStatus> {
-  const input = args.input;
-  const walletId = toWalletId(walletBudgetOwnerId(input.owner));
-  const signingGrantId = normalizeNonEmpty(input.signingGrantId);
-  if (!signingGrantId) {
-    throw new Error('[SigningSessionCoordinator] signingGrantId is required');
-  }
-  const uses = Math.max(1, Math.floor(Number(input.uses) || 1));
-  const alreadyConsumedBacking = new Set(
-    (input.alreadyConsumedBackingMaterialSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
-  );
-  const alreadyConsumedThreshold = new Set(
-    (input.alreadyConsumedThresholdSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
-  );
-  const budgetTargets = targetSessionSetsForBudgetStatusCheck(input.budgetStatusCheck);
-  const targetBacking = budgetTargets.backingMaterialSessionIds;
-  const targetThreshold = budgetTargets.thresholdSessionIds;
-  const lanes = getLanesForWalletSession({
-    deps: args.deps,
-    walletId,
-    signingGrantId,
-  });
-  const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
-  const targetLanes = lanesMatchingBudgetTargets({
-    lanes,
-    hasExplicitTarget,
-    targetBacking,
-    targetThreshold,
-  });
-  const alreadyConsumedCoversExplicitTarget =
-    hasExplicitTarget &&
-    Array.from(targetBacking).every((sessionId) => alreadyConsumedBacking.has(sessionId)) &&
-    Array.from(targetThreshold).every((sessionId) => alreadyConsumedThreshold.has(sessionId));
-  if (!lanes.length && !alreadyConsumedCoversExplicitTarget) {
-    throw new Error(
-      '[SigningSessionCoordinator] signing grant has no matching signing lanes for wallet',
-    );
-  }
-  const hasMatchingTarget =
-    !hasExplicitTarget ||
-    lanes.some(
-      (lane) =>
-        targetBacking.has(lane.backingMaterialSessionId) ||
-        targetThreshold.has(lane.thresholdSessionId),
-    );
-  if (!hasMatchingTarget && !alreadyConsumedCoversExplicitTarget) {
-    throw new Error(
-      '[SigningSessionCoordinator] signing grant has no matching target signing lane for wallet',
-    );
-  }
-  const consumedBacking = new Set<string>();
-  let skippedAlreadyConsumedBacking = false;
-  let status: SigningSessionStatus | null = null;
-  let statusRead = false;
-  const consumeResults: ConsumeResultEntry[] = [];
-  for (const lane of lanes) {
-    const laneIsExplicitTarget = laneMatchesBudgetTargets({
-      lane,
-      hasExplicitTarget,
-      targetBacking,
-      targetThreshold,
-    });
-    if (hasExplicitTarget && !laneIsExplicitTarget) continue;
-    const thresholdAlreadyConsumed = alreadyConsumedThreshold.has(lane.thresholdSessionId);
-    const backingAlreadyConsumed =
-      thresholdAlreadyConsumed || alreadyConsumedBacking.has(lane.backingMaterialSessionId);
-    if (backingAlreadyConsumed) {
-      skippedAlreadyConsumedBacking = true;
-      consumedBacking.add(lane.backingMaterialSessionId);
-      continue;
-    }
-    if (consumedBacking.has(lane.backingMaterialSessionId)) continue;
-
-    switch (lane.backing) {
-      case 'email_otp_worker': {
-        const result = await args.deps.consumeEmailOtpWarmSessionUses?.({
-          sessionId: lane.backingMaterialSessionId,
-          uses,
-        });
-        if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });
-        assertConsumeResult({
-          result,
-          backing: lane.backing,
-          required: laneIsExplicitTarget,
-        });
-        break;
-      }
-      case 'touch_confirm': {
-        const result = await args.deps.touchConfirm?.consumeWarmSessionUses?.({
-          sessionId: lane.backingMaterialSessionId,
-          uses,
-          curve: lane.curve,
-          ...(lane.curve === 'ecdsa' && lane.chainTarget
-            ? { chainTarget: lane.chainTarget }
-            : lane.curve === 'ed25519' && lane.chain === 'near'
-              ? { chain: lane.chain }
-              : {}),
-        });
-        if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });
-        assertConsumeResult({
-          result,
-          backing: lane.backing,
-          required: laneIsExplicitTarget,
-        });
-        break;
-      }
-      case 'record_policy':
-        if (!statusRead) {
-          status = (await args.readStatus(input.budgetStatusCheck)) || null;
-          statusRead = true;
-        }
-        consumeResults.push({
-          lane,
-          result: admitRecordPolicyLaneFromTrustedStatus({
-            uses,
-            nowMs: Date.now(),
-            trustedBudgetStatus: status,
-          }),
-          laneIsExplicitTarget,
-        });
-        break;
-    }
-    consumedBacking.add(lane.backingMaterialSessionId);
-  }
-
-  const consumedOrTargetedLanes = hasExplicitTarget ? targetLanes : lanes;
-  const ed25519EmailOtpLane = consumedOrTargetedLanes.find(
-    (lane) =>
-      lane.curve === 'ed25519' &&
-      lane.source === 'email_otp' &&
-      !alreadyConsumedThreshold.has(lane.thresholdSessionId),
-  );
-  if (ed25519EmailOtpLane && input.owner.curve === 'ed25519') {
-    args.deps.markThresholdEd25519EmailOtpSessionConsumedForWallet?.({
-      walletId: input.owner.walletId,
-      thresholdSessionId: ed25519EmailOtpLane.thresholdSessionId,
-      uses,
-    });
-  }
-
-  if (!statusRead) {
-    status = await args.readStatus(input.budgetStatusCheck);
-    statusRead = true;
-  }
-  const trustedStatus = status || {
-    sessionId: signingGrantId,
-    status: 'not_found' as const,
-  };
-  const consumedStatus = statusFromConsumeResults({
-    signingGrantId,
-    lanes: consumedOrTargetedLanes.length ? consumedOrTargetedLanes : lanes,
-    results: consumeResults,
-    hasExplicitTarget,
-  });
-  const resolvedStatus = resolveStatusAfterConsume({
-    signingGrantId,
-    lanes: consumedOrTargetedLanes.length ? consumedOrTargetedLanes : lanes,
-    status: trustedStatus,
-    consumedStatus,
-    skippedAlreadyConsumedBacking,
-  });
-  rememberSigningGrantStatusOverride({
-    overrides: args.statusOverrides,
-    owner: input.owner,
-    signingGrantId,
-    lanes,
-    status: resolvedStatus,
-  });
-  await syncSealedRefreshPolicyForLanes({
-    lanes,
-    status: resolvedStatus,
-    updatePolicy: args.deps.updateExactSealedSessionPolicy,
-    deleteRecord: args.deps.deleteExactSealedSession,
-  });
-  return resolvedStatus;
-}
-
-export type SigningGrantClearFailure =
+export type WalletSessionClearFailure =
   | 'touch_confirm_material'
   | 'email_otp_material'
   | 'ecdsa_projection';
 
-export type SigningGrantClearResult =
+export type WalletSessionClearResult =
   | {
       readonly kind: 'cleared';
     }
   | {
       readonly kind: 'unavailable';
-      readonly failures: readonly SigningGrantClearFailure[];
+      readonly failures: readonly WalletSessionClearFailure[];
     };
 
-export async function clearSigningGrant(args: {
-  deps: SigningGrantReadinessDeps;
-  statusOverrides: Map<string, SigningGrantStatusOverride>;
+export async function clearWalletSession(args: {
+  deps: WalletSessionReadinessDeps;
+  statusOverrides: Map<string, WalletSessionStatusOverride>;
   walletId: WalletId;
-  signingGrantId: string;
-}): Promise<SigningGrantClearResult> {
-  const lanes = getLanesForWalletSession({
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
+}): Promise<WalletSessionClearResult> {
+  const lanes = await getLanesForWalletSession({
     deps: args.deps,
     walletId: args.walletId,
-    signingGrantId: args.signingGrantId,
+    walletSessionId: args.walletSessionId,
+    quotaId: args.quotaId,
   });
   args.statusOverrides.delete(
     walletOwnerSigningSessionStatusOverrideKey(
-      ecdsaWalletBudgetOwner(args.walletId),
-      args.signingGrantId,
-    ),
-  );
-  args.statusOverrides.delete(
-    walletOwnerSigningSessionStatusOverrideKey(
-      ed25519WalletBudgetOwner(args.walletId),
-      args.signingGrantId,
+      ed25519WalletSessionStatusOwner(args.walletId),
+      args.walletSessionId,
+      args.quotaId,
     ),
   );
   const cleared = new Set<string>();
-  const failures = new Set<SigningGrantClearFailure>();
-  const ed25519LaneKeysToClear = new Map<string, ThresholdEd25519SessionRecordKey>();
-  const ecdsaLanesToClear = new Map<string, ExactEcdsaSigningLaneIdentity>();
+  const failures = new Set<WalletSessionClearFailure>();
   for (const lane of lanes) {
-    const ed25519LaneKey = ed25519LaneKeyFromDiscoveredLane(lane);
-    if (ed25519LaneKey) {
-      ed25519LaneKeysToClear.set(
-        serializeThresholdEd25519SessionLaneKey(ed25519LaneKey),
-        ed25519LaneKey,
-      );
-    }
-    const ecdsaIdentity = ecdsaExactIdentityFromDiscoveredLane(lane);
-    if (ecdsaIdentity) {
-      ecdsaLanesToClear.set(exactSigningLaneIdentityKey(ecdsaIdentity), ecdsaIdentity);
-    }
-    if (cleared.has(lane.backingMaterialSessionId)) continue;
-    cleared.add(lane.backingMaterialSessionId);
     if (lane.backing === 'record_policy') continue;
+    const materialActivationId = String(lane.materialActivation.activationId);
+    if (cleared.has(materialActivationId)) continue;
+    cleared.add(materialActivationId);
     if (lane.backing === 'email_otp_worker') {
       try {
-        await args.deps.clearEmailOtpWarmSessionMaterial?.(lane.backingMaterialSessionId);
+        await args.deps.clearEmailOtpWarmSessionMaterial?.(lane.thresholdSessionId);
       } catch {
         failures.add('email_otp_material');
       }
       continue;
     }
-    const volatileSessionId = parseVolatileWarmSessionId(lane.backingMaterialSessionId);
-    if (!volatileSessionId) continue;
+    const thresholdSessionId = parseThresholdEd25519SessionId(lane.thresholdSessionId);
+    if (!thresholdSessionId.ok) continue;
     try {
       await args.deps.touchConfirm?.clearVolatileWarmSessionMaterial?.(
-        createClearVolatileWarmSessionMaterialCommand(volatileSessionId),
+        createClearVolatileWarmSessionMaterialCommand(thresholdSessionId.value),
       );
     } catch {
       failures.add('touch_confirm_material');
-    }
-  }
-  for (const laneKey of ed25519LaneKeysToClear.values()) {
-    clearStoredThresholdEd25519SessionRecordForLaneKey(laneKey);
-  }
-  for (const identity of ecdsaLanesToClear.values()) {
-    try {
-      args.deps.clearThresholdEcdsaSessionRecordForExactIdentity?.(identity);
-    } catch {
-      failures.add('ecdsa_projection');
     }
   }
   if (failures.size > 0) {
@@ -1493,7 +800,7 @@ function expiredEd25519SealedPolicyExpiresAtMs(args: {
   statusExpiresAtMs: number;
   nowMs: number;
 }): number {
-  const laneExpiresAtMs = Math.floor(Number(args.lane.record.expiresAtMs) || 0);
+  const laneExpiresAtMs = args.lane.runtime.expiresAtMs;
   return Math.min(
     args.nowMs,
     args.statusExpiresAtMs > 0 ? args.statusExpiresAtMs : args.nowMs,
@@ -1505,42 +812,31 @@ export async function syncSealedRefreshPolicyForLanes(args: {
   lanes: DiscoveredSigningSessionLane[];
   status: SigningSessionStatus;
   updatePolicy?: typeof updateExactSealedSessionPolicy;
-  deleteRecord?: typeof deleteExactSealedSession;
 }): Promise<void> {
   const seen = new Set<string>();
   const filterForLane = (
     lane: DiscoveredSigningSessionLane,
   ): SigningSessionSealedRecordFilter | null => {
-    if (lane.curve === 'ecdsa') {
-      const chainTarget = lane.chainTarget;
-      if (!chainTarget) return null;
-      return { authMethod: lane.source, curve: 'ecdsa', chainTarget };
-    }
     return { authMethod: lane.source, curve: 'ed25519' };
   };
   const sealedLanes = args.lanes
     .filter((lane) => lane.thresholdSessionId)
     .filter((lane) => Boolean(filterForLane(lane)))
     .filter((lane) => {
-      const laneTarget =
-        lane.curve === 'ecdsa' && lane.chainTarget
-          ? thresholdEcdsaChainTargetKey(lane.chainTarget)
-          : 'near';
-      const key = `${lane.source}:${lane.curve}:${laneTarget}:${lane.thresholdSessionId}`;
+      const key = `${lane.source}:${lane.curve}:near:${lane.thresholdSessionId}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
   if (!sealedLanes.length) return;
   const updatePolicy = args.updatePolicy;
-  const deleteRecord = args.deleteRecord;
-  if (!updatePolicy || !deleteRecord) return;
+  if (!updatePolicy) return;
   const remainingUses = Math.floor(Number(args.status.remainingUses) || 0);
   const expiresAtMs = Math.floor(Number(args.status.expiresAtMs) || 0);
   const nowMs = Date.now();
   const laneExpiresAtMs = Math.min(
     ...sealedLanes
-      .map((lane) => Math.floor(Number(lane.record.expiresAtMs) || 0))
+      .map((lane) => lane.runtime.expiresAtMs)
       .filter((value) => value > 0),
   );
   const policyExpiresAtMs =
@@ -1551,31 +847,25 @@ export async function syncSealedRefreshPolicyForLanes(args: {
         : 0;
   if (args.status.status === 'expired' || (expiresAtMs > 0 && expiresAtMs <= nowMs)) {
     await Promise.all(
-      sealedLanes.map((lane) => {
-        if (lane.curve === 'ed25519') {
-          // Expired Ed25519 material remains the exact passkey/email lane for reauthentication.
-          return updatePolicy({
-            thresholdSessionId: lane.thresholdSessionId,
-            filter: filterForLane(lane)!,
-            remainingUses,
-            expiresAtMs: expiredEd25519SealedPolicyExpiresAtMs({
-              lane,
-              statusExpiresAtMs: expiresAtMs,
-              nowMs,
-            }),
-            updatedAtMs: nowMs,
-          }).catch(() => undefined);
-        }
-        return deleteRecord(lane.thresholdSessionId, filterForLane(lane)!, {
-          deleteResolvedIdentity: false,
-        }).catch(() => undefined);
-      }),
+      sealedLanes.map((lane) =>
+        updatePolicy({
+          thresholdSessionId: lane.thresholdSessionId,
+          filter: filterForLane(lane)!,
+          remainingUses,
+          expiresAtMs: expiredEd25519SealedPolicyExpiresAtMs({
+            lane,
+            statusExpiresAtMs: expiresAtMs,
+            nowMs,
+          }),
+          updatedAtMs: nowMs,
+        }).catch(() => undefined),
+      ),
     );
     return;
   }
   if (args.status.status !== 'active' || remainingUses <= 0) {
     if (policyExpiresAtMs <= nowMs) return;
-    // Exhaustion is a budget state, not a restore-identity lifecycle event.
+    // Exhaustion is an authorization state, not a restore-identity lifecycle event.
     // Keep durable lane identity so the next command can select the exact
     // step-up auth lane after page reload or worker-memory loss.
     await Promise.all(

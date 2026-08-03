@@ -8,7 +8,6 @@ import type {
 import {
   createCloudflareDurableObjectThresholdEcdsaStores,
   createCloudflareDurableObjectThresholdEd25519Stores,
-  createCloudflareDurableObjectWalletSigningBudgetStores,
 } from '../ThresholdService/stores/CloudflareDurableObjectStore';
 import type { RouterAbSigningRuntimeBundle } from './createRouterAbSigningRuntimes';
 import {
@@ -57,15 +56,11 @@ export function createCloudflareDurableObjectRouterAbSigningRuntimes(input: {
     config: input.thresholdStore,
     logger,
   });
-  const walletBudgetStores = createCloudflareDurableObjectWalletSigningBudgetStores({
-    config: input.thresholdStore,
-    logger,
-  });
   const ecdsaStores = createCloudflareDurableObjectThresholdEcdsaStores({
     config: input.thresholdStore,
     logger,
   });
-  if (!ed25519Stores || !walletBudgetStores || !ecdsaStores) {
+  if (!ed25519Stores || !ecdsaStores) {
     throw new Error('Cloudflare D1 Router API thresholdStore must use kind: "cloudflare-do"');
   }
   const ensureReady = ensureCloudflareRouterAbSigningRuntimeReady.bind(input.auth);
@@ -76,8 +71,6 @@ export function createCloudflareDurableObjectRouterAbSigningRuntimes(input: {
   const normalSigning = new RouterAbNormalSigningRuntime({
     walletSessionStore: ed25519Stores.walletSessionStore,
     ecdsaWalletSessionStore: ecdsaStores.walletSessionStore,
-    walletBudgetSessionStore: walletBudgetStores.walletSessionStore,
-    ecdsaNormalSigningProvisioner: ecdsaStores.normalSigningProvisioner,
     config: normalSigningConfig,
   });
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({

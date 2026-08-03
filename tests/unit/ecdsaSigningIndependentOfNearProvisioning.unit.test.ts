@@ -10,8 +10,8 @@ import {
 import {
   AVAILABLE_LANES_ECDSA_TARGET as ECDSA_TARGET,
   AVAILABLE_LANES_WALLET_ID as WALLET_ID,
+  canonicalEcdsaAvailableLane,
   readAvailableLanesFixture as readAvailableLanes,
-  runtimeEcdsaAvailableLaneRecord as runtimeEcdsaRecord,
 } from './helpers/availableSigningLanes.fixtures';
 
 /**
@@ -27,17 +27,16 @@ import {
  * arguments precisely so that wiring provisioning in later fails here.
  */
 
-const RUNTIME_RECORD = runtimeEcdsaRecord({
+const CANONICAL_LANE = canonicalEcdsaAvailableLane({
   chainTarget: ECDSA_TARGET,
-  thresholdSessionId: 'threshold-session-near-pending',
-  signingGrantId: 'signing-grant-near-pending',
+  ecdsaThresholdKeyId: 'near-pending-material',
   thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
   authMethod: 'passkey',
 });
 
 /** The lane for the fixture's chain target, or null when none is available. */
 async function readEcdsaLane(): Promise<unknown> {
-  const lanes = await readAvailableLanes({ runtimeEcdsaRecords: [RUNTIME_RECORD] });
+  const lanes = await readAvailableLanes({ canonicalEcdsaLanes: [CANONICAL_LANE] });
   return lanes.ecdsa.lanesByTarget[thresholdEcdsaChainTargetKey(ECDSA_TARGET)] ?? null;
 }
 

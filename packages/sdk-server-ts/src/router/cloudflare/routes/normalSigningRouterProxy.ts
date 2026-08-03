@@ -1,9 +1,14 @@
 import { json } from '../http';
 import type { RouterAbNormalSigningRouterProxy } from '../../routerApi';
+import {
+  normalizeRouterAbInternalServiceAuthSecret,
+  ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
+} from '../../../core/ThresholdService/routerAb/internalServiceHttp';
 
 export async function proxyNormalSigningRequestToMpcRouter(input: {
   readonly request: Request;
   readonly proxy: RouterAbNormalSigningRouterProxy | null | undefined;
+  readonly body?: Record<string, unknown>;
 }): Promise<Response> {
   const proxy = input.proxy;
   if (!proxy) {
@@ -18,7 +23,19 @@ export async function proxyNormalSigningRequestToMpcRouter(input: {
   }
 
   try {
-    const upstream = await proxy.fetch(input.request.clone());
+    const headers = new Headers(input.request.headers);
+    headers.set(
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
+      normalizeRouterAbInternalServiceAuthSecret(proxy.internalServiceAuthSecret),
+    );
+    const upstreamRequest = input.body
+      ? new Request(input.request, {
+          body: JSON.stringify(input.body),
+          headers,
+        })
+      : new Request(input.request, { headers });
+    if (input.body) upstreamRequest.headers.set('content-type', 'application/json');
+    const upstream = await proxy.fetch(upstreamRequest);
     return new Response(upstream.body, {
       status: upstream.status,
       statusText: upstream.statusText,

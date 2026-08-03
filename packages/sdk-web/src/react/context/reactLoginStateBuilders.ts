@@ -1,6 +1,10 @@
 import type { WalletSession } from '@/core/types/seams';
-import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBindings';
+import {
+  buildNoCurrentWalletAuthMethod,
+  buildSelectedCurrentWalletAuthMethod,
+} from '@shared/utils/walletCapabilityBindings';
 import type { LoginState } from '../types';
+import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
 export function buildReactLoggedOutLoginState(): LoginState {
   return {
@@ -16,17 +20,26 @@ export function buildReactLoggedOutLoginState(): LoginState {
 }
 
 export function buildReactLoggedInLoginStateFromSession(session: WalletSession): LoginState | null {
-  const { login } = session;
-  const walletId = login.walletId ? String(login.walletId) : '';
-  if (!walletId) return null;
+  if (!isWalletSessionReadyForUi({ session })) return null;
+  if (session.appIdentity.kind !== 'resolved') return null;
+  const appIdentity = session.appIdentity;
+  const walletSession = session.reusableWalletSession;
+  if (walletSession.kind !== 'active' && walletSession.kind !== 'exhausted') return null;
+  const matchingAuthMethods = appIdentity.authMethods.filter(
+    (binding) => binding.kind === walletSession.authMethod,
+  );
+  if (matchingAuthMethods.length !== 1) return null;
+  const currentAuthMethod = buildSelectedCurrentWalletAuthMethod({
+    binding: matchingAuthMethods[0],
+  });
   return {
     isLoggedIn: true,
-    walletId,
-    nearAccountId: login.nearAccountId ? String(login.nearAccountId) : null,
-    nearPublicKey: login.publicKey || null,
-    currentAuthMethod: session.currentAuthMethod,
-    authMethods: session.authMethods,
-    thresholdEcdsaEthereumAddress: login.thresholdEcdsaEthereumAddress || null,
-    thresholdEcdsaPublicKeyB64u: login.thresholdEcdsaPublicKeyB64u || null,
+    walletId: String(appIdentity.walletId),
+    nearAccountId: appIdentity.nearAccountId ? String(appIdentity.nearAccountId) : null,
+    nearPublicKey: appIdentity.nearOperationalPublicKey,
+    currentAuthMethod,
+    authMethods: appIdentity.authMethods,
+    thresholdEcdsaEthereumAddress: appIdentity.thresholdEcdsaEthereumAddress,
+    thresholdEcdsaPublicKeyB64u: appIdentity.thresholdEcdsaPublicKeyB64u,
   };
 }

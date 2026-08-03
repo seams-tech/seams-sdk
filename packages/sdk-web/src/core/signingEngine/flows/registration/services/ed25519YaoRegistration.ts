@@ -7,11 +7,9 @@ import {
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoBytes32V1,
 } from '@shared/utils/routerAbEd25519Yao';
-import type {
-  NearEd25519YaoSigningCapability,
-  NearResolvedEd25519SigningSessionState,
-} from '@/core/signingEngine/interfaces/near';
+import type { NearEd25519YaoOperationMaterial } from '@/core/signingEngine/interfaces/near';
 import { type Ed25519YaoActiveClientIdentityV1 } from '@/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
+import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import {
   RouterAbEd25519YaoClientV1,
   type RouterAbEd25519YaoActiveClientV1,
@@ -30,8 +28,8 @@ export type ProductEd25519YaoRegistrationRequestInputV1 = {
 export type ProductEd25519YaoRegistrationFailureV1 = RouterAbEd25519YaoRegistrationFailureV1;
 
 export type ProductEd25519YaoCapabilityActivationPortV1 = {
-  activateVerifiedNearEd25519YaoSigningCapability(
-    capability: NearEd25519YaoSigningCapability,
+  activateVerifiedNearEd25519YaoMaterial(
+    material: NearEd25519YaoOperationMaterial,
   ): Promise<Ed25519YaoActiveClientIdentityV1>;
 };
 
@@ -55,24 +53,40 @@ export type ProductEd25519YaoActivationReferenceV1 = {
   session_id: RouterAbEd25519YaoBytes32V1;
 };
 
-export type ProductEd25519YaoPendingLocalMaterialSourceV1 =
+export type ProductEd25519YaoBrowserMaterialPersistencePortV1 = {
+  persist(
+    activeClient: RouterAbEd25519YaoSealableActiveClientV1,
+  ): Promise<RouterAbEd25519YaoActiveClientMetadataV1>;
+};
+
+export type ProductEd25519YaoRegistrationMaterialPersistenceV1 =
   | {
-      kind: 'wasm_activated_client';
-      activeClient: RouterAbEd25519YaoSealableActiveClientV1;
+      kind: 'browser_owned';
+      persistence: ProductEd25519YaoBrowserMaterialPersistencePortV1;
+      walletId?: never;
+      nearAccountId?: never;
+      nearEd25519SigningKeyId?: never;
+      signerSlot?: never;
+      signingRootVersion?: never;
+      expectedOperationalPublicKey?: never;
     }
   | {
       kind: 'worker_owned';
-      activeClient?: never;
+      persistence?: never;
+      walletId: string;
+      nearAccountId: string;
+      nearEd25519SigningKeyId: string;
+      signerSlot: number;
+      signingRootVersion: string;
+      expectedOperationalPublicKey: string;
     };
 
 export interface ProductEd25519YaoPendingRegistrationPortV1 {
   publicKey(): string;
   activationReference(): ProductEd25519YaoActivationReferenceV1;
-  localMaterialSource(): ProductEd25519YaoPendingLocalMaterialSourceV1;
-  commit(args: {
-    activation: ProductEd25519YaoCapabilityActivationPortV1;
-    walletSessionState: NearResolvedEd25519SigningSessionState;
-  }): Promise<Ed25519YaoActiveClientIdentityV1>;
+  persistRegistrationMaterial(
+    args: ProductEd25519YaoRegistrationMaterialPersistenceV1,
+  ): Promise<RouterAbEd25519YaoActiveClientMetadataV1>;
   dispose(): Promise<void>;
 }
 
@@ -83,10 +97,17 @@ type PendingRegistrationLifecycleV1 =
       operationalPublicKey: string;
     }
   | {
-      kind: 'committed';
-      identity: Ed25519YaoActiveClientIdentityV1;
+      kind: 'persisting_material';
+      result: Promise<RouterAbEd25519YaoActiveClientMetadataV1>;
       operationalPublicKey: string;
       activeClient?: never;
+    }
+  | {
+      kind: 'material_persisted';
+      metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+      operationalPublicKey: string;
+      activeClient?: never;
+      result?: never;
     }
   | {
       kind: 'disposed';
@@ -105,8 +126,9 @@ function requireActiveClient(
   switch (lifecycle.kind) {
     case 'active_uncommitted':
       return lifecycle;
-    case 'committed':
-      throw new Error('Product Ed25519 Yao registration is already committed');
+    case 'persisting_material':
+    case 'material_persisted':
+      throw new Error('Product Ed25519 Yao registration material is already persisted');
     case 'disposed':
       throw new Error('Product Ed25519 Yao registration is disposed');
     default:
@@ -153,7 +175,8 @@ export class PendingProductEd25519YaoRegistrationV1 implements ProductEd25519Yao
   publicKey(): string {
     switch (this.lifecycle.kind) {
       case 'active_uncommitted':
-      case 'committed':
+      case 'persisting_material':
+      case 'material_persisted':
         return this.lifecycle.operationalPublicKey;
       case 'disposed':
         throw new Error('Product Ed25519 Yao registration is disposed');
@@ -172,30 +195,45 @@ export class PendingProductEd25519YaoRegistrationV1 implements ProductEd25519Yao
     };
   }
 
-  localMaterialSource(): ProductEd25519YaoPendingLocalMaterialSourceV1 {
-    return {
-      kind: 'wasm_activated_client',
-      activeClient: requireActiveClient(this.lifecycle).activeClient,
-    };
-  }
-
-  async commit(args: {
-    activation: ProductEd25519YaoCapabilityActivationPortV1;
-    walletSessionState: NearResolvedEd25519SigningSessionState;
-  }): Promise<Ed25519YaoActiveClientIdentityV1> {
-    const current = requireActiveClient(this.lifecycle);
-    const capability: NearEd25519YaoSigningCapability = {
-      activeClient: current.activeClient,
-      walletSessionState: args.walletSessionState,
-    };
-    const identity =
-      await args.activation.activateVerifiedNearEd25519YaoSigningCapability(capability);
-    this.lifecycle = {
-      kind: 'committed',
-      identity,
-      operationalPublicKey: current.operationalPublicKey,
-    };
-    return identity;
+  async persistRegistrationMaterial(
+    args: ProductEd25519YaoRegistrationMaterialPersistenceV1,
+  ): Promise<RouterAbEd25519YaoActiveClientMetadataV1> {
+    switch (this.lifecycle.kind) {
+      case 'active_uncommitted': {
+        if (args.kind !== 'browser_owned') {
+          throw new Error('Passkey Ed25519 registration material must remain browser-owned');
+        }
+        const current = this.lifecycle;
+        try {
+          const result = args.persistence.persist(current.activeClient);
+          this.lifecycle = {
+            kind: 'persisting_material',
+            result,
+            operationalPublicKey: current.operationalPublicKey,
+          };
+          const metadata = await result;
+          current.activeClient.dispose();
+          this.lifecycle = {
+            kind: 'material_persisted',
+            metadata,
+            operationalPublicKey: current.operationalPublicKey,
+          };
+          return metadata;
+        } catch (error) {
+          current.activeClient.dispose();
+          this.lifecycle = { kind: 'disposed' };
+          throw error;
+        }
+      }
+      case 'persisting_material':
+        return await this.lifecycle.result;
+      case 'material_persisted':
+        return this.lifecycle.metadata;
+      case 'disposed':
+        throw new Error('Product Ed25519 Yao registration is disposed');
+      default:
+        return assertNeverLifecycle(this.lifecycle);
+    }
   }
 
   async dispose(): Promise<void> {
@@ -204,7 +242,10 @@ export class PendingProductEd25519YaoRegistrationV1 implements ProductEd25519Yao
         this.lifecycle.activeClient.dispose();
         this.lifecycle = { kind: 'disposed' };
         return;
-      case 'committed':
+      case 'persisting_material':
+        await this.lifecycle.result;
+        return;
+      case 'material_persisted':
       case 'disposed':
         return;
       default:

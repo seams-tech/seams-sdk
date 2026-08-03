@@ -1,8 +1,4 @@
 import {
-  requireEvmFamilySigningKeySlotId,
-  type EvmFamilySigningKeySlotId,
-} from '@shared/signing-lanes';
-import {
   executeWorkerOperation,
   type WorkerOperationContext,
 } from '../../workerManager/executeWorkerOperation';
@@ -34,8 +30,6 @@ import type {
   FinalizeRouterAbEcdsaExplicitExportRequestV1,
   FinalizeRouterAbEcdsaExplicitExportResultV1,
   RehydrateEcdsaRoleLocalSigningMaterialResultV1,
-  VerifyRouterAbEcdsaRefreshClientProofsRequestV1,
-  VerifyRouterAbEcdsaRefreshClientProofsResultV1,
 } from '../../workerManager/ecdsaClientWorkerChannels';
 import {
   parseEcdsaRoleLocalPersistedMaterialRef,
@@ -43,6 +37,15 @@ import {
   type EcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalWorkerHandle,
 } from '../../session/keyMaterialBrands';
+import {
+  mpcMaterialActivationRefsEqual,
+  parseMpcMaterialActivationRef,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
+import {
+  parseWalletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import type {
   BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
   BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
@@ -52,12 +55,7 @@ import type {
   PrepareEcdsaClientBootstrapCommand as GeneratedPrepareEcdsaClientBootstrapCommand,
   PrepareEcdsaClientBootstrapOutput as GeneratedPrepareEcdsaClientBootstrapOutput,
 } from '@/core/platform/generated/signerCoreCommands';
-import {
-  thresholdEcdsaChainTargetFromRequest,
-  type ThresholdEcdsaChainTarget,
-  toWalletId,
-  type WalletId,
-} from '../../interfaces/ecdsaChainTarget';
+import { toWalletId, type WalletId } from '../../interfaces/ecdsaChainTarget';
 import {
   toEcdsaDerivationSigningRootId,
   toEcdsaDerivationSigningRootVersion,
@@ -77,6 +75,11 @@ import type {
   CreateRouterAbEcdsaRegistrationCeremonyResultV1,
   FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
   FinalizeRouterAbEcdsaRegistrationActivationResultV1,
+  PersistInitialCanonicalEcdsaActivationRequestV1,
+  PersistInitialCanonicalEcdsaActivationResultV1,
+  ReconcileCanonicalEcdsaActivationRequestV1,
+  ReconcileCanonicalEcdsaActivationResultV1,
+  ReconcileCanonicalEcdsaActivationWorkerResultV1,
   VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
   VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
 } from '../../routerAb/ecdsaDerivation/clientCeremony';
@@ -156,66 +159,11 @@ export type ThresholdEcdsaDerivationStableKeyContext = {
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
-  signingGrantId?: never;
   thresholdSessionId?: never;
-};
-
-declare const serverPlannedEcdsaDerivationContextBrand: unique symbol;
-
-export type ServerPlannedEcdsaDerivationContext = ThresholdEcdsaDerivationStableKeyContext & {
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  readonly [serverPlannedEcdsaDerivationContextBrand]: true;
 };
 
 export type ThresholdEcdsaDerivationRoleLocalClientContext =
   ThresholdEcdsaDerivationStableKeyContext;
-
-function readThresholdEcdsaDerivationChainTarget(value: unknown): ThresholdEcdsaChainTarget {
-  if (typeof value !== 'object' || value === null) {
-    throw new Error('[email-otp-derivation] chainTarget is required');
-  }
-  const record = value as Record<string, unknown>;
-  return thresholdEcdsaChainTargetFromRequest({
-    chain: record.chain,
-    kind: record.kind,
-    namespace: record.namespace,
-    chainId: record.chainId,
-    networkSlug: record.networkSlug,
-  });
-}
-
-function buildThresholdEcdsaDerivationStableKeyContext(input: {
-  walletId: unknown;
-  ecdsaThresholdKeyId: unknown;
-  signingRootId: unknown;
-  signingRootVersion: unknown;
-}): ThresholdEcdsaDerivationStableKeyContext {
-  return {
-    walletId: toWalletId(input.walletId),
-    ecdsaThresholdKeyId: toEcdsaDerivationThresholdKeyId(input.ecdsaThresholdKeyId),
-    signingRootId: toEcdsaDerivationSigningRootId(input.signingRootId),
-    signingRootVersion: toEcdsaDerivationSigningRootVersion(input.signingRootVersion),
-  };
-}
-
-export function parseServerPlannedEcdsaDerivationContext(input: {
-  walletId: unknown;
-  evmFamilySigningKeySlotId: unknown;
-  chainTarget: unknown;
-  ecdsaThresholdKeyId: unknown;
-  signingRootId: unknown;
-  signingRootVersion: unknown;
-}): ServerPlannedEcdsaDerivationContext {
-  return {
-    ...buildThresholdEcdsaDerivationStableKeyContext(input),
-    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
-      input.evmFamilySigningKeySlotId,
-      'evmFamilySigningKeySlotId',
-    ),
-    chainTarget: readThresholdEcdsaDerivationChainTarget(input.chainTarget),
-  } as ServerPlannedEcdsaDerivationContext;
-}
 
 export async function prepareEcdsaClientBootstrapCommandWasm(input: {
   command: GeneratedPrepareEcdsaClientBootstrapCommand;
@@ -326,6 +274,63 @@ export async function finalizeRouterAbEcdsaRegistrationActivationWasm(input: {
   return response.payload;
 }
 
+export async function persistInitialCanonicalEcdsaActivationWasm(input: {
+  command: PersistInitialCanonicalEcdsaActivationRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<PersistInitialCanonicalEcdsaActivationResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.PersistInitialCanonicalEcdsaActivationSuccess
+  ) {
+    throw new Error('Initial canonical ECDSA activation persistence failed');
+  }
+  return response.payload;
+}
+
+export async function reconcileCanonicalEcdsaActivationWasm(input: {
+  command: ReconcileCanonicalEcdsaActivationRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<ReconcileCanonicalEcdsaActivationResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.ReconcileCanonicalEcdsaActivation,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.ReconcileCanonicalEcdsaActivationSuccess
+  ) {
+    throw new Error('Canonical ECDSA activation reconciliation failed');
+  }
+  const result: ReconcileCanonicalEcdsaActivationWorkerResultV1 = response.payload;
+  if (result.kind !== 'canonical_ecdsa_activation_committed_finalization_required_v1') {
+    return result;
+  }
+  const activation = await finalizeRouterAbEcdsaRegistrationActivationWasm({
+    workerCtx: input.workerCtx,
+    command: {
+      kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+      journalId: result.journalId,
+      activationReceipt: result.activationReceipt,
+    },
+  });
+  return {
+    kind: 'canonical_ecdsa_activation_reconciliation_finalized_v1',
+    activation,
+  };
+}
+
 export async function closeRouterAbEcdsaRegistrationCeremonyWasm(input: {
   command: CloseRouterAbEcdsaRegistrationCeremonyRequestV1;
   workerCtx: WorkerOperationContext;
@@ -410,27 +415,6 @@ export async function closeRouterAbEcdsaPostRegistrationCeremonyWasm(input: {
   return response.payload;
 }
 
-export async function verifyRouterAbEcdsaRefreshClientProofsWasm(input: {
-  command: VerifyRouterAbEcdsaRefreshClientProofsRequestV1;
-  workerCtx: WorkerOperationContext;
-}): Promise<VerifyRouterAbEcdsaRefreshClientProofsResultV1> {
-  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
-    workerCtx: input.workerCtx,
-    request: {
-      type: EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRefreshClientProofs,
-      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
-      payload: input.command,
-    },
-  });
-  if (
-    response.type !==
-    EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaRefreshClientProofsSuccess
-  ) {
-    throw new Error('Router A/B ECDSA refresh client proof verification failed');
-  }
-  return response.payload;
-}
-
 export async function buildEcdsaRoleLocalExportArtifactCommandWasm(input: {
   command: GeneratedBuildEcdsaRoleLocalExportArtifactCommand;
   workerCtx: WorkerOperationContext;
@@ -493,31 +477,43 @@ function ecdsaRoleLocalWorkerHandleMatchesPersistedRef(
   );
 }
 
-export type RehydrateEcdsaRoleLocalSigningMaterialWasmResult =
+export type OpenEcdsaRoleLocalSigningMaterialWasmResult =
   | {
       readonly ok: true;
       readonly liveHandle: EcdsaRoleLocalWorkerHandle;
+      readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
       readonly reason?: never;
     }
   | {
       readonly ok: false;
       readonly reason: 'missing' | 'expired' | 'binding_mismatch' | 'corrupt';
       readonly liveHandle?: never;
+      readonly materialRef?: never;
     };
 
-export async function rehydrateEcdsaRoleLocalSigningMaterialWasm(input: {
-  materialRef: EcdsaRoleLocalPersistedMaterialRef;
+export async function openEcdsaRoleLocalSigningMaterialWasm(input: {
+  authority: WalletAuthAuthorityRef;
+  materialActivation: MpcMaterialActivationRef;
   workerCtx: WorkerOperationContext;
-}): Promise<RehydrateEcdsaRoleLocalSigningMaterialWasmResult> {
-  const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(input.materialRef);
+}): Promise<OpenEcdsaRoleLocalSigningMaterialWasmResult> {
+  const authority = parseWalletAuthAuthorityRef(input.authority);
+  if (!authority) {
+    throw new Error('ECDSA role-local signing material authority is invalid');
+  }
+  const materialActivationResult = parseMpcMaterialActivationRef(input.materialActivation);
+  if (!materialActivationResult.ok) {
+    throw new Error(materialActivationResult.error.message);
+  }
+  const materialActivation = materialActivationResult.value;
   const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
     workerCtx: input.workerCtx,
     request: {
       type: EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial,
       timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
       payload: {
-        kind: 'rehydrate_ecdsa_role_local_signing_material_v1',
-        materialRef,
+        kind: 'open_ecdsa_role_local_signing_material_v1',
+        authority,
+        materialActivation,
       },
     },
   });
@@ -525,7 +521,7 @@ export async function rehydrateEcdsaRoleLocalSigningMaterialWasm(input: {
     response.type !==
     EcdsaDerivationClientCustomResponseType.RehydrateEcdsaRoleLocalSigningMaterialSuccess
   ) {
-    throw new Error('RehydrateEcdsaRoleLocalSigningMaterial failed');
+    throw new Error('OpenEcdsaRoleLocalSigningMaterial failed');
   }
   const payload: RehydrateEcdsaRoleLocalSigningMaterialResultV1 = response.payload;
   switch (payload.kind) {
@@ -534,7 +530,16 @@ export async function rehydrateEcdsaRoleLocalSigningMaterialWasm(input: {
         ok: false,
         reason: payload.reason,
       };
-    case 'ecdsa_role_local_signing_material_rehydrated_v1': {
+    case 'ecdsa_role_local_signing_material_opened_v1': {
+      const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(payload.materialRef);
+      if (
+        !mpcMaterialActivationRefsEqual(
+          materialActivation,
+          materialRef.materialActivation,
+        )
+      ) {
+        throw new Error('ECDSA role-local signing material open changed its activation identity');
+      }
       const liveHandle = parseEcdsaRoleLocalWorkerHandle(payload.liveHandle);
       if (!ecdsaRoleLocalWorkerHandleMatchesPersistedRef(materialRef, liveHandle)) {
         throw new Error('ECDSA role-local signing material hydration changed its identity');
@@ -542,6 +547,7 @@ export async function rehydrateEcdsaRoleLocalSigningMaterialWasm(input: {
       return {
         ok: true,
         liveHandle,
+        materialRef,
       };
     }
     default: {
@@ -574,8 +580,17 @@ function asEcdsaDerivationPresignProgress(
 
 export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm(input: {
   materialHandle: string;
-  durableMaterialRef: string;
-  expectedBindingDigest: string;
+  material:
+    | {
+        kind: 'persisted';
+        materialRef: EcdsaRoleLocalPersistedMaterialRef;
+        expectedBindingDigest?: never;
+      }
+    | {
+        kind: 'runtime_loaded';
+        expectedBindingDigest: string;
+        materialRef?: never;
+      };
   sessionId: string;
   groupPublicKey33: Uint8Array;
   materialExpiresAtMs: number;
@@ -592,8 +607,7 @@ export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandl
         authority: {
           kind: 'role_local_derivation_handle',
           materialHandle: input.materialHandle,
-          durableMaterialRef: input.durableMaterialRef,
-          expectedBindingDigest: input.expectedBindingDigest,
+          material: input.material,
         },
         sessionId: input.sessionId,
         groupPublicKey33: groupPublicKey33.buffer,
@@ -613,7 +627,7 @@ export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandl
 }
 
 export async function thresholdEcdsaEmailOtpPresignSessionInitWasm(input: {
-  emailOtpSessionId: string;
+  thresholdSessionId: string;
   sessionId: string;
   groupPublicKey33: Uint8Array;
   materialExpiresAtMs: number;
@@ -633,7 +647,7 @@ export async function thresholdEcdsaEmailOtpPresignSessionInitWasm(input: {
       payload: {
         authority: {
           kind: 'email_otp_worker_session',
-          emailOtpSessionId: input.emailOtpSessionId,
+          thresholdSessionId: input.thresholdSessionId,
         },
         sessionId: input.sessionId,
         groupPublicKey33: groupPublicKey33.buffer,

@@ -1,16 +1,17 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
-import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
-import { makeThresholdEcdsaSessionStoreDeps } from './helpers/thresholdEcdsaSessionStoreDeps.fixtures';
-import { seedEmailOtpEcdsaSealedRestorePayload } from './helpers/sealedSigningSession.fixtures';
-import { upsertThresholdEcdsaSessionFromBootstrap } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
-import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  parseEcdsaRoleLocalBindingDigest,
-  parseEcdsaRoleLocalDurableMaterialRef,
-  parseEcdsaRoleLocalMaterialHandle,
-} from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
+  buildPasskeyEcdsaSealedRuntimeRecordFixture,
+  buildPasskeyEd25519SealedSessionRecordFixture,
+  seedEmailOtpEcdsaSealedRestorePayload,
+} from './helpers/sealedSigningSession.fixtures';
+import {
+  buildMpcMaterialActivationRefFixture,
+  buildEcdsaRoleLocalPersistedMaterialRefFixture,
+  buildWalletAuthAuthorityRefFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
+import { canonicalEcdsaSealedRuntimeFixture } from './helpers/ecdsaOperationStepUp.fixtures';
 
 const IMPORT_PATHS = {
   indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
@@ -25,7 +26,6 @@ const ECDSA_RESTORE_BOOTSTRAP = createThresholdEcdsaBootstrapFixture({
   keyHandle: 'key-handle-ecdsa',
   ecdsaThresholdKeyId: 'ecdsa-threshold-key-sealed-store',
   relayerKeyId: 'relayer-key',
-  sessionKind: 'cookie',
   signingRootId: 'sealed-store:local',
   signingRootVersion: 'v1',
   ethereumAddress: `0x${'33'.repeat(20)}`,
@@ -38,15 +38,23 @@ if (ECDSA_RESTORE_BINDING?.materialKind !== 'role_local_worker_handle') {
   throw new Error('expected worker-owned role-local ECDSA sealed-session fixture');
 }
 const ECDSA_RESTORE_PUBLIC_FACTS = ECDSA_RESTORE_BINDING.publicFacts;
+const ECDSA_RESTORE_MATERIAL_REF = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+  durableMaterialRef: 'role-local:sealed-store-fixture',
+  bindingDigest: ECDSA_RESTORE_PUBLIC_FACTS.contextBinding32B64u,
+  label: 'sealed-store-fixture',
+});
+const ECDSA_RESTORE_AUTHORITY = buildWalletAuthAuthorityRefFixture({
+  walletId: 'sealed-store.testnet',
+  label: 'sealed-store-fixture',
+});
 
 const ECDSA_RESTORE = {
   chainTarget: ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.chainTarget,
   source: 'manual-bootstrap',
-  evmFamilySigningKeySlotId: ECDSA_RESTORE_BOOTSTRAP.keygen.evmFamilySigningKeySlotId,
-  roleLocalDurableMaterialRef: 'role-local:sealed-store-fixture',
+  authority: ECDSA_RESTORE_AUTHORITY,
+  roleLocalMaterialRef: ECDSA_RESTORE_MATERIAL_REF,
   rpId: 'wallet.example.localhost',
   credentialIdB64u: 'passkey-ecdsa-credential',
-  sessionKind: 'cookie',
   signingRootId: ECDSA_RESTORE_PUBLIC_FACTS.signingRootId,
   signingRootVersion: ECDSA_RESTORE_PUBLIC_FACTS.signingRootVersion,
   keyHandle: ECDSA_RESTORE_BOOTSTRAP.thresholdEcdsaKeyRef.keyHandle,
@@ -64,6 +72,7 @@ const ECDSA_RESTORE = {
 } as const;
 
 const EMAIL_OTP_EMAIL_HASH_HEX = 'email-otp-email-hash';
+const RETIRED_AUTHORIZATION_IDENTITY_FIELD = ['signing', 'Grant', 'Id'].join('');
 
 const EMAIL_OTP_ECDSA_RESTORE = seedEmailOtpEcdsaSealedRestorePayload();
 
@@ -73,7 +82,6 @@ const ED25519_RESTORE_BASE = {
   rpId: 'wallet.example.localhost',
   relayerKeyId: 'relayer-key',
   participantIds: [1, 2, 3],
-  sessionKind: 'cookie',
   signerSlot: 1,
   routerAbNormalSigning: {
     kind: 'router_ab_ed25519_normal_signing_v1',
@@ -84,6 +92,7 @@ const ED25519_RESTORE_BASE = {
 const PASSKEY_ED25519_RESTORE = {
   ...ED25519_RESTORE_BASE,
   credentialIdB64u: 'passkey-credential-ed25519',
+  materialActivation: buildMpcMaterialActivationRefFixture('sealed-store-ed25519-passkey'),
 } as const;
 
 const EMAIL_OTP_ED25519_RESTORE = {
@@ -91,8 +100,7 @@ const EMAIL_OTP_ED25519_RESTORE = {
   provider: 'google',
   providerSubjectId: 'email-otp-subject',
   emailHashHex: EMAIL_OTP_EMAIL_HASH_HEX,
-  sessionKind: 'jwt',
-  walletSessionJwt: 'threshold-session-jwt',
+  materialActivation: buildMpcMaterialActivationRefFixture('sealed-store-ed25519-email'),
 } as const;
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
@@ -139,95 +147,116 @@ test.describe('signing session sealed store', () => {
     );
   });
 
-  test('preserves an expired active ECDSA anchor for the next unlock', async ({ page }) => {
-    const walletId = toWalletId('expired-anchor.testnet');
-    const chainTarget = testEcdsaChainTarget('tempo');
-    const store = makeThresholdEcdsaSessionStoreDeps({ exportArtifactsByLane: new Map() });
-    const fixtureBootstrap = createThresholdEcdsaBootstrapFixture({
-      nearAccountId: walletId,
-      chain: 'tempo',
-      expiresAtMs: Date.now() + 2_000,
-      remainingUses: 3,
+  test('retires reusable authorization while preserving exact sealed ECDSA material', async ({
+    page,
+  }) => {
+    const { fixture } = await canonicalEcdsaSealedRuntimeFixture('passkey');
+    const sourceRecord = buildPasskeyEcdsaSealedRuntimeRecordFixture({
+      manifest: fixture.manifest,
     });
-    const fixtureBinding = fixtureBootstrap.thresholdEcdsaKeyRef.backendBinding;
-    if (fixtureBinding?.materialKind !== 'role_local_worker_handle') {
-      throw new Error('expected role-local worker fixture');
-    }
-    const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef('role-local:expired-anchor');
-    const bootstrap = {
-      ...fixtureBootstrap,
-      thresholdEcdsaKeyRef: {
-        ...fixtureBootstrap.thresholdEcdsaKeyRef,
-        backendBinding: {
-          materialKind: 'role_local_worker_handle' as const,
-          relayerKeyId: fixtureBinding.relayerKeyId,
-          clientVerifyingShareB64u: fixtureBinding.clientVerifyingShareB64u,
-          roleLocalMaterialHandle: {
-            kind: 'ecdsa_role_local_worker_handle_v1' as const,
-            materialHandle: parseEcdsaRoleLocalMaterialHandle('role-local:expired-anchor'),
-            bindingDigest: parseEcdsaRoleLocalBindingDigest(
-              fixtureBinding.publicFacts.contextBinding32B64u,
-            ),
-            durableMaterialRef,
-          },
-          publicFacts: fixtureBinding.publicFacts,
-          authMethod: fixtureBinding.authMethod,
-        },
-      },
-    };
-    const runtimeRecord = upsertThresholdEcdsaSessionFromBootstrap(store, {
-      purpose: 'transaction_signing',
-      walletId,
-      chainTarget,
-      bootstrap,
-      source: 'registration',
-    });
-    const persistedRecord = {
-      ...runtimeRecord,
-      roleLocalDurableMaterialRef: durableMaterialRef,
-      expiresAtMs: Date.now() + 2_000,
-      updatedAtMs: Date.now(),
-    };
-
     const result = await page.evaluate(
-      async ({ paths, record, walletId: rawWalletId, chainTarget: rawChainTarget }) => {
+      async ({ paths, source }) => {
         const mod = await import(paths.sealedSessionStore);
-        await mod.clearAllSealedSessions();
-        await mod.persistActivePasskeyEcdsaReauthAnchor(record);
-        await new Promise((resolve) => setTimeout(resolve, 2_100));
-        const records = await mod.listEcdsaSealedSessionsForWallet({
-          walletId: rawWalletId,
-          filter: {
+        const now = Date.now();
+        const cases = [
+          { expiresAtMs: now - 1, remainingUses: 3 },
+          { expiresAtMs: now + 60_000, remainingUses: 0 },
+          { expiresAtMs: now - 1, remainingUses: 0 },
+        ] as const;
+        const outcomes = [];
+        for (const lifecycle of cases) {
+          await mod.clearAllSealedSessions();
+          await mod.writeExactSealedSession(source);
+          const thresholdSessionId = source.thresholdSessionIds.ecdsa;
+          await mod.updateExactSealedSessionPolicy({
+            thresholdSessionId,
+            filter: {
+              authMethod: 'passkey',
+              curve: 'ecdsa',
+              chainTarget: source.ecdsaRestore.chainTarget,
+            },
+            expiresAtMs: lifecycle.expiresAtMs,
+            remainingUses: lifecycle.remainingUses,
+            updatedAtMs: now + 1,
+          });
+          const exact = await mod.readExactSealedSession(thresholdSessionId, {
             authMethod: 'passkey',
             curve: 'ecdsa',
-          },
-        });
-        const matching = records.find(
-          (candidate: any) =>
-            candidate.ecdsaRestore?.chainTarget?.kind === rawChainTarget.kind &&
-            candidate.ecdsaRestore?.chainTarget?.chainId === rawChainTarget.chainId,
-        );
-        return matching
-          ? {
-              state: matching.state,
-              retirement: matching.retirement,
-              publicCapability: matching.ecdsaRestore.publicCapability,
-            }
-          : null;
+            chainTarget: source.ecdsaRestore.chainTarget,
+          });
+          const records = await mod.listEcdsaSealedSessionsForWallet({
+            walletId: source.walletId,
+            filter: { authMethod: 'passkey', curve: 'ecdsa' },
+          });
+          const inactive = records.find(
+            (candidate: { recordKind?: string }) =>
+              candidate.recordKind === 'ecdsa_inactive_sealed_material_v1',
+          );
+          if (!inactive) {
+            throw new Error('expected inactive ECDSA sealed material');
+          }
+          outcomes.push({
+            exact,
+            authorizationRetirementReason: inactive.authorizationRetirementReason,
+            sealedSecretB64u: inactive.sealedSecretB64u,
+            keyVersion: inactive.keyVersion,
+            groupId: inactive.groupId,
+            materialActivation: inactive.ecdsaRestore.roleLocalMaterialRef.materialActivation,
+            hasThresholdSessionIds: 'thresholdSessionIds' in inactive,
+            hasWalletSessionJwt: 'walletSessionJwt' in inactive.ecdsaRestore,
+            hasSessionKind: 'sessionKind' in inactive.ecdsaRestore,
+            hasAllowance: 'remainingUses' in inactive || 'expiresAtMs' in inactive,
+          });
+          await mod.writeExactSealedSession(source);
+          const reactivated = await mod.listEcdsaSealedSessionsForWallet({
+            walletId: source.walletId,
+            filter: { authMethod: 'passkey', curve: 'ecdsa' },
+          });
+          if (reactivated.length !== 1 || 'recordKind' in reactivated[0]) {
+            throw new Error('expected atomic inactive-to-current replacement');
+          }
+        }
+        return outcomes;
       },
-      {
-        paths: IMPORT_PATHS,
-        record: persistedRecord,
-        walletId,
-        chainTarget,
-      },
+      { paths: IMPORT_PATHS, source: sourceRecord },
     );
 
-    expect(result).toMatchObject({
-      state: 'expired',
-      retirement: 'expired',
-      publicCapability: runtimeRecord.ecdsaRoleLocalPublicFacts.publicCapability,
-    });
+    expect(result).toEqual([
+      expect.objectContaining({
+        exact: null,
+        authorizationRetirementReason: 'expired',
+        sealedSecretB64u: sourceRecord.sealedSecretB64u,
+        keyVersion: sourceRecord.keyVersion,
+        groupId: sourceRecord.groupId,
+        materialActivation: sourceRecord.ecdsaRestore.roleLocalMaterialRef.materialActivation,
+        hasThresholdSessionIds: false,
+        hasWalletSessionJwt: false,
+        hasSessionKind: false,
+        hasAllowance: false,
+      }),
+      expect.objectContaining({
+        exact: null,
+        authorizationRetirementReason: 'exhausted',
+        sealedSecretB64u: sourceRecord.sealedSecretB64u,
+        materialActivation: sourceRecord.ecdsaRestore.roleLocalMaterialRef.materialActivation,
+        hasThresholdSessionIds: false,
+        hasWalletSessionJwt: false,
+        hasSessionKind: false,
+        hasAllowance: false,
+      }),
+      expect.objectContaining({
+        exact: null,
+        authorizationRetirementReason: 'expired',
+        sealedSecretB64u: sourceRecord.sealedSecretB64u,
+        keyVersion: sourceRecord.keyVersion,
+        groupId: sourceRecord.groupId,
+        materialActivation: sourceRecord.ecdsaRestore.roleLocalMaterialRef.materialActivation,
+        hasThresholdSessionIds: false,
+        hasWalletSessionJwt: false,
+        hasSessionKind: false,
+        hasAllowance: false,
+      }),
+    ]);
   });
 
   test('writes shamir3pass records to IndexedDB without persisting plaintext secret or JWT auth', async ({
@@ -237,12 +266,10 @@ test.describe('signing session sealed store', () => {
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
         const thresholdSessionId = 'sess-sealed-1';
-        const signingGrantId = 'wallet-sess-sealed-1';
         await mod.clearAllSealedSessions();
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId,
-            signingGrantId,
             thresholdSessionIds: { ecdsa: thresholdSessionId },
             curve: 'ecdsa',
             authMethod: 'passkey',
@@ -351,16 +378,13 @@ test.describe('signing session sealed store', () => {
     expect(result.rawHasJwt).toBe(false);
   });
 
-  test('accepts Router A/B ECDSA derivation Wallet Session JWTs in passkey sealed restore records', async ({
-    page,
-  }) => {
+  test('rejects Wallet Session bearer fields in sealed restore records', async ({ page }) => {
     const walletId = 'sealed-store-router-ab.testnet';
     const walletSessionJwt = jwtWithPayload({
       kind: 'router_ab_ecdsa_derivation_wallet_session_v1',
       sub: walletId,
       walletId,
       thresholdSessionId: 'router-ab-ecdsa-session',
-      signingGrantId: 'router-ab-wallet-session',
       keyScope: 'evm-family',
       keyHandle: ECDSA_RESTORE.keyHandle,
       relayerKeyId: ECDSA_RESTORE.relayerKeyId,
@@ -375,7 +399,6 @@ test.describe('signing session sealed store', () => {
         await mod.clearAllSealedSessions();
         const record = mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'router-ab-ecdsa-session',
-          signingGrantId: 'router-ab-wallet-session',
           thresholdSessionIds: { ecdsa: 'router-ab-ecdsa-session' },
           curve: 'ecdsa',
           authMethod: 'passkey',
@@ -394,25 +417,22 @@ test.describe('signing session sealed store', () => {
           remainingUses: 3,
           updatedAtMs: Date.now(),
         });
-        if (record) {
-          await mod.writeExactSealedSession(record);
-        }
         return {
           built: Boolean(record),
-          persisted: Boolean(
-            await mod.readExactSealedSession('router-ab-ecdsa-session', {
-              authMethod: 'passkey',
-              curve: 'ecdsa',
-              chain: 'tempo',
-              chainTarget: ECDSA_RESTORE.chainTarget,
-            }),
-          ),
+          persisted: record
+            ? await mod.readExactSealedSession('router-ab-ecdsa-session', {
+                authMethod: 'passkey',
+                curve: 'ecdsa',
+                chain: 'tempo',
+                chainTarget: ECDSA_RESTORE.chainTarget,
+              })
+            : null,
         };
       },
       { paths: IMPORT_PATHS, walletId, walletSessionJwt },
     );
 
-    expect(result).toEqual({ built: true, persisted: true });
+    expect(result).toEqual({ built: false, persisted: null });
   });
 
   test('fails closed on malformed plaintext record payloads', async ({ page }) => {
@@ -445,7 +465,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'passkey',
           secretKind: 'signing_session_secret32',
           storeKey: `plaintext:${thresholdSessionId}:passkey:ecdsa`,
-          signingGrantId: thresholdSessionId,
+          [['signing', 'Grant', 'Id'].join('')]: thresholdSessionId,
           thresholdSessionIds: { ecdsa: thresholdSessionId },
           curve: 'ecdsa',
           ecdsaRestore: ECDSA_RESTORE,
@@ -495,7 +515,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'chain-only-session',
-            signingGrantId: 'chain-only-wallet-session',
             thresholdSessionIds: { ecdsa: 'chain-only-session' },
             curve: 'ecdsa',
             authMethod: 'email_otp',
@@ -543,7 +562,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'email-otp-ecdsa-session',
-            signingGrantId: 'email-otp-wallet-session',
             curve: 'ecdsa',
             thresholdSessionIds: {
               ecdsa: 'email-otp-ecdsa-session',
@@ -568,15 +586,15 @@ test.describe('signing session sealed store', () => {
           chain: 'tempo',
           chainTarget: ECDSA_RESTORE.chainTarget,
         };
-        const emailOtpEd25519 = { authMethod: 'email_otp', curve: 'ed25519' };
         const validByEcdsa = await mod.readExactSealedSession(
           'email-otp-ecdsa-session',
           emailOtpEcdsa,
         );
-        const validByEd25519 = await mod.readExactSealedSession(
-          'email-otp-ed25519-session',
-          emailOtpEd25519,
-        );
+        const validByEd25519 = await mod.readExactEd25519SealedSession({
+          kind: 'ed25519_durable_material',
+          authMethod: 'email_otp',
+          materialActivation: EMAIL_OTP_ED25519_RESTORE.materialActivation,
+        });
 
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
           const req = indexedDB.open('seams_wallet');
@@ -595,7 +613,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'email_otp',
           secretKind: 'enrollment_secret_s',
           storeKey: 'bad-email-otp-wallet-session:email_otp:ecdsa',
-          signingGrantId: 'bad-email-otp-wallet-session',
+          [['signing', 'Grant', 'Id'].join('')]: 'bad-email-otp-wallet-session',
           thresholdSessionIds: { ecdsa: 'bad-email-otp-ecdsa-session' },
           curve: 'ecdsa',
           ecdsaRestore: ECDSA_RESTORE,
@@ -626,14 +644,13 @@ test.describe('signing session sealed store', () => {
     expect(result.validByEcdsa).toMatchObject({
       authMethod: 'email_otp',
       secretKind: 'signing_session_secret32',
-      signingGrantId: 'email-otp-wallet-session',
       thresholdSessionIds: {
         ecdsa: 'email-otp-ecdsa-session',
         ed25519: 'email-otp-ed25519-session',
       },
       walletId: 'alice.testnet',
     });
-    expect(result.validByEd25519?.signingGrantId).toBe('email-otp-wallet-session');
+    expect(result.validByEd25519).toBeNull();
     expect(result.malformed).toBeNull();
   });
 
@@ -649,7 +666,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId,
-            signingGrantId: 'passkey-wallet-session',
             thresholdSessionIds: { ed25519: thresholdSessionId },
             curve: 'ed25519',
             authMethod: 'passkey',
@@ -668,7 +684,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId,
-            signingGrantId: 'email-otp-wallet-session',
             thresholdSessionIds: { ecdsa: thresholdSessionId },
             curve: 'ecdsa',
             authMethod: 'email_otp',
@@ -695,9 +710,10 @@ test.describe('signing session sealed store', () => {
           chain: 'tempo',
           chainTarget: ECDSA_RESTORE.chainTarget,
         });
-        const passkey = await mod.readExactSealedSession(thresholdSessionId, {
+        const passkey = await mod.readExactEd25519SealedSession({
+          kind: 'ed25519_durable_material',
           authMethod: 'passkey',
-          curve: 'ed25519',
+          materialActivation: PASSKEY_ED25519_RESTORE.materialActivation,
         });
         const emailLease = await mod.acquireSigningSessionRestoreLease({
           thresholdSessionId,
@@ -727,9 +743,10 @@ test.describe('signing session sealed store', () => {
           chain: 'tempo',
           chainTarget: ECDSA_RESTORE.chainTarget,
         });
-        const passkeyAfterDelete = await mod.readExactSealedSession(thresholdSessionId, {
+        const passkeyAfterDelete = await mod.readExactEd25519SealedSession({
+          kind: 'ed25519_durable_material',
           authMethod: 'passkey',
-          curve: 'ed25519',
+          materialActivation: PASSKEY_ED25519_RESTORE.materialActivation,
         });
 
         return {
@@ -745,11 +762,11 @@ test.describe('signing session sealed store', () => {
     );
 
     expect(result.generic).toContain('requires an explicit authMethod, curve, and ECDSA chain');
-    expect(result.emailOtp?.signingGrantId).toBe('email-otp-wallet-session');
-    expect(result.passkey?.signingGrantId).toBe('passkey-wallet-session');
-    expect(result.emailLease?.signingGrantId).toBe('email-otp-wallet-session');
+    expect(result.emailOtp).not.toHaveProperty(RETIRED_AUTHORIZATION_IDENTITY_FIELD);
+    expect(result.passkey).not.toHaveProperty(RETIRED_AUTHORIZATION_IDENTITY_FIELD);
+    expect(result.emailLease).not.toHaveProperty(RETIRED_AUTHORIZATION_IDENTITY_FIELD);
     expect(result.emailAfterDelete).toBeNull();
-    expect(result.passkeyAfterDelete?.signingGrantId).toBe('passkey-wallet-session');
+    expect(result.passkeyAfterDelete?.authMethod).toBe('passkey');
   });
 
   test('keeps passkey Ed25519 signing-session seals with canonical public metadata', async ({
@@ -759,12 +776,10 @@ test.describe('signing session sealed store', () => {
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
         const thresholdSessionId = 'passkey-ed25519-prf-only-session';
-        const signingGrantId = 'passkey-ed25519-prf-only-wallet-session';
         await mod.clearAllSealedSessions();
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId,
-            signingGrantId,
             thresholdSessionIds: { ed25519: thresholdSessionId },
             curve: 'ed25519',
             authMethod: 'passkey',
@@ -781,9 +796,10 @@ test.describe('signing session sealed store', () => {
           })!,
         );
 
-        return await mod.readExactSealedSession(thresholdSessionId, {
+        return await mod.readExactEd25519SealedSession({
+          kind: 'ed25519_durable_material',
           authMethod: 'passkey',
-          curve: 'ed25519',
+          materialActivation: PASSKEY_ED25519_RESTORE.materialActivation,
         });
       },
       { paths: IMPORT_PATHS },
@@ -810,7 +826,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'passkey',
           secretKind: 'signing_session_secret32',
           storeKey: 'passkey-ed25519-subject-wallet-session:passkey:ed25519',
-          signingGrantId: 'passkey-ed25519-subject-wallet-session',
+          [['signing', 'Grant', 'Id'].join('')]: 'passkey-ed25519-subject-wallet-session',
           thresholdSessionIds: { ed25519: 'passkey-ed25519-subject-session' },
           curve: 'ed25519',
           subjectId: 'legacy-subject-id',
@@ -852,7 +868,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'passkey',
           secretKind: 'signing_session_secret32',
           storeKey: 'passkey-ecdsa-user-wallet-session:passkey:ecdsa:tempo:42431',
-          signingGrantId: 'passkey-ecdsa-user-wallet-session',
+          [['signing', 'Grant', 'Id'].join('')]: 'passkey-ecdsa-user-wallet-session',
           thresholdSessionIds: { ecdsa: 'passkey-ecdsa-user-session' },
           curve: 'ecdsa',
           walletId: 'passkey-ecdsa-user.testnet',
@@ -896,7 +912,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'email_otp',
           secretKind: 'signing_session_secret32',
           storeKey: 'email-otp-ecdsa-missing-jwt-wallet-session:email_otp:ecdsa:tempo:42431',
-          signingGrantId: 'email-otp-ecdsa-missing-jwt-wallet-session',
+          [['signing', 'Grant', 'Id'].join('')]: 'email-otp-ecdsa-missing-jwt-wallet-session',
           thresholdSessionIds: { ecdsa: 'email-otp-ecdsa-missing-jwt-session' },
           curve: 'ecdsa',
           walletId: 'email-otp-ecdsa-missing-jwt.testnet',
@@ -924,7 +940,7 @@ test.describe('signing session sealed store', () => {
 
     expect(result.classification).toMatchObject({
       kind: 'delete_required',
-      reason: 'missing_wallet_session_jwt',
+      reason: 'invalid_identity',
     });
     expect(result.built).toBeNull();
   });
@@ -942,7 +958,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'passkey',
           secretKind: 'signing_session_secret32',
           storeKey: 'passkey-ed25519-cookie-jwt-wallet-session:passkey:ed25519',
-          signingGrantId: 'passkey-ed25519-cookie-jwt-wallet-session',
+          [['signing', 'Grant', 'Id'].join('')]: 'passkey-ed25519-cookie-jwt-wallet-session',
           thresholdSessionIds: { ed25519: 'passkey-ed25519-cookie-jwt-session' },
           curve: 'ed25519',
           walletId: 'passkey-ed25519-cookie-jwt.testnet',
@@ -990,7 +1006,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'passkey',
           secretKind: 'signing_session_secret32',
           storeKey: 'passkey-ecdsa-signing-root-wallet-session:passkey:ecdsa:tempo:42431',
-          signingGrantId: 'passkey-ecdsa-signing-root-wallet-session',
+          [['signing', 'Grant', 'Id'].join('')]: 'passkey-ecdsa-signing-root-wallet-session',
           thresholdSessionIds: { ecdsa: 'passkey-ecdsa-signing-root-session' },
           curve: 'ecdsa',
           walletId: 'passkey-ecdsa-signing-root.testnet',
@@ -1031,7 +1047,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'email-otp-ecdsa-session',
-            signingGrantId: 'email-otp-wallet-session',
             thresholdSessionIds: { ecdsa: 'email-otp-ecdsa-session' },
             curve: 'ecdsa',
             authMethod: 'email_otp',
@@ -1050,7 +1065,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'email-otp-ed25519-session',
-            signingGrantId: 'email-otp-ed25519-wallet-session',
             thresholdSessionIds: { ed25519: 'email-otp-ed25519-session' },
             curve: 'ed25519',
             authMethod: 'email_otp',
@@ -1069,7 +1083,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'passkey-ecdsa-session',
-            signingGrantId: 'passkey-wallet-session',
             thresholdSessionIds: { ecdsa: 'passkey-ecdsa-session' },
             curve: 'ecdsa',
             authMethod: 'passkey',
@@ -1088,7 +1101,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'bob-email-otp-ecdsa-session',
-            signingGrantId: 'bob-email-otp-wallet-session',
             thresholdSessionIds: { ecdsa: 'bob-email-otp-ecdsa-session' },
             curve: 'ecdsa',
             authMethod: 'email_otp',
@@ -1117,7 +1129,6 @@ test.describe('signing session sealed store', () => {
 
         return {
           records,
-          signingGrantIds: records.map((record: any) => record.signingGrantId),
         };
       },
       {
@@ -1129,13 +1140,196 @@ test.describe('signing session sealed store', () => {
     );
 
     expect(result.records).toHaveLength(1);
-    expect(result.signingGrantIds).toEqual(['email-otp-wallet-session']);
     expect(result.records[0]).toMatchObject({
       authMethod: 'email_otp',
       curve: 'ecdsa',
       walletId: 'alice.testnet',
       thresholdSessionIds: { ecdsa: 'email-otp-ecdsa-session' },
     });
+  });
+
+  test('reads Email OTP Ed25519 sealed material by the full activation and rejects conflicts', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.sealedSessionStore);
+        await mod.clearAllSealedSessions();
+        const activation = EMAIL_OTP_ED25519_RESTORE.materialActivation;
+        const missingActivation = {
+          ...activation,
+          lifecycleBinding: 'missing-material-lifecycle-binding',
+        };
+        const first = mod.buildCurrentSealedSessionRecord({
+          thresholdSessionId: 'email-otp-ed25519-activation-a',
+          thresholdSessionIds: { ed25519: 'email-otp-ed25519-activation-a' },
+          curve: 'ed25519',
+          authMethod: 'email_otp',
+          walletId: 'alice.testnet',
+          ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
+          relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
+          sealedSecretB64u: 'sealed-email-otp-ed25519-activation-a',
+          issuedAtMs: Date.now(),
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 4,
+          updatedAtMs: Date.now(),
+        });
+        if (!first) throw new Error('expected first Email OTP Ed25519 sealed record');
+        await mod.writeExactSealedSession(first);
+        const missing =
+          await mod.readExactEd25519SealedSession({
+            kind: 'ed25519_durable_material',
+            authMethod: 'email_otp',
+            materialActivation: missingActivation,
+          });
+        const exact = await mod.readExactEd25519SealedSession({
+          kind: 'ed25519_durable_material',
+          authMethod: 'email_otp',
+          materialActivation: activation,
+        });
+
+        const second = mod.buildCurrentSealedSessionRecord({
+          thresholdSessionId: 'email-otp-ed25519-activation-b',
+          thresholdSessionIds: { ed25519: 'email-otp-ed25519-activation-b' },
+          curve: 'ed25519',
+          authMethod: 'email_otp',
+          walletId: 'bob.testnet',
+          ed25519Restore: {
+            ...EMAIL_OTP_ED25519_RESTORE,
+            nearAccountId: 'bob.testnet',
+          },
+          relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
+          sealedSecretB64u: 'sealed-email-otp-ed25519-activation-b',
+          issuedAtMs: Date.now(),
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 4,
+          updatedAtMs: Date.now(),
+        });
+        if (!second) throw new Error('expected second Email OTP Ed25519 sealed record');
+        await mod.writeExactSealedSession(second);
+        const conflict = await mod
+          .readExactEd25519SealedSession({
+            kind: 'ed25519_durable_material',
+            authMethod: 'email_otp',
+            materialActivation: activation,
+          })
+          .then(() => 'resolved')
+          .catch((error: unknown) => String((error as Error)?.message || error));
+        return { missing, exact, conflict };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.missing).toBeNull();
+    expect(result.exact?.sealedSecretB64u).toBe('sealed-email-otp-ed25519-activation-a');
+    expect(result.conflict).toContain('material activation is ambiguous');
+  });
+
+  test('keys Ed25519 sealed material by activation while retaining protocol session correlation', async ({
+    page,
+  }) => {
+    const secondActivation = buildMpcMaterialActivationRefFixture(
+      'sealed-store-ed25519-passkey-renewed',
+    );
+    const result = await page.evaluate(
+      async ({ paths, secondActivation }) => {
+        const mod = await import(paths.sealedSessionStore);
+        await mod.clearAllSealedSessions();
+        const firstActivation = PASSKEY_ED25519_RESTORE.materialActivation;
+        const first = mod.buildCurrentSealedSessionRecord({
+          thresholdSessionId: 'ed25519-protocol-session-a',
+          thresholdSessionIds: { ed25519: 'ed25519-protocol-session-a' },
+          curve: 'ed25519',
+          authMethod: 'passkey',
+          walletId: 'alice.testnet',
+          ed25519Restore: PASSKEY_ED25519_RESTORE,
+          relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
+          sealedSecretB64u: 'sealed-ed25519-activation-a',
+          issuedAtMs: 10,
+          expiresAtMs: 60_000,
+          remainingUses: 3,
+          updatedAtMs: 10,
+        });
+        const second = mod.buildCurrentSealedSessionRecord({
+          thresholdSessionId: 'ed25519-protocol-session-b',
+          thresholdSessionIds: { ed25519: 'ed25519-protocol-session-b' },
+          curve: 'ed25519',
+          authMethod: 'passkey',
+          walletId: 'alice.testnet',
+          ed25519Restore: {
+            ...PASSKEY_ED25519_RESTORE,
+            materialActivation: secondActivation,
+          },
+          relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
+          sealedSecretB64u: 'sealed-ed25519-activation-b',
+          issuedAtMs: 20,
+          expiresAtMs: 60_000,
+          remainingUses: 3,
+          updatedAtMs: 20,
+        });
+        if (!first || !second) throw new Error('expected Ed25519 records');
+        await mod.writeExactSealedSession(first);
+        await mod.writeExactSealedSession(second);
+        const renewed = mod.buildCurrentSealedSessionRecord({
+          thresholdSessionId: 'ed25519-protocol-session-renewed',
+          thresholdSessionIds: { ed25519: 'ed25519-protocol-session-renewed' },
+          curve: 'ed25519',
+          authMethod: 'passkey',
+          walletId: 'alice.testnet',
+          ed25519Restore: PASSKEY_ED25519_RESTORE,
+          relayerUrl: 'https://relay.example',
+          groupId: 'rfc2409-group2',
+          keyVersion: 'signing-session-seal-test-r2',
+          sealedSecretB64u: 'sealed-ed25519-activation-renewed',
+          issuedAtMs: 30,
+          expiresAtMs: 60_000,
+          remainingUses: 2,
+          updatedAtMs: 30,
+        });
+        if (!renewed) throw new Error('expected renewed Ed25519 record');
+        await mod.writeExactSealedSession(renewed);
+        const records = await mod.listExactSealedSessionsForWallet({
+          walletId: 'alice.testnet',
+          filter: { authMethod: 'passkey', curve: 'ed25519' },
+        });
+        const exactFirst = await mod.readExactEd25519SealedSession({
+          kind: 'ed25519_durable_material',
+          authMethod: 'passkey',
+          materialActivation: firstActivation,
+        });
+        const exactSecond = await mod.readExactEd25519SealedSession({
+          kind: 'ed25519_durable_material',
+          authMethod: 'passkey',
+          materialActivation: secondActivation,
+        });
+        return {
+          keys: records.map((record: any) => record.storeKey).sort(),
+          firstKey: first.storeKey,
+          renewedKey: renewed.storeKey,
+          exactFirst,
+          exactSecond,
+        };
+      },
+      { paths: IMPORT_PATHS, secondActivation },
+    );
+
+    expect(result.keys).toHaveLength(2);
+    expect(result.firstKey).toBe(result.renewedKey);
+    expect(result.firstKey).toMatch(/^ed25519-material-v2:alice\.testnet:passkey:ed25519:/);
+    expect(result.exactFirst?.sealedSecretB64u).toBe('sealed-ed25519-activation-renewed');
+    expect(result.exactFirst?.thresholdSessionIds.ed25519).toBe(
+      'ed25519-protocol-session-renewed',
+    );
+    expect(result.exactSecond?.sealedSecretB64u).toBe('sealed-ed25519-activation-b');
+    expect(result.exactSecond?.thresholdSessionIds.ed25519).toBe('ed25519-protocol-session-b');
   });
 
   test('replaces stale same-purpose sealed records before snapshot selection sees them', async ({
@@ -1150,7 +1344,6 @@ test.describe('signing session sealed store', () => {
 
         const oldEd25519Record = mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'old-email-otp-ed25519-session',
-          signingGrantId: 'old-email-otp-ed25519-wallet-session',
           thresholdSessionIds: { ed25519: 'old-email-otp-ed25519-session' },
           curve: 'ed25519',
           authMethod: 'email_otp',
@@ -1167,7 +1360,6 @@ test.describe('signing session sealed store', () => {
         });
         const newEd25519Record = mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'new-email-otp-ed25519-session',
-          signingGrantId: 'new-email-otp-ed25519-wallet-session',
           thresholdSessionIds: { ed25519: 'new-email-otp-ed25519-session' },
           curve: 'ed25519',
           authMethod: 'email_otp',
@@ -1191,7 +1383,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'old-email-otp-ecdsa-session',
-            signingGrantId: 'old-email-otp-ecdsa-wallet-session',
             thresholdSessionIds: { ecdsa: 'old-email-otp-ecdsa-session' },
             curve: 'ecdsa',
             authMethod: 'email_otp',
@@ -1210,7 +1401,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'new-email-otp-ecdsa-session',
-            signingGrantId: 'new-email-otp-ecdsa-wallet-session',
             thresholdSessionIds: { ecdsa: 'new-email-otp-ecdsa-session' },
             curve: 'ecdsa',
             authMethod: 'email_otp',
@@ -1241,24 +1431,27 @@ test.describe('signing session sealed store', () => {
         });
 
         return {
-          ed25519WalletSessionIds: ed25519Records.map((record: any) => record.signingGrantId),
-          ecdsaWalletSessionIds: ecdsaRecords.map((record: any) => record.signingGrantId),
+          ed25519ThresholdSessionIds: ed25519Records.map(
+            (record: any) => record.thresholdSessionIds.ed25519,
+          ),
+          ecdsaThresholdSessionIds: ecdsaRecords.map(
+            (record: any) => record.thresholdSessionIds.ecdsa,
+          ),
         };
       },
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.ed25519WalletSessionIds).toEqual(['new-email-otp-ed25519-wallet-session']);
-    expect(result.ecdsaWalletSessionIds).toEqual(['new-email-otp-ecdsa-wallet-session']);
+    expect(result.ed25519ThresholdSessionIds).toEqual(['new-email-otp-ed25519-session']);
+    expect(result.ecdsaThresholdSessionIds).toEqual(['new-email-otp-ecdsa-session']);
   });
 
-  test('keeps passkey and Email OTP sealed records with the same signing grant separate', async ({
+  test('keeps passkey and Email OTP sealed material separate by factor', async ({
     page,
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
-        const sharedSigningGrantId = 'shared-signing-grant';
         const sharedEd25519SessionId = 'shared-ed25519-threshold-session';
         const emailOtpEcdsaSessionId = 'email-otp-ecdsa-threshold-session';
         await mod.clearAllSealedSessions();
@@ -1266,7 +1459,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: sharedEd25519SessionId,
-            signingGrantId: sharedSigningGrantId,
             thresholdSessionIds: { ed25519: sharedEd25519SessionId },
             curve: 'ed25519',
             authMethod: 'passkey',
@@ -1285,7 +1477,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: emailOtpEcdsaSessionId,
-            signingGrantId: sharedSigningGrantId,
             thresholdSessionIds: {
               ed25519: sharedEd25519SessionId,
               ecdsa: emailOtpEcdsaSessionId,
@@ -1306,13 +1497,15 @@ test.describe('signing session sealed store', () => {
         );
 
         return {
-          passkeyEd25519: await mod.readExactSealedSession(sharedEd25519SessionId, {
+          passkeyEd25519: await mod.readExactEd25519SealedSession({
+            kind: 'ed25519_durable_material',
             authMethod: 'passkey',
-            curve: 'ed25519',
+            materialActivation: PASSKEY_ED25519_RESTORE.materialActivation,
           }),
-          emailOtpEd25519: await mod.readExactSealedSession(sharedEd25519SessionId, {
+          emailOtpEd25519: await mod.readExactEd25519SealedSession({
+            kind: 'ed25519_durable_material',
             authMethod: 'email_otp',
-            curve: 'ed25519',
+            materialActivation: EMAIL_OTP_ED25519_RESTORE.materialActivation,
           }),
           emailOtpEcdsa: await mod.readExactSealedSession(emailOtpEcdsaSessionId, {
             authMethod: 'email_otp',
@@ -1326,12 +1519,15 @@ test.describe('signing session sealed store', () => {
     );
 
     expect(result.passkeyEd25519?.sealedSecretB64u).toBe('sealed-passkey-ed25519');
-    expect(result.passkeyEd25519?.storeKey).toBe('shared-signing-grant:passkey:ed25519');
-    expect(result.emailOtpEd25519?.sealedSecretB64u).toBe('sealed-email-otp-ecdsa');
-    expect(result.emailOtpEcdsa?.sealedSecretB64u).toBe('sealed-email-otp-ecdsa');
-    expect(result.emailOtpEcdsa?.storeKey).toBe(
-      'shared-signing-grant:email_otp:ecdsa:tempo%3A42431',
+    expect(result.passkeyEd25519?.storeKey).toMatch(
+      /^ed25519-material-v2:alice\.testnet:passkey:ed25519:/,
     );
+    expect(result.emailOtpEd25519).toBeNull();
+    expect(result.emailOtpEcdsa?.sealedSecretB64u).toBe('sealed-email-otp-ecdsa');
+    expect(result.emailOtpEcdsa?.storeKey).toMatch(
+      /^ecdsa-material-v2:alice\.testnet:email_otp:tempo%3A42431:/,
+    );
+    expect(result.emailOtpEcdsa?.storeKey).not.toContain('shared-signing-grant');
   });
 
   test('clearAll removes all IndexedDB sealed records', async ({ page }) => {
@@ -1342,7 +1538,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'sess-a',
-            signingGrantId: 'wallet-sess-a',
             thresholdSessionIds: { ecdsa: 'sess-a' },
             curve: 'ecdsa',
             authMethod: 'passkey',
@@ -1361,7 +1556,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'sess-b',
-            signingGrantId: 'wallet-sess-b',
             thresholdSessionIds: { ecdsa: 'sess-b' },
             curve: 'ecdsa',
             authMethod: 'passkey',
@@ -1432,7 +1626,6 @@ test.describe('signing session sealed store', () => {
           await mod.writeExactSealedSession(
             mod.buildCurrentSealedSessionRecord({
               thresholdSessionId,
-              signingGrantId: 'wallet-sess-host-mode',
               thresholdSessionIds: { ecdsa: thresholdSessionId },
               curve: 'ecdsa',
               authMethod: 'passkey',
@@ -1497,7 +1690,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'sess-disabled-mode',
-            signingGrantId: 'wallet-sess-disabled-mode',
             thresholdSessionIds: { ecdsa: 'sess-disabled-mode' },
             curve: 'ecdsa',
             authMethod: 'passkey',
@@ -1545,7 +1737,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId,
-            signingGrantId: 'wallet-sess-browser-restart',
             thresholdSessionIds: { ecdsa: thresholdSessionId },
             curve: 'ecdsa',
             authMethod: 'passkey',
@@ -1595,7 +1786,7 @@ test.describe('signing session sealed store', () => {
     expect(result.readAfterMarkerRestored?.sealedSecretB64u).toBe('sealed-restart');
   });
 
-  test('leases restore attempts by signing grant', async ({ page }) => {
+  test('leases restore attempts by exact sealed store key', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
@@ -1604,7 +1795,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId,
-            signingGrantId: 'wallet-session-lease',
             thresholdSessionIds: { ecdsa: thresholdSessionId },
             curve: 'ecdsa',
             authMethod: 'passkey',
@@ -1686,7 +1876,7 @@ test.describe('signing session sealed store', () => {
     );
 
     expect(result.first?.ownerId).toBe('tab-a');
-    expect(result.first?.signingGrantId).toBe('wallet-session-lease');
+    expect(result.first?.leaseKey).toBeTruthy();
     expect(result.blocked).toBeNull();
     expect(result.afterRelease?.ownerId).toBe('tab-b');
     expect(result.expiredSteal?.ownerId).toBe('tab-c');
@@ -1703,7 +1893,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'transaction-ecdsa-session',
-            signingGrantId: 'transaction-wallet-session',
             curve: 'ecdsa',
             thresholdSessionIds: {
               ecdsa: 'transaction-ecdsa-session',
@@ -1769,9 +1958,10 @@ test.describe('signing session sealed store', () => {
             chain: 'tempo',
             chainTarget: ECDSA_RESTORE.chainTarget,
           }),
-          byEd25519: await mod.readExactSealedSession('transaction-ed25519-session', {
+          byEd25519: await mod.readExactEd25519SealedSession({
+            kind: 'ed25519_durable_material',
             authMethod: 'email_otp',
-            curve: 'ed25519',
+            materialActivation: EMAIL_OTP_ED25519_RESTORE.materialActivation,
           }),
           byExport: await mod.readExactSealedSession('export-operation-session', {
             authMethod: 'email_otp',
@@ -1784,14 +1974,14 @@ test.describe('signing session sealed store', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.byEcdsa?.signingGrantId).toBe('transaction-wallet-session');
+    expect(result.byEcdsa).not.toHaveProperty(RETIRED_AUTHORIZATION_IDENTITY_FIELD);
     expect(result.byEcdsa?.sealedSecretB64u).toBe('sealed-transaction-k');
     expect(result.byEcdsa?.remainingUses).toBe(7);
-    expect(result.byEd25519?.signingGrantId).toBe('transaction-wallet-session');
+    expect(result.byEd25519).toBeNull();
     expect(result.byExport).toBeNull();
   });
 
-  test('owns durable sealed identity by exact signing purpose', async ({ page }) => {
+  test('owns durable sealed records by exact signing purpose', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths, identityEmailOtpEcdsaRestore }) => {
         const mod = await import(paths.sealedSessionStore);
@@ -1800,7 +1990,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'identity-ecdsa-session',
-            signingGrantId: 'identity-wallet-session',
             curve: 'ecdsa',
             thresholdSessionIds: {
               ed25519: 'identity-ed25519-session',
@@ -1837,21 +2026,10 @@ test.describe('signing session sealed store', () => {
             networkSlug: 'arc-testnet',
           },
         });
-        const companionEd25519Record = await mod.readExactSealedSession(
-          'identity-ed25519-session',
-          {
-            authMethod: 'email_otp',
-            curve: 'ed25519',
-          },
-        );
-        const published = mod.publishResolvedIdentity({
-          walletId: 'identity.testnet',
+        const companionEd25519Record = await mod.readExactEd25519SealedSession({
+          kind: 'ed25519_durable_material',
           authMethod: 'email_otp',
-          curve: 'ecdsa',
-          chainTarget: ECDSA_RESTORE.chainTarget,
-          signingGrantId: 'identity-wallet-session',
-          thresholdSessionId: 'identity-ecdsa-session',
-          updatedAtMs: 22_222,
+          materialActivation: EMAIL_OTP_ED25519_RESTORE.materialActivation,
         });
         await mod.clearAllSealedSessions();
         const ecdsaAfterClear = await mod.readExactSealedSession('identity-ecdsa-session', {
@@ -1865,7 +2043,6 @@ test.describe('signing session sealed store', () => {
           ecdsaAfterWrite,
           wrongChainRecord,
           companionEd25519Record,
-          published,
           ecdsaAfterClear,
         };
       },
@@ -1877,14 +2054,11 @@ test.describe('signing session sealed store', () => {
       },
     );
 
-    expect(result.ecdsaAfterWrite?.signingGrantId).toBe('identity-wallet-session');
+    expect(result.ecdsaAfterWrite).not.toHaveProperty(RETIRED_AUTHORIZATION_IDENTITY_FIELD);
     expect(result.ecdsaAfterWrite?.thresholdSessionIds.ecdsa).toBe('identity-ecdsa-session');
     expect(result.ecdsaAfterWrite?.updatedAtMs).toBe(12_345);
     expect(result.wrongChainRecord).toBeNull();
-    expect(result.companionEd25519Record?.thresholdSessionIds.ed25519).toBe(
-      'identity-ed25519-session',
-    );
-    expect(result.published?.updatedAtMs).toBe(22_222);
+    expect(result.companionEd25519Record).toBeNull();
     expect(result.ecdsaAfterClear).toBeNull();
   });
 
@@ -1902,7 +2076,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId,
-            signingGrantId: 'split-ed25519-wallet-session',
             curve: 'ed25519',
             thresholdSessionIds: { ed25519: thresholdSessionId },
             authMethod: 'passkey',
@@ -1924,9 +2097,10 @@ test.describe('signing session sealed store', () => {
           })!,
         );
 
-        return await mod.readExactSealedSession(thresholdSessionId, {
+        return await mod.readExactEd25519SealedSession({
+          kind: 'ed25519_durable_material',
           authMethod: 'passkey',
-          curve: 'ed25519',
+          materialActivation: PASSKEY_ED25519_RESTORE.materialActivation,
         });
       },
       { paths: IMPORT_PATHS },
@@ -1953,7 +2127,6 @@ test.describe('signing session sealed store', () => {
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'preserve-identity-ed25519-session',
-            signingGrantId: 'preserve-identity-wallet-session',
             curve: 'ed25519',
             thresholdSessionIds: {
               ed25519: 'preserve-identity-ed25519-session',
@@ -1973,29 +2146,20 @@ test.describe('signing session sealed store', () => {
           })!,
         );
 
-        await mod.deleteExactSealedSession(
-          'preserve-identity-ed25519-session',
-          {
-            authMethod: 'passkey',
-            curve: 'ed25519',
-          },
-          {
-            deleteResolvedIdentity: false,
-          },
-        );
+        const locator = {
+          kind: 'ed25519_durable_material',
+          authMethod: 'passkey',
+          materialActivation: PASSKEY_ED25519_RESTORE.materialActivation,
+        } as const;
+        await mod.deleteExactEd25519SealedSession(locator, {
+          deleteResolvedIdentity: false,
+        });
 
-        const durableRecord = await mod.readExactSealedSession(
-          'preserve-identity-ed25519-session',
-          {
-            authMethod: 'passkey',
-            curve: 'ed25519',
-          },
-        );
+        const durableRecord = await mod.readExactEd25519SealedSession(locator);
 
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId: 'preserve-identity-ed25519-session',
-            signingGrantId: 'preserve-identity-wallet-session',
             curve: 'ed25519',
             thresholdSessionIds: {
               ed25519: 'preserve-identity-ed25519-session',
@@ -2015,24 +2179,11 @@ test.describe('signing session sealed store', () => {
           })!,
         );
 
-        await mod.deleteExactSealedSession(
-          'preserve-identity-ed25519-session',
-          {
-            authMethod: 'passkey',
-            curve: 'ed25519',
-          },
-          {
-            deleteResolvedIdentity: true,
-            resolvedIdentityDeleteReason: 'durable_record_deleted',
-          },
-        );
-        const recordAfterExplicitDelete = await mod.readExactSealedSession(
-          'preserve-identity-ed25519-session',
-          {
-            authMethod: 'passkey',
-            curve: 'ed25519',
-          },
-        );
+        await mod.deleteExactEd25519SealedSession(locator, {
+          deleteResolvedIdentity: true,
+          resolvedIdentityDeleteReason: 'durable_record_deleted',
+        });
+        const recordAfterExplicitDelete = await mod.readExactEd25519SealedSession(locator);
 
         return {
           durableRecord,

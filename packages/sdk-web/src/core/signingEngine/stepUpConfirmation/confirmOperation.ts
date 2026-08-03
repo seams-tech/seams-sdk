@@ -13,6 +13,7 @@ import type {
   NearFundingRequest,
   NearTransactionReadiness,
 } from '../nonce/nearTransactionReadiness';
+import type { NearOperationStepUpPreparationRef } from '../interfaces/operationStepUpPreparation';
 
 export type SigningConfirmationChain = 'near' | 'evm' | 'tempo';
 
@@ -195,6 +196,7 @@ type SigningConfirmationResultBase = {
   sessionId: string;
   intentDigest: string;
   credential?: SerializableCredential;
+  operationStepUpPreparation?: NearOperationStepUpPreparationRef;
   otpCode?: string;
   emailOtpChallengeId?: string;
 };
@@ -215,6 +217,7 @@ export interface SigningConfirmationResultSignatureOnly {
   sessionId: string;
   intentDigest: string;
   credential?: SerializableCredential;
+  operationStepUpPreparation?: NearOperationStepUpPreparationRef;
   otpCode?: string;
   emailOtpChallengeId?: string;
 }

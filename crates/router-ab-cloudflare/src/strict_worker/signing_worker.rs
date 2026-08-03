@@ -18,14 +18,6 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
         }
         return cloudflare_prewarm_response_v1(&request);
     }
-    if path == CLOUDFLARE_SIGNING_WORKER_WALLET_BUDGET_PATH_V1 {
-        return match handle_cloudflare_signing_worker_wallet_budget_private_fetch_v1(request, &env)
-            .await
-        {
-            Ok(response) => Ok(response),
-            Err(err) => cloudflare_protocol_error_response_v1(err),
-        };
-    }
     let runtime = match CloudflareSigningWorkerRuntimeV1::from_worker_env(&env) {
         Ok(runtime) => runtime,
         Err(err) => return cloudflare_protocol_error_response_v1(err),
@@ -71,6 +63,19 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
                 Err(err) => return cloudflare_protocol_error_response_v1(err),
             };
             handle_cloudflare_signing_worker_ecdsa_export_share_private_fetch_v1(
+                request,
+                &env,
+                &runtime,
+                now_unix_ms,
+            )
+            .await
+        }
+        CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PREFLIGHT_PATH => {
+            let now_unix_ms = match cloudflare_now_unix_ms_v1() {
+                Ok(now_unix_ms) => now_unix_ms,
+                Err(err) => return cloudflare_protocol_error_response_v1(err),
+            };
+            handle_cloudflare_signing_worker_ecdsa_export_preflight_private_fetch_v1(
                 request,
                 &env,
                 &runtime,
@@ -184,14 +189,14 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
                 CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH,
                 CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
                 CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH,
+                CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PREFLIGHT_PATH,
                 CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_ROUND1_PREPARE_PATH,
                 CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH,
                 CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH,
                 CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_SESSION_INIT_PATH,
                 CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_SESSION_STEP_PATH,
                 CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PATH,
-                CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
-                CLOUDFLARE_SIGNING_WORKER_WALLET_BUDGET_PATH_V1
+                CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH
             ),
             404,
         ),

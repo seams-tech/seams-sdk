@@ -4,8 +4,19 @@ import {
   parseSyncAccountOptionsRequest,
   parseSyncAccountVerifyRequest,
 } from '../../syncAccountRequestValidation';
-import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  parsePrincipalId,
+  parseReusableWalletSessionMintId,
+} from '@shared/authorization/capabilityKinds';
+import {
+  DEFAULT_WALLET_SESSION_REMAINING_USES,
+  DEFAULT_WALLET_SESSION_TTL_MS,
+} from '@shared/threshold/sessionPolicy';
 
 function syncAccountResponseStatus(result: { ok: boolean; verified?: boolean; code?: string }) {
   if (result.ok && result.verified) return 200;
@@ -114,57 +125,55 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
           { status: 409 },
         );
       }
-      const walletSession = await yaoRuntime.mintWalletSession({
-        kind: 'registration_wallet_session_v1',
-        walletId: walletIdFromString(capability.capability.applicationBinding.wallet_id),
-        nearAccountId: capability.capability.nearAccountId,
-        nearEd25519SigningKeyId:
-          capability.capability.applicationBinding.near_ed25519_signing_key_id,
-        authority: buildPasskeyWalletAuthAuthority({
-          walletId: walletBinding.walletId,
-          rpId: walletBinding.rpId,
-          credentialIdB64u,
-        }),
-        thresholdSessionId: capability.capability.lifecycle.walletSessionId,
-        participantIds: capability.capability.participantIds,
-        runtimePolicyScope: capability.capability.runtimePolicyScope,
+      const authority = buildPasskeyWalletAuthAuthority({
+        walletId: walletBinding.walletId,
+        rpId: walletBinding.rpId,
+        credentialIdB64u,
       });
-      if (!walletSession.ok) {
-        return json(
-          { ok: false, code: walletSession.code, message: walletSession.message },
-          { status: 500 },
-        );
-      }
-      const budgetProvisioner =
-        ctx.service.thresholdRuntime.getWalletBudgetGrantProvisioner?.() || null;
-      if (!budgetProvisioner) {
+      const authorityRef = await walletAuthAuthorityRef({ authority });
+      const principalId = parsePrincipalId(walletId);
+      const mintId = parseReusableWalletSessionMintId(parsed.request.challengeId);
+      if (!principalId.ok || !mintId.ok) {
         return json(
           {
             ok: false,
             code: 'internal',
-            message: 'Router A/B private-D1 wallet-budget provisioning is not configured',
+            message: 'Verified passkey Wallet Session identity is invalid',
           },
           { status: 500 },
         );
       }
-      const provisioned = await budgetProvisioner.provisionGrant({
-        walletId,
-        signingGrantId: walletSession.session.signingGrantId,
-        relyingPartyId: walletBinding.rpId,
-        authorizedSigners: [
-          {
-            curve: 'ed25519',
-            threshold_session_id: walletSession.session.thresholdSessionId,
-            signing_worker_id: signingWorkerId,
-          },
-        ],
-        initialSignatureUses: walletSession.session.remainingUses,
-        expiresAtMs: walletSession.session.expiresAtMs,
-        issuerIdempotencyKey: `sync-account:${walletSession.session.signingGrantId}`,
+      const issuedAtMs = Date.now();
+      const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
+      const reusableWalletSession =
+        await ctx.service.authorizationSessions.issueReusableWalletSession({
+          tenantId: ctx.service.authorizationSessions.tenantId,
+          principalId: principalId.value,
+          walletId: walletIdFromString(walletId),
+          authority: authorityRef,
+          mintId: mintId.value,
+          remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+          issuedAtMs,
+          expiresAtMs,
+        });
+      const walletSession = await yaoRuntime.mintWalletSession({
+        kind: 'verified_wallet_unlock_v1',
+        walletId: walletIdFromString(walletId),
+        nearAccountId,
+        nearEd25519SigningKeyId,
+        authority,
+        thresholdSessionId: capability.capability.lifecycle.thresholdSessionId,
+        authorizationId: reusableWalletSession.session.authorizationId,
+        walletSessionId: reusableWalletSession.quota.walletSessionId,
+        quotaId: reusableWalletSession.quota.quotaId,
+        participantIds: [firstParticipantId, secondParticipantId],
+        runtimePolicyScope: capability.capability.runtimePolicyScope,
+        expiresAtMs,
+        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
       });
-      if (!provisioned.ok) {
+      if (!walletSession.ok) {
         return json(
-          { ok: false, code: provisioned.code, message: provisioned.message },
+          { ok: false, code: walletSession.code, message: walletSession.message },
           { status: 500 },
         );
       }
@@ -176,6 +185,7 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
         },
         ed25519YaoRecovery: {
           kind: 'router_ab_ed25519_yao_sync_recovery_v1',
+          authorityRef,
           capability: capability.capability,
         },
       };

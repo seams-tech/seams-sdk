@@ -41,27 +41,3 @@ export async function getAuthenticationCredentialsSerialized(
     includeSecondPrfOutput: params.includeSecondPrfOutput ?? false,
   });
 }
-
-function toAllowCredentials(credentialIds: string[]): WebAuthnAllowCredential[] {
-  return credentialIds.map((id) => ({
-    id: id,
-    type: 'public-key',
-    transports: ['internal', 'hybrid', 'usb', 'ble'],
-  }));
-}
-
-export async function getAuthenticationCredentialsSerializedDualPrf(
-  deps: RegistrationSessionDeps,
-  params: {
-    subjectId: string;
-    challengeB64u: string;
-    credentialIds: string[];
-  },
-): Promise<WebAuthnAuthenticationCredential> {
-  return await deps.touchIdPrompt.getAuthenticationCredentialsSerializedForChallengeB64u({
-    subjectId: params.subjectId,
-    challengeB64u: params.challengeB64u,
-    allowCredentials: toAllowCredentials(params.credentialIds),
-    includeSecondPrfOutput: true,
-  });
-}

@@ -14,6 +14,9 @@ import type {
 } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import type { EcdsaClientPresignPoolIdentity } from './ecdsaPresignPoolIdentity';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export const EcdsaClientWorkerControlKind = {
   AttachDerivationToPresign: 'attach_ecdsa_derivation_to_presign_v1',
@@ -34,9 +37,18 @@ export type EcdsaDerivationAdditiveShareRequest = {
   readonly kind: 'ecdsa_derivation_additive_share_request_v1';
   readonly requestId: string;
   readonly materialHandle: string;
-  readonly durableMaterialRef: string;
   readonly poolIdentity: EcdsaClientPresignPoolIdentity;
-  readonly expectedBindingDigest: string;
+  readonly material:
+    | {
+        readonly kind: 'persisted';
+        readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+        readonly expectedBindingDigest?: never;
+      }
+    | {
+        readonly kind: 'runtime_loaded';
+        readonly expectedBindingDigest: string;
+        readonly materialRef?: never;
+      };
 };
 
 export type EcdsaDerivationAdditiveShareResponse =
@@ -56,15 +68,18 @@ export type EcdsaDerivationAdditiveShareResponse =
     };
 
 export type RehydrateEcdsaRoleLocalSigningMaterialRequestV1 = {
-  readonly kind: 'rehydrate_ecdsa_role_local_signing_material_v1';
-  readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+  readonly kind: 'open_ecdsa_role_local_signing_material_v1';
+  readonly authority: WalletAuthAuthorityRef;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly materialRef?: never;
 };
 
 export type RehydrateEcdsaRoleLocalSigningMaterialResultV1 =
   | {
-      readonly kind: 'ecdsa_role_local_signing_material_rehydrated_v1';
+      readonly kind: 'ecdsa_role_local_signing_material_opened_v1';
       readonly ok: true;
       readonly liveHandle: EcdsaRoleLocalWorkerHandle;
+      readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
       readonly reason?: never;
     }
   | {
@@ -72,12 +87,13 @@ export type RehydrateEcdsaRoleLocalSigningMaterialResultV1 =
       readonly ok: false;
       readonly reason: 'missing' | 'expired' | 'binding_mismatch' | 'corrupt';
       readonly liveHandle?: never;
+      readonly materialRef?: never;
     };
 
 export type EmailOtpEcdsaSigningShareRequest = {
   readonly kind: 'email_otp_ecdsa_signing_share_request_v1';
   readonly requestId: string;
-  readonly sessionId: string;
+  readonly thresholdSessionId: string;
 };
 
 export type EmailOtpEcdsaSigningShareResponse =
@@ -145,8 +161,11 @@ export type FinalizeRouterAbEcdsaExplicitExportRequestV1 = {
   readonly ceremonyId: string;
   readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
   readonly signingWorkerExport: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1;
-  readonly signingGrantId: RouterAbEcdsaSigningWorkerExportShareBindingV1['signing_grant_id'];
+  readonly authorizationKind: RouterAbEcdsaSigningWorkerExportShareBindingV1['authorization_kind'];
+  readonly authorizationId: RouterAbEcdsaSigningWorkerExportShareBindingV1['authorization_id'];
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   readonly roleLocalMaterial: EcdsaRoleLocalWorkerHandle;
+  readonly roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
   readonly publicFacts: EcdsaRoleLocalPublicFacts;
 };
 
@@ -159,17 +178,6 @@ export type FinalizeRouterAbEcdsaExplicitExportResultV1 = {
   readonly ethereumAddress: string;
   readonly stateBlob?: never;
   readonly output32B64u?: never;
-};
-
-export type VerifyRouterAbEcdsaRefreshClientProofsRequestV1 = {
-  readonly kind: 'verify_router_ab_ecdsa_refresh_client_proofs_v1';
-  readonly ceremonyId: string;
-  readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
-};
-
-export type VerifyRouterAbEcdsaRefreshClientProofsResultV1 = {
-  readonly kind: 'router_ab_ecdsa_refresh_client_proofs_verified_v1';
-  readonly ceremonyId: string;
 };
 
 export type CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1 = {

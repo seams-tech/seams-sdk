@@ -720,7 +720,8 @@ async fn finalize_router_result_v1(
                 }
             };
             worker_response.validate_for_operation(operation)?;
-            let public_receipt = worker_response.into_public_receipt()?;
+            let public_receipt = worker_response
+                .into_public_receipt(binding.material_activation().clone())?;
             let result = RouterAbEd25519YaoActivationResultV1::new(
                 binding.clone(),
                 activation_a.client_package.clone(),
@@ -1004,6 +1005,7 @@ impl SigningWorkerReceiptV1 {
 
     fn into_public_receipt(
         self,
+        material_activation: router_ab_core::MpcMaterialActivationRefV1,
     ) -> RouterAbProtocolResult<RouterAbEd25519YaoActivationPublicReceiptV1> {
         let (transcript, public_key, client, worker, verifying, epoch) = match self {
             Self::Active {
@@ -1033,7 +1035,7 @@ impl SigningWorkerReceiptV1 {
             ),
         };
         RouterAbEd25519YaoActivationPublicReceiptV1::new(
-            transcript, public_key, client, worker, verifying, epoch,
+            transcript, public_key, client, worker, verifying, epoch, material_activation,
         )
     }
 }

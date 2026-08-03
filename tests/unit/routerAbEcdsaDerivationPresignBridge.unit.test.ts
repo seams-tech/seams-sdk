@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1,
   parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1,
   parseRouterAbEcdsaDerivationNormalSigningScopeV1,
   type CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1Wire,
@@ -18,20 +19,18 @@ import {
 } from '@server/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge';
 import { parseRouterAbNormalSigningRuntimeConfig } from '@server/core/routerAbSigning/RouterAbNormalSigningRuntime';
 import { RouterAbEcdsaDerivationPoolFillHandlers } from '@server/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers';
-import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 function b64u(byte: number, length: number): string {
   return Buffer.from(new Uint8Array(length).fill(byte)).toString('base64url');
 }
 
-const walletKeyId = deriveEvmFamilySigningKeySlotId({
-  walletId: 'wallet-1',
-  signingRootId: 'project-1:env-1',
-  signingRootVersion: 'root-v1',
-});
+const materialActivation = routerAbMpcMaterialActivationRefToWire(
+  buildMpcMaterialActivationRefFixture('presign-bridge'),
+);
 
 const scope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
-  wallet_key_id: walletKeyId,
   wallet_id: 'wallet-1',
   ecdsa_threshold_key_id: 'ecdsa-key-1',
   signing_root_id: 'project-1:env-1',
@@ -48,6 +47,7 @@ const scope: RouterAbEcdsaDerivationNormalSigningScopeV1 = {
     client_share_retry_counter: 0,
     server_share_retry_counter: 1,
   },
+  material_activation: materialActivation,
   signing_worker: {
     server_id: 'signing-worker-1',
     key_epoch: 'worker-epoch-1',
@@ -126,7 +126,7 @@ function receipt(
   return {
     active_signing_worker_state: {
       account_id: scope.wallet_id,
-      session_id: 'session-1',
+      material_activation: materialActivation,
       account_public_key: scope.public_identity.threshold_public_key33_b64u,
       signing_worker: scope.signing_worker,
       activation_transcript_digest: digest(9),
@@ -158,7 +158,6 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
     });
     const claims = {
       walletId: scope.wallet_id,
-      evmFamilySigningKeySlotId: scope.wallet_key_id,
       relayerKeyId: 'relayer-key-1',
       keyHandle: 'key-handle-1',
       runtimePolicyScope: {
@@ -314,6 +313,31 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
     expect(
       parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1(poolFillRequest),
     ).toEqual(poolFillRequest);
+  });
+
+  test('requires the active Worker receipt to name material activation explicitly', () => {
+    const validReceipt = receipt(request(), true);
+    const parsed = parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1(
+      validReceipt,
+    );
+    expect(parsed.active_signing_worker_state.material_activation).toEqual(materialActivation);
+
+    const activationIdOnlyState = {
+      ...validReceipt,
+      active_signing_worker_state: {
+        ...validReceipt.active_signing_worker_state,
+        material_activation_id: materialActivation.activation_id,
+      },
+    };
+    delete (activationIdOnlyState.active_signing_worker_state as { material_activation?: unknown })
+      .material_activation;
+    expect(() =>
+      parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1(
+        activationIdOnlyState,
+      ),
+    ).toThrow(
+      'receipt.active_signing_worker_state.material_activation_id is not a supported field',
+    );
   });
 
   test('rejects loose Router A/B scope shapes before private pool-fill construction', () => {

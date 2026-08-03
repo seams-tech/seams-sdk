@@ -59,11 +59,6 @@ const platformBoundaryFiles = guardBoundaryFiles([
     reason: 'checks browser persistence availability before reading lane state',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/session/budget/budgetFinalizer.ts',
-    owner: 'budget finalization diagnostics boundary',
-    reason: 'reads browser diagnostics storage while finalizing signing budgets',
-  },
-  {
     file: 'packages/sdk-web/src/core/signingEngine/session/operationState/trace.ts',
     owner: 'operation trace diagnostics boundary',
     reason: 'reads browser diagnostics storage for operation traces',
@@ -72,6 +67,16 @@ const platformBoundaryFiles = guardBoundaryFiles([
     file: 'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
     owner: 'passkey ECDSA bootstrap boundary',
     reason: 'receives browser storage and prompt ports for ECDSA bootstrap',
+  },
+  {
+    file: 'packages/sdk-web/src/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery.ts',
+    owner: 'passkey Ed25519 Yao recovery boundary',
+    reason: 'coordinates exact-owner recovery persistence at the browser recovery edge',
+  },
+  {
+    file: 'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoRecoverySource.ts',
+    owner: 'passkey Ed25519 Yao recovery source boundary',
+    reason: 'seals recovery source material with the browser WebCrypto boundary',
   },
   {
     file: 'packages/sdk-web/src/core/signingEngine/session/userPreferences.ts',

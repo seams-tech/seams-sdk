@@ -1,11 +1,13 @@
 import type { SensitiveOperationPolicy } from '@/core/types/seams';
 import type {
   SelectedSigningSessionPlanningLane,
+  SelectedEcdsaSigningSessionPlanningLane,
+  SelectedEd25519SigningSessionPlanningLane,
   SigningLaneSummary,
   SigningPlanSummary,
   SigningSessionNotReadyReason,
   SigningSessionPlan,
-  ThresholdSessionId,
+  ThresholdEd25519SessionId,
 } from '../operationState/types';
 import {
   SigningKeyRefIntentKind,
@@ -14,6 +16,7 @@ import {
   summarizeSigningSessionPlan,
 } from '../operationState/types';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 
 type ReauthableNotReadyReason = Extract<
   SigningSessionNotReadyReason,
@@ -22,41 +25,63 @@ type ReauthableNotReadyReason = Extract<
 
 type TerminalNotReadyReason = Extract<
   SigningSessionNotReadyReason,
-  'auth_unavailable' | 'status_unavailable' | 'budget_unknown'
+  'auth_unavailable' | 'status_unavailable' | 'status_unknown'
 >;
 
-export type SigningSessionReadiness =
+type SigningSessionReadinessState<TIdentity extends object> =
   | {
       status: 'ready';
-      thresholdSessionId: ThresholdSessionId;
       remainingUses: number;
       expiresAtMs: number;
-    }
+    } & TIdentity
   | {
       status: 'exhausted';
-      thresholdSessionId: ThresholdSessionId;
       remainingUses: number;
       expiresAtMs: number;
-    }
+    } & TIdentity
   | {
       status: 'expired';
-      thresholdSessionId: ThresholdSessionId;
       expiresAtMs: number;
       remainingUses?: never;
-    }
+    } & TIdentity
   | {
       status: Exclude<ReauthableNotReadyReason, 'expired' | 'exhausted'> | TerminalNotReadyReason;
-      thresholdSessionId: ThresholdSessionId;
       remainingUses?: never;
       expiresAtMs?: never;
-    };
+    } & TIdentity;
 
-export type SigningSessionPlannerInput = {
-  lane: SelectedSigningSessionPlanningLane;
-  readiness: SigningSessionReadiness;
+export type Ed25519SigningSessionReadiness = SigningSessionReadinessState<{
+  curve: 'ed25519';
+  thresholdSessionId: ThresholdEd25519SessionId;
+  materialActivation?: never;
+  authorization?: never;
+}>;
+
+export type EcdsaSigningSessionReadiness = SigningSessionReadinessState<{
+  curve: 'ecdsa';
+  thresholdSessionId?: never;
+  materialActivation: SelectedEcdsaSigningSessionPlanningLane['materialActivation'];
+  authorization: SelectedEcdsaSigningSessionPlanningLane['authorization'];
+}>;
+
+export type SigningSessionReadiness =
+  | Ed25519SigningSessionReadiness
+  | EcdsaSigningSessionReadiness;
+
+type SigningSessionPlannerOptions = {
   forceFreshAuth?: boolean;
   sensitiveOperationPolicy?: SensitiveOperationPolicy | null;
 };
+
+export type SigningSessionPlannerInput =
+  | (SigningSessionPlannerOptions & {
+      lane: SelectedEd25519SigningSessionPlanningLane;
+      readiness: Ed25519SigningSessionReadiness;
+    })
+  | (SigningSessionPlannerOptions & {
+      lane: SelectedEcdsaSigningSessionPlanningLane;
+      readiness: EcdsaSigningSessionReadiness;
+    });
 
 export type SigningPlannerDecisionTraceEvent = {
   event: 'signing_planner_decision';
@@ -69,7 +94,23 @@ export type SigningPlannerDecisionTraceEvent = {
 };
 
 export function planSigningSession(input: SigningSessionPlannerInput): SigningSessionPlan {
-  const { lane, readiness } = input;
+  const lane = input.lane;
+  const readiness = input.readiness;
+  if (lane.curve !== readiness.curve) {
+    throw new Error('[SigningSession] planner lane and readiness curves do not match');
+  }
+  if (lane.curve === 'ecdsa' && readiness.curve === 'ecdsa') {
+    const laneProjection = lane.authorization.projection;
+    const readinessProjection = readiness.authorization.projection;
+    if (
+      !mpcMaterialActivationRefsEqual(lane.materialActivation, readiness.materialActivation) ||
+      laneProjection.walletSessionId !== readinessProjection.walletSessionId ||
+      laneProjection.quotaId !== readinessProjection.quotaId ||
+      laneProjection.authority.authorityDigest !== readinessProjection.authority.authorityDigest
+    ) {
+      throw new Error('[SigningSession] planner ECDSA readiness authority does not match its lane');
+    }
+  }
   const policyBlock = getPolicyBlock(input);
   if (policyBlock) {
     return {
@@ -79,27 +120,34 @@ export function planSigningSession(input: SigningSessionPlannerInput): SigningSe
     };
   }
 
-  const thresholdSessionId = readiness.thresholdSessionId;
   const forceFreshAuth =
     input.forceFreshAuth ||
     input.sensitiveOperationPolicy === 'require_fresh_same_method' ||
     lane.retention === 'single_use';
 
   if (readiness.status === 'ready' && !forceFreshAuth) {
-    if (!thresholdSessionId) {
+    if (lane.curve === 'ed25519' && readiness.curve === 'ed25519') {
       return {
-        kind: SigningSessionPlanKind.NotReady,
+        kind: SigningSessionPlanKind.WarmSession,
         lane,
-        reason: 'missing_session',
+        keyRef: {
+          kind: SigningKeyRefIntentKind.Cached,
+          curve: 'ed25519',
+          thresholdSessionId: readiness.thresholdSessionId,
+        },
       };
     }
-
+    if (lane.curve !== 'ecdsa' || readiness.curve !== 'ecdsa') {
+      throw new Error('[SigningSession] planner lane and readiness curves do not match');
+    }
     return {
       kind: SigningSessionPlanKind.WarmSession,
       lane,
       keyRef: {
         kind: SigningKeyRefIntentKind.Cached,
-        thresholdSessionId,
+        curve: 'ecdsa',
+        materialActivation: readiness.materialActivation,
+        authorization: readiness.authorization,
       },
     };
   }
@@ -107,7 +155,7 @@ export function planSigningSession(input: SigningSessionPlannerInput): SigningSe
   if (
     readiness.status === 'auth_unavailable' ||
     readiness.status === 'status_unavailable' ||
-    readiness.status === 'budget_unknown'
+    readiness.status === 'status_unknown'
   ) {
     return {
       kind: SigningSessionPlanKind.NotReady,
@@ -127,12 +175,28 @@ export function planSigningSession(input: SigningSessionPlannerInput): SigningSe
     };
   }
 
+  if (lane.curve === 'ed25519' && readiness.curve === 'ed25519') {
+    return {
+      kind: SigningSessionPlanKind.PasskeyReauth,
+      lane,
+      reconnect: {
+        lane,
+        curve: 'ed25519',
+        thresholdSessionId: readiness.thresholdSessionId,
+      },
+    };
+  }
+  if (lane.curve !== 'ecdsa' || readiness.curve !== 'ecdsa') {
+    throw new Error('[SigningSession] planner lane and readiness curves do not match');
+  }
   return {
     kind: SigningSessionPlanKind.PasskeyReauth,
     lane,
     reconnect: {
       lane,
-      thresholdSessionId,
+      curve: 'ecdsa',
+      materialActivation: readiness.materialActivation,
+      authorization: readiness.authorization,
     },
   };
 }

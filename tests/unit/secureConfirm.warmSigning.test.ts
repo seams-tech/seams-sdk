@@ -148,7 +148,7 @@ test.describe('UserConfirm – warm signing', () => {
               accountId: 'alice.testnet',
               intent: 'transaction_sign',
               curve: 'ed25519',
-              sessionId: 'threshold-session-warm',
+              thresholdSessionId: 'threshold-session-warm',
               retention: 'session',
               expiresAtMs: Date.now() + 60_000,
               remainingUses: 1,

@@ -1,11 +1,13 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type { EmailOtpSessionRefreshResult } from '../emailOtp/appSessionJwtCache';
-import type { PositiveRemainingUses } from '../budget/policy';
+import type { PositiveRemainingUses } from '../../threshold/sessionPolicy';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
   exactSigningLaneCurve,
   exactSigningLaneIdentityKey,
   exactSigningLaneWalletId,
+  isExactEcdsaSigningLaneIdentity,
   thresholdSessionIdsFromExactSigningLaneIdentity,
   type ExactSigningLaneIdentity,
   type ExactSigningLaneIdentityKey,
@@ -13,12 +15,15 @@ import {
 } from '../identity/exactSigningLaneIdentity';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import type {
-  SigningAuthMethod,
   SigningCurve,
   SigningOperationFingerprint,
   SigningOperationId,
-  SigningGrantId,
 } from './types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 
 export type SigningStatusProvenance =
   | {
@@ -70,12 +75,11 @@ export type FreshStepUpRequired = {
   walletId: WalletId;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
-  authMethod: SigningAuthMethod;
+  authMethod: SignerAuthMethod;
   curve: SigningCurve;
   laneIdentity: ExactSigningLaneIdentity;
   laneIdentityKey: ExactSigningLaneIdentityKey;
-  signingGrantId: SigningGrantId;
-  thresholdSessionIds: NonEmptyThresholdSessionIds;
+  authority: StepUpFreshnessAuthority;
   projection: StepUpProjectionState;
   expiry: StepUpExpiryState;
   provenance: SigningStatusProvenance;
@@ -91,12 +95,11 @@ export type FreshStepUpSatisfied = {
   walletId: WalletId;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
-  authMethod: SigningAuthMethod;
+  authMethod: SignerAuthMethod;
   curve: SigningCurve;
   laneIdentity: ExactSigningLaneIdentity;
   laneIdentityKey: ExactSigningLaneIdentityKey;
-  signingGrantId: SigningGrantId;
-  thresholdSessionIds: NonEmptyThresholdSessionIds;
+  authority: StepUpFreshnessAuthority;
   projection: StepUpProjectionState;
   expiry: StepUpExpiryState;
   remainingUses: PositiveRemainingUses;
@@ -118,17 +121,29 @@ export type StepUpFreshnessDiagnostics = {
   walletId: WalletId;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
-  authMethod: SigningAuthMethod;
+  authMethod: SignerAuthMethod;
   curve: SigningCurve;
   laneIdentityKey: ExactSigningLaneIdentityKey;
-  signingGrantId: SigningGrantId;
-  thresholdSessionIds: NonEmptyThresholdSessionIds;
+  authority: StepUpFreshnessAuthority;
   projection: StepUpProjectionState;
   expiry: StepUpExpiryState;
   provenance: SigningStatusProvenance;
   reason?: FreshStepUpRequired['reason'];
   remainingUses?: PositiveRemainingUses;
 };
+
+export type StepUpFreshnessAuthority =
+  | {
+      kind: 'ed25519_threshold_session';
+      walletSessionId: WalletSessionId;
+      quotaId: MpcWalletSigningQuotaId;
+      thresholdSessionIds: NonEmptyThresholdSessionIds;
+    }
+  | {
+      kind: 'ecdsa_material_activation';
+      materialActivation: MpcMaterialActivationRef;
+      thresholdSessionIds?: never;
+    };
 
 type StepUpFreshnessBaseInput = {
   walletId: WalletId;
@@ -145,7 +160,7 @@ type StepUpFreshnessIdentityInput = Pick<
   'walletId' | 'operationId' | 'operationFingerprint' | 'laneIdentity'
 >;
 
-export type BuildStepUpFreshnessFromTrustedBudgetStatusInput = StepUpFreshnessIdentityInput & {
+export type BuildStepUpFreshnessFromTrustedSessionStatusInput = StepUpFreshnessIdentityInput & {
   status: SigningSessionStatus;
   observedAtMs: number;
 };
@@ -168,7 +183,7 @@ function positiveRemainingUses(value: number): PositiveRemainingUses {
 
 function validateBase(input: StepUpFreshnessBaseInput): {
   laneIdentityKey: ExactSigningLaneIdentityKey;
-  thresholdSessionIds: NonEmptyThresholdSessionIds;
+  authority: StepUpFreshnessAuthority;
 } {
   const laneIdentityKey = exactSigningLaneIdentityKey(input.laneIdentity);
   const laneWalletId = String(exactSigningLaneWalletId(input.laneIdentity));
@@ -177,7 +192,19 @@ function validateBase(input: StepUpFreshnessBaseInput): {
   }
   return {
     laneIdentityKey,
-    thresholdSessionIds: thresholdSessionIdsFromExactSigningLaneIdentity(input.laneIdentity),
+    authority: isExactEcdsaSigningLaneIdentity(input.laneIdentity)
+      ? {
+          kind: 'ecdsa_material_activation',
+          materialActivation: input.laneIdentity.signer.materialActivation,
+        }
+      : {
+          kind: 'ed25519_threshold_session',
+          walletSessionId: input.laneIdentity.walletSessionId,
+          quotaId: input.laneIdentity.quotaId,
+          thresholdSessionIds: thresholdSessionIdsFromExactSigningLaneIdentity(
+            input.laneIdentity,
+          ),
+        },
   };
 }
 
@@ -196,8 +223,7 @@ export function buildFreshStepUpRequired(
     curve: exactSigningLaneCurve(input.laneIdentity),
     laneIdentity: input.laneIdentity,
     laneIdentityKey: validated.laneIdentityKey,
-    signingGrantId: input.laneIdentity.signingGrantId,
-    thresholdSessionIds: validated.thresholdSessionIds,
+    authority: validated.authority,
     projection: input.projection,
     expiry: input.expiry,
     provenance: input.provenance,
@@ -220,8 +246,7 @@ export function buildFreshStepUpSatisfied(
     curve: exactSigningLaneCurve(input.laneIdentity),
     laneIdentity: input.laneIdentity,
     laneIdentityKey: validated.laneIdentityKey,
-    signingGrantId: input.laneIdentity.signingGrantId,
-    thresholdSessionIds: validated.thresholdSessionIds,
+    authority: validated.authority,
     projection: input.projection,
     expiry: input.expiry,
     remainingUses: positiveRemainingUses(input.remainingUses),
@@ -262,8 +287,7 @@ export function stepUpFreshnessDiagnostics(
     authMethod: freshness.authMethod,
     curve: freshness.curve,
     laneIdentityKey: freshness.laneIdentityKey,
-    signingGrantId: freshness.signingGrantId,
-    thresholdSessionIds: freshness.thresholdSessionIds,
+    authority: freshness.authority,
     projection: freshness.projection,
     expiry: freshness.expiry,
     provenance: freshness.provenance,
@@ -283,8 +307,8 @@ export function stepUpFreshnessDiagnostics(
   }
 }
 
-export function buildStepUpFreshnessFromTrustedBudgetStatus(
-  input: BuildStepUpFreshnessFromTrustedBudgetStatusInput,
+export function buildStepUpFreshnessFromTrustedSessionStatus(
+  input: BuildStepUpFreshnessFromTrustedSessionStatusInput,
 ): StepUpFreshnessState {
   const projection = trustedStatusProjection(input.status);
   const expiry = trustedStatusExpiry(input.status);

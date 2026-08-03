@@ -58,8 +58,11 @@ import type {
 import type {
   SigningOperationId,
   ThresholdSessionId,
-  SigningGrantId,
 } from '@/core/signingEngine/session/operationState/types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 function b64u(length: number, fill: number): string {
   return base64UrlEncode(new Uint8Array(length).fill(fill));
@@ -77,7 +80,6 @@ function asBrand<T>(value: unknown): T {
 
 const walletId = toWalletId('phase5-wallet');
 const rpId = toRpId('wallet.example');
-const walletKeyId = asBrand<EcdsaUseCaseReadyLane['walletKeyId']>('wallet-key-phase5');
 const evmTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 11155111,
@@ -92,7 +94,8 @@ const credentialIdB64u = buildEcdsaRoleLocalPasskeyAuthMethod({
 }).credentialIdB64u;
 const ecdsaKeyHandle = 'key-handle-phase5';
 const thresholdSessionId = asBrand<ThresholdSessionId>('threshold-session');
-const signingGrantId = asBrand<SigningGrantId>('wallet-session');
+const walletSessionId = asBrand<WalletSessionId>('wallet-session');
+const quotaId = asBrand<MpcWalletSigningQuotaId>('wallet-session-quota');
 const expiresAtMs = asBrand<UnixTimeMs>(1_900_000_000_000);
 const remainingUses = asBrand<WarmSessionRemainingUses>(8);
 const idempotencyKey = asBrand<IdempotencyKey>('idempotency-key');
@@ -101,7 +104,8 @@ const restoreAttemptId = asBrand<RestoreAttemptId>('restore-attempt');
 const budgetSpend: WarmSessionBudgetSpend = {
   kind: 'warm_session_budget_spend_v1',
   walletId,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId,
   uses: asBrand(1),
   remainingUses,
@@ -110,7 +114,6 @@ const budgetSpend: WarmSessionBudgetSpend = {
 function readyRecord(chainTarget = evmTarget): EcdsaRoleLocalReadyRecord {
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId,
-    walletKeyId,
     chainTarget,
     keyHandle: ecdsaKeyHandle,
     ecdsaThresholdKeyId: 'ecdsa-key',
@@ -154,7 +157,8 @@ function readyEd25519Lane(): ReadyEd25519Lane {
     walletId,
     rpId,
     thresholdSessionId,
-    signingGrantId,
+    walletSessionId,
+    quotaId,
     relayerKeyId: buildRelayerKeyId('ed25519-relayer') as Ed25519RelayerKeyId,
     remainingUses,
     expiresAtMs,
@@ -165,13 +169,13 @@ function readyEcdsaLane(chainTarget = evmTarget): EcdsaUseCaseReadyLane {
   return {
     kind: 'ecdsa_ready_lane_v1',
     walletId,
-    walletKeyId,
     rpId,
     chainTarget,
     readyRecord: readyRecord(chainTarget),
     relayerKeyId: buildRelayerKeyId('ecdsa-relayer') as EcdsaRelayerKeyId,
     thresholdSessionId,
-    signingGrantId,
+    walletSessionId,
+    quotaId,
     remainingUses,
     expiresAtMs,
   };
@@ -184,7 +188,6 @@ function ed25519SealWrite(lane = readyEd25519Lane()): SigningSessionSealWriteInp
     material: {
       kind: 'ed25519_session',
       thresholdSessionId: lane.thresholdSessionId,
-      signingGrantId: lane.signingGrantId,
       relayerKeyId: lane.relayerKeyId,
     },
     expiresAtMs,
@@ -199,7 +202,6 @@ function ecdsaSealWrite(lane = readyEcdsaLane()): SigningSessionSealWriteInput {
     material: {
       kind: 'ecdsa_session',
       thresholdSessionId: lane.thresholdSessionId,
-      signingGrantId: lane.signingGrantId,
       record: lane.readyRecord,
     },
     expiresAtMs,

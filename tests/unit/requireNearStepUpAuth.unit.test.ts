@@ -12,6 +12,7 @@ import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 const WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
@@ -25,7 +26,6 @@ const EMAIL_OTP_AUTH = {
   kind: 'email_otp' as const,
   providerSubjectId: 'google:near-step-up',
 };
-
 test.describe('requireNearStepUpAuth', () => {
   test('returns a warm-session branch without prompt wrappers', async () => {
     const signingAuthPlan = {
@@ -33,7 +33,7 @@ test.describe('requireNearStepUpAuth', () => {
       method: 'passkey' as const,
       accountId: 'alice.testnet',
       intent: 'transaction_sign' as const,
-      sessionId: 'threshold-session-warm',
+      thresholdSessionId: 'threshold-session-warm',
       expiresAtMs: 1_777_777_777_000,
       remainingUses: 3,
     };
@@ -43,14 +43,15 @@ test.describe('requireNearStepUpAuth', () => {
       nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       signerSlot: 1,
       auth: PASSKEY_AUTH,
-      signingGrantId: SigningSessionIds.signingGrant('wallet-session-warm'),
+      walletSessionId: SigningSessionIds.walletSession('wallet-session-warm'),
+      quotaId: SigningSessionIds.walletSessionQuota('quota-warm'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-warm'),
       storageSource: 'login',
     });
 
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
-      signingLane,
+      signingLaneAuth: signingLane.auth,
       requiredSignatureUses: 1,
     });
 
@@ -84,7 +85,7 @@ test.describe('requireNearStepUpAuth', () => {
       method: 'passkey' as const,
       accountId: 'alice.testnet',
       intent: 'transaction_sign' as const,
-      sessionId: 'threshold-session-warm-one',
+      thresholdSessionId: 'threshold-session-warm-one',
       expiresAtMs: 1_777_777_777_000,
       remainingUses: 1,
     };
@@ -94,16 +95,15 @@ test.describe('requireNearStepUpAuth', () => {
       nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       signerSlot: 1,
       auth: PASSKEY_AUTH,
-      signingGrantId: SigningSessionIds.signingGrant('wallet-session-warm-one'),
-      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
-        'threshold-session-warm-one',
-      ),
+      walletSessionId: SigningSessionIds.walletSession('wallet-session-warm-one'),
+      quotaId: SigningSessionIds.walletSessionQuota('quota-warm-one'),
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-warm-one'),
       storageSource: 'login',
     });
 
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
-      signingLane,
+      signingLaneAuth: signingLane.auth,
       requiredSignatureUses,
     });
 
@@ -121,22 +121,20 @@ test.describe('requireNearStepUpAuth', () => {
       nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       signerSlot: 1,
       auth: EMAIL_OTP_AUTH,
-      signingGrantId: SigningSessionIds.signingGrant('wallet-session-email'),
+      walletSessionId: SigningSessionIds.walletSession('wallet-session-email'),
+      quotaId: SigningSessionIds.walletSessionQuota('quota-email'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-email'),
     });
     let challengeRequests = 0;
 
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
-      signingLane,
+      signingLaneAuth: signingLane.auth,
       requiredSignatureUses: 1,
-      emailOtpEd25519Reconnect: {
+      emailOtpEd25519StepUp: {
         prepare: async () => {
           challengeRequests += 1;
           return { challengeId: 'otp-1', emailHint: 'a***@x.test' };
-        },
-        reconnect: async () => {
-          throw new Error('reconnect should not run during preparation');
         },
       },
     });
@@ -150,7 +148,7 @@ test.describe('requireNearStepUpAuth', () => {
     );
   });
 
-  test('returns a passkey branch with the planned reconnect identity', async () => {
+  test('returns a passkey branch with the planned operation-step-up identity', async () => {
     const signingAuthPlan = {
       kind: SigningAuthPlanKind.PasskeyReauth,
       method: 'passkey' as const,
@@ -161,36 +159,33 @@ test.describe('requireNearStepUpAuth', () => {
       nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       signerSlot: 1,
       auth: PASSKEY_AUTH,
-      signingGrantId: SigningSessionIds.signingGrant('wallet-session-passkey'),
+      walletSessionId: SigningSessionIds.walletSession('wallet-session-passkey'),
+      quotaId: SigningSessionIds.walletSessionQuota('quota-passkey'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-passkey'),
       storageSource: 'login',
     });
-    const preparedUses: number[] = [];
-
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
-      signingLane,
+      signingLaneAuth: signingLane.auth,
       requiredSignatureUses: 1,
-      passkeyEd25519Reconnect: {
-        prepare: async ({ requiredSignatureUses }) => {
-          preparedUses.push(requiredSignatureUses);
+      passkeyEd25519OperationStepUp: {
+        prepare: async () => {
           return {
-            sessionId: 'threshold-session-passkey',
-            signingGrantId: 'wallet-session-passkey',
-            sessionPolicyDigest32: 'digest-32',
+            thresholdSessionId: 'threshold-session-passkey',
+            authority: buildPasskeyWalletAuthAuthority({
+              walletId: WALLET_ID,
+              rpId: PASSKEY_AUTH.rpId,
+              credentialIdB64u: PASSKEY_AUTH.credentialIdB64u,
+            }),
           };
         },
-        reconnect: async () => ({ sessionId: 'threshold-session-passkey' }),
       },
     });
 
-    expect(preparedUses).toEqual([1]);
     expect(prepared.kind).toBe('passkey');
     if (prepared.kind !== 'passkey') throw new Error('expected passkey branch');
-    expect(prepared.plannedPasskeyReconnect).toEqual({
-      sessionId: 'threshold-session-passkey',
-      signingGrantId: 'wallet-session-passkey',
-      sessionPolicyDigest32: 'digest-32',
+    expect(prepared.plannedPasskeyOperationStepUp).toMatchObject({
+      thresholdSessionId: 'threshold-session-passkey',
     });
   });
 });

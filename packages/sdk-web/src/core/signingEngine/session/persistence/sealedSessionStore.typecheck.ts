@@ -3,38 +3,99 @@ import type {
   BuildCurrentEcdsaSealedSessionRecordInput,
   CurrentEd25519SealedSessionRecord,
   CurrentEcdsaSealedSessionRecord,
-  EcdsaReauthAnchorPublicRestore,
-  PublishResolvedIdentityInput,
+  EcdsaInactiveMaterialPublicRestore,
+  EcdsaInactiveSealedMaterialRecord,
   UpdateExactSealedSessionPolicyInput,
 } from './sealedSessionStore';
-import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
+import type {
+  SealedSigningSessionEcdsaRestoreMetadata,
+  SealedSigningSessionEcdsaRoleLocalMaterialRef,
+} from '@shared/utils/signingSessionSeal';
 import type { SealedSigningSessionEd25519RestoreMetadata } from '@shared/utils/signingSessionSeal';
 import type {
   RouterAbEcdsaDerivationNormalSigningStateV1,
   RouterAbEcdsaDerivationPublicCapabilityV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 declare const currentEd25519Record: CurrentEd25519SealedSessionRecord;
 declare const currentEcdsaRecord: CurrentEcdsaSealedSessionRecord;
 declare const routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
-declare const ecdsaReauthAnchorPublicRestore: EcdsaReauthAnchorPublicRestore;
+declare const roleLocalMaterialRef: SealedSigningSessionEcdsaRoleLocalMaterialRef;
+declare const authority: WalletAuthAuthorityRef;
+declare const ecdsaInactiveMaterialPublicRestore: EcdsaInactiveMaterialPublicRestore;
+declare const inactiveEcdsaMaterial: EcdsaInactiveSealedMaterialRecord;
+declare const emailOtpInactiveMaterialPublicRestore: Extract<
+  EcdsaInactiveMaterialPublicRestore,
+  { source: 'email_otp' }
+>;
 void currentEd25519Record;
 void currentEcdsaRecord;
 
-const invalidReauthAnchorWithWalletSessionJwt: EcdsaReauthAnchorPublicRestore = {
-  ...ecdsaReauthAnchorPublicRestore,
-  // @ts-expect-error reauth anchors contain public identity facts only.
+const invalidInactiveRestoreWithWalletSessionJwt: EcdsaInactiveMaterialPublicRestore = {
+  ...ecdsaInactiveMaterialPublicRestore,
+  // @ts-expect-error inactive material contains no Wallet Session bearer.
   walletSessionJwt: 'secret-wallet-session-jwt',
 };
-void invalidReauthAnchorWithWalletSessionJwt;
+void invalidInactiveRestoreWithWalletSessionJwt;
 
-const invalidReauthAnchorWithSessionKind: EcdsaReauthAnchorPublicRestore = {
-  ...ecdsaReauthAnchorPublicRestore,
-  // @ts-expect-error reauth anchors do not carry session-auth lifecycle state.
+const invalidInactiveRestoreWithSessionKind: EcdsaInactiveMaterialPublicRestore = {
+  ...ecdsaInactiveMaterialPublicRestore,
+  // @ts-expect-error inactive material contains no session-auth lifecycle state.
   sessionKind: 'jwt',
 };
-void invalidReauthAnchorWithSessionKind;
+void invalidInactiveRestoreWithSessionKind;
+
+const invalidInactiveMaterialWithThresholdSession: EcdsaInactiveSealedMaterialRecord = {
+  ...inactiveEcdsaMaterial,
+  // @ts-expect-error inactive material is keyed by exact activation, not session ids.
+  thresholdSessionIds: { ecdsa: 'session-retired' },
+};
+void invalidInactiveMaterialWithThresholdSession;
+
+const invalidInactiveMaterialWithRemainingUses: EcdsaInactiveSealedMaterialRecord = {
+  ...inactiveEcdsaMaterial,
+  // @ts-expect-error inactive material contains no reusable-session allowance.
+  remainingUses: 1,
+};
+void invalidInactiveMaterialWithRemainingUses;
+
+const invalidInactiveMaterialWithExpiry: EcdsaInactiveSealedMaterialRecord = {
+  ...inactiveEcdsaMaterial,
+  // @ts-expect-error inactive material contains no reusable-session expiry.
+  expiresAtMs: 1,
+};
+void invalidInactiveMaterialWithExpiry;
+
+const invalidInactiveMaterialWithIssuedAt: EcdsaInactiveSealedMaterialRecord = {
+  ...inactiveEcdsaMaterial,
+  // @ts-expect-error inactive material contains no reusable-session issuance time.
+  issuedAtMs: 1,
+};
+void invalidInactiveMaterialWithIssuedAt;
+
+// @ts-expect-error inactive material auth method and factor binding must agree.
+const invalidPasskeyInactiveMaterialWithEmailOtpRestore: EcdsaInactiveSealedMaterialRecord = {
+  ...inactiveEcdsaMaterial,
+  authMethod: 'passkey',
+  ecdsaRestore: emailOtpInactiveMaterialPublicRestore,
+};
+void invalidPasskeyInactiveMaterialWithEmailOtpRestore;
+
+const invalidInactiveMaterialWithAuthorizationState: EcdsaInactiveSealedMaterialRecord = {
+  ...inactiveEcdsaMaterial,
+  // @ts-expect-error inactive material does not carry an authorization lifecycle state.
+  state: 'expired',
+};
+void invalidInactiveMaterialWithAuthorizationState;
+
+const invalidInactiveMaterialWithoutSecret: EcdsaInactiveSealedMaterialRecord = {
+  ...inactiveEcdsaMaterial,
+  // @ts-expect-error inactive material must retain its encrypted envelope.
+  sealedSecretB64u: undefined,
+};
+void invalidInactiveMaterialWithoutSecret;
 
 const invalidCurrentEd25519Record: CurrentEd25519SealedSessionRecord = {
   ...({} as CurrentEd25519SealedSessionRecord),
@@ -66,7 +127,6 @@ const invalidEd25519WriteInput: BuildCurrentEd25519SealedSessionRecordInput = {
   sealedSecretB64u: 'sealed-secret',
   curve: 'ed25519',
   authMethod: 'passkey',
-  signingGrantId: 'wsess-ed25519',
   walletId: 'wallet.testnet',
   relayerUrl: 'https://relay.example',
   ed25519Restore: {
@@ -76,7 +136,6 @@ const invalidEd25519WriteInput: BuildCurrentEd25519SealedSessionRecordInput = {
     credentialIdB64u: 'credential-id',
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2, 3],
-    sessionKind: 'cookie',
     signerSlot: 1,
     // @ts-expect-error current Ed25519 sealed writes do not accept raw client-base material.
     xClientBaseB64u: 'raw-client-base',
@@ -122,7 +181,6 @@ const invalidEmailOtpEd25519RestoreWithoutProviderSubject = {
   rpId: 'wallet.example.localhost',
   relayerKeyId: 'relayer-key',
   participantIds: [1, 2, 3],
-  sessionKind: 'jwt',
   signerSlot: 1,
   // @ts-expect-error Ed25519 sealed restore metadata requires an auth identity branch.
 } satisfies SealedSigningSessionEd25519RestoreMetadata;
@@ -137,7 +195,6 @@ const invalidEmailOtpEd25519RestoreWithAuthSubjectAlias = {
   authSubjectId: 'google:legacy-alias',
   relayerKeyId: 'relayer-key',
   participantIds: [1, 2, 3],
-  sessionKind: 'jwt',
   signerSlot: 1,
 } satisfies SealedSigningSessionEd25519RestoreMetadata;
 void invalidEmailOtpEd25519RestoreWithAuthSubjectAlias;
@@ -150,7 +207,6 @@ const invalidEd25519RestoreWithMixedAuthBranches = {
   providerSubjectId: 'google:alice',
   relayerKeyId: 'relayer-key',
   participantIds: [1, 2, 3],
-  sessionKind: 'jwt',
   signerSlot: 1,
   // @ts-expect-error Ed25519 sealed restore metadata requires exactly one auth branch.
 } satisfies SealedSigningSessionEd25519RestoreMetadata;
@@ -190,19 +246,17 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   sealedSecretB64u: 'sealed-secret',
   curve: 'ecdsa',
   authMethod: 'passkey',
-  signingGrantId: 'wsess-ecdsa',
   walletId: 'wallet.testnet',
   relayerUrl: 'https://relay.example',
   ecdsaRestore: {
     chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
     source: 'manual-bootstrap',
-    evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet.testnet:project%3Adev:default',
-    roleLocalDurableMaterialRef: 'router-ab-ecdsa-registration:ceremony',
+    authority,
+    roleLocalMaterialRef,
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
     rpId: 'wallet.example.localhost',
     credentialIdB64u: 'credential-id',
-    sessionKind: 'cookie',
     keyHandle: 'key-handle-ecdsa',
     ethereumAddress: `0x${'11'.repeat(20)}`,
     relayerKeyId: 'relayer-key',
@@ -261,17 +315,6 @@ const invalidEcdsaWriteSigningRootVersionInput: BuildCurrentEcdsaSealedSessionRe
 };
 void invalidEcdsaWriteSigningRootVersionInput;
 
-// @ts-expect-error resolved runtime identity publication requires an explicit lifecycle timestamp.
-const invalidPublishResolvedIdentityWithoutUpdatedAtMs: PublishResolvedIdentityInput = {
-  walletId: 'wallet.testnet',
-  authMethod: 'passkey',
-  curve: 'ed25519',
-  chain: 'near',
-  signingGrantId: 'wsess-ed25519',
-  thresholdSessionId: 'tsess-ed25519',
-};
-void invalidPublishResolvedIdentityWithoutUpdatedAtMs;
-
 // @ts-expect-error sealed-session policy updates require an explicit lifecycle timestamp.
 const invalidPolicyUpdateWithoutUpdatedAtMs: UpdateExactSealedSessionPolicyInput = {
   thresholdSessionId: 'tsess-ed25519',
@@ -286,11 +329,9 @@ void invalidPolicyUpdateWithoutUpdatedAtMs;
 const invalidEmailOtpEcdsaRestoreWithoutProviderSubject = {
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
   source: 'email_otp',
-  evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet.testnet:project%3Adev:default',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   provider: 'google',
-  sessionKind: 'jwt',
   keyHandle: 'key-handle-ecdsa',
   ethereumAddress: `0x${'11'.repeat(20)}`,
   relayerKeyId: 'relayer-key',
@@ -302,14 +343,12 @@ void invalidEmailOtpEcdsaRestoreWithoutProviderSubject;
 const invalidEmailOtpEcdsaRestoreWithAuthSubjectAlias = {
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
   source: 'email_otp',
-  evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet.testnet:project%3Adev:default',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   provider: 'google',
   providerSubjectId: 'google:alice',
   // @ts-expect-error Email OTP ECDSA sealed restore metadata rejects authSubjectId.
   authSubjectId: 'google:legacy-alias',
-  sessionKind: 'jwt',
   keyHandle: 'key-handle-ecdsa',
   ethereumAddress: `0x${'11'.repeat(20)}`,
   relayerKeyId: 'relayer-key',

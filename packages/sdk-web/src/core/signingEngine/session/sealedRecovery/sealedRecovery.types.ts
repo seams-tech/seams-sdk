@@ -1,6 +1,7 @@
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import type { EcdsaThresholdKeyId } from '../keyMaterialBrands';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
   RawSigningSessionSealedStoreRecord,
   RejectedSealedRecoveryRecord,
@@ -21,7 +22,6 @@ type RestorePersistedSessionForSigningBaseInput = {
 
 type RestorePersistedSessionForSigningTransactionInput =
   RestorePersistedSessionForSigningBaseInput & {
-    signingGrantId: string;
     thresholdSessionId: string;
     reason: 'transaction' | 'export';
   };
@@ -55,19 +55,15 @@ export type RestorePersistedSessionForSigningResult =
       duplicateRecordSummaries: readonly Record<string, unknown>[];
     };
 
-export type RestorePersistedEcdsaSessionForSigningInput = RestorePersistedSessionForSigningInput;
-
 export type RestorePersistedSessionPurpose = {
   walletId: string;
   authMethod: 'email_otp' | 'passkey';
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
-  signingGrantId: string;
+  materialActivation: MpcMaterialActivationRef;
   thresholdSessionId: string;
   reason: 'transaction' | 'export' | 'session_status';
 };
-
-export type RestorePersistedEcdsaSessionPurpose = RestorePersistedSessionPurpose;
 
 export type RestorePersistedSessionWorkItem = {
   record: SealedRecoveryRecord;
@@ -77,7 +73,7 @@ export type RestorePersistedSessionWorkItem = {
 type DiscoverPersistedSessionsForWalletBase = {
   walletId: string;
   ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
-  authMethod?: 'email_otp' | 'passkey';
+  authMethod: 'email_otp' | 'passkey';
   maxRecords?: number;
 };
 
@@ -92,6 +88,12 @@ export type DiscoverPersistedSessionsForWalletResult = {
 };
 
 export type RestoreSealedRecordResult = 'restored' | 'ready' | 'deferred';
+
+export type RestoredWarmSessionStatus = {
+  ok: true;
+  remainingUses: number;
+  expiresAtMs: number;
+};
 
 export type SigningSessionRestoreCache = {
   hasSuccessfulRestore: (

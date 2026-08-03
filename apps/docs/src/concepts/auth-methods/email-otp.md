@@ -13,7 +13,7 @@ Email OTP can:
 1. prove control of a verified email channel;
 2. authorize worker-owned Email OTP secret reconstruction;
 3. create or restore signing capabilities under Wallet Session policy;
-4. step up exhausted or expired Email OTP signing grants;
+4. step up exhausted or expired Email OTP Wallet Session quotas;
 5. authorize export or recovery only through fresh operation-specific policy.
 
 Secret-bearing Email OTP material belongs in the dedicated Email OTP worker or

@@ -2,7 +2,7 @@ import type {
   WalletAuthCurve,
   WalletAuthIntent,
   SigningSessionRetention,
-  WalletAuthMethod,
+  SignerAuthMethod,
 } from '@/core/types/seams';
 import type { TransactionContext } from '@/core/types/rpc';
 import type { NearTransactionReadiness } from '../nonce/nearTransactionReadiness';
@@ -11,6 +11,8 @@ import type {
   WebAuthnRegistrationCredential,
 } from '@/core/types/webauthn';
 import type { NonceLeaseRef } from '../interfaces/nonceLease';
+import type { WalletSessionFailure } from '../session/lifecycle/walletSessionFailure';
+import type { NearOperationStepUpPreparationRef } from '../interfaces/operationStepUpPreparation';
 
 export interface UserConfirmProgressEvent {
   requestId: string;
@@ -62,6 +64,7 @@ export type UserConfirmDecisionBase = ForbiddenMainThreadSecrets & {
 type UserConfirmSuccessDecisionBase = UserConfirmDecisionBase & {
   confirmed: true;
   credential?: SerializableCredential;
+  operationStepUpPreparation?: NearOperationStepUpPreparationRef;
   otpCode?: string;
   emailOtpChallengeId?: string;
   registrationDiagnostics?: RegistrationConfirmationDiagnostics;
@@ -87,9 +90,8 @@ export type UserConfirmSuccessDecision = UserConfirmSuccessDecisionBase &
       }
   );
 
-export type UserConfirmFailureDecision = UserConfirmDecisionBase & {
+type UserConfirmFailureDecisionBase = UserConfirmDecisionBase & {
   confirmed: false;
-  error?: string;
   registrationDiagnostics?: RegistrationConfirmationDiagnostics;
   credential?: never;
   otpCode?: never;
@@ -98,6 +100,23 @@ export type UserConfirmFailureDecision = UserConfirmDecisionBase & {
   nonceLeases?: never;
   nearTransactionReadiness?: never;
 };
+
+export type WalletSessionExpiredConfirmationFailure = Extract<
+  WalletSessionFailure,
+  { readonly kind: 'expired' }
+>;
+
+export type UserConfirmFailureDecision = UserConfirmFailureDecisionBase &
+  (
+    | {
+        walletSessionFailure: WalletSessionExpiredConfirmationFailure;
+        error?: never;
+      }
+    | {
+        walletSessionFailure?: never;
+        error?: string;
+      }
+  );
 
 export type UserConfirmDecision = UserConfirmSuccessDecision | UserConfirmFailureDecision;
 
@@ -127,11 +146,11 @@ export interface EmailOtpConfirmPrompt {
 export type SigningAuthPlan =
   | {
       kind: typeof SigningAuthPlanKind.WarmSession;
-      method: WalletAuthMethod;
+      method: SignerAuthMethod;
       accountId: string;
       intent: WalletAuthIntent;
       curve?: WalletAuthCurve;
-      sessionId: string;
+      thresholdSessionId: string;
       retention?: SigningSessionRetention | null;
       expiresAtMs: number;
       remainingUses: number;
@@ -153,7 +172,6 @@ export type WebAuthnChallenge =
       digest32B64u?: never;
       requestId?: never;
       thresholdSessionId?: never;
-      signingGrantId?: never;
     }
   | {
       kind: 'threshold_session_policy';
@@ -161,14 +179,12 @@ export type WebAuthnChallenge =
       challengeB64u?: never;
       requestId?: never;
       thresholdSessionId?: never;
-      signingGrantId?: never;
     }
   | {
       kind: 'ecdsa_role_local_bootstrap';
       digest32B64u: string;
       requestId: string;
       thresholdSessionId: string;
-      signingGrantId: string;
       challengeB64u?: never;
     };
 
@@ -209,8 +225,8 @@ export type PasskeyPromptPlan = {
 };
 
 export type StepUpWarmSessionAuthorization = {
-  method: WalletAuthMethod;
-  sessionId: string;
+  method: SignerAuthMethod;
+  thresholdSessionId: string;
   expiresAtMs: number;
   remainingUses: number;
 };
@@ -258,7 +274,7 @@ export type WarmSessionStepUpAuthorization<
 > = {
   kind: 'warm_session';
   signingAuthPlan: TSigningAuthPlan;
-  sessionId: string;
+  thresholdSessionId: string;
   expiresAtMs: number;
   remainingUses: number;
 };

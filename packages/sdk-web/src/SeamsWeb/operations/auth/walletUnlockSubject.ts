@@ -2,7 +2,6 @@ import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { AccountSignerRecord, LastProfileState } from '@/core/indexedDB/passkeyClientDB.types';
-import { getStoredThresholdEd25519SessionRecordForWallet } from '@/core/signingEngine/session/persistence/records';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   parseNearEd25519SigningKeyId,
@@ -10,36 +9,45 @@ import {
 } from '@shared/utils/registrationIntent';
 import { parseSignerSlot, type SignerSlot } from '@shared/utils/signerSlot';
 import {
-  requireEvmFamilySigningKeySlotId,
-  type EvmFamilySigningKeySlotId,
-} from '@shared/signing-lanes';
+  resolveEvmFamilyEcdsaWalletUnlockSubjects,
+  type WalletUnlockCapabilitySubjectResolutionFailure,
+} from './walletUnlockEcdsaSubject';
+import type {
+  NearEd25519WalletUnlockSubject,
+  WalletUnlockSubject,
+  WalletUnlockSubjectSet,
+} from '@/core/signingEngine/session/identity/walletUnlockSubject';
 
-export type WalletUnlockSubject =
+export type {
+  NearEd25519WalletUnlockSubject,
+  WalletUnlockSubject,
+  WalletUnlockSubjectSet,
+} from '@/core/signingEngine/session/identity/walletUnlockSubject';
+
+export type WalletUnlockCapabilityFamilyScope =
+  | { readonly kind: 'near_ed25519_only' }
+  | { readonly kind: 'evm_family_ecdsa_only' }
+  | { readonly kind: 'all_registered_mpc' };
+
+export type WalletUnlockSubjectSetResolution =
   | {
-      kind: 'near_ed25519_wallet';
-      walletId: WalletId;
-      nearAccountId: AccountId;
-      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-      signerSlot: SignerSlot;
+      readonly kind: 'resolved';
+      readonly subjectSet: WalletUnlockSubjectSet;
     }
   | {
-      kind: 'evm_family_ecdsa_wallet';
-      walletId: WalletId;
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+      readonly kind: 'missing_requested_capability_subject';
+      readonly walletId: WalletId;
+      readonly subjectSet?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'capability_subject_resolution_failed';
+      readonly walletId: WalletId;
+      readonly reason: WalletUnlockCapabilitySubjectResolutionFailure;
+      readonly subjectSet?: never;
     };
 
-export type WalletUnlockSubjectSet = {
-  readonly kind: 'wallet_unlock_subject_set';
-  readonly walletId: WalletId;
-  readonly subjects: readonly WalletUnlockSubject[];
-};
-
-export type ResolvedWalletUnlockSubjectSet = WalletUnlockSubjectSet & {
-  readonly subjects: readonly [WalletUnlockSubject, ...WalletUnlockSubject[]];
-};
-
 export type WalletIdentitySource =
-  | 'runtime_session_record'
   | 'profile_projection'
   | 'host_last_used_profile';
 
@@ -47,9 +55,10 @@ export type WalletIdentityResolveFailure =
   | 'missing_wallet_profile'
   | 'ambiguous_wallet_profile'
   | 'missing_requested_capability_subject'
+  | WalletUnlockCapabilitySubjectResolutionFailure
   | 'invalid_wallet_profile';
 
-export type WalletSessionReadResolution =
+export type WalletCapabilitySubjectResolution =
   | {
       kind: 'no_session_request';
       walletId?: never;
@@ -62,7 +71,7 @@ export type WalletSessionReadResolution =
       kind: 'resolved';
       walletId: WalletId;
       profileId?: never;
-      subjectSet: ResolvedWalletUnlockSubjectSet;
+      subjectSet: WalletUnlockSubjectSet;
       source: WalletIdentitySource;
       reason?: never;
     }
@@ -118,6 +127,32 @@ type LastUsedProfileWalletResolution =
       reason: WalletIdentityResolveFailure;
     };
 
+type NearEd25519WalletUnlockSubjectParseResult =
+  | {
+      readonly kind: 'absent';
+      readonly subject?: never;
+    }
+  | {
+      readonly kind: 'valid';
+      readonly subject: NearEd25519WalletUnlockSubject;
+    }
+  | {
+      readonly kind: 'invalid';
+      readonly subject?: never;
+    };
+
+type NearEd25519WalletUnlockSubjectsResolution =
+  | {
+      readonly kind: 'resolved';
+      readonly subjects: readonly NearEd25519WalletUnlockSubject[];
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly reason: WalletUnlockCapabilitySubjectResolutionFailure;
+      readonly subjects?: never;
+    };
+
 function requiredWalletUnlockMetadataString(
   metadata: Record<string, unknown> | undefined,
   field: string,
@@ -129,64 +164,66 @@ function requiredWalletUnlockMetadataString(
   return value.trim();
 }
 
-function nearEd25519WalletUnlockSubjectFromRuntimeRecord(
-  walletId: WalletId,
-): Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }> | null {
-  const record = getStoredThresholdEd25519SessionRecordForWallet(walletId);
-  if (!record?.nearAccountId) return null;
-  const signerSlot = parseSignerSlot(record.signerSlot);
-  if (!signerSlot) return null;
-  return {
-    kind: 'near_ed25519_wallet',
-    walletId,
-    nearAccountId: toAccountId(String(record.nearAccountId)),
-    nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(record.nearEd25519SigningKeyId),
-    signerSlot,
-  };
-}
-
 function nearEd25519WalletUnlockSubjectFromSigner(
   walletId: WalletId,
   signer: AccountSignerRecord,
-): Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }> | null {
+): NearEd25519WalletUnlockSubjectParseResult {
   try {
     const metadataWalletId = String(signer.metadata?.walletId || '').trim();
-    if (metadataWalletId && metadataWalletId !== String(walletId)) return null;
+    if (metadataWalletId && metadataWalletId !== String(walletId)) {
+      return { kind: 'invalid' };
+    }
     const signerSlot = parseSignerSlot(signer.signerSlot);
-    if (!signerSlot) return null;
+    if (!signerSlot) return { kind: 'invalid' };
     return {
-      kind: 'near_ed25519_wallet',
-      walletId,
-      nearAccountId: toAccountId(
-        requiredWalletUnlockMetadataString(signer.metadata, 'nearAccountId'),
-      ),
-      nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
-        requiredWalletUnlockMetadataString(signer.metadata, 'nearEd25519SigningKeyId'),
-      ),
-      signerSlot,
+      kind: 'valid',
+      subject: {
+        kind: 'near_ed25519_wallet',
+        walletId,
+        nearAccountId: toAccountId(
+          requiredWalletUnlockMetadataString(signer.metadata, 'nearAccountId'),
+        ),
+        nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
+          requiredWalletUnlockMetadataString(signer.metadata, 'nearEd25519SigningKeyId'),
+        ),
+        signerSlot,
+      },
     };
   } catch {
-    return null;
+    return { kind: 'invalid' };
   }
 }
 
-function evmFamilyEcdsaWalletUnlockSubjectFromSigner(
+async function resolveNearEd25519WalletUnlockSubjects(
   walletId: WalletId,
-  signer: AccountSignerRecord,
-): Extract<WalletUnlockSubject, { kind: 'evm_family_ecdsa_wallet' }> | null {
+): Promise<NearEd25519WalletUnlockSubjectsResolution> {
+  const subjects: NearEd25519WalletUnlockSubject[] = [];
+  let signers: AccountSignerRecord[];
   try {
-    const metadataWalletId = String(signer.metadata?.walletId || '').trim();
-    if (metadataWalletId && metadataWalletId !== String(walletId)) return null;
-    return {
-      kind: 'evm_family_ecdsa_wallet',
+    signers = await IndexedDBManager.listActiveWalletSigners({
       walletId,
-      evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
-        requiredWalletUnlockMetadataString(signer.metadata, 'evmFamilySigningKeySlotId'),
-      ),
-    };
+      signerFamily: 'ed25519',
+    });
   } catch {
-    return null;
+    return {
+      kind: 'failed',
+      reason: 'capability_subject_lookup_failed',
+    };
   }
+  for (const signer of signers) {
+    const parsed = nearEd25519WalletUnlockSubjectFromSigner(walletId, signer);
+    if (parsed.kind !== 'valid') {
+      return {
+        kind: 'failed',
+        reason: 'invalid_capability_subject',
+      };
+    }
+    subjects.push(parsed.subject);
+  }
+  return {
+    kind: 'resolved',
+    subjects,
+  };
 }
 
 function walletUnlockSubjectKey(subject: WalletUnlockSubject): string {
@@ -200,7 +237,13 @@ function walletUnlockSubjectKey(subject: WalletUnlockSubject): string {
         subject.signerSlot,
       ].join('\0');
     case 'evm_family_ecdsa_wallet':
-      return [subject.kind, subject.walletId, subject.evmFamilySigningKeySlotId].join('\0');
+      return [
+        subject.kind,
+        subject.walletId,
+        subject.capability,
+        subject.authority.authorityDigest,
+        subject.ecdsaThresholdKeyId,
+      ].join('\0');
   }
   subject satisfies never;
   return '';
@@ -218,26 +261,17 @@ function walletUnlockSubjectsIncludeKey(
 
 function appendUniqueWalletUnlockSubject(
   subjects: WalletUnlockSubject[],
-  subject: WalletUnlockSubject | null,
+  subject: WalletUnlockSubject,
 ): void {
-  if (!subject) return;
   const key = walletUnlockSubjectKey(subject);
   if (walletUnlockSubjectsIncludeKey(subjects, key)) return;
   subjects.push(subject);
-}
-
-function noWalletUnlockSignerRecordsAfterLookupFailure(): AccountSignerRecord[] {
-  return [];
 }
 
 function isNearEd25519WalletUnlockSubject(
   subject: WalletUnlockSubject,
 ): subject is Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }> {
   return subject.kind === 'near_ed25519_wallet';
-}
-
-function hasRuntimeWalletSessionRecord(walletId: WalletId): boolean {
-  return Boolean(getStoredThresholdEd25519SessionRecordForWallet(walletId));
 }
 
 function parseWalletSessionReadWalletId(raw: WalletId | string | undefined): WalletId | null {
@@ -286,19 +320,6 @@ async function resolveWalletSessionReadTarget(
   return await resolveLastUsedWalletSessionReadTarget();
 }
 
-function walletSessionReadSourceForTarget(
-  target: Exclude<WalletSessionReadTarget, { kind: 'none' | 'last_used_profile' }>,
-): WalletIdentitySource {
-  if (hasRuntimeWalletSessionRecord(target.walletId)) return 'runtime_session_record';
-  return 'profile_projection';
-}
-
-function walletSessionReadSourceForLastUsedProfile(walletId: WalletId): WalletIdentitySource {
-  return hasRuntimeWalletSessionRecord(walletId)
-    ? 'runtime_session_record'
-    : 'host_last_used_profile';
-}
-
 function signerMetadataWalletId(signer: AccountSignerRecord): WalletId | null {
   const value = String(signer.metadata?.walletId || '').trim();
   if (!value) return null;
@@ -309,41 +330,75 @@ function signerMetadataWalletId(signer: AccountSignerRecord): WalletId | null {
   }
 }
 
-function uniqueSignerMetadataWalletIds(signers: readonly AccountSignerRecord[]): WalletId[] {
+function uniqueSignerMetadataWalletIds(signers: readonly AccountSignerRecord[]):
+  | {
+      readonly kind: 'resolved';
+      readonly walletIds: readonly WalletId[];
+    }
+  | {
+      readonly kind: 'invalid';
+      readonly walletIds?: never;
+    } {
   const walletIds: WalletId[] = [];
   const seen = new Set<string>();
   for (const signer of signers) {
     const walletId = signerMetadataWalletId(signer);
-    if (!walletId) continue;
+    if (!walletId) return { kind: 'invalid' };
     const key = String(walletId);
     if (seen.has(key)) continue;
     seen.add(key);
     walletIds.push(walletId);
   }
-  return walletIds;
+  return {
+    kind: 'resolved',
+    walletIds,
+  };
 }
 
 async function resolveWalletIdForLastUsedProfile(
   profileId: string,
 ): Promise<LastUsedProfileWalletResolution> {
-  const profile = await IndexedDBManager.getProfile(profileId).catch(() => null);
+  let profile: Awaited<ReturnType<typeof IndexedDBManager.getProfile>>;
+  try {
+    profile = await IndexedDBManager.getProfile(profileId);
+  } catch {
+    return {
+      kind: 'unresolvable_profile',
+      reason: 'capability_subject_lookup_failed',
+    };
+  }
   if (!profile) {
     return {
       kind: 'unresolvable_profile',
       reason: 'missing_wallet_profile',
     };
   }
-  const signers = await IndexedDBManager.listAccountSignersByProfile({
-    profileId,
-    status: 'active',
-  }).catch(noWalletUnlockSignerRecordsAfterLookupFailure);
+  let signers: AccountSignerRecord[];
+  try {
+    signers = await IndexedDBManager.listAccountSignersByProfile({
+      profileId,
+      status: 'active',
+    });
+  } catch {
+    return {
+      kind: 'unresolvable_profile',
+      reason: 'capability_subject_lookup_failed',
+    };
+  }
   if (signers.length === 0) {
     return {
       kind: 'unresolvable_profile',
       reason: 'missing_requested_capability_subject',
     };
   }
-  const walletIds = uniqueSignerMetadataWalletIds(signers);
+  const walletIdResolution = uniqueSignerMetadataWalletIds(signers);
+  if (walletIdResolution.kind === 'invalid') {
+    return {
+      kind: 'unresolvable_profile',
+      reason: 'invalid_wallet_profile',
+    };
+  }
+  const walletIds = walletIdResolution.walletIds;
   if (walletIds.length === 0) {
     return {
       kind: 'unresolvable_profile',
@@ -362,58 +417,77 @@ async function resolveWalletIdForLastUsedProfile(
   };
 }
 
-function asResolvedWalletUnlockSubjectSet(
-  subjectSet: WalletUnlockSubjectSet,
-): ResolvedWalletUnlockSubjectSet | null {
-  if (subjectSet.subjects.length === 0) return null;
-  return subjectSet as ResolvedWalletUnlockSubjectSet;
+function buildWalletUnlockSubjectSet(
+  walletId: WalletId,
+  subjects: readonly WalletUnlockSubject[],
+): WalletUnlockSubjectSetResolution {
+  const first = subjects[0];
+  if (!first) {
+    return {
+      kind: 'missing_requested_capability_subject',
+      walletId,
+    };
+  }
+  return {
+    kind: 'resolved',
+    subjectSet: {
+      kind: 'wallet_unlock_subject_set',
+      walletId,
+      subjects: [first, ...subjects.slice(1)],
+    },
+  };
 }
 
 function walletSessionReadFailureForSubjectSet(
   subjectSet: WalletUnlockSubjectSet,
 ): WalletIdentityResolveFailure | null {
-  if (subjectSet.subjects.length === 0) return 'missing_requested_capability_subject';
   const nearSubjects = subjectSet.subjects.filter(isNearEd25519WalletUnlockSubject);
   if (nearSubjects.length > 1) return 'ambiguous_wallet_profile';
   return null;
 }
 
-export async function resolveWalletUnlockSubjectSet(
-  walletId: string,
-): Promise<WalletUnlockSubjectSet> {
-  const normalizedWalletId = toWalletId(walletId);
+export async function resolveWalletUnlockSubjectSet(args: {
+  readonly walletId: string;
+  readonly requestedCapabilityFamilies: WalletUnlockCapabilityFamilyScope;
+}): Promise<WalletUnlockSubjectSetResolution> {
+  const normalizedWalletId = toWalletId(args.walletId);
   const subjects: WalletUnlockSubject[] = [];
-  appendUniqueWalletUnlockSubject(
-    subjects,
-    nearEd25519WalletUnlockSubjectFromRuntimeRecord(normalizedWalletId),
-  );
-  const [nearSigners, ecdsaSigners] = await Promise.all([
-    IndexedDBManager.listActiveWalletSigners({
-      walletId: normalizedWalletId,
-      signerFamily: 'ed25519',
-    }).catch(noWalletUnlockSignerRecordsAfterLookupFailure),
-    IndexedDBManager.listActiveWalletSigners({
-      walletId: normalizedWalletId,
-      signerFamily: 'ecdsa',
-    }).catch(noWalletUnlockSignerRecordsAfterLookupFailure),
-  ]);
-  for (const signer of nearSigners) {
-    appendUniqueWalletUnlockSubject(
-      subjects,
-      nearEd25519WalletUnlockSubjectFromSigner(normalizedWalletId, signer),
-    );
+  switch (args.requestedCapabilityFamilies.kind) {
+    case 'near_ed25519_only':
+    case 'all_registered_mpc': {
+      const nearResolution = await resolveNearEd25519WalletUnlockSubjects(normalizedWalletId);
+      if (nearResolution.kind === 'failed') {
+        return {
+          kind: 'capability_subject_resolution_failed',
+          walletId: normalizedWalletId,
+          reason: nearResolution.reason,
+        };
+      }
+      for (const subject of nearResolution.subjects) {
+        appendUniqueWalletUnlockSubject(subjects, subject);
+      }
+      if (args.requestedCapabilityFamilies.kind === 'near_ed25519_only') {
+        return buildWalletUnlockSubjectSet(normalizedWalletId, subjects);
+      }
+      break;
+    }
+    case 'evm_family_ecdsa_only':
+      break;
+    default:
+      args.requestedCapabilityFamilies satisfies never;
   }
-  for (const signer of ecdsaSigners) {
-    appendUniqueWalletUnlockSubject(
-      subjects,
-      evmFamilyEcdsaWalletUnlockSubjectFromSigner(normalizedWalletId, signer),
-    );
+  const ecdsaResolution = await resolveEvmFamilyEcdsaWalletUnlockSubjects(normalizedWalletId);
+  if (ecdsaResolution.kind === 'failed') {
+    return {
+      kind: 'capability_subject_resolution_failed',
+      walletId: normalizedWalletId,
+      reason: ecdsaResolution.reason,
+    };
   }
-  return {
-    kind: 'wallet_unlock_subject_set',
-    walletId: normalizedWalletId,
-    subjects,
-  };
+  for (const subject of ecdsaResolution.subjects) {
+    appendUniqueWalletUnlockSubject(subjects, subject);
+  }
+  return buildWalletUnlockSubjectSet(normalizedWalletId, subjects);
 }
 
 function selectNearEd25519WalletUnlockSubject(
@@ -430,12 +504,20 @@ function selectNearEd25519WalletUnlockSubject(
 export async function resolveNearEd25519WalletUnlockSubject(
   walletId: string,
 ): Promise<Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }> | null> {
-  return selectNearEd25519WalletUnlockSubject(await resolveWalletUnlockSubjectSet(walletId));
+  const resolution = await resolveWalletUnlockSubjectSet({
+    walletId,
+    requestedCapabilityFamilies: { kind: 'near_ed25519_only' },
+  });
+  if (resolution.kind === 'missing_requested_capability_subject') return null;
+  if (resolution.kind === 'capability_subject_resolution_failed') {
+    throw new Error(`wallet unlock subject resolution failed: ${resolution.reason}`);
+  }
+  return selectNearEd25519WalletUnlockSubject(resolution.subjectSet);
 }
 
-export async function resolveWalletSessionReadResolution(
+export async function resolveWalletCapabilitySubjectResolution(
   walletId?: WalletId | string,
-): Promise<WalletSessionReadResolution> {
+): Promise<WalletCapabilitySubjectResolution> {
   const target = await resolveWalletSessionReadTarget(walletId);
   if (target.kind === 'none') return { kind: 'no_session_request' };
 
@@ -451,21 +533,32 @@ export async function resolveWalletSessionReadResolution(
       };
     }
     resolvedWalletId = walletTarget.walletId;
-    source = walletSessionReadSourceForLastUsedProfile(resolvedWalletId);
+    source = 'host_last_used_profile';
   } else {
     resolvedWalletId = target.walletId;
-    source = walletSessionReadSourceForTarget(target);
+    source = 'profile_projection';
   }
-  const subjectSet = await resolveWalletUnlockSubjectSet(String(resolvedWalletId));
-  const failure = walletSessionReadFailureForSubjectSet(subjectSet);
-  if (failure === 'missing_requested_capability_subject') {
+  const subjectResolution = await resolveWalletUnlockSubjectSet({
+    walletId: String(resolvedWalletId),
+    requestedCapabilityFamilies: { kind: 'all_registered_mpc' },
+  });
+  if (subjectResolution.kind === 'missing_requested_capability_subject') {
     return {
       kind: 'no_session_for_wallet',
       walletId: resolvedWalletId,
-      reason: failure,
+      reason: 'missing_requested_capability_subject',
       source,
     };
   }
+  if (subjectResolution.kind === 'capability_subject_resolution_failed') {
+    return {
+      kind: 'unresolvable',
+      walletId: resolvedWalletId,
+      reason: subjectResolution.reason,
+    };
+  }
+  const subjectSet = subjectResolution.subjectSet;
+  const failure = walletSessionReadFailureForSubjectSet(subjectSet);
   if (failure) {
     return {
       kind: 'unresolvable',
@@ -474,18 +567,10 @@ export async function resolveWalletSessionReadResolution(
     };
   }
 
-  const resolvedSubjectSet = asResolvedWalletUnlockSubjectSet(subjectSet);
-  if (!resolvedSubjectSet) {
-    return {
-      kind: 'unresolvable',
-      walletId: resolvedWalletId,
-      reason: 'missing_requested_capability_subject',
-    };
-  }
   return {
     kind: 'resolved',
     walletId: resolvedWalletId,
-    subjectSet: resolvedSubjectSet,
+    subjectSet,
     source,
   };
 }

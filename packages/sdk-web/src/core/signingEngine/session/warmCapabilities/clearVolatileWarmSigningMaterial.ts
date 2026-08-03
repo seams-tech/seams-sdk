@@ -4,23 +4,18 @@ import type {
   VolatileWarmSessionMaterialClearAll,
   VolatileWarmSessionMaterialClearer,
 } from '../../uiConfirm/uiConfirm.types';
-import {
-  getStoredThresholdEd25519SessionRecordForWallet,
-  listThresholdEcdsaRuntimeLanesForWallet,
-  type ThresholdEcdsaSessionStoreDeps,
-} from '../persistence/records';
+import { listExactSealedSessionsForWallet } from '../persistence/sealedSessionStore';
 import {
   createClearAllVolatileWarmSessionMaterialCommand,
   createClearVolatileWarmSessionMaterialCommand,
 } from './volatileWarmMaterialCommands';
 import {
-  parseVolatileWarmSessionId,
-  type VolatileWarmSessionId,
-} from './volatileWarmSessionId';
+  parseThresholdEd25519SessionId,
+  type ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
 
 export type ClearVolatileWarmSigningMaterialDeps = {
   touchConfirm: VolatileWarmSessionMaterialClearer | VolatileWarmSessionMaterialClearAll;
-  ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   clearVolatileThresholdSessionMaterial: (
     command: ClearVolatileWarmSessionMaterialCommand,
   ) => Promise<void>;
@@ -44,27 +39,27 @@ function hasVolatileWarmSessionMaterialClearer(
   );
 }
 
-function collectWarmSigningSessionIdsForWallet(
-  deps: Pick<ClearVolatileWarmSigningMaterialDeps, 'ecdsaSessions'>,
+async function collectWarmSigningSessionIdsForWallet(
   walletId: WalletId,
-): VolatileWarmSessionId[] {
-  const sessionIds = new Set<VolatileWarmSessionId>();
-  const ed25519SessionId = parseVolatileWarmSessionId(
-    getStoredThresholdEd25519SessionRecordForWallet(walletId)?.thresholdSessionId,
-  );
-  if (ed25519SessionId) {
-    sessionIds.add(ed25519SessionId);
+): Promise<ThresholdEd25519SessionId[]> {
+  const thresholdSessionIds = new Set<ThresholdEd25519SessionId>();
+  const records = await Promise.all([
+    listExactSealedSessionsForWallet({
+      walletId,
+      filter: { authMethod: 'passkey', curve: 'ed25519' },
+    }),
+    listExactSealedSessionsForWallet({
+      walletId,
+      filter: { authMethod: 'email_otp', curve: 'ed25519' },
+    }),
+  ]);
+  for (const record of records.flat()) {
+    const thresholdSessionId = parseThresholdEd25519SessionId(
+      record.thresholdSessionIds.ed25519,
+    );
+    if (thresholdSessionId.ok) thresholdSessionIds.add(thresholdSessionId.value);
   }
-  for (const runtimeLane of listThresholdEcdsaRuntimeLanesForWallet(
-    deps.ecdsaSessions,
-    walletId,
-  )) {
-    const ecdsaSessionId = parseVolatileWarmSessionId(runtimeLane.thresholdSessionId);
-    if (ecdsaSessionId) {
-      sessionIds.add(ecdsaSessionId);
-    }
-  }
-  return [...sessionIds];
+  return [...thresholdSessionIds];
 }
 
 export async function clearVolatileWarmSigningMaterial(
@@ -78,14 +73,15 @@ export async function clearVolatileWarmSigningMaterial(
     return;
   }
 
-  const sessionIds = walletId != null ? collectWarmSigningSessionIdsForWallet(deps, walletId) : [];
+  const thresholdSessionIds =
+    walletId != null ? await collectWarmSigningSessionIdsForWallet(walletId) : [];
   if (!hasVolatileWarmSessionMaterialClearer(deps.touchConfirm)) return;
 
   await Promise.all(
-    sessionIds.map((sessionId) =>
+    thresholdSessionIds.map((thresholdSessionId) =>
       deps
         .clearVolatileThresholdSessionMaterial(
-          createClearVolatileWarmSessionMaterialCommand(sessionId),
+          createClearVolatileWarmSessionMaterialCommand(thresholdSessionId),
         )
         .catch(() => undefined),
     ),

@@ -32,9 +32,18 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
   });
 
-  test('forwards each exact event once and cancels only exact-session requests', async ({ page }) => {
+  test('forwards each exact event once and cancels only exact-session requests', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
-      async ({ routerPath, walletOrigin, walletId, activeSessionId, staleSessionId, expiresAtMs }) => {
+      async ({
+        routerPath,
+        walletOrigin,
+        walletId,
+        activeSessionId,
+        staleSessionId,
+        expiresAtMs,
+      }) => {
         const module = await import(routerPath);
         const { WalletIframeRouter } =
           module as typeof import('@/SeamsWeb/walletIframe/client/router');
@@ -47,7 +56,9 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
           sdkBasePath: '/sdk',
         });
         const lifecycleEvents: Array<{ walletSessionId: string }> = [];
+        const loginStatuses: Array<{ isLoggedIn: boolean; walletId: string | null }> = [];
         router.onSdkLifecycleEvent((event) => lifecycleEvents.push(event));
+        router.onLoginStatusChanged((status) => loginStatuses.push(status));
         await router.init();
 
         let requestSettled = false;
@@ -102,6 +113,7 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
           requestSettled,
           mirroredState: router.getMirroredExactSessionState(),
           lifecycleEventSessionIds: lifecycleEvents.map((event) => event.walletSessionId),
+          loginStatuses: [...loginStatuses],
         };
 
         const activeExpiry = {
@@ -118,6 +130,7 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
           requestResult,
           finalMirroredState: router.getMirroredExactSessionState(),
           lifecycleEventSessionIds: lifecycleEvents.map((event) => event.walletSessionId),
+          loginStatuses,
         };
       },
       {
@@ -133,6 +146,9 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
     expect(result.staleEventResult.requestSettled).toBe(false);
     expect(result.staleEventResult.mirroredState).toEqual(ACTIVE_SESSION_STATE);
     expect(result.staleEventResult.lifecycleEventSessionIds).toEqual([STALE_SESSION_ID]);
+    expect(result.staleEventResult.loginStatuses).toEqual([
+      { isLoggedIn: true, walletId: WALLET_ID },
+    ]);
     expect(result.requestResult).toEqual({
       kind: 'rejected',
       name: 'WalletIframeSessionExpiredRequestError',
@@ -149,6 +165,10 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
       expiresAtMs: EXPIRES_AT_MS,
     });
     expect(result.lifecycleEventSessionIds).toEqual([STALE_SESSION_ID, ACTIVE_SESSION_ID]);
+    expect(result.loginStatuses).toEqual([
+      { isLoggedIn: true, walletId: WALLET_ID },
+      { isLoggedIn: false, walletId: null },
+    ]);
   });
 
   test('rejects queued exact requests while admitting requests started after expiry', async ({

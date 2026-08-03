@@ -1,8 +1,8 @@
 use router_ab_core::{
     ActiveSigningWorkerStateV1, Ed25519YaoCeremonyBindingV1, Ed25519YaoDeriverRoleV1,
     Ed25519YaoOperationV1, OpenedShareKind, PublicDigest32, Role,
-    RouterAbEd25519YaoActivationPublicReceiptV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
-    RouterAbProtocolResult, ServerIdentityV1,
+    RouterAbEd25519YaoActivationPublicReceiptV1, RouterAbProtocolError,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult, ServerIdentityV1,
 };
 use router_ab_ed25519_yao::{
     combine_ed25519_yao_signing_worker_packages_v1, Ed25519YaoActiveSigningMaterialV1,
@@ -628,7 +628,7 @@ fn build_output_activation_record(
     );
     let active_state = ActiveSigningWorkerStateV1::new(
         binding.lifecycle.account_id.clone(),
-        binding.lifecycle.session_id.clone(),
+        binding.material_activation().clone(),
         format!(
             "ed25519:{}",
             bs58::encode(receipt.registered_public_key).into_string()

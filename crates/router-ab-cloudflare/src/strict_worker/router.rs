@@ -5,8 +5,73 @@ use super::cors::{
     cloudflare_router_public_keyset_response_v1,
 };
 use super::*;
-use crate::CloudflareRouterBearerAuthorizationV1;
-use router_ab_core::RouterAbProtocolResult;
+use crate::{
+    handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_internal_step_up_request_v1,
+    handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_internal_step_up_request_v1,
+    handle_cloudflare_router_normal_signing_finalize_internal_step_up_request_v2,
+    handle_cloudflare_router_normal_signing_prepare_internal_step_up_request_v2,
+    parse_cloudflare_router_authorized_ed25519_prepare_request_v2_json,
+    CloudflareRouterBearerAuthorizationV1, CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
+    CloudflareRouterEcdsaAcceptedCapabilityBindingV1,
+    CloudflareRouterEd25519AcceptedAuthorizedOperationV1,
+    CloudflareRouterEd25519AcceptedCapabilityBindingV1, CloudflareRouterEd25519JwksJwtVerifierV1,
+};
+use router_ab_core::{
+    PublicDigest32, RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+    RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+    RouterAbEd25519NormalSigningFinalizeRequestV2, RouterAbEd25519NormalSigningPrepareRequestV2,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult,
+};
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+enum StrictRouterNormalSigningRequestV1 {
+    Ed25519Prepare {
+        request: RouterAbEd25519NormalSigningPrepareRequestV2,
+        authorized_operation: CloudflareRouterEd25519AcceptedAuthorizedOperationV1,
+    },
+    Ed25519Finalize {
+        request: RouterAbEd25519NormalSigningFinalizeRequestV2,
+        authorized_operation: CloudflareRouterEd25519AcceptedAuthorizedOperationV1,
+    },
+    EcdsaPrepare {
+        request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+        authorized_operation: CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
+    },
+    EcdsaFinalize {
+        request: RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+        authorized_operation: CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
+    },
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+impl StrictRouterNormalSigningRequestV1 {
+    fn is_operation_step_up(&self) -> bool {
+        match self {
+            Self::Ed25519Prepare {
+                authorized_operation,
+                ..
+            }
+            | Self::Ed25519Finalize {
+                authorized_operation,
+                ..
+            } => matches!(
+                &authorized_operation.binding,
+                CloudflareRouterEd25519AcceptedCapabilityBindingV1::OperationStepUp { .. }
+            ),
+            Self::EcdsaPrepare {
+                authorized_operation,
+                ..
+            }
+            | Self::EcdsaFinalize {
+                authorized_operation,
+                ..
+            } => matches!(
+                &authorized_operation.binding,
+                CloudflareRouterEcdsaAcceptedCapabilityBindingV1::OperationStepUp { .. }
+            ),
+        }
+    }
+}
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
 pub(super) async fn handle_strict_router_fetch_v1(
@@ -33,27 +98,6 @@ pub(super) async fn handle_strict_router_fetch_v1(
         return cloudflare_router_public_keyset_response_v1(response, &request, &env);
     }
 
-    if path == CLOUDFLARE_ROUTER_WALLET_BUDGET_PUT_GRANT_PRIVATE_REQUEST_PATH {
-        if let Err(err) = require_cloudflare_internal_service_auth_request_v1(&request, &env) {
-            return cloudflare_private_service_auth_error_response_v1(err);
-        }
-        let runtime = match CloudflareRouterWorkerRuntimeV1::from_worker_env(&env) {
-            Ok(runtime) => runtime,
-            Err(err) => return cloudflare_protocol_error_response_v1(err),
-        };
-        let now_unix_ms = match cloudflare_now_unix_ms_v1() {
-            Ok(now_unix_ms) => now_unix_ms,
-            Err(err) => return cloudflare_protocol_error_response_v1(err),
-        };
-        return handle_cloudflare_router_wallet_budget_put_grant_private_fetch_v1(
-            request,
-            &env,
-            &runtime,
-            now_unix_ms,
-        )
-        .await;
-    }
-
     if path == CLOUDFLARE_ROUTER_ED25519_YAO_EXECUTE_PRIVATE_REQUEST_PATH {
         return handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(request, &env).await;
     }
@@ -74,6 +118,15 @@ pub(super) async fn handle_strict_router_fetch_v1(
     if request.method() != Method::Post {
         return Response::error("Router A/B strict public route requires POST", 405);
     }
+    if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH
+        || path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH
+        || path == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_PATH
+        || path == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH
+    {
+        if let Err(err) = require_cloudflare_internal_service_auth_request_v1(&request, &env) {
+            return cloudflare_private_service_auth_error_response_v1(err);
+        }
+    }
     if path != CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH
@@ -84,11 +137,10 @@ pub(super) async fn handle_strict_router_fetch_v1(
         && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_PATH
         && path != CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH
-        && path != CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH
     {
         return Response::error(
             format!(
-                "Router A/B strict public request must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
+                "Router A/B strict public request must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
                 CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH,
@@ -98,15 +150,34 @@ pub(super) async fn handle_strict_router_fetch_v1(
                 CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PUBLIC_REQUEST_PATH,
                 CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_PATH,
-                CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH,
-                CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH
+                CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH
             ),
             404,
         );
     }
+    let parsed_normal_signing = if path
+        == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH
+        || path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH
+        || path == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_PATH
+        || path == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH
+    {
+        match parse_strict_router_normal_signing_request_v1(&mut request, &env, &path).await? {
+            Ok(parsed) => Some(parsed),
+            Err(response) => return Ok(response),
+        }
+    } else {
+        None
+    };
     let authorization = match parse_cloudflare_router_bearer_authorization_from_request_v1(&request)
     {
-        Ok(authorization) => authorization,
+        Ok(authorization) => Some(authorization),
+        Err(_err)
+            if parsed_normal_signing
+                .as_ref()
+                .is_some_and(StrictRouterNormalSigningRequestV1::is_operation_step_up) =>
+        {
+            None
+        }
         Err(err) => return cloudflare_protocol_error_response_v1(err),
     };
     let trusted_source_digest = match cloudflare_trusted_source_digest_v1(&request) {
@@ -128,103 +199,28 @@ pub(super) async fn handle_strict_router_fetch_v1(
         Err(err) => return cloudflare_protocol_error_response_v1(err),
     };
 
-    if path == CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH {
-        let credential = match router_wallet_session_credential_v1(&authorization, &request, &env)?
-        {
-            Ok(credential) => credential,
-            Err(response) => return Ok(response),
-        };
-        let response =
-            handle_cloudflare_router_wallet_budget_status_authenticated_public_request_v1(
-                &mut request,
-                &env,
-                &runtime,
-                now_unix_ms,
-                credential,
-                trusted_source_digest,
-                verifier,
-            )
-            .await?;
-        return cloudflare_router_normal_signing_response_v1(response, &request, &env);
-    }
-
-    if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH {
-        let request_body = match read_router_public_body_v1(
-            &mut request,
-            &env,
-            "Router A/B strict normal-signing v2 prepare",
-        )
-        .await?
-        {
-            Ok(bytes) => bytes,
-            Err(response) => return Ok(response),
-        };
-        let prepare_request = match parse_router_public_body_v1(
-            &request_body,
-            parse_router_ab_ed25519_normal_signing_prepare_request_v2_json,
+    if let Some(parsed) = parsed_normal_signing {
+        return execute_strict_router_normal_signing_request_v1(
+            parsed,
+            authorization.as_ref(),
             &request,
             &env,
-        )? {
-            Ok(parsed) => parsed,
-            Err(response) => return Ok(response),
-        };
-        let credential = match router_wallet_session_credential_v1(&authorization, &request, &env)?
-        {
-            Ok(credential) => credential,
-            Err(response) => return Ok(response),
-        };
-        let response =
-            handle_cloudflare_router_normal_signing_prepare_authenticated_public_request_v2(
-                &env,
-                &runtime,
-                now_unix_ms,
-                prepare_request,
-                credential,
-                trusted_source_digest,
-                verifier,
-            )
-            .await;
-        return router_json_cors_response_v1(response, &request, &env);
-    }
-
-    if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH {
-        let request_body = match read_router_public_body_v1(
-            &mut request,
-            &env,
-            "Router A/B strict normal-signing finalize",
+            &runtime,
+            now_unix_ms,
+            trusted_source_digest,
+            verifier,
         )
-        .await?
-        {
-            Ok(bytes) => bytes,
-            Err(response) => return Ok(response),
-        };
-        let (finalize_request, budget_metadata) =
-            match parse_cloudflare_router_budgeted_ed25519_finalize_request_v2_json(&request_body) {
-                Ok(parsed) => parsed,
-                Err(err) => {
-                    let response = cloudflare_protocol_error_response_v1(err)?;
-                    return cloudflare_router_normal_signing_response_v1(response, &request, &env);
-                }
-            };
-        let credential = match router_wallet_session_credential_v1(&authorization, &request, &env)?
-        {
-            Ok(credential) => credential,
-            Err(response) => return Ok(response),
-        };
-        let response =
-            handle_cloudflare_router_normal_signing_finalize_authenticated_public_request_v2(
-                &env,
-                &runtime,
-                now_unix_ms,
-                finalize_request,
-                budget_metadata,
-                credential,
-                trusted_source_digest,
-                verifier,
-            )
-            .await;
-        return router_json_cors_response_v1(response, &request, &env);
+        .await;
     }
+    let authorization = match authorization {
+        Some(authorization) => authorization,
+        None => {
+            return cloudflare_protocol_error_response_v1(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "Bearer authorization is required",
+            ));
+        }
+    };
 
     if path == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PUBLIC_REQUEST_PATH {
         let trace_id = match router_ecdsa_trace_context_v1(&request, &env)? {
@@ -394,7 +390,7 @@ pub(super) async fn handle_strict_router_fetch_v1(
         };
         let refresh_request = match parse_router_public_body_v1(
             &request_body,
-            parse_router_ab_ecdsa_derivation_activation_refresh_request_v1_json,
+            parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_request_v1_json,
             &request,
             &env,
         )? {
@@ -415,84 +411,275 @@ pub(super) async fn handle_strict_router_fetch_v1(
         return router_json_cors_response_v1(response, &request, &env);
     }
 
-    if path == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_PATH {
-        let request_body = match read_router_public_body_v1(
-            &mut request,
-            &env,
-            "Router A/B strict Router A/B ECDSA derivation prepare",
-        )
-        .await?
-        {
-            Ok(bytes) => bytes,
-            Err(response) => return Ok(response),
-        };
-        let prepare_request = match parse_router_public_body_v1(
-            &request_body,
-            parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json,
-            &request,
-            &env,
-        )? {
-            Ok(parsed) => parsed,
-            Err(response) => return Ok(response),
-        };
-        let credential = match router_wallet_session_credential_v1(&authorization, &request, &env)?
-        {
-            Ok(credential) => credential,
-            Err(response) => return Ok(response),
-        };
-        let response = handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_authenticated_public_request_v1(
-            &env,
-            &runtime,
-            now_unix_ms,
-            prepare_request,
-            credential,
-            trusted_source_digest,
-            verifier,
-        )
-        .await;
-        return router_json_cors_response_v1(response, &request, &env);
-    }
-
-    if path == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH {
-        let request_body = match read_router_public_body_v1(
-            &mut request,
-            &env,
-            "Router A/B strict Router A/B ECDSA derivation finalize",
-        )
-        .await?
-        {
-            Ok(bytes) => bytes,
-            Err(response) => return Ok(response),
-        };
-        let (finalize_request, budget_metadata) = match parse_router_public_body_v1(
-            &request_body,
-            parse_cloudflare_router_budgeted_router_ab_ecdsa_derivation_finalize_request_v1_json,
-            &request,
-            &env,
-        )? {
-            Ok(parsed) => parsed,
-            Err(response) => return Ok(response),
-        };
-        let credential = match router_wallet_session_credential_v1(&authorization, &request, &env)?
-        {
-            Ok(credential) => credential,
-            Err(response) => return Ok(response),
-        };
-        let response = handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1(
-            &env,
-            &runtime,
-            now_unix_ms,
-            finalize_request,
-            budget_metadata,
-            credential,
-            trusted_source_digest,
-            verifier,
-        )
-        .await;
-        return router_json_cors_response_v1(response, &request, &env);
-    }
-
     Response::error("Router A/B strict public route is unavailable", 404)
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn parse_strict_router_normal_signing_request_v1(
+    request: &mut Request,
+    env: &Env,
+    path: &str,
+) -> worker::Result<Result<StrictRouterNormalSigningRequestV1, Response>> {
+    let request_body =
+        match read_router_public_body_v1(request, env, "Router A/B strict normal-signing request")
+            .await?
+        {
+            Ok(bytes) => bytes,
+            Err(response) => return Ok(Err(response)),
+        };
+    let parsed = match path {
+        CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH => {
+            parse_router_public_body_v1(
+                &request_body,
+                parse_cloudflare_router_authorized_ed25519_prepare_request_v2_json,
+                request,
+                env,
+            )?
+            .map(|(request, authorized_operation)| {
+                StrictRouterNormalSigningRequestV1::Ed25519Prepare {
+                    request,
+                    authorized_operation,
+                }
+            })
+        }
+        CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH => parse_router_public_body_v1(
+            &request_body,
+            parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json,
+            request,
+            env,
+        )?
+        .map(|(request, authorized_operation)| {
+            StrictRouterNormalSigningRequestV1::Ed25519Finalize {
+                request,
+                authorized_operation,
+            }
+        }),
+        CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_PATH => {
+            parse_router_public_body_v1(
+                &request_body,
+                parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_prepare_request_v1_json,
+                request,
+                env,
+            )?
+            .map(|(request, authorized_operation)| {
+                StrictRouterNormalSigningRequestV1::EcdsaPrepare {
+                    request,
+                    authorized_operation,
+                }
+            })
+        }
+        CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH => {
+            parse_router_public_body_v1(
+                &request_body,
+                parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_finalize_request_v1_json,
+                request,
+                env,
+            )?
+            .map(|(request, authorized_operation)| {
+                StrictRouterNormalSigningRequestV1::EcdsaFinalize {
+                    request,
+                    authorized_operation,
+                }
+            })
+        }
+        _ => {
+            return Ok(Err(Response::error(
+                "Router A/B strict normal-signing route is unavailable",
+                404,
+            )?));
+        }
+    };
+    Ok(parsed)
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn execute_strict_router_normal_signing_request_v1(
+    parsed: StrictRouterNormalSigningRequestV1,
+    authorization: Option<&CloudflareRouterBearerAuthorizationV1>,
+    request: &Request,
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    now_unix_ms: u64,
+    trusted_source_digest: PublicDigest32,
+    verifier: CloudflareRouterEd25519JwksJwtVerifierV1,
+) -> worker::Result<Response> {
+    let operation_step_up = parsed.is_operation_step_up();
+    if !operation_step_up && authorization.is_none() {
+        return router_json_cors_response_v1::<()>(
+            Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "Reusable Wallet Session authorization requires a Bearer credential",
+            )),
+            request,
+            env,
+        );
+    }
+    match parsed {
+        StrictRouterNormalSigningRequestV1::Ed25519Prepare {
+            request: signing_request,
+            authorized_operation,
+        } if operation_step_up => {
+            let response =
+                handle_cloudflare_router_normal_signing_prepare_internal_step_up_request_v2(
+                    env,
+                    runtime,
+                    now_unix_ms,
+                    signing_request,
+                    authorized_operation,
+                    trusted_source_digest,
+                )
+                .await;
+            router_json_cors_response_v1(response, request, env)
+        }
+        StrictRouterNormalSigningRequestV1::Ed25519Prepare {
+            request: signing_request,
+            authorized_operation,
+        } => {
+            let credential = match router_wallet_session_credential_v1(
+                authorization.expect("reusable authorization checked"),
+                request,
+                env,
+            )? {
+                Ok(credential) => credential,
+                Err(response) => return Ok(response),
+            };
+            let response =
+                handle_cloudflare_router_normal_signing_prepare_authenticated_public_request_v2(
+                    env,
+                    runtime,
+                    now_unix_ms,
+                    signing_request,
+                    authorized_operation,
+                    credential,
+                    trusted_source_digest,
+                    verifier,
+                )
+                .await;
+            router_json_cors_response_v1(response, request, env)
+        }
+        StrictRouterNormalSigningRequestV1::Ed25519Finalize {
+            request: signing_request,
+            authorized_operation,
+        } if operation_step_up => {
+            let response =
+                handle_cloudflare_router_normal_signing_finalize_internal_step_up_request_v2(
+                    env,
+                    runtime,
+                    now_unix_ms,
+                    signing_request,
+                    authorized_operation,
+                    trusted_source_digest,
+                )
+                .await;
+            router_json_cors_response_v1(response, request, env)
+        }
+        StrictRouterNormalSigningRequestV1::Ed25519Finalize {
+            request: signing_request,
+            authorized_operation,
+        } => {
+            let credential = match router_wallet_session_credential_v1(
+                authorization.expect("reusable authorization checked"),
+                request,
+                env,
+            )? {
+                Ok(credential) => credential,
+                Err(response) => return Ok(response),
+            };
+            let response =
+                handle_cloudflare_router_normal_signing_finalize_authenticated_public_request_v2(
+                    env,
+                    runtime,
+                    now_unix_ms,
+                    signing_request,
+                    authorized_operation,
+                    credential,
+                    trusted_source_digest,
+                    verifier,
+                )
+                .await;
+            router_json_cors_response_v1(response, request, env)
+        }
+        StrictRouterNormalSigningRequestV1::EcdsaPrepare {
+            request: signing_request,
+            authorized_operation,
+        } if operation_step_up => {
+            let response = handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_internal_step_up_request_v1(
+                env,
+                runtime,
+                now_unix_ms,
+                signing_request,
+                authorized_operation,
+                trusted_source_digest,
+            )
+            .await;
+            router_json_cors_response_v1(response, request, env)
+        }
+        StrictRouterNormalSigningRequestV1::EcdsaPrepare {
+            request: signing_request,
+            authorized_operation,
+        } => {
+            let credential = match router_wallet_session_credential_v1(
+                authorization.expect("reusable authorization checked"),
+                request,
+                env,
+            )? {
+                Ok(credential) => credential,
+                Err(response) => return Ok(response),
+            };
+            let response = handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_authenticated_public_request_v1(
+                env,
+                runtime,
+                now_unix_ms,
+                signing_request,
+                authorized_operation,
+                credential,
+                trusted_source_digest,
+                verifier,
+            )
+            .await;
+            router_json_cors_response_v1(response, request, env)
+        }
+        StrictRouterNormalSigningRequestV1::EcdsaFinalize {
+            request: signing_request,
+            authorized_operation,
+        } if operation_step_up => {
+            let response = handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_internal_step_up_request_v1(
+                env,
+                runtime,
+                now_unix_ms,
+                signing_request,
+                authorized_operation,
+                trusted_source_digest,
+            )
+            .await;
+            router_json_cors_response_v1(response, request, env)
+        }
+        StrictRouterNormalSigningRequestV1::EcdsaFinalize {
+            request: signing_request,
+            authorized_operation,
+        } => {
+            let credential = match router_wallet_session_credential_v1(
+                authorization.expect("reusable authorization checked"),
+                request,
+                env,
+            )? {
+                Ok(credential) => credential,
+                Err(response) => return Ok(response),
+            };
+            let response = handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1(
+                env,
+                runtime,
+                now_unix_ms,
+                signing_request,
+                authorized_operation,
+                credential,
+                trusted_source_digest,
+                verifier,
+            )
+            .await;
+            router_json_cors_response_v1(response, request, env)
+        }
+    }
 }
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
@@ -706,7 +893,6 @@ fn is_cloudflare_router_normal_signing_public_path(path: &str) -> bool {
     let normalized = path.strip_suffix('/').unwrap_or(path);
     normalized == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH
         || normalized == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH
-        || normalized == CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH
 }
 
 #[cfg(feature = "strict-worker-router-entrypoint")]

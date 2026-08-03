@@ -248,6 +248,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             walletSession,
             nearAccount,
             laneIdentity: resolvedLane.laneIdentity,
+            materialActivation: resolvedLane.materialActivation,
             options: { variant: 'drawer', onEvent: onExportKeyEvent },
           });
           return;

@@ -1,4 +1,4 @@
-import type { AccountId } from '../../../types/accountIds';
+import type { WarmSessionMaterialOperationTarget } from '../../session/emailOtp/sealedRuntimePurpose';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { ProfileAuthenticatorRecord } from '../../../indexedDB';
 import {
@@ -21,29 +21,17 @@ export type ThresholdCredentialStorePort =
   WebAuthnCredentialStorePort<ThresholdAuthenticatorRecord>;
 export type ThresholdWebAuthnPromptPort = WebAuthnPromptPort;
 
-export type ThresholdEd25519ClientShareDeriverPort = {
-  deriveThresholdEd25519ClientVerifyingShare: (args: {
-    sessionId: string;
-    nearAccountId: AccountId;
-    prfFirstB64u: string;
-    wrapKeySalt: string;
-  }) => Promise<{
-    success: boolean;
-    nearAccountId?: string;
-    clientVerifyingShareB64u: string;
-    error?: string;
-  }>;
-};
-
 export type ThresholdWarmSessionMaterialPort = {
   putWarmSessionMaterial: (args: {
-    sessionId: string;
+    thresholdSessionId: string;
     prfFirstB64u: string;
     expiresAtMs: number;
     remainingUses: number;
     transport?: WarmSessionSealTransportInput;
   }) => Promise<void>;
-  claimWarmSessionMaterial?: (args: { sessionId: string; uses?: number }) => Promise<{
+  claimWarmSessionMaterial?: (args: WarmSessionMaterialOperationTarget & {
+    uses?: number;
+  }) => Promise<{
     ok: boolean;
     code?: string;
     message?: string;
@@ -51,7 +39,7 @@ export type ThresholdWarmSessionMaterialPort = {
     remainingUses?: number;
     expiresAtMs?: number;
   }>;
-  getWarmSessionStatus?: (args: { sessionId: string }) => Promise<{
+  getWarmSessionStatus?: (args: { thresholdSessionId: string }) => Promise<{
     ok: boolean;
     code?: string;
     message?: string;
@@ -59,8 +47,8 @@ export type ThresholdWarmSessionMaterialPort = {
     expiresAtMs?: number;
   }>;
   persistSigningSessionSealForThresholdSession?: (args: {
-    sessionId: string;
-    transport?: WarmSessionSealTransportInput;
+    thresholdSessionId: string;
+    transport: Exclude<WarmSessionSealTransportInput, { authMethod: 'email_otp' }>;
   }) => Promise<{
     ok: boolean;
     code?: string;
@@ -75,4 +63,3 @@ export type ThresholdWarmSessionMaterialWriter = Pick<
   ThresholdWarmSessionMaterialPort,
   'putWarmSessionMaterial'
 >;
-export type ThresholdSigningKeyOpsPort = ThresholdEd25519ClientShareDeriverPort;

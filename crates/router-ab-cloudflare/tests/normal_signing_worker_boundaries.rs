@@ -83,7 +83,7 @@ fn signing_worker_normal_signing_loads_active_material_before_handler() {
     let lib_rs = read_src_file("lib.rs");
     let body = extract_function_body(
         &lib_rs,
-        "handle_cloudflare_signing_worker_normal_signing_private_fetch_v1",
+        "execute_claimed_cloudflare_signing_worker_normal_signing_v1",
     );
     let state_lookup = body
         .find("active_signing_worker_state_get_request")
@@ -145,7 +145,7 @@ fn strict_signing_worker_handler_is_protocol_aware() {
     let lib_rs = read_src_file("lib.rs");
     let fetch_body = extract_function_body(
         &lib_rs,
-        "handle_cloudflare_signing_worker_normal_signing_private_fetch_v1",
+        "execute_claimed_cloudflare_signing_worker_normal_signing_v1",
     );
     let prepare_handler_body = extract_braced_block_after_marker(
         &lib_rs,

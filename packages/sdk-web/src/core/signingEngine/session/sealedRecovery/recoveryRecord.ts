@@ -2,9 +2,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import { thresholdEcdsaChainTargetFromRequest } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   normalizeThresholdRuntimePolicyScope,
-  parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
-  type ThresholdSessionKind,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   parseRouterAbEcdsaDerivationNormalSigningStateV1,
@@ -14,13 +12,19 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
-  buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
+  parseEmailOtpWalletAuthAuthority,
+  parseWalletAuthAuthorityRef,
   type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
+  type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { RawSealedSessionRecord } from '../persistence/sealedSessionStore';
 import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
+import {
+  parseEcdsaRoleLocalPersistedMaterialRef,
+  type EcdsaRoleLocalPersistedMaterialRef,
+} from '../keyMaterialBrands';
 
 type RawThresholdSessionIds = {
   ecdsa?: unknown;
@@ -29,13 +33,15 @@ type RawThresholdSessionIds = {
 type RawEcdsaRestoreMetadata = {
   chainTarget?: unknown;
   source?: unknown;
-  evmFamilySigningKeySlotId?: unknown;
   signingRootId?: unknown;
   signingRootVersion?: unknown;
   rpId?: unknown;
   credentialIdB64u?: unknown;
   providerSubjectId?: unknown;
+  provider?: unknown;
   emailHashHex?: unknown;
+  authority?: unknown;
+  emailOtpAuthority?: unknown;
   walletSessionJwt?: unknown;
   sessionKind?: unknown;
   keyHandle?: unknown;
@@ -48,7 +54,7 @@ type RawEcdsaRestoreMetadata = {
   runtimePolicyScope?: unknown;
   routerAbEcdsaDerivationNormalSigning?: unknown;
   publicCapability?: unknown;
-  roleLocalDurableMaterialRef?: unknown;
+  roleLocalMaterialRef?: unknown;
 };
 
 export type RawSigningSessionSealedStoreRecord = RawSealedSessionRecord & {
@@ -57,7 +63,6 @@ export type RawSigningSessionSealedStoreRecord = RawSealedSessionRecord & {
   userId?: unknown;
   authMethod?: unknown;
   curve?: unknown;
-  signingGrantId?: unknown;
   thresholdSessionIds?: RawThresholdSessionIds | unknown;
   sealedSecretB64u?: unknown;
   subjectId?: unknown;
@@ -96,7 +101,6 @@ type SealedRecoveryRecordBase = {
   walletId: string;
   authMethod: 'passkey' | 'email_otp';
   curve: 'ecdsa';
-  signingGrantId: string;
   thresholdSessionId: string;
   sealedSecretB64u: string;
   issuedAtMs: number;
@@ -119,49 +123,37 @@ type EcdsaSealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   participantIds: readonly number[];
   relayerUrl: string;
   relayerKeyId: string;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
   routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
 
-export type SealedRecoveryWalletSessionAuth = {
-  kind: 'wallet_session_jwt';
-  walletSessionJwt: string;
+export type PasskeyEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase & {
+  authMethod: 'passkey';
+  source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+  authority: PasskeyWalletAuthAuthority;
+  clientVerifyingShareB64u: string;
+  roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
+  rpId?: never;
+  credentialIdB64u?: never;
+  providerSubjectId?: never;
+  emailHashHex?: never;
+  authSubjectId?: never;
 };
 
-type SealedRecoveryWalletSessionAuthCarrier = {
-  walletSessionAuth: SealedRecoveryWalletSessionAuth;
+export type EmailOtpEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase & {
+  authMethod: 'email_otp';
+  source: 'email_otp';
+  authority: WalletAuthAuthorityRef;
+  emailOtpAuthority: EmailOtpWalletAuthAuthority;
+  clientVerifyingShareB64u?: string;
+  credentialIdB64u?: never;
+  providerSubjectId?: never;
+  emailHashHex?: never;
+  authSubjectId?: never;
+  roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
+  rpId?: never;
 };
-
-export type PasskeyEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
-  SealedRecoveryWalletSessionAuthCarrier & {
-    authMethod: 'passkey';
-    source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
-    authority: PasskeyWalletAuthAuthority;
-    evmFamilySigningKeySlotId: string;
-    clientVerifyingShareB64u: string;
-    roleLocalDurableMaterialRef: string;
-    rpId?: never;
-    credentialIdB64u?: never;
-    providerSubjectId?: never;
-    emailHashHex?: never;
-    authSubjectId?: never;
-  };
-
-export type EmailOtpEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
-  SealedRecoveryWalletSessionAuthCarrier & {
-    authMethod: 'email_otp';
-    source: 'email_otp';
-    authority: EmailOtpWalletAuthAuthority;
-    evmFamilySigningKeySlotId: string;
-    clientVerifyingShareB64u?: string;
-    credentialIdB64u?: never;
-    providerSubjectId?: never;
-    emailHashHex?: never;
-    authSubjectId?: never;
-    roleLocalDurableMaterialRef: string;
-    rpId?: never;
-  };
 
 export type SealedRecoveryRecord =
   | PasskeyEcdsaSealedRecoveryRecord
@@ -238,48 +230,11 @@ function normalizeThresholdSessionIds(
   return current;
 }
 
-function normalizeSigningGrantId(record: RawSigningSessionSealedStoreRecord): string | null {
-  return normalizeNonEmptyString(record.signingGrantId);
-}
-
-function normalizeSessionKind(value: unknown): ThresholdSessionKind | null {
-  return value === 'jwt' || value === 'cookie' ? value : null;
-}
-
-export function sealedRecoverySessionKind(_auth: SealedRecoveryWalletSessionAuth): 'jwt' {
-  return 'jwt';
-}
-
-export function sealedRecoveryWalletSessionJwt(auth: SealedRecoveryWalletSessionAuth): string {
-  return auth.walletSessionJwt;
-}
-
 function normalizeEthereumAddress(value: unknown): `0x${string}` | null {
   const normalized = String(value || '')
     .trim()
     .toLowerCase();
   return /^0x[0-9a-f]{40}$/.test(normalized) ? (normalized as `0x${string}`) : null;
-}
-
-function normalizeWalletSessionAuthFromStoredRestoreOrReject(args: {
-  record: RawSigningSessionSealedStoreRecord;
-  sessionKind: ThresholdSessionKind | null;
-  walletSessionJwt: unknown;
-}): SealedRecoveryWalletSessionAuthCarrier | NormalizeSealedRecoveryRecordResult {
-  if (!args.sessionKind) {
-    return reject(args.record, 'missing_restore_metadata');
-  }
-  if (args.sessionKind === 'cookie') return reject(args.record, 'missing_restore_metadata');
-  const walletSessionJwt = normalizeNonEmptyString(args.walletSessionJwt);
-  if (!walletSessionJwt) {
-    return reject(args.record, 'missing_restore_metadata');
-  }
-  return {
-    walletSessionAuth: {
-      kind: 'wallet_session_jwt',
-      walletSessionJwt: walletSessionJwt,
-    },
-  };
 }
 
 function buildPasskeyAuthorityForSealedRecord(args: {
@@ -289,23 +244,6 @@ function buildPasskeyAuthorityForSealedRecord(args: {
 }): PasskeyWalletAuthAuthority | null {
   try {
     return buildPasskeyWalletAuthAuthority(args);
-  } catch {
-    return null;
-  }
-}
-
-function buildEmailOtpAuthorityForSealedRecord(args: {
-  walletId: string;
-  providerSubjectId: string;
-  emailHashHex: string;
-}): EmailOtpWalletAuthAuthority | null {
-  try {
-    return buildEmailOtpWalletAuthAuthority({
-      walletId: args.walletId,
-      provider: 'google',
-      providerUserId: args.providerSubjectId,
-      emailHashHex: args.emailHashHex,
-    });
   } catch {
     return null;
   }
@@ -362,17 +300,6 @@ function hasRawLegacySealedRecoveryIdentity(record: RawSigningSessionSealedStore
   );
 }
 
-function resolveRuntimePolicyScope(args: {
-  rawRuntimePolicyScope: unknown;
-  rawWalletSessionJwt: unknown;
-}): ThresholdRuntimePolicyScope | undefined {
-  const explicit = normalizeThresholdRuntimePolicyScope(args.rawRuntimePolicyScope);
-  if (explicit) return explicit;
-  const walletSessionJwt = normalizeNonEmptyString(args.rawWalletSessionJwt);
-  if (!walletSessionJwt) return undefined;
-  return parseThresholdRuntimePolicyScopeFromJwt(walletSessionJwt);
-}
-
 function safeSummary(record: RawSigningSessionSealedStoreRecord): Record<string, unknown> {
   const thresholdSessionIds = normalizeThresholdSessionIds(record);
   return {
@@ -380,7 +307,6 @@ function safeSummary(record: RawSigningSessionSealedStoreRecord): Record<string,
     curve: record.curve,
     storeKey: record.storeKey,
     walletId: record.walletId || null,
-    signingGrantId: normalizeSigningGrantId(record),
     thresholdSessionIds,
     issuedAtMs: record.issuedAtMs,
     expiresAtMs: record.expiresAtMs,
@@ -414,7 +340,6 @@ export function normalizeSealedRecoveryRecord(
   const ecdsaRestore = normalizeRawObject<RawEcdsaRestoreMetadata>(raw.ecdsaRestore);
   const storeKey = normalizeNonEmptyString(raw.storeKey);
   const walletId = normalizeNonEmptyString(raw.walletId);
-  const signingGrantId = normalizeSigningGrantId(raw);
   const sealedSecretB64u = normalizeNonEmptyString(raw.sealedSecretB64u);
   const issuedAtMs = Math.floor(Number(raw.issuedAtMs) || 0);
   const expiresAtMs = Math.floor(Number(raw.expiresAtMs) || 0);
@@ -424,7 +349,7 @@ export function normalizeSealedRecoveryRecord(
   if ((raw.authMethod !== 'passkey' && raw.authMethod !== 'email_otp') || raw.curve !== 'ecdsa') {
     return reject(raw, 'unsupported_record');
   }
-  if (!storeKey || !walletId || !signingGrantId || !sealedSecretB64u) {
+  if (!storeKey || !walletId || !sealedSecretB64u) {
     return reject(raw, 'missing_identity');
   }
   if (expiresAtMs <= 0 || updatedAtMs <= 0 || issuedAtMs <= 0) {
@@ -440,10 +365,7 @@ export function normalizeSealedRecoveryRecord(
 
   const thresholdSessionId = normalizeNonEmptyString(thresholdSessionIds.ecdsa);
   const restore = ecdsaRestore;
-  const runtimePolicyScope = resolveRuntimePolicyScope({
-    rawRuntimePolicyScope: restore?.runtimePolicyScope,
-    rawWalletSessionJwt: restore?.walletSessionJwt,
-  });
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(restore?.runtimePolicyScope);
   const signingRootBinding = resolveSigningRootBinding({
     runtimePolicyScope,
     rawSigningRootId: restore?.signingRootId,
@@ -457,7 +379,6 @@ export function normalizeSealedRecoveryRecord(
     raw.authMethod === 'email_otp' && normalizeEcdsaRestoreSource(restore?.source) === 'email_otp'
       ? 'email_otp'
       : null;
-  const evmFamilySigningKeySlotId = normalizeNonEmptyString(restore?.evmFamilySigningKeySlotId);
   const credentialIdB64u = normalizeNonEmptyString(restore?.credentialIdB64u);
   const providerSubjectId = normalizeNonEmptyString(restore?.providerSubjectId);
   const emailHashHex = normalizeNonEmptyString(restore?.emailHashHex);
@@ -473,13 +394,18 @@ export function normalizeSealedRecoveryRecord(
   const publicCapability = normalizeRouterAbEcdsaDerivationPublicCapability(
     restore?.publicCapability,
   );
-  const roleLocalDurableMaterialRef = normalizeNonEmptyString(
-    restore?.roleLocalDurableMaterialRef,
-  );
+  let roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef | null = null;
+  try {
+    roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef(restore?.roleLocalMaterialRef);
+  } catch {
+    roleLocalMaterialRef = null;
+  }
   const clientVerifyingShareB64u = normalizeNonEmptyString(restore?.clientVerifyingShareB64u);
   const passkeyClientVerifyingShareB64u =
     raw.authMethod === 'passkey' ? clientVerifyingShareB64u : null;
-  const sessionKind = normalizeSessionKind(restore?.sessionKind);
+  if (restore?.sessionKind != null || restore?.walletSessionJwt != null) {
+    return reject(raw, 'invalid_identity');
+  }
   if (hasRawSigningRootBinding(raw)) {
     return reject(raw, 'invalid_identity');
   }
@@ -500,7 +426,6 @@ export function normalizeSealedRecoveryRecord(
     (raw.authMethod === 'passkey' && !passkeySource) ||
     (raw.authMethod === 'email_otp' && !emailOtpSource) ||
     (raw.authMethod === 'passkey' && !passkeyRpId) ||
-    !evmFamilySigningKeySlotId ||
     (raw.authMethod === 'passkey' && !credentialIdB64u) ||
     (raw.authMethod === 'email_otp' && (!providerSubjectId || !emailHashHex)) ||
     !ecdsaThresholdKeyId ||
@@ -508,21 +433,14 @@ export function normalizeSealedRecoveryRecord(
     !keyHandle ||
     !ethereumAddress ||
     !thresholdEcdsaPublicKeyB64u ||
+    !runtimePolicyScope ||
     !routerAbEcdsaDerivationNormalSigning ||
     !publicCapability ||
     !participantIds.length ||
-    !roleLocalDurableMaterialRef ||
+    !roleLocalMaterialRef ||
     (raw.authMethod === 'passkey' && !passkeyClientVerifyingShareB64u)
   ) {
     return reject(raw, 'missing_restore_metadata');
-  }
-  const walletSessionAuth = normalizeWalletSessionAuthFromStoredRestoreOrReject({
-    record: raw,
-    sessionKind,
-    walletSessionJwt: restore.walletSessionJwt,
-  });
-  if ('kind' in walletSessionAuth) {
-    return walletSessionAuth;
   }
   const passkeyAuthority =
     raw.authMethod === 'passkey'
@@ -532,13 +450,17 @@ export function normalizeSealedRecoveryRecord(
           credentialIdB64u: credentialIdB64u!,
         })
       : null;
+  const authority = parseWalletAuthAuthorityRef(restore.authority);
+  const parsedAuthority = parseEmailOtpWalletAuthAuthority(restore.emailOtpAuthority);
   const emailOtpAuthority =
-    raw.authMethod === 'email_otp'
-      ? buildEmailOtpAuthorityForSealedRecord({
-          walletId,
-          providerSubjectId: providerSubjectId!,
-          emailHashHex: emailHashHex!,
-        })
+    raw.authMethod === 'email_otp' &&
+    authority &&
+    parsedAuthority &&
+    parsedAuthority.walletId === walletId &&
+    parsedAuthority.factor.provider === restore.provider &&
+    parsedAuthority.factor.providerUserId === providerSubjectId &&
+    parsedAuthority.verifier.emailHashHex === emailHashHex
+      ? parsedAuthority
       : null;
   if (
     (raw.authMethod === 'passkey' && !passkeyAuthority) ||
@@ -553,7 +475,6 @@ export function normalizeSealedRecoveryRecord(
           walletId,
           authMethod: 'passkey',
           curve: 'ecdsa',
-          signingGrantId,
           thresholdSessionId,
           sealedSecretB64u,
           issuedAtMs,
@@ -569,7 +490,6 @@ export function normalizeSealedRecoveryRecord(
           chainTarget,
           source: passkeySource!,
           authority: passkeyAuthority!,
-          evmFamilySigningKeySlotId: evmFamilySigningKeySlotId!,
           signingRootId: signingRootBinding.signingRootId,
           signingRootVersion: signingRootBinding.signingRootVersion,
           keyHandle,
@@ -579,19 +499,17 @@ export function normalizeSealedRecoveryRecord(
           participantIds,
           relayerUrl,
           relayerKeyId,
-          ...walletSessionAuth,
-          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+          runtimePolicyScope,
           routerAbEcdsaDerivationNormalSigning,
           publicCapability,
           clientVerifyingShareB64u: passkeyClientVerifyingShareB64u!,
-          roleLocalDurableMaterialRef: roleLocalDurableMaterialRef!,
+          roleLocalMaterialRef: roleLocalMaterialRef!,
         }
       : {
           storeKey,
           walletId,
           authMethod: 'email_otp',
           curve: 'ecdsa',
-          signingGrantId,
           thresholdSessionId,
           sealedSecretB64u,
           issuedAtMs,
@@ -606,8 +524,8 @@ export function normalizeSealedRecoveryRecord(
             : {}),
           chainTarget,
           source: 'email_otp',
-          authority: emailOtpAuthority!,
-          evmFamilySigningKeySlotId: evmFamilySigningKeySlotId!,
+          authority: authority!,
+          emailOtpAuthority: emailOtpAuthority!,
           signingRootId: signingRootBinding.signingRootId,
           signingRootVersion: signingRootBinding.signingRootVersion,
           keyHandle,
@@ -617,12 +535,11 @@ export function normalizeSealedRecoveryRecord(
           participantIds,
           relayerUrl,
           relayerKeyId,
-          ...walletSessionAuth,
-          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+          runtimePolicyScope,
           routerAbEcdsaDerivationNormalSigning,
           publicCapability,
           ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
-          roleLocalDurableMaterialRef,
+          roleLocalMaterialRef,
         };
   return { kind: 'accepted', record: accepted };
 }

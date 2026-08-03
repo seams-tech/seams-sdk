@@ -4,62 +4,102 @@ import {
   scheduleRouterAbEcdsaDerivationClientPresignaturePoolRefill,
   signRouterAbEcdsaDerivationDigestWithPool,
 } from '../../../routerAb/ecdsaDerivation/presignaturePool';
-import { getSessionJwtExpiresAtMs } from '@shared/utils/sessionTokens';
-import type { ReadyEcdsaSignerSession } from '../../../session/identity/evmFamilyEcdsaIdentity';
+import type { HydratedEcdsaSignerMaterial } from '../../../session/identity/evmFamilyEcdsaIdentity';
 import {
   loadRouterAbEcdsaDerivationSigningMaterialSource,
   type LoadedRouterAbEcdsaDerivationSigningMaterialSource,
 } from './ecdsaDerivationClientSigningMaterialSource';
 import { parseEcdsaKeyHandle } from '../../../session/keyMaterialBrands';
+import type { EvmFamilyThresholdEcdsaOperation } from '../thresholdAdmission';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
+import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { RouterAbEcdsaOperationStepUpPreparationV1Wire } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEd25519NormalSigningCredential } from '@/core/rpcClients/relayer/routerAbNormalSigning';
+
+export type ReusableEcdsaSigningAuthorization = Extract<
+  RouterAbNormalSigningAuthorizationWire,
+  { readonly kind: 'reusable_wallet_session' }
+>;
 
 type Secp256k1DigestSignRequest = Extract<SignRequest, { kind: 'digest' }> & {
   algorithm: 'secp256k1';
 };
 
-export type ReadySecp256k1SigningMaterial = {
+export type ReusableEcdsaSigningCredential = {
+  readonly kind: 'reusable_wallet_session_jwt';
+  readonly walletSessionJwt: string;
+  readonly appSessionJwt?: never;
+};
+
+export type OperationStepUpEcdsaSigningCredential =
+  | {
+      readonly kind: 'app_session_jwt';
+      readonly appSessionJwt: string;
+      readonly walletSessionJwt?: never;
+    }
+  | {
+      readonly kind: 'app_session_cookie';
+      readonly appSessionJwt?: never;
+      readonly walletSessionJwt?: never;
+    };
+
+type ReadySecp256k1SigningMaterialBase = {
   kind: 'ready_secp256k1_signing_material';
   walletId: string;
-  signerSession: ReadyEcdsaSignerSession;
+  signerSession: HydratedEcdsaSignerMaterial;
+  expiresAtMs: number;
   singleUseEmailOtpSession: boolean;
 };
 
+export type ReadySecp256k1SigningMaterial =
+  | (ReadySecp256k1SigningMaterialBase & {
+      authorization: ReusableEcdsaSigningAuthorization;
+      credential: ReusableEcdsaSigningCredential;
+      operationStepUpPreparation?: never;
+    })
+  | (ReadySecp256k1SigningMaterialBase & {
+      authorization: Extract<
+        RouterAbNormalSigningAuthorizationWire,
+        { readonly kind: 'operation_step_up' }
+      >;
+      credential: OperationStepUpEcdsaSigningCredential;
+      operationStepUpPreparation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+    });
+
 export type ReadySecp256k1Signer = {
   readonly algorithm: 'secp256k1';
-  signReady: (req: SignRequest, material: ReadySecp256k1SigningMaterial) => Promise<SignatureBytes>;
+  signReady: (
+    req: SignRequest,
+    material: ReadySecp256k1SigningMaterial,
+    operation: EvmFamilyThresholdEcdsaOperation,
+    operationDigests: OperationDigestSet,
+  ) => Promise<SignatureBytes>;
 };
 
 type BuildReadySecp256k1SigningMaterialInputBase = {
   walletId: unknown;
+  expiresAtMs: number;
   singleUseEmailOtpSession: boolean;
+  signerSession: HydratedEcdsaSignerMaterial;
 };
 
 export type BuildReadySecp256k1SigningMaterialInput =
-  BuildReadySecp256k1SigningMaterialInputBase & {
-    signerSession: ReadyEcdsaSignerSession;
-  };
+  | (BuildReadySecp256k1SigningMaterialInputBase & {
+      authorization: ReusableEcdsaSigningAuthorization;
+      credential: ReusableEcdsaSigningCredential;
+      operationStepUpPreparation?: never;
+    })
+  | (BuildReadySecp256k1SigningMaterialInputBase & {
+      authorization: Extract<
+        RouterAbNormalSigningAuthorizationWire,
+        { readonly kind: 'operation_step_up' }
+      >;
+      credential: OperationStepUpEcdsaSigningCredential;
+      operationStepUpPreparation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+    });
 
 type RouterAbEcdsaDerivationSigningRefillTrigger = 'commit_start' | 'post_sign_success';
-
-// The SigningWorker admits at most five minutes; retain one minute for transit and clock skew.
-const ROUTER_AB_ECDSA_DERIVATION_PRESIGN_MATERIAL_TTL_MS = 4 * 60_000;
-
-function resolveRouterAbEcdsaDerivationPresignMaterialExpiresAtMs(
-  signerSession: ReadyEcdsaSignerSession,
-): number {
-  const policyExpiresAtMs = Math.floor(Number(signerSession.session.policy.expiresAtMs));
-  const walletSessionExpiresAtMs = getSessionJwtExpiresAtMs(
-    signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt,
-  );
-  const expiresAtMs = Math.min(
-    policyExpiresAtMs,
-    walletSessionExpiresAtMs ?? 0,
-    Date.now() + ROUTER_AB_ECDSA_DERIVATION_PRESIGN_MATERIAL_TTL_MS,
-  );
-  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
-    throw new Error('[multichain] Router A/B ECDSA derivation wallet-session expiry is unavailable');
-  }
-  return expiresAtMs;
-}
 
 export function buildReadySecp256k1SigningMaterial(
   args: BuildReadySecp256k1SigningMaterialInput,
@@ -69,22 +109,75 @@ export function buildReadySecp256k1SigningMaterial(
     throw new Error('[multichain] Missing wallet id for ready secp256k1 signing material');
   }
   const signerSession = args.signerSession;
-  return {
+  if (walletId !== String(signerSession.walletId)) {
+    throw new Error('[multichain] ready secp256k1 material wallet identity mismatch');
+  }
+  const expiresAtMs = Math.floor(Number(args.expiresAtMs));
+  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
+    throw new Error('[multichain] ready secp256k1 authorization expiry is invalid');
+  }
+  const base = {
     kind: 'ready_secp256k1_signing_material',
     walletId,
     signerSession,
+    expiresAtMs,
     singleUseEmailOtpSession: args.singleUseEmailOtpSession,
-  };
+  } as const;
+  switch (args.authorization.kind) {
+    case 'reusable_wallet_session': {
+      if (args.credential.kind !== 'reusable_wallet_session_jwt') {
+        throw new Error('[multichain] reusable authorization requires a Wallet Session JWT');
+      }
+      return { ...base, authorization: args.authorization, credential: args.credential };
+    }
+    case 'operation_step_up': {
+      if (!args.operationStepUpPreparation) {
+        throw new Error('[multichain] operation step-up preparation is required');
+      }
+      return {
+        ...base,
+        authorization: args.authorization,
+        credential: args.credential,
+        operationStepUpPreparation: args.operationStepUpPreparation,
+      };
+    }
+  }
 }
 
 function isSecp256k1DigestSignRequest(req: SignRequest): req is Secp256k1DigestSignRequest {
   return req.kind === 'digest' && req.algorithm === 'secp256k1';
 }
 
+function requireEvmSigningOperationId(operation: EvmFamilyThresholdEcdsaOperation): string {
+  const operationId = String(operation.intent.operationId || '').trim();
+  if (!operationId) {
+    throw new Error('[multichain] exact EVM signing operation id is required');
+  }
+  return operationId;
+}
+
+function routerAbTransportCredential(
+  credential: ReusableEcdsaSigningCredential | OperationStepUpEcdsaSigningCredential,
+): RouterAbEd25519NormalSigningCredential {
+  switch (credential.kind) {
+    case 'reusable_wallet_session_jwt':
+      return { kind: 'wallet_session_jwt', walletSessionJwt: credential.walletSessionJwt };
+    case 'app_session_jwt':
+      return { kind: 'app_session_jwt', appSessionJwt: credential.appSessionJwt };
+    case 'app_session_cookie':
+      return { kind: 'app_session_cookie' };
+  }
+  credential satisfies never;
+  throw new Error('[multichain] unsupported ECDSA signing credential');
+}
+
 function scheduleRouterAbEcdsaDerivationSigningRefill(args: {
   trigger: RouterAbEcdsaDerivationSigningRefillTrigger;
   loadedMaterial: LoadedRouterAbEcdsaDerivationSigningMaterialSource;
   workerCtx: WorkerOperationContext;
+  credential: RouterAbEd25519NormalSigningCredential;
+  expiresAtMs: number;
+  authorization: ReusableEcdsaSigningAuthorization;
 }): void {
   const signerSession = args.loadedMaterial.signerSession;
   const publicFacts = signerSession.publicFacts;
@@ -97,13 +190,17 @@ function scheduleRouterAbEcdsaDerivationSigningRefill(args: {
     clientSigningMaterial: args.loadedMaterial.clientSigningMaterial,
     thresholdEcdsaPublicKeyB64u: publicFacts.publicKeyB64u,
     relayerVerifyingShareB64u: signerSession.transport.relayerVerifyingShareB64u,
-    credential: signerSession.routerAbEcdsaDerivationNormalSigning.credential,
+    credential: args.credential,
+    materialActivation: routerAbMpcMaterialActivationRefToWire(
+      signerSession.materialActivation,
+    ),
     routerAbEcdsaDerivationPoolFill: {
       kind: 'router_ab_ecdsa_derivation_signing_worker_pool',
       scope: signerSession.routerAbEcdsaDerivationNormalSigning.state.scope,
-      expiresAtMs: resolveRouterAbEcdsaDerivationPresignMaterialExpiresAtMs(signerSession),
+      expiresAtMs: args.expiresAtMs,
     },
     workerCtx: args.workerCtx,
+    authorization: args.authorization,
     ...(args.trigger === 'commit_start' ? { triggerIfDepthAtOrBelow: 0 } : {}),
   });
 }
@@ -128,42 +225,82 @@ export class Secp256k1Engine {
   private async signReadySecp256k1Digest(
     req: Secp256k1DigestSignRequest,
     material: ReadySecp256k1SigningMaterial,
+    operation: EvmFamilyThresholdEcdsaOperation,
+    operationDigests: OperationDigestSet,
   ): Promise<SignatureBytes> {
     const loadedMaterial = await loadRouterAbEcdsaDerivationSigningMaterialSource({
       signerSession: material.signerSession,
       workerCtx: this.workerCtx,
     });
-    scheduleRouterAbEcdsaDerivationSigningRefill({
-      trigger: 'commit_start',
-      loadedMaterial,
-      workerCtx: this.workerCtx,
-    });
+    if (material.authorization.kind === 'reusable_wallet_session') {
+      scheduleRouterAbEcdsaDerivationSigningRefill({
+        trigger: 'commit_start',
+        loadedMaterial,
+        workerCtx: this.workerCtx,
+        credential: routerAbTransportCredential(material.credential),
+        expiresAtMs: material.expiresAtMs,
+        authorization: material.authorization,
+      });
+    }
     const signerSession = loadedMaterial.signerSession;
     const publicFacts = signerSession.publicFacts;
     const signerTransport = signerSession.transport;
+    const operationId = requireEvmSigningOperationId(operation);
+    const transportCredential = routerAbTransportCredential(material.credential);
 
     try {
-      const signed = await signRouterAbEcdsaDerivationDigestWithPool({
+      const signingInput = {
         relayerUrl: signerTransport.relayerUrl,
         scope: signerSession.routerAbEcdsaDerivationNormalSigning.state.scope,
-        credential: signerSession.routerAbEcdsaDerivationNormalSigning.credential,
+        operationId,
+        operationDigests: {
+          lane_digest_b64u: operationDigests.laneDigest,
+          intent_digest_b64u: operationDigests.intentDigest,
+          display_digest_b64u: operationDigests.displayDigest,
+        },
+        materialActivation: routerAbMpcMaterialActivationRefToWire(
+          signerSession.materialActivation,
+        ),
+        credential: transportCredential,
         keyHandle: parseEcdsaKeyHandle(publicFacts.keyHandle),
         signingDigest32: req.digest32,
         clientSigningMaterial: loadedMaterial.clientSigningMaterial,
-        expiresAtMs: resolveRouterAbEcdsaDerivationPresignMaterialExpiresAtMs(signerSession),
+        expiresAtMs: material.expiresAtMs,
         workerCtx: this.workerCtx,
-      });
+      } as const;
+      let signed;
+      if (material.authorization.kind === 'reusable_wallet_session') {
+        signed = await signRouterAbEcdsaDerivationDigestWithPool({
+          ...signingInput,
+          authorization: material.authorization,
+        });
+      } else {
+        const operationStepUpPreparation = material.operationStepUpPreparation;
+        if (!operationStepUpPreparation) {
+          throw new Error('[multichain] operation step-up preparation is required for signing');
+        }
+        signed = await signRouterAbEcdsaDerivationDigestWithPool({
+          ...signingInput,
+          authorization: material.authorization,
+          operation: operationStepUpPreparation,
+        });
+      }
       if (!signed.ok) {
         throw new Error(
           signed.message || signed.code || '[multichain] Router A/B ECDSA derivation signing failed',
         );
       }
 
-      scheduleRouterAbEcdsaDerivationSigningRefill({
-        trigger: 'post_sign_success',
-        loadedMaterial,
-        workerCtx: this.workerCtx,
-      });
+      if (material.authorization.kind === 'reusable_wallet_session') {
+        scheduleRouterAbEcdsaDerivationSigningRefill({
+          trigger: 'post_sign_success',
+          loadedMaterial,
+          workerCtx: this.workerCtx,
+          credential: transportCredential,
+          expiresAtMs: material.expiresAtMs,
+          authorization: material.authorization,
+        });
+      }
       return signed.signature65;
     } finally {
       await loadedMaterial.cleanupAfterSign({
@@ -175,6 +312,8 @@ export class Secp256k1Engine {
   async signReady(
     req: SignRequest,
     material: ReadySecp256k1SigningMaterial,
+    operation: EvmFamilyThresholdEcdsaOperation,
+    operationDigests: OperationDigestSet,
   ): Promise<SignatureBytes> {
     if (!isSecp256k1DigestSignRequest(req)) {
       throw new Error('[Secp256k1Engine] unsupported sign request');
@@ -187,6 +326,6 @@ export class Secp256k1Engine {
       aborted.code = 'cancelled';
       throw aborted;
     }
-    return await this.signReadySecp256k1Digest(req, material);
+    return await this.signReadySecp256k1Digest(req, material, operation, operationDigests);
   }
 }

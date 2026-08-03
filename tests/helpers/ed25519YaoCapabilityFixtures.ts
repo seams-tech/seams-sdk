@@ -57,14 +57,24 @@ export function buildEd25519YaoCapabilityFixture(input: {
   const signingRootId = `${input.runtimePolicyScope.projectId}:${input.runtimePolicyScope.envId}`;
   const lifecycleId = input.lifecycleId ?? `registration-fixture-${input.seed}`;
   const signerSetId = input.signerSetId ?? String(registrationNearEd25519BranchKey(input.signerSlot));
+  const materialActivation = {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: `${lifecycleId}-activation`,
+    capability: `${lifecycleId}-capability`,
+    material_owner: input.walletId,
+    key_binding: `${lifecycleId}-key`,
+    lifecycle_binding: `${lifecycleId}-lifecycle-binding`,
+    signing_worker: input.signingWorkerId,
+  };
   const admissionRequest = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1({
     scope: {
       lifecycle_id: lifecycleId,
       root_share_epoch: input.runtimePolicyScope.signingRootVersion,
       account_id: input.walletId,
-      wallet_session_id: input.thresholdSessionId,
+      threshold_session_id: input.thresholdSessionId,
       signer_set_id: signerSetId,
       signing_worker_id: input.signingWorkerId,
+      material_activation: materialActivation,
     },
     application_binding: {
       wallet_id: input.walletId,
@@ -90,6 +100,7 @@ export function buildEd25519YaoCapabilityFixture(input: {
     operation: 'registration',
     session_id: session,
     stable_key_context_binding: fixtureBytes(input.seed + 1),
+    material_activation: materialActivation,
   };
   const registeredPublicKey = fixtureBytes(input.seed + 2);
   const activationResult = parseRouterAbEd25519YaoRegistrationActivationResultV1({
@@ -111,6 +122,7 @@ export function buildEd25519YaoCapabilityFixture(input: {
       joined_signing_worker_commitment: fixtureBytes(input.seed + 7),
       signing_worker_verifying_share: fixtureBytes(input.seed + 7),
       state_epoch: 1,
+      material_activation: materialActivation,
     },
   });
   if (!activationResult.ok) throw new Error(activationResult.message);

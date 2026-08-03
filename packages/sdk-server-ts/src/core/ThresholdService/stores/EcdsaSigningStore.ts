@@ -14,6 +14,7 @@ import {
 } from '../validation';
 import { createCloudflareDurableObjectThresholdEcdsaStores } from './CloudflareDurableObjectStore';
 import { readNonDurableObjectThresholdStoreKind } from './StoreConfig';
+import type { EcdsaKeyHandle } from '../../keyMaterialBrands';
 
 export type RouterAbEcdsaDerivationPoolFillSessionStage = 'triples' | 'triples_done' | 'presign' | 'done';
 
@@ -28,7 +29,7 @@ export type RouterAbEcdsaDerivationPoolFillSessionDestination = {
 export type RouterAbEcdsaDerivationPoolFillSessionRecord = {
   expiresAtMs: number;
   walletId: string;
-  evmFamilySigningKeySlotId: string;
+  keyHandle: EcdsaKeyHandle;
   relayerKeyId: string;
   presignPoolKey: string;
   poolFill: RouterAbEcdsaDerivationPoolFillSessionDestination;

@@ -4,6 +4,15 @@ import type {
   VerifiedWalletSessionAuth,
 } from './verifiedWalletSessionAuth';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+
+declare const authorizationId: WalletSessionAuthorizationId;
+declare const walletSessionId: WalletSessionId;
+declare const quotaId: MpcWalletSigningQuotaId;
 
 const passkeyAuthority = buildPasskeyWalletAuthAuthority({
   walletId: 'wallet-ed25519',
@@ -15,9 +24,10 @@ const ecdsaAuth = {
   kind: 'wallet_session',
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
-  signingGrantId: 'signing-grant-ecdsa',
+  authorizationId,
+  walletSessionId,
+  quotaId,
   userId: 'wallet-ecdsa',
-  evmFamilySigningKeySlotId: 'wallet-key-example-localhost',
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
@@ -28,7 +38,9 @@ const ed25519Auth = {
   kind: 'wallet_session',
   curve: 'ed25519',
   thresholdSessionId: 'threshold-session-ed25519',
-  signingGrantId: 'signing-grant-ed25519',
+  authorizationId,
+  walletSessionId,
+  quotaId,
   userId: 'wallet-ed25519',
   authority: passkeyAuthority,
   relayerKeyId: 'ed25519-relayer',
@@ -37,7 +49,9 @@ const ed25519Auth = {
   ed25519RelayerKeyId: 'ed25519-relayer',
 } satisfies VerifiedEd25519WalletSessionAuth;
 
-function requireVerifiedWalletSessionAuth(auth: VerifiedWalletSessionAuth): VerifiedWalletSessionAuth {
+function requireVerifiedWalletSessionAuth(
+  auth: VerifiedWalletSessionAuth,
+): VerifiedWalletSessionAuth {
   return auth;
 }
 
@@ -47,27 +61,14 @@ void requireVerifiedWalletSessionAuth(ed25519Auth);
 // @ts-expect-error Core wallet-session auth consumers require a verified object.
 requireVerifiedWalletSessionAuth('threshold-session-id');
 
-const invalidMissingSigningGrant = {
-  kind: 'wallet_session',
-  curve: 'ecdsa',
-  thresholdSessionId: 'threshold-session-ecdsa',
-  userId: 'wallet-ecdsa',
-  evmFamilySigningKeySlotId: 'wallet-key-example-localhost',
-  relayerKeyId: 'ecdsa-relayer',
-  participantIds: [1, 2] as const,
-  expiresAtMs: Date.now() + 60_000,
-  keyHandle: 'ederivation-key-1',
-  // @ts-expect-error signingGrantId is required on verified Wallet Session auth.
-} satisfies VerifiedEcdsaWalletSessionAuth;
-void invalidMissingSigningGrant;
-
 const invalidEcdsaWithEd25519OnlyField = {
   kind: 'wallet_session',
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
-  signingGrantId: 'signing-grant-ecdsa',
+  authorizationId,
+  walletSessionId,
+  quotaId,
   userId: 'wallet-ecdsa',
-  evmFamilySigningKeySlotId: 'wallet-key-example-localhost',
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
@@ -77,11 +78,30 @@ const invalidEcdsaWithEd25519OnlyField = {
 } satisfies VerifiedEcdsaWalletSessionAuth;
 void invalidEcdsaWithEd25519OnlyField;
 
+const invalidEcdsaWithSigningSlot = {
+  kind: 'wallet_session',
+  curve: 'ecdsa',
+  thresholdSessionId: 'threshold-session-ecdsa',
+  authorizationId,
+  walletSessionId,
+  quotaId,
+  userId: 'wallet-ecdsa',
+  relayerKeyId: 'ecdsa-relayer',
+  participantIds: [1, 2] as const,
+  expiresAtMs: Date.now() + 60_000,
+  keyHandle: 'ederivation-key-1',
+  // @ts-expect-error Wallet Session authorization must not carry material slot identity.
+  evmFamilySigningKeySlotId: 'wallet-key-example-localhost',
+} satisfies VerifiedEcdsaWalletSessionAuth;
+void invalidEcdsaWithSigningSlot;
+
 const invalidEd25519WithEcdsaOnlyField = {
   kind: 'wallet_session',
   curve: 'ed25519',
   thresholdSessionId: 'threshold-session-ed25519',
-  signingGrantId: 'signing-grant-ed25519',
+  authorizationId,
+  walletSessionId,
+  quotaId,
   userId: 'wallet-ed25519',
   authority: passkeyAuthority,
   relayerKeyId: 'ed25519-relayer',
@@ -97,7 +117,9 @@ const invalidEd25519WithAuthorityScope = {
   kind: 'wallet_session',
   curve: 'ed25519',
   thresholdSessionId: 'threshold-session-ed25519',
-  signingGrantId: 'signing-grant-ed25519',
+  authorizationId,
+  walletSessionId,
+  quotaId,
   userId: 'wallet-ed25519',
   authority: passkeyAuthority,
   relayerKeyId: 'ed25519-relayer',

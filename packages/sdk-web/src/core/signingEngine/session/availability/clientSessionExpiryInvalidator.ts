@@ -1,16 +1,13 @@
 import type {
   ClearVolatileWarmSessionMaterialCommand,
-  VolatileWarmMaterialPort,
 } from '../../uiConfirm/uiConfirm.types';
 import type { ExpiredWalletSessionAuthorizationState } from '../identity/clientSessionPersistenceState';
-import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
-import type { SigningGrantId } from '../operationState/types';
+import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
+import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabilities/volatileWarmMaterialCommands';
 import {
-  clearSigningGrant,
-  type SigningGrantClearFailure,
-  type SigningGrantClearResult,
-  type SigningGrantReadinessDeps,
-  type SigningGrantStatusOverride,
+  type WalletSessionClearFailure,
+  type WalletSessionClearResult,
+  type WalletSessionStatusOverride,
 } from './readiness';
 
 export type ClientWalletSessionInvalidationReadinessDeps = {
@@ -19,21 +16,18 @@ export type ClientWalletSessionInvalidationReadinessDeps = {
       command: ClearVolatileWarmSessionMaterialCommand,
     ) => Promise<void>;
   };
-  readonly clearEmailOtpWarmSessionMaterial: (sessionId: string) => Promise<void>;
-  readonly clearThresholdEcdsaSessionRecordForExactIdentity: (
-    identity: ExactEcdsaSigningLaneIdentity,
-  ) => void;
+  readonly clearEmailOtpWarmSessionMaterial: (thresholdSessionId: string) => Promise<void>;
 };
 
 export type ClientWalletSessionExpiryInvalidatorDeps = {
   readonly readiness: ClientWalletSessionInvalidationReadinessDeps;
-  readonly statusOverrides: Map<string, SigningGrantStatusOverride>;
+  readonly statusOverrides: Map<string, WalletSessionStatusOverride>;
 };
 
 export type WalletSessionExpiredEvent = {
   readonly kind: 'wallet_session_expired';
   readonly walletId: ExpiredWalletSessionAuthorizationState['walletId'];
-  readonly walletSessionId: SigningGrantId;
+  readonly walletSessionId: WalletSessionId;
   readonly authMethod: ExpiredWalletSessionAuthorizationState['authMethod'];
   readonly expiresAtMs: number;
   readonly detectedAtMs: number;
@@ -50,46 +44,62 @@ export type ClientWalletSessionExpiryInvalidationResult =
     }
   | {
       readonly kind: 'unavailable';
-      readonly failures: readonly SigningGrantClearFailure[];
+      readonly failures: readonly WalletSessionClearFailure[];
       readonly event: null;
     };
 
 function walletSessionInvalidationKey(
   state: ExpiredWalletSessionAuthorizationState,
 ): string {
-  return `${String(state.walletId)}:${String(state.walletSessionId)}`;
+  return `${String(state.walletId)}:wallet-session:${String(state.walletSessionId)}`;
 }
 
-function walletSessionExpiredEvent(
-  state: ExpiredWalletSessionAuthorizationState,
-): WalletSessionExpiredEvent {
+function walletSessionExpiredEvent(args: {
+  readonly state: ExpiredWalletSessionAuthorizationState;
+  readonly walletSessionId: WalletSessionId;
+}): WalletSessionExpiredEvent {
+  const state = args.state;
   return {
     kind: 'wallet_session_expired',
     walletId: state.walletId,
-    walletSessionId: state.walletSessionId,
+    walletSessionId: args.walletSessionId,
     authMethod: state.authMethod,
     expiresAtMs: state.expiresAtMs,
     detectedAtMs: state.detectedAtMs,
   };
 }
 
-function toSigningGrantReadinessDeps(
-  deps: ClientWalletSessionInvalidationReadinessDeps,
-): SigningGrantReadinessDeps {
-  const touchConfirm: Pick<VolatileWarmMaterialPort, 'clearVolatileWarmSessionMaterial'> = {
-    clearVolatileWarmSessionMaterial: deps.touchConfirm.clearVolatileWarmSessionMaterial,
-  };
-  return {
-    touchConfirm,
-    clearEmailOtpWarmSessionMaterial: deps.clearEmailOtpWarmSessionMaterial,
-    clearThresholdEcdsaSessionRecordForExactIdentity:
-      deps.clearThresholdEcdsaSessionRecordForExactIdentity,
-  };
+export type InvalidateExpiredWalletSessionInput = {
+  readonly state: ExpiredWalletSessionAuthorizationState;
+  readonly walletSessionId: WalletSessionId;
+};
+
+async function clearExpiredAuthorization(args: {
+  readonly deps: ClientWalletSessionExpiryInvalidatorDeps;
+  readonly state: ExpiredWalletSessionAuthorizationState;
+}): Promise<WalletSessionClearResult> {
+  const lane = args.state.laneIdentity;
+  if (!('thresholdSessionId' in lane)) return { kind: 'cleared' };
+  try {
+    if (lane.auth.kind === 'email_otp') {
+      await args.deps.readiness.clearEmailOtpWarmSessionMaterial(lane.thresholdSessionId);
+    } else {
+      await args.deps.readiness.touchConfirm.clearVolatileWarmSessionMaterial(
+        createClearVolatileWarmSessionMaterialCommand(lane.thresholdSessionId),
+      );
+    }
+    return { kind: 'cleared' };
+  } catch {
+    return {
+      kind: 'unavailable',
+      failures: [lane.auth.kind === 'email_otp' ? 'email_otp_material' : 'touch_confirm_material'],
+    };
+  }
 }
 
 export class ClientWalletSessionExpiryInvalidator {
   readonly #deps: ClientWalletSessionExpiryInvalidatorDeps;
-  readonly #cleanupBySession = new Map<string, Promise<SigningGrantClearResult>>();
+  readonly #cleanupBySession = new Map<string, Promise<WalletSessionClearResult>>();
   readonly #eventDelivered = new Set<string>();
 
   constructor(deps: ClientWalletSessionExpiryInvalidatorDeps) {
@@ -97,17 +107,13 @@ export class ClientWalletSessionExpiryInvalidator {
   }
 
   async invalidate(
-    state: ExpiredWalletSessionAuthorizationState,
+    input: InvalidateExpiredWalletSessionInput,
   ): Promise<ClientWalletSessionExpiryInvalidationResult> {
+    const state = input.state;
     const key = walletSessionInvalidationKey(state);
     let cleanup = this.#cleanupBySession.get(key);
     if (!cleanup) {
-      cleanup = clearSigningGrant({
-        deps: toSigningGrantReadinessDeps(this.#deps.readiness),
-        statusOverrides: this.#deps.statusOverrides,
-        walletId: state.walletId,
-        signingGrantId: state.walletSessionId,
-      });
+      cleanup = clearExpiredAuthorization({ deps: this.#deps, state });
       this.#cleanupBySession.set(key, cleanup);
     }
     const cleanupResult = await cleanup;
@@ -125,7 +131,7 @@ export class ClientWalletSessionExpiryInvalidator {
     this.#eventDelivered.add(key);
     return {
       kind: 'invalidated',
-      event: walletSessionExpiredEvent(state),
+      event: walletSessionExpiredEvent(input),
     };
   }
 }

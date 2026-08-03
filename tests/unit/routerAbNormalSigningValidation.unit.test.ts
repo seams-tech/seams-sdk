@@ -5,16 +5,19 @@ import type {
   RouterAbNormalSigningResponseV1Wire,
   RouterAbPublicDigest32Wire,
 } from '@/core/rpcClients/relayer/routerAbNormalSigning';
-import { prepareRouterAbNormalSigningV2 } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import {
-  isSigningSessionBudgetAdmissionBlockedError,
-  SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
-  SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
-} from '@/core/signingEngine/session/budget/budget';
+  buildRouterAbEd25519NormalSigningFinalizeRequestV2,
+  prepareRouterAbNormalSigningV2,
+} from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import {
-  classifySigningGrantAdmissionFailure,
-  SigningGrantAdmissionError,
-} from '@/core/signingEngine/session/budget/admission';
+  isWalletSessionQuotaAdmissionError,
+  WALLET_SESSION_QUOTA_EXHAUSTED_ERROR,
+  WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR,
+} from '@/core/signingEngine/session/operationState/authorizationAdmission';
+import {
+  classifyWalletSessionQuotaAdmissionFailure,
+  WalletSessionQuotaAdmissionError,
+} from '@/core/signingEngine/session/operationState/authorizationAdmission';
 import {
   requireRouterAbNormalSigningPrepareMatchesRequest,
   requireRouterAbNormalSigningResponseMatchesRequest,
@@ -49,11 +52,23 @@ const request: RouterAbNormalSigningPrepareRequestV2Wire = {
   scope: {
     request_id: 'router-ab-normal-signing/request-1',
     account_id: 'alice.testnet',
-    session_id: 'wallet-session-1',
-    active_state_session_id: 'activation-session-1',
+    authorization: {
+      kind: 'reusable_wallet_session',
+      wallet_session_id: 'wallet-session-1',
+    },
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'activation-session-1',
+      capability: 'capability-1',
+      material_owner: 'alice.testnet',
+      key_binding: 'key-binding-1',
+      lifecycle_binding: 'lifecycle-1',
+      signing_worker: 'signing-worker-a',
+    },
     signing_worker_id: 'signing-worker-a',
   },
   expires_at_ms: 1_900_000_000_000,
+  display_digest: digest32,
   intent: {
     kind: 'near_transaction_v1',
     operation_id: 'operation-1',
@@ -78,15 +93,16 @@ const request: RouterAbNormalSigningPrepareRequestV2Wire = {
 function prepareResponse(signingWorkerId: string): RouterAbNormalSigningPrepareResponseV1Wire {
   return {
     scope: request.scope,
-    budget_reservation_id: 'ed25519-sign-budget-reservation-1',
-    budget_operation_id: 'operation-1',
-    budget_status: {
-      remaining_uses: 3,
-      committed_remaining_uses: 3,
-      reserved_uses: 1,
-      available_uses: 2,
-      projection_version: 2,
-      expires_at_ms: 1_900_000_000_000,
+    authorized_operation: {
+      kind: 'reusable_wallet_session_authorized_operation_v1',
+      authorized_operation_id: 'authorized-operation-1',
+      operation_id: 'operation-1',
+      capability_kind: 'near_ed25519_mpc_signing',
+      operation_kind: 'near.sign_transaction',
+      lane_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+      intent_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+      display_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+      operation_fingerprint_digest: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
     },
     signing_payload_digest: digest32,
     round1_binding_digest: digest32,
@@ -119,14 +135,6 @@ function signingResponse(signingWorkerId: string): RouterAbNormalSigningResponse
     signature_scheme: 'ed25519_v1',
     signature: { bytes: byteRange(64) },
     signed_at_ms: 1_800_000_000_000,
-    budget_status: {
-      remaining_uses: 8,
-      committed_remaining_uses: 8,
-      reserved_uses: 0,
-      available_uses: 8,
-      projection_version: 3,
-      expires_at_ms: 1_900_000_000_000,
-    },
   };
 }
 
@@ -137,7 +145,7 @@ async function prepareWithHttpError(fixture: HttpErrorFixture): Promise<unknown>
   try {
     await prepareRouterAbNormalSigningV2({
       relayServerUrl: 'https://router.example/base/',
-      credential: { kind: 'jwt', walletSessionJwt: 'wallet-session-jwt' },
+      credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
       request,
     });
     return null;
@@ -150,6 +158,13 @@ async function prepareWithHttpError(fixture: HttpErrorFixture): Promise<unknown>
 }
 
 async function prepareWithHttpResponse(body: unknown): Promise<unknown> {
+  return prepareRequestWithHttpResponse(request, body);
+}
+
+async function prepareRequestWithHttpResponse(
+  requestInput: RouterAbNormalSigningPrepareRequestV2Wire,
+  body: unknown,
+): Promise<unknown> {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>
     new Response(JSON.stringify(body), {
@@ -160,7 +175,7 @@ async function prepareWithHttpResponse(body: unknown): Promise<unknown> {
     return await prepareRouterAbNormalSigningV2({
       relayServerUrl: 'https://router.example/base/',
       credential: { kind: 'jwt', walletSessionJwt: 'wallet-session-jwt' },
-      request,
+      request: requestInput,
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -231,14 +246,14 @@ async function mapsBudgetFailures(): Promise<void> {
     },
   });
 
-  expect(exhausted).toBeInstanceOf(SigningGrantAdmissionError);
-  expect(inFlight).toBeInstanceOf(SigningGrantAdmissionError);
-  expect(String((exhausted as Error).message)).toContain(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
-  expect(String((inFlight as Error).message)).toContain(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
-  expect(classifySigningGrantAdmissionFailure(exhausted)?.kind).toBe('exhausted');
-  expect(classifySigningGrantAdmissionFailure(inFlight)?.kind).toBe('in_flight');
-  expect(isSigningSessionBudgetAdmissionBlockedError(exhausted)).toBe(true);
-  expect(isSigningSessionBudgetAdmissionBlockedError(inFlight)).toBe(true);
+  expect(exhausted).toBeInstanceOf(WalletSessionQuotaAdmissionError);
+  expect(inFlight).toBeInstanceOf(WalletSessionQuotaAdmissionError);
+  expect(String((exhausted as Error).message)).toContain(WALLET_SESSION_QUOTA_EXHAUSTED_ERROR);
+  expect(String((inFlight as Error).message)).toContain(WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR);
+  expect(classifyWalletSessionQuotaAdmissionFailure(exhausted)?.kind).toBe('exhausted');
+  expect(classifyWalletSessionQuotaAdmissionFailure(inFlight)?.kind).toBe('in_flight');
+  expect(isWalletSessionQuotaAdmissionError(exhausted)).toBe(true);
+  expect(isWalletSessionQuotaAdmissionError(inFlight)).toBe(true);
 }
 
 test(
@@ -251,13 +266,64 @@ test(
 );
 test('maps server budget failures to signing-session budget domain errors', mapsBudgetFailures);
 
-test('parses the complete SigningWorker-private D1 budget projection', async () => {
+test('parses the reusable Wallet Session authorized-operation receipt', async () => {
   const response = prepareResponse('signing-worker-a');
   await expect(prepareWithHttpResponse(response)).resolves.toEqual(response);
 
-  const { projection_version: _projectionVersion, ...truncatedBudgetStatus } =
-    response.budget_status;
+  const { operation_fingerprint_digest: _operationFingerprintDigest, ...truncatedClaim } =
+    response.authorized_operation;
   await expect(
-    prepareWithHttpResponse({ ...response, budget_status: truncatedBudgetStatus }),
-  ).rejects.toThrow('budget_status.projection_version must be a positive integer');
+    prepareWithHttpResponse({ ...response, authorized_operation: truncatedClaim }),
+  ).rejects.toThrow('authorized_operation has invalid fields');
+});
+
+test('parses and echoes the verified step-up authorized operation receipt', async () => {
+  const stepUpRequest: RouterAbNormalSigningPrepareRequestV2Wire = {
+    ...request,
+    scope: {
+      ...request.scope,
+      authorization: { kind: 'operation_step_up' },
+    },
+  };
+  const stepUpClaim = {
+    kind: 'verified_step_up_authorized_operation_v1' as const,
+    authorization_session_id: 'authorization-session-1',
+    authorized_operation_id: 'authorized-operation-2',
+    operation_id: 'operation-1',
+    capability_kind: 'near_ed25519_mpc_signing' as const,
+    operation_kind: 'near.sign_transaction' as const,
+    lane_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+    intent_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+    display_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+    operation_fingerprint_digest: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  };
+  const response: RouterAbNormalSigningPrepareResponseV1Wire = {
+    ...prepareResponse('signing-worker-a'),
+    scope: stepUpRequest.scope,
+    authorized_operation: stepUpClaim,
+  };
+  await expect(prepareRequestWithHttpResponse(stepUpRequest, response)).resolves.toEqual(response);
+
+  const finalize = buildRouterAbEd25519NormalSigningFinalizeRequestV2({
+    scope: stepUpRequest.scope,
+    expiresAtMs: stepUpRequest.expires_at_ms,
+    prepareResponse: response,
+    admissionMaterial: {
+      intentDigest: digest32,
+      signingPayloadDigest: digest32,
+      admittedSigningDigest: digest32,
+    },
+    clientCommitments: { hiding: 'client-hiding', binding: 'client-binding' },
+    clientVerifyingShareB64u: 'client-verifying-share',
+    clientSignatureShareB64u: 'client-signature-share',
+  });
+  expect(finalize.authorized_operation).toEqual(stepUpClaim);
+
+  const { authorized_operation_id: _authorizedOperationId, ...truncatedClaim } = stepUpClaim;
+  await expect(
+    prepareRequestWithHttpResponse(stepUpRequest, {
+      ...response,
+      authorized_operation: truncatedClaim,
+    }),
+  ).rejects.toThrow('authorized_operation has invalid fields');
 });

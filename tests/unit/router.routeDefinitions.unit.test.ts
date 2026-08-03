@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test';
 import { applyRouteMetering } from '../../packages/sdk-server-ts/src/router/applyRouteMetering';
-import { registerCloudflareRoute } from '../../packages/sdk-server-ts/src/router/cloudflare/registerCloudflareRoute';
 import { enforceRoutePolicy } from '../../packages/sdk-server-ts/src/router/enforceRoutePolicy';
 import { API_CREDENTIAL_ROUTE_SCOPES } from '../../packages/sdk-server-ts/src/router/routeAuthPolicy';
 import { ROUTE_SERVICE_KEYS } from '../../packages/sdk-server-ts/src/router/routeExecutionContext';
@@ -375,28 +374,4 @@ test.describe('route definition scaffolding', () => {
     expect(calls).toEqual(['event:wallet_created', 'gas:near_delegate']);
   });
 
-  test('transport wrappers match paths and methods', async () => {
-    const route = defineRoute({
-      id: 'wrapper_route',
-      surface: 'relay',
-      method: 'GET',
-      path: '/wrapper',
-      aliases: ['/wrapper/'],
-      auth: { plane: 'public', rationale: 'test' },
-      metering: { kind: 'none' },
-      summary: 'wrapper route',
-    });
-
-    const cloudflareHandler = registerCloudflareRoute(route, async ({ route: matchedRoute }) => {
-      return new Response(JSON.stringify({ id: matchedRoute.id }), { status: 200 });
-    });
-
-    const miss = await cloudflareHandler({ method: 'POST', pathname: '/wrapper' });
-    expect(miss).toBeNull();
-    const hit = await cloudflareHandler({ method: 'GET', pathname: '/wrapper/' });
-    expect(hit?.status).toBe(200);
-
-    const aliasHit = await cloudflareHandler({ method: 'GET', pathname: '/wrapper/' });
-    expect(aliasHit?.status).toBe(200);
-  });
 });

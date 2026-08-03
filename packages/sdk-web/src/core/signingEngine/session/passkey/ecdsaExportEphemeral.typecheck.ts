@@ -9,13 +9,12 @@ import type {
   ThresholdEcdsaPasskeyExportActivationRequest,
 } from './ecdsaSessionProvision';
 import type {
-  EmailOtpEcdsaExactBootstrapRequest,
+  EmailOtpEcdsaBootstrapRequest,
   EmailOtpEcdsaExplicitExportBootstrapRequest,
   EmailOtpEcdsaExplicitExportBootstrapResult,
 } from './ecdsaBootstrap';
 import type {
-  ActivateEcdsaSessionRequest,
-  ActivateEmailOtpExplicitExportBootstrapSessionRequest,
+  ActivateEcdsaExistingSessionRequest,
 } from '../../threshold/ecdsa/activation';
 
 type ThresholdEcdsaTransactionActivationRequest = Exclude<
@@ -28,8 +27,8 @@ declare const explicitExportRequest: ThresholdEcdsaPasskeyExportActivationReques
 declare const emailOtpExplicitExportResult: EmailOtpEcdsaExplicitExportBootstrapResult;
 declare const emailOtpExplicitExportRequest: ThresholdEcdsaEmailOtpExportActivationRequest;
 declare const emailOtpTransactionRequest: ThresholdEcdsaEmailOtpActivationRequest;
-declare const emailOtpExactBootstrapRequest: EmailOtpEcdsaExactBootstrapRequest;
-declare const emailOtpActivationRequest: ActivateEcdsaSessionRequest;
+declare const emailOtpExactBootstrapRequest: EmailOtpEcdsaBootstrapRequest;
+declare const emailOtpActivationRequest: ActivateEcdsaExistingSessionRequest;
 
 // @ts-expect-error Ephemeral export material cannot become a transaction bootstrap result.
 const invalidTransactionBootstrap: ThresholdEcdsaSessionBootstrapResult = explicitExportResult;
@@ -59,11 +58,6 @@ void invalidEmailOtpExportRequest;
 const invalidEmailOtpExportBootstrapRequest: EmailOtpEcdsaExplicitExportBootstrapRequest =
   emailOtpExactBootstrapRequest;
 void invalidEmailOtpExportBootstrapRequest;
-
-// @ts-expect-error General activation requests do not prove an export handle.
-const invalidEmailOtpExportBootstrapActivation: ActivateEmailOtpExplicitExportBootstrapSessionRequest =
-  emailOtpActivationRequest;
-void invalidEmailOtpExportBootstrapActivation;
 
 const invalidTransactionSpread = {
   ...explicitExportResult,

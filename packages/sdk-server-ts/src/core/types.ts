@@ -13,11 +13,19 @@ import type {
   EcdsaDerivationRelayerPublicKey33B64u,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
-import type { RouterAbEcdsaDerivationNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationNormalSigningScopeV1,
+  RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { WalletId } from '@shared/utils/registrationIntent';
 import type { RootShareEpoch, WebAuthnRpId } from '@shared/utils/domainIds';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import type {
+  MpcWalletSigningQuotaId,
+  SeamsSessionId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type {
   CreateHostedSigningRootShareResolverInput,
   SigningRootShareDecryptAdapter,
@@ -62,23 +70,6 @@ export interface SignerWasmConfig {
    */
   moduleOrPath?: SignerWasmModuleSupplier;
 }
-
-export type ThresholdEd25519BootstrapSession = {
-  sessionKind: 'jwt' | 'cookie';
-  walletId: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  authorityScope: ThresholdEd25519AuthorityScope;
-  thresholdSessionId: string;
-  signingGrantId: string;
-  expiresAtMs: number;
-  expiresAt?: string;
-  participantIds?: number[];
-  remainingUses?: number;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
-  jwt?: string;
-};
 
 // ================================
 // Threshold Ed25519 key persistence
@@ -527,7 +518,6 @@ export type Ed25519SessionPolicy = {
   authority: WalletAuthAuthority;
   relayerKeyId: string;
   thresholdSessionId: string;
-  signingGrantId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   /** Optional participant ids that scope the session to a signer set. */
@@ -555,7 +545,8 @@ export type ThresholdEd25519VerifiedWalletAuth =
         walletId: string;
         kind: 'router_ab_ecdsa_derivation_wallet_session_v1';
         thresholdSessionId: string;
-        signingGrantId: string;
+        walletSessionId: WalletSessionId;
+        quotaId: MpcWalletSigningQuotaId;
         keyScope: 'evm-family';
         keyHandle: string;
         relayerKeyId: string;
@@ -594,7 +585,8 @@ export interface ThresholdEd25519SessionResponse {
   nearEd25519SigningKeyId?: string;
   authorityScope?: ThresholdEd25519AuthorityScope;
   thresholdSessionId?: string;
-  signingGrantId?: string;
+  walletSessionId?: WalletSessionId;
+  quotaId?: MpcWalletSigningQuotaId;
   /** Server-enforced expiry (ms since epoch). */
   expiresAtMs?: number;
   expiresAt?: string;
@@ -715,7 +707,6 @@ export interface ThresholdEcdsaDerivationFinalizeResponse {
   relayerVerifyingShareB64u?: string;
   chainId?: number;
   thresholdSessionId?: string;
-  signingGrantId?: string;
   chainTarget?: ThresholdEcdsaChainTarget;
   expiresAtMs?: number;
   expiresAt?: string;
@@ -753,7 +744,6 @@ export type EcdsaDerivationRouteResult<T> =
   | { ok: false; code: EcdsaDerivationErrorCode; message: string; retryAfterMs?: number };
 
 export type EcdsaDerivationRoleLocalFormatVersion = 'ecdsa-derivation-role-local';
-export type EcdsaDerivationRoleLocalExportFormatVersion = 'ecdsa-derivation-role-local-export';
 export type EcdsaDerivationKeyScope = 'evm-family';
 
 export interface EcdsaDerivationPublicIdentity {
@@ -793,7 +783,6 @@ interface EcdsaDerivationClientBootstrapRequestBase {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -836,61 +825,10 @@ export interface EcdsaDerivationServerBootstrapResponse {
   participantIds: number[];
   thresholdSessionId: string;
   activationEpoch: RootShareEpoch;
-  signingGrantId: string;
   expiresAtMs: number;
   expiresAt: string;
   remainingUses: number;
-  jwt?: string;
-}
-
-export interface EcdsaDerivationRoleLocalKeyRecord {
-  version: 'threshold_ecdsa_derivation_role_local_v2';
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  keyHandle: string;
-  walletId: string;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  signingRootId: string;
-  signingRootVersion: string;
-  keyScope: EcdsaDerivationKeyScope;
-  relayerKeyId: string;
-  contextBinding32B64u: string;
-  relayerShare32B64u: string;
-  relayerPublicKey33B64u: string;
-  clientPublicKey33B64u: string;
-  groupPublicKey33B64u: string;
-  ethereumAddress: string;
-  publicTranscriptDigest32B64u: string;
-  createdAtMs: number;
-  updatedAtMs: number;
-}
-
-export interface EcdsaDerivationExportShareRequest {
-  formatVersion: EcdsaDerivationRoleLocalExportFormatVersion;
-  walletId: string;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  relayerKeyId: string;
-  contextBinding32B64u: string;
-  publicIdentity: EcdsaDerivationPublicIdentity;
-  exportRequestNonce32B64u: string;
-  confirmationDigest32B64u: string;
-  authorizationDigest32B64u: string;
-  issuedAtUnixMs: number;
-  expiresAtUnixMs: number;
-  clientDeviceId: string;
-  clientSessionId: string;
-}
-
-export interface EcdsaDerivationExportShareResponse {
-  formatVersion: EcdsaDerivationRoleLocalExportFormatVersion;
-  walletId: string;
-  evmFamilySigningKeySlotId: string;
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  relayerKeyId: string;
-  contextBinding32B64u: string;
-  publicIdentity: EcdsaDerivationPublicIdentity;
-  exportAuthorizationDigest32B64u: string;
-  serverExportShare32B64u: string;
+  routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 }
 
 export type EcdsaSessionPolicy = {
@@ -902,7 +840,6 @@ export type EcdsaSessionPolicy = {
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   thresholdSessionId: string;
-  signingGrantId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];
@@ -918,7 +855,6 @@ export type ThresholdEcdsaBootstrapSessionPolicy = {
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   thresholdSessionId: string;
-  signingGrantId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];

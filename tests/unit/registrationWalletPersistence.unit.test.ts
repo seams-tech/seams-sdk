@@ -10,7 +10,6 @@ import {
   storeWalletMixedRegistrationData,
   type StoreWalletEcdsaWalletKey,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle';
-import { parseEcdsaRoleLocalDurableMaterialRef } from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
 import type {
   AccountRef,
   AccountSignerRecord,
@@ -28,12 +27,13 @@ import {
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { makeEcdsaRoleLocalReadyRecordFixture } from './helpers/ecdsaSessionRecordVariants.fixtures';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 type StoreWalletEcdsaWalletKeyFixtureInput = Omit<
   StoreWalletEcdsaWalletKey,
   | 'participantIds'
   | 'publicCapability'
-  | 'roleLocalDurableMaterialRef'
+  | 'roleLocalMaterialRef'
   | 'ecdsaRoleLocalPublicFacts'
 > & {
   participantIds: readonly number[];
@@ -67,9 +67,11 @@ function storeWalletEcdsaWalletKeyFixture(
     evmFamilySigningKeySlotId,
     participantIds: [participantIds[0], participantIds[1]],
     publicCapability: roleLocal.publicFacts.publicCapability,
-    roleLocalDurableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(
-      `router-ab-ecdsa-role-local:${input.keyHandle}`,
-    ),
+    roleLocalMaterialRef: buildEcdsaRoleLocalPersistedMaterialRefFixture({
+      durableMaterialRef: `router-ab-ecdsa-role-local:${input.keyHandle}`,
+      bindingDigest: roleLocal.publicFacts.contextBinding32B64u,
+      label: `registration-wallet:${input.keyHandle}`,
+    }),
     ecdsaRoleLocalPublicFacts: roleLocal.publicFacts,
   };
 }
@@ -984,7 +986,6 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
       metadata: {
         keyHandle: 'ederivation-key-alice',
         walletId: 'wallet_alice',
-        evmFamilySigningKeySlotId: walletKeys[0].evmFamilySigningKeySlotId,
         ecdsaThresholdKeyId: 'ederivation-key-id-alice',
         signingRootId: 'project_registration:dev',
         signingRootVersion: 'root_v1',

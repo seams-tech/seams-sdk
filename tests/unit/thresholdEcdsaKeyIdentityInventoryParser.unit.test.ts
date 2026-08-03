@@ -41,6 +41,15 @@ function publicCapability() {
       client_share_retry_counter: 0,
       server_share_retry_counter: 0,
     },
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'inventory-activation-ref',
+      capability: 'inventory-capability',
+      material_owner: WALLET_ID,
+      key_binding: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
+      lifecycle_binding: 'inventory-lifecycle',
+      signing_worker: 'inventory-signing-worker',
+    },
     signer_set: {
       signer_set_id: 'inventory-signer-set',
       policy: 'all_2',
@@ -81,24 +90,32 @@ function publicCapability() {
   });
 }
 
-function inventoryRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function inventoryRecord(input?: {
+  record?: Record<string, unknown>;
+  key?: Record<string, unknown>;
+}): Record<string, unknown> {
   return {
     keyHandle: 'ederivation-key-inventory',
-    walletId: WALLET_ID,
-    subjectId: SUBJECT_ID,
-    rpId: RP_ID,
     ecdsaThresholdKeyId: 'ederivation-inventory',
-    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-    signingRootId: 'project_inventory_parser:dev',
-    signingRootVersion: 'root_v1',
-    participantIds: [1, 2],
     thresholdEcdsaPublicKeyB64u: THRESHOLD_ECDSA_PUBLIC_KEY_B64U,
     chainTarget: EVM_TARGET,
     accountAddress: OWNER_ADDRESS,
     ownerAddress: OWNER_ADDRESS,
-    thresholdOwnerAddress: OWNER_ADDRESS,
     publicCapability: publicCapability(),
-    ...overrides,
+    key: {
+      walletId: WALLET_ID,
+      subjectId: SUBJECT_ID,
+      rpId: RP_ID,
+      keyHandle: 'ederivation-key-inventory',
+      keyScope: 'evm-family',
+      ecdsaThresholdKeyId: 'ederivation-inventory',
+      signingRootId: 'project_inventory_parser:dev',
+      signingRootVersion: 'root_v1',
+      participantIds: [1, 2],
+      thresholdOwnerAddress: OWNER_ADDRESS,
+      ...input?.key,
+    },
+    ...input?.record,
   };
 }
 
@@ -183,8 +200,8 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
       walletId: WALLET_ID,
       rpId: RP_ID,
       records: [
-        inventoryRecord({ publicCapability: wrongWalletCapability }),
-        inventoryRecord({ publicCapability: wrongPublicKeyCapability }),
+        inventoryRecord({ record: { publicCapability: wrongWalletCapability } }),
+        inventoryRecord({ record: { publicCapability: wrongPublicKeyCapability } }),
       ],
     });
 
@@ -196,11 +213,11 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
       walletId: WALLET_ID,
       rpId: RP_ID,
       records: [
-        inventoryRecord({ subjectId: 'wallet_other' }),
-        inventoryRecord({ rpId: 'other.example.test' }),
+        inventoryRecord({ key: { subjectId: 'wallet_other' } }),
+        inventoryRecord({ key: { rpId: 'other.example.test' } }),
         inventoryRecord({
-          ownerAddress: `0x${'cd'.repeat(20)}`,
-          thresholdOwnerAddress: OWNER_ADDRESS,
+          record: { ownerAddress: `0x${'cd'.repeat(20)}` },
+          key: { thresholdOwnerAddress: OWNER_ADDRESS },
         }),
       ],
     });
@@ -213,11 +230,11 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
       walletId: WALLET_ID,
       rpId: RP_ID,
       records: [
-        inventoryRecord({ keyHandle: '' }),
-        inventoryRecord({ ecdsaThresholdKeyId: '' }),
-        inventoryRecord({ participantIds: [] }),
-        inventoryRecord({ thresholdEcdsaPublicKeyB64u: '' }),
-        inventoryRecord({ chainTarget: { kind: 'tempo' } }),
+        inventoryRecord({ record: { keyHandle: '' } }),
+        inventoryRecord({ record: { ecdsaThresholdKeyId: '' } }),
+        inventoryRecord({ key: { participantIds: [] } }),
+        inventoryRecord({ record: { thresholdEcdsaPublicKeyB64u: '' } }),
+        inventoryRecord({ record: { chainTarget: { kind: 'tempo' } } }),
         {
           walletId: WALLET_ID,
           rpId: RP_ID,
@@ -236,9 +253,25 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
       walletId: WALLET_ID,
       rpId: RP_ID,
       records: [
-        inventoryRecord({ keyHandle: 'invalid:key-handle' }),
-        inventoryRecord({ keyHandle: 'plain-key-handle' }),
+        inventoryRecord({
+          record: { keyHandle: 'invalid:key-handle' },
+          key: { keyHandle: 'invalid:key-handle' },
+        }),
+        inventoryRecord({
+          record: { keyHandle: 'plain-key-handle' },
+          key: { keyHandle: 'plain-key-handle' },
+        }),
       ],
+    });
+
+    expect(parsed).toEqual([]);
+  });
+
+  test('rejects mismatched top-level and nested key handles', () => {
+    const parsed = parseThresholdEcdsaKeyIdentityTargets({
+      walletId: WALLET_ID,
+      rpId: RP_ID,
+      records: [inventoryRecord({ key: { keyHandle: 'ederivation-key-other' } })],
     });
 
     expect(parsed).toEqual([]);

@@ -3,7 +3,10 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { SeamsWeb } from '@/SeamsWeb';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState, SeamsContextType } from '../types';
-import { isWalletSessionReadyForUi } from './walletSessionReadiness';
+import {
+  isWalletSessionReadyForUi,
+  shouldPreserveReactLoginForWalletSessionRead,
+} from './walletSessionReadiness';
 import {
   buildReactLoggedInLoginStateFromSession,
   buildReactLoggedOutLoginState,
@@ -27,30 +30,72 @@ function resolveExactReactLoginWalletId(
 
 export function useLoginStateRefresher(args: {
   seams: SeamsWeb;
-  walletIframeConnected: boolean;
   setLoginState: Dispatch<SetStateAction<LoginState>>;
   setInputUsername: SeamsContextType['setInputUsername'];
 }) {
-  const { seams, walletIframeConnected, setLoginState, setInputUsername } = args;
+  const { seams, setLoginState, setInputUsername } = args;
 
   const refreshLoginState: SeamsContextType['refreshLoginState'] = useCallback(
     async (walletId?: string) => {
       try {
-        const exactWalletId = resolveExactReactLoginWalletId(seams, walletId);
+        let exactWalletId: string | null;
+        if (seams.configs.wallet.mode === 'iframe') {
+          const state = await seams.getWalletIframeExactSessionState();
+          switch (state.kind) {
+            case 'active_session':
+              exactWalletId = state.walletId;
+              break;
+            case 'wallet_unlocked_without_signing_session':
+              switch (state.reason) {
+                // On `superseded` the wallet is still unlocked and only the
+                // reusable session was replaced. Keep the wallet and let this
+                // refresh resolve current state; logging out would be wrong.
+                case 'exhausted':
+                case 'superseded':
+                  exactWalletId = state.walletId;
+                  break;
+                case 'unavailable':
+                case 'status_unknown':
+                  return;
+                case 'not_found':
+                case 'invalid':
+                  setLoginState(buildReactLoggedOutLoginState());
+                  return;
+                default:
+                  state.reason satisfies never;
+                  return;
+              }
+              break;
+            case 'expired_session':
+            case 'wallet_locked':
+              setLoginState(buildReactLoggedOutLoginState());
+              return;
+            default:
+              state satisfies never;
+              return;
+          }
+        } else {
+          exactWalletId = resolveExactReactLoginWalletId(seams, walletId);
+        }
         if (!exactWalletId) {
           setLoginState(buildReactLoggedOutLoginState());
           return;
         }
 
         const session = await seams.auth.getWalletSession(exactWalletId);
+        if (shouldPreserveReactLoginForWalletSessionRead(session)) return;
         if (!isWalletSessionReadyForUi({ session })) {
           setLoginState(buildReactLoggedOutLoginState());
           return;
         }
-        const { login: ls } = session;
-        if (ls.walletId) {
-          seams.preferences.setCurrentWallet(toWalletId(ls.walletId));
-          syncInputUsernameFromWalletId(setInputUsername, ls.walletId);
+        if (session.appIdentity.kind !== 'resolved') {
+          setLoginState(buildReactLoggedOutLoginState());
+          return;
+        }
+        const resolvedWalletId = session.appIdentity.walletId;
+        if (resolvedWalletId) {
+          seams.preferences.setCurrentWallet(toWalletId(resolvedWalletId));
+          syncInputUsernameFromWalletId(setInputUsername, resolvedWalletId);
         }
         const nextLoginState = buildReactLoggedInLoginStateFromSession(session);
         setLoginState(nextLoginState ?? buildReactLoggedOutLoginState());
@@ -62,9 +107,9 @@ export function useLoginStateRefresher(args: {
   );
 
   useEffect(() => {
-    if (seams.configs.wallet.mode === 'iframe' && !walletIframeConnected) return;
+    if (seams.configs.wallet.mode === 'iframe') return;
     void refreshLoginState();
-  }, [refreshLoginState, seams, walletIframeConnected]);
+  }, [refreshLoginState, seams]);
 
   return refreshLoginState;
 }

@@ -1,49 +1,32 @@
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type {
   ThresholdEcdsaBackendBinding,
   ThresholdEcdsaDerivationRoleLocalClientState,
-  ThresholdEcdsaSecp256k1KeyRef,
 } from '../../interfaces/signing';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
-import type { EcdsaActiveStateId } from '@shared/utils/domainIds';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
-  buildEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaWalletKey,
-  buildEvmFamilyEcdsaSessionLane,
   buildEvmFamilyEcdsaSessionLanePolicy,
   buildEmailOtpEcdsaAuthBinding,
-  buildEcdsaWalletSessionTransportAuth,
   buildPasskeyEcdsaAuthBinding,
-  buildKnownReadyThresholdEcdsaSessionPolicy,
   buildResolvedEvmFamilyEcdsaKey,
   deriveBaseEcdsaSubjectIdFromWalletId,
   toThresholdOwnerAddress,
   type BaseEcdsaSubjectId,
-  type EcdsaKeyFacts,
+  type EvmFamilyEcdsaWalletKeyFacts,
   type EcdsaWalletSignerRecord,
   type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
-  type EvmFamilyEcdsaSessionLane,
   type EvmFamilyEcdsaSessionLanePolicy,
   type EvmFamilyEcdsaWalletKey,
-  type DurableEvmFamilyEcdsaPublicFactsRecord,
+  type HydratedEcdsaSignerMaterial,
   type EmailOtpEcdsaAuthBinding,
-  type EcdsaWalletSessionTransportAuth,
   type PasskeyEcdsaAuthBinding,
-  type ReadyEcdsaSignerSession,
-  type ReadyRouterAbEcdsaDerivationNormalSigning,
-  type ReadyThresholdEcdsaSignerTransport,
-  type ReadyThresholdEcdsaSession,
-  type ReadyThresholdEcdsaSessionPolicy,
-  type ReadyEvmFamilyEcdsaMaterial,
   type ResolvedEvmFamilyEcdsaKey,
   type ThresholdEcdsaPublicKeyB64u,
   type VerifiedEcdsaPublicFacts,
-  type WalletSessionJwtTransportAuth,
 } from './evmFamilyEcdsaIdentity';
 import { walletIdFromWalletProfile } from '../../interfaces/ecdsaChainTarget';
-import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 
 const evmTarget = {
   kind: 'evm',
@@ -51,10 +34,14 @@ const evmTarget = {
   chainId: 5042002,
   networkSlug: 'arc-testnet',
 } as const;
-
+const runtimePolicyScope = {
+  orgId: 'org-1',
+  projectId: 'project-1',
+  envId: 'env-1',
+  signingRootVersion: 'default',
+};
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ederivation-shared-key',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -62,25 +49,19 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
 });
 
-const lane = buildEvmFamilyEcdsaSessionLane({
-  key,
-  chainTarget: evmTarget,
-  authMethod: 'passkey',
-  source: 'login',
-  thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
-  walletSessionAuth: {
-    kind: 'wallet_session_jwt',
-    walletSessionJwt: 'wallet-session-jwt',
-  },
-  remainingUses: 1,
-  expiresAtMs: 1_900_000_000_000,
-});
-
 const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget: evmTarget,
   thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
+  thresholdSessionKind: 'jwt',
+  ttlMs: 60_000,
+  remainingUses: 1,
+  runtimePolicyScope,
+});
+
+// @ts-expect-error a session lane policy requires its exact runtime policy scope.
+buildEvmFamilyEcdsaSessionLanePolicy({
+  chainTarget: evmTarget,
+  thresholdSessionId: 'threshold-session-1',
   thresholdSessionKind: 'jwt',
   ttlMs: 60_000,
   remainingUses: 1,
@@ -116,13 +97,6 @@ const registrationWalletId = walletIdFromWalletProfile({ walletId: key.walletId 
 const invalidBaseEcdsaSubjectId: BaseEcdsaSubjectId = registrationWalletId;
 void invalidBaseEcdsaSubjectId;
 
-const invalidLaneWithDuplicateKeyId: EvmFamilyEcdsaSessionLane = {
-  ...lane,
-  // @ts-expect-error session lanes must use lane.key.ecdsaThresholdKeyId.
-  ecdsaThresholdKeyId: 'ederivation-other-key',
-};
-void invalidLaneWithDuplicateKeyId;
-
 const invalidLanePolicyWithDuplicateKeyId: EvmFamilyEcdsaSessionLanePolicy = {
   ...lanePolicy,
   // @ts-expect-error session lane policy must use lanePolicy.key.ecdsaThresholdKeyId.
@@ -130,30 +104,12 @@ const invalidLanePolicyWithDuplicateKeyId: EvmFamilyEcdsaSessionLanePolicy = {
 };
 void invalidLanePolicyWithDuplicateKeyId;
 
-// @ts-expect-error session lanes require a shared key identity.
-const laneWithoutKey: EvmFamilyEcdsaSessionLane = {
-  chainTarget: evmTarget,
-  authMethod: 'passkey',
-  source: 'login',
-  thresholdSessionId: lane.thresholdSessionId,
-  signingGrantId: lane.signingGrantId,
-  walletSessionAuth: lane.walletSessionAuth,
-  remainingUses: 1,
-  expiresAtMs: 1_900_000_000_000,
+const keyWithProvisioningSlot: EvmFamilyEcdsaKeyIdentity = {
+  ...key,
+  // @ts-expect-error runtime key identity rejects the provisioning reservation slot.
+  evmFamilySigningKeySlotId: 'wallet-key-localhost',
 };
-void laneWithoutKey;
-
-// @ts-expect-error key identity requires evmFamilySigningKeySlotId.
-const keyWithoutWalletKeyId: EvmFamilyEcdsaKeyIdentity = {
-  walletId: key.walletId,
-  keyScope: 'evm-family',
-  ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
-  signingRootId: key.signingRootId,
-  signingRootVersion: key.signingRootVersion,
-  participantIds: key.participantIds,
-  thresholdOwnerAddress: key.thresholdOwnerAddress,
-};
-void keyWithoutWalletKeyId;
+void keyWithProvisioningSlot;
 
 const keyWithTargetScope: EvmFamilyEcdsaKeyIdentity = {
   ...key,
@@ -180,7 +136,6 @@ void publicFacts;
 
 const walletKey = buildEvmFamilyEcdsaWalletKey({
   walletId: key.walletId,
-  evmFamilySigningKeySlotId: key.evmFamilySigningKeySlotId,
   keyHandle,
   chainTarget: evmTarget,
   ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
@@ -213,7 +168,7 @@ const invalidWalletKeyWithDuplicateThresholdKeyId: EvmFamilyEcdsaWalletKey = {
 };
 void invalidWalletKeyWithDuplicateThresholdKeyId;
 
-const ecdsaKeyFacts: EcdsaKeyFacts = walletKey.keyFacts;
+const ecdsaKeyFacts: EvmFamilyEcdsaWalletKeyFacts = walletKey.keyFacts;
 void ecdsaKeyFacts;
 
 const ecdsaWalletSignerRecord: EcdsaWalletSignerRecord = {
@@ -250,21 +205,21 @@ void invalidPublicFactsWithSubject;
 const invalidPublicFactsWithSessionId: VerifiedEcdsaPublicFacts = {
   ...publicFacts,
   // @ts-expect-error public facts reject volatile threshold session ids.
-  thresholdSessionId: lane.thresholdSessionId,
+  thresholdSessionId: 'threshold-session-1',
 };
 void invalidPublicFactsWithSessionId;
 
 const invalidPublicFactsWithTarget: VerifiedEcdsaPublicFacts = {
   ...publicFacts,
   // @ts-expect-error public facts reject concrete signing targets.
-  chainTarget: lane.chainTarget,
+  chainTarget: evmTarget,
 };
 void invalidPublicFactsWithTarget;
 
 const invalidPublicFactsWithAuthMethod: VerifiedEcdsaPublicFacts = {
   ...publicFacts,
   // @ts-expect-error public facts reject auth-method binding.
-  authMethod: lane.authMethod,
+  authMethod: 'passkey',
 };
 void invalidPublicFactsWithAuthMethod;
 
@@ -274,32 +229,6 @@ const invalidPublicFactsWithRawPublicKey: VerifiedEcdsaPublicFacts = {
   publicKeyB64u: 'raw-public-key',
 };
 void invalidPublicFactsWithRawPublicKey;
-
-const durablePublicFactsRecord: DurableEvmFamilyEcdsaPublicFactsRecord = {
-  ecdsaRestore: {
-    keyHandle,
-    thresholdEcdsaPublicKeyB64u: publicKeyB64u,
-    participantIds: key.participantIds,
-    ethereumAddress: key.thresholdOwnerAddress,
-  },
-};
-void durablePublicFactsRecord;
-
-const invalidDurablePublicFactsRecordWithSigningRoot: DurableEvmFamilyEcdsaPublicFactsRecord = {
-  ...durablePublicFactsRecord,
-  // @ts-expect-error durable public facts reject signing-root identity.
-  signingRootId: key.signingRootId,
-};
-void invalidDurablePublicFactsRecordWithSigningRoot;
-
-const invalidDurablePublicFactsRecordWithThresholdKeyId: DurableEvmFamilyEcdsaPublicFactsRecord = {
-  ecdsaRestore: {
-    ...durablePublicFactsRecord.ecdsaRestore,
-    // @ts-expect-error durable public facts reject threshold-key identity.
-    ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
-  },
-};
-void invalidDurablePublicFactsRecordWithThresholdKeyId;
 
 const passkeyBinding = buildPasskeyEcdsaAuthBinding({
   rpId: 'localhost',
@@ -351,51 +280,6 @@ const invalidEmailOtpBindingWithParticipants: EmailOtpEcdsaAuthBinding = {
 };
 void invalidEmailOtpBindingWithParticipants;
 
-const walletSessionJwtTransportAuth = buildEcdsaWalletSessionTransportAuth({
-  kind: 'wallet_session_jwt',
-  walletSessionJwt: 'wallet-session-jwt',
-});
-void walletSessionJwtTransportAuth;
-const validWalletSessionJwtTransportAuth: WalletSessionJwtTransportAuth =
-  walletSessionJwtTransportAuth;
-void validWalletSessionJwtTransportAuth;
-
-const knownReadySessionPolicy = buildKnownReadyThresholdEcdsaSessionPolicy({
-  remainingUses: 1,
-  expiresAtMs: 1_900_000_000_000,
-});
-void knownReadySessionPolicy;
-
-// @ts-expect-error known ready threshold-session policy requires remainingUses.
-const invalidKnownReadySessionPolicyMissingUses: ReadyThresholdEcdsaSessionPolicy = {
-  kind: 'known_threshold_ecdsa_session_policy',
-  expiresAtMs: 1_900_000_000_000,
-};
-void invalidKnownReadySessionPolicyMissingUses;
-
-const invalidReadySessionWithAuth: ReadyThresholdEcdsaSession = {
-  kind: 'ready_threshold_ecdsa_session',
-  signingGrantId: lane.signingGrantId,
-  thresholdSessionId: lane.thresholdSessionId,
-  policy: knownReadySessionPolicy,
-  // @ts-expect-error ready threshold sessions carry auth in Router A/B signer credentials.
-  walletSessionAuth: walletSessionJwtTransportAuth,
-};
-void invalidReadySessionWithAuth;
-
-// @ts-expect-error Wallet Session JWT auth requires a token.
-const invalidWalletSessionJwtTransportAuth: EcdsaWalletSessionTransportAuth = {
-  kind: 'wallet_session_jwt',
-};
-void invalidWalletSessionJwtTransportAuth;
-
-const invalidCookieTransportAuth: EcdsaWalletSessionTransportAuth = {
-  // @ts-expect-error ECDSA Wallet Session transport auth is bearer-JWT only.
-  kind: 'browser_cookie',
-  walletSessionJwt: walletSessionJwtTransportAuth.walletSessionJwt,
-};
-void invalidCookieTransportAuth;
-
 const invalidResolvedKeyWithSharedIdentity: ResolvedEvmFamilyEcdsaKey = {
   ...resolvedPasskeyKey,
   // @ts-expect-error resolved key facade rejects broad shared key identity.
@@ -417,217 +301,7 @@ const invalidResolvedKeyWithSubjectId: ResolvedEvmFamilyEcdsaKey = {
 };
 void invalidResolvedKeyWithSubjectId;
 
-const readyMaterialRecordOnly: ReadyEvmFamilyEcdsaMaterial = {
-  kind: 'ready_evm_family_ecdsa_material',
-  key,
-  lane,
-  record: {} as ThresholdEcdsaSessionRecord,
-  signingKeyContext: {
-    ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
-    participantIds: key.participantIds,
-  },
-  cachedExportArtifact: null,
-};
-void readyMaterialRecordOnly;
-
-const invalidReadyMaterialSigningKeyContextWithSigningRoot = {
-  ...readyMaterialRecordOnly,
-  signingKeyContext: {
-    ...readyMaterialRecordOnly.signingKeyContext,
-    // @ts-expect-error ready signing-key context derives signing root from material key.
-    signingRootId: key.signingRootId,
-  },
-} satisfies ReadyEvmFamilyEcdsaMaterial;
-void invalidReadyMaterialSigningKeyContextWithSigningRoot;
-
-const invalidReadyMaterialWithKeyRef = {
-  ...readyMaterialRecordOnly,
-  // @ts-expect-error ready material derives key refs at signer/export boundaries.
-  keyRef: {} as ThresholdEcdsaSecp256k1KeyRef,
-} satisfies ReadyEvmFamilyEcdsaMaterial;
-void invalidReadyMaterialWithKeyRef;
-
-// @ts-expect-error ready material requires a record.
-const readyMaterialMissingRecord: ReadyEvmFamilyEcdsaMaterial = {
-  kind: 'ready_evm_family_ecdsa_material',
-  key,
-  lane,
-  signingKeyContext: {
-    ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
-    participantIds: key.participantIds,
-  },
-  cachedExportArtifact: null,
-};
-void readyMaterialMissingRecord;
-
-// @ts-expect-error ready material owns cached export artifact provenance.
-const readyMaterialMissingCachedExportArtifact: ReadyEvmFamilyEcdsaMaterial = {
-  kind: 'ready_evm_family_ecdsa_material',
-  key,
-  lane,
-  record: {} as ThresholdEcdsaSessionRecord,
-  signingKeyContext: {
-    ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
-    participantIds: key.participantIds,
-  },
-};
-void readyMaterialMissingCachedExportArtifact;
-
-// @ts-expect-error ready material owns signing-key routing context.
-const readyMaterialMissingSigningKeyContext: ReadyEvmFamilyEcdsaMaterial = {
-  kind: 'ready_evm_family_ecdsa_material',
-  key,
-  lane,
-  record: {} as ThresholdEcdsaSessionRecord,
-  cachedExportArtifact: null,
-};
-void readyMaterialMissingSigningKeyContext;
-
-declare const readyMaterial: ReadyEvmFamilyEcdsaMaterial;
-
-const invalidReadyMaterialWithSubjectId = {
-  ...readyMaterial,
-  // @ts-expect-error ready material derives subject from key/lane identity.
-  subjectId: 'wallet-alice',
-} satisfies ReadyEvmFamilyEcdsaMaterial;
-void invalidReadyMaterialWithSubjectId;
-
-declare const signerSession: ReadyEcdsaSignerSession;
-void signerSession;
-declare const routerAbEcdsaDerivationNormalSigningState: RouterAbEcdsaDerivationNormalSigningStateV1;
-declare const ecdsaActiveStateId: EcdsaActiveStateId;
-
-const invalidSignerSessionWithKeyRef: ReadyEcdsaSignerSession = {
-  ...signerSession,
-  // @ts-expect-error signer sessions reject broad key refs.
-  keyRef: {} as ThresholdEcdsaSecp256k1KeyRef,
-};
-void invalidSignerSessionWithKeyRef;
-
-const invalidSignerSessionWithRawToken: ReadyEcdsaSignerSession = {
-  ...signerSession,
-  // @ts-expect-error Router A/B signer sessions carry bearer auth inside the Router A/B credential.
-  walletSessionJwt: 'wallet-session-jwt',
-};
-void invalidSignerSessionWithRawToken;
-
-// @ts-expect-error Router A/B ECDSA derivation ready signer sessions require parsed normal-signing state.
-const signerSessionMissingRouterAbState: ReadyEcdsaSignerSession = {
-  kind: 'ready_ecdsa_signer_session',
-  publicFacts,
-  chainTarget: evmTarget,
-  session: signerSession.session,
-  transport: signerSession.transport,
-  clientShare: signerSession.clientShare,
-};
-void signerSessionMissingRouterAbState;
-
-const invalidReadyTransportWithCookieAuth: ReadyThresholdEcdsaSignerTransport = {
-  ...signerSession.transport,
-  // @ts-expect-error ready transport does not carry auth; Router A/B credential owns it.
-  auth: { kind: 'browser_cookie' },
-};
-void invalidReadyTransportWithCookieAuth;
-
-const invalidReadyTransportWithRawClientVerifier: ReadyThresholdEcdsaSignerTransport = {
-  ...signerSession.transport,
-  // @ts-expect-error ready transport carries ECDSA verifier material through signingMaterial.
-  clientVerifyingShareB64u: 'raw-client-verifier',
-};
-void invalidReadyTransportWithRawClientVerifier;
-
-const invalidReadyTransportWithLooseThresholdKeyId: ReadyThresholdEcdsaSignerTransport = {
-  ...signerSession.transport,
-  // @ts-expect-error ready transport derives threshold key identity from signingMaterial.
-  ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
-};
-void invalidReadyTransportWithLooseThresholdKeyId;
-
-const invalidReadyTransportWithLooseSigningRoot: ReadyThresholdEcdsaSignerTransport = {
-  ...signerSession.transport,
-  // @ts-expect-error ready transport derives signing-root identity from signingMaterial.
-  signingRootId: key.signingRootId,
-};
-void invalidReadyTransportWithLooseSigningRoot;
-
-const ecdsaSigningMaterialThresholdKeyId: string =
-  signerSession.transport.signingMaterial.ecdsaThresholdKeyId;
-const ecdsaSigningMaterialSigningRootId: string =
-  signerSession.transport.signingMaterial.signingRootId;
-const ecdsaSigningMaterialSigningRootVersion: string =
-  signerSession.transport.signingMaterial.signingRootVersion;
-void ecdsaSigningMaterialThresholdKeyId;
-void ecdsaSigningMaterialSigningRootId;
-void ecdsaSigningMaterialSigningRootVersion;
-
-const invalidSigningMaterialWithKeyHandle = {
-  ...signerSession.transport.signingMaterial,
-  // @ts-expect-error parsed Router A/B signing-material refs reject loose key handles.
-  keyHandle,
-} satisfies ReadyThresholdEcdsaSignerTransport['signingMaterial'];
-void invalidSigningMaterialWithKeyHandle;
-
-const invalidRouterAbReadyWithCookieCredential: ReadyRouterAbEcdsaDerivationNormalSigning = {
-  kind: 'router_ab_ecdsa_derivation_normal_signing_ready_v1',
-  state: routerAbEcdsaDerivationNormalSigningState,
-  // @ts-expect-error Router A/B ECDSA derivation normal signing credentials are bearer JWTs.
-  credential: { kind: 'cookie' },
-  activeStateId: ecdsaActiveStateId,
-};
-void invalidRouterAbReadyWithCookieCredential;
-
-const invalidSignerSessionWithRawRouterAbState = {
-  ...signerSession,
-  // @ts-expect-error broad spreads cannot replace ready Router A/B state with raw boundary state.
-  routerAbEcdsaDerivationNormalSigning: routerAbEcdsaDerivationNormalSigningState,
-} satisfies ReadyEcdsaSignerSession;
-void invalidSignerSessionWithRawRouterAbState;
-
-// @ts-expect-error signer sessions require transport material.
-const signerSessionMissingTransport: ReadyEcdsaSignerSession = {
-  kind: 'ready_ecdsa_signer_session',
-  publicFacts,
-  chainTarget: evmTarget,
-  session: signerSession.session,
-  clientShare: signerSession.clientShare,
-};
-void signerSessionMissingTransport;
-
-// @ts-expect-error signer sessions require client-share material.
-const signerSessionMissingClientShare: ReadyEcdsaSignerSession = {
-  kind: 'ready_ecdsa_signer_session',
-  publicFacts,
-  chainTarget: evmTarget,
-  session: signerSession.session,
-  transport: signerSession.transport,
-};
-void signerSessionMissingClientShare;
-
-const invalidSignerSessionWithExportArtifact: ReadyEcdsaSignerSession = {
-  ...signerSession,
-  // @ts-expect-error signing-only material rejects export artifacts.
-  exportArtifact: {},
-};
-void invalidSignerSessionWithExportArtifact;
-
 declare const roleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
-
-type OldRoleLocalReadyStateBlobShare = {
-  kind: 'role_local_ready_state_blob';
-  stateBlob: EcdsaRoleLocalReadyRecord['stateBlob'];
-  ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
-};
-
-const oldRoleLocalReadyStateBlobShare = {
-  kind: 'role_local_ready_state_blob',
-  stateBlob: roleLocalReadyRecord.stateBlob,
-  ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
-} satisfies OldRoleLocalReadyStateBlobShare;
-
-// @ts-expect-error ready signer sessions require worker-owned role-local material handles.
-const invalidRawRoleLocalBlobClientShare: ReadyEcdsaSignerSession['clientShare'] =
-  oldRoleLocalReadyStateBlobShare;
-void invalidRawRoleLocalBlobClientShare;
 
 const validOpaqueRoleLocalClientState = {
   kind: 'role_local_ready',
@@ -646,11 +320,41 @@ const invalidMetadataBackendBindingWithMaterial = {
 // @ts-expect-error metadata-only backend bindings reject signing material.
 void (invalidMetadataBackendBindingWithMaterial satisfies ThresholdEcdsaBackendBinding);
 
-const invalidSignerSessionWithSubjectId: ReadyEcdsaSignerSession = {
-  ...signerSession,
-  // @ts-expect-error signer sessions derive subject from the shared key identity.
-  subjectId: 'wallet-alice',
-};
-void invalidSignerSessionWithSubjectId;
+declare const hydratedSignerMaterial: HydratedEcdsaSignerMaterial;
+
+const invalidHydratedMaterialWithCredential = {
+  ...hydratedSignerMaterial,
+  // @ts-expect-error hydrated material cannot carry an authorization credential.
+  credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
+} satisfies HydratedEcdsaSignerMaterial;
+void invalidHydratedMaterialWithCredential;
+
+const invalidHydratedMaterialWithAuthorization = {
+  ...hydratedSignerMaterial,
+  // @ts-expect-error hydrated material cannot carry reusable or step-up authority.
+  authorization: { kind: 'reusable_wallet_session', wallet_session_id: 'wallet-session' },
+} satisfies HydratedEcdsaSignerMaterial;
+void invalidHydratedMaterialWithAuthorization;
+
+const invalidHydratedMaterialWithThresholdSession = {
+  ...hydratedSignerMaterial,
+  // @ts-expect-error auth-neutral material is not identified by a threshold session.
+  thresholdSessionId: 'threshold-session',
+} satisfies HydratedEcdsaSignerMaterial;
+void invalidHydratedMaterialWithThresholdSession;
+
+const invalidHydratedMaterialWithReusableAllowance = {
+  ...hydratedSignerMaterial,
+  // @ts-expect-error auth-neutral material carries no reusable-session allowance.
+  remainingUses: 3,
+} satisfies HydratedEcdsaSignerMaterial;
+void invalidHydratedMaterialWithReusableAllowance;
+
+const invalidHydratedMaterialWithReusableExpiry = {
+  ...hydratedSignerMaterial,
+  // @ts-expect-error auth-neutral material carries no reusable-session expiry.
+  expiresAtMs: 1,
+} satisfies HydratedEcdsaSignerMaterial;
+void invalidHydratedMaterialWithReusableExpiry;
 
 export {};

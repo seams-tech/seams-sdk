@@ -40,14 +40,11 @@ export {
 } from './routerAbNormalSigningAdmissionCore';
 export type {
   CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
-  InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
   RouterAbNormalSigningAdmissionStore,
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningProjectPolicyProvider,
-  RouterAbNormalSigningQuotaDecision,
-  RouterAbNormalSigningQuotaStore,
 } from './routerAbNormalSigningAdmissionCore';
 export type {
   RouterApiCloudflareRouteExtension,
@@ -59,6 +56,11 @@ export type { RouterApiModule, RouterApiModuleKind, RouterApiModuleOptions } fro
 export { createRouterApiModule } from './modules';
 export { CloudflareD1WebAuthnStore } from './cloudflare/d1WebAuthnStore';
 export { CloudflareD1WebAuthnAuthService } from './cloudflare/d1WebAuthnAuthService';
+export {
+  CloudflareD1AuthorizationStore,
+  type D1AuthorizationStoreOptions,
+} from './cloudflare/d1AuthorizationStore';
+export { CloudflareD1VaultProxyStore } from './cloudflare/d1VaultProxyStore';
 export {
   InMemoryRouterAbEd25519YaoRegistrationService,
   createRouterAbEd25519YaoRegistrationModule,

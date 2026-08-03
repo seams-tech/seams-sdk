@@ -170,8 +170,8 @@ const ed25519ExportOperationPath =
   'packages/sdk-web/src/core/signingEngine/flows/recovery/ed25519YaoExportFlow.ts';
 const ed25519ExportOperation = readRepoSource(ed25519ExportOperationPath);
 for (const marker of [
-  'exportEd25519YaoKeyWithFreshPasskey',
-  'resolveActiveCapability',
+  'exportEd25519YaoKeyWithFreshAuthorization',
+  'resolvePasskeyExportContext',
   'artifactKind: ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1',
   'resolveExportContext',
   'exportSeedWithFreshAuthorization',
@@ -195,7 +195,7 @@ for (const forbidden of [
 }
 
 const ed25519ExportWorkerPath =
-  'packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts';
+  'packages/sdk-web/src/core/signingEngine/workerManager/workers/passkeyMpcExportRuntime.ts';
 const ed25519ExportWorker = readRepoSource(ed25519ExportWorkerPath);
 for (const marker of [
   'runEd25519YaoExportWithUi',

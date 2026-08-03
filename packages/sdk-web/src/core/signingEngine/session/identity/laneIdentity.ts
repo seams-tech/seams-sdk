@@ -14,13 +14,15 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   SigningSessionIds,
-  type SigningAuthMethod,
   type SigningCurve,
-  type ThresholdEcdsaSessionId,
   type ThresholdEd25519SessionId,
   type ThresholdSessionId,
-  type SigningGrantId,
 } from '../operationState/types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import {
   toEvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyHandle,
@@ -38,10 +40,13 @@ import {
   type ExactSigningLaneIdentity,
 } from './exactSigningLaneIdentity';
 import type { EcdsaThresholdKeyId } from '../keyMaterialBrands';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 
-export type { SigningAuthMethod, SigningCurve };
+export type { SigningCurve };
 export type { EcdsaThresholdKeyId };
 export type SigningRootId = string & { readonly __brand?: 'SigningRootId' };
 export type SigningRootVersion = string & { readonly __brand?: 'SigningRootVersion' };
@@ -69,7 +74,8 @@ export type ThresholdEd25519SessionStoreSource =
   | 'add-signer'
   | 'manual-connect'
   | 'bootstrap'
-  | 'email_otp';
+  | 'email_otp'
+  | 'sealed_restore';
 
 export type ThresholdEcdsaEmailOtpAuthContext = {
   policy: EmailOtpAuthPolicy;
@@ -328,12 +334,16 @@ export function buildEmailOtpAuthContextForWalletAuthMethod(
   });
 }
 
-export type BaseSelectedLane = {
+type CommonSelectedLane = {
   kind: 'selected_lane';
   identity: ExactSigningLaneIdentity;
   auth: SigningLaneAuthBinding;
   curve: SigningCurve;
-  signingGrantId: SigningGrantId;
+};
+
+export type BaseSelectedLane = CommonSelectedLane & {
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   thresholdSessionId: ThresholdSessionId;
 };
 
@@ -345,11 +355,12 @@ export type SelectedEd25519Lane = BaseSelectedLane & {
   accountId?: never;
 };
 
-export type SelectedEcdsaLane = BaseSelectedLane & {
+export type SelectedEcdsaLane = CommonSelectedLane & {
   identity: ExactEcdsaSigningLaneIdentity;
   curve: 'ecdsa';
   chain: 'evm' | 'tempo';
-  thresholdSessionId: ThresholdEcdsaSessionId;
+  materialActivation: MpcMaterialActivationRef;
+  authorization: ActiveEvmFamilyWalletSessionAuthorization;
 };
 
 export type SelectedLane = SelectedEd25519Lane | SelectedEcdsaLane;
@@ -360,17 +371,18 @@ export type SelectedEd25519LaneInput = {
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signerSlot: unknown;
   auth: SigningLaneAuthBinding;
-  signingGrantId: unknown;
+  walletSessionId: unknown;
+  quotaId: unknown;
   thresholdSessionId: unknown;
 };
 
 export type SelectedEcdsaLaneInput = {
   key: EvmFamilyEcdsaKeyIdentity;
+  materialActivation: MpcMaterialActivationRef;
   keyHandle: unknown;
   walletId: WalletId;
   auth: SigningLaneAuthBinding;
-  signingGrantId: unknown;
-  thresholdSessionId: unknown;
+  authorization: ActiveEvmFamilyWalletSessionAuthorization;
   chainTarget: ThresholdEcdsaChainTarget;
 };
 
@@ -379,7 +391,8 @@ export function selectedEd25519Lane(input: SelectedEd25519LaneInput): SelectedEd
   if (signerSlot == null) {
     throw new Error('[SigningSession] selected Ed25519 lane requires signerSlot >= 1');
   }
-  const signingGrantId = SigningSessionIds.signingGrant(input.signingGrantId);
+  const walletSessionId = SigningSessionIds.walletSession(input.walletSessionId);
+  const quotaId = SigningSessionIds.walletSessionQuota(input.quotaId);
   const thresholdSessionId = SigningSessionIds.thresholdEd25519Session(input.thresholdSessionId);
   const identity = exactEd25519SigningLaneIdentity({
     signer: nearEd25519SignerBindingFromBoundaryFields({
@@ -389,7 +402,8 @@ export function selectedEd25519Lane(input: SelectedEd25519LaneInput): SelectedEd
       signerSlot,
     }),
     auth: input.auth,
-    signingGrantId,
+    walletSessionId,
+    quotaId,
     thresholdSessionId,
   });
   return {
@@ -398,7 +412,8 @@ export function selectedEd25519Lane(input: SelectedEd25519LaneInput): SelectedEd
     auth: input.auth,
     curve: 'ed25519',
     chain: 'near',
-    signingGrantId,
+    walletSessionId,
+    quotaId,
     thresholdSessionId,
   };
 }
@@ -411,18 +426,15 @@ export function selectedEcdsaLane(input: SelectedEcdsaLaneInput): SelectedEcdsaL
   if (String(input.key.walletId) !== String(input.walletId)) {
     throw new Error('[SigningSession] selected ECDSA lane wallet mismatch');
   }
-  const signingGrantId = SigningSessionIds.signingGrant(input.signingGrantId);
-  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId);
   const identity = exactEcdsaSigningLaneIdentity({
     signer: buildEvmFamilyEcdsaSignerBinding({
       walletId: input.walletId,
       chainTarget: input.chainTarget,
       keyHandle,
       key: input.key,
+      materialActivation: input.materialActivation,
     }),
     auth: input.auth,
-    signingGrantId,
-    thresholdSessionId,
   });
   return {
     kind: 'selected_lane',
@@ -430,68 +442,109 @@ export function selectedEcdsaLane(input: SelectedEcdsaLaneInput): SelectedEcdsaL
     auth: input.auth,
     curve: 'ecdsa',
     chain: input.chainTarget.kind,
-    signingGrantId,
-    thresholdSessionId,
+    materialActivation: input.materialActivation,
+    authorization: input.authorization,
   };
 }
 
 export type LaneCandidateState = 'ready' | 'restorable' | 'deferred' | 'expired' | 'exhausted';
 
+/** Shared Refactor 92 classification of a session's runtime allowance and
+ * expiry. Expiry is checked before exhaustion so an expired session is never
+ * reported as merely out of uses. */
+export function laneCandidateStateFromRuntimePolicy(args: {
+  remainingUses: number;
+  expiresAtMs: number;
+  nowMs?: number;
+}): LaneCandidateState {
+  const nowMs = Math.floor(Number(args.nowMs) || Date.now());
+  if (args.expiresAtMs <= nowMs) return 'expired';
+  if (args.remainingUses <= 0) return 'exhausted';
+  return 'ready';
+}
+
 export type LaneCandidateSource =
+  | 'canonical_capability'
   | 'durable_sealed_record'
   | 'runtime_session_record'
-  | 'evm_family_shared_key'
   | 'unknown';
 
-export type BaseLaneCandidate = {
+type CommonLaneCandidate = {
   kind: 'lane_candidate';
   auth: SigningLaneAuthBinding;
   curve: SigningCurve;
-  signingGrantId: string;
-  thresholdSessionId: string;
   state: LaneCandidateState;
-  remainingUses: number | null;
-  expiresAtMs: number | null;
-  updatedAtMs: number | null;
   source: LaneCandidateSource;
 };
 
-export type Ed25519LaneCandidate = BaseLaneCandidate & {
+export type BaseLaneCandidate = CommonLaneCandidate & {
+  thresholdSessionId: string;
+  remainingUses: number | null;
+  expiresAtMs: number | null;
+  updatedAtMs: number | null;
+};
+
+type BaseEd25519LaneCandidate = BaseLaneCandidate & {
   walletId: WalletId;
   nearAccountId: AccountId;
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signerSlot: number;
+  materialActivation: MpcMaterialActivationRef;
   accountId?: never;
   curve: 'ed25519';
   chain: 'near';
 };
 
-type BaseEcdsaLaneCandidate = BaseLaneCandidate & {
+export type Ed25519LaneCandidate = BaseEd25519LaneCandidate &
+  (
+    | {
+        authorizationState: 'authorized';
+        authorization: ActiveWalletSessionAuthorizationProjection;
+      }
+    | {
+        authorizationState: 'authorization_required';
+        authorization?: never;
+        state: 'deferred';
+      }
+  );
+
+type BaseEcdsaLaneCandidate = CommonLaneCandidate & {
   curve: 'ecdsa';
   chain: 'evm' | 'tempo';
   walletId: WalletId;
   key: EvmFamilyEcdsaKeyIdentity;
+  materialActivation: MpcMaterialActivationRef;
   resolvedKey?: ResolvedEvmFamilyEcdsaKey;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   chainTarget: ThresholdEcdsaChainTarget;
-};
+  source: 'canonical_capability';
+  sourceChainTarget?: never;
+} & (
+    | {
+        authorizationState: 'authorized';
+        authorization: ActiveEvmFamilyWalletSessionAuthorization;
+      }
+    | {
+        authorizationState: 'authorization_required';
+        authorization?: never;
+        state: 'deferred';
+      }
+  );
 
-export type EcdsaLaneCandidate =
-  | (BaseEcdsaLaneCandidate & {
-      source: 'evm_family_shared_key';
-      sourceChainTarget: ThresholdEcdsaChainTarget;
-    })
-  | (BaseEcdsaLaneCandidate & {
-      source: Exclude<LaneCandidateSource, 'evm_family_shared_key'>;
-      sourceChainTarget?: never;
-    });
+export type EcdsaLaneCandidate = BaseEcdsaLaneCandidate;
+
+export type AuthorizedEcdsaLaneCandidate = Extract<
+  EcdsaLaneCandidate,
+  { authorizationState: 'authorized' }
+>;
+
+export type AuthorizationRequiredEcdsaLaneCandidate = Extract<
+  EcdsaLaneCandidate,
+  { authorizationState: 'authorization_required' }
+>;
 
 export type LaneCandidate = Ed25519LaneCandidate | EcdsaLaneCandidate;
 
-export function selectedLaneAuthMethod(lane: SelectedLane): SigningAuthMethod {
-  return signingLaneAuthMethod(lane.auth);
-}
-
-export function laneCandidateAuthMethod(candidate: LaneCandidate): SigningAuthMethod {
+export function laneCandidateAuthMethod(candidate: LaneCandidate): SignerAuthMethod {
   return signingLaneAuthMethod(candidate.auth);
 }

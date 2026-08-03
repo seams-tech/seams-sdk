@@ -1,4 +1,9 @@
 import { expect, test } from '@playwright/test';
+import {
+  buildMpcMaterialActivationRefFixture,
+  buildWalletAuthAuthorityRefFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
+import { activeEvmFamilyWalletSessionAuthorizationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -65,7 +70,8 @@ const NEAR_PASSKEY_LANE = buildEd25519PasskeySigningLane({
   nearEd25519SigningKeyId: NEAR_KEY_ID,
   signerSlot: 1,
   auth: PASSKEY_AUTH,
-  signingGrantId: SigningSessionIds.signingGrant('refactor-92-near-passkey-grant'),
+  walletSessionId: SigningSessionIds.walletSession('refactor-92-near-passkey-session'),
+  quotaId: SigningSessionIds.walletSessionQuota('refactor-92-near-passkey-quota'),
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
     'refactor-92-near-passkey-session',
   ),
@@ -77,21 +83,29 @@ const NEAR_EMAIL_OTP_LANE = buildEd25519EmailOtpSigningLane({
   nearEd25519SigningKeyId: NEAR_KEY_ID,
   signerSlot: 1,
   auth: EMAIL_OTP_AUTH,
-  signingGrantId: SigningSessionIds.signingGrant('refactor-92-near-otp-grant'),
+  walletSessionId: SigningSessionIds.walletSession('refactor-92-near-otp-session'),
+  quotaId: SigningSessionIds.walletSessionQuota('refactor-92-near-otp-quota'),
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
     'refactor-92-near-otp-session',
   ),
 });
+const ECDSA_MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'refactor-92-surface',
+  String(WALLET_ID),
+);
+const ECDSA_AUTHORIZATION = activeEvmFamilyWalletSessionAuthorizationFixture({
+  walletId: WALLET_ID,
+  authority: buildWalletAuthAuthorityRefFixture({ walletId: String(WALLET_ID) }),
+});
+
 const TEMPO_PASSKEY_LANE = buildTempoTransactionSigningLane({
   key: ECDSA_KEY,
   keyHandle: ECDSA_KEY_HANDLE,
   walletId: WALLET_ID,
   auth: PASSKEY_AUTH,
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
-  signingGrantId: SigningSessionIds.signingGrant('refactor-92-tempo-passkey-grant'),
-  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
-    'refactor-92-tempo-passkey-session',
-  ),
+  materialActivation: ECDSA_MATERIAL_ACTIVATION,
+  authorization: ECDSA_AUTHORIZATION,
   storageSource: 'login',
 });
 const TEMPO_EMAIL_OTP_LANE = buildTempoTransactionSigningLane({
@@ -100,10 +114,8 @@ const TEMPO_EMAIL_OTP_LANE = buildTempoTransactionSigningLane({
   walletId: WALLET_ID,
   auth: EMAIL_OTP_AUTH,
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
-  signingGrantId: SigningSessionIds.signingGrant('refactor-92-tempo-otp-grant'),
-  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
-    'refactor-92-tempo-otp-session',
-  ),
+  materialActivation: ECDSA_MATERIAL_ACTIVATION,
+  authorization: ECDSA_AUTHORIZATION,
 });
 const EVM_PASSKEY_LANE = buildEvmTransactionSigningLane({
   key: ECDSA_KEY,
@@ -116,10 +128,8 @@ const EVM_PASSKEY_LANE = buildEvmTransactionSigningLane({
     chainId: 5042002,
     networkSlug: 'arc-testnet',
   },
-  signingGrantId: SigningSessionIds.signingGrant('refactor-92-evm-passkey-grant'),
-  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
-    'refactor-92-evm-passkey-session',
-  ),
+  materialActivation: ECDSA_MATERIAL_ACTIVATION,
+  authorization: ECDSA_AUTHORIZATION,
   storageSource: 'login',
 });
 const EVM_EMAIL_OTP_LANE = buildEvmTransactionSigningLane({
@@ -133,10 +143,8 @@ const EVM_EMAIL_OTP_LANE = buildEvmTransactionSigningLane({
     chainId: 5042002,
     networkSlug: 'arc-testnet',
   },
-  signingGrantId: SigningSessionIds.signingGrant('refactor-92-evm-otp-grant'),
-  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
-    'refactor-92-evm-otp-session',
-  ),
+  materialActivation: ECDSA_MATERIAL_ACTIVATION,
+  authorization: ECDSA_AUTHORIZATION,
 });
 
 const LANES: readonly LaneFixture[] = [
@@ -164,10 +172,20 @@ for (const fixture of LANES) {
     }
     expect(passkeyPlan.lane).toBe(fixture.passkeyLane);
     expect(emailOtpPlan.lane).toBe(fixture.emailOtpLane);
-    expect(passkeyPlan.reconnect).toEqual({
-      lane: fixture.passkeyLane,
-      thresholdSessionId: fixture.passkeyLane.thresholdSessionId,
-    });
+    if (fixture.passkeyLane.curve === 'ed25519') {
+      expect(passkeyPlan.reconnect).toEqual({
+        lane: fixture.passkeyLane,
+        curve: 'ed25519',
+        thresholdSessionId: fixture.passkeyLane.thresholdSessionId,
+      });
+    } else {
+      expect(passkeyPlan.reconnect).toEqual({
+        lane: fixture.passkeyLane,
+        curve: 'ecdsa',
+        materialActivation: fixture.passkeyLane.materialActivation,
+        authorization: fixture.passkeyLane.authorization,
+      });
+    }
     expect(emailOtpPlan.challenge).toEqual({
       chainFamily: fixture.emailOtpLane.chainFamily,
       lane: fixture.emailOtpLane,
@@ -188,11 +206,12 @@ test('Refactor 92 leaves exhausted lanes eligible for step-up without conflating
   expect(emailOtpPlan.kind).toBe(SigningSessionPlanKind.EmailOtpReauth);
 });
 
-for (const reason of ['auth_unavailable', 'status_unavailable', 'budget_unknown'] as const) {
+for (const reason of ['auth_unavailable', 'status_unavailable', 'status_unknown'] as const) {
   test(`Refactor 92 preserves ${reason} as terminal readiness`, () => {
     const plan = planSigningSession({
       lane: NEAR_PASSKEY_LANE,
       readiness: {
+        curve: 'ed25519',
         status: reason,
         thresholdSessionId: NEAR_PASSKEY_LANE.thresholdSessionId,
       },
@@ -208,7 +227,17 @@ for (const reason of ['auth_unavailable', 'status_unavailable', 'budget_unknown'
 function expiredReadiness(
   lane: SelectedSigningSessionPlanningLane,
 ): SigningSessionReadiness {
+  if (lane.curve === 'ecdsa') {
+    return {
+      curve: 'ecdsa',
+      status: 'expired',
+      materialActivation: lane.materialActivation,
+      authorization: lane.authorization,
+      expiresAtMs: 1,
+    };
+  }
   return {
+    curve: 'ed25519',
     status: 'expired',
     thresholdSessionId: lane.thresholdSessionId,
     expiresAtMs: 1,
@@ -218,7 +247,18 @@ function expiredReadiness(
 function exhaustedReadiness(
   lane: SelectedSigningSessionPlanningLane,
 ): SigningSessionReadiness {
+  if (lane.curve === 'ecdsa') {
+    return {
+      curve: 'ecdsa',
+      status: 'exhausted',
+      materialActivation: lane.materialActivation,
+      authorization: lane.authorization,
+      remainingUses: 0,
+      expiresAtMs: 2_000_000_000_000,
+    };
+  }
   return {
+    curve: 'ed25519',
     status: 'exhausted',
     thresholdSessionId: lane.thresholdSessionId,
     remainingUses: 0,

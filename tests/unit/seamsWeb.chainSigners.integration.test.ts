@@ -12,6 +12,8 @@ import {
   toWalletId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
+import { BrowserCapabilityUnavailableError } from '@/SeamsWeb/publicApi/capabilitySelection';
 
 const TEST_SUBJECT_ID = toWalletId('alice.testnet');
 const TEST_NEAR_ACCOUNT = nearAccountRefFromAccountId('alice.testnet');
@@ -51,11 +53,20 @@ function createTestSigningEvent(
   });
 }
 
-function createSeamsWebNearWithRouter(router: Record<string, unknown>) {
+function createSeamsWebNearWithRouter(
+  router: Record<string, unknown>,
+  normalSigning: 'enabled' | 'disabled' = 'enabled',
+) {
   const seams = new SeamsWeb({
     chains: [{ network: 'near-testnet', rpcUrl: 'https://rpc.testnet.near.org' }],
     relayer: { url: 'https://relay.example.test' },
     iframeWallet: { walletOrigin: 'https://wallet.example.test' },
+    routerAb: {
+      normalSigning:
+        normalSigning === 'enabled'
+          ? { mode: 'enabled', signingWorkerId: 'near-signing-worker' }
+          : { mode: 'disabled' },
+    },
   });
   (seams as any).walletIframe = {
     shouldUseWalletIframe: () => true,
@@ -78,7 +89,7 @@ function createLocalTempoCapability(deps: { getContext: () => any }) {
   return createTempoSignerCapability({
     signingEngine: context.signingEngine,
     nearClient: context.nearClient ?? {},
-    configs: context.configs,
+    configs: context.configs ?? PASSKEY_MANAGER_DEFAULT_CONFIGS,
     getTheme: () => context.theme ?? 'light',
     getWalletIframe: createLocalWalletIframe,
   } as any);
@@ -89,13 +100,37 @@ function createLocalEvmCapability(deps: { getContext: () => any }) {
   return createEvmSignerCapability({
     signingEngine: context.signingEngine,
     nearClient: context.nearClient ?? {},
-    configs: context.configs,
+    configs: context.configs ?? PASSKEY_MANAGER_DEFAULT_CONFIGS,
     getTheme: () => context.theme ?? 'light',
     getWalletIframe: createLocalWalletIframe,
   } as any);
 }
 
 test.describe('SeamsWeb chain signer modules', () => {
+  test('disabled NEAR capability fails before the iframe router is called', async () => {
+    let routerCalls = 0;
+    const signer = createSeamsWebNearWithRouter(
+      {
+        signAndSendTransaction: async () => {
+          routerCalls += 1;
+          return { success: true, transactionId: 'unexpected' };
+        },
+      },
+      'disabled',
+    );
+
+    await expect(
+      signer.signAndSendTransaction({
+        walletSession: TEST_WALLET_SESSION,
+        nearAccount: TEST_NEAR_ACCOUNT,
+        receiverId: 'contract.testnet',
+        actions: [],
+        options: {},
+      }),
+    ).rejects.toBeInstanceOf(BrowserCapabilityUnavailableError);
+    expect(routerCalls).toBe(0);
+  });
+
   test('NEAR capability.executeAction calls afterCall(true) on success in iframe mode', async () => {
     const afterCalls: Array<{ ok: boolean; result?: unknown }> = [];
     const onErrors: Error[] = [];
@@ -398,7 +433,6 @@ test.describe('SeamsWeb chain signer modules', () => {
             getLastUser: async () => null,
             getUserBySignerSlot: async () => null,
             getWarmThresholdEd25519SessionStatus: async () => null,
-            listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
           },
         } as any,
         'alice.testnet',
@@ -515,7 +549,6 @@ test.describe('SeamsWeb chain signer modules', () => {
             getLastUser: async () => null,
             getUserBySignerSlot: async () => null,
             getWarmThresholdEd25519SessionStatus: async () => null,
-            listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
           },
         } as any,
         'alice.testnet',
@@ -524,107 +557,6 @@ test.describe('SeamsWeb chain signer modules', () => {
       expect(walletSession.login.thresholdEcdsaEthereumAddress).toBe(ownerAddress);
       expect(walletSession.login.thresholdEcdsaPublicKeyB64u).toBe(publicKeyB64u);
     } finally {
-      clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
-      clientDb.getProfileContinuitySnapshot = originalGetProfileContinuitySnapshot;
-      clientDb.listAccountSignersByProfile = originalListAccountSignersByProfile;
-    }
-  });
-
-  test('wallet session ignores conflicting threshold ECDSA record addresses without complete profile fallback', async () => {
-    const clientDb = IndexedDBManager as unknown as Record<string, unknown>;
-    const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
-    const originalGetProfileContinuitySnapshot = clientDb.getProfileContinuitySnapshot;
-    const originalListAccountSignersByProfile = clientDb.listAccountSignersByProfile;
-    const originalWarn = console.warn;
-    const ownerAddress = `0x${'aa'.repeat(20)}`;
-    const chainAccountAddress = `0x${'bb'.repeat(20)}`;
-
-    clientDb.resolveProfileAccountContext = async () => ({
-      profileId: 'profile-conflict',
-      accountRef: {
-        chainIdKey: 'near:testnet',
-        accountAddress: 'alice.testnet',
-      },
-    });
-    clientDb.getProfileContinuitySnapshot = async () => ({
-      profile: {
-        profileId: 'profile-conflict',
-        createdAt: 1,
-        updatedAt: 1,
-      },
-      chainAccounts: [
-        {
-          profileId: 'profile-conflict',
-          chainIdKey: 'evm:5042002',
-          accountAddress: chainAccountAddress,
-          accountModel: 'threshold-ecdsa',
-          status: 'active',
-          isPrimary: true,
-          createdAt: 1,
-          updatedAt: 1,
-        },
-      ],
-      accountSigners: [],
-    });
-    clientDb.listAccountSignersByProfile = async () => [
-      {
-        profileId: 'profile-conflict',
-        chainIdKey: 'evm:5042002',
-        accountAddress: chainAccountAddress,
-        signerId: ownerAddress,
-        signerSlot: 1,
-        signerType: 'threshold',
-        signerKind: 'threshold-ecdsa',
-        signerAuthMethod: 'passkey',
-        signerSource: 'passkey_registration',
-        status: 'active',
-        addedAt: 1,
-        updatedAt: 1,
-        metadata: {
-          ownerAddress,
-        },
-      },
-    ];
-    console.warn = (() => undefined) as typeof console.warn;
-
-    try {
-      const walletSession = await getWalletSession(
-        {
-          configs: {
-            network: {
-              chains: [
-                {
-                  network: 'arc-testnet',
-                  chainId: 5042002,
-                },
-              ],
-            },
-            signing: {
-              sessionDefaults: {
-                ttlMs: 60_000,
-                remainingUses: 3,
-              },
-            },
-          },
-          signingEngine: {
-            assertSealedRefreshStartupParity: async () => undefined,
-            getLastUser: async () => null,
-            getUserBySignerSlot: async () => null,
-            getWarmThresholdEd25519SessionStatus: async () => null,
-            listThresholdEcdsaSessionRecordsForWalletTarget: () =>
-              [
-                { source: 'login', ethereumAddress: `0x${'11'.repeat(20)}` },
-                { source: 'manual-bootstrap', ethereumAddress: `0x${'22'.repeat(20)}` },
-              ] as any,
-          },
-        } as any,
-        'alice.testnet',
-      );
-
-      expect(walletSession.login.thresholdEcdsaEthereumAddress).toBeNull();
-      expect(walletSession.login.thresholdEcdsaEthereumAddress).not.toBe(ownerAddress);
-    } finally {
-      console.warn = originalWarn;
       clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
       clientDb.getProfileContinuitySnapshot = originalGetProfileContinuitySnapshot;
       clientDb.listAccountSignersByProfile = originalListAccountSignersByProfile;
@@ -768,7 +700,7 @@ test.describe('SeamsWeb chain signer modules', () => {
                     SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
                     'succeeded',
                     {
-                      sessionId: 'warm-session-1',
+                      thresholdSessionId: 'warm-session-1',
                     },
                   ),
                 );
@@ -865,7 +797,7 @@ test.describe('SeamsWeb chain signer modules', () => {
       ]);
       expect(events.at(0)).toMatchObject({
         flow: 'signing',
-        data: { sessionId: 'warm-session-1' },
+        data: { thresholdSessionId: 'warm-session-1' },
       });
       expect(events.at(-1)).toMatchObject({
         flow: 'signing',
@@ -888,7 +820,8 @@ test.describe('SeamsWeb chain signer modules', () => {
     };
     const txHash = `0x${'76'.repeat(32)}`;
     const tempoCallTo = '0xbb442b54c85efba2d7b81ea52990ad638cdba483';
-    const tempoCallInput = '0xa41368620000000000000000000000000000000000000000000000000000000000000020';
+    const tempoCallInput =
+      '0xa41368620000000000000000000000000000000000000000000000000000000000000020';
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (
       _input: RequestInfo | URL,

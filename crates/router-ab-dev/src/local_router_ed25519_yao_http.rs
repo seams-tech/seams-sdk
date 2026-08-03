@@ -154,7 +154,8 @@ mod tests {
     use router_ab_core::{
         Ed25519YaoCeremonyBindingV1, Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedInputV1,
         Ed25519YaoInputKindV1, Ed25519YaoOperationV1, Ed25519YaoSessionIdV1,
-        Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1, RootShareEpoch,
+        Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1,
+        MpcMaterialActivationRefV1, RootShareEpoch,
     };
 
     fn request_fixture() -> RouterEd25519YaoGatewayExecuteRequestV1 {
@@ -175,6 +176,15 @@ mod tests {
             Ed25519YaoOperationV1::Registration,
             session,
             stable,
+            MpcMaterialActivationRefV1::new(
+                "http-activation",
+                "http-capability",
+                "local-account",
+                "http-key",
+                "local-http",
+                "local-worker",
+            )
+            .expect("material activation"),
         )
         .expect("binding");
         let input_a = Ed25519YaoEncryptedInputV1::new(

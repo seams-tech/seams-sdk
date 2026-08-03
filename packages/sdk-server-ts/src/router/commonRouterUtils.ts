@@ -17,7 +17,6 @@ import type {
 } from './routerApi';
 import { extractBearerCredential } from './routerApiKeyAuth';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { parseEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
@@ -39,6 +38,7 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { RootShareEpoch } from '@shared/utils/domainIds';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   normalizeRuntimePolicyScope,
   normalizeRuntimePolicyScopeFields,
@@ -46,6 +46,16 @@ import {
 } from '@shared/threshold/signingRootScope';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+  type MpcWalletSigningQuotaId,
+  type SeamsSessionId,
+  type WalletSessionAuthorizationId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import {
   walletSessionFailure,
   walletSessionFailureMessage,
@@ -208,7 +218,9 @@ type RouterAbWalletSessionJwtSigningInput = {
   sessionInfo: {
     sessionKind: 'jwt';
     thresholdSessionId?: unknown;
-    signingGrantId?: unknown;
+    authorizationId?: unknown;
+    walletSessionId?: unknown;
+    quotaId?: unknown;
     expiresAtMs?: unknown;
     participantIds?: unknown;
     runtimePolicyScope?: unknown;
@@ -224,6 +236,7 @@ export type RouterAbEd25519WalletSessionJwtSigningInput = RouterAbWalletSessionJ
   sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
     sessionKind: 'jwt';
     walletId: unknown;
+    authorizationId: unknown;
     nearAccountId: unknown;
     nearEd25519SigningKeyId: unknown;
     runtimePolicyScope: unknown;
@@ -234,18 +247,20 @@ export type RouterAbEd25519WalletSessionJwtSigningInput = RouterAbWalletSessionJ
 export type RouterAbEd25519WalletSessionJwtSessionInfo =
   RouterAbEd25519WalletSessionJwtSigningInput['sessionInfo'];
 
-export type RouterAbEcdsaDerivationWalletSessionJwtSigningInput = RouterAbWalletSessionJwtSigningInput & {
-  evmFamilySigningKeySlotId: unknown;
-  sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
-    sessionKind: 'jwt';
-    keyHandle: unknown;
-    stableKeyContext: unknown;
-    publicIdentity: unknown;
-    activationEpoch: unknown;
-    signingWorkerId: unknown;
-    routerAbEcdsaDerivationNormalSigning: unknown;
+export type RouterAbEcdsaDerivationWalletSessionJwtSigningInput =
+  RouterAbWalletSessionJwtSigningInput & {
+    sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
+      sessionKind: 'jwt';
+      authorizationId: unknown;
+      authorizationSessionId: unknown;
+      keyHandle: unknown;
+      stableKeyContext: unknown;
+      publicIdentity: unknown;
+      activationEpoch: unknown;
+      signingWorkerId: unknown;
+      routerAbEcdsaDerivationNormalSigning: unknown;
+    };
   };
-};
 
 export type RouterAbEcdsaDerivationWalletSessionJwtSessionInfo =
   RouterAbEcdsaDerivationWalletSessionJwtSigningInput['sessionInfo'];
@@ -259,6 +274,7 @@ export function parseRouterAbEd25519WalletSessionJwtSessionInfo(
     !('walletId' in input) ||
     !('nearAccountId' in input) ||
     !('nearEd25519SigningKeyId' in input) ||
+    !('authorizationId' in input) ||
     !('runtimePolicyScope' in input) ||
     !('routerAbNormalSigning' in input)
   )
@@ -268,8 +284,10 @@ export function parseRouterAbEd25519WalletSessionJwtSessionInfo(
     walletId: input.walletId,
     nearAccountId: input.nearAccountId,
     nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+    authorizationId: input.authorizationId,
     thresholdSessionId: input.thresholdSessionId,
-    signingGrantId: input.signingGrantId,
+    walletSessionId: input.walletSessionId,
+    quotaId: input.quotaId,
     expiresAtMs: input.expiresAtMs,
     participantIds: input.participantIds,
     runtimePolicyScope: input.runtimePolicyScope,
@@ -286,8 +304,10 @@ export function parseRouterAbEd25519BootstrapSessionJwtSessionInfo(
     walletId: input.walletId,
     nearAccountId: input.nearAccountId,
     nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+    authorizationId: input.authorizationId,
     thresholdSessionId: input.thresholdSessionId,
-    signingGrantId: input.signingGrantId,
+    walletSessionId: input.walletSessionId,
+    quotaId: input.quotaId,
     expiresAtMs: input.expiresAtMs,
     participantIds: input.participantIds,
     runtimePolicyScope: input.runtimePolicyScope,
@@ -314,7 +334,9 @@ type NormalizedRouterAbWalletSessionSigningBase = {
   userId: string;
   relayerKeyId: string;
   thresholdSessionId: string;
-  signingGrantId: string;
+  authorizationId: WalletSessionAuthorizationId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   thresholdExpiresAtMs: number;
   participantIds: number[];
   iat: number;
@@ -332,7 +354,9 @@ function normalizeRouterAbWalletSessionSigningBase(
   const userId = String(args.userId || '').trim();
   const relayerKeyId = String(args.relayerKeyId || '').trim();
   const thresholdSessionId = String(args.sessionInfo?.thresholdSessionId || '').trim();
-  const signingGrantId = String(args.sessionInfo?.signingGrantId || '').trim();
+  const authorizationId = parseWalletSessionAuthorizationId(args.sessionInfo?.authorizationId);
+  const walletSessionId = parseWalletSessionId(args.sessionInfo?.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(args.sessionInfo?.quotaId);
   const thresholdExpiresAtMs = Number(args.sessionInfo?.expiresAtMs);
   const participantIds =
     normalizeThresholdEd25519ParticipantIds(args.sessionInfo?.participantIds) ||
@@ -342,7 +366,9 @@ function normalizeRouterAbWalletSessionSigningBase(
     !userId ||
     !relayerKeyId ||
     !thresholdSessionId ||
-    !signingGrantId ||
+    !authorizationId.ok ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
     !Number.isFinite(thresholdExpiresAtMs) ||
     thresholdExpiresAtMs <= 0 ||
     !participantIds ||
@@ -362,7 +388,9 @@ function normalizeRouterAbWalletSessionSigningBase(
       userId,
       relayerKeyId,
       thresholdSessionId,
-      signingGrantId,
+      authorizationId: authorizationId.value,
+      walletSessionId: walletSessionId.value,
+      quotaId: quotaId.value,
       thresholdExpiresAtMs,
       participantIds,
       iat: Math.floor(Date.now() / 1000),
@@ -396,7 +424,14 @@ function rejectInvalidRouterAbEd25519Binding(args: RouterAbEd25519WalletSessionJ
     const runtimePolicyScope = normalizeRuntimePolicyScope(
       args.sessionInfo.runtimePolicyScope as Record<string, unknown>,
     );
-    return { ok: true, walletId, nearAccountId, nearEd25519SigningKeyId, runtimePolicyScope, routerAbNormalSigning };
+    return {
+      ok: true,
+      walletId,
+      nearAccountId,
+      nearEd25519SigningKeyId,
+      runtimePolicyScope,
+      routerAbNormalSigning,
+    };
   } catch {
     return {
       ok: false,
@@ -413,7 +448,9 @@ function decodeEthereumAddress20Hex(address: string): Uint8Array {
     .toLowerCase()
     .replace(/^0x/, '');
   if (!/^[0-9a-f]{40}$/.test(normalized)) {
-    throw new Error('Router A/B ECDSA derivation normal-signing state requires a 20-byte owner address');
+    throw new Error(
+      'Router A/B ECDSA derivation normal-signing state requires a 20-byte owner address',
+    );
   }
   const bytes = new Uint8Array(20);
   for (let i = 0; i < bytes.length; i += 1) {
@@ -423,10 +460,11 @@ function decodeEthereumAddress20Hex(address: string): Uint8Array {
 }
 
 export function buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap(input: {
-  bootstrap: EcdsaDerivationServerBootstrapResponse;
+  bootstrap: Omit<EcdsaDerivationServerBootstrapResponse, 'routerAbEcdsaDerivationNormalSigning'>;
   activationEpoch: RootShareEpoch;
   routerAbPublicKeyset: RouterAbPublicKeysetV2 | null | undefined;
   signingWorkerId: string;
+  materialActivation: RouterAbMpcMaterialActivationRefWire;
 }):
   | { ok: true; state: RouterAbEcdsaDerivationNormalSigningStateV1 }
   | { ok: false; code: 'not_configured' | 'internal'; message: string } {
@@ -436,7 +474,8 @@ export function buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap(input
     return {
       ok: false,
       code: 'not_configured',
-      message: 'Router A/B public keyset is required for Router A/B ECDSA derivation Wallet Session signing',
+      message:
+        'Router A/B public keyset is required for Router A/B ECDSA derivation Wallet Session signing',
     };
   }
 
@@ -445,7 +484,6 @@ export function buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap(input
     const state = parseRouterAbEcdsaDerivationNormalSigningStateV1({
       kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
       scope: {
-        wallet_key_id: bootstrap.evmFamilySigningKeySlotId,
         wallet_id: bootstrap.walletId,
         ecdsa_threshold_key_id: bootstrap.ecdsaThresholdKeyId,
         signing_root_id: bootstrap.signingRootId,
@@ -455,7 +493,8 @@ export function buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap(input
         },
         public_identity: {
           context_binding_b64u: bootstrap.contextBinding32B64u,
-          derivation_client_share_public_key33_b64u: bootstrap.publicIdentity.derivationClientSharePublicKey33B64u,
+          derivation_client_share_public_key33_b64u:
+            bootstrap.publicIdentity.derivationClientSharePublicKey33B64u,
           server_public_key33_b64u: bootstrap.publicIdentity.relayerPublicKey33B64u,
           threshold_public_key33_b64u: bootstrap.publicIdentity.groupPublicKey33B64u,
           ethereum_address20_b64u: base64UrlEncode(
@@ -469,6 +508,7 @@ export function buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap(input
           key_epoch: signingWorkerHpke.key_epoch,
           recipient_encryption_key: signingWorkerHpke.public_key,
         },
+        material_activation: input.materialActivation,
         activation_epoch: input.activationEpoch,
       },
     });
@@ -486,13 +526,18 @@ export function buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap(input
       code: 'internal',
       message:
         error && typeof error === 'object' && 'message' in error
-          ? String((error as { message?: unknown }).message || 'invalid Router A/B ECDSA derivation state')
+          ? String(
+              (error as { message?: unknown }).message ||
+                'invalid Router A/B ECDSA derivation state',
+            )
           : 'invalid Router A/B ECDSA derivation state',
     };
   }
 }
 
-function rejectInvalidRouterAbEcdsaDerivationBinding(args: RouterAbEcdsaDerivationWalletSessionJwtSigningInput):
+function rejectInvalidRouterAbEcdsaDerivationBinding(
+  args: RouterAbEcdsaDerivationWalletSessionJwtSigningInput,
+):
   | {
       ok: true;
       normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
@@ -573,7 +618,6 @@ function doesEcdsaDerivationBindingMatchSessionInfo(
     String(args.sessionInfo.activationEpoch || '').trim() ===
       normalSigning.scope.activation_epoch &&
     String(args.sessionInfo.signingWorkerId || '').trim() === signingWorker.server_id &&
-    String(stableKeyContext.evmFamilySigningKeySlotId || '').trim() === normalSigning.scope.wallet_key_id &&
     String(stableKeyContext.walletId || '').trim() === normalSigning.scope.wallet_id &&
     String(stableKeyContext.ecdsaThresholdKeyId || '').trim() ===
       normalSigning.scope.ecdsa_threshold_key_id &&
@@ -610,7 +654,7 @@ type RouterAbEd25519WalletSessionClaimsBuildInput = {
 
 type RouterAbEcdsaDerivationWalletSessionClaimsBuildInput = {
   base: NormalizedRouterAbWalletSessionSigningBase;
-  evmFamilySigningKeySlotId: string;
+  authorizationSessionId: SeamsSessionId;
   keyHandle: string;
   runtimePolicyScope?: RuntimePolicyScope;
   binding: {
@@ -628,7 +672,9 @@ function buildRouterAbEd25519WalletSessionClaims(
     nearAccountId: input.binding.nearAccountId,
     nearEd25519SigningKeyId: input.binding.nearEd25519SigningKeyId,
     thresholdSessionId: input.base.thresholdSessionId,
-    signingGrantId: input.base.signingGrantId,
+    authorizationId: input.base.authorizationId,
+    walletSessionId: input.base.walletSessionId,
+    quotaId: input.base.quotaId,
     relayerKeyId: input.base.relayerKeyId,
     authority: input.authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(input.authority),
@@ -641,12 +687,6 @@ function buildRouterAbEd25519WalletSessionClaims(
   };
 }
 
-function requireEvmFamilySigningKeySlotId(value: unknown) {
-  const parsed = parseEvmFamilySigningKeySlotId(value);
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
-}
-
 function buildRouterAbEcdsaDerivationWalletSessionClaims(
   input: RouterAbEcdsaDerivationWalletSessionClaimsBuildInput,
 ): RouterAbEcdsaDerivationWalletSessionClaims {
@@ -655,13 +695,13 @@ function buildRouterAbEcdsaDerivationWalletSessionClaims(
     kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     walletId: input.base.userId,
     thresholdSessionId: input.base.thresholdSessionId,
-    signingGrantId: input.base.signingGrantId,
+    authorizationId: input.base.authorizationId,
+    authorizationSessionId: input.authorizationSessionId,
+    walletSessionId: input.base.walletSessionId,
+    quotaId: input.base.quotaId,
     keyScope: 'evm-family',
     keyHandle: input.keyHandle,
     relayerKeyId: input.base.relayerKeyId,
-    evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
-      input.evmFamilySigningKeySlotId,
-    ),
     routerAbEcdsaDerivationNormalSigning: input.binding.normalSigning,
     participantIds: input.base.participantIds,
     thresholdExpiresAtMs: input.base.thresholdExpiresAtMs,
@@ -747,15 +787,6 @@ export async function signRouterAbEcdsaDerivationWalletSessionJwt(
   if (!base.ok) return base;
   const binding = rejectInvalidRouterAbEcdsaDerivationBinding(args);
   if (!binding.ok) return binding;
-  const evmFamilySigningKeySlotId = String(args.evmFamilySigningKeySlotId || '').trim();
-  if (!evmFamilySigningKeySlotId || evmFamilySigningKeySlotId !== binding.normalSigning.scope.wallet_key_id) {
-    return {
-      ok: false,
-      status: 500,
-      code: 'internal',
-      message: args.invalidPayloadErrorMessage,
-    };
-  }
   const runtimePolicyScope = parseOptionalRuntimePolicyScope(
     args.sessionInfo.runtimePolicyScope,
     args.invalidPayloadErrorMessage,
@@ -770,9 +801,18 @@ export async function signRouterAbEcdsaDerivationWalletSessionJwt(
       message: args.invalidPayloadErrorMessage,
     };
   }
+  const authorizationSessionId = parseSeamsSessionId(args.sessionInfo.authorizationSessionId);
+  if (!authorizationSessionId.ok) {
+    return {
+      ok: false,
+      status: 500,
+      code: 'internal',
+      message: args.invalidPayloadErrorMessage,
+    };
+  }
   const claims = buildRouterAbEcdsaDerivationWalletSessionClaims({
     base: base.value,
-    evmFamilySigningKeySlotId,
+    authorizationSessionId: authorizationSessionId.value,
     keyHandle,
     runtimePolicyScope: runtimePolicyScope.value,
     binding,

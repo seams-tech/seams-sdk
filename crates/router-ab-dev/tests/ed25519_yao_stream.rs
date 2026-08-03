@@ -3,7 +3,8 @@ use std::thread;
 
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoOperationV1, Ed25519YaoSessionIdV1,
-    Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1, RootShareEpoch,
+    Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1,
+    MpcMaterialActivationRefV1, RootShareEpoch,
 };
 use router_ab_dev::{
     run_local_activation_deriver_a_http_v1, run_local_activation_deriver_b_http_v1,
@@ -61,6 +62,15 @@ fn activation_binding() -> Ed25519YaoCeremonyBindingV1 {
             0x87, 0xc7, 0x98, 0x28, 0x42, 0xd3, 0x7a, 0x4c, 0x66, 0x66, 0x45, 0x30, 0x26, 0x04,
             0xb2, 0x72, 0x06, 0x55,
         ]),
+        MpcMaterialActivationRefV1::new(
+            "stream-activation",
+            "stream-capability",
+            "account-1",
+            "stream-key",
+            "stream-lifecycle",
+            "signing-worker-1",
+        )
+        .expect("material activation"),
     )
     .expect("activation binding")
 }
@@ -138,6 +148,15 @@ fn export_roles() -> (
             0x87, 0xc7, 0x98, 0x28, 0x42, 0xd3, 0x7a, 0x4c, 0x66, 0x66, 0x45, 0x30, 0x26, 0x04,
             0xb2, 0x72, 0x06, 0x55,
         ]),
+        MpcMaterialActivationRefV1::new(
+            "stream-export-activation",
+            "stream-export-capability",
+            "account-1",
+            "stream-export-key",
+            "local-export-lifecycle-1",
+            "signing-worker-1",
+        )
+        .expect("material activation"),
     )
     .expect("export binding");
     let a = build_export_deriver_a(

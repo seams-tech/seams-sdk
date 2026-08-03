@@ -143,7 +143,10 @@ function sliceTypeAlias(source, name) {
   if (start < 0) {
     throw new Error(`missing exported type ${name}`);
   }
-  const next = source.indexOf('\nexport type ', start + 1);
+  const nextExport = source.indexOf('\nexport type ', start + 1);
+  const nextLocal = source.indexOf('\ntype ', start + 1);
+  const nextCandidates = [nextExport, nextLocal].filter((offset) => offset >= 0);
+  const next = nextCandidates.length ? Math.min(...nextCandidates) : -1;
   return source.slice(start, next < 0 ? source.length : next);
 }
 
@@ -325,30 +328,6 @@ function checkConfirmationContractsOwnedOutsideUiRuntimeInternals() {
       assertNotContains(source, 'confirmSigningOperation(', relativePath);
     }
   }
-}
-
-function checkEvmPostSignFinalizationCommandsLiveUnderFlows() {
-  const transactionExecutor = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
-  );
-  const postSignFinalization = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/postSignFinalization.ts',
-  );
-
-  for (const marker of [
-    'thresholdEcdsaRecord?:',
-    'thresholdEcdsaKeyRef?:',
-    'ThresholdEcdsaSessionRecord',
-    'ThresholdEcdsaSecp256k1KeyRef',
-    'warmRecord',
-    'emailOtpReauthRecord',
-    'warmKeyRef',
-    'async function runSuccessfulEvmFamilyPostSignCommands',
-  ]) {
-    assertNotContains(transactionExecutor, marker, 'transactionExecutor.ts');
-  }
-  assertNotMatches(postSignFinalization, /from ['"][./]+api\//, 'postSignFinalization.ts');
-  assertNotMatches(postSignFinalization, /from ['"][./]+orchestration\//, 'postSignFinalization.ts');
 }
 
 function checkEvmThresholdAdmissionLivesUnderFlows() {
@@ -603,9 +582,6 @@ function checkSelectedLanesAndOperationStatesAvoidOptionalLifecycleFields() {
   const signingTypes = readRepoSource(
     'packages/sdk-web/src/core/signingEngine/session/operationState/types.ts',
   );
-  const signingBudget = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/budget/budget.ts',
-  );
   const signingStateMachine = readRepoSource(
     'packages/sdk-web/src/core/signingEngine/flows/shared/signingStateMachine.ts',
   );
@@ -682,10 +658,6 @@ function checkSelectedLanesAndOperationStatesAvoidOptionalLifecycleFields() {
     /\w+\?:/,
     'PasskeyReconnectPlan',
   );
-  for (const marker of ['refs: {', 'refs.thresholdSessionId', 'refs.backingMaterialSessionId']) {
-    assertNotContains(signingBudget, marker, 'budget.ts');
-  }
-
   for (const relativePath of listProductionTypeScriptFiles(path.join(signingEngineRoot, 'flows'))) {
     const source = readRepoSource(relativePath);
     assertNotContains(source, 'SelectedSigningSessionPlanningLane', relativePath);
@@ -713,7 +685,6 @@ function checkSelectedLaneConstructionStaysInSessionIdentity() {
 
 function checkSigningExecutionBoundariesAvoidCandidatesAndRawRecords() {
   const executionFiles = [
-    'packages/sdk-web/src/core/signingEngine/interfaces/near.ts',
     'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
     'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
     'packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts',
@@ -728,7 +699,6 @@ function checkSigningExecutionBoundariesAvoidCandidatesAndRawRecords() {
     'availableLane',
     'selectedLaneCandidate',
     'ThresholdEd25519SessionRecord',
-    'ThresholdEcdsaSessionRecord',
     'warmRecord',
     'emailOtpReauthRecord',
     'warmKeyRef',
@@ -749,7 +719,6 @@ function checkSigningExecutionBoundariesAvoidCandidatesAndRawRecords() {
 
 function checkDeletedDuplicateLaneNamesStayDeleted() {
   const removedDuplicateNames = [
-    'ConcreteThresholdEcdsaSessionRecord',
     'EcdsaLaneIdentity',
     'ThresholdEcdsaRuntimeLane',
     'ThresholdEd25519SessionLane',
@@ -801,13 +770,10 @@ function checkThresholdProtocolEntrypointsTakeProtocolMaterial() {
   const protocolFiles = [
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts',
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
-    'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/connectSession.ts',
-    'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/keygen.ts',
     'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
     'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/poolFillRoutes.ts',
   ];
   const broadShapeMarkers = [
-    'ThresholdEcdsaSessionRecord',
     'ThresholdEd25519SessionRecord',
     'SigningSessionPlanningLane',
     'SelectedSigningSessionPlanningLane',
@@ -821,24 +787,6 @@ function checkThresholdProtocolEntrypointsTakeProtocolMaterial() {
       assertNotContains(source, marker, relativePath);
     }
   }
-}
-
-function checkThresholdSessionIdentityTypesLiveOutsidePersistenceRecords() {
-  const records = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
-  );
-  const activation = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
-  );
-
-  for (const marker of [
-    'export type ThresholdEcdsaSessionStoreSource',
-    'export type ThresholdEd25519SessionStoreSource',
-    'export type ThresholdEcdsaEmailOtpAuthContext',
-  ]) {
-    assertNotContains(records, marker, 'session/persistence/records.ts');
-  }
-  assertNotContains(activation, 'session/records', 'passkey/ecdsaBootstrap.ts');
 }
 
 function checkEd25519WalletSessionMintHelperHasNoLifecycleCache() {
@@ -925,7 +873,6 @@ function checkSessionChildDomainsDeclareOwnershipReadmes() {
     'packages/sdk-web/src/core/signingEngine/session/passkey/README.md',
     'packages/sdk-web/src/core/signingEngine/session/emailOtp/README.md',
     'packages/sdk-web/src/core/signingEngine/session/operationState/README.md',
-    'packages/sdk-web/src/core/signingEngine/session/budget/README.md',
     'packages/sdk-web/src/core/signingEngine/session/planning/README.md',
   ];
 
@@ -990,7 +937,6 @@ function checkSessionChildDomainsAvoidFlowAndAssemblyImports() {
     'packages/sdk-web/src/core/signingEngine/session/identity',
     'packages/sdk-web/src/core/signingEngine/session/availability',
     'packages/sdk-web/src/core/signingEngine/session/planning',
-    'packages/sdk-web/src/core/signingEngine/session/budget',
     'packages/sdk-web/src/core/signingEngine/session/persistence',
     'packages/sdk-web/src/core/signingEngine/session/sealedRecovery',
     'packages/sdk-web/src/core/signingEngine/session/operationState',
@@ -1065,6 +1011,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'persistence',
       'routerAbSigningWalletSession',
       'warmCapabilities',
+      'material',
     ],
     availability: [
       'keyMaterialBrands',
@@ -1076,6 +1023,9 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'budget',
       'planning',
       'sealedRecovery',
+      'material',
+      'emailOtp',
+      'lifecycle',
     ],
     planning: ['identity', 'operationState'],
     budget: ['persistence', 'operationState', 'identity'],
@@ -1092,10 +1042,12 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'budget',
       'emailOtp',
       'identity',
+      'lifecycle',
       'persistence',
       'planning',
       'routerAbSigningWalletSession',
       'warmCapabilities',
+      'material',
     ],
     warmCapabilities: [
       'availability',
@@ -1103,6 +1055,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'emailOtp',
       'identity',
       'keyMaterialBrands',
+      'lifecycle',
       'operationState',
       'persistence',
       'routerAbSigningWalletSession',
@@ -1117,6 +1070,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       'sealedRecovery',
       'warmCapabilities',
       'lifecycle',
+      'material',
     ],
     emailOtp: [
       'availability',
@@ -1237,6 +1191,7 @@ function checkCoordinatorOnlyImportsOrchestrationSessionDomains() {
     'operationState',
     'warmCapabilities',
     'identity',
+    'lifecycle',
   ]);
   const offenders = [];
 
@@ -1291,7 +1246,6 @@ function runChecks() {
   checkNearSigningFlowsUseSharedMachineCommandSteps();
   checkAvailableSigningLanesOwnAvailabilityTerminology();
   checkConfirmationContractsOwnedOutsideUiRuntimeInternals();
-  checkEvmPostSignFinalizationCommandsLiveUnderFlows();
   checkEvmThresholdAdmissionLivesUnderFlows();
   checkOperationModulesAvoidSigningEngineAssemblyConstruction();
   checkAssemblyCreatePortsStaysThinAggregator();
@@ -1307,7 +1261,6 @@ function runChecks() {
   checkDeletedDuplicateLaneNamesStayDeleted();
   checkThresholdSessionKindHasOneSigningEngineOwner();
   checkThresholdProtocolEntrypointsTakeProtocolMaterial();
-  checkThresholdSessionIdentityTypesLiveOutsidePersistenceRecords();
   checkEd25519WalletSessionMintHelperHasNoLifecycleCache();
   checkEd25519ConnectSessionLeavesPersistenceToCallers();
   checkThresholdModulesAvoidSessionLifecycleImports();

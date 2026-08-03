@@ -1,5 +1,4 @@
 import { type NearClient } from '@/core/rpcClients/near/NearClient';
-import type { UiConfirmSigningSessionPort } from '../uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { NearSigningKeyMaterialStorePort, NearSigningRuntimeDeps } from '../interfaces/runtime';
 import type {
@@ -13,10 +12,6 @@ import type {
 import type { UserPreferencesManager } from '../session/userPreferences';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type { ThemeMode, SeamsChainConfig } from '@/core/types/seams';
-import type {
-  ExportPrivateKeysWithUiWorkerPayload,
-  ExportPrivateKeysWithUiWorkerResult,
-} from '@/core/types/secure-confirm-worker';
 import type { NearSigningKeyOps } from '../interfaces/nearKeyOps';
 import type { WorkerTransport } from './workerTransport';
 import { createNearKeyOps } from './nearKeyOps/createNearKeyOps';
@@ -33,7 +28,8 @@ export interface SignerWorkerManagerContext extends NearSigningRuntimeDeps {
 export type SignerWorkerManagerDeps = {
   nearKeyMaterialStore: NearSigningKeyMaterialStorePort;
   touchIdPrompt: TouchIdPrompt;
-  touchConfirm: UiConfirmSigningSessionPort;
+  touchConfirm: NonNullable<NearSigningRuntimeDeps['touchConfirm']>;
+  passkeyMpcSession: NearSigningRuntimeDeps['passkeyMpcSession'];
   nearClient: NearClient;
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
@@ -55,7 +51,8 @@ export type SignerWorkerManagerDeps = {
 export class SignerWorkerManager {
   private nearKeyMaterialStore: NearSigningKeyMaterialStorePort;
   private touchIdPrompt: TouchIdPrompt;
-  private touchConfirm: UiConfirmSigningSessionPort;
+  private touchConfirm: NonNullable<NearSigningRuntimeDeps['touchConfirm']>;
+  private passkeyMpcSession: NearSigningRuntimeDeps['passkeyMpcSession'];
   private nearClient: NearClient;
   private userPreferencesManager: UserPreferencesManager;
   private nonceCoordinator: NonceCoordinator;
@@ -72,6 +69,7 @@ export class SignerWorkerManager {
     this.nearKeyMaterialStore = deps.nearKeyMaterialStore;
     this.touchIdPrompt = deps.touchIdPrompt;
     this.touchConfirm = deps.touchConfirm;
+    this.passkeyMpcSession = deps.passkeyMpcSession;
     this.nearClient = deps.nearClient;
     this.userPreferencesManager = deps.userPreferencesManager;
     this.nonceCoordinator = deps.nonceCoordinator;
@@ -95,6 +93,7 @@ export class SignerWorkerManager {
       nearKeyMaterialStore: this.nearKeyMaterialStore,
       touchIdPrompt: this.touchIdPrompt,
       touchConfirm: this.touchConfirm,
+      passkeyMpcSession: this.passkeyMpcSession,
       nearClient: this.nearClient,
       userPreferencesManager: this.userPreferencesManager,
       nonceCoordinator: this.nonceCoordinator,
@@ -132,9 +131,4 @@ export class SignerWorkerManager {
     return this.workerTransport.requestOperation(args);
   }
 
-  requestExportPrivateKeysWithUi(
-    payload: ExportPrivateKeysWithUiWorkerPayload,
-  ): Promise<ExportPrivateKeysWithUiWorkerResult> {
-    return this.touchConfirm.exportPrivateKeysWithUi(payload);
-  }
 }

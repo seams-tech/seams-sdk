@@ -25,3 +25,29 @@ export function signingLaneAuthMethod(auth: SigningLaneAuthBinding): SignerAuthM
   auth satisfies never;
   throw new Error('[SigningSession] unsupported signing lane auth binding');
 }
+
+function requireSigningLaneAuthKeyPart(value: string, label: string): string {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    throw new Error(`[SigningSession] ${label} is required for signing lane authority`);
+  }
+  return normalized;
+}
+
+export function signingLaneAuthBindingKey(auth: SigningLaneAuthBinding): string {
+  switch (auth.kind) {
+    case SIGNER_AUTH_METHODS.passkey:
+      return [
+        SIGNER_AUTH_METHODS.passkey,
+        requireSigningLaneAuthKeyPart(String(auth.rpId), 'passkey rpId'),
+        requireSigningLaneAuthKeyPart(auth.credentialIdB64u, 'passkey credential'),
+      ].join(':');
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return [
+        SIGNER_AUTH_METHODS.emailOtp,
+        requireSigningLaneAuthKeyPart(auth.providerSubjectId, 'Email OTP provider subject'),
+      ].join(':');
+  }
+  auth satisfies never;
+  throw new Error('[SigningSession] unsupported signing lane auth binding');
+}

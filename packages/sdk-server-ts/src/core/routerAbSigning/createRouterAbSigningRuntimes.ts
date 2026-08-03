@@ -6,7 +6,6 @@ import { createThresholdEcdsaSigningStores } from '../ThresholdService/stores/Ec
 import {
   createEcdsaWalletSessionStore,
   createEd25519WalletSessionStore,
-  createWalletSigningBudgetSessionStore,
 } from '../ThresholdService/stores/WalletSessionStore';
 import {
   parseRouterAbEcdsaPresignRuntimeConfig,
@@ -102,11 +101,6 @@ export function createRouterAbSigningRuntimes(input: {
   const configRecord = isObject(config) ? config : {};
 
   const ed25519WalletSessionStore = createEd25519WalletSessionStore({ config, logger, isNode });
-  const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({
-    config,
-    logger,
-    isNode,
-  });
   const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({ config, logger, isNode });
   const ecdsaSigningStores = createThresholdEcdsaSigningStores({ config, logger, isNode });
   const ensureReady = ensureRouterAbSigningRuntimeReady.bind(input.authService);
@@ -118,7 +112,6 @@ export function createRouterAbSigningRuntimes(input: {
   const normalSigning = new RouterAbNormalSigningRuntime({
     walletSessionStore: ed25519WalletSessionStore,
     ecdsaWalletSessionStore,
-    walletBudgetSessionStore,
     config: normalSigningConfig,
   });
   const ecdsaPresign = new RouterAbEcdsaPresignRuntime({

@@ -6,7 +6,7 @@ import type {
 import { cacheCredentialBoundarySetupExportPrfFirst } from '@/core/signingEngine/session/passkey/prfCache';
 
 export type HydrateWarmSigningSessionInput = {
-  sessionId: string;
+  thresholdSessionId: string;
   prfFirstB64u: string;
   expiresAtMs: number;
   remainingUses: number;

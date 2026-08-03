@@ -13,6 +13,23 @@ export {
 export { upgradeSeamsWalletDBSchema } from './seamsWalletDB/schema';
 export { SeamsWalletDBManager } from './seamsWalletDB/manager';
 export { SeamsWalletRepositories } from './seamsWalletDB/repositories';
+export {
+  WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
+  WalletSessionAuthorizationRepository,
+  buildActiveWalletSessionAuthorizationProjection,
+  parseWalletSessionAuthorizationProjection,
+  retireWalletSessionAuthorizationProjection,
+  walletSessionAuthorizations,
+} from './seamsWalletDB/walletSessionAuthorizationStore';
+export type {
+  ActiveWalletSessionAuthorizationProjection,
+  BuildActiveWalletSessionAuthorizationProjectionInput,
+  RetiredWalletSessionAuthorizationProjection,
+  WalletSessionAuthorizationJwt,
+  WalletSessionAuthorizationProjection,
+  WalletSessionAuthorizationReadResult,
+  WalletSessionAuthorizationRetirementReason,
+} from './seamsWalletDB/walletSessionAuthorizationStore';
 
 export type {
   ActivateAccountSignerInput,

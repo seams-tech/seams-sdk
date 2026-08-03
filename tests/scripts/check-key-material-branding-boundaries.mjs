@@ -88,70 +88,6 @@ function findBalancedCallBlocks(source, callee) {
   return blocks;
 }
 
-check('warm-session policy input requires explicit generated or shared grant lifecycle', () => {
-  const source = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
-  );
-  const inputType = sourceBetween(
-    source,
-    'export type ThresholdWarmSessionPolicyDraftInput =',
-    'export type ThresholdWarmSessionRequestEnvelope =',
-  );
-  const draftType = sourceBetween(
-    source,
-    'export type ThresholdWarmSessionPolicyDraft =',
-    'export type ThresholdWarmSessionPolicyDraftInput =',
-  );
-  const envelopeType = sourceBetween(
-    source,
-    'export type ThresholdWarmSessionRequestEnvelope =',
-    'export type ThresholdWarmSessionContext =',
-  );
-  const builder = sourceBetween(
-    source,
-    'export function createThresholdWarmSessionPolicyDraft',
-    'export function buildThresholdWarmSessionRequestEnvelope',
-  );
-  const envelopeBuilderStart = source.indexOf(
-    'export function buildThresholdWarmSessionRequestEnvelope',
-  );
-  expect(envelopeBuilderStart).toBeGreaterThanOrEqual(0);
-  const envelopeBuilder = source.slice(envelopeBuilderStart);
-
-  expect(draftType).toContain('signingGrantId: string');
-  expect(draftType).not.toContain('signingGrantId?: string');
-  expect(inputType).toContain("kind: 'generated_signing_grant'");
-  expect(inputType).not.toContain("kind?: 'generated_signing_grant'");
-  expect(envelopeType).toContain('signingGrantId: string');
-  expect(envelopeType).not.toContain('signingGrantId?: string');
-  expect(builder).toContain('input: ThresholdWarmSessionPolicyDraftInput');
-  expect(builder).not.toContain('input?: ThresholdWarmSessionPolicyDraftInput');
-  expect(builder).toContain('const budget = policyBudget({');
-  expect(source).toContain("case 'generated_signing_grant':");
-  expect(source).toContain("case 'shared_signing_grant':");
-  expect(envelopeBuilder).toContain('const signingGrantId =');
-  expect(envelopeBuilder).toContain('!thresholdSessionId || !signingGrantId');
-  expect(envelopeBuilder).toContain('authority: args.authority');
-  expect(envelopeBuilder).toContain('signingGrantId,');
-});
-
-check('all warm-session policy call sites choose a grant lifecycle branch', () => {
-  const callSiteFiles = [
-    'packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts',
-    'packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount.ts',
-    'packages/sdk-web/src/SeamsWeb/operations/recovery/emailRecovery.ts',
-    'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
-    'tests/unit/thresholdWarmSessionPolicyDraft.unit.test.ts',
-  ];
-  const offenders = callSiteFiles.flatMap((relativePath) =>
-    findBalancedCallBlocks(readRepoSource(relativePath), 'createThresholdWarmSessionPolicyDraft')
-      .filter((block) => !block.includes('kind:'))
-      .map((block) => `${relativePath}: ${block.slice(0, 120)}`),
-  );
-
-  expect(offenders, offenders.join('\n')).toEqual([]);
-});
-
 check('key-version domains use branded parsers at high-risk boundaries', () => {
   const sdkBrands = readRepoSource(
     'packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.ts',
@@ -160,17 +96,11 @@ check('key-version domains use branded parsers at high-risk boundaries', () => {
   const serverSealOptions = readRepoSource(
     'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts',
   );
-  const serverEcdsaPoolFill = readRepoSource(
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
-  );
   const serverEmailOtpSeal = readRepoSource(
     'packages/sdk-server-ts/src/core/authService/emailOtpSeal.ts',
   );
   const sdkSealTransportTypes = readRepoSource(
     'packages/sdk-web/src/core/types/secure-confirm-worker.ts',
-  );
-  const sdkCapabilityReaderCore = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts',
   );
 
   for (const source of [sdkBrands, serverBrands]) {
@@ -185,9 +115,6 @@ check('key-version domains use branded parsers at high-risk boundaries', () => {
   );
   expect(serverEmailOtpSeal).toContain('parseSigningSessionSealRootConfig');
   expect(serverEmailOtpSeal).toContain('currentKeyVersion: string');
-  expect(serverEcdsaPoolFill).toContain('parseEcdsaDerivationKeyVersion');
-  expect(serverEcdsaPoolFill).toContain('formatEcdsaDerivationKeyVersionForWire');
-
   const sealTransportCommon = sourceBetween(
     sdkSealTransportTypes,
     'type WarmSessionSealTransportCommon =',
@@ -197,75 +124,6 @@ check('key-version domains use branded parsers at high-risk boundaries', () => {
     'signingSessionSealKeyVersion?: SigningSessionSealKeyVersion',
   );
   expect(sealTransportCommon).not.toContain('keyVersion?: string');
-  expect(sdkCapabilityReaderCore).toContain(
-    'parseSigningSessionSealKeyVersion(record.signingSessionSealKeyVersion)',
-  );
-});
-
-check('ECDSA lifecycle identity helpers stay branch-specific', () => {
-  const planSource = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts',
-  );
-  const readinessSource = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsaSession.ts',
-  );
-  const evmReadinessSource = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts',
-  );
-
-  expect(planSource).not.toContain('getEcdsaSessionProvisionIdentity');
-  expect(planSource).toContain('getEcdsaReconnectSessionIdentity');
-  expect(planSource).toContain('getEcdsaFreshProvisionSessionIdentity');
-  expect(planSource).toContain('getEcdsaProvisionPlanLaneIdentity');
-  expect(readinessSource).not.toContain('recordMatchesPlannedIdentity');
-  expect(readinessSource).not.toContain('provisionPlanRequiresExistingRecordIdentity');
-  expect(readinessSource).not.toContain('getEcdsaSessionProvisionIdentity');
-  expect(readinessSource).toContain('function recordMatchesReconnectIdentity');
-  expect(readinessSource).toContain('plan: EcdsaReconnectProvisionPlan');
-  expect(evmReadinessSource).not.toContain('getEcdsaSessionProvisionIdentity');
-  expect(evmReadinessSource).toContain('getEcdsaProvisionPlanLaneIdentity');
-});
-
-check('second-tier material brands protect ECDSA restore and signing boundaries', () => {
-  const sdkBrands = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.ts',
-  );
-  const serverBrands = readRepoSource('packages/sdk-server-ts/src/core/keyMaterialBrands.ts');
-  const ecdsaPoolFill = readRepoSource(
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
-  );
-  const ecdsaClientPresignPool = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
-  );
-  const serverSealOptions = readRepoSource(
-    'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts',
-  );
-  const serverEmailOtpSeal = readRepoSource(
-    'packages/sdk-server-ts/src/core/authService/emailOtpSeal.ts',
-  );
-
-  for (const source of [sdkBrands, serverBrands]) {
-    expect(source).toContain('EcdsaClientVerifyingShareB64u');
-    expect(source).toContain('EcdsaRelayerKeyId');
-    expect(source).toContain('EcdsaThresholdKeyId');
-    expect(source).toContain('EcdsaKeyHandle');
-    expect(source).toContain('SigningSessionSealShamirPrimeB64u');
-    expect(source).toContain('parseSigningSessionSealShamirPrimeB64u');
-  }
-  expect(sdkBrands).toContain('EcdsaClientAdditiveShareHandle');
-
-  expect(ecdsaPoolFill).toContain('ecdsaThresholdKeyId: EcdsaThresholdKeyId');
-  expect(ecdsaPoolFill).toContain('keyHandle: EcdsaKeyHandle');
-  expect(ecdsaPoolFill).toContain('relayerKeyId: EcdsaRelayerKeyId');
-  expect(ecdsaClientPresignPool).toContain('keyHandle?: EcdsaKeyHandle');
-  expect(ecdsaClientPresignPool).toContain('ecdsaThresholdKeyId: EcdsaThresholdKeyId');
-  expect(ecdsaClientPresignPool).toContain(
-    'clientVerifyingShareB64u: EcdsaClientVerifyingShareB64u',
-  );
-  expect(serverSealOptions).toContain('parseSigningSessionSealShamirPrimeB64u');
-  expect(serverSealOptions).toContain('shamirPrimeB64u: SigningSessionSealShamirPrimeB64u');
-  expect(serverEmailOtpSeal).toContain('parseSigningSessionSealShamirPrimeB64u');
-  expect(serverEmailOtpSeal).toContain('formatSigningSessionSealShamirPrimeB64uForWire');
 });
 
 check('WebAuthn RP ids cannot be confused with NEAR Ed25519 signing-key ids', () => {
@@ -359,79 +217,18 @@ check('WebAuthn RP ids cannot be confused with NEAR Ed25519 signing-key ids', ()
   }
 });
 
-check('valid signing-session seal key ids use explicit domain names in active defaults', () => {
-  const localD1Worker = readRepoSource(
-    'packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts',
-  );
-  const stagingD1Worker = readRepoSource(
-    'packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts',
-  );
-  const d1AuthConfig = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts',
-  );
-  const serverSealOptions = readRepoSource(
-    'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts',
-  );
-  const generateKeys = readRepoSource(
-    'apps/web-server/scripts/generate-signing-session-seal-keys.mjs',
-  );
-  const currentSealFixtureFiles = [
-    'tests/unit/walletIframe.signerModeConfigPropagation.unit.test.ts',
-    'tests/unit/warmSessionStore.lifecycle.unit.test.ts',
-    'tests/unit/sealedRefresh.parity.unit.test.ts',
-    'tests/unit/signingSessionSeal.idempotencyRecords.unit.test.ts',
-    'tests/unit/sealedSessionStore.unit.test.ts',
-    'tests/unit/warmSessionReadModel.unit.test.ts',
-    'tests/unit/emailOtpWalletSessionCoordinator.unit.test.ts',
-    'tests/unit/sealedRecovery.methodAdapters.unit.test.ts',
-    'tests/unit/signingSessionSeal.shared.unit.test.ts',
-    'tests/unit/signingSessionRestoreCoordinator.unit.test.ts',
-  ];
-
-  expect(generateKeys).toContain('signing-session-seal-kek-${today}-r1');
-  expect(localD1Worker).toContain('normalizeLocalString(env.SIGNING_SESSION_SEAL_KEY_VERSION)');
-  expect(stagingD1Worker).toContain("readEnvString(env, 'SIGNING_SESSION_SEAL_KEY_VERSION')");
-  expect(localD1Worker).toContain('keyVersion: seal.keyVersion');
-  expect(stagingD1Worker).toContain('keyVersion: seal.keyVersion');
-  expect(serverSealOptions).toContain('parseSigningSessionSealKeyVersion(input.keyVersion)');
-  expect(d1AuthConfig).toContain('parseSigningSessionSealKeyVersion(keyVersionRaw)');
-  expect(d1AuthConfig).toContain('formatSigningSessionSealKeyVersionForWire');
-  expect(localD1Worker).not.toContain('kek-s-2026-02');
-  expect(stagingD1Worker).not.toContain('kek-s-2026-02');
-  expect(generateKeys).not.toContain('kek-s-${today}');
-  for (const relativePath of currentSealFixtureFiles) {
-    const source = readRepoSource(relativePath);
-    expect(source, relativePath).not.toContain('kek-s-2026-02');
-    expect(source, relativePath).not.toContain("keyVersion: 'seal-v1'");
-    expect(source, relativePath).not.toContain('keyVersion: "seal-v1"');
-  }
-});
-
 check('EVM-family signing key slot identity cannot fall back to generic wallet key strings', () => {
   const sharedEvmFamilyKey = readRepoSource(
     'packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId.ts',
   );
-  const ecdsaIdentity = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
+  const ecdsaProvisioner = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts',
   );
-  const sessionRecords = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
-  );
-  const provisionUseCase = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsaSession.ts',
-  );
-  const sessionPolicy = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts',
-  );
-  const platformPorts = readRepoSource('packages/sdk-web/src/core/platform/ports.ts');
   const emailOtpWorker = readRepoSource(
     'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
   );
   const thresholdValidation = readRepoSource(
     'packages/sdk-server-ts/src/core/ThresholdService/validation.ts',
-  );
-  const ecdsaPoolFillHandlers = readRepoSource(
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
   );
   const authService = readRepoSource(
     'packages/sdk-server-ts/src/core/authService/emailRecoveryAuthOperations.ts',
@@ -447,19 +244,8 @@ check('EVM-family signing key slot identity cannot fall back to generic wallet k
   expect(sharedEvmFamilyKey).toContain("typeof value !== 'string'");
   expect(sharedEvmFamilyKey).toContain('deriveEvmFamilySigningKeySlotId');
 
-  expect(ecdsaIdentity).toContain('type EvmFamilySigningKeySlotId');
-  expect(ecdsaIdentity).toContain('requireEvmFamilySigningKeySlotId');
-  expect(ecdsaIdentity).not.toContain('FromSigningRootFacts');
-  expect(ecdsaIdentity).not.toContain('walletKeyPart(');
-
-  expect(sessionRecords).toContain('parseEvmFamilySigningKeySlotId(');
-  expect(sessionRecords).toContain('obj.evmFamilySigningKeySlotId');
-  expect(sessionRecords).not.toContain('parseWalletKeyIdOrNull(obj.walletKeyId)');
-  expect(provisionUseCase).toContain('walletKey: EvmFamilyEcdsaWalletKey');
-  expect(sessionPolicy).toContain('evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId');
-  expect(sessionPolicy).toContain('evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(');
-  expect(platformPorts).toContain('evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId');
-  expect(platformPorts).not.toContain('evmFamilySigningKeySlotId: WalletKeyId');
+  expect(ecdsaProvisioner).toContain('walletKey: EvmFamilyEcdsaWalletKey');
+  expect(ecdsaProvisioner).not.toContain('walletKeyId');
 
   expect(emailOtpWorker).toContain('function readEvmFamilySigningKeySlotId');
   expect(emailOtpWorker).not.toContain('function readWalletKeyId(');
@@ -468,8 +254,6 @@ check('EVM-family signing key slot identity cannot fall back to generic wallet k
   expect(emailOtpWorker).not.toContain('readString(obj.walletKeyId');
   expect(thresholdValidation).toContain('parseEvmFamilySigningKeySlotIdOrNull');
   expect(thresholdValidation).not.toContain('parseWalletKeyIdOrNull');
-  expect(ecdsaPoolFillHandlers).toContain('parseEvmFamilySigningKeySlotString');
-  expect(ecdsaPoolFillHandlers).not.toContain('toOptionalTrimmedString(claims?.walletKeyId)');
 
   expect(authService).toContain('deriveEvmFamilySigningKeySlotId');
   expect(authService).not.toContain('function encodeEcdsaWalletKeyIdPart');

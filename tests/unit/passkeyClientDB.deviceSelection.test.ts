@@ -1720,7 +1720,7 @@ test.describe('Seams wallet device selection', () => {
     expect(result.signerMetadata).toMatchObject({ label: 'retry-repairs-key-material' });
     expect(result.materialAfterRetry).toMatchObject({
       publicKey: 'ed25519:partial-public-key',
-      relayerKeyId: 'partial-rk',
+      relayerKeyId: 'ed25519:partial-public-key',
       keyVersion: 'router-ab-ed25519-yao-v1',
     });
   });
@@ -1895,7 +1895,7 @@ test.describe('Seams wallet device selection', () => {
     });
     expect(result.material).toMatchObject({
       publicKey: 'ed25519:session-public-key',
-      relayerKeyId: 'session-rk',
+      relayerKeyId: 'ed25519:session-public-key',
       keyVersion: 'router-ab-ed25519-yao-v1',
     });
   });

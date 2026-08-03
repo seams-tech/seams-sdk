@@ -43,6 +43,7 @@ import {
   type WalletId,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { ThresholdRuntimePolicyScope } from '../../core/types';
 import type {
@@ -59,7 +60,10 @@ import {
   type WalletRegistrationSetupVerifier,
 } from '../walletRegistrationSetupPayload';
 import type { WalletRegistrationAuthorityInput } from '../../core/registrationContracts';
-import type { RouterAbEcdsaRegistrationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaRegistrationRequestV1,
+  RouterAbEcdsaVerifiedClientActivationFactsV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 
 /** Setup's ceremony lives only as long as an authenticator prompt plausibly takes. */
 const WALLET_REGISTRATION_SETUP_TTL_MS = 10 * 60_000;
@@ -115,7 +119,8 @@ export type WalletRegistrationActivateInput = {
   readonly planKind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa' | 'near_ed25519';
   /** Absent exactly when the plan is Ed25519-only. */
   readonly ecdsa?: {
-    readonly clientActivation: unknown;
+    readonly activationCorrelationId: CorrelationId;
+    readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
   };
   readonly emailOtpEnrollment?: unknown;
   readonly emailOtpBackupAck?: unknown;

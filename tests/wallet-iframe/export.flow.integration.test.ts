@@ -56,7 +56,6 @@ const EXPORT_FLOW_ECDSA_EXPORT_LANE = exactEcdsaSigningLaneIdentity({
     rpId: toRpId('example.test'),
     credentialIdB64u: 'credential-export-flow',
   },
-  signingGrantId: 'grant-ecdsa-export-flow',
   thresholdSessionId: 'threshold-ecdsa-export-flow',
 });
 

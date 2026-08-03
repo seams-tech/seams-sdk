@@ -41,6 +41,7 @@ import {
   type StoreWalletSignerFinalizeRollbackReceipt,
   type StoreWalletRegistrationFinalizeBatchInput,
   type StoreWalletRegistrationFinalizeBatchResult,
+  type AtomicKeyMaterialRecoveryFinalizationInput,
 } from './seamsWalletDB/repositories';
 
 export interface UnifiedIndexedDBManagerDeps {
@@ -152,6 +153,14 @@ export class UnifiedIndexedDBManager {
 
   async setAppState<T = unknown>(key: string, value: T): Promise<void> {
     return this.seamsWalletRepositories.setAppState(key, value);
+  }
+
+  async compareAndSwapAppState(input: {
+    key: string;
+    expected: unknown | null;
+    replacement: unknown;
+  }): Promise<boolean> {
+    return this.seamsWalletRepositories.compareAndSwapAppState(input);
   }
 
   async upsertRecoveryEmails(
@@ -510,6 +519,12 @@ export class UnifiedIndexedDBManager {
       chainIdKey,
       keyKind,
     );
+  }
+
+  async finalizeKeyMaterialRecovery(
+    input: AtomicKeyMaterialRecoveryFinalizationInput,
+  ): Promise<void> {
+    return this.seamsWalletRepositories.finalizeKeyMaterialRecovery(input);
   }
 
   async listKeyMaterialByProfile(

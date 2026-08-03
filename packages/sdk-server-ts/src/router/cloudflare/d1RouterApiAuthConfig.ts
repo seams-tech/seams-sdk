@@ -9,11 +9,8 @@ import { EMAIL_OTP_CODE_LENGTH } from '../../core/authService/emailOtpConfig';
 import type { RouterAbEcdsaPresignRuntime } from '../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';
 import type { RouterAbEcdsaStrictRegistrationPort } from '../routerAbEcdsaStrictRegistration';
-import type { RouterAbWalletBudgetGrantProvisionerV1 } from '../routerAbPrivateSigningWorker';
-import {
-  parseSigningSessionSealRootConfig,
-  type SigningSessionSealShamir3PassRootConfig,
-} from '../../threshold/session/signingSessionSeal';
+import type { SigningSessionSealShamir3PassRootConfig } from '../../threshold/session/signingSessionSeal/crypto/cipher';
+import { parseSigningSessionSealRootConfig } from '../../threshold/session/signingSessionSeal/options';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import {
   normalizeOidcExchangeConfig,
@@ -91,7 +88,6 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly emailOtpGoogleRegistrationAttemptRateLimitMax?: number | string;
   readonly emailOtpGoogleRegistrationAttemptRateLimitWindowMs?: number | string;
   readonly routerAbEcdsaPresignRuntime?: RouterAbEcdsaPresignRuntime | null;
-  readonly walletBudgetGrantProvisioner?: RouterAbWalletBudgetGrantProvisionerV1 | null;
   readonly ed25519YaoProductRegistration?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
   readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
 }
@@ -251,7 +247,6 @@ export function normalizeD1RouterApiAuthOptions(
     emailOtp: normalizeEmailOtpConfig(input),
     emailOtpServerSeal: normalizeEmailOtpServerSealConfig(input),
     routerAbEcdsaPresignRuntime: input.routerAbEcdsaPresignRuntime,
-    walletBudgetGrantProvisioner: input.walletBudgetGrantProvisioner,
     ed25519YaoProductRegistration: input.ed25519YaoProductRegistration,
     ecdsaStrictRegistration: input.ecdsaStrictRegistration,
   };

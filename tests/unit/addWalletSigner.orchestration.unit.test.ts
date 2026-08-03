@@ -12,10 +12,6 @@ import {
   resetNearProvisioningRegistryForTests,
 } from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import { UserVerificationPolicy } from '../../packages/sdk-web/src/core/types/authenticatorOptions';
-import {
-  clearAllStoredThresholdEd25519SessionRecords,
-  clearAllThresholdEcdsaSessionRecords,
-} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import { emailOtpRecoveryCodeBackupRepository } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups';
 import {
   computeAddSignerNearEd25519SigningKeyId,
@@ -28,14 +24,16 @@ import {
   type RegistrationSignerRequest,
   type RegistrationSignerSetSelection,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseMpcMaterialActivationRef,
+  parseWebAuthnRpId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import { base58Encode } from '../../packages/shared-ts/src/utils/base58';
 import { sha256HexUtf8 } from '../../packages/shared-ts/src/utils/digests';
 import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
 } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   computeSdkEcdsaDerivationApplicationBindingDigestB64u,
@@ -145,6 +143,72 @@ async function mockedEcdsaFinalizeResponse(
     default:
       throw new Error('registration fixture requires an exact auth method');
   }
+}
+
+async function mockedNearEd25519FinalizeResponse(
+  captures: Record<string, unknown>,
+  walletId: string,
+): Promise<Record<string, unknown>> {
+  const base = await mockedEcdsaFinalizeResponse(captures, walletId);
+  const intentAuthMethod = (captures.intent as any)?.authMethod;
+  const nearSigner = mockedRegistrationNearEd25519Signer(
+    (captures.intent as any)?.signerSelection,
+  );
+  if (!nearSigner) throw new Error('NEAR registration fixture requires an Ed25519 signer');
+  const passkeyAuth = intentAuthMethod?.kind === 'passkey';
+  const nearEd25519SigningKeyId = String(
+    captures.nearEd25519SigningKeyId || 'near-ed25519-registration-key',
+  );
+  const nearAccountId = String(captures.sponsoredNearAccountId || 'ab'.repeat(32));
+  const authorityScope = passkeyAuth
+    ? { kind: 'passkey_rp', rpId: RP_ID }
+    : {
+        kind: 'email_otp',
+        provider: 'google',
+        providerUserId: EMAIL_OTP_PROVIDER_SUBJECT,
+      };
+  const accountProvisioning = captures.sponsoredNearAccountId
+    ? {
+        kind: 'sponsored_named_account',
+        requestedAccountId: String(captures.sponsoredNearAccountId),
+        sponsor: 'relayer',
+      }
+    : { kind: 'implicit_account', accountIdSource: 'ed25519_public_key' };
+  const resolvedAccount = captures.sponsoredNearAccountId
+    ? {
+        kind: 'sponsored_named_account',
+        nearAccountId,
+        nearEd25519SigningKeyId,
+        transactionHash: 'sponsored-named-account-tx',
+      }
+    : { kind: 'implicit_account', nearAccountId, nearEd25519SigningKeyId };
+  const publicKey = String(
+    captures.emailOtpEd25519FinalizePublicKey || EMAIL_OTP_ED25519_PUBLIC_KEY,
+  );
+  const result = {
+    ...base,
+    kind: 'near_ed25519',
+    authorityScope,
+    accountProvisioning,
+    resolvedAccount,
+    ed25519: {
+      signerSlot: nearSigner.signerSlot,
+      nearAccountId,
+      nearEd25519SigningKeyId,
+      publicKey,
+      relayerKeyId: 'signing-worker-test',
+      keyVersion: 'router-ab-ed25519-yao-v1',
+      recoveryExportCapable: true,
+      participantIds: nearSigner.participantIds,
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1',
+        signingWorkerId: 'signing-worker-test',
+      },
+    },
+    nearProvisioning: { status: 'near_pending' },
+  };
+  return result;
 }
 
 function attachMockedEcdsaFinalizeWalletKeys(
@@ -284,9 +348,6 @@ async function mockedRegistrationEcdsaStart(
     registrationPreparationId: body.registrationPreparationId,
     requestId: 'request-ecdsa',
     thresholdSessionId: 'session-ecdsa',
-    signingGrantId: mixedRegistration
-      ? 'email-otp-ed25519-signing-grant'
-      : 'wallet-session-ecdsa',
     ttlMs: 600_000,
     remainingUses: mixedRegistration ? 3 : 1,
     participantIds: [1, 2],
@@ -408,6 +469,15 @@ function mockedEcdsaPublicCapability(
     kind: 'router_ab_ecdsa_derivation_public_capability_v1',
     context: facts.context,
     public_identity: mockedEcdsaPublicIdentity(),
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: `ecdsa-activation:${facts.lifecycle.lifecycle_id}`,
+      capability: `ecdsa-capability:${facts.lifecycle.account_id}`,
+      material_owner: facts.lifecycle.account_id,
+      key_binding: 'ecdsa-key-binding-fixture',
+      lifecycle_binding: facts.lifecycle.lifecycle_id,
+      signing_worker: facts.signer_set.selected_server.server_id,
+    },
     signer_set: facts.signer_set,
     deriver_recipient_keys: facts.deriver_recipient_keys,
     router_id: facts.router_id,
@@ -453,30 +523,67 @@ function mockedEcdsaServerBootstrap(
     participantIds: [1, 2],
     thresholdSessionId: prepare.thresholdSessionId,
     activationEpoch: facts.lifecycle.root_share_epoch,
-    signingGrantId: prepare.signingGrantId,
     expiresAtMs,
     expiresAt: new Date(expiresAtMs).toISOString(),
     remainingUses: prepare.remainingUses,
+    routerAbEcdsaDerivationNormalSigning: {
+      kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
+      scope: {
+        wallet_id: walletId,
+        ecdsa_threshold_key_id: String(prepare.ecdsaThresholdKeyId),
+        signing_root_id: String(prepare.signingRootId),
+        signing_root_version: String(prepare.signingRootVersion),
+        context: { application_binding_digest_b64u: facts.context.application_binding_digest_b64u },
+        public_identity: mockedEcdsaPublicIdentity(),
+        signing_worker: {
+          server_id: 'signing-worker-test',
+          key_epoch: 'worker-epoch-test',
+          recipient_encryption_key:
+            'x25519:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+        },
+        material_activation: {
+          kind: 'mpc_material_activation_ref',
+          activation_id: `ecdsa-activation:${facts.lifecycle.lifecycle_id}`,
+          capability: `ecdsa-capability:${facts.lifecycle.account_id}`,
+          material_owner: facts.lifecycle.account_id,
+          key_binding: 'ecdsa-key-binding-fixture',
+          lifecycle_binding: facts.lifecycle.lifecycle_id,
+          signing_worker: 'signing-worker-test',
+        },
+        activation_epoch: facts.lifecycle.root_share_epoch,
+      },
+    },
   };
-  bootstrap.jwt = ecdsaWalletSessionJwtForBootstrap(bootstrap);
   return bootstrap;
 }
 
 function mockedEcdsaActivationReceipt(facts: Record<string, any>): Record<string, unknown> {
+  const digest = { bytes: new Array<number>(32).fill(0) };
   return {
+    activation_correlation_id: facts.lifecycle.lifecycle_id,
+    activation_request_digest: digest,
+    server_generation: 'generation-test',
     ecdsa_activation: {
       context: facts.context,
       public_identity: {
         ...mockedEcdsaPublicIdentity(),
       },
       signing_worker: facts.signer_set.selected_server,
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: `ecdsa-activation:${facts.lifecycle.lifecycle_id}`,
+        capability: `ecdsa-capability:${facts.lifecycle.account_id}`,
+        material_owner: facts.lifecycle.account_id,
+        key_binding: 'ecdsa-key-binding-fixture',
+        lifecycle_binding: facts.lifecycle.lifecycle_id,
+        signing_worker: facts.signer_set.selected_server.server_id,
+      },
       activation_epoch: facts.lifecycle.root_share_epoch,
       activation_digest_b64u: CONTEXT_BINDING_32_B64U,
       activated_at_ms: Date.now(),
     },
     lifecycle_id: facts.lifecycle.lifecycle_id,
-    transcript_digest: { bytes: new Array<number>(32).fill(0) },
-    activated: true,
+    transcript_digest: digest,
   };
 }
 
@@ -511,93 +618,8 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
   return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u(payload)}.sig`;
 }
 
-function ed25519WalletSessionJwt(args: {
-  walletId: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  thresholdSessionId: string;
-  signingGrantId: string;
-}): string {
-  return jwtWithPayload({
-    kind: 'router_ab_ed25519_wallet_session_v1',
-    sub: args.walletId,
-    walletId: args.walletId,
-    nearAccountId: args.nearAccountId,
-    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
-    thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId,
-    relayerKeyId: 'signing-worker-test',
-    rpId: RP_ID,
-    participantIds: [1, 2],
-  });
-}
-
 function ethereumAddress20B64u(address: string): string {
   return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
-}
-
-function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): string {
-  const publicIdentity = bootstrap.publicIdentity as Record<string, unknown>;
-  const sessionId = String(bootstrap.sessionId || bootstrap.thresholdSessionId || '').trim();
-  const signingGrantId = String(bootstrap.signingGrantId || '').trim();
-  const walletId = String(bootstrap.walletId || '').trim();
-  const evmFamilySigningKeySlotId = String(bootstrap.evmFamilySigningKeySlotId || '').trim();
-  const applicationBindingDigestB64u = String(bootstrap.applicationBindingDigestB64u || '').trim();
-  const ecdsaThresholdKeyId = String(bootstrap.ecdsaThresholdKeyId || '').trim();
-  const signingRootId = String(bootstrap.signingRootId || '').trim();
-  const signingRootVersion = String(bootstrap.signingRootVersion || '').trim();
-  const keyHandle = String(bootstrap.keyHandle || '').trim();
-  const relayerKeyId = String(bootstrap.relayerKeyId || '').trim();
-  const expiresAtMs = Number(bootstrap.expiresAtMs);
-  const participantIds = Array.isArray(bootstrap.participantIds) ? bootstrap.participantIds : [];
-  return jwtWithPayload({
-    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-    sub: walletId,
-    walletId,
-    evmFamilySigningKeySlotId,
-    thresholdSessionId: sessionId,
-    signingGrantId,
-    keyScope: 'evm-family',
-    keyHandle,
-    relayerKeyId,
-    rpId: RP_ID,
-    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-    thresholdExpiresAtMs: expiresAtMs,
-    participantIds,
-    routerAbEcdsaDerivationNormalSigning: {
-      kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
-      scope: {
-        wallet_id: walletId,
-        wallet_key_id: evmFamilySigningKeySlotId,
-        ecdsa_threshold_key_id: ecdsaThresholdKeyId,
-        signing_root_id: signingRootId,
-        signing_root_version: signingRootVersion,
-        context: {
-          application_binding_digest_b64u: applicationBindingDigestB64u,
-        },
-        public_identity: {
-          context_binding_b64u: String(bootstrap.contextBinding32B64u || '').trim(),
-          derivation_client_share_public_key33_b64u: String(
-            publicIdentity.derivationClientSharePublicKey33B64u || '',
-          ).trim(),
-          server_public_key33_b64u: String(publicIdentity.relayerPublicKey33B64u || '').trim(),
-          threshold_public_key33_b64u: String(publicIdentity.groupPublicKey33B64u || '').trim(),
-          ethereum_address20_b64u: ethereumAddress20B64u(
-            String(publicIdentity.ethereumAddress || bootstrap.ethereumAddress || ''),
-          ),
-          client_share_retry_counter: Number(bootstrap.clientShareRetryCounter),
-          server_share_retry_counter: Number(bootstrap.relayerShareRetryCounter),
-        },
-        signing_worker: {
-          server_id: 'signing-worker-test',
-          key_epoch: 'worker-epoch-test',
-        recipient_encryption_key:
-            'x25519:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
-        },
-        activation_epoch: String(bootstrap.activationEpoch || sessionId),
-      },
-    },
-  });
 }
 
 function plannedEcdsaWalletKeyId(walletId: unknown): string {
@@ -666,6 +688,19 @@ function expectRegistrationSuccess(result: { success: boolean; error?: unknown }
   }
 }
 
+function ecdsaCapabilityFromRegistrationResult(result: {
+  capabilities?: readonly {
+    kind: string;
+    thresholdEcdsaEthereumAddress?: string;
+    thresholdEcdsaPublicKeyB64u?: string;
+  }[];
+}): {
+  thresholdEcdsaEthereumAddress?: string;
+  thresholdEcdsaPublicKeyB64u?: string;
+} | null {
+  return result.capabilities?.find((capability) => capability.kind === 'evm_family_ecdsa') ?? null;
+}
+
 async function emptyWorkerWarmupDiagnostics() {
   return {
     kind: 'worker_resource_warmup_diagnostics_v1' as const,
@@ -674,6 +709,20 @@ async function emptyWorkerWarmupDiagnostics() {
     keyMaterialReadMs: 0,
     uiConfirmPrewarmMs: 0,
     signerWorkerPrewarmMs: 0,
+  };
+}
+
+async function persistInitialCanonicalEcdsaActivationForTest(
+  captures: Record<string, unknown>,
+  input: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  captures.persistedCanonicalEcdsaActivation = input;
+  const planInput = input.planInput as Record<string, unknown> | undefined;
+  return {
+    ok: true,
+    kind: 'initial_canonical_ecdsa_activation_persisted_v1',
+    ceremonyId: String(input.ceremonyId || ''),
+    journalId: String(planInput?.journalId || ''),
   };
 }
 
@@ -835,7 +884,7 @@ class EmailOtpEd25519YaoWorkerContextCapture {
           },
         };
       }
-      case 'commitEmailOtpEd25519YaoRegistration': {
+      case 'persistEmailOtpEd25519YaoRegistrationMaterial': {
         this.captures.emailOtpYaoCommit = request.payload;
         registrationEvents(this.captures)?.push('emailOtpYaoCommitCalled');
         if (this.captures.failEmailOtpYaoSeal) {
@@ -850,9 +899,18 @@ class EmailOtpEd25519YaoWorkerContextCapture {
               lifecycle_id: 'registration-ceremony',
               root_share_epoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
               account_id: scope.walletId,
-              wallet_session_id: 'registration-ceremony',
+              threshold_session_id: 'registration-ceremony',
               signer_set_id: registrationNearEd25519BranchKey(scope.signerSlot),
               signing_worker_id: 'signing-worker-test',
+              material_activation: {
+                kind: 'mpc_material_activation_ref',
+                activation_id: 'ed25519-activation:registration-ceremony',
+                capability: 'ed25519-capability:registration-ceremony',
+                material_owner: scope.walletId,
+                key_binding: scope.nearEd25519SigningKeyId,
+                lifecycle_binding: 'registration-ceremony',
+                signing_worker: 'signing-worker-test',
+              },
             },
             applicationBinding: {
               wallet_id: scope.walletId,
@@ -940,7 +998,7 @@ async function captureEmailOtpEd25519Registration(
   return { signerSlot: input.signerSlot };
 }
 
-async function captureActivatedEmailOtpEd25519YaoCapability(
+async function captureActivatedEmailOtpEd25519YaoMaterial(
   captures: Record<string, unknown>,
   input: Record<string, unknown>,
 ): Promise<{ kind: string; identityKey: string }> {
@@ -1031,7 +1089,6 @@ function createContext(captures: Record<string, unknown>): any {
     registrationEvents(captures)?.push('emailOtpEnrollmentMaterialResolved');
     return material;
   };
-  const thresholdEcdsaSessionStore = { recordsByLane: new Map() };
   const emailOtpYaoWorkerContext = new EmailOtpEd25519YaoWorkerContextCapture(captures);
   const ecdsaRegistrationBootstrap = {
     preparePasskeyClientBootstrap: prepareWalletRegistrationEcdsaPreparedClientBootstrap,
@@ -1064,27 +1121,7 @@ function createContext(captures: Record<string, unknown>): any {
     captures.hydratedSession = input;
   };
   const finalizeWalletRegistrationEcdsaSessionsForTest = async (input: Record<string, unknown>) => {
-    await finalizeWalletRegistrationEcdsaSessionsOperation(
-      {
-        bootstrapStore: {
-          upsertProfile: async () => undefined,
-          activateAccountSigner: async (activationInput: any) => ({
-            signer: activationInput.signer,
-            signerSlot: 1,
-          }),
-        },
-        sessionStore: thresholdEcdsaSessionStore,
-        warmSessions: { hydrateSigningSession },
-        persistActivePasskeyEcdsaReauthAnchor: async (input: unknown) => {
-          captures.persistedActivePasskeyEcdsaReauthAnchor = input;
-        },
-        persistEmailOtpEcdsaRegistrationReauthAnchor: async (input: unknown) => {
-          captures.persistedEmailOtpEcdsaRegistrationReauthAnchor = input;
-        },
-        signingSessionSeal: {},
-      },
-      input as any,
-    );
+    await finalizeWalletRegistrationEcdsaSessionsOperation(input as any);
     captures.persistedEcdsaSessions = input;
   };
   return {
@@ -1251,8 +1288,8 @@ function createContext(captures: Record<string, unknown>): any {
         undefined,
         captures,
       ),
-      persistEmailOtpEd25519YaoSessionForRefreshInternal: async (input: unknown) => {
-        captures.persistedEmailOtpEd25519YaoSessionForRefresh = input;
+      persistEmailOtpEd25519YaoCapabilityForRefreshInternal: async (input: unknown) => {
+        captures.persistedEmailOtpEd25519YaoCapabilityForRefresh = input;
       },
       storeWalletEcdsaSignerRecords: async (input: Record<string, unknown>) => {
         captures.storedEcdsa = input;
@@ -1293,8 +1330,8 @@ function createContext(captures: Record<string, unknown>): any {
           throw new Error(`durable NEAR provisioning write unavailable: ${write.status}`);
         }
       },
-      activateVerifiedNearEd25519YaoSigningCapability:
-        captureActivatedEmailOtpEd25519YaoCapability.bind(undefined, captures),
+      activateVerifiedNearEd25519YaoMaterial:
+        captureActivatedEmailOtpEd25519YaoMaterial.bind(undefined, captures),
       createRouterAbEcdsaRegistrationCeremony: async (args: Record<string, any>) => {
         captures.ecdsaRegistrationFacts = args.registration;
         registrationEvents(captures)?.push('ecdsaCeremonyStarted');
@@ -1330,14 +1367,47 @@ function createContext(captures: Record<string, unknown>): any {
           participantId: 1,
         },
       }),
+      persistInitialCanonicalEcdsaActivation: persistInitialCanonicalEcdsaActivationForTest.bind(
+        undefined,
+        captures,
+      ),
       finalizeRouterAbEcdsaRegistrationActivation: async (args: Record<string, any>) => {
         const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
         const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
           mockedEcdsaPublicCapability(ecdsaFacts),
         );
+        const intent = captures.intent as Record<string, any>;
+        const walletId = String(intent.walletId || WALLET_SUBJECT_ID);
+        const authority =
+          intent.authMethod?.kind === 'email_otp'
+            ? buildEmailOtpWalletAuthAuthority({
+                walletId,
+                provider: 'google',
+                providerUserId: EMAIL_OTP_PROVIDER_SUBJECT,
+                emailHashHex: await sha256HexUtf8('alice@example.com'),
+              })
+            : buildPasskeyWalletAuthAuthority({
+                walletId,
+                rpId: RP_ID,
+                credentialIdB64u: 'registration-credential-id',
+              });
+        const parsedMaterialActivation = parseMpcMaterialActivationRef({
+          kind: 'mpc_material_activation_ref',
+          activationId: 'activation:registration-ceremony',
+          capability: 'capability:registration-ceremony',
+          materialOwner: 'material-owner:registration-ceremony',
+          keyBinding: 'key-binding:registration-ceremony',
+          lifecycleBinding: 'lifecycle-binding:registration-ceremony',
+          signingWorker: 'signing-worker:registration-ceremony',
+        });
+        if (!parsedMaterialActivation.ok) {
+          throw new Error(parsedMaterialActivation.error.message);
+        }
         return {
           kind: 'router_ab_ecdsa_registration_activation_finalized_v1',
-          ceremonyId: args.ceremonyId,
+          journalId: String(args.journalId || args.ceremonyId || 'registration-ceremony'),
+          authority,
+          materialActivation: parsedMaterialActivation.value,
           roleLocalMaterial: {
             kind: 'ecdsa_role_local_worker_handle_v1',
             materialHandle: parseEcdsaRoleLocalMaterialHandle(
@@ -1467,9 +1537,14 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         ? {
             ed25519: buildFixtureRespondEd25519DeferredWork({
               lifecycleId: 'registration-ceremony',
+              rootShareEpoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
               walletId: String((captures.intent as { walletId?: unknown } | undefined)?.walletId),
               signerSetId: registrationNearEd25519BranchKey(respondEd25519.signerSlot),
               signingWorkerId: 'signing-worker-test',
+              nearEd25519SigningKeyId: 'near-ed25519-registration-key',
+              signingRootId: 'project_matrix:dev',
+              participantIds: [1, 2],
+              signerSlot: respondEd25519.signerSlot,
             }),
           }
         : {};
@@ -1538,11 +1613,9 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
               expiresAtMs: registrationEcdsaExpiresAtMs,
               expiresAt: new Date(registrationEcdsaExpiresAtMs).toISOString(),
             } as Record<string, unknown>;
-            const sessionJwt = ecdsaWalletSessionJwtForBootstrap(bootstrap);
             if (patchRegistrationBootstrap) {
               bootstrap = patchRegistrationBootstrap(bootstrap);
             }
-            bootstrap.jwt = sessionJwt;
             return { chainTarget: entry.chainTarget, bootstrap };
           })
         : null;
@@ -1573,14 +1646,13 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         mockedRegistrationEvmFamilyEcdsaSigner((captures.intent as any)?.signerSelection),
       );
       if (!activateHasEcdsa) {
-        const pendingBody = await mockedEcdsaFinalizeResponse(captures, activateWalletId);
+        const pendingBody = await mockedNearEd25519FinalizeResponse(captures, activateWalletId);
         captures.finalizeBody = { ...body, kind: 'near_ed25519' };
         const pendingBodies = (captures.finalizeBodies as unknown[] | undefined) ?? [];
         pendingBodies.push({ ...body, kind: 'near_ed25519' });
         captures.finalizeBodies = pendingBodies;
         return jsonResponse({
           ...pendingBody,
-          kind: 'near_ed25519',
           nearProvisioning: { status: 'near_pending' },
         });
       }
@@ -1588,14 +1660,12 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
       const prepare = captures.ecdsaPrepare as Record<string, any>;
       let bootstrap = mockedEcdsaServerBootstrap(ecdsaFacts, prepare);
       captures.sharedRegistrationExpiresAtMs = bootstrap.expiresAtMs;
-      const sessionJwt = ecdsaWalletSessionJwtForBootstrap(bootstrap);
       const patchRegistrationBootstrap = captures.patchRegistrationBootstrap as
         | ((value: Record<string, unknown>) => Record<string, unknown>)
         | undefined;
       if (patchRegistrationBootstrap) {
         bootstrap = patchRegistrationBootstrap(bootstrap);
       }
-      bootstrap.jwt = sessionJwt;
       /* Activate absorbed finalize, so it is the terminal commit these tests
          track: recorded under the same capture the finalize route used, with
          the plan kind the commit covers. */
@@ -1618,7 +1688,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
       };
       if (mockedRegistrationNearEd25519Signer((captures.intent as any)?.signerSelection)) {
         /* Mixed plans: the NEAR arm is still deferred at this point. */
-        (activateBody as Record<string, any>).nearProvisioning = { status: 'near_pending' };
+        (activateBody as Record<string, any>).nearProvisioning = { status: 'pending' };
       }
       return jsonResponse(activateBody);
     }
@@ -1645,7 +1715,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         const providerSubject = EMAIL_OTP_PROVIDER_SUBJECT;
         const passkeyAuth = intentAuthMethod?.kind === 'passkey';
         const authorityScope = passkeyAuth
-          ? { kind: 'passkey', rpId: RP_ID }
+          ? { kind: 'passkey_rp', rpId: RP_ID }
           : {
               kind: 'email_otp',
               provider: 'google',
@@ -1720,33 +1790,10 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
             keyVersion: 'router-ab-ed25519-yao-v1',
             recoveryExportCapable: true,
             participantIds: ed25519Signer.participantIds,
-            session: {
-              sessionKind: 'jwt',
-              walletSessionJwt: ed25519WalletSessionJwt({
-                walletId: responseWalletId,
-                nearAccountId: String(captures.sponsoredNearAccountId || 'ab'.repeat(32)),
-                nearEd25519SigningKeyId,
-                thresholdSessionId: 'registration-ceremony',
-                signingGrantId: 'email-otp-ed25519-signing-grant',
-              }),
-              walletId: responseWalletId,
-              nearAccountId: String(captures.sponsoredNearAccountId || 'ab'.repeat(32)),
-              nearEd25519SigningKeyId,
-              authorityScope,
-              thresholdSessionId: 'registration-ceremony',
-              signingGrantId: 'email-otp-ed25519-signing-grant',
-              expiresAtMs: Number(
-                captures.sharedRegistrationExpiresAtMs || Date.now() + 60_000,
-              ),
-              participantIds: ed25519Signer.participantIds,
-              remainingUses: 3,
-              signingRootId: 'project_matrix:dev',
-              signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
-              runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-              routerAbNormalSigning: {
-                kind: 'router_ab_ed25519_normal_signing_v1',
-                signingWorkerId: 'signing-worker-test',
-              },
+            runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+            routerAbNormalSigning: {
+              kind: 'router_ab_ed25519_normal_signing_v1',
+              signingWorkerId: 'signing-worker-test',
             },
           },
         };
@@ -1768,8 +1815,6 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
 }
 
 async function withMockedIndexedDb<T>(run: () => Promise<T>): Promise<T> {
-  clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
-  clearAllStoredThresholdEd25519SessionRecords();
   const indexedDB = IndexedDBManager as unknown as Record<string, unknown>;
   const originalListProfileAuthenticators = indexedDB.listProfileAuthenticators;
   const originalResolveProfileAccountContext = indexedDB.resolveProfileAccountContext;
@@ -1797,8 +1842,6 @@ async function withMockedIndexedDb<T>(run: () => Promise<T>): Promise<T> {
     indexedDB.resolveProfileAccountContext = originalResolveProfileAccountContext;
     (IndexedDBManager as any).getKeyMaterial = originalGetKeyMaterial;
     (IndexedDBManager as any).storeKeyMaterial = originalStoreKeyMaterial;
-    clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
-    clearAllStoredThresholdEd25519SessionRecords();
   }
 }
 test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
@@ -1812,6 +1855,7 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
       signer.registerEvmWallet({
         chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1, networkSlug: 'ethereum' }],
         participantIds: [1, 2],
+        authMethod: { kind: 'passkey', rpId: RP_ID },
         options: {},
       }),
     );
@@ -1819,7 +1863,12 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
     expectRegistrationSuccess(result);
     expect(result).toMatchObject({
       success: true,
-      thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
+      capabilities: [
+        {
+          kind: 'evm_family_ecdsa',
+          thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
+        },
+      ],
     });
     expect((captures.intentRequestBody as any)?.signerSelection).toEqual({
       kind: 'signer_set',
@@ -1867,7 +1916,12 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
     expectRegistrationSuccess(result);
     expect(result).toMatchObject({
       success: true,
-      thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
+      capabilities: [
+        {
+          kind: 'evm_family_ecdsa',
+          thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
+        },
+      ],
     });
     /* Registration completes through the three-route protocol. */
     expect(fetchMock.paths).toEqual([
@@ -1888,7 +1942,11 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
       },
     });
     expect(captures.persistedEcdsaSessions).toMatchObject({
-      auth: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
+      session: {
+        authority: {
+          factor: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
+        },
+      },
     });
     expect(captures.emailOtpYaoPrewarmCalls || 0).toBe(0);
   } finally {
@@ -2030,13 +2088,10 @@ test('registerWallet overlaps Email OTP enrollment material with ECDSA registrat
       },
     });
     expect(captures.persistedEcdsaSessions).toMatchObject({
-      auth: {
-        kind: 'email_otp',
-        emailOtpAuthContext: {
-          authority: {
-            factor: {
-              kind: 'email_otp',
-            },
+      session: {
+        authority: {
+          factor: {
+            kind: 'email_otp',
           },
         },
       },
@@ -2209,7 +2264,7 @@ test('registerWallet keeps the ECDSA wallet when the deferred Ed25519 finalize f
       success: true,
       kind: 'ecdsa_wallet_registered_near_pending',
     });
-    expect(String((result as { thresholdEcdsaEthereumAddress?: string }).thresholdEcdsaEthereumAddress ?? '')).not.toBe('');
+    expect(String(ecdsaCapabilityFromRegistrationResult(result)?.thresholdEcdsaEthereumAddress ?? '')).not.toBe('');
 
     await waitForTestCondition({
       label: 'the deferred Ed25519 finalize to be attempted and rejected',
@@ -2339,12 +2394,11 @@ test('the ECDSA wallet is durable and usable while the Yao ceremony is still blo
     /* Commit #1 is durable: the ECDSA signer records were persisted, and the
        wallet carries a usable threshold address. */
     expect(captures.storedEcdsaRegistration).toBeDefined();
-    const ecdsaAddress = String(
-      (result as { thresholdEcdsaEthereumAddress?: string }).thresholdEcdsaEthereumAddress ?? '',
-    );
+    const ecdsaCapability = ecdsaCapabilityFromRegistrationResult(result);
+    const ecdsaAddress = String(ecdsaCapability?.thresholdEcdsaEthereumAddress ?? '');
     expect(ecdsaAddress).not.toBe('');
     expect(
-      String((result as { thresholdEcdsaPublicKeyB64u?: string }).thresholdEcdsaPublicKeyB64u ?? ''),
+      String(ecdsaCapability?.thresholdEcdsaPublicKeyB64u ?? ''),
     ).not.toBe('');
 
     /* The wallet is entered under its own id, not a NEAR account that does not
@@ -2382,7 +2436,7 @@ test('a failed near_ready write never publishes near_ready', async () => {
     expect(result).toMatchObject({ success: true, kind: 'ecdsa_wallet_registered_near_pending' });
     expect(
       String(
-        (result as { thresholdEcdsaEthereumAddress?: string }).thresholdEcdsaEthereumAddress ?? '',
+        ecdsaCapabilityFromRegistrationResult(result)?.thresholdEcdsaEthereumAddress ?? '',
       ),
     ).not.toBe('');
 
@@ -2618,7 +2672,7 @@ test('registerWallet does not start Yao while ECDSA respond is unresolved', asyn
   }
 });
 
-test('registerWallet returns an Email OTP Ed25519-only wallet before Yao completes', async () => {
+test('registerWallet completes an Email OTP Ed25519-only wallet after Yao', async () => {
   const captures: Record<string, unknown> = {
     emailOtpYaoPrewarmFailure: true,
   };
@@ -2666,9 +2720,8 @@ test('registerWallet returns an Email OTP Ed25519-only wallet before Yao complet
     expectRegistrationSuccess(result);
     expect(result).toMatchObject({
       success: true,
-      kind: 'near_wallet_registered_pending',
+      kind: 'wallet_registered',
       walletId,
-      nearProvisioning: { status: 'pending' },
     });
     expect(fetchMock.paths.slice(0, 3)).toEqual([
       '/wallets/register/setup',
@@ -2686,6 +2739,7 @@ test('registerWallet returns an Email OTP Ed25519-only wallet before Yao complet
     expect(captures.emailOtpYaoWorkerOperations).toEqual([
       'bindEmailOtpEd25519YaoRoot',
       'startEmailOtpEd25519YaoRegistration',
+      'persistEmailOtpEd25519YaoRegistrationMaterial',
     ]);
     expect(captures.emailOtpYaoPrewarmCalls).toBe(1);
     expect(captures.emailOtpYaoStart).toMatchObject({
@@ -2694,15 +2748,11 @@ test('registerWallet returns an Email OTP Ed25519-only wallet before Yao complet
       registrationAuthorityId: 'registration-attempt-1',
       bearerToken: 'signed-setup-token',
     });
-    await waitForTestCondition({
-      label: 'Email OTP Ed25519-only provisioning to finish',
-      predicate: () => readNearProvisioningState(walletId)?.status === 'near_ready',
-    });
     expect(fetchMock.paths).toContain('/wallets/register/near-provisioning');
     expect(captures.emailOtpYaoWorkerOperations).toEqual([
       'bindEmailOtpEd25519YaoRoot',
       'startEmailOtpEd25519YaoRegistration',
-      'commitEmailOtpEd25519YaoRegistration',
+      'persistEmailOtpEd25519YaoRegistrationMaterial',
     ]);
     expect(captures.finalizeBody).toMatchObject({
       ed25519: {
@@ -2728,26 +2778,6 @@ test('registerWallet returns an Email OTP Ed25519-only wallet before Yao complet
       participantIds: [1, 2],
     });
     expect(captures.storedEcdsaRegistration).toBeUndefined();
-    expect(captures.activatedEmailOtpEd25519YaoCapability).toMatchObject({
-      walletSessionState: {
-        thresholdSessionId: 'registration-ceremony',
-        signingGrantId: 'email-otp-ed25519-signing-grant',
-        signingLane: {
-          auth: {
-            kind: 'email_otp',
-            providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT,
-          },
-          identity: {
-            signer: {
-              account: {
-                wallet: { walletId: String(walletId) },
-              },
-              signerSlot: 1,
-            },
-          },
-        },
-      },
-    });
     expect(captures.rememberedEmailOtpAppSession).toEqual({
       kind: 'email_otp_app_session_binding',
       walletId,
@@ -2761,7 +2791,7 @@ test('registerWallet returns an Email OTP Ed25519-only wallet before Yao complet
   }
 });
 
-test('Email OTP Ed25519-only registration reports a retryable deferred identity mismatch', async () => {
+test('Email OTP Ed25519-only registration reports an identity mismatch', async () => {
   const captures: Record<string, unknown> = {
     emailOtpEd25519FinalizePublicKey: `ed25519:${base58Encode(new Uint8Array(32).fill(9))}`,
   };
@@ -2805,13 +2835,10 @@ test('Email OTP Ed25519-only registration reports a retryable deferred identity 
     );
 
     expect(result).toMatchObject({
-      success: true,
-      kind: 'near_wallet_registered_pending',
+      success: false,
+      error: expect.stringMatching(/Ed25519 Yao finalize returned mismatched signer identity/),
     });
-    await waitForTestCondition({
-      label: 'deferred identity mismatch to become retryable',
-      predicate: () => readNearProvisioningState(walletId)?.status === 'near_failed_retryable',
-    });
+    expect(readNearProvisioningState(walletId)?.status).not.toBe('near_ready');
     expect(captures.emailOtpYaoWorkerOperations).toEqual([
       'bindEmailOtpEd25519YaoRoot',
       'startEmailOtpEd25519YaoRegistration',
@@ -2862,7 +2889,7 @@ test('registerWallet rejects invalid ECDSA respond bootstrap before finalize', a
 
     expect(result).toMatchObject({
       success: false,
-      error: expect.stringMatching(/derivation_client_share_public_key33_b64u mismatch/),
+      error: expect.stringMatching(/derivationClientSharePublicKey33B64u mismatch/),
     });
     expect(captures.finalizeBody).toBeDefined();
     expect(captures.persistedEcdsaSessions).toBeUndefined();
@@ -2872,46 +2899,6 @@ test('registerWallet rejects invalid ECDSA respond bootstrap before finalize', a
   }
 });
 
-test('registerWallet rejects mismatched ECDSA wallet key before registration persistence', async () => {
-  const captures: Record<string, unknown> = {
-    patchRegistrationWalletKey: (walletKey: Record<string, unknown>) => ({
-      ...walletKey,
-      keyHandle: 'mismatched-key-handle',
-    }),
-  };
-  const fetchMock = installRegisterWalletFetch(captures);
-  try {
-    const result = await withMockedIndexedDb(() =>
-      registerWallet({
-        context: createContext(captures),
-        authMethod: { kind: 'passkey', rpId: RP_ID },
-        wallet: { kind: 'server_allocated' },
-        signerSelection: registrationSignerSet(
-          evmFamilyRegistrationSigner([{ kind: 'evm', namespace: 'eip155', chainId: 1 }]),
-        ),
-        options: {},
-        authenticatorOptions: {
-          userVerification: UserVerificationPolicy.Preferred,
-          originPolicy: {
-            single: true,
-            all_subdomains: false,
-            multiple: [],
-          },
-        },
-      }),
-    );
-
-    expect(result).toMatchObject({
-      success: false,
-      error: expect.stringMatching(/keyHandle mismatch/),
-    });
-    expect(captures.finalizeBody).toBeDefined();
-    expect(captures.persistedEcdsaSessions).toBeUndefined();
-    expect(captures.storedEcdsaRegistration).toBeUndefined();
-  } finally {
-    fetchMock.restore();
-  }
-});
 function installAddSignerFetch(captures: Record<string, unknown>) {
   const originalFetch = globalThis.fetch;
   const paths: string[] = [];
@@ -2960,9 +2947,18 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
             lifecycle_id: ceremonyId,
             root_share_epoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
             account_id: body.intent.walletId,
-            wallet_session_id: ceremonyId,
+            threshold_session_id: ceremonyId,
             signer_set_id: registrationNearEd25519BranchKey(selection.signerSlot),
             signing_worker_id: 'signing-worker-test',
+            material_activation: {
+              kind: 'mpc_material_activation_ref',
+              activation_id: `ed25519-activation:${ceremonyId}`,
+              capability: `ed25519-capability:${ceremonyId}`,
+              material_owner: body.intent.walletId,
+              key_binding: nearEd25519SigningKeyId,
+              lifecycle_binding: ceremonyId,
+              signing_worker: 'signing-worker-test',
+            },
           },
           application_binding: {
             wallet_id: body.intent.walletId,
@@ -3007,7 +3003,6 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
           registrationPreparationId: 'add-signer-preparation',
           requestId: 'request-ecdsa',
           thresholdSessionId: 'session-ecdsa',
-          signingGrantId: 'wallet-session-ecdsa',
           ttlMs: 600_000,
           remainingUses: 1,
           participantIds: [1, 2],
@@ -3084,7 +3079,6 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
         if (patchAddSignerBootstrap) {
           ecdsaBootstrap = patchAddSignerBootstrap(ecdsaBootstrap);
         }
-        ecdsaBootstrap.jwt = ecdsaWalletSessionJwtForBootstrap(ecdsaBootstrap);
         return jsonResponse({
           ok: true,
           addSignerCeremonyId: body.addSignerCeremonyId,
@@ -3103,14 +3097,12 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
       const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
       const prepare = captures.ecdsaPrepare as Record<string, any>;
       let bootstrap = mockedEcdsaServerBootstrap(ecdsaFacts, prepare);
-      const sessionJwt = ecdsaWalletSessionJwtForBootstrap(bootstrap);
       const patchAddSignerBootstrap = captures.patchAddSignerBootstrap as
         | ((value: Record<string, unknown>) => Record<string, unknown>)
         | undefined;
       if (patchAddSignerBootstrap) {
         bootstrap = patchAddSignerBootstrap(bootstrap);
       }
-      bootstrap.jwt = sessionJwt;
       return jsonResponse({
         ok: true,
         addSignerCeremonyId: body.addSignerCeremonyId,
@@ -3118,6 +3110,19 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
           kind: 'router_ab_ecdsa_registration_activated_v1',
           activation: mockedEcdsaActivationReceipt(ecdsaFacts),
           bootstrap,
+        },
+      });
+    }
+    if (path === `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/activate/prepare`) {
+      return jsonResponse({
+        ok: true,
+        addSignerCeremonyId: body.addSignerCeremonyId,
+        ecdsa: {
+          kind: 'router_ab_ecdsa_registration_activation_prepared_v1',
+          preparation: {
+            activation_correlation_id: body.ecdsa.activationCorrelationId,
+            activation_request_digest: { bytes: new Array<number>(32).fill(0) },
+          },
         },
       });
     }
@@ -3190,12 +3195,18 @@ test('addWalletSigner orchestrates later ECDSA from an Ed25519 wallet', async ()
     expectRegistrationSuccess(result);
     expect(result).toMatchObject({
       success: true,
-      thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
+      capabilities: [
+        {
+          kind: 'evm_family_ecdsa',
+          thresholdEcdsaEthereumAddress: '0x3333333333333333333333333333333333333333',
+        },
+      ],
     });
     expect(fetchMock.paths).toEqual([
       `/wallets/${WALLET_SUBJECT_ID}/signers/intent`,
       `/wallets/${WALLET_SUBJECT_ID}/signers/start`,
       `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/respond`,
+      `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/activate/prepare`,
       `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/activate`,
       `/wallets/${WALLET_SUBJECT_ID}/signers/finalize`,
     ]);
@@ -3219,7 +3230,12 @@ test('addWalletSigner orchestrates later ECDSA from an Ed25519 wallet', async ()
       },
     });
     expect(captures.persistedEcdsaSessions).toMatchObject({
-      auth: { kind: 'passkey', credentialIdB64u: 'credential-id' },
+      session: {
+        authority: {
+          factor: { kind: 'passkey' },
+          verifier: { kind: 'webauthn', rpId: RP_ID },
+        },
+      },
     });
   } finally {
     fetchMock.restore();
@@ -3253,7 +3269,7 @@ test('addWalletSigner rejects invalid ECDSA respond bootstrap before finalize', 
 
     expect(result).toMatchObject({
       success: false,
-      error: expect.stringMatching(/context_binding_b64u mismatch/),
+      error: expect.stringMatching(/contextBinding32B64u mismatch/),
     });
     expect(captures.finalizeBody).toBeUndefined();
     expect(captures.persistedEcdsaSessions).toBeUndefined();

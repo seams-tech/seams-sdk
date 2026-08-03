@@ -7,7 +7,7 @@ export type {
 
 export interface WarmSessionMaterialWriter {
   putWarmSessionMaterial(args: {
-    sessionId: string;
+    thresholdSessionId: string;
     prfFirstB64u: string;
     expiresAtMs: number;
     remainingUses: number;

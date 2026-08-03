@@ -9,7 +9,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { DEV_DEFAULT_UNLOCK_REMAINING_USES } from '@/core/signingEngine/session/budget/policy';
+import { DEFAULT_UNLOCK_REMAINING_USES } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   listConfiguredThresholdEcdsaPublicationTargets,
   listThresholdEcdsaProvisionTargets,
@@ -498,8 +498,8 @@ function eventOnlyRegistrationOptions(args: {
 
 function resolveGoogleEmailOtpEd25519RemainingUses(configs: SeamsConfigsReadonly): number {
   const configured = Math.floor(Number(configs.signing.sessionDefaults?.remainingUses) || 0);
-  if (configured <= 0) return DEV_DEFAULT_UNLOCK_REMAINING_USES;
-  return Math.min(configured, DEV_DEFAULT_UNLOCK_REMAINING_USES);
+  if (configured <= 0) return DEFAULT_UNLOCK_REMAINING_USES;
+  return Math.min(configured, DEFAULT_UNLOCK_REMAINING_USES);
 }
 
 async function loginWithConfiguredTargets(args: {
@@ -561,7 +561,12 @@ async function assertLoggedIn(
   walletId: WalletId,
 ): Promise<WalletSession> {
   const session = await deps.getWalletSession(walletId);
-  if (!session.login.isLoggedIn) {
+  if (
+    session.appIdentity.kind !== 'resolved' ||
+    String(session.appIdentity.walletId) !== String(walletId) ||
+    session.reusableWalletSession.kind !== 'active' ||
+    String(session.reusableWalletSession.walletId) !== String(walletId)
+  ) {
     throw new Error('Wallet auth completed, but the local signing session is not ready yet.');
   }
   return session;

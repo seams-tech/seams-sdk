@@ -1,3 +1,5 @@
+import type { WarmSessionMaterialOperationTarget } from '../../session/emailOtp/sealedRuntimePurpose';
+import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 import type { RuntimePorts } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
@@ -10,12 +12,9 @@ import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
-import type { EmailOtpEcdsaStepUpAuthority } from '../../flows/signEvmFamily/emailOtpSigningSession';
 import type {
-  EmailOtpEcdsaSigningBootstrapResult,
   EvmFamilySigningDeps,
   NearSigningApiDeps,
-  PrivateKeyExportRecoveryDeps,
   RegistrationAccountLifecycleDeps,
   RegistrationSessionDeps,
 } from '../../interfaces/operationDeps';
@@ -24,23 +23,12 @@ import type {
   ReadAvailableSigningLanesForSigningInput,
   AvailableSigningLanes,
 } from '../../session/availability/availableSigningLanes';
-import {
-  THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES,
-  type ThresholdEcdsaSessionStoreSource,
-} from '../../session/identity/laneIdentity';
-import type {
-  ConsumeSingleUseEmailOtpEcdsaLaneCommand,
-  ConsumeSingleUseEmailOtpEcdsaLaneResult,
-  ThresholdEcdsaSessionRecord,
-  ThresholdEd25519SessionRecord,
-  ThresholdEcdsaKeyRefLookupResult,
-  ThresholdEcdsaSessionRecordLookupKey,
-} from '../../session/persistence/records';
-import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
+import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
 import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
+import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import type { SigningSessionBudgetStatusCheck } from '../../session/budget/budget';
+import type { SigningSessionStatusCheck } from '../../session/lifecycle/walletSessionStatus';
 import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
@@ -57,9 +45,10 @@ import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touch
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { WalletSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
-import type { RehydratePasskeyEd25519YaoCapabilityAfterRefresh } from '../../session/passkey/ed25519BudgetRefresh';
 import type { Ed25519YaoActiveClientRegistryPort } from '../../threshold/ed25519/yaoActiveClientRegistry';
 import type {
+  PasskeyMpcExportPort,
+  PasskeyMpcSessionPort,
   UiConfirmRuntimeBridgePort,
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
@@ -77,13 +66,8 @@ type RequestEmailOtpTransactionSigningChallengeArgs = Parameters<
 type RequestEmailOtpEd25519SigningChallengeArgs = Parameters<
   NonNullable<NearSigningApiDeps['requestEmailOtpEd25519SigningChallenge']>
 >[0];
-type RehydrateEmailOtpEd25519CapabilityForSigningArgs = Parameters<
-  NonNullable<NearSigningApiDeps['rehydrateEmailOtpEd25519CapabilityForSigning']>
->[0];
-type RehydratePasskeyEd25519YaoCapabilityForSigning =
-  NearSigningApiDeps['rehydratePasskeyEd25519YaoCapabilityForSigning'];
-type RecoverEmailOtpEd25519YaoCapabilitySilentlyForSigning =
-  NearSigningApiDeps['recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning'];
+type PrepareNearEd25519YaoMaterialBoundary =
+  NearSigningApiDeps['prepareNearEd25519YaoMaterialBoundary'];
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
 import {
   prewarmSignerWorkers as prewarmSignerWorkersValue,
@@ -107,9 +91,6 @@ export type SigningEngineConveniencePorts = {
   warmCriticalResources: (
     accountContext?: WorkerResourceWarmupAccountContext,
   ) => Promise<WorkerResourceWarmupDiagnostics>;
-  getWarmThresholdEd25519SessionStatus: (
-    nearAccountId: AccountId | string,
-  ) => Promise<SigningSessionStatus | null>;
 };
 
 export type SigningEngineStorePorts = {
@@ -121,7 +102,6 @@ export type SigningEngineStorePorts = {
   };
   recoveryAndDeviceLinking: {
     credentialStore: WalletSessionActivationDeps['credentialStore'];
-    keyMaterialStore: PrivateKeyExportRecoveryDeps['keyMaterialStore'];
   };
   warmup: {
     store: WorkerResourceWarmupStorePort;
@@ -138,15 +118,21 @@ export type CreateSigningEnginePortsArgs = {
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
   ensureSealedRefreshStartupParity: () => Promise<void>;
+  resolveCanonicalEcdsaSigningCapability: EvmFamilySigningDeps['resolveCanonicalEcdsaSigningCapability'];
+  resolveAuthorizedEcdsaSigningCapability: EvmFamilySigningDeps['resolveAuthorizedEcdsaSigningCapability'];
+  resolveActiveEcdsaWalletSessionAuthorization: EvmFamilySigningDeps['resolveActiveEcdsaWalletSessionAuthorization'];
   touchConfirm: UiConfirmRuntimeBridgePort;
-  getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  consumeEmailOtpWarmSessionUses?: (args: {
-    sessionId: string;
+  passkeyMpcSession: PasskeyMpcSessionPort;
+  passkeyMpcExport: PasskeyMpcExportPort;
+  getEmailOtpWarmSessionStatus?: (
+    target: EmailOtpWarmMaterialTarget,
+  ) => Promise<WarmSessionStatusResult>;
+  consumeEmailOtpWarmSessionUses?: (args: WarmSessionMaterialOperationTarget & {
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
-  clearEmailOtpWarmSessionMaterial: (sessionId: string) => Promise<void>;
-  getWalletSigningBudgetStatus: (
-    args: SigningSessionBudgetStatusCheck,
+  clearEmailOtpWarmSessionMaterial: (thresholdSessionId: string) => Promise<void>;
+  getWalletSessionStatus: (
+    args: SigningSessionStatusCheck,
   ) => Promise<SigningSessionStatus | null>;
   signerWorkerManager: SignerWorkerManager;
   getWorkerBaseOrigin: () => string;
@@ -155,66 +141,23 @@ export type CreateSigningEnginePortsArgs = {
   signTempo: SigningEngineConveniencePorts['signTempo'];
   activateAuthenticatedWalletState: WorkerResourceWarmupDeps['activateAuthenticatedWalletState'];
   persistThresholdEcdsaBootstrapForWalletTarget: WalletSessionActivationDeps['persistThresholdEcdsaBootstrapForWalletTarget'];
-  upsertThresholdEcdsaSessionFromBootstrap: WalletSessionActivationDeps['upsertThresholdEcdsaSessionFromBootstrap'];
-  listThresholdEcdsaKeyRefsForWalletTarget: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  }) => ThresholdEcdsaKeyRefLookupResult[];
-  listThresholdEcdsaSessionRecordsForWalletTarget: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  }) => ThresholdEcdsaSessionRecord[];
-  getThresholdEcdsaSessionRecordByKey: (
-    identity: ThresholdEcdsaSessionRecordLookupKey,
-  ) => ThresholdEcdsaSessionRecord | null;
-  getPasskeyThresholdEcdsaSessionRecordForSigning: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
-  }) => ThresholdEcdsaSessionRecord;
   requestEmailOtpTransactionSigningChallenge?: (
     args: RequestEmailOtpTransactionSigningChallengeArgs,
   ) => Promise<EmailOtpTransactionSigningChallenge>;
   requestEmailOtpEd25519SigningChallenge?: (
     args: RequestEmailOtpEd25519SigningChallengeArgs,
   ) => Promise<EmailOtpTransactionSigningChallenge>;
-  rehydrateEmailOtpEd25519CapabilityForSigning?: (
-    args: RehydrateEmailOtpEd25519CapabilityForSigningArgs,
-  ) => ReturnType<NonNullable<NearSigningApiDeps['rehydrateEmailOtpEd25519CapabilityForSigning']>>;
-  rehydratePasskeyEd25519YaoCapabilityForSigning: RehydratePasskeyEd25519YaoCapabilityForSigning;
-  rehydratePasskeyEd25519YaoCapabilityAfterRefresh: RehydratePasskeyEd25519YaoCapabilityAfterRefresh;
-  recoverEmailOtpEd25519YaoCapabilitySilentlyForSigning: RecoverEmailOtpEd25519YaoCapabilitySilentlyForSigning;
+  prepareNearEd25519YaoMaterialBoundary: PrepareNearEd25519YaoMaterialBoundary;
   provisionThresholdEd25519Session: (
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
-  loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
-    walletSession: WalletSessionRef;
-    subjectId?: never;
-    chainTarget: ThresholdEcdsaChainTarget;
-    challengeId: string;
-    otpCode: string;
-    authority: EmailOtpEcdsaStepUpAuthority;
-    remainingUses: number;
-  }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
+  resolveEcdsaOperationStepUpSessionAuth: EvmFamilySigningDeps['resolveEcdsaOperationStepUpSessionAuth'];
   restorePersistedSessionForSigning: (
     args: RestorePersistedSessionForSigningInput,
   ) => Promise<unknown>;
   readAvailableSigningLanesForSigning: (
     args: ReadAvailableSigningLanesForSigningInput,
   ) => Promise<AvailableSigningLanes>;
-  consumeSingleUseEmailOtpEcdsaLane?: (
-    command: ConsumeSingleUseEmailOtpEcdsaLaneCommand,
-  ) => ConsumeSingleUseEmailOtpEcdsaLaneResult;
-  markThresholdEd25519EmailOtpSessionConsumedForWallet?: (args: {
-    walletId: WalletId;
-    thresholdSessionId?: string;
-    uses?: number;
-  }) => void;
-  clearThresholdEcdsaSessionRecordForExactIdentity: (
-    identity: ExactEcdsaSigningLaneIdentity,
-  ) => void;
   provisionThresholdEcdsaSession: (
     args: import('../../session/passkey/ecdsaSessionProvision').ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
@@ -242,14 +185,9 @@ export type SigningEnginePorts = {
   ed25519YaoActiveClients: Ed25519YaoActiveClientRegistryPort;
   nearSigningDeps: NearSigningApiDeps;
   tempoSigningDeps: EvmFamilySigningDeps;
-  privateKeyExportRecoveryDeps: PrivateKeyExportRecoveryDeps;
   registrationAccountLifecycleDeps: RegistrationAccountLifecycleDeps;
   registrationSessionDeps: RegistrationSessionDeps;
   walletSessionActivationDeps: WalletSessionActivationDeps;
-  resolveCanonicalThresholdEcdsaSessionIdForWalletTarget: (
-    walletId: WalletId,
-    chainTarget: ThresholdEcdsaChainTarget,
-  ) => string | null;
   signingSessionCoordinator: SigningSessionCoordinator;
   getWorkerResourceWarmupDeps: () => WorkerResourceWarmupDeps;
   getManagerConveniencePorts: () => SigningEngineConveniencePorts;
@@ -259,26 +197,6 @@ export function resolveNearRpcUrl(args: CreateSigningEnginePortsArgs): string {
   return resolvePrimaryNearRpcUrl(args.seamsWebConfigs.network.chains);
 }
 
-export function createResolveCanonicalThresholdEcdsaSessionIdForWalletTarget(
-  args: CreateSigningEnginePortsArgs,
-): SigningEnginePorts['resolveCanonicalThresholdEcdsaSessionIdForWalletTarget'] {
-  return (walletId, chainTarget) => {
-    for (const source of THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES) {
-      try {
-        const keyRefs = args.listThresholdEcdsaKeyRefsForWalletTarget({
-          walletId,
-          chainTarget,
-          source,
-        });
-        if (keyRefs.length !== 1) continue;
-        const keyRef = keyRefs[0]!.keyRef;
-        const thresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
-        if (thresholdSessionId) return thresholdSessionId;
-      } catch {}
-    }
-    return null;
-  };
-}
 
 export function createGetOrCreateActiveThresholdEcdsaSessionId(): (
   nearAccountId: AccountId,
@@ -303,10 +221,8 @@ export function createWorkerResourceWarmupDepsFactory(
     workerWarmupPolicy: args.workerWarmupPolicy,
     prewarmUiConfirmUi: async () => {
       await Promise.all([
-        /* The Shamir3Pass child worker + its WASM are otherwise constructed
-           lazily inside the post-finalize seal window. initialize() is
-           memoized, so chaining it here does not double-boot the worker. */
-        args.touchConfirm.initialize().then(() => args.touchConfirm.prewarmShamir3Pass()),
+        args.touchConfirm.initialize(),
+        args.passkeyMpcSession.prewarmShamir3Pass(),
         prewarmTxConfirmerUi(),
         /* Also warm the lazily-imported EVM-family signing flow chunks: the
            first sign after a page load otherwise pays these dynamic imports
@@ -324,15 +240,12 @@ export function createWorkerResourceWarmupDepsFactory(
 export function createManagerConveniencePortsFactory(args: {
   createArgs: CreateSigningEnginePortsArgs;
   getWorkerResourceWarmupDeps: () => WorkerResourceWarmupDeps;
-  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  getWarmThresholdEd25519SessionStatus: SigningEngineConveniencePorts['getWarmThresholdEd25519SessionStatus'];
 }): () => SigningEngineConveniencePorts {
-  const { createArgs, getWorkerResourceWarmupDeps, getWarmThresholdEd25519SessionStatus } = args;
+  const { createArgs, getWorkerResourceWarmupDeps } = args;
   return () => ({
     signTempo: createArgs.signTempo,
     prewarmSignerWorkers: () => prewarmSignerWorkersValue(getWorkerResourceWarmupDeps()),
     warmCriticalResources: (accountContext?: WorkerResourceWarmupAccountContext) =>
       warmCriticalResourcesValue(getWorkerResourceWarmupDeps(), accountContext),
-    getWarmThresholdEd25519SessionStatus,
   });
 }
