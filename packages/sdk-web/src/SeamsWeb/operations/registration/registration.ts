@@ -3182,6 +3182,7 @@ export async function runThreeRouteRegistrationCeremony(args: {
   context: RegistrationWebContext;
   relayerUrl: string;
   registrationCeremonyId: string;
+  planKind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa';
   signedSetup: string;
   ecdsaPrepare: WalletRegistrationEcdsaPreparePayload;
   authority: RegistrationThreeRouteAuthority;
@@ -3237,10 +3238,12 @@ export async function runThreeRouteRegistrationCeremony(args: {
         relayerUrl: args.relayerUrl,
         headers: registrationRouteHeaders(args.traceContext),
         registrationCeremonyId: ceremonyId,
+        planKind: args.planKind,
         signedSetup: args.signedSetup,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_v1',
           strictRegistration: created.registrationRequest,
+          requestDigestB64u: created.registrationRequestDigestB64u,
         },
         ...args.authority,
         onServerTiming: (header) =>
@@ -3332,6 +3335,7 @@ export async function runThreeRouteRegistrationCeremony(args: {
         relayerUrl: args.relayerUrl,
         headers: registrationRouteHeaders(args.traceContext),
         registrationCeremonyId: ceremonyId,
+        planKind: args.planKind,
         signedSetup: args.signedSetup,
         idempotencyKey: args.idempotencyKey,
         /* No `expectedKeyHandles`: the handle only exists once activate
@@ -4477,6 +4481,7 @@ async function registerEcdsaOrMixedWallet(
         context,
         relayerUrl,
         registrationCeremonyId: setup.registrationCeremonyId,
+        planKind: args.kind,
         signedSetup: setup.signedSetup,
         ecdsaPrepare: setup.ecdsa,
         authority: startAuthority,
@@ -4941,6 +4946,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       respondWalletRegistration.bind(undefined, {
         relayerUrl,
         registrationCeremonyId: setup.registrationCeremonyId,
+        planKind: 'near_ed25519',
         signedSetup: setup.signedSetup,
         headers: registrationRouteHeaders(),
         kind: 'email_otp',
@@ -4976,6 +4982,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     const activated = await activateWalletRegistration({
       relayerUrl,
       registrationCeremonyId: setup.registrationCeremonyId,
+      planKind: 'near_ed25519',
       signedSetup: setup.signedSetup,
       headers: registrationRouteHeaders(),
       idempotencyKey: finalizeIdempotencyKey,
@@ -5222,6 +5229,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
     const responded = await respondWalletRegistration({
       relayerUrl,
       registrationCeremonyId: setup.registrationCeremonyId,
+      planKind: 'near_ed25519',
       signedSetup: setup.signedSetup,
       headers: registrationRouteHeaders(traceContext),
       kind: 'passkey',
@@ -5266,6 +5274,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
     const activated = await activateWalletRegistration({
       relayerUrl,
       registrationCeremonyId: setup.registrationCeremonyId,
+      planKind: 'near_ed25519',
       signedSetup: setup.signedSetup,
       headers: registrationRouteHeaders(traceContext),
       idempotencyKey: finalizeIdempotencyKey,
