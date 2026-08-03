@@ -1660,7 +1660,7 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
     } catch (error: unknown) {
       return routerAbStepUpError(400, 'invalid_body', errorMessage(error));
     }
-    const claimFailure = routerAbOperationStepUpClaimFailure(claimResult, authorizedOperationId);
+    const claimFailure = routerAbOperationStepUpClaimFailure(claimResult);
     if (claimFailure) return claimFailure;
     if (
       claimResult.kind !== 'claimed' &&
@@ -1891,19 +1891,12 @@ function requireAuthorizationValue<T>(result: AuthorizationParseResult<T>): T {
 
 function routerAbOperationStepUpClaimFailure(
   result: Awaited<ReturnType<RouterApiAuthorizedOperationService['admitAuthorizedOperation']>>,
-  expectedOperationId: AuthorizedOperationId,
 ): RouterAbJsonRouteResult | null {
   switch (result.kind) {
     case 'claimed':
     case 'operation_in_progress':
     case 'replayed':
-      return result.operation.authorizedOperationId === expectedOperationId
-        ? null
-        : routerAbStepUpError(
-            409,
-            'authorized_operation_mismatch',
-            'Operation step-up claim belongs to another request',
-          );
+      return null;
     case 'authorization_grant_rejected':
     case 'verified_step_up_rejected':
       return routerAbStepUpError(403, result.kind, 'Operation step-up authorization is invalid');
@@ -2459,7 +2452,7 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
         materialActivation: freshMaterial.materialActivation,
       },
     });
-    const claimFailure = routerAbReusableWalletSessionClaimFailure(outcome, authorizedOperationId);
+    const claimFailure = routerAbReusableWalletSessionClaimFailure(outcome);
     if (claimFailure) return { ok: false, error: claimFailure };
     if (
       outcome.kind === 'claimed' ||
@@ -2488,19 +2481,12 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
 
 function routerAbReusableWalletSessionClaimFailure(
   result: Awaited<ReturnType<RouterApiAuthorizedOperationService['admitAuthorizedOperation']>>,
-  expectedOperationId: AuthorizedOperationId,
 ): RouterAbJsonRouteResult | null {
   switch (result.kind) {
     case 'claimed':
     case 'operation_in_progress':
     case 'replayed':
-      return result.operation.authorizedOperationId === expectedOperationId
-        ? null
-        : routerAbStepUpError(
-            409,
-            'authorized_operation_mismatch',
-            'Authorized operation belongs to another request',
-          );
+      return null;
     case 'wallet_session_quota_exhausted':
       return routerAbStepUpError(409, result.kind, 'Reusable Wallet Session quota is exhausted');
     case 'authorization_grant_rejected':
@@ -2668,7 +2654,7 @@ export async function claimRouterAbEcdsaOperationStepUp(input: {
       'ECDSA material activation changed before authorized-operation admission',
     );
   }
-  const claimFailure = routerAbOperationStepUpClaimFailure(result, authorizedOperationId);
+  const claimFailure = routerAbOperationStepUpClaimFailure(result);
   if (claimFailure) return claimFailure;
   if (
     result.kind === 'claimed' ||

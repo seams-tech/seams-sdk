@@ -33,6 +33,8 @@ import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPri
 import { parseVerifiedAuthorizationEvidenceSetFromPersistence } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
 import { capabilityPolicyPort } from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
 import {
+  parseAuthorizationAuditEventId,
+  parseAuthorizedOperationId,
   parseMpcWalletSigningQuotaId,
   parseReusableWalletSessionMintId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
@@ -266,7 +268,7 @@ test.describe('D1 authorization core', () => {
     }
   });
 
-  test('admits one operation fingerprint and replays without consuming quota again', async () => {
+  test('admits one stable operation fingerprint across transport retries and consumes quota once', async () => {
     const temporary = createTemporaryD1Database();
     const namespace = 'authorized-operation-admission';
     try {
@@ -305,11 +307,24 @@ test.describe('D1 authorization core', () => {
       ).resolves.toBe(1);
       await expect(rowCount(temporary.database, 'authorized_operations')).resolves.toBe(1);
 
+      const retryInput: AuthorizedOperationInput = {
+        ...claimInput,
+        authorizedOperationId: requiredAuthorizedOperationId(
+          'authorized-operation-transport-retry',
+        ),
+        auditEventId: requiredAuthorizationAuditEventId('audit-event-transport-retry'),
+        claimedAtMs: claimInput.claimedAtMs + 1,
+      };
+
       await expect(
-        service.admitAuthorizedOperation({ operation: claimInput, material }),
+        service.admitAuthorizedOperation({ operation: retryInput, material }),
       ).resolves.toMatchObject({
         kind: 'operation_in_progress',
-        operation: { lifecycle: 'claimed' },
+        operation: {
+          authorizedOperationId: claimInput.authorizedOperationId,
+          auditEventId: claimInput.auditEventId,
+          lifecycle: 'claimed',
+        },
       });
 
       await expect(
@@ -325,7 +340,7 @@ test.describe('D1 authorization core', () => {
       });
 
       await expect(
-        service.admitAuthorizedOperation({ operation: claimInput, material }),
+        service.admitAuthorizedOperation({ operation: retryInput, material }),
       ).resolves.toMatchObject({
         kind: 'replayed',
         operation: {
@@ -696,6 +711,18 @@ async function seedEcdsaMaterial(
 
 function requiredMintId(value: string) {
   const parsed = parseReusableWalletSessionMintId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function requiredAuthorizedOperationId(value: string) {
+  const parsed = parseAuthorizedOperationId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function requiredAuthorizationAuditEventId(value: string) {
+  const parsed = parseAuthorizationAuditEventId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
 }
