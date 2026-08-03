@@ -670,9 +670,6 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
         ),
       };
     }
-    if (outcome.operation.authorizedOperationId !== authorizedOperationId) {
-      throw new Error('Ed25519 authorized operation belongs to another request');
-    }
     if (outcome.kind === 'operation_in_progress' || outcome.kind === 'replayed') {
       return {
         ok: true,

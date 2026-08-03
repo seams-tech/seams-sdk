@@ -757,16 +757,6 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
     case 'claimed':
     case 'operation_in_progress':
     case 'replayed':
-      if (atomicOperation.operation.authorizedOperationId !== authorizedOperationId) {
-        return json(
-          {
-            ok: false,
-            code: 'authorized_operation_mismatch',
-            message: 'ECDSA authorized operation belongs to another request',
-          },
-          { status: 409 },
-        );
-      }
       break;
     case 'material_mismatch':
       return json(
@@ -1741,7 +1731,7 @@ async function admitStrictEcdsaExportOperationStepUp(
     tenantId: admission.request.operation.tenantId,
     operationFingerprintDigest: fingerprint,
   });
-  if (!existing || existing.authorizedOperationId !== admission.authorizedOperationId) {
+  if (!existing) {
     return strictEcdsaExportFailure(
       409,
       'authorized_operation_missing',
@@ -1770,13 +1760,7 @@ async function admitStrictEcdsaExportOperationStepUp(
     case 'claimed':
     case 'operation_in_progress':
     case 'replayed':
-      return result.operation.authorizedOperationId === admission.authorizedOperationId
-        ? null
-        : strictEcdsaExportFailure(
-            409,
-            'authorized_operation_mismatch',
-            'Authorized operation belongs to another request',
-          );
+      return null;
     case 'authorization_grant_rejected':
     case 'verified_step_up_rejected':
       return strictEcdsaExportFailure(

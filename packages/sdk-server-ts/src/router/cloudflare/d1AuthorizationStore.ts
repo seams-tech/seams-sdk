@@ -1008,12 +1008,6 @@ function authorizedOperationReplayMismatch(input: {
   if (existingMaterialActivationId !== incomingMaterialActivationId) {
     return { kind: 'material_mismatch' };
   }
-  if (input.existing.authorized_operation_id !== input.incoming.authorizedOperationId) {
-    return authorizationSourceRejected(input.incoming.authorization);
-  }
-  if (input.existing.audit_event_id !== input.incoming.auditEventId) {
-    return authorizationSourceRejected(input.incoming.authorization);
-  }
   return null;
 }
 
