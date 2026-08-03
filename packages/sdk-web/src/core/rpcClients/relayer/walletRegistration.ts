@@ -2483,6 +2483,7 @@ export async function respondWalletRegistration(
     relayerUrl: string;
     headers?: Record<string, string>;
     registrationCeremonyId: string;
+    planKind: WalletRegistrationRespondResponseV2['kind'];
     /** Opaque; echoed exactly as setup returned it. */
     signedSetup: string;
     /* Absent for an Ed25519-only plan: no ECDSA ceremony was created, so there
@@ -2491,6 +2492,7 @@ export async function respondWalletRegistration(
     ecdsa?: {
       kind: 'router_ab_ecdsa_registration_v1';
       strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+      requestDigestB64u: string;
     };
     onServerTiming?: (header: string | null) => void;
   } & WalletRegistrationStartAuthority,
@@ -2502,7 +2504,8 @@ export async function respondWalletRegistration(
     body: {
       registrationCeremonyId: args.registrationCeremonyId,
       signedSetup: args.signedSetup,
-      authority: walletRegistrationStartAuthorityBody(args),
+      kind: args.planKind,
+      ...walletRegistrationStartAuthorityBody(args),
       ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
     },
     ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
@@ -2658,6 +2661,7 @@ export async function activateWalletRegistration(args: {
   relayerUrl: string;
   headers?: Record<string, string>;
   registrationCeremonyId: string;
+  planKind: WalletRegistrationRespondResponseV2['kind'];
   signedSetup: string;
   idempotencyKey: string;
   /* Absent for an Ed25519-only plan: nothing was verified in the browser
@@ -2677,6 +2681,7 @@ export async function activateWalletRegistration(args: {
     headers: args.headers,
     body: {
       registrationCeremonyId: args.registrationCeremonyId,
+      kind: args.planKind,
       signedSetup: args.signedSetup,
       idempotencyKey: args.idempotencyKey,
       ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
