@@ -6,7 +6,6 @@ import {
   parseCapabilityId,
   parseCapabilityOperationId,
   parseCapabilityOperationRef,
-  parseCapabilityOperationResultStorageRef,
   parseDeviceId,
   parsePrincipalId,
   parseSeamsSessionId,
@@ -21,7 +20,7 @@ import type {
   AuthorizedOperationInput,
   WalletSessionAuthorization,
   ActiveWalletSessionQuota,
-  CapabilityOperationResultRef,
+  AuthorizedOperationReplayResponse,
   CompletedCapabilityOperationResult,
   IssuedHostedWalletSeamsSessionExchange,
   RedeemHostedWalletSeamsSessionExchangeInput,
@@ -32,6 +31,8 @@ import type {
 } from '../../authorization/domain';
 import {
   buildActiveAuthorizationSession,
+  computeAuthorizedOperationResultDigest,
+  parseAuthorizedOperationReplayResponse,
   parseMpcWalletSigningQuotaId,
   parseSessionOrigin,
 } from '../../authorization/domain';
@@ -732,10 +733,11 @@ export class CloudflareD1AuthorizationStore
                 operation_fingerprint_digest, lane_digest, intent_digest, display_digest,
                 authorization_source_kind, authorization_id, evidence_set_digest,
                 quota_id, quota_kind, lifecycle_kind, result_kind,
-                result_digest, result_storage_ref, claimed_at_ms, completed_at_ms,
+                result_digest, result_status, result_content_type, result_body_text,
+                claimed_at_ms, completed_at_ms,
                 material_activation_id
               ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        'claimed', 'pending', NULL, NULL, ?, NULL, ?
+                        'claimed', 'pending', NULL, NULL, NULL, NULL, ?, NULL, ?
                  WHERE ${ECDSA_SIGNER_MATCH}`,
             )
             .bind(...values, ...ecdsaSignerMatchBindings(this.namespace, input.material))
@@ -747,10 +749,11 @@ export class CloudflareD1AuthorizationStore
                 operation_fingerprint_digest, lane_digest, intent_digest, display_digest,
                 authorization_source_kind, authorization_id, evidence_set_digest,
                 quota_id, quota_kind, lifecycle_kind, result_kind,
-                result_digest, result_storage_ref, claimed_at_ms, completed_at_ms,
+                result_digest, result_status, result_content_type, result_body_text,
+                claimed_at_ms, completed_at_ms,
                 material_activation_id
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        'claimed', 'pending', NULL, NULL, ?, NULL, ?)`,
+                        'claimed', 'pending', NULL, NULL, NULL, NULL, ?, NULL, ?)`,
             )
             .bind(...values);
       const result = await statement.run();
@@ -859,29 +862,28 @@ export class CloudflareD1AuthorizationStore
   async completeAuthorizedOperation(input: {
     readonly operation: AuthorizedOperation;
     readonly result: CompletedCapabilityOperationResult;
-    readonly resultRef: CapabilityOperationResultRef;
+    readonly response: AuthorizedOperationReplayResponse;
     readonly completedAtMs: number;
   }): Promise<AuthorizedOperation> {
     const operation = input.operation;
-    if (
-      input.resultRef.authorizedOperationId !== operation.authorizedOperationId ||
-      input.resultRef.operationFingerprintDigest !== operation.operationFingerprintDigest
-    ) {
-      throw new Error('authorized operation completion reference does not match its operation');
-    }
+    const response = parseAuthorizedOperationReplayResponse(input.response);
+    const resultDigest = await computeAuthorizedOperationResultDigest(response);
     const update = await this.database
       .prepare(
         `UPDATE authorized_operations
             SET lifecycle_kind = 'completed', result_kind = ?, result_digest = ?,
-                result_storage_ref = ?, completed_at_ms = ?
+                result_status = ?, result_content_type = ?, result_body_text = ?,
+                completed_at_ms = ?
           WHERE namespace = ? AND tenant_id = ?
             AND authorized_operation_id = ? AND operation_fingerprint_digest = ?
             AND lifecycle_kind = 'claimed'`,
       )
       .bind(
         input.result,
-        input.resultRef.resultDigest,
-        input.resultRef.resultStorageRef,
+        resultDigest,
+        response.status,
+        response.contentType,
+        response.bodyText,
         requirePositiveInteger(input.completedAtMs, 'operation.completedAtMs'),
         this.namespace,
         operation.tenantId,
@@ -1242,22 +1244,31 @@ async function parseAuthorizedOperationRow(row: D1Row): Promise<AuthorizedOperat
   ) {
     throw new Error('operation.result is invalid');
   }
+  const response = parseAuthorizedOperationReplayResponse({
+    status: integerColumn(row.result_status, 'operation.response.status'),
+    contentType: requiredText(row.result_content_type, 'operation.response.contentType'),
+    bodyText: requiredText(row.result_body_text, 'operation.response.bodyText'),
+  });
+  const resultDigest = parseDigestB64u(
+    requireString(row.result_digest, 'operation.resultDigest'),
+  );
+  const expectedResultDigest = await computeAuthorizedOperationResultDigest(response);
+  if (expectedResultDigest !== resultDigest) {
+    throw new Error('operation.resultDigest does not match replay response');
+  }
   return {
     ...base,
     lifecycle: 'completed',
     result,
-    resultRef: {
-      authorizedOperationId: base.authorizedOperationId,
-      operationFingerprintDigest: base.operationFingerprintDigest,
-      resultDigest: parseDigestB64u(requireString(row.result_digest, 'operation.resultDigest')),
-      resultStorageRef: requireParsed(
-        row.result_storage_ref,
-        parseCapabilityOperationResultStorageRef,
-        'operation.resultStorageRef',
-      ),
-    },
+    response,
+    resultDigest,
     completedAtMs: requirePositiveInteger(row.completed_at_ms, 'operation.completedAtMs'),
   };
+}
+
+function requiredText(value: unknown, label: string): string {
+  if (typeof value !== 'string') throw new Error(`${label} must be text`);
+  return value;
 }
 
 function requireParsed<T>(

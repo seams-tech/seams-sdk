@@ -306,13 +306,23 @@ test.describe('D1 authorization core', () => {
       await expect(rowCount(temporary.database, 'authorized_operations')).resolves.toBe(1);
 
       await expect(
+        service.admitAuthorizedOperation({ operation: claimInput, material }),
+      ).resolves.toMatchObject({
+        kind: 'operation_in_progress',
+        operation: { lifecycle: 'claimed' },
+      });
+
+      await expect(
         service.completeAuthorizedOperation({
           operation: claimed.operation,
           result: 'succeeded',
-          resultRef: fixture.resultRef,
+          response: fixture.response,
           completedAtMs: claimInput.claimedAtMs + 1,
         }),
-      ).resolves.toMatchObject({ lifecycle: 'completed' });
+      ).resolves.toMatchObject({
+        lifecycle: 'completed',
+        response: fixture.response,
+      });
 
       await expect(
         service.admitAuthorizedOperation({ operation: claimInput, material }),
@@ -321,6 +331,7 @@ test.describe('D1 authorization core', () => {
         operation: {
           authorizedOperationId: fixture.authorizedOperation.authorizedOperationId,
           lifecycle: 'completed',
+          response: fixture.response,
         },
       });
       await expect(

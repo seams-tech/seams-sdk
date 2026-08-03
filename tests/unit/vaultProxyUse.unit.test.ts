@@ -5,6 +5,8 @@ import {
   LocalWorkerVaultProxyGateway,
   VaultProxyUseService,
   createVaultProxyUseRouteExtension,
+  type VaultProxySecretRef,
+  type VaultProxySecretStore,
 } from '../../packages/sdk-server-ts/src/authorization/vaultProxyUse';
 import { parseSessionOrigin } from '../../packages/sdk-server-ts/src/authorization/domain';
 import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1AuthorizationStore';
@@ -69,12 +71,12 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
     expect(
       authorization.evaluateEvidenceRequirement(fixture.evidenceRequirement, evidenceSet),
     ).toMatchObject({ kind: 'satisfied', mode: 'all' });
-    const secretStore = new CloudflareD1VaultProxyStore(
+    const persistedSecretStore = new CloudflareD1VaultProxyStore(
       temporary.database,
       'vault-proxy-test',
       new Uint8Array(32).fill(9),
     );
-    await secretStore.putSecret({
+    await persistedSecretStore.putSecret({
       tenantId: fixture.tenantId,
       capabilityId: fixture.capabilityId,
       vaultId: fixture.vaultId,
@@ -82,6 +84,7 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
       destination: fixture.destination,
       secret: 'merchant-secret-token',
     });
+    const secretStore = new CountingVaultProxySecretStore(persistedSecretStore);
     const upstream = new RecordingVaultUpstream();
     const extension = createVaultProxyUseRouteExtension({
       service: new VaultProxyUseService(
@@ -93,23 +96,7 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
     });
     const route = extension.routes[0];
     if (!route) throw new Error('vault proxy route is missing');
-    const request = new Request('https://router.example.test/vault/proxy-use', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        tenantId: fixture.tenantId,
-        principalId: fixture.principalId,
-        capabilityId: fixture.capabilityId,
-        operationId: fixture.operationId,
-        authorizedOperationId: fixture.authorizedOperationId,
-        auditEventId: fixture.auditEventId,
-        evidenceSetDigest: evidenceSet.evidenceSetDigest,
-        vaultId: fixture.vaultId,
-        itemId: fixture.itemId,
-        destination: fixture.destination,
-        payload: '{"amount":42}',
-      }),
-    });
+    const request = buildVaultProxyRequest(fixture, evidenceSet.evidenceSetDigest);
     const response = await extension.handleCloudflareRoute({
       request,
       route,
@@ -119,13 +106,27 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    expect(response.headers.get('content-type')).toBe('application/json');
+    const firstBody = await response.text();
+    expect(JSON.parse(firstBody)).toEqual({
       kind: 'succeeded',
       status: 201,
       body: '{"accepted":true}',
     });
     expect(upstream.authorization).toBe('Bearer merchant-secret-token');
     expect(upstream.payload).toBe('{"amount":42}');
+    const replay = await extension.handleCloudflareRoute({
+      request: buildVaultProxyRequest(fixture, evidenceSet.evidenceSetDigest),
+      route,
+      pathname: route.path,
+      method: route.method,
+      logger: coerceRouterLogger(undefined),
+    });
+    expect(replay.status).toBe(response.status);
+    expect(replay.headers.get('content-type')).toBe(response.headers.get('content-type'));
+    await expect(replay.text()).resolves.toBe(firstBody);
+    expect(secretStore.openCalls).toBe(1);
+    expect(upstream.calls).toBe(1);
     await expect(
       temporary.database
         .prepare(
@@ -139,7 +140,8 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
     await expect(
       temporary.database
         .prepare(
-          `SELECT capability_id, capability_kind, operation_kind, result_kind
+          `SELECT capability_id, capability_kind, operation_kind, result_kind,
+                  result_status, result_content_type, result_body_text
              FROM authorized_operations
             WHERE namespace = ? AND tenant_id = ? AND authorized_operation_id = ?`,
         )
@@ -149,12 +151,18 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
           readonly capability_kind: string;
           readonly operation_kind: string;
           readonly result_kind: string;
+          readonly result_status: number;
+          readonly result_content_type: string;
+          readonly result_body_text: string;
         }>(),
     ).resolves.toEqual({
       capability_id: fixture.capabilityId,
       capability_kind: 'vault_access',
       operation_kind: 'vault.proxy_use',
       result_kind: 'succeeded',
+      result_status: 200,
+      result_content_type: 'application/json',
+      result_body_text: firstBody,
     });
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
@@ -164,12 +172,48 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
 class RecordingVaultUpstream {
   authorization: string | null = null;
   payload = '';
+  calls = 0;
 
   async fetch(request: Request): Promise<Response> {
+    this.calls += 1;
     this.authorization = request.headers.get('authorization');
     this.payload = await request.text();
     return Response.json({ accepted: true }, { status: 201 });
   }
+}
+
+class CountingVaultProxySecretStore implements VaultProxySecretStore {
+  openCalls = 0;
+
+  constructor(private readonly delegate: VaultProxySecretStore) {}
+
+  async openSecret(input: VaultProxySecretRef): Promise<Uint8Array | null> {
+    this.openCalls += 1;
+    return await this.delegate.openSecret(input);
+  }
+}
+
+function buildVaultProxyRequest(
+  fixture: Awaited<ReturnType<typeof buildVaultProxyFixture>>,
+  evidenceSetDigest: string,
+): Request {
+  return new Request('https://router.example.test/vault/proxy-use', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      tenantId: fixture.tenantId,
+      principalId: fixture.principalId,
+      capabilityId: fixture.capabilityId,
+      operationId: fixture.operationId,
+      authorizedOperationId: fixture.authorizedOperationId,
+      auditEventId: fixture.auditEventId,
+      evidenceSetDigest,
+      vaultId: fixture.vaultId,
+      itemId: fixture.itemId,
+      destination: fixture.destination,
+      payload: '{"amount":42}',
+    }),
+  });
 }
 
 function fixedVaultProxyTime(): number {

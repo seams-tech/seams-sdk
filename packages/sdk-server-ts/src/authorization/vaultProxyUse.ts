@@ -4,7 +4,6 @@ import {
   parseAuthorizedOperationId,
   parseCapabilityId,
   parseCapabilityOperationId,
-  parseCapabilityOperationResultStorageRef,
   parsePrincipalId,
   parseTenantId,
   parseVaultId,
@@ -25,9 +24,11 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import {
+  AUTHORIZED_OPERATION_REPLAY_BODY_MAX_BYTES,
+  authorizedOperationReplayBodyInit,
   type AuthorizedOperation,
   type AuthorizedOperationInput,
-  type CapabilityOperationResultRef,
+  type AuthorizedOperationReplayResponse,
 } from './domain';
 import type { AuthorizationService } from './service';
 import { defineRoute } from '../router/routeDefinitions';
@@ -39,7 +40,6 @@ import type {
 const VAULT_PROXY_LANE_DIGEST_DOMAIN_V1 = 'seams:vault:proxy-use-lane:v1';
 const VAULT_PROXY_INTENT_DIGEST_DOMAIN_V1 = 'seams:vault:proxy-use-intent:v1';
 const VAULT_PROXY_DISPLAY_DIGEST_DOMAIN_V1 = 'seams:vault:proxy-use-display:v1';
-const VAULT_PROXY_RESULT_DIGEST_DOMAIN_V1 = 'seams:vault:proxy-use-result:v1';
 
 export type VaultProxyDestination = string & {
   readonly __vaultProxyDestination: true;
@@ -73,6 +73,7 @@ export type VaultProxyUseResult =
     }
   | {
       readonly kind: 'replayed';
+      readonly response: AuthorizedOperationReplayResponse;
     }
   | {
       readonly kind: 'operation_in_progress';
@@ -147,7 +148,9 @@ export class VaultProxyUseService {
       case 'operation_in_progress':
         return { kind: 'operation_in_progress' };
       case 'replayed':
-        return { kind: 'replayed' };
+        return claimResult.operation.lifecycle === 'completed'
+          ? { kind: 'replayed', response: claimResult.operation.response }
+          : { kind: 'operation_in_progress' };
       case 'authorization_grant_rejected':
       case 'verified_step_up_rejected':
       case 'wallet_session_quota_exhausted':
@@ -160,13 +163,14 @@ export class VaultProxyUseService {
 
     const secret = await this.secrets.openSecret(input.secretRef);
     if (!secret) {
+      const result = { kind: 'rejected', reason: 'secret_unavailable' } as const;
       await this.complete(
         operation,
         'failed_before_side_effect',
-        { kind: 'secret_unavailable' },
+        vaultProxyUseReplayResponse(result),
         input.completedAtMs,
       );
-      return { kind: 'rejected', reason: 'secret_unavailable' };
+      return result;
     }
 
     try {
@@ -176,21 +180,37 @@ export class VaultProxyUseService {
         payload: input.payload,
       });
       const body = await response.text();
+      const result = { kind: 'succeeded', status: response.status, body } as const;
+      const replayResponse = vaultProxyUseReplayResponse(result);
+      if (!isReplayResponseWithinBound(replayResponse)) {
+        const boundedFailure = {
+          kind: 'rejected',
+          reason: 'gateway_failed_after_side_effect',
+        } as const;
+        await this.complete(
+          operation,
+          'failed_after_side_effect',
+          vaultProxyUseReplayResponse(boundedFailure),
+          input.completedAtMs,
+        );
+        return boundedFailure;
+      }
       await this.complete(
         operation,
         'succeeded',
-        { kind: 'succeeded', status: response.status, body },
+        replayResponse,
         input.completedAtMs,
       );
-      return { kind: 'succeeded', status: response.status, body };
+      return result;
     } catch {
+      const result = { kind: 'rejected', reason: 'gateway_failed_after_side_effect' } as const;
       await this.complete(
         operation,
         'failed_after_side_effect',
-        { kind: 'gateway_failed_after_side_effect' },
+        vaultProxyUseReplayResponse(result),
         input.completedAtMs,
       );
-      return { kind: 'rejected', reason: 'gateway_failed_after_side_effect' };
+      return result;
     } finally {
       secret.fill(0);
     }
@@ -199,13 +219,13 @@ export class VaultProxyUseService {
   private async complete(
     claim: AuthorizedOperation,
     result: 'succeeded' | 'failed_before_side_effect' | 'failed_after_side_effect',
-    safeResult: Record<string, unknown>,
+    response: AuthorizedOperationReplayResponse,
     completedAtMs: number,
   ): Promise<void> {
     await this.authorization.completeAuthorizedOperation({
       operation: claim,
       result,
-      resultRef: await buildVaultProxyResultRef(claim, safeResult),
+      response,
       completedAtMs,
     });
   }
@@ -380,22 +400,6 @@ async function parseVaultProxyUseRequest(
   };
 }
 
-async function buildVaultProxyResultRef(
-  claim: AuthorizedOperation,
-  result: Record<string, unknown>,
-): Promise<CapabilityOperationResultRef> {
-  const resultStorageRef = requireAuthorizationId(
-    `vault-result:${claim.operation.operationId}`,
-    parseCapabilityOperationResultStorageRef,
-  );
-  return {
-    authorizedOperationId: claim.authorizedOperationId,
-    operationFingerprintDigest: claim.operationFingerprintDigest,
-    resultDigest: await digest(VAULT_PROXY_RESULT_DIGEST_DOMAIN_V1, result),
-    resultStorageRef,
-  };
-}
-
 async function digest(domain: string, value: Record<string, unknown>): Promise<DigestB64u> {
   return parseDigestB64u(
     base64UrlEncode(await sha256BytesUtf8(`${domain}|${alphabetizeStringify(value)}`)),
@@ -411,23 +415,52 @@ async function readJson(request: Request): Promise<unknown> {
 }
 
 function vaultProxyUseResponse(result: VaultProxyUseResult): Response {
+  if (result.kind === 'replayed') return responseFromReplay(result.response);
+  return responseFromReplay(vaultProxyUseReplayResponse(result));
+}
+
+type VaultProxyUseFreshResult = Exclude<VaultProxyUseResult, { readonly kind: 'replayed' }>;
+
+function vaultProxyUseReplayResponse(
+  result: VaultProxyUseFreshResult,
+): AuthorizedOperationReplayResponse {
   switch (result.kind) {
     case 'succeeded':
-      return Response.json(result, { status: 200 });
-    case 'replayed':
-      return Response.json(result, { status: 200 });
+      return jsonReplayResponse(result, 200);
     case 'operation_in_progress':
-      return Response.json(result, { status: 409 });
+      return jsonReplayResponse(result, 409);
     case 'rejected':
-      return Response.json(result, {
-        status:
-          result.reason === 'secret_unavailable'
-            ? 404
-            : result.reason === 'gateway_failed_after_side_effect'
-              ? 502
-              : 403,
-      });
+      return jsonReplayResponse(
+        result,
+        result.reason === 'secret_unavailable'
+          ? 404
+          : result.reason === 'gateway_failed_after_side_effect'
+            ? 502
+            : 403,
+      );
   }
+}
+
+function jsonReplayResponse(body: object, status: number): AuthorizedOperationReplayResponse {
+  return {
+    status,
+    contentType: 'application/json',
+    bodyText: JSON.stringify(body),
+  };
+}
+
+function isReplayResponseWithinBound(response: AuthorizedOperationReplayResponse): boolean {
+  return (
+    new TextEncoder().encode(response.bodyText).byteLength <=
+    AUTHORIZED_OPERATION_REPLAY_BODY_MAX_BYTES
+  );
+}
+
+function responseFromReplay(response: AuthorizedOperationReplayResponse): Response {
+  return new Response(authorizedOperationReplayBodyInit(response), {
+    status: response.status,
+    headers: { 'content-type': response.contentType },
+  });
 }
 
 function isExactRecord(

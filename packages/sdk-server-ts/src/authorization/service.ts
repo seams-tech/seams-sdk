@@ -3,7 +3,7 @@ import type {
   ActiveWalletSessionQuota,
   AuthorizedOperation,
   AuthorizedOperationInput,
-  CapabilityOperationResultRef,
+  AuthorizedOperationReplayResponse,
   CompletedCapabilityOperationResult,
   HostedWalletSeamsSessionExchangeCode,
   HostedWalletSeamsSessionExchangeDelivery,
@@ -105,7 +105,7 @@ export interface AuthorizedOperationPort {
   completeAuthorizedOperation(input: {
     readonly operation: AuthorizedOperation;
     readonly result: CompletedCapabilityOperationResult;
-    readonly resultRef: CapabilityOperationResultRef;
+    readonly response: AuthorizedOperationReplayResponse;
     readonly completedAtMs: number;
   }): Promise<AuthorizedOperation>;
 }
@@ -293,7 +293,7 @@ export class AuthorizationService {
   async completeAuthorizedOperation(input: {
     readonly operation: AuthorizedOperation;
     readonly result: CompletedCapabilityOperationResult;
-    readonly resultRef: CapabilityOperationResultRef;
+    readonly response: AuthorizedOperationReplayResponse;
     readonly completedAtMs: number;
   }): Promise<AuthorizedOperation> {
     return await this.ports.authorizedOperations.completeAuthorizedOperation(input);

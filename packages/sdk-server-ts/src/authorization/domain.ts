@@ -38,6 +38,9 @@ import {
   type WebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export type HostedWalletSeamsSessionExchangeCode = DomainId<'HostedWalletSeamsSessionExchangeCode'>;
@@ -179,13 +182,15 @@ type AuthorizedOperationLifecycle =
   | {
       readonly lifecycle: 'claimed';
       readonly result?: never;
-      readonly resultRef?: never;
+      readonly response?: never;
+      readonly resultDigest?: never;
       readonly completedAtMs?: never;
     }
   | {
       readonly lifecycle: 'completed';
       readonly result: CompletedCapabilityOperationResult;
-      readonly resultRef: CapabilityOperationResultRef;
+      readonly response: AuthorizedOperationReplayResponse;
+      readonly resultDigest: DigestB64u;
       readonly completedAtMs: number;
     };
 
@@ -272,12 +277,84 @@ export type CompletedCapabilityOperationResult =
   | 'failed_before_side_effect'
   | 'failed_after_side_effect';
 
-export type CapabilityOperationResultRef = {
-  readonly authorizedOperationId: AuthorizedOperationId;
-  readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
-  readonly resultDigest: DigestB64u;
-  readonly resultStorageRef: DomainId<'CapabilityOperationResultStorageRef'>;
+export type AuthorizedOperationReplayResponse = {
+  readonly status: number;
+  readonly contentType: string;
+  readonly bodyText: string;
 };
+
+export const AUTHORIZED_OPERATION_REPLAY_BODY_MAX_BYTES = 64 * 1024;
+
+const AUTHORIZED_OPERATION_RESULT_DIGEST_DOMAIN_V1 =
+  'seams:authorization:authorized-operation-result:v1';
+
+export function parseAuthorizedOperationReplayResponse(
+  value: unknown,
+): AuthorizedOperationReplayResponse {
+  if (!isRecord(value)) {
+    throw new Error('authorized operation replay response must be an object');
+  }
+  const keys = Object.keys(value).sort();
+  if (keys.length !== 3 || keys.join('|') !== 'bodyText|contentType|status') {
+    throw new Error(
+      'authorized operation replay response must contain only status, contentType, and bodyText',
+    );
+  }
+  const status = value.status;
+  if (typeof status !== 'number' || !Number.isSafeInteger(status) || status < 200 || status > 599) {
+    throw new Error('authorized operation replay response status must be an HTTP status');
+  }
+  const contentType = value.contentType;
+  if (
+    typeof contentType !== 'string' ||
+    contentType.length === 0 ||
+    contentType.trim() !== contentType ||
+    contentType.length > 255 ||
+    // eslint-disable-next-line no-control-regex
+    /[\u0000-\u001f\u007f]/.test(contentType)
+  ) {
+    throw new Error('authorized operation replay response contentType is invalid');
+  }
+  const bodyText = value.bodyText;
+  if (typeof bodyText !== 'string') {
+    throw new Error('authorized operation replay response bodyText must be text');
+  }
+  if (new TextEncoder().encode(bodyText).byteLength > AUTHORIZED_OPERATION_REPLAY_BODY_MAX_BYTES) {
+    throw new Error('authorized operation replay response bodyText is too large');
+  }
+  if (responseStatusHasNoBody(status) && bodyText.length !== 0) {
+    throw new Error('authorized operation replay response status cannot carry a body');
+  }
+  return { status, contentType, bodyText };
+}
+
+export function authorizedOperationReplayBodyInit(
+  response: AuthorizedOperationReplayResponse,
+): string | null {
+  const parsed = parseAuthorizedOperationReplayResponse(response);
+  return responseStatusHasNoBody(parsed.status) ? null : parsed.bodyText;
+}
+
+function responseStatusHasNoBody(status: number): boolean {
+  return status === 204 || status === 205 || status === 304;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export async function computeAuthorizedOperationResultDigest(
+  response: AuthorizedOperationReplayResponse,
+): Promise<DigestB64u> {
+  const parsed = parseAuthorizedOperationReplayResponse(response);
+  return parseDigestB64u(
+    base64UrlEncode(
+      await sha256BytesUtf8(
+        `${AUTHORIZED_OPERATION_RESULT_DIGEST_DOMAIN_V1}|${alphabetizeStringify(parsed)}`,
+      ),
+    ),
+  );
+}
 
 export function parseHostedWalletSeamsSessionExchangeCode(
   value: unknown,

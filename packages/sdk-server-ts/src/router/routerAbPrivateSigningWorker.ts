@@ -58,7 +58,6 @@ import {
   parseAuthorizedOperationId,
   parseCapabilityId,
   parseCapabilityOperationId,
-  parseCapabilityOperationResultStorageRef,
   parsePrincipalId,
   parseSeamsSessionId,
   parseTenantId,
@@ -76,8 +75,12 @@ import {
   buildCapabilityOperationEnvelope,
   computeCapabilityOperationFingerprintDigest,
 } from '@shared/authorization/operationFingerprint';
-import type { AuthorizedOperation, AuthorizedOperationInput } from '../authorization/domain';
-import { alphabetizeStringify } from '@shared/utils/digests';
+import {
+  authorizedOperationReplayBodyInit,
+  type AuthorizedOperation,
+  type AuthorizedOperationInput,
+  type AuthorizedOperationReplayResponse,
+} from '../authorization/domain';
 import {
   sameRouterAbMpcMaterialActivationRef,
   type RouterAbNormalSigningAuthorizationWire,
@@ -127,7 +130,11 @@ export const ROUTER_AB_ECDSA_DERIVATION_PRIVATE_SIGNING_PATHS = {
 } as const;
 
 export type RouterAbSigningWorkerJsonResult =
-  | { ok: true; body: unknown }
+  | {
+      ok: true;
+      body: unknown;
+      replay: AuthorizedOperationReplayResponse;
+    }
   | {
       ok: false;
       status: number;
@@ -148,6 +155,72 @@ export type RouterAbJsonRouteResult = {
   status: number;
   body: unknown;
 };
+
+export type RouterAbEcdsaOperationAdmissionKind =
+  | 'claimed'
+  | 'operation_in_progress'
+  | 'replayed';
+
+export type RouterAbEcdsaOperationAdmission = {
+  readonly kind: RouterAbEcdsaOperationAdmissionKind;
+  readonly operation: AuthorizedOperation;
+};
+
+export function routerAbEcdsaOperationInProgressResult(): RouterAbJsonRouteResult {
+  return routerAbStepUpError(
+    409,
+    'operation_in_progress',
+    'ECDSA signing operation is already in progress',
+  );
+}
+
+export function routerAbEcdsaReplayUnavailableResult(): RouterAbJsonRouteResult {
+  return routerAbStepUpError(
+    409,
+    'authorized_operation_replay_unavailable',
+    'Completed ECDSA signing operation has no replayable response',
+  );
+}
+
+export function routerAbEcdsaRecordedResponse(
+  operation: AuthorizedOperation,
+): AuthorizedOperationReplayResponse | null {
+  return operation.lifecycle === 'completed' ? operation.response : null;
+}
+
+export function routerAbEcdsaReplayResult(
+  operation: AuthorizedOperation,
+): RouterAbJsonRouteResult {
+  const response = routerAbEcdsaRecordedResponse(operation);
+  if (!response) return routerAbEcdsaReplayUnavailableResult();
+  let body: unknown = response.bodyText;
+  try {
+    body = JSON.parse(response.bodyText);
+  } catch {
+    // Keep a non-JSON worker response as text for the JSON route adapter.
+  }
+  return { status: response.status, body };
+}
+
+export function routerAbEcdsaReplayHttpResponse(operation: AuthorizedOperation): Response | null {
+  const response = routerAbEcdsaRecordedResponse(operation);
+  if (!response) return null;
+  return new Response(authorizedOperationReplayBodyInit(response), {
+    status: response.status,
+    headers: { 'content-type': response.contentType },
+  });
+}
+
+function routerAbEcdsaPrivateSigningWorkerUnavailableResult(): RouterAbJsonRouteResult {
+  return {
+    status: 501,
+    body: {
+      ok: false,
+      code: 'not_configured',
+      message: 'Router A/B SigningWorker private HTTP target is not configured',
+    },
+  };
+}
 
 type RouterAbConfiguredSigningWorkerPrivateTransport = Extract<
   RouterAbSigningWorkerPrivateTransport,
@@ -213,6 +286,7 @@ export type RouterAbEd25519NormalSigningAuthorizationResult =
         readonly intentDigest: ReturnType<typeof parseDigestB64u>;
         readonly displayDigest: ReturnType<typeof parseDigestB64u>;
       };
+      readonly admissionKind: RouterAbEcdsaOperationAdmissionKind;
     }
   | {
       readonly ok: true;
@@ -235,6 +309,7 @@ export type RouterAbEcdsaNormalSigningAuthorizationResult =
       readonly phase: 'prepare' | 'finalize';
       readonly operation: AuthorizedOperation;
       readonly session: RouterAbOperationStepUpAppSession;
+      readonly admissionKind: RouterAbEcdsaOperationAdmissionKind;
     }
   | { readonly ok: false; readonly result: RouterAbJsonRouteResult };
 
@@ -646,6 +721,28 @@ function routerAbWalletSessionValidationStatus(
 ): number {
   if (code === 'sessions_disabled') return 501;
   return walletSessionFailureStatus(code);
+}
+
+function replayResponseFromSigningWorkerResult(
+  result: RouterAbSigningWorkerJsonResult,
+): AuthorizedOperationReplayResponse {
+  if (result.ok) return result.replay;
+  return {
+    status: result.status,
+    contentType: 'application/json',
+    bodyText: JSON.stringify(result.body),
+  };
+}
+
+function isRouterAbEcdsaSigningWorkerOperationInProgress(
+  result: RouterAbSigningWorkerJsonResult,
+): boolean {
+  return (
+    !result.ok &&
+    result.status === 409 &&
+    result.body.message.includes('ReplayedLocalRequest:') &&
+    result.body.message.includes('SigningWorker ECDSA effect is already in progress')
+  );
 }
 
 function rejectRouterAbCookieSessionKind(
@@ -1423,6 +1520,7 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
         readonly intentDigest: ReturnType<typeof parseDigestB64u>;
         readonly displayDigest: ReturnType<typeof parseDigestB64u>;
       };
+      readonly admissionKind: RouterAbEcdsaOperationAdmissionKind;
     }
   | {
       readonly phase: 'finalize';
@@ -1562,16 +1660,13 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
     } catch (error: unknown) {
       return routerAbStepUpError(400, 'invalid_body', errorMessage(error));
     }
-    if (claimResult.kind === 'replayed') {
-      return routerAbStepUpError(
-        409,
-        'authorized_operation_completed',
-        'Operation step-up has already completed its operation',
-      );
-    }
     const claimFailure = routerAbOperationStepUpClaimFailure(claimResult, authorizedOperationId);
     if (claimFailure) return claimFailure;
-    if (claimResult.kind !== 'claimed' && claimResult.kind !== 'operation_in_progress') {
+    if (
+      claimResult.kind !== 'claimed' &&
+      claimResult.kind !== 'operation_in_progress' &&
+      claimResult.kind !== 'replayed'
+    ) {
       return routerAbStepUpError(
         409,
         'authorized_operation_missing',
@@ -1583,6 +1678,7 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
       session: authenticated.session,
       operation: claimResult.operation,
       operationDigests: { laneDigest, intentDigest, displayDigest },
+      admissionKind: claimResult.kind,
     };
   }
   return { phase: 'finalize', session: authenticated.session };
@@ -2239,7 +2335,7 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
 }): Promise<
   | {
       readonly ok: true;
-      readonly operation: AuthorizedOperation;
+      readonly admission: RouterAbEcdsaOperationAdmission;
     }
   | { readonly ok: false; readonly error: RouterAbJsonRouteResult }
 > {
@@ -2370,7 +2466,13 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
       outcome.kind === 'operation_in_progress' ||
       outcome.kind === 'replayed'
     ) {
-      return { ok: true, operation: outcome.operation };
+      return {
+        ok: true,
+        admission: {
+          kind: outcome.kind,
+          operation: outcome.operation,
+        },
+      };
     }
     return {
       ok: false,
@@ -2421,25 +2523,13 @@ function routerAbReusableWalletSessionClaimFailure(
 export async function completeRouterAbEcdsaOperation(input: {
   authorizedOperations: RouterApiAuthorizedOperationService;
   operation: AuthorizedOperation;
-  requestId: string;
   result: 'succeeded' | 'failed_before_side_effect' | 'failed_after_side_effect';
-  response: unknown;
+  response: AuthorizedOperationReplayResponse;
 }): Promise<void> {
-  const resultDigest = parseDigestB64u(
-    await sha256B64u(textBytes(alphabetizeStringify(input.response))),
-  );
-  const resultStorageRef = requireAuthorizationValue(
-    parseCapabilityOperationResultStorageRef(`router-signing-result:${input.requestId}`),
-  );
   await input.authorizedOperations.completeAuthorizedOperation({
     operation: input.operation,
     result: input.result,
-    resultRef: {
-      authorizedOperationId: input.operation.authorizedOperationId,
-      operationFingerprintDigest: input.operation.operationFingerprintDigest,
-      resultDigest,
-      resultStorageRef,
-    },
+    response: input.response,
     completedAtMs: Date.now(),
   });
 }
@@ -2508,7 +2598,7 @@ export async function claimRouterAbEcdsaOperationStepUp(input: {
     Awaited<ReturnType<typeof authenticateRouterAbEcdsaOperationStepUpAppSession>>,
     { readonly ok: true }
   >;
-}): Promise<RouterAbJsonRouteResult | { readonly operation: AuthorizedOperation } | null> {
+}): Promise<RouterAbJsonRouteResult | RouterAbEcdsaOperationAdmission | null> {
   if (!routerAbEcdsaAtomicAuthorizationConfigured(input.authenticated.authorizedOperations)) {
     return routerAbStepUpError(
       501,
@@ -2585,7 +2675,10 @@ export async function claimRouterAbEcdsaOperationStepUp(input: {
     result.kind === 'operation_in_progress' ||
     result.kind === 'replayed'
   ) {
-    return { operation: result.operation };
+    return {
+      kind: result.kind,
+      operation: result.operation,
+    };
   }
   return routerAbStepUpError(
     409,
@@ -2608,6 +2701,7 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
   | {
       readonly operation: AuthorizedOperation;
       readonly session: RouterAbOperationStepUpAppSession;
+      readonly admissionKind: RouterAbEcdsaOperationAdmissionKind;
     }
 > {
   let request: RouterAbEcdsaOperationStepUpRequest;
@@ -2735,6 +2829,7 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
   return {
     operation: claimResult.operation,
     session: authenticated.session,
+    admissionKind: claimResult.kind,
   };
 }
 
@@ -2782,6 +2877,7 @@ export async function authorizeRouterAbEcdsaDerivationNormalSigningRoute(input: 
       phase: input.phase,
       operation: stepUp.operation,
       session: stepUp.session,
+      admissionKind: stepUp.admissionKind,
     };
   }
 
@@ -2911,30 +3007,6 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
   }
   const { validated, admission } = authorization;
 
-  const runtime = input.runtime;
-  if (!runtime) {
-    return {
-      status: 501,
-      body: {
-        ok: false,
-        code: 'not_configured',
-        message: 'Router A/B SigningWorker private HTTP target is not configured',
-      },
-    };
-  }
-
-  const signingWorker = runtime.getSigningWorkerPrivateTransport();
-  if (signingWorker.kind === 'unconfigured') {
-    return {
-      status: 501,
-      body: {
-        ok: false,
-        code: 'not_configured',
-        message: 'Router A/B SigningWorker private HTTP target is not configured',
-      },
-    };
-  }
-
   const privateBody = await buildRouterAbEcdsaDerivationPrivateSigningWorkerBody({
     phase: input.phase,
     body: input.body,
@@ -2944,27 +3016,40 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
     },
     headers: input.headers,
   });
-  let prepareOperation: Parameters<typeof completeRouterAbEcdsaOperation>[0]['operation'] | null =
-    null;
+  if (!input.authorizedOperations || !input.authorizationSessions) {
+    return routerAbStepUpError(
+      501,
+      'not_configured',
+      'Reusable Wallet Session authorization is not configured',
+    );
+  }
+  const request =
+    input.phase === 'prepare'
+      ? parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body)
+      : parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(input.body);
+  const claimed = await admitRouterAbEcdsaReusableWalletSessionOperation({
+    request,
+    materialActivation: admission.materialActivation,
+    claims: validated.claims,
+    authorizedOperations: input.authorizedOperations,
+    authorizationSessions: input.authorizationSessions,
+    resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
+  });
+  if (!claimed.ok) return claimed.error;
+  if (claimed.admission.kind === 'replayed') {
+    return routerAbEcdsaReplayResult(claimed.admission.operation);
+  }
+  const runtime = input.runtime;
+  if (!runtime) return routerAbEcdsaPrivateSigningWorkerUnavailableResult();
+  const signingWorker = runtime.getSigningWorkerPrivateTransport();
+  if (signingWorker.kind === 'unconfigured') {
+    return routerAbEcdsaPrivateSigningWorkerUnavailableResult();
+  }
   if (input.phase === 'prepare') {
-    if (!input.authorizedOperations || !input.authorizationSessions) {
-      return routerAbStepUpError(
-        501,
-        'not_configured',
-        'Reusable Wallet Session authorization is not configured',
-      );
+    if (claimed.admission.kind === 'operation_in_progress') {
+      return routerAbEcdsaOperationInProgressResult();
     }
-    const request = parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body);
-    const claimed = await admitRouterAbEcdsaReusableWalletSessionOperation({
-      request,
-      materialActivation: admission.materialActivation,
-      claims: validated.claims,
-      authorizedOperations: input.authorizedOperations,
-      authorizationSessions: input.authorizationSessions,
-      resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
-    });
-    if (!claimed.ok) return claimed.error;
-    prepareOperation = claimed.operation;
+    const operation = claimed.admission.operation;
     const replay = await runtime.reservePrepareReplay({
       curve: 'ecdsa',
       authorizationIdentity: {
@@ -2977,36 +3062,59 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
     if (!replay.ok) {
       await completeRouterAbEcdsaOperation({
         authorizedOperations: input.authorizedOperations,
-        operation: prepareOperation,
-        requestId: request.request_id,
+        operation,
         result: 'failed_before_side_effect',
-        response: { code: replay.code, message: replay.message },
+        response: {
+          status: replay.status,
+          contentType: 'application/json',
+          bodyText: JSON.stringify({ ok: false, code: replay.code, message: replay.message }),
+        },
       });
       return {
         status: replay.status,
         body: { ok: false, code: replay.code, message: replay.message },
       };
     }
+    const forwarded = await postRouterAbSigningWorkerJson({
+      config: signingWorker,
+      path: input.privatePath,
+      body: privateBody,
+    });
+    if (!forwarded.ok && !isRouterAbEcdsaSigningWorkerOperationInProgress(forwarded)) {
+      await completeRouterAbEcdsaOperation({
+        authorizedOperations: input.authorizedOperations,
+        operation,
+        result:
+          forwarded.status < 500 ? 'failed_before_side_effect' : 'failed_after_side_effect',
+        response: replayResponseFromSigningWorkerResult(forwarded),
+      });
+    }
+    return forwarded.ok
+      ? { status: 200, body: forwarded.body }
+      : { status: forwarded.status, body: forwarded.body };
   }
-
+  if (claimed.admission.kind === 'claimed') {
+    return routerAbStepUpError(
+      409,
+      'authorized_operation_missing',
+      'ECDSA finalize requires a claimed prepare operation',
+    );
+  }
   const forwarded = await postRouterAbSigningWorkerJson({
     config: signingWorker,
     path: input.privatePath,
     body: privateBody,
   });
-  if (prepareOperation && input.authorizedOperations) {
-    await completeRouterAbEcdsaOperation({
-      authorizedOperations: input.authorizedOperations,
-      operation: prepareOperation,
-      requestId: admission.requestId,
-      result: forwarded.ok
-        ? 'succeeded'
-        : forwarded.status < 500
-          ? 'failed_before_side_effect'
-          : 'failed_after_side_effect',
-      response: forwarded.body,
-    });
-  }
+  await completeRouterAbEcdsaOperation({
+    authorizedOperations: input.authorizedOperations,
+    operation: claimed.admission.operation,
+    result: forwarded.ok
+      ? 'succeeded'
+      : forwarded.status < 500
+        ? 'failed_before_side_effect'
+        : 'failed_after_side_effect',
+    response: replayResponseFromSigningWorkerResult(forwarded),
+  });
   return forwarded.ok
     ? { status: 200, body: forwarded.body }
     : { status: forwarded.status, body: forwarded.body };
@@ -3053,5 +3161,13 @@ export async function postRouterAbSigningWorkerJson(input: {
     );
   }
 
-  return { ok: true, body: response.json };
+  return {
+    ok: true,
+    body: response.json,
+    replay: {
+      status: response.status,
+      contentType: 'application/json',
+      bodyText: response.bodyText,
+    },
+  };
 }
