@@ -2181,17 +2181,6 @@ export async function createWalletAddAuthMethodIntent(args: {
   });
 }
 
-function walletRegistrationStartAuthorityBody(
-  authority: WalletRegistrationStartAuthority,
-): Record<string, unknown> {
-  switch (authority.kind) {
-    case 'passkey':
-      return { webauthn_registration: authority.webauthnRegistration };
-    case 'email_otp':
-      return { emailOtpRegistrationProof: authority.emailOtpRegistrationProof };
-  }
-}
-
 export async function respondWalletRegistrationEcdsa(args: {
   relayerUrl: string;
   headers?: Record<string, string>;
@@ -2478,37 +2467,54 @@ function parseWalletRegistrationRespondEd25519DeferredWork(
   };
 }
 
+type WalletRegistrationSignerPlanKind = WalletRegistrationRespondResponseV2['kind'];
+
+type RespondWalletRegistrationArgs = {
+  relayerUrl: string;
+  headers?: Record<string, string>;
+  registrationCeremonyId: string;
+  signerPlanKind: WalletRegistrationSignerPlanKind;
+  /** Opaque; echoed exactly as setup returned it. */
+  signedSetup: string;
+  /* Absent for an Ed25519-only plan: no ECDSA ceremony was created, so there
+     is no registration request to forward. */
+  ecdsa?: {
+    kind: 'router_ab_ecdsa_registration_v1';
+    strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+    requestDigestB64u: string;
+  };
+  onServerTiming?: (header: string | null) => void;
+} & WalletRegistrationStartAuthority;
+
+function walletRegistrationRespondBody(
+  args: RespondWalletRegistrationArgs,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    registrationCeremonyId: args.registrationCeremonyId,
+    signedSetup: args.signedSetup,
+    kind: args.signerPlanKind,
+  };
+  switch (args.kind) {
+    case 'passkey':
+      body.webauthn_registration = args.webauthnRegistration;
+      break;
+    case 'email_otp':
+      body.emailOtpRegistrationProof = args.emailOtpRegistrationProof;
+      break;
+  }
+  if (args.ecdsa) body.ecdsa = args.ecdsa;
+  return body;
+}
+
 export async function respondWalletRegistration(
-  args: {
-    relayerUrl: string;
-    headers?: Record<string, string>;
-    registrationCeremonyId: string;
-    planKind: WalletRegistrationRespondResponseV2['kind'];
-    /** Opaque; echoed exactly as setup returned it. */
-    signedSetup: string;
-    /* Absent for an Ed25519-only plan: no ECDSA ceremony was created, so there
-       is no registration request to forward. Modelled as optional rather than
-       cast away at the call site. */
-    ecdsa?: {
-      kind: 'router_ab_ecdsa_registration_v1';
-      strictRegistration: RouterAbEcdsaRegistrationRequestV1;
-      requestDigestB64u: string;
-    };
-    onServerTiming?: (header: string | null) => void;
-  } & WalletRegistrationStartAuthority,
+  args: RespondWalletRegistrationArgs,
 ): Promise<WalletRegistrationRespondResponseV2> {
   const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: WALLET_REGISTRATION_RESPOND_PATH,
     headers: args.headers,
-    body: {
-      registrationCeremonyId: args.registrationCeremonyId,
-      signedSetup: args.signedSetup,
-      kind: args.planKind,
-      ...walletRegistrationStartAuthorityBody(args),
-      ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
-    },
-    ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
+    body: walletRegistrationRespondBody(args),
+    onServerTiming: args.onServerTiming,
   });
   return parseWalletRegistrationRespondResponseV2(response);
 }
@@ -2657,11 +2663,11 @@ function parseWalletRegistrationActivateResponseV2(
   };
 }
 
-export async function activateWalletRegistration(args: {
+type ActivateWalletRegistrationArgs = {
   relayerUrl: string;
   headers?: Record<string, string>;
   registrationCeremonyId: string;
-  planKind: WalletRegistrationRespondResponseV2['kind'];
+  signerPlanKind: WalletRegistrationSignerPlanKind;
   signedSetup: string;
   idempotencyKey: string;
   /* Absent for an Ed25519-only plan: nothing was verified in the browser
@@ -2674,21 +2680,32 @@ export async function activateWalletRegistration(args: {
   emailOtpEnrollment?: WalletRegistrationEmailOtpEnrollmentMaterial;
   emailOtpBackupAck?: WalletRegistrationEmailOtpBackupAck;
   onServerTiming?: (header: string | null) => void;
-}): Promise<WalletRegistrationActivateResponseV2> {
+};
+
+function walletRegistrationActivateBody(
+  args: ActivateWalletRegistrationArgs,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    registrationCeremonyId: args.registrationCeremonyId,
+    kind: args.signerPlanKind,
+    signedSetup: args.signedSetup,
+    idempotencyKey: args.idempotencyKey,
+  };
+  if (args.ecdsa) body.ecdsa = args.ecdsa;
+  if (args.emailOtpEnrollment) body.emailOtpEnrollment = args.emailOtpEnrollment;
+  if (args.emailOtpBackupAck) body.emailOtpBackupAck = args.emailOtpBackupAck;
+  return body;
+}
+
+export async function activateWalletRegistration(
+  args: ActivateWalletRegistrationArgs,
+): Promise<WalletRegistrationActivateResponseV2> {
   const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: WALLET_REGISTRATION_ACTIVATE_PATH,
     headers: args.headers,
-    body: {
-      registrationCeremonyId: args.registrationCeremonyId,
-      kind: args.planKind,
-      signedSetup: args.signedSetup,
-      idempotencyKey: args.idempotencyKey,
-      ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
-      ...(args.emailOtpEnrollment ? { emailOtpEnrollment: args.emailOtpEnrollment } : {}),
-      ...(args.emailOtpBackupAck ? { emailOtpBackupAck: args.emailOtpBackupAck } : {}),
-    },
-    ...(args.onServerTiming ? { onServerTiming: args.onServerTiming } : {}),
+    body: walletRegistrationActivateBody(args),
+    onServerTiming: args.onServerTiming,
   });
   return parseWalletRegistrationActivateResponseV2(response);
 }

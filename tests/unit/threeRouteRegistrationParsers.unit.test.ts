@@ -35,7 +35,7 @@ function withStubbedFetch<T>(
 const RESPOND_ARGS = {
   relayerUrl: RELAYER,
   registrationCeremonyId: 'wrc_test',
-  planKind: 'near_ed25519_and_evm_family_ecdsa' as const,
+  signerPlanKind: 'near_ed25519_and_evm_family_ecdsa' as const,
   signedSetup: 'signed-setup-token',
   kind: 'passkey' as const,
   webauthnRegistration: {},
@@ -47,9 +47,8 @@ const RESPOND_ARGS = {
 };
 
 test('respond sends the signer plan and authority proof at the route boundary', async () => {
-  const { buildFixtureRespondEd25519DeferredWork } = await import(
-    '../helpers/ed25519YaoAdmissionFixtures'
-  );
+  const { buildFixtureRespondEd25519DeferredWork } =
+    await import('../helpers/ed25519YaoAdmissionFixtures');
   let requestBody: Record<string, unknown> | null = null;
   await withStubbedFetch(
     {
@@ -62,7 +61,7 @@ test('respond sends the signer plan and authority proof at the route boundary', 
       respondWalletRegistration({
         relayerUrl: RELAYER,
         registrationCeremonyId: 'wrc_test',
-        planKind: 'near_ed25519',
+        signerPlanKind: 'near_ed25519',
         signedSetup: 'signed-setup-token',
         kind: 'email_otp',
         emailOtpRegistrationProof: {} as never,
@@ -180,7 +179,7 @@ test('respond rejects deferred NEAR work claiming a non-deferred status', async 
 const ACTIVATE_ARGS = {
   relayerUrl: RELAYER,
   registrationCeremonyId: 'wrc_test',
-  planKind: 'evm_family_ecdsa' as const,
+  signerPlanKind: 'evm_family_ecdsa' as const,
   signedSetup: 'signed-setup-token',
   idempotencyKey: 'idem-1',
   ecdsa: { clientActivation: {} as never },
