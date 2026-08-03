@@ -1,5 +1,6 @@
 use router_ab_core::{
-    Ed25519YaoEpochTransitionV1, Ed25519YaoRefreshEpochsV1, Ed25519YaoStateEpochV1, RootShareEpoch,
+    Ed25519YaoEpochTransitionV1, Ed25519YaoRefreshEpochsV1, Ed25519YaoStateEpochV1,
+    MpcMaterialActivationRefV1, RootShareEpoch,
 };
 use router_ab_dev::{
     admit_local_ed25519_yao_registration_v1, generate_local_ed25519_yao_recipient_key_pair_v1,
@@ -172,14 +173,23 @@ fn admission_request() -> RouterAbEd25519YaoRegistrationAdmissionRequestV1 {
     .expect("registration request")
 }
 
-fn scope(lifecycle_id: &str, wallet_session_id: &str) -> RouterAbEd25519YaoLifecycleScopeV1 {
+fn scope(lifecycle_id: &str, threshold_session_id: &str) -> RouterAbEd25519YaoLifecycleScopeV1 {
     RouterAbEd25519YaoLifecycleScopeV1::new(
         lifecycle_id,
         RootShareEpoch::new("epoch-1").expect("epoch"),
         "account-1",
-        wallet_session_id,
+        threshold_session_id,
         "set-1",
         "worker-1",
+        MpcMaterialActivationRefV1::new(
+            format!("activation-{lifecycle_id}"),
+            "capability-input",
+            "wallet-input",
+            "key-input",
+            lifecycle_id,
+            "worker-1",
+        )
+        .expect("material activation"),
     )
     .expect("lifecycle scope")
 }

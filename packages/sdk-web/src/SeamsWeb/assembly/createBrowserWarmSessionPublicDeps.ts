@@ -1,6 +1,9 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { RuntimePorts } from '@/core/platform';
-import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import type {
+  PasskeyMpcSessionPort,
+  UiConfirmRuntimeBridgePort,
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SigningEngineStorePorts } from '@/core/signingEngine/assembly/ports/shared';
 import {
@@ -21,6 +24,7 @@ export function createBrowserWarmSessionPublicDeps(args: {
   stores: SigningEngineStorePorts;
   touchIdPrompt: TouchIdPrompt;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   warmSigning: WarmSigningPorts;
   runtimePorts: RuntimePorts;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
@@ -28,7 +32,6 @@ export function createBrowserWarmSessionPublicDeps(args: {
   enginePorts: Pick<
     SigningEnginePorts,
     | 'walletSessionActivationDeps'
-    | 'resolveCanonicalThresholdEcdsaSessionIdForWalletTarget'
     | 'signingSessionCoordinator'
   >;
 }): {
@@ -41,6 +44,7 @@ export function createBrowserWarmSessionPublicDeps(args: {
       credentialStore: args.stores.recoveryAndDeviceLinking.credentialStore,
       touchIdPrompt: args.touchIdPrompt,
       touchConfirm: args.touchConfirm,
+      passkeyMpcSession: args.passkeyMpcSession,
       warmSigning: args.warmSigning,
       thresholdEcdsaBootstrapQueueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
       ensureSealedRefreshStartupParity: args.ensureSealedRefreshStartupParity,
@@ -52,10 +56,9 @@ export function createBrowserWarmSessionPublicDeps(args: {
       seamsWebConfigs: args.seamsWebConfigs,
       bootstrapStore: args.stores.walletProfileAndSignerRecords.ecdsaBootstrapStore,
       touchConfirm: args.touchConfirm,
+      passkeyMpcSession: args.passkeyMpcSession,
       warmSigning: args.warmSigning,
       walletSessionActivationDeps: args.enginePorts.walletSessionActivationDeps,
-      resolveCanonicalThresholdEcdsaSessionIdForWalletTarget:
-        args.enginePorts.resolveCanonicalThresholdEcdsaSessionIdForWalletTarget,
       signingSessionCoordinator: args.enginePorts.signingSessionCoordinator,
     }),
   };

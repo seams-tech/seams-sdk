@@ -63,6 +63,8 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import {
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaDerivationNormalSigningStateV1,
+  parseRouterAbEcdsaDerivationActivationPrepareResultV1,
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
   parseRouterAbEcdsaRegistrationRequestV1,
   parseRouterAbEcdsaRegistrationRequestFactsV1,
@@ -84,8 +86,8 @@ import type {
   WalletRegistrationFinalizeAuthMethod,
   WalletRegistrationFinalizeResponse,
   WalletRegistrationRouteDiagnostics,
+  WalletEd25519YaoSignerPublicResult,
   WalletRegistrationEd25519YaoPublicResult,
-  WalletRegistrationEd25519YaoBootstrapSession,
   WalletAddSignerFinalizeResponse,
 } from '../../core/registrationContracts';
 import { parseWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
@@ -450,8 +452,8 @@ function parseD1WalletAddSignerFinalizeSuccessResponse(
   if (record.kind === 'near_ed25519') {
     const rpId = toOptionalTrimmedString(record.rpId);
     const credentialIdB64u = toOptionalTrimmedString(record.credentialIdB64u);
-    const ed25519 = parseD1WalletRegistrationFinalizeEd25519(record.ed25519);
-    if (!rpId || !credentialIdB64u || !ed25519 || ed25519.session.walletId !== walletId) {
+    const ed25519 = parseD1WalletEd25519YaoSignerPublicResult(record.ed25519);
+    if (!rpId || !credentialIdB64u || !ed25519) {
       return null;
     }
     return {
@@ -540,8 +542,6 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
     ) ||
     !accountProvisioning ||
     !resolvedAccount ||
-    ed25519.session.walletId !== walletId ||
-    !thresholdEd25519AuthorityScopesMatch(ed25519.session.authorityScope, authorityScope) ||
     ed25519.nearAccountId !== resolvedAccount.nearAccountId ||
     ed25519.nearEd25519SigningKeyId !== resolvedAccount.nearEd25519SigningKeyId ||
     !registrationNearProvisioningMatchesResolution(accountProvisioning, resolvedAccount)
@@ -690,6 +690,30 @@ function parseD1WalletRegistrationFinalizeAuthMethod(
 function parseD1WalletRegistrationFinalizeEd25519(
   raw: unknown,
 ): WalletRegistrationEd25519YaoPublicResult | null {
+  const publicResult = parseD1WalletEd25519YaoSignerPublicResult(raw);
+  const record = toRecordValue(raw);
+  if (!record || !publicResult) return null;
+  const runtimePolicyScope = parseD1RuntimePolicyScope(record.runtimePolicyScope);
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+    record.routerAbNormalSigning,
+  );
+  if (
+    !runtimePolicyScope ||
+    !routerAbNormalSigning ||
+    routerAbNormalSigning.signingWorkerId !== publicResult.relayerKeyId
+  ) {
+    return null;
+  }
+  return {
+    ...publicResult,
+    runtimePolicyScope,
+    routerAbNormalSigning,
+  };
+}
+
+function parseD1WalletEd25519YaoSignerPublicResult(
+  raw: unknown,
+): WalletEd25519YaoSignerPublicResult | null {
   const record = toRecordValue(raw);
   if (!record || record.recoveryExportCapable !== true) return null;
   const signerSlot = safeInteger(record.signerSlot);
@@ -699,7 +723,6 @@ function parseD1WalletRegistrationFinalizeEd25519(
   const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
   const keyVersion = toOptionalTrimmedString(record.keyVersion);
   const participantIds = parseD1PositiveIntegerArray(record.participantIds);
-  const session = parseD1WalletRegistrationEd25519YaoBootstrapSession(record.session);
   if (
     signerSlot === null ||
     signerSlot <= 0 ||
@@ -709,12 +732,7 @@ function parseD1WalletRegistrationFinalizeEd25519(
     !relayerKeyId ||
     !keyVersion ||
     !participantIds ||
-    participantIds.length !== 2 ||
-    !session ||
-    session.nearAccountId !== nearAccountId ||
-    session.nearEd25519SigningKeyId !== nearEd25519SigningKeyId ||
-    session.participantIds[0] !== participantIds[0] ||
-    session.participantIds[1] !== participantIds[1]
+    participantIds.length !== 2
   ) {
     return null;
   }
@@ -730,71 +748,6 @@ function parseD1WalletRegistrationFinalizeEd25519(
     keyVersion,
     recoveryExportCapable: true,
     participantIds: [firstParticipantId, secondParticipantId],
-    session,
-  };
-}
-
-function parseD1WalletRegistrationEd25519YaoBootstrapSession(
-  raw: unknown,
-): WalletRegistrationEd25519YaoBootstrapSession | null {
-  const record = toRecordValue(raw);
-  if (!record || record.sessionKind !== 'jwt') return null;
-  const walletSessionJwt = toOptionalTrimmedString(record.walletSessionJwt);
-  const walletId = parseWalletIdForIntent(record.walletId);
-  const nearAccountId = toOptionalTrimmedString(record.nearAccountId);
-  const nearEd25519SigningKeyId = toOptionalTrimmedString(record.nearEd25519SigningKeyId);
-  const authorityScope = parseThresholdEd25519AuthorityScope(record.authorityScope);
-  const thresholdSessionId = toOptionalTrimmedString(record.thresholdSessionId);
-  const signingGrantId = toOptionalTrimmedString(record.signingGrantId);
-  const expiresAtMs = safeInteger(record.expiresAtMs);
-  const participantIds = parseD1PositiveIntegerArray(record.participantIds);
-  const remainingUses = safeInteger(record.remainingUses);
-  const signingRootId = toOptionalTrimmedString(record.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
-  const runtimePolicyScope = parseD1RuntimePolicyScope(record.runtimePolicyScope);
-  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
-    record.routerAbNormalSigning,
-  );
-  if (
-    !walletSessionJwt ||
-    !walletId ||
-    !nearAccountId ||
-    !nearEd25519SigningKeyId ||
-    !authorityScope ||
-    !thresholdSessionId ||
-    !signingGrantId ||
-    expiresAtMs === null ||
-    expiresAtMs <= 0 ||
-    !participantIds ||
-    participantIds.length !== 2 ||
-    remainingUses === null ||
-    remainingUses <= 0 ||
-    !signingRootId ||
-    !signingRootVersion ||
-    !runtimePolicyScope ||
-    !routerAbNormalSigning
-  ) {
-    return null;
-  }
-  const firstParticipantId = participantIds[0];
-  const secondParticipantId = participantIds[1];
-  if (firstParticipantId === undefined || secondParticipantId === undefined) return null;
-  return {
-    sessionKind: 'jwt',
-    walletSessionJwt,
-    walletId,
-    nearAccountId,
-    nearEd25519SigningKeyId,
-    authorityScope,
-    thresholdSessionId,
-    signingGrantId,
-    expiresAtMs,
-    participantIds: [firstParticipantId, secondParticipantId],
-    remainingUses,
-    signingRootId,
-    signingRootVersion,
-    runtimePolicyScope,
-    routerAbNormalSigning,
   };
 }
 
@@ -1128,7 +1081,7 @@ function parseD1StoredEvmFamilyEcdsaActivatedBranch(
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
   const prepared = parseD1StoredEcdsaRegistrationBase(record);
   const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
-  if (!branchKey || !prepared || !bootstrap || bootstrap.jwt) return null;
+  if (!branchKey || !prepared || !bootstrap) return null;
   try {
     return {
       kind: 'evm_family_ecdsa_activated',
@@ -1157,7 +1110,7 @@ function parseD1StoredEvmFamilyEcdsaFinalizedBranch(
   const prepared = parseD1StoredEcdsaRegistrationBase(record);
   const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
   const finalizedAtMs = safeInteger(record.finalizedAtMs);
-  if (!branchKey || !prepared || !bootstrap || bootstrap.jwt || finalizedAtMs === null) return null;
+  if (!branchKey || !prepared || !bootstrap || finalizedAtMs === null) return null;
   try {
     return {
       kind: 'evm_family_ecdsa_finalized',
@@ -1542,7 +1495,7 @@ function parseD1StoredEcdsaAddSignerActivated(
 > | null {
   const prepared = parseD1StoredEcdsaRegistrationBase(record);
   const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
-  if (!prepared || !bootstrap || bootstrap.jwt) return null;
+  if (!prepared || !bootstrap) return null;
   try {
     return {
       kind: 'ecdsa_add_signer_activated',
@@ -1591,6 +1544,14 @@ function parseD1WalletRegistrationEcdsaPrepare(
 ): WalletRegistrationEcdsaPrepareContext | null {
   const record = toRecordValue(raw);
   if (!record || record.formatVersion !== 'ecdsa-derivation-role-local') return null;
+  if (
+    'authorizationSessionId' in record ||
+    'walletSessionId' in record ||
+    'quotaId' in record ||
+    'jwt' in record
+  ) {
+    return null;
+  }
   if (record.keyScope !== 'evm-family') return null;
   const registrationPreparationId = toOptionalTrimmedString(record.registrationPreparationId);
   const walletId = toOptionalTrimmedString(record.walletId);
@@ -1601,7 +1562,6 @@ function parseD1WalletRegistrationEcdsaPrepare(
   const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
   const requestId = toOptionalTrimmedString(record.requestId);
   const thresholdSessionId = toOptionalTrimmedString(record.thresholdSessionId);
-  const signingGrantId = toOptionalTrimmedString(record.signingGrantId);
   const ttlMs = safeInteger(record.ttlMs);
   const remainingUses = safeInteger(record.remainingUses);
   const participantIds = parseD1EcdsaParticipantPair(record.participantIds);
@@ -1616,7 +1576,6 @@ function parseD1WalletRegistrationEcdsaPrepare(
     !relayerKeyId ||
     !requestId ||
     !thresholdSessionId ||
-    !signingGrantId ||
     ttlMs === null ||
     remainingUses === null ||
     !participantIds ||
@@ -1636,7 +1595,6 @@ function parseD1WalletRegistrationEcdsaPrepare(
     registrationPreparationId: registrationPreparationIdFromString(registrationPreparationId),
     requestId,
     thresholdSessionId,
-    signingGrantId,
     ttlMs,
     remainingUses,
     participantIds,
@@ -1669,10 +1627,13 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
   const thresholdSessionId = toOptionalTrimmedString(record.thresholdSessionId);
   const activationEpochResult = parseRootShareEpoch(record.activationEpoch);
   const activationEpoch = activationEpochResult.ok ? activationEpochResult.value : null;
-  const signingGrantId = toOptionalTrimmedString(record.signingGrantId);
   const expiresAtMs = safeInteger(record.expiresAtMs);
   const expiresAt = toOptionalTrimmedString(record.expiresAt);
   const remainingUses = safeInteger(record.remainingUses);
+  const routerAbEcdsaDerivationNormalSigning =
+    parseRouterAbEcdsaDerivationNormalSigningStateV1(
+      record.routerAbEcdsaDerivationNormalSigning,
+    );
   if (
     !walletId ||
     !evmFamilySigningKeySlotId ||
@@ -1693,10 +1654,10 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
     !participantIds ||
     !thresholdSessionId ||
     !activationEpoch ||
-    !signingGrantId ||
     expiresAtMs === null ||
     !expiresAt ||
     remainingUses === null
+    || !routerAbEcdsaDerivationNormalSigning
   ) {
     return null;
   }
@@ -1721,13 +1682,11 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
     participantIds: [...participantIds],
     thresholdSessionId,
     activationEpoch,
-    signingGrantId,
     expiresAtMs,
     expiresAt,
     remainingUses,
+    routerAbEcdsaDerivationNormalSigning,
   };
-  const jwt = toOptionalTrimmedString(record.jwt);
-  if (jwt) bootstrap.jwt = jwt;
   return bootstrap;
 }
 
@@ -1820,7 +1779,6 @@ export function isMatchingD1EcdsaClientBootstrap(input: {
     actual.registrationPreparationId === expected.registrationPreparationId &&
     actual.requestId === expected.requestId &&
     actual.thresholdSessionId === expected.thresholdSessionId &&
-    actual.signingGrantId === expected.signingGrantId &&
     actual.ttlMs === expected.ttlMs &&
     actual.remainingUses === expected.remainingUses &&
     positiveIntegerArraysEqual(actual.participantIds, expected.participantIds) &&
@@ -1848,7 +1806,6 @@ export function toD1EcdsaDerivationClientBootstrapRequest(
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
     requestId: clientBootstrap.requestId,
     sessionId: clientBootstrap.thresholdSessionId,
-    signingGrantId: clientBootstrap.signingGrantId,
     ttlMs: clientBootstrap.ttlMs,
     remainingUses: clientBootstrap.remainingUses,
     participantIds: [...clientBootstrap.participantIds],

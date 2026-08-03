@@ -261,6 +261,15 @@ function registrationBinding(): Record<string, unknown> {
     operation: 'registration',
     session_id: bytes(7),
     stable_key_context_binding: bytes(8),
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'registration-activation-1',
+      capability: 'registration-capability-1',
+      material_owner: 'account-1',
+      key_binding: 'registration-key-1',
+      lifecycle_binding: 'registration-lifecycle-binding-1',
+      signing_worker: 'signing-worker-1',
+    },
   };
 }
 
@@ -270,9 +279,18 @@ function registrationAdmissionRequest(): Record<string, unknown> {
       lifecycle_id: 'registration-1',
       root_share_epoch: 'epoch-1',
       account_id: 'account-1',
-      wallet_session_id: 'wallet-session-1',
+      threshold_session_id: 'wallet-session-1',
       signer_set_id: 'signer-set-1',
       signing_worker_id: 'signing-worker-1',
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: 'registration-activation-1',
+        capability: 'registration-capability-1',
+        material_owner: 'account-1',
+        key_binding: 'registration-key-1',
+        lifecycle_binding: 'registration-lifecycle-binding-1',
+        signing_worker: 'signing-worker-1',
+      },
     },
     application_binding: {
       wallet_id: 'wallet-1',
@@ -290,9 +308,27 @@ function recoveryAdmissionRequest(): Record<string, unknown> {
       lifecycle_id: 'recovery-1',
       root_share_epoch: 'epoch-1',
       account_id: 'account-1',
-      wallet_session_id: 'wallet-session-1',
+      threshold_session_id: 'wallet-session-1',
       signer_set_id: 'signer-set-1',
       signing_worker_id: 'signing-worker-1',
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: 'recovery-activation-1',
+        capability: 'registration-capability-1',
+        material_owner: 'account-1',
+        key_binding: 'registration-key-1',
+        lifecycle_binding: 'recovery-lifecycle-binding-1',
+        signing_worker: 'signing-worker-1',
+      },
+    },
+    active_material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'registration-activation-1',
+      capability: 'registration-capability-1',
+      material_owner: 'account-1',
+      key_binding: 'registration-key-1',
+      lifecycle_binding: 'registration-lifecycle-binding-1',
+      signing_worker: 'signing-worker-1',
     },
     application_binding: {
       wallet_id: 'wallet-1',
@@ -374,6 +410,7 @@ function activationResultForBinding(
       joined_signing_worker_commitment: bytes(15),
       signing_worker_verifying_share: bytes(15),
       state_epoch: binding.operation === 'recovery' ? 2 : 1,
+      material_activation: binding.material_activation,
     },
   };
 }
@@ -390,6 +427,7 @@ function registrationResult(): Record<string, unknown> {
       joined_signing_worker_commitment: bytes(14),
       signing_worker_verifying_share: bytes(15),
       state_epoch: 1,
+      material_activation: registrationBinding().material_activation,
     },
   };
 }
@@ -533,6 +571,44 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     );
     packageA.transcript = bytes(19);
     expect(parseRouterAbEd25519YaoRegistrationResultV1(wrongTranscript).ok).toBe(false);
+  });
+
+  test('rejects owner, worker, and complete activation-reference substitution', () => {
+    const wrongOwner = registrationAdmissionRequest();
+    const wrongOwnerScope = requireRawRecord(wrongOwner.scope, 'scope');
+    const wrongOwnerActivation = requireRawRecord(
+      wrongOwnerScope.material_activation,
+      'scope.material_activation',
+    );
+    wrongOwnerActivation.material_owner = 'other-account';
+    expect(parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(wrongOwner).ok).toBe(false);
+
+    const wrongWorker = registrationAdmissionRequest();
+    const wrongWorkerScope = requireRawRecord(wrongWorker.scope, 'scope');
+    const wrongWorkerActivation = requireRawRecord(
+      wrongWorkerScope.material_activation,
+      'scope.material_activation',
+    );
+    wrongWorkerActivation.signing_worker = 'other-signing-worker';
+    expect(parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(wrongWorker).ok).toBe(false);
+
+    for (const field of [
+      'activation_id',
+      'capability',
+      'material_owner',
+      'key_binding',
+      'lifecycle_binding',
+      'signing_worker',
+    ] as const) {
+      const substitutedResult = registrationResult();
+      const receipt = requireRawRecord(substitutedResult.public_receipt, 'public_receipt');
+      const activation = requireRawRecord(
+        receipt.material_activation,
+        'public_receipt.material_activation',
+      );
+      activation[field] = `substituted-${field}`;
+      expect(parseRouterAbEd25519YaoRegistrationResultV1(substitutedResult).ok).toBe(false);
+    }
   });
 
   test('caches exact activated retries and rejects payload substitution', async () => {

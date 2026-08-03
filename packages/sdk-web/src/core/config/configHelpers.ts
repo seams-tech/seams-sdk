@@ -1,7 +1,7 @@
 import { coerceThemeMode } from '@shared/utils/theme';
 import { toTrimmedString } from '@shared/utils/validation';
 import type { EcdsaSignerProvisioningDefaults } from '../types/ecdsaSignerProvisioningDefaults';
-import { parseServerEnvironmentBudgetAllowance } from '../signingEngine/session/budget/policy';
+import { parsePositiveSessionUses } from '../signingEngine/threshold/sessionPolicy';
 import type {
   AppearanceTheme,
   SeamsChainConfig,
@@ -199,27 +199,27 @@ export function resolveThemePalette(args: {
 export function copyEcdsaSignerProvisioningDefaults(
   value: EcdsaSignerProvisioningDefaults,
 ): EcdsaSignerProvisioningDefaults {
-  const tempoAllowance = parseServerEnvironmentBudgetAllowance({
-    remainingUses: value.tempo.signingSession.remainingUses,
-    policyVersion: 'sdk_config.threshold_ecdsa_provisioning.tempo',
-  });
-  const evmAllowance = parseServerEnvironmentBudgetAllowance({
-    remainingUses: value.evm.signingSession.remainingUses,
-    policyVersion: 'sdk_config.threshold_ecdsa_provisioning.evm',
-  });
+  const tempoAllowance = parsePositiveSessionUses(
+    value.tempo.signingSession.remainingUses,
+    'tempo.signingSession.remainingUses',
+  );
+  const evmAllowance = parsePositiveSessionUses(
+    value.evm.signingSession.remainingUses,
+    'evm.signingSession.remainingUses',
+  );
   return {
     tempo: {
       ...value.tempo,
       signingSession: {
         ...value.tempo.signingSession,
-        remainingUses: tempoAllowance.remainingUses,
+        remainingUses: tempoAllowance,
       },
     },
     evm: {
       ...value.evm,
       signingSession: {
         ...value.evm.signingSession,
-        remainingUses: evmAllowance.remainingUses,
+        remainingUses: evmAllowance,
       },
     },
   };

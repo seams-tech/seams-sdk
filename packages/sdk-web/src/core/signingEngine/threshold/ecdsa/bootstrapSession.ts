@@ -10,19 +10,29 @@ import {
 import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
-  EvmFamilyEcdsaSessionLanePolicy,
+  EvmFamilyEcdsaActivationLanePolicy,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform/types';
-import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationPublicCapabilityV1,
+  RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
+  adoptStrictEcdsaPostRegistrationSession,
   activateStrictEcdsaPostRegistrationSession,
   type ExistingEcdsaRoleLocalActivation,
 } from './postRegistrationSessionActivation';
 import { bytesToHex } from '../../chains/evm/bytes';
 import { secureRandomId } from '@shared/utils/secureRandomId';
-import type { PersistedEcdsaRoleLocalMaterial } from '../../session/persistence/records';
+import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import { computeEcdsaDerivationRoleLocalRelayerKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import type {
+  MpcWalletSigningQuotaId,
+  SeamsSessionId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
 
 type BootstrapEcdsaSessionBaseArgs = {
   credentialStore: ThresholdCredentialStorePort;
@@ -108,37 +118,28 @@ export type BootstrapEcdsaSessionAuthArgs =
   | BootstrapEcdsaPasskeyPrfBytesAuthArgs
   | BootstrapEcdsaEmailOtpAuthArgs;
 
-type BootstrapEcdsaRegistrationArgs = BootstrapEcdsaSessionBaseArgs &
+type BootstrapEcdsaExactSessionArgsBase = BootstrapEcdsaSessionBaseArgs &
   BootstrapEcdsaSessionAuthArgs & {
-    bootstrapAuth?: ThresholdEcdsaDerivationRouteAuth;
-    evmFamilySigningKeySlotId: string;
-    ecdsaThresholdKeyId?: string;
-    sessionId?: string;
-    signingGrantId?: string;
-    keyHandle?: never;
-    key?: never;
-    lanePolicy?: never;
-    publicCapability?: never;
-  };
-
-type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaSessionBaseArgs &
-  BootstrapEcdsaSessionAuthArgs & {
-    bootstrapAuth: Extract<
-      ThresholdEcdsaDerivationRouteAuth,
-      { kind: 'app_session' | 'wallet_session' }
-    >;
     keyHandle: EvmFamilyEcdsaKeyHandle;
     key: EvmFamilyEcdsaKeyIdentity;
-    lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+    lanePolicy: EvmFamilyEcdsaActivationLanePolicy;
     publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
     existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
     evmFamilySigningKeySlotId?: never;
     ecdsaThresholdKeyId?: never;
-    sessionId?: never;
-    signingGrantId?: never;
   };
 
-type BootstrapEcdsaSessionArgs = BootstrapEcdsaRegistrationArgs | BootstrapEcdsaExactSessionArgs;
+type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaExactSessionArgsBase &
+  (
+    | {
+        bootstrapAuth: Extract<ThresholdEcdsaDerivationRouteAuth, { kind: 'wallet_session' }>;
+        sessionActivation?: never;
+      }
+    | {
+        sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        bootstrapAuth?: never;
+      }
+  );
 
 type BootstrapEcdsaSessionFailure = {
   ok: false;
@@ -151,7 +152,6 @@ type BootstrapEcdsaSessionSuccessCommon = {
   bootstrapKind: 'strict_post_registration';
   keygenSessionId: string;
   rpId: string;
-  evmFamilySigningKeySlotId: string;
   keyHandle: string;
   ecdsaThresholdKeyId: string;
   clientVerifyingShareB64u: string;
@@ -163,8 +163,10 @@ type BootstrapEcdsaSessionSuccessCommon = {
   relayerShareRetryCounter: number;
   participantIds: number[];
   chainId: number;
-  sessionId: string;
-  signingGrantId: string;
+  thresholdSessionId: string;
+  authorizationSessionId: SeamsSessionId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -193,12 +195,6 @@ export type BootstrapEcdsaSessionResult =
   | BootstrapEcdsaPasskeySessionSuccess
   | BootstrapEcdsaEmailOtpSessionSuccess
   | BootstrapEcdsaSessionFailure;
-
-function isExactSessionBootstrapArgs(
-  args: BootstrapEcdsaSessionArgs,
-): args is BootstrapEcdsaExactSessionArgs {
-  return Boolean(args.keyHandle && args.key && args.lanePolicy && args.publicCapability);
-}
 
 function credentialIdFromCredential(credential: WebAuthnAuthenticationCredential): string {
   const credentialId = String(credential.rawId || credential.id || '').trim();
@@ -247,24 +243,33 @@ async function bootstrapStrictExistingEcdsaSession(
   if (!runtimePolicyScope) {
     throw new Error('Strict ECDSA session activation requires runtimePolicyScope');
   }
-  const strict = await activateStrictEcdsaPostRegistrationSession({
-    relayerUrl: args.relayerUrl,
-    routeAuth: args.bootstrapAuth,
+  const strictInput = {
     workerCtx: args.workerCtx,
     publicCapability: args.publicCapability,
     persistedRoleLocalMaterial: args.existingRoleLocalMaterial,
     walletId: String(args.key.walletId),
     thresholdSessionId: args.lanePolicy.thresholdSessionId,
-    signingGrantId: args.lanePolicy.signingGrantId,
     ttlMs: args.lanePolicy.ttlMs,
     remainingUses: args.lanePolicy.remainingUses,
     runtimePolicyScope,
-  });
+  };
+  const strict = args.sessionActivation
+    ? await adoptStrictEcdsaPostRegistrationSession({
+        ...strictInput,
+        sessionActivation: args.sessionActivation,
+      })
+    : await activateStrictEcdsaPostRegistrationSession({
+        ...strictInput,
+        walletSessionMintId: requireFreshReusableWalletSessionMintId(),
+        relayerUrl: args.relayerUrl,
+        routeAuth: args.bootstrapAuth,
+      });
   const capability = strict.sessionActivation.public_capability;
   const publicIdentity = capability.public_identity;
   const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
     walletId: String(args.key.walletId),
-    evmFamilySigningKeySlotId: String(args.key.evmFamilySigningKeySlotId),
+    signingRootId: args.key.signingRootId,
+    signingRootVersion: args.key.signingRootVersion,
   });
   const common: BootstrapEcdsaSessionSuccessCommon = {
     ok: true,
@@ -273,7 +278,6 @@ async function bootstrapStrictExistingEcdsaSession(
       String(args.requestId || '').trim() ||
       secureRandomId('tecdsa-keygen', 32, 'threshold ECDSA session IDs'),
     rpId,
-    evmFamilySigningKeySlotId: String(args.key.evmFamilySigningKeySlotId),
     keyHandle: String(args.keyHandle),
     ecdsaThresholdKeyId: String(args.key.ecdsaThresholdKeyId),
     clientVerifyingShareB64u: publicIdentity.derivation_client_share_public_key33_b64u,
@@ -285,8 +289,10 @@ async function bootstrapStrictExistingEcdsaSession(
     relayerShareRetryCounter: publicIdentity.server_share_retry_counter,
     participantIds: args.key.participantIds.map(Number),
     chainId: args.lanePolicy.chainTarget.chainId,
-    sessionId: strict.sessionActivation.session.threshold_session_id,
-    signingGrantId: args.lanePolicy.signingGrantId,
+    thresholdSessionId: strict.sessionActivation.session.threshold_session_id,
+    authorizationSessionId: strict.sessionActivation.session.authorization_session_id,
+    walletSessionId: strict.sessionActivation.session.wallet_session_id,
+    quotaId: strict.sessionActivation.session.quota_id,
     expiresAtMs: strict.sessionActivation.session.expires_at_ms,
     remainingUses: strict.sessionActivation.session.remaining_uses,
     runtimePolicyScope,
@@ -310,19 +316,20 @@ async function bootstrapStrictExistingEcdsaSession(
       };
 }
 
+function requireFreshReusableWalletSessionMintId() {
+  const parsed = parseReusableWalletSessionMintId(
+    secureRandomId('wallet-session-mint', 32, 'reusable Wallet Session mint IDs'),
+  );
+  if (!parsed.ok) throw new Error('Failed to create reusable Wallet Session mint identity');
+  return parsed.value;
+}
+
 export async function bootstrapEcdsaSession(
-  args: BootstrapEcdsaSessionArgs,
+  args: BootstrapEcdsaExactSessionArgs,
 ): Promise<BootstrapEcdsaSessionResult> {
   const rpId = args.touchIdPrompt.getRpId();
   if (!rpId) {
     return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
-  }
-  if (!isExactSessionBootstrapArgs(args)) {
-    return {
-      ok: false,
-      code: 'strict_key_identity_required',
-      message: 'ECDSA bootstrap requires an existing strict Router A/B key identity',
-    };
   }
   try {
     return await bootstrapStrictExistingEcdsaSession(args, rpId);

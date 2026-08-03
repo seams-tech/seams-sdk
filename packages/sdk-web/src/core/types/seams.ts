@@ -24,10 +24,14 @@ import type {
   ResolvedRegistrationNearAccount,
   WalletId,
 } from '@shared/utils/registrationIntent';
+import type { WalletAuthMethodBinding } from '@shared/utils/walletCapabilityBindings';
+import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
+import type { ThresholdEcdsaChainTarget } from '../signingEngine/interfaces/ecdsaChainTarget';
 import type {
-  CurrentWalletAuthMethod,
-  WalletAuthMethodBinding,
-} from '@shared/utils/walletCapabilityBindings';
+  EvmFamilyEcdsaWalletUnlockSubject,
+  NearEd25519WalletUnlockSubject,
+  WalletUnlockSubjectSet,
+} from '../signingEngine/session/identity/walletUnlockSubject';
 
 export type {
   SensitiveOperationPolicy,
@@ -321,16 +325,245 @@ export type SeamsConfigsReadonly = ReadonlyDeep<SeamsConfigsResolved>;
 /// Result Types
 //////////////////////////////////
 
-export interface LoginState {
-  isLoggedIn: boolean;
-  walletId: WalletId | null;
-  nearAccountId: AccountId | null;
-  publicKey: string | null;
-  userData: ClientUserData | null;
-  currentAuthMethod: CurrentWalletAuthMethod;
-  authMethods: readonly WalletAuthMethodBinding[];
-  thresholdEcdsaEthereumAddress?: string | null;
-  thresholdEcdsaPublicKeyB64u?: string | null;
+export type WalletSessionIdentityResolveFailure =
+  | 'missing_wallet_profile'
+  | 'ambiguous_wallet_profile'
+  | 'missing_requested_capability_subject'
+  | 'capability_subject_lookup_failed'
+  | 'invalid_capability_subject'
+  | 'activation_reconciliation_pending'
+  | 'activation_reconciliation_failed'
+  | 'invalid_wallet_profile';
+
+export type WalletSessionAppIdentity =
+  | {
+      readonly kind: 'anonymous';
+      readonly walletId?: never;
+      readonly reason?: never;
+      readonly nearAccountId?: never;
+      readonly nearOperationalPublicKey?: never;
+      readonly userData?: never;
+      readonly authMethods?: never;
+      readonly thresholdEcdsaEthereumAddress?: never;
+      readonly thresholdEcdsaPublicKeyB64u?: never;
+    }
+  | {
+      readonly kind: 'unresolvable';
+      readonly walletId: WalletId;
+      readonly reason: WalletSessionIdentityResolveFailure;
+      readonly nearAccountId?: never;
+      readonly nearOperationalPublicKey?: never;
+      readonly userData?: never;
+      readonly authMethods?: never;
+      readonly thresholdEcdsaEthereumAddress?: never;
+      readonly thresholdEcdsaPublicKeyB64u?: never;
+    }
+  | {
+      readonly kind: 'resolved';
+      readonly walletId: WalletId;
+      readonly nearAccountId: AccountId | null;
+      readonly nearOperationalPublicKey: string | null;
+      readonly userData: ClientUserData | null;
+      readonly authMethods: readonly WalletAuthMethodBinding[];
+      readonly thresholdEcdsaEthereumAddress: string | null;
+      readonly thresholdEcdsaPublicKeyB64u: string | null;
+      readonly reason?: never;
+    };
+
+export type ReusableWalletSessionState =
+  | {
+      readonly kind: 'not_requested';
+      readonly walletId?: never;
+      readonly walletSessionId?: never;
+      readonly authMethod?: never;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+      readonly detectedAtMs?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'active';
+      readonly walletId: WalletId;
+      readonly walletSessionId: WalletSessionId;
+      readonly authMethod: WalletAuthMethod;
+      readonly remainingUses: number;
+      readonly expiresAtMs: number;
+      readonly detectedAtMs?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'exhausted';
+      readonly walletId: WalletId;
+      readonly walletSessionId: WalletSessionId;
+      readonly authMethod: WalletAuthMethod;
+      readonly remainingUses: 0;
+      readonly expiresAtMs: number;
+      readonly detectedAtMs?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'expired';
+      readonly walletId: WalletId;
+      readonly walletSessionId: WalletSessionId;
+      readonly authMethod: WalletAuthMethod;
+      readonly expiresAtMs: number;
+      readonly detectedAtMs: number;
+      readonly remainingUses?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'missing';
+      readonly walletId: WalletId;
+      readonly walletSessionId?: never;
+      readonly authMethod?: never;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+      readonly detectedAtMs?: never;
+      readonly reason?: never;
+    }
+  // R90-INV-010. The authority or lifecycle behind this session was replaced,
+  // so the session is stale rather than broken: discard it and resolve current
+  // state again. It carries no expiry or remaining uses because the replaced
+  // session's budget is no longer the one that governs.
+  | {
+      readonly kind: 'superseded';
+      readonly walletId: WalletId;
+      readonly walletSessionId: WalletSessionId;
+      readonly authMethod: WalletAuthMethod;
+      readonly detectedAtMs: number;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly walletId: WalletId;
+      readonly reason: 'persistence_unavailable';
+      readonly walletSessionId?: never;
+      readonly authMethod?: never;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+      readonly detectedAtMs?: never;
+    }
+  | {
+      readonly kind: 'invalid';
+      readonly walletId: WalletId;
+      // `lifecycle_mismatch` is gone: replacement is `superseded`, which the
+      // caller re-resolves. Collapsing it here told adapters a routine
+      // replacement was a broken session.
+      readonly reason:
+        | 'malformed'
+        | 'identity_mismatch'
+        | 'ambiguous_wallet_session'
+        | 'auth_method_mismatch';
+      readonly walletSessionId?: never;
+      readonly authMethod?: never;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+      readonly detectedAtMs?: never;
+    };
+
+export type WalletSessionCapabilityLaneReadiness =
+  | {
+      readonly kind: 'ready';
+      readonly resume?: never;
+      readonly requirement?: never;
+      readonly replacement?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'pending';
+      readonly resume: 'restore_material' | 'resolve_deferred_state';
+      readonly requirement?: never;
+      readonly replacement?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'authorization_required';
+      readonly requirement:
+        | 'same_method_step_up'
+        | 'wallet_session_expired'
+        | 'wallet_session_exhausted';
+      readonly resume?: never;
+      readonly replacement?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'superseded';
+      readonly replacement: 're_resolve_current_capability';
+      readonly resume?: never;
+      readonly requirement?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly reason:
+        | 'missing'
+        | 'persistence_unavailable'
+        | 'malformed'
+        | 'identity_mismatch'
+        | 'ambiguous_lane';
+      readonly resume?: never;
+      readonly requirement?: never;
+      readonly replacement?: never;
+    };
+
+export type WalletSessionCapabilityReadiness =
+  | {
+      readonly kind: 'near_ed25519';
+      readonly subject: NearEd25519WalletUnlockSubject;
+      readonly lane: WalletSessionCapabilityLaneReadiness;
+      readonly targets?: never;
+    }
+  | {
+      readonly kind: 'evm_family_ecdsa';
+      readonly subject: EvmFamilyEcdsaWalletUnlockSubject;
+      readonly targets:
+        | { readonly kind: 'no_configured_target' }
+        | {
+            readonly kind: 'configured_targets';
+            readonly lanes: readonly [
+              {
+                readonly chainTarget: ThresholdEcdsaChainTarget;
+                readonly readiness: WalletSessionCapabilityLaneReadiness;
+              },
+              ...{
+                readonly chainTarget: ThresholdEcdsaChainTarget;
+                readonly readiness: WalletSessionCapabilityLaneReadiness;
+              }[],
+            ];
+          };
+      readonly lane?: never;
+    };
+
+export type WalletSessionCapabilityProjection =
+  | {
+      readonly kind: 'not_requested';
+      readonly subjectSet?: never;
+      readonly capabilities?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'unresolvable';
+      readonly reason: WalletSessionIdentityResolveFailure;
+      readonly subjectSet?: never;
+      readonly capabilities?: never;
+    }
+  | {
+      readonly kind: 'resolved';
+      readonly subjectSet: WalletUnlockSubjectSet;
+      readonly capabilities: readonly [
+        WalletSessionCapabilityReadiness,
+        ...WalletSessionCapabilityReadiness[],
+      ];
+      readonly reason?: never;
+    };
+
+export interface WalletSession {
+  readonly appIdentity: WalletSessionAppIdentity;
+  readonly reusableWalletSession: ReusableWalletSessionState;
+  readonly capabilityProjection: WalletSessionCapabilityProjection;
+  readonly nonceDiagnostics: NonceCoordinatorDiagnostics | null;
 }
 
 export type ThemeMode = 'light' | 'dark';
@@ -365,6 +598,35 @@ export interface AppearanceConfig {
   theme: AppearanceTheme;
   palette: ThemePaletteName;
 }
+
+export type RegisteredNearEd25519Capability = {
+  readonly kind: 'near_ed25519';
+  readonly accountProvisioning: RegistrationNearAccountProvisioning;
+  readonly resolvedAccount: ResolvedRegistrationNearAccount;
+  readonly nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  readonly operationalPublicKey: string | null;
+  readonly nearAccountId: AccountId;
+  readonly transactionId: string | null;
+};
+
+export type RegisteredEvmFamilyEcdsaCapability = {
+  readonly kind: 'evm_family_ecdsa';
+  readonly thresholdEcdsaEthereumAddress: string;
+  readonly thresholdEcdsaPublicKeyB64u: string;
+};
+
+export type AddedNearEd25519SignerCapability = {
+  readonly kind: 'near_ed25519';
+  readonly nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  readonly operationalPublicKey: string | null;
+  readonly nearAccountId: AccountId;
+};
+
+export type AddedEvmFamilyEcdsaSignerCapability = {
+  readonly kind: 'evm_family_ecdsa';
+  readonly thresholdEcdsaEthereumAddress: string;
+  readonly thresholdEcdsaPublicKeyB64u: string;
+};
 
 /**
  * Lifecycle of the deferred Ed25519/NEAR branch for one wallet.
@@ -433,118 +695,51 @@ export type RegistrationNearProvisioningState =
 
 export type RegistrationResult =
   | {
-      success: true;
-      kind: 'near_wallet_registered';
-      walletId: WalletId;
-      accountProvisioning: RegistrationNearAccountProvisioning;
-      resolvedAccount: ResolvedRegistrationNearAccount;
-      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-      operationalPublicKey: string | null;
-      nearAccountId: AccountId;
-      transactionId: string | null;
-      thresholdEcdsaEthereumAddress?: never;
-      thresholdEcdsaPublicKeyB64u?: never;
-      error?: never;
-      errorCode?: never;
+      readonly success: true;
+      readonly kind: 'wallet_registered';
+      readonly walletId: WalletId;
+      readonly capabilities:
+        | readonly [RegisteredNearEd25519Capability]
+        | readonly [RegisteredEvmFamilyEcdsaCapability]
+        | readonly [RegisteredNearEd25519Capability, RegisteredEvmFamilyEcdsaCapability];
+      readonly error?: never;
+      readonly errorCode?: never;
     }
   | {
-      success: true;
-      kind: 'ecdsa_wallet_registered';
-      walletId: WalletId;
-      thresholdEcdsaEthereumAddress: string;
-      thresholdEcdsaPublicKeyB64u: string;
-      accountProvisioning?: never;
-      resolvedAccount?: never;
-      nearEd25519SigningKeyId?: never;
-      operationalPublicKey?: never;
-      nearAccountId?: never;
-      transactionId?: never;
-      nearProvisioning?: never;
-      error?: never;
-      errorCode?: never;
-    }
-  /**
-   * The ECDSA wallet is durable and usable, and the Ed25519/NEAR branch is
-   * still settling in the background. Registration returns this without
-   * awaiting the Yao ceremony; `nearProvisioning` is what the lifecycle and UI
-   * layers must resolve before this wallet can be treated as NEAR-capable.
-   */
-  | {
-      success: true;
-      kind: 'ecdsa_wallet_registered_near_pending';
-      walletId: WalletId;
-      thresholdEcdsaEthereumAddress: string;
-      thresholdEcdsaPublicKeyB64u: string;
-      nearProvisioning: RegistrationNearProvisioningState;
-      accountProvisioning?: never;
-      resolvedAccount?: never;
-      nearEd25519SigningKeyId?: never;
-      operationalPublicKey?: never;
-      nearAccountId?: never;
-      transactionId?: never;
-      error?: never;
-      errorCode?: never;
+      readonly success: true;
+      readonly kind: 'ecdsa_wallet_registered_near_pending';
+      readonly walletId: WalletId;
+      readonly capabilities: readonly [RegisteredEvmFamilyEcdsaCapability];
+      readonly nearProvisioning: RegistrationNearProvisioningState;
+      readonly error?: never;
+      readonly errorCode?: never;
     }
   | {
-      success: true;
-      kind: 'near_wallet_registered_pending';
-      walletId: WalletId;
-      nearProvisioning: RegistrationNearProvisioningState;
-      thresholdEcdsaEthereumAddress?: never;
-      thresholdEcdsaPublicKeyB64u?: never;
-      accountProvisioning?: never;
-      resolvedAccount?: never;
-      nearEd25519SigningKeyId?: never;
-      operationalPublicKey?: never;
-      nearAccountId?: never;
-      transactionId?: never;
-      error?: never;
-      errorCode?: never;
+      readonly success: true;
+      readonly kind: 'wallet_signer_added';
+      readonly walletId: WalletId;
+      readonly capabilities:
+        | readonly [AddedNearEd25519SignerCapability]
+        | readonly [AddedEvmFamilyEcdsaSignerCapability];
+      readonly error?: never;
+      readonly errorCode?: never;
     }
   | {
-      success: true;
-      kind: 'near_ed25519_signer_added';
-      walletId: WalletId;
-      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-      operationalPublicKey: string | null;
-      nearAccountId: AccountId;
-      accountProvisioning?: never;
-      resolvedAccount?: never;
-      transactionId?: never;
-      thresholdEcdsaEthereumAddress?: never;
-      thresholdEcdsaPublicKeyB64u?: never;
-      error?: never;
-      errorCode?: never;
+      readonly success: true;
+      readonly kind: 'near_wallet_registered_pending';
+      readonly walletId: WalletId;
+      readonly nearProvisioning: RegistrationNearProvisioningState;
+      readonly capabilities?: never;
+      readonly error?: never;
+      readonly errorCode?: never;
     }
   | {
-      success: true;
-      kind: 'ecdsa_signer_added';
-      walletId: WalletId;
-      accountProvisioning?: never;
-      resolvedAccount?: never;
-      nearEd25519SigningKeyId?: never;
-      operationalPublicKey?: never;
-      nearAccountId?: never;
-      transactionId?: never;
-      thresholdEcdsaEthereumAddress: string;
-      thresholdEcdsaPublicKeyB64u: string;
-      error?: never;
-      errorCode?: never;
-    }
-  | {
-      success: false;
-      error: string;
-      errorCode?: RegistrationErrorCode;
-      kind?: never;
-      walletId?: never;
-      accountProvisioning?: never;
-      resolvedAccount?: never;
-      nearEd25519SigningKeyId?: never;
-      operationalPublicKey?: never;
-      nearAccountId?: never;
-      transactionId?: never;
-      thresholdEcdsaEthereumAddress?: never;
-      thresholdEcdsaPublicKeyB64u?: never;
+      readonly success: false;
+      readonly error: string;
+      readonly errorCode?: RegistrationErrorCode;
+      readonly kind?: never;
+      readonly walletId?: never;
+      readonly capabilities?: never;
     };
 
 export type RouterApiSecretKeyAuthErrorCode =
@@ -562,6 +757,8 @@ export type RegistrationErrorCode =
 export type LoginResult =
   | {
       success: true;
+      kind: 'near_wallet_unlocked';
+      walletId: WalletId;
       loggedInNearAccountId: string;
       operationalPublicKey: string | null;
       nearAccountId: AccountId;
@@ -569,8 +766,20 @@ export type LoginResult =
       error?: never;
     }
   | {
+      success: true;
+      kind: 'ecdsa_wallet_unlocked';
+      walletId: WalletId;
+      loggedInNearAccountId?: never;
+      operationalPublicKey?: never;
+      nearAccountId?: never;
+      jwt?: string;
+      error?: never;
+    }
+  | {
       success: false;
       error: string;
+      kind?: never;
+      walletId?: never;
       loggedInNearAccountId?: never;
       operationalPublicKey?: never;
       nearAccountId?: never;
@@ -586,9 +795,9 @@ export interface SigningSessionStatus {
     | 'expired'
     | 'not_found'
     | 'unavailable'
-    | 'budget_unknown';
+    | 'status_unknown';
   statusCode?: string;
-  authMethod?: WalletAuthMethod | null;
+  authMethod?: SignerAuthMethod | null;
   retention?: SigningSessionRetention | null;
   availableUses?: number;
   inFlightReservedUses?: number;
@@ -613,16 +822,6 @@ export type ThresholdWarmLoginAndCreateSessionResult = Extract<
 > & {
   signingSession: SigningSessionStatus & { status: 'active' };
 };
-
-export interface WalletSession {
-  login: LoginState;
-  signingSession: SigningSessionStatus | null;
-  currentAuthMethod: CurrentWalletAuthMethod;
-  authMethods: readonly WalletAuthMethodBinding[];
-  authMethod?: WalletAuthMethod | null;
-  retention?: SigningSessionRetention | null;
-  nonceDiagnostics?: NonceCoordinatorDiagnostics | null;
-}
 
 export type ActionResult =
   | {
@@ -769,12 +968,12 @@ type ReadonlyDeepPrimitive = string | number | boolean | bigint | symbol | null 
 export type ReadonlyDeep<T> = T extends ReadonlyDeepPrimitive
   ? T
   : T extends (...args: never[]) => unknown
-  ? T
-  : T extends readonly (infer U)[]
-    ? readonly ReadonlyDeep<U>[]
-    : T extends object
-      ? { readonly [K in keyof T]: ReadonlyDeep<T[K]> }
-      : T;
+    ? T
+    : T extends readonly (infer U)[]
+      ? readonly ReadonlyDeep<U>[]
+      : T extends object
+        ? { readonly [K in keyof T]: ReadonlyDeep<T[K]> }
+        : T;
 
 export type SeamsWalletMode = 'direct' | 'iframe';
 

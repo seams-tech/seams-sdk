@@ -24,7 +24,12 @@ import {
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords';
 import { parseD1RegistrationIntent } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
-import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseOrgId,
+  parseProviderSubject,
+  parseWebAuthnRpId,
+  parseWalletId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import { normalizeRuntimePolicyScope } from '../../packages/shared-ts/src/threshold/signingRootScope';
 import { parseServerAllocatedWalletId } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
@@ -495,9 +500,12 @@ test('Cloudflare D1 Router API auth service rotates Email OTP recovery keys afte
     expect(counts).toEqual({ active: 10, consumed: 1, revoked: 1 });
     await expect(
       service.emailOtp.getEmailOtpRecoveryCodeStatus({
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
+        subject: {
+          kind: 'provider_identity',
+          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
+          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
+          walletId: requireParsedDomainId(parseWalletId('email-wallet.testnet')),
+        },
       }),
     ).resolves.toMatchObject({
       ok: true,
@@ -868,10 +876,13 @@ test('Cloudflare D1 Router API auth service issues and verifies login Email OTP 
 
     await expect(
       service.emailOtp.consumeEmailOtpGrant({
+        subject: {
+          kind: 'provider_identity',
+          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
+          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
+          walletId: requireParsedDomainId(parseWalletId('email-wallet.testnet')),
+        },
         loginGrant: verified.loginGrant,
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
         otpChannel: 'email_otp',
         sessionHash: 'session-hash-a',
         appSessionVersion: 'session-v1',
@@ -883,10 +894,13 @@ test('Cloudflare D1 Router API auth service issues and verifies login Email OTP 
     });
     await expect(
       service.emailOtp.consumeEmailOtpGrant({
+        subject: {
+          kind: 'provider_identity',
+          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
+          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
+          walletId: requireParsedDomainId(parseWalletId('email-wallet.testnet')),
+        },
         loginGrant: verified.loginGrant,
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
         otpChannel: 'email_otp',
         sessionHash: 'session-hash-a',
         appSessionVersion: 'session-v1',
@@ -1919,7 +1933,12 @@ test('Cloudflare D1 Router API auth service verifies Email OTP unlock proofs onc
       }),
     ).resolves.toMatchObject({ ok: false, code: 'challenge_expired_or_invalid' });
     await expect(
-      service.emailOtp.isEmailOtpStrongAuthRequired({ walletId: 'email-wallet.testnet' }),
+      service.emailOtp.isEmailOtpStrongAuthRequired({
+        subject: {
+          kind: 'email_otp_strong_auth',
+          walletId: requireParsedDomainId(parseWalletId('email-wallet.testnet')),
+        },
+      }),
     ).resolves.toMatchObject({
       ok: true,
       required: true,

@@ -570,16 +570,19 @@ The following deployment validation remains open:
 
 The intended-behaviour contracts use these stage names for the lifecycle matrix:
 
-- `post_registration` and `post_unlock` mean the newly minted session is active
-  and still has reusable allowance. The operation should use the warm session.
+- `post_registration` means material provisioning is complete without a
+  reusable Wallet Session. The operation uses same-method single-operation
+  step-up.
+- `post_unlock` means the explicitly minted session is active and still has
+  reusable allowance. The operation should use the warm session.
 - `after_refresh_recovery` means the browser rehydrated the exact local sealed
   material and rebound it to the restored session. It does not imply a fresh
   Yao or Deriver recovery.
 - `step_up_required` means the reusable session is absent, exhausted, or
   expired for the requested operation. The SDK performs the same-method
   step-up required by the caller and does not silently mint a reusable session.
-- `after_step_up` is used only for a follow-up operation when the contract
-  intentionally verifies the allowance created by that step-up.
+- A step-up grants only its prepared operation and creates no follow-up
+  reusable allowance.
 
 These labels describe observable contract stages. They do not change the
 session state machine or select a signing path.

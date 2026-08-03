@@ -10,15 +10,13 @@ export function createWalletSessionActivationDeps(args: {
   return {
     credentialStore: args.credentialStore,
     touchIdPrompt: args.createArgs.touchIdPrompt,
-    touchConfirm: args.createArgs.touchConfirm,
+    touchConfirm: args.createArgs.passkeyMpcSession,
     getSignerWorkerContext: () => args.createArgs.signerWorkerManager.getContext(),
     routerAbNormalSigning: args.createArgs.seamsWebConfigs.signing.routerAb.normalSigning,
     getOrCreateActiveThresholdEcdsaSessionId: args.getOrCreateActiveThresholdEcdsaSessionId,
     defaultRelayerUrl: args.createArgs.seamsWebConfigs.network.relayer?.url || '',
     persistThresholdEcdsaBootstrapForWalletTarget:
       args.createArgs.persistThresholdEcdsaBootstrapForWalletTarget,
-    upsertThresholdEcdsaSessionFromBootstrap:
-      args.createArgs.upsertThresholdEcdsaSessionFromBootstrap,
   };
 }
 

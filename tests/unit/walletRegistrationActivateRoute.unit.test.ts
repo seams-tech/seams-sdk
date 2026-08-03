@@ -147,7 +147,10 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
     registrationCeremonyId: setup.registrationCeremonyId,
     signedSetup: setup.signedSetup,
     idempotencyKey: 'activate-key-1',
-    ecdsa: { clientActivation: fixtureRouterAbEcdsaActivationFacts() },
+    ecdsa: {
+      activationCorrelationId: setup.registrationCeremonyId,
+      clientActivation: fixtureRouterAbEcdsaActivationFacts(),
+    },
     verifier: signer,
     minter: signer,
   };

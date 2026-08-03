@@ -1,65 +1,35 @@
 import { expect, test } from '@playwright/test';
+import type { CurrentEd25519SealedSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
 import {
-  buildCurrentSealedSessionRecord,
-  type CurrentEd25519SealedSessionRecord,
-} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
-import { resolvePasskeyEd25519YaoExportContextWithRuntimeV1 } from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
+  requirePasskeyEd25519RestoreAuthorization,
+  resolvePasskeyEd25519YaoExportContextWithRuntimeV1,
+} from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
+import {
+  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyEd25519SealedSessionRecordFixture,
+} from './helpers/sealedSigningSession.fixtures';
 
 const NOW_MS = 1_900_000_000_000;
 const WALLET_ID = 'wallet-expiry-boundary';
 const NEAR_ACCOUNT_ID = 'wallet-expiry-boundary.testnet';
 const THRESHOLD_SESSION_ID = 'threshold-session-expiry-boundary';
-const SIGNING_GRANT_ID = 'signing-grant-expiry-boundary';
-const SIGNING_WORKER_ID = 'signing-worker-expiry-boundary';
 const RELAYER_URL = 'https://relay.example.test';
 
 function buildSealedRecord(input: {
   readonly expiresAtMs: number;
   readonly remainingUses: number;
 }): CurrentEd25519SealedSessionRecord {
-  const record = buildCurrentSealedSessionRecord({
-    curve: 'ed25519',
-    authMethod: 'passkey',
-    thresholdSessionId: THRESHOLD_SESSION_ID,
-    thresholdSessionIds: { ed25519: THRESHOLD_SESSION_ID },
-    signingGrantId: SIGNING_GRANT_ID,
+  return buildPasskeyEd25519SealedSessionRecordFixture({
     walletId: WALLET_ID,
-    signingRootId: 'project-expiry-boundary:test',
-    signingRootVersion: 'root-v1',
-    relayerUrl: RELAYER_URL,
-    sealedSecretB64u: 'sealed-secret-expiry-boundary',
-    keyVersion: 'v1',
-    shamirPrimeB64u: 'shamir-prime-expiry-boundary',
-    issuedAtMs: NOW_MS - 1_000,
+    nearAccountId: NEAR_ACCOUNT_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
     expiresAtMs: input.expiresAtMs,
     remainingUses: input.remainingUses,
-    updatedAtMs: NOW_MS,
-    ed25519Restore: {
-      sessionKind: 'jwt',
-      walletSessionJwt: 'header.payload.signature',
-      nearAccountId: NEAR_ACCOUNT_ID,
-      nearEd25519SigningKeyId: 'ed25519-key-expiry-boundary',
-      rpId: 'wallet.example.test',
-      credentialIdB64u: 'credential-expiry-boundary',
-      relayerKeyId: SIGNING_WORKER_ID,
-      participantIds: [1, 2],
-      runtimePolicyScope: {
-        orgId: 'org-expiry-boundary',
-        projectId: 'project-expiry-boundary',
-        envId: 'test',
-        signingRootVersion: 'root-v1',
-      },
-      signerSlot: 1,
-      routerAbNormalSigning: {
-        kind: 'router_ab_ed25519_normal_signing_v1',
-        signingWorkerId: SIGNING_WORKER_ID,
-      },
-    },
   });
-  if (!record || record.curve !== 'ed25519') {
-    throw new Error('failed to build passkey Ed25519 expiry fixture');
-  }
-  return record;
+}
+
+async function unexpectedAuthorizationRead(): Promise<never> {
+  throw new Error('expired or exhausted material must not read Wallet Session authorization');
 }
 
 async function resolveRecord(record: CurrentEd25519SealedSessionRecord) {
@@ -71,6 +41,7 @@ async function resolveRecord(record: CurrentEd25519SealedSessionRecord) {
         nearAccountId: NEAR_ACCOUNT_ID,
         signerSlot: 1,
         thresholdSessionId: THRESHOLD_SESSION_ID,
+        materialActivation: record.ed25519Restore.materialActivation,
       },
       relayerUrl: RELAYER_URL,
       fetch: async () => {
@@ -79,7 +50,8 @@ async function resolveRecord(record: CurrentEd25519SealedSessionRecord) {
       },
     },
     {
-      listExactSealedSessionsForWallet: async () => [record],
+      readExactEd25519SealedSession: async () => record,
+      readActiveWalletSessionAuthorization: unexpectedAuthorizationRead,
       nowMs: () => NOW_MS,
     },
   );
@@ -108,4 +80,20 @@ test('unexpired passkey material with no uses remains distinct from expiry', asy
     reason: 'sealed_session_exhausted',
   });
   expect(resolved.recoveryBootstrapCalls).toBe(0);
+});
+
+test('passkey sealed restore uses the current active authorization bearer', async () => {
+  const record = buildSealedRecord({ expiresAtMs: NOW_MS + 60_000, remainingUses: 1 });
+  const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(record);
+  const currentJwt = authorization.walletSessionJwt;
+
+  const resolved = await requirePasskeyEd25519RestoreAuthorization({
+    record,
+    authorizationRead: { kind: 'found', projection: authorization },
+    nowMs: NOW_MS,
+  });
+
+  expect(record).not.toHaveProperty('walletSessionJwt');
+  expect(record.ed25519Restore).not.toHaveProperty('walletSessionJwt');
+  expect(resolved?.walletSessionJwt).toBe(currentJwt);
 });

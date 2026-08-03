@@ -24,11 +24,8 @@ import type {
   GoogleEmailOtpSessionExchangeResult,
   DemoEmailOtpCodeResponse,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
-import type {
-  ProvisionWarmEd25519CapabilityResult,
-  WarmEcdsaSigningSessionStatus,
-  WarmSessionEcdsaCapabilityState,
-} from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ProvisionWarmEd25519CapabilityResult } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
   AccessKeyList,
@@ -89,13 +86,10 @@ import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccou
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type {
   AvailableSigningLanes,
-  ListThresholdEcdsaSessionRecordsForWalletTargetInput,
   ReadAvailableSigningLanesInput,
   DiscoverPersistedSessionsForWalletInput,
   DiscoverPersistedSessionsForWalletResult,
-  ThresholdEcdsaSessionRecord as SessionPublicThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/public';
-import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type {
   NearSignIntentRequest,
   NearSignIntentResult,
@@ -126,8 +120,6 @@ import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey
 import type { ConnectEd25519SessionArgs } from '@/core/signingEngine/session/passkey/public';
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type {
-  EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-  EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult,
   EnrollEmailOtpInternalArgs,
   EnrollEmailOtpInternalResult,
   LoginWithEmailOtpEcdsaCapabilityInternalArgs,
@@ -206,7 +198,7 @@ export type RegisterNearImplicitWalletArgs = {
   accountProvisioning?: Extract<RegistrationNearAccountProvisioning, { kind: 'implicit_account' }>;
   nearAccountId?: never;
   wallet?: Extract<RegisterWalletInput, { kind: 'provided' }>;
-  authMethod?: RegistrationAuthMethodInput;
+  authMethod: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
 
@@ -217,7 +209,7 @@ export type RegisterNearSponsoredWalletArgs = {
   >;
   wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
   nearAccountId?: never;
-  authMethod?: RegistrationAuthMethodInput;
+  authMethod: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
 
@@ -248,7 +240,7 @@ export type PasskeyRegistrationOptions = RegistrationHooksOptions & {
 export type RegisterEvmWalletArgs = {
   chainTargets: readonly ThresholdEcdsaChainTarget[];
   participantIds: readonly number[];
-  authMethod?: RegistrationAuthMethodInput;
+  authMethod: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
 
@@ -458,18 +450,11 @@ export type EmailOtpEcdsaCapabilityArgs = {
 export type EmailOtpEcdsaCapabilityResult = {
   recovery: EmailOtpBootstrapRecovery;
   bootstrap: PublicThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
-};
-
-export type EmailOtpEcdsaEnrollmentCapabilityArgs = Omit<EmailOtpEcdsaCapabilityArgs, 'onEvent'> & {
-  clientSecret32?: Uint8Array;
-  onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
-};
-
-export type EmailOtpEcdsaEnrollmentCapabilityResult = {
-  enrollment: EmailOtpEnrollmentResult | EmailOtpBackedUpEnrollmentResult;
-  bootstrap: PublicThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
+  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorizations: readonly [
+    ActiveWalletSessionAuthorizationProjection,
+    ...ActiveWalletSessionAuthorizationProjection[],
+  ];
 };
 
 export type GoogleEmailOtpWalletAuthRequestedMode = 'register' | 'login';
@@ -757,9 +742,6 @@ export interface RegistrationCapability {
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpEnrollmentResult | EmailOtpBackedUpEnrollmentResult>;
-  enrollAndLoginWithEmailOtpEcdsaCapability(
-    args: EmailOtpEcdsaEnrollmentCapabilityArgs,
-  ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult>;
 }
 
 export interface NearSignerCapability {

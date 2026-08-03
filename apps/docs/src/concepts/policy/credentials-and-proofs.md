@@ -15,7 +15,7 @@ Seams can use proof signals such as:
 1. Passkey/WebAuthn presence.
 2. Email OTP verification.
 3. VoiceID owner-presence verification.
-4. Wallet Session and signing grant state.
+4. Wallet Session, quota, and operation-capability state.
 5. Device or linked-device proof.
 6. Org role proof.
 7. External identity, biometric, or credential proof where configured.

@@ -1,11 +1,12 @@
 import type {
   RouterAbNormalSigningFinalizeRequestV2Wire,
   RouterAbNormalSigningPrepareRequestV2Wire,
+  RouterAbEd25519NormalSigningCredential,
   RouterAbWalletSessionCredential,
 } from './routerAbNormalSigning';
 import type {
-  RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire,
   RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire,
+  RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RootShareEpoch } from '@shared/utils/domainIds';
 
@@ -14,8 +15,19 @@ declare const rootShareEpoch: RootShareEpoch;
 const scope = {
   request_id: 'router-ab-normal-signing/request-1',
   account_id: 'alice.testnet',
-  session_id: 'wallet-session-1',
-  active_state_session_id: 'activation-session-1',
+  authorization: {
+    kind: 'reusable_wallet_session' as const,
+    wallet_session_id: 'wallet-session-1',
+  },
+  material_activation: {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: 'activation-1',
+    capability: 'capability-1',
+    material_owner: 'alice.testnet',
+    key_binding: 'near-ed25519-key-1',
+    lifecycle_binding: 'lifecycle-1',
+    signing_worker: 'signing-worker-a',
+  },
   signing_worker_id: 'signing-worker-a',
 };
 
@@ -23,9 +35,22 @@ const digest32 = {
   bytes: Array.from({ length: 32 }, (_, index) => index),
 };
 
+const authorizationClaim = {
+  kind: 'reusable_wallet_session_authorized_operation_v1' as const,
+  authorized_operation_id: 'authorized-operation-1',
+  operation_id: 'operation-1',
+  capability_kind: 'near_ed25519_mpc_signing' as const,
+  operation_kind: 'near.sign_transaction' as const,
+  lane_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  intent_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  display_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  operation_fingerprint_digest: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+};
+
 const prepareRequest = {
   scope,
   expires_at_ms: 1_900_000_000_000,
+  display_digest: digest32,
   intent: {
     kind: 'near_transaction_v1' as const,
     operation_id: 'operation-1',
@@ -51,8 +76,7 @@ void prepareRequest;
 const finalizeRequest = {
   scope,
   expires_at_ms: 1_900_000_000_000,
-  budget_reservation_id: 'budget-reservation-1',
-  budget_operation_id: 'operation-1',
+  authorized_operation: authorizationClaim,
   prepare_binding: {
     server_round1_handle: 'round-1-handle',
     round1_binding_digest: digest32,
@@ -79,8 +103,7 @@ void finalizeRequest;
 const finalizeWithClientGroupPublicKey = {
   scope,
   expires_at_ms: 1_900_000_000_000,
-  budget_reservation_id: finalizeRequest.budget_reservation_id,
-  budget_operation_id: finalizeRequest.budget_operation_id,
+  authorized_operation: finalizeRequest.authorized_operation,
   prepare_binding: finalizeRequest.prepare_binding,
   protocol: {
     kind: 'ed25519_two_party_frost_finalize_v1' as const,
@@ -108,8 +131,8 @@ void finalizeWithoutPrepare;
 const missingSigningWorkerScope = {
   request_id: 'router-ab-normal-signing/request-1',
   account_id: 'alice.testnet',
-  session_id: 'wallet-session-1',
-  active_state_session_id: 'activation-session-1',
+  authorization: scope.authorization,
+  material_activation: scope.material_activation,
 };
 
 const prepareWithoutSigningWorker = {
@@ -119,8 +142,66 @@ const prepareWithoutSigningWorker = {
 } satisfies RouterAbNormalSigningPrepareRequestV2Wire;
 void prepareWithoutSigningWorker;
 
+const stepUpWithWalletSession = {
+  ...prepareRequest,
+  scope: {
+    ...scope,
+    authorization: {
+      kind: 'operation_step_up' as const,
+      wallet_session_id: 'wallet-session-1',
+    },
+  },
+};
+// @ts-expect-error operation step-up authority cannot carry reusable Wallet Session identity.
+const invalidStepUpRequest: RouterAbNormalSigningPrepareRequestV2Wire = stepUpWithWalletSession;
+void invalidStepUpRequest;
+
+const stepUpFinalizeWithReusableClaim = {
+  ...finalizeRequest,
+  scope: {
+    ...scope,
+    authorization: {
+      kind: 'operation_step_up' as const,
+    },
+  },
+};
+// @ts-expect-error operation step-up finalize requests cannot carry reusable-session claims.
+const invalidStepUpFinalize: RouterAbNormalSigningFinalizeRequestV2Wire =
+  stepUpFinalizeWithReusableClaim;
+void invalidStepUpFinalize;
+
+const stepUpAuthorizationClaim = {
+  kind: 'verified_step_up_authorized_operation_v1' as const,
+  authorization_session_id: 'authorization-session-1',
+  authorized_operation_id: 'authorized-operation-2',
+  operation_id: 'operation-1',
+  capability_kind: 'near_ed25519_mpc_signing' as const,
+  operation_kind: 'near.sign_transaction' as const,
+  lane_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  intent_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  display_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  operation_fingerprint_digest: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+};
+
+const validStepUpFinalize = {
+  ...finalizeRequest,
+  scope: stepUpFinalizeWithReusableClaim.scope,
+  authorized_operation: stepUpAuthorizationClaim,
+} satisfies RouterAbNormalSigningFinalizeRequestV2Wire;
+void validStepUpFinalize;
+
+const stepUpFinalizeWithoutClaim = {
+  scope: validStepUpFinalize.scope,
+  expires_at_ms: validStepUpFinalize.expires_at_ms,
+  prepare_binding: validStepUpFinalize.prepare_binding,
+  protocol: validStepUpFinalize.protocol,
+};
+// @ts-expect-error operation step-up finalize requires its exact authorized operation.
+const invalidStepUpFinalizeWithoutClaim: RouterAbNormalSigningFinalizeRequestV2Wire =
+  stepUpFinalizeWithoutClaim;
+void invalidStepUpFinalizeWithoutClaim;
+
 const ecdsaScope = {
-  wallet_key_id: 'example.com',
   wallet_id: 'wallet-1',
   ecdsa_threshold_key_id: 'ecdsa-threshold-key-1',
   signing_root_id: 'signing-root-1',
@@ -137,6 +218,15 @@ const ecdsaScope = {
     client_share_retry_counter: 0,
     server_share_retry_counter: 0,
   },
+  material_activation: {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: 'activation-1',
+    capability: 'evm-ecdsa-capability-1',
+    material_owner: 'wallet-1',
+    key_binding: 'ecdsa-threshold-key-1',
+    lifecycle_binding: 'lifecycle-1',
+    signing_worker: 'signing-worker-a',
+  },
   signing_worker: {
     server_id: 'signing-worker-a',
     key_epoch: 'epoch-1',
@@ -148,6 +238,25 @@ const ecdsaScope = {
 const ecdsaFinalizeCoreRequest = {
   scope: ecdsaScope,
   request_id: 'ecdsa-request-1',
+  operation_id: 'ecdsa-operation-1',
+  operation_digests: {
+    lane_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+    intent_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+    display_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  },
+  authorization: {
+    kind: 'reusable_wallet_session' as const,
+    wallet_session_id: 'wallet-session-1',
+  },
+  material_activation: {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: 'activation-1',
+    capability: 'evm-ecdsa-capability-1',
+    material_owner: 'wallet-1',
+    key_binding: 'ecdsa-threshold-key-1',
+    lifecycle_binding: 'lifecycle-1',
+    signing_worker: 'signing-worker-a',
+  },
   expires_at_ms: 1_900_000_000_000,
   signing_digest_b64u: 'signing-digest',
   server_presignature_id: 'server-presignature-1',
@@ -159,6 +268,10 @@ void ecdsaFinalizeCoreRequest;
 const ecdsaCoreRequestWithBudgetMetadata = {
   scope: ecdsaScope,
   request_id: 'ecdsa-request-1',
+  operation_id: 'ecdsa-operation-1',
+  operation_digests: ecdsaFinalizeCoreRequest.operation_digests,
+  authorization: ecdsaFinalizeCoreRequest.authorization,
+  material_activation: ecdsaFinalizeCoreRequest.material_activation,
   expires_at_ms: 1_900_000_000_000,
   signing_digest_b64u: 'signing-digest',
   server_presignature_id: 'server-presignature-1',
@@ -170,20 +283,12 @@ const ecdsaCoreRequestWithBudgetMetadata = {
 } satisfies RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
 void ecdsaCoreRequestWithBudgetMetadata;
 
-const ecdsaBudgetedFinalizeRequest = {
-  ...ecdsaFinalizeCoreRequest,
-  budget_reservation_id: 'budget-reservation-1',
-  budget_operation_id: 'budget-operation-1',
-} satisfies RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire;
-void ecdsaBudgetedFinalizeRequest;
-
-// @ts-expect-error public Router finalize requires budget metadata.
-const ecdsaBudgetedFinalizeWithoutBudget: RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire =
-  ecdsaFinalizeCoreRequest;
-void ecdsaBudgetedFinalizeWithoutBudget;
+const ecdsaFinalizeRequest =
+  ecdsaFinalizeCoreRequest satisfies RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire;
+void ecdsaFinalizeRequest;
 
 const jwtCredential = {
-  kind: 'jwt' as const,
+  kind: 'wallet_session_jwt' as const,
   walletSessionJwt: 'wallet-session-jwt',
 } satisfies RouterAbWalletSessionCredential;
 void jwtCredential;
@@ -196,13 +301,35 @@ const cookieCredential: RouterAbWalletSessionCredential = {
 void cookieCredential;
 
 // @ts-expect-error JWT Wallet Session credentials require walletSessionJwt.
-const missingWalletSessionJwt: RouterAbWalletSessionCredential = { kind: 'jwt' };
+const missingWalletSessionJwt: RouterAbWalletSessionCredential = {
+  kind: 'wallet_session_jwt',
+};
 void missingWalletSessionJwt;
 
 const mixedWalletCredential: RouterAbWalletSessionCredential = {
-  kind: 'jwt',
+  kind: 'wallet_session_jwt',
   walletSessionJwt: 'jwt',
   // @ts-expect-error Router A/B normal-signing credentials reject cookie flags.
   useWalletSessionCookie: true,
 };
 void mixedWalletCredential;
+
+const appSessionCredential = {
+  kind: 'app_session_jwt' as const,
+  appSessionJwt: 'app-session-jwt',
+} satisfies RouterAbEd25519NormalSigningCredential;
+void appSessionCredential;
+
+// @ts-expect-error App-session credentials cannot carry Wallet Session JWTs.
+const mixedBearerDomains: RouterAbEd25519NormalSigningCredential = {
+  kind: 'app_session_jwt',
+  appSessionJwt: 'app-session-jwt',
+  walletSessionJwt: 'wallet-session-jwt',
+};
+void mixedBearerDomains;
+
+// @ts-expect-error App-session bearer credentials require appSessionJwt.
+const missingAppSessionJwt: RouterAbEd25519NormalSigningCredential = {
+  kind: 'app_session_jwt',
+};
+void missingAppSessionJwt;

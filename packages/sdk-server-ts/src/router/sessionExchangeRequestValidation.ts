@@ -6,6 +6,25 @@ import {
 } from './routeRequestValidation';
 import { parseSessionKind } from './routerApi';
 import { parseOidcAccountMode } from './emailOtpSessionRouteHelpers';
+import {
+  parseHostedWalletSeamsSessionExchangeCode,
+  parseHostedWalletSeamsSessionExchangeNonce,
+  parseSessionOrigin,
+  type HostedWalletSeamsSessionExchangeCode,
+  type HostedWalletSeamsSessionExchangeNonce,
+  type SessionOrigin,
+} from '../authorization/domain';
+import {
+  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+
+export type PasskeySessionExchangeEcdsaActivation =
+  | { kind: 'no_ecdsa_activation' }
+  | {
+      kind: 'activate_first_ecdsa_wallet_session';
+      request: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+    };
 
 export type SessionExchangeRouteCommand =
   | {
@@ -22,8 +41,20 @@ export type SessionExchangeRouteCommand =
       sessionKind: 'jwt' | 'cookie';
       challengeId: string;
       webauthnAuthentication: WebAuthnAuthenticationCredential;
+      ecdsaActivation: PasskeySessionExchangeEcdsaActivation;
       expectedOrigin?: string;
       projectEnvironmentId?: string;
+    }
+  | {
+      kind: 'hosted_wallet_exchange_code';
+      sessionKind: 'jwt';
+      walletOrigin: SessionOrigin;
+    }
+  | {
+      kind: 'hosted_wallet_exchange_code_redeem';
+      sessionKind: 'jwt';
+      exchangeCode: HostedWalletSeamsSessionExchangeCode;
+      nonce: HostedWalletSeamsSessionExchangeNonce;
     };
 
 export type SessionExchangeRouteParseResult =
@@ -51,7 +82,10 @@ const PASSKEY_EXCHANGE_KEYS = [
   'challengeId',
   'webauthn_authentication',
   'expected_origin',
+  'ecdsa_session_activation',
 ] as const;
+const HOSTED_WALLET_EXCHANGE_KEYS = ['type', 'wallet_origin'] as const;
+const HOSTED_WALLET_REDEEM_KEYS = ['type', 'exchange_code', 'nonce'] as const;
 
 function invalidSessionExchangeBody(
   message: string,
@@ -79,9 +113,17 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
   }
   const exchange = isPlainObject(body.exchange) ? body.exchange : null;
   const exchangeType = (toOptionalTrimmedString(exchange?.type) || '').toLowerCase();
-  if (!exchange || (exchangeType !== 'oidc_jwt' && exchangeType !== 'passkey_assertion')) {
+  if (
+    !exchange ||
+    ![
+      'oidc_jwt',
+      'passkey_assertion',
+      'hosted_wallet_exchange_code',
+      'hosted_wallet_exchange_code_redeem',
+    ].includes(exchangeType)
+  ) {
     return invalidSessionExchangeBody(
-      'exchange.type must be one of: oidc_jwt, passkey_assertion',
+      'exchange.type must be one of: oidc_jwt, passkey_assertion, hosted_wallet_exchange_code, hosted_wallet_exchange_code_redeem',
       exchangeType,
       sessionKind,
     );
@@ -127,6 +169,95 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
     };
   }
 
+  if (exchangeType === 'hosted_wallet_exchange_code') {
+    if (projectEnvironmentId) {
+      return invalidSessionExchangeBody(
+        'hosted-wallet Seams session exchange does not accept projectEnvironmentId',
+        exchangeType,
+        sessionKind,
+      );
+    }
+    const unsupportedExchangeKey = findUnexpectedRouteKey(exchange, HOSTED_WALLET_EXCHANGE_KEYS);
+    if (unsupportedExchangeKey) {
+      return invalidSessionExchangeBody(
+        `Unsupported hosted_wallet_exchange_code field: ${unsupportedExchangeKey}`,
+        exchangeType,
+        sessionKind,
+      );
+    }
+    if (sessionKind !== 'jwt') {
+      return invalidSessionExchangeBody(
+        'hosted-wallet Seams session exchange requires sessionKind jwt',
+        exchangeType,
+        sessionKind,
+      );
+    }
+    let walletOrigin: SessionOrigin;
+    try {
+      walletOrigin = parseSessionOrigin(exchange.wallet_origin);
+    } catch {
+      return invalidSessionExchangeBody(
+        'exchange.wallet_origin must be a canonical HTTP origin',
+        exchangeType,
+        sessionKind,
+      );
+    }
+    return {
+      ok: true,
+      command: {
+        kind: 'hosted_wallet_exchange_code',
+        sessionKind,
+        walletOrigin,
+      },
+    };
+  }
+
+  if (exchangeType === 'hosted_wallet_exchange_code_redeem') {
+    if (projectEnvironmentId) {
+      return invalidSessionExchangeBody(
+        'hosted-wallet Seams session redemption does not accept projectEnvironmentId',
+        exchangeType,
+        sessionKind,
+      );
+    }
+    const unsupportedExchangeKey = findUnexpectedRouteKey(exchange, HOSTED_WALLET_REDEEM_KEYS);
+    if (unsupportedExchangeKey) {
+      return invalidSessionExchangeBody(
+        `Unsupported hosted_wallet_exchange_code_redeem field: ${unsupportedExchangeKey}`,
+        exchangeType,
+        sessionKind,
+      );
+    }
+    if (sessionKind !== 'jwt') {
+      return invalidSessionExchangeBody(
+        'hosted-wallet Seams session redemption requires sessionKind jwt',
+        exchangeType,
+        sessionKind,
+      );
+    }
+    let exchangeCode: HostedWalletSeamsSessionExchangeCode;
+    let nonce: HostedWalletSeamsSessionExchangeNonce;
+    try {
+      exchangeCode = parseHostedWalletSeamsSessionExchangeCode(exchange.exchange_code);
+      nonce = parseHostedWalletSeamsSessionExchangeNonce(exchange.nonce);
+    } catch {
+      return invalidSessionExchangeBody(
+        'exchange.exchange_code and exchange.nonce must be compact opaque identifiers',
+        exchangeType,
+        sessionKind,
+      );
+    }
+    return {
+      ok: true,
+      command: {
+        kind: 'hosted_wallet_exchange_code_redeem',
+        sessionKind,
+        exchangeCode,
+        nonce,
+      },
+    };
+  }
+
   const unsupportedExchangeKey = findUnexpectedRouteKey(exchange, PASSKEY_EXCHANGE_KEYS);
   if (unsupportedExchangeKey) {
     return invalidSessionExchangeBody(
@@ -137,7 +268,11 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
   }
   const challengeId = toOptionalTrimmedString(exchange.challengeId) || '';
   if (!challengeId) {
-    return invalidSessionExchangeBody('exchange.challengeId is required', exchangeType, sessionKind);
+    return invalidSessionExchangeBody(
+      'exchange.challengeId is required',
+      exchangeType,
+      sessionKind,
+    );
   }
   const webauthnAuthentication = parseWebAuthnAuthenticationCredential(
     exchange.webauthn_authentication,
@@ -150,6 +285,25 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
     );
   }
   const expectedOrigin = toOptionalTrimmedString(exchange.expected_origin) || undefined;
+  let ecdsaActivation: PasskeySessionExchangeEcdsaActivation = {
+    kind: 'no_ecdsa_activation',
+  };
+  if (exchange.ecdsa_session_activation !== undefined) {
+    try {
+      ecdsaActivation = {
+        kind: 'activate_first_ecdsa_wallet_session',
+        request: parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
+          exchange.ecdsa_session_activation,
+        ),
+      };
+    } catch (error: unknown) {
+      return invalidSessionExchangeBody(
+        error instanceof Error ? error.message : 'ECDSA Wallet Session activation is invalid',
+        exchangeType,
+        sessionKind,
+      );
+    }
+  }
   return {
     ok: true,
     command: {
@@ -157,6 +311,7 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
       sessionKind,
       challengeId,
       webauthnAuthentication,
+      ecdsaActivation,
       ...(expectedOrigin ? { expectedOrigin } : {}),
       ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
     },

@@ -20,6 +20,18 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { buildCurrentSealedSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
+import { ecdsaSealedRecordStoreKey } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaSealedRecordKey';
+import { createThresholdEcdsaBootstrapFixture, thresholdEcdsaBootstrapPublicFactsFixture } from './helpers/ecdsaBootstrap.fixtures';
+import {
+  buildEcdsaRoleLocalPersistedMaterialRefFixture,
+  buildWalletAuthAuthorityRefForAuthorityFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const TEST_ECDSA_CHAIN_TARGETS = {
   tempo: { kind: 'tempo' as const, chainId: 42431, networkSlug: 'tempo-moderato' },
@@ -45,6 +57,10 @@ const TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
   signingRootId: TEST_ECDSA_SIGNING_ROOT_ID,
   signingRootVersion: 'v1',
 });
+const TEST_MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'restore-coordinator',
+  'restore.testnet',
+);
 
 function ethereumAddress20B64u(address: string): string {
   return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
@@ -91,7 +107,6 @@ function ecdsaRestoreInput(
 ): Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }> {
   const authMethod = args.authMethod || 'email_otp';
   const chainTarget = args.chainTarget || TEST_ECDSA_CHAIN_TARGETS.tempo;
-  const signingGrantId = args.signingGrantId || 'wsess-restore';
   const thresholdSessionId = args.thresholdSessionId || 'tsess-restore';
   const wallet = walletIdFromString(args.walletId || 'restore.testnet');
   const key = buildEvmFamilyEcdsaKeyIdentity({
@@ -108,7 +123,6 @@ function ecdsaRestoreInput(
     authMethod,
     curve: 'ecdsa',
     chainTarget,
-    signingGrantId,
     thresholdSessionId,
     reason: args.reason || 'transaction',
     materialRestoreIdentity: {
@@ -119,6 +133,7 @@ function ecdsaRestoreInput(
           chainTarget,
           keyHandle: TEST_ECDSA_KEY_HANDLE,
           key,
+          materialActivation: TEST_MATERIAL_ACTIVATION,
         }),
         auth:
           authMethod === 'passkey'
@@ -128,8 +143,6 @@ function ecdsaRestoreInput(
                 credentialIdB64u: 'credential-restore',
               }
             : { kind: 'email_otp', providerSubjectId: 'google:restore' },
-        signingGrantId,
-        thresholdSessionId,
       }),
       ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
     },
@@ -140,7 +153,6 @@ function makeSealedRecord(args: {
   authMethod?: 'email_otp' | 'passkey';
   chain?: 'tempo' | 'evm';
   thresholdSessionId?: string;
-  signingGrantId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
   updatedAtMs?: number;
@@ -148,69 +160,123 @@ function makeSealedRecord(args: {
   const authMethod = args.authMethod || 'email_otp';
   const thresholdSessionId = args.thresholdSessionId || 'tsess-restore';
   const chain = args.chain || 'tempo';
+  const walletId = 'restore.testnet';
   const chainTarget = TEST_ECDSA_CHAIN_TARGETS[chain];
+  const bootstrap = createThresholdEcdsaBootstrapFixture({
+    nearAccountId: walletId,
+    chain: 'tempo',
+    rpId: 'example.com',
+    keyHandle: 'key-handle-restore',
+    ecdsaThresholdKeyId: 'ecdsa-key-restore',
+    sessionId: thresholdSessionId,
+    signingRootId: TEST_ECDSA_SIGNING_ROOT_ID,
+    signingRootVersion: 'v1',
+    passkeyCredentialIdB64u: 'credential-restore',
+    participantIds: [1, 2],
+    ethereumAddress: `0x${'33'.repeat(20)}`,
+    roleLocalAuthMethod: authMethod,
+    emailOtpAuthSubjectId: 'google:restore',
+    expiresAtMs: args.expiresAtMs ?? Date.now() + 60_000,
+    remainingUses: args.remainingUses ?? 5,
+    runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
+  });
+  const publicFacts = thresholdEcdsaBootstrapPublicFactsFixture(bootstrap);
+  const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+    durableMaterialRef: 'role-local:restore-coordinator',
+    bindingDigest: publicFacts.contextBinding32B64u,
+    label: 'restore-coordinator',
+    materialOwner: walletId,
+  });
+  const authority =
+    authMethod === 'passkey'
+      ? buildPasskeyWalletAuthAuthority({
+          walletId,
+          rpId: 'example.com',
+          credentialIdB64u: 'credential-restore',
+        })
+      : buildEmailOtpWalletAuthAuthority({
+          walletId,
+          provider: 'google',
+          providerUserId: 'google:restore',
+          emailHashHex: TEST_EMAIL_OTP_EMAIL_HASH_HEX,
+        });
   const ecdsaRestore =
     authMethod === 'passkey'
       ? {
           source: 'login' as const,
           chainTarget,
-          evmFamilySigningKeySlotId: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
+          signingRootId: TEST_ECDSA_SIGNING_ROOT_ID,
+          signingRootVersion: 'v1',
           runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
+          authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),
           rpId: 'example.com',
           credentialIdB64u: 'credential-restore',
-          sessionKind: 'jwt' as const,
-          walletSessionJwt: 'jwt-restore',
-          keyHandle: 'key-handle-restore',
-          ecdsaThresholdKeyId: 'ecdsa-key-restore',
-          ethereumAddress: `0x${'33'.repeat(20)}`,
-          relayerKeyId: 'relayer-key-restore',
-          clientVerifyingShareB64u: 'client-verifying-share-restore',
-          thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
-          participantIds: [1, 2],
-          routerAbEcdsaDerivationNormalSigning: restoreEcdsaNormalSigningState({
-            thresholdSessionId,
-          }),
+          keyHandle: bootstrap.thresholdEcdsaKeyRef.keyHandle,
+          ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
+          ethereumAddress: bootstrap.thresholdEcdsaKeyRef.ethereumAddress,
+          relayerKeyId: bootstrap.thresholdEcdsaKeyRef.backendBinding?.relayerKeyId || 'relayer-key-restore',
+          clientVerifyingShareB64u: bootstrap.thresholdEcdsaKeyRef.backendBinding?.clientVerifyingShareB64u || 'client-verifying-share-restore',
+          thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaKeyRef.thresholdEcdsaPublicKeyB64u,
+          participantIds: bootstrap.thresholdEcdsaKeyRef.participantIds,
+          roleLocalMaterialRef,
+          routerAbEcdsaDerivationNormalSigning: bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning,
+          publicCapability: publicFacts.publicCapability,
         }
       : {
           source: 'email_otp' as const,
           chainTarget,
-          evmFamilySigningKeySlotId: TEST_EVM_FAMILY_SIGNING_KEY_SLOT_ID,
+          signingRootId: TEST_ECDSA_SIGNING_ROOT_ID,
+          signingRootVersion: 'v1',
           runtimePolicyScope: TEST_ECDSA_RUNTIME_POLICY_SCOPE,
+          authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),
+          provider: 'google' as const,
           providerSubjectId: 'google:restore',
           emailHashHex: TEST_EMAIL_OTP_EMAIL_HASH_HEX,
-          sessionKind: 'jwt' as const,
-          walletSessionJwt: 'jwt-restore',
-          keyHandle: 'key-handle-restore',
-          ecdsaThresholdKeyId: 'ecdsa-key-restore',
-          ethereumAddress: `0x${'33'.repeat(20)}`,
-          relayerKeyId: 'relayer-key-restore',
-          clientVerifyingShareB64u: 'client-verifying-share-restore',
-          thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
-          participantIds: [1, 2],
-          routerAbEcdsaDerivationNormalSigning: restoreEcdsaNormalSigningState({
-            thresholdSessionId,
-          }),
+          emailOtpAuthority: authority,
+          keyHandle: bootstrap.thresholdEcdsaKeyRef.keyHandle,
+          ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
+          ethereumAddress: bootstrap.thresholdEcdsaKeyRef.ethereumAddress,
+          relayerKeyId: bootstrap.thresholdEcdsaKeyRef.backendBinding?.relayerKeyId || 'relayer-key-restore',
+          clientVerifyingShareB64u: bootstrap.thresholdEcdsaKeyRef.backendBinding?.clientVerifyingShareB64u || 'client-verifying-share-restore',
+          thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaKeyRef.thresholdEcdsaPublicKeyB64u,
+          participantIds: bootstrap.thresholdEcdsaKeyRef.participantIds,
+          roleLocalMaterialRef,
+          routerAbEcdsaDerivationNormalSigning: bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning,
+          publicCapability: publicFacts.publicCapability,
         };
-  return {
-    v: 1,
-    alg: 'shamir3pass-v1',
-    storageScope: 'iframe_origin_indexeddb',
-    authMethod,
-    secretKind: 'signing_session_secret32',
-    storeKey: `${authMethod}:ecdsa:${args.chain || 'tempo'}:${thresholdSessionId}`,
-    signingGrantId: args.signingGrantId || 'wsess-restore',
+  const record = buildCurrentSealedSessionRecord({
+    curve: 'ecdsa',
+    thresholdSessionId,
     thresholdSessionIds: { ecdsa: thresholdSessionId },
     sealedSecretB64u: 'sealed-secret',
-    curve: 'ecdsa',
-    walletId: 'restore.testnet',
-    relayerUrl: 'https://relay.example',
+    authMethod,
     keyVersion: 'signing-session-seal-kek-test-r1',
-    shamirPrimeB64u: 'prime-b64u',
-    ecdsaRestore,
+    groupId: 'rfc2409-group2',
     issuedAtMs: 1,
     expiresAtMs: args.expiresAtMs ?? Date.now() + 60_000,
     remainingUses: args.remainingUses ?? 5,
     updatedAtMs: args.updatedAtMs || 1,
+    walletId,
+    relayerUrl: 'https://relay.example',
+    ecdsaRestore,
+  });
+  if (!record || record.curve !== 'ecdsa') throw new Error('invalid restore coordinator fixture');
+  return {
+    ...record,
+    storeKey: ecdsaSealedRecordStoreKey({
+      walletId,
+      authMethod,
+      chainTarget,
+      materialActivation: roleLocalMaterialRef.materialActivation,
+    }),
+  };
+}
+
+function makeMissingRestoreMetadataRecord(): SigningSessionSealedStoreRecord {
+  const record = makeSealedRecord({});
+  return {
+    ...record,
+    ecdsaRestore: { ...record.ecdsaRestore, roleLocalMaterialRef: undefined },
   };
 }
 
@@ -254,11 +320,9 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       curve: 'ecdsa',
       chain: 'tempo',
       thresholdSessionId: 'tsess-restore-after-miss',
-      signingGrantId: 'wsess-restore-after-miss',
     });
 
     const input = ecdsaRestoreInput({
-      signingGrantId: 'wsess-restore-after-miss',
       thresholdSessionId: 'tsess-restore-after-miss',
     });
 
@@ -319,7 +383,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
   test('does not cache exact-purpose misses when only purpose-mismatched records exist', async () => {
     const cache = createSigningSessionRestoreCache();
     let listCalls = 0;
-    const restoreCalls = 0;
+    let restoreCalls = 0;
 
     const input = ecdsaRestoreInput();
     const ports = {
@@ -343,7 +407,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
 
   test('ignores expired and exhausted exact-purpose sealed records', async () => {
     const cache = createSigningSessionRestoreCache();
-    const restoreCalls = 0;
+    let restoreCalls = 0;
 
     const result = await restorePersistedSessionForSigningCommand(
       ecdsaRestoreInput(),
@@ -371,10 +435,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       ecdsaRestoreInput(),
       {
         listExactSealedSessionsForWallet: async () => [
-          {
-            ...makeSealedRecord({}),
-            ecdsaRestore: undefined,
-          },
+          makeMissingRestoreMetadataRecord(),
         ],
         restoreSealedRecordForWallet: async () => 'restored',
         onRejectedRecord: ({ rejection }) => {
@@ -411,7 +472,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
   });
 
   test('restores exhausted passkey exact-purpose sealed records for step-up reconnect', async () => {
-    const restoreCalls = 0;
+    let restoreCalls = 0;
 
     const result = await restorePersistedSessionForSigningCommand(
       ecdsaRestoreInput({ authMethod: 'passkey' }),
@@ -435,7 +496,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
   });
 
   test('fails closed before restore when duplicate exact-purpose records exist', async () => {
-    const restoreCalls = 0;
+    let restoreCalls = 0;
 
     const result = await restorePersistedSessionForSigningCommand(
       ecdsaRestoreInput(),

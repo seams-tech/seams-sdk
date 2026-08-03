@@ -16,8 +16,10 @@ import {
   redactCredentialExtensionOutputs,
 } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
-  recoverPasskeyEd25519YaoCapabilityV1,
+  parsePasskeyEd25519YaoSyncResponseV1,
+  recoverParsedPasskeyEd25519YaoCapabilityV1,
   type PasskeyEd25519YaoRecoveryResultV1,
+  type ParsedPasskeyEd25519YaoSyncResponseV1,
 } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
 import { restoreLocalLoginState } from '@/SeamsWeb/operations/session/restoreLocalLoginState';
 import { base64UrlDecode } from '@shared/utils/base64';
@@ -30,7 +32,14 @@ import {
   parseRecoveryResolvedWalletBindingFromResponse,
   type RecoveryResolvedWalletBinding,
 } from './recoveryWalletBinding';
-import { persistPasskeyEd25519YaoSessionForRefresh } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
+import {
+  buildPasskeyEd25519RestoreMetadata,
+  persistPasskeyEd25519YaoSessionForRefresh,
+} from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
+import {
+  nearEd25519YaoMaterialActivationFromMetadata,
+} from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 
 export type { SyncAccountResult };
 
@@ -56,7 +65,8 @@ export type RecoverPasskeyEd25519YaoForUnlockInputV1 = {
     readonly challengeB64u: string;
     readonly credentialIds: readonly string[];
   }) => Promise<WebAuthnAuthenticationCredential>;
-  readonly activateCapability: AccountSyncSigningSurface['activateVerifiedNearEd25519YaoSigningCapability'];
+  readonly activateCapability: AccountSyncSigningSurface['activateVerifiedNearEd25519YaoMaterial'];
+  readonly withExactEd25519MaterialOwner: AccountSyncSigningSurface['withExactEd25519MaterialOwner'];
   readonly sessionPersistence: Pick<
     AccountSyncSigningSurface,
     'hydrateSigningSession' | 'persistSigningSessionSealForThresholdSession'
@@ -254,6 +264,89 @@ function assertRecoveredCapabilityBinding(input: {
   }
 }
 
+type RecoverAndCommitPasskeyEd25519UnlockInput = {
+  parsed: ParsedPasskeyEd25519YaoSyncResponseV1;
+  ownedPasskeyPrfFirst: Uint8Array;
+  relayerUrl: string;
+  rpId: string;
+  fetch: typeof fetch;
+  requestedWalletId: string | null;
+  optionsBinding: RecoveryResolvedWalletBinding | null;
+  verifiedBinding: RecoveryResolvedWalletBinding;
+  selectedCredentialId: string;
+  prfFirstB64u: string;
+  sessionPersistence: RecoverPasskeyEd25519YaoForUnlockInputV1['sessionPersistence'];
+  activateCapability: RecoverPasskeyEd25519YaoForUnlockInputV1['activateCapability'];
+};
+
+async function recoverAndCommitPasskeyEd25519Unlock(
+  input: RecoverAndCommitPasskeyEd25519UnlockInput,
+): Promise<PasskeyEd25519YaoRecoveryResultV1> {
+  let recovery: PasskeyEd25519YaoRecoveryResultV1 | null = null;
+  try {
+    recovery = await recoverParsedPasskeyEd25519YaoCapabilityV1({
+      parsed: input.parsed,
+      ownedPasskeyPrfFirst: input.ownedPasskeyPrfFirst,
+      relayerUrl: input.relayerUrl,
+      rpId: input.rpId,
+      fetch: input.fetch,
+    });
+    assertRecoveredCapabilityBinding({
+      requestedWalletId: input.requestedWalletId,
+      rpId: input.rpId,
+      optionsBinding: input.optionsBinding,
+      verifiedBinding: input.verifiedBinding,
+      recovery,
+      selectedCredentialId: input.selectedCredentialId,
+    });
+    const recoveredActivation = nearEd25519YaoMaterialActivationFromMetadata(
+      recovery.activeClient.metadata(),
+    );
+    await persistPasskeyEd25519YaoSessionForRefresh({
+      persistence: input.sessionPersistence,
+      session: recovery.walletSessionState,
+      prfFirstB64u: input.prfFirstB64u,
+      ed25519Restore: buildPasskeyEd25519RestoreMetadata({
+        rpId: input.rpId,
+        nearAccountId: String(recovery.parsed.nearAccountId),
+        nearEd25519SigningKeyId: recovery.parsed.nearEd25519SigningKeyId,
+        relayerKeyId: recovery.parsed.relayerKeyId,
+        participantIds: recovery.parsed.session.participantIds,
+        runtimePolicyScope: recovery.parsed.session.runtimePolicyScope,
+        signerSlot: recovery.parsed.signerSlot,
+        routerAbNormalSigning: recovery.parsed.session.routerAbNormalSigning,
+        credentialIdB64u: recovery.parsed.credentialIdB64u,
+        materialActivation: recoveredActivation,
+      }),
+      materialActivation: recoveredActivation,
+    });
+    const activated = await input.activateCapability({
+      activeClient: recovery.activeClient,
+      facts: {
+        thresholdSessionId: recovery.walletSessionState.thresholdSessionId,
+        signer: recovery.walletSessionState.signingLane.identity.signer,
+        signingRootId: recovery.walletSessionState.signingRootId,
+        signingRootVersion: recovery.walletSessionState.signingRootVersion,
+        routerAbNormalSigning: recovery.walletSessionState.routerAbNormalSigning,
+        runtimePolicyScope: recovery.walletSessionState.runtimePolicyScope,
+        relayerUrl: recovery.walletSessionState.relayerUrl,
+      },
+    });
+    if (
+      !mpcMaterialActivationRefsEqual(
+        activated.materialActivation,
+        recoveredActivation,
+      )
+    ) {
+      throw new Error('Passkey Ed25519 registry activation changed during recovery commit');
+    }
+    return recovery;
+  } catch (error) {
+    recovery?.activeClient.dispose();
+    throw error;
+  }
+}
+
 export async function recoverPasskeyEd25519YaoForUnlockV1(
   input: RecoverPasskeyEd25519YaoForUnlockInputV1,
 ): Promise<PasskeyEd25519YaoUnlockRecoveryV1> {
@@ -289,36 +382,27 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
   );
   input.onRelayVerifySucceeded?.(verifiedBinding);
   const ownedPasskeyPrfFirst = base64UrlDecode(prfFirstB64u);
-  let recovery: PasskeyEd25519YaoRecoveryResultV1 | null = null;
   try {
-    recovery = await recoverPasskeyEd25519YaoCapabilityV1({
-      syncResponse: verified,
-      ownedPasskeyPrfFirst,
-      relayerUrl: input.relayerUrl,
-      rpId: input.rpId,
-      fetch: input.fetch,
-    });
-    assertRecoveredCapabilityBinding({
-      requestedWalletId: requestedWalletId || null,
-      rpId: input.rpId,
-      optionsBinding: syncOptions.walletBinding,
-      verifiedBinding,
-      recovery,
-      selectedCredentialId,
-    });
-    await persistPasskeyEd25519YaoSessionForRefresh({
-      persistence: input.sessionPersistence,
-      session: recovery.walletSessionState,
-      prfFirstB64u,
-    });
-    await input.activateCapability({
-      activeClient: recovery.activeClient,
-      walletSessionState: recovery.walletSessionState,
+    const parsed = parsePasskeyEd25519YaoSyncResponseV1(verified);
+    const recovery = await input.withExactEd25519MaterialOwner({
+      materialActivation: parsed.capability.materialActivation,
+      nearAccountId: parsed.nearAccountId,
+      task: recoverAndCommitPasskeyEd25519Unlock.bind(undefined, {
+        parsed,
+        ownedPasskeyPrfFirst,
+        relayerUrl: input.relayerUrl,
+        rpId: input.rpId,
+        fetch: input.fetch,
+        requestedWalletId: requestedWalletId || null,
+        optionsBinding: syncOptions.walletBinding,
+        verifiedBinding,
+        selectedCredentialId,
+        prfFirstB64u,
+        sessionPersistence: input.sessionPersistence,
+        activateCapability: input.activateCapability,
+      }),
     });
     return { recovery, credential, verifiedBinding };
-  } catch (error: unknown) {
-    recovery?.activeClient.dispose();
-    throw error;
   } finally {
     ownedPasskeyPrfFirst.fill(0);
   }
@@ -464,9 +548,11 @@ export async function syncAccount(
       fetch: fetchWithGlobalThis,
       collectCredential: collectSyncAccountRecoveryCredential.bind(undefined, recoveryCallbacks),
       activateCapability:
-        context.signingEngine.activateVerifiedNearEd25519YaoSigningCapability.bind(
+        context.signingEngine.activateVerifiedNearEd25519YaoMaterial.bind(
           context.signingEngine,
         ),
+      withExactEd25519MaterialOwner:
+        context.signingEngine.withExactEd25519MaterialOwner.bind(context.signingEngine),
       sessionPersistence: context.signingEngine,
       onPromptStarted: emitSyncAccountPromptStarted.bind(undefined, recoveryCallbacks),
       onPromptSucceeded: emitSyncAccountPromptSucceeded.bind(undefined, recoveryCallbacks),

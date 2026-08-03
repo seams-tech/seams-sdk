@@ -17,9 +17,7 @@ export const SigningOperationStateKind = {
   AuthReady: 'auth_ready',
   ThresholdConnected: 'threshold_connected',
   PayloadPrepared: 'payload_prepared',
-  BudgetReserved: 'budget_reserved',
   Signed: 'signed',
-  BudgetSpent: 'budget_spent',
   CleanedUp: 'cleaned_up',
   Completed: 'completed',
   Failed: 'failed',
@@ -35,8 +33,6 @@ export const SigningOperationCommandKind = {
   ConnectThreshold: 'connectThreshold',
   PreparePayload: 'preparePayload',
   Sign: 'sign',
-  ReserveBudget: 'reserveBudget',
-  SpendBudget: 'spendBudget',
   Cleanup: 'cleanup',
 } as const;
 
@@ -49,9 +45,7 @@ export type SigningOperationState =
   | { kind: typeof SigningOperationStateKind.AuthReady; plan: SigningSessionPlan }
   | { kind: typeof SigningOperationStateKind.ThresholdConnected; plan: SigningSessionPlan }
   | { kind: typeof SigningOperationStateKind.PayloadPrepared; plan: SigningSessionPlan }
-  | { kind: typeof SigningOperationStateKind.BudgetReserved; plan: SigningSessionPlan }
   | { kind: typeof SigningOperationStateKind.Signed; plan: SigningSessionPlan }
-  | { kind: typeof SigningOperationStateKind.BudgetSpent; plan: SigningSessionPlan }
   | { kind: typeof SigningOperationStateKind.CleanedUp; plan: SigningSessionPlan }
   | { kind: typeof SigningOperationStateKind.Completed; plan: SigningSessionPlan }
   | { kind: typeof SigningOperationStateKind.Failed; plan: SigningSessionPlan; reason: string };
@@ -100,18 +94,6 @@ export type SigningOperationCommand =
       operation?: SigningOperationContext;
     }
   | {
-      kind: typeof SigningOperationCommandKind.ReserveBudget;
-      plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
-      lane: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>['lane'];
-      operation?: SigningOperationContext;
-    }
-  | {
-      kind: typeof SigningOperationCommandKind.SpendBudget;
-      plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
-      lane: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>['lane'];
-      operation?: SigningOperationContext;
-    }
-  | {
       kind: typeof SigningOperationCommandKind.Cleanup;
       plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
       lane: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>['lane'];
@@ -137,23 +119,11 @@ export type SigningOperationStep = {
 };
 
 export type SigningOperationCommandSequence = readonly SigningOperationCommand['kind'][];
-export type SigningPostSignOperationCommandSequence = readonly (
-  | typeof SigningOperationCommandKind.SpendBudget
-  | typeof SigningOperationCommandKind.Cleanup
-)[];
-
 export type SigningOperationPlan = {
   kind: 'signing_operation_plan';
   sessionPlan: SigningSessionPlan;
   operation: SigningOperationContext | null;
   commands: SigningOperationCommandSequence;
-};
-
-export type SigningPostSignOperationPlan = {
-  kind: 'signing_post_sign_operation_plan';
-  sessionPlan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
-  operation: SigningOperationContext | null;
-  commands: SigningPostSignOperationCommandSequence;
 };
 
 export type SigningOperationMachine = {
@@ -205,19 +175,6 @@ export function createSigningOperationPlan(args: {
 }): SigningOperationPlan {
   return {
     kind: 'signing_operation_plan',
-    sessionPlan: args.sessionPlan,
-    operation: args.operation,
-    commands: args.commands,
-  };
-}
-
-export function createSigningPostSignOperationPlan(args: {
-  sessionPlan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
-  operation: SigningOperationContext | null;
-  commands: SigningPostSignOperationCommandSequence;
-}): SigningPostSignOperationPlan {
-  return {
-    kind: 'signing_post_sign_operation_plan',
     sessionPlan: args.sessionPlan,
     operation: args.operation,
     commands: args.commands,
@@ -332,39 +289,6 @@ export async function runUnplannedSigningOperationCommandSequence(args: {
   for (const command of args.commands) {
     await args.execute(command);
   }
-}
-
-export function buildSigningPostSignOperationSteps(
-  operationPlan: SigningPostSignOperationPlan,
-): SigningOperationStep[] {
-  const plan = operationPlan.sessionPlan;
-  const steps: SigningOperationStep[] = [];
-  let state: SigningOperationState = {
-    kind: SigningOperationStateKind.Signed,
-    plan,
-  };
-
-  state = pushTransition(steps, state, {
-    to: { kind: SigningOperationStateKind.BudgetSpent, plan },
-    command: commandForPlan(operationPlan, {
-      kind: SigningOperationCommandKind.SpendBudget,
-      plan,
-      lane: plan.lane,
-    }),
-  });
-  state = pushTransition(steps, state, {
-    to: { kind: SigningOperationStateKind.CleanedUp, plan },
-    command: commandForPlan(operationPlan, {
-      kind: SigningOperationCommandKind.Cleanup,
-      plan,
-      lane: plan.lane,
-    }),
-  });
-  pushTransition(steps, state, {
-    to: { kind: SigningOperationStateKind.Completed, plan },
-  });
-
-  return steps;
 }
 
 export function buildSigningOperationCommandSteps(
@@ -529,25 +453,9 @@ export function buildSigningOperationSteps(
     }),
   });
   state = pushTransition(steps, state, {
-    to: { kind: SigningOperationStateKind.BudgetReserved, plan },
-    command: commandForPlan(operationPlan, {
-      kind: SigningOperationCommandKind.ReserveBudget,
-      plan,
-      lane: plan.lane,
-    }),
-  });
-  state = pushTransition(steps, state, {
     to: { kind: SigningOperationStateKind.Signed, plan },
     command: commandForPlan(operationPlan, {
       kind: SigningOperationCommandKind.Sign,
-      plan,
-      lane: plan.lane,
-    }),
-  });
-  state = pushTransition(steps, state, {
-    to: { kind: SigningOperationStateKind.BudgetSpent, plan },
-    command: commandForPlan(operationPlan, {
-      kind: SigningOperationCommandKind.SpendBudget,
       plan,
       lane: plan.lane,
     }),
@@ -602,29 +510,20 @@ function signingOperationTransitionForCommand(
     case SigningOperationCommandKind.PreparePayload:
       return {
         from:
-          plan.kind === SigningSessionPlanKind.WarmSession
+          plan.kind === SigningSessionPlanKind.WarmSession ||
+          plan.kind === SigningSessionPlanKind.OperationStepUp
             ? SigningOperationStateKind.AuthReady
             : SigningOperationStateKind.ThresholdConnected,
         to: SigningOperationStateKind.PayloadPrepared,
       };
-    case SigningOperationCommandKind.ReserveBudget:
-      return {
-        from: SigningOperationStateKind.PayloadPrepared,
-        to: SigningOperationStateKind.BudgetReserved,
-      };
     case SigningOperationCommandKind.Sign:
       return {
-        from: SigningOperationStateKind.BudgetReserved,
+        from: SigningOperationStateKind.PayloadPrepared,
         to: SigningOperationStateKind.Signed,
-      };
-    case SigningOperationCommandKind.SpendBudget:
-      return {
-        from: SigningOperationStateKind.Signed,
-        to: SigningOperationStateKind.BudgetSpent,
       };
     case SigningOperationCommandKind.Cleanup:
       return {
-        from: SigningOperationStateKind.BudgetSpent,
+        from: SigningOperationStateKind.Signed,
         to: SigningOperationStateKind.CleanedUp,
       };
   }
@@ -681,7 +580,7 @@ function getTransitionPlan(
 }
 
 function commandForPlan<
-  TPlan extends Pick<SigningOperationPlan | SigningPostSignOperationPlan, 'commands' | 'operation'>,
+  TPlan extends Pick<SigningOperationPlan, 'commands' | 'operation'>,
   TCommand extends SigningOperationCommand,
 >(operationPlan: TPlan, command: TCommand): TCommand | undefined {
   const commands = operationPlan.commands as SigningOperationCommandSequence;

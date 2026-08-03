@@ -1,13 +1,9 @@
-import type {
-  CurrentEd25519SealedSessionRecord,
-  CurrentEd25519RestoreMetadata,
+import type { CurrentEd25519SealedSessionRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import {
+  readExactEd25519SealedSession,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
-import { listExactSealedSessionsForWallet } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import { ed25519DurableMaterialLocator } from '../sealedRecovery/materialActivationKey';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
-import type {
-  DurableSealedSessionPort,
-  VolatileWarmMaterialPort,
-} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import {
   assertEd25519YaoRecoveryDescriptorContinuity,
   parseEd25519YaoRecoveryCapabilityV1,
@@ -28,24 +24,35 @@ import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSes
 import {
   buildPasskeyWalletAuthAuthority,
   parsePasskeyWalletAuthAuthority,
+  parseWalletAuthAuthorityRef,
+  walletAuthAuthorityRef,
   walletAuthAuthoritiesMatch,
 } from '@shared/utils/walletAuthAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { isPlainObject } from '@shared/utils/validation';
-import {
-  getSessionJwtExpiresAtMs,
-  isSessionJwtUnexpired,
-  isWalletSessionJwt,
-} from '@shared/utils/sessionTokens';
 import { walletSessionFailureErrorFromPayload } from '../lifecycle/walletSessionFailure';
-
-type PasskeyEd25519WarmRecoveryPorts = Pick<
-  DurableSealedSessionPort & VolatileWarmMaterialPort,
-  'rehydrateWarmSessionMaterial' | 'claimWarmSessionMaterial'
->;
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
+  walletSessionAuthorizations,
+  type ActiveWalletSessionAuthorizationProjection,
+  type WalletSessionAuthorizationReadResult,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  mpcMaterialActivationRefsEqual,
+  parseWalletId,
+  type MpcMaterialActivationRef,
+  type ThresholdEd25519SessionId,
+  type WalletId,
+} from '@shared/utils/domainIds';
 
 export type PasskeyEd25519RecordRuntimePorts = {
-  readonly listExactSealedSessionsForWallet: typeof listExactSealedSessionsForWallet;
+  readonly readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
+  readonly readActiveWalletSessionAuthorization: (
+    walletId: WalletId,
+  ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
   readonly nowMs: () => number;
 };
 
@@ -53,7 +60,8 @@ export type PasskeyEd25519WarmRecoverySubject = {
   readonly walletId: string;
   readonly nearAccountId: string;
   readonly signerSlot: number | null;
-  readonly thresholdSessionId: string | null;
+  readonly thresholdSessionId: ThresholdEd25519SessionId | null;
+  readonly materialActivation: MpcMaterialActivationRef;
 };
 
 export type PasskeyEd25519YaoWarmRecoveryUnavailableReason =
@@ -62,23 +70,10 @@ export type PasskeyEd25519YaoWarmRecoveryUnavailableReason =
   | 'sealed_session_exhausted'
   | 'wallet_session_expired';
 
-export type PasskeyEd25519YaoLocalPrfRestoreResultV1 =
-  | {
-      readonly kind: 'ready';
-      readonly record: CurrentEd25519SealedSessionRecord;
-      readonly prfFirstB64u: string;
-    }
-  | {
-      readonly kind: 'unavailable';
-      readonly reason: Exclude<
-        PasskeyEd25519YaoWarmRecoveryUnavailableReason,
-        'wallet_session_expired'
-      >;
-    };
-
 export type PasskeyEd25519YaoExportContextV1 = {
   readonly kind: 'passkey_ed25519_yao_export_context_v1';
-  readonly descriptor: ParsedPasskeyEd25519YaoRecoveryDescriptorV1;
+  readonly material: Omit<ParsedPasskeyEd25519YaoRecoveryDescriptorV1, 'session'>;
+  readonly authorization: ActiveWalletSessionAuthorizationProjection;
   readonly relayerUrl: string;
   readonly rpId: string;
 };
@@ -95,16 +90,6 @@ export type PasskeyEd25519YaoExportContextResolutionV1 =
 
 type WarmRecoveryRecordResult =
   | { readonly kind: 'ready'; readonly record: CurrentEd25519SealedSessionRecord }
-  | {
-      readonly kind: 'unavailable';
-      readonly reason: Exclude<
-        PasskeyEd25519YaoWarmRecoveryUnavailableReason,
-        'wallet_session_expired'
-      >;
-    };
-
-type WarmRecoveryPrfResult =
-  | { readonly kind: 'ready'; readonly prfFirstB64u: string }
   | {
       readonly kind: 'unavailable';
       readonly reason: Exclude<
@@ -153,20 +138,22 @@ function requireParticipantIds(value: unknown): readonly [number, number] {
 function exactResponseKeys(record: Record<string, unknown>): void {
   const expected = [
     'authority',
+    'authorityRef',
     'authorityScope',
     'capability',
     'kind',
     'nearAccountId',
     'nearEd25519SigningKeyId',
     'participantIds',
+    'quotaId',
     'routerAbNormalSigning',
     'runtimePolicyScope',
     'signerSlot',
-    'signingGrantId',
     'signingWorkerId',
     'thresholdExpiresAtMs',
     'thresholdSessionId',
     'walletId',
+    'walletSessionId',
   ].sort();
   const actual = Object.keys(record).sort();
   if (actual.length !== expected.length) {
@@ -185,7 +172,7 @@ function sealedRecordMatchesSubject(
 ): boolean {
   if (record.authMethod !== 'passkey') return false;
   const restore = record.ed25519Restore;
-  if (!restore.credentialIdB64u || restore.sessionKind !== 'jwt') return false;
+  if (!restore.credentialIdB64u) return false;
   return (
     record.walletId === subject.walletId &&
     restore.nearAccountId === subject.nearAccountId &&
@@ -199,19 +186,23 @@ async function resolveExactWarmRecoveryRecord(
   subject: PasskeyEd25519WarmRecoverySubject,
   runtime: PasskeyEd25519RecordRuntimePorts,
 ): Promise<WarmRecoveryRecordResult> {
-  const records = await runtime.listExactSealedSessionsForWallet({
-    walletId: subject.walletId,
-    filter: { authMethod: 'passkey', curve: 'ed25519' },
-  });
-  const matches: CurrentEd25519SealedSessionRecord[] = [];
-  for (const record of records) {
-    if (record.curve !== 'ed25519' || !sealedRecordMatchesSubject(record, subject)) continue;
-    matches.push(record);
+  const record = await runtime.readExactEd25519SealedSession(
+    ed25519DurableMaterialLocator({
+      authMethod: 'passkey',
+      materialActivation: subject.materialActivation,
+    }),
+  );
+  if (
+    record &&
+    (record.curve !== 'ed25519' ||
+      !sealedRecordMatchesSubject(record, subject) ||
+      !mpcMaterialActivationRefsEqual(
+        record.ed25519Restore.materialActivation,
+        subject.materialActivation,
+      ))
+  ) {
+    return { kind: 'unavailable', reason: 'sealed_session_missing' };
   }
-  if (matches.length > 1) {
-    throw new Error('[SigningEngine][near] exact persisted Ed25519 warm recovery is ambiguous');
-  }
-  const record = matches[0];
   if (!record) return { kind: 'unavailable', reason: 'sealed_session_missing' };
   if (record.expiresAtMs <= runtime.nowMs()) {
     return { kind: 'unavailable', reason: 'sealed_session_expired' };
@@ -238,67 +229,30 @@ function unavailableReasonForWarmMaterialCode(
   }
 }
 
-function passkeyWalletSessionJwt(restore: CurrentEd25519RestoreMetadata): string {
-  if (restore.sessionKind !== 'jwt') {
-    throw new Error('passkey Ed25519 warm recovery requires a JWT Wallet Session');
-  }
-  return requireString(restore.walletSessionJwt, 'ed25519Restore.walletSessionJwt');
-}
-
-async function restoreAndClaimWarmRecoveryPrf(args: {
+export async function requirePasskeyEd25519RestoreAuthorization(args: {
   readonly record: CurrentEd25519SealedSessionRecord;
-  readonly ports: PasskeyEd25519WarmRecoveryPorts;
-}): Promise<WarmRecoveryPrfResult> {
-  const record = args.record;
-  const thresholdSessionId = record.thresholdSessionIds.ed25519;
-  const groupId = requireString(record.groupId, 'groupId');
-  const rehydrated = await args.ports.rehydrateWarmSessionMaterial({
-    sessionId: thresholdSessionId,
-    sealedSecretB64u: record.sealedSecretB64u,
-    signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(record.keyVersion),
-    expiresAtMs: record.expiresAtMs,
-    remainingUses: Math.max(1_000_000, record.remainingUses),
-    transport: {
-      curve: 'ed25519',
-      authMethod: 'passkey',
-      walletId: record.walletId,
-      relayerUrl: record.relayerUrl,
-      signingGrantId: record.signingGrantId,
-      walletSessionJwt: passkeyWalletSessionJwt(record.ed25519Restore),
-      signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(record.keyVersion),
-      groupId,
-    },
+  readonly authorizationRead: WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>;
+  readonly nowMs: number;
+}): Promise<ActiveWalletSessionAuthorizationProjection | null> {
+  if (args.authorizationRead.kind !== 'found') return null;
+  const restore = args.record.ed25519Restore;
+  const authority = await walletAuthAuthorityRef({
+    authority: buildPasskeyWalletAuthAuthority({
+      walletId: args.record.walletId,
+      rpId: restore.rpId,
+      credentialIdB64u: requireString(restore.credentialIdB64u, 'ed25519Restore.credentialIdB64u'),
+    }),
   });
-  if (!rehydrated.ok) {
-    const walletSessionFailure = walletSessionFailureErrorFromPayload({
-      code: rehydrated.code,
-      message: rehydrated.message,
-    });
-    if (walletSessionFailure) throw walletSessionFailure;
-    const unavailable = unavailableReasonForWarmMaterialCode(rehydrated.code);
-    if (unavailable) return { kind: 'unavailable', reason: unavailable };
-    throw new Error(
-      `[SigningEngine][near] Ed25519 sealed-session restore failed (${rehydrated.code}): ${rehydrated.message}`,
-    );
+  const authorization = args.authorizationRead.projection;
+  if (
+    authorization.authMethod !== 'passkey' ||
+    String(authorization.walletId) !== args.record.walletId ||
+    authorization.authority.authorityDigest !== authority.authorityDigest ||
+    authorization.expiresAtMs <= args.nowMs
+  ) {
+    return null;
   }
-  const claimed = await args.ports.claimWarmSessionMaterial({
-    sessionId: thresholdSessionId,
-    uses: 1,
-    consume: false,
-    curve: 'ed25519',
-    chain: 'near',
-  });
-  if (!claimed.ok) {
-    const unavailable = unavailableReasonForWarmMaterialCode(claimed.code);
-    if (unavailable) return { kind: 'unavailable', reason: unavailable };
-    throw new Error(
-      `[SigningEngine][near] Ed25519 warm PRF claim failed (${claimed.code}): ${claimed.message}`,
-    );
-  }
-  return {
-    kind: 'ready',
-    prfFirstB64u: requireString(claimed.prfFirstB64u, 'claimed PRF.first'),
-  };
+  return authorization;
 }
 
 function warmRecoveryBootstrapRequest(
@@ -312,7 +266,6 @@ function warmRecoveryBootstrapRequest(
     nearEd25519SigningKeyId: restore.nearEd25519SigningKeyId,
     signerSlot: restore.signerSlot,
     thresholdSessionId: record.thresholdSessionIds.ed25519,
-    signingGrantId: record.signingGrantId,
     signingWorkerId: restore.routerAbNormalSigning.signingWorkerId,
     participantIds: restore.participantIds,
   });
@@ -322,6 +275,7 @@ function warmRecoveryBootstrapRequest(
 
 async function fetchWarmRecoveryBootstrap(args: {
   readonly record: CurrentEd25519SealedSessionRecord;
+  readonly authorization: ActiveWalletSessionAuthorizationProjection;
   readonly relayerUrl: string;
   readonly fetch: typeof fetch;
 }): Promise<WarmRecoveryBootstrapResult> {
@@ -330,7 +284,7 @@ async function fetchWarmRecoveryBootstrap(args: {
     {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${passkeyWalletSessionJwt(args.record.ed25519Restore)}`,
+        Authorization: `Bearer ${args.authorization.walletSessionJwt}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(warmRecoveryBootstrapRequest(args.record)),
@@ -372,10 +326,11 @@ function sameRuntimePolicyScope(
   );
 }
 
-function parseWarmRecoveryDescriptor(args: {
+async function parseWarmRecoveryDescriptor(args: {
   readonly record: CurrentEd25519SealedSessionRecord;
+  readonly authorization: ActiveWalletSessionAuthorizationProjection;
   readonly response: Record<string, unknown>;
-}): ParsedPasskeyEd25519YaoRecoveryDescriptorV1 {
+}): Promise<ParsedPasskeyEd25519YaoRecoveryDescriptorV1> {
   const record = args.record;
   const response = args.response;
   exactResponseKeys(response);
@@ -398,7 +353,6 @@ function parseWarmRecoveryDescriptor(args: {
     response.thresholdSessionId,
     'response.thresholdSessionId',
   );
-  const signingGrantId = requireString(response.signingGrantId, 'response.signingGrantId');
   const signingWorkerId = requireString(response.signingWorkerId, 'response.signingWorkerId');
   const thresholdExpiresAtMs = requirePositiveInteger(
     response.thresholdExpiresAtMs,
@@ -406,6 +360,7 @@ function parseWarmRecoveryDescriptor(args: {
   );
   const participantIds = requireParticipantIds(response.participantIds);
   const authority = parsePasskeyWalletAuthAuthority(response.authority);
+  const authorityRef = parseWalletAuthAuthorityRef(response.authorityRef);
   const expectedAuthority = buildPasskeyWalletAuthAuthority({
     walletId: record.walletId,
     rpId: restore.rpId,
@@ -421,10 +376,23 @@ function parseWarmRecoveryDescriptor(args: {
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
     response.routerAbNormalSigning,
   );
+  const walletSessionId = parseWalletSessionId(response.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(response.quotaId);
+  const capability = parseEd25519YaoRecoveryCapabilityV1(response.capability);
+  const expectedAuthorityRef = authority ? await walletAuthAuthorityRef({ authority }) : null;
   if (
     !authority ||
+    !authorityRef ||
+    !expectedAuthorityRef ||
+    authorityRef.walletId !== expectedAuthorityRef.walletId ||
+    authorityRef.authorityDigest !== expectedAuthorityRef.authorityDigest ||
     !walletAuthAuthoritiesMatch(authority, expectedAuthority) ||
     authorityScope.kind !== 'passkey_rp' ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
+    String(walletSessionId.value) !== String(args.authorization.walletSessionId) ||
+    String(quotaId.value) !== String(args.authorization.quotaId) ||
+    authorityRef.authorityDigest !== args.authorization.authority.authorityDigest ||
     authorityScope.rpId !== restore.rpId ||
     !routerAbNormalSigning ||
     walletId !== record.walletId ||
@@ -432,21 +400,21 @@ function parseWarmRecoveryDescriptor(args: {
     nearEd25519SigningKeyId !== restore.nearEd25519SigningKeyId ||
     signerSlot !== restore.signerSlot ||
     thresholdSessionId !== record.thresholdSessionIds.ed25519 ||
-    signingGrantId !== record.signingGrantId ||
     signingWorkerId !== restore.relayerKeyId ||
     signingWorkerId !== restore.routerAbNormalSigning.signingWorkerId ||
     routerAbNormalSigning.signingWorkerId !== signingWorkerId ||
     thresholdExpiresAtMs !== record.expiresAtMs ||
     participantIds[0] !== restore.participantIds[0] ||
     participantIds[1] !== restore.participantIds[1] ||
+    !mpcMaterialActivationRefsEqual(capability.materialActivation, restore.materialActivation) ||
     !sameRuntimePolicyScope(responseRuntimePolicyScope, sealedRuntimePolicyScope)
   ) {
     throw new Error('warm recovery bootstrap does not match the exact sealed Ed25519 lane');
   }
-  const capability = parseEd25519YaoRecoveryCapabilityV1(response.capability);
   const signingRoot = signingRootScopeFromRuntimePolicyScope(responseRuntimePolicyScope);
   if (!signingRoot) throw new Error('warm recovery bootstrap signing-root scope is invalid');
   return {
+    authority: authorityRef,
     walletId: walletIdFromString(walletId),
     nearAccountId: toAccountId(nearAccountId),
     nearEd25519SigningKeyId,
@@ -455,9 +423,10 @@ function parseWarmRecoveryDescriptor(args: {
     relayerKeyId: signingWorkerId,
     credentialIdB64u,
     session: {
-      walletSessionJwt: passkeyWalletSessionJwt(restore),
+      walletSessionJwt: args.authorization.walletSessionJwt,
       thresholdSessionId,
-      signingGrantId,
+      walletSessionId: walletSessionId.value,
+      quotaId: quotaId.value,
       expiresAtMs: thresholdExpiresAtMs,
       remainingUses: record.remainingUses,
       runtimePolicyScope: responseRuntimePolicyScope,
@@ -468,70 +437,18 @@ function parseWarmRecoveryDescriptor(args: {
   };
 }
 
-export async function restorePasskeyEd25519YaoLocalPrfV1(input: {
-  readonly subject: PasskeyEd25519WarmRecoverySubject;
-  readonly ports: PasskeyEd25519WarmRecoveryPorts;
-}): Promise<PasskeyEd25519YaoLocalPrfRestoreResultV1> {
-  const exactRecord = await resolveExactWarmRecoveryRecord(input.subject, {
-    listExactSealedSessionsForWallet,
-    nowMs: Date.now,
-  });
-  if (exactRecord.kind === 'unavailable') return exactRecord;
-  const prf = await restoreAndClaimWarmRecoveryPrf({
-    record: exactRecord.record,
-    ports: input.ports,
-  });
-  if (prf.kind === 'unavailable') return prf;
-  return {
-    kind: 'ready',
-    record: exactRecord.record,
-    prfFirstB64u: prf.prfFirstB64u,
-  };
-}
-
 export async function resolvePasskeyEd25519YaoExportContextV1(input: {
   readonly subject: PasskeyEd25519WarmRecoverySubject;
   readonly relayerUrl: string;
   readonly fetch: typeof fetch;
 }): Promise<PasskeyEd25519YaoExportContextResolutionV1> {
   return await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(input, {
-    listExactSealedSessionsForWallet,
+    readExactEd25519SealedSession,
+    readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
+      walletSessionAuthorizations,
+    ),
     nowMs: Date.now,
   });
-}
-
-export async function resolvePasskeyEd25519WalletSessionRouteAuthV1(
-  walletId: string,
-): Promise<{ kind: 'wallet_session'; jwt: string } | null> {
-  const records = await listExactSealedSessionsForWallet({
-    walletId,
-    filter: { authMethod: 'passkey', curve: 'ed25519' },
-  });
-  let selected: { jwt: string; expiresAtMs: number } | null = null;
-  for (const record of records) {
-    if (
-      record.curve !== 'ed25519' ||
-      record.expiresAtMs <= Date.now() ||
-      record.remainingUses < 1 ||
-      record.ed25519Restore.sessionKind !== 'jwt'
-    ) {
-      continue;
-    }
-    const jwt = String(record.ed25519Restore.walletSessionJwt || '').trim();
-    const expiresAtMs = getSessionJwtExpiresAtMs(jwt);
-    if (
-      !jwt ||
-      !expiresAtMs ||
-      !isWalletSessionJwt(jwt) ||
-      !isSessionJwtUnexpired(jwt, { skewMs: 30_000 })
-    ) {
-      continue;
-    }
-    if (!selected || expiresAtMs > selected.expiresAtMs) {
-      selected = { jwt, expiresAtMs };
-    }
-  }
-  return selected ? { kind: 'wallet_session', jwt: selected.jwt } : null;
 }
 
 export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
@@ -549,8 +466,25 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
       reason: exactRecord.reason,
     };
   }
+  const walletId = parseWalletId(exactRecord.record.walletId);
+  if (!walletId.ok) {
+    throw new Error('[SigningEngine][near] sealed Ed25519 wallet identity is invalid');
+  }
+  const authorizationRead = await runtime.readActiveWalletSessionAuthorization(walletId.value);
+  const authorization = await requirePasskeyEd25519RestoreAuthorization({
+    record: exactRecord.record,
+    authorizationRead,
+    nowMs: runtime.nowMs(),
+  });
+  if (!authorization) {
+    return {
+      kind: 'capability_recovery_required',
+      reason: 'wallet_session_expired',
+    };
+  }
   const bootstrap = await fetchWarmRecoveryBootstrap({
     record: exactRecord.record,
+    authorization,
     relayerUrl: input.relayerUrl,
     fetch: input.fetch,
   });
@@ -560,8 +494,9 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
       reason: bootstrap.reason,
     };
   }
-  const descriptor = parseWarmRecoveryDescriptor({
+  const descriptor = await parseWarmRecoveryDescriptor({
     record: exactRecord.record,
+    authorization,
     response: bootstrap.response,
   });
   assertEd25519YaoRecoveryDescriptorContinuity(descriptor);
@@ -569,7 +504,18 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
     kind: 'ready',
     context: {
       kind: 'passkey_ed25519_yao_export_context_v1',
-      descriptor,
+      material: {
+        authority: descriptor.authority,
+        walletId: descriptor.walletId,
+        nearAccountId: descriptor.nearAccountId,
+        nearEd25519SigningKeyId: descriptor.nearEd25519SigningKeyId,
+        signerSlot: descriptor.signerSlot,
+        operationalPublicKey: descriptor.operationalPublicKey,
+        relayerKeyId: descriptor.relayerKeyId,
+        credentialIdB64u: descriptor.credentialIdB64u,
+        capability: descriptor.capability,
+      },
+      authorization,
       relayerUrl: input.relayerUrl,
       rpId: exactRecord.record.ed25519Restore.rpId,
     },

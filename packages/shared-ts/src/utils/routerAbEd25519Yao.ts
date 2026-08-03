@@ -1,6 +1,6 @@
 import type {
   RouterAbEd25519YaoAdmittedLifecycleV1,
-  RouterAbEd25519YaoCeremonyBindingV1,
+  RouterAbEd25519YaoCeremonyBindingV1 as GeneratedRouterAbEd25519YaoCeremonyBindingV1,
   RouterAbEd25519YaoCeremonyIdentityV1,
   RouterAbEd25519YaoInputPairBindingV1,
   RouterAbEd25519YaoOperationV1,
@@ -9,10 +9,14 @@ import type {
   RouterAbEd25519YaoWorkKindV1,
   RouterAbEd25519YaoBytes32V1,
 } from './generated/routerAbEd25519YaoCore';
+import {
+  parseRouterAbMpcMaterialActivationRef,
+  sameRouterAbMpcMaterialActivationRef,
+  type RouterAbMpcMaterialActivationRefWire,
+} from './routerAbNormalSigningIdentity';
 
 export type {
   RouterAbEd25519YaoAdmittedLifecycleV1,
-  RouterAbEd25519YaoCeremonyBindingV1,
   RouterAbEd25519YaoCeremonyIdentityV1,
   RouterAbEd25519YaoCircuitFamilyV1,
   RouterAbEd25519YaoCircuitIdV1,
@@ -28,6 +32,10 @@ export type {
   RouterAbEd25519YaoBytes32V1,
 } from './generated/routerAbEd25519YaoCore';
 
+export type RouterAbEd25519YaoCeremonyBindingV1 = GeneratedRouterAbEd25519YaoCeremonyBindingV1 & {
+  material_activation: RouterAbMpcMaterialActivationRefWire;
+};
+
 export const ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1 =
   '/router-ab/ed25519/yao/registration/admit' as const;
 export const ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1 =
@@ -38,6 +46,8 @@ export const ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1 =
   '/router-ab/ed25519/yao/recovery/execute' as const;
 export const ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1 =
   '/router-ab/ed25519/yao/recovery/activate' as const;
+export const ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1 =
+  '/router-ab/ed25519/yao/recovery/status' as const;
 export const ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1 =
   '/router-ab/ed25519/yao/recovery/bootstrap' as const;
 export const ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 =
@@ -65,9 +75,10 @@ export type RouterAbEd25519YaoLifecycleScopeV1 = {
   lifecycle_id: string;
   root_share_epoch: string;
   account_id: string;
-  wallet_session_id: string;
+  threshold_session_id: string;
   signer_set_id: string;
   signing_worker_id: string;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
 };
 
 export type RouterAbEd25519YaoRegistrationAdmissionRequestV1 = {
@@ -78,6 +89,7 @@ export type RouterAbEd25519YaoRegistrationAdmissionRequestV1 = {
 
 export type RouterAbEd25519YaoRecoveryAdmissionRequestV1 = {
   scope: RouterAbEd25519YaoLifecycleScopeV1;
+  active_material_activation: RouterAbMpcMaterialActivationRefWire;
   application_binding: RouterAbEd25519YaoApplicationBindingFactsV1;
   participant_ids: readonly [number, number];
   active_capability_binding: RouterAbEd25519YaoBytes32V1;
@@ -92,7 +104,6 @@ export type RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1 = {
   readonly nearEd25519SigningKeyId: string;
   readonly signerSlot: number;
   readonly thresholdSessionId: string;
-  readonly signingGrantId: string;
   readonly signingWorkerId: string;
   readonly participantIds: readonly [number, number];
 };
@@ -103,11 +114,6 @@ export type RouterAbEd25519YaoExportAuthorizationV1 = {
   nonce: RouterAbEd25519YaoBytes32V1;
   issued_at_ms: number;
   expires_at_ms: number;
-};
-
-export type RouterAbEd25519YaoExportFreshAuthorizationIdentityV1 = {
-  readonly thresholdSessionId: ThresholdEd25519SessionId;
-  readonly signingGrantId: SigningGrantId;
 };
 
 export type RouterAbEd25519YaoExportAdmissionRequestV1 = {
@@ -298,6 +304,7 @@ export type RouterAbEd25519YaoActivationPublicReceiptV1 = {
   joined_signing_worker_commitment: RouterAbEd25519YaoBytes32V1;
   signing_worker_verifying_share: RouterAbEd25519YaoBytes32V1;
   state_epoch: number;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
 };
 
 export type RouterAbEd25519YaoActivationResultV1<
@@ -323,6 +330,35 @@ export type RouterAbEd25519YaoRecoveryActivationReceiptV1 = {
   active_capability_binding: RouterAbEd25519YaoBytes32V1;
   retired_capability_binding: RouterAbEd25519YaoBytes32V1;
 };
+
+export type RouterAbEd25519YaoRecoveryStatusRequestV1 = {
+  readonly kind: 'router_ab_ed25519_yao_recovery_status_request_v1';
+  readonly admission: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
+};
+
+export type RouterAbEd25519YaoRecoveryStatusV1 =
+  | {
+      readonly stage: 'missing';
+      readonly lifecycle_id: string;
+    }
+  | {
+      readonly stage: 'admitted';
+      readonly lifecycle_id: string;
+      readonly admission_receipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'>;
+    }
+  | {
+      readonly stage: 'executed';
+      readonly lifecycle_id: string;
+      readonly admission_receipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'>;
+      readonly execution_result: RouterAbEd25519YaoActivationResultV1<'recovery'>;
+    }
+  | {
+      readonly stage: 'promoted';
+      readonly lifecycle_id: string;
+      readonly admission_receipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'>;
+      readonly execution_result: RouterAbEd25519YaoActivationResultV1<'recovery'>;
+      readonly activation_receipt: RouterAbEd25519YaoRecoveryActivationReceiptV1;
+    };
 
 export type RouterAbEd25519YaoExecutionAuthorityV1 = {
   authority_digest: RouterAbEd25519YaoPublicDigestV1;
@@ -616,7 +652,7 @@ function exportIdentityFields(
     labeledField('lifecycleId', UTF8.encode(scope.lifecycle_id)),
     labeledField('rootShareEpoch', UTF8.encode(scope.root_share_epoch)),
     labeledField('accountId', UTF8.encode(scope.account_id)),
-    labeledField('walletSessionId', UTF8.encode(scope.wallet_session_id)),
+    labeledField('thresholdSessionId', UTF8.encode(scope.threshold_session_id)),
     labeledField('signerSetId', UTF8.encode(scope.signer_set_id)),
     labeledField('signingWorkerId', UTF8.encode(scope.signing_worker_id)),
     labeledField('walletId', UTF8.encode(application.wallet_id)),
@@ -657,8 +693,6 @@ export async function deriveRouterAbEd25519YaoExportAuthorizationDigestV1(input:
   readonly nonce: RouterAbEd25519YaoBytes32V1;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
-  readonly thresholdSessionId: string;
-  readonly signingGrantId: string;
   readonly authority: RouterAbEd25519YaoExportAuthorityBindingV1;
 }): Promise<number[]> {
   const confirmationDigest = requireBytes32(
@@ -674,14 +708,6 @@ export async function deriveRouterAbEd25519YaoExportAuthorizationDigestV1(input:
     labeledField('nonce', Uint8Array.from(nonce)),
     labeledField('issuedAtMs', u64BigEndian(input.issuedAtMs)),
     labeledField('expiresAtMs', u64BigEndian(input.expiresAtMs)),
-    labeledField(
-      'thresholdSessionId',
-      UTF8.encode(requireVisibleIdentifier(input.thresholdSessionId, 'thresholdSessionId')),
-    ),
-    labeledField(
-      'signingGrantId',
-      UTF8.encode(requireVisibleIdentifier(input.signingGrantId, 'signingGrantId')),
-    ),
     labeledField('authorityKind', UTF8.encode(input.authority.kind)),
     labeledField(
       'authoritySubject',
@@ -796,23 +822,34 @@ function parsePublicLifecycleScope(value: unknown): RouterAbEd25519YaoLifecycleS
     'lifecycle_id',
     'root_share_epoch',
     'account_id',
-    'wallet_session_id',
+    'threshold_session_id',
     'signer_set_id',
     'signing_worker_id',
+    'material_activation',
   ]);
+  const accountId = requireVisibleIdentifier(record.account_id, 'scope.account_id');
+  const signingWorkerId = requireVisibleIdentifier(
+    record.signing_worker_id,
+    'scope.signing_worker_id',
+  );
+  const materialActivation = parseRouterAbMpcMaterialActivationRef(record.material_activation);
+  if (
+    materialActivation.material_owner !== accountId ||
+    materialActivation.signing_worker !== signingWorkerId
+  ) {
+    throw new Error('scope.material_activation does not match the lifecycle owner and worker');
+  }
   return {
     lifecycle_id: requireVisibleIdentifier(record.lifecycle_id, 'scope.lifecycle_id'),
     root_share_epoch: requireVisibleIdentifier(record.root_share_epoch, 'scope.root_share_epoch'),
-    account_id: requireVisibleIdentifier(record.account_id, 'scope.account_id'),
-    wallet_session_id: requireVisibleIdentifier(
-      record.wallet_session_id,
-      'scope.wallet_session_id',
+    account_id: accountId,
+    threshold_session_id: requireVisibleIdentifier(
+      record.threshold_session_id,
+      'scope.threshold_session_id',
     ),
     signer_set_id: requireVisibleIdentifier(record.signer_set_id, 'scope.signer_set_id'),
-    signing_worker_id: requireVisibleIdentifier(
-      record.signing_worker_id,
-      'scope.signing_worker_id',
-    ),
+    signing_worker_id: signingWorkerId,
+    material_activation: materialActivation,
   };
 }
 
@@ -890,6 +927,7 @@ function parseCeremonyBinding(value: unknown): RouterAbEd25519YaoCeremonyBinding
     'operation',
     'session_id',
     'stable_key_context_binding',
+    'material_activation',
   ]);
   const binding = {
     lifecycle: parseAdmittedLifecycle(record.lifecycle),
@@ -900,6 +938,7 @@ function parseCeremonyBinding(value: unknown): RouterAbEd25519YaoCeremonyBinding
       'binding.stable_key_context_binding',
       false,
     ),
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
   };
   if (
     binding.operation === 'registration' &&
@@ -912,6 +951,12 @@ function parseCeremonyBinding(value: unknown): RouterAbEd25519YaoCeremonyBinding
   }
   if (binding.operation === 'export' && binding.lifecycle.work_kind !== EXPORT_WORK_KIND) {
     throw new Error('binding operation does not match its lifecycle work kind');
+  }
+  if (
+    binding.material_activation.material_owner !== binding.lifecycle.account_id ||
+    binding.material_activation.signing_worker !== binding.lifecycle.selected_server_id
+  ) {
+    throw new Error('binding material activation does not match its lifecycle owner and worker');
   }
   return binding;
 }
@@ -939,6 +984,7 @@ function requireExportCeremonyBinding(value: unknown): RouterAbEd25519YaoExportC
     operation: 'export',
     session_id: binding.session_id,
     stable_key_context_binding: binding.stable_key_context_binding,
+    material_activation: binding.material_activation,
   };
 }
 
@@ -997,6 +1043,7 @@ function requireActivationBinding(
         operation: 'registration',
         session_id: binding.session_id,
         stable_key_context_binding: binding.stable_key_context_binding,
+        material_activation: binding.material_activation,
       };
     case 'recovery':
       if (
@@ -1019,6 +1066,7 @@ function requireActivationBinding(
         operation: 'recovery',
         session_id: binding.session_id,
         stable_key_context_binding: binding.stable_key_context_binding,
+        material_activation: binding.material_activation,
       };
     case 'refresh':
     case 'export':
@@ -1200,6 +1248,7 @@ function parsePublicReceipt(value: unknown): RouterAbEd25519YaoActivationPublicR
     'joined_signing_worker_commitment',
     'signing_worker_verifying_share',
     'state_epoch',
+    'material_activation',
   ]);
   return {
     transcript: requireBytes32(record.transcript, 'public_receipt.transcript', true),
@@ -1224,6 +1273,7 @@ function parsePublicReceipt(value: unknown): RouterAbEd25519YaoActivationPublicR
       true,
     ),
     state_epoch: requirePositiveSafeInteger(record.state_epoch, 'public_receipt.state_epoch'),
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
   };
 }
 
@@ -1314,6 +1364,7 @@ function parseRecoveryAdmissionRequestValue(
   const record = requireRecord(value, 'recovery admission request');
   requireExactKeys(record, 'recovery admission request', [
     'scope',
+    'active_material_activation',
     'application_binding',
     'participant_ids',
     'active_capability_binding',
@@ -1333,8 +1384,28 @@ function parseRecoveryAdmissionRequestValue(
   if (equalBytes(activeCapabilityBinding, replacementCapabilityBinding)) {
     throw new Error('recovery replacement capability binding must be fresh');
   }
+  const scope = parsePublicLifecycleScope(record.scope);
+  const activeMaterialActivation = parseRouterAbMpcMaterialActivationRef(
+    record.active_material_activation,
+  );
+  const replacementMaterialActivation = scope.material_activation;
+  if (
+    activeMaterialActivation.activation_id === replacementMaterialActivation.activation_id ||
+    activeMaterialActivation.lifecycle_binding === replacementMaterialActivation.lifecycle_binding
+  ) {
+    throw new Error('recovery replacement material activation identity must be fresh');
+  }
+  if (
+    activeMaterialActivation.capability !== replacementMaterialActivation.capability ||
+    activeMaterialActivation.material_owner !== replacementMaterialActivation.material_owner ||
+    activeMaterialActivation.key_binding !== replacementMaterialActivation.key_binding ||
+    activeMaterialActivation.signing_worker !== replacementMaterialActivation.signing_worker
+  ) {
+    throw new Error('recovery replacement material activation changed stable identity facts');
+  }
   return {
-    scope: parsePublicLifecycleScope(record.scope),
+    scope,
+    active_material_activation: activeMaterialActivation,
     application_binding: parseApplicationBinding(record.application_binding),
     participant_ids: parseParticipantIds(record.participant_ids),
     active_capability_binding: activeCapabilityBinding,
@@ -1344,6 +1415,20 @@ function parseRecoveryAdmissionRequestValue(
       'recovery admission request.registered_public_key',
       true,
     ),
+  };
+}
+
+function parseRecoveryStatusRequestValue(
+  value: unknown,
+): RouterAbEd25519YaoRecoveryStatusRequestV1 {
+  const record = requireRecord(value, 'recovery status request');
+  requireExactKeys(record, 'recovery status request', ['kind', 'admission']);
+  if (record.kind !== 'router_ab_ed25519_yao_recovery_status_request_v1') {
+    throw new Error('recovery status request.kind is invalid');
+  }
+  return {
+    kind: 'router_ab_ed25519_yao_recovery_status_request_v1',
+    admission: parseRecoveryAdmissionRequestValue(record.admission),
   };
 }
 
@@ -1358,7 +1443,6 @@ function parseWarmRecoveryBootstrapRequestValue(
     'nearEd25519SigningKeyId',
     'signerSlot',
     'thresholdSessionId',
-    'signingGrantId',
     'signingWorkerId',
     'participantIds',
   ]);
@@ -1383,10 +1467,6 @@ function parseWarmRecoveryBootstrapRequestValue(
     thresholdSessionId: requireVisibleIdentifier(
       record.thresholdSessionId,
       'warm recovery bootstrap request.thresholdSessionId',
-    ),
-    signingGrantId: requireVisibleIdentifier(
-      record.signingGrantId,
-      'warm recovery bootstrap request.signingGrantId',
     ),
     signingWorkerId: requireVisibleIdentifier(
       record.signingWorkerId,
@@ -1593,6 +1673,11 @@ function parseActivationResultValue(value: unknown): RouterAbEd25519YaoActivatio
   ]);
   const binding = requireActivationBinding(parseCeremonyBinding(record.binding));
   const receipt = parsePublicReceipt(record.public_receipt);
+  if (
+    !sameRouterAbMpcMaterialActivationRef(binding.material_activation, receipt.material_activation)
+  ) {
+    throw new Error('activation result receipt material does not match the admitted binding');
+  }
   const packageA = parseEncryptedPackage(
     record.deriver_a_client_package,
     'deriver_a_client_package',
@@ -1685,6 +1770,73 @@ function parseRecoveryActivationReceiptValue(
   };
 }
 
+function requireRecoveryAdmissionReceipt(
+  value: unknown,
+): RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'> {
+  const receipt = parseActivationAdmissionReceiptValue(value);
+  if (!isActivationAdmissionReceiptFor(receipt, 'recovery')) {
+    throw new Error('recovery status admission receipt must use the recovery operation');
+  }
+  return receipt;
+}
+
+function requireRecoveryExecutionResult(
+  value: unknown,
+): RouterAbEd25519YaoActivationResultV1<'recovery'> {
+  const result = parseActivationResultValue(value);
+  if (!isActivationResultFor(result, 'recovery')) {
+    throw new Error('recovery status execution result must use the recovery operation');
+  }
+  return result;
+}
+
+function parseRecoveryStatusValue(value: unknown): RouterAbEd25519YaoRecoveryStatusV1 {
+  const record = requireRecord(value, 'recovery status');
+  const lifecycleId = requireVisibleIdentifier(record.lifecycle_id, 'recovery status.lifecycle_id');
+  switch (record.stage) {
+    case 'missing':
+      requireExactKeys(record, 'recovery status', ['stage', 'lifecycle_id']);
+      return { stage: 'missing', lifecycle_id: lifecycleId };
+    case 'admitted':
+      requireExactKeys(record, 'recovery status', ['stage', 'lifecycle_id', 'admission_receipt']);
+      return {
+        stage: 'admitted',
+        lifecycle_id: lifecycleId,
+        admission_receipt: requireRecoveryAdmissionReceipt(record.admission_receipt),
+      };
+    case 'executed':
+      requireExactKeys(record, 'recovery status', [
+        'stage',
+        'lifecycle_id',
+        'admission_receipt',
+        'execution_result',
+      ]);
+      return {
+        stage: 'executed',
+        lifecycle_id: lifecycleId,
+        admission_receipt: requireRecoveryAdmissionReceipt(record.admission_receipt),
+        execution_result: requireRecoveryExecutionResult(record.execution_result),
+      };
+    case 'promoted':
+      requireExactKeys(record, 'recovery status', [
+        'stage',
+        'lifecycle_id',
+        'admission_receipt',
+        'execution_result',
+        'activation_receipt',
+      ]);
+      return {
+        stage: 'promoted',
+        lifecycle_id: lifecycleId,
+        admission_receipt: requireRecoveryAdmissionReceipt(record.admission_receipt),
+        execution_result: requireRecoveryExecutionResult(record.execution_result),
+        activation_receipt: parseRecoveryActivationReceiptValue(record.activation_receipt),
+      };
+    default:
+      throw new Error('recovery status.stage is invalid');
+  }
+}
+
 function isActivationAdmissionReceiptFor<Operation extends RouterAbEd25519YaoActivationOperationV1>(
   value: RouterAbEd25519YaoActivationAdmissionReceiptV1,
   operation: Operation,
@@ -1726,6 +1878,12 @@ export function parseRouterAbEd25519YaoRecoveryAdmissionRequestV1(
   value: unknown,
 ): RouterAbEd25519YaoParseResult<RouterAbEd25519YaoRecoveryAdmissionRequestV1> {
   return parseBoundary(parseRecoveryAdmissionRequestValue, value);
+}
+
+export function parseRouterAbEd25519YaoRecoveryStatusRequestV1(
+  value: unknown,
+): RouterAbEd25519YaoParseResult<RouterAbEd25519YaoRecoveryStatusRequestV1> {
+  return parseBoundary(parseRecoveryStatusRequestValue, value);
 }
 
 export function parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1(
@@ -1854,6 +2012,12 @@ export function parseRouterAbEd25519YaoRecoveryActivationReceiptV1(
   return parseBoundary(parseRecoveryActivationReceiptValue, value);
 }
 
+export function parseRouterAbEd25519YaoRecoveryStatusV1(
+  value: unknown,
+): RouterAbEd25519YaoParseResult<RouterAbEd25519YaoRecoveryStatusV1> {
+  return parseBoundary(parseRecoveryStatusValue, value);
+}
+
 export function parseRouterAbEd25519YaoEncryptedPackageV1(
   value: unknown,
 ): RouterAbEd25519YaoParseResult<RouterAbEd25519YaoEncryptedPackageV1> {
@@ -1863,4 +2027,3 @@ export function parseRouterAbEd25519YaoEncryptedPackageV1(
 function parseEncryptedPackageValue(value: unknown): RouterAbEd25519YaoEncryptedPackageV1 {
   return parseEncryptedPackage(value, 'encrypted_package');
 }
-import type { SigningGrantId, ThresholdEd25519SessionId } from './domainIds';

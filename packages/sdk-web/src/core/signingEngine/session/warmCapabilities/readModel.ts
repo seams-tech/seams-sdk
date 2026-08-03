@@ -1,35 +1,29 @@
+import { laneCandidateStateFromRuntimePolicy } from '../identity/laneIdentity';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import type {
   SigningSessionRetention,
   SigningSessionStatus,
-  WalletAuthMethod,
+  SignerAuthMethod,
 } from '@/core/types/seams';
 import type {
   WarmSessionStatusBatchReader,
   WarmSessionStatusReader,
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
-import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
-import {
-  parseSigningSessionSealKeyVersion,
-  type SigningSessionSealKeyVersion,
-} from '../keyMaterialBrands';
+import type { EcdsaSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
+import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import type {
-  WarmSessionEd25519AuthMaterial,
-  WarmSessionEcdsaAuthMaterial,
   WarmSessionEcdsaCapabilityState,
   WarmSessionEd25519CapabilityState,
   WarmSessionPrfClaim,
 } from './types';
-import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from './routerAbEcdsaWalletSessionAuth';
 import {
   emailOtpAuthContextConsumedAtMs,
   emailOtpAuthContextRetention,
 } from '../identity/laneIdentity';
-import {
-  classifyRouterAbEcdsaDerivationPersistedSigningRecord,
-  classifyRouterAbEd25519PersistedSigningRecord,
-  parseRouterAbEd25519WalletSessionAuthorityFromRecord,
-} from '../routerAbSigningWalletSession';
+import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
+import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type WarmSessionReadPortsInput =
   | Partial<
@@ -101,59 +95,59 @@ export function normalizeWarmSessionReadPorts(
 
 export function reportWarmSessionAvailabilityFailure(args: {
   operation: 'status_read' | 'claim';
-  sessionId: string;
+  thresholdSessionId: string;
   code?: string;
 }): void {
   console.warn('[WarmSessionStore] warm-session availability failure', {
     operation: args.operation,
-    sessionId: args.sessionId,
+    thresholdSessionId: args.thresholdSessionId,
     code: String(args.code || 'worker_error').trim() || 'worker_error',
   });
 }
 
 export async function readWarmSessionClaim(
   touchConfirm: WarmSessionReadPorts | null,
-  sessionIdRaw: string,
+  thresholdSessionIdRaw: string,
 ): Promise<WarmSessionPrfClaim | null> {
-  const sessionId = String(sessionIdRaw || '').trim();
-  if (!touchConfirm || !sessionId || touchConfirm.statusPort === 'batch') {
+  const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
+  if (!touchConfirm || !thresholdSessionId || touchConfirm.statusPort === 'batch') {
     return null;
   }
   const status = await touchConfirm
-    .getWarmSessionStatus({ sessionId })
+    .getWarmSessionStatus({ thresholdSessionId })
     .catch(() => ({ ok: false as const, code: 'worker_error', message: 'worker_error' }));
-  return toWarmSessionClaimFromStatusResult({ sessionId, status });
+  return toWarmSessionClaimFromStatusResult({ thresholdSessionId, status });
 }
 
 export function toWarmSessionClaimFromStatusResult(args: {
-  sessionId: string;
+  thresholdSessionId: string;
   status: WarmSessionStatusResult;
 }): WarmSessionPrfClaim {
-  const sessionId = String(args.sessionId || '').trim();
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!args.status.ok) {
     if (args.status.code === 'expired') {
-      return { state: 'expired', sessionId };
+      return { state: 'expired', thresholdSessionId };
     }
     if (args.status.code === 'exhausted') {
-      return { state: 'exhausted', sessionId };
+      return { state: 'exhausted', thresholdSessionId };
     }
     if (args.status.code === 'not_found') {
-      return { state: 'missing', sessionId };
+      return { state: 'missing', thresholdSessionId };
     }
     reportWarmSessionAvailabilityFailure({
       operation: 'status_read',
-      sessionId,
+      thresholdSessionId,
       code: args.status.code,
     });
     return {
       state: 'unavailable',
-      sessionId,
+      thresholdSessionId,
       code: String(args.status.code || 'worker_error').trim() || 'worker_error',
     };
   }
   return {
     state: 'warm',
-    sessionId,
+    thresholdSessionId,
     expiresAtMs: args.status.expiresAtMs,
     remainingUses: args.status.remainingUses,
   };
@@ -161,117 +155,74 @@ export function toWarmSessionClaimFromStatusResult(args: {
 
 export async function readWarmSessionClaims(args: {
   touchConfirm: WarmSessionReadPorts | null;
-  sessionIds: string[];
+  thresholdSessionIds: string[];
 }): Promise<Map<string, WarmSessionPrfClaim | null>> {
-  const normalizedSessionIds = Array.from(
-    new Set(args.sessionIds.map((value) => String(value || '').trim()).filter(Boolean)),
+  const normalizedThresholdSessionIds = Array.from(
+    new Set(args.thresholdSessionIds.map((value) => String(value || '').trim()).filter(Boolean)),
   );
   const out = new Map<string, WarmSessionPrfClaim | null>();
-  if (!normalizedSessionIds.length) {
+  if (!normalizedThresholdSessionIds.length) {
     return out;
   }
   if (!args.touchConfirm) {
-    for (const sessionId of normalizedSessionIds) {
-      out.set(sessionId, null);
+    for (const thresholdSessionId of normalizedThresholdSessionIds) {
+      out.set(thresholdSessionId, null);
     }
     return out;
   }
   if (args.touchConfirm.statusPort !== 'single') {
     const batch = await args.touchConfirm.getWarmSessionStatuses({
-      sessionIds: normalizedSessionIds,
+      thresholdSessionIds: normalizedThresholdSessionIds,
     });
-    for (const sessionId of normalizedSessionIds) {
-      const matched = batch.results.find((entry) => entry.sessionId === sessionId);
+    for (const thresholdSessionId of normalizedThresholdSessionIds) {
+      const matched = batch.results.find(
+        (entry) => entry.thresholdSessionId === thresholdSessionId,
+      );
       out.set(
-        sessionId,
-        matched ? toWarmSessionClaimFromStatusResult({ sessionId, status: matched.result }) : null,
+        thresholdSessionId,
+        matched
+          ? toWarmSessionClaimFromStatusResult({ thresholdSessionId, status: matched.result })
+          : null,
       );
     }
     return out;
   }
   await Promise.all(
-    normalizedSessionIds.map(async (sessionId) => {
-      out.set(sessionId, await readWarmSessionClaim(args.touchConfirm, sessionId));
+    normalizedThresholdSessionIds.map(async (thresholdSessionId) => {
+      out.set(
+        thresholdSessionId,
+        await readWarmSessionClaim(args.touchConfirm, thresholdSessionId),
+      );
     }),
   );
   return out;
 }
 
-export function resolveEd25519AuthMaterial(
-  record: WarmSessionEd25519CapabilityState['record'],
-): WarmSessionEd25519AuthMaterial | null {
-  if (!record) return null;
-  const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
-  if (authority.ok) {
-    return {
-      capability: 'ed25519',
-      record,
-      walletSessionJwt: authority.value.auth.walletSessionJwt,
-      walletSessionJwtSource: 'ed25519_record',
-    };
-  }
-  return {
-    capability: 'ed25519',
-    record,
-    walletSessionJwtSource: 'none',
-  };
-}
-
-export function resolveEcdsaAuthMaterial(
-  record: WarmSessionEcdsaCapabilityState['record'],
-): WarmSessionEcdsaAuthMaterial | null {
-  if (!record) return null;
-  const authority = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
-  if (authority.kind === 'ready') {
-    return {
-      capability: 'ecdsa',
-      state: 'ready',
-      record,
-      walletSessionJwt: authority.walletSessionJwt,
-      walletSessionJwtSource: 'ecdsa_record',
-    };
-  }
-  return {
-    capability: 'ecdsa',
-    state: 'unavailable',
-    record,
-    walletSessionJwtSource: 'none',
-    unavailableReason: authority.reason,
-  };
-}
-
 export function deriveEd25519CapabilityState(args: {
-  record: WarmSessionEd25519CapabilityState['record'];
-  auth: WarmSessionEd25519AuthMaterial | null;
+  runtime: ExactEd25519SealedSessionRuntime;
+  auth: ActiveWalletSessionAuthorizationProjection | null;
   prfClaim: WarmSessionPrfClaim | null;
 }): WarmSessionEd25519CapabilityState['state'] {
-  if (!args.record) return 'missing';
-  if (!args.auth || !args.auth.walletSessionJwt) {
-    return 'auth_missing';
-  }
-  const ed25519EmailOtpAuthContext =
-    args.record.source === 'email_otp' ? args.record.emailOtpAuthContext : null;
   if (
-    ed25519EmailOtpAuthContext &&
-    emailOtpAuthContextRetention(ed25519EmailOtpAuthContext) === 'single_use' &&
-    Number(emailOtpAuthContextConsumedAtMs(ed25519EmailOtpAuthContext)) > 0
+    !args.auth ||
+    String(args.auth.walletId) !== String(args.runtime.walletId) ||
+    args.auth.authMethod !== args.runtime.factor.kind
   ) {
-    return 'prf_missing';
+    return 'authorization_required';
   }
-  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
-  if (persistedState.kind === 'ready') return 'ready';
-  if (
-    persistedState.kind === 'non_signing' ||
-    persistedState.reason === 'missing_wallet_session_jwt'
-  ) {
-    return 'auth_missing';
+  const runtimeState = laneCandidateStateFromRuntimePolicy({
+    remainingUses: args.runtime.remainingUses,
+    expiresAtMs: args.runtime.expiresAtMs,
+  });
+  if (runtimeState === 'expired' || runtimeState === 'exhausted') {
+    return 'authorization_required';
   }
-  if (persistedState.kind === 'invalid') return 'invalid';
   if (!args.prfClaim) return 'prf_missing';
   switch (args.prfClaim.state) {
     case 'unavailable':
       return 'prf_unavailable';
     case 'warm':
+      return 'ready';
     case 'missing':
     case 'expired':
     case 'exhausted':
@@ -280,16 +231,26 @@ export function deriveEd25519CapabilityState(args: {
 }
 
 export function deriveEcdsaCapabilityState(args: {
-  record: WarmSessionEcdsaCapabilityState['record'];
-  auth: WarmSessionEcdsaAuthMaterial | null;
+  runtime: NonNullable<WarmSessionEcdsaCapabilityState['runtime']>;
+  auth: ActiveEvmFamilyWalletSessionAuthorization | null;
   prfClaim: WarmSessionPrfClaim | null;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext | null;
 }): WarmSessionEcdsaCapabilityState['state'] {
-  if (!args.record) return 'missing';
-  if (!args.auth || args.auth.state === 'unavailable') {
-    return 'auth_missing';
+  // The reusable Wallet Session authorization is the independent second proof:
+  // without it the capability is not signable regardless of material, and no
+  // SelectedEcdsaLane can exist.
+  if (!args.auth) return 'authorization_required';
+  // Allowance and expiry are classified by the shared Refactor 92 rule before
+  // PRF state. An expired or exhausted session is an authorization state, not a
+  // material one: the sealed material and its activation are untouched.
+  const runtimeState = laneCandidateStateFromRuntimePolicy({
+    remainingUses: args.runtime.remainingUses,
+    expiresAtMs: args.runtime.expiresAtMs,
+  });
+  if (runtimeState === 'expired' || runtimeState === 'exhausted') {
+    return 'authorization_required';
   }
-  const ecdsaEmailOtpAuthContext =
-    args.record.source === 'email_otp' ? args.record.emailOtpAuthContext : null;
+  const ecdsaEmailOtpAuthContext = args.emailOtpAuthContext;
   if (
     ecdsaEmailOtpAuthContext &&
     emailOtpAuthContextRetention(ecdsaEmailOtpAuthContext) === 'single_use' &&
@@ -300,48 +261,13 @@ export function deriveEcdsaCapabilityState(args: {
   if (!args.prfClaim) return 'prf_missing';
   if (args.prfClaim.state === 'unavailable') return 'prf_unavailable';
   if (args.prfClaim.state !== 'warm') return 'prf_missing';
-  const persistedState = classifyRouterAbEcdsaDerivationPersistedSigningRecord(args.record);
-  if (persistedState.kind === 'runtime_validated') return 'ready';
-  if (
-    persistedState.kind === 'non_signing' ||
-    persistedState.reason === 'missing_wallet_session_jwt'
-  ) {
-    return 'auth_missing';
-  }
-  if (persistedState.kind === 'restore_available') return 'material_pending';
-  return 'material_pending';
-}
-
-export function hasSufficientWarmClaim(
-  prfClaim: WarmSessionPrfClaim | null,
-  usesNeededRaw: unknown,
-): boolean {
-  if (!prfClaim || prfClaim.state !== 'warm') return false;
-  const remainingUses = Math.floor(Number(prfClaim.remainingUses) || 0);
-  const usesNeeded = Math.floor(Number(usesNeededRaw) || 0);
-  return remainingUses >= (usesNeeded > 0 ? usesNeeded : 1);
-}
-
-export function formatMissingWarmPrfMaterialError(args: {
-  errorContext: string;
-  code?: string;
-}): Error {
-  const suffix = typeof args.code === 'string' && args.code.trim() ? ` (${args.code.trim()})` : '';
-  return new Error(`Missing warm PRF material for ${args.errorContext}${suffix}`);
-}
-
-export function formatWarmSessionClaimUnavailableError(args: {
-  errorContext: string;
-  code?: string;
-}): Error {
-  const suffix = typeof args.code === 'string' && args.code.trim() ? ` (${args.code.trim()})` : '';
-  return new Error(`Warm-session claim unavailable for ${args.errorContext}${suffix}`);
+  return 'ready';
 }
 
 export function toSigningSessionStatus(args: {
   sessionId: string;
   claim: WarmSessionPrfClaim | null;
-  authMethod?: WalletAuthMethod | null;
+  authMethod?: SignerAuthMethod | null;
   retention?: SigningSessionRetention | null;
 }): SigningSessionStatus {
   const sessionId = String(args.sessionId || '').trim();
@@ -382,47 +308,30 @@ export function toSigningSessionStatus(args: {
   };
 }
 
-function hasRecordOwnedEcdsaWalletSessionAuth(
-  auth: WarmSessionEcdsaAuthMaterial | null,
-): auth is Extract<WarmSessionEcdsaAuthMaterial, { state: 'ready' }> {
-  if (!auth || auth.state !== 'ready') return false;
-  return (
-    auth.walletSessionJwtSource === 'ecdsa_record' &&
-    Boolean(String(auth.walletSessionJwt || '').trim())
-  );
-}
-
+/** Transport identity comes from the sealed runtime; the bearer proof comes from
+ * the reusable Wallet Session. An Email-OTP-bound runtime has no standing
+ * authorization of its own, so without a live Wallet Session there is nothing to
+ * seal against and the transport is withheld rather than emitted unauthorized. */
 export function resolveEcdsaSealTransport(args: {
-  record: WarmSessionEcdsaCapabilityState['record'];
-  auth: WarmSessionEcdsaAuthMaterial | null;
+  runtime: NonNullable<WarmSessionEcdsaCapabilityState['runtime']>;
+  auth: ActiveEvmFamilyWalletSessionAuthorization | null;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   groupId?: string;
-}): ThresholdSessionSealTransportAuthMaterial | null {
-  if (!args.record) return null;
-  if (args.record.source === 'email_otp' && !hasRecordOwnedEcdsaWalletSessionAuth(args.auth)) {
-    return null;
-  }
-  const relayerUrl = String(args.record.relayerUrl || '').trim();
+}): EcdsaSealTransportAuthMaterial | null {
+  const walletSessionJwt = String(args.auth?.projection.walletSessionJwt || '').trim();
+  if (args.runtime.authBinding.kind === 'email_otp' && !walletSessionJwt) return null;
+  const relayerUrl = String(args.runtime.relayerUrl || '').trim();
   if (!relayerUrl) return null;
-  const signingSessionSealKeyVersion =
-    args.signingSessionSealKeyVersion ||
-    (args.record.signingSessionSealKeyVersion
-      ? parseSigningSessionSealKeyVersion(args.record.signingSessionSealKeyVersion)
-      : undefined);
   const groupId = String(args.groupId || '').trim();
-  const signingGrantId = args.record.signingGrantId;
-  const walletSessionJwt = String(args.auth?.walletSessionJwt || '').trim();
-  const walletSessionJwtSource =
-    args.auth?.walletSessionJwtSource === 'ecdsa_record' ? 'ecdsa' : 'none';
   return {
     curve: 'ecdsa',
-    walletId: String(args.record.walletId),
-    chainTarget: args.record.chainTarget,
+    walletId: String(args.runtime.walletId),
+    chainTarget: args.runtime.chainTarget,
     relayerUrl,
-    ...(signingGrantId ? { signingGrantId } : {}),
-    ...(walletSessionJwt ? { walletSessionJwt: walletSessionJwt } : {}),
-    walletSessionJwtSource,
-    ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
+    ...(walletSessionJwt ? { walletSessionJwt } : {}),
+    ...(args.signingSessionSealKeyVersion
+      ? { signingSessionSealKeyVersion: args.signingSessionSealKeyVersion }
+      : {}),
     ...(groupId ? { groupId } : {}),
   };
 }

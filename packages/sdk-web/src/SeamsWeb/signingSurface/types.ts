@@ -5,6 +5,7 @@ import type {
   EcdsaSessionBootstrapSurface,
   EcdsaSessionControlSurface,
   Ed25519SessionConnectionSurface,
+  Ed25519MaterialOwnerQueueSurface,
   EmailOtpRegistrationEnrollmentSurface,
   EmailOtpSigningSessionSurface,
   EvmFamilySigningSurface,
@@ -108,6 +109,7 @@ export interface SeamsWebSigningSurface
     RegistrationAccountSurface,
     EcdsaRegistrationSurface,
     Ed25519YaoRegistrationActivationSurface,
+    Ed25519MaterialOwnerQueueSurface,
     WebAuthnRegistrationConfirmationSurface,
     PasskeyLoginAssertionSurface,
     KeyExportSigningSurface {

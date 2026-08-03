@@ -29,7 +29,6 @@ const INPUT_ROOTS = Object.freeze([
   'tests/playwright.yaos-local.config.ts',
   'tests/e2e/intended-behaviours',
   'tests/scripts/check-ed25519-yao-near-signing-boundaries.mjs',
-  'tests/scripts/check-intended-behaviour-contract-boundaries.mjs',
   'tests/scripts/ensure-intended-google-token.mjs',
   'tests/scripts/intended-google-oidc-env.mjs',
   'tests/scripts/seed-intended-local-console.mjs',

@@ -177,7 +177,8 @@ function createAdmissionInput(): RouterAbNormalSigningAdmissionInput {
       rpId: webAuthnRpId('example.localhost'),
     },
     thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
+    walletSessionId: 'wallet-session-1',
+    quotaId: 'wallet-session-quota-1',
     requestId: 'request-1',
     expiresAtMs: Date.now() + 60_000,
     signingWorkerId: 'signing-worker-a',
@@ -507,7 +508,7 @@ test('local D1 Worker ready smoke validates D1 tables and signer-D1 admission', 
     },
     admission: {
       database: 'SIGNER_DB',
-      quotaReservation: 'accepted',
+      policy: 'allowed',
     },
   });
 });
@@ -994,7 +995,7 @@ test('local D1 Worker runs dashboard, signer, billing, and reconciliation smoke 
       },
       admission: {
         durableObject: 'configured',
-        quotaReservation: 'accepted',
+        policy: 'allowed',
       },
     });
 

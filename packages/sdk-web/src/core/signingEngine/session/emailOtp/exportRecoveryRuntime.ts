@@ -6,20 +6,13 @@ import type {
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { VerifiedEcdsaPublicFacts } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { EmailOtpEd25519YaoActiveCapabilityDescriptorV1 } from '@/core/signingEngine/workerManager/workerTypes';
-import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type {
-  EcdsaExportLane,
-  EmailOtpEcdsaPublicReauthExportAuthority,
-} from '../../flows/recovery/ecdsaExportMaterial';
+import type { ResolvedEmailOtpEd25519YaoExportV1 } from './ed25519YaoSealedRecovery';
 import type { EmailOtpEcdsaSigningSessionAuthority } from './ecdsaSigningSessionAuthority';
 import { buildEmailOtpSigningSessionRoutePlan } from './routePlan';
 import {
   exportEd25519YaoSeedWithFreshEmailOtpLane,
-  exportEcdsaKeyWithAuthorization,
   exportEcdsaKeyWithDurableAuthorization,
-  exportEcdsaKeyWithPublicReauthAuthorization,
   requestExportChallenge,
   requestTransactionSigningChallenge,
   type EmailOtpEcdsaExportArtifact,
@@ -29,6 +22,8 @@ import type {
   PrepareEmailOtpEcdsaExportCapabilityArgs,
 } from './ecdsaLogin';
 import type { EmailOtpTransactionSigningChallenge } from './publicTypes';
+import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
+import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 export type { EmailOtpEcdsaExportArtifact } from './exportRecovery';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
@@ -51,23 +46,18 @@ export type RequestEmailOtpChallengeArgs =
       routeAuth?: never;
     }
   | {
-      kind: 'wallet_public_reauth_challenge';
+      kind: 'wallet_capability_step_up_challenge';
       walletSession: WalletSessionRef;
-      chain: EmailOtpEcdsaRouteChain;
+      chain: EmailOtpRouteChain;
       appSessionJwt: string;
       authLane?: never;
       routeAuth?: never;
     };
 
-export type ExportEcdsaKeyWithAuthorizationArgs = {
-  walletSession: WalletSessionRef;
-  challengeId: string;
-  otpCode: string;
-  committedLane: EcdsaExportLane<EmailOtpWalletAuthAuthority>;
-  record?: never;
-  routeAuth?: never;
-  authLane?: never;
-};
+export type RequestEmailOtpExportChallengeArgs = Exclude<
+  RequestEmailOtpChallengeArgs,
+  { kind: 'wallet_capability_step_up_challenge' }
+>;
 
 export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
   walletSession: WalletSessionRef;
@@ -77,31 +67,14 @@ export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
   publicFacts: VerifiedEcdsaPublicFacts;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
-};
-
-export type ExportEcdsaKeyWithPublicReauthAuthorizationArgs = {
-  walletSession: WalletSessionRef;
-  chainTarget: ThresholdEcdsaChainTarget;
-  challengeId: string;
-  otpCode: string;
-  appSessionJwt: string;
-  publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
+  persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+  explicitExportAuthorization: EcdsaExplicitExportOperationAuthorization;
 };
 
 export type ExportEd25519YaoSeedWithFreshEmailOtpLaneArgs = {
-  walletSession: WalletSessionRef;
   challengeId: string;
   otpCode: string;
-  providerSubjectId: string;
-  walletSessionJwt: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  signerSlot: number;
-  thresholdSessionId: string;
-  signingGrantId: string;
-  authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
-  capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
+  exportContext: ResolvedEmailOtpEd25519YaoExportV1;
 };
 
 export class EmailOtpExportRecoveryRuntime {
@@ -123,21 +96,9 @@ export class EmailOtpExportRecoveryRuntime {
   }
 
   async requestExportChallenge(
-    args: RequestEmailOtpChallengeArgs,
+    args: RequestEmailOtpExportChallengeArgs,
   ): Promise<EmailOtpTransactionSigningChallenge> {
     return await requestExportChallenge(this.workerPorts(), args);
-  }
-
-  async exportEcdsaKeyWithAuthorization(
-    args: ExportEcdsaKeyWithAuthorizationArgs,
-  ): Promise<EmailOtpEcdsaExportArtifact> {
-    return await exportEcdsaKeyWithAuthorization(this.signingSessionWorkerPorts(), {
-      walletSession: args.walletSession,
-      challengeId: args.challengeId,
-      otpCode: args.otpCode,
-      committedLane: args.committedLane,
-      prepareEcdsaExportCapability: this.ports.prepareEcdsaExportCapability,
-    });
   }
 
   async exportEcdsaKeyWithDurableAuthorization(
@@ -157,26 +118,8 @@ export class EmailOtpExportRecoveryRuntime {
         publicFacts: args.publicFacts,
         runtimePolicyScope: args.runtimePolicyScope,
         signingSessionAuthority: args.signingSessionAuthority,
-        prepareEcdsaExportCapability: this.ports.prepareEcdsaExportCapability,
-      },
-    );
-  }
-
-  async exportEcdsaKeyWithPublicReauthAuthorization(
-    args: ExportEcdsaKeyWithPublicReauthAuthorizationArgs,
-  ): Promise<EmailOtpEcdsaExportArtifact> {
-    return await exportEcdsaKeyWithPublicReauthAuthorization(
-      {
-        getSignerWorkerContext: this.ports.getSignerWorkerContext,
-        requireRelayUrl: this.ports.requireRelayUrl,
-      },
-      {
-        walletSession: args.walletSession,
-        chainTarget: args.chainTarget,
-        challengeId: args.challengeId,
-        otpCode: args.otpCode,
-        appSessionJwt: args.appSessionJwt,
-        publicReauthAuthority: args.publicReauthAuthority,
+        persistedMaterial: args.persistedMaterial,
+        explicitExportAuthorization: args.explicitExportAuthorization,
         prepareEcdsaExportCapability: this.ports.prepareEcdsaExportCapability,
       },
     );
@@ -190,7 +133,6 @@ export class EmailOtpExportRecoveryRuntime {
         getSignerWorkerContext: this.ports.getSignerWorkerContext,
         requireRelayUrl: this.ports.requireRelayUrl,
         requireSigningSessionSealGroupId: this.ports.requireSigningSessionSealGroupId,
-        buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
       },
       args,
     );

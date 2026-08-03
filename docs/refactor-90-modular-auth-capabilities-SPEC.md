@@ -7,8 +7,11 @@ MPC lifecycle convergence: July 16, 2026
 ECDSA state and persistence convergence: July 18, 2026
 Authorization and material identity separation: July 23, 2026
 Refactor 92 lifecycle reconciliation: July 23, 2026
+Refactor 93 Yao execution reconciliation: July 26, 2026
+Refactor 94C durable-owner reconciliation: July 28, 2026
+Authorization model simplification: August 2, 2026
 
-Status: planning.
+Status: implementation complete; healthy-environment and deployment acceptance pending.
 
 Companion doc: [Implementation plan](./refactor-90-modular-auth-capabilities-plan.md).
 
@@ -19,17 +22,28 @@ product workflows, general route-module registries, and speculative package
 splits are follow-on work. Sections that describe those future product shapes
 are design context rather than Refactor 90 acceptance criteria.
 
-Authorization amendment: August 2, 2026 — Refactor 90's closed
-`AuthorizationGrant` union contains only `WalletSessionAuthorization`.
-Refactors 103 and 104 own the later linked-device and delegated-spend branches.
-Refactor 90 creates `AuthorizedOperation` directly from reusable wallet
-authorization or verified one-time evidence and adds no future authorization
-branches, generic revocation epochs, or parallel stores.
+Authorization amendment: August 2, 2026 — Refactor 90 has exactly one
+`AuthorizationGrant` variant, `WalletSessionAuthorization`. Reusable operations
+reference that authorization and consume its quota; verified step-up evidence
+creates an `AuthorizedOperation` directly. Any later section that describes
+transient MPC capability grants, grant uses, or operation claims is superseded
+by `R90-INV-009` and `R90-INV-013`. Linked-device and delegated authorization
+variants belong to Refactors 103 and 104.
 
 Lifecycle dependency: [Refactor 92](./refactor-92-session-expiry-handling.md)
 owns the implemented reusable Wallet Session behavior. Refactor 90 may replace
 the underlying authorization and material representations only while preserving
 that behavior under `R90-INV-014`.
+
+Execution dependency: [Refactor 93](./refactor-93.md) owns the pair-bound
+Router/Deriver protocol, role-local one-use execution, and exact result replay.
+[Refactor 94C](./refactor-94C-regression-fixes.md) owns final Cloudflare
+placement: Gateway D1 owns product ceremonies and activation results, Deriver
+A/B private D1 owns role custody and one-use state, SigningWorker private D1
+owns activated material, delivery, sessions, budgets, and presign consumption,
+and Router owns no mutable storage. Refactor 90 composes capability
+authorization and client material lifecycle around those boundaries. It does
+not duplicate durable effects or restore deleted direct orchestration.
 
 ## Normative Invariant Index
 
@@ -67,12 +81,15 @@ invariant.
   public affine lease-token lifecycle.
 - **R90-INV-009 — Exact authorized operation.** The stable operation
   fingerprint excludes rotating authorization, quota, session, and runtime
-  identities. One absent-operation transaction validates the exact active
-  `AuthorizationGrant` or verified one-time evidence, consumes applicable quota,
-  and creates the `AuthorizedOperation` plus audit linkage. Returning an
-  existing operation consumes neither authorization nor quota again. Normal
-  signing consumes one wallet-quota use; key export declares no quota use.
-  Quota exhaustion never blocks export, and export never spends signing quota.
+  identities. One absent-fingerprint transaction at the durable effect owner
+  validates the exact `OperationAuthorizationSource`, consumes applicable
+  quota, creates one `AuthorizedOperation`, and writes audit linkage. An
+  existing `AuthorizedOperation` replays its recorded state/result without
+  consuming authorization or quota again. Reusable Wallet Session operations
+  reference `AuthorizationGrant` directly. Passkey and Email OTP step-up
+  operations use verified evidence directly and never mint a transient grant.
+  Key export declares no quota use in either branch. Quota exhaustion never
+  blocks export, and export never spends signing quota.
 - **R90-INV-010 — Supersession invalidates preparation.** Authority or lifecycle
   replacement returns `superseded`; callers discard the prepared lane and
   resolve current canonical state again.
@@ -88,16 +105,38 @@ invariant.
   no checklist entry of its own.
 - **R90-INV-013 — Authorization/material identity separation.** A
   `SeamsSessionId` identifies app identity and general authorization, a
-  `WalletSessionAuthorizationId` identifies reusable wallet-signing authority,
-  an `AuthorizedOperationId` identifies one exact operation, an
-  `MpcWalletSigningQuotaId` identifies the reusable allowance, and an opaque
+  `AuthorizationGrantRef` identifies reusable wallet-signing authorization, a
+  `WalletSessionId` identifies its authenticated Wallet Session, an
+  `MpcWalletSigningQuotaId` identifies that session's remaining-use allowance, an
+  `AuthorizedOperationId` identifies one exact operation, and an opaque
   `MpcMaterialActivationId` identifies one exact activated MPC material
-  instance. Each authorization-grant reference contains only its
-  branch-specific authorization ID. None of these IDs locates, owns, or aliases
-  another domain. Unlock or refresh may replace wallet authorization while
-  preserving an unchanged exact material activation through a validated
-  `MpcMaterialActivationRef`; registration or explicit material reactivation
-  creates a new activation ID.
+  instance. Verified step-up carries only its evidence digest.
+  None of these IDs locates, owns, or aliases another domain. Explicit unlock
+  or Wallet Session renewal may replace the Wallet Session while preserving an
+  unchanged exact material activation through a validated
+  `MpcMaterialActivationRef`; ordinary page refresh does not replace it.
+  Registration or explicit material reactivation creates a new activation ID.
+
+  The authorization source of an operation is exactly one branch:
+
+  ```ts
+  type OperationAuthorizationSource =
+    | {
+        kind: 'authorization_grant';
+        authorizationGrantRef: AuthorizationGrantRef;
+        evidenceSetDigest?: never;
+      }
+    | {
+        kind: 'verified_step_up';
+        authorizationGrantRef?: never;
+        evidenceSetDigest: DigestB64u;
+      };
+  ```
+
+  An `AuthorizedOperation` always carries its own `AuthorizedOperationId` and
+  exact operation fingerprint. The reusable branch references the independently
+  verified Wallet Session authorization; the step-up branch records verified
+  evidence directly and creates no transient grant.
 - **R90-INV-014 — Refactor 92 wallet-session lifecycle preservation.**
   Refactor 92 is the normative behavior for reusable Wallet Sessions during
   this migration. Ordinary unlock creates a 24-hour session with three
@@ -112,67 +151,542 @@ invariant.
   locking the wallet, and refresh preserves the remaining warm allowance for a
   still-valid Wallet Session.
 
-## Phased Invariant Verification Checklist
+## Execution-Unit Invariant Verification Checklist
 
 This checklist tracks conformance evidence for the normative invariants. The
 implementation plan owns task status. Check an item here only when the invariant
 is expressed in code and its cheapest effective verification passes; cite the
 implementing commit SHA as the evidence.
 
-### Foundations A-B
+### Unit 1 — canonical hydration and canonical ECDSA state
 
-- [ ] `R90-INV-001` — hydration and ECDSA persistence boundaries parse raw
+- [x] `R90-INV-001` — hydration and ECDSA persistence boundaries parse raw
   records once and expose only precise internal branches.
-- [ ] `R90-INV-002` — Near and ECDSA each have one durable material owner and one
+  - [x] Warm ECDSA read-model authorization-required states carry an explicit
+    nullable Email OTP context; negative `never` branches remain closed, and
+    the identity-boundary guard tracks only live protocol-owned constructors
+    (`e9ed27172`).
+- [x] `R90-INV-002` — Near and ECDSA each have one durable material owner and one
   volatile runtime owner.
-- [ ] `R90-INV-003` — registration, unlock, and refresh equivalence tests select
-  the same hydration outcome from equivalent canonical observations.
-- [ ] `R90-INV-005` — ECDSA activation finalization atomically writes material,
+  - [x] The exact ECDSA runtime no longer reconstructs or owns an unbranded
+    client-verifying-share copy. It carries the manifest-owned branded client
+    verifying public key and converts to the normal-signing protocol name only
+    at that wire adapter (`085b9c01a`).
+- [x] `R90-INV-003` — one type fixture excludes entry-point provenance from
+  resolver input.
+- [x] `R90-INV-003` — fourteen canonical-state cases cover both capabilities.
+  (ECDSA canonical outcomes are covered by `ecdsaCapabilityHydration`; Near's
+  matching seven-state matrix uses the shared canonical fixture. Commits
+  `6ecdc5d5c`, `fd50aa7b5`.)
+- [x] `R90-INV-003` — prepared ECDSA signing reads the auth method from the
+  canonical lane binding directly; the forwarding-only selected-lane selector
+  is deleted and the auth-neutral preparation suite passes 7/7 (`0983a94ec`).
+- [x] `R90-INV-005` — ECDSA activation finalization atomically writes material,
   manifest, replacement retirement, and journal deletion.
-- [ ] `R90-INV-006` — ECDSA journal types contain no runtime-publication,
+- [x] `R90-INV-006` — ECDSA journal types contain no runtime-publication,
   disposal, zeroization, or other volatile facts.
-- [ ] `R90-INV-011` — ECDSA post-commit verification creates no durable
+- [x] `R90-INV-011` — ECDSA post-commit verification creates no durable
   readback/publication state.
 
-### Slice A — authorization proving vertical
+### Units 2 and 3b — authorization core and vault proving vertical
 
-- [ ] `R90-INV-001` — session, evidence, authorization, authorized-operation,
-  vault, and audit requests and rows normalize at their owning boundaries.
-- [ ] `R90-INV-009` — the minimal vault operation uses a stable fingerprint and
-  one atomic authorize-or-return-existing transaction.
-- [ ] `R90-INV-012` — the real minimal vault vertical proves session → Passkey
-  evidence → authorized operation → execution → audit without future-provider
-  scaffolding.
+- [x] `R90-INV-001` — session, evidence, grant, claim, vault, and audit requests
+  and rows normalize at their owning boundaries. The persisted authorization
+  vertical exercises the normalized session, evidence, one-use grant, atomic
+  claim, vault operation, and audit records; current route-owned ECDSA refresh
+  and Ed25519 capability/recovery inputs have no duplicate adapter
+  (`5db9ad87e`, `a89ede462`, `df478bfed`, `729ad4cdd`, `868ba6dee`).
+  - [x] ECDSA refresh HTTP input is owned by the canonical route-definition
+    boundary; the duplicate standalone adapter and wrapper-only test are
+    deleted (`a89ede462`, `df478bfed`).
+  - [x] Persisted Ed25519 capability lookup/install/reread is owned by the
+    request-scoped product runtime; the duplicate fallback locator is deleted
+    (`729ad4cdd`).
+  - [x] Ed25519 recovery installation and active-capability lookup use the
+    recovery service directly; the forwarding-only runtime locator is deleted
+    (`868ba6dee`).
+  - [x] Generic signing, hydration, export, sealed-runtime, and step-up
+    functions accept the canonical auth-method domains and project factor
+    unions exhaustively. Binary fallbacks, ad hoc two-factor unions, the
+    duplicate runtime-postcondition auth alias, and their stale guard
+    allowances are removed; the auth-domain guard passes (`157eb7562`,
+    `732802dc9`, `40fb0203f`, `bdf6cc5da`).
+- [x] `R90-INV-009` — the minimal vault operation uses a stable fingerprint and
+  one atomic absent-claim grant-use transaction. The persisted D1 vertical
+  passes in `vaultProxyUse.unit.test.ts` (`5db9ad87e`).
+- [x] `R90-INV-012` — the real minimal vault vertical proves session → Passkey
+  evidence → grant → operation → audit without future-provider scaffolding.
+  The same persisted D1 vertical exercises the native session exchange,
+  operation-bound Passkey evidence, exact one-use grant, routed secret use, and
+  audit readback (`5db9ad87e`).
 
-### Slice B — MPC migration
+### Units 1, 3a, and 4 — MPC cutover and consumers
 
-- [ ] `R90-INV-002` — registration, unlock, refresh, recovery, signing, and
+- [x] `R90-INV-002` — registration, unlock, refresh, recovery, signing, and
   export cannot publish or select a parallel active material record.
-- [ ] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
+  - [x] Passkey export and warm-session MPC custody have one dedicated worker
+    and one dedicated main-thread owner; generic confirmation no longer
+    imports their runtimes or forwards their worker protocols. Commits
+    `f91617282`, `51190cb9d`, `1a9254ff6`, `769d9dc69`, and `6f7d28d7c`.
+    The static wallet asset check and focused key-export, ECDSA client-worker,
+    and Email OTP branch-isolation checks remain green after `def400d94`.
+  - [x] The zero-caller generic private-key export coordinator and its assembly
+    dependency are deleted; export enters through the capability-owned
+    Passkey MPC or Email OTP path (`d3201483b`).
+  - [x] Passkey persisted-session discovery, raw seal/rehydrate operations, and
+    exact persisted restore are routed through `PasskeyMpcSessionManager`.
+    The redundant durable worker alias and one-call seal-persistence adapter
+    are deleted. Commits `c348c8f57`, `6f7d28d7c`, `bbb6d94f4`,
+    `0e81b8bef`, `de6857bd5`, and `d9c303f3c`. High-level seal persistence,
+    exact registration/readback, and persistence single-flight now share that
+    owner; generic confirmation retains no durable-session port.
+  - [x] Passkey Ed25519 provisioning and sync recovery supply exact restore
+    metadata on the typed seal transport. The durable Passkey MPC owner writes
+    that metadata directly and no longer reconstructs it from a parallel
+    composite record keyed by threshold session ID (`0f5d7e6b6`).
+  - [x] Email OTP Ed25519 sealed publication consumes the canonical active
+    capability plus factor-only publication context. It correlates
+    active-client metadata, the exact activation, Wallet Session state, and
+    factor identity before durable write; the publication, registry, and
+    silent-recovery port accept no composite session record (`93ae1e20a`).
+  - [x] Email OTP Ed25519 cold login and unlock build canonical Wallet Session
+    state directly from the exact bootstrap. The boundary correlates bearer
+    claims, allowance, expiry, signing root, and signer identity; Browser and
+    SeamsWeb receive the activated lane's signer without constructing or
+    returning a composite session record (`f5062fc13`).
+  - [x] Email OTP Ed25519 recovery preparation resolves one exact sealed record
+    by wallet, factor subject, account, signer slot, and material activation.
+    Browser derives the recoverable session and runtime policy from that
+    durable owner without consulting the composite session cache
+    (`e4322bd15`).
+  - [x] The NEAR unlock wrapper resolves its wallet from the active user
+    binding; composite signing state no longer acts as a wallet-directory
+    lookup (`2cdfea541`).
+  - [x] Email OTP runtime wallet-key projections, worker handles, and sealed
+    rehydration correlate by exact key handle. Provisioning slots remain
+    confined to registration handle branches (`6113b36bb`).
+  - [x] The unused client ECDSA session-policy domain and its slot-pinning
+    source checks are deleted; Email OTP bootstrap retains only the shared TTL
+    and use-count clamp (`3d6c4c74b`).
+  - [x] Durable IndexedDB signer metadata no longer copies the provisioning
+    slot beside the exact ECDSA key handle (`0fbbbb04b`).
+  - [x] The unused server role-local ECDSA key-record/store family and its
+    slot-based shared-identity guard are deleted (`a913d461f`).
+  - [x] Wallet Session signing context and Email OTP persisted-material lookup
+    no longer project or require an unused provisioning slot (`45e495ddc`).
+  - [x] Server-persisted ECDSA signer records, inventory responses, and
+    post-registration normal-signing scope use exact key-handle identity and
+    reject provisioning-slot residue (`5f7075386`).
+  - [x] Exact-session bootstrap results no longer project the provisioning
+    slot into activated runtime state (`1f04bb1bb`).
+  - [x] Ready ECDSA lanes and Email OTP runtime activation authority reject
+    provisioning-slot identity (`47070b2b0`).
+  - [x] Passkey and Email OTP activation results expose required exact key
+    facts and cannot carry a provisioning slot (`2768d24a0`).
+  - [x] The zero-caller ECDSA keygen facade and dead normal-signing-state
+    builder are deleted (`f762803df`).
+  - [x] ECDSA activation/bootstrap accepts exact existing-session identity
+    only; the registration-era enrollment variant and its obsolete tests are
+    deleted (`1e317e433`, `499a9e00e`).
+  - [x] Post-registration relayer-key derivation accepts wallet and signing-root
+    facts instead of a provisioning slot while preserving the established
+    derived identifier (`fca3baaf2`).
+  - [x] Remaining positive provisioning-slot uses are confined to registration
+    and publication boundaries; runtime shapes reject the field, and the
+    zero-consumer bootstrap relayer port family is deleted (`a843d8dbc`).
+  - [x] The one-arm `ExactEcdsaExportSession` wrapper is deleted; exact ECDSA
+    export lanes directly carry their required state, target, factor, and
+    material-availability facts (`643dde348`).
+  - [x] ECDSA session-lane policy requires the exact runtime policy scope;
+    strict activation cannot receive a policy with absent scope, and type
+    fixtures reject omission (`ff6464baf`).
+  - [x] ECDSA bootstrap material key references cannot carry session transport
+    kind, Wallet Session bearer credentials, or the unused MPC-session alias;
+    activation and worker producers no longer publish those projections
+    (`f32baab61`).
+  - [x] The ECDSA bootstrap session branch is the sole owner of
+    threshold-session and signing-grant identity. Key-reference copies and
+    precedence/rewrite helpers are deleted, and publication rejects a worker
+    grant that differs from the requested grant (`3fdeba8b7`). Runtime policy
+    scope, Wallet Session bearer, and client verifying share are required; the
+    dead optional success base and its session/budget aliases are deleted
+    (`04221828c`).
+  - [x] The write-dead client Ed25519 in-memory session-record family, its
+    lane/cache helpers, stale architecture check, and ownership documentation
+    are deleted; the independent server persisted-record parser remains the
+    live boundary (`a84f92b37`, `5486df295`).
+  - [x] Active SigningWorker state names its exact material activation on the
+    Router A/B wire (`material_activation_id`) and validates it against the
+    activation scope; lifecycle and ceremony `session_id` fields remain
+    distinct (`d91498b2c`).
+  - [x] ECDSA registration bootstrap carries a required explicit
+    normal-signing state through the server/D1/client boundaries; route JWT
+    signing validates that state, and the client no longer derives signing
+    control facts from the bearer JWT (`d2128b7d9`).
+- [x] `R90-INV-003` — both MPC modules use the canonical hydration outcomes and
   contain no entry-point-selected material branch.
-- [ ] `R90-INV-004` — Near admission, acquisition, and promotion are independently
-  idempotent and queryable by exact recovery ID, including injected crash cases.
-- [ ] `R90-INV-005` — Near finalization atomically swaps or retires material,
-  persists lifecycle facts, and deletes the journal.
-- [ ] `R90-INV-006` — Near durable journals contain only server uncertainty and
-  the promotion receipt required for local convergence.
-- [ ] `R90-INV-007` — cancel/crash/reload tests prove `cancel_requested` never
-  resumes the abandoned parent operation.
-- [ ] `R90-INV-008` — concurrent recovery, signing, refresh, and export serialize
-  by exact owner and reject stale generations/fences.
-- [ ] `R90-INV-009` — MPC absent-operation transactions validate the exact
-  authorization source and consume applicable quota once; existing authorized
-  operations consume neither again.
-- [ ] `R90-INV-010` — authority/lifecycle replacement returns `superseded` and
+  - [x] Concrete ECDSA availability excludes the retired `restorable` state;
+    export and runtime postconditions accept only canonical ready/deferred
+    hydration outcomes, while Ed25519 retains its durable restorable state
+    (`5f6592534`).
+  - [x] The canonical ECDSA operating-path proof completes persisted hydration,
+    dedicated worker binding, pooled prepare/finalize, and verifies the
+    resulting 65-byte signature. The endpoint fixture and prepare-response
+    parser agree on every required operation-claim field (`7c20fe644`,
+    `e75d2bcfb`).
+  - [x] ECDSA presignature bridge, pool-policy, and browser pool-hit fixtures
+    use the current activation and authorization identities; the retired
+    `wallet_key_id` fixture field and zero-caller lane cleanup helper are gone
+    (`917439856`, `814616909`).
+  - [x] NEAR sealed-material hydration no longer implies authorization-budget
+    readmission; only an actual authorization/session replacement refreshes
+    that identity (`30b52879b`).
+  - [x] NEAR transaction, delegate, and NEP-413 preparation use the shared
+    hydration plan beside an independent authorization state. The retired
+    committed-capability union and its embedded effect callbacks are deleted;
+    execution receives a separate exact-activation-checked material port
+    (`6a818aea3`, `e118d0d5e`).
+  - [x] NEAR reusable authorization requires the persisted projection plus its
+    authoritative active status. Delegate and NEP-413 planning consume that
+    canonical proof directly and no longer reconstruct authorization, lanes,
+    or readiness from a composite session record (`5a8ce9090`, `70ef2a420`).
+  - [x] NEAR transaction, delegate, and NEP-413 preparation no longer read or
+    reseed the composite session-record cache. Canonical hydration plus the
+    independent reusable-authorization status own signing and expiry behavior
+    after refresh (`4f089b483`).
+  - [x] Recovered local-login restoration validates the verified recovery
+    binding against canonical app and Wallet Session identity without reading
+    the composite session cache (`51e71d7e8`).
+  - [x] NEAR wallet-unlock subjects resolve from canonical active signer
+    profile rows; the inert runtime-record subject duplicate and provenance
+    branch are deleted (`8c2aeb3ac`).
+  - [x] Wallet-scoped volatile Ed25519 cleanup enumerates exact Passkey and
+    Email OTP sealed sessions, so material-session discovery no longer reads
+    the composite session cache (`b9638246a`).
+  - [x] The zero-caller operation-usable Ed25519 record and current-generation
+    commit/supersession branch are deleted with their obsolete fixtures
+    (`f5c6ec6d9`).
+  - [x] Ed25519 key-export lifecycle preflight reads the canonical active
+    Wallet Session authorization projection and preserves typed missing,
+    unavailable, invalid, active, and expired outcomes without consulting the
+    composite session cache (`47fbe2cbc`).
+  - [x] The exact Ed25519 sealed-session runtime boundary validates persisted
+    signer, factor, policy, signing-root, participant, worker, allowance, and
+    expiry facts once and distinguishes missing, conflict, and corrupt state;
+    Wallet Session bearer validation remains on the independent authorization
+    projection (`2733f7960`, `22ccd0c26`).
+  - [x] The wallet-scoped Ed25519 warm-capability envelope is composed from the
+    exact sealed runtime, an independent active Wallet Session authorization,
+    and the worker claim. Missing authorization produces
+    `authorization_required` without discarding durable material; no composite
+    record supplies the bearer or capability state (`cdd9cc2b8`).
+  - [x] Ed25519 status resolution is wallet, account, and signing-key qualified;
+    exact sealed runtime owns material/session facts, the active projection
+    owns the bearer, and expiry is classified before exhaustion. The
+    record-backed authorization parser and duplicate manager status port are
+    deleted (`4ea6eccb7`).
+  - [x] Passkey Ed25519 login hydration resolves the exact sealed runtime for
+    the wallet, account, and signing key, correlates it with the returned
+    Wallet Session and active JWT, and no longer reads or clears the composite
+    session cache (`5a582a992`).
+  - [x] NEAR signing preparation, both operation-step-up factors, and
+    local-material rehydration resolve the exact sealed Ed25519 runtime by lane;
+    the sealed-record-to-composite-record signing adapter is deleted
+    (`7a97a1363`).
+  - [x] Persisted Ed25519 lane discovery and budget advisory parse exact sealed
+    runtimes once. The inventory no longer scans the inert composite-record
+    maps or rebuilds a composite record from a seal (`06f22ac7d`).
+  - [x] Passkey recovery and provisioning build Wallet Session state from exact
+    response/runtime facts and publish the resolved identity without writing
+    or reconstructing a composite Ed25519 record (`98a595709`).
+  - [x] Readiness discovery consumes exact sealed Ed25519 runtimes as durable
+    record-policy anchors. Trusted server budget governs consumption, while
+    clear, expiry, and exhaustion preserve the seal; the duplicate composite
+    mutation port is deleted (`e3a562ed3`).
+  - [x] Zero-caller composite Ed25519 store, persistence adapter, Wallet
+    Session parsing, and state adapters are deleted; exact-runtime builders
+    and the JWT boundary parser remain (`40e9c34fc`).
+  - [x] Sealed transport authorization is isolated as an ECDSA-only boundary;
+    the unused Ed25519 arm, grant alias, and source discriminator are deleted
+    (`d82cda777`, `2e28e741f`).
+  - [x] Durable Ed25519/ECDSA sealed restore metadata and normalized recovery
+    records carry no `sessionKind` or `walletSessionJwt`; persistence rejects
+    obsolete bearer-bearing payloads and current authorization remains an
+    independent transport input (`22ccd0c26`).
+  - [x] Obsolete composite-record browser rehydrate and Email OTP inventory
+    tests are deleted, while valid seal and export coverage uses current
+    builders (`a62080152`).
+  - [x] Cloudflare Router JWT parsing requires canonical `sid`; the legacy
+    `session_id` claim fallback and selector are deleted (`af6dc1514`).
+  - [x] Zero-caller Ed25519 account/session record readers, record-derived
+    Email OTP authority resolution, per-session status, and record auth
+    predicates are deleted from the warm capability surface (`94aa9b344`).
+  - [x] Non-iframe implicit NEAR funding reads the bearer credential from the
+    canonical active Wallet Session authorization projection and fails before
+    fetch when that authorization is absent or expired; no composite MPC record
+    participates (`174c89600`).
+  - [x] NEAR transaction admission carries no unread record-derived Wallet
+    Session bearer projection; canonical preparation and the admitted
+    operation-claim receipt own authorization (`5173ad50b`).
+  - [x] NEAR transaction readiness and authorization planning consume the
+    canonical preparation plus the independent reusable-authorization state;
+    the composite session record no longer decides either outcome
+    (`6edc2d100`).
+  - [x] NEAR transaction expiry invalidation, retry admission, and same-method
+    UI routing derive from the canonical active authorization and selected
+    factor rather than the composite session record (`535c0be3b`).
+  - [x] NEAR Passkey operation-step-up authority comes from the exact selected
+    lane while canonical material preparation supplies the policy facts and
+    full signer participant set; the signing-flow hook reads no composite
+    session record (`8ad73528b`).
+  - [x] The NEAR Email OTP server boundary validates the exact step-up proof,
+    consumes its OTP challenge, persists factor evidence, and issues a one-use
+    operation grant without creating a reusable Wallet Session or spending its
+    quota (`007416714`).
+  - [x] The NEAR operation-grant request and response parse an exact
+    discriminated material-recovery branch. Passkey forbids recovery; Email OTP
+    removes the exact enrollment server seal after OTP consumption and before
+    grant issuance, and key-version mismatch fails closed (`7dea7838a`).
+  - [x] The SDK grant boundary models the same closed material-recovery union
+    and correlates the mirrored response with the requested wallet, material
+    session, activation, and enrollment-key version. Passkey cannot construct a
+    local-recovery request (`88cc478f0`).
+  - [x] The Email OTP worker transport parses the prepared operation-step-up
+    request, proof authority, expected activation, threshold session, and
+    public key exactly; its browser client rejects response correlation drift
+    (`f07020d80`).
+  - [x] NEAR Email OTP transaction, delegate, and NEP-413 signing prepare the
+    exact operation before confirmation and consume one operation grant when
+    canonical material is already live. They never create or spend a reusable
+    Wallet Session in the step-up branch (`069db2326`).
+  - [x] Transaction, delegate, and NEP-413 signing share one
+    authorization-neutral operation-material carrier across live and sealed
+    Passkey/Email OTP branches. Preparation precedes confirmation; exact
+    activation and factor survive resolution; the one-use grant stays beside
+    material without a reusable Wallet Session (`2b585ed38`).
+  - [x] Sealed Email OTP operation step-up restores material inside its worker,
+    correlates the exact activation/session/public key, zeroizes temporary
+    secrets, and returns the active material beside the issued grant without
+    creating or rereading a reusable Wallet Session (`126df7138`).
+  - [x] Supersession, exact-owner queue, operation-material, and Email OTP
+    unseal/step-up focused suites pass 37/37; retryable supersession remains
+    distinct from terminal failure.
+  - [x] The record-backed Email OTP Ed25519 routine-signing lane and its
+    active-material recovery path are deleted. Cold login/unlock recovery,
+    sealed refresh, and export recovery remain, and the focused retained
+    recovery suite passes 12/12 (`069db2326`).
+  - [x] Zero-caller Ed25519 composite-record rejection, commit, runtime-reseed,
+    broad-list, exact-clear, and recovered-session retirement helpers are
+    deleted (`7886fd39f`).
+  - [x] NEAR factor-specific preparation, Passkey rehydration, and Email OTP
+    recovery ports are private to one Browser-owned material boundary. Generic
+    transaction, delegate, and NEP-413 orchestration receives only the shared
+    preparation plus an exact-activation-checked executor (`fe33b405a`).
+  - [x] Deferred NEAR Ed25519 material candidates remain grant-free through
+    delegate, NEP-413, and transaction confirmation; the selected lane is
+    constructed only from the relayer-issued operation grant after
+    finalization (`cd8f89760`, `e2467ea4c`). Full lifecycle acceptance remains
+    open under `R90-INV-014`.
+- [x] `R90-INV-004` — Near admission, acquisition, and promotion are independently
+  idempotent and queryable by exact recovery ID, including Refactor 93 exact
+  Router replay, role-local reconciliation, and injected crash cases.
+  - [x] The direct recovery-source suite covers cancellation reload, promotion
+    readback, crashes around the consuming call, and atomic local finalization;
+    the source-ordering guards that duplicated retired shapes are deleted
+    (`51b738d2a`, `6d6002e3c`).
+- [x] `R90-INV-005` — Near finalization atomically swaps or retires material,
+  persists lifecycle facts, and deletes the journal. The direct recovery-source
+  suite exercises the atomic finalization boundary (`5db9ad87e`, `51b738d2a`).
+- [x] `R90-INV-006` — Near durable journals contain only server uncertainty and
+  the promotion receipt required for local convergence. Runtime publication
+  remains outside the journal (`5db9ad87e`).
+- [x] `R90-INV-007` — cancel/crash/reload tests prove `cancel_requested` never
+  resumes the abandoned parent operation (`51b738d2a`).
+- [x] `R90-INV-008` — concurrent recovery, signing, refresh, and export serialize
+  by exact owner and reject stale generations/fences. The shared queue suite
+  proves same-owner FIFO, rejects a stale queued owner before task side effects,
+  and allows different owners to progress independently (`8c26a39bf`).
+  - [x] NEAR transaction, delegate, NEP-413, Passkey export, and Email OTP
+    export share one queue keyed by canonical material activation rather than
+    threshold session identity (`10c8a61da`).
+  - [x] Email OTP ECDSA signing-session refresh enters that exact-owner queue,
+    re-resolves before its consuming login call and after refresh, and rejects
+    disappearance or replacement (`71c67e3dc`).
+  - [x] Email OTP Ed25519 silent sealed recovery uses the queue shared by NEAR
+    signing and export, re-resolves before worker rehydration, persists before
+    releasing the owner, and verifies durable activation afterward
+    (`b78210618`).
+  - [x] Email OTP Ed25519 direct login and unlock activation persist under that
+    exact-owner queue and reject replacement during commit (`fbf4be6a4`).
+  - [x] Passkey login hydration and sync/unlock recovery use one shared exact
+    material-owner runner. Login rereads the locator before hydration; sync
+    keeps recovery, durable promotion, sealed refresh persistence, and registry
+    activation in one queued commit (`26c3cedf2`, `5f3d52bab`).
+  - [x] The Passkey sync/unlock operating test supplies the durable recovery
+    store and proves source sealing, journal finalization, promoted activation
+    publication, capability activation, and refresh-seal persistence remain
+    inside one exact-owner queue.
+- [ ] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
+  applicable quota once; existing claims consume neither again. Reusable Near
+  claims, operation-step-up Near claims, and one-use ECDSA export claims commit
+  at their durable owner and replay from the recorded outcome without another
+  grant or quota use (`6fd6c7c25`, `b166b0bf1`, `b4a286bb5`, `f260700e4`).
+  - [x] The ECDSA prepare-response parser and endpoint fixture agree on all
+    required budget claim fields, and the canonical operating-path proof
+    reaches a verified 65-byte signature (`7c20fe644`, `e75d2bcfb`).
+  - [x] Reusable NEAR transaction signing no longer reserves or finalizes a
+    client budget projection. Its relayer prepare/finalize exchange owns the
+    exact operation claim and quota transaction (`cc4cf26ab`).
+  - [x] Delegate and NEP-413 signing use that same server-owned claim path;
+    their client reservation/finalization chain is deleted (`f16cfef7a`).
+  - [x] Ed25519 normal signing uses the shared authenticated atomic
+    claim/quota boundary; the Router A/B reserve/commit/release fallback and its
+    persisted rows are deleted (`4885bed62`, `fa5791630`).
+- [x] `R90-INV-010` — authority/lifecycle replacement returns `superseded` and
   every SDK/UI adapter discards and re-resolves the stale lane.
-- [ ] `R90-INV-011` — Near post-commit verification creates no durable readback
-  stage.
+  (Typed `superseded` with three supersession kinds through the material plan;
+  early replacement race at the browser capability resolver throws the typed
+  error; `signEvmFamily` performs one bounded re-resolution from auth planning,
+  runtime creation, and the executor ladder. Public
+  `ReusableWalletSessionState` gained the `superseded` arm and
+  `lifecycle_mismatch` was deleted; the `satisfies never` sweep forced every
+  adapter — direct SDK, iframe boundary, React login refresh, iframe
+  lifecycle, demo lock — to keep the wallet unlocked and re-resolve. Covered by
+  `ecdsaMaterialSupersession` and `walletSessionSuperseded` unit suites.
+  A bounded React reread that remains `superseded` preserves the current login
+  until the next typed lifecycle event. Commits 53632c8c6, 4c418cde7,
+  dc1fda487, c258b94fb.)
+- [x] `R90-INV-011` — Near post-commit verification creates no durable readback
+  stage; readback converges through the two-state journal and direct
+  recovery-source tests (`5db9ad87e`, `51b738d2a`).
 - [ ] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
   and export use an exact material-activation reference independently from the
-  current authorization session.
+  discriminated reusable-session or operation-step-up authority; step-up
+  carries no `WalletSessionId`.
+  (Hydration, the signing queue, step-up freshness, and operation-step-up
+  preparation are all keyed by the exact `MpcMaterialActivationRef`;
+  `HydratedEcdsaSignerMaterial` is auth-neutral by type; the step-up grant wire
+  is `{kind: 'operation_step_up', grant_id}` with exact-field parsing, so a
+  `WalletSessionId` cannot ride along; persistence, expiry, warm-capability,
+  seal, and export consumers receive authorization only through their explicit
+  operation carrier. The Email OTP worker route boundary likewise accepts
+  authorization-neutral signing-session lanes and rejects retired aliases for
+  both curves. Covered by the
+  canonical operating-path, challenge-binding, auth-neutral prepared-signing,
+  and Email OTP auth-lane suites. Commits 847ded366, 96612453b, dc1fda487,
+  440e3dd10. Unit 3c replaced the remaining Ed25519 authorization surfaces
+  with canonical Wallet Session, quota, and capability-grant identities.)
+  - [x] Restore coordination leases carry only the exact sealed-store key,
+    owner/attempt, and lease timing. They do not carry `signingGrantId`; old
+    grant-bearing lease rows are rejected at the persistence boundary. The
+    ECDSA sealed-record store key is now activation-derived as well
+    (`2d56e3a58`, `e824bfda2`).
+  - [x] Passkey Ed25519 persistence accepts independently minted opaque
+    capability, key-binding, and lifecycle-binding refs while retaining exact
+    owner/SigningWorker checks; reusable NEAR signing validates authorization
+    against `WalletSessionId` rather than `ThresholdEd25519SessionId`
+    (`c98f56125`, `a55e393a8`).
+  - [x] ECDSA operation-step-up grant issuance resolves the complete canonical
+    active material from WalletStore before factor/proof consumption or any
+    evidence/grant write, and hostile mutations of all six activation fields
+    leave every side-effect counter at zero (`4a436aed7`).
+  - [x] Reusable ECDSA prepare/finalize resolve current canonical material
+    before admission and operation-claim/quota effects; accepted admission
+    carries the full ref and derives capability identity from it (`c7b259a5c`).
+  - [x] Operation-step-up ECDSA prepare/finalize resolve current canonical
+    material before admission, claim, audit, or proxy effects and derive
+    admission and claim identity from the canonical ref (`dd68687d4`).
+  - [x] Pool-fill authorization resolves canonical active material before
+    step-up claims or SigningWorker runtime calls and compares the full ref
+    across operation, signed, and initialization scopes (`80aea5036`).
+  - [x] Wallet Session claim and private-route validation uses current
+    branch-specific authorization shapes, is enrolled in unit typecheck, and
+    passes 9/9; branded identity fixtures reject cross-domain substitution
+    (`7efc569b7`).
+  - [x] Near recovery journals correlate their outer material owner with both
+    admitted activation refs and require replacement material to equal the
+    promotion receipt before commit and atomic finalization (`aa5ceb318`).
+  - [x] Ed25519 warm purpose separates exact activation from its protocol
+    session target; Email OTP hydration, recovery, publication, and export read
+    sealed material by the full activation ref (`c619db902`, `eeab81b5a`,
+    `30c1a741a`).
+  - [x] Passkey durable state and Email OTP worker material address Ed25519 by
+    complete activation; worker protocol-session identity remains a separate
+    correlation field (`c7472eb28`, `629c1da97`, `47f0cebfe`).
+  - [x] Cloudflare and local Rust normal signing keep Wallet Session,
+    threshold-session, activation, and lifecycle identities independent; local
+    activation is explicit and refresh rejects substituted material
+    (`c45dd8d3f`, `5498e37f9`).
+  - [x] Cloudflare Ed25519 normal signing and operation-step-up grant issuance
+    resolve the complete active material reference before admission, quota,
+    factor evidence, persistence, audit, or worker effects. Hostile substitution
+    of every reference component leaves admission untouched (`f1697ab97`).
+  - [x] Canonicalize export before side effects; keep Passkey and Email OTP
+    Ed25519 export material keyed by exact activation while current reusable
+    authorization travels independently. Operation step-up uses a fresh
+    branded `CapabilityGrantId` and never fabricates a reusable signing lane
+    (`bbeabd262`, `82b439fc5`, `35b9584a6`, `0ef310b0e`).
+  - [x] Delete write-only ECDSA resolved-identity publication from passkey
+    recovery, Email OTP restore, and sealed-store identity projections. ECDSA
+    availability is resolved from canonical capability and sealed-runtime
+    facts; this map no longer publishes grant/session identity (`71d061d6d`).
+  - [x] Sealed-recovery purposes carry the exact `MpcMaterialActivationRef`;
+    lookup, passkey restore, Email OTP restore, and restore caches correlate
+    that reference before rehydration (`5c8e8c92b`).
+  - [x] Legacy grant-keyed ECDSA sealed rows migrate atomically to the exact
+    activation-derived store key, with the legacy row and restore lease deleted
+    in the same IndexedDB transaction (`e824bfda2`).
+  - [x] Durable ECDSA sealed state and recovered-material activation carry no
+    `signingGrantId`; current reusable authorization is resolved independently
+    and exact material activation remains stable through rehydration
+    (`ec050a05d`).
+  - [x] Durable Ed25519 sealed state carries no `signingGrantId`; its store key
+    is stable material identity, legacy grant-keyed rows and restore leases
+    migrate atomically, and current reusable authorization is obtained through
+    the authenticated warm-bootstrap boundary (`d91e4bc9d`).
+  - [x] Ed25519 availability preserves durable material without reusable
+    authorization as an `authorization_required` candidate that cannot carry
+    `signingGrantId`; authorized candidates correlate an independent active
+    authorization projection (`6ac506d57`).
+  - [x] The unused threshold warm-session policy draft/request-envelope API,
+    its pre-cutover fixtures, and source guards were deleted; the live
+    Router A/B normal-signing policy builder remains (`4c60abd88`).
+  - [x] ECDSA authorization-sensitive prepare/finalize wire shapes require the
+    canonical authorization claim and carry `thresholdSessionId` separately
+    from Wallet Session and material-activation identities; obsolete public
+    budget fields and `sessionId` aliases are rejected at the Rust/TypeScript
+    boundary (`41ed8f9cb`).
+  - [x] Passkey ECDSA seal persistence carries the actual threshold-session
+    identity independently from the material-activation single-flight key;
+    the focused substitution test passes (`57849eda9`).
+  - [x] The focused signing, refresh, coordinator, wire, and hostile-claim
+    substitution matrix passes 72/72; the Rust Cloudflare ECDSA binding suite
+    passes 36/36 and the ECDSA wire crate passes 1/1; SDK/unit typechecks, Rust
+    protocol and vector tests, and direct worker/WASM/boundary guards pass at
+    the current checkpoint (`b37ce26b0`).
+  - [x] Rust workspace checks for the core, ECDSA protocol, Cloudflare worker,
+    and Ed25519-Yao client crates pass; the source Playwright guard set passes
+    220/220 after restoring SDK-before-console `.dev.vars` precedence in the
+    D1 launcher (`a610be9dc`).
 - [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.
+  - [x] Passkey ECDSA persisted restore is owned by
+    `PasskeyMpcSessionManager`, preserves sealed material on expiry, and
+    serializes concurrent restore across manager instances while releasing the
+    durable restore lease in `finally`. The dedicated-owner restore,
+    single-flight, disabled-mode, and expiry-preservation tests pass. Commits
+    `c348c8f57` and `bbb6d94f4`.
+  - [x] ECDSA expiry and exhaustion persist an authorization-free inactive
+    sealed-material record, preserve its encrypted material and exact
+    activation binding, and reject the retired public-only reauthorization
+    anchor shape. Both factors correlate that record with the active manifest,
+    hydrate auth-neutral material, and attach only a same-method one-operation
+    grant. Commits `fe07fea5b` and `fa1f21657`.
+  - [x] The local Refactor 92 boundary, retry, invalidation, planning, demo,
+    persistence, and policy set passes 38/38. It proves typed
+    expiry/exhaustion separation and same-method step-up; deployed refresh
+    allowance and cross-factor parity remain open (`5d3518c98`).
 
 ### Final conformance
 
@@ -205,9 +719,9 @@ to normalized session evidence and assurance levels.
 
 Build Seams authorization as first-party security infrastructure. `seams-auth`
 is the first-party auth provider. Better Auth can also be used through a
-session-provider adapter. The system of record for authorization evidence,
-reusable authorization grants, authorized operations, their policies, and audit
-envelopes lives inside Seams.
+session-provider adapter. The system of record for grant evidence,
+capability grants, capability grant policies, and audit envelopes lives
+inside Seams.
 
 `seams-auth` must store authentication data in the customer's configured
 database by default. This preserves data residency, compliance control, pricing
@@ -230,10 +744,9 @@ Split auth into four ownership layers:
    factor/provider verification.
 2. The session module normalizes verified evidence into an audience- and
    device-bound `SeamsSession`.
-3. Seams authorization validates a reusable `AuthorizationGrant` or verified
-   one-time evidence, then creates one exact `AuthorizedOperation`.
-4. Capability modules consume authorized operations and own operation-specific
-   side effects.
+3. Seams authorization evaluates verified evidence sets and capability grant
+   policy, then mints exact capability grants.
+4. Capability modules consume grants and own operation-specific side effects.
 
 `seams-auth` is the built-in auth provider. Better Auth is a supported upstream
 provider through `betterAuthSessionProvider(auth)`.
@@ -243,9 +756,8 @@ Use `SeamsSession` for app identity and general authorization. Keep Refactor
 allowance. MPC runtime material uses `MpcMaterialActivationRef`.
 
 `identity/` owns principals and auth accounts, `authFactor/` owns enrollments,
-and `session/` owns session state. Seams authorization owns evidence,
-authorization grants, authorized operations, quota consumption, and audit
-envelopes.
+and `session/` owns session state. Seams authorization owns grant evidence,
+capability grants, grant-use limits, and audit envelopes.
 MPC signing is a capability that uses this shared layer. Vault access is another
 capability that uses the same shared layer.
 
@@ -253,8 +765,8 @@ capability that uses the same shared layer.
 Auth account
   -> exact factor enrollment or provider identity
   -> SeamsSession
-  -> WalletSessionAuthorization or verified one-time evidence
-  -> AuthorizedOperation
+  -> VerifiedGrantEvidenceSet
+  -> CapabilityGrant
 
 Capability instances
   -> vault_access
@@ -262,8 +774,8 @@ Capability instances
   -> evm_ecdsa_mpc_signing
 ```
 
-Auth providers define mechanisms. Capabilities define resources. Authorization
-policies bind reusable authority or verified evidence to exact operations.
+Auth providers define mechanisms. Capabilities define resources. Capability
+grant policies bind grant evidence to capability operations.
 
 ## Current Incompatibilities And Refactor Moves
 
@@ -393,14 +905,14 @@ Refactor move:
 - resolve durable wallet identity into `WalletUnlockSubjectSet`;
 - receive the exact reusable Wallet Session lifecycle projection from the
   secure wallet origin after iframe initialization;
-- keep `SeamsSession`, `WalletSessionAuthorization`, `AuthorizedOperation`,
-  wallet-quota, and material-activation identities separate;
+- keep `SeamsSession`, reusable Wallet Session, operation-grant, wallet-quota,
+  and material-activation identities separate;
 - derive wallet-session display state from the exact Wallet Session lifecycle:
   active and exhausted remain unlocked, while missing and expired are locked;
 - surface missing, corrupt, or ambiguous durable identity as typed
   `unresolvable` results;
-- keep provenance (`runtime_session_record`, `profile_projection`,
-  `host_last_used_profile`) as diagnostics only;
+- keep profile provenance (`profile_projection`, `host_last_used_profile`) as
+  diagnostics only;
 - resolve every MPC capability independently through
   `MpcCapabilityHydrationPlan`. Material readiness never substitutes for the
   Wallet Session lifecycle, and Wallet Session expiry or exhaustion never
@@ -430,7 +942,6 @@ type WalletUnlockSubjectSet = {
 };
 
 type WalletIdentitySource =
-  | "runtime_session_record"
   | "profile_projection"
   | "host_last_used_profile";
 
@@ -440,16 +951,15 @@ type WalletIdentityResolveFailure =
   | "missing_requested_capability_subject"
   | "invalid_wallet_profile";
 
-type WalletSessionAuthorizationId =
-  Brand<string, "WalletSessionAuthorizationId">;
+type WalletSessionId = Brand<string, "WalletSessionId">;
 type MpcWalletSigningQuotaId =
   Brand<string, "MpcWalletSigningQuotaId">;
 
-type WalletSessionAuthorizationState =
+type ReusableWalletSessionState =
   | {
       kind: "active";
       walletId: WalletId;
-      authorizationId: WalletSessionAuthorizationId;
+      walletSessionId: WalletSessionId;
       authority: WalletAuthAuthorityRef;
       quotaId: MpcWalletSigningQuotaId;
       expiresAtMs: number;
@@ -458,7 +968,7 @@ type WalletSessionAuthorizationState =
   | {
       kind: "exhausted";
       walletId: WalletId;
-      authorizationId: WalletSessionAuthorizationId;
+      walletSessionId: WalletSessionId;
       authority: WalletAuthAuthorityRef;
       quotaId: MpcWalletSigningQuotaId;
       expiresAtMs: number;
@@ -467,7 +977,7 @@ type WalletSessionAuthorizationState =
   | {
       kind: "expired";
       walletId: WalletId;
-      authorizationId: WalletSessionAuthorizationId;
+      walletSessionId: WalletSessionId;
       authority: WalletAuthAuthorityRef;
       quotaId: MpcWalletSigningQuotaId;
       expiresAtMs: number;
@@ -495,7 +1005,7 @@ type WalletSessionReadResolution =
       kind: "resolved";
       walletId: WalletId;
       subjectSet: WalletUnlockSubjectSet;
-      walletSessionAuthorization: WalletSessionAuthorizationState;
+      walletSession: ReusableWalletSessionState;
       source: WalletIdentitySource;
     }
   | {
@@ -518,13 +1028,13 @@ type WalletSessionDisplayState =
         | {
             kind: "expired";
             walletId: WalletId;
-            authorizationId: WalletSessionAuthorizationId;
+            walletSessionId: WalletSessionId;
           };
     }
   | {
       kind: "active";
       walletId: WalletId;
-      authorizationId: WalletSessionAuthorizationId;
+      walletSessionId: WalletSessionId;
       subjectSet: WalletUnlockSubjectSet;
       warmAllowance:
         | { kind: "available"; remainingUses: PositiveInt }
@@ -547,45 +1057,48 @@ below the session-read boundary. NEAR account identity exists only on the
 account validators or fabricate a NEAR account subject. Auth-method display
 must come from wallet-auth-method bindings or session evidence, never from
 `publicKey` heuristics. `WalletSessionDisplayState` cannot authorize signing,
-material recovery, or export. Generic operations consume the exact wallet
-authorization, `AuthorizedOperation`, applicable quota, and capability-local
-hydration plan. The live demo alone uses the display projection as lock policy:
-authoritative expiry locks once, exhaustion requests step-up while remaining
-unlocked, and app identity remains active.
+material recovery, or export. Generic operations consume the exact
+`MpcOperationAuthorizationRef`, the quota claim applicable to its branch, and
+the capability-local hydration plan. The reusable-session branch requires exact
+active Wallet Session state; the operation-step-up branch excludes it. The live
+demo alone uses the display projection as lock policy: authoritative expiry
+locks once, exhaustion requests step-up while remaining unlocked, and app
+identity remains active.
 
-### Signing-Centered Operation-Authorization UI
+### Signing-Centered Grant-Evidence UI
 
-`packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts` currently
-uses `SigningAuthPlan`, `WalletAuthIntent`, `WalletAuthCurve`,
-`thresholdSessionId`, and `signingGrantId`. That makes the browser confirmation
-system hard to reuse for vault access and IdP high-risk scope issuance.
+`packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts` uses the
+capability-centered grant plan and challenge model. Browser confirmation can
+therefore serve MPC signing, vault access, and IdP high-risk scope issuance
+without carrying reusable-session identity in operation-grant payloads.
 
 Refactor move:
 
-- rename shared client confirmation concepts to `OperationAuthorizationPlan`
-  and `OperationAuthorizationChallenge`;
+- rename shared client confirmation concepts to `CapabilityGrantPlan` and
+  `CapabilityGrantChallenge`;
 - replace threshold-session material locators inside MPC operation lanes with
   exact `MpcMaterialActivationRef` values;
-- remove `signingGrantId` from shared UI payloads;
+- carry `capabilityGrantId` in shared UI operation payloads;
 - move wallet-specific display data behind a capability display adapter;
 - let vault, IdP, and MPC modules provide operation-specific prompt metadata.
 
 Target UI shape:
 
 ```ts
-type OperationAuthorizationPlan =
+type CapabilityGrantPlan =
   | {
-      kind: "active_authorization";
+      kind: "active_grant";
       tenantId: TenantId;
       principalId: PrincipalId;
       sessionId: SeamsSessionId;
       capabilityId: CapabilityId;
       operation: CapabilityOperationRef;
-      authorizationGrantRef: AuthorizationGrantRef;
+      grantId: CapabilityGrantId;
       expiresAtMs: number;
+      remainingUses: PositiveInt;
     }
   | {
-      kind: "verified_step_up_required";
+      kind: "grant_evidence_required";
       tenantId: TenantId;
       principalId: PrincipalId;
       sessionId: SeamsSessionId;
@@ -735,7 +1248,7 @@ same manifest contract tests.
 `packages/sdk-server-ts/src/router/routeAuthPolicy.ts` has
 `console`, `api_credentials`, `user_session`, `threshold_session`, and `public`
 planes. The target route policy should distinguish management access, normal
-session access, and exact operation authorization. Threshold-session details belong to
+session access, and exact capability grants. Threshold-session details belong to
 MPC routes and capability operation lanes.
 
 Management-plane decision:
@@ -751,7 +1264,7 @@ Management-plane decision:
 - use `management_api_key` for programmatic administration and automation;
 - use `session_principal` for product routes that need an authenticated principal
   without an exact capability operation;
-- use `operation_authorization` for vault reveal/export/proxy-use, MPC signing, key
+- use `capability_grant` for vault reveal/export/proxy-use, MPC signing, key
   export, break-glass reveal, and IdP high-risk scope issuance;
 - keep `public` only for bootstrap, challenge, callback, and health routes that
   verify their own request-bound artifact.
@@ -759,7 +1272,7 @@ Management-plane decision:
 Management planes can create policies, approvals, capabilities, vault metadata,
 and principals according to RBAC and scopes. They cannot reveal secrets, inject
 secrets, export keys, sign transactions, or issue high-risk IdP scopes unless
-the route also requires `operation_authorization` context. API keys resolve to
+the route also requires `capability_grant` context. API keys resolve to
 service-account principals by default, and their scopes are management scopes,
 not capability grants.
 
@@ -778,8 +1291,7 @@ Scope decisions:
 - API credentials resolve to service-account principals and inherit tenant,
   project, and environment scope from the credential record;
 - capability operation access for service accounts or agents still flows through
-  their follow-on `AuthorizationGrant` branch and one exact
-  `AuthorizedOperation`;
+  `CapabilityGrant` and capability grant policy;
 - scope parsing happens at the request boundary, then core code receives a typed
   `ManagementApiKeyPrincipal`;
 - old wallet-only scope names are removed once route definitions move to the new
@@ -833,7 +1345,7 @@ scopes.
 Management API keys can configure capabilities and policies. They cannot perform
 runtime use by themselves. Service accounts, CI jobs, rotations, vault proxy
 use, and signing bots must present grant evidence, satisfy policy, and receive a
-exact `AuthorizedOperation` under their follow-on authorization branch.
+short-lived `CapabilityGrant`.
 
 Universal capability grant shape:
 
@@ -842,8 +1354,8 @@ principal
   + grant evidence
   + capability binding
   + operation envelope
-  + operation authorization policy
-  -> AuthorizedOperation
+  + capability grant policy
+  -> CapabilityGrant
 ```
 
 Phase-one automation should support only `service_account_api_key` evidence.
@@ -869,14 +1381,14 @@ Route policy refactor move:
 - replace `console` with `management_console`;
 - replace `api_credentials` with `management_api_key`;
 - replace `user_session` with `session_principal`;
-- replace `threshold_session` with `operation_authorization`;
+- replace `threshold_session` with `capability_grant`;
 - add `managementOperationKind` and required tenant/project/environment scope to
   management route policies;
 - put capability kind, operation kind, and required grant semantics in route
   policy;
 - keep threshold session claims inside MPC capability request parsing;
 - make `RoutePrincipal` carry normalized management, session, public, or
-  operation-authorization context.
+  capability-grant context.
 
 Target route auth shape:
 
@@ -896,8 +1408,9 @@ type RouteAuthPolicy =
     }
   | { plane: "session_principal" }
   | {
-      plane: "operation_authorization";
+      plane: "capability_grant";
       operation: CapabilityOperationRef;
+      grantUse: "consume" | "inspect";
     }
   | { plane: "public"; proof: PublicProofType; rationale: string };
 ```
@@ -924,13 +1437,13 @@ type RoutePrincipal =
       session: ActiveSeamsSessionRecord;
     }
   | {
-      plane: "operation_authorization";
-      authorization: OperationAuthorizationSource;
+      plane: "capability_grant";
+      grant: Extract<CapabilityGrant, { kind: "active" }>;
     }
   | { plane: "public"; proof: PublicProof };
 ```
 
-MPC signing endpoints become operation-authorization routes whose handler parses an
+MPC signing endpoints become capability-grant routes whose handler parses an
 MPC operation lane and intent. Vault proxy use, reveal, export, permission
 changes, and IdP high-risk scope issuance use the same route policy plane with
 different capability and operation kinds.
@@ -1015,7 +1528,7 @@ support:
 
 External auth providers should feed normalized session evidence into
 Seams authorization. Seams authorization normalizes grant evidence and decides
-whether to authorize the exact operation.
+whether to issue a `CapabilityGrant`.
 
 ## Development Auth Provider Decision
 
@@ -1051,7 +1564,7 @@ Seams should own from the start:
 - MPC signer proof challenges bound to Seams lane, intent, and display digests;
 - confirmer modal payloads;
 - `GrantEvidence`;
-- `AuthorizationGrant` and `AuthorizedOperation`;
+- `CapabilityGrant`;
 - MPC threshold-session minting;
 - vault access grants;
 - audit envelopes for capability operations.
@@ -1063,7 +1576,7 @@ Better Auth session
   -> betterAuthSessionProvider(auth)
   -> SeamsSession
   -> Seams operation-bound grant evidence
-  -> AuthorizedOperation
+  -> CapabilityGrant
   -> capability operation
 ```
 
@@ -1113,7 +1626,7 @@ Verify endpoint responsibilities:
 - verify the challenge maps to the same tenant, principal, session, operation
   kind, lane digest, intent digest, display digest, and capability ID;
 - create `GrantEvidence` with `evidenceKind: "passkey_assertion"`;
-- create an `AuthorizedOperation` when policy allows;
+- mint a short-lived `CapabilityGrant` when policy allows;
 - return only grant metadata required by the capability caller.
 
 Security rules:
@@ -1334,7 +1847,7 @@ Default exchange behavior:
 - Refresh rotates refresh-token family state and records a session event.
 - Revocation operates on one session by default. Tenant forced logout and
   principal-wide logout are explicit commands.
-- Session exchange cannot create `AuthorizedOperation` records, provision
+- Session exchange cannot mint `CapabilityGrant` records, provision
   capabilities, or satisfy grant evidence requirements by itself.
 - Session construction resolves evidence records by ID and rejects mixed tenant,
   principal, provider, subject, audience, or device facts before constructing
@@ -1415,8 +1928,7 @@ Embedded wallet login should be modeled as an auth factor that can create a
 `SeamsSession`. Wallet-owned MPC signer material remains capability-owned and
 loads only when a policy requires MPC-backed presence or signing. External
 relying-party applications receive identity tokens or assertions. Seams
-`AuthorizationGrant` and `AuthorizedOperation` records remain internal to Seams
-authorization.
+`CapabilityGrant` records remain internal to Seams authorization.
 
 ## Vocabulary
 
@@ -1441,8 +1953,8 @@ Type-sketch amendments applied July 3, 2026:
 | Current term | Target term |
 | --- | --- |
 | app or general authorization session | `SeamsSession` |
-| reusable signing session | `WalletSessionAuthorization` plus its typed Wallet Session lifecycle |
-| accepted exact operation | `AuthorizedOperation` |
+| reusable signing session | `WalletSessionId` plus its typed reusable Wallet Session lifecycle |
+| per-operation signing authority | `CapabilityGrant` |
 | reusable signing budget | `MpcWalletSigningQuota` bound to the exact reusable Wallet Session |
 | capability-specific signing scope | capability-local lane |
 | signing auth method | `AuthFactorIdentity` plus durable `AuthFactorRecord` |
@@ -1451,7 +1963,7 @@ Type-sketch amendments applied July 3, 2026:
 
 Use `MpcMaterialActivationRef` for exact activated MPC material. Do not
 reintroduce `MpcSigningSession` as an aggregate of authorization, quota,
-authorized-operation, and runtime state.
+operation grant, and runtime state.
 
 `CapabilityLane` means a capability-local authorization path such as
 `vault.proxy_use`, `vault.reveal`, `near.sign_transaction`, or
@@ -1508,8 +2020,7 @@ vectors for its canonical bytes and digest output.
    policies. They do not instantiate auth factor modules directly.
 10. Auth providers verify provider artifacts and factor modules verify factor
     assertions. The session module alone creates sessions, and Seams
-    authorization alone creates or returns `AuthorizedOperation` records from
-    exact authorization sources.
+    authorization alone mints `CapabilityGrant` records.
 11. `seams-auth` persistence goes through an explicit database adapter. Raw
     database rows are normalized once at the adapter boundary.
 
@@ -1625,7 +2136,7 @@ type SeamsAuthDatabaseAdapter = {
 
 Core modules never receive a raw transaction or query object. Store ports expose
 domain commands such as `replaceAuthFactor`, `consumeHostedWalletExchangeCode`,
-`authorizeOperation`, and `completeAuthorizedOperation`. Each adapter
+`claimCapabilityGrantUse`, and `completeCapabilityGrantUse`. Each adapter
 implements those commands atomically using its native primitive: D1 batch/CAS,
 or a database transaction on PostgreSQL/Prisma/Drizzle. The conformance suite
 tests command semantics, not a shared transaction API that some runtimes cannot
@@ -1983,9 +2494,8 @@ type WalletAuthAuthorityRecord = {
 };
 
 type WalletAuthAuthorityRef = {
+  kind: "wallet_auth_authority_ref";
   walletId: WalletId;
-  bindingId: WalletAuthMethodId;
-  factorId: AuthFactorId;
   authorityDigest: WalletAuthorityBindingDigest;
 };
 
@@ -2328,10 +2838,10 @@ type VerifiedGrantEvidenceSet = {
   expiresAt: IsoTimestamp;
 };
 
-declare const operationAuthorizationRequestBrand: unique symbol;
+declare const capabilityGrantRequestBrand: unique symbol;
 
-type OperationAuthorizationRequest = {
-  readonly [operationAuthorizationRequestBrand]: true;
+type CapabilityGrantRequest = {
+  readonly [capabilityGrantRequestBrand]: true;
   operation: CapabilityOperationEnvelope;
   bindingId: CapabilityBindingId;
   evidenceSet: VerifiedGrantEvidenceSet;
@@ -2342,7 +2852,7 @@ type GrantEvidenceRequirement = {
   evidenceKinds: NonEmptyArray<GrantEvidenceKind>;
 };
 
-type OperationAuthorizationPolicy = {
+type CapabilityGrantPolicy = {
   tenantId: TenantId;
   policyId: PolicyId;
   operation: CapabilityOperationRef;
@@ -2350,12 +2860,14 @@ type OperationAuthorizationPolicy = {
   allowedBindingKinds: NonEmptyArray<CapabilityBindingKind>;
   requiredEvidence: GrantEvidenceRequirement;
   requiredAssurance: AssuranceRequirement;
+  maxTtlSeconds: PositiveInt;
+  maxUses: PositiveInt;
   state: AdministrativeRecordState;
   createdByPrincipalId: PrincipalId;
   createdAt: IsoTimestamp;
 };
 
-type CapabilityOperationAuthorizationPolicyBinding = {
+type CapabilityOperationGrantPolicyBinding = {
   tenantId: TenantId;
   capabilityId: CapabilityId;
   operation: CapabilityOperationRef;
@@ -2374,14 +2886,14 @@ alone never reactivates records tied to a replaced binding. Signing, export,
 recovery, restore, and admission lanes carry `WalletAuthAuthorityRef`, never raw
 credential IDs, provider subjects, or display data.
 
-`VerifiedGrantEvidenceSet` is the only evidence collection accepted for direct
-operation authorization. Its builder loads evidence records by ID and rejects mixed tenant,
+`VerifiedGrantEvidenceSet` is the only evidence collection accepted by grant
+issuance. Its builder loads evidence records by ID and rejects mixed tenant,
 principal, session, device, capability operation, or operation-digest facts.
 For interactive sets, every session-bound evidence row must resolve to the same
 active session and device. For non-interactive sets, every evidence provider
 must explicitly support non-interactive use. Diagnostics and raw arrays of
 `GrantEvidenceRef` never influence authorization directly.
-`OperationAuthorizationRequest` is built only after the active capability binding,
+`CapabilityGrantRequest` is built only after the active capability binding,
 operation envelope, and verified evidence set agree on tenant, principal,
 capability kind, operation kind, and operation digests.
 
@@ -2422,15 +2934,20 @@ type MpcMaterialActivationRef = {
   signingWorker: MpcSigningWorkerRef;
 };
 
-type MpcOperationAuthorizationMode =
+type MpcOperationAuthorizationRef =
   | {
-      kind: "authorization_grant";
-      authorizationGrantRef: AuthorizationGrantRef;
+      kind: "reusable_wallet_session";
+      walletSessionId: WalletSessionId;
+      grantId: CapabilityGrantId;
     }
-  | { kind: "operation_step_up" };
+  | {
+      kind: "operation_step_up";
+      grantId: CapabilityGrantId;
+      walletSessionId?: never;
+    };
 
 type MpcOperationExecutionScope = {
-  authorizationMode: MpcOperationAuthorizationMode;
+  authorization: MpcOperationAuthorizationRef;
   materialActivation: MpcMaterialActivationRef;
   operation: CapabilityOperationRef;
 };
@@ -2454,7 +2971,7 @@ type MpcCapabilityPublicReauthAnchor = {
   bearerSessionCredential?: never;
   runtime?: never;
   materialActivation?: never;
-  operationAuthorization?: never;
+  operationGrant?: never;
   quotaState?: never;
   nonceState?: never;
 };
@@ -2495,9 +3012,20 @@ type MpcCapabilityHydrationPlan =
     }
   | {
       kind: "blocked";
-      capability: CapabilityInstanceRef | null;
+      capability: null;
+      reason: "missing_capability";
+      materialOwner?: never;
+      authority?: never;
+      runtime?: never;
+      materialActivation?: never;
+      sealedMaterial?: never;
+      retirement?: never;
+      publicReauthAnchor?: never;
+    }
+  | {
+      kind: "blocked";
+      capability: CapabilityInstanceRef;
       reason:
-        | "missing_capability"
         | "missing_material"
         | "revoked"
         | "replaced"
@@ -2523,6 +3051,14 @@ type MpcCapabilityHydrationResolution = {
 };
 ```
 
+The concrete activation, public-anchor, and hydration-plan types carry private
+proof brands. Only their boundary parser or branch-specific builder can create
+them; the structural forms above describe their public fields.
+Live and sealed-plan builders derive `capability` and `materialOwner` from the
+exact activation proof. The retired-plan builder derives those fields and
+`authority` from the public anchor. Boundary mismatches select
+`blocked.binding_mismatch` before a branch builder runs.
+
 The `reauthorize_public_anchor.retirement` discriminant describes a retired
 capability/material lifecycle. It never represents reusable Wallet Session
 expiry or warm-allowance exhaustion. Those Refactor 92 states compose with an
@@ -2538,6 +3074,10 @@ adapter derives it from an authenticated
 `NearEd25519YaoSealedActiveClientRef`; the rehydration effect imports that
 activated Client locally and makes zero Deriver A/B calls. The ECDSA adapter
 derives it from an exact encrypted `EcdsaRoleLocalDurableMaterialRef`.
+There is no generic string parser or public unchecked constructor for
+`RestorableMpcMaterialRef`. Each Wave 2 protocol-adapter proof builder will own
+its construction after validating the exact activation binding and unlock
+source.
 `NearEd25519YaoSealedRootRecoveryRef` is a separate recovery input used for
 device linking and explicit same-root recovery. Export uses its separately
 authorized one-use material-acquisition lifecycle. The root-recovery ref cannot
@@ -2550,7 +3090,7 @@ evidence; they do not infer authority, lifecycle, or policy from optional
 legacy records, source labels, or diagnostics.
 
 The public anchor is stable reauthorization input. Its policy reference names
-the capability's reauthorization policy and is never operation authorization. Core
+the capability's reauthorization policy and is never an operation grant. Core
 material, signing, and export functions receive `plan`, while diagnostics and
 tests may also receive `provenance`.
 
@@ -2560,25 +3100,19 @@ refreshing a `SeamsSession` or reusable Wallet Session never renames, rekeys, or
 relocates activated MPC material. Activation creates a fresh opaque
 `MpcMaterialActivationId`; the durable material record, registered capability,
 SigningWorker state, and signed operation context bind the corresponding
-`MpcMaterialActivationRef`. Normal signing validates the active authorization
-Wallet Session and exact material activation independently. An
-`AuthorizedOperation` is bound to the active `SeamsSession` and
-exact authorization source, while the reusable warm allowance remains bound to
-the exact Wallet Session authorization. The wire scope therefore uses
-branch-specific `authorization_mode` and `material_activation`; the
-tactical `session_id` plus `active_state_session_id` pair is deleted rather than
-retained as aliases. Explicit unlock or Wallet Session refresh may replace the
-authorization session ID while preserving the exact activation. Ordinary page
-refresh reuses the same valid Wallet Session and remaining allowance.
-Re-activation creates a new activation ID. Session renewal preserves the
-activation reference only when all capability, owner, key, lifecycle, and
-SigningWorker bindings still match.
-
-The public `operation_step_up` mode is marker-only because operation preparation
-precedes confirmation. Verified evidence stays inside Seams authorization. The
-atomic admission result binds its evidence digest, `AuthorizedOperationId`, and
-stable operation fingerprint; only that admitted operation reaches the
-server/worker effect boundary.
+`MpcMaterialActivationRef`. Warm signing validates active reusable-session
+authority and exact material activation independently. Step-up signing validates
+the exact one-operation grant and carries no reusable-session identity. Every
+operation grant remains bound to the active `SeamsSession`; reusable warm
+allowance remains bound only to the exact Wallet Session. The wire scope
+therefore uses the discriminated `authorization` branch and
+`material_activation`; the tactical `session_id` plus
+`active_state_session_id` pair is deleted rather than retained as aliases.
+Explicit unlock or Wallet Session renewal may replace the authorization session
+ID while preserving the exact activation. Ordinary page refresh reuses the same
+valid Wallet Session and remaining allowance. Re-activation creates a new
+activation ID. Session renewal preserves the activation reference only when all
+capability, owner, key, lifecycle, and SigningWorker bindings still match.
 
 Reusable Wallet Session expiry is an authorization transition. It cannot
 retire a capability manifest, replace a material activation, or select
@@ -2641,6 +3175,20 @@ promotion are independently idempotent and queryable by `recoveryId`
 reload reconciles it and cannot silently execute the abandoned parent operation
 (R90-INV-007).
 
+For Near, the Refactor 93 pair-bound protocol and Refactor 94C owner map
+implement those server effects without another client journal or a mutable
+Router ledger. The owning Gateway or role operation row maps `recoveryId` to
+the exact admitted effect. Acquisition submits one operation-specific MPC
+Router command; exact replay resolves through the canonical ceremony identity,
+input-pair digest, and role-local `Prepared | Running | Completed | Burned`
+state without repeating cryptographic evaluation. Promotion remains the
+separate client-verified recovery-promotion boundary. The Refactor 90
+capability module consumes these typed receipts and never schedules Deriver
+A/B or SigningWorker directly. Ordinary-signing claims and applicable budgets
+commit in SigningWorker private D1 before execution; the admitted-policy and
+operation digests remain bound into exact replay, which spends neither
+resource again.
+
 After promotion, one IndexedDB transaction persists the replacement seal or
 volatile-retention record, retires or removes the prior source, persists the
 current lifecycle receipt, and deletes the journal (R90-INV-005). Runtime
@@ -2654,7 +3202,6 @@ ECDSA persists one capability manifest. It replaces the current
 
 ```ts
 type EvmFamilyEcdsaSignerId = Brand<string, "EvmFamilyEcdsaSignerId">;
-type ThresholdEcdsaSessionId = Brand<string, "ThresholdEcdsaSessionId">;
 type EcdsaServerGeneration = Brand<string, "EcdsaServerGeneration">;
 type EcdsaCapabilityManifestId =
   Brand<string, "EcdsaCapabilityManifestId">;
@@ -2665,8 +3212,14 @@ type EcdsaRoleLocalBindingDigest =
 type EcdsaCiphertextDigest = Brand<string, "EcdsaCiphertextDigest">;
 type EcdsaActivationDigest = Brand<string, "EcdsaActivationDigest">;
 type EcdsaLifecycleId = Brand<string, "EcdsaLifecycleId">;
-type EcdsaServerActivationReceipt =
-  Brand<string, "EcdsaServerActivationReceipt">;
+type EcdsaMaterialSealingKeyId =
+  Brand<string, "EcdsaMaterialSealingKeyId">;
+type EcdsaIv12B64u = Brand<string, "EcdsaIv12B64u">;
+type EcdsaCiphertextB64u = Brand<string, "EcdsaCiphertextB64u">;
+type EcdsaPendingCiphertextDigest =
+  Brand<string, "EcdsaPendingCiphertextDigest">;
+type CanonicalEcdsaServerActivationRequest =
+  Brand<string, "CanonicalEcdsaServerActivationRequest">;
 type EcdsaRuntimeValidationProof =
   Brand<string, "EcdsaRuntimeValidationProof">;
 type CorrelationId = Brand<string, "CorrelationId">;
@@ -2680,7 +3233,7 @@ type MpcWalletSigningQuotaRecord =
       kind: "active";
       quotaId: MpcWalletSigningQuotaId;
       walletId: WalletId;
-      authorizationId: WalletSessionAuthorizationId;
+      walletSessionId: WalletSessionId;
       remainingUses: PositiveInt;
       expiresAt: IsoTimestamp;
     }
@@ -2688,27 +3241,48 @@ type MpcWalletSigningQuotaRecord =
       kind: "exhausted";
       quotaId: MpcWalletSigningQuotaId;
       walletId: WalletId;
-      authorizationId: WalletSessionAuthorizationId;
+      walletSessionId: WalletSessionId;
       exhaustedAt: IsoTimestamp;
     }
   | {
       kind: "expired";
       quotaId: MpcWalletSigningQuotaId;
       walletId: WalletId;
-      authorizationId: WalletSessionAuthorizationId;
+      walletSessionId: WalletSessionId;
       expiredAt: IsoTimestamp;
     };
 
-type EcdsaCapabilityScope =
+type EcdsaCapabilityScope = {
+  kind: "evm_family";
+  targetMemberships: NonEmptyArray<ThresholdEcdsaChainTarget>;
+  exactTarget?: never;
+};
+
+type EcdsaManifestIdentity = {
+  manifestId: EcdsaCapabilityManifestId;
+  manifestRevision: EcdsaCapabilityManifestRevision;
+};
+
+type EcdsaManifestRevisionExpectation =
   | {
-      kind: "evm_family";
-      targetMemberships: NonEmptyArray<ThresholdEcdsaChainTarget>;
-      exactTarget?: never;
+      kind: "no_current_manifest";
+      manifestId?: never;
+      manifestRevision?: never;
     }
   | {
-      kind: "exact_target";
-      exactTarget: ThresholdEcdsaChainTarget;
-      targetMemberships?: never;
+      kind: "exact_manifest";
+      manifestId: EcdsaCapabilityManifestId;
+      manifestRevision: EcdsaCapabilityManifestRevision;
+    };
+
+type EcdsaServerGenerationExpectation =
+  | {
+      kind: "no_current_generation";
+      serverGeneration?: never;
+    }
+  | {
+      kind: "exact_generation";
+      serverGeneration: EcdsaServerGeneration;
     };
 
 type EcdsaRoleLocalMaterialBinding = {
@@ -2719,8 +3293,32 @@ type EcdsaRoleLocalMaterialBinding = {
   relayerKeyId: EcdsaRelayerKeyId;
 };
 
-type RegisteredEvmFamilySigner = {
-  kind: "registered_evm_family_signer";
+type EcdsaServerActivationCommand = {
+  kind: "ecdsa_server_activation_command";
+  correlationId: CorrelationId;
+  expectedGeneration: EcdsaServerGenerationExpectation;
+  requestDigest: DigestB64u;
+  canonicalRequest: CanonicalEcdsaServerActivationRequest;
+};
+
+type EcdsaServerActivationReceipt = {
+  kind: "ecdsa_server_activation_receipt";
+  lifecycleId: EcdsaLifecycleId;
+  activationDigest: EcdsaActivationDigest;
+  activatedAt: IsoTimestamp;
+  protocolReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+};
+
+type EcdsaServerActivationCommit = {
+  kind: "ecdsa_server_activation_commit";
+  correlationId: CorrelationId;
+  activationRequestDigest: DigestB64u;
+  serverGeneration: EcdsaServerGeneration;
+  serverActivationReceipt: EcdsaServerActivationReceipt;
+};
+
+type PreparedEvmFamilySigner = {
+  kind: "prepared_evm_family_signer";
   capability: CapabilityInstanceRef;
   signerId: EvmFamilyEcdsaSignerId;
   walletId: WalletId;
@@ -2729,7 +3327,7 @@ type RegisteredEvmFamilySigner = {
   materialOwner: MpcMaterialOwnerRef;
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
-  registeredPublicFacts: VerifiedEcdsaPublicFacts;
+  registeredPublicFacts?: never;
   materialActivation?: never;
   durableMaterial?: never;
   runtime?: never;
@@ -2739,17 +3337,43 @@ type RegisteredEvmFamilySigner = {
   bearerSessionCredential?: never;
 };
 
+type RegisteredEvmFamilySigner =
+  Omit<PreparedEvmFamilySigner, "kind" | "registeredPublicFacts"> & {
+    kind: "registered_evm_family_signer";
+    registeredPublicFacts: VerifiedEcdsaPublicFacts;
+  };
+
+type EncryptedEcdsaPendingCandidate = {
+  kind: "encrypted_ecdsa_pending_candidate";
+  sealingKeyId: EcdsaMaterialSealingKeyId;
+  iv12B64u: EcdsaIv12B64u;
+  ciphertextB64u: EcdsaCiphertextB64u;
+  ciphertextDigest: EcdsaPendingCiphertextDigest;
+  plaintext?: never;
+  stateBlobB64u?: never;
+};
+
+type PreparedEcdsaActivationCandidate = {
+  kind: "prepared_ecdsa_activation_candidate";
+  targetManifest: EcdsaManifestIdentity;
+  signer: PreparedEvmFamilySigner;
+  activationId: MpcMaterialActivationId;
+  roleLocalBinding: EcdsaRoleLocalMaterialBinding;
+  bindingDigest: EcdsaRoleLocalBindingDigest;
+  durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+  encryptedPending: EncryptedEcdsaPendingCandidate;
+  registeredPublicFacts?: never;
+  lifecycleId?: never;
+  activationDigest?: never;
+  activatedAt?: never;
+  finalCiphertextDigest?: never;
+};
+
 type ActiveEcdsaMaterialActivation = {
   kind: "active_ecdsa_material_activation";
   materialActivation: MpcMaterialActivationRef;
-  serverGeneration: EcdsaServerGeneration;
+  serverActivation: EcdsaServerActivationCommit;
   retention: "retained";
-  activationExpiresAt: IsoTimestamp;
-  recoveryPolicy: {
-    kind: "recoverable";
-    remainingRecoveryUses: PositiveInt;
-    recoveryExpiresAt: IsoTimestamp;
-  };
   operationGrant?: never;
   quotaState?: never;
   nonceState?: never;
@@ -2758,7 +3382,7 @@ type ActiveEcdsaMaterialActivation = {
 
 type DurableEcdsaMaterialBinding = {
   kind: "durable_ecdsa_material";
-  materialOwner: MpcMaterialOwnerRef;
+  materialActivation: MpcMaterialActivationRef;
   roleLocalBinding: EcdsaRoleLocalMaterialBinding;
   durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
   bindingDigest: EcdsaRoleLocalBindingDigest;
@@ -2766,18 +3390,31 @@ type DurableEcdsaMaterialBinding = {
   ciphertextDigest: EcdsaCiphertextDigest;
   activationDigest: EcdsaActivationDigest;
   activatedAt: IsoTimestamp;
-  materialExpiresAt: IsoTimestamp;
   runtime?: never;
+};
+
+type EncryptedEcdsaReadyMaterial = {
+  kind: "encrypted_ecdsa_ready_material";
+  binding: DurableEcdsaMaterialBinding;
+  sealingKeyId: EcdsaMaterialSealingKeyId;
+  iv12B64u: EcdsaIv12B64u;
+  ciphertextB64u: EcdsaCiphertextB64u;
+  plaintext?: never;
+  stateBlobB64u?: never;
+};
+
+declare const validatedEncryptedEcdsaReadyMaterialBrand: unique symbol;
+
+type ValidatedEncryptedEcdsaReadyMaterial = EncryptedEcdsaReadyMaterial & {
+  readonly [validatedEncryptedEcdsaReadyMaterialBrand]: true;
 };
 
 type ActiveEcdsaCapabilityManifest = {
   kind: "active_ecdsa_capability_manifest";
-  manifestId: EcdsaCapabilityManifestId;
-  manifestRevision: EcdsaCapabilityManifestRevision;
+  identity: EcdsaManifestIdentity;
   signer: RegisteredEvmFamilySigner;
-  materialActivation: ActiveEcdsaMaterialActivation;
+  activation: ActiveEcdsaMaterialActivation;
   durableMaterial: DurableEcdsaMaterialBinding;
-  serverActivationReceipt: EcdsaServerActivationReceipt;
   committedAt: IsoTimestamp;
   publicReauthAnchor?: never;
   retirement?: never;
@@ -2790,35 +3427,24 @@ type ActiveEcdsaCapabilityManifest = {
   diagnostics?: never;
 };
 
-type RetiredEcdsaCapabilityManifestCommon = {
-  manifestId: EcdsaCapabilityManifestId;
-  manifestRevision: EcdsaCapabilityManifestRevision;
+type RetiredEcdsaCapabilityManifest = {
+  kind: "replaced_ecdsa_capability_manifest";
+  identity: EcdsaManifestIdentity;
   signer: RegisteredEvmFamilySigner;
-  retiredAt: IsoTimestamp;
-  materialActivation?: never;
+  retirement: {
+    kind: "replaced";
+    replacementManifest: EcdsaManifestIdentity;
+    replacementActivation: EcdsaServerActivationCommit;
+  };
+  activation?: never;
   durableMaterial?: never;
-  serverActivationReceipt?: never;
+  publicReauthAnchor?: never;
   runtime?: never;
   operationGrant?: never;
   quotaState?: never;
   nonceState?: never;
   bearerSessionCredential?: never;
 };
-
-type RetiredEcdsaCapabilityManifest =
-  RetiredEcdsaCapabilityManifestCommon &
-    (
-      | {
-          kind: "reauthorizable_ecdsa_capability_manifest";
-          retirement: "expired" | "exhausted";
-          publicReauthAnchor: MpcCapabilityPublicReauthAnchor;
-        }
-      | {
-          kind: "terminal_ecdsa_capability_manifest";
-          retirement: "revoked" | "replaced";
-          publicReauthAnchor?: never;
-        }
-    );
 
 type EcdsaCapabilityManifest =
   | ActiveEcdsaCapabilityManifest
@@ -2827,8 +3453,7 @@ type EcdsaCapabilityManifest =
 type ActiveEcdsaCapabilityRef = {
   kind: "active_ecdsa_capability_ref";
   capability: CapabilityInstanceRef;
-  manifestId: EcdsaCapabilityManifestId;
-  manifestRevision: EcdsaCapabilityManifestRevision;
+  manifest: EcdsaManifestIdentity;
   signerId: EvmFamilyEcdsaSignerId;
   authority: WalletAuthAuthorityRef;
   materialOwner: MpcMaterialOwnerRef;
@@ -2840,7 +3465,7 @@ type EcdsaRuntimeObservation =
   | {
       kind: "absent";
       capability: CapabilityInstanceRef;
-      manifestRevision: EcdsaCapabilityManifestRevision;
+      manifest: EcdsaManifestIdentity;
       materialOwner?: never;
       runtime?: never;
       durableMaterialRef?: never;
@@ -2851,7 +3476,7 @@ type EcdsaRuntimeObservation =
   | {
       kind: "live";
       capability: CapabilityInstanceRef;
-      manifestRevision: EcdsaCapabilityManifestRevision;
+      manifest: EcdsaManifestIdentity;
       materialOwner: MpcMaterialOwnerRef;
       durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
       bindingDigest: EcdsaRoleLocalBindingDigest;
@@ -2862,10 +3487,10 @@ type EcdsaRuntimeObservation =
   | {
       kind: "invalid";
       capability: CapabilityInstanceRef;
-      manifestRevision: EcdsaCapabilityManifestRevision;
+      manifest: EcdsaManifestIdentity;
       failure:
         | "unknown_runtime_handle"
-        | "manifest_revision_mismatch"
+        | "manifest_identity_mismatch"
         | "material_ref_mismatch"
         | "binding_digest_mismatch";
       materialOwner?: never;
@@ -2875,90 +3500,101 @@ type EcdsaRuntimeObservation =
       validationProof?: never;
     };
 
+type EcdsaCapabilitySelector = {
+  capability: CapabilityInstanceRef;
+  authority: WalletAuthAuthorityRef;
+};
+
 type EcdsaCapabilityManifestLookup =
-  | { kind: "active"; manifest: ActiveEcdsaCapabilityManifest }
+  | {
+      kind: "active";
+      manifest: ActiveEcdsaCapabilityManifest;
+      material: ValidatedEncryptedEcdsaReadyMaterial;
+    }
   | { kind: "retired"; manifest: RetiredEcdsaCapabilityManifest }
-  | { kind: "missing"; capability: CapabilityInstanceRef }
+  | { kind: "missing"; selector: EcdsaCapabilitySelector }
   | {
       kind: "exact_binding_mismatch";
-      capability: CapabilityInstanceRef;
+      selector: EcdsaCapabilitySelector;
       failureDigest: DigestB64u;
     }
   | {
       kind: "exact_record_conflict";
-      capability: CapabilityInstanceRef;
+      selector: EcdsaCapabilitySelector;
       conflictDigest: DigestB64u;
     }
   | {
       kind: "corrupt";
-      capability: CapabilityInstanceRef;
+      selector: EcdsaCapabilitySelector;
       corruptionDigest: DigestB64u;
     }
   | {
       kind: "persistence_unavailable";
-      capability: CapabilityInstanceRef;
+      selector: EcdsaCapabilitySelector;
       retryCorrelation: CorrelationId;
     };
 ```
 
-An active manifest always carries exact durable material identity. Volatile
-runtime loss has one legal downgrade: `live -> durable`. A reauthorizable
-retired manifest carries public reauthorization facts; a terminal retired
-manifest carries the revocation or replacement tombstone. Neither carries
-active or recoverable material.
+An active lookup proves both the exact manifest and its authenticated encrypted
+material. Volatile runtime loss has one legal downgrade: `live -> durable`.
+The only canonical ECDSA retirement currently supported is `replaced`, proven
+by the replacement server commit. Wallet Session expiry and quota exhaustion
+affect authorization and never retire durable ECDSA material. Authority
+revocation blocks capability use at the authority boundary; an ECDSA revocation
+tombstone requires a future exact server retirement receipt.
 Missing, mismatch, conflict, corruption, and unavailable storage remain distinct
 terminal parser results until an explicit recovery or maintenance action handles
 them.
 
-Registration, unlock, and reauthorization publish active manifests through one
-activation journal:
+Registration, explicit material reactivation, and recovery publish active
+manifests through one activation journal. Routine unlock and page refresh parse
+the existing manifest and may republish volatile runtime state; they do not
+rewrite durable activation state:
 
 ```ts
-type EcdsaManifestRevisionExpectation =
-  | { kind: "no_current_manifest" }
-  | {
-      kind: "exact_revision";
-      manifestRevision: EcdsaCapabilityManifestRevision;
-    };
-
 type EcdsaActivationJournalCommon = {
   journalId: CorrelationId;
-  capability: CapabilityInstanceRef;
-  signerId: EvmFamilyEcdsaSignerId;
-  authority: WalletAuthAuthorityRef;
-  materialOwner: MpcMaterialOwnerRef;
   expectedManifest: EcdsaManifestRevisionExpectation;
-  activationRequestDigest: DigestB64u;
-  candidateMaterial: DurableEcdsaMaterialBinding;
+  activationCommand: EcdsaServerActivationCommand;
+  candidate: PreparedEcdsaActivationCandidate;
   createdAt: IsoTimestamp;
 };
 
 type EcdsaCapabilityActivationCommitJournal =
-  EcdsaActivationJournalCommon &
-    (
-      | {
-          kind: "activation_prepared";
-          serverGeneration?: never;
-          serverActivationReceipt?: never;
-        }
-      | {
-          kind: "server_activation_committed";
-          serverGeneration: EcdsaServerGeneration;
-          serverActivationReceipt: EcdsaServerActivationReceipt;
-        }
-    );
+  | (EcdsaActivationJournalCommon & {
+      kind: "activation_prepared";
+      serverActivation?: never;
+    })
+  | (EcdsaActivationJournalCommon & {
+      kind: "server_activation_committed";
+      serverActivation: EcdsaServerActivationCommit;
+    });
 ```
 
+The worker prepares client state, and the owning persistence adapter encrypts it
+before writing `activation_prepared`. The journal persists the complete
+canonical server request so reload can replay it; a request digest alone is
+insufficient. The command correlation ID equals `journalId`, and its identity
+and material-binding facts must equal the candidate. The pending ciphertext AAD
+binds the journal ID, target manifest identity, activation ID, fresh durable
+material ref, and role-local binding digest.
+
 The journal is persisted before the first consuming server effect. Server
-activation is idempotent and queryable by `journalId`. After server activation,
-one IndexedDB transaction writes encrypted material, writes the active manifest,
-retires the replaced manifest when applicable, and deletes the journal. This is
-the local commit boundary required by R90-INV-005. Runtime publication follows
-from canonical durable state and is validated against the manifest revision,
-durable material ref, and binding digest. A high-value commit may be read through
-the canonical parser after transaction completion; no readback or runtime-
-publication journal state exists. Reload reconciles a pending journal before
-ordinary capability discovery. A partial commit cannot construct
+activation is idempotent and queryable by `journalId`; replay and query return
+the same generation and exact activation receipt. A prepared journal reconciles
+that result into `server_activation_committed`. The worker then decrypts the
+pending state, finalizes it against the structured protocol receipt, and seals
+the ready material.
+
+One IndexedDB transaction writes encrypted ready material, writes the active
+manifest, retires the replaced manifest and removes its material when
+applicable, updates the exact current-manifest pointer, and deletes the journal.
+This is the local commit boundary required by R90-INV-005. Runtime publication
+follows from canonical durable state and is validated against the manifest
+identity, durable material ref, and binding digest. A high-value commit may be
+read through the canonical parser after transaction completion; no readback or
+runtime-publication journal state exists. Reload reconciles a pending journal
+before ordinary capability discovery. A partial commit cannot construct
 `use_live_runtime`, `rehydrate_material_activation`, or an operation lane.
 
 Exact operation selection begins from the active capability ref and keeps
@@ -3007,7 +3643,7 @@ quota requirement before branding the lane. The same branded lane travels
 through recovery, authorization, quota claim, nonce preparation, signing or
 export, and finalization. Shared EVM-family projection may reuse only signer,
 scope, authority, material-owner, and durable material facts allowed by the
-manifest. It cannot project a threshold session, operation authorization, quota use,
+manifest. It cannot project a threshold session, operation grant, quota use,
 bearer credential, nonce, or runtime handle.
 
 Core ECDSA types have no optional identity, authority, session, material,
@@ -3097,7 +3733,15 @@ declare const authorizedEvmEcdsaOperationBrand: unique symbol;
 type AuthorizedEvmEcdsaOperation = {
   readonly [authorizedEvmEcdsaOperationBrand]: true;
   operation: EvmEcdsaTransactionOperationEnvelope;
-  authorizedOperation: Extract<AuthorizedOperation, { kind: "authorized" }>;
+  grant: Extract<CapabilityGrant, { kind: "active" }>;
+};
+
+declare const claimedEvmEcdsaOperationBrand: unique symbol;
+
+type ClaimedEvmEcdsaOperation = {
+  readonly [claimedEvmEcdsaOperationBrand]: true;
+  authorization: AuthorizedEvmEcdsaOperation;
+  grantUse: Extract<CapabilityGrantUse, { kind: "claimed" }>;
 };
 
 declare const boundReadyEcdsaMaterialBrand: unique symbol;
@@ -3171,20 +3815,17 @@ type EvmEcdsaReauthorizationAnchor = {
   previousLane: EvmEcdsaTransactionLane;
 };
 
-declare const evmEcdsaOperationAuthorizationRequirementBrand: unique symbol;
+declare const evmEcdsaOperationGrantRequirementBrand: unique symbol;
 
-type EvmEcdsaOperationAuthorizationRequirement = {
-  readonly [evmEcdsaOperationAuthorizationRequirementBrand]: true;
-  kind: "operation_authorization";
+type EvmEcdsaOperationGrantRequirement = {
+  readonly [evmEcdsaOperationGrantRequirementBrand]: true;
+  kind: "operation_grant";
   operation: EvmEcdsaTransactionOperationEnvelope;
-  plan: Extract<
-    OperationAuthorizationPlan,
-    { kind: "verified_step_up_required" }
-  >;
+  plan: Extract<CapabilityGrantPlan, { kind: "grant_evidence_required" }>;
 };
 
 type EvmEcdsaAuthorizationRequirement =
-  | EvmEcdsaOperationAuthorizationRequirement
+  | EvmEcdsaOperationGrantRequirement
   | MpcMaterialUnlockAuthorizationRequirement
   | {
       kind: "threshold_session_replacement";
@@ -3193,7 +3834,7 @@ type EvmEcdsaAuthorizationRequirement =
 
 type EvmEcdsaAuthorizationSuccessFor<
   Requirement extends EvmEcdsaAuthorizationRequirement,
-> = Requirement extends { kind: "operation_authorization" }
+> = Requirement extends { kind: "operation_grant" }
   ? { kind: "operation_authorized"; authorization: AuthorizedEvmEcdsaOperation }
   : Requirement extends { kind: "material_unlock" }
     ? {
@@ -3285,26 +3926,26 @@ type EvmEcdsaPreparationPort = {
 };
 ```
 
-Only boundary builders can create the branded authorized-operation,
+Only boundary builders can create the branded authorization, claimed-use,
 ready-material, committed-capability, unlock-authorization, recovery, and
-replacement-lane types, as well as transaction-selection and
-operation-authorization requirements. They compare canonical material-owner
-keys, authority digests, parsed transaction targets and intents, transaction
-envelopes, operation digests, fingerprints, use state, and authorization facts
-before construction. The EVM operation-authorization requirement proves its evidence plan names the same EVM
+replacement-lane types, as well as transaction-selection and operation-grant
+requirements. They compare canonical material-owner keys, authority digests,
+parsed transaction targets and intents, transaction envelopes, operation
+digests, fingerprints, use state, and grant facts before construction. The EVM
+operation-grant requirement proves its evidence plan names the same EVM
 transaction operation and digest set as its envelope. `any_authority` with more
 than one eligible exact authority returns a lane-selection
 `authority_ambiguous` failure before an exact lane exists; selection never uses
 diagnostics or factor-kind priority to break the tie.
 
-Resolution first proves an active wallet authority and exact operation
-authorization. It inspects signer material only after those checks.
-`recovery_required` therefore contains a branded recovery
+Resolution first proves an active wallet authority and an authorized,
+operation-bound active capability grant. It inspects signer material only after
+those checks. `recovery_required` therefore contains a branded recovery
 capability bound to the exact material owner, active authorization,
 session-retained use state, and recovery binding digest. Inventory labels such
-as `restorable` or `deferred` cannot construct it. `AuthorizedOperation`
-creation occurs after preparation reaches `ready` and immediately before
-signing; failed material recovery does not create or consume an operation.
+as `restorable` or `deferred` cannot construct it. Grant-use claim occurs after
+preparation reaches `ready` and immediately before signing; failed material
+recovery does not consume an operation use.
 
 The recovery binding digest covers the exact material owner, authority ref,
 canonical Phase 5 material binding, recovery ID, and authorized capability
@@ -3324,13 +3965,13 @@ that attempt to `recoverExact`. Recovery can return only session-retained ready
 material.
 
 Operation authorization and material-unlock authorization are distinct. The
-authorized operation follows capability policy and may use any evidence set
-that policy accepts. Material unlock is bound to the exact
+operation grant follows capability policy and may use any evidence set that
+policy accepts. Material unlock is bound to the exact
 `WalletAuthAuthorityRef`. Threshold-session replacement uses a reauthorization
 anchor and returns a branded replacement lane correlated to that anchor; the
 coordinator does not re-resolve an obsolete lane whose threshold-session
 identity changed. The generic authorization result is conditional on requirement
-kind, so an operation-authorization request cannot return a replacement lane and a
+kind, so an operation-grant request cannot return a replacement lane and a
 material-unlock request cannot return an unrelated operation authorization.
 
 The preparation coordinator executes each operation-bound authorization action
@@ -3350,6 +3991,11 @@ references; one capability recovery cannot restore or commit the companion
 capability as a hidden side effect. Generic EVM ECDSA selection, preparation,
 restore coordination, and committed-lane construction contain no factor-kind
 control flow.
+
+Implementation evidence: `def400d94` replaces the combined Email OTP unlock
+request/result discriminants with one proof envelope containing exact sibling
+ECDSA and Ed25519-Yao outcomes. `89e9cd4a5` deletes the obsolete combined
+fixture.
 
 `GrantEvidenceRequirement` is deliberately flat. `all` requires every named
 evidence kind and `any` requires at least one. Evidence kinds are canonicalized
@@ -3420,9 +4066,8 @@ type CapabilityBinding = {
 
 Capability modules own rich operation lane, intent, and display types. They
 normalize parsed requests into a generic envelope before asking
-`seams-authorization` to authorize the exact operation. Requests never carry
-server authorization policy; authorization resolves policy server-side and
-records the selected `policyId`.
+`seams-authorization` to admit an operation. Authorization resolves policy
+server-side and records the selected `policyId`.
 
 ```ts
 declare const capabilityOperationEnvelopeBrand: unique symbol;
@@ -3432,29 +4077,33 @@ type CapabilityOperationEnvelope = {
   tenantId: TenantId;
   principalId: PrincipalId;
   capabilityId: CapabilityId;
-  operation: CapabilityOperationRef;
   operationId: CapabilityOperationId;
-  operationFingerprintDigest: CapabilityOperationFingerprintDigest;
-  operationDigests: OperationDigestSet;
+  operation: CapabilityOperationRef;
+  digests: OperationDigestSet;
 };
 
 type WalletSessionAuthorization = {
-  kind: "wallet_session_authorization";
-  authorizationId: WalletSessionAuthorizationId;
   tenantId: TenantId;
   principalId: PrincipalId;
-  walletId: WalletId;
+  authorizationId: WalletSessionAuthorizationId;
+  walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
-  authAuthority: WalletAuthAuthorityRef;
+  capabilityId: CapabilityId;
+  policyId: PolicyId;
   createdAt: IsoTimestamp;
   expiresAt: IsoTimestamp;
 };
 
 type AuthorizationGrant = WalletSessionAuthorization;
 
-type AuthorizationGrantRef = {
-  kind: "wallet_session_authorization";
-  authorizationId: WalletSessionAuthorizationId;
+type CompletedAuthorizedOperationResult =
+  | "succeeded"
+  | "failed_before_side_effect"
+  | "failed_after_side_effect";
+
+type CapabilityOperationResultRef = {
+  resultDigest: DigestB64u;
+  resultStorageRef: CapabilityOperationResultStorageRef;
 };
 
 type OperationAuthorizationSource =
@@ -3469,56 +4118,49 @@ type OperationAuthorizationSource =
       evidenceSetDigest: DigestB64u;
     };
 
-type AuthorizedOperationResult =
-  | "succeeded"
-  | "failed_before_side_effect"
-  | "failed_after_side_effect";
-
-type CapabilityOperationResultRef = {
-  resultDigest: DigestB64u;
-  resultStorageRef: CapabilityOperationResultStorageRef;
-};
-
 type AuthorizedOperationBase = {
   tenantId: TenantId;
   authorizedOperationId: AuthorizedOperationId;
   principalId: PrincipalId;
   capabilityId: CapabilityId;
+  authorizationSource: OperationAuthorizationSource;
   operationFingerprintDigest: CapabilityOperationFingerprintDigest;
   operation: CapabilityOperationRef;
   operationDigests: OperationDigestSet;
-  authorization: OperationAuthorizationSource;
-  quota:
-    | { kind: "consume_wallet_quota"; quotaId: MpcWalletSigningQuotaId }
-    | { kind: "no_wallet_quota"; quotaId?: never };
-  policyId: PolicyId;
 };
 
 type AuthorizedOperation =
   | (AuthorizedOperationBase & {
-      kind: "authorized";
-      authorizedAt: IsoTimestamp;
+      kind: "claimed";
+      claimedAt: IsoTimestamp;
     })
   | (AuthorizedOperationBase & {
       kind: "completed";
-      result: AuthorizedOperationResult;
+      result: CompletedAuthorizedOperationResult;
       resultRef: CapabilityOperationResultRef;
       completedAt: IsoTimestamp;
     });
 
 ```
 
-Authorization and applicable quota consumption are one atomic operation.
-Handlers complete cheap boundary parsing, route policy checks, capability
-lookup, and replay lookup first. A later vault, network, signing, or downstream
-failure completes the `AuthorizedOperation` with the exact failure class and
-does not refund quota. Repeating the same operation fingerprint returns its
-recorded state or result. A deliberate retry uses a new operation
-ID/fingerprint and requires current reusable authorization or fresh one-time
-evidence.
+`operationFingerprintDigest` is computed from the canonical
+`CapabilityOperationEnvelope`; it is not embedded in the envelope.
 
-Rejected requests that never create an `AuthorizedOperation` are authorization
-audit events rather than operation rows.
+Operation admission is one-way. Handlers must complete cheap boundary parsing,
+route policy checks, authorization validation, and replay checks before
+admission. Once the operation crosses the admission boundary, a later vault,
+network, signing, or downstream failure records a failed authorized operation
+and does not refund quota. Repeating the same operation fingerprint returns its
+recorded result. A deliberate retry uses a new operation ID/fingerprint and
+requires remaining Wallet Session quota or fresh verified step-up evidence.
+This is the intentional replacement for the old signing-budget reserve/commit/release
+lifecycle.
+
+`capability_grant_uses.result_kind` distinguishes at least `succeeded`,
+`failed_before_side_effect`, and `failed_after_side_effect` so operators can
+audit failed consumed attempts without reconstructing them from logs. Rejected
+replay attempts that never claimed a use are authorization audit events, not
+grant-use rows.
 
 ## Capability Boundaries
 
@@ -3532,27 +4174,26 @@ contact/provider-identity data; they are not required principal identity fields.
 
 Owns `AuthFactorIdentity`, `AuthFactorRecord`, factor lifecycle, factor manifests,
 and runtime-specific factor modules. It emits exact factor evidence containing
-`factorId`; it does not create sessions or authorized operations.
+`factorId`; it does not mint sessions or capability grants.
 
 ### `session`
 
 Owns provider-session normalization, device resolution, session audience
 binding, `SeamsSession`, refresh-token families, hosted-wallet exchange codes,
 and session lifecycle. It consumes verified provider/factor evidence and does
-not create authorized operations.
+not mint capability grants.
 
 ### `seams-authorization`
 
 Owns:
 
 - grant evidence challenge selection;
-- operation authorization policies;
+- capability grant policies;
 - generic operation envelopes;
 - policy resolution from capability ID, operation kind, resource scope,
   principal binding, and grant evidence;
-- reusable Wallet Session authorization validation;
-- exact authorized-operation creation, replay, completion, and applicable quota
-  consumption;
+- short-lived capability grants;
+- replay and grant-use accounting;
 - audit envelopes.
 
 Does not own:
@@ -3588,13 +4229,13 @@ Owns:
 - a minimal local Worker-compatible broker/gateway adapter for Slice A
   proxy-use tests;
 - reveal, rotate, delegate, and proxy-only use policies;
-- capability-local default operation authorization policy config.
+- capability-local default capability grant policy config.
 
 Uses `seams-authorization` for:
 
 - auth session checks;
 - grant evidence verification;
-- exact authorized-operation creation;
+- capability grant minting;
 - server-side policy resolution;
 - audit envelope generation.
 
@@ -3622,10 +4263,10 @@ Owns:
 - Ed25519 export behavior where supported;
 - NEAR digest, display, and policy descriptors registered with
   `seams-authorization`;
-- capability-local default operation authorization policy config.
+- capability-local default capability grant policy config.
 
-Uses `seams-authorization` for session, evidence, authorized operations, quota,
-and audit.
+Uses `seams-authorization` for session, grant evidence, grant-use limits, grants, and
+audit.
 
 ### `capability-evm-ecdsa-mpc`
 
@@ -3637,13 +4278,13 @@ Owns:
 - HSS prepare/finalize;
 - signer WASM loading;
 - ECDSA key export;
-- EVM-family transaction display and nonce/authorized-operation coupling;
+- EVM-family transaction display and nonce/grant-use coupling;
 - EVM digest, display, and policy descriptors registered with
   `seams-authorization`;
-- capability-local default operation authorization policy config.
+- capability-local default capability grant policy config.
 
-Uses `seams-authorization` for session, evidence, authorized operations, quota,
-and audit.
+Uses `seams-authorization` for session, grant evidence, grant-use limits, grants, and
+audit.
 
 ### `capability-idp-access`
 
@@ -4107,13 +4748,13 @@ grant_evidence_set_members(
   created_at_ms
 )
 
-operation_authorization_policies(
+capability_grant_policies(
   namespace,
   tenant_id,
   policy_id,
   capability_kind,
   operation_kind,
-  policy_kind,          -- operation_authorization_policy
+  policy_kind,          -- capability_grant_policy
   policy_json,
   lifecycle_kind,
   created_by_principal_id,
@@ -4143,7 +4784,7 @@ capability_instances(
   deleted_at_ms
 )
 
-capability_operation_authorization_policy_bindings(
+capability_operation_grant_policy_bindings(
   namespace,
   tenant_id,
   capability_id,
@@ -4175,34 +4816,45 @@ capability_bindings(
   deleted_at_ms
 )
 
-wallet_session_authorizations(
+capability_grants(
   namespace,
   tenant_id,
-  authorization_id,
+  grant_id,
+  grant_token_hash,
   principal_id,
-  wallet_id,
-  auth_authority_digest,
-  quota_id,
-  lifecycle_kind,       -- active | exhausted | expired | invalid
-  created_at_ms,
-  expires_at_ms,
-  invalidated_at_ms
-)
-
-authorized_operations(
-  namespace,
-  tenant_id,
-  authorized_operation_id,
-  principal_id,
-  operation_fingerprint_digest,
-  authorization_source_kind, -- authorization_grant | verified_step_up
-  authorization_id,
+  principal_kind,
+  binding_id,
+  evidence_set_id,
   evidence_set_digest,
-  quota_id,
+  assurance_profile_json,
   capability_kind,
   capability_id,
   operation_kind,
-  lifecycle_kind,       -- authorized | completed
+  lane_digest,
+  intent_digest,
+  display_digest,
+  policy_id,
+  remaining_uses,
+  lifecycle_kind,       -- active | consumed | expired | revoked
+  created_at_ms,
+  expires_at_ms,
+  consumed_at_ms,
+  revoked_by_principal_id,
+  revoked_at_ms
+)
+
+capability_grant_uses(
+  namespace,
+  tenant_id,
+  use_id,
+  grant_id,
+  principal_id,
+  operation_fingerprint_digest,
+  evidence_set_digest,
+  capability_kind,
+  capability_id,
+  operation_kind,
+  lifecycle_kind,       -- claimed | completed
   result_kind,          -- pending | succeeded | failed_before_side_effect | failed_after_side_effect
   result_digest,
   result_ref_json,
@@ -4259,57 +4911,57 @@ Required relational invariants:
   `(namespace, tenant_id, capability_id, operation_kind)`;
 - evidence-set membership is unique by both `(evidence_set_id, evidence_id)` and
   `(evidence_set_id, evidence_position)`;
-- wallet-session authorization IDs are unique within tenant scope and reference
-  the exact wallet, authority, and quota;
-- authorized operations are unique by
-  `(namespace, tenant_id, operation_fingerprint_digest)`;
-- authorization-source CHECK constraints require exactly one of
-  `authorization_id` or `evidence_set_digest` according to the source kind;
-- lifecycle CHECK constraints require authorized operations to have `pending`
-  with no result reference and completed operations to have a terminal result
-  plus result digest/reference.
+- grant token hashes are unique, and grant records reference an immutable
+  evidence set whose principal, operation, and digest facts match the grant;
+- grant-use claims are unique by
+  `(namespace, tenant_id, grant_id, operation_fingerprint_digest)`.
+- lifecycle CHECK constraints correlate branch fields: active grants have a
+  positive balance, consumed grants have zero balance and `consumed_at_ms`,
+  revoked grants have revocation actor/time, claimed uses have `pending` with no
+  result reference, and completed uses have a terminal result plus result
+  digest/reference.
 
-Atomic authorized-operation algorithm:
+Atomic grant-use algorithm:
 
 1. Parse the request into a `CapabilityOperationEnvelope`. The capability module
    computes `operationFingerprintDigest` from a versioned canonical preimage
-   containing tenant, capability, correlated operation, operation ID,
-   and lane/intent/display digests.
-2. In one transaction, validate the active `WalletSessionAuthorization` or
-   verified step-up evidence, consume applicable wallet quota, and insert the
-   `authorized` operation row. Failure rolls back every effect and returns the
-   typed expired, exhausted, invalid, or mismatch result.
+   containing tenant, principal, capability, correlated operation, operation
+   ID, and lane/intent/display digests.
+2. In one transaction, insert a `claimed` grant-use row and decrement
+   `remaining_uses` with a compare-and-swap that requires an active, unexpired
+   grant with a positive balance and matching operation/digests. A failed CAS
+   rolls back the claim and returns the typed exhausted/expired/mismatch result.
 3. A duplicate fingerprint loads the existing row. A completed row returns its
    prior result as an idempotent replay; a claimed row returns
    `operation_in_progress`. Neither path consumes another use.
-4. Different fingerprints consume independently and serialize through the
-   applicable quota row. Once authorization commits, downstream failure never
-   refunds consumed quota.
-5. Completion transitions the operation row from `authorized` to `completed` exactly
+4. Different fingerprints consume independently and serialize through the same
+   grant row. Once the claim transaction commits, downstream failure never
+   refunds the use.
+5. Completion transitions the use row from `claimed` to `completed` exactly
    once and records `succeeded`, `failed_before_side_effect`, or
    `failed_after_side_effect` plus an integrity-bound operation-result reference.
-   Replay denial is written to the authorization audit log without another quota
+   Replay denial is written to the authorization audit log without another grant
    decrement. Idempotent retries return the result through that reference after
    validating its digest.
 
 Every database adapter must pass the same concurrent-consumption conformance
-suite. An adapter that cannot provide atomic authorize-plus-quota-consumption
-cannot implement wallet operation authorization.
+suite. An adapter that cannot provide the claim-plus-decrement transaction
+cannot implement capability grants.
 
 `CapabilityOperationResultRef` points to capability-local idempotency state.
 Vault plaintext, raw exported keys, bearer tokens, and unsealed signer material
 never appear in `result_ref_json`; sensitive replayable results stay sealed or
 are re-fetched through the capability's protected result store. Result
-retention cannot outlive the authorized-operation audit retention without an
-explicit capability policy.
+retention cannot outlive the grant-use audit retention without an explicit
+capability policy.
 
 Retention and abuse controls:
 
 - Phase 10 adds expiry indexes for challenges, evidence rows, refresh tokens, and
-  wallet-session authorizations.
+  capability grants.
 - Phase 12 owns a pruning job interface for expired grant challenges, expired or
-  consumed grant evidence, expired wallet authorizations, revoked refresh-token
-  families after the retention window, and old audit-export scratch rows.
+  consumed grant evidence, expired grants, revoked refresh-token families after
+  the retention window, and old audit-export scratch rows.
 - Phase 11 and Phase 14 add rate-limit ports for session exchange, OTP challenge
   minting, WebAuthn grant-evidence challenge minting, and verification attempts.
   Phase 15 adds the same controls for service-account grant requests.
@@ -4449,9 +5101,10 @@ Signing-lane, sealed-session, recovery, export, and admission records reference
 authority from provider subjects or credential fields.
 
 The ECDSA server adapter owns registered capability authority and the current
-server generation. D1 and DO may divide durable registration facts from
-threshold-session coordination internally, but their verified activation receipt
-is one boundary result with this logical identity:
+server generation. Under Refactor 94C, Gateway D1 owns the product activation
+row and SigningWorker private D1 owns activated material and session effects;
+their correlation produces one verified activation boundary result with this
+logical identity:
 
 ```text
 mpc_ecdsa_capability_generations(
@@ -4462,13 +5115,13 @@ mpc_ecdsa_capability_generations(
   wallet_id,
   wallet_auth_method_id,
   authority_digest,
-  threshold_session_id,
   server_generation,
-  lifecycle_kind,             -- active | expired | exhausted | revoked | replaced
+  lifecycle_kind,             -- active | replaced
   scope_digest,
   registered_public_key_digest,
   material_binding_digest,
   activation_correlation_id,
+  activation_request_digest,
   activation_receipt,
   activated_at_ms,
   retired_at_ms
@@ -4478,33 +5131,46 @@ mpc_ecdsa_capability_generations(
 The active tuple is unique by namespace, tenant, capability, signer, and exact
 authority. Activation and replacement are compare-and-swap operations over the
 expected server generation and idempotent by `activation_correlation_id`.
-Conflict, missing authority, retired authority, and unavailable server storage
-are distinct boundary results. The server does not report browser material as
-live or restorable.
+Activation query by that correlation returns the exact request digest, server
+generation, and structured receipt needed to reconcile a prepared client
+journal. The Router activation epoch and the server generation remain
+independent identities. Conflict, missing authority, retired authority, and
+unavailable server storage are distinct boundary results. The server does not
+report browser material as live or restorable.
 
 Browser ECDSA persistence uses one capability database and one owning adapter
 with these object stores:
 
 ```text
 ecdsa_capability_manifests
-  key: [capability_ref, authority_ref]
+  key: manifest_id
   value: ActiveEcdsaCapabilityManifest | RetiredEcdsaCapabilityManifest
+
+ecdsa_current_capability_manifests
+  key: [capability_ref, wallet_id, authority_digest]
+  value: {
+    manifest_id,
+    manifest_revision
+  }
 
 ecdsa_role_local_material
   key: durable_material_ref
   value: {
+    material_activation,
+    role_local_binding,
     binding_digest,
     lifecycle_id,
     ciphertext_digest,
     activation_digest,
     activated_at,
-    material_expires_at,
+    sealing_key_id,
     iv,
     ciphertext
   }
 
 ecdsa_activation_commit_journals
   key: journal_id
+  unique index: [capability_ref, wallet_id, authority_digest]
   value: EcdsaCapabilityActivationCommitJournal
 
 ecdsa_material_sealing_keys
@@ -4512,14 +5178,23 @@ ecdsa_material_sealing_keys
   value: non_extractable CryptoKey
 ```
 
+Manifest history is keyed by manifest ID. The separate exact current pointer
+allows same-capability replacement to preserve the retired predecessor. The
+activation planner generates a fresh target manifest ID, the next revision, a
+fresh `MpcMaterialActivationId`, and a fresh activation-scoped durable material
+ref before writing the journal. Neither an authorization ID nor the
+deterministic worker material handle may supply those identities.
+
 The encrypted material row, active manifest row, retirement of a replaced
-manifest, and activation-journal deletion commit in one IndexedDB transaction.
-The manifest's `durableMaterialRef`, binding digest, lifecycle ID, ciphertext
-digest, activation digest, and expiry must equal the authenticated material
-header parsed through the same adapter. A missing row is `missing`; a different
-exact binding is `exact_binding_mismatch`; duplicate current manifests are
-`exact_record_conflict`; invalid authenticated data is `corrupt`; I/O failure is
-`persistence_unavailable`.
+manifest, deletion of its prior material, current-pointer update, and
+activation-journal deletion commit in one IndexedDB transaction. The manifest's
+material activation, durable material ref, role-local binding, binding digest,
+lifecycle ID, ciphertext digest, activation digest, and activation time must
+equal the authenticated material header parsed through the same adapter. A
+missing row is `missing`; a different exact binding is
+`exact_binding_mismatch`; an inconsistent pointer or duplicate current
+manifest is `exact_record_conflict`; invalid authenticated data is `corrupt`;
+I/O failure is `persistence_unavailable`.
 
 The activation journal is written before the first consuming server effect and
 is reconciled before ordinary manifest discovery after reload. Its server receipt
@@ -4529,7 +5204,7 @@ may verify the high-value write through the same parser, but it is not durable
 lifecycle state. Browser/worker memory cannot make a partially committed
 manifest ready.
 
-These records exclude authorized operations, wallet quotas, nonce state, bearer
+These records exclude operation grants, wallet quotas, nonce state, bearer
 credentials, provider subjects, provenance source, diagnostics, and live worker
 handles. Those domains join only after exact manifest and runtime resolution.
 The migration rejects and clears obsolete ECDSA session-record stores at this
@@ -4557,10 +5232,10 @@ Auth factors prove who is present.
 
 Capabilities define what can be done.
 
-Operation authorization policies define which reusable authority or verified
-evidence can authorize each capability operation.
+Capability grant policies define which auth factors can authorize each capability
+operation.
 
-`AuthorizedOperation` records one exact accepted capability operation.
+Capability grants authorize one exact capability operation.
 
 Security invariants:
 
@@ -4570,25 +5245,25 @@ Security invariants:
   `SeamsSession`; they are never treated as digest-bound factor assertions;
 - capability kind and operation kind are parsed as one correlated
   `CapabilityOperationRef`;
-- authorization policy receives only branded `OperationAuthorizationRequest` values built from
+- grant policy receives only branded `CapabilityGrantRequest` values built from
   an active capability binding, exact operation envelope, and
   `VerifiedGrantEvidenceSet`;
-- operation authorization and applicable quota consumption are atomic by
-  canonical operation fingerprint; repeated fingerprints cannot repeat side
-  effects or consume quota again;
+- grant use is claimed and decremented atomically by canonical operation
+  fingerprint; repeated fingerprints cannot repeat side effects or consume
+  another use;
 - deployment availability and tenant enablement are both required before a
   capability handler can execute.
 
 Vault access default:
 
 ```text
-SeamsSession + operation authorization policy + RBAC + AuthorizedOperation + audit
+SeamsSession + capability grant policy + RBAC + short-lived grant + audit
 ```
 
 MPC signing default:
 
 ```text
-WalletSessionAuthorization or verified step-up + AuthorizedOperation + MPC operation lane + threshold signing runtime
+SeamsSession + capability grant policy + MPC operation lane + threshold signing runtime
 ```
 
 IdP token issuance default:

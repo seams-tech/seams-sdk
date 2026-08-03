@@ -194,6 +194,16 @@ try {
 const hostAbs = path.join(distRoot, 'esm/sdk/wallet-iframe-host-runtime.js');
 const workerTargets = [
   ['passkeyConfirmWorker', 'passkey confirm worker', 'dist/workers/passkey-confirm.worker.js'],
+  [
+    'passkeyMpcSessionWorker',
+    'passkey MPC session worker',
+    'dist/workers/passkey-mpc-session.worker.js',
+  ],
+  [
+    'passkeyMpcExportWorker',
+    'Passkey MPC export worker',
+    'dist/workers/passkey-mpc-export.worker.js',
+  ],
   ['emailOtpWorker', 'Email OTP worker', 'dist/workers/email-otp.worker.js'],
   ['nearSignerWorker', 'NEAR signer worker', 'dist/workers/near-signer.worker.js'],
   ['nearWasm', 'NEAR signer WASM', 'dist/workers/wasm_signer_worker_bg.wasm'],

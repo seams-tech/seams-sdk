@@ -1,6 +1,7 @@
 use router_ab_core::{
     Ed25519YaoCircuitFamilyV1, Ed25519YaoEpochTransitionV1, Ed25519YaoOperationV1,
-    Ed25519YaoRefreshEpochsV1, Ed25519YaoStateEpochV1, ExpensiveWorkKindV1, RootShareEpoch,
+    Ed25519YaoRefreshEpochsV1, Ed25519YaoStateEpochV1, ExpensiveWorkKindV1,
+    MpcMaterialActivationRefV1, RootShareEpoch,
 };
 use router_ab_dev::{
     admit_local_ed25519_yao_export_v1, admit_local_ed25519_yao_registration_v1,
@@ -66,7 +67,7 @@ fn router_rejects_ambiguous_participant_and_scope_inputs() {
 
     let mut invalid_scope =
         serde_json::to_value(registration_request()).expect("registration JSON");
-    invalid_scope["scope"]["wallet_session_id"] = serde_json::json!("");
+    invalid_scope["scope"]["threshold_session_id"] = serde_json::json!("");
     assert!(
         serde_json::from_value::<RouterAbEd25519YaoRegistrationAdmissionRequestV1>(invalid_scope)
             .is_err()
@@ -111,14 +112,23 @@ fn refresh_rejects_stale_epochs_and_promotes_only_after_worker_activation() {
     let active_binding = admit_local_ed25519_yao_registration_v1(registration_request())
         .expect("registration")
         .binding;
+    let material_activation = active_binding.material_activation.clone();
     let mut state =
         LocalEd25519YaoRouterRefreshStateV1::new(&active_binding, public_key, active_epochs)
             .expect("state");
     let binding = state
-        .begin(refresh_request(public_key, transition))
+        .begin(refresh_request(
+            public_key,
+            transition,
+            material_activation.clone(),
+        ))
         .expect("refresh admission");
     assert!(state
-        .begin(refresh_request(public_key, transition))
+        .begin(refresh_request(
+            public_key,
+            transition,
+            material_activation.clone(),
+        ))
         .is_err());
     state
         .mark_output_committed(&binding)
@@ -133,8 +143,44 @@ fn refresh_rejects_stale_epochs_and_promotes_only_after_worker_activation() {
     assert_eq!(promoted.signing_worker, epoch_2);
     assert!(state.is_retired(active_epochs));
     assert!(state
-        .begin(refresh_request(public_key, transition))
+        .begin(refresh_request(public_key, transition, material_activation,))
         .is_err());
+}
+
+#[test]
+fn refresh_rejects_a_substituted_material_activation() {
+    let epoch_1 = Ed25519YaoStateEpochV1::new(1).expect("epoch 1");
+    let epoch_2 = Ed25519YaoStateEpochV1::new(2).expect("epoch 2");
+    let transition = Ed25519YaoEpochTransitionV1::new(epoch_1, epoch_2).expect("transition");
+    let active_epochs = LocalEd25519YaoRefreshActiveEpochsV1 {
+        deriver_a: epoch_1,
+        deriver_b: epoch_1,
+        signing_worker: epoch_1,
+    };
+    let public_key = [0x89; 32];
+    let active_binding = admit_local_ed25519_yao_registration_v1(registration_request())
+        .expect("registration")
+        .binding;
+    let mut substituted_activation = active_binding.material_activation.clone();
+    substituted_activation.activation_id = "opaque-substituted-activation".to_owned();
+    let mut state =
+        LocalEd25519YaoRouterRefreshStateV1::new(&active_binding, public_key, active_epochs)
+            .expect("state");
+
+    assert!(state
+        .begin(refresh_request(
+            public_key,
+            transition,
+            substituted_activation,
+        ))
+        .is_err());
+    assert!(state
+        .begin(refresh_request(
+            public_key,
+            transition,
+            active_binding.material_activation,
+        ))
+        .is_ok());
 }
 
 #[test]
@@ -153,6 +199,7 @@ fn refresh_rejects_each_mixed_current_epoch_without_mutation() {
     let active_binding = admit_local_ed25519_yao_registration_v1(registration_request())
         .expect("registration")
         .binding;
+    let material_activation = active_binding.material_activation.clone();
 
     for mixed in [
         Ed25519YaoRefreshEpochsV1 {
@@ -174,10 +221,16 @@ fn refresh_rejects_each_mixed_current_epoch_without_mutation() {
         let mut state =
             LocalEd25519YaoRouterRefreshStateV1::new(&active_binding, public_key, active_epochs)
                 .expect("state");
-        let mut invalid = refresh_request(public_key, valid);
+        let mut invalid = refresh_request(public_key, valid, material_activation.clone());
         invalid.epochs = mixed;
         assert!(state.begin(invalid).is_err());
-        assert!(state.begin(refresh_request(public_key, valid)).is_ok());
+        assert!(state
+            .begin(refresh_request(
+                public_key,
+                valid,
+                material_activation.clone(),
+            ))
+            .is_ok());
     }
 }
 
@@ -191,6 +244,24 @@ fn registration_request() -> RouterAbEd25519YaoRegistrationAdmissionRequestV1 {
 }
 
 fn scope(lifecycle_id: &str) -> RouterAbEd25519YaoLifecycleScopeV1 {
+    scope_with_activation(
+        lifecycle_id,
+        MpcMaterialActivationRefV1::new(
+            format!("opaque-activation-{lifecycle_id}"),
+            "capability-router",
+            "account-1",
+            "key-router",
+            format!("opaque-material-lifecycle-{lifecycle_id}"),
+            "signing-worker-1",
+        )
+        .expect("material activation"),
+    )
+}
+
+fn scope_with_activation(
+    lifecycle_id: &str,
+    material_activation: MpcMaterialActivationRefV1,
+) -> RouterAbEd25519YaoLifecycleScopeV1 {
     RouterAbEd25519YaoLifecycleScopeV1::new(
         lifecycle_id,
         RootShareEpoch::new("epoch-1").expect("epoch"),
@@ -198,6 +269,7 @@ fn scope(lifecycle_id: &str) -> RouterAbEd25519YaoLifecycleScopeV1 {
         "wallet-session-1",
         "signer-set-1",
         "signing-worker-1",
+        material_activation,
     )
     .expect("lifecycle scope")
 }
@@ -228,9 +300,10 @@ fn recovery_request(
 fn refresh_request(
     registered_public_key: [u8; 32],
     transition: Ed25519YaoEpochTransitionV1,
+    material_activation: MpcMaterialActivationRefV1,
 ) -> LocalEd25519YaoRouterRefreshAdmissionRequestV1 {
     LocalEd25519YaoRouterRefreshAdmissionRequestV1 {
-        scope: scope("refresh-1"),
+        scope: scope_with_activation("refresh-threshold-lifecycle-1", material_activation),
         application_binding: application(),
         participant_ids: [1, 2],
         registered_public_key,

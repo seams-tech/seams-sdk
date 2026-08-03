@@ -2,7 +2,12 @@ import type {
   RouterAbEcdsaDerivationNormalSigningStateV1,
   RouterAbEcdsaDerivationPublicCapabilityV1,
 } from './routerAbEcdsaDerivation';
-import type { EmailOtpProvider } from './walletAuthAuthority';
+import type {
+  EmailOtpProvider,
+  EmailOtpWalletAuthAuthority,
+  WalletAuthAuthorityRef,
+} from './walletAuthAuthority';
+import type { MpcMaterialActivationRef } from './domainIds';
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from './signerDomain';
 
 export const SIGNING_SESSION_SEALED_RECORD_VERSION = 2 as const;
@@ -51,16 +56,6 @@ export type SealedSigningSessionEcdsaRestoreSource =
   | 'registration'
   | 'manual-bootstrap'
   | 'email_otp';
-
-export type SealedSigningSessionWalletSessionAuth =
-  | {
-      sessionKind: 'jwt';
-      walletSessionJwt: string;
-    }
-  | {
-      sessionKind: 'cookie';
-      walletSessionJwt?: never;
-    };
 
 export type RouterAbEd25519NormalSigningState = {
   kind: typeof ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND;
@@ -111,7 +106,7 @@ export type SealedSigningSessionEcdsaChainTarget =
       networkSlug: string;
     };
 
-type SealedSigningSessionEcdsaRestoreMetadataBase = SealedSigningSessionWalletSessionAuth & {
+type SealedSigningSessionEcdsaRestoreMetadataBase = {
   chainTarget: SealedSigningSessionEcdsaChainTarget;
   signingRootId: string;
   signingRootVersion: string;
@@ -127,11 +122,18 @@ type SealedSigningSessionEcdsaRestoreMetadataBase = SealedSigningSessionWalletSe
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 };
 
+export type SealedSigningSessionEcdsaRoleLocalMaterialRef = {
+  kind: 'ecdsa_role_local_persisted_material_ref_v1';
+  durableMaterialRef: string;
+  bindingDigest: string;
+  materialActivation: MpcMaterialActivationRef;
+};
+
 export type SealedSigningSessionEcdsaRestoreMetadata =
   | (SealedSigningSessionEcdsaRestoreMetadataBase & {
       source: Exclude<SealedSigningSessionEcdsaRestoreSource, 'email_otp'>;
-      evmFamilySigningKeySlotId: string;
-      roleLocalDurableMaterialRef: string;
+      authority: WalletAuthAuthorityRef;
+      roleLocalMaterialRef: SealedSigningSessionEcdsaRoleLocalMaterialRef;
       rpId: string;
       credentialIdB64u: string;
       providerSubjectId?: never;
@@ -139,17 +141,18 @@ export type SealedSigningSessionEcdsaRestoreMetadata =
     })
   | (SealedSigningSessionEcdsaRestoreMetadataBase & {
       source: 'email_otp';
-      evmFamilySigningKeySlotId: string;
       provider: EmailOtpProvider;
       providerSubjectId: string;
       emailHashHex: string;
+      authority: WalletAuthAuthorityRef;
+      emailOtpAuthority: EmailOtpWalletAuthAuthority;
       authSubjectId?: never;
-      roleLocalDurableMaterialRef: string;
+      roleLocalMaterialRef: SealedSigningSessionEcdsaRoleLocalMaterialRef;
       rpId?: never;
       credentialIdB64u?: never;
     });
 
-type SealedSigningSessionEd25519RestoreMetadataBase = SealedSigningSessionWalletSessionAuth & {
+type SealedSigningSessionEd25519RestoreMetadataBase = {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   rpId: string;
@@ -165,12 +168,14 @@ type SealedSigningSessionEd25519RestoreMetadataBase = SealedSigningSessionWallet
 export type SealedSigningSessionEd25519RestoreMetadata =
   | (SealedSigningSessionEd25519RestoreMetadataBase & {
       credentialIdB64u: string;
+      materialActivation: MpcMaterialActivationRef;
       providerSubjectId?: never;
       authSubjectId?: never;
     })
   | (SealedSigningSessionEd25519RestoreMetadataBase & {
       providerSubjectId: string;
       emailHashHex: string;
+      materialActivation: MpcMaterialActivationRef;
       credentialIdB64u?: never;
       authSubjectId?: never;
     });
@@ -182,7 +187,6 @@ type SealedSigningSessionRecordBase = {
   authMethod: SigningSessionSealAuthMethod;
   secretKind: typeof SIGNING_SESSION_SECRET_KIND;
   storeKey: string;
-  signingGrantId: string;
   sealedSecretB64u: string;
   walletId: string;
   relayerUrl: string;
@@ -218,45 +222,6 @@ export type SealedSigningSessionRecord =
       ed25519Restore?: SealedSigningSessionEd25519RestoreMetadata;
     });
 
-export type EmailOtpSigningSessionSecretInfoInput = {
-  walletId: string;
-  userId: string;
-  signingRootId: string;
-  signingRootVersion?: string;
-  signingGrantId: string;
-};
-
-export type EmailOtpSigningSessionRestoreRootInfoInput = EmailOtpSigningSessionSecretInfoInput;
-
-export type EmailOtpEcdsaRestoreInfoInput = {
-  ecdsaThresholdSessionId: string;
-  ecdsaThresholdKeyId: string;
-  chainTarget: SealedSigningSessionEcdsaChainTarget;
-  derivationPath?: string;
-  participantIds: readonly number[] | string;
-  relayerKeyId: string;
-};
-
-export type EmailOtpEd25519RestoreInfoInput = {
-  ed25519ThresholdSessionId: string;
-  relayerKeyId: string;
-  participantIds: readonly number[] | string;
-};
-
-function trimString(value: unknown): string {
-  return String(value || '').trim();
-}
-
-function participantIdsField(value: readonly number[] | string): string {
-  if (typeof value === 'string') return trimString(value);
-  return value.map((participantId) => Math.floor(Number(participantId))).join(',');
-}
-
-function ecdsaChainTargetInfoField(target: SealedSigningSessionEcdsaChainTarget): string {
-  if (target.kind === 'tempo') return `tempo:${Math.floor(Number(target.chainId))}`;
-  return `${target.kind}:${target.namespace}:${Math.floor(Number(target.chainId))}`;
-}
-
 export function encodeSigningSessionHkdfTuple(fields: readonly string[]): Uint8Array {
   const encoder = new TextEncoder();
   const chunks = fields.map((field) => {
@@ -276,49 +241,4 @@ export function encodeSigningSessionHkdfTuple(fields: readonly string[]): Uint8A
     offset += chunk.bytes.length;
   }
   return out;
-}
-
-export function emailOtpSigningSessionSecretInfoFields(
-  args: EmailOtpSigningSessionSecretInfoInput,
-): string[] {
-  return [
-    trimString(args.walletId),
-    trimString(args.userId),
-    trimString(args.signingRootId),
-    trimString(args.signingRootVersion),
-    trimString(args.signingGrantId),
-    'email_otp',
-  ];
-}
-
-export function emailOtpSigningSessionRestoreRootInfoFields(
-  args: EmailOtpSigningSessionRestoreRootInfoInput,
-): string[] {
-  return [
-    'email_otp',
-    trimString(args.walletId),
-    trimString(args.userId),
-    trimString(args.signingRootId),
-    trimString(args.signingRootVersion),
-    trimString(args.signingGrantId),
-  ];
-}
-
-export function emailOtpEcdsaRestoreInfoFields(args: EmailOtpEcdsaRestoreInfoInput): string[] {
-  return [
-    trimString(args.ecdsaThresholdSessionId),
-    trimString(args.ecdsaThresholdKeyId),
-    ecdsaChainTargetInfoField(args.chainTarget),
-    trimString(args.derivationPath || 'evm-signing'),
-    participantIdsField(args.participantIds),
-    trimString(args.relayerKeyId),
-  ];
-}
-
-export function emailOtpEd25519RestoreInfoFields(args: EmailOtpEd25519RestoreInfoInput): string[] {
-  return [
-    trimString(args.ed25519ThresholdSessionId),
-    trimString(args.relayerKeyId),
-    participantIdsField(args.participantIds),
-  ];
 }

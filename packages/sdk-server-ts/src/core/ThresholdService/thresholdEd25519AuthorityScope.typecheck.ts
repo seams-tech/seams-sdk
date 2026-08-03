@@ -27,7 +27,6 @@ const sessionPolicy: Ed25519SessionPolicy = {
   authority: passkeyAuthority,
   relayerKeyId: 'ed25519:relayer',
   thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
   ttlMs: 60_000,
   remainingUses: 1,
 };

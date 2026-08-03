@@ -39,6 +39,7 @@ import {
   registerConfirmationReadiness,
   type ConfirmationReadiness,
 } from '../confirmationReadinessRegistry';
+import { WalletSessionFailureError } from '../../session/lifecycle/walletSessionFailure';
 
 function buildSignTransactionPayload(args: {
   params: OrchestrateNearTransactionSigningConfirmationParams;
@@ -508,6 +509,12 @@ export async function orchestrateSigningConfirmation(
   });
 
   if (!decision?.confirmed) {
+    if (decision?.walletSessionFailure) {
+      throw new WalletSessionFailureError({
+        failure: decision.walletSessionFailure,
+        message: 'Wallet Session expired while signing confirmation was open',
+      });
+    }
     throw new Error(decision?.error || 'User rejected signing request');
   }
 
@@ -540,6 +547,7 @@ export async function orchestrateSigningConfirmation(
     readiness: decision.nearTransactionReadiness,
     intentDigest: decision.intentDigest || intentDigest,
     credential: decision.credential,
+    operationStepUpPreparation: decision.operationStepUpPreparation,
     otpCode: decision.otpCode,
     emailOtpChallengeId: decision.emailOtpChallengeId,
   };

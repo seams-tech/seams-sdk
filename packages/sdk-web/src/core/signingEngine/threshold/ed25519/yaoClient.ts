@@ -15,12 +15,14 @@ import {
   ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
   parseRouterAbEd25519YaoRecoveryActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1,
   parseRouterAbEd25519YaoRecoveryActivationReceiptV1,
   parseRouterAbEd25519YaoRecoveryActivationResultV1,
+  parseRouterAbEd25519YaoRecoveryStatusV1,
   parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
@@ -33,16 +35,19 @@ import {
   type RouterAbEd25519YaoActivationPublicReceiptV1,
   type RouterAbEd25519YaoActivationResultV1,
   type RouterAbEd25519YaoBytes32V1,
-  type RouterAbEd25519YaoExportFreshAuthorizationIdentityV1,
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryActivationReceiptV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  type RouterAbEd25519YaoRecoveryStatusRequestV1,
+  type RouterAbEd25519YaoRecoveryStatusV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoExportAdmissionRequestV1,
   type RouterAbEd25519YaoExportAdmissionReceiptV1,
   type RouterAbEd25519YaoExportExecuteRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import { parseMpcMaterialActivationRef, type MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
   createRouterAbTraceContextV1,
@@ -115,6 +120,11 @@ export type RouterAbEd25519YaoRecoveryTransportRequestV1 =
       kind: 'recovery_activate';
       path: typeof ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1;
       body: RouterAbEd25519YaoRecoveryActivationRequestV1;
+    }
+  | {
+      kind: 'recovery_status';
+      path: typeof ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1;
+      body: RouterAbEd25519YaoRecoveryStatusRequestV1;
     };
 
 export interface RouterAbEd25519YaoRecoveryTransportV1 {
@@ -130,7 +140,6 @@ export type RouterAbEd25519YaoExportTransportRequestV1 =
       body: {
         protocol: RouterAbEd25519YaoExportAdmissionRequestV1;
         authorization: RouterAbEd25519YaoExportFreshAuthorizationV1;
-        authorizationIdentity: RouterAbEd25519YaoExportFreshAuthorizationIdentityV1;
       };
     }
   | {
@@ -138,7 +147,6 @@ export type RouterAbEd25519YaoExportTransportRequestV1 =
       path: typeof ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1;
       body: {
         protocol: RouterAbEd25519YaoExportExecuteRequestV1;
-        authorizationIdentity: RouterAbEd25519YaoExportFreshAuthorizationIdentityV1;
       };
     };
 
@@ -169,13 +177,11 @@ export type RouterAbEd25519YaoExportArtifactV1 = {
 export function buildRouterAbEd25519YaoExportAdmissionBodyV1(args: {
   protocol: RouterAbEd25519YaoExportAdmissionRequestV1;
   authorization: RouterAbEd25519YaoExportFreshAuthorizationV1;
-  authorizationIdentity: RouterAbEd25519YaoExportFreshAuthorizationIdentityV1;
 }): Extract<RouterAbEd25519YaoExportTransportRequestV1, { kind: 'export_admit' }>['body'] {
   switch (args.authorization.kind) {
     case 'passkey':
       return {
         protocol: args.protocol,
-        authorizationIdentity: args.authorizationIdentity,
         authorization: {
           kind: 'passkey',
           webauthnAuthentication:
@@ -187,7 +193,6 @@ export function buildRouterAbEd25519YaoExportAdmissionBodyV1(args: {
     case 'email_otp_factor':
       return {
         protocol: args.protocol,
-        authorizationIdentity: args.authorizationIdentity,
         authorization: {
           kind: 'email_otp_factor',
           providerSubjectId: args.authorization.providerSubjectId,
@@ -220,6 +225,7 @@ export type RouterAbEd25519YaoActiveClientMetadataV1 = {
   stateEpoch: bigint;
   transcript: Uint8Array;
   activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
+  materialActivation: MpcMaterialActivationRef;
 };
 
 export type RouterAbEd25519YaoSealedLocalMaterialV1 = {
@@ -290,6 +296,17 @@ export type RouterAbEd25519YaoRecoveryResultV1 =
       activation: RouterAbEd25519YaoRecoveryActivationReceiptV1;
     }
   | RouterAbEd25519YaoRegistrationFailureV1;
+
+export type RouterAbEd25519YaoPreparedRecoveryInputV1 = {
+  request: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
+  factor: RouterAbEd25519YaoClientRootFactorV1;
+  transport: RouterAbEd25519YaoRecoveryTransportV1;
+  entropy: RouterAbEd25519YaoActivationEntropyV1;
+};
+
+export type RouterAbEd25519YaoRecoveryStatusResultV1 =
+  | { ok: true; status: RouterAbEd25519YaoRecoveryStatusV1 }
+  | RouterAbEd25519YaoRegistrationTransportFailureV1;
 
 export type RouterAbEd25519YaoHttpTransportConfigV1 = {
   routerOrigin: string;
@@ -374,7 +391,6 @@ type EmailOtpClientRootFactorV1 = Extract<
 export type RouterAbEd25519YaoExportSeedInputV1 = {
   request: RouterAbEd25519YaoExportAdmissionRequestV1;
   transport: RouterAbEd25519YaoExportTransportV1;
-  authorizationIdentity: RouterAbEd25519YaoExportFreshAuthorizationIdentityV1;
 } & (
   | {
       factor: PasskeyClientRootFactorV1;
@@ -438,7 +454,7 @@ function createRegistrationSession(args: {
   participantIds: readonly [number, number];
   factor: RouterAbEd25519YaoClientRootFactorV1['kind'];
   secret32: Uint8Array;
-  entropy: ActivationEntropyV1;
+  entropy: RouterAbEd25519YaoActivationEntropyV1;
 }): WasmRegistrationSessionV1 {
   const common = [
     JSON.stringify(args.admission),
@@ -467,7 +483,7 @@ function createRecoverySession(args: {
   factor: RouterAbEd25519YaoClientRootFactorV1['kind'];
   secret32: Uint8Array;
   registeredPublicKey: Uint8Array;
-  entropy: ActivationEntropyV1;
+  entropy: RouterAbEd25519YaoActivationEntropyV1;
 }): WasmRecoverySessionV1 {
   const common = [
     JSON.stringify(args.admission),
@@ -496,7 +512,7 @@ function createExportSession(args: {
   participantIds: readonly [number, number];
   factor: RouterAbEd25519YaoClientRootFactorV1['kind'];
   secret32: Uint8Array;
-  entropy: ActivationEntropyV1;
+  entropy: RouterAbEd25519YaoActivationEntropyV1;
 }): WasmExportSessionV1 {
   const common = [
     JSON.stringify(args.admission),
@@ -518,13 +534,13 @@ function createExportSession(args: {
   }
 }
 
-type ActivationEntropyV1 = {
+export type RouterAbEd25519YaoActivationEntropyV1 = {
   recipientKeyMaterial: Uint8Array;
   deriverASealSeed: Uint8Array;
   deriverBSealSeed: Uint8Array;
 };
 
-function createActivationEntropy(): ActivationEntropyV1 {
+export function createRouterAbEd25519YaoActivationEntropyV1(): RouterAbEd25519YaoActivationEntropyV1 {
   return {
     recipientKeyMaterial: randomNonzeroBytes32(),
     deriverASealSeed: randomNonzeroBytes32(),
@@ -532,7 +548,9 @@ function createActivationEntropy(): ActivationEntropyV1 {
   };
 }
 
-function zeroizeActivationEntropy(entropy: ActivationEntropyV1): void {
+export function zeroizeRouterAbEd25519YaoActivationEntropyV1(
+  entropy: RouterAbEd25519YaoActivationEntropyV1,
+): void {
   entropy.recipientKeyMaterial.fill(0);
   entropy.deriverASealSeed.fill(0);
   entropy.deriverBSealSeed.fill(0);
@@ -553,6 +571,23 @@ function equalBytes(
 function assertNever(value: never): never {
   throw new Error(`Unhandled Ed25519 Yao Client lifecycle: ${String(value)}`);
 }
+
+type RecoveryContinuationV1 =
+  | {
+      stage: 'admitted';
+      admission: RecoveryAdmissionReceiptV1;
+    }
+  | {
+      stage: 'executed';
+      admission: RecoveryAdmissionReceiptV1;
+      executionResult: RecoveryWireResultV1;
+    }
+  | {
+      stage: 'promoted';
+      admission: RecoveryAdmissionReceiptV1;
+      executionResult: RecoveryWireResultV1;
+      activation: RouterAbEd25519YaoRecoveryActivationReceiptV1;
+    };
 
 function requireActiveRegistration(
   lifecycle: RouterAbEd25519YaoActiveClientLifecycleV1,
@@ -638,10 +673,18 @@ function parseCommitmentsJson(value: string): Readonly<{ hiding: string; binding
 
 function publicReceiptMetadata(
   receipt: RouterAbEd25519YaoActivationPublicReceiptV1,
-): Pick<RouterAbEd25519YaoActiveClientMetadataV1, 'signingWorkerVerifyingShare' | 'transcript'> {
+): Pick<
+  RouterAbEd25519YaoActiveClientMetadataV1,
+  'signingWorkerVerifyingShare' | 'transcript' | 'materialActivation'
+> {
+  const materialActivation = parseMpcMaterialActivationRef(receipt.material_activation);
+  if (!materialActivation.ok) {
+    throw new Error(`Invalid activation material reference: ${materialActivation.error.message}`);
+  }
   return {
     signingWorkerVerifyingShare: Uint8Array.from(receipt.signing_worker_verifying_share),
     transcript: Uint8Array.from(receipt.transcript),
+    materialActivation: materialActivation.value,
   };
 }
 
@@ -653,6 +696,10 @@ function recoveryActivationMatches(
   return (
     JSON.stringify(activation.binding) === JSON.stringify(result.binding) &&
     JSON.stringify(activation.public_receipt) === JSON.stringify(result.public_receipt) &&
+    sameRouterAbMpcMaterialActivationRef(
+      result.binding.material_activation,
+      request.scope.material_activation,
+    ) &&
     equalBytes(activation.active_capability_binding, request.replacement_capability_binding) &&
     equalBytes(activation.retired_capability_binding, request.active_capability_binding) &&
     equalBytes(activation.public_receipt.registered_public_key, request.registered_public_key)
@@ -668,10 +715,103 @@ function activationAdmissionMatchesScope(
     lifecycle.lifecycle_id === scope.lifecycle_id &&
     lifecycle.root_share_epoch === scope.root_share_epoch &&
     lifecycle.account_id === scope.account_id &&
-    lifecycle.session_id === scope.wallet_session_id &&
+    lifecycle.session_id === scope.threshold_session_id &&
     lifecycle.signer_set_id === scope.signer_set_id &&
-    lifecycle.selected_server_id === scope.signing_worker_id
+    lifecycle.selected_server_id === scope.signing_worker_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      receipt.binding.material_activation,
+      scope.material_activation,
+    )
   );
+}
+
+function recoveryContinuationFromStatus(
+  request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  status: RouterAbEd25519YaoRecoveryStatusV1,
+): { ok: true; value: RecoveryContinuationV1 } | RouterAbEd25519YaoRegistrationTransportFailureV1 {
+  if (status.lifecycle_id !== request.scope.lifecycle_id) {
+    return {
+      ok: false,
+      code: 'invalid_router_response',
+      status: 0,
+      message: 'Router recovery status does not match the requested lifecycle',
+    };
+  }
+  switch (status.stage) {
+    case 'missing':
+      return {
+        ok: false,
+        code: 'router_rejected',
+        status: 409,
+        message: 'Router recovery admission is unavailable',
+      };
+    case 'admitted':
+      if (!activationAdmissionMatchesScope(request.scope, status.admission_receipt)) {
+        break;
+      }
+      return {
+        ok: true,
+        value: { stage: 'admitted', admission: status.admission_receipt },
+      };
+    case 'executed':
+      if (!activationAdmissionMatchesScope(request.scope, status.admission_receipt)) {
+        break;
+      }
+      return {
+        ok: true,
+        value: {
+          stage: 'executed',
+          admission: status.admission_receipt,
+          executionResult: status.execution_result,
+        },
+      };
+    case 'promoted':
+      if (!activationAdmissionMatchesScope(request.scope, status.admission_receipt)) {
+        break;
+      }
+      return {
+        ok: true,
+        value: {
+          stage: 'promoted',
+          admission: status.admission_receipt,
+          executionResult: status.execution_result,
+          activation: status.activation_receipt,
+        },
+      };
+    default:
+      return assertNever(status);
+  }
+  return {
+    ok: false,
+    code: 'invalid_router_response',
+    status: 0,
+    message: 'Router recovery admission does not match the requested lifecycle scope',
+  };
+}
+
+export async function readRouterAbEd25519YaoRecoveryStatusV1(input: {
+  request: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
+  transport: RouterAbEd25519YaoRecoveryTransportV1;
+}): Promise<RouterAbEd25519YaoRecoveryStatusResultV1> {
+  const response = await input.transport.send({
+    kind: 'recovery_status',
+    path: ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
+    body: {
+      kind: 'router_ab_ed25519_yao_recovery_status_request_v1',
+      admission: input.request,
+    },
+  });
+  if (!response.ok) return response;
+  const parsed = parseRouterAbEd25519YaoRecoveryStatusV1(response.value);
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      code: 'invalid_router_response',
+      status: 0,
+      message: parsed.message,
+    };
+  }
+  return { ok: true, status: parsed.value };
 }
 
 function exportAdmissionMatchesRequest(
@@ -683,14 +823,158 @@ function exportAdmissionMatchesRequest(
     lifecycle.lifecycle_id === request.scope.lifecycle_id &&
     lifecycle.root_share_epoch === request.scope.root_share_epoch &&
     lifecycle.account_id === request.scope.account_id &&
-    lifecycle.session_id === request.scope.wallet_session_id &&
+    lifecycle.session_id === request.scope.threshold_session_id &&
     lifecycle.signer_set_id === request.scope.signer_set_id &&
     lifecycle.selected_server_id === request.scope.signing_worker_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      receipt.binding.ceremony.material_activation,
+      request.scope.material_activation,
+    ) &&
     receipt.binding.state_epoch === request.state_epoch &&
     equalBytes(receipt.binding.registered_public_key, request.registered_public_key) &&
     equalBytes(receipt.binding.runtime_policy_binding, request.runtime_policy_binding) &&
     equalBytes(receipt.binding.authorization_digest, request.authorization.authorization_digest)
   );
+}
+
+async function continuePreparedRecovery(args: {
+  request: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
+  factorKind: RouterAbEd25519YaoClientRootFactorV1['kind'];
+  factorSecret32: Uint8Array;
+  entropy: RouterAbEd25519YaoActivationEntropyV1;
+  continuation: RecoveryContinuationV1;
+  transport: RouterAbEd25519YaoRecoveryTransportV1;
+}): Promise<RouterAbEd25519YaoRecoveryResultV1> {
+  let session: WasmClientRecoverySessionV1;
+  try {
+    session = createRecoverySession({
+      admission: args.continuation.admission,
+      applicationBinding: args.request.application_binding,
+      participantIds: args.request.participant_ids,
+      factor: args.factorKind,
+      secret32: args.factorSecret32,
+      registeredPublicKey: Uint8Array.from(args.request.registered_public_key),
+      entropy: args.entropy,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'invalid_client_result',
+      status: 0,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    args.factorSecret32.fill(0);
+    zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
+  }
+
+  try {
+    let result: RecoveryWireResultV1;
+    switch (args.continuation.stage) {
+      case 'admitted': {
+        const executeRequest = parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(
+          JSON.parse(session.execute_request_json()),
+        );
+        if (!executeRequest.ok) {
+          return {
+            ok: false,
+            code: 'invalid_client_result',
+            status: 0,
+            message: executeRequest.message,
+          };
+        }
+        const executeResponse = await args.transport.send({
+          kind: 'recovery_execute',
+          path: ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+          body: executeRequest.value,
+        });
+        if (!executeResponse.ok) return executeResponse;
+        const parsedResult = parseRouterAbEd25519YaoRecoveryActivationResultV1(
+          executeResponse.value,
+        );
+        if (!parsedResult.ok) {
+          return {
+            ok: false,
+            code: 'invalid_router_response',
+            status: 0,
+            message: parsedResult.message,
+          };
+        }
+        result = parsedResult.value;
+        break;
+      }
+      case 'executed':
+      case 'promoted':
+        result = args.continuation.executionResult;
+        break;
+      default:
+        return assertNever(args.continuation);
+    }
+
+    const activated = session.complete(JSON.stringify(result));
+    try {
+      let activation: RouterAbEd25519YaoRecoveryActivationReceiptV1;
+      if (args.continuation.stage === 'promoted') {
+        activation = args.continuation.activation;
+      } else {
+        const activationResponse = await args.transport.send({
+          kind: 'recovery_activate',
+          path: ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
+          body: {
+            binding: result.binding,
+            public_receipt: result.public_receipt,
+          },
+        });
+        if (!activationResponse.ok) {
+          activated.free();
+          return activationResponse;
+        }
+        const parsedActivation = parseRouterAbEd25519YaoRecoveryActivationReceiptV1(
+          activationResponse.value,
+        );
+        if (!parsedActivation.ok) {
+          activated.free();
+          return {
+            ok: false,
+            code: 'invalid_router_response',
+            status: 0,
+            message: parsedActivation.message,
+          };
+        }
+        activation = parsedActivation.value;
+      }
+      if (!recoveryActivationMatches(args.request, result, activation)) {
+        activated.free();
+        return {
+          ok: false,
+          code: 'invalid_router_response',
+          status: 0,
+          message: 'Router recovery activation does not match the verified result',
+        };
+      }
+      const activeClient = createVerifiedActiveClient({
+        activated,
+        scope: args.request.scope,
+        applicationBinding: args.request.application_binding,
+        participantIds: args.request.participant_ids,
+        result,
+        activeCapabilityBinding: activation.active_capability_binding,
+      });
+      return { ok: true, activeClient, activation };
+    } catch (error) {
+      activated.free();
+      throw error;
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'invalid_client_result',
+      status: 0,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    session.free();
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -887,9 +1171,10 @@ export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoS
         lifecycle_id: args.metadata.scope.lifecycle_id,
         root_share_epoch: args.metadata.scope.root_share_epoch,
         account_id: args.metadata.scope.account_id,
-        wallet_session_id: args.metadata.scope.wallet_session_id,
+        threshold_session_id: args.metadata.scope.threshold_session_id,
         signer_set_id: args.metadata.scope.signer_set_id,
         signing_worker_id: args.metadata.scope.signing_worker_id,
+        material_activation: args.metadata.scope.material_activation,
       },
       applicationBinding: {
         wallet_id: args.metadata.applicationBinding.wallet_id,
@@ -903,6 +1188,7 @@ export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoS
       stateEpoch: args.metadata.stateEpoch,
       transcript: args.metadata.transcript.slice(),
       activeCapabilityBinding: [...args.metadata.activeCapabilityBinding],
+      materialActivation: args.metadata.materialActivation,
     };
     this.lifecycle = {
       kind: 'active',
@@ -990,9 +1276,10 @@ export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoS
         lifecycle_id: this.activeMetadata.scope.lifecycle_id,
         root_share_epoch: this.activeMetadata.scope.root_share_epoch,
         account_id: this.activeMetadata.scope.account_id,
-        wallet_session_id: this.activeMetadata.scope.wallet_session_id,
+        threshold_session_id: this.activeMetadata.scope.threshold_session_id,
         signer_set_id: this.activeMetadata.scope.signer_set_id,
         signing_worker_id: this.activeMetadata.scope.signing_worker_id,
+        material_activation: this.activeMetadata.scope.material_activation,
       },
       applicationBinding: {
         wallet_id: this.activeMetadata.applicationBinding.wallet_id,
@@ -1010,6 +1297,7 @@ export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoS
       stateEpoch: this.activeMetadata.stateEpoch,
       transcript: this.activeMetadata.transcript.slice(),
       activeCapabilityBinding: [...this.activeMetadata.activeCapabilityBinding],
+      materialActivation: this.activeMetadata.materialActivation,
     };
   }
 
@@ -1061,6 +1349,7 @@ function createVerifiedActiveClient(input: {
       stateEpoch: input.activated.state_epoch(),
       transcript: receipt.transcript,
       activeCapabilityBinding: [...input.activeCapabilityBinding],
+      materialActivation: receipt.materialActivation,
     },
     activated: input.activated,
   });
@@ -1203,8 +1492,7 @@ export class RouterAbEd25519YaoClientV1 {
     }
 
     const admissionMs = performance.now() - admissionStartedAt;
-
-    const entropy = createActivationEntropy();
+    const entropy = createRouterAbEd25519YaoActivationEntropyV1();
     const sessionCreateStartedAt = performance.now();
     let session: WasmClientRegistrationSessionV1;
     try {
@@ -1225,7 +1513,7 @@ export class RouterAbEd25519YaoClientV1 {
       };
     } finally {
       factorSecret32.fill(0);
-      zeroizeActivationEntropy(entropy);
+      zeroizeRouterAbEd25519YaoActivationEntropyV1(entropy);
     }
     const sessionCreateMs = performance.now() - sessionCreateStartedAt;
 
@@ -1293,9 +1581,21 @@ export class RouterAbEd25519YaoClientV1 {
     factor: RouterAbEd25519YaoClientRootFactorV1;
     transport: RouterAbEd25519YaoRecoveryTransportV1;
   }): Promise<RouterAbEd25519YaoRecoveryResultV1> {
+    return this.recoverPrepared({
+      ...args,
+      entropy: createRouterAbEd25519YaoActivationEntropyV1(),
+    });
+  }
+
+  async recoverPrepared(
+    args: RouterAbEd25519YaoPreparedRecoveryInputV1,
+  ): Promise<RouterAbEd25519YaoRecoveryResultV1> {
     const factorKind = args.factor.kind;
     const consumedFactor = consumeOwnedFactorSecret(args.factor);
-    if (!consumedFactor.ok) return consumedFactor;
+    if (!consumedFactor.ok) {
+      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
+      return consumedFactor;
+    }
     const factorSecret32 = consumedFactor.value;
 
     const admissionResponse = await args.transport.send({
@@ -1305,6 +1605,7 @@ export class RouterAbEd25519YaoClientV1 {
     });
     if (!admissionResponse.ok) {
       factorSecret32.fill(0);
+      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
       return admissionResponse;
     }
     const admission = parseRouterAbEd25519YaoRecoveryActivationAdmissionReceiptV1(
@@ -1312,10 +1613,12 @@ export class RouterAbEd25519YaoClientV1 {
     );
     if (!admission.ok) {
       factorSecret32.fill(0);
+      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
       return { ok: false, code: 'invalid_router_response', status: 0, message: admission.message };
     }
     if (!activationAdmissionMatchesScope(args.request.scope, admission.value)) {
       factorSecret32.fill(0);
+      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
       return {
         ok: false,
         code: 'invalid_router_response',
@@ -1324,108 +1627,49 @@ export class RouterAbEd25519YaoClientV1 {
       };
     }
 
-    const entropy = createActivationEntropy();
-    let session: WasmClientRecoverySessionV1;
-    try {
-      session = createRecoverySession({
-        admission: admission.value,
-        applicationBinding: args.request.application_binding,
-        participantIds: args.request.participant_ids,
-        factor: factorKind,
-        secret32: factorSecret32,
-        registeredPublicKey: Uint8Array.from(args.request.registered_public_key),
-        entropy,
-      });
-    } catch (error) {
-      return {
-        ok: false,
-        code: 'invalid_client_result',
-        status: 0,
-        message: error instanceof Error ? error.message : String(error),
-      };
-    } finally {
+    return continuePreparedRecovery({
+      request: args.request,
+      factorKind,
+      factorSecret32,
+      entropy: args.entropy,
+      continuation: { stage: 'admitted', admission: admission.value },
+      transport: args.transport,
+    });
+  }
+
+  async resumePreparedRecovery(
+    args: RouterAbEd25519YaoPreparedRecoveryInputV1,
+  ): Promise<RouterAbEd25519YaoRecoveryResultV1> {
+    const factorKind = args.factor.kind;
+    const consumedFactor = consumeOwnedFactorSecret(args.factor);
+    if (!consumedFactor.ok) {
+      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
+      return consumedFactor;
+    }
+    const factorSecret32 = consumedFactor.value;
+    const status = await readRouterAbEd25519YaoRecoveryStatusV1({
+      request: args.request,
+      transport: args.transport,
+    });
+    if (!status.ok) {
       factorSecret32.fill(0);
-      zeroizeActivationEntropy(entropy);
+      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
+      return status;
     }
-
-    try {
-      const executeRequest = parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(
-        JSON.parse(session.execute_request_json()),
-      );
-      if (!executeRequest.ok) {
-        return {
-          ok: false,
-          code: 'invalid_client_result',
-          status: 0,
-          message: executeRequest.message,
-        };
-      }
-      const executeResponse = await args.transport.send({
-        kind: 'recovery_execute',
-        path: ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
-        body: executeRequest.value,
-      });
-      if (!executeResponse.ok) return executeResponse;
-      const result = parseRouterAbEd25519YaoRecoveryActivationResultV1(executeResponse.value);
-      if (!result.ok) {
-        return { ok: false, code: 'invalid_router_response', status: 0, message: result.message };
-      }
-
-      const activated = session.complete(JSON.stringify(result.value));
-      try {
-        const activationRequest: RouterAbEd25519YaoRecoveryActivationRequestV1 = {
-          binding: result.value.binding,
-          public_receipt: result.value.public_receipt,
-        };
-        const activationResponse = await args.transport.send({
-          kind: 'recovery_activate',
-          path: ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
-          body: activationRequest,
-        });
-        if (!activationResponse.ok) {
-          activated.free();
-          return activationResponse;
-        }
-        const activation = parseRouterAbEd25519YaoRecoveryActivationReceiptV1(
-          activationResponse.value,
-        );
-        if (
-          !activation.ok ||
-          !recoveryActivationMatches(args.request, result.value, activation.value)
-        ) {
-          activated.free();
-          return {
-            ok: false,
-            code: 'invalid_router_response',
-            status: 0,
-            message: activation.ok
-              ? 'Router recovery activation does not match the verified result'
-              : activation.message,
-          };
-        }
-        const activeClient = createVerifiedActiveClient({
-          activated,
-          scope: args.request.scope,
-          applicationBinding: args.request.application_binding,
-          participantIds: args.request.participant_ids,
-          result: result.value,
-          activeCapabilityBinding: activation.value.active_capability_binding,
-        });
-        return { ok: true, activeClient, activation: activation.value };
-      } catch (error) {
-        activated.free();
-        throw error;
-      }
-    } catch (error) {
-      return {
-        ok: false,
-        code: 'invalid_client_result',
-        status: 0,
-        message: error instanceof Error ? error.message : String(error),
-      };
-    } finally {
-      session.free();
+    const continuation = recoveryContinuationFromStatus(args.request, status.status);
+    if (!continuation.ok) {
+      factorSecret32.fill(0);
+      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
+      return continuation;
     }
+    return continuePreparedRecovery({
+      request: args.request,
+      factorKind,
+      factorSecret32,
+      entropy: args.entropy,
+      continuation: continuation.value,
+      transport: args.transport,
+    });
   }
 
   async exportSeed(
@@ -1441,7 +1685,6 @@ export class RouterAbEd25519YaoClientV1 {
       body: buildRouterAbEd25519YaoExportAdmissionBodyV1({
         protocol: args.request,
         authorization: args.authorization,
-        authorizationIdentity: args.authorizationIdentity,
       }),
     });
     if (!admissionResponse.ok) {
@@ -1463,7 +1706,7 @@ export class RouterAbEd25519YaoClientV1 {
       };
     }
 
-    const entropy = createActivationEntropy();
+    const entropy = createRouterAbEd25519YaoActivationEntropyV1();
     let session: WasmExportSessionV1;
     try {
       session = createExportSession({
@@ -1483,7 +1726,7 @@ export class RouterAbEd25519YaoClientV1 {
       };
     } finally {
       factorSecret32.fill(0);
-      zeroizeActivationEntropy(entropy);
+      zeroizeRouterAbEd25519YaoActivationEntropyV1(entropy);
     }
 
     try {
@@ -1503,7 +1746,6 @@ export class RouterAbEd25519YaoClientV1 {
         path: ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
         body: {
           protocol: executeRequest.value,
-          authorizationIdentity: args.authorizationIdentity,
         },
       });
       if (!executeResponse.ok) return executeResponse;

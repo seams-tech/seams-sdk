@@ -1,10 +1,8 @@
 import {
   chainFamilyFromNetwork,
-  isEvmChainNetwork,
-  isTempoChainNetwork,
 } from '@/core/config/chains';
 import type { AccountId } from '@/core/types/accountIds';
-import type { SeamsChainConfig, SeamsChainNetwork } from '@/core/types/seams';
+import type { SeamsChainConfig } from '@/core/types/seams';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import type {
   EvmEip155ChainTarget,
@@ -18,8 +16,6 @@ export type {
   TempoChainTarget,
   ThresholdEcdsaChainTarget,
 } from '@/core/platform/types';
-
-export type BaseEcdsaWalletId = WalletId;
 
 export type NearAccountRef =
   | { kind: 'named'; accountId: AccountId }
@@ -38,16 +34,6 @@ export type EcdsaCommandSubject = {
 export type NearCommandSubject = {
   walletSession: WalletSessionRef;
   nearAccount: NearAccountRef;
-};
-
-export type ThresholdEcdsaSessionRecordKey = {
-  walletId: WalletId;
-  keyHandle: string;
-  authMethod: 'email_otp' | 'passkey';
-  curve: 'ecdsa';
-  chainTarget: ThresholdEcdsaChainTarget;
-  signingGrantId: string;
-  thresholdSessionId: string;
 };
 
 type BoundaryEcdsaChainFamily = 'evm' | 'tempo';
@@ -87,28 +73,21 @@ export function walletIdFromWalletProfile(args: { walletId: unknown }): WalletId
   return toWalletId(args.walletId);
 }
 
-export function walletIdFromSessionValue(value: unknown): WalletId {
-  if (typeof value === 'object' && value !== null && 'walletId' in value) {
-    return toWalletId((value as { walletId?: unknown }).walletId);
-  }
-  if (typeof value === 'object' && value !== null) {
-    throw new Error('[wallet-session] missing wallet id');
-  }
-  return toWalletId(value);
-}
-
 export function walletSessionRefFromSession(value: {
   walletId?: unknown;
   walletSessionUserId?: unknown;
   userId?: unknown;
 }): WalletSessionRef {
+  if (!('walletId' in value)) {
+    throw new Error('[wallet-session] missing wallet id');
+  }
   const walletSessionUserId =
     nonEmptyString(value.walletSessionUserId) || nonEmptyString(value.userId);
   if (!walletSessionUserId) {
     throw new Error('[wallet-session] missing wallet session user id');
   }
   return {
-    walletId: walletIdFromSessionValue(value),
+    walletId: toWalletId(value.walletId),
     walletSessionUserId,
   };
 }
@@ -230,48 +209,4 @@ export function thresholdEcdsaChainTargetFromConfiguredRequest(args: {
     chainId: explicitChainId,
     networkSlug: args.networkSlug,
   });
-}
-
-export function thresholdEcdsaChainTargetFromNetwork(args: {
-  network: SeamsChainNetwork;
-  chainId: unknown;
-}): ThresholdEcdsaChainTarget {
-  if (isTempoChainNetwork(args.network)) {
-    return thresholdEcdsaChainTargetFromChainFamily({
-      chain: 'tempo',
-      chainId: args.chainId,
-      networkSlug: args.network,
-    });
-  }
-  if (isEvmChainNetwork(args.network)) {
-    return thresholdEcdsaChainTargetFromChainFamily({
-      chain: 'evm',
-      chainId: args.chainId,
-      networkSlug: args.network,
-    });
-  }
-  throw new Error(`[threshold-ecdsa] ${args.network} is not an ECDSA chain target`);
-}
-
-function laneKeyPart(value: unknown): string {
-  return encodeURIComponent(requireNonEmptyString(value, 'ECDSA lane key part'));
-}
-
-export function thresholdEcdsaLaneKey(lane: ThresholdEcdsaSessionRecordKey): string {
-  return [
-    laneKeyPart(lane.walletId),
-    laneKeyPart(lane.keyHandle),
-    laneKeyPart(lane.authMethod),
-    'ecdsa',
-    laneKeyPart(thresholdEcdsaChainTargetKey(lane.chainTarget)),
-    laneKeyPart(lane.signingGrantId),
-    laneKeyPart(lane.thresholdSessionId),
-  ].join(':');
-}
-
-export function thresholdEcdsaSessionRecordKeysEqual(
-  left: ThresholdEcdsaSessionRecordKey,
-  right: ThresholdEcdsaSessionRecordKey,
-): boolean {
-  return thresholdEcdsaLaneKey(left) === thresholdEcdsaLaneKey(right);
 }

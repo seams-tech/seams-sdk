@@ -8,26 +8,28 @@ declare const getWarmSession: NoPromptWarmSessionDeps['getWarmSession'];
 declare const discoverPersistedSessionsForWallet: NonNullable<
   NoPromptWarmSessionDeps['discoverPersistedSessionsForWallet']
 >;
-declare const claimEcdsaPasskeyPrfFirst: NoPromptWarmSessionDeps['claimEcdsaPasskeyPrfFirst'];
-declare const reconnectWithWalletSessionAuth: NoPromptWarmSessionDeps['reconnectWithWalletSessionAuth'];
-declare const ecdsaSessions: NoPromptWarmSessionDeps['ecdsaSessions'];
-
 const noPromptDeps: NoPromptWarmSessionDeps = {
   getWarmSession,
   discoverPersistedSessionsForWallet,
-  claimEcdsaPasskeyPrfFirst,
-  reconnectWithWalletSessionAuth,
-  ecdsaSessions,
 };
 
 void noPromptDeps;
 
+// No-prompt reuse resolves warm material through the capability reader and the
+// durable sealed-session port alone: it holds no signing-session store and no
+// reconnect port, so it cannot re-provision material behind the user's back.
+const noPromptDepsWithSessionStore: NoPromptWarmSessionDeps = {
+  getWarmSession,
+  discoverPersistedSessionsForWallet,
+  // @ts-expect-error No-prompt reuse dependencies cannot carry a signing-session store.
+  ecdsaSessions: {},
+};
+
+void noPromptDepsWithSessionStore;
+
 const noPromptDepsWithTouchId: NoPromptWarmSessionDeps = {
   getWarmSession,
   discoverPersistedSessionsForWallet,
-  claimEcdsaPasskeyPrfFirst,
-  reconnectWithWalletSessionAuth,
-  ecdsaSessions,
   // @ts-expect-error No-prompt reuse dependencies cannot carry TouchID ports.
   touchIdPrompt: {},
 };
@@ -37,9 +39,6 @@ void noPromptDepsWithTouchId;
 const noPromptDepsWithFreshBootstrap: NoPromptWarmSessionDeps = {
   getWarmSession,
   discoverPersistedSessionsForWallet,
-  claimEcdsaPasskeyPrfFirst,
-  reconnectWithWalletSessionAuth,
-  ecdsaSessions,
   // @ts-expect-error No-prompt reuse dependencies cannot carry fresh bootstrap ports.
   freshBootstrap: {},
 };

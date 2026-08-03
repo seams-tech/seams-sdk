@@ -137,7 +137,7 @@ import {
   type DroppedReplacedAlertWindow,
   type NonceOutcomeMetricEvent,
 } from './nonceDiagnostics';
-import { normalizePositiveInteger, normalizeRequiredString } from './nonceUtils';
+import { normalizePositiveInteger, normalizeSessionStatusRequiredString } from './nonceUtils';
 
 const DEFAULT_NONCE_LEASE_TTL_MS = 120_000;
 const DEFAULT_SIGNED_NONCE_LEASE_TTL_MS = 30_000;
@@ -228,13 +228,13 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     operationId: SigningOperationId | string;
     operationFingerprint: SigningOperationFingerprint | string;
   }): NonceLeaseOperationInput => ({
-    leaseId: normalizeRequiredString(input.leaseId, 'leaseId'),
+    leaseId: normalizeSessionStatusRequiredString(input.leaseId, 'leaseId'),
     operationId: SigningSessionIds.signingOperation(input.operationId),
     operationFingerprint: SigningSessionIds.signingOperationFingerprint(input.operationFingerprint),
   });
 
   const readLease = (input: NonceLeaseOperationInput): NonceLease => {
-    const leaseId = normalizeRequiredString(input.leaseId, 'leaseId');
+    const leaseId = normalizeSessionStatusRequiredString(input.leaseId, 'leaseId');
     const lease = leases.get(leaseId);
     if (!lease) {
       throw new Error('[NonceCoordinator] nonce lease not found');

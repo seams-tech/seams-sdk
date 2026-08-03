@@ -1,6 +1,6 @@
 import { normalizeAuthenticationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import type { ConfirmIntentDigestSigningOperationResult } from '../shared/signingConfirmation';
-import type { EvmFamilyPasskeyReconnectPlan, EvmFamilyPreparedStepUpAuth } from './requireEvmFamilyStepUpAuth';
+import type { EvmFamilyPreparedStepUpAuth } from './requireEvmFamilyStepUpAuth';
 import type {
   EmailOtpConfirmPrompt,
   EmailOtpStepUpAuthorization,
@@ -18,10 +18,7 @@ export type EvmFamilyEcdsaEmailOtpStepUpAuthorization = EmailOtpStepUpAuthorizat
 >;
 
 export type EvmFamilyEcdsaPasskeyStepUpAuthorization = PasskeyStepUpAuthorization<
-  Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>,
-  {
-    plannedPasskeyReconnect?: EvmFamilyPasskeyReconnectPlan;
-  }
+  Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>
 >;
 
 export type EvmFamilyEcdsaStepUpAuthorization =
@@ -35,7 +32,7 @@ export function buildEvmFamilyWarmSessionStepUpAuthorization(args: {
   return {
     kind: 'warm_session',
     signingAuthPlan: args.signingAuthPlan,
-    sessionId: args.signingAuthPlan.sessionId,
+    thresholdSessionId: args.signingAuthPlan.thresholdSessionId,
     expiresAtMs: args.signingAuthPlan.expiresAtMs,
     remainingUses: args.signingAuthPlan.remainingUses,
   };
@@ -65,7 +62,6 @@ export function buildEvmFamilyEmailOtpStepUpAuthorization(args: {
 export function buildEvmFamilyPasskeyStepUpAuthorization(args: {
   signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
   confirmation: Pick<ConfirmIntentDigestSigningOperationResult, 'credential'>;
-  plannedPasskeyReconnect?: EvmFamilyPasskeyReconnectPlan;
 }): EvmFamilyEcdsaPasskeyStepUpAuthorization {
   if (!args.confirmation.credential) {
     throw new Error(
@@ -76,9 +72,6 @@ export function buildEvmFamilyPasskeyStepUpAuthorization(args: {
     kind: 'passkey',
     signingAuthPlan: args.signingAuthPlan,
     credential: normalizeAuthenticationCredential(args.confirmation.credential),
-    ...(args.plannedPasskeyReconnect
-      ? { plannedPasskeyReconnect: args.plannedPasskeyReconnect }
-      : {}),
   };
 }
 
@@ -103,9 +96,6 @@ export function buildEvmFamilyEcdsaStepUpAuthorization(args: {
   return buildEvmFamilyPasskeyStepUpAuthorization({
     signingAuthPlan: args.prepared.confirmationAuthPayload.signingAuthPlan,
     confirmation: args.confirmation,
-    ...(args.prepared.plannedPasskeyReconnect
-      ? { plannedPasskeyReconnect: args.prepared.plannedPasskeyReconnect }
-      : {}),
   });
 }
 

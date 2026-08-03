@@ -1,5 +1,13 @@
 import { isPlainObject } from '@shared/utils/validation';
-import { parseRouterAbEcdsaDerivationNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  parseRouterAbEcdsaDerivationNormalSigningScopeV1,
+  parseRouterAbEcdsaOperationStepUpPreparationV1,
+  type RouterAbEcdsaOperationStepUpPreparationV1Wire,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  parseRouterAbNormalSigningAuthorization,
+  type RouterAbNormalSigningAuthorizationWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   RouterAbEcdsaDerivationPoolFillInitRequest,
   RouterAbEcdsaDerivationPoolFillStepRequest,
@@ -22,6 +30,8 @@ const POOL_FILL_INIT_KEYS = [
   'count',
   'requestTag',
   'poolFill',
+  'authorization',
+  'operation',
 ] as const;
 const POOL_FILL_STEP_KEYS = [
   'sessionKind',
@@ -29,8 +39,50 @@ const POOL_FILL_STEP_KEYS = [
   'stage',
   'outgoingMessagesB64u',
   'requestTag',
+  'authorization',
+  'operation',
 ] as const;
 const POOL_FILL_ENVELOPE_KEYS = ['kind', 'scope', 'expiresAtMs'] as const;
+
+export type RouterAbEcdsaPoolFillAuthorization =
+  | {
+      readonly authorization: Extract<
+        RouterAbNormalSigningAuthorizationWire,
+        { readonly kind: 'reusable_wallet_session' }
+      >;
+      readonly operation?: never;
+    }
+  | {
+      readonly authorization: Extract<
+        RouterAbNormalSigningAuthorizationWire,
+        { readonly kind: 'operation_step_up' }
+      >;
+      readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+    };
+
+export type RouterAbEcdsaPoolFillInitRouteRequest =
+  RouterAbEcdsaDerivationPoolFillInitRequest & RouterAbEcdsaPoolFillAuthorization;
+
+export type RouterAbEcdsaPoolFillStepRouteRequest =
+  RouterAbEcdsaDerivationPoolFillStepRequest & RouterAbEcdsaPoolFillAuthorization;
+
+function parsePoolFillAuthorization(
+  raw: Record<string, unknown>,
+): RouterAbEcdsaPoolFillAuthorization {
+  const authorization = parseRouterAbNormalSigningAuthorization(raw.authorization);
+  switch (authorization.kind) {
+    case 'reusable_wallet_session':
+      if (raw.operation !== undefined) {
+        throw new Error('Reusable Wallet Session pool fill must not carry operation');
+      }
+      return { authorization };
+    case 'operation_step_up':
+      return {
+        authorization,
+        operation: parseRouterAbEcdsaOperationStepUpPreparationV1(raw.operation),
+      };
+  }
+}
 
 function invalidThresholdEcdsaBody(message: string): ThresholdEcdsaRouteParseResult<never> {
   return {
@@ -74,7 +126,7 @@ function hasNonStringValue(values: unknown[]): boolean {
 
 export function parseRouterAbEcdsaDerivationPoolFillInitRouteRequest(
   raw: unknown,
-): ThresholdEcdsaRouteParseResult<RouterAbEcdsaDerivationPoolFillInitRequest> {
+): ThresholdEcdsaRouteParseResult<RouterAbEcdsaPoolFillInitRouteRequest> {
   if (!isPlainObject(raw)) {
     return invalidThresholdEcdsaBody('Expected JSON object body');
   }
@@ -112,6 +164,14 @@ export function parseRouterAbEcdsaDerivationPoolFillInitRouteRequest(
     return invalidThresholdEcdsaBody('count must be a number');
   }
   const count = typeof raw.count === 'number' ? raw.count : undefined;
+  let routeAuthorization: RouterAbEcdsaPoolFillAuthorization;
+  try {
+    routeAuthorization = parsePoolFillAuthorization(raw);
+  } catch (error: unknown) {
+    return invalidThresholdEcdsaBody(
+      error instanceof Error ? error.message : 'Pool-fill authorization is invalid',
+    );
+  }
   return {
     ok: true,
     request: {
@@ -126,13 +186,14 @@ export function parseRouterAbEcdsaDerivationPoolFillInitRouteRequest(
         scope,
         expiresAtMs: raw.poolFill.expiresAtMs,
       },
+      ...routeAuthorization,
     },
   };
 }
 
 export function parseRouterAbEcdsaDerivationPoolFillStepRouteRequest(
   raw: unknown,
-): ThresholdEcdsaRouteParseResult<RouterAbEcdsaDerivationPoolFillStepRequest> {
+): ThresholdEcdsaRouteParseResult<RouterAbEcdsaPoolFillStepRouteRequest> {
   if (!isPlainObject(raw)) {
     return invalidThresholdEcdsaBody('Expected JSON object body');
   }
@@ -162,6 +223,14 @@ export function parseRouterAbEcdsaDerivationPoolFillStepRouteRequest(
   const outgoingMessagesB64u = Array.isArray(raw.outgoingMessagesB64u)
     ? raw.outgoingMessagesB64u.filter(isStringValue)
     : undefined;
+  let routeAuthorization: RouterAbEcdsaPoolFillAuthorization;
+  try {
+    routeAuthorization = parsePoolFillAuthorization(raw);
+  } catch (error: unknown) {
+    return invalidThresholdEcdsaBody(
+      error instanceof Error ? error.message : 'Pool-fill authorization is invalid',
+    );
+  }
   return {
     ok: true,
     request: {
@@ -169,6 +238,7 @@ export function parseRouterAbEcdsaDerivationPoolFillStepRouteRequest(
       stage: raw.stage,
       ...(outgoingMessagesB64u ? { outgoingMessagesB64u } : {}),
       ...(optionalStringField(raw, 'requestTag') ? { requestTag: optionalStringField(raw, 'requestTag') } : {}),
+      ...routeAuthorization,
     },
   };
 }

@@ -43,7 +43,6 @@ import type {
   GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
   WalletSession,
-  LoginState,
   RegistrationResult,
   NearProvisioningState,
   SignAndSendDelegateActionResult,
@@ -79,7 +78,6 @@ import {
 } from '@/core/types/signer-worker';
 import type { SignNEP413MessageParams, SignNEP413MessageResult } from '@/SeamsWeb/operations/near';
 import { toError } from '@shared/utils/errors';
-import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBindings';
 import type { WalletUIRegistry } from './host/lit-ui/iframe-lit-element-registry';
 import type { DelegateActionInput, SignedDelegate } from '@/core/types/delegate';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
@@ -120,6 +118,13 @@ import {
   resolvePasskeyRegistrationAccountProvisioning,
 } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 import { createServerAllocatedWalletId } from '@shared/utils/registrationIntent';
+import {
+  CAPABILITY_KINDS,
+  EVM_ECDSA_MPC_OPERATION_KINDS,
+  NEAR_ED25519_MPC_OPERATION_KINDS,
+  type NearEd25519MpcOperationKind,
+} from '@shared/authorization/capabilityKinds';
+import { requireBrowserCapabilityOperation } from '@/SeamsWeb/publicApi/capabilitySelection';
 
 function resolveRuntimeAppearance(
   current: AppearanceConfig,
@@ -137,6 +142,50 @@ function resolveRuntimeAppearance(
       fallback: current.palette,
     }),
   };
+}
+
+function requireIframeNearSigningCapability(
+  configs: SeamsConfigsReadonly,
+  operationKind: NearEd25519MpcOperationKind,
+): void {
+  requireBrowserCapabilityOperation(configs, {
+    capabilityKind: CAPABILITY_KINDS.nearEd25519MpcSigning,
+    operationKind,
+  });
+}
+
+function requireIframeEvmSigningCapability(
+  configs: SeamsConfigsReadonly,
+  chainTarget: ThresholdEcdsaChainTarget,
+): void {
+  requireBrowserCapabilityOperation(configs, {
+    capabilityKind: CAPABILITY_KINDS.evmEcdsaMpcSigning,
+    operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
+    chainTarget,
+  });
+}
+
+function requireIframeKeyExportCapability(
+  configs: SeamsConfigsReadonly,
+  input:
+    | Parameters<KeyExportCapability['resolveExactKeyExportLane']>[0]
+    | Parameters<KeyExportCapability['exportKeypairWithUI']>[0],
+): void {
+  switch (input.kind) {
+    case 'ed25519':
+      requireBrowserCapabilityOperation(configs, {
+        capabilityKind: CAPABILITY_KINDS.nearEd25519MpcSigning,
+        operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.exportKey,
+      });
+      return;
+    case 'ecdsa':
+      requireBrowserCapabilityOperation(configs, {
+        capabilityKind: CAPABILITY_KINDS.evmEcdsaMpcSigning,
+        operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.exportKey,
+        chainTarget: input.chainTarget,
+      });
+      return;
+  }
 }
 
 function deliverNearProvisioningStateChanged(
@@ -253,7 +302,7 @@ export class SeamsWebIframe {
       routerAb,
       routerAbEcdsaDerivationPresignaturePool,
       provisioningDefaults,
-      // relayer: configs.network.relayer,
+      relayer: this.configs.network.relayer,
       rpIdOverride: this.configs.wallet.iframe?.rpIdOverride,
       authenticatorOptions: cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
       appearance: this.appearance,
@@ -292,8 +341,6 @@ export class SeamsWebIframe {
       requestEmailOtpEnrollmentChallenge: async (args) =>
         await this.router.requestEmailOtpEnrollmentChallenge(args),
       enrollEmailOtp: async (args) => await this.router.enrollEmailOtp(args),
-      enrollAndLoginWithEmailOtpEcdsaCapability: async (args) =>
-        await this.router.enrollAndLoginWithEmailOtpEcdsaCapability(args),
     };
     this.preferences = {
       setCurrentWallet: (walletId) => {
@@ -320,7 +367,11 @@ export class SeamsWebIframe {
 
     this.near = {
       registerNearWallet: async (args) => {
-        const rpId = this.resolveRegistrationRpId('near.registerNearWallet');
+        if (!args.authMethod) {
+          throw new Error(
+            '[SeamsWebIframe][near] registerNearWallet requires an explicit authMethod',
+          );
+        }
         const accountProvisioning =
           args.accountProvisioning?.kind === 'sponsored_named_account'
             ? args.accountProvisioning
@@ -343,7 +394,7 @@ export class SeamsWebIframe {
         }
         return await this.registration.registerWallet({
           wallet,
-          authMethod: args.authMethod || { kind: 'passkey' as const, rpId },
+          authMethod: args.authMethod,
           signerSelection: buildNearWalletRegistrationSignerSetSelection({
             configs: this.configs,
             accountProvisioning,
@@ -395,10 +446,14 @@ export class SeamsWebIframe {
         if (!args.participantIds.length) {
           throw new Error('[SeamsWeb][evm] registerEvmWallet requires participant ids');
         }
-        const rpId = this.resolveRegistrationRpId('evm.registerEvmWallet');
+        if (!args.authMethod) {
+          throw new Error(
+            '[SeamsWebIframe][evm] registerEvmWallet requires an explicit authMethod',
+          );
+        }
         return await this.registration.registerWallet({
           wallet: { kind: 'server_allocated' },
-          authMethod: args.authMethod || { kind: 'passkey' as const, rpId },
+          authMethod: args.authMethod,
           signerSelection: {
             kind: 'signer_set',
             signers: [
@@ -595,6 +650,7 @@ export class SeamsWebIframe {
       );
     }
     const { wallet, nearAccountProvisioning, ...registrationOptions } = options || {};
+    const rpId = this.resolveRegistrationRpId('registration.registerPasskey');
     const provisioningPreference =
       nearAccountProvisioning ?? this.configs.registration.nearAccountProvisioning;
     const resolvedWallet =
@@ -616,12 +672,14 @@ export class SeamsWebIframe {
       return await this.near.registerNearWallet({
         wallet: resolvedWallet,
         accountProvisioning,
+        authMethod: { kind: 'passkey', rpId },
         options: registrationOptions,
       });
     }
     return await this.near.registerNearWallet({
       ...(resolvedWallet.kind === 'provided' ? { wallet: resolvedWallet } : {}),
       accountProvisioning,
+      authMethod: { kind: 'passkey', rpId },
       options: registrationOptions,
     });
   }
@@ -699,24 +757,8 @@ export class SeamsWebIframe {
   }
 
   private async getWalletSessionDomain(walletId?: string): Promise<WalletSession> {
-    if (!this.router.isReady()) {
-      const login: LoginState = {
-        isLoggedIn: false,
-        walletId: walletId ? toWalletId(walletId) : null,
-        nearAccountId: null,
-        publicKey: null,
-        userData: null,
-        currentAuthMethod: buildNoCurrentWalletAuthMethod(),
-        authMethods: [],
-      };
-      return {
-        login,
-        signingSession: null,
-        currentAuthMethod: buildNoCurrentWalletAuthMethod(),
-        authMethods: [],
-      };
-    }
-    return await this.router.getWalletSession(walletId);
+    const router = await this.requireRouterReady();
+    return await router.getWalletSession(walletId);
   }
 
   private resolveNearSigningWalletId(args: { walletSession: WalletSessionRef }): string {
@@ -758,6 +800,10 @@ export class SeamsWebIframe {
     transaction: TransactionInput;
     options: SignTransactionHooksOptions;
   }): Promise<SignTransactionResult> {
+    requireIframeNearSigningCapability(
+      this.configs,
+      NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
+    );
     try {
       const walletId = this.resolveNearSigningWalletId(args);
       // Route transaction signing to iframe
@@ -793,6 +839,10 @@ export class SeamsWebIframe {
     params: SignNEP413MessageParams;
     options: SignNEP413HooksOptions;
   }): Promise<SignNEP413MessageResult> {
+    requireIframeNearSigningCapability(
+      this.configs,
+      NEAR_ED25519_MPC_OPERATION_KINDS.signNep413Message,
+    );
     try {
       const walletId = this.resolveNearSigningWalletId(args);
       const res = await this.router.signNep413Message({
@@ -824,6 +874,10 @@ export class SeamsWebIframe {
     delegate: DelegateActionInput;
     options: DelegateActionHooksOptions;
   }): Promise<SignDelegateActionResult> {
+    requireIframeNearSigningCapability(
+      this.configs,
+      NEAR_ED25519_MPC_OPERATION_KINDS.signDelegateAction,
+    );
     const options = args.options;
     try {
       await this.requireRouterReady();
@@ -949,6 +1003,7 @@ export class SeamsWebIframe {
   }
 
   private async signTempoDomain(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult> {
+    requireIframeEvmSigningCapability(this.configs, args.chainTarget);
     await this.requireRouterReady();
     return await this.router.signTempo({
       walletSession: args.walletSession,
@@ -1171,6 +1226,10 @@ export class SeamsWebIframe {
     actionArgs: ActionArgs | ActionArgs[];
     options: ActionHooksOptions;
   }): Promise<ActionResult> {
+    requireIframeNearSigningCapability(
+      this.configs,
+      NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
+    );
     try {
       const walletId = this.resolveNearSigningWalletId(args);
       const res = await this.router.executeAction({
@@ -1221,6 +1280,7 @@ export class SeamsWebIframe {
   private async exportKeypairWithUIDomain(
     input: Parameters<KeyExportCapability['exportKeypairWithUI']>[0],
   ): Promise<void> {
+    requireIframeKeyExportCapability(this.configs, input);
     await this.requireRouterReady();
     return this.router.exportKeypairWithUI(input);
   }
@@ -1228,6 +1288,7 @@ export class SeamsWebIframe {
   private async resolveExactKeyExportLaneDomain(
     input: Parameters<KeyExportCapability['resolveExactKeyExportLane']>[0],
   ): Promise<Awaited<ReturnType<KeyExportCapability['resolveExactKeyExportLane']>>> {
+    requireIframeKeyExportCapability(this.configs, input);
     await this.requireRouterReady();
     return await this.router.resolveExactKeyExportLane(input);
   }
@@ -1239,6 +1300,10 @@ export class SeamsWebIframe {
     actions: ActionArgs[];
     options: SignAndSendTransactionHooksOptions;
   }): Promise<ActionResult> {
+    requireIframeNearSigningCapability(
+      this.configs,
+      NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
+    );
     const options = args.options;
     try {
       const walletId = this.resolveNearSigningWalletId(args);

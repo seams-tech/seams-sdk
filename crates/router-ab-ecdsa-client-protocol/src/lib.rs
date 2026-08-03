@@ -44,6 +44,7 @@ pub use material_possession::{
 #[cfg(feature = "hpke")]
 pub use post_registration::{
     build_ecdsa_post_registration_request_v1, EcdsaPostRegistrationCeremonyV1,
+    EcdsaMaterialActivationRefKindV1, EcdsaMaterialActivationRefV1,
     EcdsaPostRegistrationHeaderInputV1, EcdsaPostRegistrationHeaderV1,
     EcdsaPostRegistrationLifecycleV1, EcdsaPostRegistrationLifecycleWireV1,
     EcdsaPostRegistrationOperationV1, EcdsaPostRegistrationRecipientV1,

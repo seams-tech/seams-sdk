@@ -3505,8 +3505,8 @@ mod tests {
         Ed25519YaoCeremonyBindingV1, Ed25519YaoEncryptedPackageV1, Ed25519YaoInputPairBindingV1,
         Ed25519YaoPackageKindV1, Ed25519YaoRoleReadinessReceiptV1, Ed25519YaoRoleSignatureSchemeV1,
         Ed25519YaoRoleSignatureV1, Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1,
-        ExpensiveWorkKindV1, LifecycleScopeV1, PublicDigest32, RootShareEpoch,
-        RouterEd25519YaoExecuteFailureCodeV1,
+        ExpensiveWorkKindV1, LifecycleScopeV1, MpcMaterialActivationRefV1, PublicDigest32,
+        RootShareEpoch, RouterEd25519YaoExecuteFailureCodeV1,
     };
     use router_ab_ed25519_yao::Ed25519YaoActivationRoleExecutionV1;
 
@@ -3550,6 +3550,15 @@ mod tests {
             Ed25519YaoOperationV1::Registration,
             Ed25519YaoSessionIdV1::new([1; 32]).expect("session"),
             Ed25519YaoStableKeyContextBindingV1::new([2; 32]),
+            MpcMaterialActivationRefV1::new(
+                "activation",
+                "near-ed25519-yao",
+                "account",
+                "key-binding",
+                "lifecycle-binding",
+                "server",
+            )
+            .expect("material activation"),
         )
         .expect("binding");
         let pair = Ed25519YaoInputPairBindingV1::from_ceremony_binding(

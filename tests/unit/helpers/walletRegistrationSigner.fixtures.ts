@@ -24,6 +24,8 @@ function hexAddressToBase64Url(address: string): string {
 function fixtureRegistrationEcdsaPublicCapability(args: {
   walletId: string;
   ecdsaThresholdKeyId: string;
+  materialActivationId?: string;
+  materialActivationCapability?: string;
 }): RouterAbEcdsaDerivationPublicCapabilityV1 {
   return parseRouterAbEcdsaDerivationPublicCapabilityV1({
     kind: 'router_ab_ecdsa_derivation_public_capability_v1',
@@ -38,6 +40,15 @@ function fixtureRegistrationEcdsaPublicCapability(args: {
       ethereum_address20_b64u: hexAddressToBase64Url(FIXTURE_THRESHOLD_OWNER_ADDRESS),
       client_share_retry_counter: 0,
       server_share_retry_counter: 0,
+    },
+    material_activation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: args.materialActivationId ?? 'registration-activation-ref',
+      capability: args.materialActivationCapability ?? 'registration-capability',
+      material_owner: args.walletId,
+      key_binding: args.ecdsaThresholdKeyId,
+      lifecycle_binding: 'registration-lifecycle',
+      signing_worker: 'signing-worker-registration-signer-fixture',
     },
     signer_set: {
       signer_set_id: 'signer-set-registration-signer-fixture',
@@ -82,6 +93,9 @@ function fixtureRegistrationEcdsaPublicCapability(args: {
 export type WalletEcdsaSignerRecordSeedArgs = {
   walletId: WalletId;
   now: number;
+  keyHandle?: string;
+  materialActivationId?: string;
+  materialActivationCapability?: string;
   walletKeyOverrides?: Partial<Omit<WalletRegistrationEcdsaWalletKey, 'walletId' | 'keyScope'>>;
 };
 
@@ -99,7 +113,7 @@ export function createWalletEcdsaSignerRecord(
     chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 8453 },
     walletId: args.walletId,
     evmFamilySigningKeySlotId: 'ecdsa-slot-1',
-    keyHandle: 'ecdsa-key-handle-1',
+    keyHandle: args.keyHandle ?? 'ecdsa-key-handle-1',
     ecdsaThresholdKeyId,
     signingRootId: 'project-a:env-a',
     signingRootVersion: 'root-v1',
@@ -117,6 +131,8 @@ export function createWalletEcdsaSignerRecord(
     publicCapability: fixtureRegistrationEcdsaPublicCapability({
       walletId: String(args.walletId),
       ecdsaThresholdKeyId,
+      materialActivationId: args.materialActivationId,
+      materialActivationCapability: args.materialActivationCapability,
     }),
     ...args.walletKeyOverrides,
   };

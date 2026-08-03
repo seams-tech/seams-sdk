@@ -55,7 +55,9 @@ import type {
 import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { RegistrationAccountLifecycleDeps } from '../../interfaces/operationDeps';
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
-import type { EcdsaRoleLocalDurableMaterialRef } from '../../session/keyMaterialBrands';
+import type {
+  EcdsaRoleLocalPersistedMaterialRef,
+} from '../../session/keyMaterialBrands';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
@@ -153,7 +155,7 @@ export type StoreWalletEcdsaWalletKey = {
   relayerVerifyingShareB64u: string;
   participantIds: readonly [number, number];
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
-  roleLocalDurableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+  roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
   ecdsaRoleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
 };
 
@@ -1593,10 +1595,6 @@ function prepareWalletEcdsaSignerActivations(
       walletKey.signingRootVersion,
       'wallet key signingRootVersion',
     );
-    const evmFamilySigningKeySlotId = requireStoreWalletString(
-      walletKey.evmFamilySigningKeySlotId,
-      'wallet key evmFamilySigningKeySlotId',
-    );
     const relayerKeyId = requireStoreWalletString(
       walletKey.relayerKeyId,
       'wallet key relayerKeyId',
@@ -1640,7 +1638,6 @@ function prepareWalletEcdsaSignerActivations(
             keyScope: walletKey.keyScope,
             keyHandle,
             walletId: walletId,
-            evmFamilySigningKeySlotId,
             ecdsaThresholdKeyId,
             signingRootId,
             signingRootVersion,
@@ -1650,7 +1647,7 @@ function prepareWalletEcdsaSignerActivations(
               'wallet key relayerVerifyingShareB64u',
             ),
             publicCapability: walletKey.publicCapability,
-            roleLocalDurableMaterialRef: walletKey.roleLocalDurableMaterialRef,
+            roleLocalMaterialRef: walletKey.roleLocalMaterialRef,
             ecdsaRoleLocalPublicFacts: walletKey.ecdsaRoleLocalPublicFacts,
             thresholdEcdsaPublicKeyB64u,
             participantIds,
@@ -1661,7 +1658,6 @@ function prepareWalletEcdsaSignerActivations(
             },
             sharedEvmFamilyKey: {
               walletId: walletId,
-              evmFamilySigningKeySlotId,
               keyScope: walletKey.keyScope,
               keyHandle,
               ecdsaThresholdKeyId,

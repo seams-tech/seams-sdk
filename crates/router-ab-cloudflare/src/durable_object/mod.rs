@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use router_ab_core::{
-    ActiveSigningWorkerStateV1, Ed25519YaoCeremonyBindingV1,
+    ActiveSigningWorkerStateV1, Ed25519YaoCeremonyBindingV1, MpcMaterialActivationRefV1,
     NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningScopeV1, PublicDigest32, Role,
     RootShareEpoch, RouterAbEcdsaDerivationNormalSigningScopeV1,
 };
@@ -13,7 +13,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{
     cloudflare_signing_worker_recipient_proof_bundle_activation_digest_v1, require_non_empty,
-    require_non_empty_vec, require_positive_ms, CloudflareServerOutputMaterialRecordV1,
+    require_positive_ms, CloudflareServerOutputMaterialRecordV1,
     CloudflareSigningWorkerEcdsaPoolCommandV1, CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1,
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
 };
@@ -55,298 +55,6 @@ impl worker::DurableObject for RouterAbSigningWorkerPresignSessionDurableObject 
             &self.ecdsa_presign_sessions,
         )
         .await
-    }
-}
-
-/// Curve branch consuming a Wallet Session signing budget.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CloudflareRouterWalletBudgetCurveV1 {
-    /// NEAR/Ed25519 normal signing.
-    Ed25519,
-    /// Router A/B ECDSA derivation EVM-family normal signing.
-    #[serde(rename = "ecdsa")]
-    RouterAbEcdsaDerivation,
-}
-
-/// Signer binding authorized by one Wallet Session budget grant.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareRouterWalletBudgetSignerBindingV1 {
-    /// Curve branch authorized for this budget.
-    pub curve: CloudflareRouterWalletBudgetCurveV1,
-    /// Threshold session or active-state session id.
-    pub threshold_session_id: String,
-    /// SigningWorker id authorized to consume the budget.
-    pub signing_worker_id: String,
-}
-
-impl CloudflareRouterWalletBudgetSignerBindingV1 {
-    /// Creates a validated signer binding.
-    pub fn new(
-        curve: CloudflareRouterWalletBudgetCurveV1,
-        threshold_session_id: impl Into<String>,
-        signing_worker_id: impl Into<String>,
-    ) -> RouterAbProtocolResult<Self> {
-        let binding = Self {
-            curve,
-            threshold_session_id: threshold_session_id.into(),
-            signing_worker_id: signing_worker_id.into(),
-        };
-        binding.validate()?;
-        Ok(binding)
-    }
-
-    /// Validates signer binding fields.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty(
-            "wallet budget threshold_session_id",
-            &self.threshold_session_id,
-        )?;
-        require_non_empty("wallet budget signing_worker_id", &self.signing_worker_id)
-    }
-}
-
-/// Create-or-reuse request for a Wallet Session signing budget grant.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareRouterWalletBudgetPutGrantRequestV1 {
-    /// Wallet Session signing grant id.
-    pub signing_grant_id: String,
-    /// Wallet/account id.
-    pub wallet_id: String,
-    /// Relying party id.
-    pub rp_id: String,
-    /// Curve/session/worker bindings allowed to consume this grant.
-    pub authorized_signers: Vec<CloudflareRouterWalletBudgetSignerBindingV1>,
-    /// Initial signature uses for this Wallet Session.
-    pub initial_signature_uses: u32,
-    /// Grant expiry in Unix milliseconds.
-    pub expires_at_ms: u64,
-    /// JWT id or issuer-side idempotency key.
-    pub issuer_jwt_id: String,
-    /// Current Worker time in Unix milliseconds.
-    pub now_unix_ms: u64,
-}
-
-impl CloudflareRouterWalletBudgetPutGrantRequestV1 {
-    /// Validates grant issuance fields.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("wallet budget signing_grant_id", &self.signing_grant_id)?;
-        require_non_empty("wallet budget wallet_id", &self.wallet_id)?;
-        require_non_empty("wallet budget rp_id", &self.rp_id)?;
-        require_non_empty("wallet budget issuer_jwt_id", &self.issuer_jwt_id)?;
-        if self.initial_signature_uses == 0 {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "wallet budget initial_signature_uses must be greater than zero",
-            ));
-        }
-        require_positive_ms("wallet budget expires_at_ms", self.expires_at_ms)?;
-        require_positive_ms("wallet budget now_unix_ms", self.now_unix_ms)?;
-        if self.now_unix_ms >= self.expires_at_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ExpiredLocalRequest,
-                "wallet budget grant is already expired",
-            ));
-        }
-        require_non_empty_vec("wallet budget authorized_signers", &self.authorized_signers)?;
-        for signer in &self.authorized_signers {
-            signer.validate()?;
-        }
-        Ok(())
-    }
-}
-
-/// Reserve request for one Wallet Session signing operation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareRouterWalletBudgetReserveRequestV1 {
-    /// Wallet Session signing grant id.
-    pub signing_grant_id: String,
-    /// Curve branch consuming the budget.
-    pub curve: CloudflareRouterWalletBudgetCurveV1,
-    /// Threshold session or active-state session id.
-    pub threshold_session_id: String,
-    /// SigningWorker id consuming the budget.
-    pub signing_worker_id: String,
-    /// Canonical signing operation id independent of transport request id.
-    pub operation_id: String,
-    /// Canonical operation request digest.
-    pub request_digest: PublicDigest32,
-    /// Signature uses consumed by this operation.
-    pub signature_uses: u32,
-    /// Reservation expiry in Unix milliseconds.
-    pub expires_at_ms: u64,
-    /// Current Worker time in Unix milliseconds.
-    pub now_unix_ms: u64,
-}
-
-impl CloudflareRouterWalletBudgetReserveRequestV1 {
-    /// Validates reserve fields.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("wallet budget signing_grant_id", &self.signing_grant_id)?;
-        require_non_empty(
-            "wallet budget threshold_session_id",
-            &self.threshold_session_id,
-        )?;
-        require_non_empty("wallet budget signing_worker_id", &self.signing_worker_id)?;
-        require_non_empty("wallet budget operation_id", &self.operation_id)?;
-        if self.signature_uses == 0 {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "wallet budget signature_uses must be greater than zero",
-            ));
-        }
-        require_positive_ms(
-            "wallet budget reservation expires_at_ms",
-            self.expires_at_ms,
-        )?;
-        require_positive_ms("wallet budget reservation now_unix_ms", self.now_unix_ms)?;
-        if self.now_unix_ms >= self.expires_at_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ExpiredLocalRequest,
-                "wallet budget reservation is already expired",
-            ));
-        }
-        Ok(())
-    }
-}
-
-/// Identity for validating or committing an existing budget reservation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareRouterWalletBudgetReservationIdentityV1 {
-    /// Wallet Session signing grant id.
-    pub signing_grant_id: String,
-    /// Reservation id returned by prepare.
-    pub reservation_id: String,
-    /// SigningWorker id consuming the budget.
-    pub signing_worker_id: String,
-    /// Canonical signing operation id.
-    pub operation_id: String,
-    /// Canonical operation request digest.
-    pub request_digest: PublicDigest32,
-    /// Current Worker time in Unix milliseconds.
-    pub now_unix_ms: u64,
-}
-
-impl CloudflareRouterWalletBudgetReservationIdentityV1 {
-    /// Creates a validated reservation identity.
-    pub fn new(
-        signing_grant_id: impl Into<String>,
-        reservation_id: impl Into<String>,
-        signing_worker_id: impl Into<String>,
-        operation_id: impl Into<String>,
-        request_digest: PublicDigest32,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<Self> {
-        let identity = Self {
-            signing_grant_id: signing_grant_id.into(),
-            reservation_id: reservation_id.into(),
-            signing_worker_id: signing_worker_id.into(),
-            operation_id: operation_id.into(),
-            request_digest,
-            now_unix_ms,
-        };
-        identity.validate()?;
-        Ok(identity)
-    }
-
-    /// Validates identity fields.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("wallet budget signing_grant_id", &self.signing_grant_id)?;
-        require_non_empty("wallet budget reservation_id", &self.reservation_id)?;
-        require_non_empty("wallet budget signing_worker_id", &self.signing_worker_id)?;
-        require_non_empty("wallet budget operation_id", &self.operation_id)?;
-        require_positive_ms("wallet budget now_unix_ms", self.now_unix_ms)
-    }
-}
-
-/// Release request for an uncommitted Wallet Session budget reservation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareRouterWalletBudgetReleaseRequestV1 {
-    /// Wallet Session signing grant id.
-    pub signing_grant_id: String,
-    /// Reservation id to release.
-    pub reservation_id: String,
-    /// SigningWorker id that owns the reservation.
-    pub signing_worker_id: String,
-    /// Canonical signing operation id.
-    pub operation_id: String,
-    /// Canonical operation request digest.
-    pub request_digest: PublicDigest32,
-    /// Current Worker time in Unix milliseconds.
-    pub now_unix_ms: u64,
-}
-
-impl CloudflareRouterWalletBudgetReleaseRequestV1 {
-    /// Validates release fields.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("wallet budget signing_grant_id", &self.signing_grant_id)?;
-        require_non_empty("wallet budget reservation_id", &self.reservation_id)?;
-        require_non_empty("wallet budget signing_worker_id", &self.signing_worker_id)?;
-        require_non_empty("wallet budget operation_id", &self.operation_id)?;
-        require_positive_ms("wallet budget now_unix_ms", self.now_unix_ms)
-    }
-}
-
-/// Status request for one Wallet Session signing budget grant.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareRouterWalletBudgetStatusRequestV1 {
-    /// Wallet Session signing grant id.
-    pub signing_grant_id: String,
-    /// Current Worker time in Unix milliseconds.
-    pub now_unix_ms: u64,
-}
-
-impl CloudflareRouterWalletBudgetStatusRequestV1 {
-    /// Validates status fields.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("wallet budget signing_grant_id", &self.signing_grant_id)?;
-        require_positive_ms("wallet budget now_unix_ms", self.now_unix_ms)
-    }
-}
-
-/// Budget projection returned from SigningWorker-private D1.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareRouterWalletBudgetStatusV1 {
-    /// Wallet Session signing grant id.
-    pub signing_grant_id: String,
-    /// Remaining committed uses after finalized signatures.
-    pub committed_remaining_uses: u32,
-    /// Uses currently reserved by in-flight prepare requests.
-    pub reserved_uses: u32,
-    /// Uses available for a new reservation now.
-    pub available_uses: u32,
-    /// Monotonic record version for diagnostics and cache invalidation.
-    pub projection_version: u64,
-    /// Grant expiry in Unix milliseconds.
-    pub expires_at_ms: u64,
-}
-
-impl CloudflareRouterWalletBudgetStatusV1 {
-    /// Creates a validated status projection.
-    pub fn new(
-        signing_grant_id: impl Into<String>,
-        committed_remaining_uses: u32,
-        reserved_uses: u32,
-        projection_version: u64,
-        expires_at_ms: u64,
-    ) -> RouterAbProtocolResult<Self> {
-        let available_uses = committed_remaining_uses.saturating_sub(reserved_uses);
-        let status = Self {
-            signing_grant_id: signing_grant_id.into(),
-            committed_remaining_uses,
-            reserved_uses,
-            available_uses,
-            projection_version,
-            expires_at_ms,
-        };
-        status.validate()?;
-        Ok(status)
-    }
-
-    /// Validates status fields.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("wallet budget signing_grant_id", &self.signing_grant_id)?;
-        require_positive_ms("wallet budget expires_at_ms", self.expires_at_ms)
     }
 }
 
@@ -652,7 +360,10 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
                 let lifecycle = activation_context.lifecycle();
                 let selected_server = &activation_context.signer_set().selected_server;
                 if active_signing_worker_state.account_id != lifecycle.account_id
-                    || active_signing_worker_state.session_id != lifecycle.session_id
+                    || active_signing_worker_state
+                        .material_activation
+                        .activation_id
+                        != lifecycle.session_id
                     || active_signing_worker_state.signing_worker != *selected_server
                     || active_signing_worker_state.activation_transcript_digest
                         != activation_context.transcript_digest()
@@ -686,7 +397,8 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
                     || receipt.signing_worker_verifying_share
                         != receipt.joined_signing_worker_commitment
                     || active_signing_worker_state.account_id != binding.lifecycle.account_id
-                    || active_signing_worker_state.session_id != binding.lifecycle.session_id
+                    || active_signing_worker_state.material_activation
+                        != *binding.material_activation()
                     || active_signing_worker_state.signing_worker.server_id
                         != binding.lifecycle.selected_server_id
                     || active_signing_worker_state.activation_transcript_digest
@@ -711,13 +423,13 @@ fn invalid_signing_worker_activation_record(message: &'static str) -> RouterAbPr
     )
 }
 
-/// Account/session/SigningWorker lookup for active SigningWorker state.
+/// Account/material-activation/SigningWorker lookup for active SigningWorker state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareActiveSigningWorkerStateLookupV1 {
     /// Canonical account or wallet id.
     pub account_id: String,
-    /// Canonical session id.
-    pub session_id: String,
+    /// Exact activated MPC material identity.
+    pub material_activation_id: String,
     /// Active SigningWorker id.
     pub signing_worker_id: String,
 }
@@ -726,12 +438,12 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
     /// Creates a validated active SigningWorker lookup.
     pub fn new(
         account_id: impl Into<String>,
-        session_id: impl Into<String>,
+        material_activation_id: impl Into<String>,
         signing_worker_id: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let lookup = Self {
             account_id: account_id.into(),
-            session_id: session_id.into(),
+            material_activation_id: material_activation_id.into(),
             signing_worker_id: signing_worker_id.into(),
         };
         lookup.validate()?;
@@ -743,7 +455,7 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
         scope.validate()?;
         Self::new(
             scope.account_id.clone(),
-            scope.active_state_session_id.clone(),
+            scope.material_activation.activation_id.clone(),
             scope.signing_worker_id.clone(),
         )
     }
@@ -755,7 +467,7 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
         scope.validate()?;
         Self::new(
             scope.wallet_id.clone(),
-            scope.active_state_session_id()?,
+            scope.material_activation_id()?,
             scope.signing_worker.server_id.clone(),
         )
     }
@@ -763,7 +475,10 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
     /// Validates lookup identity fields.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty("active signing worker lookup account_id", &self.account_id)?;
-        require_non_empty("active signing worker lookup session_id", &self.session_id)?;
+        require_non_empty(
+            "active signing worker lookup material_activation_id",
+            &self.material_activation_id,
+        )?;
         require_non_empty(
             "active signing worker lookup signing_worker_id",
             &self.signing_worker_id,
@@ -778,7 +493,10 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
         self.validate()?;
         active_signing_worker_state.validate()?;
         if active_signing_worker_state.account_id == self.account_id
-            && active_signing_worker_state.session_id == self.session_id
+            && active_signing_worker_state
+                .material_activation
+                .activation_id
+                == self.material_activation_id
             && active_signing_worker_state.signing_worker.server_id == self.signing_worker_id
         {
             return Ok(());
@@ -938,6 +656,10 @@ pub struct CloudflareSigningWorkerRound1RecordV1 {
     pub server_round1_handle: String,
     /// Digest binding this nonce material to the exact normal-signing context.
     pub round1_binding_digest: PublicDigest32,
+    /// Router-admitted intent digest persisted during prepare.
+    pub intent_digest: PublicDigest32,
+    /// Router-admitted signing-payload digest persisted during prepare.
+    pub signing_payload_digest: PublicDigest32,
     /// Router-admitted digest that this nonce material may sign.
     pub admitted_signing_digest: PublicDigest32,
     /// Persisted round-1 nonce material and public commitments.
@@ -954,6 +676,8 @@ impl CloudflareSigningWorkerRound1RecordV1 {
         active_signing_worker_state: ActiveSigningWorkerStateV1,
         server_round1_handle: impl Into<String>,
         round1_binding_digest: PublicDigest32,
+        intent_digest: PublicDigest32,
+        signing_payload_digest: PublicDigest32,
         admitted_signing_digest: PublicDigest32,
         round1_state: CloudflareEd25519Round1StateV1,
         created_at_ms: u64,
@@ -963,6 +687,8 @@ impl CloudflareSigningWorkerRound1RecordV1 {
             active_signing_worker_state,
             server_round1_handle: server_round1_handle.into(),
             round1_binding_digest,
+            intent_digest,
+            signing_payload_digest,
             admitted_signing_digest,
             round1_state,
             created_at_ms,
@@ -1431,6 +1157,7 @@ impl CloudflareSigningWorkerEcdsaPoolAdmissionReceiptV1 {
 pub enum CloudflareSigningWorkerPrivateD1RequestV1 {
     OutputActivate {
         activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
+        material_activation: MpcMaterialActivationRefV1,
         material: CloudflareServerOutputMaterialRecordV1,
         activated_at_ms: u64,
     },
@@ -1459,10 +1186,12 @@ impl CloudflareSigningWorkerPrivateD1RequestV1 {
         match self {
             Self::OutputActivate {
                 activation,
+                material_activation,
                 material,
                 activated_at_ms,
             } => {
                 activation.validate()?;
+                material_activation.validate()?;
                 material.validate()?;
                 require_positive_ms("SigningWorker activation timestamp", *activated_at_ms)
             }
@@ -1484,7 +1213,7 @@ impl CloudflareSigningWorkerPrivateD1RequestV1 {
             ),
             Self::ActiveStateGet { lookup } => format!(
                 "active-signing-worker/{}/{}/{}",
-                lookup.account_id, lookup.session_id, lookup.signing_worker_id
+                lookup.account_id, lookup.material_activation_id, lookup.signing_worker_id
             ),
             Self::OutputMaterialGet { lookup } => lookup
                 .active_signing_worker_state
@@ -1493,14 +1222,20 @@ impl CloudflareSigningWorkerPrivateD1RequestV1 {
             Self::Round1Put { record } => format!(
                 "signing-worker-round1/{}/{}/{}/{}",
                 record.active_signing_worker_state.account_id,
-                record.active_signing_worker_state.session_id,
+                record
+                    .active_signing_worker_state
+                    .material_activation
+                    .activation_id,
                 record.active_signing_worker_state.signing_worker.server_id,
                 record.server_round1_handle
             ),
             Self::Round1Take { lookup } => format!(
                 "signing-worker-round1/{}/{}/{}/{}",
                 lookup.active_signing_worker_state.account_id,
-                lookup.active_signing_worker_state.session_id,
+                lookup
+                    .active_signing_worker_state
+                    .material_activation
+                    .activation_id,
                 lookup.active_signing_worker_state.signing_worker.server_id,
                 lookup.server_round1_handle
             ),
@@ -1511,8 +1246,8 @@ impl CloudflareSigningWorkerPrivateD1RequestV1 {
                     "signing-worker-ecdsa-pool/{}/{}/{}/{}",
                     scope.wallet_id,
                     scope
-                        .active_state_session_id()
-                        .expect("validated ECDSA pool command has active session id"),
+                        .material_activation_id()
+                        .expect("validated ECDSA pool command has material activation id"),
                     scope.signing_worker.server_id,
                     command.server_presignature_id()
                 )
@@ -1533,7 +1268,7 @@ impl CloudflareSigningWorkerPrivateD1RequestV1 {
             }
             Self::ActiveStateGet { lookup } => Ok(format!(
                 "active-signing-worker/{}/{}/{}",
-                lookup.account_id, lookup.session_id, lookup.signing_worker_id
+                lookup.account_id, lookup.material_activation_id, lookup.signing_worker_id
             )),
             Self::OutputMaterialGet { lookup } => Ok(lookup
                 .active_signing_worker_state

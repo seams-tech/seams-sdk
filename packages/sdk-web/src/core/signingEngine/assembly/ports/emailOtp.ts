@@ -1,50 +1,33 @@
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
+import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 
 export function createEmailOtpWarmSessionStatusReader(
   args: CreateSigningEnginePortsArgs,
-): (sessionId: string) => Promise<WarmSessionStatusResult> {
+): (target: EmailOtpWarmMaterialTarget) => Promise<WarmSessionStatusResult> {
   return (
     args.getEmailOtpWarmSessionStatus ||
-    (async (sessionId: string): Promise<WarmSessionStatusResult> => {
-      if (typeof args.touchConfirm.getWarmSessionStatus === 'function') {
-        return await args.touchConfirm.getWarmSessionStatus({ sessionId });
-      }
-      return {
-        ok: false,
-        code: 'not_found',
-        message: 'Email OTP warm-session status reader is unavailable',
-      };
+    (async (target: EmailOtpWarmMaterialTarget): Promise<WarmSessionStatusResult> => {
+      return await args.passkeyMpcSession.getWarmSessionStatus({
+        thresholdSessionId: target.thresholdSessionId,
+      });
     })
   );
 }
 
 export function createSigningSessionCoordinatorPort(args: {
   createArgs: CreateSigningEnginePortsArgs;
-  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  getEmailOtpWarmSessionStatus: (
+    target: EmailOtpWarmMaterialTarget,
+  ) => Promise<WarmSessionStatusResult>;
 }): SigningSessionCoordinator {
   const { createArgs, getEmailOtpWarmSessionStatus } = args;
   return new SigningSessionCoordinator({
-    getStatus: createArgs.getWalletSigningBudgetStatus,
-    touchConfirm: createArgs.touchConfirm,
-    getEmailOtpWarmSessionStatus,
-    consumeEmailOtpWarmSessionUses: createArgs.consumeEmailOtpWarmSessionUses,
+    getStatus: createArgs.getWalletSessionStatus,
+    touchConfirm: createArgs.passkeyMpcSession,
+    getEmailOtpWarmSessionStatus: (thresholdSessionId) =>
+      getEmailOtpWarmSessionStatus({ kind: 'ecdsa', thresholdSessionId }),
     clearEmailOtpWarmSessionMaterial: createArgs.clearEmailOtpWarmSessionMaterial,
-    clearThresholdEcdsaSessionRecordForExactIdentity:
-      createArgs.clearThresholdEcdsaSessionRecordForExactIdentity,
-    markThresholdEd25519EmailOtpSessionConsumedForWallet:
-      createArgs.markThresholdEd25519EmailOtpSessionConsumedForWallet,
   });
-}
-
-export function createWarmThresholdEd25519SessionStatusReader(args: {
-  createArgs: CreateSigningEnginePortsArgs;
-  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
-}) {
-  return createWarmSessionStatusReader({
-    touchConfirm: args.createArgs.touchConfirm,
-    getEmailOtpWarmSessionStatus: args.getEmailOtpWarmSessionStatus,
-  }).getEd25519SigningSessionStatus;
 }

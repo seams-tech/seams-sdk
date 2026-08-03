@@ -20,11 +20,16 @@ import {
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  sameRouterAbMpcMaterialActivationRef,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   WalletEcdsaPendingSessionActivationRecord,
   WalletEcdsaPostRegistrationPublicRequest,
   WalletEd25519YaoActiveCapabilityRecord,
   WalletEd25519SignerRecord,
+  WalletEcdsaSignerKey,
   WalletEcdsaSignerRecord,
   WalletRecord,
   WalletSignerRecord,
@@ -71,6 +76,30 @@ export type D1WalletStoreScope = {
   readonly projectId: string;
   readonly envId: string;
 };
+
+function walletEcdsaSignerKeyFromRegistration(
+  walletKey: WalletRegistrationEcdsaWalletKey,
+): WalletEcdsaSignerKey {
+  return {
+    keyScope: walletKey.keyScope,
+    chainTarget: walletKey.chainTarget,
+    walletId: walletKey.walletId,
+    keyHandle: walletKey.keyHandle,
+    ecdsaThresholdKeyId: walletKey.ecdsaThresholdKeyId,
+    signingRootId: walletKey.signingRootId,
+    signingRootVersion: walletKey.signingRootVersion,
+    thresholdEcdsaPublicKeyB64u: walletKey.thresholdEcdsaPublicKeyB64u,
+    thresholdOwnerAddress: walletKey.thresholdOwnerAddress,
+    relayerKeyId: walletKey.relayerKeyId,
+    relayerVerifyingShareB64u: walletKey.relayerVerifyingShareB64u,
+    contextBinding32B64u: walletKey.contextBinding32B64u,
+    derivationClientSharePublicKey33B64u: walletKey.derivationClientSharePublicKey33B64u,
+    clientShareRetryCounter: walletKey.clientShareRetryCounter,
+    relayerShareRetryCounter: walletKey.relayerShareRetryCounter,
+    participantIds: walletKey.participantIds,
+    publicCapability: walletKey.publicCapability,
+  };
+}
 
 type D1WalletRow = {
   readonly record_json?: unknown;
@@ -540,11 +569,10 @@ export function buildWalletEcdsaSignerRecord(input: {
   return {
     version: 'wallet_signer_ecdsa_v1',
     walletId: input.walletId,
-    evmFamilySigningKeySlotId: input.walletKey.evmFamilySigningKeySlotId,
     signerId: `ecdsa:${chainTargetKey}`,
     chainTargetKey,
     chainTarget: input.walletKey.chainTarget,
-    walletKey: input.walletKey,
+    walletKey: walletEcdsaSignerKeyFromRegistration(input.walletKey),
     createdAtMs: input.createdAtMs,
     updatedAtMs: input.updatedAtMs,
   };
@@ -693,6 +721,57 @@ export class D1WalletStore implements WalletStore {
     const keyHandle = matches[0]?.walletKey.keyHandle;
     if (!keyHandle || matches.some((record) => record.walletKey.keyHandle !== keyHandle)) {
       throw new Error('Wallet has conflicting ECDSA public capabilities');
+    }
+    return matches[0] ?? null;
+  }
+
+  async getEcdsaSignerByMaterialActivation(input: {
+    walletId: WalletId;
+    materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<WalletEcdsaSignerRecord | null> {
+    await this.ensureSchema();
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!walletId) return null;
+    const result = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_signers
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND signer_family = 'ecdsa'
+            AND json_extract(
+              record_json,
+              '$.walletKey.publicCapability.material_activation.activation_id'
+            ) = ?
+          LIMIT 4`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        walletId,
+        input.materialActivation.activation_id,
+      )
+      .all<D1WalletRow>();
+    const matches = (result.results || [])
+      .map((row) => parseWalletEcdsaSignerRecord(parseD1JsonColumn(row.record_json)))
+      .filter(
+        (record): record is WalletEcdsaSignerRecord =>
+          record !== null &&
+          record.walletId === walletId &&
+          sameRouterAbMpcMaterialActivationRef(
+            record.walletKey.publicCapability.material_activation,
+            input.materialActivation,
+          ),
+      );
+    if (matches.length === 0) return null;
+    const keyHandle = matches[0]?.walletKey.keyHandle;
+    if (!keyHandle || matches.some((record) => record.walletKey.keyHandle !== keyHandle)) {
+      throw new Error('Wallet has conflicting ECDSA material activations');
     }
     return matches[0] ?? null;
   }
@@ -921,6 +1000,57 @@ export class D1WalletStore implements WalletStore {
     const rows = result.results || [];
     if (rows.length !== 1) return null;
     return parseWalletEd25519SignerRecord(parseD1JsonColumn(rows[0]?.record_json));
+  }
+
+  async getEd25519SignerByMaterialActivation(input: {
+    walletId: WalletId;
+    materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<WalletEd25519SignerRecord | null> {
+    await this.ensureSchema();
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!walletId) return null;
+    const result = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_signers
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND signer_family = 'ed25519'
+            AND json_extract(
+              record_json,
+              '$.activeYaoCapability.admissionRequest.scope.material_activation.activation_id'
+            ) = ?
+          LIMIT 4`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        walletId,
+        input.materialActivation.activation_id,
+      )
+      .all<D1WalletRow>();
+    const matches = (result.results || [])
+      .map((row) => parseWalletEd25519SignerRecord(parseD1JsonColumn(row.record_json)))
+      .filter(
+        (record): record is WalletEd25519SignerRecord =>
+          record !== null &&
+          record.walletId === walletId &&
+          sameRouterAbMpcMaterialActivationRef(
+            record.activeYaoCapability.admissionRequest.scope.material_activation,
+            input.materialActivation,
+          ),
+      );
+    if (matches.length === 0) return null;
+    const signerId = matches[0]?.signerId;
+    if (!signerId || matches.some((record) => record.signerId !== signerId)) {
+      throw new Error('Wallet has conflicting Ed25519 material activations');
+    }
+    return matches[0] ?? null;
   }
 
   async getEd25519SignerBySlot(input: {

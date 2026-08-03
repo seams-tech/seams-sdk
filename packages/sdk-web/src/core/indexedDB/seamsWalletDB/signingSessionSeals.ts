@@ -161,7 +161,57 @@ export class SigningSessionSealsRepository {
       store.delete(storeKey);
     }
     store.put(args.row);
-    await transactionDone(tx).catch(() => undefined);
+    await transactionDone(tx);
+  }
+
+  async replaceSealedRecordAndDeleteRestoreLease(args: {
+    row: Record<string, unknown>;
+    staleStoreKeys: string[];
+    restoreLeaseKey: string;
+  }): Promise<boolean> {
+    const db = await getSigningSessionSealsDb();
+    if (!db) return false;
+    const tx = db.transaction(
+      [SIGNING_SESSION_SEALS_STORE_NAME, SIGNING_SESSION_RESTORE_LEASES_STORE_NAME],
+      'readwrite',
+    );
+    const sealStore = tx.objectStore(SIGNING_SESSION_SEALS_STORE_NAME);
+    for (const storeKey of args.staleStoreKeys) {
+      sealStore.delete(storeKey);
+    }
+    sealStore.put(args.row);
+    tx.objectStore(SIGNING_SESSION_RESTORE_LEASES_STORE_NAME).delete(args.restoreLeaseKey);
+    await transactionDone(tx);
+    return true;
+  }
+
+  async migrateSealedRecordStoreKey(args: {
+    row: Record<string, unknown>;
+    legacyStoreKeys: string[];
+    legacyRestoreLeaseKey: string;
+  }): Promise<void> {
+    const storeKey = String(args.row.store_key || '').trim();
+    if (!storeKey) throw new Error('Sealed record migration requires the replacement store key');
+    const db = await getSigningSessionSealsDb();
+    if (!db) return;
+    const tx = db.transaction(
+      [SIGNING_SESSION_SEALS_STORE_NAME, SIGNING_SESSION_RESTORE_LEASES_STORE_NAME],
+      'readwrite',
+    );
+    const sealStore = tx.objectStore(SIGNING_SESSION_SEALS_STORE_NAME);
+    const existing = await requestToPromise<Record<string, unknown> | undefined>(
+      sealStore.get(storeKey),
+    );
+    const existingUpdatedAt = Number(existing?.updated_at || 0);
+    const replacementUpdatedAt = Number(args.row.updated_at || 0);
+    for (const legacyStoreKey of args.legacyStoreKeys) {
+      if (legacyStoreKey !== storeKey) sealStore.delete(legacyStoreKey);
+    }
+    if (!existing || replacementUpdatedAt > existingUpdatedAt) {
+      sealStore.put(args.row);
+    }
+    tx.objectStore(SIGNING_SESSION_RESTORE_LEASES_STORE_NAME).delete(args.legacyRestoreLeaseKey);
+    await transactionDone(tx);
   }
 
   async deleteSealedRecords(primaryKeys: unknown[]): Promise<void> {

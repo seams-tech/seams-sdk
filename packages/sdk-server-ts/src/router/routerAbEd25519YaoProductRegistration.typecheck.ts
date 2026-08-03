@@ -1,64 +1,29 @@
 import type { RouterAbEd25519YaoWalletSessionMintInputV1 } from './routerAbEd25519YaoProductRegistration';
 
-type SharedRegistrationWalletSessionMintInput = Extract<
+type VerifiedWalletUnlockSessionMintInput = Extract<
   RouterAbEd25519YaoWalletSessionMintInputV1,
-  { readonly kind: 'shared_registration_wallet_session_v1' }
+  { readonly kind: 'verified_wallet_unlock_v1' }
 >;
 
-type SharedRegistrationWalletSessionIdentity = Omit<
-  SharedRegistrationWalletSessionMintInput,
-  'kind' | 'signingGrantId' | 'expiresAtMs' | 'remainingUses'
+declare const verifiedWalletUnlockIdentity: Omit<
+  VerifiedWalletUnlockSessionMintInput,
+  'kind' | 'expiresAtMs' | 'remainingUses'
 >;
 
-declare const identity: SharedRegistrationWalletSessionIdentity;
-
-type AddSignerWalletSessionMintInput = Extract<
-  RouterAbEd25519YaoWalletSessionMintInputV1,
-  { readonly kind: 'add_signer_wallet_session_v1' }
->;
-
-const validSharedRegistrationWalletSessionMintInput: SharedRegistrationWalletSessionMintInput = {
-  ...identity,
-  kind: 'shared_registration_wallet_session_v1',
-  signingGrantId: 'signing-grant-1',
+const validVerifiedWalletUnlockSessionMintInput: VerifiedWalletUnlockSessionMintInput = {
+  ...verifiedWalletUnlockIdentity,
+  kind: 'verified_wallet_unlock_v1',
   expiresAtMs: 1_900_000_000_000,
   remainingUses: 3,
 };
 
-// @ts-expect-error A shared registration mint must carry the authoritative ECDSA grant.
-const missingGrantSharedRegistrationWalletSessionMintInput: SharedRegistrationWalletSessionMintInput =
-  {
-    ...identity,
-    kind: 'shared_registration_wallet_session_v1',
-    expiresAtMs: 1_900_000_000_000,
-    remainingUses: 3,
-  };
-
-// @ts-expect-error A generated registration mint cannot accept shared-budget terms.
-const generatedRegistrationWalletSessionWithGrant: RouterAbEd25519YaoWalletSessionMintInputV1 = {
-  ...identity,
+const invalidRegistrationWalletSessionMintInput: RouterAbEd25519YaoWalletSessionMintInputV1 = {
+  ...verifiedWalletUnlockIdentity,
+  // @ts-expect-error Registration cannot mint a reusable Wallet Session.
   kind: 'registration_wallet_session_v1',
-  signingGrantId: 'signing-grant-1',
   expiresAtMs: 1_900_000_000_000,
   remainingUses: 3,
 };
 
-const validAddSignerWalletSessionMintInput: AddSignerWalletSessionMintInput = {
-  ...identity,
-  kind: 'add_signer_wallet_session_v1',
-  signingGrantId: 'add-signer-grant-1',
-  expiresAtMs: 1_900_000_000_000,
-  remainingUses: 3,
-};
-
-// @ts-expect-error An add-signer mint must carry its durable pre-claim session terms.
-const missingTermsAddSignerWalletSessionMintInput: AddSignerWalletSessionMintInput = {
-  ...identity,
-  kind: 'add_signer_wallet_session_v1',
-};
-
-void validSharedRegistrationWalletSessionMintInput;
-void missingGrantSharedRegistrationWalletSessionMintInput;
-void generatedRegistrationWalletSessionWithGrant;
-void validAddSignerWalletSessionMintInput;
-void missingTermsAddSignerWalletSessionMintInput;
+void validVerifiedWalletUnlockSessionMintInput;
+void invalidRegistrationWalletSessionMintInput;

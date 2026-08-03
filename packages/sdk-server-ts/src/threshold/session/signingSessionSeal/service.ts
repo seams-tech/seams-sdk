@@ -4,6 +4,7 @@ import {
   parseRouterAbEcdsaDerivationWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
 } from '../../../core/ThresholdService/validation';
+import { parseEcdsaKeyHandle } from '../../../core/keyMaterialBrands';
 import type {
   CreateSigningSessionSealServiceOptions,
   SigningSessionSealOperation,
@@ -181,10 +182,6 @@ function shouldPersistIdempotentResult(result: SigningSessionSealRouteResult): b
   return SIGNING_SESSION_SEAL_REPLAYABLE_ERROR_CODES.has(String(result.code || '').trim());
 }
 
-function hasSigningGrantBudgetClaim(auth: { claims: Record<string, unknown> }): boolean {
-  return Boolean(String(auth.claims.signingGrantId || '').trim());
-}
-
 function parseCurveBoundThresholdSession(args: {
   claims: Record<string, unknown>;
   thresholdSessionId: string;
@@ -201,7 +198,7 @@ function parseCurveBoundThresholdSession(args: {
           expiresAtMs: ecdsaClaims.thresholdExpiresAtMs,
           relayerKeyId: ecdsaClaims.relayerKeyId,
           participantIds: ecdsaClaims.participantIds,
-          evmFamilySigningKeySlotId: ecdsaClaims.evmFamilySigningKeySlotId,
+          keyHandle: parseEcdsaKeyHandle(ecdsaClaims.keyHandle),
         }
       : null;
   }
@@ -424,16 +421,13 @@ export function createSigningSessionSealService(
     auth: SigningSessionSealAuthInput,
   ): Promise<SigningSessionSealRouteResult> => {
     const operationKey = await makeOperationRequestKey({ operation, request, auth });
-    const allowPersistentReplay = !hasSigningGrantBudgetClaim(auth);
-    if (allowPersistentReplay) {
-      const idempotentReplay = await tryReplayIdempotentResult(
-        operation,
-        request.thresholdSessionId,
-        auth.userId,
-        operationKey,
-      );
-      if (idempotentReplay) return idempotentReplay;
-    }
+    const idempotentReplay = await tryReplayIdempotentResult(
+      operation,
+      request.thresholdSessionId,
+      auth.userId,
+      operationKey,
+    );
+    if (idempotentReplay) return idempotentReplay;
 
     const runAndPersist = async (): Promise<SigningSessionSealRouteResult> => {
       const result = await runSealOperation({
@@ -442,7 +436,7 @@ export function createSigningSessionSealService(
         request,
         auth,
       });
-      if (allowPersistentReplay && shouldPersistIdempotentResult(result)) {
+      if (shouldPersistIdempotentResult(result)) {
         await tryPersistIdempotentResult(
           operation,
           request.thresholdSessionId,

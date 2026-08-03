@@ -1,18 +1,17 @@
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
   clearThresholdCommitQueue,
   withThresholdCommitQueue,
   type ThresholdCommitQueueByKey,
   type ThresholdCommitQueueCancelledReason,
   type ThresholdCommitQueueError,
-  type ThresholdCommitQueueErrorCode,
 } from '../commitQueueShared';
 
-export type ThresholdEcdsaSigningQueueErrorCode = ThresholdCommitQueueErrorCode;
 export type ThresholdEcdsaSigningQueueError = ThresholdCommitQueueError;
 
 export type ThresholdEcdsaSigningQueueKeyInput = {
-  walletId: WalletId;
+  materialActivation: MpcMaterialActivationRef;
 };
 
 export type ThresholdEcdsaSigningQueueByKey = ThresholdCommitQueueByKey;
@@ -65,7 +64,12 @@ export function createThresholdEcdsaSigningQueueCancelledError(
 export function resolveThresholdEcdsaSigningQueueKey(
   args: ThresholdEcdsaSigningQueueKeyInput,
 ): string {
-  return `wallet:${ecdsaSigningQueueWalletIdLabel(args.walletId)}:evm-family-ecdsa`;
+  return [
+    'material',
+    encodeURIComponent(String(args.materialActivation.materialOwner)),
+    encodeURIComponent(String(args.materialActivation.capability)),
+    encodeURIComponent(String(args.materialActivation.activationId)),
+  ].join(':');
 }
 
 export function clearThresholdEcdsaSigningQueue(

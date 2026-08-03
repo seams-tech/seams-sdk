@@ -13,6 +13,10 @@ import {
   type WarmSessionReadPortsInput,
 } from './readModel';
 import type { WarmSessionCapabilityReader } from './types';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 
 export type WarmSessionCapabilityReaderSealInput = {
   groupId: string;
@@ -26,13 +30,17 @@ export type WarmSessionCapabilityReaderTouchConfirmInput = Exclude<
 export type WarmCapabilityReaderPortsConfigured = {
   runtimeStatus: 'configured';
   touchConfirm: WarmSessionReadPorts | null;
-  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  getEmailOtpWarmSessionStatus: (
+    target: EmailOtpWarmMaterialTarget,
+  ) => Promise<WarmSessionStatusResult>;
 };
 
 export type WarmCapabilityReaderPortsNoRuntimeStatus = {
   runtimeStatus: 'no_runtime_status';
   touchConfirm: null;
-  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  getEmailOtpWarmSessionStatus: (
+    target: EmailOtpWarmMaterialTarget,
+  ) => Promise<WarmSessionStatusResult>;
 };
 
 export type WarmCapabilityReaderPorts =
@@ -45,7 +53,15 @@ export type WarmSessionCapabilityReaderFactoryDeps = Omit<
 > & {
   touchConfirm: WarmSessionCapabilityReaderTouchConfirmInput;
   signingSessionSeal: WarmSessionCapabilityReaderSealInput;
-  getEmailOtpWarmSessionStatus: ((sessionId: string) => Promise<WarmSessionStatusResult>) | null;
+  getEmailOtpWarmSessionStatus: (
+    (target: EmailOtpWarmMaterialTarget) => Promise<WarmSessionStatusResult>
+  ) | null;
+  resolveActiveEcdsaWalletSessionAuthorization?: (
+    walletId: WalletId,
+  ) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
+  resolveActiveEd25519WalletSessionAuthorization?: (
+    walletId: WalletId,
+  ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
 };
 
 const UNCONFIGURED_WARM_SESSION_CAPABILITY_READER_DEPS: WarmSessionCapabilityReaderFactoryDeps = {
@@ -78,8 +94,8 @@ export function normalizeWarmCapabilityReaderPorts(
     return {
       runtimeStatus: 'configured',
       touchConfirm,
-      getEmailOtpWarmSessionStatus: async (sessionId: string) =>
-        await touchConfirm.getWarmSessionStatus({ sessionId }),
+      getEmailOtpWarmSessionStatus: async (target: EmailOtpWarmMaterialTarget) =>
+        await touchConfirm.getWarmSessionStatus({ thresholdSessionId: target.thresholdSessionId }),
     };
   }
   if (touchConfirm) {
@@ -116,12 +132,21 @@ export function createWarmSessionCapabilityReader(
   const statusReader = createWarmSessionStatusReader({
     touchConfirm: ports.touchConfirm,
     getEmailOtpWarmSessionStatus: ports.getEmailOtpWarmSessionStatus,
-    getThresholdEcdsaSessionRecordByThresholdSessionId:
-      deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
   });
   return createWarmSessionCapabilityReaderCore({
-    touchConfirm: ports.touchConfirm,
     statusReader,
     signingSessionSeal: normalizeWarmSessionCapabilityReaderSeal(deps.signingSessionSeal),
+    ...(deps.resolveActiveEcdsaWalletSessionAuthorization
+      ? {
+          resolveActiveEcdsaWalletSessionAuthorization:
+            deps.resolveActiveEcdsaWalletSessionAuthorization,
+        }
+      : {}),
+    ...(deps.resolveActiveEd25519WalletSessionAuthorization
+      ? {
+          resolveActiveEd25519WalletSessionAuthorization:
+            deps.resolveActiveEd25519WalletSessionAuthorization,
+        }
+      : {}),
   });
 }

@@ -14,6 +14,7 @@ import {
   type RegistrationIntentV1,
 } from '@shared/utils/registrationIntent';
 import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
+import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   RouterAbEd25519YaoRegistrationAuthorizationAdapter,
   RouterAbEd25519YaoRegistrationAuthorizationInput,
@@ -193,9 +194,10 @@ function canonicalAdmissionRequest(
       lifecycle_id: request.scope.lifecycle_id,
       root_share_epoch: request.scope.root_share_epoch,
       account_id: request.scope.account_id,
-      wallet_session_id: request.scope.wallet_session_id,
+      threshold_session_id: request.scope.threshold_session_id,
       signer_set_id: request.scope.signer_set_id,
       signing_worker_id: request.scope.signing_worker_id,
+      material_activation: request.scope.material_activation,
     },
     application_binding: {
       wallet_id: request.application_binding.wallet_id,
@@ -215,9 +217,10 @@ function copyAdmissionRequest(
       lifecycle_id: request.scope.lifecycle_id,
       root_share_epoch: request.scope.root_share_epoch,
       account_id: request.scope.account_id,
-      wallet_session_id: request.scope.wallet_session_id,
+      threshold_session_id: request.scope.threshold_session_id,
       signer_set_id: request.scope.signer_set_id,
       signing_worker_id: request.scope.signing_worker_id,
+      material_activation: request.scope.material_activation,
     },
     application_binding: {
       wallet_id: request.application_binding.wallet_id,
@@ -271,7 +274,7 @@ async function addSignerIntentMatchesAdmission(
   return (
     String(input.intent.walletId) === admission.application_binding.wallet_id &&
     String(input.intent.walletId) === admission.scope.account_id &&
-    admission.scope.lifecycle_id === admission.scope.wallet_session_id &&
+    admission.scope.lifecycle_id === admission.scope.threshold_session_id &&
     selection.signerSlot === admission.application_binding.key_creation_signer_slot &&
     selection.participantIds[0] === admission.participant_ids[0] &&
     selection.participantIds[1] === admission.participant_ids[1] &&
@@ -324,9 +327,13 @@ function lifecycleMatchesAdmission(input: {
     lifecycle.lifecycle_id === scope.lifecycle_id &&
     lifecycle.root_share_epoch === scope.root_share_epoch &&
     lifecycle.account_id === scope.account_id &&
-    lifecycle.session_id === scope.wallet_session_id &&
+    lifecycle.session_id === scope.threshold_session_id &&
     lifecycle.signer_set_id === scope.signer_set_id &&
-    lifecycle.selected_server_id === scope.signing_worker_id
+    lifecycle.selected_server_id === scope.signing_worker_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      input.binding.material_activation,
+      scope.material_activation,
+    )
   );
 }
 

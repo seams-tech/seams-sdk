@@ -148,12 +148,8 @@ function parseProfileContinuityEvmFamilyEcdsaWalletKey(args: {
       keyFacts.thresholdOwnerAddress ||
       args.metadata.thresholdOwnerAddress ||
       args.metadata.ownerAddress;
-    const evmFamilySigningKeySlotId =
-      keyFacts.evmFamilySigningKeySlotId || args.metadata.evmFamilySigningKeySlotId;
-    if (!evmFamilySigningKeySlotId) return null;
     return buildEvmFamilyEcdsaWalletKey({
       walletId: keyWalletId,
-      evmFamilySigningKeySlotId,
       keyHandle: args.keyHandle,
       chainTarget: args.chainTarget,
       ecdsaThresholdKeyId,
@@ -287,6 +283,7 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
     return null;
   }
   const keyHandle = parseCurrentEcdsaKeyHandle(raw.keyHandle);
+  const nestedKeyHandle = parseCurrentEcdsaKeyHandle(rawKey.keyHandle);
   const accountAddress = normalizeEvmOwnerAddress(raw.accountAddress);
   const ownerAddress = normalizeEvmOwnerAddress(raw.ownerAddress);
   const keyWalletId = String(rawKey.walletId || '').trim();
@@ -301,6 +298,8 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
   );
   if (
     keyHandle.kind !== 'resolved' ||
+    nestedKeyHandle.kind !== 'resolved' ||
+    nestedKeyHandle.keyHandle !== keyHandle.keyHandle ||
     !thresholdEcdsaPublicKeyB64u ||
     !ownerAddress ||
     !accountAddress ||
@@ -329,16 +328,12 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
       signingRootId: raw.signingRootId || rawKey.signingRootId,
       signingRootVersion: raw.signingRootVersion || rawKey.signingRootVersion,
     });
-    const evmFamilySigningKeySlotId =
-      rawKey.evmFamilySigningKeySlotId || raw.evmFamilySigningKeySlotId;
-    if (!evmFamilySigningKeySlotId) return null;
     return {
       accountAddress,
       ownerAddress,
       publicCapability,
       walletKey: buildEvmFamilyEcdsaWalletKey({
         walletId: args.walletId,
-        evmFamilySigningKeySlotId,
         keyHandle: canonicalKeyHandle,
         chainTarget,
         ecdsaThresholdKeyId,

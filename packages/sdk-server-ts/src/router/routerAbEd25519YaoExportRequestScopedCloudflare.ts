@@ -30,6 +30,7 @@ import {
   type RouterAbEd25519YaoExportFailure,
   type RouterAbEd25519YaoExportServiceResult,
   type RouterAbEd25519YaoExportAdmissionEnvelopeParseResultV1,
+  type RouterAbEd25519YaoExportServerAuthorizationIdentityV1,
 } from './routerAbEd25519YaoExport';
 import type { RouterAbEd25519YaoActiveCapabilityResolverV1 } from './routerAbEd25519YaoRecovery';
 import {
@@ -77,12 +78,27 @@ type ParsedAdmission = Extract<
   { readonly ok: true }
 >;
 
+type AuthorizationRunResult =
+  | {
+      readonly ok: true;
+      readonly authorizationIdentity: RouterAbEd25519YaoExportServerAuthorizationIdentityV1;
+    }
+  | AuthorizationFailure;
+
 class ExportAuthorizationRequestRun {
+  private authorizationUncertain = false;
+
+  authorizationState:
+    | { readonly kind: 'pending' }
+    | {
+        readonly kind: 'authorized';
+        readonly identity: RouterAbEd25519YaoExportServerAuthorizationIdentityV1;
+      } = { kind: 'pending' };
+
   constructor(
     private readonly context: ExportRequestScopedContext,
     private readonly parsed: ParsedAdmission,
     private readonly expectedOrigin: string,
-    private readonly authorizationFingerprint: string,
   ) {}
 
   async prepare(
@@ -94,9 +110,85 @@ class ExportAuthorizationRequestRun {
       never
     >
   > {
-    const preparation = this.service(state).prepareAuthorizeExport(
+    const service = this.service(state);
+    if (service.authorizationIsUncertain(this.parsed.protocol)) {
+      return {
+        kind: 'completed',
+        value: {
+          ok: false,
+          status: 503,
+          code: 'export_authorization_uncertain',
+          message: 'Export authorization outcome is uncertain and cannot be retried',
+        },
+      };
+    }
+    const existingIdentity = service.readAuthorizationIdentity(this.parsed.protocol);
+    let identity = existingIdentity;
+    if (identity) {
+      const resolved = await this.context.input.authorization.resolveAuthorizationIdentity(
+        this.context.input.request,
+      );
+      if (!resolved.ok) return { kind: 'completed', value: resolved };
+      if (!sameAuthorizationIdentity(resolved.authorizationIdentity, identity)) {
+        return {
+          kind: 'completed',
+          value: {
+            ok: false,
+            status: 409,
+            code: 'export_authorization_conflict',
+            message: 'Export authorization owner changed for an existing request',
+          },
+        };
+      }
+    } else {
+      let authorized: Awaited<ReturnType<RouterAbEd25519YaoExportAuthorizationAdapter['authorize']>>;
+      try {
+        authorized = await this.context.input.authorization.authorize({
+          kind: 'admit',
+          request: this.context.input.request,
+          body: this.parsed.protocol,
+          authorization: this.parsed.authorization,
+          expectedOrigin: this.expectedOrigin,
+        });
+      } catch (error: unknown) {
+        this.authorizationUncertain = true;
+        service.recordAuthorizationUncertain(this.parsed.protocol);
+        return {
+          kind: 'completed',
+          value: {
+            ok: false,
+            status: 503,
+            code: 'export_authorization_uncertain',
+            message: errorMessage(error),
+          },
+        };
+      }
+      if (!authorized.ok) return { kind: 'completed', value: authorized };
+      identity = authorized.authorizationIdentity;
+    }
+    if (!identity) {
+      return {
+        kind: 'completed',
+        value: {
+          ok: false,
+          status: 503,
+          code: 'export_authorization_uncertain',
+          message: 'Export authorization identity is unavailable',
+        },
+      };
+    }
+    this.authorizationState = {
+      kind: 'authorized',
+      identity,
+    };
+    const authorizationFingerprint = await authorizationFingerprintForIdentity(
+      this.parsed,
+      identity,
+    );
+    const preparation = service.prepareAuthorizeExport(
       this.parsed.protocol,
-      this.authorizationFingerprint,
+      authorizationFingerprint,
+      identity,
     );
     switch (preparation.kind) {
       case 'claimed':
@@ -112,16 +204,12 @@ class ExportAuthorizationRequestRun {
     RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1<RouterAbEd25519YaoExportAuthorizationResult>
   > {
     try {
+      if (this.authorizationState.kind !== 'authorized') {
+        return { kind: 'uncertain', message: 'Export authorization was not prepared' };
+      }
       return {
         kind: 'response',
-        value: await this.context.input.authorization.authorize({
-          kind: 'admit',
-          request: this.context.input.request,
-          body: this.parsed.protocol,
-          authorizationIdentity: this.parsed.authorizationIdentity,
-          authorization: this.parsed.authorization,
-          expectedOrigin: this.expectedOrigin,
-        }),
+        value: { ok: true },
       };
     } catch (error: unknown) {
       return { kind: 'uncertain', message: errorMessage(error) };
@@ -148,12 +236,17 @@ class ExportAuthorizationRequestRun {
   ): InMemoryRouterAbEd25519YaoExportService {
     return exportService(this.context, state);
   }
+
+  didRecordAuthorizationUncertain(): boolean {
+    return this.authorizationUncertain;
+  }
 }
 
 class ExportAdmissionRequestRun {
   constructor(
     private readonly context: ExportRequestScopedContext,
     private readonly request: RouterAbEd25519YaoExportAdmissionRequestV1,
+    private readonly authorizationIdentity: RouterAbEd25519YaoExportServerAuthorizationIdentityV1,
   ) {}
 
   async prepare(
@@ -165,7 +258,10 @@ class ExportAdmissionRequestRun {
       RouterAbEd25519YaoExportFailure
     >
   > {
-    const preparation = await exportService(this.context, state).prepareAdmitExport(this.request);
+    const preparation = await exportService(this.context, state).prepareAdmitExport(
+      this.request,
+      this.authorizationIdentity,
+    );
     switch (preparation.kind) {
       case 'claimed':
         return { kind: 'claimed', state, claim: preparation.claim };
@@ -209,7 +305,7 @@ class ExportExecutionRequestRun {
   constructor(
     private readonly context: ExportRequestScopedContext,
     private readonly request: RouterAbEd25519YaoExportExecuteRequestV1,
-    private readonly authorizationIdentity: ParsedExecutionAuthorizationIdentity,
+    private readonly authorizationIdentity: RouterAbEd25519YaoExportServerAuthorizationIdentityV1,
   ) {}
 
   async prepare(
@@ -221,14 +317,10 @@ class ExportExecutionRequestRun {
       AuthorizationFailure | RouterAbEd25519YaoExportFailure
     >
   > {
-    const authorized = await this.context.input.authorization.authorize({
-      kind: 'execute',
-      request: this.context.input.request,
-      body: this.request,
-      authorizationIdentity: this.authorizationIdentity,
-    });
-    if (!authorized.ok) return { kind: 'rejected', value: authorized };
-    const preparation = exportService(this.context, state).prepareExecuteExport(this.request);
+    const preparation = exportService(this.context, state).prepareExecuteExport(
+      this.request,
+      this.authorizationIdentity,
+    );
     switch (preparation.kind) {
       case 'claimed':
         return { kind: 'claimed', state, claim: preparation.claim };
@@ -267,11 +359,6 @@ class ExportExecutionRequestRun {
     return { state, value };
   }
 }
-
-type ParsedExecutionAuthorizationIdentity = Extract<
-  ReturnType<typeof parseRouterAbEd25519YaoExportExecuteEnvelopeV1>,
-  { readonly ok: true }
->['authorizationIdentity'];
 
 export async function handleRouterAbEd25519YaoExportRequestScopedCloudflareV1(
   input: RouterAbEd25519YaoExportRequestScopedCloudflareInputV1,
@@ -330,11 +417,10 @@ async function handleAdmissionRequest(
       { status: 403 },
     );
   }
-  const fingerprint = await authorizationFingerprint(parsed);
-  const authorization = await runAuthorization(context, parsed, expectedOrigin, fingerprint);
-  if (!authorization.ok) return exportResponse(authorization);
-  const admission = await runAdmission(context, parsed.protocol);
-  return exportResponse(admission);
+  const admission = await runAuthorization(context, parsed, expectedOrigin);
+  if (!admission.ok) return exportResponse(admission);
+  const result = await runAdmission(context, parsed.protocol, admission.authorizationIdentity);
+  return exportResponse(result);
 }
 
 async function handleExecutionRequest(
@@ -343,7 +429,17 @@ async function handleExecutionRequest(
 ): Promise<Response> {
   const parsed = parseRouterAbEd25519YaoExportExecuteEnvelopeV1(raw);
   if (!parsed.ok) return invalidBody(parsed.message);
-  const run = new ExportExecutionRequestRun(context, parsed.protocol, parsed.authorizationIdentity);
+  const authorized = await context.input.authorization.authorize({
+    kind: 'execute',
+    request: context.input.request,
+    body: parsed.protocol,
+  });
+  if (!authorized.ok) return exportResponse(authorized);
+  const run = new ExportExecutionRequestRun(
+    context,
+    parsed.protocol,
+    authorized.authorizationIdentity,
+  );
   const result = await runRouterAbEd25519YaoRegistrationTwoPhaseV1<
     RouterAbEd25519YaoExportExecuteClaimV1,
     RouterAbEd25519YaoExportBackendResult,
@@ -363,9 +459,12 @@ async function runAuthorization(
   context: ExportRequestScopedContext,
   parsed: ParsedAdmission,
   expectedOrigin: string,
-  fingerprint: string,
-): Promise<RouterAbEd25519YaoExportAuthorizationResult> {
-  const run = new ExportAuthorizationRequestRun(context, parsed, expectedOrigin, fingerprint);
+): Promise<AuthorizationRunResult> {
+  const run = new ExportAuthorizationRequestRun(
+    context,
+    parsed,
+    expectedOrigin,
+  );
   const result = await runRouterAbEd25519YaoRegistrationTwoPhaseV1<
     RouterAbEd25519YaoExportAuthorizationClaimV1,
     RouterAbEd25519YaoExportAuthorizationResult,
@@ -378,14 +477,50 @@ async function runAuthorization(
     backend: run.backend.bind(run),
     complete: run.complete.bind(run),
   });
-  return mapAuthorizationResult(result);
+  if (run.didRecordAuthorizationUncertain()) {
+    const persisted = await persistAuthorizationUncertain(context, parsed.protocol);
+    if (persisted) return persisted;
+  }
+  const mapped = mapAuthorizationResult(result);
+  if (!mapped.ok) return mapped;
+  if (run.authorizationState.kind !== 'authorized') {
+    return authorizationFailure(503, 'export_authorization_uncertain', 'Export authorization state is incomplete');
+  }
+  return { ok: true, authorizationIdentity: run.authorizationState.identity };
+}
+
+async function persistAuthorizationUncertain(
+  context: ExportRequestScopedContext,
+  request: RouterAbEd25519YaoExportAdmissionRequestV1,
+): Promise<AuthorizationFailure | null> {
+  const loaded = await context.input.store.load(request.scope.lifecycle_id);
+  const service = exportService(context, loaded.state);
+  service.recordAuthorizationUncertain(request);
+  const committed = await context.input.store.commit({
+    lifecycleId: request.scope.lifecycle_id,
+    state: loaded.state,
+    sharedState: loaded.sharedState,
+    sharedVersion: loaded.sharedVersion,
+    ceremonyVersion: loaded.ceremonyVersion,
+    execution: loaded.execution,
+    executionVersion: loaded.executionVersion,
+  });
+  if (committed.kind === 'version_mismatch') {
+    return authorizationFailure(
+      503,
+      'export_authorization_uncertain',
+      'Export authorization outcome is uncertain after persistence conflict',
+    );
+  }
+  return null;
 }
 
 async function runAdmission(
   context: ExportRequestScopedContext,
   request: RouterAbEd25519YaoExportAdmissionRequestV1,
+  authorizationIdentity: RouterAbEd25519YaoExportServerAuthorizationIdentityV1,
 ): Promise<ExportResponse> {
-  const run = new ExportAdmissionRequestRun(context, request);
+  const run = new ExportAdmissionRequestRun(context, request, authorizationIdentity);
   const result = await runRouterAbEd25519YaoRegistrationTwoPhaseV1<
     RouterAbEd25519YaoExportAdmissionClaimV1,
     RouterAbEd25519YaoExportBackendResult,
@@ -532,12 +667,25 @@ function exportResponse(result: ExportResponse): Response {
     : json({ ok: false, code: result.code, message: result.message }, { status: result.status });
 }
 
-async function authorizationFingerprint(parsed: ParsedAdmission): Promise<string> {
+async function authorizationFingerprintForIdentity(
+  parsed: ParsedAdmission,
+  authorizationIdentity: RouterAbEd25519YaoExportServerAuthorizationIdentityV1,
+): Promise<string> {
   const canonical = alphabetizeStringify({
-    authorizationIdentity: parsed.authorizationIdentity,
+    authorizationIdentity,
     authorization: parsed.authorization,
   });
   return base64UrlEncode(await sha256BytesUtf8(canonical));
+}
+
+function sameAuthorizationIdentity(
+  left: RouterAbEd25519YaoExportServerAuthorizationIdentityV1,
+  right: RouterAbEd25519YaoExportServerAuthorizationIdentityV1,
+): boolean {
+  return (
+    left.thresholdSessionId === right.thresholdSessionId &&
+    left.walletSessionId === right.walletSessionId
+  );
 }
 
 function resolveTrace(request: Request): TraceResolution {

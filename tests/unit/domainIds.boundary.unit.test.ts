@@ -1,16 +1,25 @@
 import { expect, test } from '@playwright/test';
 import {
   parseAppSessionVersion,
+  parseCapabilityInstanceRef,
   parseChallengeSubjectId,
   parseEmailOtpChallengeId,
   parseEmailOtpRegistrationAttemptId,
+  parseMpcCapabilityRuntimeRef,
+  parseMpcKeyBindingRef,
+  parseMpcLifecycleBindingRef,
+  parseMpcMaterialActivationId,
+  parseMpcMaterialActivationRef,
+  parseMpcMaterialOwnerRef,
+  parseMpcReauthorizationPolicyRef,
+  parseMpcRegisteredPublicKeyBindingRef,
+  parseMpcSigningWorkerRef,
   parseOrgId,
   parseProviderSubject,
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
   parseThresholdSessionId,
   parseWalletId,
-  parseSigningGrantId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseD1BoundaryWalletIdResult } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthBoundary';
@@ -24,10 +33,21 @@ const parsers = [
   { name: 'emailOtpRegistrationAttemptId', parse: parseEmailOtpRegistrationAttemptId },
   { name: 'orgId', parse: parseOrgId },
   { name: 'appSessionVersion', parse: parseAppSessionVersion },
-  { name: 'signingGrantId', parse: parseSigningGrantId },
   { name: 'thresholdEd25519SessionId', parse: parseThresholdEd25519SessionId },
   { name: 'thresholdEcdsaSessionId', parse: parseThresholdEcdsaSessionId },
   { name: 'thresholdSessionId', parse: parseThresholdSessionId },
+  { name: 'capabilityInstanceRef', parse: parseCapabilityInstanceRef },
+  { name: 'mpcMaterialOwnerRef', parse: parseMpcMaterialOwnerRef },
+  { name: 'mpcCapabilityRuntimeRef', parse: parseMpcCapabilityRuntimeRef },
+  { name: 'mpcMaterialActivationId', parse: parseMpcMaterialActivationId },
+  { name: 'mpcSigningWorkerRef', parse: parseMpcSigningWorkerRef },
+  { name: 'mpcKeyBindingRef', parse: parseMpcKeyBindingRef },
+  { name: 'mpcLifecycleBindingRef', parse: parseMpcLifecycleBindingRef },
+  { name: 'mpcReauthorizationPolicyRef', parse: parseMpcReauthorizationPolicyRef },
+  {
+    name: 'mpcRegisteredPublicKeyBindingRef',
+    parse: parseMpcRegisteredPublicKeyBindingRef,
+  },
 ] as const;
 
 test.describe('domain id boundary parsers', () => {
@@ -84,6 +104,40 @@ test.describe('domain id boundary parsers', () => {
       error: {
         code: 'invalid',
         message: 'walletId must not contain whitespace or control characters',
+      },
+    });
+  });
+
+  test('material activation parser accepts only the exact persisted reference shape', () => {
+    const raw = {
+      kind: 'mpc_material_activation_ref',
+      activationId: 'activation:1',
+      capability: 'capability:1',
+      materialOwner: 'material-owner:1',
+      keyBinding: 'key-binding:1',
+      lifecycleBinding: 'lifecycle-binding:1',
+      signingWorker: 'signing-worker:1',
+    };
+    const parsed = parseMpcMaterialActivationRef(raw);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    expect(parsed.value).toMatchObject(raw);
+    expect(parseMpcMaterialActivationRef(JSON.parse(JSON.stringify(parsed.value))).ok).toBe(true);
+
+    expect(parseMpcMaterialActivationRef({ ...raw, unexpected: 'field' })).toEqual({
+      ok: false,
+      error: {
+        code: 'invalid',
+        message: 'mpcMaterialActivationRef has invalid fields',
+      },
+    });
+    const { signingWorker, ...missingSigningWorker } = raw;
+    void signingWorker;
+    expect(parseMpcMaterialActivationRef(missingSigningWorker)).toEqual({
+      ok: false,
+      error: {
+        code: 'invalid',
+        message: 'mpcMaterialActivationRef has invalid fields',
       },
     });
   });

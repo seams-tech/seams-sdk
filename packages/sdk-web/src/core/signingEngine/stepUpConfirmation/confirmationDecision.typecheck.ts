@@ -60,6 +60,47 @@ const workerFailure: WorkerConfirmationResponse = {
   error: 'cancelled',
 };
 
+const expiredDecision: UserConfirmDecision = {
+  requestId: 'request-expired',
+  confirmed: false,
+  walletSessionFailure: {
+    kind: 'expired',
+    code: 'wallet_session_expired',
+  },
+};
+
+const workerExpired: WorkerConfirmationResponse = {
+  request_id: 'request-worker-expired',
+  confirmed: false,
+  wallet_session_failure: {
+    kind: 'expired',
+    code: 'wallet_session_expired',
+  },
+};
+
+const invalidExpiredDecisionWithError = {
+  requestId: 'request-invalid-expired',
+  confirmed: false,
+  // @ts-expect-error Typed expiry and generic confirmation failure are distinct branches.
+  walletSessionFailure: {
+    kind: 'expired',
+    code: 'wallet_session_expired',
+  },
+  error: 'expiry cannot be reduced to a generic error',
+} satisfies UserConfirmDecision;
+
+const exhaustedWalletSessionFailure = {
+  kind: 'exhausted',
+  code: 'wallet_budget_exhausted',
+} as const;
+
+const invalidExhaustionAsExpiry = {
+  requestId: 'request-invalid-exhausted',
+  confirmed: false,
+  // @ts-expect-error Exhaustion must return to authorization planning instead of closing as expiry.
+  walletSessionFailure: exhaustedWalletSessionFailure,
+} satisfies UserConfirmDecision;
+
 const workerSuccess: WorkerConfirmationResponse = {
   request_id: 'request-5',
   confirmed: true,
@@ -162,6 +203,11 @@ void successDecision;
 void failureDecision;
 void failureWithDiagnostics;
 void workerFailure;
+void expiredDecision;
+void workerExpired;
+void invalidExpiredDecisionWithError;
+void exhaustedWalletSessionFailure;
+void invalidExhaustionAsExpiry;
 void workerSuccess;
 void workerTransactionSuccess;
 void nearReadinessSuccess;

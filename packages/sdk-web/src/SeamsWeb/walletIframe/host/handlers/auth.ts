@@ -13,6 +13,47 @@ import {
   pmUnlockPayloadToLoginHooksOptions,
   requirePMUnlockPayload,
 } from '../../shared/unlockOptions';
+import { activeHostedWalletAppSessionJwt } from '../hostedWalletSeamsSession';
+
+function assertUnlockPayloadHasNoParentBearer(payload: unknown): void {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+  const record = payload as Record<string, unknown>;
+  const options =
+    record.options && typeof record.options === 'object' && !Array.isArray(record.options)
+      ? (record.options as Record<string, unknown>)
+      : null;
+  const inventoryOption =
+    options?.ecdsaKeyFactsInventory &&
+    typeof options.ecdsaKeyFactsInventory === 'object' &&
+    !Array.isArray(options.ecdsaKeyFactsInventory)
+      ? (options.ecdsaKeyFactsInventory as Record<string, unknown>)
+      : null;
+  const inventory =
+    inventoryOption?.value &&
+    typeof inventoryOption.value === 'object' &&
+    !Array.isArray(inventoryOption.value)
+      ? (inventoryOption.value as Record<string, unknown>)
+      : null;
+  if (inventory && Object.prototype.hasOwnProperty.call(inventory, 'appSessionJwt')) {
+    throw new Error('wallet iframe unlock requests must not carry appSessionJwt');
+  }
+}
+
+function walletOriginUnlockOptions(options: LoginHooksOptions): LoginHooksOptions {
+  const inventory = options.ecdsaKeyFactsInventory;
+  if (!inventory || inventory.mode === 'webauthn') return options;
+  const appSessionJwt = activeHostedWalletAppSessionJwt();
+  if (!appSessionJwt) {
+    throw new Error('hosted-wallet Seams Session is required for app-session ECDSA inventory');
+  }
+  return {
+    ...options,
+    ecdsaKeyFactsInventory: {
+      ...inventory,
+      appSessionJwt,
+    },
+  };
+}
 
 function walletSessionRequestWalletId(
   pm: Pick<ReturnType<HandlerDeps['getSeamsWeb']>, 'preferences'>,
@@ -40,8 +81,9 @@ export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
     PM_UNLOCK: async (req: Req<'PM_UNLOCK'>) => {
       const pm = deps.getSeamsWeb();
+      assertUnlockPayloadHasNoParentBearer(req.payload);
       const payload = requirePMUnlockPayload(req.payload);
-      const options = pmUnlockPayloadToLoginHooksOptions(payload);
+      const options = walletOriginUnlockOptions(pmUnlockPayloadToLoginHooksOptions(payload));
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.auth.unlock(
         payload.walletId,

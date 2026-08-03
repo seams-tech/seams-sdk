@@ -16,6 +16,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '@/core/types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
   RegistrationTimingSpanV1,
   SdkLifecycleEvent,
@@ -34,7 +35,8 @@ import type {
 } from '@/SeamsWeb/publicApi/types';
 import type {
   AddSignerSelection,
-  RegistrationAuthMethodInput,
+  EmailOtpRegistrationAuthMethodInput,
+  PasskeyRegistrationAuthMethodInput,
   RegisterWalletInput,
   RegistrationSignerSetSelection,
   WalletId,
@@ -59,6 +61,7 @@ export type ParentToChildType =
   | 'PING'
   | 'PM_SET_CONFIG'
   | 'PM_CANCEL'
+  | 'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION'
   // SeamsWeb API surface
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
@@ -83,7 +86,6 @@ export type ParentToChildType =
   | 'PM_ENROLL_EMAIL_OTP'
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
-  | 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS'
   | 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES'
   | 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES'
@@ -160,8 +162,32 @@ export interface PMCancelPayload {
   requestId?: string; // when omitted, host may attempt best-effort global cancel (close UIs)
 }
 
+export interface PMRedeemHostedWalletSeamsSessionPayload {
+  exchangeCode: string;
+  nonce: string;
+}
+
+type PMEmailOtpChallengeRegistrationAuthMethod = Omit<
+  Extract<EmailOtpRegistrationAuthMethodInput, { proofKind: 'otp_challenge' }>,
+  'appSessionJwt'
+> & {
+  appSessionJwt?: never;
+};
+
+type PMGoogleSsoRegistrationAuthMethod = Omit<
+  Extract<EmailOtpRegistrationAuthMethodInput, { proofKind: 'google_sso_registration' }>,
+  'appSessionJwt'
+> & {
+  appSessionJwt?: never;
+};
+
+export type PMRegistrationAuthMethodInput =
+  | PasskeyRegistrationAuthMethodInput
+  | PMEmailOtpChallengeRegistrationAuthMethod
+  | PMGoogleSsoRegistrationAuthMethod;
+
 export interface PMRegisterWalletPayload {
-  authMethod: RegistrationAuthMethodInput;
+  authMethod: PMRegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
   signerSelection: RegistrationSignerSetSelection;
   confirmationConfig?: Partial<ConfirmationConfig>;
@@ -175,8 +201,6 @@ export interface PMAddWalletSignerPayload {
   confirmationConfig?: Partial<ConfirmationConfig>;
   options?: Record<string, unknown>;
 }
-
-export type PMBootstrapThresholdEcdsaSessionPayload = BootstrapThresholdEcdsaSessionArgs;
 
 export type PMGoogleEmailOtpWalletAuthStartPayload = {
   idToken: string;
@@ -388,6 +412,7 @@ export type PMExportKeypairUiPayload =
       nearAccount: NearAccountRef;
       walletSession: WalletSessionRef;
       laneIdentity: unknown;
+      materialActivation: MpcMaterialActivationRef;
       chainTarget?: never;
       options: PMExportKeypairUiOptions;
     };
@@ -406,14 +431,9 @@ export interface PMGetWalletSessionPayload {
   walletId?: string;
 }
 
-export type PMLockExactWalletSessionPayload = WalletIframeExactSessionIdentity;
-
-export type PMLockMissingWalletSessionPayload = WalletIframeMissingSessionIdentity;
-
 export interface PMEmailOtpChallengePayload {
   walletId: string;
   relayUrl?: string;
-  appSessionJwt?: string;
   operation?: WalletEmailOtpLoginOperation;
 }
 
@@ -435,25 +455,22 @@ export interface PMEnrollEmailOtpPayload {
   relayUrl?: string;
   challengeId?: string;
   groupId?: string;
-  appSessionJwt?: string;
+  appSessionJwt?: never;
 }
 
 export interface PMGetEmailOtpRecoveryCodeStatusPayload {
   walletId: string;
   relayUrl?: string;
-  appSessionJwt?: string;
 }
 
 export interface PMShowEmailOtpRecoveryCodesPayload {
   walletId: string;
   relayUrl?: string;
-  appSessionJwt?: string;
 }
 
 export interface PMRotateEmailOtpRecoveryCodesPayload {
   walletId: string;
   relayUrl?: string;
-  appSessionJwt?: string;
 }
 
 export interface PMEmailOtpEcdsaCapabilityPayload {
@@ -465,7 +482,7 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   challengeId?: string;
   otpCode: string;
   groupId?: string;
-  appSessionJwt?: string;
+  appSessionJwt?: never;
   registrationAttemptId?: string;
   emailOtpAuthorityEmail?: string;
 }
@@ -478,8 +495,6 @@ export interface PMRefreshEmailOtpSigningSessionPayload {
   ttlMs?: number;
   remainingUses?: number;
 }
-
-export type PMEmailOtpEcdsaEnrollmentCapabilityPayload = PMEmailOtpEcdsaCapabilityPayload;
 
 export interface PMPrefillRouterAbEcdsaDerivationPresignaturePoolPayload {
   walletSession: WalletSessionRef;
@@ -561,13 +576,14 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PING'>
   | RpcEnvelope<'PM_SET_CONFIG', PMSetConfigPayload>
   | RpcEnvelope<'PM_CANCEL', PMCancelPayload>
+  | RpcEnvelope<'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION', PMRedeemHostedWalletSeamsSessionPayload>
   | RpcEnvelope<'PM_REGISTER_WALLET', PMRegisterWalletPayload>
   | RpcEnvelope<'PM_ADD_WALLET_SIGNER', PMAddWalletSignerPayload>
-  | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', PMBootstrapThresholdEcdsaSessionPayload>
+  | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', BootstrapThresholdEcdsaSessionArgs>
   | RpcEnvelope<'PM_UNLOCK', PMUnlockPayload>
   | RpcEnvelope<'PM_LOCK'>
-  | RpcEnvelope<'PM_LOCK_EXACT_WALLET_SESSION', PMLockExactWalletSessionPayload>
-  | RpcEnvelope<'PM_LOCK_MISSING_WALLET_SESSION', PMLockMissingWalletSessionPayload>
+  | RpcEnvelope<'PM_LOCK_EXACT_WALLET_SESSION', WalletIframeExactSessionIdentity>
+  | RpcEnvelope<'PM_LOCK_MISSING_WALLET_SESSION', WalletIframeMissingSessionIdentity>
   | RpcEnvelope<'PM_GET_WALLET_SESSION', PMGetWalletSessionPayload>
   | RpcEnvelope<'PM_GET_EXACT_WALLET_SESSION_STATE'>
   | RpcEnvelope<'PM_GET_NEAR_PROVISIONING_STATE', PMGetNearProvisioningStatePayload>
@@ -593,10 +609,6 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_ENROLL_EMAIL_OTP', PMEnrollEmailOtpPayload>
   | RpcEnvelope<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY', PMEmailOtpEcdsaCapabilityPayload>
   | RpcEnvelope<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION', PMRefreshEmailOtpSigningSessionPayload>
-  | RpcEnvelope<
-      'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
-      PMEmailOtpEcdsaEnrollmentCapabilityPayload
-    >
   | RpcEnvelope<'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS', PMGetEmailOtpRecoveryCodeStatusPayload>
   | RpcEnvelope<'PM_SHOW_EMAIL_OTP_RECOVERY_CODES', PMShowEmailOtpRecoveryCodesPayload>
   | RpcEnvelope<'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES', PMRotateEmailOtpRecoveryCodesPayload>

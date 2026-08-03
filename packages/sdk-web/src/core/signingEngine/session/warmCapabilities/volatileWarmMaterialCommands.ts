@@ -5,9 +5,9 @@ import type {
   VolatileWarmSessionScope,
 } from '../../uiConfirm/uiConfirm.types';
 import {
-  parseVolatileWarmSessionId,
-  type VolatileWarmSessionId,
-} from './volatileWarmSessionId';
+  parseThresholdSessionId,
+  type ThresholdSessionId,
+} from '@shared/utils/domainIds';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
@@ -18,11 +18,11 @@ export function parseVolatileWarmSessionScope(value: unknown): VolatileWarmSessi
   if (!raw) return null;
   if (raw.kind === 'all') return { kind: 'all' };
   if (raw.kind !== 'session') return null;
-  const sessionId = parseVolatileWarmSessionId(raw.sessionId);
-  if (!sessionId) return null;
+  const thresholdSessionId = parseThresholdSessionId(raw.thresholdSessionId);
+  if (!thresholdSessionId.ok) return null;
   return {
     kind: 'session',
-    sessionId,
+    thresholdSessionId: thresholdSessionId.value,
   };
 }
 
@@ -43,13 +43,13 @@ export function parseClearVolatileWarmMaterialCommand(
 }
 
 export function createClearVolatileWarmSessionMaterialCommand(
-  sessionId: VolatileWarmSessionId,
+  thresholdSessionId: ThresholdSessionId,
 ): ClearVolatileWarmSessionMaterialCommand {
   return {
     kind: 'clear_volatile_warm_material',
     scope: {
       kind: 'session',
-      sessionId,
+      thresholdSessionId,
     },
   };
 }

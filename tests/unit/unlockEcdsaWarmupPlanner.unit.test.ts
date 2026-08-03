@@ -16,9 +16,7 @@ import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
-import { parseEcdsaRoleLocalDurableMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 const WALLET_ID = toWalletId('alice.testnet');
@@ -130,10 +128,10 @@ function parseKeyFactsInventoryRequired(
   return parsed;
 }
 
-function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaSessionRecord {
+function publicCapabilityFor(active: ActiveEcdsaSignerRecord) {
   const bootstrap = createThresholdEcdsaBootstrapFixture({
     nearAccountId: WALLET_ID,
-    chain: active.chainTarget.kind === 'tempo' ? 'tempo' : 'evm',
+    chain: active.chainTarget.kind,
     keyHandle: active.walletKey.keyHandle,
     ecdsaThresholdKeyId: active.walletKey.keyFacts.ecdsaThresholdKeyId,
     signingRootId: active.walletKey.keyFacts.signingRootId,
@@ -141,42 +139,11 @@ function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaS
     ethereumAddress: active.walletKey.keyFacts.thresholdOwnerAddress,
     clientVerifyingShareB64u: PUBLIC_KEY_33_B64U,
   });
-  const keyRef = bootstrap.thresholdEcdsaKeyRef;
-  const backendBinding = keyRef.backendBinding;
-  if (backendBinding?.materialKind !== 'role_local_ready_state_blob') {
+  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  if (binding?.materialKind !== 'role_local_ready_state_blob') {
     throw new Error('expected role-local fixture public facts');
   }
-  return {
-    purpose: 'transaction_signing',
-    walletId: WALLET_ID,
-    evmFamilySigningKeySlotId: active.walletKey.evmFamilySigningKeySlotId,
-    chainTarget: active.chainTarget,
-    relayerUrl: 'https://relay.example',
-    keyHandle: active.walletKey.keyHandle,
-    ecdsaThresholdKeyId: active.walletKey.keyFacts.ecdsaThresholdKeyId,
-    signingRootId: active.walletKey.keyFacts.signingRootId,
-    signingRootVersion: active.walletKey.keyFacts.signingRootVersion,
-    relayerKeyId: backendBinding.relayerKeyId,
-    clientVerifyingShareB64u: backendBinding.clientVerifyingShareB64u,
-    roleLocalDurableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(
-      `role-local:${active.walletKey.keyHandle}`,
-    ),
-    ecdsaRoleLocalAuthMethod: backendBinding.ecdsaRoleLocalReadyRecord.authMethod,
-    ecdsaRoleLocalPublicFacts: backendBinding.ecdsaRoleLocalReadyRecord.publicFacts,
-    participantIds: [1, 2],
-    routerAbEcdsaDerivationNormalSigning: keyRef.routerAbEcdsaDerivationNormalSigning,
-    thresholdSessionKind: 'jwt',
-    thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
-    walletSessionJwt: 'jwt',
-    expiresAtMs: Date.now() + 60_000,
-    remainingUses: 2,
-    thresholdEcdsaPublicKeyB64u: active.walletKey.keyFacts.thresholdEcdsaPublicKeyB64u,
-    ethereumAddress: OWNER_ADDRESS,
-    relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
-    updatedAtMs: Date.now(),
-    source: 'login',
-  };
+  return binding.ecdsaRoleLocalReadyRecord.publicFacts.publicCapability;
 }
 
 test.describe('unlock ECDSA warm-up planner', () => {
@@ -185,7 +152,6 @@ test.describe('unlock ECDSA warm-up planner', () => {
       selection: ED25519_SELECTION,
       configuredTargets: [EVM_TARGET],
       activeSignerRecords: [],
-      localSessionRecords: [],
     });
 
     expect(result).toEqual({ kind: 'no_configured_ecdsa_targets' });
@@ -196,7 +162,6 @@ test.describe('unlock ECDSA warm-up planner', () => {
       selection: ECDSA_SELECTION,
       configuredTargets: [],
       activeSignerRecords: [],
-      localSessionRecords: [],
     });
 
     expect(result).toEqual({ kind: 'no_configured_ecdsa_targets' });
@@ -209,7 +174,6 @@ test.describe('unlock ECDSA warm-up planner', () => {
       selection: ECDSA_SELECTION,
       configuredTargets: [EVM_TARGET, TEMPO_TARGET],
       activeSignerRecords: [evm, tempo],
-      localSessionRecords: [localSessionRecordFor(evm)],
       allowAuthenticatedKeyFactsInventory: false,
       explicitKeyFactsInventoryMode: false,
     });
@@ -220,10 +184,6 @@ test.describe('unlock ECDSA warm-up planner', () => {
       'evm:eip155:5042002',
       'tempo:42431',
     ]);
-    expect(result.readyTargets[0].localSessionRecord?.thresholdSessionId).toBe(
-      'threshold-session-1',
-    );
-    expect(result.readyTargets[1].localSessionRecord).toBeUndefined();
   });
 
   test('completes configured targets from per-target ECDSA wallet keys', () => {
@@ -284,7 +244,7 @@ test.describe('unlock ECDSA warm-up planner', () => {
 
   test('preserves an exact persisted public capability through target completion', () => {
     const active = parseActive(profileSigner({ chainTarget: TEMPO_TARGET }));
-    const localRecord = localSessionRecordFor(active);
+    const publicCapability = publicCapabilityFor(active);
     const [warmKey] = collectConfiguredTargetThresholdEcdsaWarmKeys({
       source: 'durable sealed lane',
       keys: [
@@ -292,21 +252,20 @@ test.describe('unlock ECDSA warm-up planner', () => {
           chainTarget: TEMPO_TARGET,
           keyHandle: active.walletKey.keyHandle,
           key: evmFamilyEcdsaWalletKeyToIdentity(active.walletKey),
-          publicCapability: localRecord.ecdsaRoleLocalPublicFacts.publicCapability,
+          publicCapability,
         }),
       ],
     });
 
     expect(warmKey?.publicCapability).toEqual({
       kind: 'persisted_public_capability',
-      value: localRecord.ecdsaRoleLocalPublicFacts.publicCapability,
+      value: publicCapability,
     });
   });
 
   test('rejects conflicting persisted public capabilities for one target', () => {
     const active = parseActive(profileSigner({ chainTarget: TEMPO_TARGET }));
-    const localRecord = localSessionRecordFor(active);
-    const publicCapability = localRecord.ecdsaRoleLocalPublicFacts.publicCapability;
+    const publicCapability = publicCapabilityFor(active);
     const conflictingPublicCapability = structuredClone(publicCapability);
     conflictingPublicCapability.router_id = 'conflicting-router';
     const key = evmFamilyEcdsaWalletKeyToIdentity(active.walletKey);
@@ -341,14 +300,12 @@ test.describe('unlock ECDSA warm-up planner', () => {
       configuredTargets: [EVM_TARGET],
       activeSignerRecords: [],
       keyFactsInventoryRequiredRecords: [keyFactsInventoryRequired],
-      localSessionRecords: [],
     });
     const explicitInventoryPlan = planUnlockEcdsaWarmup({
       selection: ECDSA_SELECTION,
       configuredTargets: [EVM_TARGET],
       activeSignerRecords: [],
       keyFactsInventoryRequiredRecords: [keyFactsInventoryRequired],
-      localSessionRecords: [],
       explicitKeyFactsInventoryMode: true,
       allowAuthenticatedKeyFactsInventory: true,
     });
@@ -385,7 +342,6 @@ test.describe('unlock ECDSA warm-up planner', () => {
       configuredTargets: [EVM_TARGET],
       activeSignerRecords: [],
       blockedRecords: parsed.kind === 'blocked' ? [parsed] : [],
-      localSessionRecords: [],
     });
 
     expect(result).toEqual({
@@ -431,7 +387,6 @@ test.describe('unlock ECDSA warm-up planner', () => {
       selection: ECDSA_SELECTION,
       configuredTargets: [EVM_TARGET],
       activeSignerRecords: [first, second],
-      localSessionRecords: [],
     });
 
     expect(result).toMatchObject({

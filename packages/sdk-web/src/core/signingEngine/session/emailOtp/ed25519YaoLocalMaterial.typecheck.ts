@@ -4,6 +4,18 @@ import {
   type EmailOtpEd25519YaoOpaqueLocalEnvelopeV1,
   type EmailOtpEd25519YaoStableCustodyBindingV1,
 } from './ed25519YaoLocalMaterial';
+import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
+
+const materialActivationResult = parseMpcMaterialActivationRef({
+  kind: 'mpc_material_activation_ref',
+  activation_id: 'activation-1',
+  capability: 'capability-1',
+  material_owner: 'owner-1',
+  key_binding: 'key-binding-1',
+  lifecycle_binding: 'lifecycle-binding-1',
+  signing_worker: 'worker-1',
+});
+if (!materialActivationResult.ok) throw new Error(materialActivationResult.error.message);
 
 const stableBinding: EmailOtpEd25519YaoStableCustodyBindingV1 = {
   kind: EMAIL_OTP_ED25519_YAO_LOCAL_MATERIAL_KEY_KIND,
@@ -23,15 +35,7 @@ const stableBinding: EmailOtpEd25519YaoStableCustodyBindingV1 = {
   signerSetId: 'signer-set-1',
   participantIds: [1, 2],
   signingWorkerId: 'signing-worker-1',
-  materialActivation: {
-    kind: 'mpc_material_activation_ref',
-    activationId: 'activation-1',
-    capability: 'capability-1',
-    materialOwner: 'owner-1',
-    keyBinding: 'key-binding-1',
-    lifecycleBinding: 'lifecycle-binding-1',
-    signingWorker: 'worker-1',
-  },
+  materialActivation: materialActivationResult.value,
   registeredPublicKeyB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
   signingWorkerVerifyingShareB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
   stateEpoch: '1',

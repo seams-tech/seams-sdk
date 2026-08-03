@@ -106,10 +106,15 @@ function makeRegisterResolution(input?: { walletId?: string; attemptId?: string 
 function successfulEcdsaRegistrationResult(walletId: string): RegistrationResult {
   return {
     success: true,
-    kind: 'ecdsa_wallet_registered',
+    kind: 'wallet_registered',
     walletId: walletIdFromString(walletId),
-    thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
-    thresholdEcdsaPublicKeyB64u: 'public-key',
+    capabilities: [
+      {
+        kind: 'evm_family_ecdsa',
+        thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+        thresholdEcdsaPublicKeyB64u: 'public-key',
+      },
+    ],
   };
 }
 
@@ -374,9 +379,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
             },
           },
           jwt: APP_SESSION_JWT,
-        }) as Awaited<
-          ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>
-        >,
+        }) as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>,
       requestEmailOtpChallenge: async () => {
         throw Object.assign(new Error('Email OTP enrollment not found'), {
           code: 'not_found' as const,
@@ -415,9 +418,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
             },
           },
           jwt: APP_SESSION_JWT,
-        }) as Awaited<
-          ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>
-        >,
+        }) as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>,
       requestEmailOtpChallenge: async () => {
         throw Object.assign(new Error('Route not found'), {
           code: 'not_found' as const,

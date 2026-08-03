@@ -74,7 +74,7 @@ router/
 
   hosts/
     cloudflare/
-      router/                 # createCloudflareRouter, registerCloudflareRoute,
+      router/                 # createCloudflareRouter,
         routes/               # cloudflare.types, self-hosted worker, email
       d1/                     # persistence impls, subfolders mirroring domains/
         emailOtp/  registration/  session/  identity/  oidc/  webauthn/
@@ -207,7 +207,7 @@ a Phase 7 question.
 
 | Destination | Files |
 | ----------- | ----- |
-| `router/` | `createCloudflareRouter`, `registerCloudflareRoute`, `cloudflare.types`, `createSelfHostedCloudflareSigningWorker`, `email` |
+| `router/` | `createCloudflareRouter`, `cloudflare.types`, `createSelfHostedCloudflareSigningWorker`, `email` |
 | `router/routes/` | all of `routes/` unchanged |
 | `d1/emailOtp/` | the 12 `d1EmailOtp*` + `d1GoogleEmailOtp*` files |
 | `d1/registration/` | `d1RegistrationCeremony*` (3), `d1RegistrationIntentService`, `d1RegistrationSharedSigningBudget`, `d1WalletRegistrationCommitStore`, `d1WalletRegistrationService`, `d1WalletRegistrationSetup`, `d1EvmFamilyEcdsaRegistrationBranch` |

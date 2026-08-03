@@ -11,24 +11,23 @@ import type {
   ExactEcdsaSigningLaneIdentity,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
+import type { NearPasskeyOperationStepUpPlan } from '@/core/signingEngine/interfaces/near';
 import type {
-  SigningGrantId,
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import type {
   ThresholdEd25519SessionId,
 } from '@/core/signingEngine/session/operationState/types';
-import type {
-  NearEd25519YaoCapabilitySource,
-  NearEd25519YaoSigningCapability,
-} from '@/core/signingEngine/interfaces/near';
 
 declare const walletId: WalletId;
 declare const nearAccountId: NamedNearAccountId;
 declare const nearEd25519SigningKeyId: NearEd25519SigningKeyId;
 declare const auth: SigningLaneAuthBinding;
-declare const signingGrantId: SigningGrantId;
+declare const walletSessionId: WalletSessionId;
+declare const quotaId: MpcWalletSigningQuotaId;
 declare const thresholdSessionId: ThresholdEd25519SessionId;
 declare const ecdsaLane: ExactEcdsaSigningLaneIdentity;
-declare const yaoCapability: NearEd25519YaoSigningCapability;
-declare function recoverYaoCapability(): Promise<NearEd25519YaoSigningCapability>;
 
 const wallet = buildWalletIdentity({ walletId });
 const account = buildNamedNearAccountBinding({
@@ -45,7 +44,8 @@ const ed25519Lane: ExactEd25519SigningLaneIdentity = {
   kind: 'exact_signing_lane',
   signer,
   auth,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId,
 };
 void ed25519Lane;
@@ -58,51 +58,30 @@ const ed25519LaneWithLegacyAccountId: ExactEd25519SigningLaneIdentity = {
   kind: 'exact_signing_lane',
   signer,
   auth,
-  signingGrantId,
+  walletSessionId,
+  quotaId,
   thresholdSessionId,
   // @ts-expect-error Exact Ed25519 lane carries NEAR account identity under signer.account.
   accountId: nearAccountId,
 };
 void ed25519LaneWithLegacyAccountId;
 
-const activeCapabilitySource: NearEd25519YaoCapabilitySource = {
-  kind: 'active_capability',
-  capability: yaoCapability,
-};
-void activeCapabilitySource;
+declare const operationStepUpPlan: NearPasskeyOperationStepUpPlan;
+const exactOperationThresholdSession: ThresholdEd25519SessionId = operationStepUpPlan.thresholdSessionId;
+void exactOperationThresholdSession;
 
-const capabilityRehydrationSource: NearEd25519YaoCapabilitySource = {
-  kind: 'capability_rehydration',
-  rehydrate: recoverYaoCapability,
+const operationStepUpWithReusableGrant: NearPasskeyOperationStepUpPlan = {
+  thresholdSessionId,
+  // @ts-expect-error A reusable Wallet Session ID cannot authorize a one-operation step-up.
+  authorizationGrantRef: walletSessionId,
+  authority: operationStepUpPlan.authority,
 };
-void capabilityRehydrationSource;
+void operationStepUpWithReusableGrant;
 
-const emailOtpReconnectSource: NearEd25519YaoCapabilitySource = {
-  kind: 'email_otp_reconnect',
+const operationStepUpWithoutGrant: NearPasskeyOperationStepUpPlan = {
+  thresholdSessionId,
+  authority: operationStepUpPlan.authority,
 };
-void emailOtpReconnectSource;
-
-// @ts-expect-error Email OTP reconnect sources reject unrelated rehydration behavior.
-const emailOtpReconnectWithRecovery: NearEd25519YaoCapabilitySource = {
-  kind: 'email_otp_reconnect',
-  rehydrate: recoverYaoCapability,
-};
-void emailOtpReconnectWithRecovery;
-
-// @ts-expect-error Active capability sources reject rehydration behavior.
-const activeCapabilityWithRecovery: NearEd25519YaoCapabilitySource = {
-  kind: 'active_capability',
-  capability: yaoCapability,
-  rehydrate: recoverYaoCapability,
-};
-void activeCapabilityWithRecovery;
-
-// @ts-expect-error Rehydration sources reject pre-resolved capabilities.
-const recoveryWithCapability: NearEd25519YaoCapabilitySource = {
-  kind: 'capability_rehydration',
-  rehydrate: recoverYaoCapability,
-  capability: yaoCapability,
-};
-void recoveryWithCapability;
+void operationStepUpWithoutGrant;
 
 export {};

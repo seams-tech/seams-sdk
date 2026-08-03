@@ -8,6 +8,9 @@ export {
   type SigningSessionSealKeyVersion,
 } from './core/keyMaterialBrands';
 export { AuthService } from './core/AuthService';
+export * from './authorization/domain';
+export * from './authorization/service';
+export * from './authorization/vaultProxyUse';
 export { SessionService, parseCsvList, buildCorsOrigins } from './core/SessionService';
 export type { SessionConfig } from './core/SessionService';
 export {
@@ -15,7 +18,6 @@ export {
   createThresholdEd25519SessionStore,
   createEd25519WalletSessionStore,
   createEcdsaWalletSessionStore,
-  createWalletSigningBudgetSessionStore,
   CloudflareDurableObjectSigningRootSecretStore,
   D1SigningRootSecretStore,
   SIGNING_ROOT_SECRET_SHARE_D1_SCHEMA_SQL,
@@ -219,14 +221,11 @@ export {
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
   type CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
-  type InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   type RouterAbNormalSigningAbuseDecision,
   type RouterAbNormalSigningAbuseProvider,
   type RouterAbNormalSigningAdmissionStore,
   type RouterAbNormalSigningProjectPolicyDecision,
   type RouterAbNormalSigningProjectPolicyProvider,
-  type RouterAbNormalSigningQuotaDecision,
-  type RouterAbNormalSigningQuotaStore,
 } from './router/routerAbNormalSigningAdmissionStore';
 export * from './email-recovery';
 export * from './threshold/session/signingSessionSeal';

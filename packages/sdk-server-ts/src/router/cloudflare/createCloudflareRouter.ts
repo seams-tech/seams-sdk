@@ -11,7 +11,7 @@ import { handleWalletRegistration } from './routes/walletRegistration';
 import {
   handleSessionState,
   handleSessionExchange,
-  handleSigningBudgetStatus,
+  handleReusableWalletSessionStatus,
   handleSessionRefresh,
   handleSessionRevoke,
   handleWalletLock,
@@ -127,7 +127,7 @@ export function createCloudflareRouter(
     handleSessionState,
     handleSessionExchange,
     handleSessionRevoke,
-    handleSigningBudgetStatus,
+    handleReusableWalletSessionStatus,
     handleSessionRefresh,
     handleWalletUnlockChallenge,
     handleWalletUnlockVerify,

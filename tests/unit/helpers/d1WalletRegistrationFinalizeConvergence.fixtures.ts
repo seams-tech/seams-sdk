@@ -2,16 +2,11 @@ import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { Buffer } from 'node:buffer';
-import type {
-  CloudflareDurableObjectNamespaceLike,
-  CloudflareDurableObjectStubLike,
-} from '../../../packages/sdk-server-ts/src/core/types';
 import {
   buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch,
   buildStoredWalletRegistrationPreparedContext,
   type StoredWalletRegistrationCeremony,
 } from '../../../packages/sdk-server-ts/src/core/RegistrationCeremonyStore';
-import { createRouterAbSigningRuntimes } from '../../../packages/sdk-server-ts/src/core/routerAbSigning/createRouterAbSigningRuntimes';
 import type { WalletRegistrationFinalizeRequest } from '../../../packages/sdk-server-ts/src/core/registrationContracts';
 import {
   createCloudflareD1RouterApiAuthService,
@@ -81,7 +76,6 @@ const TEST_SCOPE = {
   projectId: 'project-finalize',
   envId: 'env-finalize',
 } as const;
-const THRESHOLD_PREFIX = 'registration-finalize-convergence';
 const SIGNING_WORKER_ID = 'signing-worker-finalize';
 const REGISTRATION_CEREMONY_ID = 'registration-ceremony-finalize-1';
 const IDEMPOTENCY_KEY = 'registration-finalize-convergence-1';
@@ -126,13 +120,6 @@ function parsedValue<T>(
 ): T {
   if (!result.ok) throw new Error(result.message);
   return result.value;
-}
-
-function jsonResponse(body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: { 'content-type': 'application/json' },
-  });
 }
 
 function deterministicNearCredentials(seed: number): DeterministicNearCredentials {
@@ -359,50 +346,6 @@ async function corruptStoredSponsoredPreparedSignature(database: D1DatabaseLike)
     .run();
 }
 
-class FinalizeCeremonyDurableObjectStub implements CloudflareDurableObjectStubLike {
-  readonly values = new Map<string, unknown>();
-
-  async fetch(_input: RequestInfo, init?: RequestInit): Promise<Response> {
-    const request = this.parseRequest(init?.body);
-    const key = String(request.key || '').trim();
-    switch (request.op) {
-      case 'set':
-        this.values.set(key, request.value);
-        return jsonResponse({ ok: true, value: true });
-      case 'get':
-        return jsonResponse({ ok: true, value: this.values.get(key) ?? null });
-      case 'del': {
-        const deleted = this.values.delete(key);
-        return jsonResponse({ ok: true, value: deleted });
-      }
-      default:
-        return jsonResponse({
-          ok: false,
-          code: 'unsupported_op',
-          message: `Unsupported finalize fixture operation: ${String(request.op || '')}`,
-        });
-    }
-  }
-
-  private parseRequest(body: BodyInit | null | undefined): Record<string, unknown> {
-    if (typeof body !== 'string') return {};
-    const parsed: unknown = JSON.parse(body);
-    return isRecord(parsed) ? parsed : {};
-  }
-}
-
-class FinalizeCeremonyDurableObjectNamespace implements CloudflareDurableObjectNamespaceLike {
-  readonly stub = new FinalizeCeremonyDurableObjectStub();
-
-  idFromName(name: string): string {
-    return name;
-  }
-
-  get(): CloudflareDurableObjectStubLike {
-    return this.stub;
-  }
-}
-
 class ResponseLossD1Database implements D1DatabaseLike {
   private loseWalletCommitResponse = false;
   private loseFinalizeClaimResponse = false;
@@ -575,7 +518,15 @@ class UnusedEcdsaStrictRegistration implements RouterAbEcdsaStrictRegistrationPo
     throw new Error('ECDSA is outside the finalize convergence fixture');
   }
 
+  async prepareActivation(): Promise<never> {
+    throw new Error('ECDSA is outside the finalize convergence fixture');
+  }
+
   async activate(): Promise<never> {
+    throw new Error('ECDSA is outside the finalize convergence fixture');
+  }
+
+  async queryActivation(): Promise<never> {
     throw new Error('ECDSA is outside the finalize convergence fixture');
   }
 }
@@ -829,7 +780,7 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
       ? incoming.application_binding.near_ed25519_signing_key_id
       : 'near-ed25519-finalize-convergence',
     thresholdSessionId: incoming
-      ? incoming.scope.wallet_session_id
+      ? incoming.scope.threshold_session_id
       : 'threshold-finalize-convergence',
     signerSlot: incoming
       ? incoming.application_binding.key_creation_signer_slot
@@ -896,27 +847,6 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
     admissionRequest,
     admissionReceipt,
     activationResult,
-  };
-}
-
-function createSigningRuntimeBundle() {
-  const base = createRouterAbSigningRuntimes({
-    authService: {
-      async getRelayerAccount() {
-        return { accountId: 'relayer.finalize.testnet', publicKey: 'ed25519:relayer-public-key' };
-      },
-    },
-    thresholdStore: {
-      kind: 'in-memory',
-      ROUTER_AB_NORMAL_SIGNING_WORKER_ID: SIGNING_WORKER_ID,
-      ROUTER_AB_SIGNING_WORKER_URL: 'https://signing-worker.finalize.invalid',
-      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'finalize-internal-secret',
-    },
-    isNode: true,
-  });
-  return {
-    normalSigning: base.normalSigning,
-    ecdsaPresign: base.ecdsaPresign,
   };
 }
 
@@ -991,18 +921,10 @@ async function createFinalizeConvergenceHarnessForMode(
   const temporary = createTemporaryD1Database();
   await applySignerMigrations(temporary.database);
   const database = new ResponseLossD1Database(temporary.database);
-  const durableObjects = new FinalizeCeremonyDurableObjectNamespace();
   const yao = await createActivatedFinalizeYaoRuntimeFixture();
-  const thresholdStore = {
-    kind: 'cloudflare-do' as const,
-    namespace: durableObjects,
-    THRESHOLD_PREFIX,
-  };
   const service = createCloudflareD1RouterApiAuthService({
     database,
     ...TEST_SCOPE,
-    thresholdStore,
-    routerAbSigningRuntimes: createSigningRuntimeBundle(),
     ed25519YaoProductRegistration: yao.runtime,
     ecdsaStrictRegistration: new UnusedEcdsaStrictRegistration(),
     ...(mode.kind === 'sponsored'

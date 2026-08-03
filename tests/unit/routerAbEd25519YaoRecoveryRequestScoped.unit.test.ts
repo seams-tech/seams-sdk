@@ -3,6 +3,7 @@ import {
   ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
@@ -186,6 +187,88 @@ class SuccessfulRecoveryBackend implements RouterAbEd25519YaoRecoveryBackend {
 }
 
 test.describe('request-scoped recovery persistence', () => {
+  test('reads the authoritative recovery stage and exact receipts by lifecycle', async () => {
+    const fixture = await buildRouterAbEd25519YaoRecoveryRequestScopedFixture();
+    const backend = new InspectingRecoveryBackend(fixture, 'success');
+    const statusBody = {
+      kind: 'router_ab_ed25519_yao_recovery_status_request_v1',
+      admission: fixture.admission,
+    } as const;
+
+    const missing = await runRecoveryRequest(
+      fixture,
+      backend,
+      ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
+      statusBody,
+    );
+    await expect(missing.json()).resolves.toEqual({
+      stage: 'missing',
+      lifecycle_id: fixture.lifecycleId,
+    });
+
+    await runRecoveryRequest(
+      fixture,
+      backend,
+      ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+      fixture.admission,
+    );
+    const admitted = await runRecoveryRequest(
+      fixture,
+      backend,
+      ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
+      statusBody,
+    );
+    await expect(admitted.json()).resolves.toEqual({
+      stage: 'admitted',
+      lifecycle_id: fixture.lifecycleId,
+      admission_receipt: fixture.admissionReceipt,
+    });
+
+    await runRecoveryRequest(
+      fixture,
+      backend,
+      ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+      fixture.execution,
+    );
+    const executed = await runRecoveryRequest(
+      fixture,
+      backend,
+      ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
+      statusBody,
+    );
+    await expect(executed.json()).resolves.toEqual({
+      stage: 'executed',
+      lifecycle_id: fixture.lifecycleId,
+      admission_receipt: fixture.admissionReceipt,
+      execution_result: fixture.executionResult,
+    });
+
+    await runRecoveryRequest(
+      fixture,
+      backend,
+      ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
+      fixture.activation,
+    );
+    const promoted = await runRecoveryRequest(
+      fixture,
+      backend,
+      ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
+      statusBody,
+    );
+    await expect(promoted.json()).resolves.toEqual({
+      stage: 'promoted',
+      lifecycle_id: fixture.lifecycleId,
+      admission_receipt: fixture.admissionReceipt,
+      execution_result: fixture.executionResult,
+      activation_receipt: {
+        binding: fixture.activation.binding,
+        public_receipt: fixture.activation.public_receipt,
+        active_capability_binding: fixture.admission.replacement_capability_binding,
+        retired_capability_binding: fixture.admission.active_capability_binding,
+      },
+    });
+  });
+
   test('rehydrates a registration-era D1 capability and completes recovery from empty partitioned state', async () => {
     const capability = buildRouterAbEd25519YaoCapabilityReplacementFixture();
     const fixture = await buildRouterAbEd25519YaoRecoveryRequestScopedFixture();
@@ -209,8 +292,7 @@ test.describe('request-scoped recovery persistence', () => {
           nearEd25519SigningKeyId: capability.nearSigningKeyId,
           signerSlot:
             capability.previous.admissionRequest.application_binding.key_creation_signer_slot,
-          thresholdSessionId: capability.previous.admissionRequest.scope.wallet_session_id,
-          signingGrantId: 'signing-grant-recovery-1',
+          thresholdSessionId: capability.previous.admissionRequest.scope.threshold_session_id,
           signingWorkerId: capability.signingWorkerId,
           participantIds: capability.previous.admissionRequest.participant_ids,
         },
@@ -320,7 +402,6 @@ test.describe('request-scoped recovery persistence', () => {
         nearEd25519SigningKeyId: 'ed25519ks_recovery_1',
         signerSlot: 1,
         thresholdSessionId: 'wallet-session-recovery-1',
-        signingGrantId: 'signing-grant-recovery-1',
         signingWorkerId: 'signing-worker-recovery-1',
         participantIds: [1, 2],
       },

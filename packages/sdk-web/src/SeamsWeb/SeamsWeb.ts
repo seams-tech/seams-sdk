@@ -1,4 +1,5 @@
 import { BrowserSigningSurface } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   addWalletSigner as addWalletSignerWithUnifiedCeremony,
   isRegistrationBenchmarkDiagnosticsEnabled,
@@ -50,6 +51,7 @@ import { ActionType } from '@/core/types/actions';
 import type { PreferencesChangedPayload } from '@/SeamsWeb/walletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancellationError, toError } from '@shared/utils/errors';
+import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import {
@@ -87,8 +89,6 @@ import type {
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
-  EmailOtpEcdsaEnrollmentCapabilityArgs,
-  EmailOtpEcdsaEnrollmentCapabilityResult,
   EvmSignerCapability,
   KeyExportCapability,
   NearSignerCapability,
@@ -123,12 +123,6 @@ import {
   assertWalletRuntimePostconditions,
   type WalletRuntimeInventory,
 } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
-import {
-  buildOperationUsableThresholdEcdsaSessionRecord,
-  type EmailOtpEcdsaSessionRecord,
-  type OperationUsableThresholdEcdsaSessionRecord,
-  type ThresholdEd25519SessionRecord,
-} from '@/core/signingEngine/session/persistence/records';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from '@/core/signingEngine/session/emailOtp/persistedSnapshot';
 import type { LoginWithEmailOtpEd25519YaoCapabilityInternalArgs } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
@@ -152,7 +146,6 @@ import {
   type RegistrationSignerSetSelection,
 } from '@shared/utils/registrationIntent';
 import {
-  buildNearEd25519SignerBinding,
   nearAccountBindingFromRaw,
   type NearAccountBinding,
   type NearEd25519SignerBinding,
@@ -163,7 +156,7 @@ import {
 } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 import { createServerAllocatedWalletId } from '@shared/utils/registrationIntent';
 import { isObject } from '@shared/utils/validation';
-import { DEV_DEFAULT_UNLOCK_REMAINING_USES } from '@/core/signingEngine/session/budget/policy';
+import { DEFAULT_UNLOCK_REMAINING_USES } from '@/core/signingEngine/threshold/sessionPolicy';
 
 type EmailOtpEd25519YaoLoginDomainArgs = Omit<
   LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
@@ -186,10 +179,10 @@ type EmailOtpUnlockActiveRuntimeState = {
 type EmailOtpUnlockActivationPlan = {
   kind: 'email_otp_unlock_activation_plan_v1';
   mode: 'evm_family_ecdsa';
-  activeSession: ActiveWalletSession;
-  ecdsa: readonly [
-    OperationUsableThresholdEcdsaSessionRecord,
-    ...OperationUsableThresholdEcdsaSessionRecord[],
+  activeAuthorization: ActiveWalletSessionAuthorizationProjection;
+  authorizations: readonly [
+    ActiveWalletSessionAuthorizationProjection,
+    ...ActiveWalletSessionAuthorizationProjection[],
   ];
   runtimeState: EmailOtpUnlockActiveRuntimeState;
 };
@@ -415,103 +408,19 @@ function emailOtpUnlockActiveRuntimeState(
   };
 }
 
-function assertEmailOtpUnlockEcdsaRecord(
-  record: OperationUsableThresholdEcdsaSessionRecord,
-): asserts record is OperationUsableThresholdEcdsaSessionRecord & EmailOtpEcdsaSessionRecord {
-  if (record.source !== 'email_otp') {
-    throw new Error('Email OTP unlock ECDSA current record is missing Email OTP authority');
-  }
-  if (!record.emailOtpAuthContext) {
-    throw new Error('Email OTP unlock ECDSA current record is missing Email OTP authority');
-  }
-  if (!String(record.walletSessionJwt || '').trim()) {
-    throw new Error('Email OTP unlock ECDSA current record is missing bearer JWT');
-  }
-}
-
-function requireEmailOtpUnlockBearerJwt(value: string, label: string): string {
-  const jwt = String(value || '').trim();
-  if (!jwt) {
-    throw new Error(`Email OTP unlock ${label} current record is missing bearer JWT`);
-  }
-  return jwt;
-}
-
-function buildEmailOtpUnlockActiveSession(args: {
-  walletSession: WalletSessionRef;
-  ecdsa: readonly [
-    OperationUsableThresholdEcdsaSessionRecord,
-    ...OperationUsableThresholdEcdsaSessionRecord[],
-  ];
-}): ActiveWalletSession {
-  const [firstRecord, ...remainingRecords] = args.ecdsa;
-  assertEmailOtpUnlockEcdsaRecord(firstRecord);
-  const authority = firstRecord.emailOtpAuthContext.authority;
-  if (authority.walletId !== args.walletSession.walletId) {
-    throw new Error('Email OTP unlock active session wallet id does not match wallet session');
-  }
-  const walletSessionJwt = requireEmailOtpUnlockBearerJwt(firstRecord.walletSessionJwt, 'ECDSA');
-  for (const record of remainingRecords) {
-    assertEmailOtpUnlockEcdsaRecord(record);
-    const ecdsaAuthority = record.emailOtpAuthContext.authority;
-    if (!walletAuthAuthoritiesMatch(authority, ecdsaAuthority)) {
-      throw new Error('Email OTP unlock ECDSA current record authority mismatch');
-    }
-    requireEmailOtpUnlockBearerJwt(record.walletSessionJwt, 'ECDSA');
-  }
-  return {
-    kind: 'active_wallet_session',
-    authority,
-    walletSessionJwt,
-  };
-}
-
-function requireEmailOtpUnlockEcdsaCurrentRecord(
-  capability: LoginWithEmailOtpEcdsaCapabilityInternalResult['warmCapabilities'][number],
-): OperationUsableThresholdEcdsaSessionRecord {
-  const record = capability.record;
-  if (!record) {
-    throw new Error('Email OTP ECDSA unlock did not produce a current session record');
-  }
-  const currentRecord = buildOperationUsableThresholdEcdsaSessionRecord(record);
-  if (!currentRecord) {
-    throw new Error(
-      'Email OTP ECDSA unlock did not produce an operation-usable current session record',
-    );
-  }
-  return currentRecord;
-}
-
-function requireEmailOtpUnlockEcdsaCurrentRecords(
-  result: LoginWithEmailOtpEcdsaCapabilityInternalResult,
-): readonly [
-  OperationUsableThresholdEcdsaSessionRecord,
-  ...OperationUsableThresholdEcdsaSessionRecord[],
-] {
-  const currentRecords = result.warmCapabilities.map((capability) =>
-    requireEmailOtpUnlockEcdsaCurrentRecord(capability),
-  );
-  const [firstRecord, ...remainingRecords] = currentRecords;
-  if (!firstRecord) {
-    throw new Error('Email OTP ECDSA unlock did not produce any current session records');
-  }
-  return [firstRecord, ...remainingRecords];
-}
-
 function buildEmailOtpEcdsaUnlockActivationPlan(args: {
   walletSession: WalletSessionRef;
   result: LoginWithEmailOtpEcdsaCapabilityInternalResult;
   runtimeInventory: WalletRuntimeInventory;
 }): EmailOtpUnlockActivationPlan {
-  const ecdsa = requireEmailOtpUnlockEcdsaCurrentRecords(args.result);
+  if (args.result.authorization.walletId !== args.walletSession.walletId) {
+    throw new Error('Email OTP unlock authorization does not match the wallet session');
+  }
   return {
     kind: 'email_otp_unlock_activation_plan_v1',
     mode: 'evm_family_ecdsa',
-    activeSession: buildEmailOtpUnlockActiveSession({
-      walletSession: args.walletSession,
-      ecdsa,
-    }),
-    ecdsa,
+    activeAuthorization: args.result.authorization,
+    authorizations: args.result.authorizations,
     runtimeState: emailOtpUnlockActiveRuntimeState(args.runtimeInventory),
   };
 }
@@ -521,9 +430,9 @@ function logEmailOtpUnlockActivationPlan(plan: EmailOtpUnlockActivationPlan): vo
   console.info('[EmailOtpUnlock] activation plan constructed', {
     kind: plan.kind,
     mode: plan.mode,
-    walletId: plan.activeSession.authority.walletId,
-    authorityBindingId: plan.activeSession.authority.bindingId,
-    ecdsaThresholdSessionIds: plan.ecdsa.map((record) => record.thresholdSessionId),
+    walletId: plan.activeAuthorization.walletId,
+    authorityDigest: plan.activeAuthorization.authority.authorityDigest,
+    walletSessionIds: plan.authorizations.map((authorization) => authorization.walletSessionId),
     runtimeTargetCount: plan.runtimeState.inventory.ecdsaByTarget.size,
   });
 }
@@ -567,20 +476,6 @@ function requireNearAccountBindingForOperation(args: {
     throw new Error(`[SeamsWeb] ${args.operation} requires a valid NEAR account binding`);
   }
   return parsed.value;
-}
-
-function emailOtpEd25519SignerFromRecoveredRecord(
-  record: ThresholdEd25519SessionRecord,
-): NearEd25519SignerBinding {
-  return buildNearEd25519SignerBinding({
-    account: requireNearAccountBindingForOperation({
-      walletId: record.walletId,
-      nearAccountId: String(record.nearAccountId),
-      operation: 'Email OTP wallet activation',
-    }),
-    nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
-    signerSlot: record.signerSlot,
-  });
 }
 
 function resolvePrewarmNearAccountBinding(
@@ -643,10 +538,15 @@ function normalizeResolveExactKeyExportLaneResult(
         laneIdentity: parseExactEcdsaSigningLaneIdentity(result.laneIdentity),
       };
     case 'ed25519':
+      {
+        const materialActivation = parseMpcMaterialActivationRef(result.materialActivation);
+        if (!materialActivation.ok) throw new Error(materialActivation.error.message);
       return {
         kind: 'ed25519',
         laneIdentity: parseExactEd25519SigningLaneIdentity(result.laneIdentity),
+        materialActivation: materialActivation.value,
       };
+      }
   }
 }
 
@@ -677,6 +577,8 @@ function normalizeExportKeypairWithUIInput(
     }
     case 'ed25519': {
       const laneIdentity = parseExactEd25519SigningLaneIdentity(input.laneIdentity);
+      const materialActivation = parseMpcMaterialActivationRef(input.materialActivation);
+      if (!materialActivation.ok) throw new Error(materialActivation.error.message);
       if (
         String(laneIdentity.signer.account.wallet.walletId) !== String(input.walletSession.walletId)
       ) {
@@ -692,6 +594,7 @@ function normalizeExportKeypairWithUIInput(
         nearAccount: nearAccountRefFromAccountId(input.nearAccount.accountId),
         walletSession: input.walletSession,
         laneIdentity,
+        materialActivation: materialActivation.value,
         options: resolvedOptions,
       };
     }
@@ -868,8 +771,6 @@ export class SeamsWeb {
         requestEmailOtpEnrollmentChallenge: async (args) =>
           await this.requestEmailOtpEnrollmentChallengeDomain(args),
         enrollEmailOtp: async (args) => await this.enrollEmailOtpDomain(args),
-        enrollAndLoginWithEmailOtpEcdsaCapability: async (args) =>
-          await this.enrollAndLoginWithEmailOtpEcdsaCapabilityDomain(args),
       },
       recovery: {
         getEmailOtpRecoveryCodeStatus: async (args) =>
@@ -1948,7 +1849,8 @@ export class SeamsWeb {
     if (providedJwt) return providedJwt;
     const walletId = toWalletId(args.walletId);
     const session = await getWalletSessionDomain(this.getWalletAuthDeps(), walletId);
-    const walletSessionUserId = String(session.login.walletId || '').trim();
+    const walletSessionUserId =
+      session.appIdentity.kind === 'resolved' ? String(session.appIdentity.walletId).trim() : '';
     if (walletSessionUserId !== String(walletId)) {
       throw new Error(
         '[SeamsWeb] recovery-code app-session resolution requires a wallet-bound session',
@@ -1988,7 +1890,7 @@ export class SeamsWeb {
     const emailHashHex = await this.requireEmailOtpWalletAuthMethodEmailHashHex(
       args.walletSession.walletId,
     );
-    const record = await this.signingEngine.loginWithEmailOtpEd25519YaoCapabilityInternal({
+    const signer = await this.signingEngine.loginWithEmailOtpEd25519YaoCapabilityInternal({
       ...args,
       emailHashHex,
     });
@@ -1996,7 +1898,7 @@ export class SeamsWeb {
       { signingEngine: this.signingEngine, nearClient: this.nearClient },
       {
         kind: 'near_ed25519_wallet',
-        signer: emailOtpEd25519SignerFromRecoveredRecord(record),
+        signer,
       },
     );
   }
@@ -2113,10 +2015,10 @@ export class SeamsWeb {
               1,
               Math.floor(
                 Number(this.configs.signing.sessionDefaults?.remainingUses) ||
-                  DEV_DEFAULT_UNLOCK_REMAINING_USES,
+                  DEFAULT_UNLOCK_REMAINING_USES,
               ),
             ),
-            DEV_DEFAULT_UNLOCK_REMAINING_USES,
+            DEFAULT_UNLOCK_REMAINING_USES,
           ),
         });
       const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
@@ -2134,7 +2036,7 @@ export class SeamsWeb {
                 nearAccountId: String(preparedEd25519YaoRecovery.identity.nearAccountId),
                 expectedOperationalPublicKey:
                   preparedEd25519YaoRecovery.expectedOperationalPublicKey,
-                expectedThresholdSessionId: preparedEd25519YaoRecovery.identity.thresholdSessionId,
+                expectedThresholdSessionId: preparedEd25519YaoRecovery.thresholdSessionId,
               },
             }
           : {}),
@@ -2142,19 +2044,19 @@ export class SeamsWeb {
       });
       let walletActivation: EmailOtpWalletPostUnlockActivation;
       if (preparedEd25519YaoRecovery) {
-        let recoveredEd25519Record: ThresholdEd25519SessionRecord;
+        let recoveredEd25519Signer: NearEd25519SignerBinding;
         switch (result.ed25519YaoRecovery.kind) {
           case 'unlocked':
-            recoveredEd25519Record =
+            recoveredEd25519Signer =
               await this.signingEngine.activateEmailOtpEd25519YaoUnlockedRecoveryInternal({
                 prepared: preparedEd25519YaoRecovery,
                 bootstrap: result.ed25519YaoRecovery.bootstrap,
                 pendingFactorHandle: result.ed25519YaoRecovery.pendingFactorHandle,
               });
             break;
-          case 'local_session':
-            recoveredEd25519Record =
-              await this.signingEngine.activateEmailOtpEd25519YaoLocalSessionInternal({
+          case 'capability':
+            recoveredEd25519Signer =
+              await this.signingEngine.activateEmailOtpEd25519YaoLocalCapabilityInternal({
                 prepared: preparedEd25519YaoRecovery,
                 bootstrap: result.ed25519YaoRecovery.bootstrap,
                 activeClientHandle: result.ed25519YaoRecovery.activeClientHandle,
@@ -2162,13 +2064,13 @@ export class SeamsWeb {
               });
             break;
           case 'not_requested':
-            throw new Error('Mixed Email OTP unlock omitted Ed25519 Yao session material');
+            throw new Error('Email OTP capability unlock omitted Ed25519 Yao session material');
           default:
-            throw new Error('Mixed Email OTP unlock returned an invalid Ed25519 Yao state');
+            throw new Error('Email OTP capability unlock returned an invalid Ed25519 Yao state');
         }
         walletActivation = {
           kind: 'near_ed25519_wallet',
-          signer: emailOtpEd25519SignerFromRecoveredRecord(recoveredEd25519Record),
+          signer: recoveredEd25519Signer,
         };
       } else if (result.ed25519YaoRecovery.kind !== 'not_requested') {
         throw new Error(
@@ -2390,180 +2292,6 @@ export class SeamsWeb {
         walletId,
         authMethod: 'email_otp',
         requestId: args.challengeId,
-        error: e,
-      });
-      throw e;
-    }
-  }
-
-  private async enrollAndLoginWithEmailOtpEcdsaCapabilityDomain(
-    args: EmailOtpEcdsaEnrollmentCapabilityArgs,
-  ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult> {
-    const walletId = args.walletSession.walletId;
-    const flowId = this.emailOtpRegistrationFlowId(walletId, args.challengeId);
-    const chainTarget = requireConcreteEcdsaChainTarget(
-      args.chainTarget,
-      'Email OTP ECDSA enrollment',
-    );
-    this.emitEmailOtpRegistrationEvent(args.onEvent, {
-      flowId,
-      walletId,
-      authMethod: 'email_otp',
-      phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_STARTED,
-      status: 'running',
-      interaction: { kind: 'otp_input', overlay: 'none' },
-      ...(args.challengeId ? { requestId: args.challengeId } : {}),
-    });
-    try {
-      if (this.walletIframe.shouldUseWalletIframe()) {
-        if (args.clientSecret32) {
-          throw new Error(
-            '[SeamsWeb] Wallet iframe Email OTP enrollment owns client secret generation; clientSecret32 is not accepted from the app origin.',
-          );
-        }
-        const router = await this.walletIframe.requireRouter(walletId);
-        const iframeArgs = { ...args, chainTarget };
-        delete iframeArgs.clientSecret32;
-        delete iframeArgs.onEvent;
-        const result = await router.enrollAndLoginWithEmailOtpEcdsaCapability(iframeArgs);
-        this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId,
-          walletId,
-          authMethod: 'email_otp',
-          phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
-          status: 'succeeded',
-          interaction: { kind: 'otp_input', overlay: 'hide' },
-          ...(args.challengeId ? { requestId: args.challengeId } : {}),
-          data: { otpChannel: result.enrollment.otpChannel },
-        });
-        this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId,
-          walletId,
-          authMethod: 'email_otp',
-          phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
-          status: 'running',
-          ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        });
-        this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId,
-          walletId,
-          authMethod: 'email_otp',
-          phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
-          status: 'succeeded',
-          ...(args.challengeId ? { requestId: args.challengeId } : {}),
-          data: { otpChannel: result.enrollment.otpChannel },
-        });
-        this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId,
-          walletId,
-          authMethod: 'email_otp',
-          phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
-          status: 'running',
-          ...(args.challengeId ? { requestId: args.challengeId } : {}),
-          data: { chainTarget },
-        });
-        this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId,
-          walletId,
-          authMethod: 'email_otp',
-          phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED,
-          status: 'succeeded',
-          ...(args.challengeId ? { requestId: args.challengeId } : {}),
-          data: { chainTarget },
-        });
-        this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId,
-          walletId,
-          authMethod: 'email_otp',
-          phase: RegistrationEventPhase.STEP_11_COMPLETED,
-          status: 'succeeded',
-          ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        });
-        return result;
-      }
-      const workerProgressPhases = new Set<RegistrationEventPhase>();
-      const markWorkerProgress = (progress: EmailOtpWorkerProgressEvent) => {
-        const phase = this.emitEmailOtpRegistrationWorkerProgress(args.onEvent, {
-          flowId,
-          walletId,
-          challengeId: args.challengeId,
-          chainTarget,
-          progress,
-        });
-        if (phase) workerProgressPhases.add(phase);
-      };
-      const emitIfWorkerProgressMissing = (input: CreateRegistrationFlowEventInput) => {
-        if (workerProgressPhases.has(input.phase)) return;
-        this.emitEmailOtpRegistrationEvent(args.onEvent, input);
-      };
-      const emailHashHex = await this.emailOtpEmailHashHex(args.emailOtpAuthorityEmail);
-      const result = await this.signingEngine.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal({
-        ...args,
-        chainTarget,
-        emailHashHex,
-        onProgress: markWorkerProgress,
-      });
-      emitIfWorkerProgressMissing({
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
-        status: 'succeeded',
-        interaction: { kind: 'otp_input', overlay: 'hide' },
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        data: { otpChannel: result.enrollment.otpChannel },
-      });
-      emitIfWorkerProgressMissing({
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
-        status: 'running',
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
-      });
-      emitIfWorkerProgressMissing({
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
-        status: 'succeeded',
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        data: { otpChannel: result.enrollment.otpChannel },
-      });
-      emitIfWorkerProgressMissing({
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
-        status: 'running',
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        data: { chainTarget },
-      });
-      emitIfWorkerProgressMissing({
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED,
-        status: 'succeeded',
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        data: { chainTarget },
-      });
-      this.emitEmailOtpRegistrationEvent(args.onEvent, {
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        phase: RegistrationEventPhase.STEP_11_COMPLETED,
-        status: 'succeeded',
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
-      });
-      return result;
-    } catch (error: unknown) {
-      const e = toError(error);
-      this.emitEmailOtpRegistrationFailure(args.onEvent, {
-        flowId,
-        walletId,
-        authMethod: 'email_otp',
-        ...(args.challengeId ? { requestId: args.challengeId } : {}),
         error: e,
       });
       throw e;

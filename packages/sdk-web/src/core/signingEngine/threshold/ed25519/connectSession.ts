@@ -2,10 +2,9 @@ import type { WorkerOperationContext } from '../../workerManager/executeWorkerOp
 import { collectAuthenticationCredentialForChallengeB64u } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { ThresholdCredentialStorePort, ThresholdWebAuthnPromptPort } from '../crypto/webauthn';
 import { buildEd25519SessionPolicy } from '../sessionPolicy';
-import {
-  parseThresholdRuntimePolicyScopeFromJwt,
-  type Ed25519SessionPolicyAuthority,
-  type ThresholdRuntimePolicyScope,
+import type {
+  Ed25519SessionPolicyAuthority,
+  ThresholdRuntimePolicyScope,
 } from '../sessionPolicy';
 import {
   isEmailOtpWalletAuthAuthority,
@@ -13,6 +12,12 @@ import {
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import type { RouterAbEd25519NormalSigningState } from './routerAbNormalSigningState';
+import type { ThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import { SigningSessionIds } from '../../session/operationState/types';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import {
   buildThresholdEd25519WebAuthnPrfSecretSource,
   localPrfFirstForEd25519WalletSessionMintAuthorization,
@@ -23,14 +28,15 @@ import {
 export type ConnectEd25519SessionResult =
   | {
       ok: true;
-      sessionId: string;
-      signingGrantId: string;
+      thresholdSessionId: ThresholdEd25519SessionId;
+      walletSessionId: WalletSessionId;
+      quotaId: MpcWalletSigningQuotaId;
       expiresAtMs: number;
       remainingUses: number;
       routerAbNormalSigning: RouterAbEd25519NormalSigningState;
       jwt: string;
       ecdsaDerivationPasskeyPrfFirstB64u: string;
-      runtimePolicyScope?: ThresholdRuntimePolicyScope;
+      runtimePolicyScope: ThresholdRuntimePolicyScope;
       code?: never;
       message?: never;
     }
@@ -38,8 +44,9 @@ export type ConnectEd25519SessionResult =
       ok: false;
       code?: string;
       message?: string;
-      sessionId?: never;
-      signingGrantId?: never;
+      thresholdSessionId?: never;
+      walletSessionId?: never;
+      quotaId?: never;
       expiresAtMs?: never;
       remainingUses?: never;
       runtimePolicyScope?: never;
@@ -90,8 +97,7 @@ export async function connectEd25519Session(args: {
     publishableKey: string;
   };
   sessionKind?: 'jwt';
-  sessionId?: string;
-  signingGrantId?: string;
+  thresholdSessionId?: ThresholdEd25519SessionId;
   ttlMs?: number;
   remainingUses?: number;
   auth?: Ed25519WalletSessionMintAuthorization;
@@ -103,21 +109,15 @@ export async function connectEd25519Session(args: {
   if (passkeyAuthority && !passkeyRpId) {
     return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
   }
-  const appSessionJwt =
-    args.auth?.kind === 'app_session_jwt' ? String(args.auth.appSessionJwt || '').trim() : '';
-  const appSessionRuntimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(appSessionJwt);
-  const runtimePolicyScope = args.runtimePolicyScope || appSessionRuntimePolicyScope;
-
   const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
     nearAccountId: args.nearAccountId,
     nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     authority: args.authority,
     relayerKeyId: args.relayerKeyId,
-    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     routerAbNormalSigning: args.routerAbNormalSigning,
     participantIds: args.participantIds,
-    thresholdSessionId: args.sessionId,
-    signingGrantId: args.signingGrantId,
+    thresholdSessionId: args.thresholdSessionId,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
   });
@@ -175,16 +175,21 @@ export async function connectEd25519Session(args: {
       ...(minted.message ? { message: minted.message } : {}),
     };
   }
-  const requestedSessionId = String(policy.thresholdSessionId || '').trim();
-  const resolvedSessionId =
-    String(minted.sessionId || requestedSessionId).trim() || requestedSessionId;
-  const signingGrantId = String(minted.signingGrantId || policy.signingGrantId || '').trim();
+  const requestedThresholdSessionId = policy.thresholdSessionId;
+  const resolvedThresholdSessionId =
+    minted.thresholdSessionId || requestedThresholdSessionId;
 
   const expiresAtMs = minted.expiresAtMs ?? Date.now() + policy.ttlMs;
   const remainingUses = minted.remainingUses ?? policy.remainingUses;
-  const mintedRuntimePolicyScope = minted.runtimePolicyScope || runtimePolicyScope;
+  const mintedRuntimePolicyScope = minted.runtimePolicyScope;
   const jwt = String(minted.jwt || '').trim();
-  if (!resolvedSessionId || !signingGrantId || !jwt) {
+  if (
+    !resolvedThresholdSessionId ||
+    !minted.walletSessionId ||
+    !minted.quotaId ||
+    !jwt ||
+    !mintedRuntimePolicyScope
+  ) {
     return {
       ok: false,
       code: 'invalid_response',
@@ -194,11 +199,12 @@ export async function connectEd25519Session(args: {
 
   return {
     ok: true,
-    sessionId: resolvedSessionId,
-    signingGrantId,
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(resolvedThresholdSessionId),
+    walletSessionId: minted.walletSessionId,
+    quotaId: minted.quotaId,
     expiresAtMs,
     remainingUses,
-    ...(mintedRuntimePolicyScope ? { runtimePolicyScope: mintedRuntimePolicyScope } : {}),
+    runtimePolicyScope: mintedRuntimePolicyScope,
     routerAbNormalSigning: args.routerAbNormalSigning,
     jwt,
     ecdsaDerivationPasskeyPrfFirstB64u: prfFirstB64u,

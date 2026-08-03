@@ -20,5 +20,4 @@ method-specific recovery/provisioning implementation.
 - `sealedRecovery.types.ts`
 - `exactRecordLookup.ts`
 - `recoveryRecord.ts`
-- `readback.ts`
 - `restoreCoordinator.ts`

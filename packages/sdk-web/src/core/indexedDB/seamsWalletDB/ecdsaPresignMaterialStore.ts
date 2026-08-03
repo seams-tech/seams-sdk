@@ -304,7 +304,9 @@ function additionalData(header: PresignRecordHeader): Uint8Array {
   appendLengthPrefixed(output, encoder.encode(header.presignSessionId));
   appendLengthPrefixed(output, encoder.encode(header.presignatureId));
   appendLengthPrefixed(output, encoder.encode(header.poolIdentity.poolKey));
-  appendLengthPrefixed(output, encoder.encode(header.poolIdentity.walletKeyId));
+  appendLengthPrefixed(output, encoder.encode(header.poolIdentity.materialActivationId));
+  appendLengthPrefixed(output, encoder.encode(header.poolIdentity.capability));
+  appendLengthPrefixed(output, encoder.encode(header.poolIdentity.keyBinding));
   appendLengthPrefixed(output, encoder.encode(header.poolIdentity.walletId));
   appendLengthPrefixed(output, encoder.encode(header.poolIdentity.signingScopeB64u));
   appendLengthPrefixed(output, encoder.encode(header.poolIdentity.pairRole));

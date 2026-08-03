@@ -1,12 +1,9 @@
 import { base64UrlDecode, base64UrlEncode } from './encoders';
+import { alphabetizeStringify, sha256BytesUtf8 } from './digests';
 import {
   computeSdkEcdsaDerivationApplicationBindingDigestB64u,
   type SdkEcdsaDerivationBindingFacts,
 } from '../threshold/ecdsaDerivationRoleLocalBootstrap';
-import {
-  decodeJwtPayloadRecord,
-  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-} from './sessionTokens';
 import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
@@ -15,17 +12,47 @@ import { requireRouterAbX25519PublicKey } from './routerAbPublicKeyset';
 import {
   parseEcdsaActiveStateId,
   parseRootShareEpoch,
-  parseSigningGrantId,
   parseThresholdEcdsaSessionId,
   type EcdsaActiveStateId,
   type RootShareEpoch,
-  type SigningGrantId,
   type ThresholdEcdsaSessionId,
 } from './domainIds';
+import { parseCorrelationId, type CorrelationId } from './canonicalPrimitives';
+import {
+  parseEcdsaServerGeneration,
+  type EcdsaServerGeneration,
+} from './ecdsaCapabilityActivation';
+import {
+  canonicalRouterAbMpcMaterialActivationRefBytes,
+  canonicalRouterAbNormalSigningAuthorizationBytes,
+  parseRouterAbMpcMaterialActivationRef,
+  parseRouterAbNormalSigningAuthorization,
+  type RouterAbMpcMaterialActivationRefWire,
+  type RouterAbNormalSigningAuthorizationWire,
+} from './routerAbNormalSigningIdentity';
+import {
+  EVM_ECDSA_MPC_OPERATION_KINDS,
+  parseMpcWalletSigningQuotaId,
+  parseReusableWalletSessionMintId,
+  parseSeamsSessionId,
+  parseWalletSessionId,
+  type EvmEcdsaMpcOperationKind,
+  type MpcWalletSigningQuotaId,
+  type ReusableWalletSessionMintId,
+  type SeamsSessionId,
+  type WalletSessionId,
+} from '../authorization/capabilityKinds';
+import {
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+  parseWalletAuthAuthority,
+  type EmailOtpWalletAuthAuthority,
+  type PasskeyWalletAuthAuthority,
+} from './walletAuthAuthority';
 
-export const ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1 = 'evm-family' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1 =
   'router_ab_ecdsa_derivation_normal_signing_v1' as const;
+export const ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1 = 'evm-family' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH =
   '/router-ab/ecdsa-derivation/healthz' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH =
@@ -45,6 +72,10 @@ export const ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH =
   '/router-ab/ecdsa-derivation/refresh' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH =
   '/router-ab/ecdsa-derivation/session/activate' as const;
+export const ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH =
+  '/router-ab/ecdsa-derivation/operation-step-up' as const;
+const ROUTER_AB_ECDSA_OPERATION_STEP_UP_CHALLENGE_DOMAIN_V1 =
+  'router-ab-ecdsa-operation-step-up/challenge/v1' as const;
 const ECDSA_DERIVATION_CONTEXT_DOMAIN_TAG_V1 = 'router-ab-ecdsa-derivation/context/v1' as const;
 const ECDSA_DERIVATION_CONTEXT_BINDING_DOMAIN_V1 =
   'router-ab-ecdsa-derivation/role-local/context-binding/v1' as const;
@@ -208,6 +239,14 @@ export type RouterAbEcdsaStrictForwardedRegistrationResponseV1 = {
 export type RouterAbEcdsaStrictForwardedProofResponseV1 =
   RouterAbEcdsaStrictForwardedRegistrationResponseV1;
 
+function requireExportShareAuthorizationKind(
+  value: unknown,
+  label: string,
+): 'reusable_wallet_session' | 'verified_step_up' {
+  if (value === 'reusable_wallet_session' || value === 'verified_step_up') return value;
+  throw new Error(`${label} must be reusable_wallet_session or verified_step_up`);
+}
+
 export type RouterAbEcdsaSigningWorkerExportShareBindingV1 = {
   wallet_id: string;
   key_handle: string;
@@ -221,8 +260,9 @@ export type RouterAbEcdsaSigningWorkerExportShareBindingV1 = {
   export_request_digest_b64u: string;
   export_authorization_digest_b64u: string;
   export_nonce: string;
-  threshold_session_id: ThresholdEcdsaSessionId;
-  signing_grant_id: SigningGrantId;
+  authorization_kind: 'reusable_wallet_session' | 'verified_step_up';
+  authorization_id: string;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   lifecycle_id: string;
   recipient_identity: string;
   recipient_public_key: string;
@@ -252,23 +292,52 @@ export type RouterAbEcdsaRegistrationActivationRequestV1 = {
   registrationCeremonyId: string;
   ecdsa: {
     kind: 'router_ab_ecdsa_registration_activation_v1';
+    activationCorrelationId: CorrelationId;
     publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
   };
 };
 
 export type RouterAbEcdsaRegistrationActivationReceiptV1 = {
+  activation_correlation_id: CorrelationId;
+  activation_request_digest: RouterAbPublicDigest32V1Wire;
+  server_generation: EcdsaServerGeneration;
   ecdsa_activation: {
     context: RouterAbEcdsaDerivationStableKeyContextV1;
     public_identity: RouterAbEcdsaDerivationPublicIdentityV1;
     signing_worker: RouterAbServerIdentityV1;
+    material_activation: RouterAbMpcMaterialActivationRefWire;
     activation_epoch: RootShareEpoch;
     activation_digest_b64u: string;
     activated_at_ms: number;
   };
   lifecycle_id: string;
   transcript_digest: RouterAbPublicDigest32V1Wire;
-  activated: true;
 };
+
+export type RouterAbEcdsaDerivationActivationPrepareResultV1 = {
+  activation_correlation_id: CorrelationId;
+  activation_request_digest: RouterAbPublicDigest32V1Wire;
+};
+
+export type RouterAbEcdsaDerivationActivationCommitQueryResultV1 =
+  | {
+      kind: 'committed';
+      receipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+      activation_correlation_id?: never;
+      activation_request_digest?: never;
+    }
+  | {
+      kind: 'not_committed';
+      activation_correlation_id: CorrelationId;
+      activation_request_digest: RouterAbPublicDigest32V1Wire;
+      receipt?: never;
+    }
+  | {
+      kind: 'correlation_conflict';
+      activation_correlation_id: CorrelationId;
+      activation_request_digest: RouterAbPublicDigest32V1Wire;
+      receipt?: never;
+    };
 
 export type RouterAbEcdsaRegistrationPublicActivationReceiptV1 =
   RouterAbEcdsaRegistrationActivationReceiptV1;
@@ -277,6 +346,7 @@ export type RouterAbEcdsaDerivationPublicCapabilityV1 = {
   kind: 'router_ab_ecdsa_derivation_public_capability_v1';
   context: RouterAbEcdsaDerivationStableKeyContextV1;
   public_identity: RouterAbEcdsaDerivationPublicIdentityV1;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   signer_set: RouterAbEcdsaDerivationSignerSetV1;
   deriver_recipient_keys: RouterAbEcdsaRegistrationRecipientKeysV1;
   router_id: string;
@@ -288,7 +358,7 @@ export type RouterAbEcdsaDerivationPublicCapabilityV1 = {
 
 export type RouterAbEcdsaPostRegistrationSessionPolicyV1 = {
   threshold_session_id: ThresholdEcdsaSessionId;
-  signing_grant_id: SigningGrantId;
+  wallet_session_mint_id: ReusableWalletSessionMintId;
   ttl_ms: number;
   remaining_uses: number;
   runtime_policy_scope: RuntimePolicyScope;
@@ -304,7 +374,10 @@ export type RouterAbEcdsaPostRegistrationSessionActivationResponseV1 = {
   kind: 'router_ab_ecdsa_post_registration_session_activated_v1';
   public_capability: RouterAbEcdsaDerivationPublicCapabilityV1;
   session: {
+    authorization_session_id: SeamsSessionId;
     threshold_session_id: ThresholdEcdsaSessionId;
+    wallet_session_id: WalletSessionId;
+    quota_id: MpcWalletSigningQuotaId;
     expires_at_ms: number;
     remaining_uses: number;
     wallet_session_jwt: string;
@@ -319,7 +392,7 @@ export type RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<Role extends 'signer_
   ciphertext: { bytes: number[] };
 };
 
-export type RouterAbEcdsaDerivationExplicitExportRequestV1 = {
+type RouterAbEcdsaDerivationExplicitExportRequestBaseV1 = {
   context: RouterAbEcdsaDerivationStableKeyContextV1;
   lifecycle: RouterAbEcdsaDerivationExportLifecycleScopeV1;
   public_identity: RouterAbEcdsaDerivationPublicIdentityV1;
@@ -327,12 +400,32 @@ export type RouterAbEcdsaDerivationExplicitExportRequestV1 = {
   router_id: string;
   client_id: string;
   client_ephemeral_public_key: string;
+  // The discriminated operation authority and the exact material activation
+  // this export binds. Session and grant identifiers never re-enter this
+  // request outside the authorization branch.
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   export_authorization_digest_b64u: string;
   export_nonce: string;
   expires_at_ms: number;
   deriver_a_export_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_a'>;
   deriver_b_export_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_b'>;
 };
+
+export type RouterAbEcdsaDerivationExplicitExportRequestV1 =
+  | (RouterAbEcdsaDerivationExplicitExportRequestBaseV1 & {
+      authorization: Extract<
+        RouterAbNormalSigningAuthorizationWire,
+        { readonly kind: 'reusable_wallet_session' }
+      >;
+      operation?: never;
+    })
+  | (RouterAbEcdsaDerivationExplicitExportRequestBaseV1 & {
+      authorization: Extract<
+        RouterAbNormalSigningAuthorizationWire,
+        { readonly kind: 'operation_step_up' }
+      >;
+      operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+    });
 
 export type RouterAbEcdsaDerivationRecoveryRequestV1 = {
   context: RouterAbEcdsaDerivationStableKeyContextV1;
@@ -361,10 +454,74 @@ export type RouterAbEcdsaDerivationActivationRefreshRequestV1 = {
   refresh_nonce: string;
   previous_activation_epoch: RootShareEpoch;
   next_activation_epoch: RootShareEpoch;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   expires_at_ms: number;
   deriver_a_refresh_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_a'>;
   deriver_b_refresh_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_b'>;
 };
+
+export type RouterAbEcdsaDerivationActivationRefreshCommitRequestV1 = {
+  activation_correlation_id: CorrelationId;
+  expected_server_generation: EcdsaServerGeneration;
+  refresh_request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+};
+
+export type RouterAbEcdsaDerivationActivationRefreshActivationCommittedResponseV1 = {
+  result: 'activation_committed';
+  signing_worker_activation: RouterAbEcdsaRegistrationActivationReceiptV1;
+  response?: never;
+  replay?: never;
+  lifecycle?: never;
+  decision?: never;
+};
+
+export type RouterAbEcdsaDerivationActivationRefreshStoppedResponseV1 = {
+  result: 'stopped';
+  replay: {
+    request_id: string;
+    reserved: boolean;
+  };
+  lifecycle: {
+    lifecycle_id: string;
+    stored: boolean;
+  };
+  decision:
+    | {
+        kind: 'accepted';
+        request_id: string;
+        existing_lifecycle_id?: never;
+        reason?: never;
+        retry_after_ms?: never;
+      }
+    | {
+        kind: 'reuse_existing';
+        request_id: string;
+        existing_lifecycle_id: string;
+        reason?: never;
+        retry_after_ms?: never;
+      }
+    | {
+        kind: 'defer';
+        reason: 'short_window_saturated' | 'signer_queue_saturated';
+        request_id?: never;
+        existing_lifecycle_id?: never;
+        retry_after_ms?: never;
+      }
+    | {
+        kind: 'rejected';
+        reason: 'rate_limited' | 'abuse_policy';
+        retry_after_ms: number;
+        request_id?: never;
+        existing_lifecycle_id?: never;
+      };
+  response?: never;
+  signing_worker_activation?: never;
+};
+
+export type RouterAbEcdsaDerivationActivationRefreshResponseV1 =
+  | RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1
+  | RouterAbEcdsaDerivationActivationRefreshActivationCommittedResponseV1
+  | RouterAbEcdsaDerivationActivationRefreshStoppedResponseV1;
 
 export type RouterAbPublicDigest32V1Wire = {
   bytes: number[];
@@ -372,7 +529,7 @@ export type RouterAbPublicDigest32V1Wire = {
 
 export type RouterAbActiveSigningWorkerStateV1 = {
   account_id: string;
-  session_id: string;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   account_public_key: string;
   signing_worker: RouterAbServerIdentityV1;
   activation_transcript_digest: RouterAbPublicDigest32V1Wire;
@@ -382,13 +539,13 @@ export type RouterAbActiveSigningWorkerStateV1 = {
 };
 
 export type RouterAbEcdsaDerivationNormalSigningScopeV1 = {
-  wallet_key_id: string;
   wallet_id: string;
   ecdsa_threshold_key_id: string;
   signing_root_id: string;
   signing_root_version: string;
   context: RouterAbEcdsaDerivationStableKeyContextV1;
   public_identity: RouterAbEcdsaDerivationPublicIdentityV1;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   signing_worker: RouterAbServerIdentityV1;
   activation_epoch: RootShareEpoch;
 };
@@ -396,29 +553,6 @@ export type RouterAbEcdsaDerivationNormalSigningScopeV1 = {
 export type RouterAbEcdsaDerivationNormalSigningStateV1 = {
   kind: typeof ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1;
   scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
-};
-
-export type RouterAbEcdsaDerivationWalletRegistrationJwtBindingFactsV1 = {
-  walletId: string;
-  evmFamilySigningKeySlotId: string;
-  keyHandle: string;
-  relayerKeyId: string;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  thresholdSessionId: string;
-  activationEpoch: RootShareEpoch;
-  signingGrantId: SigningGrantId;
-  expiresAtMs: number;
-  participantIds: readonly number[];
-  applicationBindingDigestB64u: string;
-  contextBinding32B64u: string;
-  clientPublicKey33B64u: string;
-  serverPublicKey33B64u: string;
-  thresholdPublicKey33B64u: string;
-  ethereumAddress: string;
-  clientShareRetryCounter: number;
-  serverShareRetryCounter: number;
 };
 
 export type RouterAbEcdsaDerivationServerPresignatureShareV1 = {
@@ -448,18 +582,109 @@ export type CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1Wi
 
 export type RouterAbEcdsaDerivationSignatureSchemeV1Wire = 'ecdsa_secp256k1_recoverable_v1';
 
-export type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire = {
+export type RouterAbEcdsaDerivationOperationDigestsV1Wire = {
+  lane_digest_b64u: string;
+  intent_digest_b64u: string;
+  display_digest_b64u: string;
+};
+
+type RouterAbEcdsaDerivationEvmDigestSigningRequestBaseV1Wire = {
   scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
   request_id: string;
+  operation_id: string;
+  operation_digests: RouterAbEcdsaDerivationOperationDigestsV1Wire;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   client_presignature_id: string;
   expires_at_ms: number;
   signing_digest_b64u: string;
   client_rerandomization_commitment32_b64u: string;
 };
 
-export type RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire = {
+export type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire =
+  RouterAbEcdsaDerivationEvmDigestSigningRequestBaseV1Wire & {
+    authorization: RouterAbNormalSigningAuthorizationWire;
+  };
+
+export type RouterAbEcdsaOperationStepUpWebAuthnCredentialV1Wire = {
+  readonly id: string;
+  readonly rawId: string;
+  readonly type: string;
+  readonly authenticatorAttachment: string | null;
+  readonly response: {
+    readonly clientDataJSON: string;
+    readonly authenticatorData: string;
+    readonly signature: string;
+    readonly userHandle: string | null;
+  };
+  readonly clientExtensionResults: unknown | null;
+};
+
+export type RouterAbEcdsaOperationStepUpPreparationV1Wire = {
+  readonly wallet_id: string;
+  readonly operation_kind: EvmEcdsaMpcOperationKind;
+  readonly operation_id: string;
+  readonly operation_digests: RouterAbEcdsaDerivationOperationDigestsV1Wire;
+  readonly material_activation: RouterAbMpcMaterialActivationRefWire;
+  readonly normal_signing_scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
+  readonly signing_worker_id: string;
+  readonly key_handle: string;
+  readonly relayer_key_id: string;
+  readonly participant_ids: readonly [number, number];
+  readonly expires_at_ms: number;
+};
+
+export type RouterAbEcdsaOperationStepUpProofV1Wire =
+  | {
+      readonly kind: 'passkey';
+      readonly authority: PasskeyWalletAuthAuthority;
+      readonly webauthn_authentication: RouterAbEcdsaOperationStepUpWebAuthnCredentialV1Wire;
+      readonly challenge_id?: never;
+      readonly otp_code?: never;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly authority: EmailOtpWalletAuthAuthority;
+      readonly challenge_id: string;
+      readonly otp_code: string;
+      readonly webauthn_authentication?: never;
+    };
+
+export type RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire = {
+  readonly kind: 'router_ab_ecdsa_operation_step_up_v1';
+  readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+  readonly proof: RouterAbEcdsaOperationStepUpProofV1Wire;
+};
+
+export type RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire = {
+  readonly ok: true;
+  readonly kind: 'verified_step_up';
+  readonly authorization: Extract<
+    RouterAbNormalSigningAuthorizationWire,
+    { readonly kind: 'operation_step_up' }
+  >;
+  readonly expires_at_ms: number;
+};
+
+export async function computeRouterAbEcdsaOperationStepUpChallengeB64u(
+  value: RouterAbEcdsaOperationStepUpPreparationV1Wire,
+): Promise<string> {
+  const operation = parseRouterAbEcdsaOperationStepUpPreparationV1(value);
+  return base64UrlEncode(
+    await sha256BytesUtf8(
+      alphabetizeStringify({
+        domain: ROUTER_AB_ECDSA_OPERATION_STEP_UP_CHALLENGE_DOMAIN_V1,
+        operation,
+      }),
+    ),
+  );
+}
+
+type RouterAbEcdsaDerivationEvmDigestSigningFinalizeBaseV1Wire = {
   scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
   request_id: string;
+  operation_id: string;
+  operation_digests: RouterAbEcdsaDerivationOperationDigestsV1Wire;
+  material_activation: RouterAbMpcMaterialActivationRefWire;
   expires_at_ms: number;
   signing_digest_b64u: string;
   server_presignature_id: string;
@@ -467,27 +692,19 @@ export type RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire = {
   client_rerandomization_contribution32_b64u: string;
 };
 
-export type RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire =
-  RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire & {
-    budget_reservation_id: string;
-    budget_operation_id: string;
+export type RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire =
+  RouterAbEcdsaDerivationEvmDigestSigningFinalizeBaseV1Wire & {
+    authorization: RouterAbNormalSigningAuthorizationWire;
   };
 
-export type RouterAbEcdsaDerivationBudgetStatusV1Wire = {
-  remaining_uses: number;
-  committed_remaining_uses: number;
-  reserved_uses: number;
-  available_uses: number;
-  projection_version: number;
-  expires_at_ms: number;
-};
+export type RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire =
+  RouterAbEcdsaDerivationEvmDigestSigningFinalizeBaseV1Wire & {
+    authorization: RouterAbNormalSigningAuthorizationWire;
+  };
 
 export type RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire = {
   scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
   request_id: string;
-  budget_reservation_id: string;
-  budget_operation_id: string;
-  budget_status: RouterAbEcdsaDerivationBudgetStatusV1Wire;
   request_digest: RouterAbPublicDigest32V1Wire;
   signing_digest: RouterAbPublicDigest32V1Wire;
   server_presignature_id: string;
@@ -505,7 +722,6 @@ export type RouterAbEcdsaDerivationEvmDigestSigningResponseV1Wire = {
   signing_digest: RouterAbPublicDigest32V1Wire;
   signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1Wire;
   signature65_b64u: string;
-  budget_status: RouterAbEcdsaDerivationBudgetStatusV1Wire;
 };
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
@@ -540,14 +756,26 @@ function requireRootShareEpoch(value: unknown, label: string): RootShareEpoch {
   return parsed.value;
 }
 
-function requireSigningGrantId(value: unknown, label: string): SigningGrantId {
-  const parsed = parseSigningGrantId(requireAsciiNonEmptyString(value, label));
+function requireThresholdEcdsaSessionId(value: unknown, label: string): ThresholdEcdsaSessionId {
+  const parsed = parseThresholdEcdsaSessionId(requireAsciiNonEmptyString(value, label));
   if (!parsed.ok) throw new Error(`${label} is invalid`);
   return parsed.value;
 }
 
-function requireThresholdEcdsaSessionId(value: unknown, label: string): ThresholdEcdsaSessionId {
-  const parsed = parseThresholdEcdsaSessionId(requireAsciiNonEmptyString(value, label));
+function requireSeamsSessionId(value: unknown, label: string): SeamsSessionId {
+  const parsed = parseSeamsSessionId(value);
+  if (!parsed.ok) throw new Error(`${label} is invalid`);
+  return parsed.value;
+}
+
+function requireWalletSessionId(value: unknown, label: string): WalletSessionId {
+  const parsed = parseWalletSessionId(value);
+  if (!parsed.ok) throw new Error(`${label} is invalid`);
+  return parsed.value;
+}
+
+function requireMpcWalletSigningQuotaId(value: unknown, label: string): MpcWalletSigningQuotaId {
+  const parsed = parseMpcWalletSigningQuotaId(value);
   if (!parsed.ok) throw new Error(`${label} is invalid`);
   return parsed.value;
 }
@@ -1148,8 +1376,9 @@ function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
     'export_request_digest_b64u',
     'export_authorization_digest_b64u',
     'export_nonce',
-    'threshold_session_id',
-    'signing_grant_id',
+    'authorization_kind',
+    'authorization_id',
+    'material_activation',
     'lifecycle_id',
     'recipient_identity',
     'recipient_public_key',
@@ -1157,6 +1386,13 @@ function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
   ]);
   if (!Array.isArray(record.ciphertext_and_tag) || record.ciphertext_and_tag.length <= 48) {
     throw new Error(`${label}.ciphertext_and_tag is invalid`);
+  }
+  const materialActivation = parseRouterAbMpcMaterialActivationRef(binding.material_activation);
+  if (
+    materialActivation.material_owner !== binding.wallet_id ||
+    materialActivation.signing_worker !== binding.signing_worker_id
+  ) {
+    throw new Error(`${bindingLabel}.material_activation is not bound to wallet and worker`);
   }
   return {
     version: 'router-ab-ecdsa-derivation/signing-worker-export-share-envelope/v1',
@@ -1207,14 +1443,15 @@ function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
         binding.export_nonce,
         `${bindingLabel}.export_nonce`,
       ),
-      threshold_session_id: requireThresholdEcdsaSessionId(
-        binding.threshold_session_id,
-        `${bindingLabel}.threshold_session_id`,
+      authorization_kind: requireExportShareAuthorizationKind(
+        binding.authorization_kind,
+        `${bindingLabel}.authorization_kind`,
       ),
-      signing_grant_id: requireSigningGrantId(
-        binding.signing_grant_id,
-        `${bindingLabel}.signing_grant_id`,
+      authorization_id: requireAsciiNonEmptyString(
+        binding.authorization_id,
+        `${bindingLabel}.authorization_id`,
       ),
+      material_activation: materialActivation,
       lifecycle_id: requireAsciiNonEmptyString(
         binding.lifecycle_id,
         `${bindingLabel}.lifecycle_id`,
@@ -1252,22 +1489,116 @@ function parseRouterAbEcdsaStrictProofResponseV1(
   };
 }
 
-export function parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1(
+export function parseRouterAbEcdsaDerivationActivationRefreshResponseV1(
   value: unknown,
-): RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1 {
-  const label = 'activationRefreshForwarded';
+): RouterAbEcdsaDerivationActivationRefreshResponseV1 {
+  const label = 'activationRefreshResponse';
   const record = requireRecord(value, label);
-  requireExactKeys(record, label, ['result', 'response', 'signing_worker_activation']);
-  if (record.result !== 'forwarded') {
-    throw new Error(`${label}.result must be forwarded`);
+  switch (record.result) {
+    case 'forwarded':
+      requireExactKeys(record, label, ['result', 'response', 'signing_worker_activation']);
+      return {
+        result: 'forwarded',
+        response: parseRouterAbEcdsaStrictProofResponseV1(record.response, `${label}.response`),
+        signing_worker_activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(
+          record.signing_worker_activation,
+        ),
+      };
+    case 'activation_committed':
+      requireExactKeys(record, label, ['result', 'signing_worker_activation']);
+      return {
+        result: 'activation_committed',
+        signing_worker_activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(
+          record.signing_worker_activation,
+        ),
+      };
+    case 'stopped':
+      requireExactKeys(record, label, ['result', 'replay', 'lifecycle', 'decision']);
+      return {
+        result: 'stopped',
+        replay: parseRouterAbReplayReservation(record.replay, `${label}.replay`),
+        lifecycle: parseRouterAbLifecycleReceipt(record.lifecycle, `${label}.lifecycle`),
+        decision: parseRouterAbExpensiveWorkGateDecision(record.decision, `${label}.decision`),
+      };
+    default:
+      throw new Error(`${label}.result must be forwarded, activation_committed, or stopped`);
+  }
+}
+
+function parseRouterAbReplayReservation(
+  value: unknown,
+  label: string,
+): RouterAbEcdsaDerivationActivationRefreshStoppedResponseV1['replay'] {
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, ['request_id', 'reserved']);
+  if (typeof record.reserved !== 'boolean') {
+    throw new Error(`${label}.reserved must be boolean`);
   }
   return {
-    result: 'forwarded',
-    response: parseRouterAbEcdsaStrictProofResponseV1(record.response, `${label}.response`),
-    signing_worker_activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(
-      record.signing_worker_activation,
-    ),
+    request_id: requireAsciiNonEmptyString(record.request_id, `${label}.request_id`),
+    reserved: record.reserved,
   };
+}
+
+function parseRouterAbLifecycleReceipt(
+  value: unknown,
+  label: string,
+): RouterAbEcdsaDerivationActivationRefreshStoppedResponseV1['lifecycle'] {
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, ['lifecycle_id', 'stored']);
+  if (typeof record.stored !== 'boolean') {
+    throw new Error(`${label}.stored must be boolean`);
+  }
+  return {
+    lifecycle_id: requireAsciiNonEmptyString(record.lifecycle_id, `${label}.lifecycle_id`),
+    stored: record.stored,
+  };
+}
+
+function parseRouterAbExpensiveWorkGateDecision(
+  value: unknown,
+  label: string,
+): RouterAbEcdsaDerivationActivationRefreshStoppedResponseV1['decision'] {
+  const record = requireRecord(value, label);
+  switch (record.kind) {
+    case 'accepted':
+      requireExactKeys(record, label, ['kind', 'request_id']);
+      return {
+        kind: 'accepted',
+        request_id: requireAsciiNonEmptyString(record.request_id, `${label}.request_id`),
+      };
+    case 'reuse_existing':
+      requireExactKeys(record, label, ['kind', 'request_id', 'existing_lifecycle_id']);
+      return {
+        kind: 'reuse_existing',
+        request_id: requireAsciiNonEmptyString(record.request_id, `${label}.request_id`),
+        existing_lifecycle_id: requireAsciiNonEmptyString(
+          record.existing_lifecycle_id,
+          `${label}.existing_lifecycle_id`,
+        ),
+      };
+    case 'defer':
+      requireExactKeys(record, label, ['kind', 'reason']);
+      if (
+        record.reason !== 'short_window_saturated' &&
+        record.reason !== 'signer_queue_saturated'
+      ) {
+        throw new Error(`${label}.reason is invalid`);
+      }
+      return { kind: 'defer', reason: record.reason };
+    case 'rejected':
+      requireExactKeys(record, label, ['kind', 'reason', 'retry_after_ms']);
+      if (record.reason !== 'rate_limited' && record.reason !== 'abuse_policy') {
+        throw new Error(`${label}.reason is invalid`);
+      }
+      return {
+        kind: 'rejected',
+        reason: record.reason,
+        retry_after_ms: requireNonNegativeInteger(record.retry_after_ms, `${label}.retry_after_ms`),
+      };
+    default:
+      throw new Error(`${label}.kind is invalid`);
+  }
 }
 
 export function parseRouterAbEcdsaVerifiedClientActivationFactsV1(
@@ -1321,7 +1652,7 @@ export function parseRouterAbEcdsaRegistrationActivationRequestV1(
   const record = requireRecord(value, label);
   requireExactKeys(record, label, ['registrationCeremonyId', 'ecdsa']);
   const ecdsa = requireRecord(record.ecdsa, `${label}.ecdsa`);
-  requireExactKeys(ecdsa, `${label}.ecdsa`, ['kind', 'publicFacts']);
+  requireExactKeys(ecdsa, `${label}.ecdsa`, ['kind', 'activationCorrelationId', 'publicFacts']);
   if (ecdsa.kind !== 'router_ab_ecdsa_registration_activation_v1') {
     throw new Error(`${label}.ecdsa.kind is invalid`);
   }
@@ -1332,6 +1663,7 @@ export function parseRouterAbEcdsaRegistrationActivationRequestV1(
     ),
     ecdsa: {
       kind: 'router_ab_ecdsa_registration_activation_v1',
+      activationCorrelationId: parseCorrelationId(ecdsa.activationCorrelationId),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(ecdsa.publicFacts),
     },
   };
@@ -1343,10 +1675,12 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
   const label = 'registrationActivationReceipt';
   const record = requireRecord(value, label);
   requireExactKeys(record, label, [
+    'activation_correlation_id',
+    'activation_request_digest',
+    'server_generation',
     'ecdsa_activation',
     'lifecycle_id',
     'transcript_digest',
-    'activated',
   ]);
   const activationLabel = `${label}.ecdsa_activation`;
   const activation = requireRecord(record.ecdsa_activation, activationLabel);
@@ -1354,6 +1688,7 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
     'context',
     'public_identity',
     'signing_worker',
+    'material_activation',
     'activation_epoch',
     'activation_digest_b64u',
     'activated_at_ms',
@@ -1362,6 +1697,12 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
     activation.signing_worker,
     `${activationLabel}.signing_worker`,
   );
+  const materialActivation = parseRouterAbMpcMaterialActivationRef(
+    activation.material_activation,
+  );
+  if (materialActivation.signing_worker !== signingWorker.server_id) {
+    throw new Error(`${activationLabel}.material_activation.signing_worker does not match signing_worker`);
+  }
   const activationDigestB64u = requireBase64UrlFixed(
     activation.activation_digest_b64u,
     `${activationLabel}.activation_digest_b64u`,
@@ -1371,14 +1712,18 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
     record.transcript_digest,
     `${label}.transcript_digest`,
   );
-  if (record.activated !== true) {
-    throw new Error(`${label}.activated must be true`);
-  }
   return {
+    activation_correlation_id: parseCorrelationId(record.activation_correlation_id),
+    activation_request_digest: parsePublicDigest32(
+      record.activation_request_digest,
+      `${label}.activation_request_digest`,
+    ),
+    server_generation: parseEcdsaServerGeneration(record.server_generation),
     ecdsa_activation: {
       context: parseStableKeyContext(activation.context),
       public_identity: parsePublicIdentity(activation.public_identity),
       signing_worker: signingWorker,
+      material_activation: materialActivation,
       activation_epoch: requireRootShareEpoch(
         activation.activation_epoch,
         `${activationLabel}.activation_epoch`,
@@ -1391,8 +1736,54 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
     },
     lifecycle_id: requireAsciiNonEmptyString(record.lifecycle_id, `${label}.lifecycle_id`),
     transcript_digest: transcriptDigest,
-    activated: true,
   };
+}
+
+export function parseRouterAbEcdsaDerivationActivationPrepareResultV1(
+  value: unknown,
+): RouterAbEcdsaDerivationActivationPrepareResultV1 {
+  const label = 'activationPrepareResult';
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, ['activation_correlation_id', 'activation_request_digest']);
+  return {
+    activation_correlation_id: parseCorrelationId(record.activation_correlation_id),
+    activation_request_digest: parsePublicDigest32(
+      record.activation_request_digest,
+      `${label}.activation_request_digest`,
+    ),
+  };
+}
+
+export function parseRouterAbEcdsaDerivationActivationCommitQueryResultV1(
+  value: unknown,
+): RouterAbEcdsaDerivationActivationCommitQueryResultV1 {
+  const label = 'activationCommitQueryResult';
+  const record = requireRecord(value, label);
+  switch (record.kind) {
+    case 'committed':
+      requireExactKeys(record, label, ['kind', 'receipt']);
+      return {
+        kind: 'committed',
+        receipt: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.receipt),
+      };
+    case 'not_committed':
+    case 'correlation_conflict':
+      requireExactKeys(record, label, [
+        'kind',
+        'activation_correlation_id',
+        'activation_request_digest',
+      ]);
+      return {
+        kind: record.kind,
+        activation_correlation_id: parseCorrelationId(record.activation_correlation_id),
+        activation_request_digest: parsePublicDigest32(
+          record.activation_request_digest,
+          `${label}.activation_request_digest`,
+        ),
+      };
+    default:
+      throw new Error(`${label}.kind must be committed, not_committed, or correlation_conflict`);
+  }
 }
 
 export function parseRouterAbEcdsaRegistrationPublicActivationReceiptV1(
@@ -1445,7 +1836,7 @@ function sameRegistrationLifecycle(
   );
 }
 
-function requireRegistrationFactsMatchRequest(input: {
+export function assertRouterAbEcdsaRegistrationFactsMatchRequestV1(input: {
   facts: RouterAbEcdsaRegistrationRequestFactsV1;
   request: RouterAbEcdsaRegistrationRequestV1;
 }): void {
@@ -1475,6 +1866,7 @@ export function parseRouterAbEcdsaDerivationPublicCapabilityV1(
     'kind',
     'context',
     'public_identity',
+    'material_activation',
     'signer_set',
     'deriver_recipient_keys',
     'router_id',
@@ -1501,6 +1893,7 @@ export function parseRouterAbEcdsaDerivationPublicCapabilityV1(
     kind: 'router_ab_ecdsa_derivation_public_capability_v1',
     context: parseStableKeyContext(record.context),
     public_identity: parsePublicIdentity(record.public_identity),
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
     signer_set: signerSet,
     deriver_recipient_keys: recipientKeys,
     router_id: requireAsciiNonEmptyString(record.router_id, `${label}.router_id`),
@@ -1526,7 +1919,7 @@ function parsePostRegistrationSessionPolicy(
   const record = requireRecord(value, label);
   requireExactKeys(record, label, [
     'threshold_session_id',
-    'signing_grant_id',
+    'wallet_session_mint_id',
     'ttl_ms',
     'remaining_uses',
     'runtime_policy_scope',
@@ -1536,11 +1929,23 @@ function parsePostRegistrationSessionPolicy(
       record.threshold_session_id,
       `${label}.threshold_session_id`,
     ),
-    signing_grant_id: requireSigningGrantId(record.signing_grant_id, `${label}.signing_grant_id`),
+    wallet_session_mint_id: requireReusableWalletSessionMintId(
+      record.wallet_session_mint_id,
+      `${label}.wallet_session_mint_id`,
+    ),
     ttl_ms: requirePositiveCounter(record.ttl_ms, `${label}.ttl_ms`),
     remaining_uses: requirePositiveCounter(record.remaining_uses, `${label}.remaining_uses`),
     runtime_policy_scope: normalizeRuntimePolicyScope(record.runtime_policy_scope),
   };
+}
+
+function requireReusableWalletSessionMintId(
+  value: unknown,
+  label: string,
+): ReusableWalletSessionMintId {
+  const parsed = parseReusableWalletSessionMintId(value);
+  if (!parsed.ok) throw new Error(`${label} is invalid`);
+  return parsed.value;
 }
 
 function publicIdentitiesMatch(
@@ -1588,7 +1993,10 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
   const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(record.public_capability);
   const sessionRecord = requireRecord(record.session, `${label}.session`);
   requireExactKeys(sessionRecord, `${label}.session`, [
+    'authorization_session_id',
     'threshold_session_id',
+    'wallet_session_id',
+    'quota_id',
     'expires_at_ms',
     'remaining_uses',
     'wallet_session_jwt',
@@ -1610,10 +2018,19 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
     kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
     public_capability: publicCapability,
     session: {
+      authorization_session_id: requireSeamsSessionId(
+        sessionRecord.authorization_session_id,
+        `${label}.session.authorization_session_id`,
+      ),
       threshold_session_id: requireThresholdEcdsaSessionId(
         sessionRecord.threshold_session_id,
         `${label}.session.threshold_session_id`,
       ),
+      wallet_session_id: requireWalletSessionId(
+        sessionRecord.wallet_session_id,
+        `${label}.session.wallet_session_id`,
+      ),
+      quota_id: requireMpcWalletSigningQuotaId(sessionRecord.quota_id, `${label}.session.quota_id`),
       expires_at_ms: requirePositiveUnixMs(
         sessionRecord.expires_at_ms,
         `${label}.session.expires_at_ms`,
@@ -1643,7 +2060,7 @@ export function buildRouterAbEcdsaDerivationPublicCapabilityV1(input: {
     input.clientActivation,
   );
   const receipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(input.activationReceipt);
-  requireRegistrationFactsMatchRequest({ facts, request });
+  assertRouterAbEcdsaRegistrationFactsMatchRequestV1({ facts, request });
   const activated = receipt.ecdsa_activation;
   if (
     receipt.lifecycle_id !== request.lifecycle.lifecycle_id ||
@@ -1665,6 +2082,7 @@ export function buildRouterAbEcdsaDerivationPublicCapabilityV1(input: {
     kind: 'router_ab_ecdsa_derivation_public_capability_v1',
     context: activated.context,
     public_identity: activated.public_identity,
+    material_activation: activated.material_activation,
     signer_set: request.signer_set,
     deriver_recipient_keys: facts.deriver_recipient_keys,
     router_id: request.router_id,
@@ -1698,7 +2116,8 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
 ): RouterAbEcdsaDerivationExplicitExportRequestV1 {
   const label = 'export';
   const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
+  const authorization = parseRouterAbNormalSigningAuthorization(record.authorization);
+  const commonKeys = [
     'context',
     'lifecycle',
     'public_identity',
@@ -1706,12 +2125,22 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
     'router_id',
     'client_id',
     'client_ephemeral_public_key',
+    'authorization',
+    'material_activation',
     'export_authorization_digest_b64u',
     'export_nonce',
     'expires_at_ms',
     'deriver_a_export_envelope',
     'deriver_b_export_envelope',
-  ]);
+  ] as const;
+  switch (authorization.kind) {
+    case 'reusable_wallet_session':
+      requireExactKeys(record, label, commonKeys);
+      break;
+    case 'operation_step_up':
+      requireExactKeys(record, label, [...commonKeys, 'operation']);
+      break;
+  }
   const lifecycle = parsePostRegistrationLifecycleScope(
     record.lifecycle,
     `${label}.lifecycle`,
@@ -1720,7 +2149,16 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
   );
   const signerSet = parsePostRegistrationSignerSet(record.signer_set, `${label}.signer_set`);
   requirePostRegistrationBindings(label, lifecycle, signerSet);
-  return {
+  const materialActivation = parseRouterAbMpcMaterialActivationRef(record.material_activation);
+  if (
+    materialActivation.material_owner !== lifecycle.account_id ||
+    materialActivation.signing_worker !== lifecycle.selected_server_id
+  ) {
+    throw new Error(
+      `${label}.material_activation is not bound to lifecycle owner and selected server`,
+    );
+  }
+  const parsed = {
     context: parseStableKeyContext(record.context),
     lifecycle,
     public_identity: parsePublicIdentity(record.public_identity),
@@ -1731,6 +2169,7 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
       record.client_ephemeral_public_key,
       `${label}.client_ephemeral_public_key`,
     ),
+    material_activation: materialActivation,
     export_authorization_digest_b64u: requireBase64UrlFixed(
       record.export_authorization_digest_b64u,
       `${label}.export_authorization_digest_b64u`,
@@ -1749,6 +2188,16 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
       'signer_b',
     ),
   };
+  switch (authorization.kind) {
+    case 'reusable_wallet_session':
+      return { ...parsed, authorization };
+    case 'operation_step_up':
+      return {
+        ...parsed,
+        authorization,
+        operation: parseRouterAbEcdsaOperationStepUpPreparationV1(record.operation),
+      };
+  }
 }
 
 export function parseRouterAbEcdsaDerivationRecoveryRequestV1(
@@ -1826,6 +2275,7 @@ export function parseRouterAbEcdsaDerivationActivationRefreshRequestV1(
     'refresh_nonce',
     'previous_activation_epoch',
     'next_activation_epoch',
+    'material_activation',
     'expires_at_ms',
     'deriver_a_refresh_envelope',
     'deriver_b_refresh_envelope',
@@ -1852,6 +2302,13 @@ export function parseRouterAbEcdsaDerivationActivationRefreshRequestV1(
     throw new Error('refresh.lifecycle.root_share_epoch must equal next_activation_epoch');
   }
   requirePostRegistrationBindings(label, lifecycle, signerSet);
+  const materialActivation = parseRouterAbMpcMaterialActivationRef(record.material_activation);
+  if (
+    materialActivation.material_owner !== lifecycle.account_id ||
+    materialActivation.signing_worker !== signerSet.selected_server.server_id
+  ) {
+    throw new Error('refresh.material_activation is not bound to lifecycle owner and selected server');
+  }
   return {
     context: parseStableKeyContext(record.context),
     lifecycle,
@@ -1871,6 +2328,7 @@ export function parseRouterAbEcdsaDerivationActivationRefreshRequestV1(
     refresh_nonce: requireAsciiNonEmptyString(record.refresh_nonce, `${label}.refresh_nonce`),
     previous_activation_epoch: previousActivationEpoch,
     next_activation_epoch: nextActivationEpoch,
+    material_activation: materialActivation,
     expires_at_ms: requirePositiveUnixMs(record.expires_at_ms, `${label}.expires_at_ms`),
     deriver_a_refresh_envelope: parsePostRegistrationRoleEnvelope(
       record.deriver_a_refresh_envelope,
@@ -1882,6 +2340,23 @@ export function parseRouterAbEcdsaDerivationActivationRefreshRequestV1(
       `${label}.deriver_b_refresh_envelope`,
       'signer_b',
     ),
+  };
+}
+
+export function parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1(
+  value: unknown,
+): RouterAbEcdsaDerivationActivationRefreshCommitRequestV1 {
+  const label = 'refreshCommit';
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, [
+    'activation_correlation_id',
+    'expected_server_generation',
+    'refresh_request',
+  ]);
+  return {
+    activation_correlation_id: parseCorrelationId(record.activation_correlation_id),
+    expected_server_generation: parseEcdsaServerGeneration(record.expected_server_generation),
+    refresh_request: parseRouterAbEcdsaDerivationActivationRefreshRequestV1(record.refresh_request),
   };
 }
 
@@ -1922,6 +2397,15 @@ function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
 
 function pushBytes(out: number[], bytes: Uint8Array): void {
   for (const byte of bytes) out.push(byte);
+}
+
+function pushOperationDigests(
+  out: number[],
+  digests: RouterAbEcdsaDerivationOperationDigestsV1Wire,
+): void {
+  pushBytes(out, base64UrlDecode(digests.lane_digest_b64u));
+  pushBytes(out, base64UrlDecode(digests.intent_digest_b64u));
+  pushBytes(out, base64UrlDecode(digests.display_digest_b64u));
 }
 
 function pushU16(out: number[], value: number): void {
@@ -2062,13 +2546,13 @@ function canonicalNormalSigningScopeBytes(
   const parsed = parseRouterAbEcdsaDerivationNormalSigningScopeV1(scope);
   const out: number[] = [];
   pushLen32(out, asciiBytes(ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_SCOPE_VERSION_V1));
-  pushLen32(out, asciiBytes(parsed.wallet_key_id));
   pushLen32(out, asciiBytes(parsed.wallet_id));
   pushLen32(out, asciiBytes(parsed.ecdsa_threshold_key_id));
   pushLen32(out, asciiBytes(parsed.signing_root_id));
   pushLen32(out, asciiBytes(parsed.signing_root_version));
   pushLen32(out, canonicalStableKeyContextBytes(parsed.context));
   pushLen32(out, canonicalPublicIdentityBytes(parsed.public_identity));
+  out.push(...canonicalRouterAbMpcMaterialActivationRefBytes(parsed.material_activation));
   pushServerIdentity(out, parsed.signing_worker);
   pushLen32(out, asciiBytes(parsed.activation_epoch));
   return new Uint8Array(out);
@@ -2127,6 +2611,10 @@ export function routerAbEcdsaDerivationEvmDigestSigningRequestCanonicalBytesV1(
   pushLen32(out, asciiBytes(ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_REQUEST_VERSION_V1));
   pushLen32(out, canonicalNormalSigningScopeBytes(parsed.scope));
   pushLen32(out, asciiBytes(parsed.request_id));
+  pushLen32(out, asciiBytes(parsed.operation_id));
+  pushOperationDigests(out, parsed.operation_digests);
+  out.push(...canonicalRouterAbNormalSigningAuthorizationBytes(parsed.authorization));
+  out.push(...canonicalRouterAbMpcMaterialActivationRefBytes(parsed.material_activation));
   pushLen32(out, asciiBytes(parsed.client_presignature_id));
   pushU64(out, parsed.expires_at_ms);
   pushBytes(out, base64UrlDecode(parsed.signing_digest_b64u));
@@ -2152,6 +2640,10 @@ export function routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestCanoni
   pushLen32(out, asciiBytes(ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_FINALIZE_REQUEST_VERSION_V1));
   pushLen32(out, canonicalNormalSigningScopeBytes(parsed.scope));
   pushLen32(out, asciiBytes(parsed.request_id));
+  pushLen32(out, asciiBytes(parsed.operation_id));
+  pushOperationDigests(out, parsed.operation_digests);
+  out.push(...canonicalRouterAbNormalSigningAuthorizationBytes(parsed.authorization));
+  out.push(...canonicalRouterAbMpcMaterialActivationRefBytes(parsed.material_activation));
   pushU64(out, parsed.expires_at_ms);
   pushBytes(out, base64UrlDecode(parsed.signing_digest_b64u));
   pushLen32(out, asciiBytes(parsed.server_presignature_id));
@@ -2175,18 +2667,17 @@ export function parseRouterAbEcdsaDerivationNormalSigningScopeV1(
 ): RouterAbEcdsaDerivationNormalSigningScopeV1 {
   const record = requireRecord(value, 'scope');
   requireExactKeys(record, 'scope', [
-    'wallet_key_id',
     'wallet_id',
     'ecdsa_threshold_key_id',
     'signing_root_id',
     'signing_root_version',
     'context',
     'public_identity',
+    'material_activation',
     'signing_worker',
     'activation_epoch',
   ]);
   return {
-    wallet_key_id: requireAsciiNonEmptyString(record.wallet_key_id, 'scope.wallet_key_id'),
     wallet_id: requireAsciiNonEmptyString(record.wallet_id, 'scope.wallet_id'),
     ecdsa_threshold_key_id: requireAsciiNonEmptyString(
       record.ecdsa_threshold_key_id,
@@ -2199,6 +2690,7 @@ export function parseRouterAbEcdsaDerivationNormalSigningScopeV1(
     ),
     context: parseStableKeyContext(record.context),
     public_identity: parsePublicIdentity(record.public_identity),
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
     signing_worker: parseServerIdentity(record.signing_worker),
     activation_epoch: requireRootShareEpoch(record.activation_epoch, 'scope.activation_epoch'),
   };
@@ -2226,241 +2718,6 @@ export function requireRouterAbEcdsaDerivationNormalSigningStateV1(
   const parsed = parseRouterAbEcdsaDerivationNormalSigningStateV1(value);
   if (!parsed) throw new Error('Router A/B ECDSA derivation normal-signing state is required');
   return parsed;
-}
-
-function requireWalletRegistrationMatchingString(args: {
-  field: string;
-  expected: unknown;
-  actual: unknown;
-}): string {
-  const expected = String(args.expected || '').trim();
-  const actual = String(args.actual || '').trim();
-  if (!expected || !actual) {
-    throw new Error(`ECDSA registration bootstrap returned incomplete ${args.field}`);
-  }
-  if (expected !== actual) {
-    throw new Error(`ECDSA registration bootstrap ${args.field} mismatch`);
-  }
-  return actual;
-}
-
-function requireWalletRegistrationMatchingNumber(args: {
-  field: string;
-  expected: unknown;
-  actual: unknown;
-}): number {
-  const expected = Math.floor(Number(args.expected));
-  const actual = Math.floor(Number(args.actual));
-  if (!Number.isSafeInteger(expected) || !Number.isSafeInteger(actual)) {
-    throw new Error(`ECDSA registration bootstrap returned incomplete ${args.field}`);
-  }
-  if (expected !== actual) {
-    throw new Error(`ECDSA registration bootstrap ${args.field} mismatch`);
-  }
-  return actual;
-}
-
-function requireWalletRegistrationMatchingParticipantIds(args: {
-  expected: readonly unknown[];
-  actual: readonly unknown[];
-}): number[] {
-  const expected = args.expected.map((participantId) => Math.floor(Number(participantId)));
-  const actual = args.actual.map((participantId) => Math.floor(Number(participantId)));
-  const invalid =
-    expected.length === 0 ||
-    actual.length === 0 ||
-    expected.some((participantId) => !Number.isSafeInteger(participantId) || participantId <= 0) ||
-    actual.some((participantId) => !Number.isSafeInteger(participantId) || participantId <= 0);
-  if (invalid) {
-    throw new Error('ECDSA registration bootstrap returned incomplete participantIds');
-  }
-  if (expected.length !== actual.length || expected.some((id, index) => id !== actual[index])) {
-    throw new Error('ECDSA registration bootstrap participantIds mismatch');
-  }
-  return actual;
-}
-
-function ethereumAddress20B64u(address: string): string {
-  const normalized = String(address || '').trim();
-  const hex = normalized.startsWith('0x') ? normalized.slice(2) : normalized;
-  if (!/^[0-9a-fA-F]{40}$/.test(hex)) {
-    throw new Error('ECDSA registration bootstrap returned invalid ethereumAddress');
-  }
-  const bytes = new Uint8Array(20);
-  for (let i = 0; i < bytes.length; i += 1) {
-    bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return base64UrlEncode(bytes);
-}
-
-export function parseRouterAbEcdsaDerivationNormalSigningFromWalletRegistrationJwtV1(args: {
-  walletSessionJwt: string;
-  expected: RouterAbEcdsaDerivationWalletRegistrationJwtBindingFactsV1;
-}): RouterAbEcdsaDerivationNormalSigningStateV1 {
-  const payload = decodeJwtPayloadRecord(args.walletSessionJwt);
-  if (!payload) {
-    throw new Error('ECDSA registration bootstrap returned invalid Wallet Session JWT');
-  }
-  const expected = args.expected;
-  requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.kind',
-    expected: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-    actual: payload.kind,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.sub',
-    expected: expected.walletId,
-    actual: payload.sub,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.walletId',
-    expected: expected.walletId,
-    actual: payload.walletId,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.evmFamilySigningKeySlotId',
-    expected: expected.evmFamilySigningKeySlotId,
-    actual: payload.evmFamilySigningKeySlotId,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.keyScope',
-    expected: ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1,
-    actual: payload.keyScope,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.keyHandle',
-    expected: expected.keyHandle,
-    actual: payload.keyHandle,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.relayerKeyId',
-    expected: expected.relayerKeyId,
-    actual: payload.relayerKeyId,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.thresholdSessionId',
-    expected: expected.thresholdSessionId,
-    actual: payload.thresholdSessionId,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.signingGrantId',
-    expected: expected.signingGrantId,
-    actual: payload.signingGrantId,
-  });
-  requireWalletRegistrationMatchingNumber({
-    field: 'walletSessionJwt.thresholdExpiresAtMs',
-    expected: expected.expiresAtMs,
-    actual: payload.thresholdExpiresAtMs,
-  });
-  requireWalletRegistrationMatchingParticipantIds({
-    expected: expected.participantIds,
-    actual: Array.isArray(payload.participantIds) ? payload.participantIds : [],
-  });
-  const hasNormalSigning = payload.routerAbEcdsaDerivationNormalSigning !== undefined;
-  const hasIssuerBinding = payload.routerAbEcdsaDerivationIssuerBinding !== undefined;
-  if (!hasNormalSigning) {
-    throw new Error(
-      hasIssuerBinding
-        ? 'ECDSA registration bootstrap Wallet Session JWT is issuer-binding-only'
-        : 'ECDSA registration bootstrap Wallet Session JWT missing routerAbEcdsaDerivationNormalSigning',
-    );
-  }
-  if (hasIssuerBinding) {
-    throw new Error(
-      'ECDSA registration bootstrap Wallet Session JWT must contain normal-signing state only',
-    );
-  }
-  let normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1 | null = null;
-  try {
-    normalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
-      payload.routerAbEcdsaDerivationNormalSigning,
-    );
-  } catch {
-    throw new Error(
-      'ECDSA registration bootstrap Wallet Session JWT has invalid routerAbEcdsaDerivationNormalSigning',
-    );
-  }
-  if (!normalSigning) {
-    throw new Error(
-      'ECDSA registration bootstrap Wallet Session JWT missing routerAbEcdsaDerivationNormalSigning',
-    );
-  }
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.wallet_id',
-    expected: expected.walletId,
-    actual: normalSigning.scope.wallet_id,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.wallet_key_id',
-    expected: expected.evmFamilySigningKeySlotId,
-    actual: normalSigning.scope.wallet_key_id,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.ecdsa_threshold_key_id',
-    expected: expected.ecdsaThresholdKeyId,
-    actual: normalSigning.scope.ecdsa_threshold_key_id,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.signing_root_id',
-    expected: expected.signingRootId,
-    actual: normalSigning.scope.signing_root_id,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.signing_root_version',
-    expected: expected.signingRootVersion,
-    actual: normalSigning.scope.signing_root_version,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.context.application_binding_digest_b64u',
-    expected: expected.applicationBindingDigestB64u,
-    actual: normalSigning.scope.context.application_binding_digest_b64u,
-  });
-  const publicIdentity = normalSigning.scope.public_identity;
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.public_identity.context_binding_b64u',
-    expected: expected.contextBinding32B64u,
-    actual: publicIdentity.context_binding_b64u,
-  });
-  requireWalletRegistrationMatchingString({
-    field:
-      'routerAbEcdsaDerivationNormalSigning.scope.public_identity.derivation_client_share_public_key33_b64u',
-    expected: expected.clientPublicKey33B64u,
-    actual: publicIdentity.derivation_client_share_public_key33_b64u,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.public_identity.server_public_key33_b64u',
-    expected: expected.serverPublicKey33B64u,
-    actual: publicIdentity.server_public_key33_b64u,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.public_identity.threshold_public_key33_b64u',
-    expected: expected.thresholdPublicKey33B64u,
-    actual: publicIdentity.threshold_public_key33_b64u,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.public_identity.ethereum_address20_b64u',
-    expected: ethereumAddress20B64u(expected.ethereumAddress),
-    actual: publicIdentity.ethereum_address20_b64u,
-  });
-  requireWalletRegistrationMatchingNumber({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.public_identity.client_share_retry_counter',
-    expected: expected.clientShareRetryCounter,
-    actual: publicIdentity.client_share_retry_counter,
-  });
-  requireWalletRegistrationMatchingNumber({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.public_identity.server_share_retry_counter',
-    expected: expected.serverShareRetryCounter,
-    actual: publicIdentity.server_share_retry_counter,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaDerivationNormalSigning.scope.activation_epoch',
-    expected: expected.activationEpoch,
-    actual: normalSigning.scope.activation_epoch,
-  });
-  if (!String(normalSigning.scope.signing_worker.server_id || '').trim()) {
-    throw new Error('ECDSA registration bootstrap Wallet Session JWT missing signing worker id');
-  }
-  return normalSigning;
 }
 
 export function buildRouterAbEcdsaDerivationActiveStateIdV1(input: {
@@ -2503,9 +2760,42 @@ export function routerAbEcdsaDerivationActiveStateId(
   });
 }
 
+function parseRouterAbEcdsaDerivationOperationDigestsV1(
+  value: unknown,
+  label: string,
+): RouterAbEcdsaDerivationOperationDigestsV1Wire {
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, [
+    'lane_digest_b64u',
+    'intent_digest_b64u',
+    'display_digest_b64u',
+  ]);
+  return {
+    lane_digest_b64u: requireBase64UrlFixed(
+      record.lane_digest_b64u,
+      `${label}.lane_digest_b64u`,
+      32,
+    ),
+    intent_digest_b64u: requireBase64UrlFixed(
+      record.intent_digest_b64u,
+      `${label}.intent_digest_b64u`,
+      32,
+    ),
+    display_digest_b64u: requireBase64UrlFixed(
+      record.display_digest_b64u,
+      `${label}.display_digest_b64u`,
+      32,
+    ),
+  };
+}
+
 export function buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input: {
   scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
   requestId: string;
+  operationId: string;
+  operationDigests: RouterAbEcdsaDerivationOperationDigestsV1Wire;
+  authorization: RouterAbNormalSigningAuthorizationWire;
+  materialActivation: RouterAbMpcMaterialActivationRefWire;
   clientPresignatureId: string;
   expiresAtMs: number;
   signingDigest32: Uint8Array;
@@ -2514,6 +2804,10 @@ export function buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input: {
   return parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
     scope: input.scope,
     request_id: input.requestId,
+    operation_id: input.operationId,
+    operation_digests: input.operationDigests,
+    authorization: input.authorization,
+    material_activation: input.materialActivation,
     client_presignature_id: input.clientPresignatureId,
     expires_at_ms: input.expiresAtMs,
     signing_digest_b64u: base64UrlEncode(
@@ -2536,14 +2830,28 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(
   requireExactKeys(record, 'ecdsaSigningRequest', [
     'scope',
     'request_id',
+    'operation_id',
+    'operation_digests',
+    'authorization',
+    'material_activation',
     'client_presignature_id',
     'expires_at_ms',
     'signing_digest_b64u',
     'client_rerandomization_commitment32_b64u',
   ]);
-  return {
+  const parsed = {
     scope: parseRouterAbEcdsaDerivationNormalSigningScopeV1(record.scope),
     request_id: requireAsciiNonEmptyString(record.request_id, 'ecdsaSigningRequest.request_id'),
+    operation_id: requireAsciiNonEmptyString(
+      record.operation_id,
+      'ecdsaSigningRequest.operation_id',
+    ),
+    operation_digests: parseRouterAbEcdsaDerivationOperationDigestsV1(
+      record.operation_digests,
+      'ecdsaSigningRequest.operation_digests',
+    ),
+    authorization: parseRouterAbNormalSigningAuthorization(record.authorization),
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
     client_presignature_id: requireAsciiNonEmptyString(
       record.client_presignature_id,
       'ecdsaSigningRequest.client_presignature_id',
@@ -2560,24 +2868,232 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(
       32,
     ),
   };
+  if (parsed.operation_digests.intent_digest_b64u !== parsed.signing_digest_b64u) {
+    throw new Error('ecdsaSigningRequest intent digest must equal the admitted signing digest');
+  }
+  return parsed;
 }
 
-export function buildRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1(input: {
+function parseRouterAbEcdsaOperationStepUpWebAuthnCredentialV1(
+  value: unknown,
+): RouterAbEcdsaOperationStepUpWebAuthnCredentialV1Wire {
+  const credential = requireRecord(value, 'webauthn_authentication');
+  requireExactKeys(credential, 'webauthn_authentication', [
+    'id',
+    'rawId',
+    'type',
+    'authenticatorAttachment',
+    'response',
+    'clientExtensionResults',
+  ]);
+  const response = requireRecord(credential.response, 'webauthn_authentication.response');
+  requireExactKeys(response, 'webauthn_authentication.response', [
+    'clientDataJSON',
+    'authenticatorData',
+    'signature',
+    'userHandle',
+  ]);
+  const authenticatorAttachment =
+    credential.authenticatorAttachment === null
+      ? null
+      : requireAsciiNonEmptyString(
+          credential.authenticatorAttachment,
+          'webauthn_authentication.authenticatorAttachment',
+        );
+  const userHandle =
+    response.userHandle === null
+      ? null
+      : requireAsciiNonEmptyString(
+          response.userHandle,
+          'webauthn_authentication.response.userHandle',
+        );
+  return {
+    id: requireAsciiNonEmptyString(credential.id, 'webauthn_authentication.id'),
+    rawId: requireAsciiNonEmptyString(credential.rawId, 'webauthn_authentication.rawId'),
+    type: requireAsciiNonEmptyString(credential.type, 'webauthn_authentication.type'),
+    authenticatorAttachment,
+    response: {
+      clientDataJSON: requireAsciiNonEmptyString(
+        response.clientDataJSON,
+        'webauthn_authentication.response.clientDataJSON',
+      ),
+      authenticatorData: requireAsciiNonEmptyString(
+        response.authenticatorData,
+        'webauthn_authentication.response.authenticatorData',
+      ),
+      signature: requireAsciiNonEmptyString(
+        response.signature,
+        'webauthn_authentication.response.signature',
+      ),
+      userHandle,
+    },
+    clientExtensionResults: credential.clientExtensionResults,
+  };
+}
+
+export function parseRouterAbEcdsaOperationStepUpAuthorizationRequestV1(
+  value: unknown,
+): RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire {
+  const request = requireRecord(value, 'operationStepUpAuthorizationRequest');
+  requireExactKeys(request, 'operationStepUpAuthorizationRequest', ['kind', 'operation', 'proof']);
+  if (request.kind !== 'router_ab_ecdsa_operation_step_up_v1') {
+    throw new Error(
+      'operationStepUpAuthorizationRequest.kind must be router_ab_ecdsa_operation_step_up_v1',
+    );
+  }
+  const operation = parseRouterAbEcdsaOperationStepUpPreparationV1(request.operation);
+  const proof = requireRecord(request.proof, 'operationStepUpAuthorizationRequest.proof');
+  const authority = parseWalletAuthAuthority(proof.authority);
+  let parsedProof: RouterAbEcdsaOperationStepUpProofV1Wire;
+  switch (proof.kind) {
+    case 'passkey':
+      requireExactKeys(proof, 'operationStepUpAuthorizationRequest.proof', [
+        'kind',
+        'authority',
+        'webauthn_authentication',
+      ]);
+      if (!authority || !isPasskeyWalletAuthAuthority(authority)) {
+          throw new Error('operationStepUpAuthorizationRequest.proof requires an exact passkey authority');
+      }
+      parsedProof = {
+        kind: 'passkey',
+        authority,
+        webauthn_authentication: parseRouterAbEcdsaOperationStepUpWebAuthnCredentialV1(
+          proof.webauthn_authentication,
+        ),
+      };
+      break;
+    case 'email_otp':
+      requireExactKeys(proof, 'operationStepUpAuthorizationRequest.proof', [
+        'kind',
+        'authority',
+        'challenge_id',
+        'otp_code',
+      ]);
+      if (!authority || !isEmailOtpWalletAuthAuthority(authority)) {
+        throw new Error('operationStepUpAuthorizationRequest.proof requires an exact Email OTP authority');
+      }
+      parsedProof = {
+        kind: 'email_otp',
+        authority,
+        challenge_id: requireAsciiNonEmptyString(
+          proof.challenge_id,
+          'operationStepUpAuthorizationRequest.proof.challenge_id',
+        ),
+        otp_code: requireAsciiNonEmptyString(
+          proof.otp_code,
+          'operationStepUpAuthorizationRequest.proof.otp_code',
+        ),
+      };
+      break;
+    default:
+      throw new Error('operationStepUpAuthorizationRequest.proof.kind is invalid');
+  }
+  return {
+    kind: 'router_ab_ecdsa_operation_step_up_v1',
+    operation,
+    proof: parsedProof,
+  };
+}
+
+export function parseRouterAbEcdsaOperationStepUpPreparationV1(
+  value: unknown,
+): RouterAbEcdsaOperationStepUpPreparationV1Wire {
+  const operation = requireRecord(value, 'ecdsaOperationStepUpPreparation');
+  requireExactKeys(operation, 'operationStepUpGrantRequest.operation', [
+    'wallet_id',
+    'operation_kind',
+    'operation_id',
+    'operation_digests',
+    'material_activation',
+    'normal_signing_scope',
+    'signing_worker_id',
+    'key_handle',
+    'relayer_key_id',
+    'participant_ids',
+    'expires_at_ms',
+  ]);
+  if (
+    !Array.isArray(operation.participant_ids) ||
+    operation.participant_ids.length !== 2 ||
+    !operation.participant_ids.every(
+      (participantId) => Number.isSafeInteger(participantId) && participantId > 0,
+    )
+  ) {
+    throw new Error(
+      'operationStepUpGrantRequest.operation.participant_ids must contain two positive integers',
+    );
+  }
+  return {
+    wallet_id: requireAsciiNonEmptyString(
+      operation.wallet_id,
+      'operationStepUpGrantRequest.operation.wallet_id',
+    ),
+    operation_kind: requireEcdsaOperationStepUpKind(operation.operation_kind),
+    operation_id: requireAsciiNonEmptyString(
+      operation.operation_id,
+      'operationStepUpGrantRequest.operation.operation_id',
+    ),
+    operation_digests: parseRouterAbEcdsaDerivationOperationDigestsV1(
+      operation.operation_digests,
+      'operationStepUpGrantRequest.operation.operation_digests',
+    ),
+    material_activation: parseRouterAbMpcMaterialActivationRef(operation.material_activation),
+    normal_signing_scope: parseRouterAbEcdsaDerivationNormalSigningScopeV1(
+      operation.normal_signing_scope,
+    ),
+    signing_worker_id: requireAsciiNonEmptyString(
+      operation.signing_worker_id,
+      'operationStepUpGrantRequest.operation.signing_worker_id',
+    ),
+    key_handle: requireAsciiNonEmptyString(
+      operation.key_handle,
+      'operationStepUpGrantRequest.operation.key_handle',
+    ),
+    relayer_key_id: requireAsciiNonEmptyString(
+      operation.relayer_key_id,
+      'operationStepUpGrantRequest.operation.relayer_key_id',
+    ),
+    participant_ids: [Number(operation.participant_ids[0]), Number(operation.participant_ids[1])],
+    expires_at_ms: requirePositiveUnixMs(
+      operation.expires_at_ms,
+      'operationStepUpGrantRequest.operation.expires_at_ms',
+    ),
+  };
+}
+
+function requireEcdsaOperationStepUpKind(value: unknown): EvmEcdsaMpcOperationKind {
+  switch (value) {
+    case EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction:
+    case EVM_ECDSA_MPC_OPERATION_KINDS.exportKey:
+      return value;
+    default:
+      throw new Error(
+        'operationStepUpGrantRequest.operation.operation_kind must be evm.sign_transaction or evm.export_key',
+      );
+  }
+}
+
+export function buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(input: {
   scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
   requestId: string;
-  budgetReservationId: string;
-  budgetOperationId: string;
+  operationId: string;
+  operationDigests: RouterAbEcdsaDerivationOperationDigestsV1Wire;
+  authorization: RouterAbNormalSigningAuthorizationWire;
+  materialActivation: RouterAbMpcMaterialActivationRefWire;
   expiresAtMs: number;
   signingDigest32: Uint8Array;
   serverPresignatureId: string;
   clientSignatureShare32: Uint8Array;
   clientRerandomizationContribution32: Uint8Array;
-}): RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire {
-  return parseRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1({
+}): RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire {
+  return parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1({
     scope: input.scope,
     request_id: input.requestId,
-    budget_reservation_id: input.budgetReservationId,
-    budget_operation_id: input.budgetOperationId,
+    operation_id: input.operationId,
+    operation_digests: input.operationDigests,
+    authorization: input.authorization,
+    material_activation: input.materialActivation,
     expires_at_ms: input.expiresAtMs,
     signing_digest_b64u: base64UrlEncode(
       requireUint8ArrayFixed(input.signingDigest32, 'signingDigest32', 32),
@@ -2603,6 +3119,10 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV
   requireExactKeys(record, 'ecdsaFinalizeCoreRequest', [
     'scope',
     'request_id',
+    'operation_id',
+    'operation_digests',
+    'authorization',
+    'material_activation',
     'expires_at_ms',
     'signing_digest_b64u',
     'server_presignature_id',
@@ -2615,9 +3135,19 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV
 function parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFields(
   record: Record<string, unknown>,
 ): RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire {
-  return {
+  const parsed = {
     scope: parseRouterAbEcdsaDerivationNormalSigningScopeV1(record.scope),
     request_id: requireAsciiNonEmptyString(record.request_id, 'ecdsaFinalizeRequest.request_id'),
+    operation_id: requireAsciiNonEmptyString(
+      record.operation_id,
+      'ecdsaFinalizeRequest.operation_id',
+    ),
+    operation_digests: parseRouterAbEcdsaDerivationOperationDigestsV1(
+      record.operation_digests,
+      'ecdsaFinalizeRequest.operation_digests',
+    ),
+    authorization: parseRouterAbNormalSigningAuthorization(record.authorization),
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
     expires_at_ms: requirePositiveUnixMs(
       record.expires_at_ms,
       'ecdsaFinalizeRequest.expires_at_ms',
@@ -2642,50 +3172,30 @@ function parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFields(
       32,
     ),
   };
+  if (parsed.operation_digests.intent_digest_b64u !== parsed.signing_digest_b64u) {
+    throw new Error('ecdsaFinalizeRequest intent digest must equal the admitted signing digest');
+  }
+  return parsed;
 }
 
-export function parseRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1(
+export function parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(
   value: unknown,
-): RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire {
+): RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire {
   const record = requireRecord(value, 'ecdsaFinalizeRequest');
   requireExactKeys(record, 'ecdsaFinalizeRequest', [
     'scope',
     'request_id',
-    'budget_reservation_id',
-    'budget_operation_id',
+    'operation_id',
+    'operation_digests',
+    'authorization',
+    'material_activation',
     'expires_at_ms',
     'signing_digest_b64u',
     'server_presignature_id',
     'client_signature_share32_b64u',
     'client_rerandomization_contribution32_b64u',
   ]);
-  const coreRequest = parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFields(record);
-  return {
-    ...coreRequest,
-    budget_reservation_id: requireAsciiNonEmptyString(
-      record.budget_reservation_id,
-      'ecdsaFinalizeRequest.budget_reservation_id',
-    ),
-    budget_operation_id: requireAsciiNonEmptyString(
-      record.budget_operation_id,
-      'ecdsaFinalizeRequest.budget_operation_id',
-    ),
-  };
-}
-
-export function routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
-  request: RouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1Wire,
-): RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire {
-  const parsed = parseRouterAbEcdsaDerivationEvmDigestSigningBudgetedFinalizeRequestV1(request);
-  return {
-    scope: parsed.scope,
-    request_id: parsed.request_id,
-    expires_at_ms: parsed.expires_at_ms,
-    signing_digest_b64u: parsed.signing_digest_b64u,
-    server_presignature_id: parsed.server_presignature_id,
-    client_signature_share32_b64u: parsed.client_signature_share32_b64u,
-    client_rerandomization_contribution32_b64u: parsed.client_rerandomization_contribution32_b64u,
-  };
+  return parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestFields(record);
 }
 
 function parseServerPresignatureShare(
@@ -2720,9 +3230,6 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1(
   requireExactKeys(record, 'ecdsaPrepareResponse', [
     'scope',
     'request_id',
-    'budget_reservation_id',
-    'budget_operation_id',
-    'budget_status',
     'request_digest',
     'signing_digest',
     'server_presignature_id',
@@ -2735,18 +3242,6 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1(
   return {
     scope: parseRouterAbEcdsaDerivationNormalSigningScopeV1(record.scope),
     request_id: requireAsciiNonEmptyString(record.request_id, 'ecdsaPrepareResponse.request_id'),
-    budget_reservation_id: requireAsciiNonEmptyString(
-      record.budget_reservation_id,
-      'ecdsaPrepareResponse.budget_reservation_id',
-    ),
-    budget_operation_id: requireAsciiNonEmptyString(
-      record.budget_operation_id,
-      'ecdsaPrepareResponse.budget_operation_id',
-    ),
-    budget_status: parseRouterAbEcdsaDerivationBudgetStatusV1(
-      record.budget_status,
-      'ecdsaPrepareResponse.budget_status',
-    ),
     request_digest: parsePublicDigest32(
       record.request_digest,
       'ecdsaPrepareResponse.request_digest',
@@ -2781,35 +3276,6 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1(
       record.expires_at_ms,
       'ecdsaPrepareResponse.expires_at_ms',
     ),
-  };
-}
-
-function parseRouterAbEcdsaDerivationBudgetStatusV1(
-  value: unknown,
-  label: string,
-): RouterAbEcdsaDerivationBudgetStatusV1Wire {
-  const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
-    'remaining_uses',
-    'committed_remaining_uses',
-    'reserved_uses',
-    'available_uses',
-    'projection_version',
-    'expires_at_ms',
-  ]);
-  return {
-    remaining_uses: requireNonNegativeInteger(record.remaining_uses, `${label}.remaining_uses`),
-    committed_remaining_uses: requireNonNegativeInteger(
-      record.committed_remaining_uses,
-      `${label}.committed_remaining_uses`,
-    ),
-    reserved_uses: requireNonNegativeInteger(record.reserved_uses, `${label}.reserved_uses`),
-    available_uses: requireNonNegativeInteger(record.available_uses, `${label}.available_uses`),
-    projection_version: requirePositiveCounter(
-      record.projection_version,
-      `${label}.projection_version`,
-    ),
-    expires_at_ms: requirePositiveUnixMs(record.expires_at_ms, `${label}.expires_at_ms`),
   };
 }
 
@@ -2861,7 +3327,6 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningResponseV1(
     'signing_digest',
     'signature_scheme',
     'signature65_b64u',
-    'budget_status',
   ]);
   return {
     scope: parseRouterAbEcdsaDerivationNormalSigningScopeV1(record.scope),
@@ -2882,10 +3347,6 @@ export function parseRouterAbEcdsaDerivationEvmDigestSigningResponseV1(
       record.signature65_b64u,
       'ecdsaSigningResponse.signature65_b64u',
       65,
-    ),
-    budget_status: parseRouterAbEcdsaDerivationBudgetStatusV1(
-      record.budget_status,
-      'ecdsaSigningResponse.budget_status',
     ),
   };
 }
@@ -2925,7 +3386,7 @@ function parseActiveSigningWorkerState(value: unknown): RouterAbActiveSigningWor
   const record = requireRecord(value, 'receipt.active_signing_worker_state');
   requireExactKeys(record, 'receipt.active_signing_worker_state', [
     'account_id',
-    'session_id',
+    'material_activation',
     'account_public_key',
     'signing_worker',
     'activation_transcript_digest',
@@ -2938,9 +3399,8 @@ function parseActiveSigningWorkerState(value: unknown): RouterAbActiveSigningWor
       record.account_id,
       'receipt.active_signing_worker_state.account_id',
     ),
-    session_id: requireAsciiNonEmptyString(
-      record.session_id,
-      'receipt.active_signing_worker_state.session_id',
+    material_activation: parseRouterAbMpcMaterialActivationRef(
+      record.material_activation,
     ),
     account_public_key: requireAsciiNonEmptyString(
       record.account_public_key,

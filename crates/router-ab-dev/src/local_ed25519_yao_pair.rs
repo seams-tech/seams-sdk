@@ -557,7 +557,8 @@ mod tests {
     use router_ab_core::{
         Ed25519YaoCeremonyBindingV1, Ed25519YaoCeremonyIdentityV1, Ed25519YaoEncryptedPackageV1,
         Ed25519YaoInputKindV1, Ed25519YaoOperationV1, Ed25519YaoPackageKindV1,
-        Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1, RootShareEpoch,
+        Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1,
+        MpcMaterialActivationRefV1, RootShareEpoch,
     };
 
     fn pair_fixture() -> (
@@ -580,6 +581,15 @@ mod tests {
             Ed25519YaoOperationV1::Registration,
             Ed25519YaoSessionIdV1::new([0x51; 32]).expect("session"),
             Ed25519YaoStableKeyContextBindingV1::new([0x61; 32]),
+            MpcMaterialActivationRefV1::new(
+                "pair-activation",
+                "pair-capability",
+                "local-account",
+                "pair-key",
+                "local-pair-lifecycle",
+                "local-signing-worker",
+            )
+            .expect("material activation"),
         )
         .expect("ceremony binding");
         let input_a = Ed25519YaoEncryptedInputV1::new(

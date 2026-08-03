@@ -1,4 +1,5 @@
 import { ClientWalletSessionExpiryInvalidator } from '../availability/clientSessionExpiryInvalidator';
+import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
 import {
   parseWalletSessionAuthorizationBoundary,
   requireActiveWalletSessionAuthorization,
@@ -17,6 +18,7 @@ declare const missing: MissingWalletSessionAuthorizationState;
 declare const unavailable: UnavailableWalletSessionAuthorizationState;
 declare const invalidator: ClientWalletSessionExpiryInvalidator;
 declare const observation: WalletSessionAuthorizationObservation;
+declare const walletSessionId: WalletSessionId;
 
 parseWalletSessionAuthorizationBoundary({ observation, nowMs: Date.now() });
 
@@ -34,7 +36,7 @@ requireActiveWalletSessionAuthorization(unavailable);
 // @ts-expect-error Invalid authorization cannot satisfy an active consumer.
 requireActiveWalletSessionAuthorization(invalid);
 
-void invalidator.invalidate(expired);
+void invalidator.invalidate({ state: expired, walletSessionId });
 
 // @ts-expect-error The canonical invalidator accepts expired authorization only.
-void invalidator.invalidate(active);
+void invalidator.invalidate({ state: active, walletSessionId });

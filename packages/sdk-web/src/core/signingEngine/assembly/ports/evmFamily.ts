@@ -4,6 +4,7 @@ import { listExactSealedSessionsForWallet } from '../../session/persistence/seal
 import { exactEmailOtpEcdsaSigningSessionAuthorityFromSealedRecords } from '../../session/emailOtp/sealedSigningSessionAuth';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
+import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
@@ -32,36 +33,22 @@ export function createEvmFamilySigningDeps(args: {
   walletSignerStore: EvmFamilySigningDeps['walletSignerStore'];
   passkeyAuthenticatorStore: EvmFamilySigningDeps['passkeyAuthenticatorStore'];
   signingSessionCoordinator: SigningSessionCoordinator;
-  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  getEmailOtpWarmSessionStatus: (
+    target: EmailOtpWarmMaterialTarget,
+  ) => Promise<WarmSessionStatusResult>;
 }): EvmFamilySigningDeps {
   const { createArgs, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
   return {
+    resolveCanonicalEcdsaSigningCapability: createArgs.resolveCanonicalEcdsaSigningCapability,
+    resolveAuthorizedEcdsaSigningCapability: createArgs.resolveAuthorizedEcdsaSigningCapability,
+    resolveActiveEcdsaWalletSessionAuthorization:
+      createArgs.resolveActiveEcdsaWalletSessionAuthorization,
     walletSignerStore: args.walletSignerStore,
     passkeyAuthenticatorStore: args.passkeyAuthenticatorStore,
     seamsWebConfigs: createArgs.seamsWebConfigs,
     nonceCoordinator: createArgs.nonceCoordinator,
     ensureSealedRefreshStartupParity: createArgs.ensureSealedRefreshStartupParity,
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
-    getPasskeyThresholdEcdsaSessionRecordForSigning: ({ walletId, chainTarget, source }) =>
-      createArgs.getPasskeyThresholdEcdsaSessionRecordForSigning({
-        walletId,
-        chainTarget,
-        source,
-      }),
-    listThresholdEcdsaSessionRecordsForSigning: ({ walletId, chainTarget, source }) =>
-      createArgs.listThresholdEcdsaSessionRecordsForWalletTarget({
-        walletId: toWalletId(walletId),
-        chainTarget,
-        ...(source ? { source } : {}),
-      }),
-    listThresholdEcdsaKeyRefsForSigning: ({ walletId, chainTarget, source }) =>
-      createArgs.listThresholdEcdsaKeyRefsForWalletTarget({
-        walletId: toWalletId(walletId),
-        chainTarget,
-        ...(source ? { source } : {}),
-      }),
-    getThresholdEcdsaSessionRecordByKey: (identity) =>
-      createArgs.getThresholdEcdsaSessionRecordByKey(identity),
     requestEmailOtpTransactionSigningChallenge: ({ walletSession, chain, authority }) =>
       createArgs.requestEmailOtpTransactionSigningChallenge?.({
         walletSession,
@@ -70,33 +57,15 @@ export function createEvmFamilySigningDeps(args: {
       }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
     resolveDurableEmailOtpEcdsaSigningSessionAuthority: async ({ lane }) =>
       await resolveDurableEmailOtpEcdsaAuthority(lane),
-    loginWithEmailOtpEcdsaCapabilityForSigning: ({
-      walletSession,
-      chainTarget,
-      challengeId,
-      otpCode,
-      authority,
-      remainingUses,
-    }) =>
-      createArgs.loginWithEmailOtpEcdsaCapabilityForSigning?.({
-        walletSession,
-        chainTarget,
-        challengeId,
-        otpCode,
-        authority,
-        remainingUses,
-      }) || Promise.reject(new Error('Email OTP signing bootstrap is not configured')),
+    resolveEcdsaOperationStepUpSessionAuth: (input) =>
+      createArgs.resolveEcdsaOperationStepUpSessionAuth(input),
     restorePersistedSessionForSigning: (restoreArgs) =>
       createArgs.restorePersistedSessionForSigning(restoreArgs),
     readAvailableSigningLanesForSigning: (snapshotArgs) =>
       createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
-    consumeSingleUseEmailOtpEcdsaLane: (command) =>
-      createArgs.consumeSingleUseEmailOtpEcdsaLane?.(command) || {
-        kind: 'missing_lane',
-        laneKey: command.lane.laneRef.laneKey,
-      },
     signingSessionCoordinator,
-    getEmailOtpWarmSessionStatus,
+    getEmailOtpWarmSessionStatus: (thresholdSessionId) =>
+      getEmailOtpWarmSessionStatus({ kind: 'ecdsa', thresholdSessionId }),
     provisionThresholdEcdsaSession: (provisionArgs) =>
       createArgs.provisionThresholdEcdsaSession(provisionArgs),
     withThresholdEcdsaSigningQueue: (queueArgs) =>

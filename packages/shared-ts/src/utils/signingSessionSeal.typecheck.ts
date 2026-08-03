@@ -1,5 +1,6 @@
 import type {
   SealedSigningSessionEcdsaRestoreMetadata,
+  SealedSigningSessionEcdsaRoleLocalMaterialRef,
   SealedSigningSessionEd25519RestoreMetadata,
   SealedSigningSessionRecord,
 } from './signingSessionSeal';
@@ -7,9 +8,15 @@ import type {
   RouterAbEcdsaDerivationNormalSigningStateV1,
   RouterAbEcdsaDerivationPublicCapabilityV1,
 } from './routerAbEcdsaDerivation';
+import type { EmailOtpWalletAuthAuthority, WalletAuthAuthorityRef } from './walletAuthAuthority';
+import type { MpcMaterialActivationRef } from './domainIds';
 
 declare const routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+declare const roleLocalMaterialRef: SealedSigningSessionEcdsaRoleLocalMaterialRef;
+declare const authority: WalletAuthAuthorityRef;
+declare const emailOtpAuthority: EmailOtpWalletAuthAuthority;
+declare const materialActivation: MpcMaterialActivationRef;
 
 const validEcdsaSealedSessionRecord = {
   v: 2,
@@ -19,8 +26,7 @@ const validEcdsaSealedSessionRecord = {
   storageScope: 'iframe_origin_indexeddb',
   authMethod: 'email_otp',
   secretKind: 'signing_session_secret32',
-  storeKey: 'wallet-session-1:email_otp:ecdsa',
-  signingGrantId: 'wallet-session-1',
+  storeKey: 'ecdsa-material-v2:activation-key',
   thresholdSessionIds: {
     ecdsa: 'ec-session',
   },
@@ -35,19 +41,18 @@ const validEcdsaSealedSessionRecord = {
       networkSlug: 'tempo-testnet',
     },
     source: 'email_otp',
-    evmFamilySigningKeySlotId: 'wallet-key:evm-family:alice.testnet:root:v1',
     signingRootId: 'root',
     signingRootVersion: 'v1',
     provider: 'google',
     providerSubjectId: 'google:alice',
     emailHashHex: 'email-hash',
-    sessionKind: 'jwt',
-    walletSessionJwt: 'wallet-session-jwt',
+    authority,
+    emailOtpAuthority,
     keyHandle: 'key-handle',
     ecdsaThresholdKeyId: 'ecdsa-key',
     ethereumAddress: `0x${'11'.repeat(20)}`,
     relayerKeyId: 'relayer-key',
-    roleLocalDurableMaterialRef: 'role-local-material',
+    roleLocalMaterialRef,
     participantIds: [1, 2],
     routerAbEcdsaDerivationNormalSigning,
     publicCapability,
@@ -67,8 +72,8 @@ const validEd25519SealedSessionRecord = {
   storageScope: 'iframe_origin_indexeddb',
   authMethod: 'passkey',
   secretKind: 'signing_session_secret32',
-  storeKey: 'wallet-session-1:passkey:ed25519',
-  signingGrantId: 'wallet-session-1',
+  storeKey:
+    'ed25519-material-v2:alice.testnet:passkey:ed25519:activation-key:capability-key:owner-key:key-binding:lifecycle-binding:worker-key',
   thresholdSessionIds: {
     ed25519: 'ed-session',
   },
@@ -83,9 +88,9 @@ const validEd25519SealedSessionRecord = {
     nearEd25519SigningKeyId: 'alice.testnet',
     rpId: 'wallet.example.localhost',
     credentialIdB64u: 'credential-id',
+    materialActivation,
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2],
-    sessionKind: 'cookie',
     signerSlot: 1,
   },
   issuedAtMs: 1,
@@ -94,6 +99,13 @@ const validEd25519SealedSessionRecord = {
   updatedAtMs: 4,
 } satisfies SealedSigningSessionRecord;
 void validEd25519SealedSessionRecord;
+
+const { materialActivation: _passkeyMaterialActivation, ...passkeyRestoreMissingActivation } =
+  validEd25519SealedSessionRecord.ed25519Restore;
+// @ts-expect-error passkey sealed restore metadata must retain the exact material activation reference.
+const invalidPasskeyRestoreMissingActivation: SealedSigningSessionEd25519RestoreMetadata =
+  passkeyRestoreMissingActivation;
+void invalidPasskeyRestoreMissingActivation;
 
 const { groupId: _groupId, ...recordMissingGroupId } = validEd25519SealedSessionRecord;
 // @ts-expect-error v2 sealed records require the crate-owned group identifier.
@@ -156,21 +168,6 @@ const invalidEcdsaRestoreMissingProvider: SealedSigningSessionEcdsaRestoreMetada
   ecdsaRestoreMissingProvider;
 void invalidEcdsaRestoreMissingProvider;
 
-const { walletSessionJwt: _ecdsaRestoreJwt, ...ecdsaRestoreMissingJwt } =
-  validEcdsaSealedSessionRecord.ecdsaRestore;
-// @ts-expect-error JWT sealed restore auth requires walletSessionJwt.
-const invalidEcdsaRestoreMissingJwt: SealedSigningSessionEcdsaRestoreMetadata =
-  ecdsaRestoreMissingJwt;
-void invalidEcdsaRestoreMissingJwt;
-
-// @ts-expect-error cookie sealed restore auth rejects walletSessionJwt.
-const invalidEcdsaRestoreCookieWithJwt: SealedSigningSessionEcdsaRestoreMetadata = {
-  ...validEcdsaSealedSessionRecord.ecdsaRestore,
-  sessionKind: 'cookie',
-  walletSessionJwt: 'wallet-session-jwt',
-};
-void invalidEcdsaRestoreCookieWithJwt;
-
 const { walletId: _ecdsaWalletId, ...ecdsaSealedSessionRecordWithoutWallet } =
   validEcdsaSealedSessionRecord;
 // @ts-expect-error typed sealed records require wallet identity.
@@ -198,17 +195,3 @@ const { ed25519Restore: _ed25519Restore, ...ed25519SealedSessionRecordWithoutRes
 const invalidEd25519SealedSessionRecordWithoutRestore: SealedSigningSessionRecord =
   ed25519SealedSessionRecordWithoutRestore;
 void invalidEd25519SealedSessionRecordWithoutRestore;
-
-// @ts-expect-error JWT sealed restore auth requires walletSessionJwt.
-const invalidEd25519RestoreMissingJwt: SealedSigningSessionEd25519RestoreMetadata = {
-  ...validEd25519SealedSessionRecord.ed25519Restore,
-  sessionKind: 'jwt',
-};
-void invalidEd25519RestoreMissingJwt;
-
-// @ts-expect-error cookie sealed restore auth rejects walletSessionJwt.
-const invalidEd25519RestoreCookieWithJwt: SealedSigningSessionEd25519RestoreMetadata = {
-  ...validEd25519SealedSessionRecord.ed25519Restore,
-  walletSessionJwt: 'wallet-session-jwt',
-};
-void invalidEd25519RestoreCookieWithJwt;

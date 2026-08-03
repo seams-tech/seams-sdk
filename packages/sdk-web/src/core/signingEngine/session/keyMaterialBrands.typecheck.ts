@@ -1,5 +1,6 @@
 import type {
   EcdsaClientAdditiveShareHandle,
+  EcdsaClientVerifyingPublicKey33B64u,
   EcdsaClientVerifyingShareB64u,
   EcdsaDerivationKeyVersion,
   EcdsaKeyHandle,
@@ -11,6 +12,7 @@ import type {
 } from './keyMaterialBrands';
 import {
   formatEcdsaClientAdditiveShareHandleForWire,
+  formatEcdsaClientVerifyingPublicKey33B64uForWire,
   formatEcdsaClientVerifyingShareB64uForWire,
   formatEcdsaDerivationKeyVersionForWire,
   formatEcdsaKeyHandleForWire,
@@ -20,6 +22,7 @@ import {
   formatEd25519RelayerKeyIdForWire,
   formatSigningSessionSealKeyVersionForWire,
   parseEcdsaClientAdditiveShareHandle,
+  parseEcdsaClientVerifyingPublicKey33B64u,
   parseEcdsaClientVerifyingShareB64u,
   parseEcdsaDerivationKeyVersion,
   parseEcdsaKeyHandle,
@@ -39,6 +42,9 @@ const ed25519 = parseEd25519KeyVersion('yaos-ab-ed25519-v1');
 const ecdsa = parseEcdsaDerivationKeyVersion('ecdsa-derivation-material-test-v1');
 const seal = parseSigningSessionSealKeyVersion('signing-session-seal-kek-test-r1');
 const ecdsaVerifier = parseEcdsaClientVerifyingShareB64u('ecdsa-client-verifier');
+const ecdsaVerifyingPublicKey = parseEcdsaClientVerifyingPublicKey33B64u(
+  'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+);
 const ed25519RelayerKeyId = parseEd25519RelayerKeyId('ed25519-relayer-key-id');
 const ecdsaRelayerKeyId = parseEcdsaRelayerKeyId('ecdsa-relayer-key-id');
 const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId('ecdsa-threshold-key-id');
@@ -64,6 +70,10 @@ function acceptsSeal(value: SigningSessionSealKeyVersion) {
 
 function acceptsEcdsaVerifier(value: EcdsaClientVerifyingShareB64u) {
   return formatEcdsaClientVerifyingShareB64uForWire(value);
+}
+
+function acceptsEcdsaVerifyingPublicKey(value: EcdsaClientVerifyingPublicKey33B64u) {
+  return formatEcdsaClientVerifyingPublicKey33B64uForWire(value);
 }
 
 function acceptsEd25519RelayerKeyId(value: Ed25519RelayerKeyId) {
@@ -98,6 +108,7 @@ acceptsEd25519(ed25519);
 acceptsEcdsa(ecdsa);
 acceptsSeal(seal);
 acceptsEcdsaVerifier(ecdsaVerifier);
+acceptsEcdsaVerifyingPublicKey(ecdsaVerifyingPublicKey);
 acceptsEd25519RelayerKeyId(ed25519RelayerKeyId);
 acceptsEcdsaRelayerKeyId(ecdsaRelayerKeyId);
 acceptsEcdsaThresholdKeyId(ecdsaThresholdKeyId);
@@ -135,3 +146,9 @@ acceptsWebAuthnRpId(nearEd25519SigningKeyId);
 
 // @ts-expect-error WebAuthn RP ids are not NEAR Ed25519 signing-key ids.
 acceptsNearEd25519SigningKeyId(webAuthnRpId);
+
+// @ts-expect-error a non-empty verifying-share string is not a validated compressed public key.
+acceptsEcdsaVerifyingPublicKey(ecdsaVerifier);
+
+// @ts-expect-error the exact public-key brand cannot be used as the legacy share brand.
+acceptsEcdsaVerifier(ecdsaVerifyingPublicKey);

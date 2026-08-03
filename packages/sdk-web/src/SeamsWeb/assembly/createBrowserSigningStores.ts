@@ -9,7 +9,9 @@ import {
   acquireSigningSessionRestoreLease,
   deleteDurableSealedSessionRecord,
   listExactSealedSessionsForWallet,
+  listEcdsaSealedSessionsForWallet,
   releaseSigningSessionRestoreLease,
+  readExactEd25519SealedSession,
   readExactSealedSession,
   updateExactSealedSessionPolicy,
   writeExactSealedSession,
@@ -22,8 +24,12 @@ import {
 export type BrowserSigningStorePorts = {
   managerStores: ManagerAssemblyStores;
   signingEngineStores: SigningEngineStorePorts;
-  sealedSigningSessionStore: EmailOtpSealedSessionStorePorts;
+  sealedSigningSessionStore: BrowserSealedSigningSessionStorePorts;
   ed25519YaoPublicCapabilityReferences: Ed25519YaoPublicCapabilityReferenceStorePort;
+};
+
+export type BrowserSealedSigningSessionStorePorts = EmailOtpSealedSessionStorePorts & {
+  listEcdsaSealedSessionsForWallet: typeof listEcdsaSealedSessionsForWallet;
 };
 
 export function createBrowserSigningStores(
@@ -46,7 +52,6 @@ export function createBrowserSigningStores(
       },
       recoveryAndDeviceLinking: {
         credentialStore: indexedDB,
-        keyMaterialStore: indexedDB,
       },
       warmup: {
         store: indexedDB,
@@ -54,8 +59,10 @@ export function createBrowserSigningStores(
     },
     sealedSigningSessionStore: {
       writeExactSealedSession,
+      readExactEd25519SealedSession,
       readExactSealedSession,
       listExactSealedSessionsForWallet,
+      listEcdsaSealedSessionsForWallet,
       acquireSigningSessionRestoreLease,
       releaseSigningSessionRestoreLease,
       deleteDurableSealedSessionRecord,

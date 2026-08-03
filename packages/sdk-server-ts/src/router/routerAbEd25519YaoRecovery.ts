@@ -45,11 +45,34 @@ import type {
 } from './routeExtensions';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../core/WalletStore';
 import type { RouterAbEd25519WalletSessionClaims } from '../core/ThresholdService/validation';
+import {
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import {
+  parseThresholdEd25519SessionId,
+  type ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import {
+  sameRouterAbMpcMaterialActivationRef,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 
 type RecoveryAdmissionReceipt = RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'>;
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
 type RecoveryExecutionResult = RouterAbEd25519YaoActivationResultV1<'recovery'>;
 type RegistrationResult = RouterAbEd25519YaoActivationResultV1<'registration'>;
+
+function requireThresholdEd25519SessionId(
+  value: unknown,
+  label: string,
+): ThresholdEd25519SessionId {
+  const parsed = parseThresholdEd25519SessionId(value);
+  if (!parsed.ok) {
+    throw new Error(`${label} is invalid`);
+  }
+  return parsed.value;
+}
 
 export type RouterAbEd25519YaoRecoveryFailureCode =
   | 'invalid_request'
@@ -390,6 +413,7 @@ export type RouterAbEd25519YaoActiveCapabilityLookupV1 = {
 
 export type RouterAbEd25519YaoActiveCapabilityDescriptorV1 = {
   readonly kind: 'router_ab_ed25519_yao_active_capability_v1';
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   readonly activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
   readonly registeredPublicKey: RouterAbEd25519YaoBytes32V1;
   readonly nearAccountId: string;
@@ -400,7 +424,7 @@ export type RouterAbEd25519YaoActiveCapabilityDescriptorV1 = {
     readonly lifecycleId: string;
     readonly rootShareEpoch: string;
     readonly accountId: string;
-    readonly walletSessionId: string;
+    readonly thresholdSessionId: ThresholdEd25519SessionId;
     readonly signerSetId: string;
     readonly signingWorkerId: string;
   };
@@ -421,12 +445,14 @@ export type RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
   readonly nearAccountId: string;
   readonly nearEd25519SigningKeyId: string;
   readonly signerSlot: number;
-  readonly thresholdSessionId: string;
-  readonly signingGrantId: string;
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+  readonly walletSessionId: RouterAbEd25519WalletSessionClaims['walletSessionId'];
+  readonly quotaId: RouterAbEd25519WalletSessionClaims['quotaId'];
   readonly signingWorkerId: string;
   readonly thresholdExpiresAtMs: number;
   readonly participantIds: readonly [number, number];
   readonly authority: RouterAbEd25519WalletSessionClaims['authority'];
+  readonly authorityRef: WalletAuthAuthorityRef;
   readonly authorityScope: RouterAbEd25519WalletSessionClaims['authorityScope'];
   readonly runtimePolicyScope: RouterAbEd25519WalletSessionClaims['runtimePolicyScope'];
   readonly routerAbNormalSigning: RouterAbEd25519WalletSessionClaims['routerAbNormalSigning'];
@@ -439,14 +465,6 @@ export interface RouterAbEd25519YaoActiveCapabilityResolverV1 {
   ):
     | Promise<RouterAbEd25519YaoActiveCapabilityLookupResultV1>
     | RouterAbEd25519YaoActiveCapabilityLookupResultV1;
-}
-
-export interface RouterAbEd25519YaoRecoveryRuntimePortV1
-  extends
-    RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1,
-    RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1,
-    RouterAbEd25519YaoActiveCapabilityResolverV1 {
-  readonly kind: 'router_ab_ed25519_yao_recovery_runtime_v1';
 }
 
 type CapabilityIdentity = {
@@ -679,6 +697,8 @@ export function warmBootstrapCapabilityMatchesStableIdentity(input: {
     capability.applicationBinding.near_ed25519_signing_key_id === request.nearEd25519SigningKeyId &&
     capability.applicationBinding.key_creation_signer_slot === request.signerSlot &&
     capability.lifecycle.accountId === request.walletId &&
+    capability.lifecycle.thresholdSessionId === request.thresholdSessionId &&
+    capability.lifecycle.thresholdSessionId === claims.thresholdSessionId &&
     capability.lifecycle.signingWorkerId === request.signingWorkerId &&
     capability.lifecycle.rootShareEpoch === claims.runtimePolicyScope.signingRootVersion &&
     capability.participantIds[0] === request.participantIds[0] &&
@@ -807,9 +827,13 @@ function registrationResultMatchesAdmission(
     scope.lifecycle_id === lifecycle.lifecycle_id &&
     scope.root_share_epoch === lifecycle.root_share_epoch &&
     scope.account_id === lifecycle.account_id &&
-    scope.wallet_session_id === lifecycle.session_id &&
+    scope.threshold_session_id === lifecycle.session_id &&
     scope.signer_set_id === lifecycle.signer_set_id &&
-    scope.signing_worker_id === lifecycle.selected_server_id
+    scope.signing_worker_id === lifecycle.selected_server_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      scope.material_activation,
+      result.binding.material_activation,
+    )
   );
 }
 
@@ -823,9 +847,13 @@ function recoveryResultMatchesAdmission(
     scope.lifecycle_id === lifecycle.lifecycle_id &&
     scope.root_share_epoch === lifecycle.root_share_epoch &&
     scope.account_id === lifecycle.account_id &&
-    scope.wallet_session_id === lifecycle.session_id &&
+    scope.threshold_session_id === lifecycle.session_id &&
     scope.signer_set_id === lifecycle.signer_set_id &&
     scope.signing_worker_id === lifecycle.selected_server_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      scope.material_activation,
+      result.binding.material_activation,
+    ) &&
     equalBytes(request.registered_public_key, result.public_receipt.registered_public_key) &&
     result.public_receipt.state_epoch > 1
   );
@@ -1014,6 +1042,10 @@ function recoveryRequestMatchesActiveCapabilityIdentity(
     equalBytes(request.registered_public_key, identity.registeredPublicKey) &&
     equalWire(request.application_binding, identity.applicationBinding) &&
     equalWire(request.participant_ids, identity.participantIds) &&
+    sameRouterAbMpcMaterialActivationRef(
+      request.active_material_activation,
+      identity.activationBinding.material_activation,
+    ) &&
     scope.root_share_epoch === activeLifecycle.root_share_epoch &&
     scope.account_id === activeLifecycle.account_id &&
     scope.signer_set_id === activeLifecycle.signer_set_id &&
@@ -1032,9 +1064,13 @@ function recoveryAdmissionReceiptMatches(
     scope.lifecycle_id === lifecycle.lifecycle_id &&
     scope.root_share_epoch === lifecycle.root_share_epoch &&
     scope.account_id === lifecycle.account_id &&
-    scope.wallet_session_id === lifecycle.session_id &&
+    scope.threshold_session_id === lifecycle.session_id &&
     scope.signer_set_id === lifecycle.signer_set_id &&
     scope.signing_worker_id === lifecycle.selected_server_id &&
+    sameRouterAbMpcMaterialActivationRef(
+      scope.material_activation,
+      receipt.binding.material_activation,
+    ) &&
     equalBytes(
       receipt.binding.stable_key_context_binding,
       identity.activationBinding.stable_key_context_binding,
@@ -1235,48 +1271,6 @@ function activationReplayResult(
   }
 }
 
-class RouterAbEd25519YaoRecoveryRuntimePort implements RouterAbEd25519YaoRecoveryRuntimePortV1 {
-  readonly kind = 'router_ab_ed25519_yao_recovery_runtime_v1' as const;
-
-  constructor(
-    private readonly service: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1 &
-      RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 &
-      RouterAbEd25519YaoActiveCapabilityResolverV1,
-  ) {}
-
-  installRegistrationFinalizeCapability(
-    input: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1,
-  ):
-    | Promise<RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1>
-    | RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1 {
-    return this.service.installRegistrationFinalizeCapability(input);
-  }
-
-  installPersistedActiveCapability(
-    input: WalletEd25519YaoActiveCapabilityRecord,
-  ):
-    | Promise<RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1>
-    | RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1 {
-    return this.service.installPersistedActiveCapability(input);
-  }
-
-  resolveActiveCapability(
-    input: RouterAbEd25519YaoActiveCapabilityLookupV1,
-  ):
-    | Promise<RouterAbEd25519YaoActiveCapabilityLookupResultV1>
-    | RouterAbEd25519YaoActiveCapabilityLookupResultV1 {
-    return this.service.resolveActiveCapability(input);
-  }
-}
-
-export function createRouterAbEd25519YaoRecoveryRuntimePortV1(
-  service: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1 &
-    RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 &
-    RouterAbEd25519YaoActiveCapabilityResolverV1,
-): RouterAbEd25519YaoRecoveryRuntimePortV1 {
-  return new RouterAbEd25519YaoRecoveryRuntimePort(service);
-}
-
 type CapabilityPromotionResult =
   | {
       readonly ok: true;
@@ -1451,6 +1445,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
       ok: true,
       capability: {
         kind: 'router_ab_ed25519_yao_active_capability_v1',
+        materialActivation: matched.activationBinding.material_activation,
         activeCapabilityBinding: [...matched.capabilityBinding],
         registeredPublicKey: [...matched.registeredPublicKey],
         nearAccountId: matched.nearAccountId,
@@ -1471,7 +1466,10 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
           lifecycleId: lifecycle.lifecycle_id,
           rootShareEpoch: lifecycle.root_share_epoch,
           accountId: lifecycle.account_id,
-          walletSessionId: lifecycle.session_id,
+          thresholdSessionId: requireThresholdEd25519SessionId(
+            lifecycle.session_id,
+            'active capability threshold session identity',
+          ),
           signerSetId: lifecycle.signer_set_id,
           signingWorkerId: lifecycle.selected_server_id,
         },
@@ -2391,18 +2389,36 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
         { status: 401 },
       );
     }
+    let thresholdSessionId: ThresholdEd25519SessionId;
+    try {
+      thresholdSessionId = requireThresholdEd25519SessionId(
+        authorization.claims.thresholdSessionId,
+        'Wallet Session threshold session identity',
+      );
+    } catch {
+      return json(
+        {
+          ok: false,
+          code: 'wallet_session_claims_invalid',
+          message: 'Ed25519 Yao recovery received invalid Wallet Session identities',
+        },
+        { status: 401 },
+      );
+    }
     const response: RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
       kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
       walletId: authorization.claims.walletId,
       nearAccountId: authorization.claims.nearAccountId,
       nearEd25519SigningKeyId: authorization.claims.nearEd25519SigningKeyId,
       signerSlot: parsed.value.signerSlot,
-      thresholdSessionId: authorization.claims.thresholdSessionId,
-      signingGrantId: authorization.claims.signingGrantId,
+      thresholdSessionId,
+      walletSessionId: authorization.claims.walletSessionId,
+      quotaId: authorization.claims.quotaId,
       signingWorkerId: authorization.claims.routerAbNormalSigning.signingWorkerId,
       thresholdExpiresAtMs: authorization.claims.thresholdExpiresAtMs,
       participantIds: [firstParticipantId, secondParticipantId],
       authority: authorization.claims.authority,
+      authorityRef: await walletAuthAuthorityRef({ authority: authorization.claims.authority }),
       authorityScope: authorization.claims.authorityScope,
       runtimePolicyScope: authorization.claims.runtimePolicyScope,
       routerAbNormalSigning: authorization.claims.routerAbNormalSigning,

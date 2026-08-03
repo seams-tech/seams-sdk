@@ -10,14 +10,13 @@ const accountMenuPath = 'packages/sdk-web/src/react/components/AccountMenuButton
 const exportKeysSectionPath =
   'packages/sdk-web/src/react/components/AccountMenuButton/ExportKeysSection.tsx';
 const reactStylesPath = 'packages/sdk-web/src/react/styles.css';
-const keyExportFlowPath =
-  'packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportFlow.ts';
+const keyExportFlowPath = 'packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportFlow.ts';
 const ed25519YaoExportFlowPath =
   'packages/sdk-web/src/core/signingEngine/flows/recovery/ed25519YaoExportFlow.ts';
 const ed25519YaoClientPath =
   'packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient.ts';
-const passkeyConfirmWorkerPath =
-  'packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts';
+const passkeyMpcExportRuntimePath =
+  'packages/sdk-web/src/core/signingEngine/workerManager/workers/passkeyMpcExportRuntime.ts';
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -56,7 +55,7 @@ function collectEd25519YaoExportViolations() {
   const keyExportFlow = readRepoSource(keyExportFlowPath);
   const ed25519YaoExportFlow = readRepoSource(ed25519YaoExportFlowPath);
   const ed25519YaoClient = readRepoSource(ed25519YaoClientPath);
-  const passkeyConfirmWorker = readRepoSource(passkeyConfirmWorkerPath);
+  const passkeyMpcExportRuntime = readRepoSource(passkeyMpcExportRuntimePath);
   const exportKeysSection = readRepoSource(exportKeysSectionPath);
 
   requireContains(keyExportFlow, "kind: 'ed25519'", keyExportFlowPath, violations);
@@ -83,7 +82,7 @@ function collectEd25519YaoExportViolations() {
     violations,
   );
   requireAbsent(ed25519YaoClient, 'seedB64u', ed25519YaoClientPath, violations);
-  requireAbsent(passkeyConfirmWorker, 'seedB64u', passkeyConfirmWorkerPath, violations);
+  requireAbsent(passkeyMpcExportRuntime, 'seedB64u', passkeyMpcExportRuntimePath, violations);
   requireAbsent(ed25519YaoExportFlow, 'ed25519-hss', ed25519YaoExportFlowPath, violations);
   requireAbsent(ed25519YaoExportFlow, "kind: 'near'", ed25519YaoExportFlowPath, violations);
 

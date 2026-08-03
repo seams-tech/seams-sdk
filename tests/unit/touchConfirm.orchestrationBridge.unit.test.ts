@@ -26,14 +26,16 @@ const passkeyPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }> = {
   method: 'passkey',
 };
 
-function warmSessionPlan(sessionId: string): Extract<SigningAuthPlan, { kind: 'warmSession' }> {
+function warmSessionPlan(
+  thresholdSessionId: string,
+): Extract<SigningAuthPlan, { kind: 'warmSession' }> {
   return {
     kind: 'warmSession',
     method: 'passkey',
     accountId: 'alice.testnet',
     intent: 'transaction_sign',
     curve: 'ed25519',
-    sessionId,
+    thresholdSessionId,
     retention: 'session',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 1,
@@ -53,7 +55,6 @@ function roleLocalBootstrapChallenge(id: string): WebAuthnChallenge {
     digest32B64u: `role-local-bootstrap-digest-${id}`,
     requestId: `tecdsa-keygen-${id}`,
     thresholdSessionId: `threshold-session-${id}`,
-    signingGrantId: `wallet-session-${id}`,
   };
 }
 
@@ -180,7 +181,6 @@ test.describe('touchConfirm orchestration manager bridge', () => {
       digest32B64u: 'role-local-bootstrap-digest',
       requestId: 'tecdsa-keygen-request-1',
       thresholdSessionId: 'threshold-session-passkey',
-      signingGrantId: 'wallet-session-passkey',
     };
 
     await orchestrateSigningConfirmation({

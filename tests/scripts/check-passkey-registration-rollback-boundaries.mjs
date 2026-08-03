@@ -76,7 +76,7 @@ function collectRollbackStateViolations() {
   );
 
   requireContains(rollbackBlock, 'pending?.dispose()', registrationPath, violations);
-  requireContains(rollbackBlock, 'persistedSession', registrationPath, violations);
+  requireContains(rollbackBlock, 'persistedMaterialTarget', registrationPath, violations);
   requireContains(rollbackBlock, 'persistedSignerRollbackReceipt', registrationPath, violations);
   requireContains(
     rollbackBlock,

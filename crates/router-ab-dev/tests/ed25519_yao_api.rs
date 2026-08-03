@@ -1,6 +1,7 @@
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoOperationV1, Ed25519YaoSessionIdV1,
-    Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1, RootShareEpoch,
+    Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1,
+    MpcMaterialActivationRefV1, RootShareEpoch,
 };
 use router_ab_dev::{
     build_local_activation_deriver_a_v1, build_local_activation_deriver_b_v1,
@@ -55,6 +56,15 @@ fn binding(context_binding: [u8; 32]) -> Ed25519YaoCeremonyBindingV1 {
         Ed25519YaoOperationV1::Registration,
         Ed25519YaoSessionIdV1::new([0x51; 32]).expect("session"),
         Ed25519YaoStableKeyContextBindingV1::new(context_binding),
+        MpcMaterialActivationRefV1::new(
+            "api-activation",
+            "api-capability",
+            "account-1",
+            "api-key",
+            "local-lifecycle-1",
+            "signing-worker-1",
+        )
+        .expect("material activation"),
     )
     .expect("binding")
 }

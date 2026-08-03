@@ -1,67 +1,55 @@
-import type {
-  WarmSessionClaimResult,
-  WarmSessionStatusResult,
-} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  requestClaimEmailOtpWarmSessionMaterial,
   requestClearEmailOtpWarmSessionMaterial,
   requestConsumeEmailOtpWarmSessionUses,
   requestGetEmailOtpWarmSessionStatus,
 } from './workerRequests';
 import {
-  claimEmailOtpWarmSessionMaterial,
   clearEmailOtpWarmSessionMaterial,
   consumeEmailOtpWarmSessionUses,
   readEmailOtpWarmSessionStatusOnly,
 } from './status';
 import type { EmailOtpSealedRefreshPolicy } from './sealedRefreshPolicy';
+import {
+  ecdsaSealedRuntimePurpose,
+  warmSessionProtocolSessionId,
+  type WarmSessionMaterialOperationTarget,
+} from './sealedRuntimePurpose';
 import type { EmailOtpSealedRestoreOrchestrator } from './sealedRestoreOrchestrator';
+import type { EmailOtpWarmMaterialTarget } from '@/core/signingEngine/workerManager/workerTypes';
 
 export type EmailOtpWarmSessionWorkerClient = {
-  readStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  claimMaterial: (args: {
-    sessionId: string;
-    uses?: number;
-    consume?: boolean;
-  }) => Promise<WarmSessionClaimResult>;
+  readStatus: (target: EmailOtpWarmMaterialTarget) => Promise<WarmSessionStatusResult>;
   consumeUses: (args: {
-    sessionId: string;
+    target: EmailOtpWarmMaterialTarget;
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
-  clearMaterial: (sessionId: string) => Promise<void>;
+  clearMaterial: (target: EmailOtpWarmMaterialTarget) => Promise<void>;
 };
 
 export function createEmailOtpWarmSessionWorkerClient(args: {
   worker: SignerWorkerManager;
 }): EmailOtpWarmSessionWorkerClient {
   return {
-    async readStatus(sessionId) {
+    async readStatus(target) {
       return await requestGetEmailOtpWarmSessionStatus({
         worker: args.worker,
-        sessionId,
-      });
-    },
-    async claimMaterial(request) {
-      return await requestClaimEmailOtpWarmSessionMaterial({
-        worker: args.worker,
-        sessionId: request.sessionId,
-        ...(typeof request.uses === 'number' ? { uses: request.uses } : {}),
-        ...(typeof request.consume === 'boolean' ? { consume: request.consume } : {}),
+        target,
       });
     },
     async consumeUses(request) {
       return await requestConsumeEmailOtpWarmSessionUses({
         worker: args.worker,
-        sessionId: request.sessionId,
+        target: request.target,
         ...(typeof request.uses === 'number' ? { uses: request.uses } : {}),
       });
     },
-    async clearMaterial(sessionId) {
+    async clearMaterial(target) {
       await requestClearEmailOtpWarmSessionMaterial({
         worker: args.worker,
-        sessionId,
+        target,
       });
     },
   };
@@ -76,75 +64,52 @@ export class EmailOtpWarmSessionRuntime {
     },
   ) {}
 
-  async readWarmSessionStatusOnly(sessionId: string): Promise<WarmSessionStatusResult> {
+  async readWarmSessionStatusOnly(target: EmailOtpWarmMaterialTarget): Promise<WarmSessionStatusResult> {
     return await readEmailOtpWarmSessionStatusOnly({
-      sessionId,
-      readWarmSessionStatusFromWorker: (normalizedSessionId) =>
-        this.ports.workerClient.readStatus(normalizedSessionId),
+      target,
+      readWarmSessionStatusFromWorker: (workerTarget) =>
+        this.ports.workerClient.readStatus(workerTarget),
     });
   }
 
-  async claimWarmSessionMaterial(args: {
-    sessionId: string;
+  async consumeWarmSessionUses(args: WarmSessionMaterialOperationTarget & {
     uses?: number;
-    consume?: boolean;
-    curve?: 'ed25519' | 'ecdsa';
-    chain?: 'near';
-    chainTarget?: ThresholdEcdsaChainTarget;
-  }): Promise<WarmSessionClaimResult> {
-    return await claimEmailOtpWarmSessionMaterial({
-      sessionId: args.sessionId,
-      ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
-      ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
-      claimWarmSessionMaterialFromWorker: (claimArgs) =>
-        this.ports.workerClient.claimMaterial(claimArgs),
-      shouldAttemptEcdsaSealedRestoreForSessionId: (sessionId) =>
-        this.ports.sealedRestoreOrchestrator.shouldAttemptEcdsaSealedRestoreForSessionId(
-          sessionId,
-        ),
-      tryRestoreEcdsaWarmSessionStatusFromSealedRecord: (sessionId) =>
-        this.ports.sealedRestoreOrchestrator.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
-          sessionId,
-        ),
-      recordSessionMaterialClaimed: (sessionId, result) =>
-        this.ports.sealedRefreshPolicy.recordSessionMaterialClaimed(sessionId, result),
-      recordSessionMaterialRestored: (sessionId, result) =>
-        this.ports.sealedRefreshPolicy.recordSessionMaterialRestored(sessionId, result),
-    });
-  }
-
-  async consumeWarmSessionUses(args: {
-    sessionId: string;
-    uses?: number;
-    curve?: 'ed25519' | 'ecdsa';
-    chain?: 'near';
-    chainTarget?: ThresholdEcdsaChainTarget;
   }): Promise<WarmSessionStatusResult> {
     return await consumeEmailOtpWarmSessionUses({
-      sessionId: args.sessionId,
+      target: warmSessionMaterialTarget(args),
       ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
       consumeWarmSessionUsesFromWorker: (consumeArgs) =>
         this.ports.workerClient.consumeUses(consumeArgs),
-      shouldAttemptEcdsaSealedRestoreForSessionId: (sessionId) =>
-        this.ports.sealedRestoreOrchestrator.shouldAttemptEcdsaSealedRestoreForSessionId(
-          sessionId,
-        ),
-      tryRestoreEcdsaWarmSessionStatusFromSealedRecord: (sessionId) =>
+      ecdsaPurpose: ecdsaSealedRuntimePurpose(args.purpose),
+      tryRestoreEcdsaWarmSessionStatusFromSealedRecord: (purpose) =>
         this.ports.sealedRestoreOrchestrator.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
-          sessionId,
+          purpose,
         ),
-      recordSessionUseConsumed: (sessionId, result) =>
-        this.ports.sealedRefreshPolicy.recordSessionUseConsumed(sessionId, result),
-      recordSessionMaterialRestored: (sessionId, result) =>
-        this.ports.sealedRefreshPolicy.recordSessionMaterialRestored(sessionId, result),
+      recordSessionUseConsumed: (purpose, result) =>
+        this.ports.sealedRefreshPolicy.recordSessionUseConsumed(purpose, result),
+      recordSessionMaterialRestored: (purpose, result) =>
+        this.ports.sealedRefreshPolicy.recordSessionMaterialRestored(purpose, result),
     });
   }
 
-  async clearVolatileWarmSessionMaterial(sessionId: string): Promise<void> {
+  async clearVolatileWarmSessionMaterial(target: EmailOtpWarmMaterialTarget): Promise<void> {
     await clearEmailOtpWarmSessionMaterial({
-      sessionId,
-      clearVolatileWarmSessionMaterialFromWorker: (normalizedSessionId) =>
-        this.ports.workerClient.clearMaterial(normalizedSessionId),
+      target,
+      clearVolatileWarmSessionMaterialFromWorker: (workerTarget) =>
+        this.ports.workerClient.clearMaterial(workerTarget),
     });
   }
+}
+
+function warmSessionMaterialTarget(
+  target: WarmSessionMaterialOperationTarget,
+): EmailOtpWarmMaterialTarget {
+  const thresholdSessionId = warmSessionProtocolSessionId(target);
+  return target.purpose.curve === 'ecdsa'
+    ? { kind: 'ecdsa', thresholdSessionId }
+    : {
+        kind: 'ed25519_yao',
+        thresholdSessionId,
+        materialActivation: target.purpose.materialActivation,
+      };
 }

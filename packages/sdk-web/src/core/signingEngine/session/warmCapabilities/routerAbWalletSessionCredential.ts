@@ -2,17 +2,16 @@ import type { RouterAbWalletSessionCredential } from '@/core/rpcClients/relayer/
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '@/core/signingEngine/threshold/ed25519/routerAbNormalSigningState';
-import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { ResolvedRouterAbEd25519WalletSessionState } from './routerAbEd25519WalletSessionState';
 import {
-  parseRouterAbEd25519WalletSessionAuthorityFromRecord,
   parseRouterAbEd25519WalletSessionIdentityClaims,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 
 export type RouterAbEd25519NormalSigningReadyState = {
   kind: 'router_ab_ed25519_normal_signing_ready_state_v1';
+  walletSessionId: string;
+  quotaId: string;
   thresholdSessionId: string;
-  signingGrantId: string;
   nearAccountId: string;
   relayerUrl: string;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
@@ -56,11 +55,6 @@ function requirePositiveInteger(value: unknown, label: string): number {
   return parsed;
 }
 
-export function hasRouterAbEd25519SigningAuth(record: ThresholdEd25519SessionRecord): boolean {
-  const authority = parseRouterAbEd25519WalletSessionAuthorityFromRecord(record);
-  return Boolean(record.routerAbNormalSigning) && authority.ok;
-}
-
 export function requireRouterAbEd25519NormalSigningReadyState(args: {
   state: ResolvedRouterAbEd25519WalletSessionState;
   thresholdSessionId: string;
@@ -79,15 +73,10 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
   requireEqual(stateThresholdSessionId, thresholdSessionId, 'thresholdSessionId');
   requireEqual(laneThresholdSessionId, thresholdSessionId, 'lane thresholdSessionId');
 
-  const signingGrantId = requireNonEmpty(
-    state.signingGrantId,
-    'state.signingGrantId',
-  );
-  const laneSigningGrantId = requireNonEmpty(
-    state.signingLane.signingGrantId,
-    'state.signingLane.signingGrantId',
-  );
-  requireEqual(laneSigningGrantId, signingGrantId, 'signingGrantId');
+  const walletSessionId = requireNonEmpty(state.walletSessionId, 'state.walletSessionId');
+  const quotaId = requireNonEmpty(state.quotaId, 'state.quotaId');
+  requireEqual(state.signingLane.walletSessionId, walletSessionId, 'lane walletSessionId');
+  requireEqual(state.signingLane.quotaId, quotaId, 'lane quotaId');
 
   const nearAccountId = requireNonEmpty(args.nearAccountId, 'nearAccountId');
   const walletId = requireNonEmpty(
@@ -103,7 +92,8 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
   requireEqual(walletSessionClaims.walletId, walletId, 'walletId');
   requireEqual(walletSessionClaims.nearAccountId, nearAccountId, 'nearAccountId');
   requireEqual(walletSessionClaims.thresholdSessionId, thresholdSessionId, 'claims thresholdSessionId');
-  requireEqual(walletSessionClaims.signingGrantId, signingGrantId, 'claims signingGrantId');
+  requireEqual(walletSessionClaims.walletSessionId, walletSessionId, 'claims walletSessionId');
+  requireEqual(walletSessionClaims.quotaId, quotaId, 'claims quotaId');
   requireEqual(
     requireNonEmpty(args.thresholdKeyMaterial.nearAccountId, 'thresholdKeyMaterial.nearAccountId'),
     nearAccountId,
@@ -126,11 +116,8 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
     thresholdSessionId,
     'Wallet Session thresholdSessionId',
   );
-  requireEqual(
-    signingWalletSession.signingGrantId,
-    signingGrantId,
-    'Wallet Session signingGrantId',
-  );
+  requireEqual(signingWalletSession.walletSessionId, walletSessionId, 'Wallet Session walletSessionId');
+  requireEqual(signingWalletSession.quotaId, quotaId, 'Wallet Session quotaId');
   requireEqual(signingWalletSession.signingRootId, signingRootId, 'signingRootId');
   requireEqual(
     signingWalletSession.signingRootVersion,
@@ -153,8 +140,9 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
 
   return {
     kind: 'router_ab_ed25519_normal_signing_ready_state_v1',
+    walletSessionId,
+    quotaId,
     thresholdSessionId,
-    signingGrantId,
     nearAccountId,
     relayerUrl: requireNonEmpty(state.relayerUrl, 'relayerUrl'),
     routerAbNormalSigning: routerAbState,
@@ -166,7 +154,7 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
     expiresAtMs,
     runtimePolicyScope,
     credential: {
-      kind: 'jwt',
+      kind: 'wallet_session_jwt',
       walletSessionJwt,
     },
   };

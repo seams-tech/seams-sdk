@@ -17,19 +17,14 @@ import {
   type FreshStepUpRequired,
 } from '../operationState/stepUpFreshness';
 import {
-  buildSigningBudgetReservationIdentity,
-  type SigningBudgetReservationIdentity,
-} from '../budget/budget';
-import {
   emailOtpRefreshIdentity,
   type EmailOtpRefreshIdentity,
 } from '../emailOtp/appSessionJwtCache';
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import {
   SigningOperationIntent,
   SigningSessionIds,
-  type WalletSigningSpendPlan,
 } from '../operationState/types';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 const walletId = toWalletId('wallet.testnet');
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
@@ -38,7 +33,6 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ederivation-subject-cleanup',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -48,7 +42,6 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
 
 const validPublicKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
   walletId,
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ederivation-subject-cleanup',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -61,7 +54,6 @@ const invalidPublicKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
   walletId,
   // @ts-expect-error ECDSA public key identity builder derives subject identity from walletId.
   subjectId: 'wallet.testnet',
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ederivation-subject-cleanup',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -69,20 +61,20 @@ const invalidPublicKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
   thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
 });
 void invalidPublicKeyIdentity;
+declare const materialActivation: MpcMaterialActivationRef;
 
 const laneIdentity = exactEcdsaSigningLaneIdentity({
   signer: buildEvmFamilyEcdsaSignerBinding({
     walletId,
     chainTarget,
     key,
+    materialActivation,
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   }),
   auth: {
     kind: 'email_otp',
     providerSubjectId: 'google:subject-1',
   },
-  signingGrantId: SigningSessionIds.signingGrant('wallet-session'),
-  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('threshold-session'),
 });
 
 const invalidExactIdentity: ExactEcdsaSigningLaneIdentity = {
@@ -117,47 +109,7 @@ const invalidFreshness: FreshStepUpRequired = {
 };
 void invalidFreshness;
 
-const ecdsaSpendPlan: WalletSigningSpendPlan = {
-  operationId,
-  operationFingerprint,
-  lane: {
-    identity: laneIdentity,
-    auth: laneIdentity.auth,
-    curve: 'ecdsa',
-    keyKind: 'threshold_ecdsa_secp256k1',
-    chainFamily: 'tempo',
-    signingGrantId: laneIdentity.signingGrantId,
-    thresholdSessionId: laneIdentity.thresholdSessionId,
-    runtimeState: 'no_runtime_material',
-    sessionOrigin: 'per_operation',
-    storageSource: 'email_otp',
-    retention: 'single_use',
-  },
-  backingMaterialSessionIds: [],
-  uses: 1,
-  reason: SigningOperationIntent.TransactionSign,
-};
-void ecdsaSpendPlan;
 
-const invalidEcdsaSpendPlanWithKey = {
-  ...ecdsaSpendPlan,
-  // @ts-expect-error ECDSA spend derives key identity from the selected lane.
-  ecdsaKey: key,
-} satisfies WalletSigningSpendPlan;
-void invalidEcdsaSpendPlanWithKey;
-
-const reservationIdentity = buildSigningBudgetReservationIdentity({
-  spend: ecdsaSpendPlan,
-  projectionVersion: 'projection-1',
-});
-void reservationIdentity;
-
-const invalidReservationIdentity: SigningBudgetReservationIdentity = {
-  ...reservationIdentity,
-  // @ts-expect-error budget reservation identity rejects subjectId.
-  subjectId: 'wallet.testnet',
-};
-void invalidReservationIdentity;
 
 const refreshIdentity = emailOtpRefreshIdentity({
   walletId,
@@ -174,11 +126,3 @@ const invalidRefreshIdentity: EmailOtpRefreshIdentity = {
   subjectId: 'wallet.testnet',
 };
 void invalidRefreshIdentity;
-
-declare const persistedEcdsaRecord: ThresholdEcdsaSessionRecord;
-const invalidPersistedEcdsaRecord: ThresholdEcdsaSessionRecord = {
-  ...persistedEcdsaRecord,
-  // @ts-expect-error persisted ECDSA session records reject subjectId.
-  subjectId: 'wallet.testnet',
-};
-void invalidPersistedEcdsaRecord;

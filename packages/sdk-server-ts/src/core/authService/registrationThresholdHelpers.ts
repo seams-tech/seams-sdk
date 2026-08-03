@@ -1,14 +1,9 @@
 import { ActionType, type ActionArgsWasm } from '@shared/near/actions';
-import {
-  parseRouterAbEd25519NormalSigningState,
-  type RouterAbEd25519NormalSigningState,
-} from '@shared/utils/signingSessionSeal';
 import { ensureEd25519Prefix, toOptionalTrimmedString } from '@shared/utils/validation';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   EcdsaDerivationClientBootstrapRequest,
   EcdsaDerivationServerBootstrapResponse,
-  ThresholdEd25519AuthorityScope,
   ThresholdRuntimePolicyScope,
 } from '../types';
 import type {
@@ -17,7 +12,6 @@ import type {
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationEcdsaWalletKey,
 } from '../registrationContracts';
-import { parseThresholdEd25519AuthorityScope } from '../ThresholdService/validation';
 import type { WebAuthnCredentialBindingStore } from '../WebAuthnCredentialBindingStore';
 import type { ThresholdEcdsaChainTarget } from '../thresholdEcdsaChainTarget';
 import { isObject } from './record';
@@ -40,23 +34,6 @@ export type ThresholdEd25519RegistrationInput = {
   relayerKeyId: string;
   sessionPolicy: Record<string, unknown> | null;
   sessionKind: string;
-};
-
-export type ThresholdEd25519BootstrapSession = {
-  sessionKind: 'jwt' | 'cookie';
-  walletId: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  authorityScope: ThresholdEd25519AuthorityScope;
-  thresholdSessionId: string;
-  signingGrantId: string;
-  expiresAtMs: number;
-  expiresAt?: string;
-  participantIds?: number[];
-  remainingUses?: number;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
-  jwt?: string;
 };
 
 export function parseThresholdEd25519RegistrationInput(
@@ -233,7 +210,6 @@ export function isMatchingEcdsaClientBootstrap(
     actual.registrationPreparationId === expected.registrationPreparationId &&
     actual.requestId === expected.requestId &&
     actual.thresholdSessionId === expected.thresholdSessionId &&
-    actual.signingGrantId === expected.signingGrantId &&
     actual.ttlMs === expected.ttlMs &&
     actual.remainingUses === expected.remainingUses &&
     JSON.stringify(actual.participantIds) === JSON.stringify(expected.participantIds) &&
@@ -261,69 +237,9 @@ export function toEcdsaDerivationClientBootstrapRequest(
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
     requestId: clientBootstrap.requestId,
     sessionId: clientBootstrap.thresholdSessionId,
-    signingGrantId: clientBootstrap.signingGrantId,
     ttlMs: clientBootstrap.ttlMs,
     remainingUses: clientBootstrap.remainingUses,
     participantIds: [...clientBootstrap.participantIds],
     runtimePolicyScope: clientBootstrap.runtimePolicyScope,
-  };
-}
-
-export function toThresholdEd25519BootstrapSession(session: {
-  walletId?: unknown;
-  nearAccountId?: unknown;
-  nearEd25519SigningKeyId?: unknown;
-  authorityScope?: unknown;
-  thresholdSessionId?: unknown;
-  signingGrantId?: unknown;
-  expiresAtMs?: unknown;
-  expiresAt?: unknown;
-  participantIds?: unknown;
-  remainingUses?: unknown;
-  runtimePolicyScope?: unknown;
-  routerAbNormalSigning?: unknown;
-  jwt?: unknown;
-}): ThresholdEd25519BootstrapSession | null {
-  const walletId = String(session.walletId || '').trim();
-  const nearAccountId = String(session.nearAccountId || '').trim();
-  const nearEd25519SigningKeyId = String(session.nearEd25519SigningKeyId || '').trim();
-  const authorityScope = parseThresholdEd25519AuthorityScope(session.authorityScope);
-  const thresholdSessionId = String(session.thresholdSessionId || '').trim();
-  const signingGrantId = String(session.signingGrantId || '').trim();
-  const expiresAtMs = Number(session.expiresAtMs);
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
-  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
-    session.routerAbNormalSigning,
-  );
-  if (
-    !walletId ||
-    !nearAccountId ||
-    !nearEd25519SigningKeyId ||
-    !authorityScope ||
-    !thresholdSessionId ||
-    !signingGrantId ||
-    !Number.isFinite(expiresAtMs) ||
-    expiresAtMs <= 0
-  )
-    return null;
-  return {
-    sessionKind: 'jwt',
-    walletId,
-    nearAccountId,
-    nearEd25519SigningKeyId,
-    authorityScope,
-    thresholdSessionId,
-    signingGrantId,
-    expiresAtMs: Number(expiresAtMs),
-    ...(typeof session.expiresAt === 'string' && session.expiresAt.trim()
-      ? { expiresAt: session.expiresAt.trim() }
-      : {}),
-    ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
-    ...(Number.isFinite(Number(session.remainingUses))
-      ? { remainingUses: Number(session.remainingUses) }
-      : {}),
-    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
-    ...(typeof session.jwt === 'string' && session.jwt.trim() ? { jwt: session.jwt.trim() } : {}),
   };
 }

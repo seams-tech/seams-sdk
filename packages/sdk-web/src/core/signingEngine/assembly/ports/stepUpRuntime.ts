@@ -1,14 +1,16 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { DurableRecordStore } from '@/core/platform';
-import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
+import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
 import { ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap } from '../../session/warmCapabilities/sealedRefreshParity';
 import {
   commitEvmFamilyThresholdEcdsaSessions,
   type CommitEvmFamilyThresholdEcdsaSessionsDeps,
 } from '../../session/emailOtp/ecdsaBootstrapCommit';
-import { listStoredThresholdEcdsaSessionRecordsForWallet } from '../../session/persistence/records';
-import { createWarmSessionAwareUiConfirm } from '../../uiConfirm/warmSessionUiConfirm';
-import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
+import { createWarmSessionAwarePasskeyMpcSession } from '../../uiConfirm/warmSessionUiConfirm';
+import type {
+  PasskeyMpcSessionPort,
+  UiConfirmRuntimeBridgePort,
+} from '../../uiConfirm/uiConfirm.types';
 import {
   EmailOtpWalletSessionCoordinator,
   type EmailOtpWalletSessionCoordinatorDeps,
@@ -16,11 +18,17 @@ import {
 } from '../../session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
-import type { WarmSigningPorts } from './warmSigning';
+import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
+import {
+  withThresholdEcdsaSigningQueue,
+  type ThresholdEcdsaSigningQueueByKey,
+} from '../../threshold/ecdsa/signingQueue';
 
 export type StepUpRuntime = {
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
 };
 
 export function createStepUpRuntime(args: {
@@ -30,17 +38,16 @@ export function createStepUpRuntime(args: {
   ecdsaBootstrapStore: CommitEvmFamilyThresholdEcdsaSessionsDeps['bootstrapStore'];
   sealedSessionStore: EmailOtpSealedSessionStorePorts;
   baseTouchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   getSignerWorkerContext: EmailOtpWalletSessionCoordinatorDeps['getSignerWorkerContext'];
   provisionThresholdEcdsaSession: EmailOtpWalletSessionCoordinatorDeps['provisionThresholdEcdsaSession'];
   provisionEmailOtpEcdsaExplicitExportSession: EmailOtpWalletSessionCoordinatorDeps['provisionEmailOtpEcdsaExplicitExportSession'];
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
+  thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
   persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
-  listActiveEcdsaSignersForWallet: (args: {
-    walletId: string;
-  }) => Promise<readonly AccountSignerRecord[]>;
-  getEcdsaSessions: () => WarmSigningPorts['ecdsaSessions'];
-  getWarmCapabilityReader: () => WarmSigningPorts['capabilityReader'];
-  getThresholdEcdsaSessionRecordByThresholdSessionId: WarmSigningPorts['getThresholdEcdsaSessionRecordByThresholdSessionId'];
+  listActiveEcdsaCapabilityManifestsForWallet: (
+    walletId: string,
+  ) => Promise<readonly ActiveEcdsaCapabilityManifest[]>;
   ensureSealedRefreshStartupParity: () => Promise<void>;
 }): StepUpRuntime {
   const emailOtpSessions = new EmailOtpWalletSessionCoordinator({
@@ -48,17 +55,22 @@ export function createStepUpRuntime(args: {
     signerWorkerManager: args.signerWorkerManager,
     getRpId: () => args.touchIdPrompt.getRpId(),
     getSignerWorkerContext: args.getSignerWorkerContext,
+    readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
+      walletSessionAuthorizations,
+    ),
     provisionThresholdEcdsaSession: args.provisionThresholdEcdsaSession,
-    provisionEmailOtpEcdsaExplicitExportSession:
-      args.provisionEmailOtpEcdsaExplicitExportSession,
+    withThresholdEcdsaSigningQueue: (queueArgs) =>
+      withThresholdEcdsaSigningQueue({
+        queueByKey: args.thresholdEcdsaSigningQueueByKey,
+        ...queueArgs,
+      }),
+    provisionEmailOtpEcdsaExplicitExportSession: args.provisionEmailOtpEcdsaExplicitExportSession,
     commitEvmFamilyThresholdEcdsaSessions: (commitArgs) =>
       commitEvmFamilyThresholdEcdsaSessions(
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           bootstrapStore: args.ecdsaBootstrapStore,
-          ecdsaSessions: args.getEcdsaSessions(),
           persistEcdsaRoleLocalReadyRecord: args.persistEcdsaRoleLocalReadyRecord,
-          warmCapabilityReader: args.getWarmCapabilityReader(),
           ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (parityArgs) =>
             ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(
               args.ensureSealedRefreshStartupParity,
@@ -67,13 +79,12 @@ export function createStepUpRuntime(args: {
         },
         commitArgs,
       ),
-    listThresholdEcdsaSessionRecordsForWallet: (walletId) =>
-      listStoredThresholdEcdsaSessionRecordsForWallet(walletId),
-    listActiveEcdsaSignersForWallet: ({ walletId }) =>
-      args.listActiveEcdsaSignersForWallet({ walletId: String(walletId) }),
-    getThresholdEcdsaSessionRecordByThresholdSessionId: (thresholdSessionId) =>
-      args.getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId),
+    listActiveEcdsaCapabilityManifestsForWallet: (walletId) =>
+      args.listActiveEcdsaCapabilityManifestsForWallet(String(walletId)),
+    resolveCurrentEcdsaCapabilityRuntime: resolveActiveEcdsaCapabilityRuntime,
     writeExactSealedSession: args.sealedSessionStore.writeExactSealedSession,
+    readExactEd25519SealedSession:
+      args.sealedSessionStore.readExactEd25519SealedSession,
     readExactSealedSession: args.sealedSessionStore.readExactSealedSession,
     listExactSealedSessionsForWallet: args.sealedSessionStore.listExactSealedSessionsForWallet,
     acquireSigningSessionRestoreLease: args.sealedSessionStore.acquireSigningSessionRestoreLease,
@@ -82,19 +93,25 @@ export function createStepUpRuntime(args: {
     updateExactSealedSessionPolicy: args.sealedSessionStore.updateExactSealedSessionPolicy,
   });
 
-  const touchConfirm = createWarmSessionAwareUiConfirm({
-    base: args.baseTouchConfirm,
+  const passkeyMpcSession = createWarmSessionAwarePasskeyMpcSession({
+    base: args.passkeyMpcSession,
     secondary: {
-      readWarmSessionStatusOnly: (sessionId) =>
-        emailOtpSessions.readWarmSessionStatusOnly(sessionId),
-      claimWarmSessionMaterial: (claimArgs) => emailOtpSessions.claimWarmSessionMaterial(claimArgs),
+      readWarmSessionStatusOnly: (thresholdSessionId) =>
+        emailOtpSessions.readWarmSessionStatusOnly({
+          kind: 'ecdsa',
+          thresholdSessionId: String(thresholdSessionId),
+        }),
       clearVolatileWarmSessionMaterial: (command) =>
-        emailOtpSessions.clearVolatileWarmSessionMaterial(command.scope.sessionId),
+        emailOtpSessions.clearVolatileWarmSessionMaterial({
+          kind: 'ecdsa',
+          thresholdSessionId: String(command.scope.thresholdSessionId),
+        }),
     },
   });
 
   return {
     emailOtpSessions,
-    touchConfirm,
+    touchConfirm: args.baseTouchConfirm,
+    passkeyMpcSession,
   };
 }

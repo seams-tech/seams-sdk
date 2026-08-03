@@ -1,11 +1,27 @@
 import type { D1WalletAddSignerFinalizePreparedV1 } from './d1WalletAddSignerService';
+import type {
+  WalletAddSignerEcdsaActivationPrepareRequest,
+  WalletAddSignerEcdsaActivationQueryRequest,
+  WalletAddSignerEcdsaActivationRequest,
+} from '../../core/registrationContracts';
+
+declare const activationPrepareRequest: WalletAddSignerEcdsaActivationPrepareRequest;
+
+const activationCommitWithoutPreparedDigest = {
+  addSignerCeremonyId: activationPrepareRequest.addSignerCeremonyId,
+  // @ts-expect-error Add-signer activation commit requires the prepared request digest.
+  ecdsa: activationPrepareRequest.ecdsa,
+} satisfies WalletAddSignerEcdsaActivationRequest;
+
+const activationQueryWithoutPreparedDigest = {
+  addSignerCeremonyId: activationPrepareRequest.addSignerCeremonyId,
+  // @ts-expect-error Add-signer activation query requires the prepared request digest.
+  ecdsa: activationPrepareRequest.ecdsa,
+} satisfies WalletAddSignerEcdsaActivationQueryRequest;
 
 const validEd25519FinalizePrepared = {
   kind: 'd1_wallet_add_signer_finalize_ed25519_prepared_v1',
   finalizingAtMs: 1,
-  signingGrantId: 'grant-1',
-  expiresAtMs: 2,
-  remainingUses: 1,
 } satisfies D1WalletAddSignerFinalizePreparedV1;
 
 const validEcdsaFinalizePrepared = {
@@ -16,17 +32,16 @@ const validEcdsaFinalizePrepared = {
 const ecdsaFinalizeWithSessionTerms = {
   kind: 'd1_wallet_add_signer_finalize_ecdsa_prepared_v1',
   signerWriteAtMs: 1,
-  // @ts-expect-error ECDSA finalization cannot carry Ed25519 session terms.
-  signingGrantId: 'grant-1',
 } satisfies D1WalletAddSignerFinalizePreparedV1;
 
-const ed25519FinalizeWithoutSessionTerms = {
+const ed25519FinalizeWithSessionTerms = {
   kind: 'd1_wallet_add_signer_finalize_ed25519_prepared_v1',
   finalizingAtMs: 1,
-  // @ts-expect-error Ed25519 finalization requires durable session terms.
 } satisfies D1WalletAddSignerFinalizePreparedV1;
 
 void validEd25519FinalizePrepared;
 void validEcdsaFinalizePrepared;
 void ecdsaFinalizeWithSessionTerms;
-void ed25519FinalizeWithoutSessionTerms;
+void ed25519FinalizeWithSessionTerms;
+void activationCommitWithoutPreparedDigest;
+void activationQueryWithoutPreparedDigest;

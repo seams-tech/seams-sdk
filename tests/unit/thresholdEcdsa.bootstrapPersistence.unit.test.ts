@@ -123,26 +123,18 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     });
   });
 
-  test('uses requested chain target when bootstrap chain id is invalid', async () => {
+  test('uses the requested chain target as the persisted target identity', async () => {
     const calls = { profiles: [] as UpsertProfileCall[], signers: [] as ActivateAccountSignerInput[] };
-    const validBootstrap = bootstrap({
-      chain: 'evm',
-      walletId: 'alice.testnet',
-      ownerAddress: `0x${'ab'.repeat(20)}`,
-    });
 
     await persistThresholdEcdsaBootstrapForWalletTarget({
       bootstrapStore: createBootstrapStore(calls),
       walletId: toWalletId('alice.testnet'),
       chainTarget: EVM_TARGET,
-      bootstrap: {
-        ...validBootstrap,
-        // Deliberately invalid: keygen reports a non-numeric chain id.
-        keygen: {
-          ...validBootstrap.keygen,
-          chainId: 'invalid',
-        } as unknown as ThresholdEcdsaSessionBootstrapResult['keygen'],
-      },
+      bootstrap: bootstrap({
+        chain: 'evm',
+        walletId: 'alice.testnet',
+        ownerAddress: `0x${'ab'.repeat(20)}`,
+      }),
       signerAuth: PASSKEY_SIGNER_AUTH,
     });
 

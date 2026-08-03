@@ -11,7 +11,7 @@ import {
   parseAndValidateRegistrationCredentialConfirmationPayload,
   type RegistrationCredentialConfirmationPayload,
 } from '@/core/signingEngine/workerManager/validation';
-import type { UiConfirmContext, UiConfirmSecureConfirmationPort } from '../../uiConfirm.types';
+import type { UiConfirmContext, UiConfirmRequestConfirmationPort } from '../../uiConfirm.types';
 import { determineConfirmationConfig } from '../determineConfirmationConfig';
 import { handleRegistrationFlow } from './registration';
 import {
@@ -56,7 +56,7 @@ export async function requestRegistrationCredentialConfirmation({
   confirmationConfig,
   challengeB64u,
 }: {
-  touchConfirm: Pick<UiConfirmSecureConfirmationPort, 'requestUserConfirmation'>;
+  touchConfirm: Pick<UiConfirmRequestConfirmationPort, 'requestUserConfirmation'>;
 } & RegistrationCredentialConfirmationArgs): Promise<RegistrationCredentialConfirmationPayload> {
   if (typeof touchConfirm.requestUserConfirmation !== 'function') {
     throw new Error('UserConfirm manager request bridge is unavailable');

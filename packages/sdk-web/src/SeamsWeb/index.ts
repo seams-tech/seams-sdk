@@ -1,4 +1,10 @@
 export { SeamsWeb } from './SeamsWeb';
+export { BrowserCapabilityUnavailableError } from './publicApi/capabilitySelection';
+export type {
+  BrowserCapabilitySelectionResult,
+  BrowserCapabilityUnavailableReason,
+  BrowserCapabilityUnavailableSelection,
+} from './publicApi/capabilitySelection';
 
 export type { DemoEmailOtpCodeResponse } from '@/core/signingEngine/session/emailOtp/publicTypes';
 
@@ -10,8 +16,6 @@ export type {
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
-  EmailOtpEcdsaEnrollmentCapabilityArgs,
-  EmailOtpEcdsaEnrollmentCapabilityResult,
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeBackupStatus,
   EmailOtpRecoveryCodeRotationResult,
@@ -65,6 +69,10 @@ export type {
 export type {
   SeamsConfigsReadonly,
   SeamsConfigsInput,
+  AddedEvmFamilyEcdsaSignerCapability,
+  AddedNearEd25519SignerCapability,
+  RegisteredEvmFamilyEcdsaCapability,
+  RegisteredNearEd25519Capability,
   RegistrationResult,
   NearProvisioningState,
   LoginAndCreateSessionResult,

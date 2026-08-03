@@ -24,20 +24,31 @@ function hydrateLoginStateFromRegistrationResult(args: {
   if (!result.success) return;
   const walletId = String(result.walletId || '').trim();
   if (!walletId) return;
+  const capabilities = result.capabilities ?? [];
+  const nearCapability = capabilities.find((capability) => capability.kind === 'near_ed25519');
+  const ecdsaCapability = capabilities.find(
+    (capability) => capability.kind === 'evm_family_ecdsa',
+  );
   args.setLoginState((previous) => ({
     ...previous,
     isLoggedIn: true,
     walletId,
     /* NEAR identity is absent on the ECDSA-ready result and arrives with the
        background refresh once deferred provisioning settles; never invent it. */
-    nearPublicKey: result.operationalPublicKey ?? previous.nearPublicKey ?? null,
-    nearAccountId: result.nearAccountId ? String(result.nearAccountId) : (previous.nearAccountId ?? null),
+    nearPublicKey: nearCapability?.operationalPublicKey ?? previous.nearPublicKey ?? null,
+    nearAccountId: nearCapability
+      ? String(nearCapability.nearAccountId)
+      : (previous.nearAccountId ?? null),
     authMethods: previous.authMethods,
     currentAuthMethod: previous.currentAuthMethod,
     thresholdEcdsaEthereumAddress:
-      result.thresholdEcdsaEthereumAddress ?? previous.thresholdEcdsaEthereumAddress ?? null,
+      ecdsaCapability?.thresholdEcdsaEthereumAddress ??
+      previous.thresholdEcdsaEthereumAddress ??
+      null,
     thresholdEcdsaPublicKeyB64u:
-      result.thresholdEcdsaPublicKeyB64u ?? previous.thresholdEcdsaPublicKeyB64u ?? null,
+      ecdsaCapability?.thresholdEcdsaPublicKeyB64u ??
+      previous.thresholdEcdsaPublicKeyB64u ??
+      null,
   }));
 }
 

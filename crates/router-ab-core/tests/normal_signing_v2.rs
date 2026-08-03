@@ -6,17 +6,18 @@ use router_ab_core::{
     parse_router_ab_ed25519_presign_pool_hit_finalize_request_v2_json,
     parse_router_ab_ed25519_presign_pool_prepare_request_v2_json,
     parse_router_ab_ed25519_presign_pool_prepare_response_v2_json,
-    router_ab_ed25519_nep413_canonical_message_b64u_v2,
-    NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningScopeV1,
-    NormalSigningSignatureSchemeV1, PublicDigest32, RouterAbEd25519NormalSigningFinalizeProtocolV2,
-    RouterAbEd25519NormalSigningFinalizeRequestV2, RouterAbEd25519NormalSigningIntentV2,
-    RouterAbEd25519NormalSigningPrepareBindingV2, RouterAbEd25519NormalSigningPrepareRequestV2,
-    RouterAbEd25519PresignPoolAcceptedEntryV2, RouterAbEd25519PresignPoolClientOfferV2,
-    RouterAbEd25519PresignPoolHitBindingV2, RouterAbEd25519PresignPoolHitFinalizeRequestV2,
-    RouterAbEd25519PresignPoolPrepareRequestV2, RouterAbEd25519PresignPoolPrepareResponseV2,
-    RouterAbEd25519SigningPayloadV2, RouterAbEd25519TwoPartyFrostFinalizeProtocolV2,
-    RouterAbNearDelegateActionIntentV1, RouterAbNearNetworkIdV2, RouterAbNearTransactionIntentV1,
-    RouterAbProtocolErrorCode, ServerIdentityV1,
+    router_ab_ed25519_nep413_canonical_message_b64u_v2, MpcMaterialActivationRefV1,
+    NormalSigningAuthorizationV1, NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+    NormalSigningScopeV1, NormalSigningSignatureSchemeV1, PublicDigest32,
+    RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
+    RouterAbEd25519NormalSigningIntentV2, RouterAbEd25519NormalSigningPrepareBindingV2,
+    RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbEd25519PresignPoolAcceptedEntryV2,
+    RouterAbEd25519PresignPoolClientOfferV2, RouterAbEd25519PresignPoolHitBindingV2,
+    RouterAbEd25519PresignPoolHitFinalizeRequestV2, RouterAbEd25519PresignPoolPrepareRequestV2,
+    RouterAbEd25519PresignPoolPrepareResponseV2, RouterAbEd25519SigningPayloadV2,
+    RouterAbEd25519TwoPartyFrostFinalizeProtocolV2, RouterAbNearDelegateActionIntentV1,
+    RouterAbNearNetworkIdV2, RouterAbNearTransactionIntentV1, RouterAbProtocolErrorCode,
+    ServerIdentityV1,
 };
 use sha2::{Digest, Sha256};
 
@@ -100,11 +101,24 @@ fn fixture_delegate_action_fingerprint() -> String {
 }
 
 fn normal_scope() -> NormalSigningScopeV1 {
+    normal_scope_for_wallet_session("session-1")
+}
+
+fn normal_scope_for_wallet_session(wallet_session_id: &str) -> NormalSigningScopeV1 {
     NormalSigningScopeV1::new(
         "router-ab-normal-signing/request-1",
         "alice.testnet",
-        "session-1",
-        "session-1",
+        NormalSigningAuthorizationV1::reusable_wallet_session(wallet_session_id)
+            .expect("authorization"),
+        MpcMaterialActivationRefV1::new(
+            "activation-1",
+            "capability-1",
+            "alice.testnet",
+            "near-ed25519-key-1",
+            "lifecycle-1",
+            "signing-worker-1",
+        )
+        .expect("material activation"),
         "signing-worker-1",
     )
     .expect("scope")
@@ -221,6 +235,7 @@ fn prepare_request_fixture() -> RouterAbEd25519NormalSigningPrepareRequestV2 {
     RouterAbEd25519NormalSigningPrepareRequestV2::new(
         normal_scope(),
         1_900_000_000_000,
+        PublicDigest32::new([0xd1; 32]),
         near_transaction_intent(preimage_b64u.clone()),
         near_transaction_payload(preimage_b64u),
     )
@@ -262,6 +277,7 @@ fn near_transaction_v2_admission_material_derives_from_typed_payload() {
     let request = RouterAbEd25519NormalSigningPrepareRequestV2::new(
         normal_scope(),
         1_900_000_000_000,
+        PublicDigest32::new([0xd1; 32]),
         intent,
         payload,
     )
@@ -271,7 +287,11 @@ fn near_transaction_v2_admission_material_derives_from_typed_payload() {
     assert_eq!(
         request.round1_binding_digest().expect("round1 binding"),
         material
-            .round1_binding_digest(&request.scope, request.expires_at_ms)
+            .round1_binding_digest(
+                &request.scope,
+                request.expires_at_ms,
+                request.display_digest,
+            )
             .expect("material binding")
     );
 }
@@ -500,14 +520,7 @@ fn presign_pool_prepare_response_binds_accepted_entries_to_offers() {
         .expect_err("wrong offer binding digest must fail");
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
 
-    let wrong_scope = NormalSigningScopeV1::new(
-        "router-ab-normal-signing/request-1",
-        "alice.testnet",
-        "session-2",
-        "session-1",
-        "signing-worker-1",
-    )
-    .expect("wrong response scope");
+    let wrong_scope = normal_scope_for_wallet_session("session-2");
     let response = RouterAbEd25519PresignPoolPrepareResponseV2::new(
         wrong_scope,
         request.generation,
@@ -545,6 +558,7 @@ fn presign_pool_hit_finalize_carries_admission_material_and_lowers_to_v2_finaliz
     let pool_hit = RouterAbEd25519PresignPoolHitFinalizeRequestV2::new(
         request.scope.clone(),
         request.expires_at_ms,
+        PublicDigest32::new([0xd1; 32]),
         pool_binding,
         intent,
         payload,
@@ -636,6 +650,7 @@ fn presign_pool_hit_finalize_rejects_intent_payload_drift() {
     let err = RouterAbEd25519PresignPoolHitFinalizeRequestV2::new(
         request.scope,
         request.expires_at_ms,
+        PublicDigest32::new([0xd1; 32]),
         pool_binding,
         near_transaction_intent(intent_preimage_b64u),
         near_transaction_payload(payload_preimage_b64u),

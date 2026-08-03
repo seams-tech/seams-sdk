@@ -9,7 +9,6 @@ type LockFixture = {
   calls: {
     clearNonce: number;
     clearEcdsaQueue: number;
-    clearEcdsaRecords: number;
     clearWarmMaterial: number;
     hostLock: number;
   };
@@ -22,7 +21,6 @@ function createLockFixture(args: {
   const calls = {
     clearNonce: 0,
     clearEcdsaQueue: 0,
-    clearEcdsaRecords: 0,
     clearWarmMaterial: 0,
     hostLock: 0,
   };
@@ -36,9 +34,6 @@ function createLockFixture(args: {
         }),
         clearThresholdEcdsaSigningQueue(): void {
           calls.clearEcdsaQueue += 1;
-        },
-        clearAllThresholdEcdsaSessionRecords(): void {
-          calls.clearEcdsaRecords += 1;
         },
         async clearVolatileWarmSigningMaterial(): Promise<void> {
           calls.clearWarmMaterial += 1;
@@ -70,7 +65,6 @@ test.describe('wallet lock lifecycle', () => {
     expect(fixture.calls).toEqual({
       clearNonce: 1,
       clearEcdsaQueue: 1,
-      clearEcdsaRecords: 1,
       clearWarmMaterial: 1,
       hostLock: 0,
     });
@@ -88,7 +82,6 @@ test.describe('wallet lock lifecycle', () => {
     expect(fixture.calls).toEqual({
       clearNonce: 1,
       clearEcdsaQueue: 1,
-      clearEcdsaRecords: 1,
       clearWarmMaterial: 1,
       hostLock: 1,
     });

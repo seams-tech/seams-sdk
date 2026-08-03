@@ -1,23 +1,24 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type {
-  listStoredThresholdEcdsaSessionRecordsForWallet,
-  ThresholdEcdsaSessionRecord,
-} from '@/core/signingEngine/session/persistence/records';
-import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
+import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
+import type { resolveActiveEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
+import type {
+  ActiveWalletSessionAuthorizationProjection,
+  WalletSessionAuthorizationReadResult,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type {
   acquireSigningSessionRestoreLease,
   deleteDurableSealedSessionRecord,
   listExactSealedSessionsForWallet,
   releaseSigningSessionRestoreLease,
+  readExactEd25519SealedSession,
   readExactSealedSession,
   updateExactSealedSessionPolicy,
   writeExactSealedSession,
@@ -31,10 +32,19 @@ export type EmailOtpCoordinatorRuntimePorts = {
   signerWorkerManager: SignerWorkerManager;
   getRpId: () => string | null;
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
+  readActiveWalletSessionAuthorization: (
+    walletId: WalletId,
+  ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
   refreshAppSessionJwt?: (args: { relayUrl: string }) => Promise<string>;
 };
 
 export type EmailOtpEcdsaSessionPorts = {
+  withThresholdEcdsaSigningQueue: <T>(args: {
+    queueKey: string;
+    walletId: WalletId;
+    enabled: boolean;
+    task: () => Promise<T>;
+  }) => Promise<T>;
   provisionThresholdEcdsaSession: (
     request: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
@@ -49,19 +59,17 @@ export type EmailOtpEcdsaSessionPorts = {
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   }) => Promise<{
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    warmCapability: WarmSessionEcdsaCapabilityState;
+    authorization: ActiveWalletSessionAuthorizationProjection;
   }>;
-  listThresholdEcdsaSessionRecordsForWallet: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
-  listActiveEcdsaSignersForWallet: (args: {
-    walletId: WalletId;
-  }) => Promise<readonly AccountSignerRecord[]>;
-  getThresholdEcdsaSessionRecordByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => ThresholdEcdsaSessionRecord | null;
+  listActiveEcdsaCapabilityManifestsForWallet: (
+    walletId: WalletId,
+  ) => Promise<readonly ActiveEcdsaCapabilityManifest[]>;
+  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
 };
 
 export type EmailOtpSealedSessionStorePorts = {
   writeExactSealedSession: typeof writeExactSealedSession;
+  readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
   readExactSealedSession: typeof readExactSealedSession;
   listExactSealedSessionsForWallet: typeof listExactSealedSessionsForWallet;
   acquireSigningSessionRestoreLease: typeof acquireSigningSessionRestoreLease;

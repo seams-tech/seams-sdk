@@ -14,6 +14,10 @@ import {
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
+import {
+  routerAbMpcMaterialActivationRefToWire,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   RouterAbEd25519YaoActivationConsumerV1,
   RouterAbEd25519YaoActivationConsumptionRequestV1,
@@ -36,9 +40,13 @@ import {
 import type { SessionAdapter } from './routerApi';
 import { createRouterApiModule, type RouterApiModule } from './modules';
 import { signRouterAbEd25519WalletSessionJwt } from './commonRouterUtils';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import type { ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import { sha256BytesUtf8 } from '@shared/utils/digests';
-import { base64UrlEncode } from '@shared/utils/encoders';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { deriveSigningRootId, type RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
@@ -70,8 +78,6 @@ import { isPlainObject } from '@shared/utils/validation';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
   DEFAULT_WALLET_SESSION_TTL_MS,
-  MAX_WALLET_SESSION_REMAINING_USES,
-  MAX_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
 
 export type RouterAbEd25519YaoWalletSessionMintResultV1 =
@@ -83,40 +89,23 @@ type RouterAbEd25519YaoWalletSessionMintIdentityV1 = {
   readonly nearAccountId: string;
   readonly nearEd25519SigningKeyId: string;
   readonly authority: WalletAuthAuthority;
-  readonly thresholdSessionId: string;
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
   readonly participantIds: readonly [number, number];
   readonly runtimePolicyScope: RuntimePolicyScope;
 };
 
 export type RouterAbEd25519YaoWalletSessionMintInputV1 =
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
-      readonly kind: 'registration_wallet_session_v1';
-      readonly signingGrantId?: never;
-      readonly expiresAtMs?: never;
-      readonly remainingUses?: never;
-    })
-  | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
-      readonly kind: 'shared_registration_wallet_session_v1';
-      readonly signingGrantId: string;
-      readonly expiresAtMs: number;
-      readonly remainingUses: number;
-    })
-  | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
-      readonly kind: 'add_signer_wallet_session_v1';
-      readonly signingGrantId: string;
-      readonly expiresAtMs: number;
-      readonly remainingUses: number;
-    })
-  | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
-      readonly kind: 'shared_email_otp_recovery_wallet_session_v1';
-      readonly signingGrantId?: never;
+      readonly kind: 'verified_wallet_unlock_v1';
       readonly ttlMs?: never;
-      readonly expiresAtMs?: never;
+      readonly expiresAtMs: number;
       readonly remainingUses: number;
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'same_identity_budget_refresh_v1';
-      readonly signingGrantId?: never;
       readonly expiresAtMs?: never;
       readonly remainingUses: number;
     });
@@ -146,10 +135,6 @@ export type RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1 =
   | RouterAbEd25519YaoRegistrationServiceResult<
       RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>
     >;
-
-export type RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1 = (
-  input: RouterAbEd25519YaoActiveCapabilityLookupV1,
-) => Promise<WalletEd25519YaoActiveCapabilityRecord | null>;
 
 export type RouterAbEd25519YaoProductRegistrationCompositionV1 = {
   readonly kind: 'router_ab_ed25519_yao_product_registration_composition_v1';
@@ -298,7 +283,8 @@ function hasProductStateCollections(
     isStringMapWithStateKinds(recovery.recoveries, RECOVERY_STATE_KINDS) &&
     isStringMap(recovery.recoverySessions) &&
     isStringMapWithStateKinds(exportState.exports, EXPORT_STATE_KINDS) &&
-    isStringSet(exportState.authorizationNonces)
+    isStringSet(exportState.authorizationNonces) &&
+    isStringSet(exportState.authorizationUncertain)
   );
 }
 
@@ -382,7 +368,6 @@ export function createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV
 }
 
 type RouterAbEd25519YaoWalletSessionTermsV1 = {
-  readonly signingGrantId: string;
   readonly expiresAtMs: number;
   readonly remainingUses: number;
 };
@@ -391,87 +376,30 @@ function assertNeverWalletSessionMintInput(value: never): never {
   throw new Error(`Unexpected Ed25519 Yao Wallet Session mint kind: ${String(value)}`);
 }
 
-function requireInheritedWalletSessionTerms(args: {
-  readonly signingGrantId: string;
-  readonly expiresAtMs: number;
-  readonly remainingUses: number;
-  readonly nowMs: number;
-}): RouterAbEd25519YaoWalletSessionTermsV1 {
-  const signingGrantId = args.signingGrantId.trim();
-  if (!signingGrantId) throw new Error('Inherited Wallet Session signingGrantId is required');
-  if (!Number.isSafeInteger(args.expiresAtMs) || args.expiresAtMs <= args.nowMs) {
-    throw new Error('Inherited Wallet Session expiresAtMs must be a future safe integer');
-  }
-  if (args.expiresAtMs - args.nowMs > MAX_WALLET_SESSION_TTL_MS) {
-    throw new Error('Inherited Wallet Session exceeds the maximum TTL');
-  }
-  if (
-    !Number.isSafeInteger(args.remainingUses) ||
-    args.remainingUses <= 0 ||
-    args.remainingUses > MAX_WALLET_SESSION_REMAINING_USES
-  ) {
-    throw new Error('Inherited Wallet Session remainingUses is outside the allowed range');
-  }
-  return {
-    signingGrantId,
-    expiresAtMs: args.expiresAtMs,
-    remainingUses: args.remainingUses,
-  };
-}
-
-async function deriveRegistrationSigningGrantId(input: {
-  readonly thresholdSessionId: string;
-  readonly signingWorkerId: string;
-}): Promise<string> {
-  const thresholdSessionId = input.thresholdSessionId.trim();
-  const signingWorkerId = input.signingWorkerId.trim();
-  if (!thresholdSessionId) throw new Error('Registration thresholdSessionId is required');
-  if (!signingWorkerId) throw new Error('Registration SigningWorker ID is required');
-  const digest = await sha256BytesUtf8(
-    `seams.router-ab.ed25519-yao.registration-signing-grant.v1\0${signingWorkerId}\0${thresholdSessionId}`,
-  );
-  return `wss_${base64UrlEncode(digest)}`;
-}
-
 async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
   input: RouterAbEd25519YaoWalletSessionMintInputV1,
-  signingWorkerId: string,
 ): Promise<RouterAbEd25519YaoWalletSessionTermsV1> {
   const nowMs = Date.now();
   switch (input.kind) {
-    case 'registration_wallet_session_v1':
+    case 'verified_wallet_unlock_v1':
+      if (!Number.isSafeInteger(input.expiresAtMs) || input.expiresAtMs <= nowMs) {
+        throw new Error('Verified wallet unlock expiry must follow issuance');
+      }
       return {
-        signingGrantId: await deriveRegistrationSigningGrantId({
-          thresholdSessionId: input.thresholdSessionId,
-          signingWorkerId,
-        }),
-        expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
-        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
-      };
-    case 'add_signer_wallet_session_v1':
-      return requireInheritedWalletSessionTerms({
-        signingGrantId: input.signingGrantId,
         expiresAtMs: input.expiresAtMs,
-        remainingUses: input.remainingUses,
-        nowMs,
-      });
-    case 'shared_email_otp_recovery_wallet_session_v1':
+        remainingUses: Math.min(
+          DEFAULT_WALLET_SESSION_REMAINING_USES,
+          Math.max(1, Math.floor(input.remainingUses)),
+        ),
+      };
     case 'same_identity_budget_refresh_v1':
       return {
-        signingGrantId: `wss_${secureRandomBase64Url(24)}`,
         expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
         remainingUses: Math.min(
           DEFAULT_WALLET_SESSION_REMAINING_USES,
           Math.max(1, Math.floor(input.remainingUses)),
         ),
       };
-    case 'shared_registration_wallet_session_v1':
-      return requireInheritedWalletSessionTerms({
-        signingGrantId: input.signingGrantId,
-        expiresAtMs: input.expiresAtMs,
-        remainingUses: input.remainingUses,
-        nowMs,
-      });
     default:
       return assertNeverWalletSessionMintInput(input);
   }
@@ -555,7 +483,7 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
   const signingWorkerId = input.signingWorkerId.trim();
   if (!signingWorkerId) throw new Error('Ed25519 Yao SigningWorker ID is required');
   const sessionInput = input.sessionInput;
-  const terms = await resolveRouterAbEd25519YaoWalletSessionTermsV1(sessionInput, signingWorkerId);
+  const terms = await resolveRouterAbEd25519YaoWalletSessionTermsV1(sessionInput);
   const signingRootId = deriveSigningRootId(sessionInput.runtimePolicyScope);
   const signingRootVersion = sessionInput.runtimePolicyScope.signingRootVersion;
   const routerAbNormalSigning = {
@@ -573,7 +501,9 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
       nearAccountId: sessionInput.nearAccountId,
       nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
       thresholdSessionId: sessionInput.thresholdSessionId,
-      signingGrantId: terms.signingGrantId,
+      authorizationId: sessionInput.authorizationId,
+      walletSessionId: sessionInput.walletSessionId,
+      quotaId: sessionInput.quotaId,
       expiresAtMs: terms.expiresAtMs,
       participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
       runtimePolicyScope: sessionInput.runtimePolicyScope,
@@ -594,7 +524,8 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
       nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
       authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(sessionInput.authority),
       thresholdSessionId: signed.thresholdSessionId,
-      signingGrantId: terms.signingGrantId,
+      walletSessionId: sessionInput.walletSessionId,
+      quotaId: sessionInput.quotaId,
       expiresAtMs: signed.thresholdExpiresAtMs,
       participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
       remainingUses: terms.remainingUses,
@@ -634,39 +565,25 @@ export function routerAbEd25519YaoPersistedCapabilityMatchesLookupV1(
   );
 }
 
-export function createRouterAbEd25519YaoPersistedCapabilityFallbackResolverV1(input: {
-  readonly capabilityInstaller: RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 &
-    RouterAbEd25519YaoActiveCapabilityResolverV1;
-  readonly loadPersistedActiveCapability: RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1;
-}): RouterAbEd25519YaoActiveCapabilityResolverV1 {
-  return new RouterAbEd25519YaoPersistedCapabilityFallbackResolver(input);
-}
-
-class RouterAbEd25519YaoPersistedCapabilityFallbackResolver implements RouterAbEd25519YaoActiveCapabilityResolverV1 {
-  constructor(
-    private readonly input: {
-      readonly capabilityInstaller: RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1 &
-        RouterAbEd25519YaoActiveCapabilityResolverV1;
-      readonly loadPersistedActiveCapability: RouterAbEd25519YaoPersistedActiveCapabilityLoaderV1;
-    },
-  ) {}
-
-  async resolveActiveCapability(
-    lookup: RouterAbEd25519YaoActiveCapabilityLookupV1,
-  ): Promise<RouterAbEd25519YaoActiveCapabilityLookupResultV1> {
-    const current = await this.input.capabilityInstaller.resolveActiveCapability(lookup);
-    if (current.ok || current.code !== 'unknown_capability') return current;
-    const persisted = await this.input.loadPersistedActiveCapability(lookup);
-    if (!persisted || !routerAbEd25519YaoPersistedCapabilityMatchesLookupV1(persisted, lookup)) {
-      return current;
-    }
-    const installed =
-      await this.input.capabilityInstaller.installPersistedActiveCapability(persisted);
-    if (!installed.ok) {
-      return { ok: false, code: 'capability_conflict', message: installed.message };
-    }
-    return await this.input.capabilityInstaller.resolveActiveCapability(lookup);
-  }
+/**
+ * Mints the explicit material identity at the registration boundary. None of
+ * its fields are derived from a wallet-session or ceremony identifier.
+ */
+export function createRouterAbEd25519YaoMaterialActivationRefV1(input: {
+  readonly walletId: WalletId;
+  readonly signingWorkerId: string;
+}): RouterAbMpcMaterialActivationRefWire {
+  const signingWorkerId = input.signingWorkerId.trim();
+  if (!signingWorkerId) throw new Error('Ed25519 Yao signing worker is required');
+  return routerAbMpcMaterialActivationRefToWire({
+    kind: 'mpc_material_activation_ref',
+    activationId: `mact_${secureRandomBase64Url(24)}`,
+    capability: `cap_${secureRandomBase64Url(24)}`,
+    materialOwner: String(input.walletId),
+    keyBinding: `key_${secureRandomBase64Url(24)}`,
+    lifecycleBinding: `life_${secureRandomBase64Url(24)}`,
+    signingWorker: signingWorkerId,
+  });
 }
 
 /**
@@ -684,6 +601,7 @@ export async function buildRouterAbEd25519YaoProductAdmissionRequestV1(input: {
   readonly authorityScope: RegistrationEd25519AuthorityScope;
   readonly branch: RegistrationNearEd25519SignerPlan;
   readonly signingWorkerId: string;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
 }): Promise<RouterAbEd25519YaoRegistrationAdmissionRequestV1> {
   if (input.branch.participantIds.length !== 2) {
     throw new Error('Ed25519 Yao registration requires exactly two participant IDs');
@@ -712,9 +630,10 @@ export async function buildRouterAbEd25519YaoProductAdmissionRequestV1(input: {
       lifecycle_id: input.registrationCeremonyId,
       root_share_epoch: input.signingRootVersion,
       account_id: String(input.walletId),
-      wallet_session_id: input.registrationCeremonyId,
+      threshold_session_id: input.registrationCeremonyId,
       signer_set_id: input.branch.branchKey,
       signing_worker_id: input.signingWorkerId,
+      material_activation: input.materialActivation,
     },
     application_binding: {
       wallet_id: String(input.walletId),
@@ -735,6 +654,7 @@ export async function buildRouterAbEd25519YaoAddSignerAdmissionRequestV1(input: 
   readonly signingRootVersion: string;
   readonly selection: Extract<AddSignerIntentV1['signerSelection'], { mode: 'ed25519' }>;
   readonly signingWorkerId: string;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
 }): Promise<RouterAbEd25519YaoRegistrationAdmissionRequestV1> {
   const branch = input.selection.ed25519;
   if (branch.mode !== 'create_implicit_near_account') {
@@ -771,9 +691,10 @@ export async function buildRouterAbEd25519YaoAddSignerAdmissionRequestV1(input: 
       lifecycle_id: input.addSignerCeremonyId,
       root_share_epoch: input.signingRootVersion,
       account_id: String(input.walletId),
-      wallet_session_id: input.addSignerCeremonyId,
+      threshold_session_id: input.addSignerCeremonyId,
       signer_set_id: registrationNearEd25519BranchKey(branch.signerSlot),
       signing_worker_id: input.signingWorkerId,
+      material_activation: input.materialActivation,
     },
     application_binding: {
       wallet_id: String(input.walletId),

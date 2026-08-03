@@ -17,7 +17,9 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
 | `walletId`           | Durable wallet identity. For current NEAR-backed wallets this is often the NEAR account id, but code must treat it as the wallet id. |
 | `providerSubject`    | External identity-provider subject, such as a Google subject used by Email OTP registration.                                         |
 | `challengeSubjectId` | Subject stored on an Email OTP challenge. For Google Email OTP it must match `providerSubject`.                                      |
-| `signingGrantId`     | User-approved signing allowance that carries TTL, remaining-use, and replay/idempotency budget.                                      |
+| `walletSessionId`    | Reusable authenticated Wallet Session identity.                                                                                       |
+| `quotaId`            | Server-authoritative remaining-use and expiry quota for a Wallet Session.                                                             |
+| `capabilityGrantId`  | Exact one-operation authority bound to an operation, capability, and material activation.                                             |
 | `thresholdSessionId` | Cryptographic signing-session id for Ed25519 or ECDSA material.                                                                      |
 | `chainTarget`        | Concrete ECDSA signing target, such as Tempo testnet or Arc EVM testnet.                                                             |
 | `warm session`       | Short-lived signing session created by registration, unlock, or step-up auth.                                                        |

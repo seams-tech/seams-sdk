@@ -4,7 +4,7 @@ Last updated: 2026-04-21
 
 ## Purpose
 
-Use `shamir3pass` to restore an already-authenticated signing grant after accidental iframe/page reload without prompting the user again, while keeping signing material out of browser storage in plaintext.
+Use `shamir3pass` to restore exact signing material after an accidental iframe/page reload while keeping signing material out of browser storage in plaintext. Refactor 90/92 supersedes the earlier grant-keyed model described in prior revisions of this document.
 
 This is an auth-method-neutral signing-session feature for live wallet sessions.
 
@@ -38,7 +38,7 @@ raw app-session JWTs in sealed-refresh records
 raw threshold-session auth tokens in sealed-refresh records
 ```
 
-The sealed artifact is useful only with live server participation and valid server-side signing-session state.
+The sealed artifact is useful only with live server participation and a valid current authorization projection. Durable material identity and current authorization are separate proofs.
 
 ## Storage
 
@@ -50,10 +50,11 @@ Store:
 signing_session_seals_v1
 ```
 
-Primary key:
+Material identity key:
 
 ```text
-signingGrantId
+Ed25519: walletId + authMethod + nearAccountId + nearSigningKeyId + signerSlot
+ECDSA:   walletId + authMethod + chainTarget + materialActivation
 ```
 
 Indexes:
@@ -66,11 +67,11 @@ Indexes:
 
 Rules:
 
-1. keep at most one active record per wallet/signing root/auth method;
-2. delete older records on write;
-3. bind each record to a browser-session `runtimeSessionId` stored in iframe-origin `sessionStorage`;
-4. if the browser-session marker is missing or mismatched, delete the IndexedDB record before restore;
-5. logout, lock, account switch, revocation, TTL expiry, and remaining-use exhaustion delete both worker material and sealed records.
+1. keep at most one current record for an exact material identity;
+2. do not persist Wallet Session JWTs or authorization-session identities in durable sealed records;
+3. resolve current authorization independently from the secure wallet origin and correlate it with the exact material activation;
+4. expiry or remaining-use exhaustion invalidates authorization/readiness projections and live worker bindings while preserving sealed material;
+5. delete only malformed/invalid records or records explicitly retired by the material lifecycle.
 
 ## Route Model
 
@@ -83,12 +84,12 @@ POST /wallet-session/seal/remove
 
 Route auth:
 
-1. apply/remove requires threshold-session authority for the signing session being sealed or restored;
+1. apply/remove requires authenticated relayer authority for the exact material activation being sealed or restored;
 2. app-session auth alone is not sufficient to restore threshold signing capability;
 3. server validates wallet, user, signing root, auth method, TTL, remaining uses, revocation state, and seal key version;
 4. seal apply/remove is transaction-use neutral and must not increase TTL or remaining uses.
 
-Do not reintroduce auth-method-specific route names, storage names, or request fields. The steady-state terminology is `signing-session`, `sealedSecretB64u`, `signing_session_secret32`, and `signingGrantId`.
+Do not reintroduce auth-method-specific route names, storage names, or request fields. The steady-state terminology is `signing-session`, `sealedSecretB64u`, `signing_session_secret32`, and `materialActivation`. Current authorization is supplied separately.
 
 ## Flow
 
@@ -100,14 +101,14 @@ sequenceDiagram
   participant Threshold as "Threshold session state"
 
   Worker->>Worker: "Derive signing_session_secret32"
-  Worker->>Threshold: "Bootstrap Ed25519/ECDSA threshold sessions"
-  Threshold-->>Worker: "signingGrantId + threshold-session auth"
-  Worker->>Seal: "apply-server-seal with threshold-session auth"
+  Worker->>Threshold: "Resolve exact material activation and current authorization"
+  Threshold-->>Worker: "Material facts + authenticated relayer authority"
+  Worker->>Seal: "apply-server-seal with authenticated relayer authority"
   Seal-->>Worker: "server-sealed signing_session_secret32"
-  Worker->>Store: "Persist sealed record keyed by signingGrantId"
+  Worker->>Store: "Persist sealed record keyed by material identity"
 
   Worker->>Store: "After reload, load sealed record"
-  Worker->>Seal: "remove-server-seal with threshold-session auth"
+  Worker->>Seal: "remove-server-seal with current operation authorization"
   Seal-->>Worker: "client-wrapped signing_session_secret32"
   Worker->>Worker: "Recover signing_session_secret32"
   Worker->>Threshold: "Reconnect/rebuild required curve capability"
@@ -118,15 +119,15 @@ sequenceDiagram
 Passkey:
 
 1. fresh passkey auth derives `signing_session_secret32` from the WebAuthn PRF output;
-2. sealed refresh restores the same signing grant without another WebAuthn prompt while server policy allows it;
-3. exhaustion or expiry routes the next transaction through WebAuthn/passkey confirmation.
+2. sealed refresh rehydrates the same material activation and correlates it with current authorization;
+3. exhaustion or expiry routes the next transaction through same-method passkey confirmation.
 
 Email OTP:
 
 1. Google SSO authenticates the app/user;
 2. Email OTP authorizes initial unseal of `S`;
 3. the Email OTP worker derives `signing_session_secret32` and seals only that session-scoped secret;
-4. sealed refresh restores the same signing grant without another OTP while server policy allows it;
+4. sealed refresh rehydrates the same material activation and correlates it with current authorization;
 5. exhaustion or expiry routes the next transaction through the Email OTP Tx Confirmer.
 
 `per_operation` sessions never write or consume sealed-refresh records.
@@ -140,15 +141,15 @@ Private-key export, link-device, and add-signer flows must:
 1. request fresh operation-scoped auth;
 2. verify the fresh OTP or passkey challenge;
 3. keep operation material separate from the transaction signing session;
-4. avoid consuming, replacing, clearing, or renewing the transaction `signingGrantId`.
+4. avoid consuming, replacing, clearing, or renewing durable material merely because authorization expires.
 
 After sealed refresh, restored signing-session route authority may request a fresh Email OTP challenge for a sensitive operation. It cannot directly authorize the operation without successful challenge verification and route-specific policy approval.
 
 ## Acceptance Criteria
 
-1. Session-mode passkey and Email OTP accounts can survive accidental iframe/page reload while server TTL and remaining uses remain valid.
+1. Session-mode passkey and Email OTP accounts can survive accidental iframe/page reload while authorization and material activation remain correlatable.
 2. Email OTP sealed refresh does not store plaintext `S`, plaintext `signing_session_secret32`, or device-local `enc_s(S)`.
-3. Ed25519 and ECDSA restored capabilities remain tied to the same `signingGrantId` budget.
+3. Ed25519 and ECDSA restored capabilities retain the same material activation; current authorization and remaining-use budget are read independently.
 4. Remaining-use exhaustion prompts with the registered auth method: Email OTP for Email OTP-only accounts and WebAuthn for passkey accounts.
 5. Export and link-device/add-signer require fresh operation auth and do not clobber transaction signing sessions.
 6. Wrong-token usage between app-session and threshold-session lanes fails closed.

@@ -82,9 +82,18 @@ async function addSignerInput(
         lifecycle_id: CEREMONY_ID,
         root_share_epoch: 'root-share-epoch-9',
         account_id: WALLET_ID,
-        wallet_session_id: CEREMONY_ID,
+        threshold_session_id: CEREMONY_ID,
         signer_set_id: registrationNearEd25519BranchKey(selection.signerSlot),
         signing_worker_id: 'signing-worker-a',
+        material_activation: {
+          kind: 'mpc_material_activation_ref',
+          activation_id: 'add-signer-activation-42',
+          capability: 'add-signer-capability-42',
+          material_owner: WALLET_ID,
+          key_binding: 'add-signer-key-42',
+          lifecycle_binding: 'add-signer-lifecycle-binding-42',
+          signing_worker: 'signing-worker-a',
+        },
       },
       application_binding: {
         wallet_id: WALLET_ID,
@@ -118,9 +127,9 @@ const ADMISSION_MUTATIONS: readonly AdmissionMutation[] = [
   },
   {
     label: 'Wallet Session',
-    expectedError: /Yao Wallet Session ID does not match/,
+    expectedError: /Yao Threshold Session ID does not match/,
     mutate(input) {
-      input.admissionRequest.scope.wallet_session_id = 'substituted-wallet-session';
+      input.admissionRequest.scope.threshold_session_id = 'substituted-wallet-session';
     },
   },
   {
@@ -128,6 +137,8 @@ const ADMISSION_MUTATIONS: readonly AdmissionMutation[] = [
     expectedError: /Yao account ID does not match/,
     mutate(input) {
       input.admissionRequest.scope.account_id = 'wallet-substituted';
+      input.admissionRequest.scope.material_activation.material_owner =
+        'wallet-substituted';
     },
   },
   {

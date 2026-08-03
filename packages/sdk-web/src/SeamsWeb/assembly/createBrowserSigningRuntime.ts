@@ -32,7 +32,6 @@ export function createBrowserSigningRuntime(
   const runtimePorts = createBrowserPlatformRuntime({
     indexedDB: IndexedDBManager,
     workerCtx: args.workerCtx,
-    ecdsaSessionStore: state.ecdsaSessions,
   });
 
   return createSigningRuntime({

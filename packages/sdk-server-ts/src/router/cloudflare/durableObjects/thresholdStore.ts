@@ -14,6 +14,7 @@ import {
   type SigningRootRecordResult,
 } from '../../../core/ThresholdService/signingRootRecords';
 import {
+  parseEcdsaWalletSessionRecord,
   parseRouterAbEcdsaDerivationPoolFillSessionRecord as parseFullRouterAbEcdsaDerivationPoolFillSessionRecord,
 } from '../../../core/ThresholdService/validation';
 import type { RouterAbEcdsaDerivationPoolFillSessionRecord } from '../../../core/ThresholdService/stores/EcdsaSigningStore';
@@ -88,6 +89,7 @@ type DoReq =
   | { op: 'authConsumeUseCount'; key: string }
   | { op: 'authConsumeUseCountOnce'; key: string; idempotencyKey: string }
   | { op: 'authHasConsumedUseCountOnce'; key: string; idempotencyKey: string }
+  | { op: 'authGetSessionStatus'; key: string }
   | { op: 'authReserveReplayGuard'; key: string; expiresAtMs: number }
   | {
       op: 'registrationCancelTerminal';
@@ -877,7 +879,7 @@ export class ThresholdStoreDurableObject {
           return err('wallet_session_expired', 'Wallet Session expired');
         }
         if (entry.remainingUses <= 0) {
-          return err('wallet_budget_exhausted', 'signing grant exhausted');
+          return err('wallet_budget_exhausted', 'Wallet Session exhausted');
         }
 
         entry.remainingUses -= 1;
@@ -915,7 +917,7 @@ export class ThresholdStoreDurableObject {
         }
 
         if (entry.remainingUses <= 0) {
-          return err('wallet_budget_exhausted', 'signing grant exhausted');
+          return err('wallet_budget_exhausted', 'Wallet Session exhausted');
         }
 
         entry.remainingUses -= 1;
@@ -956,6 +958,22 @@ export class ThresholdStoreDurableObject {
       });
 
       return json(res);
+    }
+
+    if (op === 'authGetSessionStatus') {
+      const key = toKey((req as { key?: unknown }).key);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      const entry = parseAuthEntry(await this.state.storage.get(key));
+      if (!entry) return json(err('wallet_session_missing', 'Wallet Session is missing'));
+      if (entry.expiresAtMs <= Date.now()) {
+        await this.state.storage.delete(key);
+        return json(err('wallet_session_expired', 'Wallet Session expired'));
+      }
+      return json(ok({
+        record: entry.record,
+        expiresAtMs: entry.expiresAtMs,
+        remainingUses: entry.remainingUses,
+      }));
     }
 
     if (op === 'authReserveReplayGuard') {

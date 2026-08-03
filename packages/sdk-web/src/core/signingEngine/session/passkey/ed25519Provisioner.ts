@@ -4,7 +4,6 @@ import {
   summarizeWarmSessionTransition,
   type WarmSessionTransitionEvent,
 } from '../warmCapabilities/transitions';
-import { toOptionalNonEmptyString } from '../../useCases/provisionEcdsaSession';
 import type { WarmSessionEnvelope } from '../warmCapabilities/types';
 import type {
   ProvisionWarmEd25519CapabilityArgs,
@@ -12,6 +11,11 @@ import type {
 } from '../warmCapabilities/types';
 import { nearProtocolProjectionFromExactLane } from '../identity/exactSigningLaneIdentity';
 import { toWalletId, type WalletId } from '../../interfaces/ecdsaChainTarget';
+
+function toOptionalNonEmptyString(value: unknown): string | undefined {
+  const normalized = String(value || '').trim();
+  return normalized || undefined;
+}
 
 export type WarmSessionEd25519ProvisionerDeps = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
@@ -23,15 +27,15 @@ export type WarmSessionEd25519ProvisionerDeps = {
 
 function assertPersistedEd25519WarmSessionRecord(args: {
   walletId: WalletId;
-  expectedSessionId: string;
+  expectedThresholdSessionId: string;
   persistedSessionIdRaw: unknown;
 }): void {
   const persistedSessionId = String(args.persistedSessionIdRaw || '').trim();
-  if (persistedSessionId === args.expectedSessionId) {
+  if (persistedSessionId === args.expectedThresholdSessionId) {
     return;
   }
   throw new Error(
-    `[WarmSessionStore] provisioned Ed25519 capability was not persisted for ${args.walletId} (expected sessionId=${args.expectedSessionId}, found=${persistedSessionId || 'missing'})`,
+    `[WarmSessionStore] provisioned Ed25519 capability was not persisted for ${args.walletId} (expected thresholdSessionId=${args.expectedThresholdSessionId}, found=${persistedSessionId || 'missing'})`,
   );
 }
 
@@ -84,25 +88,28 @@ export async function provisionWarmEd25519Capability(
     return provisioned;
   }
 
-  const expectedSessionId = toOptionalNonEmptyString(provisioned.sessionId);
-  if (!expectedSessionId) {
+  const expectedThresholdSessionId = toOptionalNonEmptyString(
+    provisioned.thresholdSessionId,
+  );
+  if (!expectedThresholdSessionId) {
     throw new Error(
-      `[WarmSessionStore] provisioned Ed25519 capability is missing sessionId for ${nearAccountId}`,
+      `[WarmSessionStore] provisioned Ed25519 capability is missing thresholdSessionId for ${nearAccountId}`,
     );
   }
 
   const afterWarmSession = await deps.getWarmSession(walletId);
   assertPersistedEd25519WarmSessionRecord({
     walletId,
-    expectedSessionId,
-    persistedSessionIdRaw: afterWarmSession.capabilities.ed25519.record?.thresholdSessionId,
+    expectedThresholdSessionId,
+    persistedSessionIdRaw:
+      afterWarmSession.capabilities.ed25519.runtime?.thresholdSessionId,
   });
   emitWarmSessionTransition({
     onTransition: deps.onTransition,
     event: {
       type: 'ed25519_capability_provisioned',
       walletId,
-      thresholdSessionId: expectedSessionId,
+      thresholdSessionId: expectedThresholdSessionId,
       before: summarizeWarmSessionTransition(beforeWarmSession),
       after: summarizeWarmSessionTransition(afterWarmSession),
     },

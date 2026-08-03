@@ -9,15 +9,12 @@ import {
   toEmailOtpAuthSubjectId,
   type EmailOtpAuthSubjectId,
 } from '../signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
-import {
-  requireEvmFamilySigningKeySlotId,
-  type EvmFamilySigningKeySlotId,
-} from '@shared/signing-lanes';
 import type { RelayerKeyId } from './ecdsaRoleLocalRecords';
 import { base64UrlDecode } from '@shared/utils/base64';
 
 const clientSecretSourceBrand: unique symbol = Symbol('ClientSecretSource');
 const emailOtpWorkerSessionHandleBrand: unique symbol = Symbol('EmailOtpWorkerSessionHandle');
+type EmailOtpEcdsaRuntimeHandleOperation = 'wallet_unlock' | 'sign' | 'export';
 
 type ClientSecretSourceBrand<Kind extends string> = {
   readonly [clientSecretSourceBrand]: Kind;
@@ -49,44 +46,54 @@ export type Fido2HmacSecretSource = ClientSecretSourceBrand<'fido2_hmac_secret'>
   rpId: RpId;
 };
 
-export type EmailOtpWorkerIssuedSessionHandle = {
+type EmailOtpWorkerIssuedSessionHandleBrand = {
   readonly [emailOtpWorkerSessionHandleBrand]: 'email_otp_worker_session_handle';
-} & (
-  | {
-      kind: 'email_otp_worker_session_handle_v1';
-      sessionId: string;
-      walletId: WalletId;
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-      authSubjectId: EmailOtpAuthSubjectId;
-      action: 'threshold_ecdsa_bootstrap';
-      operation: 'registration' | 'wallet_unlock' | 'sign' | 'export';
-      chainTarget: ThresholdEcdsaChainTarget;
-      rpId?: never;
-    }
-  | {
-      kind: 'email_otp_worker_session_handle_v1';
-      sessionId: string;
-      walletId: WalletId;
-      rpId: RpId;
-      authSubjectId: EmailOtpAuthSubjectId;
-      action: 'threshold_ed25519_session';
-      operation: 'registration' | 'wallet_unlock' | 'sign' | 'export';
-      evmFamilySigningKeySlotId?: never;
-      chainTarget?: never;
-    }
-);
+};
+
+type EmailOtpEcdsaWorkerIssuedSessionHandleBase = {
+  kind: 'email_otp_worker_session_handle_v1';
+  sessionId: string;
+  walletId: WalletId;
+  authSubjectId: EmailOtpAuthSubjectId;
+  action: 'threshold_ecdsa_bootstrap';
+  chainTarget: ThresholdEcdsaChainTarget;
+  rpId?: never;
+};
+
+type EmailOtpEcdsaRuntimeWorkerIssuedSessionHandle = {
+  [Operation in EmailOtpEcdsaRuntimeHandleOperation]: EmailOtpEcdsaWorkerIssuedSessionHandleBase & {
+    operation: Operation;
+    keyHandle: string;
+    evmFamilySigningKeySlotId?: never;
+  };
+}[EmailOtpEcdsaRuntimeHandleOperation];
+
+export type EmailOtpWorkerIssuedSessionHandle = EmailOtpWorkerIssuedSessionHandleBrand &
+  (
+    | EmailOtpEcdsaRuntimeWorkerIssuedSessionHandle
+    | {
+        kind: 'email_otp_worker_session_handle_v1';
+        sessionId: string;
+        walletId: WalletId;
+        rpId: RpId;
+        authSubjectId: EmailOtpAuthSubjectId;
+        action: 'threshold_ed25519_session';
+        operation: 'registration' | 'wallet_unlock' | 'sign' | 'export';
+        evmFamilySigningKeySlotId?: never;
+        keyHandle?: never;
+        chainTarget?: never;
+      }
+  );
 
 export type EmailOtpEcdsaWorkerIssuedSessionHandle = Extract<
   EmailOtpWorkerIssuedSessionHandle,
   { action: 'threshold_ecdsa_bootstrap' }
 >;
 
-export type EmailOtpEcdsaExportWorkerIssuedSessionHandle = Omit<
+export type EmailOtpEcdsaExportWorkerIssuedSessionHandle = Extract<
   EmailOtpEcdsaWorkerIssuedSessionHandle,
-  'operation'
-> & {
-  operation: 'export';
-};
+  { action: 'threshold_ecdsa_bootstrap' }
+> & { operation: 'export' };
 
 export type EmailOtpWorkerSessionSecretSource =
   ClientSecretSourceBrand<'email_otp_worker_session'> & {
@@ -94,17 +101,25 @@ export type EmailOtpWorkerSessionSecretSource =
     handle: EmailOtpWorkerIssuedSessionHandle;
   };
 
+type EmailOtpEcdsaWorkerIssuedSessionHandleInputBase = {
+  sessionId: string;
+  walletId: WalletId;
+  authSubjectId: EmailOtpAuthSubjectId;
+  action: 'threshold_ecdsa_bootstrap';
+  chainTarget: ThresholdEcdsaChainTarget;
+  rpId?: never;
+};
+
+type EmailOtpEcdsaRuntimeWorkerIssuedSessionHandleInput = {
+  [Operation in EmailOtpEcdsaRuntimeHandleOperation]: EmailOtpEcdsaWorkerIssuedSessionHandleInputBase & {
+    operation: Operation;
+    keyHandle: string;
+    evmFamilySigningKeySlotId?: never;
+  };
+}[EmailOtpEcdsaRuntimeHandleOperation];
+
 export type EmailOtpWorkerIssuedSessionHandleInput =
-  | {
-      sessionId: string;
-      walletId: WalletId;
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-      authSubjectId: EmailOtpAuthSubjectId;
-      action: 'threshold_ecdsa_bootstrap';
-      operation: 'registration' | 'wallet_unlock' | 'sign' | 'export';
-      chainTarget: ThresholdEcdsaChainTarget;
-      rpId?: never;
-    }
+  | EmailOtpEcdsaRuntimeWorkerIssuedSessionHandleInput
   | {
       sessionId: string;
       walletId: WalletId;
@@ -113,6 +128,7 @@ export type EmailOtpWorkerIssuedSessionHandleInput =
       action: 'threshold_ed25519_session';
       operation: 'registration' | 'wallet_unlock' | 'sign' | 'export';
       evmFamilySigningKeySlotId?: never;
+      keyHandle?: never;
       chainTarget?: never;
     };
 
@@ -151,14 +167,6 @@ function requirePlatformObject(value: unknown, field: string): Record<string, un
     throw new Error(`[platform] ${field} must be an object`);
   }
   return value as Record<string, unknown>;
-}
-
-function requirePlatformWalletKeyId(value: unknown, field: string): EvmFamilySigningKeySlotId {
-  try {
-    return requireEvmFamilySigningKeySlotId(value, field);
-  } catch (error) {
-    throw new Error(`[platform] ${field} is invalid`, { cause: error });
-  }
 }
 
 export type RequiredPrfSecretSourceInput = {
@@ -211,7 +219,7 @@ export function buildEmailOtpWorkerIssuedSessionHandle(
         kind: 'email_otp_worker_session_handle_v1',
         sessionId,
         walletId: input.walletId,
-        evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+        keyHandle: requirePlatformString(input.keyHandle, 'keyHandle'),
         authSubjectId: input.authSubjectId,
         action: 'threshold_ecdsa_bootstrap',
         operation: input.operation,
@@ -281,16 +289,28 @@ export function parseEmailOtpWorkerIssuedSessionHandle(
     if ('rpId' in payload) {
       throw new Error('[platform] email OTP ECDSA worker-issued handles cannot include rpId');
     }
+    if (normalizedOperation === 'registration') {
+      throw new Error(
+        '[platform] registration Email OTP ECDSA worker-issued handles are retired',
+      );
+    }
+    const chainTarget = thresholdEcdsaChainTargetFromRequest(
+      requirePlatformObject(payload.chainTarget, 'email OTP worker-issued handle chainTarget'),
+    );
+    if ('evmFamilySigningKeySlotId' in payload) {
+      throw new Error(
+        '[platform] runtime Email OTP ECDSA handles cannot include evmFamilySigningKeySlotId',
+      );
+    }
     return buildEmailOtpWorkerIssuedSessionHandle({
       ...base,
       action,
-      evmFamilySigningKeySlotId: requirePlatformWalletKeyId(
-        payload.evmFamilySigningKeySlotId,
-        'email OTP worker-issued handle evmFamilySigningKeySlotId',
+      operation: normalizedOperation,
+      keyHandle: requirePlatformString(
+        String(payload.keyHandle || ''),
+        'email OTP worker-issued handle keyHandle',
       ),
-      chainTarget: thresholdEcdsaChainTargetFromRequest(
-        requirePlatformObject(payload.chainTarget, 'email OTP worker-issued handle chainTarget'),
-      ),
+      chainTarget,
     });
   }
   if (action === 'threshold_ed25519_session') {
@@ -299,9 +319,9 @@ export function parseEmailOtpWorkerIssuedSessionHandle(
         '[platform] email OTP Ed25519 worker-issued handles cannot include chainTarget',
       );
     }
-    if ('evmFamilySigningKeySlotId' in payload) {
+    if ('evmFamilySigningKeySlotId' in payload || 'keyHandle' in payload) {
       throw new Error(
-        '[platform] email OTP Ed25519 worker-issued handles cannot include evmFamilySigningKeySlotId',
+        '[platform] email OTP Ed25519 worker-issued handles cannot include ECDSA key identity',
       );
     }
     return buildEmailOtpWorkerIssuedSessionHandle({

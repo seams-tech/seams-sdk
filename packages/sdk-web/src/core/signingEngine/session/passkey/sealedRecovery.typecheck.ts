@@ -1,16 +1,16 @@
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
-import type { RestorePersistedEcdsaSessionPurpose } from '../sealedRecovery/sealedRecovery.types';
+import type { RestorePersistedSessionPurpose } from '../sealedRecovery/sealedRecovery.types';
 import type { RawSigningSessionSealedStoreRecord } from '../sealedRecovery/recoveryRecord';
 import { restorePasskeyEcdsaSealedRecordForWallet } from './ecdsaRecovery';
+import { resolveActiveEcdsaCapabilityRuntime } from '../material/activeEcdsaCapabilityRuntime';
 
 declare const rawRecord: RawSigningSessionSealedStoreRecord;
-declare const purpose: RestorePersistedEcdsaSessionPurpose & { authMethod: 'passkey' };
+declare const purpose: RestorePersistedSessionPurpose & { authMethod: 'passkey' };
 declare const transport: WarmSessionSealTransportInput;
 declare const status: WarmSessionStatusResult;
 
 void restorePasskeyEcdsaSealedRecordForWallet({
-  walletId: 'wallet.testnet',
   // @ts-expect-error raw sealed store records must be normalized before passkey ECDSA recovery
   record: rawRecord,
   purpose,
@@ -20,6 +20,7 @@ void restorePasskeyEcdsaSealedRecordForWallet({
   deletePersistedRecord: async () => undefined,
   recordSessionMaterialRestored: async () => undefined,
   readWarmSessionStatusFromWorker: async () => status,
+  resolveCurrentEcdsaCapabilityRuntime: resolveActiveEcdsaCapabilityRuntime,
   loadEcdsaRoleLocalReadyRecord: async () => ({ ok: true, value: { kind: 'not_found' } }),
   updatePersistedPolicy: async () => undefined,
 });

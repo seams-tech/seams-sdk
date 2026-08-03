@@ -2,13 +2,17 @@ import {
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { SealedRecoveryRecord } from '../sealedRecovery/recoveryRecord';
+import {
+  parseMpcMaterialActivationRef,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 
 export type ExactSealedSessionIdentity =
   | {
       authMethod: 'email_otp' | 'passkey';
       curve: 'ed25519';
-      thresholdSessionId: string;
+      materialActivation: MpcMaterialActivationRef;
+      thresholdSessionId?: never;
     }
   | {
       authMethod: 'email_otp' | 'passkey';
@@ -100,15 +104,18 @@ export function parseExactSealedSessionIdentity(value: unknown): ExactSealedSess
   const record = value as Record<string, unknown>;
   const authMethod = parseAuthMethod(record.authMethod);
   const curve = parseCurve(record.curve);
-  const thresholdSessionId = normalizeNonEmptyString(record.thresholdSessionId);
-  if (!authMethod || !curve || !thresholdSessionId) return null;
+  if (!authMethod || !curve) return null;
   if (curve === 'ed25519') {
+    const materialActivation = parseMpcMaterialActivationRef(record.materialActivation);
+    if (!materialActivation.ok) return null;
     return {
       authMethod,
       curve: 'ed25519',
-      thresholdSessionId,
+      materialActivation: materialActivation.value,
     };
   }
+  const thresholdSessionId = normalizeNonEmptyString(record.thresholdSessionId);
+  if (!thresholdSessionId) return null;
   const chainTarget = parseChainTarget(record.chainTarget);
   if (!chainTarget) return null;
   return {
@@ -116,42 +123,6 @@ export function parseExactSealedSessionIdentity(value: unknown): ExactSealedSess
     curve: 'ecdsa',
     thresholdSessionId,
     chainTarget,
-  };
-}
-
-export function exactSealedSessionIdentityFromFilter(args: {
-  thresholdSessionId: string;
-  filter: ExactSealedSessionRecordFilter;
-}): ExactSealedSessionIdentity | null {
-  const thresholdSessionId = normalizeNonEmptyString(args.thresholdSessionId);
-  if (!thresholdSessionId) return null;
-  switch (args.filter.curve) {
-    case 'ed25519':
-      return {
-        authMethod: args.filter.authMethod,
-        curve: 'ed25519',
-        thresholdSessionId,
-      };
-    case 'ecdsa':
-      return {
-        authMethod: args.filter.authMethod,
-        curve: 'ecdsa',
-        thresholdSessionId,
-        chainTarget: args.filter.chainTarget,
-      };
-    default:
-      return assertNever(args.filter);
-  }
-}
-
-export function exactSealedSessionIdentityFromRecoveryRecord(
-  record: SealedRecoveryRecord,
-): ExactSealedSessionIdentity {
-  return {
-    authMethod: record.authMethod,
-    curve: 'ecdsa',
-    thresholdSessionId: record.thresholdSessionId,
-    chainTarget: record.chainTarget,
   };
 }
 
