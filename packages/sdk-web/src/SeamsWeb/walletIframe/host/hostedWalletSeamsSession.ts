@@ -1,11 +1,12 @@
 import { parseAppSessionJwt, type AppSessionJwt } from '@shared/utils/domainIds';
-import { joinNormalizedUrl } from '@shared/utils/normalize';
+import { joinNormalizedUrl, stripTrailingSlashes } from '@shared/utils/normalize';
 import { decodeJwtPayloadRecord, isSessionJwtUnexpired } from '@shared/utils/sessionTokens';
 
 export type HostedWalletSeamsSession = {
   readonly kind: 'active_hosted_wallet_seams_session';
   readonly appSessionJwt: AppSessionJwt;
   readonly expiresAtMs: number;
+  readonly relayUrl: string;
 };
 
 let hostedWalletSeamsSession: HostedWalletSeamsSession | null = null;
@@ -36,6 +37,13 @@ function requiredString(record: Record<string, unknown>, field: string): string 
   return value;
 }
 
+function canonicalRelayUrl(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) {
+    throw new Error('relayUrl must be a non-empty canonical string');
+  }
+  return stripTrailingSlashes(value);
+}
+
 function assertExactFields(
   record: Record<string, unknown>,
   fields: ReadonlySet<string>,
@@ -59,19 +67,23 @@ function compactExchangeValue(record: Record<string, unknown>, field: string): s
 }
 
 function assertHostedWalletRedemptionPayload(record: Record<string, unknown>): void {
+  if (typeof record.relayUrl !== 'string') {
+    throw new Error('Hosted-wallet redemption requires relayUrl');
+  }
   for (const key of Object.keys(record)) {
-    if (!HOSTED_WALLET_REDEMPTION_FIELDS.has(key)) {
+    if (!HOSTED_WALLET_REDEMPTION_FIELDS.has(key) && key !== 'relayUrl') {
       throw new Error(`Unsupported hosted-wallet redemption field: ${key}`);
     }
   }
 }
 
-export function activeHostedWalletAppSessionJwt(): AppSessionJwt | undefined {
+export function activeHostedWalletAppSessionJwt(expectedRelayUrl?: string): AppSessionJwt | undefined {
   const active = hostedWalletSeamsSession;
   if (
     !active ||
     active.expiresAtMs <= Date.now() ||
-    !isSessionJwtUnexpired(active.appSessionJwt)
+    !isSessionJwtUnexpired(active.appSessionJwt) ||
+    (expectedRelayUrl !== undefined && active.relayUrl !== canonicalRelayUrl(expectedRelayUrl))
   ) {
     hostedWalletSeamsSession = null;
     return undefined;
@@ -79,7 +91,9 @@ export function activeHostedWalletAppSessionJwt(): AppSessionJwt | undefined {
   return active.appSessionJwt;
 }
 
-function parseHostedWalletRedemption(value: unknown): HostedWalletSeamsSession {
+function parseHostedWalletRedemption(
+  value: unknown,
+): Omit<HostedWalletSeamsSession, 'relayUrl'> {
   const response = recordFromBoundary(value);
   if (response.ok !== true) {
     const code = requiredString(response, 'code');
@@ -164,7 +178,11 @@ export async function redeemHostedWalletSeamsSession(
 ): Promise<HostedWalletSeamsSession> {
   const payload = recordFromBoundary(value);
   assertHostedWalletRedemptionPayload(payload);
-  const response = await fetch(joinNormalizedUrl(relayUrl, '/session/exchange'), {
+  const requestedRelayUrl = canonicalRelayUrl(relayUrl);
+  if (canonicalRelayUrl(payload.relayUrl) !== requestedRelayUrl) {
+    throw new Error('Hosted-wallet redemption relayUrl does not match its request boundary');
+  }
+  const response = await fetch(joinNormalizedUrl(requestedRelayUrl, '/session/exchange'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -187,6 +205,6 @@ export async function redeemHostedWalletSeamsSession(
     throw error;
   }
   const session = parseHostedWalletRedemption(raw);
-  hostedWalletSeamsSession = session;
-  return session;
+  hostedWalletSeamsSession = { ...session, relayUrl: requestedRelayUrl };
+  return hostedWalletSeamsSession;
 }

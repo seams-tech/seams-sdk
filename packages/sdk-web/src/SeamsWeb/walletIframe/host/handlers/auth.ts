@@ -39,10 +39,13 @@ function assertUnlockPayloadHasNoParentBearer(payload: unknown): void {
   }
 }
 
-function walletOriginUnlockOptions(options: LoginHooksOptions): LoginHooksOptions {
+function walletOriginUnlockOptions(
+  options: LoginHooksOptions,
+  relayUrl: string,
+): LoginHooksOptions {
   const inventory = options.ecdsaKeyFactsInventory;
   if (!inventory || inventory.mode === 'webauthn') return options;
-  const appSessionJwt = activeHostedWalletAppSessionJwt();
+  const appSessionJwt = activeHostedWalletAppSessionJwt(options.session?.relayUrl || relayUrl);
   if (!appSessionJwt) {
     throw new Error('hosted-wallet Seams Session is required for app-session ECDSA inventory');
   }
@@ -83,7 +86,10 @@ export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = deps.getSeamsWeb();
       assertUnlockPayloadHasNoParentBearer(req.payload);
       const payload = requirePMUnlockPayload(req.payload);
-      const options = walletOriginUnlockOptions(pmUnlockPayloadToLoginHooksOptions(payload));
+      const options = walletOriginUnlockOptions(
+        pmUnlockPayloadToLoginHooksOptions(payload),
+        pm.configs.network.relayer.url,
+      );
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.auth.unlock(
         payload.walletId,

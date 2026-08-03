@@ -68,6 +68,7 @@ function assertNeverRegistrationAuthMethod(value: never): never {
 
 function walletOriginRegistrationAuthMethod(
   authMethod: PMRegistrationAuthMethodInput,
+  relayUrl: string,
 ): RegistrationAuthMethodInput {
   if (Object.prototype.hasOwnProperty.call(authMethod, 'appSessionJwt')) {
     throw new Error('Wallet iframe registration payload must not carry appSessionJwt');
@@ -82,7 +83,7 @@ function walletOriginRegistrationAuthMethod(
           : { authenticatorOptions: authMethod.authenticatorOptions }),
       };
     case 'email_otp': {
-      const appSessionJwt = activeHostedWalletAppSessionJwt();
+      const appSessionJwt = activeHostedWalletAppSessionJwt(relayUrl);
       if (!appSessionJwt) {
         throw new Error('Email OTP registration requires an active hosted-wallet Seams Session');
       }
@@ -131,7 +132,10 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         payload.options || {},
       ) as RegistrationHooksOptions;
       const result = await pm.registration.registerWallet({
-        authMethod: walletOriginRegistrationAuthMethod(payload.authMethod),
+        authMethod: walletOriginRegistrationAuthMethod(
+          payload.authMethod,
+          pm.configs.network.relayer.url,
+        ),
         wallet: payload.wallet,
         signerSelection: payload.signerSelection,
         options: {
