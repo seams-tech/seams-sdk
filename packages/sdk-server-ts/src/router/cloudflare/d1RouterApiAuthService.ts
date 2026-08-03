@@ -1010,7 +1010,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     sessions: authorizationStore,
     evidence: authorizationStore,
     grants: authorizationStore,
-    claims: authorizationStore,
+    authorizedOperations: authorizationStore,
     audit: authorizationStore,
   });
   const googleEmailOtpRegistrationAttempts = new CloudflareD1GoogleEmailOtpRegistrationAttemptStore(
@@ -1476,9 +1476,9 @@ function createD1AuthorizationSessionRouteService(
   };
 }
 
-function createD1AuthorizationClaimRouteService(
+function createD1AuthorizedOperationRouteService(
   assembly: D1AuthorizationSessionRouteServiceAssembly,
-): RouterApiServiceBag['authorizationClaims'] {
+): RouterApiServiceBag['authorizedOperations'] {
   const tenantId = parseTenantId(assembly.options.orgId);
   if (!tenantId.ok) {
     throw new Error(`orgId cannot identify an authorization tenant: ${tenantId.error.message}`);
@@ -1496,7 +1496,7 @@ function createD1AuthorizationClaimRouteService(
     readAuthorizedOperation: assembly.authorizationService.readAuthorizedOperation.bind(
       assembly.authorizationService,
     ),
-    claimAuthorizedOperation: assembly.authorizationService.claimAuthorizedOperation.bind(
+    admitAuthorizedOperation: assembly.authorizationService.admitAuthorizedOperation.bind(
       assembly.authorizationService,
     ),
     completeAuthorizedOperation:
@@ -1569,7 +1569,7 @@ export function createCloudflareD1RouterApiAuthService(
     identity: createD1IdentityRouteService(assembly),
     sessionVersions: createD1SessionVersionRouteService(assembly),
     authorizationSessions: createD1AuthorizationSessionRouteService(assembly),
-    authorizationClaims: createD1AuthorizationClaimRouteService(assembly),
+    authorizedOperations: createD1AuthorizedOperationRouteService(assembly),
     thresholdRuntime: createD1ThresholdRuntimeRouteService(assembly),
     nearFunding: createD1NearFundingRouteService(assembly),
     recovery: createD1RecoveryRouteService(assembly),

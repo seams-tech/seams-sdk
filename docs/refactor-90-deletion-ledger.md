@@ -165,6 +165,37 @@ Unit 3d adds no compatibility types, source-text guards, quota reservation
 layer, or duplicate E2E suite. Close each row with its replacing implementation
 and focused behavioral evidence.
 
+### Unit 3d completion — 2026-08-03
+
+The destructive cutover replaces the initial inventory above with one
+`AuthorizedOperation` store and port. Reusable Wallet Session operations carry
+an `AuthorizationGrantRef` plus exact Wallet Session/quota identities; verified
+step-up operations carry their evidence digest directly. Both branches use one
+atomic fingerprint, quota, audit, replay, and completion transaction.
+
+- deleted the reusable capability-grant/use tables, service methods, domain
+  records, synthetic evidence construction, curve-specific operation-use IDs,
+  fixtures, and wire fields;
+- renamed the active API to `AuthorizedOperationPort`,
+  `RouterApiAuthorizedOperationService`, and `admitAuthorizedOperation`;
+- changed the strict Ed25519/ECDSA Router wire to `authorized_operation` and
+  reject the retired nested `claim` field;
+- separated authorization, Wallet Session, quota, authorized-operation,
+  threshold-session, and material-activation identities at TypeScript, D1, and
+  Rust boundaries;
+- deleted the orphan Email OTP ECDSA registration-bootstrap worker operation,
+  registration-handle branches, registration-bootstrap JWT/session fields, and
+  their stale fixtures;
+- made signing finalize revalidate the current operation source before an MPC
+  effect; ECDSA also revalidates the exact material activation in the same
+  admission path.
+
+Focused D1 authorization/session tests, both SDK typechecks, unit typechecks,
+Rust bindings/strict-route tests, the Email OTP coordinator, add-wallet
+orchestration, vault vertical, and the retired-handle boundary test pass. The
+healthy-environment intended-behavior and deployment gates remain outside this
+deletion slice.
+
 ### Unit 3c pre-cutover live-occurrence inventory — 2026-08-02 (historical)
 
 The first Unit 3c inventory found **118 production files / 1,245 references**

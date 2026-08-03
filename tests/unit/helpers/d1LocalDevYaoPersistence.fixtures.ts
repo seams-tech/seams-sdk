@@ -595,11 +595,11 @@ async function buildLocalRegistrationCapability(): Promise<WalletEd25519YaoActiv
       selected_server_id: admissionRequest.scope.signing_worker_id,
     },
     operation: 'registration',
-      session_id: bytes(20),
-      stable_key_context_binding: await deriveRouterAbEd25519YaoStableContextBindingV1(
+    session_id: bytes(20),
+    stable_key_context_binding: await deriveRouterAbEd25519YaoStableContextBindingV1(
       admissionRequest.application_binding,
       admissionRequest.participant_ids,
-      ),
+    ),
     material_activation: admissionRequest.scope.material_activation,
   };
   const registrationResult = requireParsed(
@@ -671,6 +671,7 @@ async function issueLocalWalletSessionToken(
     nearEd25519SigningKeyId:
       capability.admissionRequest.application_binding.near_ed25519_signing_key_id,
     thresholdSessionId: capability.admissionRequest.scope.threshold_session_id,
+    authorizationId: localWalletAuthorizationId(),
     walletSessionId: localWalletSessionId(),
     quotaId: localWalletSessionQuotaId(),
     relayerKeyId: SIGNING_WORKER_ID,
@@ -833,6 +834,10 @@ function localWalletId() {
 
 function localWalletSessionId(): string {
   return 'wallet-session-local-existing-yao';
+}
+
+function localWalletAuthorizationId(): string {
+  return 'authorization-grant-local-existing-yao';
 }
 
 function localWalletSessionQuotaId(): string {

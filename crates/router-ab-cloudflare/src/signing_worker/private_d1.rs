@@ -493,9 +493,11 @@ pub async fn claim_cloudflare_signing_worker_near_effect_v1(
             let authorization_json =
                 encode_json("SigningWorker effect authorization", &request.effect_claim)?;
             let authorization_key = format!(
-                "reusable-wallet-session/{}/{}/{}",
+                "reusable-wallet-session/{}/{}/{}/{}/{}",
+                claim.authorization_id,
                 claim.wallet_session_id,
                 claim.authorized_operation_id,
+                claim.operation_id,
                 claim.operation_fingerprint_digest
             );
             claim_cloudflare_signing_worker_authorization_effect_v1(
@@ -511,6 +513,7 @@ pub async fn claim_cloudflare_signing_worker_near_effect_v1(
         CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
             authorization_session_id,
             authorized_operation_id,
+            operation_id,
             operation_fingerprint_digest,
             ..
         } => {
@@ -518,7 +521,7 @@ pub async fn claim_cloudflare_signing_worker_near_effect_v1(
                 encode_json("SigningWorker effect authorization", &request.effect_claim)?;
             let authorization_key =
                 format!(
-                    "operation-step-up/{authorization_session_id}/{authorized_operation_id}/{operation_fingerprint_digest}"
+                    "operation-step-up/{authorization_session_id}/{authorized_operation_id}/{operation_id}/{operation_fingerprint_digest}"
                 );
             claim_cloudflare_signing_worker_authorization_effect_v1(
                 &session,
@@ -588,19 +591,22 @@ pub async fn claim_cloudflare_signing_worker_ecdsa_effect_v1(
     let authorization_key = match &request.effect_claim {
         CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession { claim } => {
             format!(
-                "ecdsa-reusable-wallet-session/{}/{}/{}",
+                "ecdsa-reusable-wallet-session/{}/{}/{}/{}/{}",
+                claim.authorization_id,
                 claim.wallet_session_id,
                 claim.authorized_operation_id,
+                claim.operation_id,
                 claim.operation_fingerprint_digest
             )
         }
         CloudflareSigningWorkerNormalSigningEffectClaimV1::OperationStepUp {
             authorization_session_id,
             authorized_operation_id,
+            operation_id,
             operation_fingerprint_digest,
             ..
         } => format!(
-            "ecdsa-operation-step-up/{authorization_session_id}/{authorized_operation_id}/{operation_fingerprint_digest}"
+            "ecdsa-operation-step-up/{authorization_session_id}/{authorized_operation_id}/{operation_id}/{operation_fingerprint_digest}"
         ),
     };
     claim_cloudflare_signing_worker_authorization_effect_v1(

@@ -58,6 +58,7 @@ type RecoveryFixtureIdentity = {
   readonly walletId: string;
   readonly nearAccountId: string;
   readonly nearSigningKeyId: string;
+  readonly authorizationId: string;
   readonly walletSessionId: string;
   readonly thresholdSessionId: string;
   readonly quotaId: string;
@@ -75,6 +76,7 @@ const PRIMARY_IDENTITY: RecoveryFixtureIdentity = {
   walletId: 'wallet-recovery-1',
   nearAccountId: 'wallet-recovery-1.testnet',
   nearSigningKeyId: 'ed25519ks_recovery_1',
+  authorizationId: 'authorization-grant-recovery-1',
   walletSessionId: 'wallet-session-recovery-1',
   thresholdSessionId: 'threshold-session-recovery-1',
   quotaId: 'wallet-session-quota-recovery-1',
@@ -92,6 +94,7 @@ const SECONDARY_IDENTITY: RecoveryFixtureIdentity = {
   walletId: 'wallet-recovery-2',
   nearAccountId: 'wallet-recovery-2.testnet',
   nearSigningKeyId: 'ed25519ks_recovery_2',
+  authorizationId: 'authorization-grant-recovery-2',
   walletSessionId: 'wallet-session-recovery-2',
   thresholdSessionId: 'threshold-session-recovery-2',
   quotaId: 'wallet-session-quota-recovery-2',
@@ -528,7 +531,11 @@ function recoveryExecutionResult(
       binding: request.binding,
       deriver_a_client_package: activationClientPackage(request.binding, 'deriver_a'),
       deriver_b_client_package: activationClientPackage(request.binding, 'deriver_b'),
-      public_receipt: publicReceipt(2, registeredPublicKeySeed, request.binding.material_activation),
+      public_receipt: publicReceipt(
+        2,
+        registeredPublicKeySeed,
+        request.binding.material_activation,
+      ),
     }),
   );
 }
@@ -552,11 +559,7 @@ function recoveryBinding(request: RouterAbEd25519YaoRecoveryAdmissionRequestV1) 
   };
 }
 
-function materialActivation(
-  lifecycleId: string,
-  materialOwner: string,
-  signingWorker: string,
-) {
+function materialActivation(lifecycleId: string, materialOwner: string, signingWorker: string) {
   return {
     kind: 'mpc_material_activation_ref' as const,
     activation_id: `${lifecycleId}-activation`,
@@ -625,6 +628,7 @@ function recoveryClaims(identity: RecoveryFixtureIdentity) {
     walletId: identity.walletId,
     nearAccountId: identity.nearAccountId,
     nearEd25519SigningKeyId: identity.nearSigningKeyId,
+    authorizationId: identity.authorizationId,
     walletSessionId: identity.walletSessionId,
     quotaId: identity.quotaId,
     thresholdSessionId: identity.thresholdSessionId,

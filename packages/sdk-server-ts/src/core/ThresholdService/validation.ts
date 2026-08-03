@@ -51,14 +51,15 @@ import type {
   ThresholdEd25519AuthorityScope,
   WebAuthnAuthenticationCredential,
 } from '../types';
-import type { WalletRegistrationEcdsaClientBootstrap } from '../registrationContracts';
 import { registrationPreparationIdFromString } from '../registrationContracts';
 import {
   parseMpcWalletSigningQuotaId,
   parseSeamsSessionId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
   type SeamsSessionId,
+  type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseEcdsaKeyHandle, type EcdsaKeyHandle } from '../keyMaterialBrands';
@@ -421,7 +422,6 @@ const ECDSA_DERIVATION_V1_CONTEXT_FORBIDDEN_FIELDS = [
   'key_version',
 ] as const;
 
-
 function hasExactFields(raw: Record<string, unknown>, fields: readonly string[]): boolean {
   const allowed = new Set(fields);
   const actual = Object.keys(raw);
@@ -573,71 +573,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
     return { ...base, passkeyBootstrapAuthorization };
   }
   return base;
-}
-
-export function parseWalletRegistrationEcdsaClientBootstrap(
-  raw: unknown,
-): WalletRegistrationEcdsaClientBootstrap | null {
-  if (!isObject(raw)) return null;
-  if (toOptionalString(raw.sessionId)) return null;
-  if (raw.clientRootProof !== undefined || raw.passkeyBootstrapAuthorization !== undefined) {
-    return null;
-  }
-  const thresholdSessionId = toOptionalString(raw.thresholdSessionId);
-  if (!thresholdSessionId) return null;
-  const parsed = parseEcdsaDerivationClientBootstrapRequest({
-    formatVersion: raw.formatVersion,
-    walletId: raw.walletId,
-    evmFamilySigningKeySlotId: raw.evmFamilySigningKeySlotId,
-    ecdsaThresholdKeyId: raw.ecdsaThresholdKeyId,
-    signingRootId: raw.signingRootId,
-    signingRootVersion: raw.signingRootVersion,
-    keyScope: raw.keyScope,
-    relayerKeyId: raw.relayerKeyId,
-    registrationPreparationId: raw.registrationPreparationId,
-    derivationClientSharePublicKey33B64u: raw.derivationClientSharePublicKey33B64u,
-    clientShareRetryCounter: raw.clientShareRetryCounter,
-    contextBinding32B64u: raw.contextBinding32B64u,
-    requestId: raw.requestId,
-    sessionId: thresholdSessionId,
-    ttlMs: raw.ttlMs,
-    remainingUses: raw.remainingUses,
-    participantIds: raw.participantIds,
-    runtimePolicyScope: raw.runtimePolicyScope,
-  });
-  if (
-    !parsed ||
-    !parsed.registrationPreparationId ||
-    !parsed.runtimePolicyScope ||
-    parsed.participantIds.length !== 2 ||
-    parsed.participantIds[0] !== 1 ||
-    parsed.participantIds[1] !== 2 ||
-    parsed.clientRootProof ||
-    parsed.passkeyBootstrapAuthorization ||
-    parsed.sessionKind
-  ) {
-    return null;
-  }
-  return {
-    formatVersion: parsed.formatVersion,
-    walletId: parsed.walletId,
-    evmFamilySigningKeySlotId: parsed.evmFamilySigningKeySlotId,
-    ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
-    signingRootId: parsed.signingRootId,
-    signingRootVersion: parsed.signingRootVersion,
-    keyScope: parsed.keyScope,
-    relayerKeyId: parsed.relayerKeyId,
-    registrationPreparationId: parsed.registrationPreparationId,
-    derivationClientSharePublicKey33B64u: parsed.derivationClientSharePublicKey33B64u,
-    clientShareRetryCounter: parsed.clientShareRetryCounter,
-    contextBinding32B64u: parsed.contextBinding32B64u,
-    requestId: parsed.requestId,
-    thresholdSessionId: parsed.sessionId,
-    ttlMs: parsed.ttlMs,
-    remainingUses: parsed.remainingUses,
-    participantIds: [1, 2],
-    runtimePolicyScope: parsed.runtimePolicyScope,
-  };
 }
 
 export type ParsedThresholdEd25519Commitments = { hiding: string; binding: string };
@@ -845,13 +780,7 @@ export function parseThresholdEcdsaMpcSessionRecord(
   const signingRootMetadata = parseOptionalThresholdEcdsaSigningRootMetadataFields(raw);
   if (!signingRootMetadata.ok) return null;
   if (!isValidNumber(expiresAtMs)) return null;
-  if (
-    !relayerKeyId ||
-    !purpose ||
-    !intentDigestB64u ||
-    !signingDigestB64u ||
-    !walletId
-  ) {
+  if (!relayerKeyId || !purpose || !intentDigestB64u || !signingDigestB64u || !walletId) {
     return null;
   }
   return {
@@ -1303,6 +1232,7 @@ export type Ed25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionC
   nearEd25519SigningKeyId: string;
   kind: Kind;
   thresholdSessionId: string;
+  authorizationId: WalletSessionAuthorizationId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   relayerKeyId: string;
@@ -1347,6 +1277,9 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
   const thresholdSessionId = toOptionalString(
     (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
   );
+  const authorizationId = parseWalletSessionAuthorizationId(
+    (raw as { authorizationId?: unknown }).authorizationId,
+  );
   const walletSessionId = parseWalletSessionId(
     (raw as { walletSessionId?: unknown }).walletSessionId,
   );
@@ -1363,6 +1296,7 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
     !thresholdSessionId ||
+    !authorizationId.ok ||
     !walletSessionId.ok ||
     !quotaId.ok ||
     !relayerKeyId ||
@@ -1388,6 +1322,7 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     nearEd25519SigningKeyId,
     kind: expectedKind,
     thresholdSessionId,
+    authorizationId: authorizationId.value,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
     relayerKeyId,
@@ -1584,6 +1519,7 @@ export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaim
   walletId: string;
   kind: Kind;
   thresholdSessionId: string;
+  authorizationId: WalletSessionAuthorizationId;
   authorizationSessionId: SeamsSessionId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
@@ -1617,6 +1553,9 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
   const thresholdSessionId = toOptionalString(
     (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
   );
+  const authorizationId = parseWalletSessionAuthorizationId(
+    (raw as { authorizationId?: unknown }).authorizationId,
+  );
   const authorizationSessionId = parseSeamsSessionId(
     (raw as { authorizationSessionId?: unknown }).authorizationSessionId,
   );
@@ -1632,6 +1571,7 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     !walletId ||
     walletId !== sub ||
     !thresholdSessionId ||
+    !authorizationId.ok ||
     !authorizationSessionId.ok ||
     !walletSessionId.ok ||
     !quotaId.ok ||
@@ -1651,6 +1591,7 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     walletId,
     kind: expectedKind,
     thresholdSessionId,
+    authorizationId: authorizationId.value,
     authorizationSessionId: authorizationSessionId.value,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,

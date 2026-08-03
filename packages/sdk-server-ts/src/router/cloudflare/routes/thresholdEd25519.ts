@@ -43,7 +43,6 @@ import {
   parseAuthorizationEvidenceSetId,
   parsePrincipalId,
   parseTenantId,
-  parseWalletSessionAuthorizationId,
 } from '@shared/authorization/capabilityKinds';
 import {
   buildCapabilityOperationEnvelope,
@@ -118,6 +117,7 @@ type RouterAbEd25519AuthorizedOperationWire = {
   readonly binding:
     | {
         readonly kind: 'reusable_wallet_session';
+        readonly authorization_id: string;
         readonly wallet_session_id: string;
         readonly quota_id: string;
       }
@@ -129,7 +129,7 @@ type RouterAbEd25519AuthorizedOperationWire = {
         readonly environment: string;
         readonly subject_id: string;
       };
-  readonly claim:
+  readonly authorized_operation:
     | Ed25519ReusableAuthorizedOperationReceipt
     | (Ed25519VerifiedStepUpAuthorizedOperationReceipt & {
         readonly evidence_set_digest: string;
@@ -166,7 +166,7 @@ function buildRouterAbEd25519AuthorizedOperationWire(
     throw new Error('Ed25519 authorized operation capability is invalid');
   }
   const operationKind = requireEd25519OperationKind(operationRef.operationKind);
-  const commonClaim = {
+  const commonAuthorizedOperation = {
     authorized_operation_id: operation.authorizedOperationId,
     operation_id: operation.operation.operationId,
     capability_kind: 'near_ed25519_mpc_signing' as const,
@@ -187,12 +187,13 @@ function buildRouterAbEd25519AuthorizedOperationWire(
       return {
         binding: {
           kind: 'reusable_wallet_session',
+          authorization_id: operation.authorization.authorizationGrantRef.authorizationId,
           wallet_session_id: input.binding.walletSessionId,
           quota_id: input.binding.quotaId,
         },
-        claim: {
+        authorized_operation: {
           kind: 'reusable_wallet_session_authorized_operation_v1',
-          ...commonClaim,
+          ...commonAuthorizedOperation,
         },
       };
     case 'operation_step_up':
@@ -211,11 +212,11 @@ function buildRouterAbEd25519AuthorizedOperationWire(
           environment: input.binding.environment,
           subject_id: input.binding.subjectId,
         },
-        claim: {
+        authorized_operation: {
           kind: 'verified_step_up_authorized_operation_v1',
           authorization_session_id: input.binding.authorizationSessionId,
           evidence_set_digest: operation.authorization.evidenceSetDigest,
-          ...commonClaim,
+          ...commonAuthorizedOperation,
         },
       };
   }
@@ -492,9 +493,7 @@ function parseEd25519ReusableAuthorizedOperationReceipt(
   if (capabilityKind !== 'near_ed25519_mpc_signing') {
     throw new Error('authorized_operation.capability_kind is invalid');
   }
-  const operationKind = requireEd25519OperationKind(
-    requireReceiptString(record, 'operation_kind'),
-  );
+  const operationKind = requireEd25519OperationKind(requireReceiptString(record, 'operation_kind'));
   const laneDigest = requireReceiptString(record, 'lane_digest_b64u');
   const intentDigest = requireReceiptString(record, 'intent_digest_b64u');
   const displayDigest = requireReceiptString(record, 'display_digest_b64u');
@@ -528,9 +527,7 @@ function parseEd25519VerifiedStepUpAuthorizedOperationReceipt(
   if (capabilityKind !== 'near_ed25519_mpc_signing') {
     throw new Error('authorized_operation.capability_kind is invalid');
   }
-  const operationKind = requireEd25519OperationKind(
-    requireReceiptString(record, 'operation_kind'),
-  );
+  const operationKind = requireEd25519OperationKind(requireReceiptString(record, 'operation_kind'));
   const laneDigest = requireReceiptString(record, 'lane_digest_b64u');
   const intentDigest = requireReceiptString(record, 'intent_digest_b64u');
   const displayDigest = requireReceiptString(record, 'display_digest_b64u');
@@ -594,7 +591,7 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
     const tenantId = requireAuthorizationValue(parseTenantId(claims.runtimePolicyScope.orgId));
     const principalId = requireAuthorizationValue(parsePrincipalId(claims.sub));
     if (
-      tenantId !== input.ctx.service.authorizationClaims.tenantId ||
+      tenantId !== input.ctx.service.authorizedOperations.tenantId ||
       tenantId !== input.ctx.service.authorizationSessions.tenantId ||
       scope.authorization.wallet_session_id !== claims.walletSessionId
     ) {
@@ -613,7 +610,9 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
     const intentDigest = parseDigestB64u(
       base64UrlEncode(Uint8Array.from(privateBody.admission_candidate.intent_digest.bytes)),
     );
-    const displayDigest = parseDigestB64u(digestWireB64u(input.body.display_digest, 'display_digest'));
+    const displayDigest = parseDigestB64u(
+      digestWireB64u(input.body.display_digest, 'display_digest'),
+    );
     const envelope = buildCapabilityOperationEnvelope({
       tenantId,
       principalId,
@@ -625,19 +624,17 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
     const authorizedOperationId = requireAuthorizationValue(
       parseAuthorizedOperationId(`ed25519-operation:${operation.operationId}:${scope.request_id}`),
     );
-    const outcome = await input.ctx.service.authorizationClaims.claimAuthorizedOperation({
+    const outcome = await input.ctx.service.authorizedOperations.admitAuthorizedOperation({
       operation: {
         tenantId,
         authorizedOperationId,
-      auditEventId: requireAuthorizationValue(
-        parseAuthorizationAuditEventId(`ed25519-operation-audit:${operation.operationId}`),
-      ),
+        auditEventId: requireAuthorizationValue(
+          parseAuthorizationAuditEventId(`ed25519-operation-audit:${operation.operationId}`),
+        ),
         operation: envelope,
         authorization: {
           kind: 'authorization_grant',
-          authorizationGrantRef: buildAuthorizationGrantRef(
-            requireAuthorizationValue(parseWalletSessionAuthorizationId(claims.walletSessionId)),
-          ),
+          authorizationGrantRef: buildAuthorizationGrantRef(claims.authorizationId),
         },
         quota: { kind: 'consume_reusable_wallet_session', quotaId: claims.quotaId },
         claimedAtMs: nowMs,
@@ -688,6 +685,57 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
   }
 }
 
+async function revalidateEd25519AuthorizedOperation(input: {
+  readonly ctx: CloudflareRouterApiContext;
+  readonly operation: AuthorizedOperation;
+}): Promise<
+  | { readonly ok: true; readonly operation: AuthorizedOperation }
+  | { readonly ok: false; readonly response: Response }
+> {
+  const result = await input.ctx.service.authorizedOperations.admitAuthorizedOperation({
+    operation: {
+      tenantId: input.operation.tenantId,
+      authorizedOperationId: input.operation.authorizedOperationId,
+      auditEventId: input.operation.auditEventId,
+      operation: input.operation.operation,
+      authorization: input.operation.authorization,
+      quota: input.operation.quota,
+      claimedAtMs: Date.now(),
+    },
+  });
+  switch (result.kind) {
+    case 'claimed':
+    case 'operation_in_progress':
+    case 'replayed':
+      if (result.operation.authorizedOperationId !== input.operation.authorizedOperationId) {
+        throw new Error('Ed25519 authorized operation changed during revalidation');
+      }
+      return { ok: true, operation: result.operation };
+    case 'authorization_grant_rejected':
+    case 'verified_step_up_rejected':
+      return {
+        ok: false,
+        response: json(
+          {
+            ok: false,
+            code: result.kind,
+            message: 'Ed25519 operation authorization is no longer active',
+          },
+          { status: 403 },
+        ),
+      };
+    case 'wallet_session_quota_exhausted':
+    case 'material_mismatch':
+      return {
+        ok: false,
+        response: json(
+          { ok: false, code: result.kind, message: 'Ed25519 operation admission failed' },
+          { status: 409 },
+        ),
+      };
+  }
+}
+
 async function validateEd25519ReusableAuthorizedOperation(input: {
   ctx: CloudflareRouterApiContext;
   body: Record<string, unknown>;
@@ -732,7 +780,10 @@ async function validateEd25519ReusableAuthorizedOperation(input: {
       },
     });
     const fingerprint = await computeCapabilityOperationFingerprintDigest(envelope);
-    if (fingerprint !== parseCapabilityOperationFingerprintDigest(receipt.operation_fingerprint_digest)) {
+    if (
+      fingerprint !==
+      parseCapabilityOperationFingerprintDigest(receipt.operation_fingerprint_digest)
+    ) {
       throw new Error('Ed25519 authorized operation fingerprint changed');
     }
     const prepareBinding = isPlainObject(input.body.prepare_binding)
@@ -744,7 +795,7 @@ async function validateEd25519ReusableAuthorizedOperation(input: {
     ) {
       throw new Error('Ed25519 authorized operation intent changed after prepare');
     }
-    const operationResult = await input.ctx.service.authorizationClaims.readAuthorizedOperation({
+    const operationResult = await input.ctx.service.authorizedOperations.readAuthorizedOperation({
       tenantId,
       operationFingerprintDigest: fingerprint,
     });
@@ -762,12 +813,19 @@ async function validateEd25519ReusableAuthorizedOperation(input: {
       };
     }
     if (
-      operationResult.authorizedOperationId !== requireAuthorizationValue(parseAuthorizedOperationId(receipt.authorized_operation_id)) ||
+      operationResult.authorizedOperationId !==
+        requireAuthorizationValue(parseAuthorizedOperationId(receipt.authorized_operation_id)) ||
       operationResult.operationFingerprintDigest !== fingerprint
     ) {
       throw new Error('Ed25519 authorized operation identity changed after prepare');
     }
-    return { ok: true, receipt, operation: operationResult };
+    const revalidated = await revalidateEd25519AuthorizedOperation({
+      ctx: input.ctx,
+      operation: operationResult,
+    });
+    return revalidated.ok
+      ? { ok: true, receipt, operation: revalidated.operation }
+      : revalidated;
   } catch (error: unknown) {
     return {
       ok: false,
@@ -838,9 +896,7 @@ async function validateEd25519VerifiedStepUpAuthorizedOperation(input: {
     if (scope.authorization.kind !== 'operation_step_up') {
       throw new Error('Operation step-up authority is required');
     }
-    if (
-      receipt.authorization_session_id !== input.authorization.session.sessionId
-    ) {
+    if (receipt.authorization_session_id !== input.authorization.session.sessionId) {
       throw new Error('Operation step-up authorization changed after prepare');
     }
     const envelope = buildCapabilityOperationEnvelope({
@@ -849,9 +905,7 @@ async function validateEd25519VerifiedStepUpAuthorizedOperation(input: {
       capabilityId: requireAuthorizationValue(
         parseCapabilityId(scope.material_activation.capability),
       ),
-      operationId: requireAuthorizationValue(
-        parseCapabilityOperationId(receipt.operation_id),
-      ),
+      operationId: requireAuthorizationValue(parseCapabilityOperationId(receipt.operation_id)),
       operation: {
         capabilityKind: 'near_ed25519_mpc_signing',
         operationKind: receipt.operation_kind,
@@ -878,7 +932,7 @@ async function validateEd25519VerifiedStepUpAuthorizedOperation(input: {
     ) {
       throw new Error('Operation step-up intent changed after prepare');
     }
-    const operationResult = await input.ctx.service.authorizationClaims.readAuthorizedOperation({
+    const operationResult = await input.ctx.service.authorizedOperations.readAuthorizedOperation({
       tenantId: input.authorization.session.tenantId,
       operationFingerprintDigest: fingerprint,
     });
@@ -896,12 +950,19 @@ async function validateEd25519VerifiedStepUpAuthorizedOperation(input: {
       };
     }
     if (
-      operationResult.authorizedOperationId !== requireAuthorizationValue(parseAuthorizedOperationId(receipt.authorized_operation_id)) ||
+      operationResult.authorizedOperationId !==
+        requireAuthorizationValue(parseAuthorizedOperationId(receipt.authorized_operation_id)) ||
       operationResult.operationFingerprintDigest !== fingerprint
     ) {
       throw new Error('Operation step-up authorized operation identity changed after prepare');
     }
-    return { ok: true, receipt, operation: operationResult };
+    const revalidated = await revalidateEd25519AuthorizedOperation({
+      ctx: input.ctx,
+      operation: operationResult,
+    });
+    return revalidated.ok
+      ? { ok: true, receipt, operation: revalidated.operation }
+      : revalidated;
   } catch (error: unknown) {
     return {
       ok: false,
@@ -927,10 +988,12 @@ async function completeEd25519Operation(input: {
   const resultDigest = parseDigestB64u(
     base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(input.response))),
   );
-  await input.ctx.service.authorizationClaims.completeAuthorizedOperation({
+  await input.ctx.service.authorizedOperations.completeAuthorizedOperation({
     operation: input.operation,
     result: input.result,
     resultRef: {
+      authorizedOperationId: input.operation.authorizedOperationId,
+      operationFingerprintDigest: input.operation.operationFingerprintDigest,
       resultDigest,
       resultStorageRef: requireAuthorizationValue(
         parseCapabilityOperationResultStorageRef(`router-signing-result:${input.requestId}`),
@@ -973,9 +1036,7 @@ type Ed25519OperationStepUpMaterialRecoveryResult =
 
 export async function recoverEd25519OperationStepUpMaterial(input: {
   readonly request: RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest;
-  readonly removeEmailOtpServerSeal: (input: {
-    readonly wrappedCiphertext: string;
-  }) => Promise<
+  readonly removeEmailOtpServerSeal: (input: { readonly wrappedCiphertext: string }) => Promise<
     | {
         readonly ok: true;
         readonly ciphertext: string;
@@ -1026,7 +1087,7 @@ async function issueEd25519OperationStepUpGrant(input: {
     headers: Object.fromEntries(input.ctx.request.headers.entries()),
     session: input.ctx.opts.session,
     scope,
-    authorizationClaims: input.ctx.service.authorizationClaims,
+    authorizedOperations: input.ctx.service.authorizedOperations,
     authorizationSessions: input.ctx.service.authorizationSessions,
   });
   if (!authenticated.ok) {
@@ -1250,8 +1311,9 @@ async function issueEd25519OperationStepUpGrant(input: {
       }
       const recoveredMaterial = await recoverEd25519OperationStepUpMaterial({
         request: input.request.materialRecovery,
-        removeEmailOtpServerSeal:
-          input.ctx.service.emailOtp.removeEmailOtpServerSeal.bind(input.ctx.service.emailOtp),
+        removeEmailOtpServerSeal: input.ctx.service.emailOtp.removeEmailOtpServerSeal.bind(
+          input.ctx.service.emailOtp,
+        ),
       });
       if (!recoveredMaterial.ok) {
         return json(
@@ -1295,7 +1357,7 @@ async function issueEd25519OperationStepUpGrant(input: {
       break;
     }
   }
-  await input.ctx.service.authorizationClaims.recordVerifiedFactorEvidenceSet({
+  await input.ctx.service.authorizedOperations.recordVerifiedFactorEvidenceSet({
     session: activeSession,
     operation: envelope,
     evidenceId,
@@ -1324,7 +1386,7 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
     rawBody: input.body,
     headers: Object.fromEntries(input.ctx.request.headers.entries()),
     session: input.ctx.opts.session,
-    authorizationClaims: input.ctx.service.authorizationClaims,
+    authorizedOperations: input.ctx.service.authorizedOperations,
     authorizationSessions: input.ctx.service.authorizationSessions,
     admissionAdapter: input.ctx.opts.routerAbNormalSigningAdmission,
     resolveEd25519MaterialActivation:
@@ -1359,7 +1421,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
           }),
         },
       });
-      const upstreamBody = await upstream.clone().json().catch(() => null);
+      const upstreamBody = await upstream
+        .clone()
+        .json()
+        .catch(() => null);
       const scope = parseRouterAbEd25519OperationStepUpScope(input.body.scope);
       if (!upstream.ok || !isPlainObject(upstreamBody)) {
         await completeEd25519Operation({
@@ -1412,7 +1477,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
         }),
       },
     });
-    const upstreamBodyText = await upstream.clone().text().catch(() => '');
+    const upstreamBodyText = await upstream
+      .clone()
+      .text()
+      .catch(() => '');
     if (
       isRouterAbEd25519OperationInProgressResponse({
         status: upstream.status,
@@ -1458,7 +1526,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
         }),
       },
     });
-    const upstreamBody = await upstream.clone().json().catch(() => null);
+    const upstreamBody = await upstream
+      .clone()
+      .json()
+      .catch(() => null);
     const scope = parseRouterAbEd25519OperationStepUpScope(input.body.scope);
     if (!upstream.ok || !isPlainObject(upstreamBody)) {
       await completeEd25519Operation({
@@ -1500,7 +1571,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
       }),
     },
   });
-  const upstreamBodyText = await upstream.clone().text().catch(() => '');
+  const upstreamBodyText = await upstream
+    .clone()
+    .text()
+    .catch(() => '');
   if (
     isRouterAbEd25519OperationInProgressResponse({
       status: upstream.status,

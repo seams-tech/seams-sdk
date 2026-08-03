@@ -140,7 +140,9 @@ export class VaultProxyUseService {
     ) {
       return { kind: 'rejected', reason: 'authorization_failed' };
     }
-    const claimResult = await this.authorization.claimAuthorizedOperation({ operation: input.claim });
+    const claimResult = await this.authorization.admitAuthorizedOperation({
+      operation: input.claim,
+    });
     switch (claimResult.kind) {
       case 'operation_in_progress':
         return { kind: 'operation_in_progress' };
@@ -362,7 +364,10 @@ async function parseVaultProxyUseRequest(
     payload: raw.payload,
     claim: {
       tenantId,
-      authorizedOperationId: requireAuthorizationId(raw.authorizedOperationId, parseAuthorizedOperationId),
+      authorizedOperationId: requireAuthorizationId(
+        raw.authorizedOperationId,
+        parseAuthorizedOperationId,
+      ),
       auditEventId: requireAuthorizationId(raw.auditEventId, parseAuthorizationAuditEventId),
       operation,
       claimedAtMs,
@@ -384,6 +389,8 @@ async function buildVaultProxyResultRef(
     parseCapabilityOperationResultStorageRef,
   );
   return {
+    authorizedOperationId: claim.authorizedOperationId,
+    operationFingerprintDigest: claim.operationFingerprintDigest,
     resultDigest: await digest(VAULT_PROXY_RESULT_DIGEST_DOMAIN_V1, result),
     resultStorageRef,
   };

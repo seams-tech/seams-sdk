@@ -10,14 +10,6 @@ import {
   type RootShareEpoch,
 } from '@shared/utils/domainIds';
 import {
-  parseMpcWalletSigningQuotaId,
-  parseSeamsSessionId,
-  parseWalletSessionId,
-  type MpcWalletSigningQuotaId,
-  type SeamsSessionId,
-  type WalletSessionId,
-} from '@shared/authorization/capabilityKinds';
-import {
   ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH,
   ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
@@ -213,13 +205,9 @@ export type ThresholdEcdsaDerivationRoleLocalBootstrapValue = {
   participantIds: number[];
   thresholdSessionId: string;
   activationEpoch: RootShareEpoch;
-  authorizationSessionId: SeamsSessionId;
-  walletSessionId: WalletSessionId;
-  quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   expiresAt: string;
   remainingUses: number;
-  jwt?: string;
   routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
 
@@ -306,14 +294,10 @@ const NON_EXPORT_BOOTSTRAP_RESPONSE_FIELDS = new Set([
   'participantIds',
   'thresholdSessionId',
   'activationEpoch',
-  'authorizationSessionId',
-  'walletSessionId',
-  'quotaId',
   'expiresAtMs',
   'expiresAt',
   'remainingUses',
   'routerAbEcdsaDerivationNormalSigning',
-  'jwt',
 ]);
 
 function rejectUnexpectedFields(
@@ -389,14 +373,7 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
     record.activationEpoch,
     'activationEpoch',
   );
-  const authorizationSessionId = parseSeamsSessionId(record.authorizationSessionId);
-  const walletSessionId = parseWalletSessionId(record.walletSessionId);
-  const quotaId = parseMpcWalletSigningQuotaId(record.quotaId);
-  if (!authorizationSessionId.ok || !walletSessionId.ok || !quotaId.ok) {
-    throw new Error('ECDSA registration bootstrap Wallet Session identity is invalid');
-  }
   const expiresAtMs = requireNumber(record.expiresAtMs, 'expiresAtMs');
-  const jwt = String(record.jwt || '').trim();
   const routerAbEcdsaDerivationNormalSigning =
     requireRouterAbEcdsaDerivationNormalSigningStateV1(
       record.routerAbEcdsaDerivationNormalSigning,
@@ -431,13 +408,9 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
     participantIds,
     thresholdSessionId,
     activationEpoch,
-    authorizationSessionId: authorizationSessionId.value,
-    walletSessionId: walletSessionId.value,
-    quotaId: quotaId.value,
     expiresAtMs,
     expiresAt: requireNonEmptyString(record.expiresAt, 'expiresAt'),
     remainingUses: requireNumber(record.remainingUses, 'remainingUses'),
-    ...(jwt ? { jwt } : {}),
     routerAbEcdsaDerivationNormalSigning,
   };
 }

@@ -630,20 +630,19 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
     ).toThrow(/cannot include evmFamilySigningKeySlotId/i);
   });
 
-  test('rejects registration ECDSA worker handles carrying a key handle', () => {
+  test('rejects retired registration ECDSA worker handles', () => {
     expect(() =>
       parseEmailOtpWorkerIssuedSessionHandle({
         kind: 'email_otp_worker_session_handle_v1',
         sessionId: 'otp-session',
         walletId: 'wallet.testnet',
-        keyHandle: 'ecdsa-key-handle',
         evmFamilySigningKeySlotId: 'evm-family-slot',
         authSubjectId: 'google:alice',
         action: 'threshold_ecdsa_bootstrap',
         operation: 'registration',
         chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
       }),
-    ).toThrow(/cannot include keyHandle/i);
+    ).toThrow(/registration.*retired/i);
   });
 
   test('parses Ed25519 worker-issued Email OTP handles without chainTarget', () => {

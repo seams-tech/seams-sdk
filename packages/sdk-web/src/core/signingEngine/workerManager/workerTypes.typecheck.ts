@@ -1,10 +1,7 @@
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type {
-  EmailOtpEcdsaBootstrapStrictPayload,
   EmailOtpEd25519YaoActiveCapabilityDescriptorV1,
-  EmailOtpEcdsaPublicationTargetPlan,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
   EmailOtpWorkerIssuedSessionHandlePayload,
@@ -46,11 +43,9 @@ import type { RouterAbEcdsaPostRegistrationSessionActivationRequestV1 } from '@s
 
 declare const rootShareEpoch: RootShareEpoch;
 declare const chainTarget: ThresholdEcdsaChainTarget;
-declare const publicationTargetPlans: EmailOtpEcdsaPublicationTargetPlan[];
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
 declare const materialActivation: MpcMaterialActivationRef;
 declare const emailOtpEd25519YaoActiveCapability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
-declare const routeAuth: AppOrWalletSessionAuth;
 declare const incomingMessage: ArrayBuffer;
 declare const emailOtpEd25519YaoSession: WalletRegistrationEd25519YaoBootstrapSession;
 declare const initialEcdsaActivationPlanInput: InitialEcdsaCapabilityActivationPlanInput;
@@ -192,10 +187,10 @@ const clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',
   sessionId: 'otp-root-session',
   walletId: 'wallet.testnet',
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
+  keyHandle: 'ecdsa-key-handle',
   authSubjectId: 'google:subject',
   action: 'threshold_ecdsa_bootstrap',
-  operation: 'registration',
+  operation: 'sign',
   chainTarget,
 };
 
@@ -203,6 +198,18 @@ const ecdsaDisposalPayload = {
   clientRootShareHandle,
 } satisfies EmailOtpWorkerOperationMap['disposeEmailOtpEcdsaClientRootHandle']['payload'];
 void ecdsaDisposalPayload;
+
+const retiredEcdsaRegistrationHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
+  kind: 'email_otp_worker_session_handle_v1',
+  sessionId: 'otp-registration-root-session',
+  walletId: 'wallet.testnet',
+  authSubjectId: 'google:subject',
+  action: 'threshold_ecdsa_bootstrap',
+  // @ts-expect-error Generic ECDSA registration handles are retired; registration uses prepare handles.
+  operation: 'registration',
+  chainTarget,
+};
+void retiredEcdsaRegistrationHandle;
 
 const walletRegistrationEcdsaPrepareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',
@@ -230,82 +237,6 @@ void bootstrapHandleFromRegistrationPrepare;
 
 const issuedHandle: EmailOtpWorkerIssuedSessionHandlePayload = walletRegistrationEcdsaPrepareHandle;
 void issuedHandle;
-
-const jwtBootstrap: EmailOtpEcdsaBootstrapStrictPayload = {
-  relayUrl: 'https://relay.example',
-  walletId: 'wallet.testnet',
-  walletSessionUserId: 'wallet.testnet',
-  userId: 'wallet.testnet',
-  clientRootShareHandle,
-  chainTarget,
-  publicationTargetPlans,
-  runtimePolicyScope,
-  sessionKind: 'jwt',
-  routeAuth,
-};
-void jwtBootstrap;
-
-// @ts-expect-error JWT ECDSA bootstrap requires route auth.
-const jwtBootstrapWithoutRouteAuth: EmailOtpEcdsaBootstrapStrictPayload = {
-  relayUrl: 'https://relay.example',
-  walletId: 'wallet.testnet',
-  walletSessionUserId: 'wallet.testnet',
-  userId: 'wallet.testnet',
-  clientRootShareHandle,
-  chainTarget,
-  publicationTargetPlans,
-  runtimePolicyScope,
-  sessionKind: 'jwt',
-};
-void jwtBootstrapWithoutRouteAuth;
-
-const cookieBootstrap = {
-  relayUrl: 'https://relay.example',
-  walletId: 'wallet.testnet',
-  walletSessionUserId: 'wallet.testnet',
-  userId: 'wallet.testnet',
-  clientRootShareHandle,
-  chainTarget,
-  publicationTargetPlans,
-  runtimePolicyScope,
-  // @ts-expect-error Email OTP ECDSA worker bootstrap must mint JWT Wallet Sessions.
-  sessionKind: 'cookie',
-} satisfies EmailOtpEcdsaBootstrapStrictPayload;
-void cookieBootstrap;
-
-const bootstrapWithRoleLocalIdentity = {
-  ...jwtBootstrap,
-  // @ts-expect-error ECDSA bootstrap derives role-local identity inside the worker.
-  roleLocalKeyIdentity: {
-    ecdsaThresholdKeyId: 'ecdsa-threshold-key',
-    signingRootId: 'signing-root',
-    signingRootVersion: 'default',
-    relayerKeyId: 'relayer-key',
-  },
-} satisfies EmailOtpEcdsaBootstrapStrictPayload;
-void bootstrapWithRoleLocalIdentity;
-
-// @ts-expect-error ECDSA bootstrap requires runtimePolicyScope.
-const bootstrapWithoutRuntimePolicyScope: EmailOtpEcdsaBootstrapStrictPayload = {
-  relayUrl: 'https://relay.example',
-  walletId: 'wallet.testnet',
-  walletSessionUserId: 'wallet.testnet',
-  userId: 'wallet.testnet',
-  clientRootShareHandle,
-  chainTarget,
-  publicationTargetPlans,
-  sessionKind: 'jwt',
-  routeAuth,
-};
-void bootstrapWithoutRuntimePolicyScope;
-
-const cookieBootstrapWithRouteAuth: EmailOtpEcdsaBootstrapStrictPayload = {
-  ...cookieBootstrap,
-  // @ts-expect-error cookie ECDSA bootstrap is not a valid signing-capable payload.
-  sessionKind: 'cookie',
-  routeAuth,
-};
-void cookieBootstrapWithRouteAuth;
 
 type PresignStepPayload = EcdsaPresignClientSessionStepRequest;
 type EmailOtpEd25519YaoExportPayload =
@@ -630,24 +561,6 @@ const presignStepWithoutIncomingMessages: PresignStepPayload = {
   stage: 'triples',
 };
 void presignStepWithoutIncomingMessages;
-
-const emailOtpBootstrapWorkerRequest: EmailOtpWorkerOperationRequestEnvelope = {
-  id: 'request-1',
-  type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
-  payload: jwtBootstrap,
-};
-void emailOtpBootstrapWorkerRequest;
-
-const emailOtpBootstrapWorkerRequestWithoutStrictPayload: EmailOtpWorkerOperationRequestEnvelope = {
-  id: 'request-2',
-  type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
-  // @ts-expect-error worker request envelope binds each operation to its exact payload type.
-  payload: {
-    relayUrl: 'https://relay.example',
-    walletId: 'wallet.testnet',
-  },
-};
-void emailOtpBootstrapWorkerRequestWithoutStrictPayload;
 
 declare const emailOtpWalletUnlockRoutePlan: EmailOtpWalletUnlockPayload['routePlan'];
 declare const emailOtpEcdsaWalletUnlockMaterial: EmailOtpEcdsaWalletUnlockMaterial;

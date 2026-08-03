@@ -36,7 +36,7 @@ Current child owners are explicit folders:
 - Planning: `planning/planner.ts`, `planning/operationFingerprint.ts`, and
   `planning/operationIdBinding.ts`.
 - Budget status: `budget/budget.ts` and `budget/budgetStatusReader.ts`; the
-  relayer owns operation claims and quota consumption.
+  relayer owns authorized-operation admission and quota consumption.
 - Signing operation state: `operationState/types.ts`,
   `operationState/preparedOperation.ts`, `operationState/postSignPolicy.ts`,
   `operationState/transactionState.ts`, and `operationState/trace.ts`.

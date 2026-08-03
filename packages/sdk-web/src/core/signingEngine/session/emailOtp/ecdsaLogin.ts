@@ -10,7 +10,6 @@ import {
 } from '@/core/signingEngine/session/identity/laneIdentity';
 import type {
   ThresholdEcdsaChainTarget,
-  WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -35,7 +34,6 @@ import type {
 import type { EcdsaCommittedLane } from '../../flows/signEvmFamily/ecdsaSelection';
 import {
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
-  WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   type WalletEmailOtpLoginOperation,
@@ -46,7 +44,6 @@ import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpProm
 import {
   buildEvmFamilyEcdsaRecoveredMaterialLanePolicy,
   buildEvmFamilyEcdsaSessionLanePolicy,
-  deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope,
   toEvmFamilyEcdsaKeyHandle,
 } from '../identity/evmFamilyEcdsaIdentity';
 import { type EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
@@ -514,40 +511,27 @@ function requireEmailOtpBootstrapTransportAuth(
 
 function emailOtpNonUnlockWorkerHandleOperationFromLoginOperation(
   operation: WalletEmailOtpOperation,
-): Exclude<EmailOtpWorkerSessionHandleOperation, 'wallet_unlock'> {
+): Exclude<EmailOtpWorkerSessionHandleOperation, 'wallet_unlock' | 'registration'> {
   switch (operation) {
-    case WALLET_EMAIL_OTP_REGISTRATION_OPERATION:
-      return 'registration';
     case WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION:
       return 'sign';
     case WALLET_EMAIL_OTP_EXPORT_OPERATION:
       return 'export';
     case WALLET_EMAIL_OTP_UNLOCK_OPERATION:
       throw new Error('Email OTP wallet unlock requires first-session activation');
+    case 'registration':
+      throw new Error('Email OTP ECDSA registration requires wallet-registration prepare');
   }
   operation satisfies never;
   throw new Error('Unsupported Email OTP non-unlock operation');
 }
 
 function emailOtpNonUnlockEcdsaHandleBinding(args: {
-  walletId: WalletId;
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
   keyHandle: string;
   authSubjectId: string;
-  operation: Exclude<EmailOtpWorkerSessionHandleOperation, 'wallet_unlock'>;
+  operation: Exclude<EmailOtpWorkerSessionHandleOperation, 'wallet_unlock' | 'registration'>;
   chainTarget: ThresholdEcdsaChainTarget;
 }): Exclude<EmailOtpEcdsaSessionBootstrapHandleBinding, { operation: 'wallet_unlock' }> {
-  if (args.operation === 'registration') {
-    return {
-      evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope({
-        walletId: args.walletId,
-        runtimePolicyScope: args.runtimePolicyScope,
-      }),
-      authSubjectId: args.authSubjectId,
-      operation: 'registration',
-      chainTarget: args.chainTarget,
-    };
-  }
   switch (args.operation) {
     case 'sign':
       return {
@@ -1175,8 +1159,6 @@ async function runEmailOtpEcdsaCapability(
               }
             : {
                 ecdsaClientRootHandleBinding: emailOtpNonUnlockEcdsaHandleBinding({
-                  walletId: existingKey.walletKey.walletId,
-                  runtimePolicyScope,
                   keyHandle: String(existingKey.keyHandle),
                   authSubjectId: emailOtpProviderUserId,
                   operation: emailOtpNonUnlockWorkerHandleOperationFromLoginOperation(

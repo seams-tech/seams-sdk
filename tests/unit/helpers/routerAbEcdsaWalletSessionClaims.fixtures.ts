@@ -15,6 +15,7 @@ export type RouterAbEcdsaWalletSessionClaimsFixtureInput = {
   readonly thresholdExpiresAtMs: number;
   readonly runtimePolicyScope: RuntimePolicyScope;
   readonly normalSigningScope: RouterAbEcdsaDerivationNormalSigningScopeV1;
+  readonly authorizationId?: string;
   readonly walletSessionId?: string;
   readonly authorizationSessionId?: string;
   readonly quotaId?: string;
@@ -29,8 +30,8 @@ export function buildRouterAbEcdsaWalletSessionClaimsFixture(
     sub: input.walletId,
     walletId: input.walletId,
     thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-fixture',
-    authorizationSessionId:
-      input.authorizationSessionId ?? 'authorization-session-fixture',
+    authorizationId: input.authorizationId ?? 'authorization-grant-ecdsa-fixture',
+    authorizationSessionId: input.authorizationSessionId ?? 'authorization-session-fixture',
     walletSessionId: input.walletSessionId ?? 'wallet-session-fixture',
     quotaId: input.quotaId ?? 'wallet-quota-fixture',
     keyScope: 'evm-family',

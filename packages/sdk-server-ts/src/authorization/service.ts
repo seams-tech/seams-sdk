@@ -93,15 +93,15 @@ export interface AuthorizationGrantPort {
   }): Promise<void>;
 }
 
-export interface AuthorizationClaimPort {
+export interface AuthorizedOperationPort {
   readAuthorizedOperation(input: {
     readonly tenantId: TenantId;
     readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
   }): Promise<AuthorizedOperation | null>;
-  claimAuthorizedOperation(input: {
+  admitAuthorizedOperation(input: {
     readonly operation: AuthorizedOperationInput;
     readonly material?: EcdsaMaterialActivationScope;
-  }): Promise<AuthorizedOperationClaimResult>;
+  }): Promise<AuthorizedOperationAdmissionResult>;
   completeAuthorizedOperation(input: {
     readonly operation: AuthorizedOperation;
     readonly result: CompletedCapabilityOperationResult;
@@ -110,7 +110,7 @@ export interface AuthorizationClaimPort {
   }): Promise<AuthorizedOperation>;
 }
 
-export type AuthorizedOperationClaimResult =
+export type AuthorizedOperationAdmissionResult =
   | { readonly kind: 'claimed'; readonly operation: AuthorizedOperation }
   | { readonly kind: 'replayed'; readonly operation: AuthorizedOperation }
   | { readonly kind: 'operation_in_progress'; readonly operation: AuthorizedOperation }
@@ -134,7 +134,7 @@ export type AuthorizationServicePorts = {
   readonly sessions: AuthorizationSessionPort;
   readonly evidence: AuthorizationEvidencePort;
   readonly grants: AuthorizationGrantPort;
-  readonly claims: AuthorizationClaimPort;
+  readonly authorizedOperations: AuthorizedOperationPort;
   readonly audit: object;
 };
 
@@ -280,14 +280,14 @@ export class AuthorizationService {
     readonly tenantId: TenantId;
     readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
   }): Promise<AuthorizedOperation | null> {
-    return await this.ports.claims.readAuthorizedOperation(input);
+    return await this.ports.authorizedOperations.readAuthorizedOperation(input);
   }
 
-  async claimAuthorizedOperation(input: {
+  async admitAuthorizedOperation(input: {
     readonly operation: AuthorizedOperationInput;
     readonly material?: EcdsaMaterialActivationScope;
-  }): Promise<AuthorizedOperationClaimResult> {
-    return await this.ports.claims.claimAuthorizedOperation(input);
+  }): Promise<AuthorizedOperationAdmissionResult> {
+    return await this.ports.authorizedOperations.admitAuthorizedOperation(input);
   }
 
   async completeAuthorizedOperation(input: {
@@ -296,15 +296,20 @@ export class AuthorizationService {
     readonly resultRef: CapabilityOperationResultRef;
     readonly completedAtMs: number;
   }): Promise<AuthorizedOperation> {
-    return await this.ports.claims.completeAuthorizedOperation(input);
+    return await this.ports.authorizedOperations.completeAuthorizedOperation(input);
   }
 
   async issueReusableWalletSession(
     input: IssueReusableWalletSessionInput,
   ): Promise<IssuedReusableWalletSession> {
-    const idText = await deriveReusableWalletSessionId(input);
-    const authorizationId = parseRequired(idText, parseWalletSessionAuthorizationId);
-    const walletSessionId = parseRequired(idText, parseWalletSessionId);
+    const authorizationId = parseRequired(
+      await deriveReusableWalletSessionId(input, 'authorization'),
+      parseWalletSessionAuthorizationId,
+    );
+    const walletSessionId = parseRequired(
+      await deriveReusableWalletSessionId(input, 'wallet_session'),
+      parseWalletSessionId,
+    );
     const quotaId = parseRequired(
       await deriveReusableWalletSessionId(input, 'quota'),
       parseMpcWalletSigningQuotaId,
@@ -316,6 +321,7 @@ export class AuthorizationService {
       authority: input.authority,
       mintId: input.mintId,
       authorizationId,
+      walletSessionId,
       quotaId,
       createdAtMs: input.issuedAtMs,
       expiresAtMs: input.expiresAtMs,
@@ -346,7 +352,7 @@ export class AuthorizationService {
 
 async function deriveReusableWalletSessionId(
   input: IssueReusableWalletSessionInput,
-  kind: 'authorization' | 'quota' = 'authorization',
+  kind: 'authorization' | 'wallet_session' | 'quota',
 ): Promise<string> {
   const digest = base64UrlEncode(
     await sha256BytesUtf8(
@@ -361,7 +367,8 @@ async function deriveReusableWalletSessionId(
       ].join('\0'),
     ),
   );
-  return `${kind === 'authorization' ? 'wlt' : 'wsq'}_${digest}`;
+  const prefix = kind === 'authorization' ? 'wlt' : kind === 'wallet_session' ? 'wls' : 'wsq';
+  return `${prefix}_${digest}`;
 }
 
 async function digestOpaqueValue(value: string) {

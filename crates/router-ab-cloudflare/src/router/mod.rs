@@ -683,6 +683,8 @@ pub struct CloudflareRouterVerifiedWalletSessionV1 {
     pub account_id: String,
     /// Exact Seams authorization-session id carried by the verified credential.
     pub authorization_session_id: String,
+    /// Exact durable Wallet Session authorization id.
+    pub authorization_id: String,
     /// Exact reusable Wallet Session id.
     pub wallet_session_id: String,
     /// Exact reusable Wallet Session quota id paired with the Wallet Session.
@@ -712,6 +714,7 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
         subject_id: impl Into<String>,
         account_id: impl Into<String>,
         authorization_session_id: impl Into<String>,
+        authorization_id: impl Into<String>,
         wallet_session_id: impl Into<String>,
         quota_id: impl Into<String>,
         threshold_session_id: impl Into<String>,
@@ -727,6 +730,7 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
             subject_id: subject_id.into(),
             account_id: account_id.into(),
             authorization_session_id: authorization_session_id.into(),
+            authorization_id: authorization_id.into(),
             wallet_session_id: wallet_session_id.into(),
             quota_id: quota_id.into(),
             threshold_session_id: threshold_session_id.into(),
@@ -750,8 +754,18 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
             "wallet session authorization_session_id",
             &self.authorization_session_id,
         )?;
+        require_non_empty("wallet session authorization_id", &self.authorization_id)?;
         require_non_empty("wallet session wallet_session_id", &self.wallet_session_id)?;
         require_non_empty("wallet session quota_id", &self.quota_id)?;
+        if self.authorization_id == self.wallet_session_id
+            || self.authorization_id == self.quota_id
+            || self.wallet_session_id == self.quota_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "wallet session authorization, Wallet Session, and quota ids must be pairwise distinct",
+            ));
+        }
         require_non_empty(
             "wallet session threshold_session_id",
             &self.threshold_session_id,
@@ -1461,6 +1475,8 @@ struct CloudflareRouterJwtClaimsPayloadV1 {
     nbf: Option<u64>,
     iat: Option<u64>,
     sid: String,
+    #[serde(rename = "authorizationId")]
+    authorization_id: Option<String>,
     #[serde(rename = "walletSessionId")]
     wallet_session_id: Option<String>,
     #[serde(rename = "quotaId")]
@@ -1647,6 +1663,12 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
         };
         require_non_empty("jwt sid", &self.sid)?;
         let authorization_session_id = self.sid;
+        let authorization_id = self.authorization_id.ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router Wallet Session requires authorizationId",
+            )
+        })?;
         let wallet_session_id = self.wallet_session_id.ok_or_else(|| {
             RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::MalformedWirePayload,
@@ -1669,6 +1691,7 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
             self.sub,
             self.account_id,
             authorization_session_id,
+            authorization_id,
             wallet_session_id,
             quota_id,
             threshold_session_id,
@@ -2220,6 +2243,8 @@ impl CloudflareRouterNormalSigningTrustedAdmissionV1 {
 pub enum CloudflareRouterNormalSigningAuthorizationV2 {
     /// Reusable Wallet Session authority.
     ReusableWalletSession {
+        /// Exact durable Wallet Session authorization id.
+        authorization_id: String,
         /// Exact reusable Wallet Session id.
         wallet_session_id: String,
     },
@@ -2244,8 +2269,8 @@ impl CloudflareRouterNormalSigningAuthorizationV2 {
     pub fn authorization_id(&self) -> RouterAbProtocolResult<&str> {
         match self {
             Self::ReusableWalletSession {
-                wallet_session_id, ..
-            } => Ok(wallet_session_id),
+                authorization_id, ..
+            } => Ok(authorization_id),
             Self::OperationStepUp { .. } => Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
                 "operation step-up authority has no public authorization id",
@@ -2255,9 +2280,11 @@ impl CloudflareRouterNormalSigningAuthorizationV2 {
 
     /// Creates reusable Wallet Session authority.
     pub fn reusable_wallet_session(
+        authorization_id: impl Into<String>,
         wallet_session_id: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let authorization = Self::ReusableWalletSession {
+            authorization_id: authorization_id.into(),
             wallet_session_id: wallet_session_id.into(),
         };
         authorization.validate()?;
@@ -2280,10 +2307,26 @@ impl CloudflareRouterNormalSigningAuthorizationV2 {
     /// Validates exact branch identity.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         match self {
-            Self::ReusableWalletSession { wallet_session_id } => require_non_empty(
-                "normal-signing authorization wallet_session_id",
+            Self::ReusableWalletSession {
+                authorization_id,
                 wallet_session_id,
-            ),
+            } => {
+                require_non_empty(
+                    "normal-signing authorization authorization_id",
+                    authorization_id,
+                )?;
+                require_non_empty(
+                    "normal-signing authorization wallet_session_id",
+                    wallet_session_id,
+                )?;
+                if authorization_id == wallet_session_id {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidGateDecision,
+                        "normal-signing authorization and Wallet Session ids must be pairwise distinct",
+                    ));
+                }
+                Ok(())
+            }
             Self::OperationStepUp {
                 authorization_session_id,
                 evidence_set_digest,
@@ -2310,7 +2353,9 @@ impl CloudflareRouterNormalSigningAuthorizationV2 {
         let matches = match (self, authorization) {
             (
                 Self::ReusableWalletSession {
-                    wallet_session_id, ..
+                    authorization_id: _,
+                    wallet_session_id,
+                    ..
                 },
                 NormalSigningAuthorizationV1::ReusableWalletSession {
                     wallet_session_id: scope_session_id,
@@ -2336,7 +2381,9 @@ impl CloudflareRouterNormalSigningAuthorizationV2 {
         let subject_id = subject_id.into();
         match self {
             Self::ReusableWalletSession {
-                wallet_session_id, ..
+                authorization_id: _,
+                wallet_session_id,
+                ..
             } => CloudflareRouterAuthContextV1::authenticated_session(
                 subject_id,
                 wallet_session_id.clone(),
@@ -2435,6 +2482,7 @@ impl CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
         let authorization = match &request.scope.authorization {
             NormalSigningAuthorizationV1::ReusableWalletSession { .. } => {
                 CloudflareRouterNormalSigningAuthorizationV2::reusable_wallet_session(
+                    wallet_session.authorization_id.clone(),
                     wallet_session.wallet_session_id.clone(),
                 )?
             }
@@ -2658,6 +2706,7 @@ impl CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
         let authorization = match &request.scope.authorization {
             NormalSigningAuthorizationV1::ReusableWalletSession { .. } => {
                 CloudflareRouterNormalSigningAuthorizationV2::reusable_wallet_session(
+                    wallet_session.authorization_id.clone(),
                     wallet_session.wallet_session_id.clone(),
                 )?
             }

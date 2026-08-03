@@ -825,14 +825,10 @@ export interface EcdsaDerivationServerBootstrapResponse {
   participantIds: number[];
   thresholdSessionId: string;
   activationEpoch: RootShareEpoch;
-  authorizationSessionId?: SeamsSessionId;
-  walletSessionId?: WalletSessionId;
-  quotaId?: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   expiresAt: string;
   remainingUses: number;
   routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
-  jwt?: string;
 }
 
 export type EcdsaSessionPolicy = {

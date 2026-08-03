@@ -12,7 +12,7 @@ It answers:
 Who is signing?
 Which auth method or delegated lane owns the capability?
 Which curve and chain target are being used?
-Which Wallet Session quota or operation capability grant authorizes it?
+Which reusable Wallet Session authorization or verified step-up evidence authorizes it?
 Which threshold session and key material must be used?
 ```
 
@@ -22,10 +22,10 @@ Which threshold session and key material must be used?
 2. Select one concrete lane or fail with a typed error.
 3. Restore only that exact lane.
 4. Plan auth for that lane.
-5. Admit signing budget for that lane.
+5. Admit the exact authorized operation and consume quota when applicable.
 6. Sign and finalize with that same lane.
 
-Snapshot reads should not restore, prompt, consume budget, delete records, or
+Snapshot reads should not restore, prompt, consume quota, delete records, or
 choose a fallback auth method.
 
 ## Sign-Ready Lane
@@ -35,10 +35,12 @@ identity:
 
 ```text
 sign-ready =
-  exact WalletSessionId + quotaId or one-operation CapabilityGrantId
+  (exact AuthorizationGrantRef + WalletSessionId + quotaId
+    | verified step-up evidence)
+  + exact AuthorizedOperationId
   + exact thresholdSessionId
   + Router A/B scope
-  + valid budget
+  + valid quota state when reusable
   + runtime-validated worker material
 ```
 
@@ -47,7 +49,7 @@ Other states are useful for planning, but they must not enter final signing:
 ```ts
 switch (state.kind) {
   case 'runtime_validated':
-    // The only sign-ready state: auth/grant, threshold identity, budget,
+    // The only sign-ready state: authorization, operation, threshold identity, quota,
     // Router A/B scope, and worker-owned material were validated together.
     return state.value;
 
@@ -60,7 +62,7 @@ switch (state.kind) {
     throw new Error(`not sign-ready: ${state.reason}`);
 
   case 'invalid':
-    // Required signing identity, auth, budget, material, or scope is missing.
+    // Required signing identity, auth, quota, material, or scope is missing.
     throw new Error(`not sign-ready: ${state.reason}`);
 
   case 'non_signing':
@@ -74,6 +76,7 @@ step-up happen in explicit planning phases before final signing.
 
 ## Examples
 
-Lanes exist for NEAR Ed25519 transactions, ECDSA Tempo signing, ECDSA EVM
-signing, passkey accounts, Email OTP accounts, VoiceID-gated intents, linked
-devices, and delegated agents.
+Refactor 90 lanes cover NEAR Ed25519 transactions, ECDSA Tempo signing, ECDSA
+EVM signing, passkey accounts, Email OTP accounts, and VoiceID-gated intents.
+Linked-device and delegated-agent lanes are follow-on work in Refactors 103 and
+104.

@@ -23,25 +23,6 @@ export type {
 
 export type WalletSessionUserId = string & { readonly __brand: 'WalletSessionUserId' };
 
-export type EmailOtpRegistrationBootstrap = {
-  operation: 'email_otp_bootstrap';
-  ecdsaThresholdKeyId?: never;
-  key?: never;
-  lanePolicy?: never;
-};
-
-export type EmailOtpExistingKeyBootstrap = {
-  operation: 'email_otp_bootstrap';
-  keyHandle: string;
-  ecdsaThresholdKeyId?: never;
-  key?: never;
-  lanePolicy?: never;
-};
-
-export type EmailOtpDerivationBootstrapLifecycle =
-  | EmailOtpRegistrationBootstrap
-  | EmailOtpExistingKeyBootstrap;
-
 function requiredEmailOtpDerivationString(value: unknown, field: string): string {
   const normalized = String(value ?? '').trim();
   if (!normalized) {

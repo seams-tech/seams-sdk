@@ -5,6 +5,7 @@ import type {
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
@@ -12,6 +13,7 @@ type BaseVerifiedWalletSessionAuth = {
   kind: 'wallet_session';
   curve: 'ecdsa' | 'ed25519';
   thresholdSessionId: string;
+  authorizationId: WalletSessionAuthorizationId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   userId: string;
@@ -48,6 +50,7 @@ export function buildVerifiedEcdsaWalletSessionAuth(
     kind: 'wallet_session',
     curve: 'ecdsa',
     thresholdSessionId: claims.thresholdSessionId,
+    authorizationId: claims.authorizationId,
     walletSessionId: claims.walletSessionId,
     quotaId: claims.quotaId,
     userId: claims.walletId,
@@ -65,6 +68,7 @@ export function buildVerifiedEd25519WalletSessionAuth(
     kind: 'wallet_session',
     curve: 'ed25519',
     thresholdSessionId: claims.thresholdSessionId,
+    authorizationId: claims.authorizationId,
     walletSessionId: claims.walletSessionId,
     quotaId: claims.quotaId,
     userId: claims.walletId,

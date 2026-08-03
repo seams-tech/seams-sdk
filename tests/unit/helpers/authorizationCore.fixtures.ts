@@ -114,7 +114,7 @@ export async function buildReusableAuthorizationCoreFixture(
   const capabilityId = parsed('capability-evm', parseCapabilityId);
   const evidenceSetId = parsed('evidence-set-1', parseAuthorizationEvidenceSetId);
   const walletSessionId = parsed('wallet-session-1', parseWalletSessionId);
-  const authorizationId = parsed('wallet-session-1', parseWalletSessionAuthorizationId);
+  const authorizationId = parsed('authorization-grant-1', parseWalletSessionAuthorizationId);
   const quotaId = parsed('wallet-quota-1', parseMpcWalletSigningQuotaId);
   const walletId = parsed('wallet-authorization', parseWalletId);
   const walletSessionExpiresAtMs = input.quotaExpiresAtMs ?? FIXTURE_NOW_MS + 80_000;
@@ -165,6 +165,21 @@ export async function buildReusableAuthorizationCoreFixture(
     expiresAtMs: FIXTURE_NOW_MS + 90_000,
   };
   const evidenceSet = await buildVerifiedSessionEvidenceSet(sessionEvidenceInput);
+  const authorizedOperation = await buildAuthorizedOperation({
+    tenantId,
+    authorizedOperationId: parsed('authorized-operation-1', parseAuthorizedOperationId),
+    auditEventId: parsed('audit-event-1', parseAuthorizationAuditEventId),
+    operation: envelope,
+    authorization: {
+      kind: 'authorization_grant',
+      authorizationGrantRef: buildAuthorizationGrantRef(authorizationId),
+    },
+    quota:
+      operation.operationKind === 'evm.export_key'
+        ? { kind: 'quota_neutral' }
+        : { kind: 'consume_reusable_wallet_session', quotaId },
+    claimedAtMs: FIXTURE_NOW_MS + 1_000,
+  });
   return {
     session,
     sessionEvidenceInput,
@@ -184,26 +199,15 @@ export async function buildReusableAuthorizationCoreFixture(
       authority,
       mintId: parsed('wallet-session-mint-1', parseReusableWalletSessionMintId),
       authorizationId,
+      walletSessionId,
       quotaId,
       createdAtMs: FIXTURE_NOW_MS,
       expiresAtMs: walletSessionExpiresAtMs,
     }),
-    authorizedOperation: await buildAuthorizedOperation({
-      tenantId,
-      authorizedOperationId: parsed('authorized-operation-1', parseAuthorizedOperationId),
-      auditEventId: parsed('audit-event-1', parseAuthorizationAuditEventId),
-      operation: envelope,
-      authorization: {
-        kind: 'authorization_grant',
-        authorizationGrantRef: buildAuthorizationGrantRef(authorizationId),
-      },
-      quota:
-        operation.operationKind === 'evm.export_key'
-          ? { kind: 'quota_neutral' }
-          : { kind: 'consume_reusable_wallet_session', quotaId },
-      claimedAtMs: FIXTURE_NOW_MS + 1_000,
-    }),
+    authorizedOperation,
     resultRef: {
+      authorizedOperationId: authorizedOperation.authorizedOperationId,
+      operationFingerprintDigest: authorizedOperation.operationFingerprintDigest,
       resultDigest: fixtureDigest(6),
       resultStorageRef: parsed('operation-result-1', parseCapabilityOperationResultStorageRef),
     },

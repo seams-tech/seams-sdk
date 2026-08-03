@@ -71,7 +71,7 @@ import type {
   RouterAbEcdsaStrictRegistrationAuthority,
 } from '../../routerAbEcdsaStrictRegistration';
 import type {
-  RouterApiAuthorizationClaimService,
+  RouterApiAuthorizedOperationService,
   RouterApiAuthorizationSessionService,
 } from '../../authServicePort';
 import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
@@ -89,6 +89,7 @@ import {
   type PrincipalId,
   type ReusableWalletSessionMintId,
   type SeamsSessionId,
+  type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
@@ -151,6 +152,7 @@ type RouterAbEcdsaAuthorizedOperationWire = {
   readonly binding:
     | {
         readonly kind: 'reusable_wallet_session';
+        readonly authorization_id: string;
         readonly wallet_session_id: string;
         readonly quota_id: string;
       }
@@ -162,7 +164,7 @@ type RouterAbEcdsaAuthorizedOperationWire = {
         readonly environment: string;
         readonly subject_id: string;
       };
-  readonly claim:
+  readonly authorized_operation:
     | {
         readonly kind: 'reusable_wallet_session_authorized_operation_v1';
         readonly authorized_operation_id: string;
@@ -221,7 +223,7 @@ function buildRouterAbEcdsaAuthorizedOperationWire(
   ) {
     throw new Error('ECDSA authorized operation capability or operation kind is invalid');
   }
-  const commonClaim = {
+  const commonAuthorizedOperation = {
     authorized_operation_id: operation.authorizedOperationId,
     operation_id: operation.operation.operationId,
     capability_kind: 'evm_ecdsa_mpc_signing' as const,
@@ -242,12 +244,13 @@ function buildRouterAbEcdsaAuthorizedOperationWire(
       return {
         binding: {
           kind: 'reusable_wallet_session',
+          authorization_id: operation.authorization.authorizationGrantRef.authorizationId,
           wallet_session_id: input.binding.walletSessionId,
           quota_id: input.binding.quotaId,
         },
-        claim: {
+        authorized_operation: {
           kind: 'reusable_wallet_session_authorized_operation_v1',
-          ...commonClaim,
+          ...commonAuthorizedOperation,
         },
       };
     case 'operation_step_up':
@@ -266,71 +269,14 @@ function buildRouterAbEcdsaAuthorizedOperationWire(
           environment: input.binding.environment,
           subject_id: input.binding.subjectId,
         },
-        claim: {
+        authorized_operation: {
           kind: 'verified_step_up_authorized_operation_v1',
           authorization_session_id: input.binding.authorizationSessionId,
           evidence_set_digest: operation.authorization.evidenceSetDigest,
-          ...commonClaim,
+          ...commonAuthorizedOperation,
         },
       };
   }
-}
-
-type RouterAbEcdsaNormalSigningRequest =
-  | RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire
-  | RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
-
-async function readRouterAbEcdsaReusableWalletSessionOperation(input: {
-  readonly request: RouterAbEcdsaNormalSigningRequest;
-  readonly claims: RouterAbEcdsaDerivationWalletSessionClaims;
-  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
-  readonly authorizationClaims: RouterApiAuthorizationClaimService;
-  readonly authorizationSessions: RouterApiAuthorizationSessionService;
-}): Promise<AuthorizedOperation | null> {
-  const runtimePolicyScope = input.claims.runtimePolicyScope;
-  const tenantId = input.authorizationClaims.tenantId;
-  if (!runtimePolicyScope || runtimePolicyScope.orgId !== tenantId) return null;
-  const principalId = requireAuthorizationValue(parsePrincipalId(input.claims.sub));
-  const activeSession = await input.authorizationSessions.readActiveSession({
-    tenantId,
-    sessionId: input.claims.authorizationSessionId,
-    nowMs: Date.now(),
-  });
-  if (
-    tenantId !== input.authorizationSessions.tenantId ||
-    !activeSession ||
-    activeSession.principalId !== principalId
-  ) {
-    return null;
-  }
-  const capabilityId = requireAuthorizationValue(
-    parseCapabilityId(input.materialActivation.capability),
-  );
-  const operationId = requireAuthorizationValue(
-    parseCapabilityOperationId(input.request.operation_id),
-  );
-  const envelope = buildCapabilityOperationEnvelope({
-    tenantId,
-    principalId,
-    capabilityId,
-    operationId,
-    operation: buildEvmEcdsaMpcOperationRef('evm.sign_transaction'),
-    digests: {
-      laneDigest: parseDigestB64u(input.request.operation_digests.lane_digest_b64u),
-      intentDigest: parseDigestB64u(input.request.operation_digests.intent_digest_b64u),
-      displayDigest: parseDigestB64u(input.request.operation_digests.display_digest_b64u),
-    },
-  });
-  const existing = await input.authorizationClaims.readAuthorizedOperation({
-    tenantId,
-    operationFingerprintDigest: await computeCapabilityOperationFingerprintDigest(envelope),
-  });
-  const expectedAuthorizedOperationId = requireAuthorizationValue(
-    parseAuthorizedOperationId(
-      `ecdsa-operation-use:${input.request.operation_id}:${input.request.request_id}`,
-    ),
-  );
-  return existing?.authorizedOperationId === expectedAuthorizedOperationId ? existing : null;
 }
 
 async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
@@ -343,7 +289,7 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
     rawBody: input.body,
     headers: Object.fromEntries(input.ctx.request.headers.entries()),
     session: input.ctx.opts.session,
-    authorizationClaims: input.ctx.service.authorizationClaims,
+    authorizedOperations: input.ctx.service.authorizedOperations,
     authorizationSessions: input.ctx.service.authorizationSessions,
     admissionAdapter: input.ctx.opts.routerAbNormalSigningAdmission,
     resolveEcdsaMaterialActivation:
@@ -375,29 +321,17 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
       input.phase === 'prepare'
         ? parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body)
         : parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(input.body);
-    const operation =
-      input.phase === 'prepare'
-        ? await admitRouterAbEcdsaReusableWalletSessionOperation({
-            request: parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body),
-            materialActivation: authorization.admission.materialActivation,
-            claims: authorization.validated.claims,
-            authorizationClaims: input.ctx.service.authorizationClaims,
-            authorizationSessions: input.ctx.service.authorizationSessions,
-            resolveEcdsaMaterialActivation:
-              input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation.bind(
-                input.ctx.service.walletRegistration,
-              ),
-          })
-        : {
-            ok: true as const,
-            operation: await readRouterAbEcdsaReusableWalletSessionOperation({
-              request,
-              claims: authorization.validated.claims,
-              materialActivation: authorization.admission.materialActivation,
-              authorizationClaims: input.ctx.service.authorizationClaims,
-              authorizationSessions: input.ctx.service.authorizationSessions,
-            }),
-          };
+    const operation = await admitRouterAbEcdsaReusableWalletSessionOperation({
+      request,
+      materialActivation: authorization.admission.materialActivation,
+      claims: authorization.validated.claims,
+      authorizedOperations: input.ctx.service.authorizedOperations,
+      authorizationSessions: input.ctx.service.authorizationSessions,
+      resolveEcdsaMaterialActivation:
+        input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation.bind(
+          input.ctx.service.walletRegistration,
+        ),
+    });
     if (!operation.ok) {
       return json(operation.error.body, { status: operation.error.status });
     }
@@ -405,7 +339,7 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
       return json(
         {
           ok: false,
-          code: 'operation_claim_missing',
+          code: 'authorized_operation_missing',
           message: 'Authorized operation is unavailable',
         },
         { status: 409 },
@@ -429,15 +363,23 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
       authorized_operation: authorizedOperationWire,
     },
   });
-  const upstreamBodyText = await upstream.clone().text().catch(() => '');
-  if (isRouterAbEcdsaOperationInProgressResponse({
-    status: upstream.status,
-    bodyText: upstreamBodyText,
-  })) {
+  const upstreamBodyText = await upstream
+    .clone()
+    .text()
+    .catch(() => '');
+  if (
+    isRouterAbEcdsaOperationInProgressResponse({
+      status: upstream.status,
+      bodyText: upstreamBodyText,
+    })
+  ) {
+    return upstream;
+  }
+  if (input.phase === 'prepare' && upstream.ok) {
     return upstream;
   }
   await completeRouterAbEcdsaOperation({
-    authorizationClaims: input.ctx.service.authorizationClaims,
+    authorizedOperations: input.ctx.service.authorizedOperations,
     operation: authorizedOperation,
     requestId:
       input.phase === 'prepare'
@@ -477,9 +419,13 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
   readonly ctx: CloudflareRouterApiContext;
   readonly request: RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire;
 }): Promise<Response> {
-  if (!routerAbEcdsaAtomicAuthorizationConfigured(input.ctx.service.authorizationClaims)) {
+  if (!routerAbEcdsaAtomicAuthorizationConfigured(input.ctx.service.authorizedOperations)) {
     return json(
-      { ok: false, code: 'not_configured', message: 'ECDSA atomic authorization is not configured' },
+      {
+        ok: false,
+        code: 'not_configured',
+        message: 'ECDSA atomic authorization is not configured',
+      },
       { status: 501 },
     );
   }
@@ -489,7 +435,7 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
     session: input.ctx.opts.session,
     walletId: operation.wallet_id,
     materialOwner: operation.material_activation.material_owner,
-    authorizationClaims: input.ctx.service.authorizationClaims,
+    authorizedOperations: input.ctx.service.authorizedOperations,
     authorizationSessions: input.ctx.service.authorizationSessions,
   });
   if (!authenticated.ok) {
@@ -617,7 +563,7 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
       {
         ok: false,
         code: 'scope_mismatch',
-        message: 'ECDSA operation step-up material changed before evidence claim',
+        message: 'ECDSA operation step-up material changed before evidence admission',
       },
       { status: 403 },
     );
@@ -750,7 +696,7 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
       break;
     }
   }
-  const evidenceSet = await input.ctx.service.authorizationClaims.recordVerifiedFactorEvidenceSet({
+  const evidenceSet = await input.ctx.service.authorizedOperations.recordVerifiedFactorEvidenceSet({
     session: activeSession,
     operation: envelope,
     evidenceId,
@@ -758,9 +704,9 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
     factor,
   });
   const authorizedOperationId = requireAuthorizationValue(
-    parseAuthorizedOperationId(`ecdsa-operation-step-up-use:${operation.operation_id}`),
+    parseAuthorizedOperationId(`ecdsa-step-up-authorized-operation:${operation.operation_id}`),
   );
-  const atomicOperation = await input.ctx.service.authorizationClaims.claimAuthorizedOperation({
+  const atomicOperation = await input.ctx.service.authorizedOperations.admitAuthorizedOperation({
     operation: {
       tenantId: authenticated.session.tenantId,
       authorizedOperationId,
@@ -790,8 +736,8 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
         return json(
           {
             ok: false,
-            code: 'operation_claim_mismatch',
-            message: 'ECDSA operation claim belongs to another request',
+            code: 'authorized_operation_mismatch',
+            message: 'ECDSA authorized operation belongs to another request',
           },
           { status: 409 },
         );
@@ -802,7 +748,7 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
         {
           ok: false,
           code: 'scope_mismatch',
-          message: 'ECDSA material activation changed before operation claim',
+          message: 'ECDSA material activation changed before authorized-operation admission',
         },
         { status: 403 },
       );
@@ -910,7 +856,7 @@ async function authorizeEcdsaPoolFillOperationStepUp(input: {
     session: input.ctx.opts.session,
     walletId: input.operation.wallet_id,
     materialOwner: input.operation.material_activation.material_owner,
-    authorizationClaims: input.ctx.service.authorizationClaims,
+    authorizedOperations: input.ctx.service.authorizedOperations,
     authorizationSessions: input.ctx.service.authorizationSessions,
   });
   if (!authenticated.ok) return authenticated;
@@ -1021,7 +967,7 @@ async function authorizeEcdsaPoolFillOperationStepUp(input: {
         body: {
           ok: false,
           code: 'scope_mismatch',
-          message: 'ECDSA pool-fill material changed before authorization claim',
+          message: 'ECDSA pool-fill material changed before operation admission',
         },
       },
     };
@@ -1698,14 +1644,14 @@ type StrictEcdsaExportOperationStepUpInput = {
   >;
 };
 
-function buildStrictEcdsaExportOperationStepUpClaim(
+function buildStrictEcdsaExportOperationStepUpAdmission(
   input: StrictEcdsaExportOperationStepUpInput,
 ) {
   const operationId = requireAuthorizationValue(
     parseCapabilityOperationId(input.operation.operation_id),
   );
   const authorizedOperationId = requireAuthorizationValue(
-    parseAuthorizedOperationId(`ecdsa-operation-step-up-use:${input.operation.operation_id}`),
+    parseAuthorizedOperationId(`ecdsa-step-up-authorized-operation:${input.operation.operation_id}`),
   );
   return {
     authorizedOperationId,
@@ -1743,35 +1689,41 @@ function buildStrictEcdsaExportOperationStepUpClaim(
   };
 }
 
-async function claimStrictEcdsaExportOperationStepUp(
+async function admitStrictEcdsaExportOperationStepUp(
   input: StrictEcdsaExportOperationStepUpInput,
 ): Promise<Extract<StrictEcdsaExportAuthorizationResult, { readonly ok: false }> | null> {
-  if (!routerAbEcdsaAtomicAuthorizationConfigured(input.authenticated.claims)) {
+  if (!routerAbEcdsaAtomicAuthorizationConfigured(input.authenticated.authorizedOperations)) {
     return strictEcdsaExportFailure(
       501,
       'not_configured',
       'ECDSA atomic authorization is not configured',
     );
   }
-  let claim;
+  let admission;
   try {
-    claim = buildStrictEcdsaExportOperationStepUpClaim(input);
+    admission = buildStrictEcdsaExportOperationStepUpAdmission(input);
   } catch (error: unknown) {
     return strictEcdsaExportFailure(
       400,
       'invalid_body',
-      error instanceof Error ? error.message : 'Export operation step-up claim is invalid',
+      error instanceof Error ? error.message : 'Export operation step-up admission is invalid',
     );
   }
-  const fingerprint = await computeCapabilityOperationFingerprintDigest(claim.request.operation.operation);
-  const existing = await input.authenticated.claims.readAuthorizedOperation({
-    tenantId: claim.request.operation.tenantId,
+  const fingerprint = await computeCapabilityOperationFingerprintDigest(
+    admission.request.operation.operation,
+  );
+  const existing = await input.authenticated.authorizedOperations.readAuthorizedOperation({
+    tenantId: admission.request.operation.tenantId,
     operationFingerprintDigest: fingerprint,
   });
-  if (!existing || existing.authorizedOperationId !== claim.authorizedOperationId) {
-    return strictEcdsaExportFailure(409, 'operation_claim_missing', 'Operation authorization is unavailable');
+  if (!existing || existing.authorizedOperationId !== admission.authorizedOperationId) {
+    return strictEcdsaExportFailure(
+      409,
+      'authorized_operation_missing',
+      'Operation authorization is unavailable',
+    );
   }
-  const result = await input.authenticated.claims.claimAuthorizedOperation({
+  const result = await input.authenticated.authorizedOperations.admitAuthorizedOperation({
     operation: {
       tenantId: existing.tenantId,
       authorizedOperationId: existing.authorizedOperationId,
@@ -1781,34 +1733,38 @@ async function claimStrictEcdsaExportOperationStepUp(
       quota: existing.quota,
       claimedAtMs: Date.now(),
     },
-    material: claim.request.material,
+    material: admission.request.material,
   });
   switch (result.kind) {
-      case 'material_mismatch':
-        return strictEcdsaExportFailure(
-          403,
-          'scope_mismatch',
-          'ECDSA material activation changed before export claim',
-        );
-      case 'claimed':
-      case 'operation_in_progress':
-      case 'replayed':
-        return result.operation.authorizedOperationId === claim.authorizedOperationId
-          ? null
-          : strictEcdsaExportFailure(
-              409,
-              'operation_claim_mismatch',
-              'Operation step-up claim belongs to another request',
-            );
-      case 'authorization_grant_rejected':
-      case 'verified_step_up_rejected':
-        return strictEcdsaExportFailure(403, result.kind, 'Operation step-up authorization is invalid');
-      case 'wallet_session_quota_exhausted':
-        return strictEcdsaExportFailure(
-          409,
-          result.kind,
-          'Operation step-up authorization is invalid',
-        );
+    case 'material_mismatch':
+      return strictEcdsaExportFailure(
+        403,
+        'scope_mismatch',
+        'ECDSA material activation changed before export admission',
+      );
+    case 'claimed':
+    case 'operation_in_progress':
+    case 'replayed':
+      return result.operation.authorizedOperationId === admission.authorizedOperationId
+        ? null
+        : strictEcdsaExportFailure(
+            409,
+            'authorized_operation_mismatch',
+            'Authorized operation belongs to another request',
+          );
+    case 'authorization_grant_rejected':
+    case 'verified_step_up_rejected':
+      return strictEcdsaExportFailure(
+        403,
+        result.kind,
+        'Operation step-up authorization is invalid',
+      );
+    case 'wallet_session_quota_exhausted':
+      return strictEcdsaExportFailure(
+        409,
+        result.kind,
+        'Operation step-up authorization is invalid',
+      );
   }
 }
 
@@ -1853,7 +1809,7 @@ async function authorizeStrictEcdsaExport(input: {
       session: input.ctx.opts.session,
       walletId: operation.wallet_id,
       materialOwner: operation.material_activation.material_owner,
-      authorizationClaims: input.ctx.service.authorizationClaims,
+      authorizedOperations: input.ctx.service.authorizedOperations,
       authorizationSessions: input.ctx.service.authorizationSessions,
     });
     if (!authenticated.ok) {
@@ -1926,16 +1882,16 @@ async function authorizeStrictEcdsaExport(input: {
       return strictEcdsaExportFailure(
         403,
         'scope_mismatch',
-        'ECDSA export material changed before authorization claim',
+        'ECDSA export material changed before operation admission',
       );
     }
-    const claimFailure = await claimStrictEcdsaExportOperationStepUp({
+    const admissionFailure = await admitStrictEcdsaExportOperationStepUp({
       operation,
       materialActivation: freshMaterial.materialActivation,
       keyHandle: freshMaterial.keyHandle,
       authenticated,
     });
-    if (claimFailure) return claimFailure;
+    if (admissionFailure) return admissionFailure;
     return {
       ok: true,
       authority: {
@@ -2060,6 +2016,7 @@ async function authorizeStrictEcdsaSessionActivation(input: {
       readonly kind: 'reuse_reusable_wallet_session';
       readonly principalId: PrincipalId;
       readonly authorizationSessionId: SeamsSessionId;
+      readonly authorizationId: WalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly quotaId: MpcWalletSigningQuotaId;
     }
@@ -2095,6 +2052,7 @@ async function authorizeStrictEcdsaSessionActivation(input: {
       kind: 'reuse_reusable_wallet_session',
       principalId: principalId.value,
       authorizationSessionId: ecdsaClaims.authorizationSessionId,
+      authorizationId: ecdsaClaims.authorizationId,
       walletSessionId: ecdsaClaims.walletSessionId,
       quotaId: ecdsaClaims.quotaId,
     };
@@ -2230,6 +2188,7 @@ export async function handleStrictEcdsaSessionActivation(
   const normalSigning = activated.normalSigning;
   let walletSessionId: WalletSessionId;
   let quotaId: MpcWalletSigningQuotaId;
+  let authorizationId: WalletSessionAuthorizationId;
   if (authorized.kind === 'issue_reusable_wallet_session') {
     const mintId = parseReusableWalletSessionMintId(request.session_policy.wallet_session_mint_id);
     if (!mintId.ok) {
@@ -2254,7 +2213,9 @@ export async function handleStrictEcdsaSessionActivation(
     });
     walletSessionId = issued.quota.walletSessionId;
     quotaId = issued.quota.quotaId;
+    authorizationId = issued.session.authorizationId;
   } else {
+    authorizationId = authorized.authorizationId;
     walletSessionId = authorized.walletSessionId;
     quotaId = authorized.quotaId;
   }
@@ -2265,6 +2226,7 @@ export async function handleStrictEcdsaSessionActivation(
     sessionInfo: {
       sessionKind: 'jwt',
       authorizationSessionId: authorized.authorizationSessionId,
+      authorizationId,
       thresholdSessionId: activated.session.thresholdSessionId,
       walletSessionId,
       quotaId,

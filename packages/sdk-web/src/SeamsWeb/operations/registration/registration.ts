@@ -2643,8 +2643,6 @@ function buildStrictRegistrationClientBootstrap(args: {
     registrationPreparationId: prepare.registrationPreparationId,
     requestId: prepare.requestId,
     thresholdSessionId: prepare.thresholdSessionId,
-    walletSessionId: prepare.walletSessionId,
-    quotaId: prepare.quotaId,
     ttlMs: prepare.ttlMs,
     remainingUses: prepare.remainingUses,
     participantIds: [...prepare.participantIds],

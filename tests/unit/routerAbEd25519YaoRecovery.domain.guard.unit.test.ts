@@ -34,7 +34,7 @@ import type { WalletEd25519YaoActiveCapabilityRecord } from '../../packages/sdk-
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/logger';
 
-function authorizationClaimsFixture() {
+function walletSessionClaimsFixture() {
   const authority = buildPasskeyWalletAuthAuthority({
     walletId: 'wallet-1',
     rpId: 'router.example.test',
@@ -119,7 +119,7 @@ class AllowRecoveryAuthorization implements RouterAbEd25519YaoRecoveryAuthorizat
     input: RouterAbEd25519YaoRecoveryAuthorizationInput,
   ): RouterAbEd25519YaoRecoveryAuthorizationResult {
     this.inputs.push(input);
-    return { ok: true, claims: authorizationClaimsFixture() };
+    return { ok: true, claims: walletSessionClaimsFixture() };
   }
 }
 

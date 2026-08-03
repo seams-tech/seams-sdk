@@ -401,12 +401,7 @@ type EmailOtpEcdsaRuntimeSessionBootstrapHandlePayload = {
 }[EmailOtpEcdsaRuntimeHandleOperation];
 
 export type EmailOtpEcdsaSessionBootstrapHandlePayload =
-  | (EmailOtpEcdsaSessionBootstrapHandlePayloadBase & {
-      operation: 'registration';
-      evmFamilySigningKeySlotId: string;
-      keyHandle?: never;
-    })
-  | EmailOtpEcdsaRuntimeSessionBootstrapHandlePayload;
+  EmailOtpEcdsaRuntimeSessionBootstrapHandlePayload;
 
 export type EmailOtpWalletRegistrationEcdsaPrepareHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1';
@@ -446,12 +441,7 @@ type EmailOtpEcdsaRuntimeSessionBootstrapHandleBinding = {
 }[EmailOtpEcdsaRuntimeHandleOperation];
 
 export type EmailOtpEcdsaSessionBootstrapHandleBinding =
-  | (EmailOtpEcdsaSessionBootstrapHandleBindingBase & {
-      operation: 'registration';
-      evmFamilySigningKeySlotId: string;
-      keyHandle?: never;
-    })
-  | EmailOtpEcdsaRuntimeSessionBootstrapHandleBinding;
+  EmailOtpEcdsaRuntimeSessionBootstrapHandleBinding;
 
 export type EmailOtpWalletRegistrationEcdsaPrepareHandleBinding = {
   evmFamilySigningKeySlotId: string;
@@ -497,39 +487,6 @@ export type EmailOtpWalletRegistrationEcdsaPrepareHandleResult =
 export type EmailOtpEcdsaClientRootHandleBinding =
   | EmailOtpEcdsaSessionBootstrapHandleBinding
   | EmailOtpWalletRegistrationEcdsaPrepareHandleBinding;
-
-export type EmailOtpEcdsaPublicationTargetPlan = {
-  kind: 'new_key_publication_target';
-  chainTarget: ThresholdEcdsaChainTarget;
-  evmFamilySigningKeySlotId: string;
-  keyHandle?: never;
-};
-
-type EmailOtpEcdsaBootstrapBasePayload = {
-  relayUrl: string;
-  walletId: string;
-  walletSessionUserId: string;
-  userId: string;
-  clientRootShareHandle: Extract<
-    EmailOtpEcdsaSessionBootstrapHandlePayload,
-    { operation: 'registration' }
-  >;
-  chainTarget: ThresholdEcdsaChainTarget;
-  publicationTargetPlans: EmailOtpEcdsaPublicationTargetPlan[];
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
-  participantIds?: number[];
-  thresholdSessionId?: string;
-  ttlMs?: number;
-  remainingUses?: number;
-};
-
-type EmailOtpEcdsaBootstrapJwtPayload = {
-  sessionKind: 'jwt';
-  routeAuth: AppOrWalletSessionAuth;
-};
-
-export type EmailOtpEcdsaBootstrapStrictPayload = EmailOtpEcdsaBootstrapBasePayload &
-  EmailOtpEcdsaBootstrapJwtPayload;
 
 export type EmailOtpYaoPrewarmFailureStage = 'worker_ready' | 'yao_wasm_init';
 
@@ -618,7 +575,6 @@ export interface EmailOtpWorkerOperationMap {
       googleEmailOtpRegistrationAttemptId?: string;
       otpChannel?: WalletEmailOtpChannel;
       clientSecret32?: ArrayBuffer;
-      ecdsaClientRootHandleBinding?: EmailOtpEcdsaSessionBootstrapHandleBinding;
     };
     result: {
       thresholdEcdsaClientVerifyingShareB64u: string;
@@ -630,7 +586,6 @@ export interface EmailOtpWorkerOperationMap {
       enrollmentSealKeyVersion: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
-      clientRootShareHandle?: EmailOtpEcdsaSessionBootstrapHandlePayload;
     };
   };
   prepareEmailOtpRegistrationEnrollmentMaterial: {
@@ -885,21 +840,6 @@ export interface EmailOtpWorkerOperationMap {
       };
     } & EmailOtpWalletUnlockMaterialResult;
   };
-  bootstrapEmailOtpEcdsaSessionsFromWorkerHandle: {
-    payload: EmailOtpEcdsaBootstrapStrictPayload;
-    result: {
-      bootstraps: ThresholdEcdsaSessionBootstrapResult[];
-      ecdsaDerivationExportArtifact?: {
-        artifactKind: 'ecdsa-derivation-secp256k1-export';
-        chainTarget: ThresholdEcdsaChainTarget;
-        signingRootId: string;
-        signingRootVersion?: string;
-        publicKeyHex: string;
-        privateKeyHex: string;
-        ethereumAddress: string;
-      };
-    };
-  };
   bindEmailOtpEcdsaWarmSessionFromWorkerHandle: {
     payload: {
       clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
@@ -1147,7 +1087,6 @@ export type EmailOtpRestoreOperationType =
   | 'rehydrateEmailOtpEd25519YaoOperationMaterial';
 export type EmailOtpWarmSessionOperationType =
   | 'loginWithEmailOtpWallet'
-  | 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle'
   | 'bindEmailOtpEcdsaWarmSessionFromWorkerHandle'
   | 'getEmailOtpWarmSessionStatus'
   | 'consumeEmailOtpWarmSessionUses'

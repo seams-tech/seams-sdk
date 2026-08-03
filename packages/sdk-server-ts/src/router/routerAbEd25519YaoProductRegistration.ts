@@ -42,6 +42,7 @@ import { createRouterApiModule, type RouterApiModule } from './modules';
 import { signRouterAbEd25519WalletSessionJwt } from './commonRouterUtils';
 import type {
   MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type { ThresholdEd25519SessionId } from '@shared/utils/domainIds';
@@ -89,6 +90,7 @@ type RouterAbEd25519YaoWalletSessionMintIdentityV1 = {
   readonly nearEd25519SigningKeyId: string;
   readonly authority: WalletAuthAuthority;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
+  readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly participantIds: readonly [number, number];
@@ -499,6 +501,7 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
       nearAccountId: sessionInput.nearAccountId,
       nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
       thresholdSessionId: sessionInput.thresholdSessionId,
+      authorizationId: sessionInput.authorizationId,
       walletSessionId: sessionInput.walletSessionId,
       quotaId: sessionInput.quotaId,
       expiresAtMs: terms.expiresAtMs,

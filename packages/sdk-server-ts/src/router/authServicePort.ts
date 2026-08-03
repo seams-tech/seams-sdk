@@ -1430,14 +1430,14 @@ export interface RouterApiServiceBag {
   identity: RouterApiIdentityService;
   sessionVersions: RouterApiSessionVersionService;
   authorizationSessions: RouterApiAuthorizationSessionService;
-  authorizationClaims: RouterApiAuthorizationClaimService;
+  authorizedOperations: RouterApiAuthorizedOperationService;
   thresholdRuntime: RouterAbSigningRuntimeService;
   nearFunding: RouterApiNearFundingService;
   recovery: RouterApiRecoveryRouteService;
   router: RouterApiRouterAccountService;
 }
 
-export interface RouterApiAuthorizationClaimService {
+export interface RouterApiAuthorizedOperationService {
   readonly tenantId: TenantId;
   recordVerifiedFactorEvidenceSet(
     input: VerifiedFactorEvidenceSetInput,
@@ -1449,7 +1449,7 @@ export interface RouterApiAuthorizationClaimService {
     readonly tenantId: TenantId;
     readonly operationFingerprintDigest: import('@shared/authorization/operationFingerprint').CapabilityOperationFingerprintDigest;
   }): Promise<AuthorizedOperation | null>;
-  claimAuthorizedOperation(input: {
+  admitAuthorizedOperation(input: {
     readonly operation: AuthorizedOperationInput;
     readonly material?: EcdsaMaterialActivationScope;
   }): Promise<

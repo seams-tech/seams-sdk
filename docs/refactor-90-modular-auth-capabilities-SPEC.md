@@ -9,8 +9,9 @@ Authorization and material identity separation: July 23, 2026
 Refactor 92 lifecycle reconciliation: July 23, 2026
 Refactor 93 Yao execution reconciliation: July 26, 2026
 Refactor 94C durable-owner reconciliation: July 28, 2026
+Authorization model simplification: August 2, 2026
 
-Status: planning.
+Status: implementation complete; healthy-environment and deployment acceptance pending.
 
 Companion doc: [Implementation plan](./refactor-90-modular-auth-capabilities-plan.md).
 
@@ -20,6 +21,14 @@ Service accounts, Better Auth, IdP functionality, Slack OTP evidence, full vault
 product workflows, general route-module registries, and speculative package
 splits are follow-on work. Sections that describe those future product shapes
 are design context rather than Refactor 90 acceptance criteria.
+
+Authorization amendment: August 2, 2026 — Refactor 90 has exactly one
+`AuthorizationGrant` variant, `WalletSessionAuthorization`. Reusable operations
+reference that authorization and consume its quota; verified step-up evidence
+creates an `AuthorizedOperation` directly. Any later section that describes
+transient MPC capability grants, grant uses, or operation claims is superseded
+by `R90-INV-009` and `R90-INV-013`. Linked-device and delegated authorization
+variants belong to Refactors 103 and 104.
 
 Lifecycle dependency: [Refactor 92](./refactor-92-session-expiry-handling.md)
 owns the implemented reusable Wallet Session behavior. Refactor 90 may replace
@@ -96,17 +105,38 @@ invariant.
   no checklist entry of its own.
 - **R90-INV-013 — Authorization/material identity separation.** A
   `SeamsSessionId` identifies app identity and general authorization, a
-  `WalletSessionId` identifies reusable wallet-signing authorization, an
-  `MpcWalletSigningQuotaId` identifies its remaining-use allowance, an
+  `AuthorizationGrantRef` identifies reusable wallet-signing authorization, a
+  `WalletSessionId` identifies its authenticated Wallet Session, an
+  `MpcWalletSigningQuotaId` identifies that session's remaining-use allowance, an
   `AuthorizedOperationId` identifies one exact operation, and an opaque
   `MpcMaterialActivationId` identifies one exact activated MPC material
-  instance. `AuthorizationGrantRef` identifies the Wallet Session
-  authorization branch; verified step-up carries only its evidence digest.
+  instance. Verified step-up carries only its evidence digest.
   None of these IDs locates, owns, or aliases another domain. Explicit unlock
   or Wallet Session renewal may replace the Wallet Session while preserving an
   unchanged exact material activation through a validated
   `MpcMaterialActivationRef`; ordinary page refresh does not replace it.
   Registration or explicit material reactivation creates a new activation ID.
+
+  The authorization source of an operation is exactly one branch:
+
+  ```ts
+  type OperationAuthorizationSource =
+    | {
+        kind: 'authorization_grant';
+        authorizationGrantRef: AuthorizationGrantRef;
+        evidenceSetDigest?: never;
+      }
+    | {
+        kind: 'verified_step_up';
+        authorizationGrantRef?: never;
+        evidenceSetDigest: DigestB64u;
+      };
+  ```
+
+  An `AuthorizedOperation` always carries its own `AuthorizedOperationId` and
+  exact operation fingerprint. The reusable branch references the independently
+  verified Wallet Session authorization; the step-up branch records verified
+  evidence directly and creates no transient grant.
 - **R90-INV-014 — Refactor 92 wallet-session lifecycle preservation.**
   Refactor 92 is the normative behavior for reusable Wallet Sessions during
   this migration. Ordinary unlock creates a 24-hour session with three
@@ -4036,9 +4066,8 @@ type CapabilityBinding = {
 
 Capability modules own rich operation lane, intent, and display types. They
 normalize parsed requests into a generic envelope before asking
-`seams-authorization` for a grant. Requests never carry `CapabilityGrantPolicy`;
-authorization resolves the policy server-side and records the selected
-`policyId`.
+`seams-authorization` to admit an operation. Authorization resolves policy
+server-side and records the selected `policyId`.
 
 ```ts
 declare const capabilityOperationEnvelopeBrand: unique symbol;
@@ -4053,44 +4082,21 @@ type CapabilityOperationEnvelope = {
   digests: OperationDigestSet;
 };
 
-type CapabilityGrantRecord = {
+type WalletSessionAuthorization = {
   tenantId: TenantId;
   principalId: PrincipalId;
-  principalKind: PrincipalKind;
-  grantId: CapabilityGrantId;
+  authorizationId: WalletSessionAuthorizationId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   capabilityId: CapabilityId;
-  bindingId: CapabilityBindingId;
-  operation: CapabilityOperationRef;
-  operationDigests: OperationDigestSet;
-  evidenceSetId: GrantEvidenceSetId;
-  evidenceIds: NonEmptyArray<GrantEvidenceId>;
-  evidenceSetDigest: DigestB64u;
-  assurance: AssuranceProfile;
   policyId: PolicyId;
   createdAt: IsoTimestamp;
   expiresAt: IsoTimestamp;
 };
 
-type CapabilityGrant =
-  | (CapabilityGrantRecord & {
-      kind: "active";
-      remainingUses: PositiveInt;
-    })
-  | (CapabilityGrantRecord & {
-      kind: "consumed";
-      consumedAt: IsoTimestamp;
-    })
-  | (CapabilityGrantRecord & {
-      kind: "expired";
-      expiredAt: IsoTimestamp;
-    })
-  | (CapabilityGrantRecord & {
-      kind: "revoked";
-      revokedAt: IsoTimestamp;
-      revokedByPrincipalId: PrincipalId;
-    });
+type AuthorizationGrant = WalletSessionAuthorization;
 
-type CompletedCapabilityGrantUseResult =
+type CompletedAuthorizedOperationResult =
   | "succeeded"
   | "failed_before_side_effect"
   | "failed_after_side_effect";
@@ -4100,26 +4106,37 @@ type CapabilityOperationResultRef = {
   resultStorageRef: CapabilityOperationResultStorageRef;
 };
 
-type CapabilityGrantUseBase = {
+type OperationAuthorizationSource =
+  | {
+      kind: "authorization_grant";
+      authorizationGrantRef: AuthorizationGrantRef;
+      evidenceSetDigest?: never;
+    }
+  | {
+      kind: "verified_step_up";
+      authorizationGrantRef?: never;
+      evidenceSetDigest: DigestB64u;
+    };
+
+type AuthorizedOperationBase = {
   tenantId: TenantId;
-  useId: CapabilityGrantUseId;
-  grantId: CapabilityGrantId;
+  authorizedOperationId: AuthorizedOperationId;
   principalId: PrincipalId;
-  evidenceSetDigest: DigestB64u;
   capabilityId: CapabilityId;
+  authorizationSource: OperationAuthorizationSource;
   operationFingerprintDigest: CapabilityOperationFingerprintDigest;
   operation: CapabilityOperationRef;
   operationDigests: OperationDigestSet;
 };
 
-type CapabilityGrantUse =
-  | (CapabilityGrantUseBase & {
+type AuthorizedOperation =
+  | (AuthorizedOperationBase & {
       kind: "claimed";
       claimedAt: IsoTimestamp;
     })
-  | (CapabilityGrantUseBase & {
+  | (AuthorizedOperationBase & {
       kind: "completed";
-      result: CompletedCapabilityGrantUseResult;
+      result: CompletedAuthorizedOperationResult;
       resultRef: CapabilityOperationResultRef;
       completedAt: IsoTimestamp;
     });
@@ -4129,14 +4146,14 @@ type CapabilityGrantUse =
 `operationFingerprintDigest` is computed from the canonical
 `CapabilityOperationEnvelope`; it is not embedded in the envelope.
 
-Grant-use consumption is one-way. Handlers must complete cheap boundary parsing,
-route policy checks, capability lookup, and replay checks before consuming a
-use. Once the operation crosses the consume boundary, a later vault, network,
-signing, or downstream failure records a failed `capability_grant_uses` row and
-does not refund the use. Repeating the same operation fingerprint returns its
+Operation admission is one-way. Handlers must complete cheap boundary parsing,
+route policy checks, authorization validation, and replay checks before
+admission. Once the operation crosses the admission boundary, a later vault,
+network, signing, or downstream failure records a failed authorized operation
+and does not refund quota. Repeating the same operation fingerprint returns its
 recorded result. A deliberate retry uses a new operation ID/fingerprint and
-requires a remaining use on the same grant or a fresh grant. This is the
-intentional replacement for the old signing-budget reserve/commit/release
+requires remaining Wallet Session quota or fresh verified step-up evidence.
+This is the intentional replacement for the old signing-budget reserve/commit/release
 lifecycle.
 
 `capability_grant_uses.result_kind` distinguishes at least `succeeded`,
