@@ -4,7 +4,6 @@ import {
   parseAuthFactorId,
   parseCapabilityId,
   parseCapabilityOperationId,
-  parseCapabilityOperationResultStorageRef,
   parseAuthorizedOperationId,
   parseDeviceId,
   parseAuthorizationEvidenceId,
@@ -46,11 +45,13 @@ import {
   buildWalletSessionAuthorization,
   buildActiveWalletSessionQuota,
   parseSessionOrigin,
+  computeAuthorizedOperationResultDigest,
+  parseAuthorizedOperationReplayResponse,
   type ActiveAuthorizationSession,
   type ActiveWalletSessionQuota,
   type WalletSessionAuthorization,
   type AuthorizedOperation,
-  type CapabilityOperationResultRef,
+  type AuthorizedOperationReplayResponse,
 } from '../../../packages/sdk-server-ts/src/authorization/domain';
 import {
   buildVerifiedEmailOtpFactorResult,
@@ -71,7 +72,7 @@ export type ReusableAuthorizationCoreFixture = {
   readonly quota: ActiveWalletSessionQuota;
   readonly reusableWalletSession: WalletSessionAuthorization;
   readonly authorizedOperation: AuthorizedOperation;
-  readonly resultRef: CapabilityOperationResultRef;
+  readonly response: AuthorizedOperationReplayResponse;
 };
 
 export type StepUpAuthorizationCoreFixture = Omit<
@@ -205,11 +206,10 @@ export async function buildReusableAuthorizationCoreFixture(
       expiresAtMs: walletSessionExpiresAtMs,
     }),
     authorizedOperation,
-    resultRef: {
-      authorizedOperationId: authorizedOperation.authorizedOperationId,
-      operationFingerprintDigest: authorizedOperation.operationFingerprintDigest,
-      resultDigest: fixtureDigest(6),
-      resultStorageRef: parsed('operation-result-1', parseCapabilityOperationResultStorageRef),
+    response: {
+      status: 200,
+      contentType: 'application/json',
+      bodyText: '{"ok":true}',
     },
   };
 }
@@ -237,6 +237,24 @@ export async function buildAdditionalAuthorizedOperation(
   });
 }
 
+export async function buildCompletedAuthorizedOperationFixture(
+  fixture: ReusableAuthorizationCoreFixture,
+): Promise<AuthorizedOperation> {
+  const operation = fixture.authorizedOperation;
+  if (operation.lifecycle !== 'claimed') {
+    throw new Error('authorization fixture operation must start claimed');
+  }
+  const response = parseAuthorizedOperationReplayResponse(fixture.response);
+  return {
+    ...operation,
+    lifecycle: 'completed',
+    result: 'succeeded',
+    response,
+    resultDigest: await computeAuthorizedOperationResultDigest(response),
+    completedAtMs: operation.claimedAtMs + 1,
+  };
+}
+
 export async function buildStepUpAuthorizationCoreFixture(): Promise<StepUpAuthorizationCoreFixture> {
   const reusable = await buildReusableAuthorizationCoreFixture();
   const operation = reusable.authorizedOperation.operation;
@@ -256,7 +274,7 @@ export async function buildStepUpAuthorizationCoreFixture(): Promise<StepUpAutho
       quota: { kind: 'quota_neutral' },
       claimedAtMs: FIXTURE_NOW_MS + 1_000,
     }),
-    resultRef: reusable.resultRef,
+    response: reusable.response,
   };
 }
 

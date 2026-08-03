@@ -51,6 +51,9 @@ import {
   admitRouterAbEcdsaReusableWalletSessionOperation,
   claimRouterAbEcdsaOperationStepUp,
   completeRouterAbEcdsaOperation,
+  routerAbEcdsaOperationInProgressResult,
+  routerAbEcdsaReplayHttpResponse,
+  routerAbEcdsaReplayUnavailableResult,
   resolveFreshRouterAbEcdsaMaterialActivation,
   routerAbEcdsaAtomicAuthorizationConfigured,
 } from '../../routerAbPrivateSigningWorker';
@@ -304,6 +307,23 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
   let authorizedOperation: AuthorizedOperation;
   let authorizedOperationWire: RouterAbEcdsaAuthorizedOperationWire;
   if (authorization.kind === 'operation_step_up') {
+    if (authorization.admissionKind === 'operation_in_progress' && input.phase === 'prepare') {
+      const failure = routerAbEcdsaOperationInProgressResult();
+      return json(failure.body, { status: failure.status });
+    }
+    if (authorization.admissionKind === 'replayed') {
+      return routerAbEcdsaReplayResponse(authorization.operation);
+    }
+    if (authorization.admissionKind === 'claimed' && input.phase === 'finalize') {
+      return json(
+        {
+          ok: false,
+          code: 'authorized_operation_missing',
+          message: 'ECDSA finalize requires a claimed prepare operation',
+        },
+        { status: 409 },
+      );
+    }
     authorizedOperation = authorization.operation;
     authorizedOperationWire = buildRouterAbEcdsaAuthorizedOperationWire({
       operation: authorizedOperation,
@@ -335,17 +355,24 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
     if (!operation.ok) {
       return json(operation.error.body, { status: operation.error.status });
     }
-    if (!operation.operation) {
+    if (operation.admission.kind === 'operation_in_progress' && input.phase === 'prepare') {
+      const failure = routerAbEcdsaOperationInProgressResult();
+      return json(failure.body, { status: failure.status });
+    }
+    if (operation.admission.kind === 'replayed') {
+      return routerAbEcdsaReplayResponse(operation.admission.operation);
+    }
+    if (operation.admission.kind === 'claimed' && input.phase === 'finalize') {
       return json(
         {
           ok: false,
           code: 'authorized_operation_missing',
-          message: 'Authorized operation is unavailable',
+          message: 'ECDSA finalize requires a claimed prepare operation',
         },
         { status: 409 },
       );
     }
-    authorizedOperation = operation.operation;
+    authorizedOperation = operation.admission.operation;
     authorizedOperationWire = buildRouterAbEcdsaAuthorizedOperationWire({
       operation: authorizedOperation,
       binding: {
@@ -381,27 +408,18 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
   await completeRouterAbEcdsaOperation({
     authorizedOperations: input.ctx.service.authorizedOperations,
     operation: authorizedOperation,
-    requestId:
-      input.phase === 'prepare'
-        ? parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body).request_id
-        : parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(input.body).request_id,
     result: upstream.ok
       ? 'succeeded'
       : upstream.status < 500
         ? 'failed_before_side_effect'
         : 'failed_after_side_effect',
-    response: parseEcdsaRouterUpstreamResponseBody(upstreamBodyText, upstream.status),
+    response: {
+      status: upstream.status,
+      contentType: upstream.headers.get('content-type') || 'application/json',
+      bodyText: upstreamBodyText,
+    },
   });
   return upstream;
-}
-
-function parseEcdsaRouterUpstreamResponseBody(bodyText: string, status: number): unknown {
-  if (!bodyText) return { status };
-  try {
-    return JSON.parse(bodyText);
-  } catch {
-    return { status, message: bodyText };
-  }
 }
 
 function isRouterAbEcdsaOperationInProgressResponse(input: {
@@ -413,6 +431,13 @@ function isRouterAbEcdsaOperationInProgressResponse(input: {
     input.bodyText.includes('ReplayedLocalRequest:') &&
     input.bodyText.includes('SigningWorker ECDSA effect is already in progress')
   );
+}
+
+function routerAbEcdsaReplayResponse(operation: AuthorizedOperation): Response {
+  const response = routerAbEcdsaReplayHttpResponse(operation);
+  if (response) return response;
+  const failure = routerAbEcdsaReplayUnavailableResult();
+  return json(failure.body, { status: failure.status });
 }
 
 async function issueEcdsaOperationStepUpAuthorization(input: {

@@ -1467,7 +1467,7 @@ export interface RouterApiAuthorizedOperationService {
   completeAuthorizedOperation(input: {
     readonly operation: AuthorizedOperation;
     readonly result: import('../authorization/domain').CompletedCapabilityOperationResult;
-    readonly resultRef: import('../authorization/domain').CapabilityOperationResultRef;
+    readonly response: import('../authorization/domain').AuthorizedOperationReplayResponse;
     readonly completedAtMs: number;
   }): Promise<AuthorizedOperation>;
 }
