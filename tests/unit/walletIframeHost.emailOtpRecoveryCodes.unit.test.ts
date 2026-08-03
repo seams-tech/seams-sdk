@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { createWalletIframeHandlers } from '@/SeamsWeb/walletIframe/host/wallet-iframe-handlers';
-import { redeemHostedWalletSeamsSession } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
+import {
+  activeHostedWalletAppSessionJwt,
+  redeemHostedWalletSeamsSession,
+} from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import { routeWalletHostRequest } from '@/SeamsWeb/walletIframe/host/requestRouter';
 import type {
   ChildToParentEnvelope,
@@ -42,7 +45,11 @@ test.describe('wallet iframe Email OTP recovery-code RPC', () => {
     try {
       await expect(
         redeemHostedWalletSeamsSession(
-          { exchangeCode: 'exchange-1', nonce: 'nonce-1' },
+          {
+            exchangeCode: 'exchange-1',
+            nonce: 'nonce-1',
+            relayUrl: 'https://relay.example.test',
+          },
           'https://relay.example.test',
         ),
       ).rejects.toThrow(/Unsupported hosted-wallet redemption response field: session_id/);
@@ -63,7 +70,11 @@ test.describe('wallet iframe Email OTP recovery-code RPC', () => {
       routeWalletHostRequest({
         type: 'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION',
         requestId: 'redeem-1',
-        payload: { exchangeCode: 'exchange-1', nonce: 'nonce-1' },
+        payload: {
+          exchangeCode: 'exchange-1',
+          nonce: 'nonce-1',
+          relayUrl: 'https://relay.example.test',
+        },
       } satisfies ParentToChildEnvelope).kind,
     ).toBe('email_otp');
   });
@@ -150,7 +161,11 @@ test.describe('wallet iframe Email OTP recovery-code RPC', () => {
       await handlers.PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION!({
         type: 'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION',
         requestId: 'redeem-1',
-        payload: { exchangeCode: 'exchange-1', nonce: 'nonce-1' },
+        payload: {
+          exchangeCode: 'exchange-1',
+          nonce: 'nonce-1',
+          relayUrl: 'https://relay.example.test',
+        },
       });
       await handlers.PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS!({
         type: 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS',
@@ -272,6 +287,7 @@ test.describe('wallet iframe Email OTP recovery-code RPC', () => {
           },
         } as RecoveryCodeStatusRequest),
       ).rejects.toThrow(/must not carry appSessionJwt/);
+      expect(activeHostedWalletAppSessionJwt('https://another-relay.example.test')).toBeUndefined();
     } finally {
       globalThis.fetch = originalFetch;
       if (originalWindow === undefined) {

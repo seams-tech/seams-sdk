@@ -193,14 +193,17 @@ function burnFlow(value: unknown): GoogleEmailOtpWalletAuthFlow {
   return flow;
 }
 
-function parseGetEmailOtpRecoveryCodeStatusPayload(value: unknown): {
+function parseGetEmailOtpRecoveryCodeStatusPayload(
+  value: unknown,
+  expectedRelayUrl: string,
+): {
   walletId: string;
   relayUrl?: string;
   appSessionJwt?: string;
 } {
   const record = recordFromPayload(value);
   const relayUrl = readOptionalString(record, 'relayUrl');
-  const appSessionJwt = activeHostedWalletAppSessionJwt();
+  const appSessionJwt = activeHostedWalletAppSessionJwt(relayUrl || expectedRelayUrl);
   return {
     walletId: readRequiredString(record, 'walletId'),
     ...(relayUrl ? { relayUrl } : {}),
@@ -300,7 +303,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       const pm = deps.getSeamsWeb();
       const session = await redeemHostedWalletSeamsSession(
         req.payload,
-        pm.configs.network.relayer.url,
+        req.payload!.relayUrl,
       );
       respondOkResult(deps, req.requestId, {
         kind: 'redeemed_hosted_wallet_seams_session',
@@ -312,7 +315,9 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
       const { walletId, relayUrl, operation } = req.payload!;
-      const appSessionJwt = activeHostedWalletAppSessionJwt();
+      const appSessionJwt = activeHostedWalletAppSessionJwt(
+        relayUrl || pm.configs.network.relayer.url,
+      );
       const result = await pm.auth.requestEmailOtpChallenge({
         walletId,
         ...(relayUrl ? { relayUrl } : {}),
@@ -328,7 +333,9 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
       const { walletId, relayUrl } = req.payload!;
-      const appSessionJwt = activeHostedWalletAppSessionJwt();
+      const appSessionJwt = activeHostedWalletAppSessionJwt(
+        relayUrl || pm.configs.network.relayer.url,
+      );
       const result = await pm.registration.requestEmailOtpEnrollmentChallenge({
         walletId,
         ...(relayUrl ? { relayUrl } : {}),
@@ -441,7 +448,11 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
       const rawPayload = recordFromPayload(req.payload);
-      const appSessionJwt = activeHostedWalletAppSessionJwt();
+      const appSessionJwt = activeHostedWalletAppSessionJwt(
+        typeof rawPayload.relayUrl === 'string'
+          ? rawPayload.relayUrl
+          : pm.configs.network.relayer.url,
+      );
       const payload = withProgress(deps, req.requestId, {
         ...rawPayload,
         ...(appSessionJwt ? { appSessionJwt } : {}),
@@ -472,7 +483,9 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     ) => {
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
-      const appSessionJwt = activeHostedWalletAppSessionJwt();
+      const appSessionJwt = activeHostedWalletAppSessionJwt(
+        req.payload?.relayUrl || pm.configs.network.relayer.url,
+      );
       const payload = withProgress(deps, req.requestId, {
         ...(req.payload || {}),
         ...(appSessionJwt ? { appSessionJwt } : {}),
@@ -501,7 +514,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
       const result = await pm.recovery.getEmailOtpRecoveryCodeStatus(
-        parseGetEmailOtpRecoveryCodeStatusPayload(req.payload),
+        parseGetEmailOtpRecoveryCodeStatusPayload(req.payload, pm.configs.network.relayer.url),
       );
       respondOkResult(deps, req.requestId, result);
     },
@@ -509,7 +522,10 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     PM_SHOW_EMAIL_OTP_RECOVERY_CODES: async (req: Req<'PM_SHOW_EMAIL_OTP_RECOVERY_CODES'>) => {
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
-      const payload = parseGetEmailOtpRecoveryCodeStatusPayload(req.payload);
+      const payload = parseGetEmailOtpRecoveryCodeStatusPayload(
+        req.payload,
+        pm.configs.network.relayer.url,
+      );
       const result = await showEmailOtpRecoveryCodesInIframe({
         pm,
         walletId: payload.walletId,
@@ -523,7 +539,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
       const result = await pm.recovery.rotateEmailOtpRecoveryCodes(
-        parseGetEmailOtpRecoveryCodeStatusPayload(req.payload),
+        parseGetEmailOtpRecoveryCodeStatusPayload(req.payload, pm.configs.network.relayer.url),
       );
       respondOkResult(deps, req.requestId, result);
     },

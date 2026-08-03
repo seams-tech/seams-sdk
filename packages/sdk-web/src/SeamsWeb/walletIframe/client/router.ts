@@ -199,7 +199,7 @@ import {
   type RegistrationAuthMethodInput,
 } from '@shared/utils/registrationIntent';
 import { parseAppSessionJwt, type AppSessionJwt } from '@shared/utils/domainIds';
-import { joinNormalizedUrl } from '@shared/utils/normalize';
+import { joinNormalizedUrl, stripTrailingSlashes } from '@shared/utils/normalize';
 import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { type ConfirmationConfig } from '@/core/types/signer-worker';
 import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
@@ -493,7 +493,7 @@ type PostResult<T> = {
 
 export type HostedWalletSeamsSessionSource = {
   readonly relayUrl: string;
-  readonly appSessionJwt: string;
+  readonly appSessionJwt: AppSessionJwt;
 };
 
 type HostedWalletSeamsSessionExchangeDelivery = {
@@ -577,13 +577,30 @@ function requireAppSessionJwtAtParentBoundary(value: unknown): AppSessionJwt {
   return parsed.value;
 }
 
+function canonicalHostedWalletRelayUrl(value: unknown): string {
+  return stripTrailingSlashes(
+    requireNonEmptyBoundaryString(value, 'hosted-wallet relayUrl'),
+  );
+}
+
+function hostedWalletSessionSourcesMatch(
+  left: HostedWalletSeamsSessionSource | null,
+  right: HostedWalletSeamsSessionSource,
+): boolean {
+  return (
+    left !== null &&
+    canonicalHostedWalletRelayUrl(left.relayUrl) === canonicalHostedWalletRelayUrl(right.relayUrl) &&
+    left.appSessionJwt === right.appSessionJwt
+  );
+}
+
 function hostedWalletSeamsSessionSource(input: {
   readonly relayUrl?: string;
   readonly appSessionJwt?: string;
 }): HostedWalletSeamsSessionSource | null {
   if (input.appSessionJwt === undefined) return null;
   return {
-    relayUrl: requireNonEmptyBoundaryString(input.relayUrl, 'hosted-wallet relayUrl'),
+    relayUrl: canonicalHostedWalletRelayUrl(input.relayUrl),
     appSessionJwt: requireAppSessionJwtAtParentBoundary(input.appSessionJwt),
   };
 }
@@ -865,6 +882,7 @@ export class WalletIframeRouter {
     initInFlight: null as Promise<void> | null,
     hostedWalletSessionInFlight: null as Promise<void> | null,
     hostedWalletSessionExpiresAtMs: 0,
+    hostedWalletSessionSource: null as HostedWalletSeamsSessionSource | null,
     pending: new Map<string, Pending>(),
     reqCounter: 0,
   };
@@ -1145,10 +1163,10 @@ export class WalletIframeRouter {
    * Safe to call multiple times; concurrent calls deduplicate via initInFlight.
    */
   async init(hostedWalletSession?: HostedWalletSeamsSessionSource): Promise<void> {
-    if (this.state.ready) return;
     if (this.state.initInFlight) {
       return this.state.initInFlight;
     }
+    if (this.state.ready && this.exactSessionState !== null) return;
     this.state.initInFlight = (async () => {
       // Respect autoMount=false by deferring connect until first use
       if (this.opts.testOptions.autoMount !== false) {
@@ -1220,11 +1238,28 @@ export class WalletIframeRouter {
     source: HostedWalletSeamsSessionSource | null,
   ): Promise<void> {
     if (!source) return;
-    if (this.state.hostedWalletSessionExpiresAtMs > Date.now() + 30_000) return;
-    if (this.state.hostedWalletSessionInFlight) {
-      return await this.state.hostedWalletSessionInFlight;
+    const normalizedSource: HostedWalletSeamsSessionSource = {
+      relayUrl: canonicalHostedWalletRelayUrl(source.relayUrl),
+      appSessionJwt: source.appSessionJwt,
+    };
+    if (
+      this.state.hostedWalletSessionExpiresAtMs > Date.now() + 30_000 &&
+      hostedWalletSessionSourcesMatch(this.state.hostedWalletSessionSource, normalizedSource)
+    ) {
+      return;
     }
-    this.state.hostedWalletSessionInFlight = this.exchangeHostedWalletSeamsSession(source);
+    const inFlight = this.state.hostedWalletSessionInFlight;
+    if (inFlight) {
+      await inFlight;
+      if (
+        this.state.hostedWalletSessionExpiresAtMs > Date.now() + 30_000 &&
+        hostedWalletSessionSourcesMatch(this.state.hostedWalletSessionSource, normalizedSource)
+      ) {
+        return;
+      }
+    }
+    this.state.hostedWalletSessionInFlight =
+      this.exchangeHostedWalletSeamsSession(normalizedSource);
     try {
       await this.state.hostedWalletSessionInFlight;
     } finally {
@@ -1235,7 +1270,7 @@ export class WalletIframeRouter {
   private async exchangeHostedWalletSeamsSession(
     source: HostedWalletSeamsSessionSource,
   ): Promise<void> {
-    const relayUrl = requireNonEmptyBoundaryString(source.relayUrl, 'session exchange relayUrl');
+    const relayUrl = canonicalHostedWalletRelayUrl(source.relayUrl);
     const appSessionJwt = requireAppSessionJwtAtParentBoundary(source.appSessionJwt);
     const response = await fetch(joinNormalizedUrl(relayUrl, '/session/exchange'), {
       method: 'POST',
@@ -1262,6 +1297,7 @@ export class WalletIframeRouter {
       payload: {
         exchangeCode: delivery.exchangeCode,
         nonce: delivery.nonce,
+        relayUrl,
       },
     });
     if (
@@ -1272,6 +1308,10 @@ export class WalletIframeRouter {
       throw new Error('wallet iframe returned an invalid hosted-wallet session redemption');
     }
     this.state.hostedWalletSessionExpiresAtMs = redeemed.result.expiresAtMs;
+    this.state.hostedWalletSessionSource = {
+      relayUrl,
+      appSessionJwt,
+    };
   }
 
   getTransportDiagnosticsSnapshot(): WalletIframeTransportDiagnostics {

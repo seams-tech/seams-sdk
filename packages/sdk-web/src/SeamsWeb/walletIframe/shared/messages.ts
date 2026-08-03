@@ -165,6 +165,7 @@ export interface PMCancelPayload {
 export interface PMRedeemHostedWalletSeamsSessionPayload {
   exchangeCode: string;
   nonce: string;
+  relayUrl: string;
 }
 
 type PMEmailOtpChallengeRegistrationAuthMethod = Omit<
