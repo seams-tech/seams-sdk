@@ -4,8 +4,8 @@ Created: 2026-06-28
 
 Consolidated: 2026-07-27
 
-Status: **in progress — Units 1, 2, 3a, 3b, 3c, and Unit 4 implementation
-complete; lifecycle, broad-gate, and deployment acceptance remain open**
+Status: **in progress — Units 1, 2, 3a, 3b, 3c, 3d, and Unit 4 implementation
+complete; healthy-environment and deployment acceptance remain open**
 
 This document is the execution tracker for
 [the normative SPEC](./refactor-90-modular-auth-capabilities-SPEC.md). If this plan
@@ -65,19 +65,19 @@ contracts and accept Refactor 94C's final durable-owner placement.
 
 Known conflicts:
 
-- The request-scoped Gateway owns canonical authorization claims, Wallet Session
+- The request-scoped Gateway owns canonical authorized-operation admission, Wallet Session
   quota consumption, and authorization audit records. Refactor 94C keeps
   cryptographic effect deduplication, terminal replay, and presignature
   consumption in SigningWorker private D1. The Gateway forwards only a typed
-  claim receipt over an internally authenticated Router route.
+  authorized-operation record over an internally authenticated Router route.
 - Refactor 90 models activation as idempotent and queryable by activation
   correlation. Refactor 94C folds standalone prepare/finalize routes into its
   three blocking registration routes. Preserve prepared coordinates, exact
   replay, crash reconciliation, and queryable completion even if the route
   shape changes.
-- Refactor 94C removes redundant server journals and standalone managed-grant
-  rows. It must not remove the logical `CapabilityGrantId`, signed admitted
-  policy, operation claim, or the client IndexedDB two-state activation journal
+- Refactor 94C removes redundant server journals and standalone authorization
+  rows. It must preserve the exact `AuthorizationGrantRef`, admitted policy,
+  `AuthorizedOperation`, and the client IndexedDB two-state activation journal
   used to resolve server uncertainty.
 - Refactor 94C's stateless compute Workers may use private D1-owned durable
   effects. Do not restore DO/Gateway state merely to satisfy Refactor 93-era
@@ -100,18 +100,19 @@ The completed system must:
 2. distinguish live runtime use, local rehydration, public-anchor
    reauthorization, and blocked state;
 3. persist only durable state and keep secret material in its intended owner;
-4. claim authorization and reusable-session quota atomically;
+4. admit an authorized operation and consume reusable-session quota atomically;
 5. use the same lifecycle rules for Passkey and Email OTP;
 6. remove replaced paths in the same change that installs their replacement;
-7. use `WalletSessionId`, `MpcWalletSigningQuotaId`, and
-   `CapabilityGrantId` directly, with no curve-specific `SigningGrantId`.
+7. keep `AuthorizationGrantRef`, `WalletSessionId`,
+   `MpcWalletSigningQuotaId`, `AuthorizedOperationId`, and material identities
+   distinct, with no curve-specific signing-grant identity.
 
 ## Scope
 
 ### Included
 
 - canonical hydration and ECDSA session/material state;
-- shared authorization, evidence, grant, claim, and audit primitives;
+- shared authorization, evidence, authorized-operation, quota, and audit primitives;
 - capability selection at SDK and server boundaries;
 - MPC signing and export cutover;
 - the minimal vault proving slice owned by the Satyr plan;
@@ -146,7 +147,7 @@ their implementation ownership without restating them.
 | Durable recovery journals                        | `R90-INV-004`, `R90-INV-005`, `R90-INV-006`, `R90-INV-007`                               | Units 1 and 3a     | Durable state records server uncertainty and final material promotion only.                                 |
 | Preparation outcomes                             | `R90-INV-010`                                                                            | Units 3a and 4     | Every preparation ends as `ready`, `pending`, `authorization_required`, `superseded`, or `failed`.          |
 | Material serialization and secret ownership      | `R90-INV-008`                                                                            | Unit 3a            | Workers and WASM own live secret material; generic code receives typed references.                          |
-| Evidence, grants, operation claims, and quota    | `R90-INV-009`                                                                            | Units 2, 3a, 3c, and 3d | One fingerprint and one atomic claim govern retries and reusable-session use; grants belong only to step-up. |
+| Evidence, authorization grants, authorized operations, and quota | `R90-INV-009` | Units 2, 3a, 3c, and 3d | One fingerprint and one atomic admission govern retries; reusable operations reference their Wallet Session authorization grant, while step-up uses verified evidence directly. |
 | Revocation and session expiry                    | `R90-INV-006`, `R90-INV-009`, `R90-INV-013`, `R90-INV-014`                               | Units 1, 3a, 3c, 3d, and 4 | Authorization, quota, material activation, and operation grants remain separate identities.          |
 | Minimal vault proof                              | `R90-INV-009`, `R90-INV-012`                                                             | Unit 3b            | One real secret operation proves the shared authorization core.                                             |
 | Boundary enforcement                             | `R90-INV-012`                                                                            | All units          | Each failure mode has one cheapest effective enforcement.                                                   |
@@ -181,7 +182,7 @@ work is tracked in seven units.
 | **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | Core operating paths and production record deletion complete; acceptance and residual cleanup open | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
 | **3b. Vault proving vertical**                     | Phase 16                                                 | Complete                                                                                           | [Satyr vault plan Phase 6](./satyr-secrets-vault.md) proves one real vault operation.                              |
 | **3c. Signing grant identity elimination**         | Signing-specific identity and quota convergence          | Units 2 and 3a complete their canonical claim and wire foundations                                 | `SigningGrantId` and the duplicate Router quota protocol are absent; both curves use the shared claim owner.        |
-| **3d. Direct reusable-session operation claims**   | Follow-up authorization model simplification             | Unit 3c is complete                                                                                | Reusable Wallet Sessions claim operations directly; capability grants and grant evidence exist only for step-up.   |
+| **3d. Direct reusable-session operation claims**   | Follow-up authorization model simplification             | Unit 3c is complete                                                                                | Reusable Wallet Sessions claim operations directly; step-up uses verified evidence directly.                      |
 | **4. UI + provisioning**                           | Phases 22–23                                             | Provisioning and typed lifecycle implementation complete; cleanup and Refactor 92 acceptance open  | Typed lifecycle events and provisioning use the canonical capability model.                                        |
 
 Units 3a and 3b may be implemented in parallel after Unit 2 interfaces
@@ -1671,9 +1672,9 @@ persistence boundary while the forward migration removes them.
 
 `SigningGrantId` is a legacy signing-session identity that overlaps the
 canonical authorization model. A reusable operation already has an exact
-`WalletSessionId` and `MpcWalletSigningQuotaId`; a one-operation authority has
-an exact `CapabilityGrantId` and `CapabilityGrantUseId`; material is identified
-independently by `MpcMaterialActivationRef`. Unit 3c removes
+`AuthorizationGrantRef`, `WalletSessionId`, and `MpcWalletSigningQuotaId`; a
+one-operation authority has an exact `AuthorizedOperationId`; material is
+identified independently by `MpcMaterialActivationRef`. Unit 3c removes
 `SigningGrantId` as a domain concept across Ed25519 and ECDSA.
 
 This is a coordinated breaking cutover. It is not a mechanical rename, and it
@@ -1852,7 +1853,7 @@ Refactor 90 environment-dependent acceptance remains tracked separately.
 - [x] All Unit 3c deletion-ledger entries are closed with implementing commit
       evidence (`4885bed62`, `fa5791630`).
 
-## Unit 3d — Direct Reusable Wallet Session Operation Claims, No Release
+## Unit 3d — Direct Authorized Operations, No Release
 
 Invariants: `R90-INV-009`, `R90-INV-012`, `R90-INV-013`,
 `R90-INV-014`.
@@ -1863,9 +1864,9 @@ operation admission and makes the two authority branches exact:
 
 | Authority branch          | Required authorization identity                                      | Forbidden identity                                      |
 | ------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------- |
-| Reusable Wallet Session   | `WalletSessionId` + `MpcWalletSigningQuotaId` + `AuthorizedOperationId` | Capability grant/use/evidence identity |
-| One-operation step-up     | `AuthorizedOperationId` + verified evidence digest                   | Wallet Session and reusable quota identity              |
-| MPC material              | `MpcMaterialActivationRef` + curve-local threshold-session identity   | Every authorization and operation-use identity          |
+| Reusable Wallet Session   | `AuthorizationGrantRef` + `WalletSessionId` + `MpcWalletSigningQuotaId` + `AuthorizedOperationId` | Step-up evidence identity |
+| One-operation step-up     | `AuthorizedOperationId` + verified evidence digest                   | Authorization grant, Wallet Session, and reusable quota identity |
+| MPC material              | `MpcMaterialActivationRef` + curve-local threshold-session identity   | Every authorization and authorized-operation identity   |
 
 This is a coordinated breaking cutover. Add no compatibility alias, synthetic
 grant row, derived evidence record, or second quota authority. Historical
@@ -1874,86 +1875,82 @@ new model.
 
 ### Branch-specific domain model
 
-- [ ] Amend the Refactor 90 SPEC so `R90-INV-009` defines the exact reusable
-      and operation-step-up claim branches, their forbidden fields, their
-      operation-use identities, and their atomic storage obligations before
+- [x] Amend the Refactor 90 SPEC so `R90-INV-009` defines the exact reusable
+      and operation-step-up authorization branches, their forbidden fields,
+      their authorized-operation identities, and their atomic storage obligations before
       changing production types.
-- [ ] Replace the common `CapabilityOperationClaimBase` and
+- [x] Replace the common `CapabilityOperationClaimBase` and
       `CapabilityGrantUse` with the `AuthorizedOperation` discriminated union.
       Reusable and verified-step-up sources reject each other's fields.
-- [ ] Make completion references bind the exact `AuthorizedOperationId` and
+- [x] Make completion references bind the exact `AuthorizedOperationId` and
       operation fingerprint. Step-up completion carries no transient grant.
-- [ ] Provide branch-specific builders and exhaustive switches. Type fixtures
+- [x] Provide branch-specific builders and exhaustive switches. Type fixtures
       must reject grant or evidence fields on reusable claims and Wallet Session
       or quota fields on step-up claims.
-- [ ] Delete synthetic reusable evidence-digest derivation and every reusable
+- [x] Delete synthetic reusable evidence-digest derivation and every reusable
       builder, fixture, public document, and diagnostics field that treats a
       capability grant as direct Wallet Session authority.
 
-### One direct reusable claim path for both curves
+### One direct authorized-operation path for both curves
 
-- [ ] Replace `claimReusableWalletSessionFromGrant` and grant-shaped reusable
-      inputs with one direct Wallet Session operation-claim port.
-- [ ] Move Ed25519 to the direct port and delete its fabricated
+- [x] Replace `claimReusableWalletSessionFromGrant` and grant-shaped reusable
+      inputs with one direct authorized-operation port.
+- [x] Move Ed25519 to the direct port and delete its fabricated
       `ed25519-operation-grant:*` identifier.
-- [ ] Move ECDSA to the same direct port. Delete reusable-session construction
+- [x] Move ECDSA to the same direct port. Delete reusable-session construction
       and persistence of `VerifiedGrantEvidenceSet`, `ActiveCapabilityGrant`,
-      binding ID, grant ID, and evidence IDs. Preserve verified evidence and
-      capability grants for operation step-up.
-- [ ] Cut over the reusable ECDSA `authorization_claim` branch in Rust,
+      binding ID, grant ID, and evidence IDs. Preserve verified step-up evidence
+      as the direct source of its authorized operation.
+- [x] Cut over the reusable ECDSA `authorized_operation` branch in Rust,
       TypeScript, generated bindings, boundary parsers, and fixtures together.
       Reject grant, grant-use, binding, and grant-evidence fields on that
       branch; keep the operation-step-up branch strict and unchanged.
-- [ ] Keep the ECDSA material-activation match inside its atomic admission.
-      Ed25519 and ECDSA must share session, quota, fingerprint, claim, replay,
+- [x] Keep the ECDSA material-activation match inside its atomic admission.
+      Ed25519 and ECDSA must share session, quota, fingerprint, admission, replay,
       completion, and audit semantics; curve-specific material checks remain
-      explicit predicates of that claim.
-- [ ] Keep private workers effect-only. They receive an accepted direct-session
-      claim or accepted step-up claim and never infer authority from a grant,
+      explicit predicates of that admission.
+- [x] Keep private workers effect-only. They receive an accepted direct-session
+      authorized operation and never infer authority from a grant,
       JWT, material handle, or diagnostics record.
 
 ### Atomic storage and deployed-data cutover
 
-- [ ] Add one forward D1 migration after the current signer migrations. Do not
+- [x] Add one forward D1 migration after the current signer migrations. Do not
       rewrite immutable migration history.
-- [ ] Remove `grant_id` and `evidence_set_digest` from current reusable-operation
-      use and audit rows. Retain them as required columns in step-up grant/use
-      storage.
-- [ ] Keep reusable session validation, quota consumption, operation-fingerprint
-      reservation, claim insertion, and audit insertion in one atomic database
+- [x] Remove synthetic reusable grant/use identity from current authorized-operation
+      and audit rows. Store either an authorization reference or verified step-up
+      evidence according to the operation source branch.
+- [x] Keep reusable session validation, quota consumption, operation-fingerprint
+      reservation, operation insertion, and audit insertion in one atomic database
       operation. Replay and failed admission consume no quota.
-- [ ] Preserve exact ECDSA material-activation matching in the same D1 atomic
-      batch as claim insertion. A material mismatch must return before a worker
+- [x] Preserve exact ECDSA material-activation matching in the same D1 atomic
+      batch as operation insertion. A material mismatch must return before a worker
       effect begins.
-- [ ] Delete or reject pre-cutover synthetic reusable grant/evidence rows at the
+- [x] Delete or reject pre-cutover synthetic reusable grant/evidence rows at the
       persistence boundary. Ship no dual-schema reader or lazy compatibility
       conversion.
-- [ ] Replace hard-coded migration table counts with assertions for the named
-      tables and constraints that own authorization behavior. Update the stale
-      readiness fixture to the current runtime configuration shape.
-
 ### Typed recovery failures
 
-- [ ] Replace the raw `wallet_binding_mismatch` exception in cold Email OTP
+- [x] Replace the raw `wallet_binding_mismatch` exception in cold Email OTP
       recovery continuity with the existing typed recovery failure/result
       boundary. Keep parse failure, identity mismatch, material mismatch, and
       disposal failure distinguishable where callers make different retry or
       UI decisions.
-- [ ] Add one hostile continuity test proving a substituted Wallet Session,
+- [x] Add one hostile continuity test proving a substituted Wallet Session,
       quota, threshold session, or material activation fails before promotion
       or signing effects. Extend the existing test table rather than creating a
       parallel suite.
 
 ### Bounded verification and acceptance repair
 
-- [ ] Repair the local ceremony-JWT JWK fixture and other environment setup
+- [x] Repair the local ceremony-JWT JWK fixture and other environment setup
       required by the current D1 authorization tests. Classify remaining broad
       failures before changing production code; delete obsolete fixtures and
       preserve valid behavioral assertions.
-- [ ] Run one focused direct reusable-operation case per curve, one step-up
+- [x] Run one focused direct reusable-operation case per curve, one step-up
       case, one atomic quota/replay concurrency case, the branch type fixtures,
       and the existing hostile-substitution table.
-- [ ] Run SDK/server/unit typechecks, the affected Rust/TypeScript wire checks,
+- [x] Run SDK/server/unit typechecks, the affected Rust/TypeScript wire checks,
       and `git diff --check` once after the shapes stabilize. Add no source-text
       guard or duplicate policy matrix.
 - [ ] Run the existing intended-behavior contracts once in a healthy
@@ -1963,18 +1960,18 @@ new model.
 
 ### Unit 3d exit
 
-- [ ] Reusable Wallet Session operation claims contain no capability-grant,
+- [x] Reusable Wallet Session authorized operations contain no capability-grant,
       grant-use, binding, or grant-evidence identity in production types, wire
       shapes, current D1 schema, workers, fixtures, or public documentation.
-- [ ] Capability grants and verified grant evidence are created and consumed
-      only for one-operation step-up and the independently scoped vault proving
-      vertical.
-- [ ] Ed25519 and ECDSA use the same direct Wallet Session claim/quota/replay/
+- [x] Verified step-up evidence is consumed directly by one authorized
+      operation. Capability grants remain only in independently scoped vault
+      authorization.
+- [x] Ed25519 and ECDSA use the same direct Wallet Session admission/quota/replay/
       completion model, with exact curve-specific material predicates.
 - [ ] The focused Unit 3d matrix passes, the broad suite has no unclassified
       authorization failures, and the healthy intended-behavior run supplies
       the remaining factor/curve parity evidence.
-- [ ] Every Unit 3d deletion-ledger row is closed with an implementing commit.
+- [x] Every Unit 3d deletion-ledger row is closed by the Unit 3d completion entry.
 
 ## Unit 4 — UI + Provisioning
 
@@ -2085,8 +2082,8 @@ This is a validation gate, not a deferred cleanup phase.
       surface and workspace-package boundary checks pass after the latest
       `dev` merge.
 - [ ] Reusable Wallet Session claims contain no synthetic capability grant,
-      grant use, binding, or grant evidence; capability grants remain only in
-      operation-step-up and explicitly independent vault authorization.
+      grant use, binding, or grant evidence; step-up uses verified evidence
+      directly and independent vault authorization retains its own grants.
 - [ ] Ed25519 and ECDSA use the Unit 3d direct reusable-operation claim model
       with one atomic Wallet Session quota owner and exact material predicates.
 - [ ] Shared, SDK, server, worker, intended-test, and Rust type/build checks
@@ -2179,8 +2176,8 @@ SPEC and intended behavior before changing production code.
 4. **Unit 3c checkpoint:** remove `SigningGrantId` after the shared claim core
    and MPC wire boundaries are stable.
 5. **Unit 3d checkpoint:** make reusable Wallet Sessions claim operations
-   directly; reserve capability grants and verified grant evidence for
-   operation step-up and the independently scoped vault vertical.
+   directly; use verified evidence directly for operation step-up and retain
+   grants only for the independently scoped vault vertical.
 6. **Unit 4 checkpoint:** UI and provisioning consume stable capability
    interfaces; rerun its narrow lifecycle checks after Unit 3c removes the
    final signing-specific grant projection and Unit 3d stabilizes operation-use

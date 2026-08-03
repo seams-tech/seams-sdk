@@ -32,7 +32,10 @@ import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { parseVerifiedAuthorizationEvidenceSetFromPersistence } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
 import { capabilityPolicyPort } from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
-import { parseReusableWalletSessionMintId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseReusableWalletSessionMintId,
+} from '../../packages/shared-ts/src/authorization/capabilityKinds';
 
 const signerMigrations = listD1MigrationFiles('d1-signer');
 
@@ -277,7 +280,7 @@ test.describe('D1 authorization core', () => {
         sessions: store,
         evidence: store,
         grants: store,
-        claims: store,
+        authorizedOperations: store,
         audit: store,
       });
       const fixture = await buildReusableAuthorizationCoreFixture({
@@ -290,9 +293,9 @@ test.describe('D1 authorization core', () => {
 
       const claimInput = authorizedOperationInput(fixture.authorizedOperation);
       const material = await seedEcdsaMaterial(temporary.database, namespace, fixture);
-      const claimed = await service.claimAuthorizedOperation({ operation: claimInput, material });
+      const claimed = await service.admitAuthorizedOperation({ operation: claimInput, material });
       expect(claimed.kind).toBe('claimed');
-      if (claimed.kind !== 'claimed') throw new Error('expected a new authorized operation claim');
+      if (claimed.kind !== 'claimed') throw new Error('expected a newly admitted operation');
       await expect(
         readQuotaRemainingUses(
           temporary.database,
@@ -312,7 +315,7 @@ test.describe('D1 authorization core', () => {
       ).resolves.toMatchObject({ lifecycle: 'completed' });
 
       await expect(
-        service.claimAuthorizedOperation({ operation: claimInput, material }),
+        service.admitAuthorizedOperation({ operation: claimInput, material }),
       ).resolves.toMatchObject({
         kind: 'replayed',
         operation: {
@@ -333,6 +336,109 @@ test.describe('D1 authorization core', () => {
     }
   });
 
+  test('rejects replay source, quota, and material substitutions and persists audit linkage', async () => {
+    const temporary = createTemporaryD1Database();
+    const namespace = 'authorized-operation-replay-binding';
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const store = new CloudflareD1AuthorizationStore({
+        database: temporary.database,
+        namespace,
+      });
+      const service = new AuthorizationService({
+        policy: capabilityPolicyPort,
+        sessions: store,
+        evidence: store,
+        grants: store,
+        authorizedOperations: store,
+        audit: store,
+      });
+      const fixture = await buildReusableAuthorizationCoreFixture({
+        quotaRemainingUses: 2,
+      });
+      await store.putWalletSessionAuthorization({
+        session: fixture.reusableWalletSession,
+        quota: fixture.quota,
+      });
+      const material = await seedEcdsaMaterial(temporary.database, namespace, fixture);
+      const claimInput = authorizedOperationInput(fixture.authorizedOperation);
+      await expect(
+        service.admitAuthorizedOperation({ operation: claimInput, material }),
+      ).resolves.toMatchObject({
+        kind: 'claimed',
+      });
+      const audit = await temporary.database
+        .prepare(
+          `SELECT authorization_id, result_kind
+             FROM authorized_operation_audit_events
+            WHERE tenant_id = ? AND authorized_operation_id = ?`,
+        )
+        .bind(
+          fixture.authorizedOperation.tenantId,
+          fixture.authorizedOperation.authorizedOperationId,
+        )
+        .first<{ readonly authorization_id?: unknown; readonly result_kind?: unknown }>();
+      expect(audit).toMatchObject({
+        authorization_id: fixture.reusableWalletSession.authorizationId,
+        result_kind: 'pending',
+      });
+
+      const stepUpReplay: AuthorizedOperationInput = {
+        ...claimInput,
+        authorization: {
+          kind: 'verified_step_up',
+          evidenceSetDigest: testDigest(99),
+        },
+        quota: { kind: 'quota_neutral' },
+      };
+      await expect(
+        service.admitAuthorizedOperation({ operation: stepUpReplay, material }),
+      ).resolves.toEqual({ kind: 'verified_step_up_rejected' });
+
+      const wrongQuota = parseMpcWalletSigningQuotaId('quota-replay-mismatch');
+      if (!wrongQuota.ok) throw new Error(wrongQuota.error.message);
+      const quotaReplay: AuthorizedOperationInput = {
+        ...claimInput,
+        quota: {
+          kind: 'consume_reusable_wallet_session',
+          quotaId: wrongQuota.value,
+        },
+      };
+      await expect(
+        service.admitAuthorizedOperation({ operation: quotaReplay, material }),
+      ).resolves.toEqual({ kind: 'authorization_grant_rejected' });
+
+      const materialReplay: EcdsaMaterialActivationScope = {
+        ...material,
+        materialActivation: {
+          ...material.materialActivation,
+          activation_id: `${material.materialActivation.activation_id}-substituted`,
+        },
+      };
+      await expect(
+        service.admitAuthorizedOperation({ operation: claimInput, material: materialReplay }),
+      ).resolves.toEqual({ kind: 'material_mismatch' });
+
+      await temporary.database
+        .prepare(
+          `UPDATE reusable_wallet_sessions
+              SET lifecycle_kind = 'superseded'
+            WHERE namespace = ? AND tenant_id = ? AND authorization_id = ?`,
+        )
+        .bind(
+          namespace,
+          fixture.reusableWalletSession.tenantId,
+          fixture.reusableWalletSession.authorizationId,
+        )
+        .run();
+      await expect(
+        service.admitAuthorizedOperation({ operation: claimInput, material }),
+      ).resolves.toEqual({ kind: 'authorization_grant_rejected' });
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
   test('rejects step-up admission when evidence is substituted for the operation', async () => {
     const temporary = createTemporaryD1Database();
     const namespace = 'authorized-operation-step-up-binding';
@@ -347,7 +453,7 @@ test.describe('D1 authorization core', () => {
         sessions: store,
         evidence: store,
         grants: store,
-        claims: store,
+        authorizedOperations: store,
         audit: store,
       });
       const fixture = await buildPasskeyVerifiedFactorFixture();
@@ -379,7 +485,7 @@ test.describe('D1 authorization core', () => {
         claimedAtMs: operation.claimedAtMs,
       };
       await expect(
-        service.claimAuthorizedOperation({ operation: claimInput, material }),
+        service.admitAuthorizedOperation({ operation: claimInput, material }),
       ).resolves.toEqual({ kind: 'verified_step_up_rejected' });
       await expect(rowCount(temporary.database, 'authorized_operations')).resolves.toBe(0);
     } finally {
@@ -540,7 +646,7 @@ function createService(
     sessions: store,
     evidence: store,
     grants: store,
-    claims: store,
+    authorizedOperations: store,
     audit: store,
   });
 }
@@ -553,9 +659,7 @@ async function seedEcdsaMaterial(
   const signer = createWalletEcdsaSignerRecord({
     walletId: authorization.reusableWalletSession.walletId,
     now: authorization.session.createdAtMs,
-    materialActivationCapability: String(
-      authorization.authorizedOperation.operation.capabilityId,
-    ),
+    materialActivationCapability: String(authorization.authorizedOperation.operation.capabilityId),
   });
   const runtimePolicyScope = {
     orgId: authorization.session.tenantId,

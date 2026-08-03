@@ -34,7 +34,6 @@ import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
 } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { deriveEvmFamilySigningKeySlotIdFromRuntimePolicyScope } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   computeSdkEcdsaDerivationApplicationBindingDigestB64u,
@@ -524,9 +523,6 @@ function mockedEcdsaServerBootstrap(
     participantIds: [1, 2],
     thresholdSessionId: prepare.thresholdSessionId,
     activationEpoch: facts.lifecycle.root_share_epoch,
-    authorizationSessionId: `auth-session:${walletId}`,
-    walletSessionId: `wallet-session:${walletId}`,
-    quotaId: `wallet-quota:${walletId}`,
     expiresAtMs,
     expiresAt: new Date(expiresAtMs).toISOString(),
     remainingUses: prepare.remainingUses,
@@ -558,7 +554,6 @@ function mockedEcdsaServerBootstrap(
       },
     },
   };
-  bootstrap.jwt = ecdsaWalletSessionJwtForBootstrap(bootstrap);
   return bootstrap;
 }
 
@@ -625,71 +620,6 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
 
 function ethereumAddress20B64u(address: string): string {
   return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
-}
-
-function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): string {
-  const publicIdentity = bootstrap.publicIdentity as Record<string, unknown>;
-  const thresholdSessionId = String(bootstrap.thresholdSessionId || '').trim();
-  const walletId = String(bootstrap.walletId || '').trim();
-  const applicationBindingDigestB64u = String(bootstrap.applicationBindingDigestB64u || '').trim();
-  const ecdsaThresholdKeyId = String(bootstrap.ecdsaThresholdKeyId || '').trim();
-  const signingRootId = String(bootstrap.signingRootId || '').trim();
-  const signingRootVersion = String(bootstrap.signingRootVersion || '').trim();
-  const keyHandle = String(bootstrap.keyHandle || '').trim();
-  const relayerKeyId = String(bootstrap.relayerKeyId || '').trim();
-  const expiresAtMs = Number(bootstrap.expiresAtMs);
-  const participantIds = Array.isArray(bootstrap.participantIds) ? bootstrap.participantIds : [];
-  const normalSigning = bootstrap.routerAbEcdsaDerivationNormalSigning as Record<string, unknown>;
-  const normalSigningScope = normalSigning.scope as Record<string, unknown>;
-  return jwtWithPayload({
-    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-    sub: walletId,
-    walletId,
-    thresholdSessionId,
-    authorizationSessionId: `auth-session:${walletId}`,
-    walletSessionId: `wallet-session:${walletId}`,
-    quotaId: `wallet-quota:${walletId}`,
-    keyScope: 'evm-family',
-    keyHandle,
-    relayerKeyId,
-    rpId: RP_ID,
-    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-    thresholdExpiresAtMs: expiresAtMs,
-    participantIds,
-    routerAbEcdsaDerivationNormalSigning: {
-      kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
-      scope: {
-        wallet_id: walletId,
-        ecdsa_threshold_key_id: ecdsaThresholdKeyId,
-        signing_root_id: signingRootId,
-        signing_root_version: signingRootVersion,
-        context: {
-          application_binding_digest_b64u: applicationBindingDigestB64u,
-        },
-        public_identity: {
-          context_binding_b64u: String(bootstrap.contextBinding32B64u || '').trim(),
-          derivation_client_share_public_key33_b64u: String(
-            publicIdentity.derivationClientSharePublicKey33B64u || '',
-          ).trim(),
-          server_public_key33_b64u: String(publicIdentity.relayerPublicKey33B64u || '').trim(),
-          threshold_public_key33_b64u: String(publicIdentity.groupPublicKey33B64u || '').trim(),
-          ethereum_address20_b64u: ethereumAddress20B64u(
-            String(publicIdentity.ethereumAddress || bootstrap.ethereumAddress || ''),
-          ),
-          client_share_retry_counter: Number(bootstrap.clientShareRetryCounter),
-          server_share_retry_counter: Number(bootstrap.relayerShareRetryCounter),
-        },
-        material_activation: normalSigningScope.material_activation,
-        signing_worker: {
-          server_id: 'signing-worker-test',
-          key_epoch: 'worker-epoch-test',
-        recipient_encryption_key:
-            'x25519:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
-        },
-        activation_epoch: String(bootstrap.activationEpoch || sessionId),
-      },
-    },
-  });
 }
 
 function plannedEcdsaWalletKeyId(walletId: unknown): string {
@@ -1683,11 +1613,9 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
               expiresAtMs: registrationEcdsaExpiresAtMs,
               expiresAt: new Date(registrationEcdsaExpiresAtMs).toISOString(),
             } as Record<string, unknown>;
-            const sessionJwt = ecdsaWalletSessionJwtForBootstrap(bootstrap);
             if (patchRegistrationBootstrap) {
               bootstrap = patchRegistrationBootstrap(bootstrap);
             }
-            bootstrap.jwt = sessionJwt;
             return { chainTarget: entry.chainTarget, bootstrap };
           })
         : null;
@@ -1732,14 +1660,12 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
       const prepare = captures.ecdsaPrepare as Record<string, any>;
       let bootstrap = mockedEcdsaServerBootstrap(ecdsaFacts, prepare);
       captures.sharedRegistrationExpiresAtMs = bootstrap.expiresAtMs;
-      const sessionJwt = ecdsaWalletSessionJwtForBootstrap(bootstrap);
       const patchRegistrationBootstrap = captures.patchRegistrationBootstrap as
         | ((value: Record<string, unknown>) => Record<string, unknown>)
         | undefined;
       if (patchRegistrationBootstrap) {
         bootstrap = patchRegistrationBootstrap(bootstrap);
       }
-      bootstrap.jwt = sessionJwt;
       /* Activate absorbed finalize, so it is the terminal commit these tests
          track: recorded under the same capture the finalize route used, with
          the plan kind the commit covers. */
@@ -3077,8 +3003,6 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
           registrationPreparationId: 'add-signer-preparation',
           requestId: 'request-ecdsa',
           thresholdSessionId: 'session-ecdsa',
-          walletSessionId: `wallet-session:${WALLET_SUBJECT_ID}`,
-          quotaId: `wallet-quota:${WALLET_SUBJECT_ID}`,
           ttlMs: 600_000,
           remainingUses: 1,
           participantIds: [1, 2],
@@ -3146,9 +3070,6 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
           ethereumAddress: '0x1111111111111111111111111111111111111111',
           relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_33_B64U,
           thresholdSessionId: String(clientEntry.clientBootstrap.thresholdSessionId || ''),
-          authorizationSessionId: `auth-session:${WALLET_SUBJECT_ID}`,
-          walletSessionId: `wallet-session:${WALLET_SUBJECT_ID}`,
-          quotaId: `wallet-quota:${WALLET_SUBJECT_ID}`,
           expiresAtMs: addSignerEcdsaExpiresAtMs,
           expiresAt: new Date(addSignerEcdsaExpiresAtMs).toISOString(),
         } as Record<string, unknown>;
@@ -3158,7 +3079,6 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
         if (patchAddSignerBootstrap) {
           ecdsaBootstrap = patchAddSignerBootstrap(ecdsaBootstrap);
         }
-        ecdsaBootstrap.jwt = ecdsaWalletSessionJwtForBootstrap(ecdsaBootstrap);
         return jsonResponse({
           ok: true,
           addSignerCeremonyId: body.addSignerCeremonyId,
@@ -3177,14 +3097,12 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
       const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
       const prepare = captures.ecdsaPrepare as Record<string, any>;
       let bootstrap = mockedEcdsaServerBootstrap(ecdsaFacts, prepare);
-      const sessionJwt = ecdsaWalletSessionJwtForBootstrap(bootstrap);
       const patchAddSignerBootstrap = captures.patchAddSignerBootstrap as
         | ((value: Record<string, unknown>) => Record<string, unknown>)
         | undefined;
       if (patchAddSignerBootstrap) {
         bootstrap = patchAddSignerBootstrap(bootstrap);
       }
-      bootstrap.jwt = sessionJwt;
       return jsonResponse({
         ok: true,
         addSignerCeremonyId: body.addSignerCeremonyId,

@@ -4,7 +4,6 @@ import {
   type ThresholdEcdsaDerivationRoleLocalBootstrapRequest,
 } from '../../packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa';
 import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   toEcdsaDerivationThresholdKeyId,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
@@ -12,14 +11,6 @@ import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interf
 
 function toDerivationClientSharePublicKey33B64uForTest(value: string): DerivationClientSharePublicKey33B64u {
   return value as DerivationClientSharePublicKey33B64u;
-}
-
-function base64UrlEncodeJsonFixture(value: unknown): string {
-  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
-}
-
-function buildUnsignedJwtFixture(payload: Record<string, unknown>): string {
-  return `${base64UrlEncodeJsonFixture({ alg: 'none', typ: 'JWT' })}.${base64UrlEncodeJsonFixture(payload)}.fixture`;
 }
 
 const CONTEXT_BINDING_32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -67,24 +58,6 @@ const NORMAL_SIGNING_STATE_FIXTURE = {
     activation_epoch: ACTIVATION_EPOCH,
   },
 } as const;
-
-function buildRouterAbEcdsaDerivationWalletSessionJwtFixture(args: { expiresAtMs: number }): string {
-  return buildUnsignedJwtFixture({
-    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-    sub: 'wallet-user',
-    walletId: 'wallet-user',
-    thresholdSessionId: 'threshold-session',
-    authorizationSessionId: 'authorization-session',
-    walletSessionId: 'wallet-session',
-    quotaId: 'wallet-signing-quota',
-    keyScope: 'evm-family',
-    keyHandle: 'key-handle',
-    relayerKeyId: 'relayer-key',
-    thresholdExpiresAtMs: args.expiresAtMs,
-    participantIds: [1, 2],
-    routerAbEcdsaDerivationNormalSigning: NORMAL_SIGNING_STATE_FIXTURE,
-  });
-}
 
 const BOOTSTRAP_ARGS = {
   formatVersion: 'ecdsa-derivation-role-local' as const,
@@ -134,14 +107,10 @@ function bootstrapValue(overrides?: Record<string, unknown>): Record<string, unk
     participantIds: [1, 2],
     thresholdSessionId: 'threshold-session',
     activationEpoch: ACTIVATION_EPOCH,
-    authorizationSessionId: 'authorization-session',
-    walletSessionId: 'wallet-session',
-    quotaId: 'wallet-signing-quota',
     expiresAtMs,
     expiresAt: new Date(expiresAtMs).toISOString(),
     remainingUses: 2,
     routerAbEcdsaDerivationNormalSigning: NORMAL_SIGNING_STATE_FIXTURE,
-    jwt: buildRouterAbEcdsaDerivationWalletSessionJwtFixture({ expiresAtMs }),
     ...(overrides || {}),
   };
 }

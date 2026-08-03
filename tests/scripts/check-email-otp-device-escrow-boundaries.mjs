@@ -53,7 +53,7 @@ function checkNormalLoginRequiresDeviceLocalEscrow() {
   const loginSlice = sliceBetween(
     workerSource,
     'async function loginWithEmailOtpAndUnlockWallet',
-    'type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs',
+    'function postToMainThread',
   );
 
   assertContains(loginSlice, 'readEmailOtpDeviceEnrollmentEscrowRecord', 'normal login');

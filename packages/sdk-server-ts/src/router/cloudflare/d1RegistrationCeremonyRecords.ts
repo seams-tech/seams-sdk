@@ -1081,7 +1081,7 @@ function parseD1StoredEvmFamilyEcdsaActivatedBranch(
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
   const prepared = parseD1StoredEcdsaRegistrationBase(record);
   const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
-  if (!branchKey || !prepared || !bootstrap || bootstrap.jwt) return null;
+  if (!branchKey || !prepared || !bootstrap) return null;
   try {
     return {
       kind: 'evm_family_ecdsa_activated',
@@ -1110,7 +1110,7 @@ function parseD1StoredEvmFamilyEcdsaFinalizedBranch(
   const prepared = parseD1StoredEcdsaRegistrationBase(record);
   const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
   const finalizedAtMs = safeInteger(record.finalizedAtMs);
-  if (!branchKey || !prepared || !bootstrap || bootstrap.jwt || finalizedAtMs === null) return null;
+  if (!branchKey || !prepared || !bootstrap || finalizedAtMs === null) return null;
   try {
     return {
       kind: 'evm_family_ecdsa_finalized',
@@ -1495,7 +1495,7 @@ function parseD1StoredEcdsaAddSignerActivated(
 > | null {
   const prepared = parseD1StoredEcdsaRegistrationBase(record);
   const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
-  if (!prepared || !bootstrap || bootstrap.jwt) return null;
+  if (!prepared || !bootstrap) return null;
   try {
     return {
       kind: 'ecdsa_add_signer_activated',
@@ -1544,6 +1544,14 @@ function parseD1WalletRegistrationEcdsaPrepare(
 ): WalletRegistrationEcdsaPrepareContext | null {
   const record = toRecordValue(raw);
   if (!record || record.formatVersion !== 'ecdsa-derivation-role-local') return null;
+  if (
+    'authorizationSessionId' in record ||
+    'walletSessionId' in record ||
+    'quotaId' in record ||
+    'jwt' in record
+  ) {
+    return null;
+  }
   if (record.keyScope !== 'evm-family') return null;
   const registrationPreparationId = toOptionalTrimmedString(record.registrationPreparationId);
   const walletId = toOptionalTrimmedString(record.walletId);
@@ -1679,8 +1687,6 @@ function parseD1EcdsaDerivationServerBootstrapResponse(
     remainingUses,
     routerAbEcdsaDerivationNormalSigning,
   };
-  const jwt = toOptionalTrimmedString(record.jwt);
-  if (jwt) bootstrap.jwt = jwt;
   return bootstrap;
 }
 

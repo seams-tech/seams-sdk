@@ -29,18 +29,19 @@ Threshold signing tracks independent lifecycle identities:
 | Identity | Purpose |
 | --- | --- |
 | `thresholdSessionId` | Identifies the threshold protocol session and its signing material. Protocol state, restored holder material, and server material must all refer to this id. |
-| `walletSessionId` + `quotaId` | Identify reusable authorization and its server-owned expiry and remaining uses. |
-| `CapabilityGrantId` + `CapabilityGrantUseId` | Identify one authorized operation and its single claim/use. |
+| `AuthorizationGrantRef` | Identifies the reusable Wallet Session authorization. |
+| `walletSessionId` + `quotaId` | Identify the Wallet Session and its server-owned remaining uses. |
+| `AuthorizedOperationId` | Identifies one exact authorized operation for reusable or verified-step-up admission. |
 
 The protocol session selects threshold material. Wallet Session quota or an
-operation capability grant determines whether the operation is authorized.
+authorized operation determines whether the operation may execute.
 
 ## Material Readiness
 
 Worker-owned material is not sign-ready just because a persisted record mentions
 it. Browser workers are runtime-local, so material must be loaded and validated
-against the current Wallet Session quota, capability claim, threshold session, signing
-root, Router A/B scope, and worker identity.
+against the current authorization source, authorized operation, threshold
+session, signing root, Router A/B scope, and worker identity.
 
 The practical states are:
 

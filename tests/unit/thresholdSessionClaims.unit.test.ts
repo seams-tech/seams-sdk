@@ -51,8 +51,7 @@ const passkeyAuthority = buildPasskeyWalletAuthAuthority({
   rpId: 'example.localhost',
   credentialIdB64u: 'credential-id',
 });
-const evmFamilySigningKeySlotId =
-  'wallet-key:evm-family:alice.testnet:signing-root:default';
+const evmFamilySigningKeySlotId = 'wallet-key:evm-family:alice.testnet:signing-root:default';
 
 function fixtureRootShareEpoch(value: string) {
   const parsed = parseRootShareEpoch(value);
@@ -417,6 +416,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
           walletId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
           nearEd25519SigningKeyId: 'alice.testnet',
+          authorizationId: 'authorization-grant-ed25519',
           walletSessionId: 'wallet-session-ed25519',
           quotaId: 'wallet-quota-ed25519',
           thresholdSessionId: 'threshold-ed25519-session',
@@ -441,6 +441,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
           walletId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
           nearEd25519SigningKeyId: 'alice.testnet',
+          authorizationId: 'authorization-grant-ed25519',
           walletSessionId: 'wallet-session-ed25519',
           quotaId: 'wallet-quota-ed25519',
           thresholdSessionId: 'threshold-ed25519-session',
@@ -473,6 +474,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
         sessionInfo: {
           sessionKind: 'jwt',
           authorizationSessionId: 'authorization-session-1',
+          authorizationId: 'authorization-grant-ecdsa',
           walletSessionId: 'wallet-session-1',
           quotaId: 'wallet-quota-1',
           thresholdSessionId: ecdsaBootstrap.thresholdSessionId,
@@ -492,7 +494,9 @@ test.describe('Router A/B Wallet Session token claims', () => {
       parseRouterAbEd25519WalletSessionClaims(signedPayloads[0])?.routerAbNormalSigning,
     ).toEqual(routerAbNormalSigning);
     const signedEcdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(signedPayloads[1]);
-    expect(signedEcdsaClaims?.routerAbEcdsaDerivationNormalSigning).toEqual(ecdsaNormalSigning.state);
+    expect(signedEcdsaClaims?.routerAbEcdsaDerivationNormalSigning).toEqual(
+      ecdsaNormalSigning.state,
+    );
     if (!signedEcdsaClaims?.routerAbEcdsaDerivationNormalSigning) {
       throw new Error('expected Router A/B ECDSA derivation normal-signing claims');
     }
@@ -533,6 +537,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
         sessionInfo: {
           sessionKind: 'jwt',
           authorizationSessionId: 'authorization-session-1',
+          authorizationId: 'authorization-grant-ecdsa',
           walletSessionId: 'wallet-session-1',
           quotaId: 'wallet-quota-1',
           thresholdSessionId: 'threshold-ecdsa-session',
@@ -557,6 +562,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       routerAbEcdsaDerivationIssuerBinding: routerAbEcdsaIssuerBinding(),
       sessionKind: 'jwt' as const,
       authorizationSessionId: 'authorization-session-1',
+      authorizationId: 'authorization-grant-ecdsa',
       walletSessionId: 'wallet-session-1',
       quotaId: 'wallet-quota-1',
       thresholdSessionId: ecdsaBootstrap.thresholdSessionId,
@@ -812,7 +818,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
         rawBody: baseBody,
         headers: {},
         session,
-        authorizationClaims: null,
+        authorizedOperations: null,
         authorizationSessions: null,
         admissionAdapter,
         resolveEd25519MaterialActivation,
@@ -1097,7 +1103,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
           rawBody: body,
           headers: {},
           session,
-          authorizationClaims: null,
+          authorizedOperations: null,
           authorizationSessions: null,
           admissionAdapter,
           resolveEcdsaMaterialActivation,

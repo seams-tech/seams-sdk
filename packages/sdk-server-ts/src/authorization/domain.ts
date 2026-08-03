@@ -155,6 +155,7 @@ export type WalletSessionAuthorization = {
   readonly authority: WalletAuthAuthorityRef;
   readonly mintId: ReusableWalletSessionMintId;
   readonly authorizationId: WalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
@@ -272,6 +273,8 @@ export type CompletedCapabilityOperationResult =
   | 'failed_after_side_effect';
 
 export type CapabilityOperationResultRef = {
+  readonly authorizedOperationId: AuthorizedOperationId;
+  readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
   readonly resultDigest: DigestB64u;
   readonly resultStorageRef: DomainId<'CapabilityOperationResultStorageRef'>;
 };
@@ -355,6 +358,16 @@ export function buildWalletSessionAuthorization(
   if (fields.authority.walletId !== fields.walletId) {
     throw new Error('reusable Wallet Session authority must identify the exact wallet');
   }
+  const authorizationId = String(fields.authorizationId);
+  const walletSessionId = String(fields.walletSessionId);
+  const quotaId = String(fields.quotaId);
+  if (
+    authorizationId === walletSessionId ||
+    authorizationId === quotaId ||
+    walletSessionId === quotaId
+  ) {
+    throw new Error('authorization, Wallet Session, and quota identities must be pairwise distinct');
+  }
   return {
     kind: 'wallet_session_authorization',
     tenantId: fields.tenantId,
@@ -363,6 +376,7 @@ export function buildWalletSessionAuthorization(
     authority: fields.authority,
     mintId: fields.mintId,
     authorizationId: fields.authorizationId,
+    walletSessionId: fields.walletSessionId,
     quotaId: fields.quotaId,
     createdAtMs: fields.createdAtMs,
     expiresAtMs: fields.expiresAtMs,

@@ -529,16 +529,12 @@ function storedEcdsaAddSignerBootstrap(
     relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
     thresholdSessionId: bootstrap.thresholdSessionId,
     activationEpoch: bootstrap.activationEpoch,
-    authorizationSessionId: bootstrap.authorizationSessionId,
-    walletSessionId: bootstrap.walletSessionId,
-    quotaId: bootstrap.quotaId,
     expiresAtMs: bootstrap.expiresAtMs,
     expiresAt: bootstrap.expiresAt,
     remainingUses: bootstrap.remainingUses,
     participantIds: [...exactEcdsaParticipantPair(bootstrap.participantIds)],
     routerAbEcdsaDerivationNormalSigning:
       bootstrap.routerAbEcdsaDerivationNormalSigning,
-    jwt: bootstrap.jwt,
   };
 }
 

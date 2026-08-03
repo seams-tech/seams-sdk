@@ -163,6 +163,7 @@ export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promis
         nearEd25519SigningKeyId,
         authority,
         thresholdSessionId: capability.capability.lifecycle.thresholdSessionId,
+        authorizationId: reusableWalletSession.session.authorizationId,
         walletSessionId: reusableWalletSession.quota.walletSessionId,
         quotaId: reusableWalletSession.quota.quotaId,
         participantIds: [firstParticipantId, secondParticipantId],

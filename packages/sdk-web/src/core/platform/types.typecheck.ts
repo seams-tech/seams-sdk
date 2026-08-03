@@ -351,32 +351,20 @@ buildEmailOtpWorkerIssuedSessionHandle({
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
 });
 
+// @ts-expect-error Generic ECDSA registration worker-session handles are retired.
 buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-registration-session',
   walletId,
-  evmFamilySigningKeySlotId,
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'registration',
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
 });
 
-// @ts-expect-error Registration ECDSA handles cannot carry runtime key handles.
-buildEmailOtpWorkerIssuedSessionHandle({
-  sessionId: 'otp-registration-session',
-  walletId,
-  evmFamilySigningKeySlotId,
-  keyHandle: 'ecdsa-key-handle',
-  authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
-  action: 'threshold_ecdsa_bootstrap',
-  operation: 'registration',
-  chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
-});
-
-// @ts-expect-error Runtime ECDSA handles cannot carry provisioning slots.
 buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-export-session',
   walletId,
+  // @ts-expect-error Runtime ECDSA handles cannot carry provisioning slots.
   evmFamilySigningKeySlotId,
   keyHandle: 'ecdsa-key-handle',
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),

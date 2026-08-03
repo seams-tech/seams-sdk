@@ -37,7 +37,7 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
       sessions: authorizationStore,
       evidence: authorizationStore,
       grants: authorizationStore,
-      claims: authorizationStore,
+      authorizedOperations: authorizationStore,
       audit: authorizationStore,
     });
     const fixture = await buildVaultProxyFixture();
@@ -130,8 +130,8 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
       temporary.database
         .prepare(
           `SELECT COUNT(*) AS count
-             FROM capability_grant_uses
-            WHERE namespace = ? AND tenant_id = ? AND use_id = ?`,
+             FROM authorized_operations
+            WHERE namespace = ? AND tenant_id = ? AND authorized_operation_id = ?`,
         )
         .bind('vault-proxy-test', fixture.tenantId, fixture.authorizedOperationId)
         .first<{ readonly count: number }>(),
@@ -139,25 +139,22 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
     await expect(
       temporary.database
         .prepare(
-          `SELECT COUNT(*) AS count
-             FROM capability_grants
-            WHERE namespace = ? AND tenant_id = ?`,
+          `SELECT capability_id, capability_kind, operation_kind, result_kind
+             FROM authorized_operations
+            WHERE namespace = ? AND tenant_id = ? AND authorized_operation_id = ?`,
         )
-        .bind('vault-proxy-test', fixture.tenantId)
-        .first<{ readonly count: number }>(),
-    ).resolves.toEqual({ count: 0 });
-    await expect(
-      authorization.readAuditEvent({
-        tenantId: fixture.tenantId,
-        eventId: fixture.auditEventId,
-      }),
-    ).resolves.toMatchObject({
-      capabilityId: fixture.capabilityId,
-      operation: {
-        capabilityKind: 'vault_access',
-        operationKind: 'vault.proxy_use',
-      },
-      result: 'succeeded',
+        .bind('vault-proxy-test', fixture.tenantId, fixture.authorizedOperationId)
+        .first<{
+          readonly capability_id: string;
+          readonly capability_kind: string;
+          readonly operation_kind: string;
+          readonly result_kind: string;
+        }>(),
+    ).resolves.toEqual({
+      capability_id: fixture.capabilityId,
+      capability_kind: 'vault_access',
+      operation_kind: 'vault.proxy_use',
+      result_kind: 'succeeded',
     });
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);

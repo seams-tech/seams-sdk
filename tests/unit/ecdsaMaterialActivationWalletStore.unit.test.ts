@@ -234,7 +234,7 @@ async function stepUpRouteFixture(input: {
           return sessionFixture.session;
         },
       },
-      authorizationClaims: {
+      authorizedOperations: {
         tenantId: sessionFixture.session.tenantId,
         async recordVerifiedFactorEvidenceSet(evidenceInput) {
           input.sideEffects.evidenceWrites += 1;

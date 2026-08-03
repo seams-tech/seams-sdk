@@ -6,9 +6,11 @@ import type {
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
+declare const authorizationId: WalletSessionAuthorizationId;
 declare const walletSessionId: WalletSessionId;
 declare const quotaId: MpcWalletSigningQuotaId;
 
@@ -22,6 +24,7 @@ const ecdsaAuth = {
   kind: 'wallet_session',
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
+  authorizationId,
   walletSessionId,
   quotaId,
   userId: 'wallet-ecdsa',
@@ -35,6 +38,7 @@ const ed25519Auth = {
   kind: 'wallet_session',
   curve: 'ed25519',
   thresholdSessionId: 'threshold-session-ed25519',
+  authorizationId,
   walletSessionId,
   quotaId,
   userId: 'wallet-ed25519',
@@ -45,7 +49,9 @@ const ed25519Auth = {
   ed25519RelayerKeyId: 'ed25519-relayer',
 } satisfies VerifiedEd25519WalletSessionAuth;
 
-function requireVerifiedWalletSessionAuth(auth: VerifiedWalletSessionAuth): VerifiedWalletSessionAuth {
+function requireVerifiedWalletSessionAuth(
+  auth: VerifiedWalletSessionAuth,
+): VerifiedWalletSessionAuth {
   return auth;
 }
 
@@ -59,6 +65,7 @@ const invalidEcdsaWithEd25519OnlyField = {
   kind: 'wallet_session',
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
+  authorizationId,
   walletSessionId,
   quotaId,
   userId: 'wallet-ecdsa',
@@ -75,6 +82,7 @@ const invalidEcdsaWithSigningSlot = {
   kind: 'wallet_session',
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
+  authorizationId,
   walletSessionId,
   quotaId,
   userId: 'wallet-ecdsa',
@@ -91,6 +99,7 @@ const invalidEd25519WithEcdsaOnlyField = {
   kind: 'wallet_session',
   curve: 'ed25519',
   thresholdSessionId: 'threshold-session-ed25519',
+  authorizationId,
   walletSessionId,
   quotaId,
   userId: 'wallet-ed25519',
@@ -108,6 +117,7 @@ const invalidEd25519WithAuthorityScope = {
   kind: 'wallet_session',
   curve: 'ed25519',
   thresholdSessionId: 'threshold-session-ed25519',
+  authorizationId,
   walletSessionId,
   quotaId,
   userId: 'wallet-ed25519',

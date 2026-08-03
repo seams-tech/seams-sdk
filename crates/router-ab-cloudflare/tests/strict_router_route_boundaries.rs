@@ -51,15 +51,29 @@ fn strict_router_normal_signing_routes_use_boundary_parsers() {
     let strict_worker_rs = read_src_file("strict_worker.rs");
     let route_body = extract_function_body(&strict_worker_rs, "handle_strict_router_fetch_v1");
     for required in [
-        "read_router_public_body_v1",
-        "parse_router_public_body_v1",
-        "parse_router_ab_ed25519_normal_signing_prepare_request_v2_json",
-        "parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json",
+        "parse_strict_router_normal_signing_request_v1",
         "require_cloudflare_internal_service_auth_request_v1",
     ] {
         assert!(
             route_body.contains(required),
-            "strict Router normal-signing route must parse raw bodies through `{required}`"
+            "strict Router normal-signing route must dispatch through `{required}`"
+        );
+    }
+    let parser_body = extract_function_body(
+        &strict_worker_rs,
+        "parse_strict_router_normal_signing_request_v1",
+    );
+    for required in [
+        "read_router_public_body_v1",
+        "parse_router_public_body_v1",
+        "parse_cloudflare_router_authorized_ed25519_prepare_request_v2_json",
+        "parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json",
+        "parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_prepare_request_v1_json",
+        "parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_finalize_request_v1_json",
+    ] {
+        assert!(
+            parser_body.contains(required),
+            "strict Router normal-signing parser must use `{required}`"
         );
     }
     let read_body = extract_function_body(&strict_worker_rs, "read_router_public_body_v1");
@@ -91,27 +105,46 @@ fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PUBLIC_REQUEST_PATH",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_PATH",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH",
-        "read_router_public_body_v1",
-        "parse_router_public_body_v1",
-        "parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json",
+        "parse_strict_router_normal_signing_request_v1",
         "router_ab_ecdsa_derivation_registration_purpose_for_public_path",
         "validate_for_registration_purpose",
-        "parse_cloudflare_router_ab_ecdsa_derivation_export_command_v1_json",
-        "parse_router_ab_ecdsa_derivation_recovery_request_v1_json",
-        "parse_cloudflare_router_ab_ecdsa_derivation_activation_refresh_request_v1_json",
-        "parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_prepare_request_v1_json",
-        "parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_finalize_request_v1_json",
         "handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_explicit_export_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_recovery_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_authenticated_public_request_v1",
-        "handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_authenticated_public_request_v1",
-        "handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1",
         "cloudflare_router_normal_signing_response_v1",
     ] {
         assert!(
             route_body.contains(required),
             "strict Router Router A/B ECDSA derivation public route must pass through `{required}`"
+        );
+    }
+    let execution_body = extract_function_body(
+        &strict_worker_rs,
+        "execute_strict_router_normal_signing_request_v1",
+    );
+    for required in [
+        "handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_authenticated_public_request_v1",
+        "handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1",
+    ] {
+        assert!(
+            execution_body.contains(required),
+            "strict Router normal-signing execution must forward through `{required}`"
+        );
+    }
+    let parser_body = extract_function_body(
+        &strict_worker_rs,
+        "parse_strict_router_normal_signing_request_v1",
+    );
+    for required in [
+        "read_router_public_body_v1",
+        "parse_router_public_body_v1",
+        "parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_prepare_request_v1_json",
+        "parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_finalize_request_v1_json",
+    ] {
+        assert!(
+            parser_body.contains(required),
+            "strict Router Router A/B ECDSA normal-signing parser must use `{required}`"
         );
     }
     let read_body = extract_function_body(&strict_worker_rs, "read_router_public_body_v1");

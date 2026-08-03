@@ -317,6 +317,7 @@ mod tests {
             NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } => {
                 CloudflareSigningWorkerNormalSigningEffectClaimV1::ReusableWalletSession {
                     claim: CloudflareSigningWorkerReusableWalletSessionEffectClaimV1::new(
+                        "authorization-id-ecdsa-1",
                         wallet_session_id.clone(),
                         request.operation_id.clone(),
                         request.operation_id.clone(),
@@ -337,9 +338,35 @@ mod tests {
                 }
             }
         };
+        let authorized_operation_identity = match &request.authorization {
+            NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } => {
+                CloudflareSigningWorkerAuthorizedOperationIdentityV1::ReusableWalletSession {
+                    authorization_id: "authorization-id-ecdsa-1".to_owned(),
+                    wallet_session_id: wallet_session_id.clone(),
+                    authorized_operation_id: request.operation_id.clone(),
+                    operation_id: request.operation_id.clone(),
+                    operation_fingerprint_digest: request
+                        .operation_digests
+                        .intent_digest_b64u
+                        .clone(),
+                }
+            }
+            NormalSigningAuthorizationV1::OperationStepUp => {
+                CloudflareSigningWorkerAuthorizedOperationIdentityV1::OperationStepUp {
+                    authorization_session_id: "authorization-session-ecdsa-1".to_owned(),
+                    authorized_operation_id: request.operation_id.clone(),
+                    operation_id: request.operation_id.clone(),
+                    operation_fingerprint_digest: request
+                        .operation_digests
+                        .intent_digest_b64u
+                        .clone(),
+                }
+            }
+        };
         CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1::new(
             request,
             admission,
+            authorized_operation_identity,
             effect_claim,
         )
         .expect("admitted finalize")

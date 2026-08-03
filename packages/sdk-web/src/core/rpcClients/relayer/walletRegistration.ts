@@ -27,12 +27,10 @@ import {
   parseWebAuthnRpId,
   type RootShareEpoch,
 } from '@shared/utils/domainIds';
-import {
-  parseMpcWalletSigningQuotaId,
-  parseWalletSessionId,
-  type MpcWalletSigningQuotaId,
-  type SeamsSessionId,
-  type WalletSessionId,
+import type {
+  MpcWalletSigningQuotaId,
+  SeamsSessionId,
+  WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
@@ -1322,8 +1320,6 @@ function parseWalletAddSignerEcdsaPrepareContext(
       'registrationPreparationId',
       'requestId',
       'thresholdSessionId',
-      'walletSessionId',
-      'quotaId',
       'ttlMs',
       'remainingUses',
       'participantIds',
@@ -1391,8 +1387,6 @@ function parseWalletAddSignerEcdsaPrepareContext(
       field: 'prepare.thresholdSessionId',
       value: prepare.thresholdSessionId,
     }),
-    walletSessionId: parseRequiredWalletSessionId(prepare.walletSessionId, responseName),
-    quotaId: parseRequiredMpcWalletSigningQuotaId(prepare.quotaId, responseName),
     ttlMs: requireResponseSafeInteger({
       responseName,
       field: 'prepare.ttlMs',
@@ -1873,8 +1867,6 @@ export type WalletRegistrationEcdsaPrepareContext = {
   registrationPreparationId: RegistrationPreparationId;
   requestId: string;
   thresholdSessionId: string;
-  walletSessionId: WalletSessionId;
-  quotaId: MpcWalletSigningQuotaId;
   ttlMs: number;
   remainingUses: number;
   participantIds: readonly [number, number];
@@ -1961,21 +1953,6 @@ function requireMatchingString(args: {
     throw new Error(`ECDSA registration bootstrap ${args.field} mismatch`);
   }
   return actual;
-}
-
-function parseRequiredWalletSessionId(value: unknown, responseName: string): WalletSessionId {
-  const parsed = parseWalletSessionId(value);
-  if (!parsed.ok) throw new Error(`${responseName} response walletSessionId is invalid`);
-  return parsed.value;
-}
-
-function parseRequiredMpcWalletSigningQuotaId(
-  value: unknown,
-  responseName: string,
-): MpcWalletSigningQuotaId {
-  const parsed = parseMpcWalletSigningQuotaId(value);
-  if (!parsed.ok) throw new Error(`${responseName} response quotaId is invalid`);
-  return parsed.value;
 }
 
 function requireMatchingParticipantIds(args: {

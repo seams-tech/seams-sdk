@@ -9,10 +9,6 @@ import {
   toEmailOtpAuthSubjectId,
   type EmailOtpAuthSubjectId,
 } from '../signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
-import {
-  requireEvmFamilySigningKeySlotId,
-  type EvmFamilySigningKeySlotId,
-} from '@shared/signing-lanes';
 import type { RelayerKeyId } from './ecdsaRoleLocalRecords';
 import { base64UrlDecode } from '@shared/utils/base64';
 
@@ -74,11 +70,6 @@ type EmailOtpEcdsaRuntimeWorkerIssuedSessionHandle = {
 
 export type EmailOtpWorkerIssuedSessionHandle = EmailOtpWorkerIssuedSessionHandleBrand &
   (
-    | (EmailOtpEcdsaWorkerIssuedSessionHandleBase & {
-        operation: 'registration';
-        evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-        keyHandle?: never;
-      })
     | EmailOtpEcdsaRuntimeWorkerIssuedSessionHandle
     | {
         kind: 'email_otp_worker_session_handle_v1';
@@ -128,11 +119,6 @@ type EmailOtpEcdsaRuntimeWorkerIssuedSessionHandleInput = {
 }[EmailOtpEcdsaRuntimeHandleOperation];
 
 export type EmailOtpWorkerIssuedSessionHandleInput =
-  | (EmailOtpEcdsaWorkerIssuedSessionHandleInputBase & {
-      operation: 'registration';
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-      keyHandle?: never;
-    })
   | EmailOtpEcdsaRuntimeWorkerIssuedSessionHandleInput
   | {
       sessionId: string;
@@ -183,14 +169,6 @@ function requirePlatformObject(value: unknown, field: string): Record<string, un
   return value as Record<string, unknown>;
 }
 
-function requirePlatformWalletKeyId(value: unknown, field: string): EvmFamilySigningKeySlotId {
-  try {
-    return requireEvmFamilySigningKeySlotId(value, field);
-  } catch (error) {
-    throw new Error(`[platform] ${field} is invalid`, { cause: error });
-  }
-}
-
 export type RequiredPrfSecretSourceInput = {
   prf: { prfFirstB64u: string };
   rpId: RpId;
@@ -237,29 +215,17 @@ export function buildEmailOtpWorkerIssuedSessionHandle(
   const sessionId = requirePlatformString(input.sessionId, 'sessionId');
   switch (input.action) {
     case 'threshold_ecdsa_bootstrap':
-      return input.operation === 'registration'
-        ? {
-            kind: 'email_otp_worker_session_handle_v1',
-            sessionId,
-            walletId: input.walletId,
-            evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
-            authSubjectId: input.authSubjectId,
-            action: 'threshold_ecdsa_bootstrap',
-            operation: 'registration',
-            chainTarget: input.chainTarget,
-            [emailOtpWorkerSessionHandleBrand]: 'email_otp_worker_session_handle',
-          }
-        : {
-            kind: 'email_otp_worker_session_handle_v1',
-            sessionId,
-            walletId: input.walletId,
-            keyHandle: requirePlatformString(input.keyHandle, 'keyHandle'),
-            authSubjectId: input.authSubjectId,
-            action: 'threshold_ecdsa_bootstrap',
-            operation: input.operation,
-            chainTarget: input.chainTarget,
-            [emailOtpWorkerSessionHandleBrand]: 'email_otp_worker_session_handle',
-          };
+      return {
+        kind: 'email_otp_worker_session_handle_v1',
+        sessionId,
+        walletId: input.walletId,
+        keyHandle: requirePlatformString(input.keyHandle, 'keyHandle'),
+        authSubjectId: input.authSubjectId,
+        action: 'threshold_ecdsa_bootstrap',
+        operation: input.operation,
+        chainTarget: input.chainTarget,
+        [emailOtpWorkerSessionHandleBrand]: 'email_otp_worker_session_handle',
+      };
     case 'threshold_ed25519_session':
       return {
         kind: 'email_otp_worker_session_handle_v1',
@@ -323,24 +289,14 @@ export function parseEmailOtpWorkerIssuedSessionHandle(
     if ('rpId' in payload) {
       throw new Error('[platform] email OTP ECDSA worker-issued handles cannot include rpId');
     }
+    if (normalizedOperation === 'registration') {
+      throw new Error(
+        '[platform] registration Email OTP ECDSA worker-issued handles are retired',
+      );
+    }
     const chainTarget = thresholdEcdsaChainTargetFromRequest(
       requirePlatformObject(payload.chainTarget, 'email OTP worker-issued handle chainTarget'),
     );
-    if (normalizedOperation === 'registration') {
-      if ('keyHandle' in payload) {
-        throw new Error('[platform] registration Email OTP ECDSA handles cannot include keyHandle');
-      }
-      return buildEmailOtpWorkerIssuedSessionHandle({
-        ...base,
-        action,
-        operation: 'registration',
-        evmFamilySigningKeySlotId: requirePlatformWalletKeyId(
-          payload.evmFamilySigningKeySlotId,
-          'email OTP worker-issued handle evmFamilySigningKeySlotId',
-        ),
-        chainTarget,
-      });
-    }
     if ('evmFamilySigningKeySlotId' in payload) {
       throw new Error(
         '[platform] runtime Email OTP ECDSA handles cannot include evmFamilySigningKeySlotId',
