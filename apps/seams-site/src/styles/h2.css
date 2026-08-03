@@ -10,6 +10,8 @@
   --h2-col-max: 1120px;
   /* canvas + surfaces */
   --h2-bg: #ffffff;
+  /* section-level card/panel rounding (hero card, duo panels, pillars, flow) */
+  --h2-radius-card: 22px;
   --h2-taupe: #f5f3f1;
   --h2-stone: #ebe8e4;
   /* structural hairlines (column borders, rules): a half step lighter than
@@ -384,6 +386,37 @@ body:has(.h2-page) {
 @media (max-width: 900px) {
   .h2-hero-simple {
     padding: 128px 0 44px;
+  }
+}
+
+/* Sage variant: the hero content sits on a rounded panel carrying the
+   Andon-style sage gradient (same stops as the Sage theme preset), with
+   light ink on top. */
+.h2-hero-simple--sage {
+  padding: 68px 0 16px;
+}
+
+.h2-hero-simple--sage > .h2-shell {
+  background: linear-gradient(160deg, #919690 0%, #c7d0cf 100%);
+  border-radius: var(--h2-radius-card);
+  padding: 104px 56px 72px;
+}
+
+.h2-hero-simple--sage .h2-hero-simple__title {
+  color: #ffffff;
+}
+
+.h2-hero-simple--sage .h2-hero-simple__sub {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+@media (max-width: 900px) {
+  .h2-hero-simple--sage {
+    padding: 64px 0 14px;
+  }
+
+  .h2-hero-simple--sage > .h2-shell {
+    padding: 76px 28px 54px;
   }
 }
 
@@ -1536,7 +1569,7 @@ body:has(.h2-page) {
   }
 }
 
-/* ---------- trusted-by: merchant wordmark strip + heading ---------- */
+/* ---------- networks strip: brand-mark lockups + heading ---------- */
 
 .h2-logos__row {
   display: flex;
@@ -1548,37 +1581,19 @@ body:has(.h2-page) {
 }
 
 .h2-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
   color: var(--h2-ash);
   font-size: 15.5px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
-.h2-logo--serif {
-  font-family: Georgia, 'Times New Roman', serif;
-  font-style: italic;
-  font-size: 16px;
-}
-
-.h2-logo--caps {
-  font-size: var(--h2-text-md);
-  font-weight: 600;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-}
-
-.h2-logo--mono {
-  font-family: var(--h2-mono);
-  font-size: var(--h2-text-xl);
-}
-
-.h2-logo--bold {
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-
-.h2-logo--light {
-  font-weight: 300;
-  font-size: 17px;
+.h2-logo svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
 }
 
 .h2-logos__head {
@@ -1639,7 +1654,7 @@ body:has(.h2-page) {
   gap: 13px;
   min-height: 400px;
   padding: 32px 32px 28px;
-  border-radius: 22px;
+  border-radius: var(--h2-radius-card);
   background: var(--h2-taupe);
   transition: background 150ms ease;
 }
@@ -2142,11 +2157,20 @@ body:has(.h2-page) {
 }
 
 .h2-networks__mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-size: 17px;
   font-weight: 600;
   letter-spacing: 0.01em;
   color: var(--h2-ash);
   white-space: nowrap;
+}
+
+.h2-networks__mark svg {
+  width: 19px;
+  height: 19px;
+  flex: none;
 }
 
 @media (max-width: 760px) {
@@ -2275,7 +2299,7 @@ body:has(.h2-page) {
 }
 
 .h2-pillars__panel {
-  border-radius: 22px;
+  border-radius: var(--h2-radius-card);
   background: var(--h2-taupe);
   padding: 28px;
   min-height: 344px;
@@ -2733,7 +2757,7 @@ body:has(.h2-page) {
 /* ---------- workflow canvas (event -> preflight -> action) ---------- */
 
 .h2-flow {
-  border-radius: 22px;
+  border-radius: var(--h2-radius-card);
   background: var(--h2-taupe);
   padding: clamp(18px, 2.7vw, 36px);
   margin-bottom: 50px;
