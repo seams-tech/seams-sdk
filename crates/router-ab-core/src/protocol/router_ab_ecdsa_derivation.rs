@@ -737,23 +737,6 @@ impl RouterAbEcdsaDerivationStableKeyContextV1 {
     }
 }
 
-/// Returns the material activation id for one Router A/B ECDSA derivation activation epoch.
-pub fn router_ab_ecdsa_derivation_material_activation_id_v1(
-    ecdsa_threshold_key_id: &str,
-    signing_root_id: &str,
-    signing_root_version: &str,
-    activation_epoch: &str,
-) -> RouterAbProtocolResult<String> {
-    require_ascii_non_empty("ecdsa_threshold_key_id", ecdsa_threshold_key_id)?;
-    require_ascii_non_empty("signing_root_id", signing_root_id)?;
-    require_ascii_non_empty("signing_root_version", signing_root_version)?;
-    require_ascii_non_empty("activation_epoch", activation_epoch)?;
-    Ok(format!(
-        "{}:{}:{}:{}",
-        ecdsa_threshold_key_id, signing_root_id, signing_root_version, activation_epoch
-    ))
-}
-
 /// Public ECDSA identity produced by Router A/B ECDSA derivation registration/activation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1621,8 +1604,7 @@ impl RouterAbEcdsaDerivationActivationRefreshRequestV1 {
         }
         self.material_activation.validate()?;
         if self.material_activation.material_owner != self.lifecycle.account_id
-            || self.material_activation.signing_worker
-                != self.signer_set.selected_server.server_id
+            || self.material_activation.signing_worker != self.signer_set.selected_server.server_id
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLifecycleState,
@@ -1812,14 +1794,8 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
         self.material_activation.validate()?;
         self.signing_worker.validate()?;
         require_ascii_non_empty("normal_signing.activation_epoch", &self.activation_epoch)?;
-        let expected_activation_id = router_ab_ecdsa_derivation_material_activation_id_v1(
-            &self.ecdsa_threshold_key_id,
-            &self.signing_root_id,
-            &self.signing_root_version,
-            &self.activation_epoch,
-        )?;
-        if self.material_activation.activation_id != expected_activation_id
-            || self.material_activation.material_owner != self.wallet_id
+        if self.material_activation.material_owner != self.wallet_id
+            || self.material_activation.key_binding != self.public_identity.context_binding_b64u
             || self.material_activation.signing_worker != self.signing_worker.server_id
         {
             return Err(RouterAbProtocolError::new(
@@ -1870,22 +1846,10 @@ fn validate_ecdsa_normal_signing_material_activation(
     material_activation: &MpcMaterialActivationRefV1,
 ) -> RouterAbProtocolResult<()> {
     material_activation.validate()?;
-    if material_activation.activation_id != scope.material_activation_id()? {
+    if material_activation != &scope.material_activation {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLifecycleState,
-            "material activation id does not match ECDSA signing scope",
-        ));
-    }
-    if material_activation.material_owner != scope.wallet_id {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLifecycleState,
-            "material activation owner does not match ECDSA signing scope",
-        ));
-    }
-    if material_activation.signing_worker != scope.signing_worker.server_id {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLifecycleState,
-            "material activation SigningWorker does not match ECDSA signing scope",
+            "material activation does not exactly match ECDSA signing scope",
         ));
     }
     Ok(())
@@ -2004,10 +1968,7 @@ impl RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
         require_ascii_non_empty("normal_signing.operation_id", &self.operation_id)?;
         self.operation_digests.validate()?;
         self.authorization.validate()?;
-        validate_ecdsa_normal_signing_material_activation(
-            &self.scope,
-            &self.material_activation,
-        )?;
+        validate_ecdsa_normal_signing_material_activation(&self.scope, &self.material_activation)?;
         require_ascii_non_empty(
             "normal_signing.client_presignature_id",
             &self.client_presignature_id,
@@ -2147,10 +2108,7 @@ impl RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
         require_ascii_non_empty("ecdsa_finalize.operation_id", &self.operation_id)?;
         self.operation_digests.validate()?;
         self.authorization.validate()?;
-        validate_ecdsa_normal_signing_material_activation(
-            &self.scope,
-            &self.material_activation,
-        )?;
+        validate_ecdsa_normal_signing_material_activation(&self.scope, &self.material_activation)?;
         require_positive_ms("ecdsa_finalize.expires_at_ms", self.expires_at_ms)?;
         require_ascii_non_empty(
             "ecdsa_finalize.server_presignature_id",
@@ -2604,9 +2562,7 @@ fn push_normal_signing_authorization(
 ) -> RouterAbProtocolResult<()> {
     authorization.validate()?;
     match authorization {
-        NormalSigningAuthorizationV1::ReusableWalletSession {
-            wallet_session_id,
-        } => {
+        NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } => {
             push_len32(out, b"reusable_wallet_session");
             push_len32(out, wallet_session_id.as_bytes());
         }

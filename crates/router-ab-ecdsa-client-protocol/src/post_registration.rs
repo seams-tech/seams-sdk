@@ -591,8 +591,17 @@ impl EcdsaPostRegistrationHeaderV1 {
             ..
         } = &self.input.operation
         {
-            push_bytes(&mut output, authorization_kind.as_bytes());
-            push_bytes(&mut output, authorization_id.as_bytes());
+            let public_authorization_kind = if authorization_kind == "verified_step_up" {
+                "operation_step_up"
+            } else {
+                authorization_kind.as_str()
+            };
+            push_bytes(&mut output, public_authorization_kind.as_bytes());
+            // The step-up identifier is required for local ceremony validation
+            // and intentionally absent from the public Router authorization marker.
+            if authorization_kind == "reusable_wallet_session" {
+                push_bytes(&mut output, authorization_id.as_bytes());
+            }
             output.extend_from_slice(&material_activation.canonical_bytes()?);
         }
         push_bytes(

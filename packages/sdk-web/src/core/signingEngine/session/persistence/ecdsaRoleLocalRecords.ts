@@ -4,6 +4,7 @@ import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   thresholdEcdsaChainTargetFromRequest,
+  type ThresholdEcdsaChainTarget,
   toWalletId,
 } from '../../interfaces/ecdsaChainTarget';
 import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
@@ -289,6 +290,33 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
 
 export function buildEcdsaRoleLocalPublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
   return parsePublicFacts(input);
+}
+
+/** Rebind the public role-local facts to a published EVM-family target while
+ * preserving every cryptographic and protocol fact from the canonical source. */
+export function projectEcdsaRoleLocalPublicFactsToChainTarget(args: {
+  publicFacts: EcdsaRoleLocalPublicFacts;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): EcdsaRoleLocalPublicFacts {
+  const source = args.publicFacts;
+  return buildEcdsaRoleLocalPublicFacts({
+    walletId: source.walletId,
+    chainTarget: args.chainTarget,
+    keyHandle: source.keyHandle,
+    ecdsaThresholdKeyId: source.ecdsaThresholdKeyId,
+    signingRootId: source.signingRootId,
+    signingRootVersion: source.signingRootVersion,
+    applicationBindingDigestB64u: source.applicationBindingDigestB64u,
+    clientParticipantId: source.clientParticipantId,
+    relayerParticipantId: source.relayerParticipantId,
+    participantIds: source.participantIds,
+    contextBinding32B64u: source.contextBinding32B64u,
+    derivationClientSharePublicKey33B64u: source.derivationClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: source.relayerPublicKey33B64u,
+    groupPublicKey33B64u: source.groupPublicKey33B64u,
+    ethereumAddress: source.ethereumAddress,
+    publicCapability: source.publicCapability,
+  });
 }
 
 export function parseEcdsaRoleLocalReadyRecord(input: unknown): EcdsaRoleLocalReadyRecord {

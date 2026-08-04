@@ -20,16 +20,23 @@ import type {
   AccountSyncSigningSurface,
   AccountSyncWebContext,
 } from '../../packages/sdk-web/src/SeamsWeb/signingSurface/types';
+import type { Ed25519YaoPublicCapabilityLaneReferenceV1 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import { syncAccount } from '../../packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount';
 import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
-import type { SeamsConfigsReadonly } from '../../packages/sdk-web/src/core/types/seams';
+import type {
+  SeamsConfigsReadonly,
+  WalletAuthenticationState,
+} from '../../packages/sdk-web/src/core/types/seams';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import { base58Encode } from '../../packages/shared-ts/src/utils/base58';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { isPlainObject } from '../../packages/shared-ts/src/utils/validation';
-import { parseMpcMaterialActivationRef } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+  parseMpcMaterialActivationRef,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import {
   parseRouterAbEd25519YaoRecoveryActivationReceiptV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
@@ -565,12 +572,31 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   readonly sealedSessionIds: string[] = [];
   readonly sealedQueueStates: boolean[] = [];
   readonly queuedActivationIds: string[] = [];
+  readonly laneReferences: Ed25519YaoPublicCapabilityLaneReferenceV1[] = [];
+  private walletAuthenticationState: WalletAuthenticationState = { kind: 'signed_out' };
   private insideMaterialOwnerQueue = false;
   failAuthenticatedWalletActivation = false;
   storedUser: ClientUserData | null = null;
 
   getRpId(): string {
     return RP_ID;
+  }
+
+  readWalletAuthenticationState(): WalletAuthenticationState {
+    return this.walletAuthenticationState;
+  }
+
+  async restoreWalletAuthenticationState(
+    walletId?: Parameters<AccountSyncSigningSurface['restoreWalletAuthenticationState']>[0],
+    _appSessionJwt?: Parameters<AccountSyncSigningSurface['restoreWalletAuthenticationState']>[1],
+  ): Promise<WalletAuthenticationState> {
+    const resolvedWalletId = toWalletId(String(walletId || DISCOVERED_WALLET_ID));
+    this.walletAuthenticationState = {
+      kind: 'authenticated',
+      walletId: resolvedWalletId,
+      authMethod: 'passkey',
+    };
+    return this.walletAuthenticationState;
   }
 
   async assertSealedRefreshStartupParity(): Promise<void> {}
@@ -678,6 +704,14 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
     };
   }
 
+  async upsertEd25519YaoPublicCapabilityLaneReference(
+    reference: Parameters<
+      AccountSyncSigningSurface['upsertEd25519YaoPublicCapabilityLaneReference']
+    >[0],
+  ): Promise<void> {
+    this.laneReferences.push(reference);
+  }
+
   async getAuthenticationCredentialsSerialized(): Promise<WebAuthnAuthenticationCredential> {
     return this.credential;
   }
@@ -777,6 +811,28 @@ test.describe('public syncAccount Yao orchestration', () => {
     expect(surface.hydratedSessionIds).toEqual([THRESHOLD_SESSION_ID]);
     expect(surface.sealedSessionIds).toEqual([THRESHOLD_SESSION_ID]);
     expect(surface.sealedQueueStates).toEqual([true]);
+    expect(surface.laneReferences).toHaveLength(1);
+    const freshMaterialActivation = nearEd25519YaoMaterialActivationFromMetadata(
+      surface.activatedMaterials[0]!.activeClient.metadata(),
+    );
+    expect(surface.laneReferences[0]).toMatchObject({
+      walletId: DISCOVERED_WALLET_ID,
+      nearAccountId: NEAR_ACCOUNT_ID,
+      thresholdSessionId: THRESHOLD_SESSION_ID,
+      auth: { kind: 'passkey', rpId: RP_ID, credentialIdB64u: CREDENTIAL_ID },
+      nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
+      signerSlot: SIGNER_SLOT,
+    });
+    expect(
+      mpcMaterialActivationRefsEqual(
+        surface.laneReferences[0]!.materialActivation,
+        freshMaterialActivation,
+      ),
+    ).toBe(true);
+    expect(freshMaterialActivation.materialOwner).toBe(MATERIAL_ACTIVATION.materialOwner);
+    expect(freshMaterialActivation.keyBinding).toBe(MATERIAL_ACTIVATION.keyBinding);
+    expect(freshMaterialActivation.signingWorker).toBe(MATERIAL_ACTIVATION.signingWorker);
+    expect(freshMaterialActivation.activationId).not.toBe(MATERIAL_ACTIVATION.activationId);
     expect(surface.authenticatedWalletIds).toEqual([DISCOVERED_WALLET_ID, DISCOVERED_WALLET_ID]);
     expect(surface.lastUserWalletIds).toEqual([DISCOVERED_WALLET_ID]);
     expect(surface.clearWalletIds).toEqual([]);

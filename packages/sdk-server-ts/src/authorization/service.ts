@@ -91,6 +91,14 @@ export interface AuthorizationGrantPort {
     readonly session: WalletSessionAuthorization;
     readonly quota: ActiveWalletSessionQuota;
   }): Promise<void>;
+  readWalletSessionAuthorizationByMint(input: {
+    readonly tenantId: TenantId;
+    readonly principalId: PrincipalId;
+    readonly walletId: WalletId;
+    readonly authority: WalletAuthAuthorityRef;
+    readonly mintId: ReusableWalletSessionMintId;
+    readonly nowMs: number;
+  }): Promise<IssuedReusableWalletSession | null>;
 }
 
 export interface AuthorizedOperationPort {
@@ -335,7 +343,27 @@ export class AuthorizationService {
       expiresAtMs: session.expiresAtMs,
     });
     await this.ports.grants.putWalletSessionAuthorization({ session, quota });
-    return { session, quota };
+    const persisted = await this.ports.grants.readWalletSessionAuthorizationByMint({
+      tenantId: input.tenantId,
+      principalId: input.principalId,
+      walletId: input.walletId,
+      authority: input.authority,
+      mintId: input.mintId,
+      nowMs: input.issuedAtMs,
+    });
+    if (!persisted) throw new Error('Issued Wallet Session authorization was not persisted');
+    return persisted;
+  }
+
+  async readWalletSessionAuthorizationByMint(input: {
+    readonly tenantId: TenantId;
+    readonly principalId: PrincipalId;
+    readonly walletId: WalletId;
+    readonly authority: WalletAuthAuthorityRef;
+    readonly mintId: ReusableWalletSessionMintId;
+    readonly nowMs: number;
+  }): Promise<IssuedReusableWalletSession | null> {
+    return await this.ports.grants.readWalletSessionAuthorizationByMint(input);
   }
 
   parseEvidenceRequirement(value: unknown): ParseAuthorizationEvidenceRequirementResult {

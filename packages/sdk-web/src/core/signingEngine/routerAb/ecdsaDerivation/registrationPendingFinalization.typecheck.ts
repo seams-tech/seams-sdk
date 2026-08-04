@@ -4,6 +4,7 @@ import type {
   RouterAbEcdsaRegistrationRequestV1,
   RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   buildRouterAbEcdsaRegistrationPendingFinalizationV1,
   decodeRouterAbEcdsaRegistrationPendingFinalizationV1,
@@ -15,9 +16,11 @@ declare const pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
 declare const registrationFacts: RouterAbEcdsaRegistrationRequestFactsV1;
 declare const registrationRequest: RouterAbEcdsaRegistrationRequestV1;
 declare const clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+declare const runtimePolicyScope: RuntimePolicyScope;
 
 const valid = buildRouterAbEcdsaRegistrationPendingFinalizationV1({
   pendingStateBlob,
+  runtimePolicyScope,
   registrationFacts,
   registrationRequest,
   clientActivation,
@@ -36,6 +39,7 @@ buildRouterAbEcdsaRegistrationPendingFinalizationV1({
 
 buildRouterAbEcdsaRegistrationPendingFinalizationV1({
   pendingStateBlob,
+  runtimePolicyScope,
   registrationFacts,
   registrationRequest,
   clientActivation,
@@ -45,6 +49,7 @@ buildRouterAbEcdsaRegistrationPendingFinalizationV1({
 
 buildRouterAbEcdsaRegistrationPendingFinalizationV1({
   pendingStateBlob,
+  runtimePolicyScope,
   registrationFacts,
   registrationRequest,
   clientActivation,

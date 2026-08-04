@@ -13,6 +13,7 @@ import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEn
 import {
   parseMpcWalletSigningQuotaId,
   parseSeamsSessionId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
@@ -42,6 +43,8 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { ecdsaCapabilityActivationLookupFixture } from './ecdsaCapabilityManifest.fixtures';
+import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 
 export const AVAILABLE_LANES_WALLET_ID = 'alice.testnet';
 export const AVAILABLE_LANES_ED25519_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
@@ -150,8 +153,11 @@ export function availableLaneEd25519Authorization(args: {
   return {
     recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
     walletId: toWalletId(args.walletId),
-    authorizationSessionId: requireAvailableLaneId(
+    seamsSessionId: requireAvailableLaneId(
       parseSeamsSessionId(`available-lane-authorization-session:${args.identitySeed}`),
+    ),
+    authorizationId: requireAvailableLaneId(
+      parseWalletSessionAuthorizationId(`available-lane-authorization:${args.identitySeed}`),
     ),
     walletSessionId: requireAvailableLaneId(
       parseWalletSessionId(`available-lane-wallet-session:${args.identitySeed}`),
@@ -187,8 +193,11 @@ function availableLaneEcdsaAuthorization(args: {
     projection: {
       recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
       walletId: toWalletId(args.walletId),
-      authorizationSessionId: requireAvailableLaneId(
+      seamsSessionId: requireAvailableLaneId(
         parseSeamsSessionId(`available-lane-authorization-session:${args.identitySeed}`),
+      ),
+      authorizationId: requireAvailableLaneId(
+        parseWalletSessionAuthorizationId(`available-lane-authorization:${args.identitySeed}`),
       ),
       walletSessionId,
       quotaId,
@@ -232,17 +241,28 @@ export function canonicalEcdsaAvailableLane(args: {
     participantIds: [1, 2],
     thresholdOwnerAddress,
   });
-  const materialActivation = buildMpcMaterialActivationRefFixture(
-    `available-lane:${keyId}:${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
-    walletId,
-  );
   const keyHandle = args.keyHandle || (`ederivation-key-${keyId}` as EvmFamilyEcdsaKeyHandle);
-  const publicFacts = buildVerifiedEcdsaPublicFacts({
+  const manifest = ecdsaCapabilityActivationLookupFixture({
+    authority: buildWalletAuthAuthorityRefFixture({ walletId }),
+    walletId: toWalletId(walletId),
+    chainTarget: args.chainTarget,
     keyHandle,
-    publicKeyB64u: AVAILABLE_LANES_ECDSA_PUBLIC_KEY_B64U,
-    participantIds: [1, 2],
+    signingRootId: String(key.signingRootId),
+    signingRootVersion: String(key.signingRootVersion),
+    ecdsaThresholdKeyId: keyId,
     thresholdOwnerAddress,
-  });
+  }).manifest;
+  const capability = {
+    kind: 'canonical_evm_family_ecdsa_signing_capability' as const,
+    manifest,
+    material: buildPersistedEcdsaRoleLocalMaterial({
+      authority: manifest.signer.authority,
+      materialActivation: manifest.activation.materialActivation,
+      publicFacts: manifest.durableMaterial.roleLocalPublicFacts,
+    }),
+  };
+  const materialActivation = manifest.activation.materialActivation;
+  const publicFacts = manifest.signer.registeredPublicFacts;
   const authorization = availableLaneEcdsaAuthorization({
     walletId,
     identitySeed: `${keyId}:${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
@@ -251,6 +271,7 @@ export function canonicalEcdsaAvailableLane(args: {
     expiresAtMs: args.expiresAtMs ?? AVAILABLE_LANES_EXPIRES_AT_MS,
   });
   const base = {
+    capability,
     key,
     materialActivation,
     publicFacts,
@@ -291,6 +312,7 @@ export function authorizationRequiredCanonicalEcdsaAvailableLane(
 ): ConcreteAvailableEcdsaSigningLane {
   const authorized = canonicalEcdsaAvailableLane(args);
   const base = {
+    capability: authorized.capability,
     key: authorized.key,
     materialActivation: authorized.materialActivation,
     publicFacts: authorized.publicFacts,

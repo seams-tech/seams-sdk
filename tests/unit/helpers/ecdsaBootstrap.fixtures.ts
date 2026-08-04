@@ -325,13 +325,17 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     bindingDigest: ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
     materialOwner: args.nearAccountId,
   });
+  const expiresAtMs = args.expiresAtMs ?? Date.now() + 120_000;
   const walletSessionJwt = toFixtureWalletSessionJwt(
     String(args.walletSessionJwt || `jwt:${sessionId}`).trim(),
     {
       nearAccountId: args.nearAccountId,
       sessionId,
+      authorizationId: `ecdsa-bootstrap-authorization:${sessionId}`,
+      authorizationSessionId: `ecdsa-bootstrap-authorization-session:${sessionId}`,
       walletSessionId,
       quotaId,
+      expiresAtMs,
       relayerKeyId,
       ecdsaThresholdKeyId,
       participantIds,
@@ -393,7 +397,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       ),
       walletSessionId,
       quotaId,
-      expiresAtMs: args.expiresAtMs ?? Date.now() + 120_000,
+      expiresAtMs,
       remainingUses: args.remainingUses ?? 5,
       runtimePolicyScope,
       jwt: walletSessionJwt,
@@ -504,8 +508,11 @@ function toFixtureWalletSessionJwt(
   args: {
     nearAccountId: string;
     sessionId: string;
+    authorizationId: string;
+    authorizationSessionId: string;
     walletSessionId: string;
     quotaId: string;
+    expiresAtMs: number;
     relayerKeyId: string;
     ecdsaThresholdKeyId: string;
     participantIds: number[];
@@ -521,6 +528,9 @@ function toFixtureWalletSessionJwt(
       walletId: args.nearAccountId,
       kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
       thresholdSessionId: args.sessionId,
+      authorizationId: args.authorizationId,
+      authorizationSessionId: args.authorizationSessionId,
+      sid: args.authorizationSessionId,
       walletSessionId: args.walletSessionId,
       quotaId: args.quotaId,
       subjectId: args.nearAccountId,
@@ -528,7 +538,8 @@ function toFixtureWalletSessionJwt(
       ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
       relayerKeyId: args.relayerKeyId,
       rpId: 'localhost',
-      thresholdExpiresAtMs: Date.now() + 120_000,
+      thresholdExpiresAtMs: args.expiresAtMs,
+      exp: Math.floor(args.expiresAtMs / 1_000),
       participantIds: args.participantIds,
       ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     }),

@@ -1,6 +1,6 @@
 import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ClientUserData } from '@/core/accountData/near/nearAccountData.types';
-import type { Ed25519YaoActiveClientIdentityV1 } from '../../threshold/ed25519/yaoActiveClientRegistry';
+import type { Ed25519YaoPublicCapabilityReferenceV1 } from '../../threshold/ed25519/yaoPublicCapabilityReferences';
 
 export type LoginWithEmailOtpEd25519YaoCapabilityInternalArgs = {
   walletSession: WalletSessionRef;
@@ -12,13 +12,13 @@ export type LoginWithEmailOtpEd25519YaoCapabilityInternalArgs = {
 };
 
 export type ResolvedEmailOtpEd25519YaoColdRecoveryV1 = {
-  identity: Ed25519YaoActiveClientIdentityV1;
+  identity: Ed25519YaoPublicCapabilityReferenceV1;
   user: ClientUserData;
   providerSubject: string;
 };
 
 export type ResolveEmailOtpEd25519YaoColdRecoveryDeps = {
-  listPublicCapabilityReferences(): Promise<readonly Ed25519YaoActiveClientIdentityV1[]>;
+  listPublicCapabilityReferences(): Promise<readonly Ed25519YaoPublicCapabilityReferenceV1[]>;
   listUsers(): Promise<readonly ClientUserData[]>;
 };
 
@@ -51,7 +51,7 @@ export async function resolveEmailOtpEd25519YaoColdRecoveryV1(
   if (!user) {
     throw new Error('Email OTP Ed25519 Yao signer projection is unavailable');
   }
-  const references: Ed25519YaoActiveClientIdentityV1[] = [];
+  const references: Ed25519YaoPublicCapabilityReferenceV1[] = [];
   for (const identity of await deps.listPublicCapabilityReferences()) {
     if (
       String(identity.walletId) === walletId &&

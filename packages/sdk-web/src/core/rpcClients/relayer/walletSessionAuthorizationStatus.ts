@@ -4,7 +4,7 @@ import {
   type MpcWalletSigningQuotaId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { AppSessionJwt } from '@shared/utils/domainIds';
+import { walletSessionJwtAuth, type WalletSessionJwtAuth } from '@shared/utils/sessionTokens';
 import {
   buildBearerAuthorizationHeader,
   buildRelayerJsonPostRequestInit,
@@ -44,15 +44,7 @@ export interface ReusableWalletSessionStatusPort {
   read(input: ReusableWalletSessionStatusIdentity): Promise<ReusableWalletSessionStatus>;
 }
 
-export type ReusableWalletSessionStatusAuth =
-  | {
-      readonly kind: 'app_session_jwt';
-      readonly appSessionJwt: AppSessionJwt;
-    }
-  | {
-      readonly kind: 'app_session_cookie';
-      readonly appSessionJwt?: never;
-    };
+export type ReusableWalletSessionStatusAuth = WalletSessionJwtAuth;
 
 export type RelayerReusableWalletSessionStatusPortOptions = {
   readonly relayerUrl: string;
@@ -176,12 +168,11 @@ export class RelayerReusableWalletSessionStatusPort
   constructor(options: RelayerReusableWalletSessionStatusPortOptions) {
     this.relayerUrl = normalizeRelayerBaseUrl(options.relayerUrl);
     if (!this.relayerUrl) throw new Error('Relayer URL is required');
-    this.auth = options.auth;
+    this.auth = walletSessionJwtAuth(options.auth.jwt);
     this.fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
   }
 
   async read(input: ReusableWalletSessionStatusIdentity): Promise<ReusableWalletSessionStatus> {
-    const usesCookie = this.auth.kind === 'app_session_cookie';
     const response = await this.fetchImpl(
       `${this.relayerUrl}${REUSABLE_WALLET_SESSION_STATUS_PATH}`,
       {
@@ -190,16 +181,12 @@ export class RelayerReusableWalletSessionStatusPort
             walletSessionId: input.walletSessionId,
             quotaId: input.quotaId,
           },
-          ...(usesCookie
-            ? {}
-            : {
-                headers: buildBearerAuthorizationHeader({
-                  token: this.auth.appSessionJwt,
-                  missingMessage: 'App session JWT is required for Wallet Session status',
-                }),
-              }),
+          headers: buildBearerAuthorizationHeader({
+            token: this.auth.jwt,
+            missingMessage: 'Wallet Session JWT is required for Wallet Session status',
+          }),
         }),
-        credentials: usesCookie ? 'include' : 'omit',
+        credentials: 'omit',
       },
     );
     const payload = (await response.json().catch(() => null)) as unknown;

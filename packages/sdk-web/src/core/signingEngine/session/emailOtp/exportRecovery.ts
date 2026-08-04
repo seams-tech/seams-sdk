@@ -38,6 +38,7 @@ import { exportEcdsaDerivationKey } from '../../flows/recovery/ecdsaDerivationEx
 import type { EmailOtpChallengeDelivery, EmailOtpTransactionSigningChallenge } from './publicTypes';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
+import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
 type EmailOtpRouteChain = 'near' | EmailOtpEcdsaRouteChain;
@@ -219,9 +220,7 @@ function buildExportChallengeRoutePlan(
 export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
   ports: Pick<
     EmailOtpWorkerPorts,
-    | 'getSignerWorkerContext'
-    | 'requireRelayUrl'
-    | 'requireSigningSessionSealGroupId'
+    'getSignerWorkerContext' | 'requireRelayUrl' | 'requireSigningSessionSealGroupId'
   >,
   args: {
     challengeId: string;
@@ -234,6 +233,12 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
     throw new Error('Email OTP Ed25519 Yao export requires the dedicated emailOtp worker');
   }
   const relayUrl = ports.requireRelayUrl();
+  const walletSessionJwt = walletSessionJwtForCurve(args.exportContext.authorization, 'ed25519');
+  if (!walletSessionJwt) {
+    throw new Error(
+      '[SigningEngine][ed25519-export] active Wallet Session authorization is unavailable',
+    );
+  }
   return await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
@@ -248,13 +253,11 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
           walletId: String(args.exportContext.lane.signer.account.wallet.walletId),
           providerSubjectId: args.exportContext.lane.auth.providerSubjectId,
           nearAccountId: String(args.exportContext.lane.signer.account.nearAccountId),
-          nearEd25519SigningKeyId: String(
-            args.exportContext.lane.signer.nearEd25519SigningKeyId,
-          ),
+          nearEd25519SigningKeyId: String(args.exportContext.lane.signer.nearEd25519SigningKeyId),
           signerSlot: args.exportContext.lane.signer.signerSlot,
         },
         authorization: {
-          walletSessionJwt: args.exportContext.authorization.walletSessionJwt,
+          walletSessionJwt,
         },
         material: args.exportContext.material,
       },

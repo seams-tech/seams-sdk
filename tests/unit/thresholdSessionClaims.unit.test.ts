@@ -12,12 +12,15 @@ import {
   validateRouterAbEd25519WalletSessionTokenInputs,
 } from '../../packages/sdk-server-ts/src/router/commonRouterUtils';
 import {
+  admitRouterAbEcdsaReusableWalletSessionOperation,
   validateRouterAbEd25519NormalSigningRequestScope,
   authorizeRouterAbEd25519NormalSigningRoute,
   validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest,
   validateRouterAbEcdsaDerivationNormalSigningPrepareRequest,
   authorizeRouterAbEcdsaDerivationNormalSigningRoute,
 } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
+import type { RouterApiAuthorizedOperationService } from '../../packages/sdk-server-ts/src/router/authServicePort';
+import { buildAuthorizedOperation } from '../../packages/sdk-server-ts/src/authorization/domain';
 import {
   buildVerifiedEcdsaWalletSessionAuth,
   buildVerifiedEd25519WalletSessionAuth,
@@ -39,6 +42,7 @@ import type {
   EcdsaDerivationRelayerPublicKey33B64u,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { parseRootShareEpoch } from '@shared/utils/domainIds';
+import { parseTenantId } from '@shared/authorization/capabilityKinds';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
@@ -336,6 +340,12 @@ test.describe('Router A/B Wallet Session token claims', () => {
     expect(parseRouterAbEcdsaDerivationWalletSessionClaims(routerAbEcdsaClaims())?.keyHandle).toBe(
       'ederivation-key-test',
     );
+    expect(
+      parseRouterAbEcdsaDerivationWalletSessionClaims({
+        ...validEcdsaClaims,
+        sid: 'authorization-session-mismatch',
+      }),
+    ).toBeNull();
     expect(
       parseRouterAbEcdsaDerivationWalletSessionClaims({
         ...routerAbEcdsaClaims(),
@@ -1122,5 +1132,89 @@ test.describe('Router A/B Wallet Session token claims', () => {
 
     expect(materialLookups).toBe(2);
     expect(admissions).toBe(0);
+  });
+
+  test('reusable ECDSA admission uses Wallet Session identity without an active app session', async () => {
+    const claims = parseRouterAbEcdsaDerivationWalletSessionClaims(routerAbEcdsaClaims());
+    if (!claims?.routerAbEcdsaDerivationNormalSigning) {
+      throw new Error('expected Router A/B ECDSA derivation normal-signing claims');
+    }
+    const tenantIdResult = parseTenantId(runtimePolicyScope.orgId);
+    if (!tenantIdResult.ok) throw new Error('expected valid fixture tenant id');
+    const scope = claims.routerAbEcdsaDerivationNormalSigning.scope;
+    const request = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
+      scope,
+      requestId: 'router-ab-ecdsa-reusable-without-app-session',
+      operationId: 'router-ab-ecdsa-reusable-without-app-session-operation',
+      operationDigests: routerAbOperationDigests,
+      authorization: {
+        kind: 'reusable_wallet_session',
+        wallet_session_id: claims.walletSessionId,
+      },
+      materialActivation: routerAbEcdsaMaterialActivation,
+      clientPresignatureId: 'client-presignature-without-app-session',
+      expiresAtMs: claims.thresholdExpiresAtMs,
+      signingDigest32: new Uint8Array(32).fill(1),
+      clientRerandomizationCommitment32: new Uint8Array(32).fill(0x31),
+    });
+    const authorizedOperations = {
+      tenantId: tenantIdResult.value,
+      recordVerifiedFactorEvidenceSet: async () => {
+        throw new Error('unexpected factor evidence write');
+      },
+      recordVerifiedSessionEvidenceSet: async () => {
+        throw new Error('unexpected session evidence write');
+      },
+      readAuthorizedOperation: async () => null,
+      admitAuthorizedOperation: async ({ operation }) => ({
+        kind: 'claimed' as const,
+        operation: await buildAuthorizedOperation(operation),
+      }),
+      completeAuthorizedOperation: async () => {
+        throw new Error('unexpected operation completion');
+      },
+    } satisfies RouterApiAuthorizedOperationService;
+    const resolveEcdsaMaterialActivation = async () => ({
+      ok: true as const,
+      materialActivation: routerAbEcdsaMaterialActivation,
+      keyHandle: claims.keyHandle,
+      relayerKeyId: claims.relayerKeyId,
+      participantIds: [1, 2] as const,
+    });
+
+    await expect(
+      admitRouterAbEcdsaReusableWalletSessionOperation({
+        request,
+        materialActivation: routerAbEcdsaMaterialActivation,
+        claims,
+        authorizedOperations,
+        resolveEcdsaMaterialActivation,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      admission: { kind: 'claimed' },
+    });
+
+    await expect(
+      admitRouterAbEcdsaReusableWalletSessionOperation({
+        request: {
+          ...request,
+          authorization: {
+            kind: 'reusable_wallet_session',
+            wallet_session_id: 'substituted-wallet-session',
+          },
+        },
+        materialActivation: routerAbEcdsaMaterialActivation,
+        claims,
+        authorizedOperations,
+        resolveEcdsaMaterialActivation,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        status: 403,
+        body: { code: 'wallet_session_mismatch' },
+      },
+    });
   });
 });

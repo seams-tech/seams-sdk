@@ -4,6 +4,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import type {
   WarmSessionSealPersister,
 } from '../../uiConfirm/uiConfirm.types';
@@ -13,11 +14,40 @@ export type WarmSessionSealPersistPorts = Pick<
   'persistSigningSessionSealForThresholdSession'
 >;
 
+function walletIdForEcdsaSealTransport(args: {
+  transport: EcdsaSealTransportAuthMaterial;
+  lane: ExactEcdsaSigningLaneIdentity;
+  restoreMetadata: Exclude<
+    SealedSigningSessionEcdsaRestoreMetadata,
+    { source: 'email_otp' }
+  >;
+}): string {
+  const restoreWalletId = String(args.restoreMetadata.authority.walletId).trim();
+  const laneWalletId = String(args.lane.signer.walletId).trim();
+  const transportWalletId = String(args.transport.walletId).trim();
+  if (
+    !restoreWalletId ||
+    !laneWalletId ||
+    !transportWalletId ||
+    laneWalletId !== restoreWalletId ||
+    transportWalletId !== restoreWalletId
+  ) {
+    throw new Error(
+      '[WarmSessionStore] ECDSA seal transport wallet does not match restore metadata',
+    );
+  }
+  return transportWalletId;
+}
+
 export async function ensureEcdsaPrfSealPersisted(args: {
   sealPersistence: WarmSessionSealPersistPorts;
   lane: ExactEcdsaSigningLaneIdentity;
   authorization: ActiveEvmFamilyWalletSessionAuthorization;
   thresholdSessionId: string;
+  restoreMetadata: Exclude<
+    SealedSigningSessionEcdsaRestoreMetadata,
+    { source: 'email_otp' }
+  >;
   required?: boolean;
   errorContext?: string;
   sealPersistInFlightByMaterialActivation: Map<string, Promise<void>>;
@@ -40,12 +70,18 @@ export async function ensureEcdsaPrfSealPersisted(args: {
         authorization: args.authorization,
       });
       if (sealTransport) {
+        const walletId = walletIdForEcdsaSealTransport({
+          transport: sealTransport,
+          lane: args.lane,
+          restoreMetadata: args.restoreMetadata,
+        });
         const persisted =
           await args.sealPersistence.persistSigningSessionSealForThresholdSession({
           thresholdSessionId: args.thresholdSessionId,
           transport: {
             curve: sealTransport.curve,
-            ...(sealTransport.walletId ? { walletId: sealTransport.walletId } : {}),
+            authMethod: 'passkey',
+            walletId,
             chainTarget: sealTransport.chainTarget,
             relayerUrl: sealTransport.relayerUrl,
             ...(sealTransport.walletSessionJwt
@@ -57,6 +93,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
             ...(sealTransport.groupId
               ? { groupId: sealTransport.groupId }
               : {}),
+            ecdsaRestore: args.restoreMetadata,
           },
         });
         if (!persisted.ok && persisted.code !== 'not_enabled' && args.required) {

@@ -26,6 +26,7 @@ export interface SignerWorkerManagerContext extends NearSigningRuntimeDeps {
 }
 
 export type SignerWorkerManagerDeps = {
+  resolvePasskeyOperationStepUpCredential: NearSigningRuntimeDeps['resolvePasskeyOperationStepUpCredential'];
   nearKeyMaterialStore: NearSigningKeyMaterialStorePort;
   touchIdPrompt: TouchIdPrompt;
   touchConfirm: NonNullable<NearSigningRuntimeDeps['touchConfirm']>;
@@ -49,6 +50,7 @@ export type SignerWorkerManagerDeps = {
  * (e.g. login) or derived from intent/session digests (e.g. threshold sessions).
  */
 export class SignerWorkerManager {
+  private resolvePasskeyOperationStepUpCredential: NearSigningRuntimeDeps['resolvePasskeyOperationStepUpCredential'];
   private nearKeyMaterialStore: NearSigningKeyMaterialStorePort;
   private touchIdPrompt: TouchIdPrompt;
   private touchConfirm: NonNullable<NearSigningRuntimeDeps['touchConfirm']>;
@@ -66,6 +68,7 @@ export class SignerWorkerManager {
   readonly nearKeyOps: NearSigningKeyOps;
 
   constructor(deps: SignerWorkerManagerDeps) {
+    this.resolvePasskeyOperationStepUpCredential = deps.resolvePasskeyOperationStepUpCredential;
     this.nearKeyMaterialStore = deps.nearKeyMaterialStore;
     this.touchIdPrompt = deps.touchIdPrompt;
     this.touchConfirm = deps.touchConfirm;
@@ -89,6 +92,7 @@ export class SignerWorkerManager {
 
   getContext(): SignerWorkerManagerContext {
     return {
+      resolvePasskeyOperationStepUpCredential: this.resolvePasskeyOperationStepUpCredential,
       requestWorkerOperation: this.requestWorkerOperation.bind(this),
       nearKeyMaterialStore: this.nearKeyMaterialStore,
       touchIdPrompt: this.touchIdPrompt,

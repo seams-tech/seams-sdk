@@ -12,7 +12,6 @@ function plannedIdentityValues(plan: InitialEcdsaCapabilityActivationPlan): stri
   return [
     binding.signer.capability,
     binding.signer.signerId,
-    binding.signer.materialOwner,
     binding.targetManifest.manifestId,
     binding.activationId,
     binding.durableMaterialRef,
@@ -26,6 +25,8 @@ test('initial ECDSA activation planner owns fresh independent identities', async
   const plannedIdentities = [...plannedIdentityValues(first), ...plannedIdentityValues(second)];
 
   expect(new Set(plannedIdentities).size).toBe(plannedIdentities.length);
+  expect(first.activationBinding.signer.materialOwner).toBe(fixture.input.authority.walletId);
+  expect(second.activationBinding.signer.materialOwner).toBe(fixture.input.authority.walletId);
   for (const forbiddenAlias of fixture.forbiddenAliases) {
     expect(plannedIdentities).not.toContain(forbiddenAlias);
   }

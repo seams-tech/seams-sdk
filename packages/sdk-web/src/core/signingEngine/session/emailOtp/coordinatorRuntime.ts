@@ -178,13 +178,17 @@ export class EmailOtpWalletSessionRuntime {
     return await this.sealedRestoreOrchestrator.restorePersistedSessionForSigning(args);
   }
 
-  async readWarmSessionStatusOnly(target: EmailOtpWarmMaterialTarget): Promise<WarmSessionStatusResult> {
+  async readWarmSessionStatusOnly(
+    target: EmailOtpWarmMaterialTarget,
+  ): Promise<WarmSessionStatusResult> {
     return await this.warmSessionRuntime.readWarmSessionStatusOnly(target);
   }
 
-  async consumeWarmSessionUses(args: WarmSessionMaterialOperationTarget & {
-    uses?: number;
-  }): Promise<WarmSessionStatusResult> {
+  async consumeWarmSessionUses(
+    args: WarmSessionMaterialOperationTarget & {
+      uses?: number;
+    },
+  ): Promise<WarmSessionStatusResult> {
     return await this.warmSessionRuntime.consumeWarmSessionUses(args);
   }
 
@@ -205,6 +209,13 @@ export class EmailOtpWalletSessionRuntime {
     relayUrl: string;
   }): Promise<string> {
     return await this.appSessionJwtCache.resolveJwt(args);
+  }
+
+  async resolveAppSessionJwtForWallet(args: {
+    walletId: WalletId;
+    relayUrl: string;
+  }): Promise<string> {
+    return await this.appSessionJwtCache.resolveJwtForWallet(args);
   }
 
   async requestTransactionSigningChallenge(

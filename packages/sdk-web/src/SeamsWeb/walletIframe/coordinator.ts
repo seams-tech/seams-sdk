@@ -14,8 +14,6 @@ import type {
   WalletIframeExactSessionIdentity,
   WalletIframeExactSessionLockResult,
   WalletIframeExactSessionState,
-  WalletIframeMissingSessionIdentity,
-  WalletIframeMissingSessionLockResult,
 } from './shared/exactSessionState';
 
 function requireRegistrationRpId(value: string, source: string): WebAuthnRpId {
@@ -196,7 +194,8 @@ export class WalletIframeCoordinator {
       // Best-effort pull snapshot to cover missed events / older hosts.
       const cfg = await this.iframeRouter.getConfirmationConfig().catch(() => null);
       if (cfg) {
-        const confirmationWalletId = exactState.kind === 'wallet_locked' ? null : exactState.walletId;
+        const confirmationWalletId =
+          exactState.kind === 'wallet_locked' ? null : exactState.walletId;
         this.userPreferences.applyWalletHostConfirmationConfig({
           walletId: confirmationWalletId,
           confirmationConfig: cfg,
@@ -217,13 +216,6 @@ export class WalletIframeCoordinator {
   ): Promise<WalletIframeExactSessionLockResult> {
     const router = await this.requireRouter(String(identity.walletId));
     return await router.lockExactSession(identity);
-  }
-
-  async lockMissingSession(
-    identity: WalletIframeMissingSessionIdentity,
-  ): Promise<WalletIframeMissingSessionLockResult> {
-    const router = await this.requireRouter(String(identity.walletId));
-    return await router.lockMissingSession(identity);
   }
 
   async requireRouter(walletId?: string): Promise<WalletIframeRouter> {

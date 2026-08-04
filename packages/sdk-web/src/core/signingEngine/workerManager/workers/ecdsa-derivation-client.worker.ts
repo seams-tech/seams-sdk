@@ -22,6 +22,7 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { parseRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
@@ -31,6 +32,7 @@ import {
   type EcdsaDerivationWorkerOperationType,
 } from '../workerTypes';
 import {
+  attachRouterAbEcdsaExplicitExportOperationV1,
   isAttachEcdsaDerivationToPresignPort,
   type CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1,
   type CloseRouterAbEcdsaPostRegistrationCeremonyResultV1,
@@ -40,6 +42,7 @@ import {
   type EcdsaDerivationAdditiveShareResponse,
   type FinalizeRouterAbEcdsaExplicitExportRequestV1,
   type FinalizeRouterAbEcdsaExplicitExportResultV1,
+  projectRouterAbEcdsaExplicitExportRequestForWasmV1,
   type RehydrateEcdsaRoleLocalSigningMaterialRequestV1,
   type RehydrateEcdsaRoleLocalSigningMaterialResultV1,
 } from '../ecdsaClientWorkerChannels';
@@ -64,8 +67,10 @@ import {
   parseRouterAbEcdsaRegistrationRequestV1,
   parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
+  parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1,
   parseRouterAbEcdsaVerifiedClientActivationFactsV1,
   type RouterAbEcdsaClientProofFinalizationV1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaRegistrationRequestFactsV1,
   type RouterAbEcdsaRegistrationRequestV1,
   type RouterAbEcdsaRegistrationActivationReceiptV1,
@@ -686,6 +691,7 @@ async function persistInitialCanonicalEcdsaActivation(
     pendingPayloadB64u = encodeRouterAbEcdsaRegistrationPendingFinalizationV1(
       buildRouterAbEcdsaRegistrationPendingFinalizationV1({
         pendingStateBlob: active.preparedClientBootstrap.pendingStateBlob,
+        runtimePolicyScope: request.planInput.runtimePolicyScope,
         registrationFacts: active.registration,
         registrationRequest: active.registrationRequest,
         clientActivation: active.activationFacts,
@@ -716,6 +722,15 @@ async function persistInitialCanonicalEcdsaActivation(
         kind: 'initial_canonical_ecdsa_activation_persisted_v1',
         ceremonyId,
         journalId: plan.journalId,
+        materialActivation: parseRouterAbMpcMaterialActivationRef({
+          kind: 'mpc_material_activation_ref',
+          activation_id: plan.activationBinding.activationId,
+          capability: plan.activationBinding.signer.capability,
+          material_owner: plan.activationBinding.signer.materialOwner,
+          key_binding: plan.activationBinding.bindingDigest,
+          lifecycle_binding: ceremonyId,
+          signing_worker: active.registrationRequest.signer_set.selected_server.server_id,
+        }),
       };
     case 'exact_record_conflict':
     case 'corrupt':
@@ -865,6 +880,27 @@ function serverCommitFromActivationReceipt(receipt: RouterAbEcdsaRegistrationAct
   };
 }
 
+function normalSigningFromActivationReceipt(input: {
+  readonly activationBinding: ServerCommittedEcdsaActivationJournal['candidate']['activationBinding'];
+  readonly receipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+}): RouterAbEcdsaDerivationNormalSigningStateV1 {
+  const activation = input.receipt.ecdsa_activation;
+  return {
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
+    scope: {
+      wallet_id: String(input.activationBinding.signer.walletId),
+      ecdsa_threshold_key_id: String(input.activationBinding.roleLocalBinding.ecdsaThresholdKeyId),
+      signing_root_id: String(input.activationBinding.signer.signingRootId),
+      signing_root_version: String(input.activationBinding.signer.signingRootVersion),
+      context: activation.context,
+      public_identity: activation.public_identity,
+      material_activation: activation.material_activation,
+      signing_worker: activation.signing_worker,
+      activation_epoch: activation.activation_epoch,
+    },
+  };
+}
+
 async function committedJournalForActivationReceipt(input: {
   journal: PreparedEcdsaActivationJournal | ServerCommittedEcdsaActivationJournal;
   receipt: RouterAbEcdsaRegistrationActivationReceiptV1;
@@ -963,6 +999,8 @@ async function finalizeRouterAbEcdsaRegistrationActivation(
     readyStateBlobB64u: finalized.readyStateBlobB64u,
     registeredPublicFacts,
     roleLocalPublicFacts,
+    routerAbEcdsaDerivationNormalSigning: request.routerAbEcdsaDerivationNormalSigning,
+    runtimePolicyScope: pending.runtimePolicyScope,
     committedAt: parseIsoTimestamp(
       new Date(receipt.ecdsa_activation.activated_at_ms).toISOString(),
     ),
@@ -1022,11 +1060,16 @@ async function reconcileCanonicalEcdsaActivation(
         activationCommand: discovered.journal.activationCommand,
       };
     case 'server_activation_committed': {
+      const activationReceipt =
+        discovered.journal.serverActivation.serverActivationReceipt.protocolReceipt;
       return {
         kind: 'canonical_ecdsa_activation_committed_finalization_required_v1',
         journalId: discovered.journal.journalId,
-        activationReceipt:
-          discovered.journal.serverActivation.serverActivationReceipt.protocolReceipt,
+        activationReceipt,
+        routerAbEcdsaDerivationNormalSigning: normalSigningFromActivationReceipt({
+          activationBinding: discovered.journal.candidate.activationBinding,
+          receipt: activationReceipt,
+        }),
       };
     }
   }
@@ -1060,9 +1103,17 @@ function createRouterAbEcdsaPostRegistrationCeremony(
     let active: ActiveRouterAbEcdsaPostRegistrationCeremony;
     switch (request.kind) {
       case 'create_router_ab_ecdsa_explicit_export_ceremony_v1': {
-        const exportRequest = parseRouterAbEcdsaDerivationExplicitExportRequestV1(
-          JSON.parse(ceremony.build_explicit_export_request(JSON.stringify(request.request))),
+        const protocolRequest = parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1(
+          JSON.parse(
+            ceremony.build_explicit_export_request(
+              JSON.stringify(projectRouterAbEcdsaExplicitExportRequestForWasmV1(request.request)),
+            ),
+          ),
         );
+        const exportRequest = attachRouterAbEcdsaExplicitExportOperationV1({
+          facts: request.request,
+          protocolRequest,
+        });
         result = {
           kind: 'router_ab_ecdsa_explicit_export_ceremony_created_v1',
           ceremonyId,

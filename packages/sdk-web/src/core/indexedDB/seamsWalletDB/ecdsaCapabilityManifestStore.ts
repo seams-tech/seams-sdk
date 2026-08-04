@@ -38,6 +38,9 @@ import {
 } from '@shared/utils/ecdsaCapabilityActivation';
 import { alphabetizeStringify, sha256Bytes, sha256BytesUtf8 } from '@shared/utils/digests';
 import { secureRandomId } from '@shared/utils/secureRandomId';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { requireRouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   parseSdkEcdsaDerivationSigningRootId,
   parseSdkEcdsaDerivationSigningRootVersion,
@@ -104,7 +107,7 @@ import { SEAMS_WALLET_INDEXES, SEAMS_WALLET_STORES } from '../schemaNames';
 import { seamsWalletDB } from '../singletons';
 import type { SeamsWalletDBManager, SeamsWalletTransactionContext } from './manager';
 
-const MANIFEST_RECORD_VERSION = 'ecdsa_capability_manifest_v1' as const;
+const MANIFEST_RECORD_VERSION = 'ecdsa_capability_manifest_v2' as const;
 const POINTER_RECORD_VERSION = 'ecdsa_current_capability_manifest_v1' as const;
 const MATERIAL_RECORD_VERSION = 'ecdsa_role_local_material_v1' as const;
 const JOURNAL_RECORD_VERSION = 'ecdsa_activation_commit_journal_v1' as const;
@@ -262,6 +265,8 @@ export type SealEcdsaCapabilityActivationInput = {
   readonly readyStateBlobB64u: string;
   readonly registeredPublicFacts: VerifiedEcdsaPublicFacts;
   readonly roleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
+  readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+  readonly runtimePolicyScope: ReturnType<typeof normalizeRuntimePolicyScope>;
   readonly committedAt: IsoTimestamp;
 };
 
@@ -1136,6 +1141,9 @@ function storedActiveProof(input: ParsedActiveManifestProof) {
     server_activation: input.serverActivation,
     registered_public_facts: input.activeManifest.signer.registeredPublicFacts,
     role_local_public_facts: input.durableMaterial.roleLocalPublicFacts,
+    router_ab_ecdsa_derivation_normal_signing:
+      input.durableMaterial.routerAbEcdsaDerivationNormalSigning,
+    runtime_policy_scope: input.durableMaterial.runtimePolicyScope,
     ciphertext_digest: input.durableMaterial.ciphertextDigest,
     committed_at: input.activeManifest.committedAt,
   };
@@ -1148,6 +1156,8 @@ function parseActiveProof(value: unknown): ParsedActiveManifestProof {
     'server_activation',
     'registered_public_facts',
     'role_local_public_facts',
+    'router_ab_ecdsa_derivation_normal_signing',
+    'runtime_policy_scope',
     'ciphertext_digest',
     'committed_at',
   ]);
@@ -1195,8 +1205,12 @@ function parseActiveProof(value: unknown): ParsedActiveManifestProof {
   const durableMaterial = buildDurableEcdsaMaterialBinding({
     activationBinding,
     serverActivation,
+    routerAbEcdsaDerivationNormalSigning: requireRouterAbEcdsaDerivationNormalSigningStateV1(
+      record.router_ab_ecdsa_derivation_normal_signing,
+    ),
     roleLocalPublicFacts: buildEcdsaRoleLocalPublicFacts(record.role_local_public_facts),
     ciphertextDigest: parseEcdsaCiphertextDigest(record.ciphertext_digest),
+    runtimePolicyScope: normalizeRuntimePolicyScope(record.runtime_policy_scope),
   });
   const committedAt = parseIsoTimestamp(record.committed_at);
   const activeManifest = buildActiveEcdsaCapabilityManifest({
@@ -1637,8 +1651,9 @@ async function cancelPreparedActivationInTransaction(
 
 async function readCurrentPointerRowsForWallet(
   context: SeamsWalletTransactionContext,
+  walletId: WalletId,
 ): Promise<readonly unknown[]> {
-  return await context.store(POINTER_STORE).getAll();
+  return await context.store(POINTER_STORE).index(SEAMS_WALLET_INDEXES.walletId).getAll(walletId);
 }
 
 async function readActivationJournalRows(
@@ -1664,7 +1679,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       rows = await this.manager.runTransaction(
         [POINTER_STORE],
         'readonly',
-        readCurrentPointerRowsForWallet,
+        async (context) => await readCurrentPointerRowsForWallet(context, parsedWalletId.value),
       );
     } catch {
       return { kind: 'persistence_unavailable' };
@@ -2122,7 +2137,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       rows = await this.manager.runTransaction(
         [POINTER_STORE],
         'readonly',
-        readCurrentPointerRowsForWallet,
+        async (context) => await readCurrentPointerRowsForWallet(context, walletId),
       );
     } catch {
       return { kind: 'persistence_unavailable', capability };
@@ -2402,8 +2417,10 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       const durableMaterial = buildDurableEcdsaMaterialBinding({
         activationBinding: parsedJournal.candidate.activationBinding,
         serverActivation: parsedJournal.serverActivation,
+        routerAbEcdsaDerivationNormalSigning: input.routerAbEcdsaDerivationNormalSigning,
         roleLocalPublicFacts: buildEcdsaRoleLocalPublicFacts(input.roleLocalPublicFacts),
         ciphertextDigest: parseEcdsaCiphertextDigest(encrypted.digestB64u),
+        runtimePolicyScope: input.runtimePolicyScope,
       });
       const readyMaterial = buildValidatedEncryptedEcdsaReadyMaterial({
         binding: durableMaterial,

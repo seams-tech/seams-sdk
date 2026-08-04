@@ -13,10 +13,7 @@ import {
   attachReusableEcdsaWalletSessionAuthorization,
   resolveHydratedSecp256k1SigningMaterial,
 } from './readySecp256k1Material';
-import {
-  resolveExactEcdsaCapabilityRuntime,
-  resolveExactInactiveEcdsaCapabilityMaterial,
-} from '../../session/material/activeEcdsaCapabilityRuntime';
+import { resolveExactEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
@@ -158,7 +155,7 @@ export function ecdsaSigningAuthorizationSupersession(args: {
     current &&
     String(current.walletId) === String(prepared.walletId) &&
     String(current.walletSessionId) === String(prepared.walletSessionId) &&
-    String(current.authorizationSessionId) === String(prepared.authorizationSessionId) &&
+    String(current.authorizationId) === String(prepared.authorizationId) &&
     String(current.quotaId) === String(prepared.quotaId) &&
     String(currentAuthorization.status.walletSessionId) ===
       String(args.preparedAuthorization.status.walletSessionId) &&
@@ -183,28 +180,18 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   materialActivation: EvmFamilyEcdsaMaterialActivation;
+  relayerUrl: string;
   workerCtx: ReturnType<EvmFamilySigningDeps['getSignerWorkerContext']>;
 }): Promise<EcdsaSigningMaterialPlan> {
-  // Prefer active session runtime. Without reusable authorization, the same
-  // manifest may instead correlate authorization-free inactive material for
-  // one-operation step-up.
-  const authMethod = signerAuthMethodForWalletAuthority(args.capability.authority);
+  // Resolve the active capability material first. Reusable authorization is
+  // checked separately; without it, the hydrated material requires operation
+  // step-up authorization.
   const activeRuntimeResolution = await resolveExactEcdsaCapabilityRuntime({
     manifest: args.capability.manifest,
     chainTarget: args.chainTarget,
-    authMethod,
+    relayerUrl: args.relayerUrl,
   });
-  const runtimeResolution =
-    activeRuntimeResolution.kind !== 'resolved' &&
-    !args.preparedAuthorization &&
-    !args.currentAuthorization
-      ? await resolveExactInactiveEcdsaCapabilityMaterial({
-          manifest: args.capability.manifest,
-          chainTarget: args.chainTarget,
-          authMethod,
-        })
-      : activeRuntimeResolution;
-  if (runtimeResolution.kind !== 'resolved') {
+  if (activeRuntimeResolution.kind !== 'resolved') {
     return {
       kind: 'failed',
       failure: { kind: 'unavailable', reason: 'runtime_correlation_mismatch' },
@@ -212,7 +199,7 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   }
   const superseded = ecdsaSigningCapabilitySupersession({
     preparedCapability: args.capability,
-    currentManifest: runtimeResolution.manifest,
+    currentManifest: activeRuntimeResolution.manifest,
   });
   if (superseded) return { kind: 'superseded', replacement: superseded };
   if (args.preparedAuthorization) {
@@ -227,7 +214,7 @@ async function resolveEcdsaSigningMaterialHydrationPlan(args: {
   }
   const resolution = await resolveHydratedSecp256k1SigningMaterial({
     capability: args.capability,
-    runtime: runtimeResolution.runtime,
+    runtime: activeRuntimeResolution.runtime,
     chainTarget: args.chainTarget,
     materialActivation: args.materialActivation,
     workerCtx: args.workerCtx,
@@ -391,6 +378,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               walletId: resolvedSigner.walletId,
               chainTarget: resolvedSigner.chainTarget,
               materialActivation: resolvedSigner.materialActivation,
+              relayerUrl,
               workerCtx,
             }),
         }

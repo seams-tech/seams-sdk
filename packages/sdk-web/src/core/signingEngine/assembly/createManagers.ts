@@ -42,6 +42,7 @@ export type ManagerAssemblyStores = {
 };
 
 export function createManagerAssembly(args: {
+  resolvePasskeyOperationStepUpCredential: SignerWorkerManagerDeps['resolvePasskeyOperationStepUpCredential'];
   stores: ManagerAssemblyStores;
   seamsWebConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
@@ -95,6 +96,7 @@ export function createManagerAssembly(args: {
   const passkeyMpcExport = createPasskeyMpcExportManager(touchConfirm.getContext());
 
   const signerWorkerManager = new SignerWorkerManager({
+    resolvePasskeyOperationStepUpCredential: args.resolvePasskeyOperationStepUpCredential,
     nearKeyMaterialStore: args.stores.nearKeyMaterialStore,
     touchIdPrompt,
     touchConfirm,

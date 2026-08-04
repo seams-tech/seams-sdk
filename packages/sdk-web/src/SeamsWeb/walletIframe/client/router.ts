@@ -214,14 +214,11 @@ import {
   exactSessionStateFromWalletSession,
   parseWalletIframeExactSessionLockResult,
   parseWalletIframeExactSessionState,
-  parseWalletIframeMissingSessionLockResult,
   parseWalletSessionFromBoundary,
   WalletIframeSessionExpiredRequestError,
   type WalletIframeExactSessionIdentity,
   type WalletIframeExactSessionLockResult,
   type WalletIframeExactSessionState,
-  type WalletIframeMissingSessionIdentity,
-  type WalletIframeMissingSessionLockResult,
   type WalletIframePendingSessionBinding,
 } from '../shared/exactSessionState';
 
@@ -382,12 +379,10 @@ function walletIframeLoginStatusFromExactSession(
 ): WalletIframeLoginStatusSnapshot {
   switch (state.kind) {
     case 'active_session':
-      return { isLoggedIn: true, walletId: state.walletId };
-    case 'wallet_unlocked_without_signing_session':
-      return state.reason === 'not_found'
-        ? { isLoggedIn: false, walletId: null }
-        : { isLoggedIn: true, walletId: state.walletId };
     case 'expired_session':
+    case 'wallet_authenticated_identity_unresolvable':
+    case 'wallet_unlocked_without_signing_session':
+      return { isLoggedIn: true, walletId: state.walletId };
     case 'wallet_locked':
       return { isLoggedIn: false, walletId: null };
     default:
@@ -405,16 +400,15 @@ function parseResolveExactKeyExportLaneResult(
         kind: 'ecdsa',
         laneIdentity: parseExactEcdsaSigningLaneIdentity(result.laneIdentity),
       };
-    case 'ed25519':
-      {
-        const materialActivation = parseMpcMaterialActivationRef(result.materialActivation);
-        if (!materialActivation.ok) throw new Error(materialActivation.error.message);
+    case 'ed25519': {
+      const materialActivation = parseMpcMaterialActivationRef(result.materialActivation);
+      if (!materialActivation.ok) throw new Error(materialActivation.error.message);
       return {
         kind: 'ed25519',
         laneIdentity: parseExactEd25519SigningLaneIdentity(result.laneIdentity),
         materialActivation: materialActivation.value,
       };
-      }
+    }
   }
 }
 
@@ -1214,7 +1208,7 @@ export class WalletIframeRouter {
       if (hostedWalletSession) {
         await this.ensureHostedWalletSeamsSession(hostedWalletSession);
       }
-      await this.refreshExactSessionAndEmitLoginStatus();
+      await this.refreshExactSessionAndEmitLoginStatus('restore', { kind: 'current' });
       this.emitReady();
     })();
 
@@ -1394,11 +1388,17 @@ export class WalletIframeRouter {
   }
 
   async getExactSessionState(): Promise<WalletIframeExactSessionState> {
-    return await this.refreshExactSessionState();
+    return await this.refreshExactSessionState('current', { kind: 'current' });
   }
 
-  private async refreshExactSessionState(): Promise<WalletIframeExactSessionState> {
-    const response = await this.post<unknown>({ type: 'PM_GET_EXACT_WALLET_SESSION_STATE' });
+  private async refreshExactSessionState(
+    authenticationRead: 'restore' | 'current',
+    wallet: { readonly kind: 'current' } | { readonly kind: 'exact'; readonly walletId: string },
+  ): Promise<WalletIframeExactSessionState> {
+    const response = await this.post<unknown>({
+      type: 'PM_GET_EXACT_WALLET_SESSION_STATE',
+      payload: { authenticationRead, wallet },
+    });
     const state = parseWalletIframeExactSessionState(response.result);
     this.exactSessionState = state;
     return state;
@@ -1417,8 +1417,11 @@ export class WalletIframeRouter {
     this.emitLoginStatusChanged(walletIframeLoginStatusFromExactSession(state));
   }
 
-  private async refreshExactSessionAndEmitLoginStatus(): Promise<WalletIframeExactSessionState> {
-    const state = await this.refreshExactSessionState();
+  private async refreshExactSessionAndEmitLoginStatus(
+    authenticationRead: 'restore' | 'current',
+    wallet: { readonly kind: 'current' } | { readonly kind: 'exact'; readonly walletId: string },
+  ): Promise<WalletIframeExactSessionState> {
+    const state = await this.refreshExactSessionState(authenticationRead, wallet);
     this.mirrorExactSessionAndEmitLoginStatus(state);
     return state;
   }
@@ -1468,6 +1471,7 @@ export class WalletIframeRouter {
     this.exactSessionState = {
       kind: 'expired_session',
       walletId: event.walletId,
+      authorizationId: state.authorizationId,
       walletSessionId: event.walletSessionId,
       authMethod: event.authMethod,
       expiresAtMs: event.expiresAtMs,
@@ -1618,7 +1622,7 @@ export class WalletIframeRouter {
     );
     const walletId = res.result?.success ? String(res.result.walletId || '') : '';
     if (walletId) {
-      await this.refreshExactSessionAndEmitLoginStatus();
+      await this.refreshExactSessionAndEmitLoginStatus('current', { kind: 'exact', walletId });
     }
     return res.result;
   }
@@ -1692,7 +1696,7 @@ export class WalletIframeRouter {
     });
     const result = res.result;
     if (result.success) {
-      await this.refreshExactSessionAndEmitLoginStatus();
+      await this.refreshExactSessionAndEmitLoginStatus('current', { kind: 'current' });
     }
     return result;
   }
@@ -1902,7 +1906,7 @@ export class WalletIframeRouter {
           },
         );
         if (res.result.ok) {
-          await this.refreshExactSessionAndEmitLoginStatus();
+          await this.refreshExactSessionAndEmitLoginStatus('current', { kind: 'current' });
         }
         return res.result;
       },
@@ -1998,7 +2002,7 @@ export class WalletIframeRouter {
         progressTimeoutExtensionFactor: 1,
       },
     );
-    await this.refreshExactSessionAndEmitLoginStatus();
+    await this.refreshExactSessionAndEmitLoginStatus('current', { kind: 'current' });
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
@@ -2023,7 +2027,7 @@ export class WalletIframeRouter {
         progressTimeoutExtensionFactor: 1,
       },
     );
-    await this.refreshExactSessionAndEmitLoginStatus();
+    await this.refreshExactSessionAndEmitLoginStatus('current', { kind: 'current' });
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
@@ -2113,24 +2117,6 @@ export class WalletIframeRouter {
       payload: expected,
     });
     const result = parseWalletIframeExactSessionLockResult(response.result);
-    if (result.kind === 'locked') {
-      this.exactSessionState = { kind: 'wallet_locked' };
-      this.emitLoginStatusChanged({ isLoggedIn: false, walletId: null });
-    } else {
-      this.exactSessionState = result.current;
-      this.emitLoginStatusChanged(walletIframeLoginStatusFromExactSession(result.current));
-    }
-    return result;
-  }
-
-  async lockMissingSession(
-    expected: WalletIframeMissingSessionIdentity,
-  ): Promise<WalletIframeMissingSessionLockResult> {
-    const response = await this.post<unknown>({
-      type: 'PM_LOCK_MISSING_WALLET_SESSION',
-      payload: expected,
-    });
-    const result = parseWalletIframeMissingSessionLockResult(response.result);
     if (result.kind === 'locked') {
       this.exactSessionState = { kind: 'wallet_locked' };
       this.emitLoginStatusChanged({ isLoggedIn: false, walletId: null });
@@ -2946,6 +2932,7 @@ export class WalletIframeRouter {
     return {
       kind: 'exact_session',
       walletId: state.walletId,
+      authorizationId: state.authorizationId,
       walletSessionId: state.walletSessionId,
       authMethod: state.authMethod,
       expiresAtMs: state.expiresAtMs,
@@ -2966,6 +2953,7 @@ export class WalletIframeRouter {
       kind: 'expired',
       identity: {
         walletId: binding.walletId,
+        authorizationId: binding.authorizationId,
         walletSessionId: binding.walletSessionId,
         authMethod: binding.authMethod,
         expiresAtMs: binding.expiresAtMs,

@@ -1,8 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
-import {
-  type EmailOtpRoutePlan,
-} from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
+import { type EmailOtpRoutePlan } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import {
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
@@ -102,11 +100,9 @@ function emailOtpEcdsaUnlockWorkerResult(call: any) {
             public_capability: requestedActivation.public_capability,
             session: {
               ...fixture.response.session,
-              threshold_session_id:
-                requestedActivation.session_policy.threshold_session_id,
+              threshold_session_id: requestedActivation.session_policy.threshold_session_id,
               remaining_uses: requestedActivation.session_policy.remaining_uses,
-              expires_at_ms:
-                Date.now() + requestedActivation.session_policy.ttl_ms,
+              expires_at_ms: Date.now() + requestedActivation.session_policy.ttl_ms,
             },
           },
         }
@@ -327,6 +323,7 @@ function appSessionJwt(expSeconds = Math.floor(Date.now() / 1000) + 3600): strin
   return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
     kind: 'app_session_v1',
     sub: 'google:subject',
+    providerSubject: 'google:subject',
     walletId: TEST_WALLET_SESSION.walletId,
     exp: expSeconds,
   })}.sig`;
@@ -339,6 +336,7 @@ function appSessionJwtWithRuntimePolicyScope(
   return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
     kind: 'app_session_v1',
     sub: 'google:subject',
+    providerSubject: 'google:subject',
     walletId: TEST_WALLET_SESSION.walletId,
     runtimePolicyScope,
     exp: expSeconds,
@@ -551,8 +549,7 @@ function emailOtpProvisionedEcdsaBootstrapFixture(args: {
   const thresholdSessionId = request.lanePolicy?.thresholdSessionId || 'ecdsa-session';
   const keyHandle = request.walletKey?.keyHandle || 'key-handle-ecdsa';
   const ecdsaThresholdKeyId = 'ecdsa-key';
-  const runtimePolicyScope =
-    request.runtimePolicy?.scope || request.lanePolicy?.runtimePolicyScope;
+  const runtimePolicyScope = request.runtimePolicy?.scope || request.lanePolicy?.runtimePolicyScope;
   const signingRootId =
     runtimePolicyScope?.projectId && runtimePolicyScope?.envId
       ? `${runtimePolicyScope.projectId}:${runtimePolicyScope.envId}`
@@ -1090,8 +1087,7 @@ function createCoordinator(overrides?: {
         await overrides.writeExactSealedSession(args);
       }
     },
-    readExactEd25519SealedSession:
-      overrides?.readExactEd25519SealedSession || (async () => null),
+    readExactEd25519SealedSession: overrides?.readExactEd25519SealedSession || (async () => null),
     readExactSealedSession: overrides?.readExactSealedSession || defaultReadExactSealedSession,
     listExactSealedSessionsForWallet:
       overrides?.listExactSealedSessionsForWallet || defaultListExactSealedSessionsForWallet,
@@ -1141,9 +1137,9 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         thresholdSessionId: '   ',
       }),
     ).resolves.toMatchObject({
-        ok: false,
-        code: 'invalid_args',
-      });
+      ok: false,
+      code: 'invalid_args',
+    });
     expect(invalid.workerCalls).toHaveLength(0);
 
     const failing = createCoordinator({
@@ -1264,10 +1260,9 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       signingRootVersion: runtimePolicyScope.signingRootVersion,
     });
     const manifest = await emailOtpLoginManifestFixture({ runtimePolicyScope, keyHandle });
-    const { coordinator, workerCalls, ecdsaCommitCalls, ecdsaProvisionCalls } =
-      createCoordinator({
+    const { coordinator, workerCalls, ecdsaCommitCalls, ecdsaProvisionCalls } = createCoordinator({
       listActiveEcdsaCapabilityManifestsForWallet: async () => [manifest],
-      });
+    });
     const result = await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
       chainTarget: TEMPO_CHAIN_TARGET,
@@ -1284,9 +1279,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     });
 
     expect(result.bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId).toBe('ecdsa-key');
-    const loginCall = workerCalls.find(
-      (call) => call.request?.type === 'loginWithEmailOtpWallet',
-    );
+    const loginCall = workerCalls.find((call) => call.request?.type === 'loginWithEmailOtpWallet');
     expect(loginCall).toMatchObject({
       kind: 'emailOtp',
       request: {

@@ -156,6 +156,30 @@ export function resolveNearEd25519YaoCapabilityHydrationV1(
     default:
       input.publicLocator satisfies never;
   }
+  const publicMaterialActivation = input.publicLocator.materialActivation;
+  if (String(publicMaterialActivation.materialOwner) !== input.publicLocator.walletId) {
+    return blockedNearHydration(input, 'binding_mismatch');
+  }
+  switch (input.runtime.kind) {
+    case 'live':
+      if (
+        !mpcMaterialActivationRefsEqual(
+          publicMaterialActivation,
+          input.runtime.materialActivation,
+        )
+      ) {
+        return blockedNearHydration(input, 'binding_mismatch');
+      }
+      return buildUseLiveRuntimeHydrationPlan({
+        authority: input.publicLocator.authority,
+        runtime: input.runtime.runtime,
+        materialActivation: publicMaterialActivation,
+      });
+    case 'absent':
+      break;
+    default:
+      input.runtime satisfies never;
+  }
   switch (input.sealed.kind) {
     case 'missing':
       return blockedNearHydration(input, 'missing_material');
@@ -178,23 +202,6 @@ export function resolveNearEd25519YaoCapabilityHydrationV1(
     )
   ) {
     return blockedNearHydration(input, 'binding_mismatch');
-  }
-  switch (input.runtime.kind) {
-    case 'live':
-      if (
-        !mpcMaterialActivationRefsEqual(sealed.materialActivation, input.runtime.materialActivation)
-      ) {
-        return blockedNearHydration(input, 'binding_mismatch');
-      }
-      return buildUseLiveRuntimeHydrationPlan({
-        authority: sealed.authority,
-        runtime: input.runtime.runtime,
-        materialActivation: sealed.materialActivation,
-      });
-    case 'absent':
-      break;
-    default:
-      input.runtime satisfies never;
   }
   switch (input.unlockSource.kind) {
     case 'unavailable':

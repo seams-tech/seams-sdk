@@ -30,6 +30,7 @@ import type { RouterAbEd25519SigningWalletSession } from '../session/routerAbSig
 import type { RouterAbEd25519YaoActiveClientV1 } from '../threshold/ed25519/yaoClient';
 import type { EmailOtpTransactionSigningChallenge } from '../session/emailOtp/publicTypes';
 import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { ResolvedRouterAbEd25519WalletSessionState } from '../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import type {
   MpcMaterialActivationRef,
   ThresholdEd25519SessionId,
@@ -109,7 +110,7 @@ export type NearEd25519YaoOperationMaterial = {
 
 export type NearEd25519OperationStepUpAuthorization = {
   kind: 'verified_step_up';
-  authorization: { kind: 'operation_step_up' };
+  authorization: { kind: 'operation_step_up'; evidence_set_digest: string };
   expiresAtMs: number;
 };
 
@@ -146,7 +147,7 @@ export type NearEd25519YaoMaterialExecutor = {
   resolve: (
     preparation: NearEd25519YaoSigningPreparation,
   ) => Promise<NearEd25519YaoOperationMaterial>;
-  resolveWalletSessionState: () => Promise<NearResolvedEd25519SigningSessionState>;
+  resolveWalletSessionState: () => Promise<ResolvedRouterAbEd25519WalletSessionState>;
   preparePasskeyOperationStepUp: (
     preparation: NearEd25519YaoSigningPreparation,
   ) => Promise<NearPasskeyEd25519OperationStepUpCapabilityPreparation>;

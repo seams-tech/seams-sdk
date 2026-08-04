@@ -1,6 +1,7 @@
 import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
 import { ROUTER_AB_ED25519_WALLET_SESSION_PATH } from '@shared/utils/signingSessionSeal';
 import { type Ed25519SessionPolicy, type ThresholdRuntimePolicyScope } from '../sessionPolicy';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
   getPrfFirstB64uFromCredential,
@@ -12,7 +13,14 @@ import {
   type WebAuthnPrfFirstSecretSource,
 } from '@/core/platform/types';
 import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
+import type {
+  RouterAbEd25519NormalSigningCredential,
+  RouterAbNormalSigningPrepareRequestV2Wire,
+} from '@/core/rpcClients/relayer/routerAbNormalSigning';
+import {
+  buildBearerAuthorizationHeader,
+  buildRelayerJsonPostRequestInit,
+} from '@/core/rpcClients/relayer/relayerHttp';
 import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
@@ -340,7 +348,13 @@ type Ed25519OperationStepUpAuthorizationRequestBase = {
   relayerUrl: string;
   normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
   displayDigest: string;
+  credential: Ed25519OperationStepUpCredential;
 };
+
+export type Ed25519OperationStepUpCredential = Exclude<
+  RouterAbEd25519NormalSigningCredential,
+  { kind: 'wallet_session_jwt' }
+>;
 
 export type Ed25519OperationStepUpAuthorizationRequest = Ed25519OperationStepUpAuthorizationRequestBase &
   (
@@ -400,7 +414,7 @@ function serializeEd25519OperationStepUpProof(
 
 export type IssuedEd25519OperationStepUpAuthorization = {
   kind: 'verified_step_up';
-  authorization: { kind: 'operation_step_up' };
+  authorization: { kind: 'operation_step_up'; evidence_set_digest: string };
   expiresAtMs: number;
   materialRecovery: Ed25519OperationStepUpMaterialRecoveryResponse;
 };
@@ -545,12 +559,17 @@ function parseIssuedEd25519OperationStepUpAuthorization(args: {
   );
   requireExactEd25519OperationStepUpResponseKeys(
     authorization,
-    ['kind'],
+    ['kind', 'evidence_set_digest'],
     'operation step-up authorization',
   );
   if (authorization.kind !== 'operation_step_up') {
     throw new Error('[threshold-ed25519] operation step-up authorization marker is invalid');
   }
+  const evidenceSetDigest = requireNormalizedEd25519OperationStepUpString(
+    authorization.evidence_set_digest,
+    'operation step-up authorization.evidence_set_digest',
+  );
+  parseDigestB64u(evidenceSetDigest);
   if (
     typeof body.expiresAtMs !== 'number' ||
     !Number.isSafeInteger(body.expiresAtMs) ||
@@ -560,7 +579,7 @@ function parseIssuedEd25519OperationStepUpAuthorization(args: {
   }
   return {
     kind: 'verified_step_up',
-    authorization: { kind: 'operation_step_up' },
+    authorization: { kind: 'operation_step_up', evidence_set_digest: evidenceSetDigest },
     expiresAtMs: body.expiresAtMs,
     materialRecovery: parseEd25519OperationStepUpMaterialRecoveryResponse({
       value: body.materialRecovery,
@@ -575,17 +594,26 @@ export async function issueEd25519OperationStepUpAuthorization(
   const relayerUrl = stripTrailingSlashes(toTrimmedString(args.relayerUrl));
   if (!relayerUrl) throw new Error('[threshold-ed25519] operation step-up relayerUrl is required');
   const materialRecovery = buildEd25519OperationStepUpMaterialRecoveryRequest(args);
-  const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
-      kind: 'router_ab_ed25519_yao_operation_step_up_v1',
+  const requestInit = buildRelayerJsonPostRequestInit({
+    ...(args.credential.kind === 'app_session_jwt'
+      ? {
+          headers: buildBearerAuthorizationHeader({
+            token: args.credential.appSessionJwt,
+            missingMessage: 'appSessionJwt is required',
+          }),
+        }
+      : {}),
+    body: {
+      kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
       normalSigningRequest: args.normalSigningRequest,
       displayDigest: args.displayDigest,
       proof: serializeEd25519OperationStepUpProof(args.proof),
       materialRecovery,
-    }),
+    },
+  });
+  const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`, {
+    ...requestInit,
+    ...(args.credential.kind === 'app_session_cookie' ? { credentials: 'include' } : {}),
   });
   const body: unknown = await response.json().catch(() => ({}));
   if (!response.ok) {

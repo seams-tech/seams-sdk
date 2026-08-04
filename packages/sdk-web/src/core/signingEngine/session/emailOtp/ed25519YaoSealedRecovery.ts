@@ -33,6 +33,7 @@ import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseEd25519YaoRecoveryCapabilityV1 } from '../../flows/recovery/passkeyEd25519YaoRecovery';
 import type {
@@ -53,10 +54,7 @@ import {
 } from './ed25519YaoCapabilityRecovery';
 import type { EmailOtpEd25519YaoPublicationInput } from './ed25519YaoPublication';
 import { requestRehydrateEmailOtpEd25519YaoLocalMaterial } from './workerRequests';
-import {
-  SigningSessionIds,
-  type ThresholdEd25519SessionId,
-} from '../operationState/types';
+import { SigningSessionIds, type ThresholdEd25519SessionId } from '../operationState/types';
 import type {
   ActiveWalletSessionAuthorizationProjection,
   WalletSessionAuthorizationReadResult,
@@ -415,12 +413,16 @@ async function fetchWarmBootstrap(args: {
   relayerUrl: string;
   fetch: typeof fetch;
 }): Promise<WarmBootstrapFetchResult> {
+  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ed25519');
+  if (!walletSessionJwt) {
+    throw new Error('[SigningEngine][near] active Wallet Session authorization is unavailable');
+  }
   const response = await args.fetch(
     `${new URL(args.relayerUrl).origin}${ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1}`,
     {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${args.authorization.walletSessionJwt}`,
+        Authorization: `Bearer ${walletSessionJwt}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(warmBootstrapRequest(args.record)),
@@ -473,6 +475,10 @@ async function parseWarmBootstrap(args: {
   expiresAtMs: number;
 }): Promise<VerifiedEmailOtpEd25519YaoWarmBootstrapV1> {
   const record = args.record;
+  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ed25519');
+  if (!walletSessionJwt) {
+    throw new Error('[SigningEngine][near] active Wallet Session authorization is unavailable');
+  }
   const restore = record.ed25519Restore;
   const emailOtp = emailOtpRestoreMetadata(record);
   const response = args.response;
@@ -570,7 +576,7 @@ async function parseWarmBootstrap(args: {
     kind: 'verified_email_otp_ed25519_yao_warm_bootstrap_v1',
     session: {
       sessionKind: 'jwt',
-      walletSessionJwt: args.authorization.walletSessionJwt,
+      walletSessionJwt,
       walletId: walletIdFromString(walletId),
       nearAccountId,
       nearEd25519SigningKeyId,
@@ -695,6 +701,10 @@ async function runFencedEmailOtpEd25519YaoSealedRecovery(
   if (!authorization) {
     return { kind: 'reauth_required', reason: 'wallet_session_expired' };
   }
+  const walletSessionJwt = walletSessionJwtForCurve(authorization, 'ed25519');
+  if (!walletSessionJwt) {
+    return { kind: 'reauth_required', reason: 'wallet_session_expired' };
+  }
   assertExactLocalSealedRecord({
     record,
     rpId: input.rpId,
@@ -744,7 +754,7 @@ async function runFencedEmailOtpEd25519YaoSealedRecovery(
     expiresAtMs: record.expiresAtMs,
     transport: {
       relayerUrl: record.relayerUrl,
-      walletSessionJwt: authorization.walletSessionJwt,
+      walletSessionJwt,
       signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(record.keyVersion),
       groupId: requireString(record.groupId, 'groupId'),
     },

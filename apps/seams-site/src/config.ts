@@ -13,8 +13,7 @@ const DEFAULT_TEMPO_RPC_URL = 'https://rpc.moderato.tempo.xyz';
 const DEFAULT_TEMPO_EXPLORER_URL = 'https://explore.testnet.tempo.xyz';
 const DEFAULT_TEMPO_FEE_TOKEN = '0x20c0000000000000000000000000000000000001';
 // Arc-specific EVM demo defaults. Generic EVM behavior is still `chain: 'evm'`.
-const DEFAULT_ARC_RPC_URL = 'https://rpc.testnet.arc.network';
-const DEFAULT_ARC_RPC_FALLBACK_URL = 'https://rpc.drpc.testnet.arc.network';
+const DEFAULT_ARC_RPC_URL = 'https://rpc.drpc.testnet.arc.network';
 const DEFAULT_ARC_EXPLORER_URL = 'https://testnet.arcscan.app';
 const DEFAULT_DEMO_CONTRACT_ID = 'w3a-v1.testnet';
 
@@ -152,7 +151,7 @@ const tempoFeeToken = toTrimmedString(env.VITE_TEMPO_FEE_TOKEN) || DEFAULT_TEMPO
 const arcRpcUrl = toTrimmedString(env.VITE_ARC_RPC_URL) || DEFAULT_ARC_RPC_URL;
 const arcRpcRequestUrl = Array.from(
   new Set(
-    [arcRpcUrl, DEFAULT_ARC_RPC_FALLBACK_URL]
+    [arcRpcUrl, DEFAULT_ARC_RPC_URL]
       .flatMap((value) => value.split(/[\s,]+/u))
       .map((value) => value.trim())
       .filter(Boolean),

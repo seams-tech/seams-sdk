@@ -17,6 +17,7 @@ import {
 } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
   parsePasskeyEd25519YaoSyncResponseV1,
+  passkeyEd25519YaoLaneReferenceFromRecovery,
   recoverParsedPasskeyEd25519YaoCapabilityV1,
   type PasskeyEd25519YaoRecoveryResultV1,
   type ParsedPasskeyEd25519YaoSyncResponseV1,
@@ -39,7 +40,9 @@ import {
 import {
   nearEd25519YaoMaterialActivationFromMetadata,
 } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
-import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+} from '@shared/utils/domainIds';
 
 export type { SyncAccountResult };
 
@@ -69,7 +72,9 @@ export type RecoverPasskeyEd25519YaoForUnlockInputV1 = {
   readonly withExactEd25519MaterialOwner: AccountSyncSigningSurface['withExactEd25519MaterialOwner'];
   readonly sessionPersistence: Pick<
     AccountSyncSigningSurface,
-    'hydrateSigningSession' | 'persistSigningSessionSealForThresholdSession'
+    | 'hydrateSigningSession'
+    | 'persistSigningSessionSealForThresholdSession'
+    | 'upsertEd25519YaoPublicCapabilityLaneReference'
   >;
   readonly onPromptStarted?: () => void;
   readonly onPromptSucceeded?: () => void;
@@ -340,6 +345,12 @@ async function recoverAndCommitPasskeyEd25519Unlock(
     ) {
       throw new Error('Passkey Ed25519 registry activation changed during recovery commit');
     }
+    await input.sessionPersistence.upsertEd25519YaoPublicCapabilityLaneReference(
+      passkeyEd25519YaoLaneReferenceFromRecovery({
+        walletSessionState: recovery.walletSessionState,
+        materialActivation: activated.materialActivation,
+      }),
+    );
     return recovery;
   } catch (error) {
     recovery?.activeClient.dispose();

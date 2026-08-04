@@ -4,7 +4,6 @@ import type { SeamsWeb } from '@/SeamsWeb';
 import type { WalletIframeExactSessionState } from '@/SeamsWeb/walletIframe/shared/exactSessionState';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState } from '../types';
-import { shouldPreserveReactLoginForWalletSessionRead } from './walletSessionReadiness';
 import {
   buildReactLoggedInLoginStateFromSession,
   buildReactLoggedOutLoginState,
@@ -34,28 +33,11 @@ async function applyExactWalletIframeSessionState(args: {
 }): Promise<void> {
   switch (args.state.kind) {
     case 'active_session':
-      break;
+    case 'wallet_authenticated_identity_unresolvable':
     case 'wallet_unlocked_without_signing_session':
-      switch (args.state.reason) {
-        // `superseded` is replaced, not broken: the wallet stays unlocked and
-        // the lifecycle continues against whatever current state resolves to.
-        case 'exhausted':
-        case 'superseded':
-          break;
-        case 'unavailable':
-        case 'status_unknown':
-          return;
-        case 'not_found':
-        case 'invalid':
-          setReactLoggedOutIfCurrent(args);
-          return;
-        default:
-          args.state.reason satisfies never;
-          return;
-      }
       break;
-    case 'expired_session':
     case 'wallet_locked':
+    case 'expired_session':
       setReactLoggedOutIfCurrent(args);
       return;
     default:
@@ -63,9 +45,27 @@ async function applyExactWalletIframeSessionState(args: {
       return;
   }
 
-  const session = await args.seams.auth.getWalletSession(args.state.walletId);
+  await applyWalletIframeSession({
+    seams: args.seams,
+    lifecycle: args.lifecycle,
+    revision: args.revision,
+    walletId: args.state.walletId,
+    setLoginState: args.setLoginState,
+  });
+}
+
+async function applyWalletIframeSession(args: {
+  seams: SeamsWeb;
+  lifecycle: WalletIframeReactLifecycle;
+  revision: number;
+  walletId: string;
+  setLoginState: Dispatch<SetStateAction<LoginState>>;
+}): Promise<void> {
+  const session = await args.seams.auth.getWalletSession(args.walletId);
   if (args.lifecycle.cancelled || args.lifecycle.revision !== args.revision) return;
-  if (shouldPreserveReactLoginForWalletSessionRead(session)) return;
+  if (session.authentication.kind === 'authenticated' && session.appIdentity.kind !== 'resolved') {
+    return;
+  }
   const nextLoginState = buildReactLoggedInLoginStateFromSession(session);
   if (nextLoginState === null) {
     args.setLoginState(buildReactLoggedOutLoginState());
@@ -73,6 +73,32 @@ async function applyExactWalletIframeSessionState(args: {
   }
   args.seams.preferences.setCurrentWallet(toWalletId(nextLoginState.walletId));
   args.setLoginState(nextLoginState);
+}
+
+function applyWalletIframeLoginStatus(args: {
+  seams: SeamsWeb;
+  lifecycle: WalletIframeReactLifecycle;
+  status: { isLoggedIn: boolean; walletId: string | null };
+  setLoginState: Dispatch<SetStateAction<LoginState>>;
+}): void {
+  const revision = ++args.lifecycle.revision;
+  if (!args.status.isLoggedIn || !args.status.walletId) {
+    setReactLoggedOutIfCurrent({
+      lifecycle: args.lifecycle,
+      revision,
+      setLoginState: args.setLoginState,
+    });
+    return;
+  }
+  void applyWalletIframeSession({
+    seams: args.seams,
+    lifecycle: args.lifecycle,
+    revision,
+    walletId: args.status.walletId,
+    setLoginState: args.setLoginState,
+  }).catch((error: unknown) => {
+    console.warn('[SeamsContextProvider] WalletIframe login-state reconciliation failed:', error);
+  });
 }
 
 async function reconcileExactWalletIframeSessionState(args: {
@@ -129,10 +155,11 @@ export function useWalletIframeLifecycle(args: {
         setWalletIframeConnected(seams.isWalletIframeReady());
         offReady = seams.onWalletIframeReady(() => setWalletIframeConnected(true));
 
-        offLogin = seams.onWalletIframeLoginStatusChanged(() => {
-          reconcileExactWalletIframeSessionStateInBackground({
+        offLogin = seams.onWalletIframeLoginStatusChanged((status) => {
+          applyWalletIframeLoginStatus({
             seams,
             lifecycle,
+            status,
             setLoginState,
           });
         });

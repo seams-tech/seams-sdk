@@ -4,6 +4,7 @@ import type {
   WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import type { SeamsSessionId } from '@shared/authorization/capabilityKinds';
 import type { RouterAbEd25519WalletSessionClaims } from '../core/ThresholdService/validation';
 import type { WebAuthnAuthenticationCredential } from '../core/types';
 import type {
@@ -16,6 +17,7 @@ declare const emailOtpAuthority: EmailOtpWalletAuthAuthority;
 declare const currentSession: RouterAbEd25519WalletSessionClaims;
 declare const authorityRef: WalletAuthAuthorityRef;
 declare const runtimePolicyScope: RuntimePolicyScope;
+declare const seamsSessionId: SeamsSessionId;
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 
 function acceptBudgetRefreshAuthorization(
@@ -80,6 +82,7 @@ acceptBudgetRefreshAuthorization({
   authority: passkeyAuthority,
   authorityRef,
   runtimePolicyScope,
+  seamsSessionId,
 });
 
 acceptBudgetRefreshAuthorization({

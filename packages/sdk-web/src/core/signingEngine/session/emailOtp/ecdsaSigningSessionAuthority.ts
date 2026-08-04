@@ -1,9 +1,10 @@
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import {
-  type EmailOtpAuthLane,
-} from '../../stepUpConfirmation/otpPrompt/authLane';
+import { type EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  walletSessionJwtForCurve,
+  type ActiveWalletSessionAuthorizationProjection,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type EmailOtpEcdsaSigningSessionAuthority = {
   authLane: Extract<EmailOtpAuthLane, { kind: 'signing_session'; curve: 'ecdsa' }>;
@@ -59,7 +60,7 @@ export function resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime(args: {
     // missing lane rather than inventing a store source for it.
     return { kind: 'record_missing' };
   }
-  const walletSessionJwt = String(args.authorization.walletSessionJwt || '').trim();
+  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ecdsa');
   if (!walletSessionJwt) {
     return { kind: 'wallet_session_auth_unavailable', reason: 'missing_wallet_session_jwt' };
   }

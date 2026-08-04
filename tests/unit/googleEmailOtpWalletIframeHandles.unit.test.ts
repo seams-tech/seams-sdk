@@ -95,10 +95,24 @@ function submitSuccess(value: {
 function registrationCompleted(value: {
   walletId?: string;
 } = {}): GoogleEmailOtpWalletAuthRegistrationCompleted {
+  const resolvedWalletId = walletId(value.walletId ?? 'alice.testnet');
   return {
-    walletId: walletId(value.walletId ?? 'alice.testnet'),
+    walletId: resolvedWalletId,
     mode: 'register',
     session: emailOtpWalletSession(value),
+    registration: {
+      success: true,
+      kind: 'ecdsa_wallet_registered_near_pending',
+      walletId: resolvedWalletId,
+      capabilities: [
+        {
+          kind: 'evm_family_ecdsa',
+          thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+          thresholdEcdsaPublicKeyB64u: 'ecdsa-public-key',
+        },
+      ],
+      nearProvisioning: { status: 'pending' },
+    },
   };
 }
 

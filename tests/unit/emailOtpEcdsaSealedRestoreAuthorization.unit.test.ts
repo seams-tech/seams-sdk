@@ -27,7 +27,22 @@ function deferred<T = void>(): {
   return { promise, resolve };
 }
 
-const ACTIVE_JWT = 'eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJraW5kIjoicm91dGVyX2FiX2VjZHNhX2Rlcml2YXRpb25fd2FsbGV0X3Nlc3Npb25fdjEifQ.current';
+const ACTIVE_JWT = [
+  Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url'),
+  Buffer.from(
+    JSON.stringify({
+      kind: 'router_ab_ecdsa_derivation_wallet_session_v1',
+      walletId: 'ecdsa-manifest-fixture-wallet',
+      authorizationId: 'ecdsa-fixture-authorization',
+      walletSessionId: 'ecdsa-fixture-wallet-session',
+      quotaId: 'ecdsa-fixture-quota',
+      sid: 'ecdsa-fixture-authorization-session',
+      thresholdExpiresAtMs: 1_900_000_000_000,
+      exp: 1_900_000_000,
+    }),
+  ).toString('base64url'),
+  'current',
+].join('.');
 
 function restoreFixture() {
   const manifest = ecdsaCapabilityHydrationLookupFixture().active.manifest;
@@ -54,7 +69,7 @@ test('Email OTP sealed restore uses the current active authorization bearer', ()
     nowMs: Date.now(),
   });
 
-  expect(resolved.walletSessionJwt).toBe(ACTIVE_JWT);
+  expect(resolved.walletSessionTokens.ecdsa.walletSessionJwt).toBe(ACTIVE_JWT);
 });
 
 test('Email OTP sealed restore fails closed without active authorization', () => {

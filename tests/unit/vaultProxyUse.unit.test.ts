@@ -33,6 +33,12 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
     const authorizationStore = new CloudflareD1AuthorizationStore({
       database: temporary.database,
       namespace: 'vault-proxy-test',
+      walletSignerScope: {
+        namespace: 'vault-proxy-test',
+        orgId: 'vault-proxy-org',
+        projectId: 'vault-proxy-project',
+        envId: 'vault-proxy-env',
+      },
     });
     const authorization = new AuthorizationService({
       policy: capabilityPolicyPort,

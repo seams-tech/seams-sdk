@@ -1053,6 +1053,10 @@ export class CloudflareD1WalletAddSignerService {
     }
     const activated = await this.ecdsaStrictRegistration.activate({
       activationCorrelationId: request.ecdsa.activationCorrelationId,
+      activationRequestDigestB64u: base64UrlEncode(
+        Uint8Array.from(request.ecdsa.expectedActivationRequestDigest.bytes),
+      ),
+      materialActivation: request.ecdsa.materialActivation,
       pendingActivation: state.pendingActivation,
       clientActivation: request.ecdsa.publicFacts,
       requestPolicy: {

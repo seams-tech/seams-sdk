@@ -150,7 +150,6 @@ impl NormalSigningAuthorizationV1 {
             )),
         }
     }
-
 }
 
 /// Exact activated MPC material used by one normal-signing request.

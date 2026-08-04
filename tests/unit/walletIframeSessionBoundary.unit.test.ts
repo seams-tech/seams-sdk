@@ -84,6 +84,7 @@ test.describe('wallet iframe Wallet Session boundary', () => {
         kind: 'active_session',
         status: 'active_restorable',
         walletId: 'iframe-wallet',
+        authorizationId: 'iframe-wallet-authorization',
         walletSessionId: 'iframe-wallet-session',
         authMethod: 'passkey',
         expiresAtMs: Date.now() + 60_000,
@@ -161,7 +162,67 @@ test.describe('wallet iframe Wallet Session boundary', () => {
     });
     expect(exactSessionStateFromWalletSession(missingWalletSessionFixture())).toMatchObject({
       kind: 'wallet_unlocked_without_signing_session',
+      walletId: 'wallet-session-fixture',
+      authorizationId: 'wallet-session-authorization-fixture',
+      walletSessionId: 'wallet-session-fixture',
+      authMethod: 'passkey',
       reason: 'not_found',
     });
+  });
+
+  test('separates authenticated identity resolution failure from missing authorization', () => {
+    const authenticated = activeWalletSessionFixture({ walletId: 'identity-wallet' });
+    if (authenticated.authentication.kind !== 'authenticated') {
+      throw new Error('Active Wallet Session fixture must be authenticated');
+    }
+    const unresolvedIdentity: WalletSession = {
+      ...authenticated,
+      appIdentity: {
+        kind: 'unresolvable',
+        walletId: authenticated.authentication.walletId,
+        reason: 'missing_wallet_profile',
+      },
+      capabilityProjection: {
+        kind: 'unresolvable',
+        reason: 'missing_wallet_profile',
+      },
+    };
+
+    expect(exactSessionStateFromWalletSession(unresolvedIdentity)).toEqual({
+      kind: 'wallet_authenticated_identity_unresolvable',
+      walletId: authenticated.authentication.walletId,
+      reason: 'missing_wallet_profile',
+    });
+    expect(exactSessionStateFromWalletSession(missingWalletSessionFixture())).toMatchObject({
+      kind: 'wallet_unlocked_without_signing_session',
+      authorizationId: 'wallet-session-authorization-fixture',
+      walletSessionId: 'wallet-session-fixture',
+      authMethod: 'passkey',
+      reason: 'not_found',
+    });
+  });
+
+  test('requires exact missing authorization identity at the iframe boundary', () => {
+    expect(() =>
+      parseWalletIframeExactSessionState({
+        kind: 'wallet_unlocked_without_signing_session',
+        walletId: 'iframe-wallet',
+        reason: 'not_found',
+      }),
+    ).toThrow('missing authorization ID is invalid');
+  });
+
+  test('rejects aliased authorization and Wallet Session IDs at the iframe boundary', () => {
+    expect(() =>
+      parseWalletIframeExactSessionState({
+        kind: 'active_session',
+        status: 'active',
+        walletId: 'iframe-wallet',
+        authorizationId: 'same-id',
+        walletSessionId: 'same-id',
+        authMethod: 'passkey',
+        expiresAtMs: Date.now() + 60_000,
+      }),
+    ).toThrow('authorization and Wallet Session IDs must be distinct');
   });
 });

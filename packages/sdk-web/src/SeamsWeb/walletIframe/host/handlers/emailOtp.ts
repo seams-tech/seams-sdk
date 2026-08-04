@@ -21,7 +21,7 @@ import type {
   PMGoogleEmailOtpWalletAuthWireResult,
 } from '../../shared/messages';
 import {
-  activeHostedWalletAppSessionJwt,
+  activeWalletOrHostedAppSessionJwt,
   redeemHostedWalletSeamsSession,
 } from '../hostedWalletSeamsSession';
 
@@ -143,6 +143,7 @@ function stripRegistrationCompletionResult(
       walletId: result.value.walletId,
       mode: 'register',
       session: result.value.session,
+      registration: result.value.registration,
     },
   };
 }
@@ -203,9 +204,13 @@ function parseGetEmailOtpRecoveryCodeStatusPayload(
 } {
   const record = recordFromPayload(value);
   const relayUrl = readOptionalString(record, 'relayUrl');
-  const appSessionJwt = activeHostedWalletAppSessionJwt(relayUrl || expectedRelayUrl);
+  const walletId = readRequiredString(record, 'walletId');
+  const appSessionJwt = activeWalletOrHostedAppSessionJwt(
+    relayUrl || expectedRelayUrl,
+    walletId,
+  );
   return {
-    walletId: readRequiredString(record, 'walletId'),
+    walletId,
     ...(relayUrl ? { relayUrl } : {}),
     ...(appSessionJwt ? { appSessionJwt } : {}),
   };
@@ -315,8 +320,9 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
       const { walletId, relayUrl, operation } = req.payload!;
-      const appSessionJwt = activeHostedWalletAppSessionJwt(
+      const appSessionJwt = activeWalletOrHostedAppSessionJwt(
         relayUrl || pm.configs.network.relayer.url,
+        walletId,
       );
       const result = await pm.auth.requestEmailOtpChallenge({
         walletId,
@@ -333,8 +339,9 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
       const { walletId, relayUrl } = req.payload!;
-      const appSessionJwt = activeHostedWalletAppSessionJwt(
+      const appSessionJwt = activeWalletOrHostedAppSessionJwt(
         relayUrl || pm.configs.network.relayer.url,
+        walletId,
       );
       const result = await pm.registration.requestEmailOtpEnrollmentChallenge({
         walletId,
@@ -448,10 +455,15 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
       const rawPayload = recordFromPayload(req.payload);
-      const appSessionJwt = activeHostedWalletAppSessionJwt(
+      const walletId = String(rawPayload.walletId || '').trim();
+      if (!walletId) {
+        throw new Error('PM_ENROLL_EMAIL_OTP requires walletId');
+      }
+      const appSessionJwt = activeWalletOrHostedAppSessionJwt(
         typeof rawPayload.relayUrl === 'string'
           ? rawPayload.relayUrl
           : pm.configs.network.relayer.url,
+        walletId,
       );
       const payload = withProgress(deps, req.requestId, {
         ...rawPayload,
@@ -463,10 +475,6 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       if (!('recoveryKeys' in result)) {
         respondOkResult(deps, req.requestId, result);
         return;
-      }
-      const walletId = String(rawPayload.walletId || '').trim();
-      if (!walletId) {
-        throw new Error('PM_ENROLL_EMAIL_OTP requires walletId');
       }
       const backedUpEnrollment = await storeEmailOtpRecoveryCodeBackupInIframe({
         pm,
@@ -483,8 +491,13 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     ) => {
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
-      const appSessionJwt = activeHostedWalletAppSessionJwt(
+      const walletId = String(req.payload?.walletSession.walletId || '').trim();
+      if (!walletId) {
+        throw new Error('PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY requires walletId');
+      }
+      const appSessionJwt = activeWalletOrHostedAppSessionJwt(
         req.payload?.relayUrl || pm.configs.network.relayer.url,
+        walletId,
       );
       const payload = withProgress(deps, req.requestId, {
         ...(req.payload || {}),

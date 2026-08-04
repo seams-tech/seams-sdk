@@ -1,7 +1,13 @@
 import { expect, test } from '@playwright/test';
 import type { RouterAbEcdsaRegistrationRequestV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
-import { createRouterAbEcdsaStrictRegistrationPort } from '../../packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration';
+import {
+  createRouterAbEcdsaStrictRegistrationPort,
+  parseStoredRouterAbEcdsaPendingActivationV1,
+} from '../../packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration';
+import { parseCorrelationId } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { parseRouterAbMpcMaterialActivationRef } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { createRouterAbTraceContextV1 } from '../../packages/shared-ts/src/utils/routerAbTraceContext';
+import { fixtureRouterAbEcdsaActivationFacts } from '../helpers/routerAbSigningRuntimeTestUtils';
 
 async function configurationFailureFetch(): Promise<Response> {
   return new Response(
@@ -147,6 +153,51 @@ test('strict ECDSA registration forwards the opaque trace correlation header', a
   });
 
   expect(router.request?.headers.get('x-seams-trace-id')).toBe(traceContext.value);
+});
+
+test('strict ECDSA activation forwards the exact Rust wire envelope', async () => {
+  const request = strictRegistrationRequest();
+  const router = new TraceCapturingRouter();
+  const port = strictRegistrationPortForRequest({ request, router });
+  const activationCorrelationId = parseCorrelationId(request.lifecycle.lifecycle_id);
+  const materialActivation = parseRouterAbMpcMaterialActivationRef({
+    kind: 'mpc_material_activation_ref',
+    activation_id: 'activation-1',
+    capability: 'ecdsa-signing-capability',
+    material_owner: request.lifecycle.account_id,
+    key_binding: 'key-binding-1',
+    lifecycle_binding: request.lifecycle.lifecycle_id,
+    signing_worker: request.lifecycle.selected_server_id,
+  });
+
+  await port.activate({
+    activationCorrelationId,
+    activationRequestDigestB64u: REQUEST_POLICY.requestDigestB64u,
+    materialActivation,
+    pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1({
+      kind: 'router_ab_ecdsa_pending_activation_v1',
+      canonicalPayloadJson: '{"activation":{},"activation_context":{},"registration":{}}',
+    }),
+    clientActivation: fixtureRouterAbEcdsaActivationFacts(),
+    requestPolicy: REQUEST_POLICY,
+    authority: {
+      subjectId: request.client_id,
+      sessionId: request.lifecycle.session_id,
+      accountId: request.lifecycle.account_id,
+      expiresAtMs: request.expires_at_ms,
+    },
+  });
+
+  expect(await router.request?.json()).toEqual({
+    activation_correlation_id: activationCorrelationId,
+    pending: {
+      activation: {},
+      activation_context: {},
+      registration: {},
+    },
+    client_activation: fixtureRouterAbEcdsaActivationFacts(),
+    material_activation: materialActivation,
+  });
 });
 
 /* Refactor 94B Phase 0. Role diagnostics are presence-only: whether the leg

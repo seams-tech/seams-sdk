@@ -86,6 +86,8 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { WalletRegistrationActivateInput } from './cloudflare/d1WalletRegistrationSetup';
+import { parseRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { normalizeCorsOrigin } from '../core/SessionService';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
 import {
@@ -215,6 +217,11 @@ type EmailOtpWalletRegistrationActivateSuccessV2 = Extract<
   { authMethod: EmailOtpWalletRegistrationFinalizeAuthMethod }
 >;
 
+type PasskeyWalletRegistrationActivateSuccessV2 = Extract<
+  WalletRegistrationActivateSuccessV2,
+  { authMethod: PasskeyWalletRegistrationFinalizeAuthMethod }
+>;
+
 function assertNeverWalletRegistrationFinalizeKind(value: never): never {
   throw new Error(`Unsupported wallet registration finalize kind: ${String(value)}`);
 }
@@ -235,6 +242,12 @@ function isEmailOtpWalletRegistrationActivateSuccessV2(
   result: WalletRegistrationActivateSuccessV2,
 ): result is EmailOtpWalletRegistrationActivateSuccessV2 {
   return result.authMethod.kind === 'email_otp';
+}
+
+function isPasskeyWalletRegistrationActivateSuccessV2(
+  result: WalletRegistrationActivateSuccessV2,
+): result is PasskeyWalletRegistrationActivateSuccessV2 {
+  return result.authMethod.kind === 'passkey';
 }
 
 function buildPasskeyWalletRegistrationFinalizeRouteSuccess(
@@ -1454,6 +1467,7 @@ function parseWalletAddSignerEcdsaActivationRequest(
     'activationCorrelationId',
     'publicFacts',
     'expectedActivationRequestDigest',
+    'materialActivation',
   ]);
   if (unknownEcdsaField) {
     return {
@@ -1490,6 +1504,7 @@ function parseWalletAddSignerEcdsaActivationRequest(
           activationCorrelationId: parsed.ecdsa.activationCorrelationId,
           publicFacts: parsed.ecdsa.publicFacts,
           expectedActivationRequestDigest,
+          materialActivation: parseRouterAbMpcMaterialActivationRef(ecdsa.materialActivation),
         },
       },
     };
@@ -2063,6 +2078,8 @@ export async function handleRouterApiWalletRegistrationActivate(
     !ed25519Only &&
     (!ecdsa ||
       typeof ecdsa.activationCorrelationId !== 'string' ||
+      typeof ecdsa.activationRequestDigestB64u !== 'string' ||
+      !isPlainObject(ecdsa.materialActivation) ||
       !isPlainObject(ecdsa.clientActivation))
   ) {
     return routeError(400, 'invalid_body', 'browser-verified clientActivation is required');
@@ -2080,6 +2097,8 @@ export async function handleRouterApiWalletRegistrationActivate(
       });
       parsedActivation = {
         activationCorrelationId: parsed.ecdsa.activationCorrelationId,
+        activationRequestDigestB64u: parseDigestB64u(ecdsa.activationRequestDigestB64u),
+        materialActivation: parseRouterAbMpcMaterialActivationRef(ecdsa.materialActivation),
         clientActivation: parsed.ecdsa.publicFacts,
       };
     } catch {
@@ -2096,6 +2115,7 @@ export async function handleRouterApiWalletRegistrationActivate(
       ...(body.emailOtpEnrollment ? { emailOtpEnrollment: body.emailOtpEnrollment } : {}),
       ...(body.emailOtpBackupAck ? { emailOtpBackupAck: body.emailOtpBackupAck } : {}),
       verifier: session,
+      session,
     },
     traceContext.value ?? undefined,
   );
@@ -2139,7 +2159,15 @@ export async function handleRouterApiWalletRegistrationActivate(
     });
     routeResult = { ...result, appSessionJwt };
   } else {
-    routeResult = result;
+    if (!isPasskeyWalletRegistrationActivateSuccessV2(result)) {
+      return routeError(500, 'internal', 'Wallet registration activation returned an invalid authority');
+    }
+    if (typeof result.appSessionJwt !== 'string' || result.appSessionJwt.length === 0) {
+      return routeError(500, 'internal', 'Passkey registration activation is missing app session');
+    }
+    const appSessionJwt: string = result.appSessionJwt;
+    const { appSessionJwt: _internalAppSessionJwt, ...publicResult } = result;
+    routeResult = { ...publicResult, appSessionJwt };
   }
   return routeJson(200, routeResult);
 }
@@ -2180,10 +2208,50 @@ export async function handleRouterApiWalletRegistrationNearProvisioning(
       signedSetup,
       idempotencyKey,
       ed25519,
+      emailOtpEnrollment: body.emailOtpEnrollment,
+      emailOtpBackupAck: body.emailOtpBackupAck,
       verifier: session,
+      session,
     },
   );
-  return routeJson(result.ok ? 200 : 400, result);
+  if (!result.ok) return routeJson(400, result);
+  if (result.authMethod.kind === 'passkey') return routeJson(200, result);
+  if (!isEmailOtpWalletAuthAuthority(result.authority)) {
+    return routeError(500, 'internal', 'Email OTP registration returned a different authority');
+  }
+  /* The service returns the same terminal signer result used by the activate
+     route. Email OTP responses must carry the first-party app session as
+     well, otherwise the client cannot normalize the finalized authority. */
+  const verifiedSetup = await verifyWalletRegistrationSetupClaims(session, signedSetup, {
+    registrationCeremonyId,
+    nowMs: Date.now(),
+  });
+  if (!verifiedSetup.ok) {
+    return routeJson(400, {
+      ok: false,
+      code: verifiedSetup.code,
+      message: verifiedSetup.message,
+    });
+  }
+  const setupPolicyScope =
+    verifiedSetup.claims.policy.kind === 'runtime_policy_scope'
+      ? verifiedSetup.claims.policy.scope
+      : null;
+  const appSessionVersion = await input.services.walletRegistration.getOrCreateAppSessionVersion({
+    userId: result.authority.factor.providerUserId,
+  });
+  if (!appSessionVersion.ok) {
+    return routeError(500, 'internal', appSessionVersion.message);
+  }
+  const appSessionJwt = await session.signJwt(result.authority.factor.providerUserId, {
+    kind: 'app_session_v1',
+    appSessionVersion: appSessionVersion.appSessionVersion,
+    provider: result.authority.factor.provider,
+    providerSubject: result.authority.factor.providerUserId,
+    walletId: result.walletId,
+    ...(setupPolicyScope ? { runtimePolicyScope: setupPolicyScope } : {}),
+  });
+  return routeJson(200, { ...result, appSessionJwt });
 }
 
 /**

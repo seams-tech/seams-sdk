@@ -287,7 +287,7 @@ type PasskeyRegistrationResultSnapshot = {
   EcdsaEnabledSnapshot;
 
 type Ed25519AddSignerResultSnapshot = {
-  kind: 'near_ed25519_signer_added';
+  kind: 'wallet_signer_added';
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
@@ -813,6 +813,14 @@ export class IntendedBehaviourHarness {
     if (snapshot.events.length === 0) {
       throw new Error('Passkey registration did not emit structured lifecycle events');
     }
+    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
+      'data-login-state',
+      'logged_in',
+    );
+    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
+      'data-login-wallet-id',
+      result.walletId,
+    );
     this.registeredWallet = result;
     this.nearSignerSlot = 1;
     this.currentWarmSigningStage = 'post_registration';
@@ -2288,7 +2296,7 @@ function signingAuthExpectationForStage(
 ): SigningAuthExpectation {
   switch (stage) {
     case 'post_registration':
-      return flow.startsWith('passkey') ? 'passkey_step_up' : 'email_otp_step_up';
+      return 'warm_session';
     case 'post_unlock':
     case 'after_refresh_recovery':
       return 'warm_session';
@@ -2662,7 +2670,7 @@ function requireEd25519AddSignerResult(
     throw new Error(`Ed25519 add-signer did not succeed: ${snapshot.action.status}`);
   }
   const result = snapshot.action.result;
-  if (result.kind !== 'near_ed25519_signer_added') {
+  if (result.kind !== 'wallet_signer_added') {
     throw new Error(`Ed25519 add-signer returned unexpected result kind: ${result.kind}`);
   }
   if (result.walletId !== expectedWalletId) {
@@ -2693,9 +2701,9 @@ function requireEmailOtpRegistrationResult(
   if (result.walletId === result.initialWalletId) {
     throw new Error('Email OTP registration did not reroll the initial wallet id');
   }
-  if (result.signingSessionStatus !== 'active') {
+  if (result.signingSessionStatus !== 'locked') {
     throw new Error(
-      `Email OTP registration signing session is not active: ${result.signingSessionStatus}`,
+      `Email OTP registration unexpectedly returned signing authority: ${result.signingSessionStatus}`,
     );
   }
   return result;
@@ -3464,7 +3472,7 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
         ...parseRegisteredNearState(record, 'passkey registration'),
         ...parseEcdsaEnabledSnapshot(record, 'passkey registration'),
       };
-    case 'near_ed25519_signer_added':
+    case 'wallet_signer_added':
       return {
         kind,
         walletId: requireString(record.walletId, 'Ed25519 add-signer walletId'),

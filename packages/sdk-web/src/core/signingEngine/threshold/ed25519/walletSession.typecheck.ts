@@ -18,6 +18,7 @@ const stepUpRequestBase = {
   relayerUrl: 'https://relay.example.test',
   normalSigningRequest,
   displayDigest: 'display-digest',
+  credential: { kind: 'app_session_cookie' as const },
 };
 
 const validPasskeyStepUpWithoutMaterialRecovery = {

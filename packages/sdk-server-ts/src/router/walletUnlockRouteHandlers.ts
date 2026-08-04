@@ -81,7 +81,7 @@ export type WalletUnlockEcdsaSessionContext =
   | {
       readonly kind: 'provision_first_ecdsa_session';
       readonly walletId: string;
-      readonly provisionWalletSession: () => Promise<
+      readonly provisionWalletSession: (input: WalletUnlockEcdsaAuthorization) => Promise<
         | {
             readonly ok: true;
             readonly activation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
@@ -93,6 +93,16 @@ export type WalletUnlockEcdsaSessionContext =
             readonly message: string;
           }
       >;
+    };
+
+export type WalletUnlockEcdsaAuthorization =
+  | {
+      readonly kind: 'verified_wallet_unlock';
+      readonly verifiedProviderUserId?: string;
+    }
+  | {
+      readonly kind: 'reuse_ed25519_wallet_session';
+      readonly walletSessionJwt: string;
     };
 
 type VerifiedEmailOtpUnlockResult = Extract<
@@ -114,6 +124,7 @@ type WalletUnlockEcdsaSessionResult =
 async function provisionFirstEcdsaWalletSession(input: {
   readonly context: WalletUnlockEcdsaSessionContext;
   readonly verifiedWalletId: string;
+  readonly authorization: WalletUnlockEcdsaAuthorization;
 }): Promise<WalletUnlockEcdsaSessionResult> {
   switch (input.context.kind) {
     case 'no_ecdsa_session':
@@ -132,7 +143,7 @@ async function provisionFirstEcdsaWalletSession(input: {
           },
         };
       }
-      const provisioned = await input.context.provisionWalletSession();
+      const provisioned = await input.context.provisionWalletSession(input.authorization);
       if (!provisioned.ok) {
         return {
           ok: false,
@@ -384,6 +395,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
     const ecdsaSession = await provisionFirstEcdsaWalletSession({
       context: input.ecdsaSession,
       verifiedWalletId: userId,
+      authorization: { kind: 'verified_wallet_unlock' },
     });
     if (!ecdsaSession.ok) return ecdsaSession.response;
     await input.service.markEmailOtpStrongAuthSatisfied({ walletId: userId });
@@ -433,16 +445,19 @@ export async function handleWalletUnlockVerifyRoute(input: {
     };
   }
 
-  const ecdsaSession = await provisionFirstEcdsaWalletSession({
-    context: input.ecdsaSession,
-    verifiedWalletId: result.walletId,
-  });
-  if (!ecdsaSession.ok) return ecdsaSession.response;
-
   if (
     input.capabilityContext.kind === 'email_otp' &&
     input.capabilityContext.request.requestedCapabilities.kind === 'none'
   ) {
+    const ecdsaSession = await provisionFirstEcdsaWalletSession({
+      context: input.ecdsaSession,
+      verifiedWalletId: result.walletId,
+      authorization: {
+        kind: 'verified_wallet_unlock',
+        verifiedProviderUserId: result.providerUserId,
+      },
+    });
+    if (!ecdsaSession.ok) return ecdsaSession.response;
     await emitSuccessfulWalletUnlock({
       unlockBackend,
       challengeId,
@@ -473,6 +488,15 @@ export async function handleWalletUnlockVerifyRoute(input: {
     verifiedUnlock: result,
   });
   if (!capabilityResult.ok) return capabilityResult.response;
+  const ecdsaSession = await provisionFirstEcdsaWalletSession({
+    context: input.ecdsaSession,
+    verifiedWalletId: result.walletId,
+    authorization: {
+      kind: 'reuse_ed25519_wallet_session',
+      walletSessionJwt: capabilityResult.value.session.walletSessionJwt,
+    },
+  });
+  if (!ecdsaSession.ok) return ecdsaSession.response;
   await emitSuccessfulWalletUnlock({
     unlockBackend,
     challengeId,

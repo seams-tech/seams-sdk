@@ -697,8 +697,6 @@ export function warmBootstrapCapabilityMatchesStableIdentity(input: {
     capability.applicationBinding.near_ed25519_signing_key_id === request.nearEd25519SigningKeyId &&
     capability.applicationBinding.key_creation_signer_slot === request.signerSlot &&
     capability.lifecycle.accountId === request.walletId &&
-    capability.lifecycle.thresholdSessionId === request.thresholdSessionId &&
-    capability.lifecycle.thresholdSessionId === claims.thresholdSessionId &&
     capability.lifecycle.signingWorkerId === request.signingWorkerId &&
     capability.lifecycle.rootShareEpoch === claims.runtimePolicyScope.signingRootVersion &&
     capability.participantIds[0] === request.participantIds[0] &&

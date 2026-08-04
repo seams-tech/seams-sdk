@@ -44,6 +44,7 @@ import {
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { ThresholdRuntimePolicyScope } from '../../core/types';
 import type {
@@ -60,6 +61,7 @@ import {
   type WalletRegistrationSetupVerifier,
 } from '../walletRegistrationSetupPayload';
 import type { WalletRegistrationAuthorityInput } from '../../core/registrationContracts';
+import type { SessionAdapter } from '../routerApi';
 import type {
   RouterAbEcdsaRegistrationRequestV1,
   RouterAbEcdsaVerifiedClientActivationFactsV1,
@@ -120,11 +122,15 @@ export type WalletRegistrationActivateInput = {
   /** Absent exactly when the plan is Ed25519-only. */
   readonly ecdsa?: {
     readonly activationCorrelationId: CorrelationId;
+    readonly activationRequestDigestB64u: string;
+    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
   };
   readonly emailOtpEnrollment?: unknown;
   readonly emailOtpBackupAck?: unknown;
   readonly verifier: WalletRegistrationSetupVerifier;
+  /** Signs the registration-established Router Wallet Session JWTs. */
+  readonly session: SessionAdapter;
 };
 
 export type WalletRegistrationNearProvisioningInput = {
@@ -132,7 +138,11 @@ export type WalletRegistrationNearProvisioningInput = {
   readonly signedSetup: unknown;
   readonly idempotencyKey: string;
   readonly ed25519: unknown;
+  readonly emailOtpEnrollment?: unknown;
+  readonly emailOtpBackupAck?: unknown;
   readonly verifier: WalletRegistrationSetupVerifier;
+  /** Signs the registration-established Router Wallet Session JWTs. */
+  readonly session: SessionAdapter;
 };
 
 export function walletRegistrationSetupIds(): {

@@ -6,6 +6,10 @@ import {
   bootstrapEmailOtpExplicitExportEcdsaSessionValue,
   bootstrapEcdsaSessionValue,
   bootstrapExplicitKeyExportEcdsaSessionValue,
+  buildPasskeyEcdsaRestoreMetadataFromBootstrap,
+  requirePasskeyEcdsaBootstrapRequest,
+  requirePasskeyEcdsaCredentialIdFromBootstrap,
+  requirePasskeyEcdsaRestoreSource,
   type EmailOtpEcdsaExplicitExportBootstrapResult,
   type EmailOtpEcdsaExplicitExportBootstrapRequest,
   ecdsaBootstrapWalletId,
@@ -601,7 +605,7 @@ async function exactEcdsaSealLaneFromBootstrap(args: {
   if (
     projection.walletSessionId !== args.bootstrap.session.walletSessionId ||
     projection.quotaId !== args.bootstrap.session.quotaId ||
-    projection.authorizationSessionId !== args.bootstrap.session.authorizationSessionId ||
+    projection.seamsSessionId !== args.bootstrap.session.authorizationSessionId ||
     args.bootstrap.session.remainingUses <= 0
   ) {
     return null;
@@ -696,11 +700,21 @@ export async function provisionThresholdEcdsaSessionFromBootstrapArgs(
         }
         return bootstrap;
       }
+      const passkeyRequest = requirePasskeyEcdsaBootstrapRequest(request);
+      const restoreMetadata = buildPasskeyEcdsaRestoreMetadataFromBootstrap({
+        request: passkeyRequest,
+        authority: passkeyRequest.existingRoleLocalMaterial.authority,
+        source: requirePasskeyEcdsaRestoreSource(passkeyRequest.source),
+        rpId: toRpId(deps.activationDeps.touchIdPrompt.getRpId()),
+        credentialIdB64u: requirePasskeyEcdsaCredentialIdFromBootstrap(bootstrap),
+        bootstrap,
+      });
       await ensureEcdsaPrfSealPersisted({
         sealPersistence: deps.sealPersistence,
         lane: sealLane.lane,
         authorization: sealLane.authorization,
         thresholdSessionId,
+        restoreMetadata,
         required: sealRequired,
         errorContext: 'threshold-ecdsa bootstrap seal persistence',
         sealPersistInFlightByMaterialActivation: new Map(),

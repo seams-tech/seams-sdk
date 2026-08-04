@@ -1,10 +1,10 @@
+use crate::CloudflareRouterEd25519JwkV1;
 #[cfg(feature = "workers-rs")]
 use crate::{
-    cloudflare_router_error_status, worker_binding_error, worker_binding_error_code,
-    require_non_empty, ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
+    cloudflare_router_error_status, require_non_empty, worker_binding_error,
+    worker_binding_error_code, ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
     ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING_ENV,
 };
-use crate::CloudflareRouterEd25519JwkV1;
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey as Ed25519VerifyingKey};
 use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 #[cfg(feature = "workers-rs")]

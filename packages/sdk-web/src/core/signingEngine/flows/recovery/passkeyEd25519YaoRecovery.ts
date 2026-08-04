@@ -1,4 +1,7 @@
 import type { NearResolvedEd25519SigningSessionState } from '@/core/signingEngine/interfaces/near';
+import type {
+  Ed25519YaoPublicCapabilityLaneReferenceV1,
+} from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import { IndexedDBManager } from '@/core/indexedDB';
 import {
   openEd25519YaoRecoverySourceV1,
@@ -47,10 +50,10 @@ import { walletIdFromString, type WalletId } from '@shared/utils/registrationInt
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildMpcMaterialActivationRef,
+  mpcMaterialActivationRefsEqual,
   parseMpcMaterialActivationId,
   parseMpcLifecycleBindingRef,
   parseThresholdEd25519SessionId,
-  parseMpcMaterialActivationRef,
   type MpcMaterialActivationRef,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
@@ -61,7 +64,10 @@ import {
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { isPlainObject } from '@shared/utils/validation';
-import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  routerAbMpcMaterialActivationRefFromWire,
+  routerAbMpcMaterialActivationRefToWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import { parseMpcMaterialOwnerRef, type MpcMaterialOwnerRef } from '@shared/utils/domainIds';
 import {
   parseWalletAuthAuthorityRef,
@@ -148,6 +154,31 @@ export type PasskeyEd25519YaoRecoveryResultV1<
   readonly walletSessionState: NearResolvedEd25519SigningSessionState;
   readonly parsed: TParsed;
 };
+
+export function passkeyEd25519YaoLaneReferenceFromRecovery(args: {
+  walletSessionState: NearResolvedEd25519SigningSessionState;
+  materialActivation: MpcMaterialActivationRef;
+}): Ed25519YaoPublicCapabilityLaneReferenceV1 {
+  const lane = args.walletSessionState.signingLane;
+  if (lane.auth.kind !== 'passkey') {
+    throw new Error('[SigningEngine][near] Passkey recovery returned another auth lane');
+  }
+  const signer = lane.identity.signer;
+  return {
+    walletId: signer.account.wallet.walletId,
+    nearAccountId: signer.account.nearAccountId,
+    thresholdSessionId: args.walletSessionState.thresholdSessionId,
+    runtimePolicyScope: args.walletSessionState.runtimePolicyScope,
+    materialActivation: args.materialActivation,
+    auth: {
+      kind: 'passkey',
+      rpId: lane.auth.rpId,
+      credentialIdB64u: lane.auth.credentialIdB64u,
+    },
+    nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+    signerSlot: signer.signerSlot,
+  };
+}
 
 function requireString(value: unknown, label: string): string {
   const parsed = typeof value === 'string' ? value.trim() : '';
@@ -243,14 +274,16 @@ export function parseEd25519YaoRecoveryCapabilityV1(raw: unknown): ParsedYaoReco
   }
   const application = requireRecord(record.applicationBinding, 'capability.applicationBinding');
   const lifecycle = requireRecord(record.lifecycle, 'capability.lifecycle');
-  const materialActivation = parseMpcMaterialActivationRef(record.materialActivation);
-  if (!materialActivation.ok) {
+  let materialActivation: MpcMaterialActivationRef;
+  try {
+    materialActivation = routerAbMpcMaterialActivationRefFromWire(record.materialActivation);
+  } catch (error) {
     throw new Error(
-      `capability.materialActivation is invalid: ${materialActivation.error.message}`,
+      `capability.materialActivation is invalid: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
   return {
-    materialActivation: materialActivation.value,
+    materialActivation,
     activeCapabilityBinding: requireBytes32(
       record.activeCapabilityBinding,
       'capability.activeCapabilityBinding',
@@ -306,7 +339,7 @@ function sameRuntimePolicyScope(
   );
 }
 
-export function assertEd25519YaoRecoveryDescriptorContinuity(
+function assertEd25519YaoRecoveryDescriptorStableIdentity(
   parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1,
 ): void {
   const capability = parsed.capability;
@@ -319,7 +352,6 @@ export function assertEd25519YaoRecoveryDescriptorContinuity(
     capability.applicationBinding.key_creation_signer_slot !== parsed.signerSlot ||
     capability.nearAccountId !== parsed.nearAccountId ||
     capability.lifecycle.accountId !== String(parsed.walletId) ||
-    capability.lifecycle.thresholdSessionId !== session.thresholdSessionId ||
     capability.lifecycle.signingWorkerId !== parsed.relayerKeyId ||
     session.routerAbNormalSigning?.signingWorkerId !== parsed.relayerKeyId ||
     session.participantIds[0] !== capability.participantIds[0] ||
@@ -331,6 +363,30 @@ export function assertEd25519YaoRecoveryDescriptorContinuity(
       `ed25519:${base58Encode(Uint8Array.from(capability.registeredPublicKey))}`
   ) {
     throw new Error('Yao recovery response does not preserve the registered wallet identity');
+  }
+}
+
+export function assertEd25519YaoRecoveryDescriptorContinuity(
+  parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1,
+): void {
+  assertEd25519YaoRecoveryDescriptorStableIdentity(parsed);
+  if (parsed.capability.lifecycle.thresholdSessionId !== parsed.session.thresholdSessionId) {
+    throw new Error('Yao recovery response does not preserve the threshold material lifecycle');
+  }
+}
+
+export function assertEd25519YaoWarmRecoveryDescriptorStableMaterialContinuity(
+  parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1,
+  expectedMaterialActivation: MpcMaterialActivationRef,
+): void {
+  assertEd25519YaoRecoveryDescriptorStableIdentity(parsed);
+  if (
+    !mpcMaterialActivationRefsEqual(
+      parsed.capability.materialActivation,
+      expectedMaterialActivation,
+    )
+  ) {
+    throw new Error('Yao warm recovery response does not preserve exact material activation');
   }
 }
 
@@ -478,6 +534,7 @@ function buildRecoveredWalletSessionState(input: {
     rpId: toRpId(input.rpId),
     credentialIdB64u: parsed.credentialIdB64u,
     relayerUrl: input.relayerUrl,
+    authority: parsed.authority,
     signingWalletSession: signingWalletSession.value,
   });
 }

@@ -892,6 +892,19 @@ function walletAuthMethodRowsForRegistrationFinalize(
   }
 
   for (const authenticator of authenticators) {
+    if (
+      input.initialAuthMethod.kind === 'passkey' &&
+      authenticator.profileId === input.initialAuthMethod.walletId &&
+      authenticator.credentialId === input.initialAuthMethod.credentialIdB64u
+    ) {
+      const row = passkeyAuthMethodRow({
+        binding: input.initialAuthMethod,
+        authenticator,
+      });
+      rows.set(row.wallet_auth_method_id, row);
+      credentialRows.set(passkeyCredentialIndexKey(row), row);
+      continue;
+    }
     const row = walletAuthMethodRowFromAuthenticator(authenticator);
     const credentialKey = passkeyCredentialIndexKey(row);
     const existingCredentialRow = credentialRows.get(credentialKey);

@@ -142,27 +142,33 @@ export function isAuthorizationEvidenceKind(value: unknown): value is Authorizat
   );
 }
 
-export function buildVaultOperationRef(
-  operationKind: VaultOperationKind,
-): Extract<CapabilityOperationRef, { readonly capabilityKind: 'vault_access' }> {
+export function buildVaultOperationRef<TOperationKind extends VaultOperationKind>(
+  operationKind: TOperationKind,
+): Extract<CapabilityOperationRef, { readonly capabilityKind: 'vault_access' }> & {
+  readonly operationKind: TOperationKind;
+} {
   return {
     capabilityKind: CAPABILITY_KINDS.vaultAccess,
     operationKind,
   };
 }
 
-export function buildNearEd25519MpcOperationRef(
-  operationKind: NearEd25519MpcOperationKind,
-): Extract<CapabilityOperationRef, { readonly capabilityKind: 'near_ed25519_mpc_signing' }> {
+export function buildNearEd25519MpcOperationRef<TOperationKind extends NearEd25519MpcOperationKind>(
+  operationKind: TOperationKind,
+): Extract<CapabilityOperationRef, { readonly capabilityKind: 'near_ed25519_mpc_signing' }> & {
+  readonly operationKind: TOperationKind;
+} {
   return {
     capabilityKind: CAPABILITY_KINDS.nearEd25519MpcSigning,
     operationKind,
   };
 }
 
-export function buildEvmEcdsaMpcOperationRef(
-  operationKind: EvmEcdsaMpcOperationKind,
-): Extract<CapabilityOperationRef, { readonly capabilityKind: 'evm_ecdsa_mpc_signing' }> {
+export function buildEvmEcdsaMpcOperationRef<TOperationKind extends EvmEcdsaMpcOperationKind>(
+  operationKind: TOperationKind,
+): Extract<CapabilityOperationRef, { readonly capabilityKind: 'evm_ecdsa_mpc_signing' }> & {
+  readonly operationKind: TOperationKind;
+} {
   return {
     capabilityKind: CAPABILITY_KINDS.evmEcdsaMpcSigning,
     operationKind,

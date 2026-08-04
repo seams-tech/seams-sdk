@@ -18,6 +18,7 @@ import {
   parseMpcMaterialActivationRef,
   parseWalletId,
 } from '@shared/utils/domainIds';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { base58Encode } from '@shared/utils/base58';
 import {
@@ -408,15 +409,16 @@ function assertExactEd25519ExportWorkerBinding(
   const capability = payload.capability;
   const application = capability.applicationBinding;
   const scope = capability.scope;
-  const scopeMaterialActivation = parseMpcMaterialActivationRef(scope.material_activation);
+  const scopeMaterialActivation = routerAbMpcMaterialActivationRefFromWire(
+    scope.material_activation,
+  );
   if (
-    !scopeMaterialActivation.ok ||
     application.wallet_id !== payload.walletId ||
     application.near_ed25519_signing_key_id !== payload.exactLane.nearEd25519SigningKeyId ||
     application.key_creation_signer_slot !== payload.exactLane.signerSlot ||
     scope.account_id !== payload.walletId ||
     !mpcMaterialActivationRefsEqual(capability.materialActivation, payload.exactLane.materialActivation) ||
-    !mpcMaterialActivationRefsEqual(scopeMaterialActivation.value, payload.exactLane.materialActivation)
+    !mpcMaterialActivationRefsEqual(scopeMaterialActivation, payload.exactLane.materialActivation)
   ) {
     throw new Error('Ed25519 Yao export capability does not match the exact requested lane');
   }

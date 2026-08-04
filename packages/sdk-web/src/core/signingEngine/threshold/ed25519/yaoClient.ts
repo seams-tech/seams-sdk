@@ -677,7 +677,16 @@ function publicReceiptMetadata(
   RouterAbEd25519YaoActiveClientMetadataV1,
   'signingWorkerVerifyingShare' | 'transcript' | 'materialActivation'
 > {
-  const materialActivation = parseMpcMaterialActivationRef(receipt.material_activation);
+  const wire = receipt.material_activation;
+  const materialActivation = parseMpcMaterialActivationRef({
+    kind: wire.kind,
+    activationId: wire.activation_id,
+    capability: wire.capability,
+    materialOwner: wire.material_owner,
+    keyBinding: wire.key_binding,
+    lifecycleBinding: wire.lifecycle_binding,
+    signingWorker: wire.signing_worker,
+  });
   if (!materialActivation.ok) {
     throw new Error(`Invalid activation material reference: ${materialActivation.error.message}`);
   }

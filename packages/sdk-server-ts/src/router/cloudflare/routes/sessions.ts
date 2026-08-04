@@ -3,7 +3,7 @@ import {
   deriveJwtExpiresAtIso,
   parseSessionKind,
 } from '../../routerApi';
-import { resolveSourceIpFromFetchHeaders } from '../../routerApiKeyAuth';
+import { extractBearerCredential, resolveSourceIpFromFetchHeaders } from '../../routerApiKeyAuth';
 import { emitRouterApiWebhookEvent } from '../../routerApiWebhooks';
 import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
 import { headersToRecord, json, readJson } from '../http';
@@ -86,6 +86,7 @@ import {
   parseWalletSessionId,
   type AuthorizationParseResult,
   type MpcWalletSigningQuotaId,
+  type PrincipalId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
@@ -111,12 +112,42 @@ function walletUnlockEcdsaSessionContext(
   return {
     kind: 'provision_first_ecdsa_session',
     walletId: request.public_capability.client_id,
-    provisionWalletSession: async () => {
-      const response = await handleStrictEcdsaSessionActivation({
-        ctx,
-        body: request,
-        source: 'verified_wallet_unlock',
-      });
+    provisionWalletSession: async (authorization) => {
+      let response: Response;
+      if (authorization.kind === 'reuse_ed25519_wallet_session') {
+        response = await handleStrictEcdsaSessionActivation({
+          ctx,
+          body: request,
+          source: 'verified_ed25519_wallet_session',
+          walletSessionJwt: authorization.walletSessionJwt,
+        });
+      } else {
+        let verifiedAuthority: WalletAuthAuthorityRef | undefined;
+        if (authorization.verifiedProviderUserId) {
+          const resolvedAuthority =
+            await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+              walletId: request.public_capability.client_id,
+              providerUserId: authorization.verifiedProviderUserId,
+            });
+          if (!resolvedAuthority.ok) {
+            return {
+              ok: false,
+              status: 403,
+              code: resolvedAuthority.code,
+              message: resolvedAuthority.message,
+            };
+          }
+          verifiedAuthority = await walletAuthAuthorityRef({
+            authority: resolvedAuthority.authority,
+          });
+        }
+        response = await handleStrictEcdsaSessionActivation({
+          ctx,
+          body: request,
+          source: 'verified_wallet_unlock',
+          verifiedAuthority,
+        });
+      }
       const responseBody: unknown = await response.json();
       if (!response.ok) {
         const failure = isPlainObject(responseBody) ? responseBody : {};
@@ -1075,6 +1106,7 @@ export async function handleSessionExchange(
         );
       }
       userId = String(verified.userId || '').trim();
+      walletId = userId;
       provider = 'passkey';
       passkeyChallengeId = challengeId;
       passkeyCredentialIdB64u =
@@ -1577,6 +1609,123 @@ function parseReusableWalletSessionStatusBody(body: unknown): {
   };
 }
 
+type WalletSessionStatusAuthorization = {
+  readonly walletId: string;
+  readonly principalId: PrincipalId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+};
+
+async function readAndValidateWalletSessionStatusAuthorization(
+  ctx: CloudflareRouterApiContext,
+): Promise<
+  | { readonly ok: true; readonly authorization: WalletSessionStatusAuthorization }
+  | { readonly ok: false; readonly response: Response }
+> {
+  const session = ctx.opts.session;
+  if (!session) {
+    return {
+      ok: false,
+      response: json(
+        { authenticated: false, code: 'sessions_disabled', message: 'Sessions are not configured' },
+        { status: 501 },
+      ),
+    };
+  }
+
+  const bearerToken = extractBearerCredential(ctx.request.headers);
+  if (!bearerToken) {
+    return {
+      ok: false,
+      response: json(
+        { authenticated: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+        { status: 401 },
+      ),
+    };
+  }
+
+  let parsed: Awaited<ReturnType<typeof session.parse>>;
+  try {
+    parsed = await session.parse({ authorization: `Bearer ${bearerToken}` });
+  } catch {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'wallet_session_unavailable',
+          message: 'Wallet Session status is unavailable',
+        },
+        { status: 503 },
+      ),
+    };
+  }
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      response: json(
+        { authenticated: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+        { status: 401 },
+      ),
+    };
+  }
+
+  const walletSession =
+    parseRouterAbEcdsaDerivationWalletSessionClaims(parsed.claims) ||
+    parseRouterAbEd25519WalletSessionClaims(parsed.claims);
+  if (!walletSession) {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'wallet_session_claims_invalid',
+          message: 'Wallet Session claims are invalid',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+  if (walletSession.thresholdExpiresAtMs <= Date.now()) {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'wallet_session_expired',
+          message: 'Wallet Session expired',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+
+  const principalId = parsePrincipalId(walletSession.walletId);
+  if (!principalId.ok) {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'wallet_session_claims_invalid',
+          message: 'Wallet Session claims are invalid',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+
+  return {
+    ok: true,
+    authorization: {
+      walletId: walletSession.walletId,
+      principalId: principalId.value,
+      walletSessionId: walletSession.walletSessionId,
+      quotaId: walletSession.quotaId,
+    },
+  };
+}
+
 export async function handleReusableWalletSessionStatus(
   ctx: CloudflareRouterApiContext,
 ): Promise<Response | null> {
@@ -1592,38 +1741,25 @@ export async function handleReusableWalletSessionStatus(
       { status: 400 },
     );
   }
-  const validated = await readAndValidateAppSession(ctx);
+  const validated = await readAndValidateWalletSessionStatusAuthorization(ctx);
   if (!validated.ok) return validated.response;
-  const claims = validated.claims as Record<string, unknown>;
-  const tenantId = parseTenantId(claims.tenantId);
-  const principalId = parsePrincipalId(claims.sub);
-  const authorizationSessionId = parseSeamsSessionId(claims.seamsSessionId);
   if (
-    !tenantId.ok ||
-    tenantId.value !== ctx.service.authorizationSessions.tenantId ||
-    !principalId.ok ||
-    !authorizationSessionId.ok
+    validated.authorization.walletSessionId !== body.walletSessionId ||
+    validated.authorization.quotaId !== body.quotaId
   ) {
     return json(
-      { ok: false, code: 'unauthorized', message: 'App session identity is invalid' },
-      { status: 401 },
+      {
+        ok: false,
+        code: 'wallet_session_scope_mismatch',
+        message: 'Wallet Session status does not match the verified Wallet Session',
+      },
+      { status: 403 },
     );
   }
   const nowMs = Date.now();
-  const activeAuthorizationSession = await ctx.service.authorizationSessions.readActiveSession({
-    tenantId: tenantId.value,
-    sessionId: authorizationSessionId.value,
-    nowMs,
-  });
-  if (!activeAuthorizationSession || activeAuthorizationSession.principalId !== principalId.value) {
-    return json(
-      { ok: false, code: 'unauthorized', message: 'App session is unavailable' },
-      { status: 401 },
-    );
-  }
   const result = await ctx.service.authorizationSessions.readReusableWalletSessionStatus({
-    tenantId: tenantId.value,
-    principalId: principalId.value,
+    tenantId: ctx.service.authorizationSessions.tenantId,
+    principalId: validated.authorization.principalId,
     walletSessionId: body.walletSessionId,
     quotaId: body.quotaId,
     nowMs,

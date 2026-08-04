@@ -2615,6 +2615,7 @@ async function rehydrateEmailOtpEd25519YaoOperationMaterial(
       normalSigningRequest: args.normalSigningRequest,
       displayDigest: readString(args.displayDigest, 'displayDigest'),
       proof: args.proof,
+      credential: { kind: 'app_session_cookie' },
       materialRecovery: {
         kind: 'email_otp_local_material_v1',
         wrappedCiphertext: readString(wrappedCiphertext, 'wrappedCiphertext'),
@@ -3694,6 +3695,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
   userId: string;
   clientSecret32: Uint8Array;
   material: EmailOtpUnlockSecretMaterialRequest;
+  sessionAuth: AppOrWalletSessionAuth;
 }): Promise<
   {
     unlockChallengeId: string;
@@ -3778,6 +3780,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
     const verified = await postEmailOtpJson({
       relayUrl: readString(args.relayUrl, 'relayUrl'),
       route: '/wallet/unlock/verify',
+      sessionAuth: args.sessionAuth,
       body: {
         unlockBackend: 'email_otp',
         walletId,
@@ -4357,6 +4360,9 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
       throw emailOtpCorruptLocalCustodyError(unsealedSecret);
     }
     clientSecret32 = unsealedSecret.secret32;
+    if (!sessionAuth) {
+      throw new Error('Email OTP wallet unlock requires app-session authorization');
+    }
     const unlocked = await completeEmailOtpUnlockFromSecret32({
       relayUrl,
       walletId,
@@ -4364,6 +4370,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
       userId,
       clientSecret32,
       material: args.material,
+      sessionAuth,
     });
     const commonResult = {
       challengeId,
@@ -4738,6 +4745,25 @@ function parseEmailOtpEd25519YaoJsonBytes32(value: unknown, label: string): read
   return output;
 }
 
+function parseEmailOtpEd25519YaoMaterialActivation(value: unknown): MpcMaterialActivationRef {
+  const wire = parseRouterAbMpcMaterialActivationRef(value);
+  const parsed = parseMpcMaterialActivationRef({
+    kind: wire.kind,
+    activationId: wire.activation_id,
+    capability: wire.capability,
+    materialOwner: wire.material_owner,
+    keyBinding: wire.key_binding,
+    lifecycleBinding: wire.lifecycle_binding,
+    signingWorker: wire.signing_worker,
+  });
+  if (!parsed.ok) {
+    throw new Error(
+      `Email OTP Ed25519 Yao active capability material activation is invalid: ${parsed.error.message}`,
+    );
+  }
+  return parsed.value;
+}
+
 function parseEmailOtpEd25519YaoBootstrapSession(
   value: unknown,
 ): WalletRegistrationEd25519YaoBootstrapSession {
@@ -4873,7 +4899,7 @@ function parseEmailOtpEd25519YaoActiveCapability(
       'lifecycleId',
       'rootShareEpoch',
       'accountId',
-      'walletSessionId',
+      'thresholdSessionId',
       'signerSetId',
       'signingWorkerId',
     ],
@@ -4881,16 +4907,13 @@ function parseEmailOtpEd25519YaoActiveCapability(
   );
   const signerSlot = normalizePositiveInteger(application.key_creation_signer_slot);
   const stateEpoch = normalizePositiveInteger(obj.stateEpoch);
-  const materialActivation = parseMpcMaterialActivationRef(obj.materialActivation);
-  if (!materialActivation.ok) {
-    throw new Error(`Email OTP Ed25519 Yao active capability material activation is invalid: ${materialActivation.error.message}`);
-  }
+  const materialActivation = parseEmailOtpEd25519YaoMaterialActivation(obj.materialActivation);
   if (!signerSlot || !stateEpoch) {
     throw new Error('Email OTP Ed25519 Yao active capability epoch or signer slot is invalid');
   }
   return {
     kind: 'router_ab_ed25519_yao_active_capability_v1',
-    materialActivation: materialActivation.value,
+    materialActivation,
     activeCapabilityBinding: parseEmailOtpEd25519YaoJsonBytes32(
       obj.activeCapabilityBinding,
       'capability.activeCapabilityBinding',

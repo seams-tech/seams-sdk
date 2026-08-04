@@ -116,6 +116,7 @@ export type GoogleEmailOtpWalletAuthDeps = {
   loginWithEmailOtpEd25519YaoCapability(
     args: GoogleLoginEmailOtpEd25519YaoCapabilityArgs,
   ): Promise<void>;
+  rememberEmailOtpAppSessionJwt(args: { walletId: WalletId; appSessionJwt: string }): void;
   getWalletSession(walletId: string): Promise<WalletSession>;
 };
 
@@ -294,9 +295,7 @@ function googleAccountRegistrationRequiredMessage(): string {
   return "Account doesn't exist. Create your account to continue.";
 }
 
-function classifyGoogleEmailOtpExchangeError(
-  error: unknown,
-): GoogleEmailOtpWalletAuthFailureCode {
+function classifyGoogleEmailOtpExchangeError(error: unknown): GoogleEmailOtpWalletAuthFailureCode {
   if (!error || typeof error !== 'object' || !('code' in error)) {
     return 'google_exchange_failed';
   }
@@ -306,9 +305,7 @@ function classifyGoogleEmailOtpExchangeError(
     : 'google_exchange_failed';
 }
 
-function googleEmailOtpSessionExchangeRequest<
-  TMode extends GoogleEmailOtpWalletAuthRequestedMode,
->(
+function googleEmailOtpSessionExchangeRequest<TMode extends GoogleEmailOtpWalletAuthRequestedMode>(
   input: GoogleEmailOtpWalletAuthStartInput,
   accountMode: TMode,
 ): GoogleEmailOtpSessionExchangeRequest<TMode> {
@@ -516,12 +513,17 @@ async function loginWithConfiguredTargets(args: {
   });
   const [primaryTarget] = args.targets;
   if (!primaryTarget) {
+    const appSessionJwt = googleEmailOtpAppSessionJwt(args.state, 'login');
     await args.deps.loginWithEmailOtpEd25519YaoCapability({
       walletSession,
       challengeId: args.challenge.challengeId,
       otpCode: args.otpCode,
       remainingUses: resolveGoogleEmailOtpEd25519RemainingUses(args.deps.configs),
-      appSessionJwt: googleEmailOtpAppSessionJwt(args.state, 'login'),
+      appSessionJwt,
+    });
+    args.deps.rememberEmailOtpAppSessionJwt({
+      walletId: args.state.walletId,
+      appSessionJwt,
     });
     return;
   }
@@ -568,6 +570,20 @@ async function assertLoggedIn(
     String(session.reusableWalletSession.walletId) !== String(walletId)
   ) {
     throw new Error('Wallet auth completed, but the local signing session is not ready yet.');
+  }
+  return session;
+}
+
+async function assertRegistrationPersisted(
+  deps: GoogleEmailOtpWalletAuthDeps,
+  walletId: WalletId,
+): Promise<WalletSession> {
+  const session = await deps.getWalletSession(walletId);
+  if (
+    session.appIdentity.kind !== 'resolved' ||
+    String(session.appIdentity.walletId) !== String(walletId)
+  ) {
+    throw new Error('Wallet registration completed, but the local wallet identity is not ready.');
   }
   return session;
 }
@@ -754,8 +770,8 @@ function createGoogleEmailOtpWalletRegistrationFlow(
           return fail(classifyRegistrationError(error), error);
         }
         liveness.burn();
-        const session = await assertLoggedIn(deps, selectedWalletId);
-        return ok({ walletId: selectedWalletId, mode: 'register', session });
+        const session = await assertRegistrationPersisted(deps, selectedWalletId);
+        return ok({ walletId: selectedWalletId, mode: 'register', session, registration: result });
       } catch (error: unknown) {
         return fail(classifyRegistrationError(error), error);
       }

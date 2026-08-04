@@ -1,12 +1,9 @@
 import type { RuntimePorts } from '@/core/platform';
-import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
+import { walletSessionAuthorizations } from '@/core/indexedDB';
 import { IndexedDbEcdsaCapabilityManifestStore } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
-import {
-  createRelayerReusableWalletSessionStatusPort,
-  type ReusableWalletSessionStatusAuth,
-} from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningOperation } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
 import { createCanonicalWalletSessionStatusReader } from '@/core/signingEngine/session/lifecycle/canonicalWalletSessionStatus';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
@@ -74,13 +71,21 @@ import {
   type SignerAuthMethod,
 } from '@shared/utils/signerDomain';
 import {
+  buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
+  type EmailOtpProvider,
   type WalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
+import { emailOtpAppSessionBindingFromJwt } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import type { EmailOtpTransactionSigningChallenge } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { RestorePersistedSessionForSigningInput } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
+import { activeWalletOrHostedAppSessionJwt } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
+import type { EcdsaOperationStepUpSessionAuth } from '@/core/signingEngine/threshold/ecdsa/operationStepUp';
+import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
+import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 
@@ -88,7 +93,7 @@ const ecdsaCapabilityManifestStore = new IndexedDbEcdsaCapabilityManifestStore()
 
 type BrowserEcdsaCapabilityReaderContext = Pick<
   BrowserSigningSurfaceEnginePortsArgs,
-  'seamsWebConfigs' | 'emailOtpSessions' | 'sealedSigningSessionStore'
+  'seamsWebConfigs' | 'emailOtpSessions' | 'sealedSigningSessionStore' | 'touchIdPrompt' | 'stores'
 >;
 
 function omitPasskeyRestoreAuthMethod(
@@ -101,40 +106,135 @@ function omitPasskeyRestoreAuthMethod(
   return passkeyRestore;
 }
 
-async function resolveExactWalletAuthAuthority(
+type ExactWalletAuthAuthorityStore = Pick<
+  BrowserSealedSigningSessionStorePorts,
+  'listEcdsaSealedSessionsForWallet'
+>;
+
+type ExactWalletAuthMethodStore = Pick<
+  SigningEngineStorePorts['walletProfileAndSignerRecords']['accountStore'],
+  'listWalletAuthMethodsForWallet'
+>;
+
+type ExactEmailOtpSessionResolver = Pick<
+  EmailOtpWalletSessionCoordinator,
+  'resolveAppSessionJwtForWallet'
+>;
+
+type ExactWalletAuthMethods = Awaited<
+  ReturnType<ExactWalletAuthMethodStore['listWalletAuthMethodsForWallet']>
+>;
+
+function emailOtpProviderFromAppSessionJwt(appSessionJwt: string): EmailOtpProvider | null {
+  const provider = decodeJwtPayloadRecord(appSessionJwt)?.provider;
+  return provider === 'google' || provider === 'email' ? provider : null;
+}
+
+async function resolveExactEmailOtpWalletAuthAuthority(args: {
+  authorityRef: WalletAuthAuthorityRef;
+  authMethods: ExactWalletAuthMethods;
+  emailOtpSessions: ExactEmailOtpSessionResolver;
+  relayUrl: string;
+}): Promise<WalletAuthAuthority | null> {
+  const emailOtpAuthMethods = args.authMethods.filter(
+    (authMethod) => authMethod.kind === 'email_otp' && authMethod.status === 'active',
+  );
+  if (emailOtpAuthMethods.length === 0 || !args.relayUrl) return null;
+
+  let appSessionJwt: string;
+  try {
+    appSessionJwt = await args.emailOtpSessions.resolveAppSessionJwtForWallet({
+      walletId: args.authorityRef.walletId,
+      relayUrl: args.relayUrl,
+    });
+  } catch {
+    return null;
+  }
+
+  let binding: ReturnType<typeof emailOtpAppSessionBindingFromJwt>;
+  try {
+    binding = emailOtpAppSessionBindingFromJwt({
+      walletId: args.authorityRef.walletId,
+      appSessionJwt,
+    });
+  } catch {
+    return null;
+  }
+  const provider = emailOtpProviderFromAppSessionJwt(appSessionJwt);
+  if (!provider) return null;
+
+  for (const authMethod of emailOtpAuthMethods) {
+    if (authMethod.walletId !== args.authorityRef.walletId) continue;
+    const authority = buildEmailOtpWalletAuthAuthority({
+      walletId: args.authorityRef.walletId,
+      provider,
+      providerUserId: binding.providerSubject,
+      emailHashHex: authMethod.emailHashHex,
+    });
+    const candidateRef = await walletAuthAuthorityRef({ authority });
+    if (candidateRef.authorityDigest === args.authorityRef.authorityDigest) return authority;
+  }
+  return null;
+}
+
+export async function resolveExactWalletAuthAuthority(
   authorityRef: WalletAuthAuthorityRef,
-  sealedSigningSessionStore: BrowserSealedSigningSessionStorePorts,
+  sealedSigningSessionStore: ExactWalletAuthAuthorityStore,
+  walletAuthMethodStore: ExactWalletAuthMethodStore,
+  passkeyAuthenticatorStore: SigningEngineStorePorts['walletProfileAndSignerRecords']['passkeyAuthenticatorStore'],
+  currentRpId: string,
+  emailOtpSessions: ExactEmailOtpSessionResolver,
+  relayUrl: string,
 ): Promise<WalletAuthAuthority> {
-  const authMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(authorityRef.walletId);
-  for (const authMethod of authMethods) {
-    if (
-      authMethod.kind !== 'passkey' ||
-      authMethod.status !== 'active' ||
-      authMethod.localStatus !== 'synced'
-    ) {
-      continue;
-    }
+  const sealedRecords = await sealedSigningSessionStore.listEcdsaSealedSessionsForWallet({
+    walletId: authorityRef.walletId,
+    filter: { curve: 'ecdsa' },
+  });
+  for (const sealedRecord of sealedRecords) {
+    const restore = sealedRecord.ecdsaRestore;
+    if (!restore || restore.authority.authorityDigest !== authorityRef.authorityDigest) continue;
+    if (restore.source === 'email_otp') return restore.emailOtpAuthority;
     const authority = buildPasskeyWalletAuthAuthority({
-      walletId: authMethod.walletId,
+      walletId: authorityRef.walletId,
+      rpId: restore.rpId,
+      credentialIdB64u: restore.credentialIdB64u,
+    });
+    const candidateRef = await walletAuthAuthorityRef({ authority });
+    if (candidateRef.authorityDigest === authorityRef.authorityDigest) return authority;
+  }
+  const authMethods = await walletAuthMethodStore.listWalletAuthMethodsForWallet(
+    authorityRef.walletId,
+  );
+  const emailOtpAuthority = await resolveExactEmailOtpWalletAuthAuthority({
+    authorityRef,
+    authMethods,
+    emailOtpSessions,
+    relayUrl: String(relayUrl || '').trim(),
+  });
+  if (emailOtpAuthority) return emailOtpAuthority;
+  for (const authMethod of authMethods) {
+    if (authMethod.kind !== 'passkey' || authMethod.status !== 'active') continue;
+    const authority = buildPasskeyWalletAuthAuthority({
+      walletId: authorityRef.walletId,
       rpId: authMethod.rpId,
       credentialIdB64u: authMethod.credentialIdB64u,
     });
     const candidateRef = await walletAuthAuthorityRef({ authority });
     if (candidateRef.authorityDigest === authorityRef.authorityDigest) return authority;
   }
-  const sealedRecords = await sealedSigningSessionStore.listEcdsaSealedSessionsForWallet({
-    walletId: authorityRef.walletId,
-    filter: { curve: 'ecdsa', authMethod: WALLET_AUTH_METHODS.emailOtp },
-  });
-  for (const sealedRecord of sealedRecords) {
-    if (
-      !('recordKind' in sealedRecord) ||
-      sealedRecord.ecdsaRestore.source !== 'email_otp' ||
-      sealedRecord.ecdsaRestore.authority.authorityDigest !== authorityRef.authorityDigest
-    ) {
-      continue;
-    }
-    return sealedRecord.ecdsaRestore.emailOtpAuthority;
+  const rpId = String(currentRpId || '').trim();
+  if (!rpId) throw new Error('Exact wallet authentication authority requires an RP ID');
+  const authenticators = await passkeyAuthenticatorStore.listWalletPasskeyAuthenticators(
+    authorityRef.walletId,
+  );
+  for (const authenticator of authenticators) {
+    const authority = buildPasskeyWalletAuthAuthority({
+      walletId: authorityRef.walletId,
+      rpId,
+      credentialIdB64u: authenticator.credentialId,
+    });
+    const candidateRef = await walletAuthAuthorityRef({ authority });
+    if (candidateRef.authorityDigest === authorityRef.authorityDigest) return authority;
   }
   throw new Error('Exact wallet authentication authority is unavailable');
 }
@@ -147,19 +247,6 @@ export function createBrowserCanonicalWalletSessionStatusReader(
     readAuthorization: async (walletId) => {
       const read = await walletSessionAuthorizations.readActiveForWallet(walletId);
       return read.kind === 'found' ? read.projection : null;
-    },
-    resolveAppSessionJwt: async (projection) => {
-      const raw = await args.emailOtpSessions
-        .resolveAppSessionJwt({
-          walletSession: {
-            walletId: projection.walletId,
-            walletSessionUserId: String(projection.authority.authorityDigest),
-          },
-          relayUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
-        })
-        .catch(() => '');
-      const parsed = parseAppSessionJwt(raw);
-      return parsed.ok ? parsed.value : null;
     },
   });
 }
@@ -191,22 +278,17 @@ export async function resolveBrowserActiveEcdsaWalletSessionAuthorization(
   }
   const relayerUrl = String(args.seamsWebConfigs.network.relayer?.url || '').trim();
   if (!relayerUrl) throw new Error('Reusable Wallet Session status requires a relayer URL');
-  let auth: ReusableWalletSessionStatusAuth;
-  if (projection.authMethod === WALLET_AUTH_METHODS.emailOtp) {
-    const jwt = await args.emailOtpSessions.resolveAppSessionJwt({
-      walletSession: {
-        walletId,
-        walletSessionUserId: String(projection.authority.authorityDigest),
-      },
-      relayUrl: relayerUrl,
-    });
-    const parsedJwt = parseAppSessionJwt(jwt);
-    if (!parsedJwt.ok) throw new Error(parsedJwt.error.message);
-    auth = { kind: 'app_session_jwt', appSessionJwt: parsedJwt.value };
-  } else {
-    auth = { kind: 'app_session_cookie' };
+  const walletSessionJwt = walletSessionJwtForCurve(projection, 'ecdsa');
+  if (!walletSessionJwt) {
+    return {
+      kind: 'inactive',
+      reason: 'Reusable Wallet Session authorization has no ECDSA Wallet Session JWT',
+    };
   }
-  const status = await createRelayerReusableWalletSessionStatusPort({ relayerUrl, auth }).read({
+  const status = await createRelayerReusableWalletSessionStatusPort({
+    relayerUrl,
+    auth: { kind: 'wallet_session', jwt: walletSessionJwt },
+  }).read({
     walletSessionId: projection.walletSessionId,
     quotaId: projection.quotaId,
   });
@@ -333,6 +415,11 @@ async function getBrowserCanonicalEcdsaSigningCapability(
     authority: await resolveExactWalletAuthAuthority(
       manifest.signer.authority,
       args.sealedSigningSessionStore,
+      args.stores.walletProfileAndSignerRecords.accountStore,
+      args.stores.walletProfileAndSignerRecords.passkeyAuthenticatorStore,
+      args.touchIdPrompt.getRpId(),
+      args.emailOtpSessions,
+      String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
     ),
     manifest,
     material: buildPersistedEcdsaRoleLocalMaterial({
@@ -475,10 +562,23 @@ async function resolveBrowserEcdsaOperationStepUpSessionAuth(args: {
   context: BrowserEcdsaCapabilityReaderContext;
   walletSession: WalletSessionRef;
   authMethod: SignerAuthMethod;
-}) {
+}): Promise<EcdsaOperationStepUpSessionAuth> {
   switch (args.authMethod) {
-    case 'passkey':
-      return { kind: 'app_session_cookie' } as const;
+    case 'passkey': {
+      if (!__isWalletIframeHostMode()) return { kind: 'app_session_cookie' };
+      const relayerUrl = String(args.context.seamsWebConfigs.network.relayer?.url || '').trim();
+      if (!relayerUrl) {
+        throw new Error('Wallet iframe app session requires a relayer URL');
+      }
+      const appSessionJwt = activeWalletOrHostedAppSessionJwt(
+        relayerUrl,
+        String(args.walletSession.walletId),
+      );
+      if (!appSessionJwt) {
+        throw new Error('Wallet iframe app session JWT is unavailable for operation step-up');
+      }
+      return { kind: 'app_session_jwt', appSessionJwt };
+    }
     case 'email_otp': {
       const relayerUrl = String(args.context.seamsWebConfigs.network.relayer?.url || '').trim();
       if (!relayerUrl) throw new Error('ECDSA operation step-up requires a relayer URL');
@@ -550,8 +650,7 @@ export function createBrowserSigningSurfaceEnginePorts(
         kind: 'ecdsa',
         thresholdSessionId,
       }),
-    getWalletSessionStatus: (statusArgs) =>
-      readCanonicalWalletSessionStatus(statusArgs),
+    getWalletSessionStatus: (statusArgs) => readCanonicalWalletSessionStatus(statusArgs),
     resolveCanonicalEcdsaSigningCapability: (input) =>
       getBrowserCanonicalEcdsaSigningCapability(args, input),
     resolveAuthorizedEcdsaSigningCapability: (input) =>
@@ -597,8 +696,7 @@ export function createBrowserSigningSurfaceEnginePorts(
         walletSession: challengeArgs.walletSession,
         chain: 'near',
       }),
-    prepareNearEd25519YaoMaterialBoundary:
-      args.prepareNearEd25519YaoMaterialBoundary,
+    prepareNearEd25519YaoMaterialBoundary: args.prepareNearEd25519YaoMaterialBoundary,
     provisionThresholdEd25519Session: (provisionArgs) =>
       provisionThresholdEd25519SessionOperation(
         {
@@ -620,6 +718,17 @@ export function createBrowserSigningSurfaceEnginePorts(
     readAvailableSigningLanesForSigning: (readArgs) =>
       readPersistedAvailableSigningLanesForSigningOperation(
         {
+          ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityReferences,
+          isEd25519YaoPublicCapabilityActive: (reference) =>
+            args.getEnginePorts().ed25519YaoActiveClients.resolve({
+              walletId: reference.walletId,
+              nearAccountId: reference.nearAccountId,
+              materialActivation: reference.materialActivation,
+            }) !== null,
+          readActiveWalletSessionAuthorization: async (walletId) => {
+            const read = await walletSessionAuthorizations.readActiveForWallet(toWalletId(walletId));
+            return read.kind === 'found' ? read.projection : null;
+          },
           listEcdsaSigningCapabilitiesForWallet: (input) =>
             listBrowserEcdsaSigningCapabilitiesForWallet(args, input),
         },

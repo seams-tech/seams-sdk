@@ -3,6 +3,7 @@ import {
   resolveExactEd25519SealedSessionRuntimeForLaneWithResolver,
   resolveExactEd25519SealedSessionRuntimeForWalletWithResolver,
   resolveExactEd25519SealedSessionRuntimeForWalletSubjectWithResolver,
+  resolveExactEd25519SealedSessionRuntimeForWalletSubjectAndActivationWithResolver,
 } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import { buildRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { buildEd25519PasskeySigningLane } from '@/core/signingEngine/session/operationState/lanes';
@@ -13,12 +14,14 @@ import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationInt
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildEmailOtpEd25519SealedSessionRecordFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const RECORD = buildPasskeyEd25519SealedSessionRecordFixture();
 const AUTHORIZATION = buildPasskeyEd25519AuthorizationProjectionFixture(RECORD);
-const CURRENT_WALLET_SESSION_JWT = AUTHORIZATION.walletSessionJwt;
+const CURRENT_WALLET_SESSION_JWT = AUTHORIZATION.walletSessionTokens.ed25519.walletSessionJwt;
 const LANE = buildEd25519PasskeySigningLane({
   walletId: toWalletId(RECORD.walletId),
   nearAccountId: toAccountId(RECORD.ed25519Restore.nearAccountId),
@@ -81,6 +84,7 @@ test('builds passkey hydration state from the exact sealed runtime and active JW
   const state = buildRouterAbEd25519WalletSessionStateFromExactRuntime({
     runtime: resolution.runtime,
     walletSessionJwt: CURRENT_WALLET_SESSION_JWT,
+    authority: AUTHORIZATION.authority,
     nowMs: resolution.runtime.expiresAtMs - 1,
   });
 
@@ -173,5 +177,52 @@ test('selects an exact Ed25519 wallet subject when a wallet has multiple signers
   if (resolution.kind !== 'resolved') return;
   expect(resolution.runtime.nearAccountId).toBe(
     RECORD.ed25519Restore.nearAccountId,
+  );
+});
+
+test('selects the current Ed25519 runtime by material activation across stale records', async () => {
+  const currentActivation = buildMpcMaterialActivationRefFixture(
+    'ed25519-sealed-runtime-material-current',
+    RECORD.walletId,
+  );
+  const staleRecord = buildPasskeyEd25519SealedSessionRecordFixture({
+    walletId: RECORD.walletId,
+    thresholdSessionId: 'ed25519-sealed-runtime-session-stale',
+  });
+  const currentRecord = buildPasskeyEd25519SealedSessionRecordFixture({
+    walletId: RECORD.walletId,
+    thresholdSessionId: 'ed25519-sealed-runtime-session-current',
+    materialActivation: currentActivation,
+  });
+  const emailOtpRecord = buildEmailOtpEd25519SealedSessionRecordFixture({
+    walletId: RECORD.walletId,
+    nearAccountId: RECORD.ed25519Restore.nearAccountId,
+    nearEd25519SigningKeyId: RECORD.ed25519Restore.nearEd25519SigningKeyId,
+    thresholdSessionId: 'ed25519-sealed-runtime-session-email-otp',
+    materialActivation: currentActivation,
+  });
+  const resolution =
+    await resolveExactEd25519SealedSessionRuntimeForWalletSubjectAndActivationWithResolver(
+      {
+        walletId: toWalletId(RECORD.walletId),
+        nearAccountId: toAccountId(RECORD.ed25519Restore.nearAccountId),
+        nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
+          RECORD.ed25519Restore.nearEd25519SigningKeyId,
+        ),
+        materialActivation: currentActivation,
+        authMethod: 'passkey',
+      },
+      {
+        listExactSealedSessionsForWallet: async () => [staleRecord, currentRecord, emailOtpRecord],
+      },
+    );
+
+  expect(resolution.kind).toBe('resolved');
+  if (resolution.kind !== 'resolved') return;
+  expect(resolution.runtime.thresholdSessionId).toBe(
+    currentRecord.thresholdSessionIds.ed25519,
+  );
+  expect(resolution.runtime.sealedRecord.ed25519Restore.materialActivation).toEqual(
+    currentActivation,
   );
 });

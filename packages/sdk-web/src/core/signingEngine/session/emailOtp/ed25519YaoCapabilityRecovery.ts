@@ -32,6 +32,7 @@ import {
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '../identity/laneIdentity';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import {
   mpcMaterialActivationRefsEqual,
@@ -125,6 +126,7 @@ function isFreshActivationForSameSigner(
 function buildEmailOtpEd25519YaoPublicationContext(args: {
   prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
   bootstrap: EmailOtpEd25519YaoUnlockBootstrapV1;
+  materialActivation: MpcMaterialActivationRef;
 }): EmailOtpEd25519YaoPublicationContext {
   const authorityScope = args.bootstrap.session.authorityScope;
   if (authorityScope.kind !== 'email_otp') {
@@ -142,7 +144,7 @@ function buildEmailOtpEd25519YaoPublicationContext(args: {
     provider: authorityScope.provider,
     providerSubjectId,
     emailHashHex: requireNonEmpty(args.prepared.emailHashHex, 'emailHashHex'),
-    materialActivation: args.prepared.identity.materialActivation,
+    materialActivation: args.materialActivation,
   };
 }
 
@@ -308,15 +310,26 @@ async function assertColdBootstrapContinuityOrDisposePending(args: {
   }
 }
 
-function buildColdRecoveredWalletSessionState(args: {
+async function buildColdRecoveredWalletSessionState(args: {
   prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
   bootstrap: EmailOtpEd25519YaoUnlockBootstrapV1;
   claims: RouterAbEd25519WalletSessionIdentityClaims;
-}) {
+}): Promise<NearResolvedEd25519SigningSessionState> {
   const session = args.bootstrap.session;
   if (session.authorityScope.kind !== 'email_otp') {
     throw new Error('Email OTP Ed25519 Yao recovery returned another authority kind');
   }
+  const authority = await walletAuthAuthorityRef({
+    authority: buildEmailOtpAuthContextForWalletAuthMethod({
+      policy: args.prepared.authPolicy,
+      walletId: session.walletId,
+      emailHashHex: args.prepared.emailHashHex,
+      retention: 'session',
+      reason: 'login',
+      provider: session.authorityScope.provider,
+      providerUserId: args.prepared.providerSubject,
+    }).authority,
+  });
   const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
     walletId: String(session.walletId),
     nearAccountId: session.nearAccountId,
@@ -350,6 +363,7 @@ function buildColdRecoveredWalletSessionState(args: {
       'server capability signerSlot',
     ),
     relayerUrl: args.prepared.relayerUrl,
+    authority,
     signingWalletSession: signingWalletSession.value,
   });
 }
@@ -372,7 +386,7 @@ export async function activateEmailOtpEd25519YaoLocalCapabilityV1(args: {
       args.metadata,
     );
   try {
-    const walletSessionState = buildColdRecoveredWalletSessionState({
+    const walletSessionState = await buildColdRecoveredWalletSessionState({
       prepared: args.prepared,
       bootstrap: args.bootstrap,
       claims,
@@ -403,7 +417,11 @@ export async function activateEmailOtpEd25519YaoLocalCapabilityV1(args: {
     activeClient = null;
     return {
       thresholdSessionId: requireThresholdSessionId(walletSessionState.thresholdSessionId),
-      publicationContext: buildEmailOtpEd25519YaoPublicationContext(args),
+      publicationContext: buildEmailOtpEd25519YaoPublicationContext({
+        prepared: args.prepared,
+        bootstrap: args.bootstrap,
+        materialActivation: identity.materialActivation,
+      }),
       material,
       walletSessionState,
     };
@@ -449,7 +467,7 @@ export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
   });
   let activeClient: NearEd25519YaoOperationMaterial['activeClient'] | null = recovered.activeClient;
   try {
-    const walletSessionState = buildColdRecoveredWalletSessionState({
+    const walletSessionState = await buildColdRecoveredWalletSessionState({
       prepared: args.prepared,
       bootstrap: args.bootstrap,
       claims,
@@ -480,7 +498,11 @@ export async function activateColdEmailOtpEd25519YaoUnlockedRecoveryV1(args: {
     activeClient = null;
     return {
       thresholdSessionId: requireThresholdSessionId(walletSessionState.thresholdSessionId),
-      publicationContext: buildEmailOtpEd25519YaoPublicationContext(args),
+      publicationContext: buildEmailOtpEd25519YaoPublicationContext({
+        prepared: args.prepared,
+        bootstrap: args.bootstrap,
+        materialActivation: activatedIdentity.materialActivation,
+      }),
       material,
       walletSessionState,
     };

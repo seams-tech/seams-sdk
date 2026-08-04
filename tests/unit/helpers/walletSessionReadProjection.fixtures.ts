@@ -16,7 +16,9 @@ import {
   parseWalletAuthorityBindingDigest,
 } from '@shared/utils/domainIds';
 import {
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
+  type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type { WalletAuthMethod } from '@shared/utils/signerDomain';
@@ -42,10 +44,17 @@ export type ResolvedWalletSessionAppIdentityFixtureInput = {
 };
 
 export type ReusableWalletSessionFixtureInput = ResolvedWalletSessionAppIdentityFixtureInput & {
+  readonly authorizationId?: string;
   readonly walletSessionId?: string;
   readonly authMethod?: WalletAuthMethod;
   readonly expiresAtMs?: number;
 };
+
+function fixtureAuthorizationId(value?: string): WalletSessionAuthorizationId {
+  const parsed = parseWalletSessionAuthorizationId(value ?? 'wallet-session-authorization-fixture');
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 function defaultPasskeyBinding(walletId: WalletId): WalletAuthMethodBinding {
   const rpId = parseRpId('wallet.example.localhost');
@@ -87,9 +96,11 @@ export function activeWalletSessionFixture(
   const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
   return {
     appIdentity,
+    authentication: authenticatedWalletFixture(appIdentity.walletId, input.authMethod),
     reusableWalletSession: {
       kind: 'active',
       walletId: appIdentity.walletId,
+      authorizationId: fixtureAuthorizationId(input.authorizationId),
       walletSessionId: fixtureWalletSessionId(input.walletSessionId),
       authMethod: input.authMethod ?? 'passkey',
       remainingUses: input.remainingUses ?? 3,
@@ -106,6 +117,7 @@ export function activeWalletSessionWithNonceDiagnosticsFixture(
   const active = activeWalletSessionFixture(input);
   return {
     appIdentity: active.appIdentity,
+    authentication: active.authentication,
     reusableWalletSession: active.reusableWalletSession,
     capabilityProjection: active.capabilityProjection,
     nonceDiagnostics: walletSessionNonceDiagnosticsFixture(),
@@ -118,9 +130,11 @@ export function exhaustedWalletSessionFixture(
   const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
   return {
     appIdentity,
+    authentication: authenticatedWalletFixture(appIdentity.walletId, input.authMethod),
     reusableWalletSession: {
       kind: 'exhausted',
       walletId: appIdentity.walletId,
+      authorizationId: fixtureAuthorizationId(input.authorizationId),
       walletSessionId: fixtureWalletSessionId(input.walletSessionId),
       authMethod: input.authMethod ?? 'passkey',
       remainingUses: 0,
@@ -140,9 +154,11 @@ export function expiredWalletSessionFixture(
   const detectedAtMs = input.detectedAtMs ?? Date.now();
   return {
     appIdentity,
+    authentication: authenticatedWalletFixture(appIdentity.walletId, input.authMethod),
     reusableWalletSession: {
       kind: 'expired',
       walletId: appIdentity.walletId,
+      authorizationId: fixtureAuthorizationId(input.authorizationId),
       walletSessionId: fixtureWalletSessionId(input.walletSessionId),
       authMethod: input.authMethod ?? 'passkey',
       expiresAtMs: input.expiresAtMs ?? detectedAtMs - 1,
@@ -154,14 +170,18 @@ export function expiredWalletSessionFixture(
 }
 
 export function missingWalletSessionFixture(
-  input: ResolvedWalletSessionAppIdentityFixtureInput = {},
+  input: ReusableWalletSessionFixtureInput = {},
 ): WalletSession {
   const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
   return {
     appIdentity,
+    authentication: authenticatedWalletFixture(appIdentity.walletId),
     reusableWalletSession: {
       kind: 'missing',
       walletId: appIdentity.walletId,
+      authorizationId: fixtureAuthorizationId(input.authorizationId),
+      walletSessionId: fixtureWalletSessionId(input.walletSessionId),
+      authMethod: input.authMethod ?? 'passkey',
     },
     capabilityProjection: { kind: 'not_requested' },
     nonceDiagnostics: null,
@@ -174,6 +194,7 @@ export function unavailableWalletSessionFixture(
   const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
   return {
     appIdentity,
+    authentication: authenticatedWalletFixture(appIdentity.walletId),
     reusableWalletSession: {
       kind: 'unavailable',
       walletId: appIdentity.walletId,
@@ -195,9 +216,11 @@ export function supersededWalletSessionFixture(
   const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
   return {
     appIdentity,
+    authentication: authenticatedWalletFixture(appIdentity.walletId, input.authMethod),
     reusableWalletSession: {
       kind: 'superseded',
       walletId: appIdentity.walletId,
+      authorizationId: fixtureAuthorizationId(input.authorizationId),
       walletSessionId: fixtureWalletSessionId(input.walletSessionId),
       authMethod: input.authMethod ?? 'passkey',
       detectedAtMs: input.detectedAtMs ?? 1_777_777_777_000,
@@ -213,6 +236,7 @@ export function invalidWalletSessionFixture(
   const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
   return {
     appIdentity,
+    authentication: authenticatedWalletFixture(appIdentity.walletId),
     reusableWalletSession: {
       kind: 'invalid',
       walletId: appIdentity.walletId,
@@ -291,6 +315,7 @@ function ecdsaWalletSessionFixture(
   };
   return {
     appIdentity: active.appIdentity,
+    authentication: active.authentication,
     reusableWalletSession: active.reusableWalletSession,
     capabilityProjection: {
       kind: 'resolved',
@@ -325,9 +350,18 @@ function ecdsaWalletSessionFixture(
 export function anonymousWalletSessionFixture(): WalletSession {
   return {
     appIdentity: { kind: 'anonymous' },
-    reusableWalletSession: { kind: 'not_requested' },
+    authentication: { kind: 'signed_out' },
+    reusableWalletSession: { kind: 'absent' },
     capabilityProjection: { kind: 'not_requested' },
     nonceDiagnostics: null,
+  };
+}
+
+function authenticatedWalletFixture(walletId: WalletId, authMethod?: WalletAuthMethod) {
+  return {
+    kind: 'authenticated' as const,
+    walletId,
+    authMethod: authMethod ?? 'passkey',
   };
 }
 

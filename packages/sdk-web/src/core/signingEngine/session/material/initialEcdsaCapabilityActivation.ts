@@ -36,6 +36,7 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   parseRouterAbEcdsaVerifiedClientActivationFactsV1,
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
@@ -86,6 +87,7 @@ export type InitialEcdsaCapabilityActivationPlanInput = {
   readonly ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   readonly signingRootId: SigningRootId;
   readonly signingRootVersion: SigningRootVersion;
+  readonly runtimePolicyScope: RuntimePolicyScope;
   readonly clientVerifyingPublicKey33B64u: EcdsaClientVerifyingPublicKey33B64u;
   readonly participantIds: readonly [ParticipantId, ...ParticipantId[]];
   readonly relayerKeyId: EcdsaRelayerKeyId;

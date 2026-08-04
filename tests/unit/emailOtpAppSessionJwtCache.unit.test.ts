@@ -16,10 +16,17 @@ import { buildNearTransactionSigningLane } from '../../packages/sdk-web/src/core
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import { buildFreshStepUpRequiredFromEmailOtpRefreshRejection } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/stepUpFreshness';
 
-function appSessionJwt(args?: { expSeconds?: number; sub?: string; walletId?: string }): string {
+function appSessionJwt(args?: {
+  expSeconds?: number;
+  sub?: string;
+  providerSubject?: string;
+  walletId?: string;
+}): string {
+  const subject = args?.sub || 'google:wallet.testnet';
   const payload = {
     kind: 'app_session_v1',
-    sub: args?.sub || 'google:wallet.testnet',
+    sub: subject,
+    providerSubject: args?.providerSubject || subject,
     walletId: args?.walletId || 'wallet.testnet',
     exp: args?.expSeconds || Math.floor(Date.now() / 1000) + 3600,
   };
@@ -44,8 +51,8 @@ function makeIdentity() {
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
-  signerSlot: 1,
-  auth: {
+    signerSlot: 1,
+    auth: {
       kind: 'email_otp',
       providerSubjectId: 'google:wallet.testnet',
     },
@@ -63,6 +70,18 @@ function makeIdentity() {
 }
 
 test.describe('EmailOtpAppSessionJwtCache', () => {
+  test('binds linked OIDC sessions by provider subject rather than principal', () => {
+    const binding = emailOtpAppSessionBindingFromJwt({
+      walletId: toWalletId('wallet.testnet'),
+      appSessionJwt: appSessionJwt({
+        sub: 'linked-principal',
+        providerSubject: 'google:wallet.testnet',
+      }),
+    });
+
+    expect(binding.providerSubject).toBe('google:wallet.testnet');
+  });
+
   test('rejects a wallet-session JWT at the app-session boundary', () => {
     const identity = makeIdentity();
     const cache = new EmailOtpAppSessionJwtCache();

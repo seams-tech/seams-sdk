@@ -70,11 +70,17 @@ export async function initialEcdsaCapabilityActivationFixture(options: {
         },
       ],
       ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('initial-ecdsa-threshold-key'),
-      signingRootId: parseSdkEcdsaDerivationSigningRootId('initial-ecdsa-signing-root'),
+      signingRootId: parseSdkEcdsaDerivationSigningRootId('initial-ecdsa-signing-root:dev'),
       signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion('v1'),
+      runtimePolicyScope: {
+        orgId: 'fixture-org',
+        projectId: 'initial-ecdsa-signing-root',
+        envId: 'dev',
+        signingRootVersion: 'v1',
+      },
       evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
         walletId,
-        signingRootId: 'initial-ecdsa-signing-root',
+        signingRootId: 'initial-ecdsa-signing-root:dev',
         signingRootVersion: 'v1',
       }),
       clientVerifyingPublicKey33B64u:

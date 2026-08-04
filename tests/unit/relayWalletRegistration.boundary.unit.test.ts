@@ -8,6 +8,7 @@ import {
   handleRouterApiWalletAddSignerIntent,
   handleRouterApiWalletAddSignerStart,
   handleRouterApiWalletEcdsaKeyFactsInventory,
+  handleRouterApiWalletRegistrationNearProvisioning,
 } from '../../packages/sdk-server-ts/src/router/walletRegistrationRoutes';
 import {
   createRouterApiRouteDefinitions,
@@ -26,6 +27,7 @@ import {
 import { parseWebAuthnRpId, type WebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
 import { thresholdEcdsaChainTargetKey } from '../../packages/sdk-server-ts/src/core/thresholdEcdsaChainTarget';
+import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 const routeDefinitions = createRouterApiRouteDefinitions({
   enableHealthz: true,
@@ -1393,6 +1395,140 @@ test.describe('wallet registration route boundaries', () => {
       walletId: 'wallet_alice',
       rpId: 'wallet.example.test',
       keyTargets,
+    });
+  });
+
+  test('NEAR provisioning attaches the Email OTP app session to the terminal result', async () => {
+    const sessionClaims: Record<string, unknown> = {};
+    const session = {
+      verifyJwt: async () => ({
+        valid: true as const,
+        payload: {
+          kind: 'wallet_registration_setup_v1',
+          registrationCeremonyId: 'registration-ceremony',
+          walletId: 'wallet_alice',
+          orgId: 'org',
+          signingRootId: 'project:dev',
+          signingRootVersion: 'root-v1',
+          policy: {
+            kind: 'runtime_policy_scope',
+            scope: {
+              orgId: 'org',
+              projectId: 'project',
+              envId: 'dev',
+              signingRootVersion: 'root-v1',
+            },
+          },
+          setupDigestB64u: 'setup-digest',
+          expiresAtMs: Date.now() + 60_000,
+        },
+      }),
+      signJwt: async (subject: string, claims: Record<string, unknown>) => {
+        sessionClaims.subject = subject;
+        Object.assign(sessionClaims, claims);
+        return 'registration-email-otp-app-session';
+      },
+    };
+    const authority = buildEmailOtpWalletAuthAuthority({
+      walletId: 'wallet_alice',
+      provider: 'google',
+      providerUserId: 'google:alice',
+      emailHashHex: 'a'.repeat(64),
+    });
+    const service = {
+      completeWalletRegistrationNearProvisioning: async () =>
+        ({
+          ok: true,
+          walletId: walletIdFromString('wallet_alice'),
+          authority,
+          authMethod: {
+            kind: 'email_otp',
+            registrationAuthorityId: 'registration-authority',
+          },
+          kind: 'near_ed25519',
+          authorityScope: {
+            kind: 'email_otp',
+            provider: 'google',
+            providerUserId: 'google:alice',
+          },
+          accountProvisioning: {
+            kind: 'implicit_account',
+            accountIdSource: 'ed25519_public_key',
+          },
+          resolvedAccount: {
+            kind: 'implicit_account',
+            nearAccountId: 'ab'.repeat(32),
+            nearEd25519SigningKeyId: 'near-ed25519-key',
+          },
+          ed25519: {
+            signerSlot: 1,
+            nearAccountId: 'ab'.repeat(32),
+            nearEd25519SigningKeyId: 'near-ed25519-key',
+            publicKey: 'ed25519:registration-public-key',
+            relayerKeyId: 'signing-worker',
+            keyVersion: 'router-ab-ed25519-yao-v1',
+            recoveryExportCapable: true,
+            participantIds: [1, 2],
+            thresholdSessionId: 'threshold-session',
+            runtimePolicyScope: {
+              orgId: 'org',
+              projectId: 'project',
+              envId: 'dev',
+              signingRootVersion: 'root-v1',
+            },
+            routerAbNormalSigning: {
+              kind: 'router_ab_ed25519_normal_signing_v1',
+              signingWorkerId: 'signing-worker',
+            },
+          },
+          nearProvisioning: { status: 'near_ready' },
+          registrationEstablishedSession: {},
+        }) as never,
+      getOrCreateAppSessionVersion: async () => ({
+        ok: true as const,
+        appSessionVersion: 'app-session-v1',
+      }),
+    };
+    const response = await handleRouterApiWalletRegistrationNearProvisioning({
+      body: {
+        registrationCeremonyId: 'registration-ceremony',
+        signedSetup: 'signed-setup',
+        idempotencyKey: 'near-provisioning-key',
+        ed25519: { activationReference: {} },
+      },
+      headers: {},
+      logger: {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      },
+      origin: 'https://wallet.example.test',
+      route: route('wallet_registration_near_provisioning'),
+      services: {
+        walletRegistration: service,
+        session,
+      },
+    } as never);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      appSessionJwt: 'registration-email-otp-app-session',
+    });
+    expect(sessionClaims).toMatchObject({
+      subject: 'google:alice',
+      kind: 'app_session_v1',
+      appSessionVersion: 'app-session-v1',
+      provider: 'google',
+      providerSubject: 'google:alice',
+      walletId: 'wallet_alice',
+      runtimePolicyScope: {
+        orgId: 'org',
+        projectId: 'project',
+        envId: 'dev',
+        signingRootVersion: 'root-v1',
+      },
     });
   });
 });

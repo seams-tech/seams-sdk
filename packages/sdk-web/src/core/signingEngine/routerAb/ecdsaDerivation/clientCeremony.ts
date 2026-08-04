@@ -4,6 +4,7 @@ import type {
 } from '@/core/types/signer-worker';
 import type {
   RouterAbEcdsaClientProofFinalizationV1,
+  RouterAbEcdsaDerivationNormalSigningStateV1,
   RouterAbEcdsaDerivationPublicCapabilityV1,
   RouterAbEcdsaRegistrationActivationReceiptV1,
   RouterAbEcdsaRegistrationRequestFactsV1,
@@ -16,6 +17,7 @@ import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 import type { CapabilityInstanceRef, MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { EcdsaServerActivationCommand } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 
 export type CreateRouterAbEcdsaRegistrationCeremonyRequestV1 = {
   readonly kind: 'create_router_ab_ecdsa_registration_ceremony_v1';
@@ -64,6 +66,7 @@ export type PersistInitialCanonicalEcdsaActivationResultV1 =
       readonly kind: 'initial_canonical_ecdsa_activation_persisted_v1';
       readonly ceremonyId: string;
       readonly journalId: InitialEcdsaCapabilityActivationPlanInput['journalId'];
+      readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
       readonly code?: never;
       readonly message?: never;
     }
@@ -80,6 +83,7 @@ export type FinalizeRouterAbEcdsaRegistrationActivationRequestV1 = {
   readonly kind: 'finalize_router_ab_ecdsa_registration_activation_v1';
   readonly journalId: CorrelationId;
   readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
 
 export type FinalizeRouterAbEcdsaRegistrationActivationResultV1 = {
@@ -138,6 +142,7 @@ export type ReconcileCanonicalEcdsaActivationWorkerResultV1 =
       readonly kind: 'canonical_ecdsa_activation_committed_finalization_required_v1';
       readonly journalId: CorrelationId;
       readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+      readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
       readonly reason?: never;
       readonly activationCommand?: never;
       readonly activation?: never;

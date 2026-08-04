@@ -466,6 +466,7 @@ export function laneCandidateStateFromRuntimePolicy(args: {
 export type LaneCandidateSource =
   | 'canonical_capability'
   | 'durable_sealed_record'
+  | 'public_capability_reference'
   | 'runtime_session_record'
   | 'unknown';
 

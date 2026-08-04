@@ -8,8 +8,8 @@ import {
   missingWalletSessionFixture,
 } from './helpers/walletSessionReadProjection.fixtures';
 
-test.describe('wallet session readiness gate', () => {
-  test('accepts active and exhausted reusable Wallet Sessions', () => {
+test.describe('wallet authentication readiness gate', () => {
+  test('accepts authenticated wallets independently of reusable authorization', () => {
     expect(
       isWalletSessionReadyForUi({
         session: activeWalletSessionFixture(),
@@ -20,22 +20,22 @@ test.describe('wallet session readiness gate', () => {
         session: exhaustedWalletSessionFixture(),
       }),
     ).toBe(true);
-  });
-
-  test('rejects anonymous, missing, and expired Wallet Sessions', () => {
-    expect(
-      isWalletSessionReadyForUi({
-        session: anonymousWalletSessionFixture(),
-      }),
-    ).toBe(false);
     expect(
       isWalletSessionReadyForUi({
         session: missingWalletSessionFixture(),
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isWalletSessionReadyForUi({
         session: expiredWalletSessionFixture(),
+      }),
+    ).toBe(true);
+  });
+
+  test('rejects a signed-out anonymous wallet', () => {
+    expect(
+      isWalletSessionReadyForUi({
+        session: anonymousWalletSessionFixture(),
       }),
     ).toBe(false);
   });

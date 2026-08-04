@@ -3,8 +3,8 @@ import type {
   NearEd25519YaoMaterialExecutor,
   NearEd25519YaoOperationMaterial,
   NearEd25519StepUpAuthorization,
-  NearResolvedEd25519SigningSessionState,
 } from '../../../interfaces/near';
+import type { ResolvedRouterAbEd25519WalletSessionState } from '../../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import type { NearEd25519YaoSigningPreparation } from '../../../session/material/nearEd25519YaoSigningPreparation';
 import type {
   MpcMaterialActivationRef,
@@ -18,7 +18,7 @@ import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 export type NearEd25519AuthorizationResult = {
   thresholdSessionId: ThresholdEd25519SessionId;
   material: NearEd25519YaoOperationMaterial;
-  walletSessionState: NearResolvedEd25519SigningSessionState;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
 };
 
 export type NearOperationStepUpMaterial =

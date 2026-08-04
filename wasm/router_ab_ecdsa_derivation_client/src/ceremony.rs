@@ -407,7 +407,10 @@ struct PostRegistrationCommonInputV1 {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum NormalSigningAuthorizationInputV1 {
     ReusableWalletSession { wallet_session_id: String },
-    OperationStepUp,
+    OperationStepUp {
+        #[serde(skip_serializing)]
+        authorization_id: String,
+    },
 }
 
 impl NormalSigningAuthorizationInputV1 {
@@ -421,7 +424,7 @@ impl NormalSigningAuthorizationInputV1 {
     fn authorization_id(&self) -> Result<&str, &'static str> {
         match self {
             Self::ReusableWalletSession { wallet_session_id } => Ok(wallet_session_id),
-            Self::OperationStepUp => Err("operation step-up authority has no public authorization id"),
+            Self::OperationStepUp { authorization_id } => Ok(authorization_id),
         }
     }
 }
@@ -906,6 +909,16 @@ mod tests {
     }
 
     #[test]
+    fn operation_step_up_authorization_serializes_without_local_identifier() {
+        let value = serde_json::to_value(NormalSigningAuthorizationInputV1::OperationStepUp {
+            authorization_id: b64u(&[0x52; 32]),
+        })
+        .expect("operation step-up authorization JSON");
+        assert_eq!(value, serde_json::json!({ "kind": "operation_step_up" }));
+        assert!(serde_json::from_value::<NormalSigningAuthorizationInputV1>(value).is_err());
+    }
+
+    #[test]
     fn opaque_ceremony_builds_all_strict_request_branches_without_private_material() {
         let mut ceremony = test_ceremony();
         let client_public_key = ceremony
@@ -991,6 +1004,46 @@ mod tests {
             export["material_activation"]["activation_id"],
             "material-activation-1"
         );
+
+        let operation_step_up_input = ExplicitExportRequestInputV1 {
+            common: test_post_common(test_lifecycle(
+                "export-step-up-lifecycle-1",
+                "key_export",
+                "export",
+                "root-epoch-1",
+            )),
+            authorization: NormalSigningAuthorizationInputV1::OperationStepUp {
+                authorization_id: b64u(&[0x52; 32]),
+            },
+            material_activation: MaterialActivationRefInputV1 {
+                kind: "mpc_material_activation_ref".to_owned(),
+                activation_id: "material-activation-1".to_owned(),
+                capability: "capability-1".to_owned(),
+                material_owner: "wallet-1".to_owned(),
+                key_binding: "key-binding-1".to_owned(),
+                lifecycle_binding: "export-step-up-lifecycle-1".to_owned(),
+                signing_worker: SERVER_ID.to_owned(),
+            },
+            export_authorization_digest_b64u: b64u(&[0x53; 32]),
+            export_nonce: "export-step-up-nonce-1".to_owned(),
+        };
+        let operation_step_up_export = parse_output(
+            ceremony
+                .build_explicit_export_request(
+                    &serde_json::to_string(&operation_step_up_input)
+                        .expect("operation step-up export input JSON"),
+                )
+                .expect("operation step-up export request"),
+        );
+        assert_eq!(
+            operation_step_up_export["authorization"]["kind"],
+            "operation_step_up"
+        );
+        assert!(operation_step_up_export["authorization"]
+            .as_object()
+            .expect("operation step-up authorization object")
+            .get("authorization_id")
+            .is_none());
 
         let signing_worker_public_key = x25519_public_key([0x81; 32]);
         let refresh_input = ActivationRefreshRequestInputV1 {

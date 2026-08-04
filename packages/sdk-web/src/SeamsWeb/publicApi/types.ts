@@ -594,6 +594,7 @@ export type GoogleEmailOtpWalletAuthSubmitSuccess = {
 export type GoogleEmailOtpWalletAuthRegistrationCompleted = {
   walletId: WalletId;
   session: WalletSession;
+  registration: RegistrationResult;
   mode: 'register';
 };
 

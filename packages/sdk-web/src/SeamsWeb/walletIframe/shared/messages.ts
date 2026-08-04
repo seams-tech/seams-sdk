@@ -43,10 +43,7 @@ import type {
 } from '@shared/utils/registrationIntent';
 import type { PMUnlockPayload } from '@/core/types/login.types';
 import { isPlainObject } from '@shared/utils/validation';
-import type {
-  WalletIframeExactSessionIdentity,
-  WalletIframeMissingSessionIdentity,
-} from './exactSessionState';
+import type { WalletIframeExactSessionIdentity } from './exactSessionState';
 export type {
   LoginUnlockRequest,
   PMUnlockOptions,
@@ -69,7 +66,6 @@ export type ParentToChildType =
   | 'PM_UNLOCK'
   | 'PM_LOCK'
   | 'PM_LOCK_EXACT_WALLET_SESSION'
-  | 'PM_LOCK_MISSING_WALLET_SESSION'
   | 'PM_GET_WALLET_SESSION'
   | 'PM_GET_EXACT_WALLET_SESSION_STATE'
   | 'PM_GET_NEAR_PROVISIONING_STATE'
@@ -432,6 +428,18 @@ export interface PMGetWalletSessionPayload {
   walletId?: string;
 }
 
+export type PMGetExactWalletSessionStatePayload =
+  | {
+      readonly authenticationRead: 'restore';
+      readonly wallet: { readonly kind: 'current' };
+    }
+  | {
+      readonly authenticationRead: 'current';
+      readonly wallet:
+        | { readonly kind: 'current' }
+        | { readonly kind: 'exact'; readonly walletId: string };
+    };
+
 export interface PMEmailOtpChallengePayload {
   walletId: string;
   relayUrl?: string;
@@ -584,9 +592,8 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_UNLOCK', PMUnlockPayload>
   | RpcEnvelope<'PM_LOCK'>
   | RpcEnvelope<'PM_LOCK_EXACT_WALLET_SESSION', WalletIframeExactSessionIdentity>
-  | RpcEnvelope<'PM_LOCK_MISSING_WALLET_SESSION', WalletIframeMissingSessionIdentity>
   | RpcEnvelope<'PM_GET_WALLET_SESSION', PMGetWalletSessionPayload>
-  | RpcEnvelope<'PM_GET_EXACT_WALLET_SESSION_STATE'>
+  | RpcEnvelope<'PM_GET_EXACT_WALLET_SESSION_STATE', PMGetExactWalletSessionStatePayload>
   | RpcEnvelope<'PM_GET_NEAR_PROVISIONING_STATE', PMGetNearProvisioningStatePayload>
   | RpcEnvelope<'PM_REQUEST_EMAIL_OTP_CHALLENGE', PMEmailOtpChallengePayload>
   | RpcEnvelope<'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE', PMEmailOtpChallengePayload>

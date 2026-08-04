@@ -10,7 +10,11 @@ import type {
   SigningRootId,
   SigningRootVersion,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationNormalSigningStateV1,
+  RouterAbEcdsaRegistrationActivationReceiptV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { CorrelationId, DigestB64u, IsoTimestamp } from '@shared/utils/canonicalPrimitives';
 import type {
   CanonicalEcdsaServerActivationRequest,
@@ -78,6 +82,7 @@ declare const participantId: ParticipantId;
 declare const relayerKeyId: EcdsaRelayerKeyId;
 declare const bindingDigest: EcdsaRoleLocalBindingDigest;
 declare const durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
+declare const runtimePolicyScope: RuntimePolicyScope;
 declare const manifestId: EcdsaCapabilityManifestId;
 declare const manifestRevision: EcdsaCapabilityManifestRevision;
 declare const replacementManifestId: EcdsaCapabilityManifestId;
@@ -94,6 +99,7 @@ declare const createdAt: IsoTimestamp;
 declare const committedAt: IsoTimestamp;
 declare const serverGeneration: EcdsaServerGeneration;
 declare const protocolReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+declare const routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 declare const registeredPublicFacts: VerifiedEcdsaPublicFacts;
 declare const replacementActiveManifest: ActiveEcdsaCapabilityManifest;
 
@@ -184,8 +190,10 @@ const committedJournal = buildServerCommittedEcdsaActivationJournal({
 const durableMaterial = buildDurableEcdsaMaterialBinding({
   activationBinding,
   serverActivation: committedJournal.serverActivation,
+  routerAbEcdsaDerivationNormalSigning,
   roleLocalPublicFacts,
   ciphertextDigest,
+  runtimePolicyScope,
 });
 
 const readyMaterial = buildValidatedEncryptedEcdsaReadyMaterial({

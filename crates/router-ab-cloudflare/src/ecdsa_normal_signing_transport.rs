@@ -423,16 +423,10 @@ mod tests {
                 .expect("SigningWorker identity"),
             "root-epoch-7",
             MpcMaterialActivationRefV1::new(
-                router_ab_core::router_ab_ecdsa_derivation_material_activation_id_v1(
-                    "threshold-key-1",
-                    "signing-root-1",
-                    "7",
-                    "root-epoch-7",
-                )
-                .expect("activation id"),
+                "ecdsa-activation-cloudflare-transport",
                 "ecdsa-signing-capability-1",
                 "wallet-1",
-                "threshold-key-1",
+                base64url(context_binding.as_bytes()),
                 "ecdsa-material-lifecycle-1",
                 "signing-worker-1",
             )

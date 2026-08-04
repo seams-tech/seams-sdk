@@ -191,11 +191,35 @@ const EMAIL_OTP_REGISTRATION_SESSION_SCRIPT = String.raw`
         );
       };
       const completedSession = {
-        login: {
-          isLoggedIn: true,
+        appIdentity: {
+          kind: 'resolved',
           walletId: 'alice.testnet',
+          nearAccountId: null,
+          nearOperationalPublicKey: null,
+          userData: null,
+          authMethods: [{
+            kind: 'email_otp',
+            wallet: { walletId: 'alice.testnet' },
+            emailHashHex: 'email-hash',
+            registrationAuthorityId: 'registration-authority',
+          }],
+          thresholdEcdsaEthereumAddress: null,
+          thresholdEcdsaPublicKeyB64u: null,
         },
-        signingSession: null,
+        authentication: {
+          kind: 'authenticated',
+          walletId: 'alice.testnet',
+          authMethod: 'email_otp',
+        },
+        reusableWalletSession: {
+          kind: 'missing',
+          walletId: 'alice.testnet',
+          authorizationId: 'wallet-session-authorization-router-fixture',
+          walletSessionId: 'wallet-session-router-fixture',
+          authMethod: 'email_otp',
+        },
+        capabilityProjection: { kind: 'not_requested' },
+        nonceDiagnostics: null,
       };
       const originalAdoptPort = adoptPort;
       adoptPort = function patchedAdoptPort(port) {
@@ -718,6 +742,9 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     expect(result.mirroredSession).toEqual({
       kind: 'wallet_unlocked_without_signing_session',
       walletId: 'alice.testnet',
+      authorizationId: 'wallet-session-authorization-router-fixture',
+      walletSessionId: 'wallet-session-router-fixture',
+      authMethod: 'email_otp',
       reason: 'not_found',
     });
   });

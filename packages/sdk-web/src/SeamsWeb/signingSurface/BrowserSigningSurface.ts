@@ -18,8 +18,10 @@ import type {
   ReusableWalletSessionState,
   SigningSessionStatus,
   SeamsConfigsReadonly,
+  WalletAuthenticationState,
 } from '@/core/types/seams';
 import { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
+import { joinNormalizedUrl } from '@shared/utils/normalize';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import { type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
@@ -42,6 +44,10 @@ import type {
   NearSigningApiDeps,
 } from '@/core/signingEngine/interfaces/operationDeps';
 import type { Ed25519YaoActiveClientIdentityV1 } from '@/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
+import type {
+  Ed25519YaoPublicCapabilityLaneReferenceV1,
+  Ed25519YaoPublicCapabilityReferenceV1,
+} from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import { Ed25519YaoPageLifecycleOwner } from '@/core/signingEngine/threshold/ed25519/yaoPageLifecycleOwner';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
@@ -58,6 +64,7 @@ import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/
 import type {
   PasskeyMpcSessionPort,
   UiConfirmRuntimeBridgePort,
+  WarmSessionClaimResult,
 } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
@@ -87,12 +94,11 @@ import {
   type AvailableEd25519SigningLane,
   type ConcreteAvailableEd25519SigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
+import { resolvePasskeyEd25519YaoExportContextV1 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import {
-  resolvePasskeyEd25519YaoExportContextV1,
-} from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
-import {
-  buildRouterAbEd25519WalletSessionStateFromExactRuntime,
   nearEd25519YaoOperationMaterialFacts,
+  rebindRouterAbEd25519WalletSessionStateFromExactRuntime,
+  type ResolvedRouterAbEd25519WalletSessionState,
 } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   hydratePasskeyEd25519YaoLocalMaterialV1,
@@ -101,6 +107,10 @@ import {
   type PasskeyEd25519YaoPublicLocatorObservationV1,
   type PasskeyEd25519YaoUnlockSourceV1,
 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
+import {
+  buildPasskeyEd25519RestoreMetadata,
+  persistPasskeyEd25519YaoSessionForRefresh,
+} from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
 import {
   buildActiveNearEd25519WalletSessionAuthorization,
   buildAuthorizationRequiredNearEd25519YaoSigningPreparation,
@@ -118,16 +128,18 @@ import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB'
 import {
   mpcMaterialActivationRefsEqual,
   parseAppSessionJwt,
+  parseProviderSubject,
   parseWalletId,
   type MpcMaterialActivationRef,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import { materialActivationKey } from '@/core/signingEngine/session/sealedRecovery/materialActivationKey';
-import { retireWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { isPlainObject } from '@shared/utils/validation';
 import {
-  createRelayerReusableWalletSessionStatusPort,
-  type ReusableWalletSessionStatusAuth,
-} from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+  retireWalletSessionAuthorizationProjection,
+  walletSessionJwtForCurve,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import { buildThresholdEd25519WebAuthnPrfSecretSource } from '@/core/signingEngine/threshold/ed25519/walletSession';
 import {
   reconcileTempoNonceLane as reconcileTempoNonceLaneOperation,
@@ -197,13 +209,11 @@ import {
   resolveExactEd25519SealedSessionRuntimeForWalletSubject,
   type ExactEd25519SealedSessionRuntime,
 } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
-import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
-import type {
-  EmailOtpEd25519YaoRecoveryBootstrapV1,
-} from '@/core/signingEngine/workerManager/workerTypes';
+import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
+import type { RouterAbEd25519NormalSigningCredential } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import {
   listExactSealedSessionsForWallet,
@@ -212,7 +222,10 @@ import {
   type CurrentSealedSessionRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { ed25519DurableMaterialLocator } from '@/core/signingEngine/session/sealedRecovery/materialActivationKey';
+import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import { normalizeThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
+import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
+import { activeWalletOrHostedAppSessionJwt } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import {
   recoverEmailOtpEd25519YaoFromSealedSessionV1,
   resolveEmailOtpEd25519YaoHydrationPlanForSigningV1,
@@ -331,6 +344,123 @@ function nearEd25519LaneMatchesCapabilityRehydrationSubject(
     : true;
 }
 
+function currentNearEd25519CapabilityRehydrationSubject(args: {
+  subject: NearEd25519CapabilityRehydrationSubject;
+  walletSessionState: NearResolvedEd25519SigningSessionState;
+}): NearEd25519CapabilityRehydrationSubject {
+  const thresholdSessionId = args.walletSessionState.thresholdSessionId;
+  switch (args.subject.kind) {
+    case 'account_signer':
+      return args.subject;
+    case 'exact_lane':
+      return {
+        ...args.subject,
+        thresholdSessionId,
+        laneIdentity: args.walletSessionState.signingLane.identity,
+      };
+    case 'export_exact_lane':
+      return {
+        ...args.subject,
+        thresholdSessionId,
+        laneIdentity: args.walletSessionState.signingLane.identity,
+      };
+    case 'material_identity':
+      return {
+        ...args.subject,
+        thresholdSessionId,
+        materialIdentity: {
+          kind: 'near_ed25519_material_identity',
+          signer: args.walletSessionState.signingLane.identity.signer,
+          auth: args.walletSessionState.signingLane.identity.auth,
+          thresholdSessionId,
+        },
+      };
+    default:
+      return assertNeverNearEd25519CapabilityRehydrationSubject(args.subject);
+  }
+}
+
+function assertNeverNearEd25519CapabilityRehydrationSubject(
+  value: never,
+): never {
+  throw new Error(`Unknown Ed25519 capability rehydration subject: ${String(value)}`);
+}
+
+export async function ensurePasskeyEd25519WarmSessionForSigning(args: {
+  claimWarmSessionMaterial: PasskeyMpcSessionPort['claimWarmSessionMaterial'];
+  rehydrateWarmSessionMaterial: PasskeyMpcSessionPort['rehydrateWarmSessionMaterial'];
+  runtime: ExactEd25519SealedSessionRuntime;
+  walletSessionState: NearResolvedEd25519SigningSessionState;
+  materialActivation: MpcMaterialActivationRef;
+}): Promise<WarmSessionClaimResult> {
+  const thresholdSessionId = args.walletSessionState.thresholdSessionId;
+  let claim = await args.claimWarmSessionMaterial({
+    thresholdSessionId,
+    purpose: { curve: 'ed25519', materialActivation: args.materialActivation },
+    consume: false,
+  });
+  if (claim.ok || claim.code !== 'not_found') return claim;
+
+  if (args.runtime.factor.kind !== 'passkey') {
+    throw new Error('[SigningEngine][near] persisted Ed25519 credential is unavailable');
+  }
+  const walletSessionJwt = String(
+    args.walletSessionState.walletSessionAuth.walletSessionJwt || '',
+  ).trim();
+  const groupId = String(args.runtime.sealedRecord.groupId || '').trim();
+  if (!walletSessionJwt || !groupId) {
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Passkey Ed25519 sealed restore metadata is incomplete',
+    };
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      args.runtime.sealedRecord.ed25519Restore.materialActivation,
+      args.materialActivation,
+    )
+  ) {
+    throw new Error('[SigningEngine][near] persisted Ed25519 material activation mismatch');
+  }
+  const keyVersion = parseSigningSessionSealKeyVersion(args.runtime.sealedRecord.keyVersion);
+  const rehydrated = await args.rehydrateWarmSessionMaterial({
+    thresholdSessionId,
+    sealedSecretB64u: args.runtime.sealedRecord.sealedSecretB64u,
+    signingSessionSealKeyVersion: keyVersion,
+    expiresAtMs: args.runtime.sealedRecord.expiresAtMs,
+    remainingUses: args.runtime.sealedRecord.remainingUses,
+    transport: {
+      curve: 'ed25519',
+      authMethod: 'passkey',
+      walletId: String(args.runtime.walletId),
+      relayerUrl: args.runtime.relayerUrl,
+      signingSessionSealKeyVersion: keyVersion,
+      groupId,
+      walletSessionJwt,
+      ed25519Restore: buildPasskeyEd25519RestoreMetadata({
+        rpId: args.runtime.factor.rpId,
+        nearAccountId: args.runtime.nearAccountId,
+        nearEd25519SigningKeyId: args.runtime.nearEd25519SigningKeyId,
+        relayerKeyId: args.runtime.relayerKeyId,
+        participantIds: args.runtime.participantIds,
+        runtimePolicyScope: args.runtime.runtimePolicyScope,
+        signerSlot: args.runtime.signerSlot,
+        routerAbNormalSigning: args.runtime.routerAbNormalSigning,
+        credentialIdB64u: args.runtime.factor.credentialIdB64u,
+        materialActivation: args.materialActivation,
+      }),
+    },
+  });
+  if (!rehydrated.ok) return rehydrated;
+  claim = await args.claimWarmSessionMaterial({
+    thresholdSessionId,
+    purpose: { curve: 'ed25519', materialActivation: args.materialActivation },
+    consume: false,
+  });
+  return claim;
+}
+
 function nearEd25519CapabilityRehydrationKey(
   subject: NearEd25519CapabilityRehydrationSubject,
 ): string {
@@ -343,16 +473,19 @@ function nearEd25519CapabilityRehydrationKey(
   ]);
 }
 
-function nearEd25519PublicLocatorObservation(args: {
-  references: readonly Ed25519YaoActiveClientIdentityV1[];
+export function nearEd25519PublicLocatorObservation(args: {
+  references: readonly Ed25519YaoPublicCapabilityLaneReferenceV1[];
   walletId: WalletId;
   nearAccountId: AccountId;
   signerSlot: number;
+  thresholdSessionId: ThresholdEd25519SessionId;
 }): PasskeyEd25519YaoPublicLocatorObservationV1 {
   const matches = args.references.filter(
     (reference) =>
       String(reference.walletId) === String(args.walletId) &&
-      String(reference.nearAccountId) === String(args.nearAccountId),
+      String(reference.nearAccountId) === String(args.nearAccountId) &&
+      reference.signerSlot === args.signerSlot &&
+      String(reference.thresholdSessionId) === String(args.thresholdSessionId),
   );
   if (matches.length === 0) return { kind: 'missing' };
   if (matches.length !== 1) return { kind: 'conflict' };
@@ -362,6 +495,30 @@ function nearEd25519PublicLocatorObservation(args: {
     nearAccountId: String(args.nearAccountId),
     signerSlot: args.signerSlot,
     materialActivation: matches[0].materialActivation,
+  };
+}
+
+function emailOtpEd25519YaoLaneReferenceFromRecovery(args: {
+  walletSessionState: NearResolvedEd25519SigningSessionState;
+  materialActivation: MpcMaterialActivationRef;
+}): Ed25519YaoPublicCapabilityLaneReferenceV1 {
+  const lane = args.walletSessionState.signingLane;
+  const signer = lane.identity.signer;
+  if (lane.auth.kind !== 'email_otp') {
+    throw new Error('[SigningEngine][near] Email OTP recovery returned another auth lane');
+  }
+  return {
+    walletId: signer.account.wallet.walletId,
+    nearAccountId: signer.account.nearAccountId,
+    thresholdSessionId: args.walletSessionState.thresholdSessionId,
+    runtimePolicyScope: args.walletSessionState.runtimePolicyScope,
+    materialActivation: args.materialActivation,
+    auth: {
+      kind: 'email_otp',
+      providerSubjectId: lane.auth.providerSubjectId,
+    },
+    nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+    signerSlot: signer.signerSlot,
   };
 }
 
@@ -391,9 +548,7 @@ async function requireExactEd25519SealedRuntimeForLane(args: {
 }): Promise<ExactEd25519SealedSessionRuntime> {
   const resolution = await resolveExactEd25519SealedSessionRuntimeForLane(args);
   if (resolution.kind !== 'resolved') {
-    throw new Error(
-      `[SigningEngine][near] exact persisted Ed25519 runtime is ${resolution.kind}`,
-    );
+    throw new Error(`[SigningEngine][near] exact persisted Ed25519 runtime is ${resolution.kind}`);
   }
   return resolution.runtime;
 }
@@ -444,13 +599,15 @@ async function requireExactEd25519SealedRuntimeForMaterialIdentity(args: {
     },
   });
   const runtimes = records
-    .filter((record): record is Extract<CurrentSealedSessionRecord, { curve: 'ed25519' }> =>
-      record.curve === 'ed25519',
+    .filter(
+      (record): record is Extract<CurrentSealedSessionRecord, { curve: 'ed25519' }> =>
+        record.curve === 'ed25519',
     )
     .map(parseExactEd25519SealedSessionRuntime)
     .filter(
       (runtime): runtime is ExactEd25519SealedSessionRuntime =>
-        runtime !== null && nearEd25519RuntimeMatchesMaterialIdentity({ runtime, identity: args.identity }),
+        runtime !== null &&
+        nearEd25519RuntimeMatchesMaterialIdentity({ runtime, identity: args.identity }),
     );
   if (runtimes.length === 0) {
     throw new Error('[SigningEngine][near] exact persisted Ed25519 runtime is missing');
@@ -463,21 +620,15 @@ async function requireExactEd25519SealedRuntimeForMaterialIdentity(args: {
 
 async function walletSessionStateFromExactEd25519Runtime(
   runtime: ExactEd25519SealedSessionRuntime,
-): Promise<ReturnType<typeof buildRouterAbEd25519WalletSessionStateFromExactRuntime>> {
+): Promise<Awaited<ReturnType<typeof rebindRouterAbEd25519WalletSessionStateFromExactRuntime>>> {
   const authorization = await resolveActiveEd25519WalletSessionAuthorization(runtime.walletId);
-  const expectedAuthority = await ed25519SealedRuntimeAuthorityRef(runtime);
-  if (
-    !authorization ||
-    authorization.authMethod !== signingLaneAuthMethod(runtime.auth) ||
-    authorization.authority.authorityDigest !== expectedAuthority.authorityDigest ||
-    authorization.expiresAtMs <= Date.now()
-  ) {
+  if (!authorization) {
     throw new Error('[SigningEngine][near] active Wallet Session authorization is unavailable');
   }
-  return buildRouterAbEd25519WalletSessionStateFromExactRuntime({
+  return rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
     runtime,
-    walletSessionJwt: authorization.walletSessionJwt,
-    nowMs: Math.min(Date.now(), runtime.expiresAtMs - 1),
+    authorization,
+    nowMs: Date.now(),
   });
 }
 
@@ -618,25 +769,6 @@ type EmailOtpEd25519YaoSilentRecoveryInput = {
   materialActivation: MpcMaterialActivationRef;
 };
 
-function isExactEmailOtpEd25519RecoveryRecord(args: {
-  record: CurrentSealedSessionRecord;
-  providerSubjectId: string;
-  nearAccountId: string;
-  signerSlot: number;
-  materialActivation: MpcMaterialActivationRef;
-}): boolean {
-  const record = args.record;
-  if (record.curve !== 'ed25519') return false;
-  const restore = record.ed25519Restore;
-  return (
-    restore.providerSubjectId === args.providerSubjectId &&
-    restore.nearAccountId === args.nearAccountId &&
-    restore.signerSlot === args.signerSlot &&
-    restore.materialActivation !== undefined &&
-    mpcMaterialActivationRefsEqual(restore.materialActivation, args.materialActivation)
-  );
-}
-
 type PreparedNearEd25519YaoMaterialContext = {
   input: PrepareNearEd25519YaoMaterialBoundaryInput;
   materialActivation: MpcMaterialActivationRef | null;
@@ -691,9 +823,7 @@ function validateExactNearEd25519YaoOperationMaterial(args: {
   const thresholdSessionId = nearEd25519ThresholdSessionIdFromBoundaryInput(args.input);
   const expectedSigner = nearEd25519SignerFromBoundaryInput(args.input);
   const actualSigner = facts.signer;
-  if (
-    String(facts.thresholdSessionId) !== thresholdSessionId
-  ) {
+  if (String(facts.thresholdSessionId) !== thresholdSessionId) {
     throw new Error('[SigningEngine][near] active Ed25519 Yao capability session mismatch');
   }
   if (metadata.scope.threshold_session_id !== String(facts.thresholdSessionId)) {
@@ -708,11 +838,9 @@ function validateExactNearEd25519YaoOperationMaterial(args: {
   if (
     String(actualSigner.account.wallet.walletId) !==
       String(expectedSigner.account.wallet.walletId) ||
-    String(actualSigner.account.nearAccountId) !==
-      String(expectedSigner.account.nearAccountId) ||
+    String(actualSigner.account.nearAccountId) !== String(expectedSigner.account.nearAccountId) ||
     actualSigner.signerSlot !== expectedSigner.signerSlot ||
-    String(actualSigner.nearEd25519SigningKeyId) !==
-      String(expectedSigner.nearEd25519SigningKeyId)
+    String(actualSigner.nearEd25519SigningKeyId) !== String(expectedSigner.nearEd25519SigningKeyId)
   ) {
     throw new Error('[SigningEngine][near] active Ed25519 Yao capability signer mismatch');
   }
@@ -794,6 +922,169 @@ function assertNeverSdkLifecycleEventName(value: never): never {
 /**
  * BrowserSigningSurface owns browser signing assembly state and exposes the SeamsWeb signing surface.
  */
+type AppSessionRestoreAuth =
+  | { readonly kind: 'cookie' }
+  | { readonly kind: 'jwt'; readonly jwt: string };
+
+export type WalletAuthenticationRestoreExpectation =
+  | { readonly kind: 'derive_wallet' }
+  | { readonly kind: 'exact_wallet'; readonly walletId: WalletId };
+
+type AuthenticatedWalletAuthentication = Extract<
+  WalletAuthenticationState,
+  { kind: 'authenticated' }
+>;
+
+type CachedEmailOtpWalletAuthenticationOutcome =
+  | WalletAuthenticationRestoreOutcome
+  | { readonly kind: 'absent' };
+
+export type WalletAuthenticationRestoreOutcome =
+  | { readonly kind: 'authenticated'; readonly state: AuthenticatedWalletAuthentication }
+  | { readonly kind: 'rejected' }
+  | { readonly kind: 'uncorrelated' }
+  | { readonly kind: 'unavailable' };
+
+function restoreClaimsRecord(value: unknown): Record<string, unknown> | null {
+  return isPlainObject(value) ? value : null;
+}
+
+export function authenticationFromValidatedSessionState(
+  value: unknown,
+  expectation: WalletAuthenticationRestoreExpectation,
+): WalletAuthenticationRestoreOutcome {
+  const response = restoreClaimsRecord(value);
+  if (response?.authenticated !== true) return { kind: 'rejected' };
+  const claims = restoreClaimsRecord(response.claims);
+  if (claims?.kind !== 'app_session_v1') return { kind: 'rejected' };
+  const provider = claims.provider;
+  const authSource = restoreClaimsRecord(claims.authSource);
+  let walletIdValue: unknown;
+  let authMethod: AuthenticatedWalletAuthentication['authMethod'];
+  if (
+    provider === 'passkey' &&
+    authSource?.kind === 'passkey' &&
+    typeof authSource.credentialIdB64u === 'string' &&
+    authSource.credentialIdB64u.length > 0
+  ) {
+    walletIdValue = claims.walletId ?? claims.sub;
+    authMethod = WALLET_AUTH_METHODS.passkey;
+  } else if (
+    provider === undefined &&
+    authSource?.kind === 'passkey' &&
+    typeof authSource.credentialIdB64u === 'string' &&
+    authSource.credentialIdB64u.length > 0
+  ) {
+    walletIdValue = claims.sub;
+    authMethod = WALLET_AUTH_METHODS.passkey;
+  } else if (
+    provider === undefined &&
+    authSource?.kind === 'oidc_provider' &&
+    parseProviderSubject(authSource.providerSubject).ok
+  ) {
+    return { kind: 'uncorrelated' };
+  } else if (
+    provider === 'oidc' &&
+    authSource?.kind === 'oidc_provider' &&
+    authSource.providerId === 'google_oidc' &&
+    parseProviderSubject(authSource.providerSubject).ok &&
+    authSource.providerSubject === claims.providerSubject
+  ) {
+    walletIdValue = claims.walletId;
+    authMethod = WALLET_AUTH_METHODS.emailOtp;
+  } else if (
+    (provider === 'google' || provider === 'email') &&
+    parseProviderSubject(claims.providerSubject).ok
+  ) {
+    walletIdValue = claims.walletId;
+    authMethod = WALLET_AUTH_METHODS.emailOtp;
+  } else {
+    return { kind: 'rejected' };
+  }
+  const walletId = parseWalletId(walletIdValue);
+  if (!walletId.ok) return { kind: 'uncorrelated' };
+  if (expectation.kind === 'exact_wallet' && walletId.value !== expectation.walletId) {
+    return { kind: 'uncorrelated' };
+  }
+  return {
+    kind: 'authenticated',
+    state: { kind: 'authenticated', walletId: walletId.value, authMethod },
+  };
+}
+
+async function readAuthoritativeWalletAuthentication(args: {
+  readonly relayerUrl: string;
+  readonly auth: AppSessionRestoreAuth;
+  readonly expectation: WalletAuthenticationRestoreExpectation;
+}): Promise<WalletAuthenticationRestoreOutcome> {
+  const headers: HeadersInit = {};
+  if (args.auth.kind === 'jwt') headers.Authorization = `Bearer ${args.auth.jwt}`;
+  try {
+    const response = await fetch(joinNormalizedUrl(args.relayerUrl, '/session/state'), {
+      method: 'GET',
+      headers,
+      credentials: args.auth.kind === 'cookie' ? 'include' : 'omit',
+    });
+    if (response.status === 401 || response.status === 403) return { kind: 'rejected' };
+    if (!response.ok) return { kind: 'unavailable' };
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      return { kind: 'unavailable' };
+    }
+    return authenticationFromValidatedSessionState(body, args.expectation);
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+async function readCachedEmailOtpWalletAuthentication(args: {
+  readonly emailOtpSessions: EmailOtpWalletSessionCoordinator;
+  readonly relayerUrl: string;
+  readonly walletId: WalletId;
+}): Promise<CachedEmailOtpWalletAuthenticationOutcome> {
+  let jwt: string;
+  try {
+    jwt = await args.emailOtpSessions.resolveAppSessionJwtForWallet({
+      walletId: args.walletId,
+      relayUrl: args.relayerUrl,
+    });
+  } catch {
+    return { kind: 'unavailable' };
+  }
+  const parsedJwt = parseAppSessionJwt(jwt);
+  if (!parsedJwt.ok) return { kind: 'absent' };
+  return await readAuthoritativeWalletAuthentication({
+    relayerUrl: args.relayerUrl,
+    auth: { kind: 'jwt', jwt: parsedJwt.value },
+    expectation: { kind: 'exact_wallet', walletId: args.walletId },
+  });
+}
+
+function walletAuthenticationRestoreRequestKey(args: {
+  readonly expectedWalletId: WalletId | null;
+  readonly auth: AppSessionRestoreAuth;
+}): string {
+  const walletKey = args.expectedWalletId ? String(args.expectedWalletId) : 'no_wallet';
+  return args.auth.kind === 'cookie' ? `${walletKey}:cookie` : `${walletKey}:jwt:${args.auth.jwt}`;
+}
+
+function resolveBrowserPasskeyOperationStepUpCredential(args: {
+  walletId: WalletId;
+  relayerUrl: string;
+}): RouterAbEd25519NormalSigningCredential {
+  if (!__isWalletIframeHostMode()) return { kind: 'app_session_cookie' };
+  const appSessionJwt = activeWalletOrHostedAppSessionJwt(
+    String(args.relayerUrl || '').trim(),
+    String(args.walletId),
+  );
+  if (!appSessionJwt) {
+    throw new Error('Wallet iframe app session JWT is unavailable for NEAR step-up');
+  }
+  return { kind: 'app_session_jwt', appSessionJwt };
+}
+
 export class BrowserSigningSurface {
   // Kept as fields for low-level tests that intentionally access internals.
   private readonly touchConfirm: UiConfirmRuntimeBridgePort;
@@ -808,8 +1099,10 @@ export class BrowserSigningSurface {
   private readonly thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>> = new Map();
   private readonly thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey = new Map();
   private readonly thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey = new Map();
-  private readonly nearEd25519CapabilityRehydrationBySubject: Map<string, Promise<void>> =
-    new Map();
+  private readonly nearEd25519CapabilityRehydrationBySubject: Map<
+    string,
+    Promise<NearEd25519CapabilityRehydrationSubject>
+  > = new Map();
   private readonly emailOtpEd25519SilentRecoveryBySubject: Map<
     string,
     Promise<EmailOtpEd25519YaoSilentRecoveryResultV1>
@@ -838,6 +1131,13 @@ export class BrowserSigningSurface {
   private readonly deliveredSdkLifecycleEventKeys = new Set<string>();
   private readonly signingSessionLifecycleSubscription: SigningSessionLifecycleSubscription;
   private readonly nearProvisioningUnsubscribe: () => void;
+  private walletAuthenticationState: WalletAuthenticationState = { kind: 'signed_out' };
+  private readonly walletAuthenticationRestoreInFlight = new Map<
+    string,
+    Promise<WalletAuthenticationState>
+  >();
+  private walletAuthenticationRestorationBlocked = false;
+  private walletAuthenticationRestoreGeneration = 0;
 
   readonly seamsWebConfigs: SeamsConfigsReadonly;
 
@@ -865,6 +1165,7 @@ export class BrowserSigningSurface {
       loadEcdsaRoleLocalReadyRecordFromRuntimePorts.bind(null, runtimePortsForUiConfirm);
 
     const assembly = createManagerAssembly({
+      resolvePasskeyOperationStepUpCredential: resolveBrowserPasskeyOperationStepUpCredential,
       stores: deps.managerStores,
       seamsWebConfigs: this.seamsWebConfigs,
       nearClient: this.nearClient,
@@ -927,6 +1228,8 @@ export class BrowserSigningSurface {
       resolveActiveEcdsaWalletSessionAuthorization:
         createBrowserActiveEcdsaWalletSessionAuthorizationResolver({
           seamsWebConfigs: this.seamsWebConfigs,
+          touchIdPrompt: this.touchIdPrompt,
+          stores: deps.signingEngineStores,
           emailOtpSessions: this.emailOtpSessions,
           sealedSigningSessionStore: deps.sealedSigningSessionStore,
         }),
@@ -937,10 +1240,20 @@ export class BrowserSigningSurface {
       touchConfirm: this.touchConfirm,
       passkeyMpcSession: this.passkeyMpcSession,
       emailOtpSessions: this.emailOtpSessions,
+      ed25519YaoPublicCapabilityLanes: this.ed25519YaoPublicCapabilityReferences,
+      isEd25519YaoPublicCapabilityActive: (reference) =>
+        this.enginePorts.ed25519YaoActiveClients.resolve({
+          walletId: reference.walletId,
+          nearAccountId: reference.nearAccountId,
+          materialActivation: reference.materialActivation,
+        }) !== null,
+      readActiveWalletSessionAuthorization: resolveActiveEd25519WalletSessionAuthorization,
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(
           {
             seamsWebConfigs: this.seamsWebConfigs,
+            touchIdPrompt: this.touchIdPrompt,
+            stores: deps.signingEngineStores,
             emailOtpSessions: this.emailOtpSessions,
             sealedSigningSessionStore: deps.sealedSigningSessionStore,
           },
@@ -948,6 +1261,8 @@ export class BrowserSigningSurface {
         ),
       getWalletSessionStatus: createBrowserCanonicalWalletSessionStatusReader({
         seamsWebConfigs: this.seamsWebConfigs,
+        touchIdPrompt: this.touchIdPrompt,
+        stores: deps.signingEngineStores,
         emailOtpSessions: this.emailOtpSessions,
         sealedSigningSessionStore: deps.sealedSigningSessionStore,
       }),
@@ -983,10 +1298,14 @@ export class BrowserSigningSurface {
         this.resolveEmailOtpEd25519YaoExportContext.bind(this),
       getSigningSessionCoordinator: () => this.enginePorts.signingSessionCoordinator,
       getTheme: () => this.appearance.theme.mode,
+      ed25519YaoPublicCapabilityLanes: deps.ed25519YaoPublicCapabilityReferences,
+      readActiveWalletSessionAuthorization: resolveActiveEd25519WalletSessionAuthorization,
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(
           {
             seamsWebConfigs: this.seamsWebConfigs,
+            touchIdPrompt: this.touchIdPrompt,
+            stores: deps.signingEngineStores,
             emailOtpSessions: this.emailOtpSessions,
             sealedSigningSessionStore: deps.sealedSigningSessionStore,
           },
@@ -1102,7 +1421,7 @@ export class BrowserSigningSurface {
     if (read.kind !== 'found') {
       switch (read.kind) {
         case 'missing':
-          return { kind: 'missing', walletId: exactWalletId };
+          return { kind: 'absent' };
         case 'persistence_unavailable':
           return {
             kind: 'unavailable',
@@ -1126,6 +1445,7 @@ export class BrowserSigningSurface {
       return {
         kind: 'expired',
         walletId: exactWalletId,
+        authorizationId: authorization.authorizationId,
         walletSessionId: authorization.walletSessionId,
         authMethod: authorization.authMethod,
         expiresAtMs: authorization.expiresAtMs,
@@ -1140,35 +1460,19 @@ export class BrowserSigningSurface {
         reason: 'persistence_unavailable',
       };
     }
-    let auth: ReusableWalletSessionStatusAuth;
-    if (authorization.authMethod === WALLET_AUTH_METHODS.emailOtp) {
-      const appSessionJwt = await this.emailOtpSessions
-        .resolveAppSessionJwt({
-          walletSession: {
-            walletId: exactWalletId,
-            walletSessionUserId: String(authorization.authority.authorityDigest),
-          },
-          relayUrl: relayerUrl,
-        })
-        .catch(() => '');
-      const parsedAppSessionJwt = parseAppSessionJwt(appSessionJwt);
-      if (!parsedAppSessionJwt.ok) {
-        return {
-          kind: 'unavailable',
-          walletId: exactWalletId,
-          reason: 'persistence_unavailable',
-        };
-      }
-      auth = {
-        kind: 'app_session_jwt',
-        appSessionJwt: parsedAppSessionJwt.value,
+    const statusCurve =
+      authorization.walletSessionTokens.kind === 'evm_family_ecdsa' ? 'ecdsa' : 'ed25519';
+    const walletSessionJwt = walletSessionJwtForCurve(authorization, statusCurve);
+    if (!walletSessionJwt) {
+      return {
+        kind: 'unavailable',
+        walletId: exactWalletId,
+        reason: 'persistence_unavailable',
       };
-    } else {
-      auth = { kind: 'app_session_cookie' };
     }
     const status = await createRelayerReusableWalletSessionStatusPort({
       relayerUrl,
-      auth,
+      auth: { kind: 'wallet_session', jwt: walletSessionJwt },
     })
       .read({
         walletSessionId: authorization.walletSessionId,
@@ -1187,6 +1491,7 @@ export class BrowserSigningSurface {
         return {
           kind: 'active',
           walletId: exactWalletId,
+          authorizationId: authorization.authorizationId,
           walletSessionId: authorization.walletSessionId,
           authMethod: authorization.authMethod,
           remainingUses: status.remainingUses,
@@ -1196,6 +1501,7 @@ export class BrowserSigningSurface {
         return {
           kind: 'exhausted',
           walletId: exactWalletId,
+          authorizationId: authorization.authorizationId,
           walletSessionId: authorization.walletSessionId,
           authMethod: authorization.authMethod,
           remainingUses: 0,
@@ -1212,6 +1518,7 @@ export class BrowserSigningSurface {
         return {
           kind: 'expired',
           walletId: exactWalletId,
+          authorizationId: authorization.authorizationId,
           walletSessionId: authorization.walletSessionId,
           authMethod: authorization.authMethod,
           expiresAtMs: status.expiresAtMs,
@@ -1225,7 +1532,13 @@ export class BrowserSigningSurface {
             retiredAtMs: nowMs,
           }),
         );
-        return { kind: 'missing', walletId: exactWalletId };
+        return {
+          kind: 'missing',
+          walletId: exactWalletId,
+          authorizationId: authorization.authorizationId,
+          walletSessionId: authorization.walletSessionId,
+          authMethod: authorization.authMethod,
+        };
       case 'superseded':
         await walletSessionAuthorizations.write(
           retireWalletSessionAuthorizationProjection({
@@ -1239,6 +1552,7 @@ export class BrowserSigningSurface {
         return {
           kind: 'superseded',
           walletId: exactWalletId,
+          authorizationId: authorization.authorizationId,
           walletSessionId: authorization.walletSessionId,
           authMethod: authorization.authMethod,
           detectedAtMs: nowMs,
@@ -1253,6 +1567,152 @@ export class BrowserSigningSurface {
         );
         return { kind: 'invalid', walletId: exactWalletId, reason: 'identity_mismatch' };
     }
+  }
+
+  readWalletAuthenticationState(): WalletAuthenticationState {
+    return this.walletAuthenticationState;
+  }
+
+  async restoreWalletAuthenticationState(
+    walletId?: WalletId | string,
+    appSessionJwt?: string,
+  ): Promise<WalletAuthenticationState> {
+    if (walletId === undefined) {
+      await this.userPreferencesManager.initFromIndexedDB();
+      walletId = this.userPreferencesManager.getCurrentWalletId() ?? undefined;
+    }
+    const expectedWalletId = walletId == null ? null : parseWalletId(walletId);
+    const explicitJwt = parseAppSessionJwt(appSessionJwt);
+    if (appSessionJwt !== undefined && !explicitJwt.ok) {
+      this.walletAuthenticationRestoreGeneration += 1;
+      this.walletAuthenticationState = { kind: 'signed_out' };
+      return this.walletAuthenticationState;
+    }
+    if (expectedWalletId && !expectedWalletId.ok) return this.walletAuthenticationState;
+    if (this.walletAuthenticationRestorationBlocked) return this.walletAuthenticationState;
+    const expected = expectedWalletId?.ok ? expectedWalletId.value : null;
+    const auth: AppSessionRestoreAuth = explicitJwt.ok
+      ? { kind: 'jwt', jwt: explicitJwt.value }
+      : { kind: 'cookie' };
+    const expectation: WalletAuthenticationRestoreExpectation = expectedWalletId?.ok
+      ? { kind: 'exact_wallet', walletId: expectedWalletId.value }
+      : { kind: 'derive_wallet' };
+    const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
+    if (!relayerUrl) return this.walletAuthenticationState;
+    const restoreKey = walletAuthenticationRestoreRequestKey({
+      expectedWalletId: expected,
+      auth,
+    });
+    const currentRestore = this.walletAuthenticationRestoreInFlight.get(restoreKey);
+    if (currentRestore) return await currentRestore;
+    const restoreGeneration = ++this.walletAuthenticationRestoreGeneration;
+    const restorePromise = this.restoreWalletAuthenticationStateForGeneration({
+      relayerUrl,
+      auth,
+      expectation,
+      expectedWalletId: expected,
+      restoreGeneration,
+    });
+    this.walletAuthenticationRestoreInFlight.set(restoreKey, restorePromise);
+    try {
+      return await restorePromise;
+    } finally {
+      if (this.walletAuthenticationRestoreInFlight.get(restoreKey) === restorePromise) {
+        this.walletAuthenticationRestoreInFlight.delete(restoreKey);
+      }
+    }
+  }
+
+  private async restoreWalletAuthenticationStateForGeneration(args: {
+    readonly relayerUrl: string;
+    readonly auth: AppSessionRestoreAuth;
+    readonly expectation: WalletAuthenticationRestoreExpectation;
+    readonly expectedWalletId: WalletId | null;
+    readonly restoreGeneration: number;
+  }): Promise<WalletAuthenticationState> {
+    const authoritative = await readAuthoritativeWalletAuthentication({
+      relayerUrl: args.relayerUrl,
+      auth: args.auth,
+      expectation: args.expectation,
+    });
+    if (authoritative.kind === 'authenticated') {
+      if (args.restoreGeneration === this.walletAuthenticationRestoreGeneration) {
+        this.walletAuthenticationState = authoritative.state;
+      }
+      return this.walletAuthenticationState;
+    }
+
+    const cookieEmailOtpFallbackAllowed =
+      args.auth.kind === 'cookie' &&
+      authoritative.kind === 'rejected' &&
+      (this.walletAuthenticationState.kind === 'signed_out' ||
+        this.walletAuthenticationState.authMethod === 'email_otp');
+    const shouldReadCachedEmailOtp =
+      args.expectedWalletId !== null &&
+      (authoritative.kind === 'uncorrelated' || cookieEmailOtpFallbackAllowed);
+    if (shouldReadCachedEmailOtp) {
+      const cached = await readCachedEmailOtpWalletAuthentication({
+        emailOtpSessions: this.emailOtpSessions,
+        relayerUrl: args.relayerUrl,
+        walletId: args.expectedWalletId,
+      });
+      if (cached.kind === 'authenticated') {
+        if (args.restoreGeneration === this.walletAuthenticationRestoreGeneration) {
+          this.walletAuthenticationState = cached.state;
+        }
+        return this.walletAuthenticationState;
+      }
+      if (cached.kind === 'unavailable') {
+        if (
+          authoritative.kind === 'rejected' &&
+          args.auth.kind === 'cookie' &&
+          this.walletAuthenticationState.kind === 'authenticated' &&
+          this.walletAuthenticationState.authMethod === WALLET_AUTH_METHODS.passkey
+        ) {
+          this.clearWalletAuthenticationFromRestoration(args);
+        }
+        return this.walletAuthenticationState;
+      }
+      if (cached.kind === 'rejected' || cached.kind === 'uncorrelated') {
+        this.clearWalletAuthenticationFromRestoration(args);
+        return this.walletAuthenticationState;
+      }
+      if (args.auth.kind === 'jwt') return this.walletAuthenticationState;
+    }
+
+    if (authoritative.kind === 'rejected') {
+      this.clearWalletAuthenticationFromRestoration(args);
+    }
+    return this.walletAuthenticationState;
+  }
+
+  private clearWalletAuthenticationFromRestoration(args: {
+    readonly expectedWalletId: WalletId | null;
+    readonly restoreGeneration: number;
+  }): void {
+    if (args.restoreGeneration !== this.walletAuthenticationRestoreGeneration) return;
+    if (
+      args.expectedWalletId !== null &&
+      this.walletAuthenticationState.kind === 'authenticated' &&
+      this.walletAuthenticationState.walletId !== args.expectedWalletId
+    ) {
+      return;
+    }
+    this.walletAuthenticationState = { kind: 'signed_out' };
+  }
+
+  setWalletAuthenticated(
+    state: Extract<WalletAuthenticationState, { kind: 'authenticated' }>,
+  ): void {
+    this.walletAuthenticationRestoreGeneration += 1;
+    this.walletAuthenticationRestorationBlocked = false;
+    this.walletAuthenticationState = state;
+  }
+
+  clearWalletAuthentication(): void {
+    this.walletAuthenticationRestoreGeneration += 1;
+    this.walletAuthenticationRestorationBlocked = true;
+    this.walletAuthenticationState = { kind: 'signed_out' };
   }
 
   async warmCriticalResources(
@@ -1317,8 +1777,8 @@ export class BrowserSigningSurface {
     const rehydrationKey = nearEd25519CapabilityRehydrationKey(subject);
     const existingRehydration = this.nearEd25519CapabilityRehydrationBySubject.get(rehydrationKey);
     if (existingRehydration) {
-      await existingRehydration;
-      const rehydrated = await this.resolveActiveNearEd25519YaoSigningLane(subject);
+      const reboundSubject = await existingRehydration;
+      const rehydrated = await this.resolveActiveNearEd25519YaoSigningLane(reboundSubject);
       if (rehydrated) return rehydrated;
       throw new Error('[SigningEngine][near] joined rehydration did not publish an active lane');
     }
@@ -1326,15 +1786,15 @@ export class BrowserSigningSurface {
     const rehydration = this.rehydrateNearEd25519YaoCapabilityForSigning(subject);
     this.nearEd25519CapabilityRehydrationBySubject.set(rehydrationKey, rehydration);
     try {
-      await rehydration;
+      const reboundSubject = await rehydration;
+      const rehydrated = await this.resolveActiveNearEd25519YaoSigningLane(reboundSubject);
+      if (rehydrated) return rehydrated;
+      throw new Error('[SigningEngine][near] local material rehydration did not publish a lane');
     } finally {
       if (this.nearEd25519CapabilityRehydrationBySubject.get(rehydrationKey) === rehydration) {
         this.nearEd25519CapabilityRehydrationBySubject.delete(rehydrationKey);
       }
     }
-    const rehydrated = await this.resolveActiveNearEd25519YaoSigningLane(subject);
-    if (rehydrated) return rehydrated;
-    throw new Error('[SigningEngine][near] local material rehydration did not publish a lane');
   }
 
   private async rehydrateExactPasskeyEd25519YaoCapabilityForSigning(
@@ -1373,29 +1833,42 @@ export class BrowserSigningSurface {
       walletId: args.walletId,
       identity,
     });
-    const publicLocatorBase = nearEd25519PublicLocatorObservation({
-      references: await this.ed25519YaoPublicCapabilityReferences.list(),
+    const materialActivation = sealedRuntime.sealedRecord.ed25519Restore.materialActivation;
+    const activeCapability = this.enginePorts.ed25519YaoActiveClients.resolve({
       walletId: identity.signer.account.wallet.walletId,
       nearAccountId: identity.signer.account.nearAccountId,
-      signerSlot: identity.signer.signerSlot,
+      materialActivation,
     });
-    const activeCapability =
-      publicLocatorBase.kind === 'available'
-        ? this.enginePorts.ed25519YaoActiveClients.resolve({
-            walletId: identity.signer.account.wallet.walletId,
-            nearAccountId: identity.signer.account.nearAccountId,
-            materialActivation: publicLocatorBase.materialActivation,
-          })
-        : null;
     const runtimeObservation = nearEd25519YaoRuntimeObservation(activeCapability);
     let hydration: MpcCapabilityHydrationPlan;
     switch (identity.auth.kind) {
       case WALLET_AUTH_METHODS.passkey: {
+        const activeAuthorization = await resolveActiveEd25519WalletSessionAuthorization(
+          sealedRuntime.walletId,
+        );
+        const walletSessionState = activeAuthorization
+          ? await walletSessionStateFromExactEd25519Runtime(sealedRuntime)
+          : null;
+        const warmSessionClaim = walletSessionState
+          ? await this.ensurePasskeyEd25519WarmSessionForSigning({
+              runtime: sealedRuntime,
+              walletSessionState,
+              materialActivation,
+            })
+          : await this.passkeyMpcSession.claimWarmSessionMaterial({
+              thresholdSessionId: sealedRuntime.thresholdSessionId,
+              purpose: { curve: 'ed25519', materialActivation },
+              consume: false,
+            });
         const authority = await ed25519SealedRuntimeAuthorityRef(sealedRuntime);
-        const publicLocator =
-          publicLocatorBase.kind === 'available'
-            ? { ...publicLocatorBase, authority }
-            : publicLocatorBase;
+        const publicLocator = {
+          kind: 'available' as const,
+          walletId: String(identity.signer.account.wallet.walletId),
+          nearAccountId: String(identity.signer.account.nearAccountId),
+          signerSlot: identity.signer.signerSlot,
+          materialActivation,
+          authority,
+        };
         const localMaterial = await readPasskeyEd25519YaoLocalMaterialLocatorV1({
           store: IndexedDBManager,
           walletId: String(identity.signer.account.wallet.walletId),
@@ -1414,10 +1887,12 @@ export class BrowserSigningSurface {
                   authority: localMaterial.locator.authority,
                   materialActivation: localMaterial.locator.materialActivation,
                   sealedMaterial: localMaterial.locator.sealedMaterial,
-                }
-              : { kind: 'missing' },
+              }
+            : { kind: 'missing' },
           runtime: runtimeObservation,
-          unlockSource: { kind: 'unavailable' },
+          unlockSource: warmSessionClaim.ok
+            ? { kind: 'available', authority }
+            : { kind: 'unavailable' },
         });
         break;
       }
@@ -1429,7 +1904,13 @@ export class BrowserSigningSurface {
             signerSlot: identity.signer.signerSlot,
             thresholdSessionId: identity.thresholdSessionId,
           },
-          publicLocator: publicLocatorBase,
+          publicLocator: {
+            kind: 'available',
+            walletId: String(identity.signer.account.wallet.walletId),
+            nearAccountId: String(identity.signer.account.nearAccountId),
+            signerSlot: identity.signer.signerSlot,
+            materialActivation,
+          },
           runtime: runtimeObservation,
           readExactEd25519SealedSession,
         });
@@ -1469,25 +1950,40 @@ export class BrowserSigningSurface {
         });
         const walletSessionState = await walletSessionStateFromExactEd25519Runtime(sealedRuntime);
         const signer = walletSessionState.signingLane.identity.signer;
-        const publicLocator = nearEd25519PublicLocatorObservation({
-          references: await this.ed25519YaoPublicCapabilityReferences.list(),
+        const materialActivation = sealedRuntime.sealedRecord.ed25519Restore.materialActivation;
+        const publicLocator = {
+          kind: 'available' as const,
+          walletId: String(signer.account.wallet.walletId),
+          nearAccountId: String(signer.account.nearAccountId),
+          signerSlot: signer.signerSlot,
+          materialActivation,
+        } satisfies PasskeyEd25519YaoPublicLocatorObservationV1;
+        const activeMaterial = this.enginePorts.ed25519YaoActiveClients.resolve({
           walletId: signer.account.wallet.walletId,
           nearAccountId: signer.account.nearAccountId,
-          signerSlot: signer.signerSlot,
+          materialActivation,
         });
-        const activeMaterial =
-          publicLocator.kind === 'available'
-            ? this.enginePorts.ed25519YaoActiveClients.resolve({
-                walletId: signer.account.wallet.walletId,
-                nearAccountId: signer.account.nearAccountId,
-                materialActivation: publicLocator.materialActivation,
+        const warmSessionClaim =
+          args.auth.kind === WALLET_AUTH_METHODS.passkey
+            ? await this.passkeyMpcSession.claimWarmSessionMaterial({
+                thresholdSessionId: sealedRuntime.thresholdSessionId,
+                purpose: { curve: 'ed25519', materialActivation },
+                consume: false,
               })
             : null;
+        let unlockSource: PasskeyEd25519YaoUnlockSourceV1 = { kind: 'unavailable' };
+        if (warmSessionClaim?.ok === true) {
+          unlockSource = {
+            kind: 'available',
+            passkeyPrfFirstB64u: warmSessionClaim.prfFirstB64u,
+          };
+        }
         const hydration = await this.resolveExactNearEd25519YaoSigningHydration({
           args,
           walletSessionState,
           publicLocator,
           runtime: nearEd25519YaoRuntimeObservation(activeMaterial),
+          unlockSource,
         });
         return buildAuthorizedNearEd25519YaoSigningPreparation({
           hydration,
@@ -1616,20 +2112,18 @@ export class BrowserSigningSurface {
         switch (args.auth.kind) {
           case WALLET_AUTH_METHODS.passkey:
             return validateExactNearEd25519YaoOperationMaterial({
-              material:
-                await this.rehydrateExactPasskeyEd25519YaoCapabilityForSigning(args),
+              material: await this.rehydrateExactPasskeyEd25519YaoCapabilityForSigning(args),
               input: args,
               expectedActivation,
             });
           case WALLET_AUTH_METHODS.emailOtp: {
-            const recovery =
-              await this.recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning({
-                walletId: args.walletId,
-                nearAccountId: args.nearAccountId,
-                signerSlot: args.laneIdentity.signer.signerSlot,
-                thresholdSessionId: args.laneIdentity.thresholdSessionId,
-                materialActivation: expectedActivation,
-              });
+            const recovery = await this.recoverExactEmailOtpEd25519YaoCapabilitySilentlyForSigning({
+              walletId: args.walletId,
+              nearAccountId: args.nearAccountId,
+              signerSlot: args.laneIdentity.signer.signerSlot,
+              thresholdSessionId: args.laneIdentity.thresholdSessionId,
+              materialActivation: expectedActivation,
+            });
             switch (recovery.kind) {
               case 'recovered':
                 return validateExactNearEd25519YaoOperationMaterial({
@@ -1664,7 +2158,7 @@ export class BrowserSigningSurface {
 
   private async resolveExactNearEd25519YaoWalletSessionState(
     context: PreparedNearEd25519YaoMaterialContext,
-  ): Promise<NearResolvedEd25519SigningSessionState> {
+  ): Promise<ResolvedRouterAbEd25519WalletSessionState> {
     const args = requireAuthorizedNearEd25519BoundaryInput(context.input);
     const runtime = await requireExactEd25519SealedRuntimeForLane({
       walletId: args.walletId,
@@ -1813,6 +2307,7 @@ export class BrowserSigningSurface {
     walletSessionState: NearResolvedEd25519SigningSessionState;
     publicLocator: PasskeyEd25519YaoPublicLocatorObservationV1;
     runtime: NearEd25519YaoRuntimeObservationV1;
+    unlockSource: PasskeyEd25519YaoUnlockSourceV1;
   }): Promise<MpcCapabilityHydrationPlan> {
     const args = requireAuthorizedNearEd25519BoundaryInput(input.args);
     switch (args.auth.kind) {
@@ -1820,7 +2315,8 @@ export class BrowserSigningSurface {
         const resolved = await this.resolvePasskeyEd25519YaoHydration({
           walletSessionState: input.walletSessionState,
           credentialIdB64u: args.auth.credentialIdB64u,
-          unlockSource: { kind: 'unavailable' },
+          publicLocator: input.publicLocator,
+          unlockSource: input.unlockSource,
         });
         let hydration: MpcCapabilityHydrationPlan;
         switch (resolved.kind) {
@@ -1830,9 +2326,8 @@ export class BrowserSigningSurface {
             break;
           case 'rehydrated':
             resolved.activeClient.dispose();
-            throw new Error(
-              '[SigningEngine][near] unavailable unlock source rehydrated Passkey material',
-            );
+            hydration = resolved.plan;
+            break;
           default:
             resolved satisfies never;
             throw new Error('[SigningEngine][near] unsupported Passkey hydration result');
@@ -1855,7 +2350,7 @@ export class BrowserSigningSurface {
             walletId: args.walletId,
             nearAccountId: args.nearAccountId,
             signerSlot: args.laneIdentity.signer.signerSlot,
-                thresholdSessionId: args.laneIdentity.thresholdSessionId,
+            thresholdSessionId: args.laneIdentity.thresholdSessionId,
           },
           publicLocator: input.publicLocator,
           runtime: input.runtime,
@@ -1894,12 +2389,13 @@ export class BrowserSigningSurface {
       throw new Error('[SigningEngine][near] sealed Ed25519 passkey authority is unavailable');
     }
     const signer = walletSessionState.signingLane.identity.signer;
-    const publicLocator = nearEd25519PublicLocatorObservation({
-      references: await this.ed25519YaoPublicCapabilityReferences.list(),
-      walletId: signer.account.wallet.walletId,
-      nearAccountId: signer.account.nearAccountId,
+    const publicLocator: PasskeyEd25519YaoPublicLocatorObservationV1 = {
+      kind: 'available',
+      walletId: String(signer.account.wallet.walletId),
+      nearAccountId: String(signer.account.nearAccountId),
       signerSlot: signer.signerSlot,
-    });
+      materialActivation: runtime.sealedRecord.ed25519Restore.materialActivation,
+    };
     const prepared = await preparePasskeyEd25519YaoLocalMaterialRehydrationV1({
       store: IndexedDBManager,
       walletSessionState,
@@ -2075,12 +2571,32 @@ export class BrowserSigningSurface {
     if (!relayerUrl) {
       throw new Error('[SigningEngine][ed25519-export] passkey export requires relayerUrl');
     }
+    const runtime = await requireExactEd25519SealedRuntimeForExport({
+      walletId: toWalletId(String(args.laneIdentity.signer.account.wallet.walletId)),
+      laneIdentity: args.laneIdentity,
+      materialActivation: args.materialActivation,
+    });
+    let thresholdSessionId = args.laneIdentity.thresholdSessionId;
+    const activeAuthorization = await resolveActiveEd25519WalletSessionAuthorization(
+      runtime.walletId,
+    );
+    if (activeAuthorization) {
+      const walletSessionState = await walletSessionStateFromExactEd25519Runtime(runtime);
+      const warmSessionClaim = await this.ensurePasskeyEd25519WarmSessionForSigning({
+        runtime,
+        walletSessionState,
+        materialActivation: args.materialActivation,
+      });
+      if (warmSessionClaim.ok) {
+        thresholdSessionId = walletSessionState.thresholdSessionId;
+      }
+    }
     const input = {
       subject: {
         walletId: toWalletId(String(args.laneIdentity.signer.account.wallet.walletId)),
         nearAccountId: String(args.laneIdentity.signer.account.nearAccountId),
         signerSlot: args.laneIdentity.signer.signerSlot,
-        thresholdSessionId: args.laneIdentity.thresholdSessionId,
+        thresholdSessionId,
         materialActivation: args.materialActivation,
       },
       relayerUrl,
@@ -2100,12 +2616,10 @@ export class BrowserSigningSurface {
     return await resolvePasskeyEd25519YaoExportContextV1(input);
   }
 
-  private async resolveEmailOtpEd25519YaoExportContext(
-    args: {
-      laneIdentity: Parameters<typeof resolveEmailOtpEd25519YaoExportContextV1>[0]['subject'];
-      materialActivation: MpcMaterialActivationRef;
-    },
-  ): Promise<ResolvedEmailOtpEd25519YaoExportV1> {
+  private async resolveEmailOtpEd25519YaoExportContext(args: {
+    laneIdentity: Parameters<typeof resolveEmailOtpEd25519YaoExportContextV1>[0]['subject'];
+    materialActivation: MpcMaterialActivationRef;
+  }): Promise<ResolvedEmailOtpEd25519YaoExportV1> {
     const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
     if (!relayerUrl) {
       throw new Error('[SigningEngine][ed25519-export] Email OTP export requires relayerUrl');
@@ -2163,9 +2677,50 @@ export class BrowserSigningSurface {
     return matches[0] || null;
   }
 
+  private async ensurePasskeyEd25519WarmSessionForSigning(args: {
+    runtime: ExactEd25519SealedSessionRuntime;
+    walletSessionState: NearResolvedEd25519SigningSessionState;
+    materialActivation: MpcMaterialActivationRef;
+  }): Promise<WarmSessionClaimResult> {
+    const claim = await ensurePasskeyEd25519WarmSessionForSigning({
+      ...args,
+      claimWarmSessionMaterial: this.passkeyMpcSession.claimWarmSessionMaterial.bind(
+        this.passkeyMpcSession,
+      ),
+      rehydrateWarmSessionMaterial: this.passkeyMpcSession.rehydrateWarmSessionMaterial.bind(
+        this.passkeyMpcSession,
+      ),
+    });
+    if (
+      claim.ok &&
+      args.runtime.factor.kind === 'passkey' &&
+      String(args.runtime.thresholdSessionId) !== String(args.walletSessionState.thresholdSessionId)
+    ) {
+      await persistPasskeyEd25519YaoSessionForRefresh({
+        persistence: this,
+        session: args.walletSessionState,
+        prfFirstB64u: claim.prfFirstB64u,
+        ed25519Restore: buildPasskeyEd25519RestoreMetadata({
+          rpId: args.runtime.factor.rpId,
+          nearAccountId: args.runtime.nearAccountId,
+          nearEd25519SigningKeyId: args.runtime.nearEd25519SigningKeyId,
+          relayerKeyId: args.runtime.relayerKeyId,
+          participantIds: args.runtime.participantIds,
+          runtimePolicyScope: args.runtime.runtimePolicyScope,
+          signerSlot: args.runtime.signerSlot,
+          routerAbNormalSigning: args.runtime.routerAbNormalSigning,
+          credentialIdB64u: args.runtime.factor.credentialIdB64u,
+          materialActivation: args.materialActivation,
+        }),
+        materialActivation: args.materialActivation,
+      });
+    }
+    return claim;
+  }
+
   private async rehydrateNearEd25519YaoCapabilityForSigning(
     subject: NearEd25519CapabilityRehydrationSubject,
-  ): Promise<void> {
+  ): Promise<NearEd25519CapabilityRehydrationSubject> {
     const lane = await this.resolveNearEd25519YaoSigningLane(subject);
     if (!lane) {
       throw new Error('[SigningEngine][near] local Ed25519 material lane is unavailable');
@@ -2186,20 +2741,78 @@ export class BrowserSigningSurface {
             laneIdentity,
           });
     const walletSessionState = await walletSessionStateFromExactEd25519Runtime(runtime);
-    const credentialIdB64u =
-      runtime.factor.kind === 'passkey' ? runtime.factor.credentialIdB64u : '';
-    if (!credentialIdB64u) {
+    if (runtime.factor.kind !== 'passkey') {
       throw new Error('[SigningEngine][near] persisted Ed25519 credential is unavailable');
     }
+    const credentialIdB64u = runtime.factor.credentialIdB64u;
+    const materialActivation = runtime.sealedRecord.ed25519Restore.materialActivation;
+    if (!mpcMaterialActivationRefsEqual(materialActivation, lane.materialActivation)) {
+      throw new Error('[SigningEngine][near] persisted Ed25519 material activation mismatch');
+    }
+    const warmSessionClaim = await this.ensurePasskeyEd25519WarmSessionForSigning({
+      runtime,
+      walletSessionState,
+      materialActivation,
+    });
+    const publicLocator: PasskeyEd25519YaoPublicLocatorObservationV1 = {
+      kind: 'available',
+      walletId: String(walletSessionState.signingLane.identity.signer.account.wallet.walletId),
+      nearAccountId: String(walletSessionState.signingLane.identity.signer.account.nearAccountId),
+      signerSlot: walletSessionState.signingLane.identity.signer.signerSlot,
+      materialActivation,
+    };
     const liveHydration = await this.resolvePasskeyEd25519YaoHydration({
       walletSessionState,
       credentialIdB64u,
-      unlockSource: { kind: 'unavailable' },
+      publicLocator,
+      unlockSource: warmSessionClaim.ok
+        ? { kind: 'available', passkeyPrfFirstB64u: warmSessionClaim.prfFirstB64u }
+        : { kind: 'unavailable' },
     });
-    if (liveHydration.kind === 'live') return;
+    if (liveHydration.kind === 'live') return subject;
     if (liveHydration.kind === 'rehydrated') {
-      liveHydration.activeClient.dispose();
-      throw new Error('[SigningEngine][near] unavailable unlock source rehydrated local material');
+      if (!warmSessionClaim.ok) {
+        liveHydration.activeClient.dispose();
+        throw new Error('[SigningEngine][near] local material rehydration lost the PRF secret');
+      }
+      try {
+        await persistPasskeyEd25519YaoSessionForRefresh({
+          persistence: this,
+          session: walletSessionState,
+          prfFirstB64u: warmSessionClaim.prfFirstB64u,
+          ed25519Restore: buildPasskeyEd25519RestoreMetadata({
+            rpId: runtime.factor.rpId,
+            nearAccountId: runtime.nearAccountId,
+            nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
+            relayerKeyId: runtime.relayerKeyId,
+            participantIds: runtime.participantIds,
+            runtimePolicyScope: runtime.runtimePolicyScope,
+            signerSlot: runtime.signerSlot,
+            routerAbNormalSigning: runtime.routerAbNormalSigning,
+            credentialIdB64u,
+            materialActivation,
+          }),
+          materialActivation,
+        });
+        await this.enginePorts.ed25519YaoActiveClients.activate({
+          activeClient: liveHydration.activeClient,
+          facts: nearEd25519YaoOperationMaterialFacts(walletSessionState),
+        });
+        const reboundSubject = currentNearEd25519CapabilityRehydrationSubject({
+          subject,
+          walletSessionState,
+        });
+        const published = await this.resolveActiveNearEd25519YaoSigningLane(reboundSubject);
+        if (!published) {
+          throw new Error(
+            '[SigningEngine][near] local material rehydration did not publish an active lane',
+          );
+        }
+        return reboundSubject;
+      } catch (error) {
+        liveHydration.activeClient.dispose();
+        throw error;
+      }
     }
     if (liveHydration.plan.reason !== 'missing_material') {
       throw new Error(
@@ -2214,28 +2827,23 @@ export class BrowserSigningSurface {
   private async resolvePasskeyEd25519YaoHydration(args: {
     walletSessionState: NearResolvedEd25519SigningSessionState;
     credentialIdB64u: string;
+    publicLocator: PasskeyEd25519YaoPublicLocatorObservationV1;
     unlockSource: PasskeyEd25519YaoUnlockSourceV1;
   }): ReturnType<typeof hydratePasskeyEd25519YaoLocalMaterialV1> {
     const signer = args.walletSessionState.signingLane.identity.signer;
-    const publicLocator = nearEd25519PublicLocatorObservation({
-      references: await this.ed25519YaoPublicCapabilityReferences.list(),
-      walletId: signer.account.wallet.walletId,
-      nearAccountId: signer.account.nearAccountId,
-      signerSlot: signer.signerSlot,
-    });
     return hydratePasskeyEd25519YaoLocalMaterialV1({
       store: IndexedDBManager,
       walletSessionState: args.walletSessionState,
       rpId: this.getRpId(),
       credentialIdB64u: args.credentialIdB64u,
-      publicLocator,
+      publicLocator: args.publicLocator,
       unlockSource: args.unlockSource,
       liveMaterial:
-        publicLocator.kind === 'available'
+        args.publicLocator.kind === 'available'
           ? this.enginePorts.ed25519YaoActiveClients.resolve({
               walletId: signer.account.wallet.walletId,
               nearAccountId: signer.account.nearAccountId,
-              materialActivation: publicLocator.materialActivation,
+              materialActivation: args.publicLocator.materialActivation,
             })
           : null,
     });
@@ -2317,6 +2925,18 @@ export class BrowserSigningSurface {
     args: Parameters<typeof registrationPublic.activateAuthenticatedWalletState>[1],
   ): ReturnType<typeof registrationPublic.activateAuthenticatedWalletState> {
     return registrationPublic.activateAuthenticatedWalletState(this.registrationPublicDeps, args);
+  }
+
+  async upsertEd25519YaoPublicCapabilityReference(
+    identity: Ed25519YaoPublicCapabilityReferenceV1,
+  ): Promise<void> {
+    await this.ed25519YaoPublicCapabilityReferences.upsert(identity);
+  }
+
+  async upsertEd25519YaoPublicCapabilityLaneReference(
+    reference: Ed25519YaoPublicCapabilityLaneReferenceV1,
+  ): Promise<void> {
+    await this.ed25519YaoPublicCapabilityReferences.upsertLane(reference);
   }
 
   setWalletNearProvisioningState(
@@ -2532,9 +3152,7 @@ export class BrowserSigningSurface {
   }
 
   persistSigningSessionSealForThresholdSession(
-    input: Parameters<
-      PasskeyMpcSessionPort['persistSigningSessionSealForThresholdSession']
-    >[0],
+    input: Parameters<PasskeyMpcSessionPort['persistSigningSessionSealForThresholdSession']>[0],
   ): ReturnType<PasskeyMpcSessionPort['persistSigningSessionSealForThresholdSession']> {
     return this.passkeyMpcSession.persistSigningSessionSealForThresholdSession(input);
   }
@@ -2652,56 +3270,16 @@ export class BrowserSigningSurface {
       args.walletSession,
     );
     if (!resolved) return null;
-    const sealedRecords = await listExactSealedSessionsForWallet({
-      walletId: String(resolved.identity.walletId),
-      filter: { authMethod: 'email_otp', curve: 'ed25519' },
-    });
-    const exactRecords: CurrentSealedSessionRecord[] = [];
-    for (const record of sealedRecords) {
-      if (
-        isExactEmailOtpEd25519RecoveryRecord({
-          record,
-          providerSubjectId: resolved.providerSubject,
-          nearAccountId: String(resolved.user.nearAccountId),
-          signerSlot: resolved.user.signerSlot,
-          materialActivation: resolved.identity.materialActivation,
-        })
-      ) {
-        exactRecords.push(record);
-      }
-    }
-    if (exactRecords.length !== 1) {
-      throw new Error(
-        'Email OTP Ed25519 Yao login requires an exact persisted authorization session',
-      );
-    }
-    const authorizationRecord = exactRecords[0];
-    const authorizationRestore = authorizationRecord.ed25519Restore;
-    if (authorizationRecord.curve !== 'ed25519' || !authorizationRestore) {
-      throw new Error(
-        'Email OTP Ed25519 Yao login requires exact Ed25519 restore metadata',
-      );
-    }
-    const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
-      authorizationRestore.runtimePolicyScope,
-    );
-    if (!runtimePolicyScope) {
-      throw new Error(
-        'Email OTP Ed25519 Yao login requires an exact persisted runtime policy scope',
-      );
-    }
     return prepareColdEmailOtpEd25519YaoRecoveryV1({
       identity: resolved.identity,
-      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
-        authorizationRecord.thresholdSessionIds.ed25519,
-      ),
+      thresholdSessionId: resolved.identity.thresholdSessionId,
       signerSlot: resolved.user.signerSlot,
       expectedOperationalPublicKey: resolved.user.operationalPublicKey,
       providerSubject: resolved.providerSubject,
       emailHashHex: args.emailHashHex,
       rpId: this.getRpId(),
       relayerUrl: this.seamsWebConfigs.network.relayer?.url || '',
-      runtimePolicyScope,
+      runtimePolicyScope: resolved.identity.runtimePolicyScope,
       authPolicy: this.seamsWebConfigs.signing.emailOtp.authPolicy,
       remainingUses: args.remainingUses,
       resolveActiveCapability:
@@ -2752,7 +3330,16 @@ export class BrowserSigningSurface {
       walletSessionState: recovered.walletSessionState,
       publicationContext: recovered.publicationContext,
     });
-    this.requireCurrentEmailOtpEd25519Activation(args.prepared);
+    await this.upsertEd25519YaoPublicCapabilityLaneReference(
+      emailOtpEd25519YaoLaneReferenceFromRecovery({
+        walletSessionState: recovered.walletSessionState,
+        materialActivation: recovered.publicationContext.materialActivation,
+      }),
+    );
+    this.requireCurrentEmailOtpEd25519Activation(
+      args.prepared,
+      recovered.publicationContext.materialActivation,
+    );
     return recovered.walletSessionState.signingLane.identity.signer;
   }
 
@@ -2794,7 +3381,16 @@ export class BrowserSigningSurface {
       walletSessionState: activated.walletSessionState,
       publicationContext: activated.publicationContext,
     });
-    this.requireCurrentEmailOtpEd25519Activation(args.prepared);
+    await this.upsertEd25519YaoPublicCapabilityLaneReference(
+      emailOtpEd25519YaoLaneReferenceFromRecovery({
+        walletSessionState: activated.walletSessionState,
+        materialActivation: activated.publicationContext.materialActivation,
+      }),
+    );
+    this.requireCurrentEmailOtpEd25519Activation(
+      args.prepared,
+      activated.publicationContext.materialActivation,
+    );
     return activated.walletSessionState.signingLane.identity.signer;
   }
 
@@ -2843,17 +3439,27 @@ export class BrowserSigningSurface {
       walletSessionState: recovered.walletSessionState,
       publicationContext: recovered.publicationContext,
     });
-    this.requireCurrentEmailOtpEd25519Activation(input.prepared);
+    await this.upsertEd25519YaoPublicCapabilityLaneReference(
+      emailOtpEd25519YaoLaneReferenceFromRecovery({
+        walletSessionState: recovered.walletSessionState,
+        materialActivation: recovered.publicationContext.materialActivation,
+      }),
+    );
+    this.requireCurrentEmailOtpEd25519Activation(
+      input.prepared,
+      recovered.publicationContext.materialActivation,
+    );
     return recovered.walletSessionState.signingLane.identity.signer;
   }
 
   private requireCurrentEmailOtpEd25519Activation(
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1,
+    materialActivation: MpcMaterialActivationRef,
   ): void {
     const current = this.enginePorts.ed25519YaoActiveClients.resolve({
       walletId: prepared.identity.walletId,
       nearAccountId: prepared.identity.nearAccountId,
-      materialActivation: prepared.identity.materialActivation,
+      materialActivation,
     });
     if (!current) {
       throw new Error(
@@ -2902,6 +3508,10 @@ export class BrowserSigningSurface {
     this.emailOtpSessions.rememberAppSessionBinding(binding);
   }
 
+  rememberEmailOtpAppSessionJwt(walletId: WalletId, appSessionJwt: string): void {
+    this.emailOtpSessions.rememberAppSessionJwt({ walletId, appSessionJwt });
+  }
+
   async enrollEmailOtpInternal(args: {
     walletId: WalletId;
     otpCode: string;
@@ -2939,22 +3549,16 @@ export class BrowserSigningSurface {
   }): Promise<SigningSessionStatus | null> {
     const walletId = toWalletId(args.walletId);
     const nearAccountId = toAccountId(args.nearAccountId);
-    const resolution =
-      await resolveExactEd25519SealedSessionRuntimeForWalletSubject({
-        walletId,
-        nearAccountId,
-        nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
-          args.nearEd25519SigningKeyId,
-        ),
-      });
+    const resolution = await resolveExactEd25519SealedSessionRuntimeForWalletSubject({
+      walletId,
+      nearAccountId,
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(args.nearEd25519SigningKeyId),
+    });
     if (resolution.kind === 'missing') return null;
     if (resolution.kind !== 'resolved') {
-      throw new Error(
-        `[WarmSessionStore] Ed25519 sealed runtime is ${resolution.kind}`,
-      );
+      throw new Error(`[WarmSessionStore] Ed25519 sealed runtime is ${resolution.kind}`);
     }
-    const authorization =
-      await resolveActiveEd25519WalletSessionAuthorization(walletId);
+    const authorization = await resolveActiveEd25519WalletSessionAuthorization(walletId);
     return await warmCapabilitiesPublic.getWarmThresholdEd25519SessionStatus(
       this.warmCapabilitiesPublicDeps,
       {

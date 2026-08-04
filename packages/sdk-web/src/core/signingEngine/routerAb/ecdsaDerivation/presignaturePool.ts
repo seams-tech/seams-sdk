@@ -1009,7 +1009,15 @@ function resolveSigningRequestExpiresAtMs(input: {
 
 function isExpiredRouterAbEcdsaDerivationPresignatureError(message: string): boolean {
   const normalized = message.toLowerCase();
-  return normalized.includes('expiredlocalrequest') && normalized.includes('presignature pool');
+  if (normalized.includes('expiredlocalrequest') && normalized.includes('presignature pool')) {
+    return true;
+  }
+  return (
+    (normalized.includes('invalidtimerange') || normalized.includes('invalid_time_range')) &&
+    normalized.includes(
+      'signingworker ecdsa presignature pool record expires before prepare request',
+    )
+  );
 }
 
 function resolveRouterAbEcdsaDerivationPoolFillInitKeySelector(args: {

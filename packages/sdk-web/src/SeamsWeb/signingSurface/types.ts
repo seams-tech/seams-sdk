@@ -25,6 +25,7 @@ import type {
   UserProfileStoreSurface,
   WarmSessionStatusSurface,
   WalletIframeWarmupSurface,
+  WalletAuthenticationSurface,
   WebAuthnRegistrationConfirmationSurface,
 } from './ports';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
@@ -76,6 +77,7 @@ export type {
   UserAccountLookupSurface,
   UserProfileStoreSurface,
   WalletIframeWarmupSurface,
+  WalletAuthenticationSurface,
   WalletSessionReadSurface,
   WalletSessionWebContext,
   WarmSessionStatusSurface,
@@ -89,6 +91,7 @@ export interface SeamsWebSigningSurface
     RpIdSurface,
     NonceCoordinatorSurface,
     WalletIframeWarmupSurface,
+    WalletAuthenticationSurface,
     RuntimeStartupSurface,
     SigningEngineLifecycleEventSurface,
     WorkerOperationContext,

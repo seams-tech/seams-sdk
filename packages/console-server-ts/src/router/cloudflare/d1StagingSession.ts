@@ -305,16 +305,16 @@ function routerWalletSessionScopeClaims(
   const projectId = requireNormalizedString(scope?.projectId, 'Wallet Session project id');
   const environment = requireNormalizedString(scope?.envId, 'Wallet Session environment');
   const accountId = requireNormalizedString(payload.walletId ?? payload.sub, 'Wallet Session account id');
-  const sessionId = requireNormalizedString(
-    payload.thresholdSessionId,
-    'Wallet Session threshold session id',
-  );
-  return {
+  const claims = {
     org_id: orgId,
     project_id: projectId,
     environment,
     account_id: accountId,
-    sid: sessionId,
+  };
+  if (payload.sid === undefined) return claims;
+  return {
+    ...claims,
+    sid: requireNormalizedString(payload.sid, 'Wallet Session Seams session id'),
   };
 }
 

@@ -272,6 +272,7 @@ test.describe('SeamsWeb unlock cancellation events', () => {
         setLastUser: async (resolvedWalletId: string) => {
           selectedWalletId = resolvedWalletId;
         },
+        setWalletAuthenticated: () => undefined,
         getNonceCoordinator: () => ({
           recoverDurableLeases: async () => undefined,
           clearAll: () => undefined,
@@ -614,6 +615,7 @@ test.describe('SeamsWeb unlock cancellation events', () => {
               };
             },
             setLastUser: async () => undefined,
+            setWalletAuthenticated: () => undefined,
             getNonceCoordinator: () => ({
               recoverDurableLeases: async () => undefined,
             }),

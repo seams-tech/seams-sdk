@@ -5,6 +5,7 @@ import {
   requireAppSessionJwt,
   requireWalletSessionJwt,
 } from '@shared/utils/sessionTokens';
+import { parseAppSessionJwt } from '@shared/utils/domainIds';
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
   const encode = (value: unknown): string =>
@@ -92,5 +93,14 @@ test.describe('session JWT kind helpers', () => {
     expect(() => appOrWalletSessionJwtAuth(unknownKindJwt)).toThrow(
       'session JWT must include a valid session kind',
     );
+  });
+
+  test('requires the app_session_v1 kind at the domain-id boundary', () => {
+    const appJwt = jwtWithPayload({ kind: 'app_session_v1', sub: 'alice.testnet' });
+    expect(parseAppSessionJwt(appJwt)).toEqual({ ok: true, value: appJwt });
+    expect(parseAppSessionJwt('app-session.jwt')).toMatchObject({
+      ok: false,
+      error: { code: 'invalid' },
+    });
   });
 });

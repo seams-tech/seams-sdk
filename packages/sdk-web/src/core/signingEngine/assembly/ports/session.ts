@@ -15,6 +15,9 @@ export function createSessionPublicDeps(args: {
   touchConfirm: UiConfirmRuntimeBridgePort;
   passkeyMpcSession: PasskeyMpcSessionPort;
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
+  ed25519YaoPublicCapabilityLanes: PersistedAvailableSigningLanesDeps['ed25519YaoPublicCapabilityLanes'];
+  isEd25519YaoPublicCapabilityActive: PersistedAvailableSigningLanesDeps['isEd25519YaoPublicCapabilityActive'];
+  readActiveWalletSessionAuthorization: PersistedAvailableSigningLanesDeps['readActiveWalletSessionAuthorization'];
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
   getWalletSessionStatus: SigningSessionStatusReader;
 }): SessionPublicDeps {
@@ -26,6 +29,9 @@ export function createSessionPublicDeps(args: {
   };
   return {
     availableLanes: {
+      ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
+      isEd25519YaoPublicCapabilityActive: args.isEd25519YaoPublicCapabilityActive,
+      readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
       listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
     },
     signingSessionSeal:

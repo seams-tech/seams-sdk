@@ -18,6 +18,7 @@ import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../material/ecdsaSigningCapability';
 
 const chainTarget = {
   kind: 'evm',
@@ -48,6 +49,7 @@ const emailOtpAuth = {
 
 declare const keyHandle: EvmFamilyEcdsaKeyHandle;
 declare const materialActivation: MpcMaterialActivationRef;
+declare const canonicalCapability: CanonicalEvmFamilyEcdsaSigningCapability;
 declare const ed25519Authorization: ActiveWalletSessionAuthorizationProjection;
 
 const publicFacts = buildVerifiedEcdsaPublicFacts({
@@ -76,6 +78,7 @@ const emailOtpResolvedKey = buildResolvedEvmFamilyEcdsaKey({
 });
 
 const passkeyLane: ConcreteAvailableEcdsaSigningLane = {
+  capability: canonicalCapability,
   key,
   materialActivation,
   publicFacts,
@@ -89,6 +92,7 @@ const passkeyLane: ConcreteAvailableEcdsaSigningLane = {
 void passkeyLane;
 
 const canonicalAuthorizationRequiredLane: ConcreteAvailableEcdsaSigningLane = {
+  capability: canonicalCapability,
   key,
   materialActivation,
   publicFacts,
@@ -170,6 +174,7 @@ void invalidPasskeyLaneIdentityWithSubjectId;
 
 // @ts-expect-error passkey available lanes require a resolved EVM-family key.
 const passkeyLaneMissingResolvedKey: ConcreteAvailableEcdsaSigningLane = {
+  capability: canonicalCapability,
   key,
   materialActivation,
   publicFacts,
@@ -182,6 +187,7 @@ const passkeyLaneMissingResolvedKey: ConcreteAvailableEcdsaSigningLane = {
 void passkeyLaneMissingResolvedKey;
 
 const passkeyLaneWithEmailOtpResolvedKey: ConcreteAvailableEcdsaSigningLane = {
+  capability: canonicalCapability,
   key,
   materialActivation,
   publicFacts,
@@ -208,6 +214,7 @@ void passkeyLaneIdentityMissingResolvedKey;
 
 // @ts-expect-error Email OTP available lanes need provider identity before resolved-key binding.
 const emailOtpLaneWithResolvedKey: ConcreteAvailableEcdsaSigningLane = {
+  capability: canonicalCapability,
   key,
   materialActivation,
   publicFacts,

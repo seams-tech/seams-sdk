@@ -42,6 +42,7 @@ import { createRouterApiModule, type RouterApiModule } from './modules';
 import { signRouterAbEd25519WalletSessionJwt } from './commonRouterUtils';
 import type {
   MpcWalletSigningQuotaId,
+  SeamsSessionId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -103,11 +104,13 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
       readonly ttlMs?: never;
       readonly expiresAtMs: number;
       readonly remainingUses: number;
+      readonly seamsSessionId?: never;
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'same_identity_budget_refresh_v1';
       readonly expiresAtMs?: never;
       readonly remainingUses: number;
+      readonly seamsSessionId?: SeamsSessionId;
     });
 
 export type RouterAbEd25519YaoProductRegistrationRuntimeV1 =
@@ -284,7 +287,8 @@ function hasProductStateCollections(
     isStringMap(recovery.recoverySessions) &&
     isStringMapWithStateKinds(exportState.exports, EXPORT_STATE_KINDS) &&
     isStringSet(exportState.authorizationNonces) &&
-    isStringSet(exportState.authorizationUncertain)
+    (exportState.authorizationUncertain === undefined ||
+      isStringSet(exportState.authorizationUncertain))
   );
 }
 
@@ -306,6 +310,10 @@ export function parseRouterAbEd25519YaoProductRegistrationStateV1(
     registration.admissionClaims === undefined
       ? new Map<string, RouterAbEd25519YaoRegistrationAdmissionClaimV1>()
       : registration.admissionClaims;
+  const authorizationUncertain =
+    input.export.authorizationUncertain === undefined
+      ? new Set<string>()
+      : input.export.authorizationUncertain;
   return {
     ok: true,
     value: {
@@ -317,7 +325,11 @@ export function parseRouterAbEd25519YaoProductRegistrationStateV1(
       },
       authorization: input.authorization,
       recovery: input.recovery,
-      export: input.export,
+      export: {
+        exports: input.export.exports,
+        authorizationNonces: input.export.authorizationNonces,
+        authorizationUncertain,
+      },
     },
   };
 }
@@ -497,6 +509,9 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
     authority: sessionInput.authority,
     sessionInfo: {
       sessionKind: 'jwt',
+      ...(sessionInput.seamsSessionId
+        ? { seamsSessionId: sessionInput.seamsSessionId }
+        : {}),
       walletId: sessionInput.walletId,
       nearAccountId: sessionInput.nearAccountId,
       nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,

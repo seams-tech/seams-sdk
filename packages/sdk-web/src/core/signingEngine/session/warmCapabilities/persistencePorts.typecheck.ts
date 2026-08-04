@@ -17,6 +17,7 @@ import type {
   MpcWalletSigningQuotaId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 
 declare const walletId: WalletId;
 declare const accountId: AccountId;
@@ -26,6 +27,10 @@ declare const thresholdSessionId: ThresholdEcdsaSessionId;
 declare const thresholdEd25519SessionId: ThresholdEd25519SessionId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+declare const passkeyEcdsaRestore: Exclude<
+  SealedSigningSessionEcdsaRestoreMetadata,
+  { source: 'email_otp' }
+>;
 
 void accountId;
 
@@ -75,8 +80,11 @@ void ({
     passkeyPrfFirstB64u: 'passkey-prf-first',
     transport: {
       curve: 'ecdsa',
+      authMethod: 'passkey',
+      walletId: passkeyEcdsaRestore.authority.walletId,
       chainTarget,
       relayerUrl: 'https://relay.example.test',
+      ecdsaRestore: passkeyEcdsaRestore,
     },
   },
 } satisfies PasskeyEcdsaReadyPersistInput);
@@ -98,8 +106,11 @@ void ({
     passkeyPrfFirstB64u: 'passkey-prf-first',
     transport: {
       curve: 'ecdsa',
+      authMethod: 'passkey',
+      walletId: passkeyEcdsaRestore.authority.walletId,
       chainTarget,
       relayerUrl: 'https://relay.example.test',
+      ecdsaRestore: passkeyEcdsaRestore,
     },
   },
 } satisfies PasskeyEcdsaReadyPersistInput);
@@ -139,8 +150,11 @@ const emailOtpEcdsaWithPasskeyMaterial: EmailOtpEcdsaReadyPersistInput = {
     passkeyPrfFirstB64u: 'passkey-prf-first',
     transport: {
       curve: 'ecdsa',
+      authMethod: 'passkey',
+      walletId: passkeyEcdsaRestore.authority.walletId,
       chainTarget,
       relayerUrl: 'https://relay.example.test',
+      ecdsaRestore: passkeyEcdsaRestore,
     },
   },
 };
@@ -180,8 +194,11 @@ const passkeyEcdsaWithEmailOtpContext: PasskeyEcdsaReadyPersistInput = {
     passkeyPrfFirstB64u: 'passkey-prf-first',
     transport: {
       curve: 'ecdsa',
+      authMethod: 'passkey',
+      walletId: passkeyEcdsaRestore.authority.walletId,
       chainTarget,
       relayerUrl: 'https://relay.example.test',
+      ecdsaRestore: passkeyEcdsaRestore,
     },
   },
   // @ts-expect-error Passkey persistence cannot carry Email OTP auth context.
@@ -208,8 +225,11 @@ const passkeyReconnectWithCredentialId: PasskeyEcdsaReadyPersistInput = {
     passkeyPrfFirstB64u: 'passkey-prf-first',
     transport: {
       curve: 'ecdsa',
+      authMethod: 'passkey',
+      walletId: passkeyEcdsaRestore.authority.walletId,
       chainTarget,
       relayerUrl: 'https://relay.example.test',
+      ecdsaRestore: passkeyEcdsaRestore,
     },
   },
 };

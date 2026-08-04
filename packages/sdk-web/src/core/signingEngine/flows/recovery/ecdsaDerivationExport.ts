@@ -70,7 +70,7 @@ type ResolvedEcdsaDerivationExportMaterial = {
 
 function exportAuthorizationWire(
   authorization: EcdsaExplicitExportOperationAuthorization,
-): RouterAbNormalSigningAuthorizationWire {
+): Extract<RouterAbNormalSigningAuthorizationWire, { readonly kind: 'operation_step_up' }> {
   return { kind: 'operation_step_up' };
 }
 
@@ -380,6 +380,7 @@ async function executeEcdsaDerivationExport(
         router_id: publicCapability.router_id,
         client_id: publicCapability.client_id,
         authorization: exportAuthorizationWire(material.operationAuthorization),
+        authorization_id: material.operationAuthorization.evidenceSetDigest,
         operation: material.operationAuthorization.operation,
         material_activation: materialActivation,
         export_authorization_digest_b64u: authorizationDigest32B64u,

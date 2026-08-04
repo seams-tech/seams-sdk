@@ -43,11 +43,23 @@ type ActiveClientEntryV1 = {
 };
 
 class VolatileOnlyPublicCapabilityReferenceStore implements Ed25519YaoPublicCapabilityReferenceStorePort {
-  async upsert(_identity: Ed25519YaoActiveClientIdentityV1): Promise<void> {}
+  async upsert(
+    _reference: Parameters<Ed25519YaoPublicCapabilityReferenceStorePort['upsert']>[0],
+  ): Promise<void> {}
 
   async remove(_identity: Ed25519YaoActiveClientIdentityV1): Promise<void> {}
 
-  async list(): Promise<readonly Ed25519YaoActiveClientIdentityV1[]> {
+  async list(): ReturnType<Ed25519YaoPublicCapabilityReferenceStorePort['list']> {
+    return [];
+  }
+
+  async upsertLane(
+    _reference: Parameters<Ed25519YaoPublicCapabilityReferenceStorePort['upsertLane']>[0],
+  ): Promise<void> {}
+
+  async removeLane(_identity: Ed25519YaoActiveClientIdentityV1): Promise<void> {}
+
+  async listLanes(): ReturnType<Ed25519YaoPublicCapabilityReferenceStorePort['listLanes']> {
     return [];
   }
 }
@@ -83,7 +95,10 @@ function materialIdentity(
   const signer = facts.signer;
   const walletId = signer.account.wallet.walletId;
   const nearAccountId = signer.account.nearAccountId;
-  const thresholdSessionId = requireNonEmpty(facts.thresholdSessionId, 'material.facts.thresholdSessionId');
+  const thresholdSessionId = requireNonEmpty(
+    facts.thresholdSessionId,
+    'material.facts.thresholdSessionId',
+  );
   const materialActivation = nearEd25519YaoMaterialActivationFromMetadata(metadata);
   if (
     metadata.scope.threshold_session_id !== thresholdSessionId ||
@@ -162,13 +177,20 @@ export class Ed25519YaoActiveClientRegistry implements Ed25519YaoActiveClientReg
     if (!current && this.entries.size - replacedEntries.length >= MAX_ACTIVE_ED25519_YAO_CLIENTS) {
       throw new Error('Ed25519 Yao active Client registry capacity is exhausted');
     }
-    await this.publicReferences.upsert(identity);
+    await this.publicReferences.upsert({
+      walletId: identity.walletId,
+      nearAccountId: identity.nearAccountId,
+      thresholdSessionId: material.facts.thresholdSessionId,
+      runtimePolicyScope: material.facts.runtimePolicyScope,
+      materialActivation: identity.materialActivation,
+    });
     if (
       lifecycleGeneration !== this.lifecycleGeneration ||
       material.activeClient.status().kind !== 'active'
     ) {
       material.activeClient.dispose();
       await this.publicReferences.remove(identity);
+      await this.publicReferences.removeLane(identity);
       throw new Error('Ed25519 Yao active Client activation was interrupted');
     }
     for (const [candidateKey, entry] of replacedEntries) {
@@ -220,6 +242,7 @@ export class Ed25519YaoActiveClientRegistry implements Ed25519YaoActiveClientReg
       entry.material.activeClient.dispose();
     }
     await this.publicReferences.remove(identity);
+    await this.publicReferences.removeLane(identity);
     return entry !== undefined;
   }
 
