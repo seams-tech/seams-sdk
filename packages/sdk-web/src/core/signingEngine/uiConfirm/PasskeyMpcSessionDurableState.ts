@@ -103,9 +103,16 @@ function buildPasskeySealedRecordAccountMetadata(args: {
   transport: PasskeyWarmSessionSealTransportInput;
 }): PasskeySealedRecordAccountMetadata {
   if (args.transport.curve === 'ecdsa') {
+    const walletId = String(args.transport.walletId).trim();
+    const restoreWalletId = String(args.transport.ecdsaRestore.authority.walletId).trim();
+    if (!walletId || !restoreWalletId || walletId !== restoreWalletId) {
+      throw new Error(
+        'Passkey ECDSA seal transport wallet does not match restore metadata',
+      );
+    }
     return {
-      ...(args.transport.walletId ? { walletId: args.transport.walletId } : {}),
-      ...(args.transport.ecdsaRestore ? { ecdsaRestore: args.transport.ecdsaRestore } : {}),
+      walletId,
+      ecdsaRestore: args.transport.ecdsaRestore,
     };
   }
   const signingRoot = signingRootScopeFromRuntimePolicyScope(
@@ -207,10 +214,10 @@ function buildCurrentRecordInput(
     if (!walletId || !args.metadata.ecdsaRestore) {
       throw new Error('[SigningSessionSealedStore] missing Passkey ECDSA seal metadata');
     }
-    const thresholdSessionIds =
-      args.existing?.curve === 'ecdsa'
-        ? args.existing.thresholdSessionIds
-        : { ecdsa: args.thresholdSessionId };
+    const thresholdSessionIds = {
+      ...args.existing?.thresholdSessionIds,
+      ecdsa: args.thresholdSessionId,
+    };
     return {
       thresholdSessionId: args.thresholdSessionId,
       sealedSecretB64u: args.sealedSecretB64u,
@@ -233,10 +240,10 @@ function buildCurrentRecordInput(
   if (!walletId || !args.metadata.ed25519Restore) {
     throw new Error('[SigningSessionSealedStore] missing Passkey Ed25519 seal metadata');
   }
-  const thresholdSessionIds =
-    args.existing?.curve === 'ed25519'
-      ? args.existing.thresholdSessionIds
-      : { ed25519: args.thresholdSessionId };
+  const thresholdSessionIds = {
+    ...args.existing?.thresholdSessionIds,
+    ed25519: args.thresholdSessionId,
+  };
   return {
     thresholdSessionId: args.thresholdSessionId,
     sealedSecretB64u: args.sealedSecretB64u,
@@ -331,8 +338,8 @@ function existingRecordMatchesRequest(args: {
   metadata: PasskeySealedRecordAccountMetadata;
 }): boolean {
   if (args.existing.curve !== args.transport.curve) return false;
-  const requestedWalletId = String(args.transport.walletId || '').trim();
-  if (requestedWalletId && requestedWalletId !== args.existing.walletId) return false;
+  const requestedWalletId = String(args.transport.walletId).trim();
+  if (!requestedWalletId || requestedWalletId !== args.existing.walletId) return false;
   if (args.existing.curve === 'ed25519' && args.transport.curve === 'ed25519') {
     return mpcMaterialActivationRefsEqual(
       args.existing.ed25519Restore.materialActivation,

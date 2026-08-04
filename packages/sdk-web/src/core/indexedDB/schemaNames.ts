@@ -1,5 +1,5 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 12 as const;
+export const SEAMS_WALLET_DB_VERSION = 13 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
@@ -376,7 +376,7 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
   {
     store: SEAMS_WALLET_STORES.ecdsaCurrentCapabilityManifests,
     keyPath: ['capability_ref', 'wallet_id', 'authority_digest'],
-    indexes: [],
+    indexes: [{ name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false }],
   },
   {
     store: SEAMS_WALLET_STORES.ecdsaRoleLocalMaterial,

@@ -270,10 +270,7 @@ function requirePositiveSafeInteger(value: unknown, label: string): number {
   return parsed;
 }
 
-function requireThresholdSessionId(
-  value: unknown,
-  label: string,
-): ThresholdEd25519SessionId {
+function requireThresholdSessionId(value: unknown, label: string): ThresholdEd25519SessionId {
   const parsed = parseThresholdEd25519SessionId(value);
   if (!parsed.ok) throw new Error(`${label}: ${parsed.error.message}`);
   return parsed.value;
@@ -451,7 +448,6 @@ function assertBindingIdentity(
     binding.walletId !== identity.walletId ||
     binding.nearAccountId !== identity.nearAccountId ||
     binding.nearEd25519SigningKeyId !== identity.nearEd25519SigningKeyId ||
-    binding.thresholdSessionId !== identity.thresholdSessionId ||
     binding.signerSlot !== identity.signerSlot ||
     binding.rpId !== identity.rpId ||
     binding.credentialIdB64u !== identity.credentialIdB64u ||
@@ -627,16 +623,18 @@ function assertStoredIdentitySubset(args: {
   }
 }
 
-function metadataFromBinding(
+export function metadataFromPasskeyEd25519YaoLocalMaterialBindingV1(
   binding: Ed25519YaoLocalMaterialBindingV1,
+  thresholdSessionId: string,
 ): RouterAbEd25519YaoActiveClientMetadataV1 {
+  const resolvedThresholdSessionId = requireNonEmpty(thresholdSessionId, 'thresholdSessionId');
   return {
     kind: ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
     scope: {
       lifecycle_id: binding.lifecycleId,
       root_share_epoch: binding.signingRootVersion,
       account_id: binding.walletId,
-      threshold_session_id: binding.thresholdSessionId,
+      threshold_session_id: resolvedThresholdSessionId,
       signer_set_id: binding.signerSetId,
       signing_worker_id: binding.signingWorkerId,
       material_activation: routerAbMpcMaterialActivationRefToWire(binding.materialActivation),
@@ -1151,7 +1149,10 @@ export async function rehydratePasskeyEd25519YaoLocalMaterialRecordV1(
     throw new Error('Stored Ed25519 Client material record is invalid');
   }
   const binding = parseStoredBinding(stored.payload?.binding, identity);
-  const metadata = metadataFromBinding(binding);
+  const metadata = metadataFromPasskeyEd25519YaoLocalMaterialBindingV1(
+    binding,
+    identity.thresholdSessionId,
+  );
   const expectedPublicKey = `ed25519:${base58Encode(metadata.registeredPublicKey)}`;
   if (stored.publicKey !== expectedPublicKey) {
     throw new Error('Stored Ed25519 Client public key does not match its sealed binding');

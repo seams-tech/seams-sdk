@@ -324,7 +324,7 @@ test('NEAR Ed25519 available lane identity includes signer identity', () => {
       signerSlot: 2,
     }),
   );
-  expect(ed25519AvailableLaneIdentityKey(base)).toBe(
+  expect(ed25519AvailableLaneIdentityKey(base)).not.toBe(
     ed25519AvailableLaneIdentityKey({
       ...base,
       thresholdSessionId: 'tsess_ed25519_transaction_selection_renewed',

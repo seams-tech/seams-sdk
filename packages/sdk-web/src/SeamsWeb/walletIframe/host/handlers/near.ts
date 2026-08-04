@@ -10,6 +10,7 @@ import type {
 import {
   type PMExecuteActionPayload,
   type PMFundImplicitNearAccountForTestingPayload,
+  type PMRegisterWalletPayload,
   type PMRegistrationAuthMethodInput,
   type PMSendTxPayload,
 } from '../../shared/messages';
@@ -29,7 +30,10 @@ import type { ActionArgs } from '@/core/types';
 import type { RegistrationAuthMethodInput } from '@shared/utils/registrationIntent';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult, withProgress, withRegistrationProgress } from './shared';
-import { activeHostedWalletAppSessionJwt } from '../hostedWalletSeamsSession';
+import {
+  activeHostedWalletAppSessionJwt,
+  activeWalletOrHostedAppSessionJwt,
+} from '../hostedWalletSeamsSession';
 
 function walletSessionFromWalletId(walletIdRaw: unknown) {
   const walletId = toWalletId(walletIdRaw);
@@ -69,6 +73,7 @@ function assertNeverRegistrationAuthMethod(value: never): never {
 function walletOriginRegistrationAuthMethod(
   authMethod: PMRegistrationAuthMethodInput,
   relayUrl: string,
+  wallet: PMRegisterWalletPayload['wallet'],
 ): RegistrationAuthMethodInput {
   if (Object.prototype.hasOwnProperty.call(authMethod, 'appSessionJwt')) {
     throw new Error('Wallet iframe registration payload must not carry appSessionJwt');
@@ -83,7 +88,10 @@ function walletOriginRegistrationAuthMethod(
           : { authenticatorOptions: authMethod.authenticatorOptions }),
       };
     case 'email_otp': {
-      const appSessionJwt = activeHostedWalletAppSessionJwt(relayUrl);
+      const appSessionJwt =
+        wallet.kind === 'provided'
+          ? activeWalletOrHostedAppSessionJwt(relayUrl, String(wallet.walletId))
+          : activeHostedWalletAppSessionJwt(relayUrl);
       if (!appSessionJwt) {
         throw new Error('Email OTP registration requires an active hosted-wallet Seams Session');
       }
@@ -135,6 +143,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         authMethod: walletOriginRegistrationAuthMethod(
           payload.authMethod,
           pm.configs.network.relayer.url,
+          payload.wallet,
         ),
         wallet: payload.wallet,
         signerSelection: payload.signerSelection,

@@ -16,6 +16,7 @@ import type {
   ActiveWalletSessionAuthorizationProjection,
   WalletSessionAuthorizationReadResult,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { EmailOtpEcdsaSealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
@@ -56,9 +57,7 @@ export type EmailOtpThresholdEcdsaRehydrateResult = {
   expiresAtMs: number;
 };
 
-export type EmailOtpEcdsaSealedRestoreSupersededPhase =
-  | 'before_rehydrate'
-  | 'before_commit';
+export type EmailOtpEcdsaSealedRestoreSupersededPhase = 'before_rehydrate' | 'before_commit';
 
 export class EmailOtpEcdsaSealedRestoreSupersededError extends Error {
   readonly code = 'material_activation_superseded' as const;
@@ -292,8 +291,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     queueKey: resolveThresholdEcdsaSigningQueueKey({ materialActivation }),
     walletId: toWalletId(sealedRecord.walletId),
     enabled: true,
-    task: async () =>
-      await restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue(args),
+    task: async () => await restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue(args),
   });
 }
 
@@ -315,6 +313,12 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
     sealedRecord,
     authorization,
   });
+  const walletSessionJwt = walletSessionJwtForCurve(restoreSource.authorization, 'ecdsa');
+  if (!walletSessionJwt) {
+    throw new Error(
+      'Email OTP sealed refresh requires an active ECDSA Wallet Session authorization',
+    );
+  }
   if (emailOtpAuthContextRetention(restoreSource.emailOtpAuthContext) !== 'session') return null;
 
   const workerCtx = args.getSignerWorkerContext();
@@ -351,7 +355,7 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
     expiresAtMs: sealedRecord.expiresAtMs,
     transport: {
       relayerUrl: restoreSource.relayerUrl,
-      walletSessionJwt: restoreSource.authorization.walletSessionJwt,
+      walletSessionJwt,
       signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
         restoreSource.signingSessionSealKeyVersion,
       ),
@@ -388,7 +392,7 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
       emailOtpWorkerSessionHandle,
       routeAuth: {
         kind: 'wallet_session',
-        jwt: restoreSource.authorization.walletSessionJwt,
+        jwt: walletSessionJwt,
       },
     }),
   );

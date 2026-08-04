@@ -235,6 +235,7 @@ export type RouterAbEd25519WalletSessionJwtSigningInput = RouterAbWalletSessionJ
   authority: WalletAuthAuthority;
   sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
     sessionKind: 'jwt';
+    seamsSessionId?: unknown;
     walletId: unknown;
     authorizationId: unknown;
     nearAccountId: unknown;
@@ -281,6 +282,7 @@ export function parseRouterAbEd25519WalletSessionJwtSessionInfo(
     return null;
   return {
     sessionKind: 'jwt',
+    seamsSessionId: input.seamsSessionId,
     walletId: input.walletId,
     nearAccountId: input.nearAccountId,
     nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
@@ -305,6 +307,7 @@ export function parseRouterAbEd25519BootstrapSessionJwtSessionInfo(
     nearAccountId: input.nearAccountId,
     nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
     authorizationId: input.authorizationId,
+    seamsSessionId: input.seamsSessionId,
     thresholdSessionId: input.thresholdSessionId,
     walletSessionId: input.walletSessionId,
     quotaId: input.quotaId,
@@ -333,6 +336,7 @@ function rejectNonJwtWalletSessionKind(
 type NormalizedRouterAbWalletSessionSigningBase = {
   userId: string;
   relayerKeyId: string;
+  seamsSessionId?: SeamsSessionId;
   thresholdSessionId: string;
   authorizationId: WalletSessionAuthorizationId;
   walletSessionId: WalletSessionId;
@@ -353,6 +357,12 @@ function normalizeRouterAbWalletSessionSigningBase(
 
   const userId = String(args.userId || '').trim();
   const relayerKeyId = String(args.relayerKeyId || '').trim();
+  const seamsSessionIdRaw =
+    'seamsSessionId' in args.sessionInfo ? args.sessionInfo.seamsSessionId : undefined;
+  const seamsSessionId =
+    seamsSessionIdRaw === undefined
+      ? { ok: true as const, value: undefined }
+      : parseSeamsSessionId(seamsSessionIdRaw);
   const thresholdSessionId = String(args.sessionInfo?.thresholdSessionId || '').trim();
   const authorizationId = parseWalletSessionAuthorizationId(args.sessionInfo?.authorizationId);
   const walletSessionId = parseWalletSessionId(args.sessionInfo?.walletSessionId);
@@ -365,6 +375,7 @@ function normalizeRouterAbWalletSessionSigningBase(
   if (
     !userId ||
     !relayerKeyId ||
+    !seamsSessionId.ok ||
     !thresholdSessionId ||
     !authorizationId.ok ||
     !walletSessionId.ok ||
@@ -387,6 +398,7 @@ function normalizeRouterAbWalletSessionSigningBase(
     value: {
       userId,
       relayerKeyId,
+      ...(seamsSessionId.value ? { seamsSessionId: seamsSessionId.value } : {}),
       thresholdSessionId,
       authorizationId: authorizationId.value,
       walletSessionId: walletSessionId.value,
@@ -665,7 +677,7 @@ type RouterAbEcdsaDerivationWalletSessionClaimsBuildInput = {
 function buildRouterAbEd25519WalletSessionClaims(
   input: RouterAbEd25519WalletSessionClaimsBuildInput,
 ): RouterAbEd25519WalletSessionClaims {
-  return {
+  const claims: RouterAbEd25519WalletSessionClaims = {
     sub: input.base.userId,
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
     walletId: input.base.userId,
@@ -685,6 +697,8 @@ function buildRouterAbEd25519WalletSessionClaims(
     iat: input.base.iat,
     exp: input.base.exp,
   };
+  if (input.base.seamsSessionId) claims.sid = input.base.seamsSessionId;
+  return claims;
 }
 
 function buildRouterAbEcdsaDerivationWalletSessionClaims(
@@ -693,6 +707,7 @@ function buildRouterAbEcdsaDerivationWalletSessionClaims(
   const claims: RouterAbEcdsaDerivationWalletSessionClaims = {
     sub: input.base.userId,
     kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+    sid: input.authorizationSessionId,
     walletId: input.base.userId,
     thresholdSessionId: input.base.thresholdSessionId,
     authorizationId: input.base.authorizationId,
@@ -785,6 +800,15 @@ export async function signRouterAbEcdsaDerivationWalletSessionJwt(
 ): Promise<WalletSessionJwtSigningResult> {
   const base = normalizeRouterAbWalletSessionSigningBase(args);
   if (!base.ok) return base;
+  const authorizationSessionId = parseSeamsSessionId(args.sessionInfo.authorizationSessionId);
+  if (!authorizationSessionId.ok) {
+    return {
+      ok: false,
+      status: 500,
+      code: 'internal',
+      message: args.invalidPayloadErrorMessage,
+    };
+  }
   const binding = rejectInvalidRouterAbEcdsaDerivationBinding(args);
   if (!binding.ok) return binding;
   const runtimePolicyScope = parseOptionalRuntimePolicyScope(
@@ -794,15 +818,6 @@ export async function signRouterAbEcdsaDerivationWalletSessionJwt(
   if (!runtimePolicyScope.ok) return runtimePolicyScope;
   const keyHandle = String(args.sessionInfo.keyHandle || '').trim();
   if (!keyHandle) {
-    return {
-      ok: false,
-      status: 500,
-      code: 'internal',
-      message: args.invalidPayloadErrorMessage,
-    };
-  }
-  const authorizationSessionId = parseSeamsSessionId(args.sessionInfo.authorizationSessionId);
-  if (!authorizationSessionId.ok) {
     return {
       ok: false,
       status: 500,

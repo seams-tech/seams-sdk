@@ -737,8 +737,11 @@ impl RouterAbEd25519NormalSigningPrepareRequestV2 {
 
     /// Returns the round-1 binding digest for the typed prepare request.
     pub fn round1_binding_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
-        self.admission_material()?
-            .round1_binding_digest(&self.scope, self.expires_at_ms, self.display_digest)
+        self.admission_material()?.round1_binding_digest(
+            &self.scope,
+            self.expires_at_ms,
+            self.display_digest,
+        )
     }
 }
 
@@ -1986,9 +1989,7 @@ fn push_normal_signing_scope(out: &mut Vec<u8>, scope: &NormalSigningScopeV1) {
     push_len32(out, scope.request_id.as_bytes());
     push_len32(out, scope.account_id.as_bytes());
     match &scope.authorization {
-        NormalSigningAuthorizationV1::ReusableWalletSession {
-            wallet_session_id,
-        } => {
+        NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } => {
             push_len32(out, b"reusable_wallet_session");
             push_len32(out, wallet_session_id.as_bytes());
         }

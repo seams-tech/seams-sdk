@@ -10,6 +10,7 @@ import {
   parseCapabilityOperationId,
   parseOperationDigestSet,
   parsePrincipalId,
+  parseSigningOperationFingerprintDigest,
   parseTenantId,
   type AuthorizationParseResult,
   type CapabilityId,
@@ -90,6 +91,16 @@ test('authorization operation fingerprint pins its versioned canonical preimage 
   );
   await expect(computeCapabilityOperationFingerprintDigest(envelope)).resolves.toBe(
     'ZqxwnrLiD1RH6R5AHq40vEVA3VnsjGH2A0oRHh4NL2Y',
+  );
+});
+
+test('signing operation fingerprint exposes one canonical lane digest', () => {
+  expect(parseSigningOperationFingerprintDigest(`sha256:${LANE_DIGEST}`)).toBe(LANE_DIGEST);
+  expect(() => parseSigningOperationFingerprintDigest(LANE_DIGEST)).toThrow(
+    'signing operation fingerprint must use the sha256: prefix',
+  );
+  expect(() => parseSigningOperationFingerprintDigest('sha256:not-a-digest')).toThrow(
+    'digest must be canonical base64url for 32 bytes',
   );
 });
 

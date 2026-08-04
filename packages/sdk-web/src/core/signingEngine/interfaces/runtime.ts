@@ -10,6 +10,8 @@ import type {
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { UserPreferencesManager } from '../session/userPreferences';
 import type { ThemeMode, SeamsChainConfig } from '../../types/seams';
+import type { WalletId } from './ecdsaChainTarget';
+import type { RouterAbEd25519NormalSigningCredential } from '../../rpcClients/relayer/routerAbNormalSigning';
 import type {
   SignerWorkerKind,
   SignerWorkerOperationRequest,
@@ -27,6 +29,10 @@ export type NearSigningKeyMaterialStorePort = NearAccountClientDbPort &
  * Keeps chain signing logic decoupled from SignerWorkerManager internals.
  */
 export interface NearSigningRuntimeDeps {
+  resolvePasskeyOperationStepUpCredential: (args: {
+    walletId: WalletId;
+    relayerUrl: string;
+  }) => RouterAbEd25519NormalSigningCredential;
   touchIdPrompt: TouchIdPrompt;
   nearClient: NearClient;
   nearKeyMaterialStore: NearSigningKeyMaterialStorePort;

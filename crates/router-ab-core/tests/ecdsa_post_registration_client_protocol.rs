@@ -4,8 +4,7 @@ use router_ab_core::protocol::{
     decode_signer_envelope_hpke_payload_v1, role_encrypted_envelope_digest_v1,
     EcdsaThresholdPrfRequestV1, EncryptedPayloadV1, ExpensiveWorkKindV1, LifecycleScopeV1,
     MpcMaterialActivationRefV1, NormalSigningAuthorizationV1, RoleEncryptedEnvelopeV1,
-    RoleEnvelopeAadV1,
-    RouterAbEcdsaDerivationActivationRefreshRequestV1,
+    RoleEnvelopeAadV1, RouterAbEcdsaDerivationActivationRefreshRequestV1,
     RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
     RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationPublicIdentityV1,
     RouterAbEcdsaDerivationRecoveryRequestV1, RouterAbEcdsaDerivationStableKeyContextV1,
@@ -285,16 +284,24 @@ fn client_material_activation() -> EcdsaMaterialActivationRefV1 {
     }
 }
 
+fn explicit_export_operation(
+    authorization_kind: &str,
+    authorization_id: &str,
+    authorization_digest_byte: u8,
+) -> EcdsaPostRegistrationOperationV1 {
+    EcdsaPostRegistrationOperationV1::ExplicitExport {
+        authorization_kind: authorization_kind.to_owned(),
+        authorization_id: authorization_id.to_owned(),
+        material_activation: client_material_activation(),
+        authorization_digest_b64u: b64u(&[authorization_digest_byte; 32]),
+        nonce: "export-nonce-1".to_owned(),
+    }
+}
+
 fn operation(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistrationOperationV1 {
     match ceremony {
         EcdsaPostRegistrationCeremonyV1::ExplicitExport => {
-            EcdsaPostRegistrationOperationV1::ExplicitExport {
-                authorization_kind: "reusable_wallet_session".to_owned(),
-                authorization_id: "wallet-session-1".to_owned(),
-                material_activation: client_material_activation(),
-                authorization_digest_b64u: b64u(&[0x51; 32]),
-                nonce: "export-nonce-1".to_owned(),
-            }
+            explicit_export_operation("reusable_wallet_session", "wallet-session-1", 0x51)
         }
         EcdsaPostRegistrationCeremonyV1::Recovery => EcdsaPostRegistrationOperationV1::Recovery {
             authorization_digest_b64u: b64u(&[0x52; 32]),
@@ -336,7 +343,10 @@ fn recipient(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistration
     }
 }
 
-fn client_header(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistrationHeaderV1 {
+fn try_client_header_with_operation(
+    ceremony: EcdsaPostRegistrationCeremonyV1,
+    operation: EcdsaPostRegistrationOperationV1,
+) -> Result<EcdsaPostRegistrationHeaderV1, EcdsaClientProtocolError> {
     EcdsaPostRegistrationHeaderV1::new(EcdsaPostRegistrationHeaderInputV1 {
         context: client_context(),
         lifecycle: EcdsaPostRegistrationLifecycleV1::from_wire(ceremony, lifecycle_wire(ceremony))
@@ -346,10 +356,16 @@ fn client_header(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistra
         router_id: "router-1".to_owned(),
         client_id: "client-1".to_owned(),
         recipient: recipient(ceremony),
-        operation: operation(ceremony),
+        operation,
         expires_at_ms: 8_000_000,
     })
-    .expect("client header")
+}
+
+fn client_header_with_operation(
+    ceremony: EcdsaPostRegistrationCeremonyV1,
+    operation: EcdsaPostRegistrationOperationV1,
+) -> EcdsaPostRegistrationHeaderV1 {
+    try_client_header_with_operation(ceremony, operation).expect("client header")
 }
 
 fn deriver_recipient_keys() -> EcdsaRegistrationRecipientKeysV1 {
@@ -374,9 +390,12 @@ fn deriver_recipient_keys() -> EcdsaRegistrationRecipientKeysV1 {
     }
 }
 
-fn client_request(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistrationRequestV1 {
+fn client_request_with_operation(
+    ceremony: EcdsaPostRegistrationCeremonyV1,
+    operation: EcdsaPostRegistrationOperationV1,
+) -> EcdsaPostRegistrationRequestV1 {
     build_ecdsa_post_registration_request_v1(
-        client_header(ceremony),
+        client_header_with_operation(ceremony, operation),
         deriver_recipient_keys(),
         EcdsaRegistrationSealSeedsV1 {
             deriver_a: [0xc3; 32],
@@ -384,6 +403,10 @@ fn client_request(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistr
         },
     )
     .expect("client request")
+}
+
+fn client_request(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistrationRequestV1 {
+    client_request_with_operation(ceremony, operation(ceremony))
 }
 
 fn core_envelope(envelope: &EcdsaRegistrationEncryptedEnvelopeV1) -> RoleEncryptedEnvelopeV1 {
@@ -398,6 +421,35 @@ fn core_envelope(envelope: &EcdsaRegistrationEncryptedEnvelopeV1) -> RoleEncrypt
         EncryptedPayloadV1::new(envelope.ciphertext().to_vec()).expect("ciphertext"),
     )
     .expect("core envelope")
+}
+
+fn core_export_authorization(
+    client: &EcdsaPostRegistrationRequestV1,
+) -> (NormalSigningAuthorizationV1, String, String) {
+    let EcdsaPostRegistrationOperationV1::ExplicitExport {
+        authorization_kind,
+        authorization_id,
+        authorization_digest_b64u,
+        nonce,
+        ..
+    } = client.header().operation()
+    else {
+        panic!("explicit export operation required")
+    };
+    let authorization = match authorization_kind.as_str() {
+        "reusable_wallet_session" => {
+            NormalSigningAuthorizationV1::reusable_wallet_session(authorization_id)
+                .expect("core reusable export authorization")
+        }
+        "operation_step_up" => NormalSigningAuthorizationV1::operation_step_up()
+            .expect("core step-up export authorization"),
+        _ => panic!("unknown export authorization kind"),
+    };
+    (
+        authorization,
+        authorization_digest_b64u.clone(),
+        nonce.clone(),
+    )
 }
 
 fn core_request(
@@ -418,6 +470,8 @@ fn core_request(
     );
     match ceremony {
         EcdsaPostRegistrationCeremonyV1::ExplicitExport => {
+            let (authorization, export_authorization_digest_b64u, export_nonce) =
+                core_export_authorization(client);
             CorePostRequest::Export(RouterAbEcdsaDerivationExplicitExportRequestV1 {
                 context: common.0,
                 lifecycle: common.1,
@@ -426,10 +480,7 @@ fn core_request(
                 router_id: common.4,
                 client_id: common.5,
                 client_ephemeral_public_key: common.6,
-                authorization: NormalSigningAuthorizationV1::reusable_wallet_session(
-                    "wallet-session-1",
-                )
-                .expect("core export authorization"),
+                authorization,
                 material_activation: MpcMaterialActivationRefV1::new(
                     "material-activation-1",
                     "capability-1",
@@ -439,8 +490,8 @@ fn core_request(
                     SERVER_ID,
                 )
                 .expect("core material activation"),
-                export_authorization_digest_b64u: b64u(&[0x51; 32]),
-                export_nonce: "export-nonce-1".to_owned(),
+                export_authorization_digest_b64u,
+                export_nonce,
                 expires_at_ms: common.7,
                 deriver_a_export_envelope: common.8,
                 deriver_b_export_envelope: common.9,
@@ -525,7 +576,14 @@ fn recipient_private_key(role: EcdsaDeriverRoleV1) -> [u8; 32] {
 
 fn assert_parity(ceremony: EcdsaPostRegistrationCeremonyV1) {
     let client = client_request(ceremony);
-    let core = core_request(ceremony, &client);
+    assert_client_parity(ceremony, &client);
+}
+
+fn assert_client_parity(
+    ceremony: EcdsaPostRegistrationCeremonyV1,
+    client: &EcdsaPostRegistrationRequestV1,
+) {
+    let core = core_request(ceremony, client);
     assert_eq!(
         client.header().canonical_bytes().unwrap(),
         core.header_bytes()
@@ -591,6 +649,72 @@ fn explicit_export_recovery_and_refresh_match_core_exactly() {
     ] {
         assert_parity(ceremony);
     }
+}
+
+#[test]
+fn operation_step_up_public_digest_uses_marker_and_binds_export_authorization_digest() {
+    let ceremony = EcdsaPostRegistrationCeremonyV1::ExplicitExport;
+    let step_up = client_request_with_operation(
+        ceremony,
+        explicit_export_operation("operation_step_up", "local-step-up-id", 0x51),
+    );
+    assert_client_parity(ceremony, &step_up);
+    let core = core_request(ceremony, &step_up);
+    assert_eq!(
+        step_up.header().canonical_bytes().unwrap(),
+        core.header_bytes()
+    );
+    assert_eq!(
+        step_up.header().digest().unwrap(),
+        *core.header_digest().as_bytes()
+    );
+    assert_eq!(step_up.digest().unwrap(), *core.request_digest().as_bytes());
+
+    let different_local_id = client_request_with_operation(
+        ceremony,
+        explicit_export_operation("operation_step_up", "another-local-step-up-id", 0x51),
+    );
+    assert_eq!(
+        different_local_id.header().digest().unwrap(),
+        step_up.header().digest().unwrap()
+    );
+    assert_eq!(
+        different_local_id.digest().unwrap(),
+        step_up.digest().unwrap()
+    );
+
+    let different_export_digest = client_request_with_operation(
+        ceremony,
+        explicit_export_operation("operation_step_up", "local-step-up-id", 0x52),
+    );
+    let different_core = core_request(ceremony, &different_export_digest);
+    assert_ne!(
+        different_export_digest.header().digest().unwrap(),
+        step_up.header().digest().unwrap()
+    );
+    assert_ne!(
+        different_export_digest.digest().unwrap(),
+        step_up.digest().unwrap()
+    );
+    assert_eq!(
+        different_export_digest.digest().unwrap(),
+        *different_core.request_digest().as_bytes()
+    );
+
+    assert_eq!(
+        try_client_header_with_operation(
+            ceremony,
+            explicit_export_operation("operation_step_up", "", 0x51),
+        ),
+        Err(EcdsaClientProtocolError::InvalidShape)
+    );
+    assert_eq!(
+        try_client_header_with_operation(
+            ceremony,
+            explicit_export_operation("verified_step_up", "local-step-up-id", 0x51),
+        ),
+        Err(EcdsaClientProtocolError::InvalidShape)
+    );
 }
 
 #[test]

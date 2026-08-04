@@ -8,8 +8,11 @@ import {
   parseCapabilityOperationRef,
   parseDeviceId,
   parsePrincipalId,
+  parseReusableWalletSessionMintId,
   parseSeamsSessionId,
   parseTenantId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
   type AuthorizationParseResult,
   type TenantId,
 } from '@shared/authorization/capabilityKinds';
@@ -31,6 +34,8 @@ import type {
 } from '../../authorization/domain';
 import {
   buildActiveAuthorizationSession,
+  buildActiveWalletSessionQuota,
+  buildWalletSessionAuthorization,
   computeAuthorizedOperationResultDigest,
   parseAuthorizedOperationReplayResponse,
   parseMpcWalletSigningQuotaId,
@@ -49,18 +54,23 @@ import type {
   AuthorizationGrantPort,
   AuthorizationSessionPort,
   EcdsaMaterialActivationScope,
+  IssuedReusableWalletSession,
 } from '../../authorization/service';
+import type { D1WalletStoreScope } from '../../core/d1WalletStore';
 import { d1ChangedRows, type D1Row } from '../../storage/d1Sql';
-import type { D1DatabaseLike } from '../../storage/tenantRoute';
+import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
 import {
   parseAppSessionVersion,
   parseProviderSubject,
   parseWebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
+import { parseWalletId } from '@shared/utils/domainIds';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export type D1AuthorizationStoreOptions = {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
+  readonly walletSignerScope: D1WalletStoreScope;
 };
 
 const ECDSA_SIGNER_MATCH = `
@@ -85,15 +95,15 @@ const ECDSA_SIGNER_MATCH = `
   )`;
 
 function ecdsaSignerMatchBindings(
-  namespace: string,
+  walletSignerScope: D1WalletStoreScope,
   material: EcdsaMaterialActivationScope,
 ): readonly unknown[] {
   const activation = material.materialActivation;
   return [
-    namespace,
-    material.runtimePolicyScope.orgId,
-    material.runtimePolicyScope.projectId,
-    material.runtimePolicyScope.envId,
+    walletSignerScope.namespace,
+    walletSignerScope.orgId,
+    walletSignerScope.projectId,
+    walletSignerScope.envId,
     material.walletId,
     material.keyHandle,
     activation.kind,
@@ -126,10 +136,23 @@ export class CloudflareD1AuthorizationStore
 {
   private readonly database: D1DatabaseLike;
   private readonly namespace: string;
+  private readonly walletSignerScope: D1WalletStoreScope;
 
   constructor(options: D1AuthorizationStoreOptions) {
     this.database = options.database;
     this.namespace = requireOpaqueString(options.namespace, 'namespace');
+    this.walletSignerScope = {
+      namespace: requireOpaqueString(
+        options.walletSignerScope.namespace,
+        'walletSignerScope.namespace',
+      ),
+      orgId: requireOpaqueString(options.walletSignerScope.orgId, 'walletSignerScope.orgId'),
+      projectId: requireOpaqueString(
+        options.walletSignerScope.projectId,
+        'walletSignerScope.projectId',
+      ),
+      envId: requireOpaqueString(options.walletSignerScope.envId, 'walletSignerScope.envId'),
+    };
   }
 
   async putActiveSession(session: ActiveAuthorizationSession): Promise<void> {
@@ -614,13 +637,171 @@ export class CloudflareD1AuthorizationStore
         requirePositiveInteger(input.session.createdAtMs, 'session.createdAtMs'),
         requirePositiveInteger(input.session.expiresAtMs, 'session.expiresAtMs'),
       );
-    const results = await this.database.batch<{
-      readonly meta?: { readonly changes?: number };
-    }>([retireQuotaStatement, retireSessionStatement, quotaStatement, sessionStatement]);
+    const results = await this.database.batch<D1ResultLike>([
+      retireQuotaStatement,
+      retireSessionStatement,
+      quotaStatement,
+      sessionStatement,
+    ]);
     if (results.length !== 4) {
       throw new Error('reusable Wallet Session transaction returned incomplete results');
     }
-    await this.requireExactReusableWalletSessionReadback(input);
+    const quotaResult = results[2];
+    const sessionResult = results[3];
+    if (!quotaResult || !sessionResult) {
+      throw new Error('reusable Wallet Session transaction returned incomplete results');
+    }
+    const quotaInserted = d1ChangedRows(quotaResult) === 1;
+    const sessionInserted = d1ChangedRows(sessionResult) === 1;
+    if (quotaInserted !== sessionInserted) {
+      throw new Error('reusable Wallet Session transaction persisted an incomplete identity');
+    }
+    if (sessionInserted) {
+      await this.requireExactReusableWalletSessionReadback(input);
+      return;
+    }
+    await this.requireExactReusableWalletSessionReplayReadback(input);
+  }
+
+  async readWalletSessionAuthorizationByMint(input: {
+    readonly tenantId: TenantId;
+    readonly principalId: WalletSessionAuthorization['principalId'];
+    readonly walletId: WalletSessionAuthorization['walletId'];
+    readonly authority: WalletAuthAuthorityRef;
+    readonly mintId: WalletSessionAuthorization['mintId'];
+    readonly nowMs: number;
+  }): Promise<IssuedReusableWalletSession | null> {
+    if (input.authority.walletId !== input.walletId) {
+      throw new Error('Wallet Session authorization authority does not identify the wallet');
+    }
+    const row = await this.database
+      .prepare(
+        `SELECT
+           session.tenant_id AS session_tenant_id,
+           session.principal_id AS session_principal_id,
+           session.wallet_id AS session_wallet_id,
+           session.authority_digest AS session_authority_digest,
+           session.mint_id AS session_mint_id,
+           session.authorization_id AS session_authorization_id,
+           session.wallet_session_id AS session_wallet_session_id,
+           session.quota_id AS session_quota_id,
+           session.lifecycle_kind AS session_lifecycle_kind,
+           session.created_at_ms AS session_created_at_ms,
+           session.expires_at_ms AS session_expires_at_ms,
+           quota.tenant_id AS quota_tenant_id,
+           quota.principal_id AS quota_principal_id,
+           quota.wallet_session_id AS quota_wallet_session_id,
+           quota.quota_id AS quota_quota_id,
+           quota.lifecycle_kind AS quota_lifecycle_kind,
+           quota.remaining_uses AS quota_remaining_uses,
+           quota.expires_at_ms AS quota_expires_at_ms
+         FROM reusable_wallet_sessions AS session
+         LEFT JOIN authorization_wallet_session_quotas AS quota
+           ON quota.namespace = session.namespace
+          AND quota.tenant_id = session.tenant_id
+          AND quota.quota_id = session.quota_id
+        WHERE session.namespace = ?
+          AND session.tenant_id = ?
+          AND session.mint_id = ?
+        LIMIT 1`,
+      )
+      .bind(this.namespace, input.tenantId, input.mintId)
+      .first<D1Row>();
+    if (!row) return null;
+
+    const sessionTenantId = requireParsed(row.session_tenant_id, parseTenantId, 'session.tenantId');
+    const sessionPrincipalId = requireParsed(
+      row.session_principal_id,
+      parsePrincipalId,
+      'session.principalId',
+    );
+    const sessionWalletId = requireParsed(row.session_wallet_id, parseWalletId, 'session.walletId');
+    const sessionMintId = requireParsed(
+      row.session_mint_id,
+      parseReusableWalletSessionMintId,
+      'session.mintId',
+    );
+    const sessionAuthorizationId = requireParsed(
+      row.session_authorization_id,
+      parseWalletSessionAuthorizationId,
+      'session.authorizationId',
+    );
+    const sessionWalletSessionId = requireParsed(
+      row.session_wallet_session_id,
+      parseWalletSessionId,
+      'session.walletSessionId',
+    );
+    const sessionQuotaId = requireParsed(
+      row.session_quota_id,
+      parseMpcWalletSigningQuotaId,
+      'session.quotaId',
+    );
+    const sessionCreatedAtMs = requirePositiveInteger(
+      row.session_created_at_ms,
+      'session.createdAtMs',
+    );
+    const sessionExpiresAtMs = requirePositiveInteger(
+      row.session_expires_at_ms,
+      'session.expiresAtMs',
+    );
+    const quotaTenantId = requireParsed(row.quota_tenant_id, parseTenantId, 'quota.tenantId');
+    const quotaPrincipalId = requireParsed(
+      row.quota_principal_id,
+      parsePrincipalId,
+      'quota.principalId',
+    );
+    const quotaWalletSessionId = requireParsed(
+      row.quota_wallet_session_id,
+      parseWalletSessionId,
+      'quota.walletSessionId',
+    );
+    const quotaId = requireParsed(row.quota_quota_id, parseMpcWalletSigningQuotaId, 'quota.quotaId');
+    const quotaRemainingUses = requirePositiveInteger(
+      row.quota_remaining_uses,
+      'quota.remainingUses',
+    );
+    const quotaExpiresAtMs = requirePositiveInteger(row.quota_expires_at_ms, 'quota.expiresAtMs');
+    if (
+      sessionTenantId !== input.tenantId ||
+      sessionPrincipalId !== input.principalId ||
+      sessionWalletId !== input.walletId ||
+      row.session_authority_digest !== input.authority.authorityDigest ||
+      sessionMintId !== input.mintId ||
+      quotaTenantId !== sessionTenantId ||
+      quotaPrincipalId !== sessionPrincipalId ||
+      quotaWalletSessionId !== sessionWalletSessionId ||
+      quotaId !== sessionQuotaId ||
+      quotaExpiresAtMs !== sessionExpiresAtMs
+    ) {
+      throw new Error('Stored Wallet Session authorization identity does not match the request');
+    }
+    if (row.session_lifecycle_kind !== 'active' || row.quota_lifecycle_kind !== 'active') {
+      throw new Error('Stored Wallet Session authorization is no longer active');
+    }
+    if (sessionExpiresAtMs <= requirePositiveInteger(input.nowMs, 'authorization read time')) {
+      throw new Error('Stored Wallet Session authorization has expired');
+    }
+    const session = buildWalletSessionAuthorization({
+      tenantId: sessionTenantId,
+      principalId: sessionPrincipalId,
+      walletId: sessionWalletId,
+      authority: input.authority,
+      mintId: sessionMintId,
+      authorizationId: sessionAuthorizationId,
+      walletSessionId: sessionWalletSessionId,
+      quotaId: sessionQuotaId,
+      createdAtMs: sessionCreatedAtMs,
+      expiresAtMs: sessionExpiresAtMs,
+    });
+    const quota = buildActiveWalletSessionQuota({
+      tenantId: quotaTenantId,
+      principalId: quotaPrincipalId,
+      walletSessionId: quotaWalletSessionId,
+      quotaId,
+      remainingUses: quotaRemainingUses,
+      expiresAtMs: quotaExpiresAtMs,
+    });
+    return { session, quota };
   }
 
   async readAuthorizedOperation(input: {
@@ -740,7 +921,7 @@ export class CloudflareD1AuthorizationStore
                         'claimed', 'pending', NULL, NULL, NULL, NULL, ?, NULL, ?
                  WHERE ${ECDSA_SIGNER_MATCH}`,
             )
-            .bind(...values, ...ecdsaSignerMatchBindings(this.namespace, input.material))
+            .bind(...values, ...ecdsaSignerMatchBindings(this.walletSignerScope, input.material))
         : this.database
             .prepare(
               `INSERT INTO authorized_operations (
@@ -758,7 +939,6 @@ export class CloudflareD1AuthorizationStore
             .bind(...values);
       const result = await statement.run();
       if (input.material && d1ChangedRows(result) === 0) return { kind: 'material_mismatch' };
-      requireOneChangedRow(result, 'authorized operation admission');
     } catch {
       const raced = await this.readAuthorizedOperationRecord({
         tenantId: operation.tenantId,
@@ -934,6 +1114,37 @@ export class CloudflareD1AuthorizationStore
       .bind(this.namespace, input.quota.tenantId, input.quota.quotaId)
       .first<D1Row>();
     if (!reusableWalletSessionReadbackMatches(session, quota, input)) {
+      throw new Error('reusable Wallet Session issuance replay does not match');
+    }
+  }
+
+  private async requireExactReusableWalletSessionReplayReadback(input: {
+    readonly session: WalletSessionAuthorization;
+    readonly quota: ActiveWalletSessionQuota;
+  }): Promise<void> {
+    const session = await this.database
+      .prepare(
+        `SELECT *
+           FROM reusable_wallet_sessions
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND mint_id = ?
+          LIMIT 1`,
+      )
+      .bind(this.namespace, input.session.tenantId, input.session.mintId)
+      .first<D1Row>();
+    const quota = await this.database
+      .prepare(
+        `SELECT *
+           FROM authorization_wallet_session_quotas
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND quota_id = ?
+          LIMIT 1`,
+      )
+      .bind(this.namespace, input.quota.tenantId, input.quota.quotaId)
+      .first<D1Row>();
+    if (!reusableWalletSessionReplayReadbackMatches(session, quota, input)) {
       throw new Error('reusable Wallet Session issuance replay does not match');
     }
   }
@@ -1380,4 +1591,43 @@ function reusableWalletSessionReadbackMatches(
     integerColumn(quota.remaining_uses, 'quota.remainingUses') === input.quota.remainingUses &&
     integerColumn(quota.expires_at_ms, 'quota.expiresAtMs') === input.quota.expiresAtMs
   );
+}
+
+function reusableWalletSessionReplayReadbackMatches(
+  session: D1Row | null,
+  quota: D1Row | null,
+  input: {
+    readonly session: WalletSessionAuthorization;
+    readonly quota: ActiveWalletSessionQuota;
+  },
+): boolean {
+  if (
+    session === null ||
+    quota === null ||
+    session.authorization_id !== input.session.authorizationId ||
+    session.wallet_session_id !== input.session.walletSessionId ||
+    session.principal_id !== input.session.principalId ||
+    session.wallet_id !== input.session.walletId ||
+    session.authority_digest !== input.session.authority.authorityDigest ||
+    session.mint_id !== input.session.mintId ||
+    session.quota_id !== input.session.quotaId ||
+    session.lifecycle_kind !== 'active' ||
+    quota.wallet_session_id !== input.quota.walletSessionId ||
+    quota.quota_id !== input.quota.quotaId ||
+    quota.principal_id !== input.quota.principalId ||
+    quota.lifecycle_kind !== 'active' ||
+    integerColumn(quota.remaining_uses, 'quota.remainingUses') !== input.quota.remainingUses
+  ) {
+    return false;
+  }
+  const sessionCreatedAtMs = requirePositiveInteger(
+    session.created_at_ms,
+    'session.createdAtMs',
+  );
+  const sessionExpiresAtMs = requirePositiveInteger(
+    session.expires_at_ms,
+    'session.expiresAtMs',
+  );
+  const quotaExpiresAtMs = requirePositiveInteger(quota.expires_at_ms, 'quota.expiresAtMs');
+  return sessionExpiresAtMs > sessionCreatedAtMs && quotaExpiresAtMs === sessionExpiresAtMs;
 }

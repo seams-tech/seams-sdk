@@ -71,6 +71,7 @@ import type {
   RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbEcdsaPendingActivationV1 } from '../router/routerAbEcdsaStrictRegistration';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { WalletEd25519SignerRecord } from './WalletStore';
 
 export type StoredAddSignerIntent = {
@@ -298,6 +299,8 @@ export type StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch =
     pendingActivation: RouterAbEcdsaPendingActivationV1;
     publicResponse: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
     publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+    activationRequestDigestB64u: string;
+    materialActivation: RouterAbMpcMaterialActivationRefWire;
     /**
      * The activate operation (idempotency key) that claimed this activation.
      * One owner per ceremony: only the claiming operation may resume the

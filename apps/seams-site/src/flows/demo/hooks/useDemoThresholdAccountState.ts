@@ -43,7 +43,10 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
       }
       try {
         const session = await seams.auth.getWalletSession(walletId);
-        const address = String(session.login.thresholdEcdsaEthereumAddress || '').trim();
+        const address =
+          session.appIdentity.kind === 'resolved'
+            ? String(session.appIdentity.thresholdEcdsaEthereumAddress || '').trim()
+            : '';
         if (!isEvmAddress(address)) {
           return { ok: false, reason: 'missing_wallet_session_address' };
         }

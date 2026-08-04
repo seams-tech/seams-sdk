@@ -3,28 +3,21 @@ import {
   type EcdsaCapabilitySelector,
 } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import {
-  classifyRawSealedSessionRecord,
-  listEcdsaSealedSessionsForWallet,
   listExactSealedSessionsForWallet,
   type CurrentEcdsaSealedSessionRecord,
-  type EcdsaInactiveSealedMaterialRecord,
 } from '../persistence/sealedSessionStore';
 import {
   thresholdEcdsaChainTargetsEqual,
-  toWalletId,
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  resolveExactInactiveEcdsaMaterialRuntime,
   resolveExactEcdsaSealedRuntime,
-  type ExactInactiveEcdsaMaterialRuntime,
-  type ExactInactiveEcdsaMaterialRuntimeResolution,
+  type ExactEcdsaCapabilityRuntime,
   type ExactEcdsaSealedRuntime,
   type ExactEcdsaSealedRuntimeResolution,
 } from './ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from './ecdsaCapabilityManifest';
-import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 
 // Async composition over the pure correlation in ecdsaSealedRuntime: select the
@@ -50,18 +43,16 @@ export type ActiveEcdsaCapabilityRuntimeResolution =
       readonly runtime?: never;
     };
 
-export type InactiveEcdsaCapabilityMaterialResolution =
+export type ExactEcdsaCapabilityRuntimeResolution =
   | {
       readonly kind: 'resolved';
       readonly manifest: ActiveEcdsaCapabilityManifest;
-      readonly runtime: ExactInactiveEcdsaMaterialRuntime;
+      readonly runtime: ExactEcdsaCapabilityRuntime;
       readonly reason?: never;
     }
   | {
       readonly kind: 'blocked';
-      readonly reason:
-        | Extract<ExactInactiveEcdsaMaterialRuntimeResolution, { kind: 'blocked' }>['reason']
-        | 'chain_mismatch';
+      readonly reason: 'chain_mismatch' | 'corrupt';
       readonly manifest?: never;
       readonly runtime?: never;
     };
@@ -120,80 +111,60 @@ async function listSealedEcdsaRecordsForWallet(args: {
   return records;
 }
 
-async function listInactiveEcdsaRecordsForWallet(args: {
-  readonly walletId: WalletId;
-  readonly authMethod: SigningSessionSealAuthMethod;
-}): Promise<readonly EcdsaInactiveSealedMaterialRecord[]> {
-  const found = await listEcdsaSealedSessionsForWallet({
-    walletId: String(args.walletId),
-    filter: { curve: 'ecdsa', authMethod: args.authMethod },
-  }).catch(() => []);
-  const inactiveRecords: EcdsaInactiveSealedMaterialRecord[] = [];
-  for (const record of found) {
-    const classification = classifyRawSealedSessionRecord(record);
-    if (classification.kind === 'ecdsa_inactive_material') {
-      inactiveRecords.push(classification.record);
-    }
-  }
-  return inactiveRecords;
-}
-
-export async function resolveExactInactiveEcdsaCapabilityMaterial(args: {
-  readonly manifest: ActiveEcdsaCapabilityManifest;
-  readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly authMethod: SignerAuthMethod;
-}): Promise<InactiveEcdsaCapabilityMaterialResolution> {
-  if (!manifestCoversTarget({ manifest: args.manifest, chainTarget: args.chainTarget })) {
-    return { kind: 'blocked', reason: 'chain_mismatch' };
-  }
-  const walletId = args.manifest.signer.walletId;
-  const inactiveRecords = await listInactiveEcdsaRecordsForWallet({
-    walletId,
-    authMethod: args.authMethod,
-  });
-  const resolution = resolveExactInactiveEcdsaMaterialRuntime({
-    manifest: args.manifest,
-    walletId,
-    chainTarget: args.chainTarget,
-    authMethod: args.authMethod,
-    inactiveRecords,
-  });
-  return resolution.kind === 'resolved'
-    ? { kind: 'resolved', manifest: args.manifest, runtime: resolution.runtime }
-    : { kind: 'blocked', reason: resolution.reason };
-}
-
 export async function resolveExactEcdsaCapabilityRuntime(args: {
   readonly manifest: ActiveEcdsaCapabilityManifest;
   readonly chainTarget: ThresholdEcdsaChainTarget;
-  readonly authMethod: SignerAuthMethod;
-}): Promise<
-  | ActiveEcdsaCapabilityRuntimeResolution
-  | {
-      readonly kind: 'blocked';
-      readonly reason: 'chain_mismatch';
-      readonly manifest?: never;
-      readonly runtime?: never;
-    }
-> {
-  const walletId = args.manifest.signer.walletId;
+  readonly relayerUrl: string;
+}): Promise<ExactEcdsaCapabilityRuntimeResolution> {
   if (!manifestCoversTarget({ manifest: args.manifest, chainTarget: args.chainTarget })) {
     return { kind: 'blocked', reason: 'chain_mismatch' };
   }
-  const sealedRecords = await listSealedEcdsaRecordsForWallet({
-    walletId,
-    chainTarget: args.chainTarget,
-    authMethod: args.authMethod,
-  });
-  const resolution = resolveExactEcdsaSealedRuntime({
+  const durable = args.manifest.durableMaterial;
+  const facts = durable.roleLocalPublicFacts;
+  const participantIds = exactTwoPartyParticipantIds(facts.participantIds);
+  const relayerUrl = String(args.relayerUrl).trim().replace(/\/+$/g, '');
+  if (!participantIds || !relayerUrl) return { kind: 'blocked', reason: 'corrupt' };
+  return {
+    kind: 'resolved',
     manifest: args.manifest,
-    walletId,
-    chainTarget: args.chainTarget,
-    sealedRecords,
-  });
-  return resolution.kind === 'resolved'
-    ? { kind: 'resolved', manifest: args.manifest, runtime: resolution.runtime }
-    : { kind: 'blocked', reason: resolution.reason };
+    runtime: {
+      kind: 'exact_ecdsa_capability_runtime_v1',
+      walletId: args.manifest.signer.walletId,
+      chainTarget: args.chainTarget,
+      materialActivation: durable.materialActivation,
+      normalSigning: durable.routerAbEcdsaDerivationNormalSigning,
+      relayerUrl,
+      relayerKeyId: String(durable.roleLocalBinding.relayerKeyId),
+      clientVerifyingPublicKey33B64u: durable.roleLocalBinding.clientVerifyingPublicKey33B64u,
+      participantIds,
+      ecdsaThresholdKeyId: String(facts.ecdsaThresholdKeyId),
+      thresholdEcdsaPublicKeyB64u: facts.groupPublicKey33B64u,
+      keyHandle: String(facts.keyHandle),
+      runtimePolicyScope: durable.runtimePolicyScope,
+      roleLocalMaterialRef: {
+        kind: 'ecdsa_role_local_persisted_material_ref_v1',
+        durableMaterialRef: durable.durableMaterialRef,
+        bindingDigest: durable.bindingDigest,
+        materialActivation: durable.materialActivation,
+      },
+    },
+  };
+}
+
+function exactTwoPartyParticipantIds(value: readonly number[]): readonly [number, number] | null {
+  if (value.length !== 2) return null;
+  const first = value[0];
+  const second = value[1];
+  if (
+    !Number.isSafeInteger(first) ||
+    !Number.isSafeInteger(second) ||
+    first <= 0 ||
+    second <= 0 ||
+    first === second
+  ) {
+    return null;
+  }
+  return [first, second];
 }
 
 export async function resolveActiveEcdsaCapabilityRuntime(args: {

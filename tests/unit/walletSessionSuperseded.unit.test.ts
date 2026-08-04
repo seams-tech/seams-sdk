@@ -3,10 +3,7 @@ import {
   exactSessionStateFromWalletSession,
   parseWalletSessionFromBoundary,
 } from '@/SeamsWeb/walletIframe/shared/exactSessionState';
-import {
-  isWalletSessionReadyForUi,
-  shouldPreserveReactLoginForWalletSessionRead,
-} from '@/react/context/walletSessionReadiness';
+import { isWalletSessionReadyForUi } from '@/react/context/walletSessionReadiness';
 import {
   activeWalletSessionFixture,
   invalidWalletSessionFixture,
@@ -71,11 +68,9 @@ test.describe('superseded reusable Wallet Session', () => {
     });
   });
 
-  test('is not ready for the UI while it is stale', () => {
+  test('keeps authenticated wallet UI available while authorization is stale', () => {
     const superseded = supersededWalletSessionFixture({});
-    expect(isWalletSessionReadyForUi({ session: superseded })).toBe(false);
-    expect(shouldPreserveReactLoginForWalletSessionRead(superseded)).toBe(true);
-    // ...and the same wallet is ready again once current state resolves.
+    expect(isWalletSessionReadyForUi({ session: superseded })).toBe(true);
     expect(isWalletSessionReadyForUi({ session: activeWalletSessionFixture({}) })).toBe(true);
   });
 });

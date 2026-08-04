@@ -20,6 +20,7 @@ import type {
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
+import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   EmailOtpChannel,
@@ -1202,6 +1203,13 @@ export interface RouterApiWalletAuthVerificationService {
 }
 
 export interface RouterApiWalletAuthMethodService {
+  resolveActiveEmailOtpAuthorityForVerifiedSubject(input: {
+    readonly walletId: string;
+    readonly providerUserId: string;
+  }): Promise<
+    | { readonly ok: true; readonly authority: EmailOtpWalletAuthAuthority }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  >;
   createAddAuthMethodIntent(input: {
     command: CreateAddAuthMethodIntentCommand;
     orgId: string;

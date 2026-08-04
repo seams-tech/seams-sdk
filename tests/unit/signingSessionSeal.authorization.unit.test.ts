@@ -71,6 +71,7 @@ async function walletSessionFixture(
       nearAccountId: WALLET_ID,
       nearEd25519SigningKeyId: 'near-ed25519-signing-key-seal-authorization',
       thresholdSessionId: THRESHOLD_SESSION_ID,
+      authorizationId: 'authorization-grant-seal-authorization',
       walletSessionId: 'wallet-session-seal-authorization',
       quotaId: 'quota-seal-authorization',
       expiresAtMs: thresholdExpiresAtMs,

@@ -1,4 +1,10 @@
+import {
+  CAPABILITY_KINDS,
+  EVM_ECDSA_MPC_OPERATION_KINDS,
+  NEAR_ED25519_MPC_OPERATION_KINDS,
+} from '@shared/authorization/capabilityKinds';
 import type {
+  CapabilityOperationRef,
   AuthorizationAuditEventId,
   AuthorizationGrantRef,
   AuthorizedOperationId,
@@ -211,20 +217,77 @@ export type AuthorizedOperation = AuthorizedOperationLifecycle & {
     | { readonly kind: 'quota_neutral'; readonly quotaId?: never };
 };
 
-export type AuthorizedOperationInput = {
+type AuthorizedOperationInputFields = {
   readonly tenantId: TenantId;
   readonly authorizedOperationId: AuthorizedOperationId;
   readonly auditEventId: AuthorizationAuditEventId;
-  readonly operation: CapabilityOperationEnvelope;
-  readonly authorization: OperationAuthorizationSource;
-  readonly quota:
-    | {
-        readonly kind: 'consume_reusable_wallet_session';
-        readonly quotaId: MpcWalletSigningQuotaId;
-      }
-    | { readonly kind: 'quota_neutral'; readonly quotaId?: never };
   readonly claimedAtMs: number;
 };
+
+type NearOperationRef = Extract<
+  CapabilityOperationRef,
+  { readonly capabilityKind: typeof CAPABILITY_KINDS.nearEd25519MpcSigning }
+>;
+type EvmOperationRef = Extract<
+  CapabilityOperationRef,
+  { readonly capabilityKind: typeof CAPABILITY_KINDS.evmEcdsaMpcSigning }
+>;
+type ReusableSigningOperationRef =
+  | (NearOperationRef & {
+      readonly operationKind: Exclude<
+        NearOperationRef['operationKind'],
+        (typeof NEAR_ED25519_MPC_OPERATION_KINDS)['exportKey']
+      >;
+    })
+  | (EvmOperationRef & {
+      readonly operationKind: Exclude<
+        EvmOperationRef['operationKind'],
+        (typeof EVM_ECDSA_MPC_OPERATION_KINDS)['exportKey']
+      >;
+    });
+
+type QuotaNeutralOperationRef =
+  | Extract<
+      CapabilityOperationRef,
+      { readonly capabilityKind: typeof CAPABILITY_KINDS.vaultAccess }
+    >
+  | (NearOperationRef & {
+      readonly operationKind: (typeof NEAR_ED25519_MPC_OPERATION_KINDS)['exportKey'];
+    })
+  | (EvmOperationRef & {
+      readonly operationKind: (typeof EVM_ECDSA_MPC_OPERATION_KINDS)['exportKey'];
+    });
+
+type AuthorizationGrantSource = Extract<
+  OperationAuthorizationSource,
+  { readonly kind: 'authorization_grant' }
+>;
+type VerifiedStepUpSource = Extract<
+  OperationAuthorizationSource,
+  { readonly kind: 'verified_step_up' }
+>;
+type ConsumingQuota = {
+  readonly kind: 'consume_reusable_wallet_session';
+  readonly quotaId: MpcWalletSigningQuotaId;
+};
+type QuotaNeutral = { readonly kind: 'quota_neutral'; readonly quotaId?: never };
+
+export type AuthorizedOperationInput =
+  | (AuthorizedOperationInputFields & {
+      readonly operation: CapabilityOperationEnvelope<ReusableSigningOperationRef>;
+      readonly authorization: AuthorizationGrantSource;
+      readonly quota: ConsumingQuota;
+    })
+  | (AuthorizedOperationInputFields & {
+      readonly operation: CapabilityOperationEnvelope<QuotaNeutralOperationRef>;
+      readonly authorization: AuthorizationGrantSource;
+      readonly quota: QuotaNeutral;
+    })
+  | (AuthorizedOperationInputFields & {
+      readonly operation: CapabilityOperationEnvelope;
+      readonly authorization: VerifiedStepUpSource;
+      readonly quota: QuotaNeutral;
+    });
 
 export async function buildAuthorizedOperation(
   input: AuthorizedOperationInput,

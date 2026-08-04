@@ -22,7 +22,10 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
-import { canonicalEcdsaAvailableLane } from './helpers/availableSigningLanes.fixtures';
+import {
+  authorizationRequiredCanonicalEcdsaAvailableLane,
+  canonicalEcdsaAvailableLane,
+} from './helpers/availableSigningLanes.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 
@@ -385,6 +388,40 @@ test.describe('Ed25519 export lane selection', () => {
 });
 
 test.describe('ECDSA export lane selection', () => {
+  test('selects a canonical passkey lane when reusable ECDSA authorization is absent', async () => {
+    const lane = authorizationRequiredCanonicalEcdsaAvailableLane({
+      authMethod: 'passkey',
+      chainTarget: EVM_TARGET,
+      thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
+    });
+
+    const selected = await resolveExactKeyExportLane(depsFor([lane]), {
+      kind: 'ecdsa',
+      walletSession: walletSessionRefFromSession({
+        walletId: WALLET_ID,
+        walletSessionUserId: WALLET_ID,
+      }),
+      chainTarget: EVM_TARGET,
+    });
+
+    expect(selected).toEqual({
+      kind: 'ecdsa',
+      laneIdentity: ecdsaLaneIdentity(lane),
+    });
+
+    const resolved = await resolveEcdsaSessionForExport(depsFor([lane]), {
+      walletId: WALLET_ID,
+      signingTarget: EVM_TARGET,
+      laneIdentity: ecdsaLaneIdentity(lane),
+    });
+    expect(resolved).toMatchObject({
+      authorizationState: 'authorization_required',
+      authMethod: 'passkey',
+      material: { kind: 'sealed_worker_material' },
+    });
+    expect(resolved).not.toHaveProperty('authorization');
+  });
+
   test('selects ready Email OTP ECDSA export lanes after registration without restore', async () => {
     const evmLane = ecdsaLane({
       authMethod: 'email_otp',

@@ -486,14 +486,7 @@ async function issueExplicitEcdsaExportAuthorization(args: {
       proof: args.proof,
     },
   });
-  let evidenceSetDigest: DigestB64u;
-  try {
-    evidenceSetDigest = parseDigestB64u(authorization.authorization.evidence_set_digest);
-  } catch (error) {
-    throw new Error(
-      error instanceof Error ? error.message : 'ECDSA export evidence digest is invalid',
-    );
-  }
+  const evidenceSetDigest = authorization.authorization.evidence_set_digest;
   return {
     kind: 'verified_step_up' as const,
     evidenceSetDigest,

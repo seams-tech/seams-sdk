@@ -96,9 +96,10 @@ export type WarmSessionSealTransportInput =
     })
   | (PasskeyWarmSessionSealTransportCommon & {
       curve: 'ecdsa';
-      authMethod?: 'passkey';
+      authMethod: 'passkey';
+      walletId: string;
       chainTarget: ThresholdEcdsaChainTarget;
-      ecdsaRestore?: Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }>;
+      ecdsaRestore: Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }>;
       ed25519Restore?: never;
       emailOtpRestore?: never;
     });

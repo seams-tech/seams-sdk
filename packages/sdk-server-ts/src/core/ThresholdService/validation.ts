@@ -1231,6 +1231,7 @@ export type Ed25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionC
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   kind: Kind;
+  sid?: SeamsSessionId;
   thresholdSessionId: string;
   authorizationId: WalletSessionAuthorizationId;
   walletSessionId: WalletSessionId;
@@ -1274,6 +1275,9 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
   const nearEd25519SigningKeyId = toOptionalString(
     (raw as { nearEd25519SigningKeyId?: unknown }).nearEd25519SigningKeyId,
   );
+  const sidRaw = (raw as { sid?: unknown }).sid;
+  const seamsSessionId =
+    sidRaw === undefined ? { ok: true as const, value: undefined } : parseSeamsSessionId(sidRaw);
   const thresholdSessionId = toOptionalString(
     (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
   );
@@ -1295,6 +1299,7 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     walletId !== sub ||
     !nearAccountId ||
     !nearEd25519SigningKeyId ||
+    !seamsSessionId.ok ||
     !thresholdSessionId ||
     !authorizationId.ok ||
     !walletSessionId.ok ||
@@ -1321,6 +1326,7 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     nearAccountId,
     nearEd25519SigningKeyId,
     kind: expectedKind,
+    ...(seamsSessionId.value ? { sid: seamsSessionId.value } : {}),
     thresholdSessionId,
     authorizationId: authorizationId.value,
     walletSessionId: walletSessionId.value,
@@ -1518,6 +1524,7 @@ export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaim
   sub: string;
   walletId: string;
   kind: Kind;
+  sid: SeamsSessionId;
   thresholdSessionId: string;
   authorizationId: WalletSessionAuthorizationId;
   authorizationSessionId: SeamsSessionId;
@@ -1553,6 +1560,7 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
   const thresholdSessionId = toOptionalString(
     (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
   );
+  const seamsSessionId = parseSeamsSessionId((raw as { sid?: unknown }).sid);
   const authorizationId = parseWalletSessionAuthorizationId(
     (raw as { authorizationId?: unknown }).authorizationId,
   );
@@ -1570,9 +1578,11 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     !sub ||
     !walletId ||
     walletId !== sub ||
+    !seamsSessionId.ok ||
     !thresholdSessionId ||
     !authorizationId.ok ||
     !authorizationSessionId.ok ||
+    seamsSessionId.value !== authorizationSessionId.value ||
     !walletSessionId.ok ||
     !quotaId.ok ||
     keyScope !== 'evm-family' ||
@@ -1590,6 +1600,7 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     sub,
     walletId,
     kind: expectedKind,
+    sid: seamsSessionId.value,
     thresholdSessionId,
     authorizationId: authorizationId.value,
     authorizationSessionId: authorizationSessionId.value,

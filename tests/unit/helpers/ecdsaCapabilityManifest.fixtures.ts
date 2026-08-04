@@ -39,13 +39,15 @@ import {
   parseSdkEcdsaDerivationSigningRootVersion,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
-import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
-import {
-  buildActiveWalletSessionAuthorizationProjection,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type {
+  ActiveEcdsaCapabilityManifest,
+  EcdsaActivationBinding,
+} from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
+import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseMpcWalletSigningQuotaId,
   parseSeamsSessionId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { base64UrlEncode } from '@shared/utils/base64';
@@ -74,7 +76,10 @@ import {
   parseWalletAuthorityBindingDigest,
   type DomainIdParseResult,
 } from '@shared/utils/domainIds';
-import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationNormalSigningStateV1,
+  RouterAbEcdsaRegistrationActivationReceiptV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import { buildRouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
@@ -147,14 +152,41 @@ function fixtureStateBlob(label: string): string {
   return base64UrlEncode(new TextEncoder().encode(label));
 }
 
+function normalSigningFixture(args: {
+  activationBinding: EcdsaActivationBinding;
+  receipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+}): RouterAbEcdsaDerivationNormalSigningStateV1 {
+  const activation = args.receipt.ecdsa_activation;
+  return {
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
+    scope: {
+      wallet_id: String(args.activationBinding.signer.walletId),
+      ecdsa_threshold_key_id: String(args.activationBinding.roleLocalBinding.ecdsaThresholdKeyId),
+      signing_root_id: String(args.activationBinding.signer.signingRootId),
+      signing_root_version: String(args.activationBinding.signer.signingRootVersion),
+      context: activation.context,
+      public_identity: activation.public_identity,
+      material_activation: activation.material_activation,
+      signing_worker: activation.signing_worker,
+      activation_epoch: activation.activation_epoch,
+    },
+  };
+}
+
 export function ecdsaCapabilityActivationFixture(args?: {
   authority?: WalletAuthAuthorityRef;
   manifestRevision?: number;
   walletId?: ReturnType<typeof walletIdFromString>;
   chainTarget?: ThresholdEcdsaChainTarget;
+  targetMemberships?: readonly [
+    ThresholdEcdsaChainTarget,
+    ...ThresholdEcdsaChainTarget[],
+  ];
   keyHandle?: string;
   signingRootId?: string;
   signingRootVersion?: string;
+  ecdsaThresholdKeyId?: string;
+  thresholdOwnerAddress?: string;
 }): EcdsaCapabilityActivationFixture {
   const walletId = args?.walletId ?? walletIdFromString('ecdsa-manifest-fixture-wallet');
   const authority: WalletAuthAuthorityRef = args?.authority ?? {
@@ -164,7 +196,9 @@ export function ecdsaCapabilityActivationFixture(args?: {
   };
   const roleLocalBinding = buildEcdsaRoleLocalMaterialBinding({
     keyHandle: parseEcdsaKeyHandle(args?.keyHandle ?? 'ecdsa-key-handle-fixture'),
-    ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('ecdsa-threshold-key-fixture'),
+    ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(
+      args?.ecdsaThresholdKeyId ?? 'ecdsa-threshold-key-fixture',
+    ),
     clientVerifyingPublicKey33B64u:
       parseEcdsaClientVerifyingPublicKey33B64u(CLIENT_PUBLIC_KEY_B64U),
     participantIds: [toParticipantId(1), toParticipantId(2)],
@@ -180,7 +214,7 @@ export function ecdsaCapabilityActivationFixture(args?: {
       signerId: parseEvmFamilyEcdsaSignerId('ecdsa-signer-fixture'),
       authority,
       scope: buildEcdsaCapabilityScope({
-        targetMemberships: [
+        targetMemberships: args?.targetMemberships ?? [
           args?.chainTarget ?? {
             kind: 'evm',
             namespace: 'eip155',
@@ -214,7 +248,14 @@ export function ecdsaCapabilityActivationFixture(args?: {
         derivation_client_share_public_key33_b64u: CLIENT_PUBLIC_KEY_B64U,
         server_public_key33_b64u: SERVER_PUBLIC_KEY_B64U,
         threshold_public_key33_b64u: GROUP_PUBLIC_KEY_B64U,
-        ethereum_address20_b64u: ETHEREUM_ADDRESS_B64U,
+        ethereum_address20_b64u: base64UrlEncode(
+          Uint8Array.from(
+            Buffer.from(
+              (args?.thresholdOwnerAddress ?? THRESHOLD_OWNER_ADDRESS).replace(/^0x/, ''),
+              'hex',
+            ),
+          ),
+        ),
         client_share_retry_counter: 0,
         server_share_retry_counter: 0,
       },
@@ -228,8 +269,8 @@ export function ecdsaCapabilityActivationFixture(args?: {
         kind: 'mpc_material_activation_ref',
         activation_id: 'ecdsa-activation-fixture',
         capability: 'ecdsa-capability-fixture',
-        material_owner: 'ecdsa-manifest-fixture-wallet',
-        key_binding: 'ecdsa-key-handle-fixture',
+        material_owner: String(walletId),
+        key_binding: CONTEXT_BINDING_B64U,
         lifecycle_binding: 'ecdsa-lifecycle-fixture',
         signing_worker: 'signing-worker-fixture',
       },
@@ -262,8 +303,12 @@ export function ecdsaCapabilityActivationFixture(args?: {
     derivationClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_B64U,
     relayerPublicKey33B64u: SERVER_PUBLIC_KEY_B64U,
     groupPublicKey33B64u: GROUP_PUBLIC_KEY_B64U,
-    ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+    ethereumAddress: args?.thresholdOwnerAddress ?? THRESHOLD_OWNER_ADDRESS,
     publicCapability,
+  });
+  const routerAbEcdsaDerivationNormalSigning = normalSigningFixture({
+    activationBinding,
+    receipt: protocolReceipt,
   });
   return {
     prepareInput: {
@@ -288,9 +333,16 @@ export function ecdsaCapabilityActivationFixture(args?: {
         keyHandle: toEvmFamilyEcdsaKeyHandle(roleLocalBinding.keyHandle),
         publicKeyB64u: GROUP_PUBLIC_KEY_B64U,
         participantIds: roleLocalBinding.participantIds,
-        thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
+        thresholdOwnerAddress: args?.thresholdOwnerAddress ?? THRESHOLD_OWNER_ADDRESS,
       }),
       roleLocalPublicFacts,
+      routerAbEcdsaDerivationNormalSigning,
+      runtimePolicyScope: {
+        orgId: 'fixture-org',
+        projectId: (args?.signingRootId ?? 'fixture:dev').split(':')[0]!,
+        envId: (args?.signingRootId ?? 'fixture:dev').split(':')[1]!,
+        signingRootVersion: args?.signingRootVersion ?? 'v1',
+      },
       committedAt: parseIsoTimestamp('2026-07-27T00:01:00.000Z'),
     },
     serverGeneration,
@@ -316,8 +368,11 @@ function activeLookupFromFixture(
   const durableMaterial = buildDurableEcdsaMaterialBinding({
     activationBinding: fixture.prepareInput.activationBinding,
     serverActivation,
+    routerAbEcdsaDerivationNormalSigning:
+      fixture.sealInput.routerAbEcdsaDerivationNormalSigning,
     roleLocalPublicFacts: fixture.sealInput.roleLocalPublicFacts,
     ciphertextDigest: parseEcdsaCiphertextDigest(DIGEST_B64U),
+    runtimePolicyScope: fixture.sealInput.runtimePolicyScope,
   });
   return {
     kind: 'active',
@@ -350,10 +405,18 @@ function activeLookupFromFixture(
 export function ecdsaCapabilityActivationLookupFixture(args?: {
   authority?: WalletAuthAuthorityRef;
   manifestRevision?: number;
-}): Extract<
-  EcdsaCapabilityManifestLookup,
-  { readonly kind: 'active' }
-> {
+  walletId?: ReturnType<typeof walletIdFromString>;
+  chainTarget?: ThresholdEcdsaChainTarget;
+  targetMemberships?: readonly [
+    ThresholdEcdsaChainTarget,
+    ...ThresholdEcdsaChainTarget[],
+  ];
+  keyHandle?: string;
+  signingRootId?: string;
+  signingRootVersion?: string;
+  ecdsaThresholdKeyId?: string;
+  thresholdOwnerAddress?: string;
+}): Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' }> {
   return activeLookupFromFixture(ecdsaCapabilityActivationFixture(args));
 }
 
@@ -362,6 +425,10 @@ export async function canonicalEvmFamilyEcdsaSigningCapabilityFixture(
   overrides?: {
     walletId?: ReturnType<typeof walletIdFromString>;
     chainTarget?: ThresholdEcdsaChainTarget;
+    targetMemberships?: readonly [
+      ThresholdEcdsaChainTarget,
+      ...ThresholdEcdsaChainTarget[],
+    ];
     keyHandle?: string;
     signingRootId?: string;
     signingRootVersion?: string;
@@ -527,7 +594,7 @@ function buildEcdsaCapabilityReplacementFixture(
         activation_id: 'ecdsa-activation-replacement-fixture',
         capability: 'ecdsa-capability-fixture',
         material_owner: 'ecdsa-manifest-fixture-wallet',
-        key_binding: 'ecdsa-key-handle-replacement-fixture',
+        key_binding: REPLACEMENT_DIGEST_B64U,
         lifecycle_binding: 'ecdsa-lifecycle-replacement-fixture',
         signing_worker: 'signing-worker-replacement-fixture',
       },
@@ -573,7 +640,7 @@ function buildEcdsaCapabilityReplacementFixture(
           participantIds: roleLocalBinding.participantIds,
           thresholdOwnerAddress: '0x2222222222222222222222222222222222222222',
         }),
-        roleLocalPublicFacts: buildEcdsaRoleLocalPublicFacts({
+      roleLocalPublicFacts: buildEcdsaRoleLocalPublicFacts({
           ...prior.sealInput.roleLocalPublicFacts,
           keyHandle: roleLocalBinding.keyHandle,
           ecdsaThresholdKeyId: roleLocalBinding.ecdsaThresholdKeyId,
@@ -583,6 +650,11 @@ function buildEcdsaCapabilityReplacementFixture(
           groupPublicKey33B64u: REPLACEMENT_CLIENT_PUBLIC_KEY_B64U,
           ethereumAddress: '0x2222222222222222222222222222222222222222',
         }),
+        routerAbEcdsaDerivationNormalSigning: normalSigningFixture({
+          activationBinding,
+          receipt: protocolReceipt,
+        }),
+        runtimePolicyScope: prior.sealInput.runtimePolicyScope,
         committedAt: parseIsoTimestamp('2026-07-27T01:01:00.000Z'),
       },
       serverGeneration,
@@ -623,6 +695,14 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
     parseMpcWalletSigningQuotaId(args.quotaId || 'ecdsa-fixture-quota'),
     'quotaId',
   );
+  const seamsSessionId = requireFixtureId(
+    parseSeamsSessionId('ecdsa-fixture-authorization-session'),
+    'authorizationSessionId',
+  );
+  const authorizationId = requireFixtureId(
+    parseWalletSessionAuthorizationId('ecdsa-fixture-authorization'),
+    'authorizationId',
+  );
   const expiresAtMs = args.expiresAtMs ?? 1_900_000_000_000;
   const remainingUses = args.remainingUses ?? 5;
   const walletSessionJwt =
@@ -634,6 +714,14 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
           JSON.stringify({
             kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
             sub: String(walletId),
+            walletId: String(walletId),
+            authorizationId,
+            authorizationSessionId: seamsSessionId,
+            sid: seamsSessionId,
+            walletSessionId,
+            quotaId,
+            thresholdExpiresAtMs: expiresAtMs,
+            exp: Math.floor(expiresAtMs / 1_000),
           }),
         ),
       ),
@@ -643,16 +731,17 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
     kind: 'active_reusable_wallet_session_authorization',
     projection: buildActiveWalletSessionAuthorizationProjection({
       walletId: signer.walletId,
-      authorizationSessionId: requireFixtureId(
-        parseSeamsSessionId('ecdsa-fixture-authorization-session'),
-        'authorizationSessionId',
-      ),
+      seamsSessionId,
+      authorizationId,
       walletSessionId,
       quotaId,
       authMethod: args.authMethod ?? 'passkey',
       authority: signer.authority,
       expiresAtMs,
-      walletSessionJwt,
+      walletSessionTokens: {
+        kind: 'evm_family_ecdsa',
+        ecdsa: { walletSessionJwt },
+      },
     }),
     status: {
       walletSessionId,

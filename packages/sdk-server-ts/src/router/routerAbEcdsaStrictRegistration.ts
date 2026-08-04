@@ -2,6 +2,7 @@ import {
   parseRouterAbEcdsaDerivationActivationCommitQueryResultV1,
   parseRouterAbEcdsaDerivationActivationPrepareResultV1,
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
+  projectRouterAbEcdsaDerivationExplicitExportRequestToProtocolV1,
   parseRouterAbEcdsaExplicitExportForwardedResponseV1,
   parseRouterAbEcdsaDerivationRecoveryRequestV1,
   parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
@@ -27,6 +28,7 @@ import {
   type RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 import {
   ROUTER_AB_TRACE_ID_HEADER_V1,
@@ -95,8 +97,20 @@ export type RouterAbEcdsaStrictExportAuthority = RouterAbEcdsaStrictRegistration
   // The Gateway-attested operation authority for this export. The router
   // cross-checks it against the request's own authorization branch.
   readonly authorization: RouterAbNormalSigningAuthorizationWire;
+  // Server-private identity forwarded only to Router and SigningWorker.
+  readonly privateAuthorization: RouterAbEcdsaStrictExportPrivateAuthorization;
   readonly normalSigningScope: RouterAbEcdsaDerivationNormalSigningScopeV1;
 };
+
+export type RouterAbEcdsaStrictExportPrivateAuthorization =
+  | {
+      readonly kind: 'reusable_wallet_session';
+      readonly walletSessionId: string;
+    }
+  | {
+      readonly kind: 'operation_step_up';
+      readonly evidenceSetDigest: string;
+    };
 
 export type RouterAbEcdsaStrictRegistrationTopology = {
   readonly routerId: string;
@@ -156,6 +170,8 @@ export interface RouterAbEcdsaStrictRegistrationPort {
   }): Promise<RouterAbEcdsaStrictRegistrationResult>;
   activate(input: {
     readonly activationCorrelationId: CorrelationId;
+    readonly activationRequestDigestB64u: string;
+    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly requestPolicy: RouterAbEcdsaRegistrationRequestPolicyV1;
@@ -254,8 +270,6 @@ type StrictRegistrationForwarderConfig = {
 
 const STRICT_ECDSA_REGISTRATION_PATH = '/router-ab/ecdsa-derivation/register';
 const STRICT_ECDSA_ACTIVATION_PATH = '/router-ab/ecdsa-derivation/activate';
-const STRICT_ECDSA_ACTIVATION_PREPARE_PATH = '/router-ab/ecdsa-derivation/activate/prepare';
-const STRICT_ECDSA_ACTIVATION_QUERY_PATH = '/router-ab/ecdsa-derivation/activate/query';
 const STRICT_ECDSA_EXPORT_PATH = '/router-ab/ecdsa-derivation/export';
 const STRICT_ECDSA_RECOVERY_PATH = '/router-ab/ecdsa-derivation/recover';
 const STRICT_ECDSA_REFRESH_PATH = '/router-ab/ecdsa-derivation/refresh';
@@ -296,6 +310,8 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
 
   async activate(input: {
     readonly activationCorrelationId: CorrelationId;
+    readonly activationRequestDigestB64u: string;
+    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly requestPolicy: RouterAbEcdsaRegistrationRequestPolicyV1;
@@ -309,6 +325,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       path: STRICT_ECDSA_ACTIVATION_PATH,
       authority: input.authority,
       activationCorrelationId: input.activationCorrelationId,
+      materialActivation: input.materialActivation,
       requestPolicy: input.requestPolicy,
       pendingActivation: input.pendingActivation,
       clientActivation: input.clientActivation,
@@ -318,7 +335,26 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
     });
     if (!body.ok) return body;
     try {
-      const receipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(body.value);
+      const rawReceipt = exactObject(body.value, [
+        'ecdsa_activation',
+        'lifecycle_id',
+        'transcript_digest',
+        'activated',
+      ]);
+      const rawActivation = objectValue(rawReceipt?.ecdsa_activation);
+      const activationDigestB64u = nonEmptyString(rawActivation?.activation_digest_b64u);
+      const requestDigestB64u = base64UrlString(input.activationRequestDigestB64u, 32);
+      if (!rawReceipt || rawReceipt.activated !== true || !activationDigestB64u || !requestDigestB64u) {
+        throw new Error('MPCRouter returned an incomplete ECDSA activation receipt');
+      }
+      const receipt = parseRouterAbEcdsaRegistrationActivationReceiptV1({
+        activation_correlation_id: input.activationCorrelationId,
+        activation_request_digest: { bytes: Array.from(decodeBase64Url(requestDigestB64u)) },
+        server_generation: `ecdsa-server-generation-v1:${activationDigestB64u}`,
+        ecdsa_activation: rawReceipt.ecdsa_activation,
+        lifecycle_id: rawReceipt.lifecycle_id,
+        transcript_digest: rawReceipt.transcript_digest,
+      });
       if (receipt.activation_correlation_id !== input.activationCorrelationId) {
         throw new Error('MPCRouter activation receipt changed the journal correlation');
       }
@@ -352,12 +388,7 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       | {
           readonly kind: 'activation';
           readonly activationCorrelationId: CorrelationId;
-          readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
-          readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
-        }
-      | {
-          readonly kind: 'activation_prepare' | 'activation_query';
-          readonly activationCorrelationId: CorrelationId;
+          readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
           readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
           readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
         }
@@ -619,15 +650,41 @@ function strictPostRegistrationForwardBodyJson(
   switch (input.kind) {
     case 'explicit_export':
       return JSON.stringify({
-        request: input.request,
+        request: projectRouterAbEcdsaDerivationExplicitExportRequestToProtocolV1(input.request),
         export_authority: {
           key_handle: input.authority.keyHandle,
           authorization: input.authority.authorization,
           normal_signing_scope: input.authority.normalSigningScope,
         },
+        private_authorization: privateExportAuthorizationWire(
+          input.authority.privateAuthorization,
+        ),
       });
     case 'post_registration_proof':
       return JSON.stringify(input.request);
+  }
+}
+
+function privateExportAuthorizationWire(
+  authorization: RouterAbEcdsaStrictExportPrivateAuthorization,
+):
+  | { readonly kind: 'reusable_wallet_session'; readonly wallet_session_id: string }
+  | { readonly kind: 'operation_step_up'; readonly evidence_set_digest: string } {
+  switch (authorization.kind) {
+    case 'reusable_wallet_session':
+      return {
+        kind: 'reusable_wallet_session',
+        wallet_session_id: authorization.walletSessionId,
+      };
+    case 'operation_step_up':
+      return {
+        kind: 'operation_step_up',
+        evidence_set_digest: authorization.evidenceSetDigest,
+      };
+    default: {
+      const exhaustive: never = authorization;
+      throw new Error(`Unsupported private ECDSA export authorization: ${String(exhaustive)}`);
+    }
   }
 }
 
@@ -638,8 +695,9 @@ function strictForwardBodyJson(
         readonly request: RouterAbEcdsaRegistrationRequestV1;
       }
     | {
-        readonly kind: 'activation' | 'activation_prepare' | 'activation_query';
+        readonly kind: 'activation';
         readonly activationCorrelationId: CorrelationId;
+        readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
         readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
         readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
       },
@@ -648,9 +706,7 @@ function strictForwardBodyJson(
     case 'registration':
       return JSON.stringify(input.request);
     case 'activation':
-    case 'activation_prepare':
-    case 'activation_query':
-      return `{"activation_correlation_id":${JSON.stringify(input.activationCorrelationId)},"pending":${input.pendingActivation.canonicalPayloadJson},"client_activation":${JSON.stringify(input.clientActivation)}}`;
+      return `{"activation_correlation_id":${JSON.stringify(input.activationCorrelationId)},"pending":${input.pendingActivation.canonicalPayloadJson},"client_activation":${JSON.stringify(input.clientActivation)},"material_activation":${JSON.stringify(input.materialActivation)}}`;
     default:
       return assertNeverStrictForwardBody(input);
   }

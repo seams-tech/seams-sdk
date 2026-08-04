@@ -1,3 +1,5 @@
+import { isAppSessionJwt } from './sessionTokens';
+
 export type DomainId<TBrand extends string> = string & {
   readonly __domainIdBrand: TBrand;
 };
@@ -320,7 +322,15 @@ export function parseWalletAuthorityBindingDigest(
 }
 
 export function parseAppSessionJwt(raw: unknown): DomainIdParseResult<AppSessionJwt> {
-  return parseDomainId(raw, 'appSessionJwt');
+  const parsed = parseDomainId<AppSessionJwt>(raw, 'appSessionJwt');
+  if (!parsed.ok || isAppSessionJwt(parsed.value)) return parsed;
+  return {
+    ok: false,
+    error: {
+      code: 'invalid',
+      message: 'appSessionJwt must be an app_session_v1 JWT',
+    },
+  };
 }
 
 export function parseCapabilityInstanceRef(

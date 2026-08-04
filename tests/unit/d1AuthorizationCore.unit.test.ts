@@ -2,7 +2,10 @@ import { expect, test } from '@playwright/test';
 import { AuthorizationService } from '../../packages/sdk-server-ts/src/authorization/service';
 import type { EcdsaMaterialActivationScope } from '../../packages/sdk-server-ts/src/authorization/service';
 import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1AuthorizationStore';
-import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/d1WalletStore';
+import {
+  D1WalletStore,
+  type D1WalletStoreScope,
+} from '../../packages/sdk-server-ts/src/core/d1WalletStore';
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
 import {
   applyD1MigrationFiles,
@@ -33,6 +36,7 @@ import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPri
 import { parseVerifiedAuthorizationEvidenceSetFromPersistence } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
 import { capabilityPolicyPort } from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
 import {
+  buildEvmEcdsaMpcOperationRef,
   parseAuthorizationAuditEventId,
   parseAuthorizedOperationId,
   parseMpcWalletSigningQuotaId,
@@ -87,6 +91,50 @@ test.describe('D1 authorization core', () => {
       await expect(
         rowCount(temporary.database, 'authorization_wallet_session_quotas'),
       ).resolves.toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('replays one Wallet Session mint when only server-issued timestamps differ', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const service = createService(temporary.database, 'wallet-session-timestamp-replay');
+      const fixture = await buildPasskeyAuthorizationSessionFixture({
+        tenantId: 'tenant-wallet-session-timestamp-replay',
+        principalId: 'principal-wallet-session-timestamp-replay',
+        sessionId: 'session-wallet-session-timestamp-replay',
+        deviceId: 'device-wallet-session-timestamp-replay',
+        walletId: 'wallet-session-timestamp-replay-wallet',
+        credentialIdB64u: 'credential-wallet-session-timestamp-replay',
+        rpId: 'example.test',
+        origin: 'https://app.example.test',
+        expiresAtMs: 1_900_000_100_000,
+      });
+      const mintId = requiredMintId('unlock:wallet-session-timestamp-replay');
+      const issued = await service.issueReusableWalletSession({
+        tenantId: fixture.session.tenantId,
+        principalId: fixture.session.principalId,
+        walletId: fixture.authority.walletId,
+        authority: fixture.authorityRef,
+        mintId,
+        remainingUses: 3,
+        issuedAtMs: fixture.session.createdAtMs + 1,
+        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+      });
+      await expect(
+        service.issueReusableWalletSession({
+          tenantId: fixture.session.tenantId,
+          principalId: fixture.session.principalId,
+          walletId: fixture.authority.walletId,
+          authority: fixture.authorityRef,
+          mintId,
+          remainingUses: 3,
+          issuedAtMs: fixture.session.createdAtMs + 2,
+          expiresAtMs: fixture.session.lifecycle.expiresAtMs + 1_000,
+        }),
+      ).resolves.toEqual(issued);
     } finally {
       cleanupTemporaryD1Database(temporary.tempDir);
     }
@@ -273,9 +321,18 @@ test.describe('D1 authorization core', () => {
     const namespace = 'authorized-operation-admission';
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const fixture = await buildReusableAuthorizationCoreFixture({
+        quotaRemainingUses: 2,
+      });
+      const walletSignerScope = signerPersistenceScope(
+        namespace,
+        fixture.authorizedOperation.tenantId,
+        'env-a',
+      );
       const store = new CloudflareD1AuthorizationStore({
         database: temporary.database,
         namespace,
+        walletSignerScope,
       });
       const service = new AuthorizationService({
         policy: capabilityPolicyPort,
@@ -285,16 +342,18 @@ test.describe('D1 authorization core', () => {
         authorizedOperations: store,
         audit: store,
       });
-      const fixture = await buildReusableAuthorizationCoreFixture({
-        quotaRemainingUses: 2,
-      });
       await store.putWalletSessionAuthorization({
         session: fixture.reusableWalletSession,
         quota: fixture.quota,
       });
 
       const claimInput = authorizedOperationInput(fixture.authorizedOperation);
-      const material = await seedEcdsaMaterial(temporary.database, namespace, fixture);
+      const material = await seedEcdsaMaterial(
+        temporary.database,
+        walletSignerScope,
+        fixture,
+        'env-a',
+      );
       const claimed = await service.admitAuthorizedOperation({ operation: claimInput, material });
       expect(claimed.kind).toBe('claimed');
       if (claimed.kind !== 'claimed') throw new Error('expected a newly admitted operation');
@@ -362,14 +421,21 @@ test.describe('D1 authorization core', () => {
     }
   });
 
-  test('rejects replay source, quota, and material substitutions and persists audit linkage', async () => {
+  test('matches ECDSA signers in their persistence scope when policy env differs', async () => {
     const temporary = createTemporaryD1Database();
-    const namespace = 'authorized-operation-replay-binding';
+    const namespace = 'authorized-operation-persistence-scope';
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const fixture = await buildReusableAuthorizationCoreFixture();
+      const walletSignerScope = signerPersistenceScope(
+        namespace,
+        fixture.authorizedOperation.tenantId,
+        'env-d1',
+      );
       const store = new CloudflareD1AuthorizationStore({
         database: temporary.database,
         namespace,
+        walletSignerScope,
       });
       const service = new AuthorizationService({
         policy: capabilityPolicyPort,
@@ -379,14 +445,72 @@ test.describe('D1 authorization core', () => {
         authorizedOperations: store,
         audit: store,
       });
+      await store.putWalletSessionAuthorization({
+        session: fixture.reusableWalletSession,
+        quota: fixture.quota,
+      });
+      const material = await seedEcdsaMaterial(
+        temporary.database,
+        walletSignerScope,
+        fixture,
+        'env-policy',
+      );
+      const claimInput = authorizedOperationInput(fixture.authorizedOperation);
+      await expect(
+        service.admitAuthorizedOperation({ operation: claimInput, material }),
+      ).resolves.toMatchObject({ kind: 'claimed' });
+
+      const substitutedMaterial: EcdsaMaterialActivationScope = {
+        ...material,
+        materialActivation: {
+          ...material.materialActivation,
+          activation_id: `${material.materialActivation.activation_id}-substituted`,
+        },
+      };
+      await expect(
+        service.admitAuthorizedOperation({ operation: claimInput, material: substitutedMaterial }),
+      ).resolves.toEqual({ kind: 'material_mismatch' });
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('rejects replay source, quota, and material substitutions and persists audit linkage', async () => {
+    const temporary = createTemporaryD1Database();
+    const namespace = 'authorized-operation-replay-binding';
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
       const fixture = await buildReusableAuthorizationCoreFixture({
         quotaRemainingUses: 2,
+      });
+      const walletSignerScope = signerPersistenceScope(
+        namespace,
+        fixture.authorizedOperation.tenantId,
+        'env-a',
+      );
+      const store = new CloudflareD1AuthorizationStore({
+        database: temporary.database,
+        namespace,
+        walletSignerScope,
+      });
+      const service = new AuthorizationService({
+        policy: capabilityPolicyPort,
+        sessions: store,
+        evidence: store,
+        grants: store,
+        authorizedOperations: store,
+        audit: store,
       });
       await store.putWalletSessionAuthorization({
         session: fixture.reusableWalletSession,
         quota: fixture.quota,
       });
-      const material = await seedEcdsaMaterial(temporary.database, namespace, fixture);
+      const material = await seedEcdsaMaterial(
+        temporary.database,
+        walletSignerScope,
+        fixture,
+        'env-a',
+      );
       const claimInput = authorizedOperationInput(fixture.authorizedOperation);
       await expect(
         service.admitAuthorizedOperation({ operation: claimInput, material }),
@@ -470,9 +594,16 @@ test.describe('D1 authorization core', () => {
     const namespace = 'authorized-operation-step-up-binding';
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const fixture = await buildPasskeyVerifiedFactorFixture();
+      const walletSignerScope = signerPersistenceScope(
+        namespace,
+        fixture.authorization.authorizedOperation.tenantId,
+        'env-a',
+      );
       const store = new CloudflareD1AuthorizationStore({
         database: temporary.database,
         namespace,
+        walletSignerScope,
       });
       const service = new AuthorizationService({
         policy: capabilityPolicyPort,
@@ -482,7 +613,6 @@ test.describe('D1 authorization core', () => {
         authorizedOperations: store,
         audit: store,
       });
-      const fixture = await buildPasskeyVerifiedFactorFixture();
       await service.recordActiveSession(fixture.authorization.session);
       await service.recordVerifiedFactorEvidenceSet({
         session: fixture.authorization.session,
@@ -493,8 +623,9 @@ test.describe('D1 authorization core', () => {
       });
       const material = await seedEcdsaMaterial(
         temporary.database,
-        namespace,
+        walletSignerScope,
         fixture.authorization,
+        'env-a',
       );
 
       const operation = fixture.authorization.authorizedOperation;
@@ -666,7 +797,16 @@ function createService(
   database: Parameters<typeof rowCount>[0],
   namespace: string,
 ): AuthorizationService {
-  const store = new CloudflareD1AuthorizationStore({ database, namespace });
+  const store = new CloudflareD1AuthorizationStore({
+    database,
+    namespace,
+    walletSignerScope: {
+      namespace,
+      orgId: 'test-org',
+      projectId: 'test-project',
+      envId: 'test-env',
+    },
+  });
   return new AuthorizationService({
     policy: capabilityPolicyPort,
     sessions: store,
@@ -677,10 +817,24 @@ function createService(
   });
 }
 
+function signerPersistenceScope(
+  namespace: string,
+  orgId: string,
+  envId: string,
+): D1WalletStoreScope {
+  return {
+    namespace,
+    orgId,
+    projectId: 'project-a',
+    envId,
+  };
+}
+
 async function seedEcdsaMaterial(
   database: Parameters<typeof applyD1MigrationFiles>[0],
-  namespace: string,
+  walletSignerScope: D1WalletStoreScope,
   authorization: Awaited<ReturnType<typeof buildReusableAuthorizationCoreFixture>>,
+  policyEnvId: string,
 ): Promise<EcdsaMaterialActivationScope> {
   const signer = createWalletEcdsaSignerRecord({
     walletId: authorization.reusableWalletSession.walletId,
@@ -690,15 +844,12 @@ async function seedEcdsaMaterial(
   const runtimePolicyScope = {
     orgId: authorization.session.tenantId,
     projectId: 'project-a',
-    envId: 'env-a',
+    envId: policyEnvId,
     signingRootVersion: signer.walletKey.signingRootVersion,
   } as const;
   const walletStore = new D1WalletStore({
     database,
-    namespace,
-    orgId: runtimePolicyScope.orgId,
-    projectId: runtimePolicyScope.projectId,
-    envId: runtimePolicyScope.envId,
+    ...walletSignerScope,
   });
   await walletStore.putSigner(signer);
   return {
@@ -792,17 +943,47 @@ function testDigest(fill: number) {
   return parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(fill)));
 }
 
-function authorizedOperationInput(operation: AuthorizedOperation): AuthorizedOperationInput {
+function authorizedOperationInput(
+  operation: AuthorizedOperation,
+): Extract<
+  AuthorizedOperationInput,
+  {
+    readonly authorization: { readonly kind: 'authorization_grant' };
+    readonly quota: { readonly kind: 'consume_reusable_wallet_session' };
+  }
+> {
   if (operation.lifecycle !== 'claimed') {
     throw new Error('authorized operation fixture must start claimed');
   }
-  return {
-    tenantId: operation.tenantId,
-    authorizedOperationId: operation.authorizedOperationId,
-    auditEventId: operation.auditEventId,
-    operation: operation.operation,
-    authorization: operation.authorization,
-    quota: operation.quota,
-    claimedAtMs: operation.claimedAtMs,
-  };
+  if (operation.authorization.kind === 'verified_step_up') {
+    throw new Error('reusable authorization fixture must use an authorization grant');
+  }
+  if (operation.quota.kind !== 'consume_reusable_wallet_session') {
+    throw new Error('reusable signing operation fixture must consume its quota');
+  }
+  const operationRef = operation.operation.operation;
+  if (operationRef.capabilityKind !== 'evm_ecdsa_mpc_signing') {
+    throw new Error('reusable operation fixture must use an EVM operation');
+  }
+  switch (operationRef.operationKind) {
+    case 'evm.sign_transaction':
+      return {
+        tenantId: operation.tenantId,
+        authorizedOperationId: operation.authorizedOperationId,
+        auditEventId: operation.auditEventId,
+        operation: buildCapabilityOperationEnvelope({
+          tenantId: operation.operation.tenantId,
+          principalId: operation.operation.principalId,
+          capabilityId: operation.operation.capabilityId,
+          operationId: operation.operation.operationId,
+          operation: buildEvmEcdsaMpcOperationRef('evm.sign_transaction'),
+          digests: operation.operation.digests,
+        }),
+        authorization: operation.authorization,
+        quota: operation.quota,
+        claimedAtMs: operation.claimedAtMs,
+      };
+    case 'evm.export_key':
+      throw new Error('reusable export operation fixture must be quota-neutral');
+  }
 }

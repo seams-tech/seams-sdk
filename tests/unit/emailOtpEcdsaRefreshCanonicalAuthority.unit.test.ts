@@ -3,12 +3,15 @@ import { resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime } from '@/core/s
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { ecdsaCapabilityHydrationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
+import { activeEvmFamilyWalletSessionAuthorizationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
 import {
   refreshEmailOtpSigningSession,
   type EmailOtpEcdsaSigningSessionDeps,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
 import { resolveThresholdEcdsaSigningQueueKey } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
+import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 
 // Email OTP refresh renews authorization over material that already exists. It
 // resolves the exact manifest plus sealed runtime, takes the Email OTP binding
@@ -37,10 +40,42 @@ function resolvedRuntime(overrides: { thresholdSessionId?: string } = {}) {
   return { manifest, walletId, runtime: resolution.runtime, record };
 }
 
-function activeAuthorization(walletSessionId: string, walletSessionJwt = 'wallet-session-jwt') {
-  return { walletSessionId, walletSessionJwt } as Parameters<
-    typeof resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime
-  >[0]['authorization'];
+function activeAuthorization(walletSessionId: string) {
+  return activeEvmFamilyWalletSessionAuthorizationFixture({
+    manifest: ecdsaCapabilityHydrationLookupFixture().active.manifest,
+    walletSessionId,
+    authMethod: 'email_otp',
+  }).projection;
+}
+
+function activeAuthorizationWithoutEcdsa(walletSessionId: string) {
+  const active = activeAuthorization(walletSessionId);
+  if (active.walletSessionTokens.kind !== 'evm_family_ecdsa') {
+    throw new Error('ECDSA authorization fixture must carry an ECDSA token');
+  }
+  const ecdsaJwt = active.walletSessionTokens.ecdsa.walletSessionJwt;
+  const [header, payload, signature] = ecdsaJwt.split('.');
+  if (!header || !payload || !signature) throw new Error('invalid ECDSA JWT fixture');
+  const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<
+    string,
+    unknown
+  >;
+  claims.kind = ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND;
+  const nearJwt = `${header}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.${signature}`;
+  return buildActiveWalletSessionAuthorizationProjection({
+    walletId: active.walletId,
+    seamsSessionId: active.seamsSessionId,
+    authorizationId: active.authorizationId,
+    walletSessionId: active.walletSessionId,
+    quotaId: active.quotaId,
+    walletSessionTokens: {
+      kind: 'near_ed25519',
+      ed25519: { walletSessionJwt: nearJwt },
+    },
+    authMethod: active.authMethod,
+    authority: active.authority,
+    expiresAtMs: active.expiresAtMs,
+  });
 }
 
 test.describe('Email OTP ECDSA refresh canonical authority', () => {
@@ -59,14 +94,14 @@ test.describe('Email OTP ECDSA refresh canonical authority', () => {
     // The Email OTP lane names the sealed threshold session. Reusable Wallet
     // Session identity remains on the independent authorization projection.
     expect(authLane.thresholdSessionId).toBe(runtime.sealedRecord.thresholdSessionId);
-    expect(authLane.jwt).toBe('wallet-session-jwt');
+    expect(authLane.jwt).toMatch(/^eyJ/);
   });
 
   test('an absent Wallet Session is a typed unavailable, not a throw', () => {
     const { runtime } = resolvedRuntime();
     const resolution = resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime({
       runtime,
-      authorization: activeAuthorization('wallet-session-refresh', ''),
+      authorization: activeAuthorizationWithoutEcdsa('wallet-session-refresh'),
     });
 
     expect(resolution.kind).toBe('wallet_session_auth_unavailable');

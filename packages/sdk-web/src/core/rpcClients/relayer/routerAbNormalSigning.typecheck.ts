@@ -173,6 +173,7 @@ void invalidStepUpFinalize;
 const stepUpAuthorizationClaim = {
   kind: 'verified_step_up_authorized_operation_v1' as const,
   authorization_session_id: 'authorization-session-1',
+  evidence_set_digest: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
   authorized_operation_id: 'authorized-operation-2',
   operation_id: 'operation-1',
   capability_kind: 'near_ed25519_mpc_signing' as const,

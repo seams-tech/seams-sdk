@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use router_ab_core::{
-    ActiveSigningWorkerStateV1, Ed25519YaoCeremonyBindingV1, MpcMaterialActivationRefV1,
+    ActiveSigningWorkerStateV1, Ed25519YaoCeremonyBindingV1,
     NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningScopeV1, PublicDigest32, Role,
     RootShareEpoch, RouterAbEcdsaDerivationNormalSigningScopeV1,
 };
@@ -360,10 +360,8 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
                 let lifecycle = activation_context.lifecycle();
                 let selected_server = &activation_context.signer_set().selected_server;
                 if active_signing_worker_state.account_id != lifecycle.account_id
-                    || active_signing_worker_state
-                        .material_activation
-                        .activation_id
-                        != lifecycle.session_id
+                    || active_signing_worker_state.material_activation
+                        != activation.material_activation
                     || active_signing_worker_state.signing_worker != *selected_server
                     || active_signing_worker_state.activation_transcript_digest
                         != activation_context.transcript_digest()
@@ -1157,7 +1155,6 @@ impl CloudflareSigningWorkerEcdsaPoolAdmissionReceiptV1 {
 pub enum CloudflareSigningWorkerPrivateD1RequestV1 {
     OutputActivate {
         activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
-        material_activation: MpcMaterialActivationRefV1,
         material: CloudflareServerOutputMaterialRecordV1,
         activated_at_ms: u64,
     },
@@ -1186,12 +1183,10 @@ impl CloudflareSigningWorkerPrivateD1RequestV1 {
         match self {
             Self::OutputActivate {
                 activation,
-                material_activation,
                 material,
                 activated_at_ms,
             } => {
                 activation.validate()?;
-                material_activation.validate()?;
                 material.validate()?;
                 require_positive_ms("SigningWorker activation timestamp", *activated_at_ms)
             }
@@ -1258,14 +1253,12 @@ impl CloudflareSigningWorkerPrivateD1RequestV1 {
     pub fn active_state_index_key(&self) -> RouterAbProtocolResult<String> {
         self.validate()?;
         match self {
-            Self::OutputActivate { activation, .. } => {
-                let lifecycle = activation.activation_context.lifecycle();
-                let selected_server = &activation.activation_context.signer_set().selected_server;
-                Ok(format!(
-                    "active-signing-worker/{}/{}/{}",
-                    lifecycle.account_id, lifecycle.session_id, selected_server.server_id
-                ))
-            }
+            Self::OutputActivate { activation, .. } => Ok(format!(
+                "active-signing-worker/{}/{}/{}",
+                activation.material_activation.material_owner,
+                activation.material_activation.activation_id,
+                activation.material_activation.signing_worker
+            )),
             Self::ActiveStateGet { lookup } => Ok(format!(
                 "active-signing-worker/{}/{}/{}",
                 lookup.account_id, lookup.material_activation_id, lookup.signing_worker_id

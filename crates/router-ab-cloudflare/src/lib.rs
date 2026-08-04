@@ -5,7 +5,6 @@
 //! `workers-rs` adapter layer is added.
 
 mod auth;
-#[cfg(feature = "workers-rs")]
 use base64::Engine;
 mod durable_object;
 #[cfg(feature = "workers-rs")]
@@ -2706,6 +2705,8 @@ impl CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1 {
+    /// Gateway-owned idempotency identity for this activation.
+    pub activation_correlation_id: String,
     /// Router-produced pending activation with encrypted SigningWorker proof bundles.
     pub pending: CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1,
     /// Client public facts produced by the verified `XClientBase` finalizer.
@@ -2717,11 +2718,13 @@ pub struct CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1 {
 impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1 {
     /// Binds verified client facts to one exact pending Router activation.
     pub fn new(
+        activation_correlation_id: impl Into<String>,
         pending: CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1,
         client_activation: EcdsaVerifiedClientActivationFactsV1,
         material_activation: MpcMaterialActivationRefV1,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self {
+            activation_correlation_id: activation_correlation_id.into(),
             pending,
             client_activation,
             material_activation,
@@ -2732,8 +2735,19 @@ impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1 {
 
     /// Validates client facts against the exact registration request and proof transcript.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty(
+            "ECDSA activation correlation id",
+            &self.activation_correlation_id,
+        )?;
         self.pending.validate()?;
         self.material_activation.validate()?;
+        if self.activation_correlation_id != self.pending.activation_context.lifecycle.lifecycle_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "ECDSA activation correlation id does not match lifecycle id",
+            ));
+        }
         if self.material_activation.material_owner
             != self.pending.activation_context.lifecycle.account_id
             || self.material_activation.signing_worker
@@ -3124,12 +3138,6 @@ pub fn cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activatio
     )
 }
 
-fn cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1(
-    scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
-) -> RouterAbProtocolResult<String> {
-    scope.material_activation_id()
-}
-
 /// Derives the Router A/B ECDSA derivation identity implied by active SigningWorker material.
 pub fn cloudflare_router_ab_ecdsa_derivation_public_identity_from_normal_signing_material_v1(
     scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
@@ -3439,6 +3447,82 @@ impl CloudflareRouterAbEcdsaDerivationExportAuthorityV1 {
     }
 }
 
+/// Server-private authorization identity forwarded to SigningWorker for one
+/// exact ECDSA export redemption.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareSigningWorkerEcdsaExportAuthorizationV1 {
+    /// Exact reusable Wallet Session identity.
+    ReusableWalletSession { wallet_session_id: String },
+    /// Verified step-up evidence identity kept off the public request.
+    OperationStepUp { evidence_set_digest: String },
+}
+
+impl CloudflareSigningWorkerEcdsaExportAuthorizationV1 {
+    fn validate_for_public_authorization(
+        &self,
+        authorization: &NormalSigningAuthorizationV1,
+    ) -> RouterAbProtocolResult<()> {
+        match (authorization, self) {
+            (
+                NormalSigningAuthorizationV1::ReusableWalletSession {
+                    wallet_session_id: expected,
+                },
+                Self::ReusableWalletSession { wallet_session_id },
+            ) => {
+                require_non_empty("ECDSA export private wallet_session_id", wallet_session_id)?;
+                if wallet_session_id != expected {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidGateDecision,
+                        "ECDSA export private Wallet Session identity does not match the public request",
+                    ));
+                }
+                Ok(())
+            }
+            (
+                NormalSigningAuthorizationV1::OperationStepUp,
+                Self::OperationStepUp {
+                    evidence_set_digest,
+                },
+            ) => {
+                decode_public_digest_b64u_v1(
+                    "ECDSA export private evidence_set_digest",
+                    evidence_set_digest,
+                )?;
+                Ok(())
+            }
+            _ => Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "ECDSA export private authorization branch does not match the public request",
+            )),
+        }
+    }
+
+    fn validate_for_request(
+        &self,
+        request: &RouterAbEcdsaDerivationExplicitExportRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        request.validate()?;
+        self.validate_for_public_authorization(&request.authorization)
+    }
+
+    fn binding_authorization_kind(&self) -> &'static str {
+        match self {
+            Self::ReusableWalletSession { .. } => "reusable_wallet_session",
+            Self::OperationStepUp { .. } => "verified_step_up",
+        }
+    }
+
+    fn authorization_id(&self) -> &str {
+        match self {
+            Self::ReusableWalletSession { wallet_session_id }
+            | Self::OperationStepUp {
+                evidence_set_digest: wallet_session_id,
+            } => wallet_session_id,
+        }
+    }
+}
+
 /// Gateway-admitted explicit-export request and exact Wallet Session capability.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3447,13 +3531,17 @@ pub struct CloudflareRouterAbEcdsaDerivationExportCommandV1 {
     pub request: RouterAbEcdsaDerivationExplicitExportRequestV1,
     /// Exact authority derived from the authenticated ECDSA Wallet Session.
     pub export_authority: CloudflareRouterAbEcdsaDerivationExportAuthorityV1,
+    /// Server-private authorization identity for SigningWorker redemption.
+    pub private_authorization: CloudflareSigningWorkerEcdsaExportAuthorizationV1,
 }
 
 impl CloudflareRouterAbEcdsaDerivationExportCommandV1 {
     /// Validates the request and authenticated capability as one command.
     pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
         self.request.validate_at(now_unix_ms)?;
-        self.export_authority.validate_for_request(&self.request)
+        self.export_authority.validate_for_request(&self.request)?;
+        self.private_authorization
+            .validate_for_request(&self.request)
     }
 }
 
@@ -3465,6 +3553,8 @@ pub struct CloudflareSigningWorkerEcdsaExportShareRequestV1 {
     pub request: RouterAbEcdsaDerivationExplicitExportRequestV1,
     /// Exact authenticated Wallet Session capability forwarded by Gateway.
     pub export_authority: CloudflareRouterAbEcdsaDerivationExportAuthorityV1,
+    /// Server-private authorization identity forwarded by Router.
+    pub private_authorization: CloudflareSigningWorkerEcdsaExportAuthorizationV1,
 }
 
 /// No-secret acknowledgement that the requested ECDSA export material is active.
@@ -3479,7 +3569,9 @@ impl CloudflareSigningWorkerEcdsaExportShareRequestV1 {
     /// Validates the private request at SigningWorker time.
     pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
         self.request.validate_at(now_unix_ms)?;
-        self.export_authority.validate_for_request(&self.request)
+        self.export_authority.validate_for_request(&self.request)?;
+        self.private_authorization
+            .validate_for_request(&self.request)
     }
 
     #[cfg(feature = "workers-rs")]
@@ -3487,6 +3579,8 @@ impl CloudflareSigningWorkerEcdsaExportShareRequestV1 {
         &self,
     ) -> RouterAbProtocolResult<EcdsaSigningWorkerExportShareBindingV1> {
         self.export_authority.validate_for_request(&self.request)?;
+        self.private_authorization
+            .validate_for_request(&self.request)?;
         let scope = &self.export_authority.normal_signing_scope;
         let binding = EcdsaSigningWorkerExportShareBindingV1 {
             wallet_id: scope.wallet_id.clone(),
@@ -3503,8 +3597,11 @@ impl CloudflareSigningWorkerEcdsaExportShareRequestV1 {
             ),
             export_authorization_digest_b64u: self.request.export_authorization_digest_b64u.clone(),
             export_nonce: self.request.export_nonce.clone(),
-            authorization_kind: self.request.authorization.kind_label().to_owned(),
-            authorization_id: self.request.authorization.authorization_id()?.to_owned(),
+            authorization_kind: self
+                .private_authorization
+                .binding_authorization_kind()
+                .to_owned(),
+            authorization_id: self.private_authorization.authorization_id().to_owned(),
             material_activation: EcdsaMaterialActivationRefV1 {
                 kind: EcdsaMaterialActivationRefKindV1::MpcMaterialActivationRef,
                 activation_id: scope.material_activation.activation_id.clone(),
@@ -3869,13 +3966,11 @@ impl CloudflareSigningWorkerRuntimeV1 {
     pub fn signing_worker_output_activate_request(
         &self,
         activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
-        material_activation: MpcMaterialActivationRefV1,
         material: CloudflareServerOutputMaterialRecordV1,
         activated_at_ms: u64,
     ) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1RequestV1> {
         let request = CloudflareSigningWorkerPrivateD1RequestV1::OutputActivate {
             activation,
-            material_activation,
             material,
             activated_at_ms,
         };
@@ -4705,6 +4800,7 @@ where
             let signing_worker_request = CloudflareSigningWorkerEcdsaExportShareRequestV1 {
                 request: request.clone(),
                 export_authority,
+                private_authorization: command.private_authorization,
             };
             execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_export_preflight_service_call_v1(
                 env,
@@ -6205,7 +6301,6 @@ pub fn parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_finalize_re
     Ok((request, authorized_operation))
 }
 
-#[cfg(feature = "workers-rs")]
 fn decode_public_digest_b64u_v1(
     field: &str,
     encoded: &str,
@@ -6487,28 +6582,36 @@ pub async fn handle_cloudflare_router_normal_signing_finalize_internal_step_up_r
 #[cfg(feature = "workers-rs")]
 fn cloudflare_router_ab_ecdsa_step_up_binding_v1(
     authorized_operation: &CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
-) -> RouterAbProtocolResult<(&str, &str, &str, &str, &str)> {
+) -> RouterAbProtocolResult<(&str, &str, &str, &str, &str, &str)> {
     authorized_operation.validate()?;
-    match &authorized_operation.binding {
-        CloudflareRouterEcdsaAcceptedCapabilityBindingV1::OperationStepUp {
+    match (
+        &authorized_operation.binding,
+        &authorized_operation.authorized_operation,
+    ) {
+        (
+            CloudflareRouterEcdsaAcceptedCapabilityBindingV1::OperationStepUp {
+                authorization_session_id,
+                org_id,
+                project_id,
+                environment,
+                subject_id,
+            },
+            CloudflareRouterEcdsaAuthorizedOperationV1::VerifiedStepUpAuthorizedOperationV1 {
+                evidence_set_digest,
+                ..
+            },
+        ) => Ok((
             authorization_session_id,
-            org_id,
-            project_id,
-            environment,
-            subject_id,
-        } => Ok((
-            authorization_session_id,
+            evidence_set_digest,
             org_id,
             project_id,
             environment,
             subject_id,
         )),
-        CloudflareRouterEcdsaAcceptedCapabilityBindingV1::ReusableWalletSession { .. } => Err(
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "ECDSA reusable Wallet Session authorized operation cannot use the operation step-up admission path",
-            ),
-        ),
+        _ => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "ECDSA reusable Wallet Session authorized operation cannot use the operation step-up admission path",
+        )),
     }
 }
 
@@ -6518,8 +6621,14 @@ fn cloudflare_router_ab_ecdsa_step_up_prepare_admission_v1(
     authorized_operation: &CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
     trusted_source_digest: PublicDigest32,
 ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningTrustedAdmissionV1> {
-    let (_, org_id, project_id, environment, subject_id) =
-        cloudflare_router_ab_ecdsa_step_up_binding_v1(authorized_operation)?;
+    let (
+        authorization_session_id,
+        evidence_set_digest,
+        org_id,
+        project_id,
+        environment,
+        subject_id,
+    ) = cloudflare_router_ab_ecdsa_step_up_binding_v1(authorized_operation)?;
     authorized_operation
         .authorized_operation
         .validate_for_prepare_request(request)?;
@@ -6529,7 +6638,10 @@ fn cloudflare_router_ab_ecdsa_step_up_prepare_admission_v1(
         environment.to_owned(),
         request.scope.wallet_id.clone(),
         subject_id.to_owned(),
-        cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1(&request.scope)?,
+        CloudflareRouterNormalSigningAuthorizationV2::operation_step_up(
+            authorization_session_id.to_owned(),
+            evidence_set_digest.to_owned(),
+        )?,
         request.scope.signing_worker.server_id.clone(),
         request.request_id.clone(),
         request.client_presignature_id.clone(),
@@ -6550,8 +6662,14 @@ fn cloudflare_router_ab_ecdsa_step_up_finalize_admission_v1(
     authorized_operation: &CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
     trusted_source_digest: PublicDigest32,
 ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningTrustedAdmissionV1> {
-    let (authorization_session_id, org_id, project_id, environment, subject_id) =
-        cloudflare_router_ab_ecdsa_step_up_binding_v1(authorized_operation)?;
+    let (
+        authorization_session_id,
+        evidence_set_digest,
+        org_id,
+        project_id,
+        environment,
+        subject_id,
+    ) = cloudflare_router_ab_ecdsa_step_up_binding_v1(authorized_operation)?;
     authorized_operation
         .authorized_operation
         .validate_for_finalize_request_with_session(request, Some(authorization_session_id))?;
@@ -6561,7 +6679,10 @@ fn cloudflare_router_ab_ecdsa_step_up_finalize_admission_v1(
         environment.to_owned(),
         request.scope.wallet_id.clone(),
         subject_id.to_owned(),
-        cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1(&request.scope)?,
+        CloudflareRouterNormalSigningAuthorizationV2::operation_step_up(
+            authorization_session_id.to_owned(),
+            evidence_set_digest.to_owned(),
+        )?,
         request.scope.signing_worker.server_id.clone(),
         request.request_id.clone(),
         request.scope.scope_digest()?,
@@ -6882,7 +7003,6 @@ pub async fn activate_cloudflare_signing_worker_server_output_v1(
     private_key_bytes.zeroize();
     let call = runtime.signing_worker_output_activate_request(
         activation.clone(),
-        activation.material_activation.clone(),
         material?,
         activated_at_ms,
     )?;
@@ -6926,7 +7046,6 @@ pub async fn activate_cloudflare_router_ab_ecdsa_derivation_signing_worker_outpu
     )?;
     let call = runtime.signing_worker_output_activate_request(
         generic_activation,
-        activation.material_activation.clone(),
         material,
         activated_at_ms,
     )?;
@@ -6975,7 +7094,6 @@ pub async fn refresh_cloudflare_router_ab_ecdsa_derivation_signing_worker_output
         )?;
     let call = runtime.signing_worker_output_activate_request(
         generic_activation,
-        activation.material_activation.clone(),
         material,
         activated_at_ms,
     )?;
@@ -13030,6 +13148,45 @@ mod tests {
             .expect_err("noncanonical public key must fail");
 
         assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+    }
+
+    #[test]
+    fn ecdsa_export_private_authorization_matches_public_branch() {
+        let evidence_set_digest =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x52; 32]);
+        let public_step_up =
+            NormalSigningAuthorizationV1::operation_step_up().expect("operation step-up marker");
+        let private_step_up = CloudflareSigningWorkerEcdsaExportAuthorizationV1::OperationStepUp {
+            evidence_set_digest: evidence_set_digest.clone(),
+        };
+        private_step_up
+            .validate_for_public_authorization(&public_step_up)
+            .expect("private evidence binds to operation step-up marker");
+        assert_eq!(
+            private_step_up.binding_authorization_kind(),
+            "verified_step_up"
+        );
+        assert_eq!(private_step_up.authorization_id(), evidence_set_digest);
+
+        let hostile_branch =
+            CloudflareSigningWorkerEcdsaExportAuthorizationV1::ReusableWalletSession {
+                wallet_session_id: "wallet-session-1".to_owned(),
+            };
+        let error = hostile_branch
+            .validate_for_public_authorization(&public_step_up)
+            .expect_err("reusable private authority must not substitute for step-up");
+        assert_eq!(error.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+
+        let malformed_digest = CloudflareSigningWorkerEcdsaExportAuthorizationV1::OperationStepUp {
+            evidence_set_digest: "malformed".to_owned(),
+        };
+        let error = malformed_digest
+            .validate_for_public_authorization(&public_step_up)
+            .expect_err("private evidence digest must be a fixed digest");
+        assert_eq!(
+            error.code(),
+            RouterAbProtocolErrorCode::MalformedWirePayload
+        );
     }
 
     fn decode_hex(value: &str) -> Vec<u8> {

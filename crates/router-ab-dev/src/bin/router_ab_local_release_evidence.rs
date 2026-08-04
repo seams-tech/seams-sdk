@@ -233,16 +233,12 @@ fn ecdsa_signing_request(
 }
 
 fn ecdsa_scope() -> RouterAbProtocolResult<RouterAbEcdsaDerivationNormalSigningScopeV1> {
+    let public_identity = ecdsa_public_identity()?;
     let material_activation = MpcMaterialActivationRefV1::new(
-        router_ab_core::router_ab_ecdsa_derivation_material_activation_id_v1(
-            "ecdsa-threshold-key-1",
-            "signing-root-1",
-            "root-v1",
-            "root-epoch-1",
-        )?,
+        "ecdsa-activation-local-release",
         "ecdsa-signing-capability-1",
         "wallet-1",
-        "ecdsa-threshold-key-1",
+        public_identity.context_binding_b64u.clone(),
         "ecdsa-material-lifecycle-1",
         "signing-worker-1",
     )?;
@@ -252,7 +248,7 @@ fn ecdsa_scope() -> RouterAbProtocolResult<RouterAbEcdsaDerivationNormalSigningS
         "signing-root-1",
         "root-v1",
         ecdsa_context()?,
-        ecdsa_public_identity()?,
+        public_identity,
         signing_worker_identity()?,
         "root-epoch-1",
         material_activation,

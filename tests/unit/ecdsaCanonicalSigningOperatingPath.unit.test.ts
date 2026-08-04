@@ -13,8 +13,10 @@ import {
   evmFamilyThresholdEcdsaOperationFixture,
   hydratedEcdsaSigningMaterialFixture,
   installEcdsaNormalSigningEndpointFixture,
+  RecordingEcdsaRehydrationWorker,
   type EcdsaFixtureFactor,
 } from './helpers/ecdsaOperationStepUp.fixtures';
+import { canonicalEvmFamilyEcdsaSigningCapabilityFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import {
   buildEmailOtpInactiveEcdsaMaterialRecordFixture,
   buildPasskeyInactiveEcdsaMaterialRecordFixture,
@@ -23,6 +25,7 @@ import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef
 import { testEcdsaChainTarget } from './helpers/ecdsaChainTarget.fixtures';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { resolveExactInactiveEcdsaMaterialRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
+import { resolveExactEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 import { Secp256k1Engine } from '@/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
 import { clearAllRouterAbEcdsaDerivationClientPresignatures } from '@/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool';
 import {
@@ -260,6 +263,42 @@ test('a chain the runtime does not serve fails before the worker is reached', as
   expect(worker.requests).toHaveLength(0);
 });
 
+test('canonical ECDSA material projects to a published Arc target', async () => {
+  const tempoTarget = testEcdsaChainTarget('tempo');
+  const arcTarget = {
+    kind: 'evm' as const,
+    namespace: 'eip155' as const,
+    chainId: 5_042_002,
+    networkSlug: 'arc-testnet',
+  };
+  const fixture = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('passkey', {
+    chainTarget: tempoTarget,
+    targetMemberships: [tempoTarget, arcTarget],
+  });
+  const runtimeResolution = await resolveExactEcdsaCapabilityRuntime({
+    manifest: fixture.manifest,
+    chainTarget: arcTarget,
+    relayerUrl: 'https://relayer.example.test',
+  });
+  if (runtimeResolution.kind !== 'resolved') {
+    throw new Error(`Arc capability runtime did not resolve: ${runtimeResolution.reason}`);
+  }
+  const worker = new RecordingEcdsaRehydrationWorker(fixture.manifest);
+  const resolution = await resolveHydratedSecp256k1SigningMaterial({
+    capability: fixture.capability,
+    runtime: runtimeResolution.runtime,
+    chainTarget: arcTarget,
+    materialActivation: fixture.manifest.activation.materialActivation,
+    workerCtx: worker,
+  });
+
+  if (resolution.kind !== 'ready') {
+    throw new Error(`Arc hydration was unavailable: ${resolution.reason}`);
+  }
+  expect(resolution.material.chainTarget).toEqual(arcTarget);
+  expect(worker.requests).toHaveLength(1);
+});
+
 // The rest of the operating path: the material hydrated above is what the
 // operation step-up is prepared against, and the grant that comes back is
 // attached to the signing material for exactly one operation. The relayer is
@@ -267,7 +306,7 @@ test('a chain the runtime does not serve fails before the worker is reached', as
 // from preparation through grant attachment is production code.
 
 const OPERATION_ID = 'operating-path-operation-1';
-const GRANT_ID = 'operating-path-grant-1';
+const EVIDENCE_SET_DIGEST = Buffer.alloc(32, 42).toString('base64url');
 const operationDigests = ecdsaOperationDigestSetFixture();
 
 /** Stands in for the relayer's operation step-up grant endpoint. Records every
@@ -279,9 +318,11 @@ function stubGrantEndpoint(requests: unknown[]): () => void {
     return new Response(
       JSON.stringify({
         ok: true,
-        kind: 'operation_step_up',
-        authorization: { kind: 'operation_step_up', grant_id: GRANT_ID },
-        authorization_session_id: 'operating-path-auth-session-1',
+        kind: 'verified_step_up',
+        authorization: {
+          kind: 'operation_step_up',
+          evidence_set_digest: EVIDENCE_SET_DIGEST,
+        },
         expires_at_ms: Date.now() + 5 * 60_000,
       }),
       { status: 200, headers: { 'content-type': 'application/json' } },
@@ -331,7 +372,7 @@ for (const factor of ['passkey', 'email_otp'] as const) {
 
     // Exactly one grant, for exactly this operation.
     expect(grantRequests).toHaveLength(1);
-    expect(ready.authorization).toEqual({ kind: 'operation_step_up', grant_id: GRANT_ID });
+    expect(ready.authorization).toEqual({ kind: 'operation_step_up' });
     expect(ready.operationStepUpPreparation).toEqual(prepared.operation);
     expect(String(ready.signerSession.materialActivation.activationId)).toBe(
       String(material.materialActivation.activationId),

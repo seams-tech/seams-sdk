@@ -471,15 +471,10 @@ fn local_router_ab_ecdsa_derivation_fixture(
         0,
     )?;
     let material_activation = MpcMaterialActivationRefV1::new(
-        router_ab_core::router_ab_ecdsa_derivation_material_activation_id_v1(
-            LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
-            LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID,
-            LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION,
-            "activation-epoch-local",
-        )?,
+        "ecdsa-activation-local-smoke",
         "evm-ecdsa-capability-local",
         LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_ID,
-        LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID,
+        public_identity.context_binding_b64u.clone(),
         "ecdsa-material-lifecycle-local",
         "signing-worker-1",
     )?;

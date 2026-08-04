@@ -323,6 +323,7 @@ export async function reconcileCanonicalEcdsaActivationWasm(input: {
       kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
       journalId: result.journalId,
       activationReceipt: result.activationReceipt,
+      routerAbEcdsaDerivationNormalSigning: result.routerAbEcdsaDerivationNormalSigning,
     },
   });
   return {

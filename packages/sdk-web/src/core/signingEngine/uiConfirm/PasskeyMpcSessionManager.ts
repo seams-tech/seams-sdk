@@ -62,6 +62,7 @@ import {
 import { PasskeyMpcSessionDurableState } from './PasskeyMpcSessionDurableState';
 import {
   walletSessionAuthorizations,
+  walletSessionJwtForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { toWalletId } from '../interfaces/ecdsaChainTarget';
@@ -429,12 +430,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
           ...(diagnostics ? { diagnostics } : {}),
         })
       : null;
-    const persisted =
-      persistenceResult &&
-      !persistenceResult.ok &&
-      persistenceResult.code === 'missing_restore_metadata'
-        ? null
-        : persistenceResult;
+    const persisted = persistenceResult;
     recordDiagnosticDuration({
       diagnostics,
       bucket: 'sealed_record_persist',
@@ -447,8 +443,9 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
     }
   };
 
-  getWarmSessionStatus = async (args: { thresholdSessionId: string }): Promise<WarmSessionStatusResult> =>
-    await this.readWarmSessionStatus(args);
+  getWarmSessionStatus = async (args: {
+    thresholdSessionId: string;
+  }): Promise<WarmSessionStatusResult> => await this.readWarmSessionStatus(args);
 
   discoverPersistedSessionsForWallet = async (
     args: Parameters<WarmSessionPersistedDiscovery['discoverPersistedSessionsForWallet']>[0],
@@ -537,8 +534,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
     }
 
     const task = withThresholdEcdsaSigningQueue({
-      queueByKey:
-        this.deps.thresholdEcdsaSigningQueueByKey,
+      queueByKey: this.deps.thresholdEcdsaSigningQueueByKey,
       queueKey: resolveThresholdEcdsaSigningQueueKey({
         materialActivation: record.roleLocalMaterialRef.materialActivation,
       }),
@@ -591,17 +587,21 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
         args.record,
         authorization,
       );
+      const walletSessionJwt = walletSessionJwtForCurve(authorization, 'ecdsa');
+      if (!walletSessionJwt) return null;
+      const restoreWalletId = String(ecdsaRestore.authority.walletId).trim();
+      if (!restoreWalletId || restoreWalletId !== String(args.walletId).trim()) return null;
       const groupId = String(args.record.groupId || '').trim();
       if (!groupId) return null;
       const transport: WarmSessionSealTransportInput = {
         curve: 'ecdsa',
         authMethod: 'passkey',
-        walletId: args.walletId,
+        walletId: restoreWalletId,
         chainTarget,
         relayerUrl: args.record.relayerUrl,
         signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(args.record.keyVersion),
         groupId,
-        walletSessionJwt: authorization.walletSessionJwt,
+        walletSessionJwt,
         ecdsaRestore,
       };
       return await restorePasskeyEcdsaSealedRecordForWallet({
@@ -659,10 +659,12 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
     };
   };
 
-  claimWarmSessionMaterial = async (args: WarmSessionMaterialOperationTarget & {
-    uses?: number;
-    consume?: boolean;
-  }): Promise<WarmSessionClaimResult> => {
+  claimWarmSessionMaterial = async (
+    args: WarmSessionMaterialOperationTarget & {
+      uses?: number;
+      consume?: boolean;
+    },
+  ): Promise<WarmSessionClaimResult> => {
     const thresholdSessionId = warmSessionProtocolSessionId(args);
     const response = await this.sendMessage({
       type: 'WARM_SESSION_MATERIAL_CLAIM',
@@ -686,9 +688,11 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
     return parsed;
   };
 
-  consumeWarmSessionUses = async (args: WarmSessionMaterialOperationTarget & {
-    uses?: number;
-  }): Promise<WarmSessionStatusResult> => {
+  consumeWarmSessionUses = async (
+    args: WarmSessionMaterialOperationTarget & {
+      uses?: number;
+    },
+  ): Promise<WarmSessionStatusResult> => {
     const thresholdSessionId = warmSessionProtocolSessionId(args);
     const response = await this.sendMessage({
       type: 'WARM_SESSION_MATERIAL_CONSUME',

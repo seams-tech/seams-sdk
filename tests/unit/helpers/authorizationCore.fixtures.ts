@@ -18,10 +18,19 @@ import {
   buildAuthorizationGrantRef,
   type AuthorizationParseResult,
   type EvmEcdsaMpcOperationKind,
+  type AuthorizationAuditEventId,
+  type AuthorizedOperationId,
+  type MpcWalletSigningQuotaId,
+  type TenantId,
+  type WalletSessionAuthorizationId,
+  type CapabilityOperationRef,
   type AuthorizationEvidenceId,
   type AuthorizationEvidenceSetId,
 } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
-import { buildCapabilityOperationEnvelope } from '../../../packages/shared-ts/src/authorization/operationFingerprint';
+import {
+  buildCapabilityOperationEnvelope,
+  type CapabilityOperationEnvelope,
+} from '../../../packages/shared-ts/src/authorization/operationFingerprint';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
@@ -100,6 +109,24 @@ export type PasskeyAuthorizationSessionFixture = {
   readonly authorityRef: WalletAuthAuthorityRef;
 };
 
+type EvmFixtureOperation =
+  | {
+      readonly operationKind: 'evm.sign_transaction';
+      readonly envelope: CapabilityOperationEnvelope<
+        Extract<CapabilityOperationRef, { readonly capabilityKind: 'evm_ecdsa_mpc_signing' }> & {
+          readonly operationKind: 'evm.sign_transaction';
+        }
+      >;
+    }
+  | {
+      readonly operationKind: 'evm.export_key';
+      readonly envelope: CapabilityOperationEnvelope<
+        Extract<CapabilityOperationRef, { readonly capabilityKind: 'evm_ecdsa_mpc_signing' }> & {
+          readonly operationKind: 'evm.export_key';
+        }
+      >;
+    };
+
 export async function buildReusableAuthorizationCoreFixture(
   input: {
     readonly operationKind?: EvmEcdsaMpcOperationKind;
@@ -107,7 +134,7 @@ export async function buildReusableAuthorizationCoreFixture(
     readonly quotaRemainingUses?: number;
   } = {},
 ): Promise<ReusableAuthorizationCoreFixture> {
-  const operation = buildEvmEcdsaMpcOperationRef(input.operationKind ?? 'evm.sign_transaction');
+  const operationKind = input.operationKind ?? 'evm.sign_transaction';
   const tenantId = parsed('tenant-authorization', parseTenantId);
   const principalId = parsed('principal-human', parsePrincipalId);
   const sessionId = parsed('session-browser', parseSeamsSessionId);
@@ -128,14 +155,32 @@ export async function buildReusableAuthorizationCoreFixture(
   const laneDigest = fixtureDigest(1);
   const intentDigest = fixtureDigest(2);
   const displayDigest = fixtureDigest(3);
-  const envelope = buildCapabilityOperationEnvelope({
-    tenantId,
-    principalId,
-    capabilityId,
-    operationId: parsed('operation-1', parseCapabilityOperationId),
-    operation,
-    digests: { laneDigest, intentDigest, displayDigest },
-  });
+  const operationId = parsed('operation-1', parseCapabilityOperationId);
+  const fixtureOperation: EvmFixtureOperation =
+    operationKind === 'evm.export_key'
+      ? {
+          operationKind,
+          envelope: buildCapabilityOperationEnvelope({
+            tenantId,
+            principalId,
+            capabilityId,
+            operationId,
+            operation: buildEvmEcdsaMpcOperationRef(operationKind),
+            digests: { laneDigest, intentDigest, displayDigest },
+          }),
+        }
+      : {
+          operationKind,
+          envelope: buildCapabilityOperationEnvelope({
+            tenantId,
+            principalId,
+            capabilityId,
+            operationId,
+            operation: buildEvmEcdsaMpcOperationRef(operationKind),
+            digests: { laneDigest, intentDigest, displayDigest },
+          }),
+        };
+  const envelope = fixtureOperation.envelope;
   const session = buildActiveAuthorizationSession({
     tenantId,
     principalId,
@@ -166,19 +211,13 @@ export async function buildReusableAuthorizationCoreFixture(
     expiresAtMs: FIXTURE_NOW_MS + 90_000,
   };
   const evidenceSet = await buildVerifiedSessionEvidenceSet(sessionEvidenceInput);
-  const authorizedOperation = await buildAuthorizedOperation({
+  const authorizedOperation = await buildReusableFixtureAuthorizedOperation({
     tenantId,
     authorizedOperationId: parsed('authorized-operation-1', parseAuthorizedOperationId),
     auditEventId: parsed('audit-event-1', parseAuthorizationAuditEventId),
-    operation: envelope,
-    authorization: {
-      kind: 'authorization_grant',
-      authorizationGrantRef: buildAuthorizationGrantRef(authorizationId),
-    },
-    quota:
-      operation.operationKind === 'evm.export_key'
-        ? { kind: 'quota_neutral' }
-        : { kind: 'consume_reusable_wallet_session', quotaId },
+    fixtureOperation,
+    authorizationId,
+    quotaId,
     claimedAtMs: FIXTURE_NOW_MS + 1_000,
   });
   return {
@@ -218,23 +257,83 @@ export async function buildAdditionalAuthorizedOperation(
   fixture: ReusableAuthorizationCoreFixture,
   suffix: string,
 ): Promise<AuthorizedOperation> {
-  const operation = buildCapabilityOperationEnvelope({
-    tenantId: fixture.authorizedOperation.operation.tenantId,
-    principalId: fixture.authorizedOperation.operation.principalId,
-    capabilityId: fixture.authorizedOperation.operation.capabilityId,
-    operationId: parsed(`operation-${suffix}`, parseCapabilityOperationId),
-    operation: fixture.authorizedOperation.operation.operation,
-    digests: fixture.authorizedOperation.operation.digests,
-  });
-  return await buildAuthorizedOperation({
+  const operationRef = fixture.authorizedOperation.operation.operation;
+  if (operationRef.capabilityKind !== 'evm_ecdsa_mpc_signing') {
+    throw new Error('reusable authorization fixture operation must be EVM');
+  }
+  const operationId = parsed(`operation-${suffix}`, parseCapabilityOperationId);
+  const fixtureOperation =
+    operationRef.operationKind === 'evm.export_key'
+      ? {
+          operationKind: 'evm.export_key' as const,
+          envelope: buildCapabilityOperationEnvelope({
+            tenantId: fixture.authorizedOperation.operation.tenantId,
+            principalId: fixture.authorizedOperation.operation.principalId,
+            capabilityId: fixture.authorizedOperation.operation.capabilityId,
+            operationId,
+            operation: buildEvmEcdsaMpcOperationRef('evm.export_key'),
+            digests: fixture.authorizedOperation.operation.digests,
+          }),
+        }
+      : {
+          operationKind: 'evm.sign_transaction' as const,
+          envelope: buildCapabilityOperationEnvelope({
+            tenantId: fixture.authorizedOperation.operation.tenantId,
+            principalId: fixture.authorizedOperation.operation.principalId,
+            capabilityId: fixture.authorizedOperation.operation.capabilityId,
+            operationId,
+            operation: buildEvmEcdsaMpcOperationRef('evm.sign_transaction'),
+            digests: fixture.authorizedOperation.operation.digests,
+          }),
+        };
+  return await buildReusableFixtureAuthorizedOperation({
     tenantId: fixture.authorizedOperation.tenantId,
     authorizedOperationId: parsed(`authorized-operation-${suffix}`, parseAuthorizedOperationId),
     auditEventId: parsed(`audit-event-${suffix}`, parseAuthorizationAuditEventId),
-    operation,
-    authorization: fixture.authorizedOperation.authorization,
-    quota: fixture.authorizedOperation.quota,
+    fixtureOperation,
+    authorizationId: fixture.reusableWalletSession.authorizationId,
+    quotaId: fixture.reusableWalletSession.quotaId,
     claimedAtMs: FIXTURE_NOW_MS + 1_000,
   });
+}
+
+async function buildReusableFixtureAuthorizedOperation(input: {
+  readonly tenantId: TenantId;
+  readonly authorizedOperationId: AuthorizedOperationId;
+  readonly auditEventId: AuthorizationAuditEventId;
+  readonly fixtureOperation: EvmFixtureOperation;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly claimedAtMs: number;
+}): Promise<AuthorizedOperation> {
+  switch (input.fixtureOperation.operationKind) {
+    case 'evm.export_key':
+      return await buildAuthorizedOperation({
+        tenantId: input.tenantId,
+        authorizedOperationId: input.authorizedOperationId,
+        auditEventId: input.auditEventId,
+        operation: input.fixtureOperation.envelope,
+        authorization: {
+          kind: 'authorization_grant',
+          authorizationGrantRef: buildAuthorizationGrantRef(input.authorizationId),
+        },
+        quota: { kind: 'quota_neutral' },
+        claimedAtMs: input.claimedAtMs,
+      });
+    case 'evm.sign_transaction':
+      return await buildAuthorizedOperation({
+        tenantId: input.tenantId,
+        authorizedOperationId: input.authorizedOperationId,
+        auditEventId: input.auditEventId,
+        operation: input.fixtureOperation.envelope,
+        authorization: {
+          kind: 'authorization_grant',
+          authorizationGrantRef: buildAuthorizationGrantRef(input.authorizationId),
+        },
+        quota: { kind: 'consume_reusable_wallet_session', quotaId: input.quotaId },
+        claimedAtMs: input.claimedAtMs,
+      });
+  }
 }
 
 export async function buildCompletedAuthorizedOperationFixture(

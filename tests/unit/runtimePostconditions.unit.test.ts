@@ -17,7 +17,11 @@ import {
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
-import { canonicalEcdsaAvailableLane } from './helpers/availableSigningLanes.fixtures';
+import {
+  availableLaneEd25519Authorization,
+  canonicalEcdsaAvailableLane,
+} from './helpers/availableSigningLanes.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const WALLET_ID = 'runtime-postconditions.testnet';
 const ED25519_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
@@ -51,7 +55,7 @@ const REQUIRED_TARGETS = [
   { curve: 'ecdsa' as const, chainTarget: TARGET },
   { curve: 'ecdsa' as const, chainTarget: ARC_TARGET },
 ] as const;
-type TestLaneSource = 'durable_sealed_record' | 'runtime_session_record';
+type TestLaneSource = 'durable_sealed_record';
 type TestLaneOptions = {
   state?: 'ready' | 'restorable' | 'deferred' | 'expired' | 'exhausted';
   source?: TestLaneSource;
@@ -73,13 +77,22 @@ function ed25519Lane(
     nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
     signerSlot: 1,
     state: options.state ?? 'ready',
-    walletSessionId: `wss-ed25519-${suffix}`,
-    quotaId: `quota-ed25519-${suffix}`,
+    authorizationState: 'authorized',
+    authorization: availableLaneEd25519Authorization({
+      walletId: String(ED25519_WALLET_ID),
+      identitySeed: suffix,
+      authMethod,
+      expiresAtMs: options.expiresAtMs,
+    }),
+    materialActivation: buildMpcMaterialActivationRefFixture(
+      `runtime-postcondition:${suffix}`,
+      String(ED25519_WALLET_ID),
+    ),
     thresholdSessionId: `tsess-ed25519-${suffix}`,
     remainingUses: options.remainingUses ?? 3,
     expiresAtMs: options.expiresAtMs ?? 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,
-    source: options.source ?? 'runtime_session_record',
+    source: 'durable_sealed_record',
   };
 }
 
@@ -155,7 +168,7 @@ test.describe('wallet runtime postconditions', () => {
       authMethod: 'email_otp',
       target: { curve: 'ed25519' },
       remainingSignatureUses: 3,
-      material: { kind: 'runtime_session_record' },
+      material: { kind: 'durable_sealed_record' },
     });
     expect(inventory.ecdsaByTarget.get(TARGET_KEY)).toMatchObject({
       authMethod: 'email_otp',
@@ -190,9 +203,9 @@ test.describe('wallet runtime postconditions', () => {
     expect(inventory.ed25519).toMatchObject({
       authMethod: 'passkey',
       target: { curve: 'ed25519' },
-      walletSessionId: 'wss-ed25519-candidate-backed-unlock',
-      quotaId: 'quota-ed25519-candidate-backed-unlock',
-      material: { kind: 'runtime_session_record' },
+      walletSessionId: 'available-lane-wallet-session:candidate-backed-unlock',
+      quotaId: 'available-lane-quota:candidate-backed-unlock',
+      material: { kind: 'durable_sealed_record' },
     });
   });
 

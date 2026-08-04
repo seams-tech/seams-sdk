@@ -3,6 +3,7 @@ import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes
 import type { RuntimePorts } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
+import type { LocalWalletAuthMethodRecord } from '@/core/indexedDB';
 import type { AccountId } from '@/core/types/accountIds';
 import type { Ed25519YaoPublicCapabilityReferenceStorePort } from '../../threshold/ed25519/yaoPublicCapabilityReferences';
 import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeMode } from '@/core/types/seams';
@@ -95,7 +96,9 @@ export type SigningEngineConveniencePorts = {
 
 export type SigningEngineStorePorts = {
   walletProfileAndSignerRecords: {
-    accountStore: RegistrationAccountLifecycleDeps['accountStore'];
+    accountStore: RegistrationAccountLifecycleDeps['accountStore'] & {
+      listWalletAuthMethodsForWallet: (walletId: string) => Promise<LocalWalletAuthMethodRecord[]>;
+    };
     walletSignerStore: EvmFamilySigningDeps['walletSignerStore'];
     passkeyAuthenticatorStore: EvmFamilySigningDeps['passkeyAuthenticatorStore'];
     ecdsaBootstrapStore: ThresholdEcdsaBootstrapStorePort;
@@ -127,13 +130,13 @@ export type CreateSigningEnginePortsArgs = {
   getEmailOtpWarmSessionStatus?: (
     target: EmailOtpWarmMaterialTarget,
   ) => Promise<WarmSessionStatusResult>;
-  consumeEmailOtpWarmSessionUses?: (args: WarmSessionMaterialOperationTarget & {
-    uses?: number;
-  }) => Promise<WarmSessionStatusResult>;
+  consumeEmailOtpWarmSessionUses?: (
+    args: WarmSessionMaterialOperationTarget & {
+      uses?: number;
+    },
+  ) => Promise<WarmSessionStatusResult>;
   clearEmailOtpWarmSessionMaterial: (thresholdSessionId: string) => Promise<void>;
-  getWalletSessionStatus: (
-    args: SigningSessionStatusCheck,
-  ) => Promise<SigningSessionStatus | null>;
+  getWalletSessionStatus: (args: SigningSessionStatusCheck) => Promise<SigningSessionStatus | null>;
   signerWorkerManager: SignerWorkerManager;
   getWorkerBaseOrigin: () => string;
   workerWarmupPolicy: WorkerResourceWarmupDeps['workerWarmupPolicy'];
@@ -196,7 +199,6 @@ export type SigningEnginePorts = {
 export function resolveNearRpcUrl(args: CreateSigningEnginePortsArgs): string {
   return resolvePrimaryNearRpcUrl(args.seamsWebConfigs.network.chains);
 }
-
 
 export function createGetOrCreateActiveThresholdEcdsaSessionId(): (
   nearAccountId: AccountId,

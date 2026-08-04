@@ -5,6 +5,7 @@ import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signin
 import {
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
   decodeJwtPayloadRecord,
+  isWalletSessionJwt,
 } from '@shared/utils/sessionTokens';
 import {
   parseThresholdEd25519SessionId,
@@ -16,6 +17,10 @@ import {
   type MpcWalletSigningQuotaId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+export {
+  parseWalletSessionAuthorizationIdentityClaims,
+  type WalletSessionAuthorizationIdentityClaims,
+} from './identity/walletSessionAuthorizationJwt';
 
 export type RouterAbSigningWalletSessionAuth = {
   kind: 'wallet_session_jwt';

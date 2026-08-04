@@ -25,6 +25,7 @@ import type {
   RouterAbEcdsaVerifiedClientActivationFactsV1,
   RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   AddAuthMethodInput,
   AddAuthMethodIntentGrant,
@@ -400,6 +401,7 @@ export type WalletAddSignerEcdsaActivationRequest = {
   addSignerCeremonyId: string;
   ecdsa: WalletAddSignerEcdsaActivationPrepareRequest['ecdsa'] & {
     expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+    materialActivation: RouterAbMpcMaterialActivationRefWire;
   };
 };
 
@@ -836,6 +838,7 @@ export type WalletEd25519YaoSignerPublicResult = {
 };
 
 export type WalletRegistrationEd25519YaoPublicResult = WalletEd25519YaoSignerPublicResult & {
+  thresholdSessionId: string;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };

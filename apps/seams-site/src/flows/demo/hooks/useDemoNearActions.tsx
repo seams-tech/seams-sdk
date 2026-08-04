@@ -189,7 +189,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
       return;
     }
 
-    const { login: loginState } = await seams.auth.getWalletSession(walletId!);
+    const walletSession = await seams.auth.getWalletSession(walletId!);
 
     setDelegateLoading(true);
     try {
@@ -201,7 +201,11 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
         return;
       }
 
-      const delegatePublicKey = loginState.publicKey || nearPublicKey || '';
+      const sessionPublicKey =
+        walletSession.appIdentity.kind === 'resolved'
+          ? walletSession.appIdentity.nearOperationalPublicKey
+          : null;
+      const delegatePublicKey = sessionPublicKey || nearPublicKey || '';
       if (!delegatePublicKey) {
         toast.error('No NEAR public key available to sign the delegate action', {
           id: 'delegate-greeting',

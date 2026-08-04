@@ -167,7 +167,9 @@ function emitEcdsaExportFailureDiagnostics(args: {
       ...(keyFingerprint ? { evmFamilyKeyFingerprint: keyFingerprint } : {}),
       ...(publicFacts ? { keyHandle: String(publicFacts.keyHandle) } : {}),
       chainTargetKey: thresholdEcdsaChainTargetKey(args.input.chainTarget),
-      walletSessionId: args.exportLane?.authorization.projection.walletSessionId,
+      ...(args.exportLane?.authorization
+        ? { walletSessionId: args.exportLane.authorization.projection.walletSessionId }
+        : {}),
       materialActivationId:
         args.exportLane?.laneIdentity.signer.materialActivation.activationId,
       freshAuthRetrySideEffectState: 'not_applicable',
@@ -222,6 +224,20 @@ async function exportEcdsaKeypairWithSessionLifecycle(
     prepareEcdsaExport(deps, args),
     deps.ecdsa.touchConfirm.initialize(),
   ]);
+  if (prepared.exportLane.authorizationState === 'authorization_required') {
+    try {
+      return await executePreparedEcdsaExport(deps, args, prepared);
+    } catch (error: unknown) {
+      emitEcdsaExportFailureDiagnostics({
+        input: args,
+        flowId: args.flowId,
+        exportLane: prepared.exportLane,
+        exportMaterial: prepared.exportMaterial,
+        error,
+      });
+      throw error;
+    }
+  }
   const source: WalletSessionAuthorizationIdentitySource = {
     kind: 'ecdsa',
     laneIdentity: prepared.exportLane.laneIdentity,

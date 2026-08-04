@@ -3,7 +3,7 @@ import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 
 export type EcdsaSealTransportAuthMaterial = {
   curve: 'ecdsa';
-  walletId?: string;
+  walletId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
   walletSessionJwt?: string;

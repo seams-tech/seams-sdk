@@ -1,6 +1,7 @@
 import {
   ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH,
   computeRouterAbEcdsaOperationStepUpChallengeB64u,
+  parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1,
   parseRouterAbEcdsaOperationStepUpAuthorizationRequestV1,
   parseRouterAbEcdsaDerivationNormalSigningScopeV1,
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
@@ -8,10 +9,7 @@ import {
   type RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire,
   type RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import {
-  parseRouterAbNormalSigningAuthorization,
-  routerAbMpcMaterialActivationRefToWire,
-} from '@shared/utils/routerAbNormalSigningIdentity';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
 import type { EvmEcdsaMpcOperationKind } from '@shared/authorization/capabilityKinds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
@@ -42,37 +40,13 @@ function requireResponseRecord(value: unknown): Record<string, unknown> {
 function parseEcdsaOperationStepUpAuthorizationResponse(
   value: unknown,
 ): RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire {
-  const response = requireResponseRecord(value);
-  const fields = Object.keys(response).sort();
-  const expectedFields = [
-    'authorization',
-    'expires_at_ms',
-    'kind',
-    'ok',
-  ].sort();
-  if (
-    fields.length !== expectedFields.length ||
-    fields.some((field, index) => field !== expectedFields[index])
-  ) {
-    throw new Error('ECDSA operation step-up response has invalid fields');
+  try {
+    return parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1(value);
+  } catch (error: unknown) {
+    throw new Error(
+      error instanceof Error ? error.message : 'ECDSA operation step-up response is invalid',
+    );
   }
-  const authorization = parseRouterAbNormalSigningAuthorization(response.authorization);
-  const expiresAtMs = Number(response.expires_at_ms);
-  if (
-    response.ok !== true ||
-    response.kind !== 'verified_step_up' ||
-    authorization.kind !== 'operation_step_up' ||
-    !Number.isSafeInteger(expiresAtMs) ||
-    expiresAtMs <= Date.now()
-  ) {
-    throw new Error('ECDSA operation step-up response is invalid');
-  }
-  return {
-    ok: true,
-    kind: 'verified_step_up',
-    authorization,
-    expires_at_ms: expiresAtMs,
-  };
 }
 
 function operationStepUpEndpoint(relayerUrl: string): string {

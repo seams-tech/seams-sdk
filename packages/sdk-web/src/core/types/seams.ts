@@ -25,7 +25,10 @@ import type {
   WalletId,
 } from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodBinding } from '@shared/utils/walletCapabilityBindings';
-import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
+import type {
+  WalletSessionAuthorizationId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { ThresholdEcdsaChainTarget } from '../signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EvmFamilyEcdsaWalletUnlockSubject,
@@ -370,10 +373,23 @@ export type WalletSessionAppIdentity =
       readonly reason?: never;
     };
 
+export type WalletAuthenticationState =
+  | {
+      readonly kind: 'signed_out';
+      readonly walletId?: never;
+      readonly authMethod?: never;
+    }
+  | {
+      readonly kind: 'authenticated';
+      readonly walletId: WalletId;
+      readonly authMethod: WalletAuthMethod;
+    };
+
 export type ReusableWalletSessionState =
   | {
-      readonly kind: 'not_requested';
+      readonly kind: 'absent';
       readonly walletId?: never;
+      readonly authorizationId?: never;
       readonly walletSessionId?: never;
       readonly authMethod?: never;
       readonly remainingUses?: never;
@@ -384,6 +400,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'active';
       readonly walletId: WalletId;
+      readonly authorizationId: WalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly remainingUses: number;
@@ -394,6 +411,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'exhausted';
       readonly walletId: WalletId;
+      readonly authorizationId: WalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly remainingUses: 0;
@@ -404,6 +422,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'expired';
       readonly walletId: WalletId;
+      readonly authorizationId: WalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly expiresAtMs: number;
@@ -414,8 +433,9 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'missing';
       readonly walletId: WalletId;
-      readonly walletSessionId?: never;
-      readonly authMethod?: never;
+      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly walletSessionId: WalletSessionId;
+      readonly authMethod: WalletAuthMethod;
       readonly remainingUses?: never;
       readonly expiresAtMs?: never;
       readonly detectedAtMs?: never;
@@ -428,6 +448,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'superseded';
       readonly walletId: WalletId;
+      readonly authorizationId: WalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly detectedAtMs: number;
@@ -438,6 +459,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'unavailable';
       readonly walletId: WalletId;
+      readonly authorizationId?: WalletSessionAuthorizationId;
       readonly reason: 'persistence_unavailable';
       readonly walletSessionId?: never;
       readonly authMethod?: never;
@@ -448,6 +470,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'invalid';
       readonly walletId: WalletId;
+      readonly authorizationId?: WalletSessionAuthorizationId;
       // `lifecycle_mismatch` is gone: replacement is `superseded`, which the
       // caller re-resolves. Collapsing it here told adapters a routine
       // replacement was a broken session.
@@ -561,6 +584,7 @@ export type WalletSessionCapabilityProjection =
 
 export interface WalletSession {
   readonly appIdentity: WalletSessionAppIdentity;
+  readonly authentication: WalletAuthenticationState;
   readonly reusableWalletSession: ReusableWalletSessionState;
   readonly capabilityProjection: WalletSessionCapabilityProjection;
   readonly nonceDiagnostics: NonceCoordinatorDiagnostics | null;
@@ -750,9 +774,7 @@ export type RouterApiSecretKeyAuthErrorCode =
   | 'secret_key_ip_blocked'
   | 'secret_key_environment_mismatch';
 
-export type RegistrationErrorCode =
-  | RouterApiSecretKeyAuthErrorCode
-  | string;
+export type RegistrationErrorCode = RouterApiSecretKeyAuthErrorCode | string;
 
 export type LoginResult =
   | {

@@ -37,6 +37,7 @@ import {
   type EcdsaInactiveSealedMaterialRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { parseEcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { ecdsaSealedRecordStoreKey } from '@/core/signingEngine/session/persistence/ecdsaSealedRecordKey';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
@@ -44,6 +45,7 @@ import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedD
 import {
   parseMpcWalletSigningQuotaId,
   parseSeamsSessionId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
@@ -73,6 +75,7 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
     nearAccountId?: string;
     nearEd25519SigningKeyId?: string;
     thresholdSessionId?: string;
+    materialActivation?: MpcMaterialActivationRef;
     expiresAtMs?: number;
     remainingUses?: number;
   } = {},
@@ -102,10 +105,9 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
       nearEd25519SigningKeyId,
       rpId: 'wallet.example.test',
       credentialIdB64u: 'ed25519-sealed-runtime-credential',
-      materialActivation: buildMpcMaterialActivationRefFixture(
-        'ed25519-sealed-runtime-material',
-        walletId,
-      ),
+      materialActivation:
+        args.materialActivation ??
+        buildMpcMaterialActivationRefFixture('ed25519-sealed-runtime-material', walletId),
       relayerKeyId: 'ed25519-sealed-runtime-worker',
       participantIds: [1, 2],
       runtimePolicyScope: {
@@ -133,6 +135,7 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
     authorizationSessionId?: string;
     walletSessionId?: string;
     quotaId?: string;
+    authorizationExpiresAtMs?: number;
   } = {},
 ) {
   if (!('credentialIdB64u' in record.ed25519Restore)) {
@@ -145,31 +148,37 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
   });
   const authorizationSessionId =
     args.authorizationSessionId ?? `authorization:${record.thresholdSessionIds.ed25519}`;
+  const authorizationId = `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`;
   const walletSessionId =
     args.walletSessionId ?? `wallet-session:${record.thresholdSessionIds.ed25519}`;
   const quotaId = args.quotaId ?? `quota:${record.thresholdSessionIds.ed25519}`;
+  const authorizationExpiresAtMs = args.authorizationExpiresAtMs ?? record.expiresAtMs;
   return buildActiveWalletSessionAuthorizationProjection({
     walletId: authority.walletId,
-    authorizationSessionId: requireFixtureDomainId(
-      parseSeamsSessionId(authorizationSessionId),
-    ),
-    walletSessionId: requireFixtureDomainId(
-      parseWalletSessionId(walletSessionId),
-    ),
-    quotaId: requireFixtureDomainId(
-      parseMpcWalletSigningQuotaId(quotaId),
-    ),
-    walletSessionJwt: fixtureJwt(ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND, {
-      walletId: record.walletId,
-      nearAccountId: record.ed25519Restore.nearAccountId,
-      nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
-      walletSessionId,
-      quotaId,
-      thresholdSessionId: record.thresholdSessionIds.ed25519,
-    }),
+    seamsSessionId: requireFixtureDomainId(parseSeamsSessionId(authorizationSessionId)),
+    authorizationId: requireFixtureDomainId(parseWalletSessionAuthorizationId(authorizationId)),
+    walletSessionId: requireFixtureDomainId(parseWalletSessionId(walletSessionId)),
+    quotaId: requireFixtureDomainId(parseMpcWalletSigningQuotaId(quotaId)),
+    walletSessionTokens: {
+      kind: 'near_ed25519',
+      ed25519: {
+        walletSessionJwt: fixtureJwt(ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND, {
+          walletId: record.walletId,
+          authorizationId,
+          nearAccountId: record.ed25519Restore.nearAccountId,
+          nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
+          walletSessionId,
+          quotaId,
+          thresholdSessionId: record.thresholdSessionIds.ed25519,
+          sid: authorizationSessionId,
+          thresholdExpiresAtMs: authorizationExpiresAtMs,
+          exp: Math.floor(authorizationExpiresAtMs / 1_000),
+        }),
+      },
+    },
     authMethod: 'passkey',
     authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),
-    expiresAtMs: record.expiresAtMs,
+    expiresAtMs: authorizationExpiresAtMs,
   });
 }
 
@@ -185,8 +194,7 @@ export function buildEmailOtpEd25519SealedSessionRecordFixture(
   } = {},
 ): CurrentEd25519SealedSessionRecord {
   const walletId = args.walletId ?? 'email-otp-ed25519-sealed-runtime-wallet';
-  const thresholdSessionId =
-    args.thresholdSessionId ?? 'email-otp-ed25519-sealed-runtime-session';
+  const thresholdSessionId = args.thresholdSessionId ?? 'email-otp-ed25519-sealed-runtime-session';
   const record = buildCurrentSealedSessionRecord({
     curve: 'ed25519',
     authMethod: 'email_otp',
@@ -205,8 +213,7 @@ export function buildEmailOtpEd25519SealedSessionRecordFixture(
     updatedAtMs: 2,
     ed25519Restore: {
       nearAccountId: args.nearAccountId ?? 'email-otp-ed25519-runtime.testnet',
-      nearEd25519SigningKeyId:
-        args.nearEd25519SigningKeyId ?? 'email-otp-ed25519-runtime-key',
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId ?? 'email-otp-ed25519-runtime-key',
       rpId: 'wallet.example.test',
       provider: 'google',
       providerSubjectId: 'google:email-otp-ed25519-runtime',
@@ -249,8 +256,13 @@ export function buildEmailOtpEd25519AuthorizationProjectionFixture(
   });
   return buildActiveWalletSessionAuthorizationProjection({
     walletId: authority.walletId,
-    authorizationSessionId: requireFixtureDomainId(
+    seamsSessionId: requireFixtureDomainId(
       parseSeamsSessionId(`authorization:${record.thresholdSessionIds.ed25519}`),
+    ),
+    authorizationId: requireFixtureDomainId(
+      parseWalletSessionAuthorizationId(
+        `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`,
+      ),
     ),
     walletSessionId: requireFixtureDomainId(
       parseWalletSessionId(`wallet-session:${record.thresholdSessionIds.ed25519}`),
@@ -258,14 +270,23 @@ export function buildEmailOtpEd25519AuthorizationProjectionFixture(
     quotaId: requireFixtureDomainId(
       parseMpcWalletSigningQuotaId(`quota:${record.thresholdSessionIds.ed25519}`),
     ),
-    walletSessionJwt: fixtureJwt(ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND, {
-      walletId: record.walletId,
-      nearAccountId: record.ed25519Restore.nearAccountId,
-      nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
-      walletSessionId: `wallet-session:${record.thresholdSessionIds.ed25519}`,
-      quotaId: `quota:${record.thresholdSessionIds.ed25519}`,
-      thresholdSessionId: record.thresholdSessionIds.ed25519,
-    }),
+    walletSessionTokens: {
+      kind: 'near_ed25519',
+      ed25519: {
+        walletSessionJwt: fixtureJwt(ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND, {
+          walletId: record.walletId,
+          authorizationId: `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`,
+          nearAccountId: record.ed25519Restore.nearAccountId,
+          nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
+          walletSessionId: `wallet-session:${record.thresholdSessionIds.ed25519}`,
+          quotaId: `quota:${record.thresholdSessionIds.ed25519}`,
+          thresholdSessionId: record.thresholdSessionIds.ed25519,
+          sid: `authorization:${record.thresholdSessionIds.ed25519}`,
+          thresholdExpiresAtMs: record.expiresAtMs,
+          exp: Math.floor(record.expiresAtMs / 1_000),
+        }),
+      },
+    },
     authMethod: 'email_otp',
     authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),
     expiresAtMs: record.expiresAtMs,
@@ -481,6 +502,7 @@ function fixtureRuntimePolicyScope(publicFacts: {
 
 export function buildEmailOtpEcdsaSealedRuntimeRecordFixture(args: {
   manifest: ActiveEcdsaCapabilityManifest;
+  chainTarget?: ThresholdEcdsaChainTarget;
   thresholdSessionId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
@@ -491,6 +513,7 @@ export function buildEmailOtpEcdsaSealedRuntimeRecordFixture(args: {
   const publicFacts = manifest.durableMaterial.roleLocalPublicFacts;
   const binding = manifest.durableMaterial.roleLocalBinding;
   const publicCapability = publicFacts.publicCapability;
+  const chainTarget = args.chainTarget ?? publicFacts.chainTarget;
   const thresholdSessionId = args.thresholdSessionId ?? 'ec-session';
   const providerSubjectId = `google:${walletId}`;
   const emailOtpAuthority = buildEmailOtpWalletAuthAuthority({
@@ -536,7 +559,7 @@ export function buildEmailOtpEcdsaSealedRuntimeRecordFixture(args: {
     walletId,
     relayerUrl: 'https://relayer.example.test',
     ecdsaRestore: {
-      chainTarget: publicFacts.chainTarget,
+      chainTarget,
       source: 'email_otp',
       signingRootId: publicFacts.signingRootId,
       signingRootVersion: publicFacts.signingRootVersion,
@@ -633,6 +656,7 @@ function inactiveEcdsaMaterialRecordFixture(args: {
  * provider subject -- because the material it names is the same. */
 export function buildPasskeyEcdsaSealedRuntimeRecordFixture(args: {
   manifest: ActiveEcdsaCapabilityManifest;
+  chainTarget?: ThresholdEcdsaChainTarget;
   thresholdSessionId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
@@ -642,6 +666,7 @@ export function buildPasskeyEcdsaSealedRuntimeRecordFixture(args: {
   const publicFacts = manifest.durableMaterial.roleLocalPublicFacts;
   const binding = manifest.durableMaterial.roleLocalBinding;
   const publicCapability = publicFacts.publicCapability;
+  const chainTarget = args.chainTarget ?? publicFacts.chainTarget;
   const thresholdSessionId = args.thresholdSessionId ?? 'ec-session-passkey';
   const roleLocalMaterialRef = parseEcdsaRoleLocalPersistedMaterialRef({
     kind: 'ecdsa_role_local_persisted_material_ref_v1',
@@ -680,7 +705,7 @@ export function buildPasskeyEcdsaSealedRuntimeRecordFixture(args: {
     walletId,
     relayerUrl: 'https://relayer.example.test',
     ecdsaRestore: {
-      chainTarget: publicFacts.chainTarget,
+      chainTarget,
       source: 'login',
       signingRootId: publicFacts.signingRootId,
       signingRootVersion: publicFacts.signingRootVersion,

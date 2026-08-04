@@ -28,7 +28,10 @@ import {
   parseEcdsaThresholdKeyId,
 } from '../keyMaterialBrands';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
-import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  walletSessionAuthorizations,
+  walletSessionJwtForCurve,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type RouterAbEcdsaDerivationLoginPresignaturePrefillSkippedReason =
   | 'pool_disabled'
@@ -150,7 +153,14 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
       };
     }
     const authorization = authorizationRead.projection;
-    const walletSessionJwt = authorization.walletSessionJwt;
+    const walletSessionJwt = walletSessionJwtForCurve(authorization, 'ecdsa');
+    if (!walletSessionJwt) {
+      return {
+        status: 'skipped',
+        reason: 'missing_wallet_session_jwt',
+        thresholdSessionId,
+      };
+    }
 
     const policy = resolveRouterAbEcdsaDerivationPresignaturePoolPolicy(deps.routerAbEcdsaDerivationPresignaturePoolPolicy);
     if (!policy.enabled) {

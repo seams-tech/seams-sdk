@@ -13,6 +13,7 @@ import type { WalletRegistrationEd25519YaoBootstrapSession } from '../core/regis
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from './routerAbEd25519YaoRecovery';
 import type {
   MpcWalletSigningQuotaId,
+  SeamsSessionId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type { ThresholdEd25519SessionId } from '@shared/utils/domainIds';
@@ -124,6 +125,7 @@ export type RouterAbEd25519YaoBudgetRefreshAuthorizationV1 =
       readonly authority: PasskeyWalletAuthAuthority;
       readonly authorityRef: WalletAuthAuthorityRef;
       readonly runtimePolicyScope: RuntimePolicyScope;
+      readonly seamsSessionId: SeamsSessionId;
       readonly currentSession?: never;
       readonly signerSlot?: never;
       readonly verifiedChallengeId?: never;

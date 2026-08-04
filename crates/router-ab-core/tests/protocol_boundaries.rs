@@ -573,8 +573,7 @@ fn gate_defer_reason_maps_to_authority_verified_fallback_reason() {
 #[test]
 fn normal_signing_scope_stays_outside_derivation_lifecycle() {
     let authorization =
-        NormalSigningAuthorizationV1::reusable_wallet_session("session-1")
-            .expect("authorization");
+        NormalSigningAuthorizationV1::reusable_wallet_session("session-1").expect("authorization");
     let material_activation = MpcMaterialActivationRefV1::new(
         "activation-1",
         "capability-1",
@@ -600,8 +599,7 @@ fn normal_signing_scope_stays_outside_derivation_lifecycle() {
 #[test]
 fn normal_signing_scope_rejects_empty_identity_fields() {
     let authorization =
-        NormalSigningAuthorizationV1::reusable_wallet_session("session-1")
-            .expect("authorization");
+        NormalSigningAuthorizationV1::reusable_wallet_session("session-1").expect("authorization");
     let material_activation = MpcMaterialActivationRefV1::new(
         "activation-1",
         "capability-1",

@@ -9,10 +9,14 @@ import {
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { ecdsaCapabilityHydrationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
+import {
+  ecdsaCapabilityActivationLookupFixture,
+  ecdsaCapabilityHydrationLookupFixture,
+} from './helpers/ecdsaCapabilityManifest.fixtures';
 import {
   buildEmailOtpEcdsaSealedRuntimeRecordFixture,
   buildEmailOtpInactiveEcdsaMaterialRecordFixture,
+  buildPasskeyEcdsaSealedRuntimeRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
 import {
   buildMpcMaterialActivationRefFixture,
@@ -101,6 +105,31 @@ test.describe('exact ECDSA sealed runtime resolution', () => {
     expect(String(runtime.roleLocalMaterialRef.durableMaterialRef)).toBe(
       String(manifest.durableMaterial.durableMaterialRef),
     );
+  });
+
+  test('resolves a family target whose sealed projection differs from the manifest anchor target', () => {
+    const tempoTarget = {
+      kind: 'tempo' as const,
+      chainId: 42431,
+      networkSlug: 'tempo-testnet',
+    };
+    const arcTarget = {
+      kind: 'evm' as const,
+      namespace: 'eip155' as const,
+      chainId: 5042002,
+      networkSlug: 'arc-testnet',
+    };
+    const manifest = ecdsaCapabilityActivationLookupFixture({
+      targetMemberships: [tempoTarget, arcTarget],
+    }).manifest;
+    const record = buildPasskeyEcdsaSealedRuntimeRecordFixture({
+      manifest,
+      chainTarget: arcTarget,
+    });
+
+    const resolution = resolve(manifest, [record]);
+
+    expect(resolution.kind).toBe('resolved');
   });
 
   test('blocks when the sealed material ref is not canonical persisted material', () => {

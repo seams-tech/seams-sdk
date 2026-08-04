@@ -17,6 +17,7 @@ import { listNearEd25519TransactionReadyLanes } from '../identity/selectLane';
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 import type {
   MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
@@ -49,7 +50,7 @@ export type UsableRuntimeLane =
       state: RuntimePostconditionLaneState;
       authMethod: SigningSessionSealAuthMethod;
       target: { curve: 'ecdsa'; chainTarget: ThresholdEcdsaChainTarget };
-      authorizationSessionId: string;
+      authorizationId: WalletSessionAuthorizationId;
       materialActivationId: string;
       remainingSignatureUses: number;
       expiresAtMs: number;
@@ -90,7 +91,7 @@ export class WalletRuntimePostconditionError extends Error {
   readonly details: Record<string, unknown>;
 
   constructor(result: Extract<WalletRuntimePostconditionResult, { ok: false }>) {
-    super(`[WalletRuntimePostcondition] ${result.code}`);
+    super(`[WalletRuntimePostcondition] ${result.code} ${JSON.stringify(result.details)}`);
     this.name = 'WalletRuntimePostconditionError';
     this.code = result.code;
     this.details = result.details;
@@ -252,7 +253,7 @@ function readEcdsaUseCaseReadyLane(args: {
     state: lane.state,
     authMethod: args.authMethod,
     target: { curve: 'ecdsa', chainTarget: args.chainTarget },
-    authorizationSessionId: String(lane.authorization.projection.walletSessionId),
+    authorizationId: lane.authorization.projection.authorizationId,
     materialActivationId: String(lane.materialActivation.activationId),
     remainingSignatureUses,
     expiresAtMs,

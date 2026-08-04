@@ -1,3 +1,8 @@
+import {
+  parseMpcMaterialActivationRef,
+  type MpcMaterialActivationRef,
+} from './domainIds';
+
 export type RouterAbNormalSigningAuthorizationWire =
   | {
       readonly kind: 'reusable_wallet_session';
@@ -138,6 +143,25 @@ export function routerAbMpcMaterialActivationRefToWire(input: {
     lifecycle_binding: input.lifecycleBinding,
     signing_worker: input.signingWorker,
   });
+}
+
+export function routerAbMpcMaterialActivationRefFromWire(
+  value: unknown,
+): MpcMaterialActivationRef {
+  const wire = parseRouterAbMpcMaterialActivationRef(value);
+  const parsed = parseMpcMaterialActivationRef({
+    kind: wire.kind,
+    activationId: wire.activation_id,
+    capability: wire.capability,
+    materialOwner: wire.material_owner,
+    keyBinding: wire.key_binding,
+    lifecycleBinding: wire.lifecycle_binding,
+    signingWorker: wire.signing_worker,
+  });
+  if (!parsed.ok) {
+    throw new Error(`material_activation is invalid: ${parsed.error.message}`);
+  }
+  return parsed.value;
 }
 
 function asciiBytes(value: string): Uint8Array {

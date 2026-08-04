@@ -17,6 +17,17 @@ import { parseNamedNearAccountId } from '@shared/utils/near';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { resolveEmailOtpAuthLane } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 
 const WALLET_ID = toWalletId('email-otp-export-refresh-wallet');
 const NEAR_ACCOUNT_ID = toAccountId('email-otp-export-refresh.testnet');
@@ -25,6 +36,9 @@ const PROVIDER_SUBJECT_ID = 'google:email-otp-export-refresh';
 const THRESHOLD_SESSION_ID = 'threshold-email-otp-export-refresh';
 const WALLET_SESSION_ID = 'wallet-session-email-otp-export-refresh';
 const QUOTA_ID = 'quota-email-otp-export-refresh';
+const AUTHORIZATION_SESSION_ID = 'seams-session-email-otp-export-refresh';
+const AUTHORIZATION_ID = 'wallet-session-authorization-email-otp-export-refresh';
+const AUTHORIZATION_EXPIRES_AT_MS = 1_900_000_000_000;
 const RUNTIME_POLICY_SCOPE = {
   orgId: 'org-email-otp-export-refresh',
   projectId: 'project-email-otp-export-refresh',
@@ -60,9 +74,57 @@ const MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
   CAPABILITY.applicationBinding.wallet_id,
 );
 
+function durableWalletSessionJwt(): string {
+  const parse = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return [
+    parse({ alg: 'none', typ: 'JWT' }),
+    parse({
+      kind: 'router_ab_ed25519_wallet_session_v1',
+      walletId: String(WALLET_ID),
+      authorizationId: AUTHORIZATION_ID,
+      walletSessionId: WALLET_SESSION_ID,
+      quotaId: QUOTA_ID,
+      sid: AUTHORIZATION_SESSION_ID,
+      thresholdExpiresAtMs: AUTHORIZATION_EXPIRES_AT_MS,
+      exp: Math.floor(AUTHORIZATION_EXPIRES_AT_MS / 1_000),
+    }),
+    'durable-wallet-session-jwt',
+  ].join('.');
+}
+
+async function durableAuthorization() {
+  const seamsSessionId = parseSeamsSessionId(AUTHORIZATION_SESSION_ID);
+  const authorizationId = parseWalletSessionAuthorizationId(AUTHORIZATION_ID);
+  const walletSessionId = parseWalletSessionId(WALLET_SESSION_ID);
+  const quotaId = parseMpcWalletSigningQuotaId(QUOTA_ID);
+  if (!seamsSessionId.ok || !authorizationId.ok || !walletSessionId.ok || !quotaId.ok) {
+    throw new Error('invalid Email OTP export authorization fixture identity');
+  }
+  const authority = buildEmailOtpWalletAuthAuthority({
+    walletId: WALLET_ID,
+    provider: 'google',
+    providerUserId: PROVIDER_SUBJECT_ID,
+    emailHashHex: 'email-otp-export-refresh-hash',
+  });
+  return buildActiveWalletSessionAuthorizationProjection({
+    walletId: WALLET_ID,
+    seamsSessionId: seamsSessionId.value,
+    authorizationId: authorizationId.value,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
+    walletSessionTokens: {
+      kind: 'near_ed25519',
+      ed25519: { walletSessionJwt: durableWalletSessionJwt() },
+    },
+    authMethod: 'email_otp',
+    authority: await walletAuthAuthorityRef({ authority }),
+    expiresAtMs: AUTHORIZATION_EXPIRES_AT_MS,
+  });
+}
+
 function durableEd25519AuthLane() {
   const authLane = resolveEmailOtpAuthLane({
-    routeAuth: { kind: 'wallet_session', jwt: 'durable-wallet-session-jwt' },
+    routeAuth: { kind: 'wallet_session', jwt: durableWalletSessionJwt() },
     curve: 'ed25519',
   });
   if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
@@ -129,7 +191,7 @@ class EmailOtpEd25519ExportRefreshHarness {
     return {
       kind: 'email_otp_ed25519_yao_export_context_v1' as const,
       lane: buildLaneIdentity(),
-      authorization: { walletSessionJwt: 'durable-wallet-session-jwt' },
+      authorization: await durableAuthorization(),
       material: { materialActivation: MATERIAL_ACTIVATION, capability: CAPABILITY },
     };
   }
@@ -158,7 +220,7 @@ class EmailOtpEd25519ExportRefreshHarness {
   ) {
     this.exportCalls += 1;
     this.exportedCapability = args.exportContext.material.capability;
-    expect(args.exportContext.authorization.walletSessionJwt).toBe(
+    expect(args.exportContext.authorization.walletSessionTokens.ed25519.walletSessionJwt).toContain(
       'durable-wallet-session-jwt',
     );
     return {

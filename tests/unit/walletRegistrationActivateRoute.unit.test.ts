@@ -4,6 +4,7 @@ import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/sdk-server-ts
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { implicitNearAccountProvisioning } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { parseRouterAbMpcMaterialActivationRef } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   buildFixtureRouterAbEcdsaStrictRegistrationRequest,
@@ -50,7 +51,19 @@ function fakeGatewaySigner() {
   return {
     signJwt: async (sub: string, extra?: Record<string, unknown>) => {
       counter += 1;
-      const token = `activate-jwt-${instance}-${counter}`;
+      const header = base64UrlEncode(
+        new TextEncoder().encode(JSON.stringify({ alg: 'none', typ: 'JWT' })),
+      );
+      const payload = base64UrlEncode(
+        new TextEncoder().encode(
+          JSON.stringify({
+            sub,
+            exp: Math.floor(Date.now() / 1000) + 900,
+            ...(extra || {}),
+          }),
+        ),
+      );
+      const token = `${header}.${payload}.test-signature-${instance}-${counter}`;
       issued.set(token, { sub, ...(extra || {}) });
       return token;
     },
@@ -147,8 +160,20 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
     registrationCeremonyId: setup.registrationCeremonyId,
     signedSetup: setup.signedSetup,
     idempotencyKey: 'activate-key-1',
+    planKind: 'evm_family_ecdsa',
+    session: signer,
     ecdsa: {
       activationCorrelationId: setup.registrationCeremonyId,
+      activationRequestDigestB64u: base64UrlEncode(new Uint8Array(32)),
+      materialActivation: parseRouterAbMpcMaterialActivationRef({
+        kind: 'mpc_material_activation_ref',
+        activation_id: `activation-${setup.registrationCeremonyId}`,
+        capability: `capability-${setup.registrationCeremonyId}`,
+        material_owner: setup.walletId,
+        key_binding: `key-${setup.registrationCeremonyId}`,
+        lifecycle_binding: setup.registrationCeremonyId,
+        signing_worker: setup.ecdsa.strictRegistration.lifecycle.selected_server_id,
+      }),
       clientActivation: fixtureRouterAbEcdsaActivationFacts(),
     },
     verifier: signer,
@@ -204,6 +229,7 @@ test('an identical activate retry returns the stored terminal bytes without repe
       activateRequest as never,
     );
     if (!first.ok) throw new Error(`first activate: ${first.code}: ${first.message}`);
+    expect(first.appSessionJwt).toEqual(expect.any(String));
     const custodyCallsAfterFirst = strictRegistration.activateCalls;
 
     const replayed = await service.walletRegistration.activateWalletRegistration(
@@ -216,6 +242,7 @@ test('an identical activate retry returns the stored terminal bytes without repe
        the store's JSON encoding, so property order is the encoder's business
        and pinning it here would assert an implementation detail. */
     expect(replayed).toEqual(first);
+    expect(replayed.ok && replayed.appSessionJwt).toBe(first.appSessionJwt);
     /* And no repeated custody effect. */
     expect(strictRegistration.activateCalls).toBe(custodyCallsAfterFirst);
     /* Both legs merged: the commit half's wallet keys plus the activation
@@ -509,6 +536,7 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       signedSetup: setup.signedSetup,
       idempotencyKey: 'ed25519-e2e-activate',
       planKind: 'near_ed25519',
+      session: signer,
       verifier: signer,
       minter: signer,
     };

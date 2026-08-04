@@ -20,14 +20,15 @@ import type {
   WalletSessionCapabilityProjection,
   WalletSessionCapabilityReadiness,
   WalletSessionIdentityResolveFailure,
+  WalletAuthenticationState,
 } from '@/core/types/seams';
 import type { WalletSessionId } from '@/core/types/sdkSentEvents';
+import { parseCapabilityInstanceRef, parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import {
-  parseCapabilityInstanceRef,
-  parseWalletId,
-  type WalletId,
-} from '@shared/utils/domainIds';
-import { parseWalletSessionId } from '@shared/authorization/capabilityKinds';
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import type { WalletSessionAuthorizationId } from '@shared/authorization/capabilityKinds';
 import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
@@ -39,6 +40,7 @@ import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export type WalletIframeExactSessionIdentity = {
   readonly walletId: WalletId;
+  readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly authMethod: WalletAuthMethod;
   readonly expiresAtMs: number;
@@ -46,6 +48,7 @@ export type WalletIframeExactSessionIdentity = {
 
 export type WalletIframeExactSessionIdentityInput = {
   readonly walletId: string;
+  readonly authorizationId: string;
   readonly walletSessionId: string;
   readonly authMethod: WalletAuthMethod;
   readonly expiresAtMs: number;
@@ -53,6 +56,7 @@ export type WalletIframeExactSessionIdentityInput = {
 
 export type WalletIframeSessionUnavailableReason =
   | 'exhausted'
+  | 'absent'
   | 'not_found'
   | 'unavailable'
   | 'status_unknown'
@@ -65,9 +69,22 @@ export type WalletIframeSessionUnavailableReason =
 export type WalletIframeExactSessionState =
   | { readonly kind: 'wallet_locked' }
   | {
+      readonly kind: 'wallet_authenticated_identity_unresolvable';
+      readonly walletId: WalletId;
+      readonly reason: WalletSessionIdentityResolveFailure | 'invalid';
+    }
+  | {
       readonly kind: 'wallet_unlocked_without_signing_session';
       readonly walletId: WalletId;
-      readonly reason: WalletIframeSessionUnavailableReason;
+      readonly reason: Exclude<WalletIframeSessionUnavailableReason, 'not_found'>;
+    }
+  | {
+      readonly kind: 'wallet_unlocked_without_signing_session';
+      readonly walletId: WalletId;
+      readonly reason: 'not_found';
+      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly walletSessionId: WalletSessionId;
+      readonly authMethod: WalletAuthMethod;
     }
   | ({
       readonly kind: 'active_session';
@@ -97,22 +114,6 @@ export type WalletIframeExactSessionLockResult =
       readonly current: WalletIframeExactSessionState;
     };
 
-export type WalletIframeMissingSessionIdentity = {
-  readonly walletId: WalletId;
-  readonly reason: 'not_found';
-};
-
-export type WalletIframeMissingSessionLockResult =
-  | {
-      readonly kind: 'locked';
-      readonly identity: WalletIframeMissingSessionIdentity;
-    }
-  | {
-      readonly kind: 'stale_session';
-      readonly expected: WalletIframeMissingSessionIdentity;
-      readonly current: WalletIframeExactSessionState;
-    };
-
 export class WalletIframeSessionExpiredRequestError extends Error {
   readonly failure: WalletIframeSessionExpiredFailure;
 
@@ -126,16 +127,32 @@ export class WalletIframeSessionExpiredRequestError extends Error {
 export function exactSessionStateFromWalletSession(
   session: WalletSession,
 ): WalletIframeExactSessionState {
-  if (session.appIdentity.kind === 'anonymous') return { kind: 'wallet_locked' };
+  if (session.authentication.kind === 'signed_out') return { kind: 'wallet_locked' };
+  const authenticatedWalletId = session.authentication.walletId;
+  if (session.appIdentity.kind === 'anonymous') {
+    return {
+      kind: 'wallet_authenticated_identity_unresolvable',
+      walletId: authenticatedWalletId,
+      reason: 'invalid',
+    };
+  }
   if (session.appIdentity.kind === 'unresolvable') {
-    return unavailableSession(
-      session.appIdentity.walletId,
-      unavailableReasonFromIdentityFailure(session.appIdentity.reason),
-    );
+    return {
+      kind: 'wallet_authenticated_identity_unresolvable',
+      walletId: authenticatedWalletId,
+      reason:
+        session.appIdentity.walletId === authenticatedWalletId
+          ? session.appIdentity.reason
+          : 'invalid',
+    };
   }
   const walletId = session.appIdentity.walletId;
   if (!walletSessionWalletIdsAgree(session, walletId)) {
-    return unavailableSession(walletId, 'invalid');
+    return {
+      kind: 'wallet_authenticated_identity_unresolvable',
+      walletId: authenticatedWalletId,
+      reason: 'invalid',
+    };
   }
   const reusableWalletSession = session.reusableWalletSession;
   switch (reusableWalletSession.kind) {
@@ -154,12 +171,20 @@ export function exactSessionStateFromWalletSession(
     case 'superseded':
       return unavailableSession(walletId, 'superseded');
     case 'missing':
-      return unavailableSession(walletId, 'not_found');
+      return {
+        kind: 'wallet_unlocked_without_signing_session',
+        walletId,
+        reason: 'not_found',
+        authorizationId: reusableWalletSession.authorizationId,
+        walletSessionId: reusableWalletSession.walletSessionId,
+        authMethod: reusableWalletSession.authMethod,
+      };
     case 'unavailable':
       return unavailableSession(walletId, 'unavailable');
     case 'invalid':
-    case 'not_requested':
       return unavailableSession(walletId, 'invalid');
+    case 'absent':
+      return unavailableSession(walletId, 'absent');
   }
   reusableWalletSession satisfies never;
   return { kind: 'wallet_locked' };
@@ -170,10 +195,37 @@ export function parseWalletIframeExactSessionState(value: unknown): WalletIframe
   switch (value.kind) {
     case 'wallet_locked':
       return { kind: 'wallet_locked' };
+    case 'wallet_authenticated_identity_unresolvable':
+      return {
+        kind: value.kind,
+        walletId: requireWalletId(value.walletId),
+        reason:
+          value.reason === 'invalid' ? 'invalid' : requireIdentityResolveFailure(value.reason),
+      };
     case 'wallet_unlocked_without_signing_session': {
       const walletId = requireWalletId(value.walletId);
       const reason = requireUnavailableReason(value.reason);
-      return { kind: value.kind, walletId, reason };
+      if (reason !== 'not_found') return { kind: value.kind, walletId, reason };
+      const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
+      const walletSessionId = parseWalletSessionId(value.walletSessionId);
+      if (!authorizationId.ok) {
+        throw new Error('Wallet iframe missing authorization ID is invalid');
+      }
+      if (!walletSessionId.ok) {
+        throw new Error('Wallet iframe missing Wallet Session ID is invalid');
+      }
+      assertDistinctAuthorizationIdentity(authorizationId.value, walletSessionId.value);
+      if (!isWalletAuthMethod(value.authMethod)) {
+        throw new Error('Wallet iframe missing auth method is invalid');
+      }
+      return {
+        kind: value.kind,
+        walletId,
+        reason,
+        authorizationId: authorizationId.value,
+        walletSessionId: walletSessionId.value,
+        authMethod: value.authMethod,
+      };
     }
     case 'active_session': {
       const identity = parseIdentity(value);
@@ -195,10 +247,12 @@ export function parseWalletSessionFromBoundary(
 ): WalletSession {
   const record = requireRecord(value, 'Wallet Session');
   const appIdentity = parseWalletSessionAppIdentity(record.appIdentity);
+  const authentication = parseWalletAuthenticationState(record.authentication);
   const reusableWalletSession = parseReusableWalletSession(record.reusableWalletSession);
   const capabilityProjection = parseWalletSessionCapabilityProjection(record.capabilityProjection);
   const parsed: WalletSession = {
     appIdentity,
+    authentication,
     reusableWalletSession,
     capabilityProjection,
     nonceDiagnostics: parseNullableNonceDiagnostics(record.nonceDiagnostics),
@@ -215,6 +269,25 @@ export function parseWalletSessionFromBoundary(
     throw new Error('Wallet iframe Wallet Session wallet identities disagree');
   }
   return parsed;
+}
+
+function parseWalletAuthenticationState(value: unknown): WalletAuthenticationState {
+  const record = requireRecord(value, 'Wallet Session authentication');
+  switch (record.kind) {
+    case 'signed_out':
+      return { kind: 'signed_out' };
+    case 'authenticated':
+      if (!isWalletAuthMethod(record.authMethod)) {
+        throw new Error('Wallet Session authentication method is invalid');
+      }
+      return {
+        kind: 'authenticated',
+        walletId: requireWalletId(record.walletId),
+        authMethod: record.authMethod,
+      };
+    default:
+      throw new Error('Wallet Session authentication kind is invalid');
+  }
 }
 
 export function parseWalletIframeExactSessionIdentity(
@@ -243,42 +316,6 @@ export function parseWalletIframeExactSessionLockResult(
       };
     default:
       throw new Error('Wallet iframe exact session lock result kind is invalid');
-  }
-}
-
-export function parseWalletIframeMissingSessionIdentity(
-  value: unknown,
-): WalletIframeMissingSessionIdentity {
-  if (!isRecord(value)) throw new Error('Wallet iframe missing session identity must be an object');
-  if (value.reason !== 'not_found') {
-    throw new Error('Wallet iframe missing session reason must be not_found');
-  }
-  return {
-    walletId: requireWalletId(value.walletId),
-    reason: value.reason,
-  };
-}
-
-export function parseWalletIframeMissingSessionLockResult(
-  value: unknown,
-): WalletIframeMissingSessionLockResult {
-  if (!isRecord(value)) {
-    throw new Error('Wallet iframe missing session lock result must be an object');
-  }
-  switch (value.kind) {
-    case 'locked':
-      return {
-        kind: 'locked',
-        identity: parseWalletIframeMissingSessionIdentity(value.identity),
-      };
-    case 'stale_session':
-      return {
-        kind: 'stale_session',
-        expected: parseWalletIframeMissingSessionIdentity(value.expected),
-        current: parseWalletIframeExactSessionState(value.current),
-      };
-    default:
-      throw new Error('Wallet iframe missing session lock result kind is invalid');
   }
 }
 
@@ -334,8 +371,8 @@ function parseWalletSessionAppIdentity(value: unknown): WalletSessionAppIdentity
 function parseReusableWalletSession(value: unknown): ReusableWalletSessionState {
   const record = requireRecord(value, 'reusable Wallet Session');
   switch (record.kind) {
-    case 'not_requested':
-      return { kind: 'not_requested' };
+    case 'absent':
+      return { kind: 'absent' };
     case 'active':
       return {
         kind: 'active',
@@ -357,8 +394,22 @@ function parseReusableWalletSession(value: unknown): ReusableWalletSessionState 
         ...parseReusableWalletSessionIdentityWithExpiry(record),
         detectedAtMs: requirePositiveSafeInteger(record.detectedAtMs, 'detectedAtMs'),
       };
-    case 'missing':
-      return { kind: 'missing', walletId: requireWalletId(record.walletId) };
+    case 'missing': {
+      const authorizationId = parseWalletSessionAuthorizationId(record.authorizationId);
+      const walletSessionId = parseWalletSessionId(record.walletSessionId);
+      if (!authorizationId.ok) throw new Error('Reusable authorization ID is invalid');
+      if (!walletSessionId.ok) throw new Error('Reusable Wallet Session ID is invalid');
+      if (!isWalletAuthMethod(record.authMethod)) {
+        throw new Error('Reusable Wallet Session auth method is invalid');
+      }
+      return {
+        kind: 'missing',
+        walletId: requireWalletId(record.walletId),
+        authorizationId: authorizationId.value,
+        walletSessionId: walletSessionId.value,
+        authMethod: record.authMethod,
+      };
+    }
     case 'superseded':
       return {
         kind: 'superseded',
@@ -392,15 +443,19 @@ function parseReusableWalletSessionIdentity(
   record: Record<string, unknown>,
 ): Pick<
   Extract<ReusableWalletSessionState, { kind: 'active' }>,
-  'walletId' | 'walletSessionId' | 'authMethod'
+  'walletId' | 'authorizationId' | 'walletSessionId' | 'authMethod'
 > {
+  const authorizationId = parseWalletSessionAuthorizationId(record.authorizationId);
   const walletSessionId = parseWalletSessionId(record.walletSessionId);
+  if (!authorizationId.ok) throw new Error('Reusable authorization ID is invalid');
   if (!walletSessionId.ok) throw new Error('Reusable Wallet Session ID is invalid');
+  assertDistinctAuthorizationIdentity(authorizationId.value, walletSessionId.value);
   if (!isWalletAuthMethod(record.authMethod)) {
     throw new Error('Reusable Wallet Session auth method is invalid');
   }
   return {
     walletId: requireWalletId(record.walletId),
+    authorizationId: authorizationId.value,
     walletSessionId: walletSessionId.value,
     authMethod: record.authMethod,
   };
@@ -410,7 +465,7 @@ function parseReusableWalletSessionIdentityWithExpiry(
   record: Record<string, unknown>,
 ): Pick<
   Extract<ReusableWalletSessionState, { kind: 'active' }>,
-  'walletId' | 'walletSessionId' | 'authMethod' | 'expiresAtMs'
+  'walletId' | 'authorizationId' | 'walletSessionId' | 'authMethod' | 'expiresAtMs'
 > {
   return {
     ...parseReusableWalletSessionIdentity(record),
@@ -1076,6 +1131,9 @@ function requireNonEmptyCapabilities(
 }
 
 function walletSessionCanonicalWalletId(session: WalletSession): WalletId | null {
+  if (session.authentication.kind === 'authenticated') {
+    return session.authentication.walletId;
+  }
   switch (session.appIdentity.kind) {
     case 'resolved':
     case 'unresolvable':
@@ -1092,7 +1150,7 @@ function walletSessionCanonicalWalletId(session: WalletSession): WalletId | null
     case 'unavailable':
     case 'invalid':
       return session.reusableWalletSession.walletId;
-    case 'not_requested':
+    case 'absent':
       break;
   }
   if (session.capabilityProjection.kind === 'resolved') {
@@ -1102,11 +1160,17 @@ function walletSessionCanonicalWalletId(session: WalletSession): WalletId | null
 }
 
 function walletSessionWalletIdsAgree(session: WalletSession, walletId: WalletId): boolean {
+  if (
+    session.authentication.kind === 'authenticated' &&
+    session.authentication.walletId !== walletId
+  ) {
+    return false;
+  }
   if (session.appIdentity.kind !== 'anonymous' && session.appIdentity.walletId !== walletId) {
     return false;
   }
   const reusable = session.reusableWalletSession;
-  if (reusable.kind !== 'not_requested' && reusable.walletId !== walletId) return false;
+  if (reusable.kind !== 'absent' && reusable.walletId !== walletId) return false;
   const projection = session.capabilityProjection;
   if (projection.kind !== 'resolved') return true;
   if (projection.subjectSet.walletId !== walletId) return false;
@@ -1117,26 +1181,6 @@ function walletSessionWalletIdsAgree(session: WalletSession, walletId: WalletId)
     if (capability.subject.walletId !== walletId) return false;
   }
   return true;
-}
-
-function unavailableReasonFromIdentityFailure(
-  reason: WalletSessionIdentityResolveFailure,
-): WalletIframeSessionUnavailableReason {
-  switch (reason) {
-    case 'capability_subject_lookup_failed':
-    case 'activation_reconciliation_pending':
-    case 'activation_reconciliation_failed':
-      return 'unavailable';
-    case 'missing_wallet_profile':
-    case 'missing_requested_capability_subject':
-      return 'not_found';
-    case 'ambiguous_wallet_profile':
-    case 'invalid_capability_subject':
-    case 'invalid_wallet_profile':
-      return 'invalid';
-  }
-  reason satisfies never;
-  return 'invalid';
 }
 
 function requireIdentityResolveFailure(value: unknown): WalletSessionIdentityResolveFailure {
@@ -1234,8 +1278,10 @@ function exactIdentity(
   const walletSessionId = parseWalletSessionId(session.walletSessionId);
   if (!walletSessionId.ok || !isWalletAuthMethod(session.authMethod)) return null;
   if (!isPositiveSafeInteger(session.expiresAtMs)) return null;
+  if (String(session.authorizationId) === String(walletSessionId.value)) return null;
   return {
     walletId,
+    authorizationId: session.authorizationId,
     walletSessionId: walletSessionId.value,
     authMethod: session.authMethod,
     expiresAtMs: session.expiresAtMs,
@@ -1246,26 +1292,43 @@ export function exactSessionIdentitiesMatch(
   left: WalletIframeExactSessionIdentity,
   right: WalletIframeExactSessionIdentity,
 ): boolean {
-  return left.walletId === right.walletId && left.walletSessionId === right.walletSessionId;
+  return (
+    left.walletId === right.walletId &&
+    left.authorizationId === right.authorizationId &&
+    left.walletSessionId === right.walletSessionId
+  );
 }
 
 function parseIdentity(value: Record<string, unknown>): WalletIframeExactSessionIdentity {
+  const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
   const walletSessionId = parseWalletSessionId(value.walletSessionId);
+  if (!authorizationId.ok) throw new Error('Wallet iframe authorizationId is invalid');
   if (!walletSessionId.ok) throw new Error('Wallet iframe walletSessionId is invalid');
+  assertDistinctAuthorizationIdentity(authorizationId.value, walletSessionId.value);
   if (!isWalletAuthMethod(value.authMethod)) throw new Error('Wallet iframe authMethod is invalid');
   if (!isPositiveSafeInteger(value.expiresAtMs))
     throw new Error('Wallet iframe expiresAtMs is invalid');
   return {
     walletId: requireWalletId(value.walletId),
+    authorizationId: authorizationId.value,
     walletSessionId: walletSessionId.value,
     authMethod: value.authMethod,
     expiresAtMs: value.expiresAtMs,
   };
 }
 
+function assertDistinctAuthorizationIdentity(
+  authorizationId: WalletSessionAuthorizationId,
+  walletSessionId: WalletSessionId,
+): void {
+  if (String(authorizationId) === String(walletSessionId)) {
+    throw new Error('Wallet iframe authorization and Wallet Session IDs must be distinct');
+  }
+}
+
 function unavailableSession(
   walletId: WalletId,
-  reason: WalletIframeSessionUnavailableReason,
+  reason: Exclude<WalletIframeSessionUnavailableReason, 'not_found'>,
 ): WalletIframeExactSessionState {
   return { kind: 'wallet_unlocked_without_signing_session', walletId, reason };
 }
@@ -1279,9 +1342,11 @@ function requireWalletId(value: unknown): WalletId {
 function requireUnavailableReason(value: unknown): WalletIframeSessionUnavailableReason {
   switch (value) {
     case 'exhausted':
+    case 'absent':
     case 'not_found':
     case 'unavailable':
     case 'status_unknown':
+    case 'superseded':
     case 'invalid':
       return value;
     default:

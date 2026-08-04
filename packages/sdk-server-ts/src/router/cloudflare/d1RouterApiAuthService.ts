@@ -1,4 +1,37 @@
-import { parseRouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  parseRouterAbEcdsaDerivationNormalSigningStateV1,
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RegistrationEstablishedEcdsaSession,
+  RegistrationEstablishedEd25519Session,
+  RegistrationEstablishedSession,
+} from '@shared/utils/registrationEstablishedSession';
+import {
+  decodeJwtPayloadRecord,
+  getSessionJwtExpiresAtMs,
+  isWalletSessionJwt,
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+} from '@shared/utils/sessionTokens';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseSeamsSessionId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
+  parseThresholdEcdsaSessionId,
+  parseThresholdEd25519SessionId,
+  parseWalletId,
+} from '@shared/utils/domainIds';
+import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
+import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
+import { parseThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
+import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { WalletRegistrationActivateResponseV2 } from '../../core/threeRouteRegistrationContracts';
 import {
   D1WalletAuthMethodStore,
@@ -68,7 +101,10 @@ import {
   type D1WalletRegistrationNearProvisioningSideEffectStore,
   type SponsoredNamedNearAccountCreationResult,
 } from './d1WalletRegistrationService';
-import { parseD1WalletRegistrationFinalizeTerminalResponse } from './d1RegistrationCeremonyRecords';
+import {
+  parseD1EcdsaDerivationServerBootstrapResponse,
+  parseD1WalletRegistrationFinalizeTerminalResponse,
+} from './d1RegistrationCeremonyRecords';
 import { CloudflareD1WalletRegistrationCommitStore } from './d1WalletRegistrationCommitStore';
 import {
   CloudflareD1WalletAddSignerService,
@@ -514,6 +550,284 @@ function parseWalletRegistrationOperationPrepared(
     : null;
 }
 
+type RegistrationEstablishedSessionIdentity = Pick<
+  RegistrationEstablishedSession,
+  | 'walletId'
+  | 'seamsSessionId'
+  | 'authorizationId'
+  | 'walletSessionId'
+  | 'quotaId'
+  | 'expiresAtMs'
+>;
+
+function hasOnlyKeys(record: Record<string, unknown>, keys: readonly string[]): boolean {
+  const allowed = new Set(keys);
+  return Object.keys(record).every((key) => allowed.has(key));
+}
+
+function parseRegistrationEstablishedJwt(
+  raw: unknown,
+  expectedKind: string,
+  expectedThresholdSessionId: string,
+  identity: RegistrationEstablishedSessionIdentity,
+): string | null {
+  if (typeof raw !== 'string' || !raw.trim() || !isWalletSessionJwt(raw)) return null;
+  const jwt = raw.trim();
+  const payload = decodeJwtPayloadRecord(jwt);
+  if (!payload || payload.kind !== expectedKind) return null;
+  const walletId = parseWalletId(payload.walletId);
+  const seamsSessionId = parseSeamsSessionId(payload.sid);
+  const authorizationId = parseWalletSessionAuthorizationId(payload.authorizationId);
+  const walletSessionId = parseWalletSessionId(payload.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(payload.quotaId);
+  const thresholdSessionId =
+    expectedKind === ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND
+      ? parseThresholdEcdsaSessionId(payload.thresholdSessionId)
+      : parseThresholdEd25519SessionId(payload.thresholdSessionId);
+  if (
+    !walletId.ok ||
+    walletId.value !== identity.walletId ||
+    !authorizationId.ok ||
+    authorizationId.value !== identity.authorizationId ||
+    !walletSessionId.ok ||
+    walletSessionId.value !== identity.walletSessionId ||
+    !quotaId.ok ||
+    quotaId.value !== identity.quotaId ||
+    !thresholdSessionId.ok ||
+    thresholdSessionId.value !== expectedThresholdSessionId
+  ) {
+    return null;
+  }
+  if (expectedKind === ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND) {
+    const authorizationSessionId = parseSeamsSessionId(payload.authorizationSessionId);
+    if (
+      !authorizationSessionId.ok ||
+      authorizationSessionId.value !== identity.seamsSessionId ||
+      !seamsSessionId.ok ||
+      seamsSessionId.value !== identity.seamsSessionId
+    ) {
+      return null;
+    }
+  } else if (!seamsSessionId.ok || seamsSessionId.value !== identity.seamsSessionId) {
+    return null;
+  }
+  const thresholdExpiresAtMs = Number(payload.thresholdExpiresAtMs);
+  if (
+    !Number.isSafeInteger(thresholdExpiresAtMs) ||
+    thresholdExpiresAtMs !== identity.expiresAtMs
+  ) {
+    return null;
+  }
+  if (payload.exp !== undefined) {
+    const expMs = getSessionJwtExpiresAtMs(jwt);
+    if (
+      expMs === null ||
+      expMs > identity.expiresAtMs ||
+      identity.expiresAtMs - expMs >= 1_000
+    ) {
+      return null;
+    }
+  }
+  if (
+    new Set([identity.authorizationId, identity.walletSessionId, identity.quotaId]).size !== 3
+  ) {
+    return null;
+  }
+  return jwt;
+}
+
+function parseRegistrationEstablishedEcdsaToken(
+  raw: unknown,
+  identity: RegistrationEstablishedSessionIdentity,
+): RegistrationEstablishedEcdsaSession | null {
+  if (!isRecordValue(raw) || !hasOnlyKeys(raw, [
+    'walletSessionJwt',
+    'thresholdSessionId',
+    'keyHandle',
+    'runtimePolicyScope',
+    'routerAbEcdsaDerivationNormalSigning',
+  ])) {
+    return null;
+  }
+  try {
+    const thresholdSessionId = parseThresholdEcdsaSessionId(raw.thresholdSessionId);
+    if (!thresholdSessionId.ok) return null;
+    const walletSessionJwt = parseRegistrationEstablishedJwt(
+      raw.walletSessionJwt,
+      ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+      thresholdSessionId.value,
+      identity,
+    );
+    if (!walletSessionJwt) return null;
+    const keyHandle = parseThresholdEcdsaKeyHandle(raw.keyHandle);
+    const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
+    const routerAbEcdsaDerivationNormalSigning =
+      parseRouterAbEcdsaDerivationNormalSigningStateV1(
+        raw.routerAbEcdsaDerivationNormalSigning,
+      );
+    if (!routerAbEcdsaDerivationNormalSigning) return null;
+    return {
+      walletSessionJwt,
+      thresholdSessionId: thresholdSessionId.value,
+      keyHandle,
+      runtimePolicyScope,
+      routerAbEcdsaDerivationNormalSigning,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseRegistrationEstablishedEd25519Token(
+  raw: unknown,
+  identity: RegistrationEstablishedSessionIdentity,
+): RegistrationEstablishedEd25519Session | null {
+  if (!isRecordValue(raw) || !hasOnlyKeys(raw, [
+    'walletSessionJwt',
+    'thresholdSessionId',
+    'nearAccountId',
+    'nearEd25519SigningKeyId',
+    'runtimePolicyScope',
+    'routerAbNormalSigning',
+  ])) {
+    return null;
+  }
+  try {
+    const thresholdSessionId = parseThresholdEd25519SessionId(raw.thresholdSessionId);
+    if (!thresholdSessionId.ok) return null;
+    const walletSessionJwt = parseRegistrationEstablishedJwt(
+      raw.walletSessionJwt,
+      ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+      thresholdSessionId.value,
+      identity,
+    );
+    if (!walletSessionJwt) return null;
+    const implicitNearAccountId = parseImplicitNearAccountId(raw.nearAccountId);
+    const namedNearAccountId = parseNamedNearAccountId(raw.nearAccountId);
+    const nearAccountId = implicitNearAccountId.ok
+      ? implicitNearAccountId.value
+      : namedNearAccountId.ok
+        ? namedNearAccountId.value
+        : null;
+    if (!nearAccountId) return null;
+    const nearEd25519SigningKeyId = parseNearEd25519SigningKeyId(
+      raw.nearEd25519SigningKeyId,
+    );
+    const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
+    const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+      raw.routerAbNormalSigning,
+    );
+    if (!routerAbNormalSigning) return null;
+    return {
+      walletSessionJwt,
+      thresholdSessionId: thresholdSessionId.value,
+      nearAccountId,
+      nearEd25519SigningKeyId,
+      runtimePolicyScope,
+      routerAbNormalSigning,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseRegistrationEstablishedSessionForD1(
+  raw: unknown,
+  expectedWalletId: RegistrationEstablishedSession['walletId'],
+): RegistrationEstablishedSession | null {
+  if (!isRecordValue(raw) || !hasOnlyKeys(raw, [
+    'kind',
+    'walletId',
+    'seamsSessionId',
+    'authorizationId',
+    'walletSessionId',
+    'quotaId',
+    'expiresAtMs',
+    'remainingUses',
+    'tokens',
+  ])) {
+    return null;
+  }
+  if (raw.kind !== 'registration_established_wallet_session_v1') {
+    return null;
+  }
+  const walletId = parseWalletId(raw.walletId);
+  const seamsSessionId = parseSeamsSessionId(raw.seamsSessionId);
+  const authorizationId = parseWalletSessionAuthorizationId(raw.authorizationId);
+  const walletSessionId = parseWalletSessionId(raw.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(raw.quotaId);
+  if (
+    !walletId.ok ||
+    walletId.value !== expectedWalletId ||
+    !seamsSessionId.ok ||
+    !authorizationId.ok ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
+    new Set([authorizationId.value, walletSessionId.value, quotaId.value]).size !== 3
+  ) {
+    return null;
+  }
+  if (
+    typeof raw.expiresAtMs !== 'number' ||
+    !Number.isSafeInteger(raw.expiresAtMs) ||
+    raw.expiresAtMs <= 0 ||
+    typeof raw.remainingUses !== 'number' ||
+    !Number.isSafeInteger(raw.remainingUses) ||
+    raw.remainingUses <= 0
+  ) {
+    return null;
+  }
+  const identity: RegistrationEstablishedSessionIdentity = {
+    walletId: walletId.value,
+    seamsSessionId: seamsSessionId.value,
+    authorizationId: authorizationId.value,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
+    expiresAtMs: raw.expiresAtMs,
+  };
+  if (!isRecordValue(raw.tokens) || typeof raw.tokens.kind !== 'string') {
+    return null;
+  }
+  let tokens: RegistrationEstablishedSession['tokens'];
+  if (raw.tokens.kind === 'evm_family_ecdsa') {
+    if (!hasOnlyKeys(raw.tokens, ['kind', 'ecdsa'])) {
+      return null;
+    }
+    const ecdsa = parseRegistrationEstablishedEcdsaToken(raw.tokens.ecdsa, identity);
+    if (!ecdsa) {
+      return null;
+    }
+    tokens = { kind: 'evm_family_ecdsa', ecdsa };
+  } else if (raw.tokens.kind === 'near_ed25519') {
+    if (!hasOnlyKeys(raw.tokens, ['kind', 'ed25519'])) {
+      return null;
+    }
+    const ed25519 = parseRegistrationEstablishedEd25519Token(raw.tokens.ed25519, identity);
+    if (!ed25519) {
+      return null;
+    }
+    tokens = { kind: 'near_ed25519', ed25519 };
+  } else if (raw.tokens.kind === 'near_ed25519_and_evm_family_ecdsa') {
+    if (!hasOnlyKeys(raw.tokens, ['kind', 'ecdsa', 'ed25519'])) {
+      return null;
+    }
+    const ecdsa = parseRegistrationEstablishedEcdsaToken(raw.tokens.ecdsa, identity);
+    const ed25519 = parseRegistrationEstablishedEd25519Token(raw.tokens.ed25519, identity);
+    if (!ecdsa || !ed25519) {
+      return null;
+    }
+    tokens = { kind: 'near_ed25519_and_evm_family_ecdsa', ecdsa, ed25519 };
+  } else {
+    return null;
+  }
+  return {
+    kind: 'registration_established_wallet_session_v1',
+    ...identity,
+    remainingUses: raw.remainingUses,
+    tokens,
+  };
+}
+
 /**
  * Refactor 94C. The activate operation row. Same record shape as the
  * finalize journal it absorbs, tagged with its own operation so an activate
@@ -543,30 +857,49 @@ function parseD1WalletRegistrationActivateTerminalResponse(
     return raw as unknown as WalletRegistrationActivateResponseV2;
   }
   const commit = parseD1WalletRegistrationFinalizeTerminalResponse(raw);
-  if (!commit) return null;
+  if (!commit) {
+    return null;
+  }
   if (!commit.ok) return commit;
-  if (commit.kind !== 'evm_family_ecdsa' || !isRecordValue(raw)) return null;
+  if (commit.kind !== 'evm_family_ecdsa' || !isRecordValue(raw)) {
+    return null;
+  }
+  const appSessionJwt = toOptionalTrimmedString(raw.appSessionJwt);
+  if (commit.authMethod.kind === 'passkey' && !appSessionJwt) {
+    return null;
+  }
   const stored = isRecordValue(raw.ecdsa) ? raw.ecdsa : null;
-  if (!stored || !isRecordValue(stored.bootstrap)) return null;
+  if (!stored || !isRecordValue(stored.bootstrap)) {
+    return null;
+  }
+  const registrationEstablishedSession = parseRegistrationEstablishedSessionForD1(
+    raw.registrationEstablishedSession,
+    commit.walletId,
+  );
+  if (!registrationEstablishedSession) {
+    return null;
+  }
   let activation: ReturnType<typeof parseRouterAbEcdsaRegistrationActivationReceiptV1>;
   try {
     activation = parseRouterAbEcdsaRegistrationActivationReceiptV1(stored.activation);
   } catch {
     return null;
   }
+  const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(stored.bootstrap);
+  if (!bootstrap) {
+    return null;
+  }
   return {
     ...commit,
+    ...(appSessionJwt ? { appSessionJwt } : {}),
+    registrationEstablishedSession,
     ecdsa: {
       ...commit.ecdsa,
       activation,
       /* The bootstrap is the Gateway's own derivation payload, written by
          this service and never client-supplied; there is no separate parser
          for it, so presence is the check. */
-      bootstrap: stored.bootstrap as WalletRegistrationActivateResponseV2 extends { ecdsa: infer E }
-        ? E extends { bootstrap: infer B }
-          ? B
-          : never
-        : never,
+      bootstrap,
     },
   };
 }
@@ -1004,6 +1337,12 @@ function createCloudflareD1RouterApiAuthAssembly(
   const authorizationStore = new CloudflareD1AuthorizationStore({
     database: options.database,
     namespace: options.namespace,
+    walletSignerScope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
   });
   const authorizationService = new AuthorizationService({
     policy: capabilityPolicyPort,
@@ -1107,6 +1446,9 @@ function createCloudflareD1RouterApiAuthAssembly(
   const walletRegistrations = new CloudflareD1WalletRegistrationService({
     authorizationService,
     authorizationTenantId: authorizationTenantId.value,
+    getOrCreateAppSessionVersion: sessionService.getOrCreateAppSessionVersion.bind(
+      sessionService,
+    ),
     createSponsoredNamedNearAccount,
     emailOtpRegistrationEnrollmentFinalizer,
     getRegistrationCeremonyIntentStore,
@@ -1235,6 +1577,10 @@ function createD1WalletAuthMethodRouteService(
   assembly: D1WalletAuthMethodRouteServiceAssembly,
 ): RouterApiServiceBag['walletAuthMethods'] {
   return {
+    resolveActiveEmailOtpAuthorityForVerifiedSubject:
+      assembly.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(
+        assembly.walletAuthMethods,
+      ),
     createAddAuthMethodIntent: assembly.registrationIntents.createAddAuthMethodIntent.bind(
       assembly.registrationIntents,
     ),

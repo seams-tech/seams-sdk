@@ -17,6 +17,11 @@ export type EmailOtpWalletPostUnlockActivation =
 
 export type EmailOtpWalletPostUnlockActivationDeps = {
   signingEngine: {
+    setWalletAuthenticated(args: {
+      kind: 'authenticated';
+      walletId: WalletId;
+      authMethod: 'email_otp';
+    }): void;
     activateAuthenticatedWalletState(args: {
       walletId: WalletId;
       nearAccountId: ReturnType<typeof toAccountId>;
@@ -47,11 +52,21 @@ export async function activateEmailOtpWalletAfterUnlock(
         signerSlot: activation.signer.signerSlot,
         ...(deps.nearClient ? { nearClient: deps.nearClient } : {}),
       });
+      deps.signingEngine.setWalletAuthenticated({
+        kind: 'authenticated',
+        walletId: activation.signer.account.wallet.walletId,
+        authMethod: 'email_otp',
+      });
       return;
     case 'evm_family_ecdsa_wallet': {
       const preferences = deps.signingEngine.getUserPreferences();
       preferences.setCurrentWallet(activation.walletId);
       await preferences.reloadUserSettings().catch(ignoreUserPreferenceReloadError);
+      deps.signingEngine.setWalletAuthenticated({
+        kind: 'authenticated',
+        walletId: activation.walletId,
+        authMethod: 'email_otp',
+      });
       return;
     }
   }

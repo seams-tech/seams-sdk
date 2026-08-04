@@ -38,10 +38,9 @@ export type EcdsaExportMaterialAvailability =
   | { kind: 'sealed_worker_material' }
   | { kind: 'material_pending'; reason: 'email_otp_route_auth' };
 
-export type ExactEcdsaExportLane = {
+type ExactEcdsaExportLaneBase = {
   curve: 'ecdsa';
   laneIdentity: ExactEcdsaSigningLaneIdentity;
-  authorization: ActiveEvmFamilyWalletSessionAuthorization;
   key: EvmFamilyEcdsaKeyIdentity;
   publicFacts: VerifiedEcdsaPublicFacts;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -56,6 +55,16 @@ export type ExactEcdsaExportLane = {
   thresholdOwnerAddress?: never;
   publicReauthAuthority?: never;
 };
+
+export type ExactEcdsaExportLane =
+  | (ExactEcdsaExportLaneBase & {
+      authorizationState: 'authorized';
+      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    })
+  | (ExactEcdsaExportLaneBase & {
+      authorizationState: 'authorization_required';
+      authorization?: never;
+    });
 
 export type EcdsaExportSessionStoreDeps = {
   exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
@@ -109,17 +118,27 @@ export function isConcreteEcdsaExportLane(
   lane: AvailableEcdsaSigningLane | null | undefined,
 ): lane is ConcreteAvailableEcdsaSigningLane & {
   source: 'canonical_capability';
-  authorization: NonNullable<ConcreteAvailableEcdsaSigningLane['authorization']>;
-} {
-  return (
-    Boolean(lane) &&
-    lane!.curve === 'ecdsa' &&
-    Boolean(lane!.chainTarget) &&
-    isConcreteAvailableSigningLane(lane!) &&
-    lane!.source === 'canonical_capability' &&
-    Boolean(lane!.authorization) &&
-    Boolean(String(lane!.publicFacts.keyHandle || '').trim())
-  );
+} & (
+  | {
+      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    }
+  | {
+      authorization?: never;
+      auth: Extract<ConcreteAvailableEcdsaSigningLane['auth'], { kind: 'passkey' }>;
+    }
+) {
+  if (
+    !lane ||
+    lane.curve !== 'ecdsa' ||
+    !lane.chainTarget ||
+    !isConcreteAvailableSigningLane(lane) ||
+    lane.source !== 'canonical_capability' ||
+    !Boolean(String(lane.publicFacts.keyHandle || '').trim())
+  ) {
+    return false;
+  }
+  if (lane.authorization) return true;
+  return lane.auth.kind === 'passkey' && lane.state === 'deferred';
 }
 
 export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
@@ -145,6 +164,11 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
     )
   ) {
     throw new Error('[SigningEngine][ecdsa-export] Email OTP material activation mismatch');
+  }
+  if (exportLane.authorizationState !== 'authorized') {
+    throw new Error(
+      '[SigningEngine][ecdsa-export] Email OTP export requires reusable Wallet Session authorization',
+    );
   }
   const authority = resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime({
     runtime: resolution.runtime,

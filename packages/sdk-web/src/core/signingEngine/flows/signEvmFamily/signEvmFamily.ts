@@ -12,9 +12,7 @@ import type {
   AvailableSigningLanes,
 } from '../../session/availability/availableSigningLanes';
 import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
-import {
-  type ThresholdEcdsaSessionStoreSource,
-} from '../../session/identity/laneIdentity';
+import { type ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
 import {
   exactEcdsaSigningLaneIdentityFromSelectedLane,
   requireEvmFamilyEcdsaSigner,
@@ -48,10 +46,7 @@ import { signingLaneAuthBindingKey } from '../../session/identity/signingLaneAut
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import { ensureSealedRefreshStartupParityForTransactionSigning } from '../../session/warmCapabilities/sealedRefreshParity';
-import {
-  SIGNER_AUTH_METHODS,
-  type SignerAuthMethod,
-} from '@shared/utils/signerDomain';
+import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
   evmFamilySigningTargetFromExplicitTarget,
@@ -182,7 +177,7 @@ function ecdsaOperationAuthorizationQueueKey(args: {
   return buildOperationAuthorizationQueueKey({
     walletId: args.walletId,
     materialActivationId: args.prepared.signingLane.materialActivation.activationId,
-    authorizationId: authorization.projection.walletSessionId,
+    authorizationId: authorization.projection.authorizationId,
     authorityKey: signingLaneAuthBindingKey(args.prepared.signingLane.auth),
     targetKey: thresholdEcdsaChainTargetKey(args.prepared.signingLane.chainTarget),
   });
@@ -227,13 +222,18 @@ async function executeEvmFamilyFreshAuthRetry(args: {
   retryingFreshAuth: boolean;
   signingSessionCoordinator: SigningSessionCoordinator;
 }): Promise<TempoSignedResult | EvmSignedResult> {
-  const rereadAuthoritativeReadiness = signEvmFamilyAttempt.bind(null, args.deps, args.signingArgs, {
-    admissionRetryState: { kind: 'authoritative_readiness_reread' },
-    forceFreshAuth: false,
-    operationIds: args.operationIds,
-    retryingFreshAuth: args.retryingFreshAuth,
-    signingSessionCoordinator: args.signingSessionCoordinator,
-  });
+  const rereadAuthoritativeReadiness = signEvmFamilyAttempt.bind(
+    null,
+    args.deps,
+    args.signingArgs,
+    {
+      admissionRetryState: { kind: 'authoritative_readiness_reread' },
+      forceFreshAuth: false,
+      operationIds: args.operationIds,
+      retryingFreshAuth: args.retryingFreshAuth,
+      signingSessionCoordinator: args.signingSessionCoordinator,
+    },
+  );
   const performFreshAuth = signEvmFamilyAttempt.bind(null, args.deps, args.signingArgs, {
     admissionRetryState: { kind: 'initial_admission' },
     forceFreshAuth: true,
@@ -493,9 +493,7 @@ async function signEvmFamilyAttempt(
       preparedMaterialActivationId: String(
         error.superseded.preparedMaterialActivation.activationId,
       ),
-      currentMaterialActivationId: String(
-        error.superseded.currentMaterialActivation.activationId,
-      ),
+      currentMaterialActivationId: String(error.superseded.currentMaterialActivation.activationId),
     });
     return await signEvmFamilyAttempt(deps, args, {
       admissionRetryState: { kind: 'initial_admission' },

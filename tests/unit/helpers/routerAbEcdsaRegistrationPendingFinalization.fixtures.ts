@@ -92,6 +92,12 @@ export function routerAbEcdsaRegistrationPendingFinalizationFixture(): RouterAbE
   const registrationFacts = fixtureRegistrationFacts();
   const payload = buildRouterAbEcdsaRegistrationPendingFinalizationV1({
     pendingStateBlob: fixturePendingStateBlob(),
+    runtimePolicyScope: {
+      orgId: 'fixture-org',
+      projectId: 'fixture',
+      envId: 'dev',
+      signingRootVersion: 'v1',
+    },
     registrationFacts,
     registrationRequest: buildFixtureRouterAbEcdsaStrictRegistrationRequest(registrationFacts),
     clientActivation: parseRouterAbEcdsaVerifiedClientActivationFactsV1({

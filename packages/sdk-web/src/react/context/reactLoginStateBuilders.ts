@@ -23,10 +23,10 @@ export function buildReactLoggedInLoginStateFromSession(session: WalletSession):
   if (!isWalletSessionReadyForUi({ session })) return null;
   if (session.appIdentity.kind !== 'resolved') return null;
   const appIdentity = session.appIdentity;
-  const walletSession = session.reusableWalletSession;
-  if (walletSession.kind !== 'active' && walletSession.kind !== 'exhausted') return null;
+  const authentication = session.authentication;
+  if (authentication.kind !== 'authenticated') return null;
   const matchingAuthMethods = appIdentity.authMethods.filter(
-    (binding) => binding.kind === walletSession.authMethod,
+    (binding) => binding.kind === authentication.authMethod,
   );
   if (matchingAuthMethods.length !== 1) return null;
   const currentAuthMethod = buildSelectedCurrentWalletAuthMethod({

@@ -126,6 +126,7 @@ test('registration finalize parser retains validated Ed25519 material facts', ()
         keyVersion: 'router-ab-ed25519-yao-v1',
         recoveryExportCapable: true,
         participantIds: [1, 2],
+        thresholdSessionId: 'threshold-session-1',
         runtimePolicyScope: {
           orgId: 'org-1',
           projectId: 'project-1',
@@ -148,6 +149,7 @@ test('registration finalize parser retains validated Ed25519 material facts', ()
     envId: 'env-1',
     signingRootVersion: 'root-v1',
   });
+  expect(parsed.ed25519.thresholdSessionId).toBe('threshold-session-1');
   expect(parsed.ed25519.routerAbNormalSigning.signingWorkerId).toBe('worker-1');
 });
 

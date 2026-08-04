@@ -34,8 +34,6 @@ import type {
   WalletIframeExactSessionIdentity,
   WalletIframeExactSessionLockResult,
   WalletIframeExactSessionState,
-  WalletIframeMissingSessionIdentity,
-  WalletIframeMissingSessionLockResult,
 } from './shared/exactSessionState';
 import type {
   ActionResult,
@@ -574,13 +572,6 @@ export class SeamsWebIframe {
   ): Promise<WalletIframeExactSessionLockResult> {
     await this.requireRouterReady();
     return await this.router.lockExactSession(identity);
-  }
-
-  async lockWalletIframeMissingSession(
-    identity: WalletIframeMissingSessionIdentity,
-  ): Promise<WalletIframeMissingSessionLockResult> {
-    await this.requireRouterReady();
-    return await this.router.lockMissingSession(identity);
   }
 
   private async requireRouterReady(): Promise<WalletIframeRouter> {

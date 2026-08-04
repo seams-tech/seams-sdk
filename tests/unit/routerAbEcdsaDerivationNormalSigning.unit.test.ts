@@ -19,6 +19,12 @@ import {
   finalizeRouterAbEcdsaDerivationEvmDigestSigningV1,
   prepareRouterAbEcdsaDerivationEvmDigestSigningV1,
 } from '@/core/rpcClients/relayer/routerAbNormalSigning';
+import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import {
+  clearAllRouterAbEcdsaDerivationClientPresignatures,
+  signRouterAbEcdsaDerivationDigestWithPoolHit,
+  type RouterAbEcdsaDerivationClientSigningMaterialSource,
+} from '@/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool';
 
 function b64u(byte: number, length: number): string {
   return Buffer.from(new Uint8Array(length).fill(byte)).toString('base64url');
@@ -382,5 +388,75 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
       Authorization: 'Bearer app-session-jwt',
     });
     expect(JSON.parse(String(calls[2].init.body))).toEqual(request);
+  });
+
+  test('classifies a stale server pool record as pool-entry expiry', async () => {
+    clearAllRouterAbEcdsaDerivationClientPresignatures();
+    const destroyedHandles: string[] = [];
+    const clientSigningMaterial: RouterAbEcdsaDerivationClientSigningMaterialSource = {
+      kind: 'router_ab_ecdsa_derivation_client_signing_material_source_v1',
+      initClientPresignSession: async () => {
+        throw new Error('stale-pool test must not refill the client presignature');
+      },
+      stepClientPresignSession: async () => {
+        throw new Error('stale-pool test must not refill the client presignature');
+      },
+      abortClientPresignSession: async () => {},
+      admitClientPresignature: async () => {},
+      destroyClientPresignature: async ({ materialHandle }) => {
+        destroyedHandles.push(materialHandle);
+      },
+      reserveClientPresignature: async () => {},
+      commitClientPresignature: async () => {},
+      listAvailableClientPresignatures: async () => [
+        {
+          presignatureId: 'stale-local-presignature',
+          materialHandle: 'stale-local-material',
+          bigR33: Uint8Array.from(Buffer.from('03f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8', 'hex')),
+          createdAtMs: Date.now() - 1_000,
+          expiresAtMs: Date.now() + 30_000,
+        },
+      ],
+      retireClientPresignaturePool: async () => 0,
+      computeSignatureShareFromPresignatureHandle: async () => new Uint8Array(32),
+    };
+    const workerCtx = {
+      requestWorkerOperation: async (args: {
+        kind: string;
+        request: { type: string; payload?: Record<string, unknown> };
+      }) => {
+        if (args.kind !== 'evmCrypto' || args.request.type !== 'validateSecp256k1PublicKey33') {
+          throw new Error(`Unexpected stale-pool worker request: ${args.kind}/${args.request.type}`);
+        }
+        return args.request.payload?.publicKey33 as ArrayBuffer;
+      },
+    } as WorkerOperationContext;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        'InvalidTimeRange: SigningWorker ECDSA presignature pool record expires before prepare request',
+        { status: 400 },
+      );
+    try {
+      const result = await signRouterAbEcdsaDerivationDigestWithPoolHit({
+        relayerUrl: 'https://router.example',
+        scope,
+        operationId,
+        operationDigests,
+        materialActivation,
+        credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
+        signingDigest32: new Uint8Array(32).fill(11),
+        clientSigningMaterial,
+        expiresAtMs: Date.now() + 30_000,
+        workerCtx,
+        authorization,
+      });
+
+      expect(result).toMatchObject({ ok: false, code: 'pool_entry_expired' });
+      expect(destroyedHandles).toEqual(['stale-local-material']);
+    } finally {
+      globalThis.fetch = originalFetch;
+      clearAllRouterAbEcdsaDerivationClientPresignatures();
+    }
   });
 });

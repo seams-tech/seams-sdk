@@ -64,13 +64,10 @@ import { resolveAppearanceTheme, resolveThemePalette } from '@/core/config/confi
 import { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
 import {
   parseWalletIframeExactSessionIdentity,
-  parseWalletIframeMissingSessionIdentity,
   type WalletIframeExactSessionIdentity,
   type WalletIframeExactSessionIdentityInput,
   type WalletIframeExactSessionLockResult,
   type WalletIframeExactSessionState,
-  type WalletIframeMissingSessionIdentity,
-  type WalletIframeMissingSessionLockResult,
 } from '@/SeamsWeb/walletIframe/shared/exactSessionState';
 import { resolveBrowserWorkerWarmupPolicy } from './assembly/browserWorkerWarmupPolicy';
 import { configureBrowserIndexedDB } from './assembly/configureBrowserIndexedDB';
@@ -537,16 +534,15 @@ function normalizeResolveExactKeyExportLaneResult(
         kind: 'ecdsa',
         laneIdentity: parseExactEcdsaSigningLaneIdentity(result.laneIdentity),
       };
-    case 'ed25519':
-      {
-        const materialActivation = parseMpcMaterialActivationRef(result.materialActivation);
-        if (!materialActivation.ok) throw new Error(materialActivation.error.message);
+    case 'ed25519': {
+      const materialActivation = parseMpcMaterialActivationRef(result.materialActivation);
+      if (!materialActivation.ok) throw new Error(materialActivation.error.message);
       return {
         kind: 'ed25519',
         laneIdentity: parseExactEd25519SigningLaneIdentity(result.laneIdentity),
         materialActivation: materialActivation.value,
       };
-      }
+    }
   }
 }
 
@@ -802,6 +798,10 @@ export class SeamsWeb {
     // UserConfirm worker initializes automatically in the constructor
   }
 
+  async restoreWalletAuthenticationState(walletId?: string, appSessionJwt?: string): Promise<void> {
+    await this.signingEngine.restoreWalletAuthenticationState(walletId, appSessionJwt);
+  }
+
   /**
    * Initialize the hidden wallet service iframe client (optional) and warm critical resources.
    * Always warms local resources; initializes iframe when wallet mode is `iframe`.
@@ -821,15 +821,6 @@ export class SeamsWeb {
     const parsedIdentity: WalletIframeExactSessionIdentity =
       parseWalletIframeExactSessionIdentity(identity);
     return await this.walletIframe.lockExactSession(parsedIdentity);
-  }
-
-  async lockWalletIframeMissingSession(identity: {
-    readonly walletId: string;
-    readonly reason: 'not_found';
-  }): Promise<WalletIframeMissingSessionLockResult> {
-    const parsedIdentity: WalletIframeMissingSessionIdentity =
-      parseWalletIframeMissingSessionIdentity(identity);
-    return await this.walletIframe.lockMissingSession(parsedIdentity);
   }
 
   /** True when the wallet iframe client is connected and ready. */
@@ -1629,6 +1620,8 @@ export class SeamsWeb {
           await this.loginWithEmailOtpEcdsaCapabilityDomain(loginArgs),
         loginWithEmailOtpEd25519YaoCapability:
           this.loginWithEmailOtpEd25519YaoCapabilityDomain.bind(this),
+        rememberEmailOtpAppSessionJwt: ({ walletId, appSessionJwt }) =>
+          this.signingEngine.rememberEmailOtpAppSessionJwt(walletId, appSessionJwt),
         getWalletSession: async (walletId) =>
           await getWalletSessionDomain(this.getWalletAuthDeps(), walletId),
       },
@@ -2021,29 +2014,28 @@ export class SeamsWeb {
             DEFAULT_UNLOCK_REMAINING_USES,
           ),
         });
+      if (!preparedEd25519YaoRecovery) {
+        throw new Error('Email OTP wallet unlock requires a registered capability scope');
+      }
       const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         ...args,
         chainTarget,
         emailHashHex,
+        runtimePolicyScope: preparedEd25519YaoRecovery.runtimePolicyScope,
         ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
         providerIdentity: { kind: 'derive_from_route_auth' },
-        ...(preparedEd25519YaoRecovery
-          ? {
-              ed25519YaoRecovery: {
-                kind: 'requested' as const,
-                providerSubject: preparedEd25519YaoRecovery.providerSubject,
-                signerSlot: preparedEd25519YaoRecovery.signerSlot,
-                nearAccountId: String(preparedEd25519YaoRecovery.identity.nearAccountId),
-                expectedOperationalPublicKey:
-                  preparedEd25519YaoRecovery.expectedOperationalPublicKey,
-                expectedThresholdSessionId: preparedEd25519YaoRecovery.thresholdSessionId,
-              },
-            }
-          : {}),
+        ed25519YaoRecovery: {
+          kind: 'requested',
+          providerSubject: preparedEd25519YaoRecovery.providerSubject,
+          signerSlot: preparedEd25519YaoRecovery.signerSlot,
+          nearAccountId: String(preparedEd25519YaoRecovery.identity.nearAccountId),
+          expectedOperationalPublicKey: preparedEd25519YaoRecovery.expectedOperationalPublicKey,
+          expectedThresholdSessionId: preparedEd25519YaoRecovery.thresholdSessionId,
+        },
         onProgress: markWorkerProgress,
       });
       let walletActivation: EmailOtpWalletPostUnlockActivation;
-      if (preparedEd25519YaoRecovery) {
+      {
         let recoveredEd25519Signer: NearEd25519SignerBinding;
         switch (result.ed25519YaoRecovery.kind) {
           case 'unlocked':
@@ -2071,15 +2063,6 @@ export class SeamsWeb {
         walletActivation = {
           kind: 'near_ed25519_wallet',
           signer: recoveredEd25519Signer,
-        };
-      } else if (result.ed25519YaoRecovery.kind !== 'not_requested') {
-        throw new Error(
-          'EVM-family ECDSA Email OTP unlock returned unexpected Ed25519 Yao material',
-        );
-      } else {
-        walletActivation = {
-          kind: 'evm_family_ecdsa_wallet',
-          walletId,
         };
       }
       const workerUnlockMs = nowMs() - timingStartedAtMs;

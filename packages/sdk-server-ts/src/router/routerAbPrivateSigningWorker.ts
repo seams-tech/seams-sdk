@@ -74,6 +74,7 @@ import {
 import {
   buildCapabilityOperationEnvelope,
   computeCapabilityOperationFingerprintDigest,
+  parseSigningOperationFingerprintDigest,
 } from '@shared/authorization/operationFingerprint';
 import {
   authorizedOperationReplayBodyInit,
@@ -156,10 +157,7 @@ export type RouterAbJsonRouteResult = {
   body: unknown;
 };
 
-export type RouterAbEcdsaOperationAdmissionKind =
-  | 'claimed'
-  | 'operation_in_progress'
-  | 'replayed';
+export type RouterAbEcdsaOperationAdmissionKind = 'claimed' | 'operation_in_progress' | 'replayed';
 
 export type RouterAbEcdsaOperationAdmission = {
   readonly kind: RouterAbEcdsaOperationAdmissionKind;
@@ -188,9 +186,7 @@ export function routerAbEcdsaRecordedResponse(
   return operation.lifecycle === 'completed' ? operation.response : null;
 }
 
-export function routerAbEcdsaReplayResult(
-  operation: AuthorizedOperation,
-): RouterAbJsonRouteResult {
+export function routerAbEcdsaReplayResult(operation: AuthorizedOperation): RouterAbJsonRouteResult {
   const response = routerAbEcdsaRecordedResponse(operation);
   if (!response) return routerAbEcdsaReplayUnavailableResult();
   let body: unknown = response.bodyText;
@@ -450,7 +446,7 @@ type RouterAbEd25519NormalSigningAuthorizationV2 =
     }
   | {
       readonly kind: 'operation_step_up';
-      readonly evidence_set_digest: string;
+      readonly evidence_set_digest?: never;
       readonly wallet_session_id?: never;
     };
 
@@ -523,7 +519,6 @@ type RouterAbNormalSigningPrivateAuthorizationV2 =
   | {
       readonly kind: 'operation_step_up';
       readonly authorization_session_id: string;
-      readonly evidence_set_digest: string;
       readonly wallet_session_id?: never;
     };
 
@@ -834,18 +829,8 @@ function requirePrivateSigningAuthorization(
         ),
       };
     case 'operation_step_up':
-      requirePrivateSigningExactFields(
-        authorization,
-        ['kind', 'evidence_set_digest'],
-        'scope.authorization',
-      );
-      return {
-        kind: 'operation_step_up',
-        evidence_set_digest: requirePrivateSigningString(
-          authorization.evidence_set_digest,
-          'scope.authorization.evidence_set_digest',
-        ),
-      };
+      requirePrivateSigningExactFields(authorization, ['kind'], 'scope.authorization');
+      return { kind: 'operation_step_up' };
     default:
       throw new Error('scope.authorization.kind is invalid');
   }
@@ -1164,7 +1149,6 @@ async function privateSigningRound1BindingDigest(input: {
       break;
     case 'operation_step_up':
       pushLen32(out, textBytes('operation_step_up'));
-      pushLen32(out, textBytes(input.scope.authorization.evidence_set_digest));
       break;
   }
   pushLen32(out, textBytes('mpc_material_activation_ref'));
@@ -1352,7 +1336,6 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
             : {
                 kind: 'operation_step_up',
                 authorization_session_id: signingContext.authorizationSessionId,
-                evidence_set_digest: scope.authorization.evidence_set_digest,
               },
         signing_worker_id: scope.signing_worker_id,
         request_id: scope.request_id,
@@ -1418,7 +1401,6 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
           : {
               kind: 'operation_step_up',
               authorization_session_id: signingContext.authorizationSessionId,
-              evidence_set_digest: scope.authorization.evidence_set_digest,
             },
       signing_worker_id: scope.signing_worker_id,
       request_id: scope.request_id,
@@ -1615,8 +1597,8 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
       if (!('admission_candidate' in privateBody)) {
         throw new Error('Router A/B step-up prepare admission is missing');
       }
-      laneDigest = parseDigestB64u(
-        String((input.body.intent as { operation_fingerprint?: unknown }).operation_fingerprint),
+      laneDigest = parseSigningOperationFingerprintDigest(
+        (input.body.intent as { operation_fingerprint?: unknown }).operation_fingerprint,
       );
       intentDigest = parseDigestB64u(
         base64UrlEncode(Uint8Array.from(privateBody.admission_candidate.intent_digest.bytes)),
@@ -1639,21 +1621,42 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
       operation: operation.operation,
       digests: { laneDigest, intentDigest, displayDigest },
     });
+    const operationFingerprintDigest = await computeCapabilityOperationFingerprintDigest(
+      operationEnvelope,
+    );
+    const existing = await authenticated.authorizedOperations.readAuthorizedOperation({
+      tenantId: authenticated.session.tenantId,
+      operationFingerprintDigest,
+    });
+    if (!existing || existing.authorizedOperationId !== authorizedOperationId) {
+      return routerAbStepUpError(
+        409,
+        'authorized_operation_missing',
+        'Authorized operation is unavailable',
+      );
+    }
+    if (
+      existing.authorization.kind !== 'verified_step_up' ||
+      existing.quota.kind !== 'quota_neutral'
+    ) {
+      return routerAbStepUpError(
+        409,
+        'authorized_operation_missing',
+        'Operation authorization has an invalid source or quota',
+      );
+    }
     let claimResult: Awaited<
       ReturnType<RouterApiAuthorizedOperationService['admitAuthorizedOperation']>
     >;
     try {
       claimResult = await authenticated.authorizedOperations.admitAuthorizedOperation({
         operation: {
-          tenantId: authenticated.session.tenantId,
-          authorizedOperationId,
-          auditEventId,
-          operation: operationEnvelope,
-          authorization: {
-            kind: 'verified_step_up',
-            evidenceSetDigest: parseDigestB64u(input.scope.authorization.evidence_set_digest),
-          },
-          quota: { kind: 'quota_neutral' },
+          tenantId: existing.tenantId,
+          authorizedOperationId: existing.authorizedOperationId,
+          auditEventId: existing.auditEventId,
+          operation: existing.operation,
+          authorization: existing.authorization,
+          quota: existing.quota,
           claimedAtMs: Date.now(),
         },
       });
@@ -1853,7 +1856,15 @@ export function parseRouterAbOperationStepUpOperation(value: unknown):
   | {
       readonly ok: true;
       readonly operationId: CapabilityOperationId;
-      readonly operation: CapabilityOperationRef;
+      readonly operation: Extract<
+        CapabilityOperationRef,
+        { readonly capabilityKind: 'near_ed25519_mpc_signing' }
+      > & {
+        readonly operationKind:
+          | 'near.sign_transaction'
+          | 'near.sign_delegate_action'
+          | 'near.sign_nep413_message';
+      };
     }
   | { readonly ok: false; readonly message: string } {
   const intent = isPlainObject(value) ? value : null;
@@ -2323,7 +2334,6 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
   materialActivation: RouterAbMpcMaterialActivationRefWire;
   claims: RouterAbEcdsaDerivationWalletSessionClaims;
   authorizedOperations: RouterApiAuthorizedOperationService;
-  authorizationSessions: RouterApiAuthorizationSessionService;
   resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
 }): Promise<
   | {
@@ -2360,17 +2370,8 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
     }
     const tenantId = requireAuthorizationValue(parseTenantId(runtimePolicyScope.orgId));
     const principalId = requireAuthorizationValue(parsePrincipalId(input.claims.sub));
-    const authorizationSessionId = input.claims.authorizationSessionId;
-    const activeSession = await input.authorizationSessions.readActiveSession({
-      tenantId,
-      sessionId: authorizationSessionId,
-      nowMs,
-    });
     if (
       tenantId !== input.authorizedOperations.tenantId ||
-      tenantId !== input.authorizationSessions.tenantId ||
-      !activeSession ||
-      activeSession.principalId !== principalId ||
       input.request.authorization.wallet_session_id !== input.claims.walletSessionId
     ) {
       return {
@@ -2427,7 +2428,9 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
       },
     });
     const authorizedOperationId = requireAuthorizationValue(
-      parseAuthorizedOperationId(`ecdsa-authorized-operation:${operationId}:${input.request.request_id}`),
+      parseAuthorizedOperationId(
+        `ecdsa-authorized-operation:${operationId}:${input.request.request_id}`,
+      ),
     );
     const auditEventId = requireAuthorizationValue(
       parseAuthorizationAuditEventId(`ecdsa-operation-audit:${operationId}`),
@@ -2599,7 +2602,9 @@ export async function claimRouterAbEcdsaOperationStepUp(input: {
       parseCapabilityOperationId(input.operation.operation_id),
     );
     authorizedOperationId = requireAuthorizationValue(
-      parseAuthorizedOperationId(`ecdsa-step-up-authorized-operation:${input.operation.operation_id}`),
+      parseAuthorizedOperationId(
+        `ecdsa-step-up-authorized-operation:${input.operation.operation_id}`,
+      ),
     );
     operationEnvelope = buildCapabilityOperationEnvelope({
       tenantId: input.authenticated.session.tenantId,
@@ -2628,6 +2633,16 @@ export async function claimRouterAbEcdsaOperationStepUp(input: {
       409,
       'authorized_operation_missing',
       'Operation authorization is unavailable',
+    );
+  }
+  if (
+    existing.authorization.kind !== 'verified_step_up' ||
+    existing.quota.kind !== 'quota_neutral'
+  ) {
+    return routerAbStepUpError(
+      409,
+      'authorized_operation_missing',
+      'Operation authorization has an invalid source or quota',
     );
   }
   const result = await input.authenticated.authorizedOperations.admitAuthorizedOperation({
@@ -3002,7 +3017,7 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
     },
     headers: input.headers,
   });
-  if (!input.authorizedOperations || !input.authorizationSessions) {
+  if (!input.authorizedOperations) {
     return routerAbStepUpError(
       501,
       'not_configured',
@@ -3018,7 +3033,6 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
     materialActivation: admission.materialActivation,
     claims: validated.claims,
     authorizedOperations: input.authorizedOperations,
-    authorizationSessions: input.authorizationSessions,
     resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
   });
   if (!claimed.ok) return claimed.error;
@@ -3070,8 +3084,7 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
       await completeRouterAbEcdsaOperation({
         authorizedOperations: input.authorizedOperations,
         operation,
-        result:
-          forwarded.status < 500 ? 'failed_before_side_effect' : 'failed_after_side_effect',
+        result: forwarded.status < 500 ? 'failed_before_side_effect' : 'failed_after_side_effect',
         response: replayResponseFromSigningWorkerResult(forwarded),
       });
     }

@@ -56,6 +56,8 @@ function requireEvmFamilySigningKeySlotId(value: unknown) {
   return parsed.value;
 }
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
@@ -489,7 +491,9 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
   raw: unknown,
 ): D1WalletRegistrationFinalizeSuccess | null {
   const record = toRecordValue(raw);
-  if (!record || record.ok !== true) return null;
+  if (!record || record.ok !== true) {
+    return null;
+  }
   const walletId = parseWalletIdForIntent(record.walletId);
   const authMethod = parseD1WalletRegistrationFinalizeAuthMethod(record.authMethod);
   const authority = parseWalletAuthAuthority(record.authority);
@@ -497,11 +501,17 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
     return null;
   }
   const rpId = toOptionalTrimmedString(record.rpId);
-  if (authMethod.kind === 'passkey' && !rpId) return null;
-  if (authMethod.kind === 'email_otp' && rpId) return null;
+  if (authMethod.kind === 'passkey' && !rpId) {
+    return null;
+  }
+  if (authMethod.kind === 'email_otp' && rpId) {
+    return null;
+  }
   const ecdsa = parseD1WalletRegistrationFinalizeEcdsa(record.ecdsa);
   if (record.kind === 'evm_family_ecdsa') {
-    if (!ecdsa) return null;
+    if (!ecdsa) {
+      return null;
+    }
     if (authMethod.kind === 'passkey') {
       if (!rpId) return null;
       return {
@@ -525,8 +535,12 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
   }
   /* Refactor 94 Phase 4+5: finalize commits one signer branch per call, so a
      replayed Ed25519 response never carries ECDSA work. */
-  if (record.kind !== 'near_ed25519') return null;
-  if (record.ecdsa !== undefined) return null;
+  if (record.kind !== 'near_ed25519') {
+    return null;
+  }
+  if (record.ecdsa !== undefined) {
+    return null;
+  }
   const ed25519 = parseD1WalletRegistrationFinalizeEd25519(record.ed25519);
   const authorityScope = parseThresholdEd25519AuthorityScope(record.authorityScope);
   const accountProvisioning = parseD1RegistrationNearAccountProvisioning(
@@ -694,11 +708,13 @@ function parseD1WalletRegistrationFinalizeEd25519(
   const record = toRecordValue(raw);
   if (!record || !publicResult) return null;
   const runtimePolicyScope = parseD1RuntimePolicyScope(record.runtimePolicyScope);
+  const thresholdSessionId = toOptionalTrimmedString(record.thresholdSessionId);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
     record.routerAbNormalSigning,
   );
   if (
     !runtimePolicyScope ||
+    !thresholdSessionId ||
     !routerAbNormalSigning ||
     routerAbNormalSigning.signingWorkerId !== publicResult.relayerKeyId
   ) {
@@ -706,6 +722,7 @@ function parseD1WalletRegistrationFinalizeEd25519(
   }
   return {
     ...publicResult,
+    thresholdSessionId,
     runtimePolicyScope,
     routerAbNormalSigning,
   };
@@ -814,7 +831,9 @@ function parseD1WalletRegistrationFinalizeEcdsa(
   const walletKeys: WalletRegistrationEcdsaWalletKey[] = [];
   for (const walletKey of record.walletKeys) {
     const parsed = parseD1WalletRegistrationEcdsaWalletKey(walletKey);
-    if (!parsed) return null;
+    if (!parsed) {
+      return null;
+    }
     walletKeys.push(parsed);
   }
   return { walletKeys };
@@ -1065,6 +1084,8 @@ function parseD1StoredEvmFamilyEcdsaActivationClaimedBranch(
         record.publicResponse,
       ),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
+      activationRequestDigestB64u: parseDigestB64u(record.activationRequestDigestB64u),
+      materialActivation: parseRouterAbMpcMaterialActivationRef(record.materialActivation),
       /* Empty on rows written before ownership existed; owner checks treat
          empty as never-matching, so legacy claims deny adoption rather than
          allowing it. */
@@ -1602,7 +1623,7 @@ function parseD1WalletRegistrationEcdsaPrepare(
   };
 }
 
-function parseD1EcdsaDerivationServerBootstrapResponse(
+export function parseD1EcdsaDerivationServerBootstrapResponse(
   raw: unknown,
 ): EcdsaDerivationServerBootstrapResponse | null {
   const record = toRecordValue(raw);

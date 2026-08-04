@@ -6,14 +6,18 @@ import {
   exactSessionIdentitiesMatch,
   exactSessionStateFromWalletSession,
   parseWalletIframeExactSessionIdentity,
-  parseWalletIframeMissingSessionIdentity,
   type WalletIframeExactSessionState,
 } from '../../shared/exactSessionState';
 import {
   pmUnlockPayloadToLoginHooksOptions,
   requirePMUnlockPayload,
 } from '../../shared/unlockOptions';
-import { activeHostedWalletAppSessionJwt } from '../hostedWalletSeamsSession';
+import type { PMGetExactWalletSessionStatePayload } from '../../shared/messages';
+import {
+  activeWalletOrHostedAppSessionJwt,
+  clearWalletOriginAppSession,
+  rememberWalletOriginAppSession,
+} from '../hostedWalletSeamsSession';
 
 function assertUnlockPayloadHasNoParentBearer(payload: unknown): void {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
@@ -42,15 +46,28 @@ function assertUnlockPayloadHasNoParentBearer(payload: unknown): void {
 function walletOriginUnlockOptions(
   options: LoginHooksOptions,
   relayUrl: string,
+  walletId: string,
 ): LoginHooksOptions {
-  const inventory = options.ecdsaKeyFactsInventory;
-  if (!inventory || inventory.mode === 'webauthn') return options;
-  const appSessionJwt = activeHostedWalletAppSessionJwt(options.session?.relayUrl || relayUrl);
+  const optionsWithSession = options.session
+    ? options
+    : {
+        ...options,
+        session: {
+          kind: 'jwt' as const,
+          exchange: { type: 'passkey_assertion' as const },
+        },
+      };
+  const inventory = optionsWithSession.ecdsaKeyFactsInventory;
+  if (!inventory || inventory.mode === 'webauthn') return optionsWithSession;
+  const appSessionJwt = activeWalletOrHostedAppSessionJwt(
+    optionsWithSession.session?.relayUrl || relayUrl,
+    walletId,
+  );
   if (!appSessionJwt) {
     throw new Error('hosted-wallet Seams Session is required for app-session ECDSA inventory');
   }
   return {
-    ...options,
+    ...optionsWithSession,
     ecdsaKeyFactsInventory: {
       ...inventory,
       appSessionJwt,
@@ -70,12 +87,24 @@ function walletSessionRequestWalletId(
 
 async function resolveExactWalletSessionState(
   pm: ReturnType<HandlerDeps['getSeamsWeb']>,
+  payload: PMGetExactWalletSessionStatePayload,
 ): Promise<WalletIframeExactSessionState> {
-  const currentWalletId = String(pm.preferences.getCurrentWalletId() || '').trim();
-  const recentUnlocks = currentWalletId ? null : await pm.auth.getRecentUnlocks();
-  const recentWalletId = String(recentUnlocks?.lastUsedAccount?.walletId || '').trim();
-  const walletId = currentWalletId || recentWalletId;
-  if (!walletId) return { kind: 'wallet_locked' };
+  let walletId: string | undefined;
+  switch (payload.wallet.kind) {
+    case 'current':
+      walletId = pm.preferences.getCurrentWalletId() ?? undefined;
+      break;
+    case 'exact':
+      walletId = payload.wallet.walletId.trim();
+      if (!walletId) throw new Error('Wallet iframe exact session walletId is invalid');
+      break;
+  }
+  if (payload.authenticationRead === 'restore') {
+    await pm.restoreWalletAuthenticationState(
+      walletId,
+      activeWalletOrHostedAppSessionJwt(pm.configs.network.relayer.url, walletId),
+    );
+  }
   const session = await pm.auth.getWalletSession(walletId);
   return exactSessionStateFromWalletSession(session);
 }
@@ -86,29 +115,47 @@ export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = deps.getSeamsWeb();
       assertUnlockPayloadHasNoParentBearer(req.payload);
       const payload = requirePMUnlockPayload(req.payload);
+      const requestedOptions = pmUnlockPayloadToLoginHooksOptions(payload);
+      const localPasskeyUnlock = requestedOptions.session === undefined;
       const options = walletOriginUnlockOptions(
-        pmUnlockPayloadToLoginHooksOptions(payload),
+        requestedOptions,
         pm.configs.network.relayer.url,
+        payload.walletId,
       );
+      const passkeySessionUnlock =
+        localPasskeyUnlock || requestedOptions.session?.exchange?.type === 'passkey_assertion';
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.auth.unlock(
         payload.walletId,
         withProgress(deps, req.requestId, options) as LoginHooksOptions,
       );
       if (deps.respondIfCancelled(req.requestId)) return;
+      if (result.success && passkeySessionUnlock && result.jwt) {
+        rememberWalletOriginAppSession({
+          appSessionJwt: result.jwt,
+          relayUrl: pm.configs.network.relayer.url,
+          walletId: result.walletId,
+        });
+      } else if (!result.success && localPasskeyUnlock) {
+        clearWalletOriginAppSession();
+      }
       respondOkResult(deps, req.requestId, result);
     },
 
     PM_LOCK: async (req: Req<'PM_LOCK'>) => {
       const pm = deps.getSeamsWeb();
       await pm.auth.lock();
+      clearWalletOriginAppSession();
       respondOk(deps, req.requestId);
     },
 
     PM_LOCK_EXACT_WALLET_SESSION: async (req: Req<'PM_LOCK_EXACT_WALLET_SESSION'>) => {
       const pm = deps.getSeamsWeb();
       const expected = parseWalletIframeExactSessionIdentity(req.payload);
-      const current = await resolveExactWalletSessionState(pm);
+      const current = await resolveExactWalletSessionState(pm, {
+        authenticationRead: 'current',
+        wallet: { kind: 'current' },
+      });
       if (
         (current.kind !== 'active_session' && current.kind !== 'expired_session') ||
         !exactSessionIdentitiesMatch(current, expected)
@@ -117,24 +164,7 @@ export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         return;
       }
       await pm.auth.lock();
-      respondOkResult(deps, req.requestId, { kind: 'locked', identity: expected });
-    },
-
-    PM_LOCK_MISSING_WALLET_SESSION: async (
-      req: Req<'PM_LOCK_MISSING_WALLET_SESSION'>,
-    ) => {
-      const pm = deps.getSeamsWeb();
-      const expected = parseWalletIframeMissingSessionIdentity(req.payload);
-      const current = await resolveExactWalletSessionState(pm);
-      if (
-        current.kind !== 'wallet_unlocked_without_signing_session' ||
-        current.walletId !== expected.walletId ||
-        current.reason !== expected.reason
-      ) {
-        respondOkResult(deps, req.requestId, { kind: 'stale_session', expected, current });
-        return;
-      }
-      await pm.auth.lock();
+      clearWalletOriginAppSession();
       respondOkResult(deps, req.requestId, { kind: 'locked', identity: expected });
     },
 
@@ -145,11 +175,19 @@ export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(deps, req.requestId, result);
     },
 
-    PM_GET_EXACT_WALLET_SESSION_STATE: async (
-      req: Req<'PM_GET_EXACT_WALLET_SESSION_STATE'>,
-    ) => {
+    PM_GET_EXACT_WALLET_SESSION_STATE: async (req: Req<'PM_GET_EXACT_WALLET_SESSION_STATE'>) => {
       const pm = deps.getSeamsWeb();
-      respondOkResult(deps, req.requestId, await resolveExactWalletSessionState(pm));
+      const payload = req.payload;
+      if (
+        !payload ||
+        (payload.authenticationRead !== 'restore' && payload.authenticationRead !== 'current') ||
+        !payload.wallet ||
+        (payload.wallet.kind !== 'current' && payload.wallet.kind !== 'exact') ||
+        (payload.authenticationRead === 'restore' && payload.wallet.kind !== 'current')
+      ) {
+        throw new Error('Wallet iframe exact session read mode is invalid');
+      }
+      respondOkResult(deps, req.requestId, await resolveExactWalletSessionState(pm, payload));
     },
 
     PM_GET_RECENT_UNLOCKS: async (req: Req<'PM_GET_RECENT_UNLOCKS'>) => {

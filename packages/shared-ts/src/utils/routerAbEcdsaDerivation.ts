@@ -17,7 +17,12 @@ import {
   type RootShareEpoch,
   type ThresholdEcdsaSessionId,
 } from './domainIds';
-import { parseCorrelationId, type CorrelationId } from './canonicalPrimitives';
+import {
+  parseCorrelationId,
+  parseDigestB64u,
+  type CorrelationId,
+  type DigestB64u,
+} from './canonicalPrimitives';
 import {
   parseEcdsaServerGeneration,
   type EcdsaServerGeneration,
@@ -392,7 +397,7 @@ export type RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<Role extends 'signer_
   ciphertext: { bytes: number[] };
 };
 
-type RouterAbEcdsaDerivationExplicitExportRequestBaseV1 = {
+export type RouterAbEcdsaDerivationExplicitExportRequestBaseV1 = {
   context: RouterAbEcdsaDerivationStableKeyContextV1;
   lifecycle: RouterAbEcdsaDerivationExportLifecycleScopeV1;
   public_identity: RouterAbEcdsaDerivationPublicIdentityV1;
@@ -411,6 +416,16 @@ type RouterAbEcdsaDerivationExplicitExportRequestBaseV1 = {
   deriver_b_export_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_b'>;
 };
 
+/**
+ * Exact explicit-export request carried by the Rust Router A/B protocol.
+ * Operation preparation is a Gateway authorization input and never crosses
+ * into the protocol request or its canonical digest.
+ */
+export type RouterAbEcdsaDerivationExplicitExportProtocolRequestV1 =
+  RouterAbEcdsaDerivationExplicitExportRequestBaseV1 & {
+    authorization: RouterAbNormalSigningAuthorizationWire;
+  };
+
 export type RouterAbEcdsaDerivationExplicitExportRequestV1 =
   | (RouterAbEcdsaDerivationExplicitExportRequestBaseV1 & {
       authorization: Extract<
@@ -426,6 +441,21 @@ export type RouterAbEcdsaDerivationExplicitExportRequestV1 =
       >;
       operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
     });
+
+export function projectRouterAbEcdsaDerivationExplicitExportRequestToProtocolV1(
+  request: RouterAbEcdsaDerivationExplicitExportRequestV1,
+): RouterAbEcdsaDerivationExplicitExportProtocolRequestV1 {
+  switch (request.authorization.kind) {
+    case 'reusable_wallet_session': {
+      const { operation: _operation, ...protocolRequest } = request;
+      return protocolRequest;
+    }
+    case 'operation_step_up': {
+      const { operation: _operation, ...protocolRequest } = request;
+      return protocolRequest;
+    }
+  }
+}
 
 export type RouterAbEcdsaDerivationRecoveryRequestV1 = {
   context: RouterAbEcdsaDerivationStableKeyContextV1;
@@ -655,15 +685,59 @@ export type RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire = {
   readonly proof: RouterAbEcdsaOperationStepUpProofV1Wire;
 };
 
+export type RouterAbEcdsaOperationStepUpAuthorizationV1Wire = {
+  readonly kind: 'operation_step_up';
+  readonly evidence_set_digest: DigestB64u;
+};
+
 export type RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire = {
   readonly ok: true;
   readonly kind: 'verified_step_up';
-  readonly authorization: Extract<
-    RouterAbNormalSigningAuthorizationWire,
-    { readonly kind: 'operation_step_up' }
-  >;
+  readonly authorization: RouterAbEcdsaOperationStepUpAuthorizationV1Wire;
   readonly expires_at_ms: number;
 };
+
+export function parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1(
+  value: unknown,
+): RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire {
+  const response = requireRecord(value, 'operationStepUpAuthorizationResponse');
+  requireExactKeys(response, 'operationStepUpAuthorizationResponse', [
+    'ok',
+    'kind',
+    'authorization',
+    'expires_at_ms',
+  ]);
+  if (response.ok !== true || response.kind !== 'verified_step_up') {
+    throw new Error('operationStepUpAuthorizationResponse is invalid');
+  }
+  const authorization = requireRecord(
+    response.authorization,
+    'operationStepUpAuthorizationResponse.authorization',
+  );
+  requireExactKeys(authorization, 'operationStepUpAuthorizationResponse.authorization', [
+    'kind',
+    'evidence_set_digest',
+  ]);
+  if (authorization.kind !== 'operation_step_up') {
+    throw new Error('operationStepUpAuthorizationResponse.authorization.kind is invalid');
+  }
+  const expiresAtMs = requirePositiveUnixMs(
+    response.expires_at_ms,
+    'operationStepUpAuthorizationResponse.expires_at_ms',
+  );
+  if (expiresAtMs <= Date.now()) {
+    throw new Error('operationStepUpAuthorizationResponse.expires_at_ms is expired');
+  }
+  return {
+    ok: true,
+    kind: 'verified_step_up',
+    authorization: {
+      kind: 'operation_step_up',
+      evidence_set_digest: parseDigestB64u(authorization.evidence_set_digest),
+    },
+    expires_at_ms: expiresAtMs,
+  };
+}
 
 export async function computeRouterAbEcdsaOperationStepUpChallengeB64u(
   value: RouterAbEcdsaOperationStepUpPreparationV1Wire,
@@ -2117,7 +2191,40 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
   const label = 'export';
   const record = requireRecord(value, label);
   const authorization = parseRouterAbNormalSigningAuthorization(record.authorization);
-  const commonKeys = [
+  const commonKeys = explicitExportRequestCommonKeys();
+  switch (authorization.kind) {
+    case 'reusable_wallet_session':
+      requireExactKeys(record, label, commonKeys);
+      break;
+    case 'operation_step_up':
+      requireExactKeys(record, label, [...commonKeys, 'operation']);
+      break;
+  }
+  const parsed = parseExplicitExportRequestProtocolFields(record, label, authorization);
+  switch (authorization.kind) {
+    case 'reusable_wallet_session':
+      return { ...parsed, authorization };
+    case 'operation_step_up':
+      return {
+        ...parsed,
+        authorization,
+        operation: parseRouterAbEcdsaOperationStepUpPreparationV1(record.operation),
+      };
+  }
+}
+
+export function parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1(
+  value: unknown,
+): RouterAbEcdsaDerivationExplicitExportProtocolRequestV1 {
+  const label = 'export';
+  const record = requireRecord(value, label);
+  const authorization = parseRouterAbNormalSigningAuthorization(record.authorization);
+  requireExactKeys(record, label, explicitExportRequestCommonKeys());
+  return parseExplicitExportRequestProtocolFields(record, label, authorization);
+}
+
+function explicitExportRequestCommonKeys(): readonly string[] {
+  return [
     'context',
     'lifecycle',
     'public_identity',
@@ -2132,15 +2239,14 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
     'expires_at_ms',
     'deriver_a_export_envelope',
     'deriver_b_export_envelope',
-  ] as const;
-  switch (authorization.kind) {
-    case 'reusable_wallet_session':
-      requireExactKeys(record, label, commonKeys);
-      break;
-    case 'operation_step_up':
-      requireExactKeys(record, label, [...commonKeys, 'operation']);
-      break;
-  }
+  ];
+}
+
+function parseExplicitExportRequestProtocolFields(
+  record: Record<string, unknown>,
+  label: string,
+  authorization: RouterAbNormalSigningAuthorizationWire,
+): RouterAbEcdsaDerivationExplicitExportProtocolRequestV1 {
   const lifecycle = parsePostRegistrationLifecycleScope(
     record.lifecycle,
     `${label}.lifecycle`,
@@ -2187,17 +2293,9 @@ export function parseRouterAbEcdsaDerivationExplicitExportRequestV1(
       `${label}.deriver_b_export_envelope`,
       'signer_b',
     ),
+    authorization,
   };
-  switch (authorization.kind) {
-    case 'reusable_wallet_session':
-      return { ...parsed, authorization };
-    case 'operation_step_up':
-      return {
-        ...parsed,
-        authorization,
-        operation: parseRouterAbEcdsaOperationStepUpPreparationV1(record.operation),
-      };
-  }
+  return parsed;
 }
 
 export function parseRouterAbEcdsaDerivationRecoveryRequestV1(

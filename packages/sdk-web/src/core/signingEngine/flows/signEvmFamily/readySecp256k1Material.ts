@@ -21,7 +21,9 @@ import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { projectEcdsaRoleLocalPublicFactsToChainTarget } from '../../session/persistence/ecdsaRoleLocalRecords';
 import type {
+  ExactEcdsaCapabilityRuntime,
   ExactEcdsaMaterialRuntime,
   ExactEcdsaSealedRuntime,
 } from '../../session/material/ecdsaSealedRuntime';
@@ -35,6 +37,7 @@ import type {
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../../session/material/ecdsaSigningCapability';
 import { authorizeEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
+import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export async function hydrateEcdsaRoleLocalMaterialForSigning(args: {
   persistedMaterial: PersistedEcdsaRoleLocalMaterial;
@@ -96,7 +99,7 @@ export type HydratedSecp256k1SigningMaterialResolution =
  * function receives the runtime. */
 export async function resolveHydratedSecp256k1SigningMaterial(args: {
   capability: CanonicalEvmFamilyEcdsaSigningCapability;
-  runtime: ExactEcdsaMaterialRuntime;
+  runtime: ExactEcdsaMaterialRuntime | ExactEcdsaCapabilityRuntime;
   chainTarget: ThresholdEcdsaChainTarget;
   materialActivation: MpcMaterialActivationRef;
   workerCtx: WorkerOperationContext;
@@ -105,7 +108,7 @@ export async function resolveHydratedSecp256k1SigningMaterial(args: {
   const manifest = capability.manifest;
   const persistedMaterial = capability.material;
   const runtime = args.runtime;
-  const roleLocalFacts = persistedMaterial.publicFacts;
+  const sourceRoleLocalFacts = persistedMaterial.publicFacts;
 
   // 1. Exact activation agreement across all three owners. The runtime is
   //    included because a sealed record for sibling material would otherwise
@@ -124,14 +127,26 @@ export async function resolveHydratedSecp256k1SigningMaterial(args: {
     return { kind: 'unavailable', reason: 'runtime_correlation_mismatch' };
   }
 
-  // 2. Chain-target agreement between the request, the persisted facts, and
-  //    the runtime this session belongs to.
-  if (!thresholdEcdsaChainTargetsEqual(args.chainTarget, roleLocalFacts.chainTarget)) {
+  // 2. The durable role-local facts are canonical for one published target,
+  //    while the same EVM-family material may be published to sibling
+  //    targets. Keep the source target inside the manifest scope and project
+  //    the verified facts onto the exact target requested by this operation.
+  const sourceTargetIsPublished = manifest.signer.scope.targetMemberships.some((target) =>
+    thresholdEcdsaChainTargetsEqual(target, sourceRoleLocalFacts.chainTarget),
+  );
+  const requestedTarget = manifest.signer.scope.targetMemberships.find((target) =>
+    thresholdEcdsaChainTargetsEqual(target, args.chainTarget),
+  );
+  if (!sourceTargetIsPublished || !requestedTarget) {
     return { kind: 'unavailable', reason: 'chain_mismatch' };
   }
-  if (!thresholdEcdsaChainTargetsEqual(runtime.chainTarget, roleLocalFacts.chainTarget)) {
+  if (!thresholdEcdsaChainTargetsEqual(runtime.chainTarget, requestedTarget)) {
     return { kind: 'unavailable', reason: 'chain_mismatch' };
   }
+  const roleLocalFacts = projectEcdsaRoleLocalPublicFactsToChainTarget({
+    publicFacts: sourceRoleLocalFacts,
+    chainTarget: requestedTarget,
+  });
 
   // The scope is persisted conditionally by the sealed store, but a signing
   // session cannot be built without it.
@@ -249,6 +264,10 @@ export function attachReusableEcdsaWalletSessionAuthorization(args: {
       'Reusable Wallet Session authorization wallet does not match hydrated material',
     );
   }
+  const walletSessionJwt = walletSessionJwtForCurve(projection, 'ecdsa');
+  if (!walletSessionJwt) {
+    throw new Error('Reusable Wallet Session authorization is unavailable');
+  }
   return buildReadySecp256k1SigningMaterial({
     walletId: args.material.walletId,
     signerSession: args.material,
@@ -258,7 +277,7 @@ export function attachReusableEcdsaWalletSessionAuthorization(args: {
     },
     credential: {
       kind: 'reusable_wallet_session_jwt',
-      walletSessionJwt: projection.walletSessionJwt,
+      walletSessionJwt,
     },
     expiresAtMs: authorized.authorization.status.expiresAtMs,
     singleUseEmailOtpSession: false,

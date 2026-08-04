@@ -11,6 +11,7 @@ import type { CorrelationId, DigestB64u, IsoTimestamp } from '@shared/utils/cano
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { ParticipantId } from '../identity/evmFamilyEcdsaIdentity';
 import type {
   EcdsaClientVerifyingPublicKey33B64u,
@@ -30,6 +31,7 @@ declare const evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
 declare const ecdsaThresholdKeyId: EcdsaThresholdKeyId;
 declare const signingRootId: SigningRootId;
 declare const signingRootVersion: SigningRootVersion;
+declare const runtimePolicyScope: RuntimePolicyScope;
 declare const clientVerifyingPublicKey33B64u: EcdsaClientVerifyingPublicKey33B64u;
 declare const participantId: ParticipantId;
 declare const relayerKeyId: EcdsaRelayerKeyId;
@@ -61,6 +63,7 @@ const validInput = {
   ecdsaThresholdKeyId,
   signingRootId,
   signingRootVersion,
+  runtimePolicyScope,
   clientVerifyingPublicKey33B64u,
   participantIds: [participantId],
   relayerKeyId,

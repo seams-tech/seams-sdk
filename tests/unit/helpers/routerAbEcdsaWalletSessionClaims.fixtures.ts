@@ -29,6 +29,7 @@ export function buildRouterAbEcdsaWalletSessionClaimsFixture(
     kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
     sub: input.walletId,
     walletId: input.walletId,
+    sid: input.authorizationSessionId ?? 'authorization-session-fixture',
     thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-fixture',
     authorizationId: input.authorizationId ?? 'authorization-grant-ecdsa-fixture',
     authorizationSessionId: input.authorizationSessionId ?? 'authorization-session-fixture',

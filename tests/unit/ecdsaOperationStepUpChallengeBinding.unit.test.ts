@@ -5,13 +5,25 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ecdsa/operationStepUp';
 import {
   computeRouterAbEcdsaOperationStepUpChallengeB64u,
+  parseRouterAbEcdsaExplicitExportForwardedResponseV1,
+  parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1,
+  parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
+  projectRouterAbEcdsaDerivationExplicitExportRequestToProtocolV1,
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { parseRootShareEpoch } from '../../packages/shared-ts/src/utils/domainIds';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
-import { routerAbMpcMaterialActivationRefToWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
+import {
+  parseRouterAbNormalSigningAuthorization,
+  routerAbMpcMaterialActivationRefToWire,
+} from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
+import {
+  attachRouterAbEcdsaExplicitExportOperationV1,
+  projectRouterAbEcdsaExplicitExportRequestForWasmV1,
+  type RouterAbEcdsaExplicitExportRequestFactsV1,
+} from '../../packages/sdk-web/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 
 // The Passkey challenge must be the canonical digest of the exact prepared
 // operation, and the server recomputes it from the parsed preparation with the
@@ -112,7 +124,7 @@ function explicitExportRequest(operationKind: 'evm.export_key' | 'evm.sign_trans
     router_id: 'router-1',
     client_id: WALLET_ID,
     client_ephemeral_public_key: `x25519:${'a'.repeat(64)}`,
-    authorization: { kind: 'operation_step_up', grant_id: 'grant-1' },
+    authorization: { kind: 'operation_step_up' },
     operation,
     material_activation: routerAbMpcMaterialActivationRefToWire(materialActivation),
     export_authorization_digest_b64u: b64u(21, 32),
@@ -200,5 +212,177 @@ test.describe('ECDSA operation step-up challenge binding', () => {
         },
       }),
     ).toThrow();
+  });
+
+  test('explicit-export protocol projection strips Gateway-only operation preparation', () => {
+    const request = parseRouterAbEcdsaDerivationExplicitExportRequestV1(
+      explicitExportRequest('evm.export_key'),
+    );
+    const protocolRequest = projectRouterAbEcdsaDerivationExplicitExportRequestToProtocolV1(
+      request,
+    );
+
+    expect(protocolRequest).not.toHaveProperty('operation');
+    expect(parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1(protocolRequest)).toEqual(
+      protocolRequest,
+    );
+    expect(() =>
+      parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1({
+        ...protocolRequest,
+        operation: request.operation,
+      }),
+    ).toThrow();
+  });
+
+  test('SigningWorker export binding preserves the verified step-up protocol label', () => {
+    const binding = {
+      wallet_id: WALLET_ID,
+      key_handle: 'key-handle-1',
+      ecdsa_threshold_key_id: normalSigningScope.ecdsa_threshold_key_id,
+      signing_root_id: normalSigningScope.signing_root_id,
+      signing_root_version: normalSigningScope.signing_root_version,
+      activation_epoch: normalSigningScope.activation_epoch,
+      signing_worker_id: normalSigningScope.signing_worker.server_id,
+      context_binding_b64u: normalSigningScope.public_identity.context_binding_b64u,
+      threshold_public_key33_b64u: normalSigningScope.public_identity.threshold_public_key33_b64u,
+      export_request_digest_b64u: b64u(31, 32),
+      export_authorization_digest_b64u: b64u(32, 32),
+      export_nonce: 'export-nonce-1',
+      authorization_kind: 'verified_step_up',
+      authorization_id: b64u(33, 32),
+      material_activation: normalSigningScope.material_activation,
+      lifecycle_id: 'export-lifecycle-1',
+      recipient_identity: WALLET_ID,
+      recipient_public_key: `x25519:${'a'.repeat(64)}`,
+      expires_at_ms: Date.now() + 5 * 60_000,
+    };
+    const responseBody = {
+      result: 'forwarded',
+      response: {
+        bundles: {
+          signerA: {
+            kind: 'recipient_proof_bundle',
+            transcriptDigestB64u: b64u(34, 32),
+            payloadB64u: b64u(35, 1),
+          },
+          signerB: {
+            kind: 'recipient_proof_bundle',
+            transcriptDigestB64u: b64u(36, 32),
+            payloadB64u: b64u(37, 1),
+          },
+        },
+      },
+      signing_worker_export: {
+        version: 'router-ab-ecdsa-derivation/signing-worker-export-share-envelope/v1',
+        algorithm: 'hpke_x25519_hkdf_sha256_aes256gcm_v1',
+        binding,
+        ciphertext_and_tag: new Array(49).fill(1),
+      },
+    };
+    const response = parseRouterAbEcdsaExplicitExportForwardedResponseV1(responseBody);
+    expect(response.signing_worker_export.binding.authorization_kind).toBe('verified_step_up');
+    expect(() =>
+      parseRouterAbEcdsaExplicitExportForwardedResponseV1({
+        ...responseBody,
+        signing_worker_export: {
+          ...responseBody.signing_worker_export,
+          binding: { ...binding, authorization_kind: 'operation_step_up' },
+        },
+      }),
+    ).toThrow(/authorization_kind must be reusable_wallet_session or verified_step_up/);
+  });
+
+  test('client worker projection omits operation before strict WASM serialization', () => {
+    const request = parseRouterAbEcdsaDerivationExplicitExportRequestV1(
+      explicitExportRequest('evm.export_key'),
+    );
+    if (request.authorization.kind !== 'operation_step_up') {
+      throw new Error('step-up fixture authorization branch changed');
+    }
+    const {
+      client_ephemeral_public_key: _clientEphemeralPublicKey,
+      deriver_a_export_envelope: _deriverAExportEnvelope,
+      deriver_b_export_envelope: _deriverBExportEnvelope,
+      ...factsWithoutEnvelopes
+    } = request;
+    const facts: RouterAbEcdsaExplicitExportRequestFactsV1 = {
+      ...factsWithoutEnvelopes,
+      authorization_id: parseDigestB64u(b64u(32, 32)),
+      deriver_recipient_keys: {
+        deriver_a: {
+          role: 'signer_a',
+          key_epoch: 'epoch-a',
+          public_key: `x25519:${'a'.repeat(64)}`,
+        },
+        deriver_b: {
+          role: 'signer_b',
+          key_epoch: 'epoch-b',
+          public_key: `x25519:${'b'.repeat(64)}`,
+        },
+      },
+    };
+    const wasmInput = projectRouterAbEcdsaExplicitExportRequestForWasmV1(facts);
+    expect(wasmInput).not.toHaveProperty('operation');
+    expect(wasmInput).not.toHaveProperty('authorization_id');
+    expect(wasmInput.authorization).toEqual({
+      kind: 'operation_step_up',
+      authorization_id: facts.authorization_id,
+    });
+
+    const restored = attachRouterAbEcdsaExplicitExportOperationV1({
+      facts,
+      protocolRequest: projectRouterAbEcdsaDerivationExplicitExportRequestToProtocolV1(
+        request,
+      ),
+    });
+    expect(restored.operation).toEqual(facts.operation);
+  });
+
+  test('operation step-up response carries evidence digest separately from request marker', () => {
+    const evidenceSetDigest = b64u(31, 32);
+    const parsed = parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1({
+      ok: true,
+      kind: 'verified_step_up',
+      authorization: {
+        kind: 'operation_step_up',
+        evidence_set_digest: evidenceSetDigest,
+      },
+      expires_at_ms: Date.now() + 60_000,
+    });
+
+    expect(parsed.authorization).toEqual({
+      kind: 'operation_step_up',
+      evidence_set_digest: parseDigestB64u(evidenceSetDigest),
+    });
+    expect(parseRouterAbNormalSigningAuthorization({ kind: 'operation_step_up' })).toEqual({
+      kind: 'operation_step_up',
+    });
+  });
+
+  test('operation step-up response rejects a missing or padded evidence digest', () => {
+    const response = {
+      ok: true,
+      kind: 'verified_step_up',
+      authorization: {
+        kind: 'operation_step_up',
+        evidence_set_digest: b64u(32, 32),
+      },
+      expires_at_ms: Date.now() + 60_000,
+    };
+    expect(() =>
+      parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1({
+        ...response,
+        authorization: { kind: 'operation_step_up' },
+      }),
+    ).toThrow('digest must be unpadded base64url');
+    expect(() =>
+      parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1({
+        ...response,
+        authorization: {
+          kind: 'operation_step_up',
+          evidence_set_digest: `${response.authorization.evidence_set_digest}=`,
+        },
+      }),
+    ).toThrow('digest must be unpadded base64url');
   });
 });

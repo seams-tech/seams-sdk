@@ -1,11 +1,9 @@
 import type { CurrentEd25519SealedSessionRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
-import {
-  readExactEd25519SealedSession,
-} from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import { readExactEd25519SealedSession } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { ed25519DurableMaterialLocator } from '../sealedRecovery/materialActivationKey';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
-  assertEd25519YaoRecoveryDescriptorContinuity,
+  assertEd25519YaoWarmRecoveryDescriptorStableMaterialContinuity,
   parseEd25519YaoRecoveryCapabilityV1,
   type ParsedPasskeyEd25519YaoRecoveryDescriptorV1,
 } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
@@ -37,9 +35,11 @@ import {
 } from '@shared/authorization/capabilityKinds';
 import {
   walletSessionAuthorizations,
+  walletSessionJwtForCurve,
   type ActiveWalletSessionAuthorizationProjection,
   type WalletSessionAuthorizationReadResult,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { parseRouterAbEd25519WalletSessionIdentityClaims } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import {
   mpcMaterialActivationRefsEqual,
   parseWalletId,
@@ -252,11 +252,13 @@ export async function requirePasskeyEd25519RestoreAuthorization(args: {
   ) {
     return null;
   }
+  if (!walletSessionJwtForCurve(authorization, 'ed25519')) return null;
   return authorization;
 }
 
 function warmRecoveryBootstrapRequest(
   record: CurrentEd25519SealedSessionRecord,
+  thresholdSessionId: ThresholdEd25519SessionId,
 ): RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1 {
   const restore = record.ed25519Restore;
   const parsed = parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1({
@@ -265,7 +267,7 @@ function warmRecoveryBootstrapRequest(
     nearAccountId: restore.nearAccountId,
     nearEd25519SigningKeyId: restore.nearEd25519SigningKeyId,
     signerSlot: restore.signerSlot,
-    thresholdSessionId: record.thresholdSessionIds.ed25519,
+    thresholdSessionId,
     signingWorkerId: restore.routerAbNormalSigning.signingWorkerId,
     participantIds: restore.participantIds,
   });
@@ -279,15 +281,30 @@ async function fetchWarmRecoveryBootstrap(args: {
   readonly relayerUrl: string;
   readonly fetch: typeof fetch;
 }): Promise<WarmRecoveryBootstrapResult> {
+  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ed25519');
+  if (!walletSessionJwt) {
+    throw new Error('[SigningEngine][near] active Wallet Session authorization is unavailable');
+  }
+  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(walletSessionJwt);
+  if (
+    !claims ||
+    claims.walletId !== args.record.walletId ||
+    claims.nearAccountId !== args.record.ed25519Restore.nearAccountId ||
+    claims.nearEd25519SigningKeyId !== args.record.ed25519Restore.nearEd25519SigningKeyId ||
+    claims.walletSessionId !== args.authorization.walletSessionId ||
+    claims.quotaId !== args.authorization.quotaId
+  ) {
+    throw new Error('[SigningEngine][near] active Wallet Session authorization does not match sealed material');
+  }
   const response = await args.fetch(
     `${new URL(args.relayerUrl).origin}${ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1}`,
     {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${args.authorization.walletSessionJwt}`,
+        Authorization: `Bearer ${walletSessionJwt}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(warmRecoveryBootstrapRequest(args.record)),
+      body: JSON.stringify(warmRecoveryBootstrapRequest(args.record, claims.thresholdSessionId)),
     },
   );
   const body = await parseJsonResponseOrNull(response);
@@ -379,6 +396,10 @@ async function parseWarmRecoveryDescriptor(args: {
   const walletSessionId = parseWalletSessionId(response.walletSessionId);
   const quotaId = parseMpcWalletSigningQuotaId(response.quotaId);
   const capability = parseEd25519YaoRecoveryCapabilityV1(response.capability);
+  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ed25519');
+  const activeClaims = walletSessionJwt
+    ? parseRouterAbEd25519WalletSessionIdentityClaims(walletSessionJwt)
+    : null;
   const expectedAuthorityRef = authority ? await walletAuthAuthorityRef({ authority }) : null;
   if (
     !authority ||
@@ -399,21 +420,31 @@ async function parseWarmRecoveryDescriptor(args: {
     nearAccountId !== restore.nearAccountId ||
     nearEd25519SigningKeyId !== restore.nearEd25519SigningKeyId ||
     signerSlot !== restore.signerSlot ||
-    thresholdSessionId !== record.thresholdSessionIds.ed25519 ||
+    !activeClaims ||
+    thresholdSessionId !== activeClaims.thresholdSessionId ||
+    activeClaims.walletId !== record.walletId ||
+    activeClaims.nearAccountId !== restore.nearAccountId ||
+    activeClaims.nearEd25519SigningKeyId !== restore.nearEd25519SigningKeyId ||
+    activeClaims.walletSessionId !== args.authorization.walletSessionId ||
+    activeClaims.quotaId !== args.authorization.quotaId ||
     signingWorkerId !== restore.relayerKeyId ||
     signingWorkerId !== restore.routerAbNormalSigning.signingWorkerId ||
     routerAbNormalSigning.signingWorkerId !== signingWorkerId ||
-    thresholdExpiresAtMs !== record.expiresAtMs ||
+    // A renewed Wallet Session may outlive the sealed material. The material
+    // expiry remains the upper bound for this restore lane.
+    record.expiresAtMs > thresholdExpiresAtMs ||
     participantIds[0] !== restore.participantIds[0] ||
     participantIds[1] !== restore.participantIds[1] ||
-    !mpcMaterialActivationRefsEqual(capability.materialActivation, restore.materialActivation) ||
     !sameRuntimePolicyScope(responseRuntimePolicyScope, sealedRuntimePolicyScope)
   ) {
     throw new Error('warm recovery bootstrap does not match the exact sealed Ed25519 lane');
   }
   const signingRoot = signingRootScopeFromRuntimePolicyScope(responseRuntimePolicyScope);
   if (!signingRoot) throw new Error('warm recovery bootstrap signing-root scope is invalid');
-  return {
+  if (!walletSessionJwt) {
+    throw new Error('[SigningEngine][near] active Wallet Session authorization is unavailable');
+  }
+  const descriptor: ParsedPasskeyEd25519YaoRecoveryDescriptorV1 = {
     authority: authorityRef,
     walletId: walletIdFromString(walletId),
     nearAccountId: toAccountId(nearAccountId),
@@ -423,7 +454,7 @@ async function parseWarmRecoveryDescriptor(args: {
     relayerKeyId: signingWorkerId,
     credentialIdB64u,
     session: {
-      walletSessionJwt: args.authorization.walletSessionJwt,
+      walletSessionJwt,
       thresholdSessionId,
       walletSessionId: walletSessionId.value,
       quotaId: quotaId.value,
@@ -435,6 +466,11 @@ async function parseWarmRecoveryDescriptor(args: {
     },
     capability,
   };
+  assertEd25519YaoWarmRecoveryDescriptorStableMaterialContinuity(
+    descriptor,
+    restore.materialActivation,
+  );
+  return descriptor;
 }
 
 export async function resolvePasskeyEd25519YaoExportContextV1(input: {
@@ -499,7 +535,6 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
     authorization,
     response: bootstrap.response,
   });
-  assertEd25519YaoRecoveryDescriptorContinuity(descriptor);
   return {
     kind: 'ready',
     context: {

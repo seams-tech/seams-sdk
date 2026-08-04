@@ -34,6 +34,7 @@ import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   parseAuthorizationAuditEventId,
   buildAuthorizationGrantRef,
+  buildNearEd25519MpcOperationRef,
   parseAuthFactorId,
   parseAuthorizedOperationId,
   parseCapabilityId,
@@ -47,10 +48,14 @@ import {
   buildCapabilityOperationEnvelope,
   computeCapabilityOperationFingerprintDigest,
   parseCapabilityOperationFingerprintDigest,
+  parseSigningOperationFingerprintDigest,
 } from '@shared/authorization/operationFingerprint';
+import type { CapabilityOperationEnvelope } from '@shared/authorization/operationFingerprint';
+import type { CapabilityOperationRef } from '@shared/authorization/capabilityKinds';
 import {
   authorizedOperationReplayBodyInit,
   type AuthorizedOperation,
+  type AuthorizedOperationInput,
   type AuthorizedOperationReplayResponse,
 } from '../../../authorization/domain';
 import {
@@ -101,6 +106,7 @@ type Ed25519ReusableAuthorizedOperationReceipt = {
 type Ed25519VerifiedStepUpAuthorizedOperationReceipt = {
   readonly kind: 'verified_step_up_authorized_operation_v1';
   readonly authorization_session_id: string;
+  readonly evidence_set_digest: string;
   readonly authorized_operation_id: string;
   readonly operation_id: string;
   readonly capability_kind: 'near_ed25519_mpc_signing';
@@ -259,7 +265,7 @@ function requireEd25519OperationKind(value: unknown): Ed25519OperationKind {
 
 function requireExactAuthorizedOperationFields(
   record: Record<string, unknown>,
-  includeAuthorizationSessionId = false,
+  branchFields: readonly string[] = [],
 ): void {
   const expected = [
     'capability_kind',
@@ -271,7 +277,7 @@ function requireExactAuthorizedOperationFields(
     'operation_id',
     'operation_kind',
     'authorized_operation_id',
-    ...(includeAuthorizationSessionId ? ['authorization_session_id'] : []),
+    ...branchFields,
   ];
   expected.sort();
   const actual = Object.keys(record).sort();
@@ -417,7 +423,11 @@ async function validateSignedEd25519SessionAuthorization(input: {
     appSessionClaims,
     input.authority.walletId,
   );
-  if (!appSessionClaims || appSessionWalletId !== input.authority.walletId) {
+  if (
+    !appSessionClaims ||
+    appSessionWalletId !== input.authority.walletId ||
+    !appSessionClaims.seamsSessionId
+  ) {
     return {
       ok: false,
       response: json(
@@ -474,6 +484,7 @@ async function validateSignedEd25519SessionAuthorization(input: {
       authority: input.authority,
       authorityRef: signedAuthorityRef,
       runtimePolicyScope: signedRuntimePolicyScope,
+      seamsSessionId: appSessionClaims.seamsSessionId,
     },
   };
 }
@@ -540,12 +551,17 @@ function parseEd25519VerifiedStepUpAuthorizedOperationReceipt(
   if (!record || record.kind !== 'verified_step_up_authorized_operation_v1') {
     throw new Error('Ed25519 verified step-up authorized operation is required');
   }
-  requireExactAuthorizedOperationFields(record, true);
+  requireExactAuthorizedOperationFields(record, [
+    'authorization_session_id',
+    'evidence_set_digest',
+  ]);
   const capabilityKind = requireReceiptString(record, 'capability_kind');
   if (capabilityKind !== 'near_ed25519_mpc_signing') {
     throw new Error('authorized_operation.capability_kind is invalid');
   }
   const operationKind = requireEd25519OperationKind(requireReceiptString(record, 'operation_kind'));
+  const evidenceSetDigest = requireReceiptString(record, 'evidence_set_digest');
+  parseDigestB64u(evidenceSetDigest);
   const laneDigest = requireReceiptString(record, 'lane_digest_b64u');
   const intentDigest = requireReceiptString(record, 'intent_digest_b64u');
   const displayDigest = requireReceiptString(record, 'display_digest_b64u');
@@ -557,6 +573,7 @@ function parseEd25519VerifiedStepUpAuthorizedOperationReceipt(
   return {
     kind: 'verified_step_up_authorized_operation_v1',
     authorization_session_id: requireReceiptString(record, 'authorization_session_id'),
+    evidence_set_digest: evidenceSetDigest,
     authorized_operation_id: requireReceiptString(record, 'authorized_operation_id'),
     operation_id: requireReceiptString(record, 'operation_id'),
     capability_kind: 'near_ed25519_mpc_signing',
@@ -623,7 +640,7 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
     const capabilityId = requireAuthorizationValue(
       parseCapabilityId(scope.material_activation.capability),
     );
-    const laneDigest = parseDigestB64u(intent.operation_fingerprint);
+    const laneDigest = parseSigningOperationFingerprintDigest(intent.operation_fingerprint);
     const intentDigest = parseDigestB64u(
       base64UrlEncode(Uint8Array.from(privateBody.admission_candidate.intent_digest.bytes)),
     );
@@ -722,8 +739,22 @@ async function revalidateEd25519AuthorizedOperation(input: {
   | { readonly ok: true; readonly operation: AuthorizedOperation }
   | { readonly ok: false; readonly response: Response }
 > {
-  const result = await input.ctx.service.authorizedOperations.admitAuthorizedOperation({
-    operation: {
+  let admission: AuthorizedOperationInput;
+  if (input.operation.authorization.kind === 'verified_step_up') {
+    if (input.operation.quota.kind !== 'quota_neutral') {
+      return {
+        ok: false,
+        response: json(
+          {
+            ok: false,
+            code: 'verified_step_up_rejected',
+            message: 'Ed25519 operation step-up authorization has an invalid quota',
+          },
+          { status: 403 },
+        ),
+      };
+    }
+    admission = {
       tenantId: input.operation.tenantId,
       authorizedOperationId: input.operation.authorizedOperationId,
       auditEventId: input.operation.auditEventId,
@@ -731,7 +762,47 @@ async function revalidateEd25519AuthorizedOperation(input: {
       authorization: input.operation.authorization,
       quota: input.operation.quota,
       claimedAtMs: Date.now(),
-    },
+    };
+  } else {
+    if (input.operation.quota.kind !== 'consume_reusable_wallet_session') {
+      return {
+        ok: false,
+        response: json(
+          {
+            ok: false,
+            code: 'authorization_grant_rejected',
+            message: 'Ed25519 reusable operation authorization has an invalid quota',
+          },
+          { status: 403 },
+        ),
+      };
+    }
+    const operation = buildEd25519ReusableOperationEnvelope(input.operation);
+    if (!operation) {
+      return {
+        ok: false,
+        response: json(
+          {
+            ok: false,
+            code: 'authorization_grant_rejected',
+            message: 'Ed25519 reusable operation kind is invalid',
+          },
+          { status: 403 },
+        ),
+      };
+    }
+    admission = {
+      tenantId: input.operation.tenantId,
+      authorizedOperationId: input.operation.authorizedOperationId,
+      auditEventId: input.operation.auditEventId,
+      operation,
+      authorization: input.operation.authorization,
+      quota: input.operation.quota,
+      claimedAtMs: Date.now(),
+    };
+  }
+  const result = await input.ctx.service.authorizedOperations.admitAuthorizedOperation({
+    operation: admission,
   });
   switch (result.kind) {
     case 'claimed':
@@ -763,6 +834,38 @@ async function revalidateEd25519AuthorizedOperation(input: {
           { status: 409 },
         ),
       };
+  }
+}
+
+type Ed25519ReusableOperationRef = Extract<
+  CapabilityOperationRef,
+  { readonly capabilityKind: 'near_ed25519_mpc_signing' }
+> & {
+  readonly operationKind:
+    | 'near.sign_transaction'
+    | 'near.sign_delegate_action'
+    | 'near.sign_nep413_message';
+};
+
+function buildEd25519ReusableOperationEnvelope(
+  operation: AuthorizedOperation,
+): CapabilityOperationEnvelope<Ed25519ReusableOperationRef> | null {
+  const operationRef = operation.operation.operation;
+  if (operationRef.capabilityKind !== 'near_ed25519_mpc_signing') return null;
+  switch (operationRef.operationKind) {
+    case 'near.sign_transaction':
+    case 'near.sign_delegate_action':
+    case 'near.sign_nep413_message':
+      return buildCapabilityOperationEnvelope({
+        tenantId: operation.operation.tenantId,
+        principalId: operation.operation.principalId,
+        capabilityId: operation.operation.capabilityId,
+        operationId: operation.operation.operationId,
+        operation: buildNearEd25519MpcOperationRef(operationRef.operationKind),
+        digests: operation.operation.digests,
+      });
+    case 'near.export_key':
+      return null;
   }
 }
 
@@ -888,6 +991,7 @@ function buildEd25519VerifiedStepUpAuthorizedOperationReceipt(input: {
   return {
     kind: 'verified_step_up_authorized_operation_v1',
     authorization_session_id: input.authorization.session.sessionId,
+    evidence_set_digest: operation.authorization.evidenceSetDigest,
     authorized_operation_id: operation.authorizedOperationId,
     operation_id: operation.operation.operationId,
     capability_kind: 'near_ed25519_mpc_signing',
@@ -986,6 +1090,13 @@ async function validateEd25519VerifiedStepUpAuthorizedOperation(input: {
     ) {
       throw new Error('Operation step-up authorized operation identity changed after prepare');
     }
+    if (
+      operationResult.authorization.kind !== 'verified_step_up' ||
+      operationResult.authorization.evidenceSetDigest !==
+        parseDigestB64u(receipt.evidence_set_digest)
+    ) {
+      throw new Error('Operation step-up evidence changed after prepare');
+    }
     const revalidated = await revalidateEd25519AuthorizedOperation({
       ctx: input.ctx,
       operation: operationResult,
@@ -1078,6 +1189,22 @@ export function decideEd25519NormalSigningExecution(input: {
       return { kind: 'replayed', response: replay };
     }
   }
+}
+
+type Ed25519OperationStepUpExecutionDecision =
+  | { readonly kind: 'execute'; readonly operation: AuthorizedOperation }
+  | { readonly kind: 'replay'; readonly response: Response };
+
+export function decideEd25519OperationStepUpExecution(input: {
+  readonly admissionKind: 'claimed' | 'operation_in_progress' | 'replayed';
+  readonly operation: AuthorizedOperation;
+}): Ed25519OperationStepUpExecutionDecision {
+  if (input.admissionKind === 'replayed') {
+    const replay = replayCompletedEd25519Operation(input.operation);
+    if (!replay) throw new Error('Ed25519 replayed operation is not completed');
+    return { kind: 'replay', response: replay };
+  }
+  return { kind: 'execute', operation: input.operation };
 }
 
 export function isRouterAbEd25519OperationInProgressResponse(input: {
@@ -1241,7 +1368,7 @@ async function issueEd25519OperationStepUpGrant(input: {
     operationId: operation.operationId,
     operation: operation.operation,
     digests: {
-      laneDigest: parseDigestB64u(intent.operation_fingerprint),
+      laneDigest: parseSigningOperationFingerprintDigest(intent.operation_fingerprint),
       intentDigest: parseDigestB64u(
         base64UrlEncode(Uint8Array.from(privateBody.admission_candidate.intent_digest.bytes)),
       ),
@@ -1425,18 +1552,65 @@ async function issueEd25519OperationStepUpGrant(input: {
       break;
     }
   }
-  await input.ctx.service.authorizedOperations.recordVerifiedFactorEvidenceSet({
+  const evidenceSet = await input.ctx.service.authorizedOperations.recordVerifiedFactorEvidenceSet({
     session: activeSession,
     operation: envelope,
     evidenceId,
     evidenceSetId,
     factor,
   });
+  const atomicOperation = await input.ctx.service.authorizedOperations.admitAuthorizedOperation({
+    operation: {
+      tenantId: authenticated.session.tenantId,
+      authorizedOperationId: requireAuthorizationValue(
+        parseAuthorizedOperationId(`normal-signing-operation:${scope.request_id}`),
+      ),
+      auditEventId: requireAuthorizationValue(
+        parseAuthorizationAuditEventId(`normal-signing-audit:${scope.request_id}`),
+      ),
+      operation: envelope,
+      authorization: {
+        kind: 'verified_step_up',
+        evidenceSetDigest: evidenceSet.evidenceSetDigest,
+      },
+      quota: { kind: 'quota_neutral' },
+      claimedAtMs: nowMs,
+    },
+  });
+  switch (atomicOperation.kind) {
+    case 'claimed':
+    case 'operation_in_progress':
+    case 'replayed':
+      break;
+    case 'authorization_grant_rejected':
+    case 'verified_step_up_rejected':
+      return json(
+        {
+          ok: false,
+          code: atomicOperation.kind,
+          message: 'Ed25519 operation step-up authorization is invalid',
+        },
+        { status: 403 },
+      );
+    case 'wallet_session_quota_exhausted':
+    case 'material_mismatch':
+      return json(
+        {
+          ok: false,
+          code: atomicOperation.kind,
+          message: 'Ed25519 operation step-up authorization is unavailable',
+        },
+        { status: 409 },
+      );
+  }
   return json(
     {
       ok: true,
       kind: 'verified_step_up',
-      authorization: { kind: 'operation_step_up' },
+      authorization: {
+        kind: 'operation_step_up',
+        evidence_set_digest: evidenceSet.evidenceSetDigest,
+      },
       expiresAtMs,
       materialRecovery,
     },
@@ -1471,8 +1645,7 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
       if (authorization.phase !== 'prepare') {
         throw new Error('Operation step-up prepare authorization phase changed');
       }
-      const execution = decideEd25519NormalSigningExecution({
-        phase: 'prepare',
+      const execution = decideEd25519OperationStepUpExecution({
         admissionKind: authorization.admissionKind,
         operation: authorization.operation,
       });

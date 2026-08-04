@@ -38,8 +38,15 @@ import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 
 type ConcreteEcdsaExportAvailableLane = ConcreteAvailableEcdsaSigningLane & {
   source: 'canonical_capability';
-  authorization: NonNullable<ConcreteAvailableEcdsaSigningLane['authorization']>;
-};
+} & (
+  | {
+      authorization: NonNullable<ConcreteAvailableEcdsaSigningLane['authorization']>;
+    }
+  | {
+      authorization?: never;
+      auth: Extract<ConcreteAvailableEcdsaSigningLane['auth'], { kind: 'passkey' }>;
+    }
+);
 
 type EcdsaExportSelectionKeyContext = {
   walletId: string;
@@ -56,6 +63,7 @@ export type ExportLaneSelectionDeps = {
 function summarizeExportAvailableLane(
   lane: ConcreteEcdsaExportAvailableLane,
 ): Record<string, unknown> {
+  const authorization = lane.authorization;
   return {
     authMethod: availableEcdsaSigningLaneAuthMethod(lane),
     curve: lane.curve,
@@ -63,8 +71,12 @@ function summarizeExportAvailableLane(
     chainTarget: lane.chainTarget,
     state: lane.state,
     source: lane.source,
-    remainingUses: lane.remainingUses,
-    expiresAtMs: lane.expiresAtMs,
+    ...(authorization
+      ? {
+          remainingUses: lane.remainingUses,
+          expiresAtMs: lane.expiresAtMs,
+        }
+      : {}),
     updatedAtMs: lane.updatedAtMs,
     evmFamilyKeyFingerprint: deriveEvmFamilyKeyFingerprintFromPublicFacts({
       walletId: lane.key.walletId,
@@ -183,6 +195,33 @@ function exactEcdsaExportLaneStateFromAvailableLane(args: {
   }
 }
 
+function exactEcdsaExportLaneFromAvailableLane(args: {
+  lane: ConcreteEcdsaExportAvailableLane;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): ExactEcdsaExportLane {
+  const laneIdentity = exactEcdsaIdentityForExportLane({ lane: args.lane });
+  const state = exactEcdsaExportLaneStateFromAvailableLane(args);
+  if (args.lane.authorization) {
+    return {
+      curve: 'ecdsa',
+      laneIdentity,
+      authorizationState: 'authorized',
+      authorization: args.lane.authorization,
+      key: args.lane.key,
+      publicFacts: args.lane.publicFacts,
+      ...state,
+    };
+  }
+  return {
+    curve: 'ecdsa',
+    laneIdentity,
+    authorizationState: 'authorization_required',
+    key: args.lane.key,
+    publicFacts: args.lane.publicFacts,
+    ...state,
+  };
+}
+
 function ecdsaExportLaneMatchesIdentity(args: {
   lane: ConcreteEcdsaExportAvailableLane;
   identity: ExactEcdsaSigningLaneIdentity;
@@ -229,18 +268,10 @@ async function resolveEcdsaExportLane(
     candidates: exactTargetCandidates,
     ecdsaContext,
   });
-  const laneIdentity = exactEcdsaIdentityForExportLane({ lane: selected });
-  return {
-    curve: 'ecdsa',
-    laneIdentity,
-    authorization: selected.authorization,
-    key: selected.key,
-    publicFacts: selected.publicFacts,
-    ...exactEcdsaExportLaneStateFromAvailableLane({
+  return exactEcdsaExportLaneFromAvailableLane({
       lane: selected,
       chainTarget: selected.chainTarget,
-    }),
-  };
+  });
 }
 
 export async function resolveExactKeyExportLane(

@@ -81,8 +81,11 @@ const WALLET_ID = 'wallet-export-1';
 const NEAR_ACCOUNT_ID = '0c'.repeat(32);
 const NEAR_SIGNING_KEY_ID = 'ed25519ks_export_1';
 const ROOT_SHARE_EPOCH = 'root-export-1';
+const AUTHORIZATION_ID = 'authorization-grant-export-1';
 const WALLET_SESSION_ID = 'wallet-session-export-1';
 const THRESHOLD_SESSION_ID_RAW = 'threshold-session-export-1';
+const RENEWED_THRESHOLD_SESSION_ID_RAW = 'threshold-session-export-renewed-1';
+const SUBSTITUTED_WALLET_SESSION_ID = 'wallet-session-export-substituted-1';
 const SIGNING_WORKER_ID = 'signing-worker-export-1';
 const PARTICIPANTS = [11, 29] as const;
 const CREDENTIAL_ID = 'ZXhwb3J0LWNyZWRlbnRpYWwtMQ';
@@ -621,14 +624,18 @@ function nextVersion(current: string | null): string {
   return String(Number(current ?? '0') + 1);
 }
 
-function claimsForAuthority(authority: WalletAuthAuthority): SessionClaims {
+function claimsForAuthorityWithThresholdSession(
+  authority: WalletAuthAuthority,
+  thresholdSessionId: string,
+): SessionClaims {
   return {
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
     sub: WALLET_ID,
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-    thresholdSessionId: THRESHOLD_SESSION_ID_RAW,
+    thresholdSessionId,
+    authorizationId: AUTHORIZATION_ID,
     walletSessionId: WALLET_SESSION_ID,
     quotaId: 'wallet-session-quota-export-1',
     relayerKeyId: SIGNING_WORKER_ID,
@@ -642,6 +649,10 @@ function claimsForAuthority(authority: WalletAuthAuthority): SessionClaims {
       signingWorkerId: SIGNING_WORKER_ID,
     },
   };
+}
+
+function claimsForAuthority(authority: WalletAuthAuthority): SessionClaims {
+  return claimsForAuthorityWithThresholdSession(authority, THRESHOLD_SESSION_ID_RAW);
 }
 
 function validClaims(): SessionClaims {
@@ -680,6 +691,7 @@ function namedAccountClaimsForCapability(
     nearAccountId: capability.nearAccountId,
     nearEd25519SigningKeyId: capability.applicationBinding.near_ed25519_signing_key_id,
     thresholdSessionId: capability.lifecycle.thresholdSessionId,
+    authorizationId: AUTHORIZATION_ID,
     walletSessionId: WALLET_SESSION_ID,
     quotaId: 'wallet-session-quota-export-1',
     relayerKeyId: capability.lifecycle.signingWorkerId,
@@ -745,9 +757,12 @@ function authorizationInput(
   };
 }
 
-function exportAuthorizationIdentity(): RouterAbEd25519YaoExportServerAuthorizationIdentityV1 {
-  const thresholdSessionId = parseThresholdEd25519SessionId(THRESHOLD_SESSION_ID_RAW);
-  const walletSessionId = parseWalletSessionId(WALLET_SESSION_ID);
+function exportAuthorizationIdentityFor(
+  thresholdSessionIdRaw: string,
+  walletSessionIdRaw: string,
+): RouterAbEd25519YaoExportServerAuthorizationIdentityV1 {
+  const thresholdSessionId = parseThresholdEd25519SessionId(thresholdSessionIdRaw);
+  const walletSessionId = parseWalletSessionId(walletSessionIdRaw);
   if (!thresholdSessionId.ok || !walletSessionId.ok) {
     throw new Error('invalid export authorization fixture identity');
   }
@@ -755,6 +770,10 @@ function exportAuthorizationIdentity(): RouterAbEd25519YaoExportServerAuthorizat
     thresholdSessionId: thresholdSessionId.value,
     walletSessionId: walletSessionId.value,
   };
+}
+
+function exportAuthorizationIdentity(): RouterAbEd25519YaoExportServerAuthorizationIdentityV1 {
+  return exportAuthorizationIdentityFor(THRESHOLD_SESSION_ID_RAW, WALLET_SESSION_ID);
 }
 
 function jsonAdmissionRequest(
@@ -1003,6 +1022,74 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       expectedChallenge: base64UrlEncode(Uint8Array.from(body.authorization.confirmation_digest)),
       webauthn_authentication: webAuthnCredential(),
       expected_origin: ORIGIN,
+    });
+  });
+
+  test('accepts renewed Wallet Session authorization across material lifecycle execution', async () => {
+    const body = await admissionFixture(defaultAdmissionFixtureOptions(Date.now()));
+    const renewedClaims = claimsForAuthorityWithThresholdSession(
+      buildPasskeyWalletAuthAuthority({
+        walletId: WALLET_ID,
+        rpId: RP_ID,
+        credentialIdB64u: CREDENTIAL_ID,
+      }),
+      RENEWED_THRESHOLD_SESSION_ID_RAW,
+    );
+    const authorization = new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(
+      new SessionFixture({ ok: true, claims: renewedClaims }),
+      new WebAuthnFixture(true),
+    );
+    const renewedIdentity = exportAuthorizationIdentityFor(
+      RENEWED_THRESHOLD_SESSION_ID_RAW,
+      WALLET_SESSION_ID,
+    );
+    const admittedAuthorization = await authorization.authorize(authorizationInput(body));
+
+    expect(admittedAuthorization).toMatchObject({
+      ok: true,
+      authorizationIdentity: renewedIdentity,
+    });
+    if (!admittedAuthorization.ok) throw new Error(admittedAuthorization.message);
+
+    const backend = new ExportBackendFixture();
+    const service = new InMemoryRouterAbEd25519YaoExportService(
+      backend,
+      new ActiveCapabilityFixture(),
+    );
+    expect(
+      await service.admitExport(body, admittedAuthorization.authorizationIdentity),
+    ).toMatchObject({ ok: true });
+
+    const execution = executeFixture(body);
+    const executedAuthorization = await authorization.authorize({
+      kind: 'execute',
+      request: new Request(`${ORIGIN}${ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1}`, {
+        method: 'POST',
+        headers: { authorization: 'Bearer export-wallet-session' },
+      }),
+      body: execution,
+    });
+    expect(executedAuthorization).toMatchObject({
+      ok: true,
+      authorizationIdentity: renewedIdentity,
+    });
+    if (!executedAuthorization.ok) throw new Error(executedAuthorization.message);
+
+    expect(
+      await service.executeExport(execution, executedAuthorization.authorizationIdentity),
+    ).toMatchObject({ ok: true });
+    expect(
+      await service.executeExport(
+        execution,
+        exportAuthorizationIdentityFor(
+          RENEWED_THRESHOLD_SESSION_ID_RAW,
+          SUBSTITUTED_WALLET_SESSION_ID,
+        ),
+      ),
+    ).toMatchObject({
+      ok: false,
+      status: 409,
+      code: 'binding_mismatch',
     });
   });
 

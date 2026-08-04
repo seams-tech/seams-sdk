@@ -880,6 +880,28 @@ test.describe('canonical ECDSA capability manifest store', () => {
           bindingDigest: fixture.prepareInput.activationBinding.bindingDigest,
           materialActivation,
         });
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.open('seams_wallet');
+          request.onsuccess = () => {
+            const db = request.result;
+            const transaction = db.transaction('ecdsa_current_capability_manifests', 'readwrite');
+            transaction.objectStore('ecdsa_current_capability_manifests').put({
+              record_version: 'obsolete_pointer_version',
+              capability_ref: 'capability-for-another-wallet',
+              wallet_id: 'another-wallet',
+              authority_digest: 'authority-for-another-wallet',
+              manifest_id: 'manifest-for-another-wallet',
+              manifest_revision: 1,
+            });
+            transaction.oncomplete = () => {
+              db.close();
+              resolve();
+            };
+            transaction.onerror = () => reject(transaction.error);
+            transaction.onabort = () => reject(transaction.error);
+          };
+          request.onerror = () => reject(request.error);
+        });
         const activeWalletSubjects = await store.listActiveWalletCapabilitySubjects(
           fixture.prepareInput.activationBinding.signer.authority.walletId,
         );
@@ -1087,6 +1109,8 @@ test.describe('canonical ECDSA capability manifest store', () => {
             kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
             journalId: committedPayload.journalId,
             activationReceipt: committedPayload.activationReceipt,
+            routerAbEcdsaDerivationNormalSigning:
+              committedPayload.routerAbEcdsaDerivationNormalSigning,
           },
         );
         committedWorker.terminate();

@@ -3,6 +3,8 @@ import type {
   RouterAbEcdsaClientProofFinalizationV1,
   RouterAbEcdsaDerivationActivationRefreshRequestV1,
   RouterAbEcdsaDerivationExplicitExportRequestV1,
+  RouterAbEcdsaDerivationExplicitExportProtocolRequestV1,
+  RouterAbEcdsaOperationStepUpPreparationV1Wire,
   RouterAbEcdsaDerivationPublicCapabilityV1,
   RouterAbEcdsaRegistrationRecipientKeysV1,
   RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
@@ -15,7 +17,9 @@ import type {
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import type { EcdsaClientPresignPoolIdentity } from './ecdsaPresignPoolIdentity';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export const EcdsaClientWorkerControlKind = {
@@ -116,12 +120,127 @@ export type EmailOtpEcdsaSigningShareResponse =
       readonly error: string;
     };
 
-export type RouterAbEcdsaExplicitExportRequestFactsV1 = Omit<
-  RouterAbEcdsaDerivationExplicitExportRequestV1,
+type RouterAbEcdsaExplicitExportRequestFactsBaseV1 = Omit<
+  RouterAbEcdsaDerivationExplicitExportProtocolRequestV1,
   'client_ephemeral_public_key' | 'deriver_a_export_envelope' | 'deriver_b_export_envelope'
 > & {
   readonly deriver_recipient_keys: RouterAbEcdsaRegistrationRecipientKeysV1;
 };
+
+type RouterAbEcdsaReusableExplicitExportRequestFactsV1 =
+  RouterAbEcdsaExplicitExportRequestFactsBaseV1 & {
+    readonly authorization: Extract<
+      RouterAbNormalSigningAuthorizationWire,
+      { readonly kind: 'reusable_wallet_session' }
+    >;
+    readonly operation?: never;
+    readonly authorization_id?: never;
+  };
+
+type RouterAbEcdsaOperationStepUpExplicitExportRequestFactsV1 =
+  RouterAbEcdsaExplicitExportRequestFactsBaseV1 & {
+    readonly authorization: Extract<
+      RouterAbNormalSigningAuthorizationWire,
+      { readonly kind: 'operation_step_up' }
+    >;
+    readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+    readonly authorization_id: DigestB64u;
+  };
+
+export type RouterAbEcdsaExplicitExportRequestFactsV1 =
+  | RouterAbEcdsaReusableExplicitExportRequestFactsV1
+  | RouterAbEcdsaOperationStepUpExplicitExportRequestFactsV1;
+
+type RouterAbEcdsaReusableExplicitExportRequestWasmInputV1 =
+  RouterAbEcdsaExplicitExportRequestFactsBaseV1 & {
+    readonly authorization: Extract<
+      RouterAbNormalSigningAuthorizationWire,
+      { readonly kind: 'reusable_wallet_session' }
+    >;
+    readonly authorization_id?: never;
+  };
+
+type RouterAbEcdsaOperationStepUpExplicitExportRequestWasmInputV1 =
+  Omit<RouterAbEcdsaExplicitExportRequestFactsBaseV1, 'authorization'> & {
+    readonly authorization: {
+      readonly kind: 'operation_step_up';
+      readonly authorization_id: DigestB64u;
+    };
+  };
+
+export type RouterAbEcdsaExplicitExportRequestWasmInputV1 =
+  | RouterAbEcdsaReusableExplicitExportRequestWasmInputV1
+  | RouterAbEcdsaOperationStepUpExplicitExportRequestWasmInputV1;
+
+function isOperationStepUpExplicitExportFacts(
+  request: RouterAbEcdsaExplicitExportRequestFactsV1,
+): request is RouterAbEcdsaOperationStepUpExplicitExportRequestFactsV1 {
+  return request.authorization.kind === 'operation_step_up';
+}
+
+function projectReusableExplicitExportRequestForWasm(
+  request: RouterAbEcdsaReusableExplicitExportRequestFactsV1,
+): RouterAbEcdsaReusableExplicitExportRequestWasmInputV1 {
+  const {
+    operation: _operation,
+    authorization_id: _authorizationId,
+    ...wasmInput
+  } = request;
+  return wasmInput;
+}
+
+function projectOperationStepUpExplicitExportRequestForWasm(
+  request: RouterAbEcdsaOperationStepUpExplicitExportRequestFactsV1,
+): RouterAbEcdsaOperationStepUpExplicitExportRequestWasmInputV1 {
+  const {
+    operation: _operation,
+    authorization: _authorization,
+    authorization_id: authorizationId,
+    ...wasmInput
+  } = request;
+  if (!authorizationId) {
+    throw new Error('ECDSA explicit-export operation authorization id is missing');
+  }
+  return {
+    ...wasmInput,
+    authorization: {
+      kind: 'operation_step_up',
+      authorization_id: authorizationId,
+    },
+  };
+}
+
+export function projectRouterAbEcdsaExplicitExportRequestForWasmV1(
+  request: RouterAbEcdsaExplicitExportRequestFactsV1,
+): RouterAbEcdsaExplicitExportRequestWasmInputV1 {
+  if (isOperationStepUpExplicitExportFacts(request)) {
+    return projectOperationStepUpExplicitExportRequestForWasm(request);
+  }
+  return projectReusableExplicitExportRequestForWasm(request);
+}
+
+export function attachRouterAbEcdsaExplicitExportOperationV1(input: {
+  readonly facts: RouterAbEcdsaExplicitExportRequestFactsV1;
+  readonly protocolRequest: RouterAbEcdsaDerivationExplicitExportProtocolRequestV1;
+}): RouterAbEcdsaDerivationExplicitExportRequestV1 {
+  if (!isOperationStepUpExplicitExportFacts(input.facts)) {
+    if (input.protocolRequest.authorization.kind !== 'reusable_wallet_session') {
+      throw new Error('ECDSA explicit-export authorization changed across the WASM boundary');
+    }
+    return {
+      ...input.protocolRequest,
+      authorization: input.protocolRequest.authorization,
+    };
+  }
+  if (input.protocolRequest.authorization.kind !== 'operation_step_up') {
+    throw new Error('ECDSA explicit-export authorization changed across the WASM boundary');
+  }
+  return {
+    ...input.protocolRequest,
+    authorization: input.protocolRequest.authorization,
+    operation: input.facts.operation,
+  };
+}
 
 export type RouterAbEcdsaActivationRefreshRequestFactsV1 = Omit<
   RouterAbEcdsaDerivationActivationRefreshRequestV1,

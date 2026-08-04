@@ -1152,7 +1152,6 @@ function claimsMatchExportAdmission(
     claims.nearEd25519SigningKeyId === request.application_binding.near_ed25519_signing_key_id &&
     claims.thresholdSessionId === authorizationIdentity.thresholdSessionId &&
     claims.walletSessionId === authorizationIdentity.walletSessionId &&
-    claims.thresholdSessionId === request.scope.threshold_session_id &&
     claims.relayerKeyId === request.scope.signing_worker_id &&
     claims.routerAbNormalSigning.signingWorkerId === request.scope.signing_worker_id &&
     claims.runtimePolicyScope.signingRootVersion === request.scope.root_share_epoch &&
@@ -1236,7 +1235,6 @@ function authorizeExportExecution(
     claims.walletId !== lifecycle.account_id ||
     claims.thresholdSessionId !== authorizationIdentity.thresholdSessionId ||
     claims.walletSessionId !== authorizationIdentity.walletSessionId ||
-    claims.thresholdSessionId !== lifecycle.session_id ||
     claims.relayerKeyId !== lifecycle.selected_server_id
   ) {
     return authorizationFailure({

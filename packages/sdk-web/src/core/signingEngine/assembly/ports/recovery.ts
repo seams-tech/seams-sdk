@@ -12,9 +12,7 @@ import type {
   RecoveryPublicDeps,
   RecoveryPublicEcdsaSessionStoreDeps,
 } from '../../flows/recovery/public';
-import type {
-  EmailOtpWalletSessionExportAuthorizationDeps,
-} from '../../flows/recovery/keyExportConfirmation';
+import type { EmailOtpWalletSessionExportAuthorizationDeps } from '../../flows/recovery/keyExportConfirmation';
 import type { CreateSigningEnginePortsArgs } from './shared';
 import type {
   EmailOtpEcdsaExportArtifact,
@@ -32,6 +30,8 @@ export function createRecoveryPublicDeps(args: {
   withThresholdEcdsaSigningQueue: EcdsaExportFlowDeps['withThresholdEcdsaSigningQueue'];
   withThresholdEd25519CommitQueue: Ed25519YaoExportFlowDeps['withThresholdEd25519CommitQueue'];
   ecdsaSessions: RecoveryPublicEcdsaSessionStoreDeps;
+  ed25519YaoPublicCapabilityLanes: PersistedAvailableSigningLanesDeps['ed25519YaoPublicCapabilityLanes'];
+  readActiveWalletSessionAuthorization: PersistedAvailableSigningLanesDeps['readActiveWalletSessionAuthorization'];
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
   touchConfirm: UiConfirmRuntimeBridgePort;
   passkeyMpcExport: PasskeyMpcExportPort;
@@ -63,6 +63,7 @@ export function createRecoveryPublicDeps(args: {
   >(
     availableLanesArgs: TArgs,
   ): TArgs => {
+    if (availableLanesArgs.ecdsaChainTargets.length === 0) return availableLanesArgs;
     const targetsByKey = new Map<string, (typeof configuredChainTargets)[number]>();
     for (const chainTarget of [
       ...availableLanesArgs.ecdsaChainTargets,
@@ -81,6 +82,8 @@ export function createRecoveryPublicDeps(args: {
       readPersistedAvailableSigningLanesForTargets: (availableLanesArgs) =>
         readPersistedAvailableSigningLanesForTargets(
           {
+            ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
+            readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
             listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
           },
           completeConfiguredEcdsaTargets(availableLanesArgs),

@@ -182,6 +182,13 @@ export function parseCapabilityOperationFingerprintDigest(
   return parseDigestB64u(value) as CapabilityOperationFingerprintDigest;
 }
 
+export function parseSigningOperationFingerprintDigest(value: unknown): DigestB64u {
+  if (typeof value !== 'string' || !value.startsWith('sha256:')) {
+    throw new Error('signing operation fingerprint must use the sha256: prefix');
+  }
+  return parseDigestB64u(value.slice('sha256:'.length));
+}
+
 function parseDigest(
   value: unknown,
   fieldName: keyof OperationDigestSet,

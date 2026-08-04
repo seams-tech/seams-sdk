@@ -22,17 +22,18 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
 | `capabilityGrantId`  | Exact one-operation authority bound to an operation, capability, and material activation.                                             |
 | `thresholdSessionId` | Cryptographic signing-session id for Ed25519 or ECDSA material.                                                                      |
 | `chainTarget`        | Concrete ECDSA signing target, such as Tempo testnet or Arc EVM testnet.                                                             |
-| `warm session`       | Short-lived signing session created by registration, unlock, or step-up auth.                                                        |
-| `step-up auth`       | Same-method fresh authorization used when an operation needs more authority than the current warm session has.                       |
+| `warm session`       | Short-lived reusable signing session created by registration, unlock, or step-up auth.                                             |
+| `step-up auth`       | Same-method fresh authorization scoped to one privileged operation.                                                                  |
 
 ## Global Invariants
 
 - Passkey and Email OTP are separate auth methods. A flow selected as
   `email_otp` must not call passkey/WebAuthn credential lookup. A flow selected
   as `passkey` must not call Email OTP verification.
-- Registration and default wallet unlock must leave the wallet with equivalent
-  usable lane inventory for the same wallet, auth method, and configured chains.
-  Explicit partial unlock must hydrate only the requested lane subset.
+- Registration must persist the configured signer inventory and establish a
+  reusable Wallet Session for the authenticated registration authority. Default
+  wallet unlock hydrates that durable inventory; explicit partial unlock
+  hydrates only the requested lane subset.
 - Transaction signing uses warm-session budget. It should not ask for step-up
   while a valid warm session has enough signature uses for the requested
   operation.
@@ -54,14 +55,14 @@ Expected behaviour:
 - Registration prompts for one passkey credential creation.
 - The newly created passkey credential is bound to the wallet and stored as a
   passkey auth method.
-- Registration returns after the wallet, auth method, and configured ECDSA
-  signer inventory are durable. Tempo and Arc/EVM signing may begin immediately.
+- Registration returns after the wallet, auth method, configured ECDSA signer
+  inventory, and reusable Wallet Session are durable. Tempo and Arc/EVM signing
+  may begin immediately.
 - For a mixed signer set, Ed25519/NEAR provisioning continues under the same
   authenticated ceremony and publishes one of `near_pending`,
   `near_provisioning`, `near_ready`, or `near_failed_retryable`.
-- NEAR signing and Ed25519 export become available at `near_ready` without a
-  second passkey prompt. A retryable provisioning failure remains visible to
-  the caller.
+- NEAR signing becomes available at `near_ready` without a second passkey prompt.
+  A retryable provisioning failure remains visible to the caller.
 - ECDSA key export remains available while NEAR is pending and requires fresh
   export authorization.
 - Passkey registration must not send or verify an Email OTP challenge.
@@ -86,15 +87,14 @@ Expected behaviour:
   registration purpose match.
 - Registration stores the Email OTP auth method and binds it to the final
   wallet id.
-- Registration returns after the wallet, Email OTP auth method, and configured
-  ECDSA signer inventory are durable. Tempo and Arc/EVM signing may begin
-  immediately.
+- Registration returns after the wallet, Email OTP auth method, configured ECDSA
+  signer inventory, and reusable Wallet Session are durable. Tempo and Arc/EVM
+  signing may begin immediately.
 - For a mixed signer set, Ed25519/NEAR provisioning continues with the live
   registration factor and publishes one of `near_pending`,
   `near_provisioning`, `near_ready`, or `near_failed_retryable`.
-- NEAR signing and Ed25519 export become available at `near_ready` without a
-  second OTP verification. A retryable provisioning failure remains visible to
-  the caller.
+- NEAR signing becomes available at `near_ready` without a second OTP
+  verification. A retryable provisioning failure remains visible to the caller.
 - ECDSA key export remains available while NEAR is pending and requires fresh
   export authorization.
 - Email OTP registration must not create passkey-owned runtime material.

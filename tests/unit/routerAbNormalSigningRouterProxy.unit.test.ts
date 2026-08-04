@@ -3,11 +3,14 @@ import { proxyNormalSigningRequestToMpcRouter } from '../../packages/sdk-server-
 import {
   buildEd25519ReplayResponse,
   decideEd25519NormalSigningExecution,
+  decideEd25519OperationStepUpExecution,
   isRouterAbEd25519OperationInProgressResponse,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519';
+import { decideRouterAbEcdsaOperationStepUpExecution } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa';
 import {
   buildCompletedAuthorizedOperationFixture,
   buildReusableAuthorizationCoreFixture,
+  buildStepUpAuthorizationCoreFixture,
 } from './helpers/authorizationCore.fixtures';
 import {
   routerAbEcdsaOperationInProgressResult,
@@ -133,6 +136,28 @@ test('Ed25519 in-progress prepare admission returns 409 without an execution dec
   });
 });
 
+test('Ed25519 operation step-up reuses its preclaimed operation through prepare', async () => {
+  const stepUp = await buildStepUpAuthorizationCoreFixture();
+
+  const prepare = decideEd25519OperationStepUpExecution({
+    admissionKind: 'operation_in_progress',
+    operation: stepUp.authorizedOperation,
+  });
+  expect(prepare.kind).toBe('execute');
+  if (prepare.kind !== 'execute') throw new Error('expected preclaimed prepare to execute');
+  expect(prepare.operation).toBe(stepUp.authorizedOperation);
+
+  const completed = await buildCompletedAuthorizedOperationFixture(stepUp);
+  const replay = decideEd25519OperationStepUpExecution({
+    admissionKind: 'replayed',
+    operation: completed,
+  });
+  expect(replay.kind).toBe('replay');
+  if (replay.kind !== 'replay') throw new Error('expected completed step-up to replay');
+  expect(replay.response.status).toBe(200);
+  await expect(replay.response.text()).resolves.toBe('{"ok":true}');
+});
+
 test('Ed25519 completed admission returns the recorded response without an execution decision', async () => {
   const fixture = await buildReusableAuthorizationCoreFixture();
   const operation = await buildCompletedAuthorizedOperationFixture(fixture);
@@ -193,6 +218,38 @@ test('ECDSA in-progress admission returns a typed conflict before execution', as
       message: 'ECDSA signing operation is already in progress',
     },
   });
+});
+
+test('ECDSA operation step-up reuses its preclaimed operation through finalize', async () => {
+  const stepUp = await buildStepUpAuthorizationCoreFixture();
+
+  const prepare = decideRouterAbEcdsaOperationStepUpExecution({
+    phase: 'prepare',
+    admissionKind: 'operation_in_progress',
+    operation: stepUp.authorizedOperation,
+  });
+  expect(prepare.kind).toBe('execute');
+  if (prepare.kind !== 'execute') throw new Error('expected preclaimed prepare to execute');
+  expect(prepare.operation).toBe(stepUp.authorizedOperation);
+
+  const finalize = decideRouterAbEcdsaOperationStepUpExecution({
+    phase: 'finalize',
+    admissionKind: 'operation_in_progress',
+    operation: prepare.operation,
+  });
+  expect(finalize.kind).toBe('execute');
+  if (finalize.kind !== 'execute') throw new Error('expected preclaimed finalize to execute');
+  expect(finalize.operation).toBe(stepUp.authorizedOperation);
+
+  const reusable = await buildReusableAuthorizationCoreFixture();
+  const completed = await buildCompletedAuthorizedOperationFixture(reusable);
+  expect(
+    decideRouterAbEcdsaOperationStepUpExecution({
+      phase: 'finalize',
+      admissionKind: 'replayed',
+      operation: completed,
+    }).kind,
+  ).toBe('replay');
 });
 
 test('ECDSA completed admission replays the recorded response without proxying', async () => {

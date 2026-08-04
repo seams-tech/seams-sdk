@@ -215,6 +215,7 @@ export type RouterAbReusableWalletSessionAuthorizedOperationV1Wire = {
 export type RouterAbVerifiedStepUpAuthorizedOperationV1Wire = {
   kind: 'verified_step_up_authorized_operation_v1';
   authorization_session_id: string;
+  evidence_set_digest: string;
   authorized_operation_id: string;
   operation_id: string;
   capability_kind: 'near_ed25519_mpc_signing';
@@ -850,6 +851,7 @@ function parseVerifiedStepUpAuthorizedOperation(
     [
       'kind',
       'authorization_session_id',
+      'evidence_set_digest',
       'authorized_operation_id',
       'operation_id',
       'capability_kind',
@@ -885,6 +887,10 @@ function parseVerifiedStepUpAuthorizedOperation(
     authorization_session_id: requireNonEmptyString(
       record.authorization_session_id,
       `${label}.authorization_session_id`,
+    ),
+    evidence_set_digest: requireDigestB64u(
+      record.evidence_set_digest,
+      `${label}.evidence_set_digest`,
     ),
     authorized_operation_id: requireNonEmptyString(
       record.authorized_operation_id,

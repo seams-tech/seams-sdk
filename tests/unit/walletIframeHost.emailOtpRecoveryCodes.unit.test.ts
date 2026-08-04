@@ -254,6 +254,10 @@ test.describe('wallet iframe Email OTP recovery-code RPC', () => {
         [
           'alice.testnet',
           expect.objectContaining({
+            session: {
+              kind: 'jwt',
+              exchange: { type: 'passkey_assertion' },
+            },
             ecdsaKeyFactsInventory: {
               mode: 'app_session',
               appSessionJwt: jwt,

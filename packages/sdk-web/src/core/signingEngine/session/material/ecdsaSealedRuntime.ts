@@ -85,6 +85,11 @@ export type ExactEcdsaMaterialRuntime = {
   readonly authBinding: ExactEcdsaSealedRuntimeAuthBinding;
 };
 
+export type ExactEcdsaCapabilityRuntime = Omit<ExactEcdsaMaterialRuntime, 'authBinding'> & {
+  readonly kind: 'exact_ecdsa_capability_runtime_v1';
+  readonly authBinding?: never;
+};
+
 export type ExactEcdsaSealedRuntime = ExactEcdsaMaterialRuntime & {
   readonly kind: 'exact_ecdsa_sealed_runtime_v1';
   readonly expiresAtMs: number;
@@ -259,7 +264,6 @@ function sealedRecordBindsManifestFacts(args: {
     String(args.manifest.signer.walletId) === String(args.walletId) &&
     String(publicFacts.walletId) === String(args.walletId) &&
     manifestIncludesTarget(args) &&
-    thresholdEcdsaChainTargetsEqual(publicFacts.chainTarget, args.chainTarget) &&
     args.record.authMethod === expectedAuthMethod &&
     authorityRefsEqual(restore.authority, args.manifest.signer.authority) &&
     normalizedNonEmpty(restore.roleLocalMaterialRef.bindingDigest) ===
@@ -269,8 +273,7 @@ function sealedRecordBindsManifestFacts(args: {
     resolvedThresholdKeyId === normalizedNonEmpty(binding.ecdsaThresholdKeyId) &&
     resolvedThresholdKeyId === normalizedNonEmpty(publicFacts.ecdsaThresholdKeyId) &&
     resolvedClientVerifyingShare === normalizedNonEmpty(binding.clientVerifyingPublicKey33B64u) &&
-    resolvedClientVerifyingShare ===
-      normalizedNonEmpty(publicFacts.derivationClientSharePublicKey33B64u) &&
+    resolvedClientVerifyingShare === normalizedNonEmpty(publicFacts.derivationClientSharePublicKey33B64u) &&
     resolvedThresholdPublicKey === normalizedNonEmpty(publicFacts.groupPublicKey33B64u) &&
     normalizedNonEmpty(restore.relayerKeyId) === normalizedNonEmpty(binding.relayerKeyId) &&
     participantIdsEqual(restore.participantIds, binding.participantIds) &&

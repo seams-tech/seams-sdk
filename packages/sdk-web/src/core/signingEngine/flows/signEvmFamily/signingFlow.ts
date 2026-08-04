@@ -34,6 +34,8 @@ import type {
   SigningOperationContext,
   SigningSessionPlan,
 } from '../../session/operationState/types';
+import { SigningSessionIds } from '../../session/operationState/types';
+import { parseSigningOperationFingerprintDigest } from '../../session/planning/operationFingerprint';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   SigningOperationCommandKind,
@@ -201,14 +203,13 @@ async function buildEvmFamilyOperationDigests(input: {
   displayModel: TxDisplayModel;
 }): Promise<OperationDigestSet> {
   const operationFingerprint = String(input.operationFingerprint || '').trim();
-  const laneDigest = operationFingerprint.startsWith('sha256:')
-    ? operationFingerprint.slice('sha256:'.length)
-    : '';
-  if (!laneDigest) {
+  if (!operationFingerprint) {
     throw new Error('[chains] exact EVM signing operation fingerprint digest is required');
   }
   return {
-    laneDigest: parseDigestB64u(laneDigest),
+    laneDigest: parseSigningOperationFingerprintDigest(
+      SigningSessionIds.signingOperationFingerprint(operationFingerprint),
+    ),
     intentDigest: parseDigestB64u(base64UrlEncode(input.signingDigest32)),
     displayDigest: parseDigestB64u(
       base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(input.displayModel))),

@@ -3,6 +3,7 @@ import type {
   PasskeyEd25519SealRestoreMetadata,
   WarmSessionSealTransportInput,
 } from './secure-confirm-worker';
+import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 
 declare const chainTarget: ThresholdEcdsaChainTarget;
@@ -10,14 +11,31 @@ const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(
   'signing-session-seal-kek-test-r1',
 );
 declare const passkeyEd25519Restore: PasskeyEd25519SealRestoreMetadata;
+declare const passkeyEcdsaRestore: Exclude<
+  SealedSigningSessionEcdsaRestoreMetadata,
+  { source: 'email_otp' }
+>;
 
 const validWarmSessionSealTransportWithWalletSessionJwt = {
   curve: 'ecdsa',
+  authMethod: 'passkey',
+  walletId: passkeyEcdsaRestore.authority.walletId,
   chainTarget,
   relayerUrl: 'https://relay.example',
   walletSessionJwt: 'wallet-session-jwt',
+  ecdsaRestore: passkeyEcdsaRestore,
 } satisfies WarmSessionSealTransportInput;
 void validWarmSessionSealTransportWithWalletSessionJwt;
+
+const invalidWarmSessionSealTransportPasskeyEcdsaWithoutWalletId = {
+  curve: 'ecdsa',
+  authMethod: 'passkey',
+  chainTarget,
+  relayerUrl: 'https://relay.example',
+  ecdsaRestore: passkeyEcdsaRestore,
+  // @ts-expect-error Passkey ECDSA seal transports require a canonical wallet identity.
+} satisfies WarmSessionSealTransportInput;
+void invalidWarmSessionSealTransportPasskeyEcdsaWithoutWalletId;
 
 const validWarmSessionSealTransportWithEmailOtpAuthMethod = {
   curve: 'ed25519',

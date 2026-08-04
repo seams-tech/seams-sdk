@@ -20,7 +20,6 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { requireAppSessionJwt } from '@shared/utils/sessionTokens';
-import { parseAppSessionJwt } from '@shared/utils/domainIds';
 import type { EcdsaExplicitExportSessionAuth } from '@/core/signingEngine/threshold/ecdsa/activation';
 import { readClientWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/clientSessionPersistence';
 import type { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
@@ -34,6 +33,8 @@ import {
   type ThresholdEd25519CommitQueueByKey,
 } from '@/core/signingEngine/threshold/ed25519/commitQueue';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
+import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
+import { activeWalletOrHostedAppSessionJwt } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 
 async function resolvePasskeyEcdsaExportRouteAuth(
   emailOtpSessions: EmailOtpWalletSessionCoordinator,
@@ -43,8 +44,14 @@ async function resolvePasskeyEcdsaExportRouteAuth(
   authMethod: SignerAuthMethod,
 ): Promise<EcdsaExplicitExportSessionAuth> {
   switch (authMethod) {
-    case 'passkey':
-      return { kind: 'cookie' };
+    case 'passkey': {
+      if (!__isWalletIframeHostMode()) return { kind: 'cookie' };
+      const appSessionJwt = activeWalletOrHostedAppSessionJwt(relayerUrl, walletId);
+      if (!appSessionJwt) {
+        throw new Error('Wallet iframe app session JWT is unavailable for ECDSA export');
+      }
+      return { kind: 'app_session', jwt: requireAppSessionJwt(appSessionJwt) };
+    }
     case 'email_otp': {
       const jwt = await emailOtpSessions.resolveAppSessionJwt({
         walletSession: walletSessionRefFromSession({
@@ -75,6 +82,8 @@ export function createBrowserRecoveryPublicDeps(args: {
   resolveEmailOtpEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['emailOtp']['resolveExportContext'];
   getSigningSessionCoordinator: () => SigningSessionCoordinator;
   getTheme: () => ThemeMode;
+  ed25519YaoPublicCapabilityLanes: PersistedAvailableSigningLanesDeps['ed25519YaoPublicCapabilityLanes'];
+  readActiveWalletSessionAuthorization: PersistedAvailableSigningLanesDeps['readActiveWalletSessionAuthorization'];
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
 }): RecoveryPublicDeps {
   const readCanonicalWalletSessionStatus = createCanonicalWalletSessionStatusReader({
@@ -82,19 +91,6 @@ export function createBrowserRecoveryPublicDeps(args: {
     readAuthorization: async (walletId) => {
       const read = await walletSessionAuthorizations.readActiveForWallet(walletId);
       return read.kind === 'found' ? read.projection : null;
-    },
-    resolveAppSessionJwt: async (projection) => {
-      const raw = await args.emailOtpSessions
-        .resolveAppSessionJwt({
-          walletSession: {
-            walletId: projection.walletId,
-            walletSessionUserId: String(projection.authority.authorityDigest),
-          },
-          relayUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
-        })
-        .catch(() => '');
-      const parsed = parseAppSessionJwt(raw);
-      return parsed.ok ? parsed.value : null;
     },
   });
   return createRecoveryPublicDeps({
@@ -112,6 +108,8 @@ export function createBrowserRecoveryPublicDeps(args: {
         ...queueArgs,
       }),
     ecdsaSessions: args.warmSigning.ecdsaSessions,
+    ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
+    readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
     listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
     touchConfirm: args.touchConfirm,
     passkeyMpcSession: args.passkeyMpcSession,

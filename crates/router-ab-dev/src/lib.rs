@@ -16,7 +16,7 @@ use router_ab_core::{
     decode_ab_peer_message_payload_v1,
     decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
     execute_local_persistence_sql_seed_plan_v1, local_persistence_seed_sql_plan_v1,
-    router_ab_ecdsa_derivation_material_activation_id_v1, router_transcript_digest_v1,
+    router_transcript_digest_v1,
     ActiveSigningWorkerStateV1, EcdsaThresholdPrfRequestV1, EncryptedPayloadV1,
     ExpensiveWorkKindV1, LifecycleScopeV1, LocalDeriverAEndpointV1, LocalDeriverBEndpointV1,
     LocalEnvSnapshotV1, LocalHttpCeremonyResultV1, LocalHttpMethodV1, LocalHttpPathV1,
@@ -1266,14 +1266,7 @@ impl LocalRouterAbEcdsaDerivationTrustedAdmissionV1 {
                 "local Router A/B ECDSA derivation prepare admission account_id does not match request scope",
             ));
         }
-        if self.session_id
-            != router_ab_ecdsa_derivation_material_activation_id_v1(
-                &request.scope.ecdsa_threshold_key_id,
-                &request.scope.signing_root_id,
-                &request.scope.signing_root_version,
-                &request.scope.activation_epoch,
-            )?
-        {
+        if self.session_id != request.scope.material_activation.activation_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
                 "local Router A/B ECDSA derivation prepare admission session_id does not match request scope",
@@ -1303,14 +1296,7 @@ impl LocalRouterAbEcdsaDerivationTrustedAdmissionV1 {
                 "local Router A/B ECDSA derivation finalize admission account_id does not match request scope",
             ));
         }
-        if self.session_id
-            != router_ab_ecdsa_derivation_material_activation_id_v1(
-                &request.scope.ecdsa_threshold_key_id,
-                &request.scope.signing_root_id,
-                &request.scope.signing_root_version,
-                &request.scope.activation_epoch,
-            )?
-        {
+        if self.session_id != request.scope.material_activation.activation_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
                 "local Router A/B ECDSA derivation finalize admission session_id does not match request scope",

@@ -91,7 +91,7 @@ export async function authorizeEvmFamilyEcdsaOperationStepUp(args: {
   return buildReadySecp256k1SigningMaterial({
     walletId: args.material.walletId,
     signerSession: args.material,
-    authorization: authorization.authorization,
+    authorization: { kind: 'operation_step_up' },
     credential,
     expiresAtMs: authorization.expires_at_ms,
     singleUseEmailOtpSession: false,

@@ -1,9 +1,9 @@
-import type { AppSessionJwt } from '@shared/utils/domainIds';
-import { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  walletSessionJwtForCurve,
+  type ActiveWalletSessionAuthorizationProjection,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   createRelayerReusableWalletSessionStatusPort,
-  type ReusableWalletSessionStatusAuth,
 } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SigningSessionStatus } from '@/core/types/seams';
@@ -18,9 +18,6 @@ export type CanonicalWalletSessionStatusReaderDeps = {
   readonly readAuthorization: (
     walletId: WalletId,
   ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
-  readonly resolveAppSessionJwt: (
-    projection: ActiveWalletSessionAuthorizationProjection,
-  ) => Promise<AppSessionJwt | null>;
 };
 
 export function createCanonicalWalletSessionStatusReader(
@@ -32,16 +29,13 @@ export function createCanonicalWalletSessionStatusReader(
     if (!projection || !walletSessionStatusIdentityMatchesProjection(identity, projection)) {
       return null;
     }
+    const walletSessionJwt = walletSessionJwtForCurve(projection, 'ed25519');
+    if (!walletSessionJwt) return null;
     const relayerUrl = String(deps.relayerUrl || '').trim();
     if (!relayerUrl) return null;
-    const auth = await canonicalStatusAuthForProjection({
-      projection,
-      resolveAppSessionJwt: deps.resolveAppSessionJwt,
-    });
-    if (!auth) return null;
     const status = await createRelayerReusableWalletSessionStatusPort({
       relayerUrl,
-      auth,
+      auth: { kind: 'wallet_session', jwt: walletSessionJwt },
     })
       .read(identity)
       .catch(() => null);
@@ -57,15 +51,4 @@ function walletSessionStatusIdentityMatchesProjection(
     identity.walletSessionId === projection.walletSessionId &&
     identity.quotaId === projection.quotaId
   );
-}
-
-async function canonicalStatusAuthForProjection(args: {
-  projection: ActiveWalletSessionAuthorizationProjection;
-  resolveAppSessionJwt: CanonicalWalletSessionStatusReaderDeps['resolveAppSessionJwt'];
-}): Promise<ReusableWalletSessionStatusAuth | null> {
-  if (args.projection.authMethod === WALLET_AUTH_METHODS.emailOtp) {
-    const appSessionJwt = await args.resolveAppSessionJwt(args.projection);
-    return appSessionJwt ? { kind: 'app_session_jwt', appSessionJwt } : null;
-  }
-  return { kind: 'app_session_cookie' };
 }

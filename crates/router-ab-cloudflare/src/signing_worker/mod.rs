@@ -993,15 +993,24 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningReque
                 "Router A/B ECDSA derivation trusted admission account_id does not match request scope",
             ));
         }
-        if self.trusted_admission.metadata.auth.session_id()
-            != cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1(
-                &self.request.scope,
-            )?
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Router A/B ECDSA derivation trusted admission session_id does not match request scope",
-            ));
+        match (
+            &self.trusted_admission.metadata.auth,
+            &self.request.authorization,
+        ) {
+            (
+                CloudflareRouterAuthContextV1::AuthenticatedSession { session_id, .. },
+                NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id },
+            ) if session_id == wallet_session_id => {}
+            (
+                CloudflareRouterAuthContextV1::OperationStepUpSession { .. },
+                NormalSigningAuthorizationV1::OperationStepUp,
+            ) => {}
+            _ => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Router A/B ECDSA derivation trusted authorization does not match request",
+                ));
+            }
         }
         if self.trusted_admission.metadata.intent_digest != self.request.request_digest()? {
             return Err(RouterAbProtocolError::new(
@@ -1060,15 +1069,24 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequ
                 "Router A/B ECDSA derivation finalize trusted admission account_id does not match request scope",
             ));
         }
-        if self.trusted_admission.metadata.auth.session_id()
-            != cloudflare_router_ab_ecdsa_derivation_material_activation_id_from_scope_v1(
-                &self.request.scope,
-            )?
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Router A/B ECDSA derivation finalize trusted admission session_id does not match request scope",
-            ));
+        match (
+            &self.trusted_admission.metadata.auth,
+            &self.request.authorization,
+        ) {
+            (
+                CloudflareRouterAuthContextV1::AuthenticatedSession { session_id, .. },
+                NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id },
+            ) if session_id == wallet_session_id => {}
+            (
+                CloudflareRouterAuthContextV1::OperationStepUpSession { .. },
+                NormalSigningAuthorizationV1::OperationStepUp,
+            ) => {}
+            _ => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Router A/B ECDSA derivation finalize trusted authorization does not match request",
+                ));
+            }
         }
         if self.trusted_admission.metadata.intent_digest != self.request.request_digest()? {
             return Err(RouterAbProtocolError::new(

@@ -284,7 +284,6 @@ function normalizeEmailOtpProviderUserId(value: unknown, field: string): string 
 function resolveEmailOtpEcdsaProviderUserId(args: {
   identity: EmailOtpEcdsaProviderIdentity;
   routePlan: EmailOtpRoutePlan;
-  walletSession: WalletSessionRef;
 }): string {
   switch (args.identity.kind) {
     case 'explicit_provider_user':
@@ -294,10 +293,7 @@ function resolveEmailOtpEcdsaProviderUserId(args: {
       );
     case 'derive_from_route_auth': {
       const routeProviderUserId = appSessionSubjectFromEmailOtpAuthLane(args.routePlan.authLane);
-      return normalizeEmailOtpProviderUserId(
-        routeProviderUserId || args.walletSession.walletSessionUserId,
-        'Email OTP provider user id',
-      );
+      return normalizeEmailOtpProviderUserId(routeProviderUserId, 'Email OTP provider user id');
     }
   }
   args.identity satisfies never;
@@ -1018,9 +1014,8 @@ async function runEmailOtpEcdsaCapability(
     Math.max(
       1,
       Math.floor(
-        Number(
-          configuredRemainingUses ?? defaultRemainingUses ?? DEFAULT_UNLOCK_REMAINING_USES,
-        ) || 1,
+        Number(configuredRemainingUses ?? defaultRemainingUses ?? DEFAULT_UNLOCK_REMAINING_USES) ||
+          1,
       ),
     ),
     DEFAULT_UNLOCK_REMAINING_USES,
@@ -1036,9 +1031,7 @@ async function runEmailOtpEcdsaCapability(
     (() => {
       throw new Error('[SigningEngine][email-otp] unlock session uses are required');
     })();
-  const remainingUses = isSigningStepUp
-    ? requestedStepUpSignatureUses
-    : unlockRemainingUses;
+  const remainingUses = isSigningStepUp ? requestedStepUpSignatureUses : unlockRemainingUses;
   const workerCtx = ports.getSignerWorkerContext();
   const routePlan = args.routePlan;
   const bootstrapRouteAuth =
@@ -1065,7 +1058,6 @@ async function runEmailOtpEcdsaCapability(
   const emailOtpProviderUserId = resolveEmailOtpEcdsaProviderUserId({
     identity: args.providerIdentity,
     routePlan,
-    walletSession: args.walletSession,
   });
   const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext =
     emailOtpAuthRetention === 'single_use'

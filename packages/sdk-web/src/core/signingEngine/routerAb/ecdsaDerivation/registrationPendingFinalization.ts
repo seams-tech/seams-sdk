@@ -10,12 +10,17 @@ import {
   type RouterAbEcdsaRegistrationRequestV1,
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  normalizeRuntimePolicyScope,
+  type RuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
 
 const PENDING_FINALIZATION_KIND = 'router_ab_ecdsa_registration_pending_finalization_v1';
 
 export type RouterAbEcdsaRegistrationPendingFinalizationV1 = {
   readonly kind: typeof PENDING_FINALIZATION_KIND;
   readonly pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
+  readonly runtimePolicyScope: RuntimePolicyScope;
   readonly registrationFacts: RouterAbEcdsaRegistrationRequestFactsV1;
   readonly registrationRequest: RouterAbEcdsaRegistrationRequestV1;
   readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
@@ -94,6 +99,7 @@ function parsePendingFinalization(value: unknown): RouterAbEcdsaRegistrationPend
   requireExactKeys(record, label, [
     'kind',
     'pendingStateBlob',
+    'runtimePolicyScope',
     'registrationFacts',
     'registrationRequest',
     'clientActivation',
@@ -110,6 +116,7 @@ function parsePendingFinalization(value: unknown): RouterAbEcdsaRegistrationPend
   return {
     kind: PENDING_FINALIZATION_KIND,
     pendingStateBlob: parsePendingStateBlob(record.pendingStateBlob),
+    runtimePolicyScope: normalizeRuntimePolicyScope(record.runtimePolicyScope),
     registrationFacts,
     registrationRequest,
     clientActivation: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.clientActivation),
@@ -122,6 +129,7 @@ export function buildRouterAbEcdsaRegistrationPendingFinalizationV1(
   return parsePendingFinalization({
     kind: PENDING_FINALIZATION_KIND,
     pendingStateBlob: input.pendingStateBlob,
+    runtimePolicyScope: input.runtimePolicyScope,
     registrationFacts: input.registrationFacts,
     registrationRequest: input.registrationRequest,
     clientActivation: input.clientActivation,

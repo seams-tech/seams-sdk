@@ -28,7 +28,10 @@ import { buildNearWalletRegistrationArgs } from '@/SeamsWeb/operations/near';
 import { registerWallet as registerWalletWithUnifiedCeremony } from '@/SeamsWeb/operations/registration/registration';
 import { resolveNearCommandSubject } from '@/SeamsWeb/operations/near/commandSubject';
 import { fundImplicitNearAccountForTesting } from '@/core/rpcClients/relayer/walletRegistration';
-import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  walletSessionAuthorizations,
+  walletSessionJwtForCurve,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type {
   NearAccountRef,
   WalletSessionRef,
@@ -69,7 +72,11 @@ async function requireCurrentEd25519WalletSessionJwt(
   if (read.kind !== 'found' || read.projection.expiresAtMs <= Date.now()) {
     throw new Error('Current Ed25519 wallet session is required for implicit NEAR funding');
   }
-  return read.projection.walletSessionJwt;
+  const walletSessionJwt = walletSessionJwtForCurve(read.projection, 'ed25519');
+  if (!walletSessionJwt) {
+    throw new Error('Current Ed25519 wallet session is required for implicit NEAR funding');
+  }
+  return walletSessionJwt;
 }
 
 export async function fundImplicitNearAccountFromCurrentSession(args: {

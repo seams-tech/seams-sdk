@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { runThreeRouteRegistrationCeremony } from '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration';
+import { runEcdsaEnabledThreeRouteRegistrationCeremony } from '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration';
 import { buildFixtureRespondEd25519DeferredWork } from '../helpers/ed25519YaoAdmissionFixtures';
 import { initialEcdsaCapabilityActivationFixture } from './helpers/initialEcdsaCapabilityActivation.fixtures';
 
@@ -128,7 +128,7 @@ test('a mixed plan hands off deferred NEAR work before activate is called', asyn
   const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
   const callsAtHandoff: string[] = [];
   try {
-    await runThreeRouteRegistrationCeremony(
+    await runEcdsaEnabledThreeRouteRegistrationCeremony(
       await ceremonyArgs({
         onDeferredNearWork: () => callsAtHandoff.push(...routes.calls),
       }),
@@ -146,7 +146,7 @@ test('the ceremony never awaits the deferred NEAR work it hands off', async () =
      that never completes must not stop activate from being called. */
   const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
   try {
-    await runThreeRouteRegistrationCeremony(
+    await runEcdsaEnabledThreeRouteRegistrationCeremony(
       await ceremonyArgs({
         onDeferredNearWork: () => {
           void new Promise<void>(() => {});
@@ -165,7 +165,7 @@ test('a mixed plan carries the deferred work through to the caller', async () =>
   const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
   let handed: unknown = null;
   try {
-    await runThreeRouteRegistrationCeremony(
+    await runEcdsaEnabledThreeRouteRegistrationCeremony(
       await ceremonyArgs({ onDeferredNearWork: (work: unknown) => (handed = work) }),
     ).catch(() => undefined);
   } finally {
@@ -187,7 +187,7 @@ test('an ECDSA-only plan hands off no deferred NEAR work', async () => {
   });
   let handoffs = 0;
   try {
-    await runThreeRouteRegistrationCeremony(
+    await runEcdsaEnabledThreeRouteRegistrationCeremony(
       await ceremonyArgs({ onDeferredNearWork: () => (handoffs += 1) }),
     ).catch(() => undefined);
   } finally {
@@ -209,7 +209,9 @@ test('the ceremony calls respond and activate exactly once each, and no finalize
     activate: { ok: false },
   });
   try {
-    await runThreeRouteRegistrationCeremony(await ceremonyArgs()).catch(() => undefined);
+    await runEcdsaEnabledThreeRouteRegistrationCeremony(await ceremonyArgs()).catch(
+      () => undefined,
+    );
   } finally {
     routes.restore();
   }
@@ -237,7 +239,7 @@ test('the ceremony consumes the collected authority and never asks for another',
     };
   }
   try {
-    await runThreeRouteRegistrationCeremony(
+    await runEcdsaEnabledThreeRouteRegistrationCeremony(
       { ...args, context: { signingEngine: engine } } as never,
     ).catch(() => undefined);
   } finally {

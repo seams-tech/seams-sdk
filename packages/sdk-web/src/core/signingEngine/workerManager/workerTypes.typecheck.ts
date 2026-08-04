@@ -36,7 +36,10 @@ import type {
   ReconcileCanonicalEcdsaActivationRequestV1,
   ReconcileCanonicalEcdsaActivationResultV1,
 } from '../routerAb/ecdsaDerivation/clientCeremony';
-import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationNormalSigningStateV1,
+  RouterAbEcdsaRegistrationActivationReceiptV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { RouterAbEcdsaPostRegistrationSessionActivationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -52,6 +55,7 @@ declare const initialEcdsaActivationPlanInput: InitialEcdsaCapabilityActivationP
 declare const initialEcdsaActivationPlan: InitialEcdsaCapabilityActivationPlan;
 declare const activationJournalId: CorrelationId;
 declare const activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+declare const normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 declare const activationCapability: CapabilityInstanceRef;
 declare const activationAuthority: WalletAuthAuthorityRef;
 declare const activationCommand: Extract<
@@ -99,6 +103,7 @@ const finalizePersistedCanonicalEcdsaActivation = {
   kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
   journalId: activationJournalId,
   activationReceipt,
+  routerAbEcdsaDerivationNormalSigning: normalSigning,
 } satisfies FinalizeRouterAbEcdsaRegistrationActivationRequestV1;
 void finalizePersistedCanonicalEcdsaActivation;
 
@@ -141,6 +146,7 @@ const finalizeCanonicalEcdsaActivationWithCallerRelayer = {
   kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
   journalId: activationJournalId,
   activationReceipt,
+  routerAbEcdsaDerivationNormalSigning: normalSigning,
   // @ts-expect-error Finalization derives relayer identity from the committed journal.
   relayerKeyId: 'caller-selected-relayer',
 } satisfies FinalizeRouterAbEcdsaRegistrationActivationRequestV1;

@@ -81,6 +81,12 @@ export class EmailOtpWalletSessionCoordinator {
     return this.runtime.resolveAppSessionJwt(args);
   }
 
+  resolveAppSessionJwtForWallet(
+    args: Parameters<EmailOtpWalletSessionRuntime['resolveAppSessionJwtForWallet']>[0],
+  ): ReturnType<EmailOtpWalletSessionRuntime['resolveAppSessionJwtForWallet']> {
+    return this.runtime.resolveAppSessionJwtForWallet(args);
+  }
+
   async requestTransactionSigningChallenge(
     args: Parameters<EmailOtpWalletSessionRuntime['requestTransactionSigningChallenge']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['requestTransactionSigningChallenge']> {

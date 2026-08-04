@@ -8,7 +8,7 @@ import {
 } from '@shared/utils/registrationIntent';
 import { parseSignerSlot, type SignerSlot } from '@shared/utils/signerSlot';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import {
   listExactSealedSessionsForWallet,
   type CurrentEd25519SealedSessionRecord,
@@ -19,12 +19,19 @@ import {
 } from '../../threshold/sessionPolicy';
 import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
+import { SigningSessionIds, type ThresholdEd25519SessionId } from '../operationState/types';
 import {
-  SigningSessionIds,
-  type ThresholdEd25519SessionId,
-} from '../operationState/types';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { parseRouterAbEd25519WalletSessionIdentityClaims } from '../routerAbSigningWalletSession';
+  walletSessionJwtForCurve,
+  type ActiveWalletSessionAuthorizationProjection,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  parseRouterAbEd25519WalletSessionIdentityClaims,
+  parseWalletSessionAuthorizationIdentityClaims,
+} from '../routerAbSigningWalletSession';
+import {
+  mpcMaterialActivationRefsEqual,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type { ExactEd25519SigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import {
@@ -120,22 +127,16 @@ function nonEmptyString(value: unknown): string | null {
 }
 
 function positiveSafeInteger(value: unknown): number | null {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
-    ? value
-    : null;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
 function nonNegativeSafeInteger(value: unknown): number | null {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-    ? value
-    : null;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 function exactParticipantIds(value: unknown): readonly [number, number] | null {
   const participantIds = normalizeThresholdEd25519ParticipantIds(value);
-  return participantIds?.length === 2
-    ? [participantIds[0], participantIds[1]]
-    : null;
+  return participantIds?.length === 2 ? [participantIds[0], participantIds[1]] : null;
 }
 
 function sealedFactor(
@@ -232,9 +233,7 @@ export function parseExactEd25519SealedSessionRuntime(
       sealedRecord: record,
       walletId: toWalletId(record.walletId),
       nearAccountId: toAccountId(restore.nearAccountId),
-      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
-        restore.nearEd25519SigningKeyId,
-      ),
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(restore.nearEd25519SigningKeyId),
       signerSlot,
       factor,
       auth: authBinding(factor),
@@ -288,19 +287,22 @@ export function ed25519AuthorizationIdentityMatchesRuntime(args: {
   runtime: ExactEd25519SealedSessionRuntime;
   authorization: ActiveWalletSessionAuthorizationProjection;
 }): boolean {
-  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(
-    args.authorization.walletSessionJwt,
-  );
+  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ed25519');
+  if (!walletSessionJwt) return false;
+  const claims = parseWalletSessionAuthorizationIdentityClaims(walletSessionJwt);
+  const ed25519Claims = parseRouterAbEd25519WalletSessionIdentityClaims(walletSessionJwt);
   return Boolean(
     claims &&
-      String(args.authorization.walletId) === String(args.runtime.walletId) &&
-      args.authorization.authMethod === args.runtime.factor.kind &&
-      claims.walletId === args.runtime.walletId &&
-      claims.nearAccountId === args.runtime.nearAccountId &&
-      claims.nearEd25519SigningKeyId === args.runtime.nearEd25519SigningKeyId &&
-      claims.walletSessionId === args.authorization.walletSessionId &&
-      claims.quotaId === args.authorization.quotaId &&
-      claims.thresholdSessionId === args.runtime.thresholdSessionId
+    ed25519Claims &&
+    String(args.authorization.walletId) === String(args.runtime.walletId) &&
+    args.authorization.authMethod === args.runtime.factor.kind &&
+    claims.walletId === args.runtime.walletId &&
+    claims.authorizationId === args.authorization.authorizationId &&
+    claims.walletSessionId === args.authorization.walletSessionId &&
+    claims.quotaId === args.authorization.quotaId &&
+    ed25519Claims.nearAccountId === args.runtime.nearAccountId &&
+    ed25519Claims.nearEd25519SigningKeyId === args.runtime.nearEd25519SigningKeyId &&
+    ed25519Claims.thresholdSessionId === args.runtime.thresholdSessionId,
   );
 }
 
@@ -311,10 +313,7 @@ export function ed25519WalletSessionAuthorizationForRuntime(args: {
   return ed25519AuthorizationIdentityMatchesRuntime(args) ? args.authorization : null;
 }
 
-function authBindingsEqual(
-  left: SigningLaneAuthBinding,
-  right: SigningLaneAuthBinding,
-): boolean {
+function authBindingsEqual(left: SigningLaneAuthBinding, right: SigningLaneAuthBinding): boolean {
   switch (left.kind) {
     case 'passkey':
       return (
@@ -449,16 +448,47 @@ export async function resolveExactEd25519SealedSessionRuntimeForWalletSubjectWit
   },
   resolver: Ed25519SealedSessionRuntimeResolver,
 ): Promise<Ed25519WalletSealedSessionRuntimeResolution> {
-  const records = await listEd25519SealedSessionRecordsForWallet(
-    args.walletId,
-    resolver,
-  );
+  const records = await listEd25519SealedSessionRecordsForWallet(args.walletId, resolver);
   const matches: CurrentEd25519SealedSessionRecord[] = [];
   for (const record of records) {
     if (
       record.ed25519Restore.nearAccountId === args.nearAccountId &&
-      record.ed25519Restore.nearEd25519SigningKeyId ===
-        args.nearEd25519SigningKeyId
+      record.ed25519Restore.nearEd25519SigningKeyId === args.nearEd25519SigningKeyId
+    ) {
+      matches.push(record);
+    }
+  }
+  return resolveOneEd25519SealedSessionRuntime(matches);
+}
+
+export async function resolveExactEd25519SealedSessionRuntimeForWalletSubjectAndActivationWithResolver(
+  args: {
+    walletId: WalletId;
+    nearAccountId: AccountId;
+    nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+    materialActivation: MpcMaterialActivationRef;
+    authMethod: SignerAuthMethod;
+  },
+  resolver: Ed25519SealedSessionRuntimeResolver,
+): Promise<Ed25519WalletSealedSessionRuntimeResolution> {
+  const records = await resolver.listExactSealedSessionsForWallet({
+    walletId: args.walletId,
+    filter: {
+      authMethod: args.authMethod,
+      curve: 'ed25519',
+    },
+  });
+  const matches: CurrentEd25519SealedSessionRecord[] = [];
+  for (const record of records) {
+    if (
+      record.curve === 'ed25519' &&
+      record.authMethod === args.authMethod &&
+      record.ed25519Restore.nearAccountId === args.nearAccountId &&
+      record.ed25519Restore.nearEd25519SigningKeyId === args.nearEd25519SigningKeyId &&
+      mpcMaterialActivationRefsEqual(
+        record.ed25519Restore.materialActivation,
+        args.materialActivation,
+      )
     ) {
       matches.push(record);
     }
@@ -471,10 +501,20 @@ export async function resolveExactEd25519SealedSessionRuntimeForWalletSubject(ar
   nearAccountId: AccountId;
   nearEd25519SigningKeyId: NearEd25519SigningKeyId;
 }): Promise<Ed25519WalletSealedSessionRuntimeResolution> {
-  return await resolveExactEd25519SealedSessionRuntimeForWalletSubjectWithResolver(
+  return await resolveExactEd25519SealedSessionRuntimeForWalletSubjectWithResolver(args, {
+    listExactSealedSessionsForWallet,
+  });
+}
+
+export async function resolveExactEd25519SealedSessionRuntimeForWalletSubjectAndActivation(args: {
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  materialActivation: MpcMaterialActivationRef;
+  authMethod: SignerAuthMethod;
+}): Promise<Ed25519WalletSealedSessionRuntimeResolution> {
+  return await resolveExactEd25519SealedSessionRuntimeForWalletSubjectAndActivationWithResolver(
     args,
-    {
-      listExactSealedSessionsForWallet,
-    },
+    { listExactSealedSessionsForWallet },
   );
 }

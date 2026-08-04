@@ -23,7 +23,10 @@ import {
 } from '../identity/laneIdentity';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  walletSessionJwtForCurve,
+  type ActiveWalletSessionAuthorizationProjection,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type WarmSessionReadPortsInput =
   | Partial<
@@ -318,8 +321,10 @@ export function resolveEcdsaSealTransport(args: {
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   groupId?: string;
 }): EcdsaSealTransportAuthMaterial | null {
-  const walletSessionJwt = String(args.auth?.projection.walletSessionJwt || '').trim();
-  if (args.runtime.authBinding.kind === 'email_otp' && !walletSessionJwt) return null;
+  const walletSessionJwt = args.auth
+    ? walletSessionJwtForCurve(args.auth.projection, 'ecdsa')
+    : null;
+  if (!walletSessionJwt) return null;
   const relayerUrl = String(args.runtime.relayerUrl || '').trim();
   if (!relayerUrl) return null;
   const groupId = String(args.groupId || '').trim();
@@ -328,7 +333,7 @@ export function resolveEcdsaSealTransport(args: {
     walletId: String(args.runtime.walletId),
     chainTarget: args.runtime.chainTarget,
     relayerUrl,
-    ...(walletSessionJwt ? { walletSessionJwt } : {}),
+    walletSessionJwt,
     ...(args.signingSessionSealKeyVersion
       ? { signingSessionSealKeyVersion: args.signingSessionSealKeyVersion }
       : {}),

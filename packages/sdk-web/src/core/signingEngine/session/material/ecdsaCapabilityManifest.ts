@@ -11,17 +11,25 @@ import {
   type MpcMaterialOwnerRef,
 } from '@shared/utils/domainIds';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaRegistrationActivationReceiptV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   SigningRootId,
   SigningRootVersion,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { CorrelationId, DigestB64u, IsoTimestamp } from '@shared/utils/canonicalPrimitives';
 import { isoTimestampFromUnixMs } from '@shared/utils/canonicalPrimitives';
+import {
+  deriveSigningRootId,
+  normalizeRuntimePolicyScope,
+  type RuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
 import {
   parseEcdsaActivationDigest,
   parseEcdsaLifecycleId,
@@ -503,6 +511,7 @@ type DurableEcdsaMaterialBindingExclusions = {
 class DurableEcdsaMaterialBindingProof extends EcdsaCapabilityManifestProof {
   readonly kind = 'durable_ecdsa_material';
   readonly materialActivation: MpcMaterialActivationRef;
+  readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
   readonly roleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
   readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
   readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
@@ -511,9 +520,11 @@ class DurableEcdsaMaterialBindingProof extends EcdsaCapabilityManifestProof {
   readonly ciphertextDigest: EcdsaCiphertextDigest;
   readonly activationDigest: EcdsaActivationDigest;
   readonly activatedAt: IsoTimestamp;
+  readonly runtimePolicyScope: RuntimePolicyScope;
 
   constructor(fields: {
     readonly materialActivation: MpcMaterialActivationRef;
+    readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
     readonly roleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
     readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
     readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
@@ -522,9 +533,11 @@ class DurableEcdsaMaterialBindingProof extends EcdsaCapabilityManifestProof {
     readonly ciphertextDigest: EcdsaCiphertextDigest;
     readonly activationDigest: EcdsaActivationDigest;
     readonly activatedAt: IsoTimestamp;
+    readonly runtimePolicyScope: RuntimePolicyScope;
   }) {
     super();
     this.materialActivation = fields.materialActivation;
+    this.routerAbEcdsaDerivationNormalSigning = fields.routerAbEcdsaDerivationNormalSigning;
     this.roleLocalPublicFacts = fields.roleLocalPublicFacts;
     this.roleLocalBinding = fields.roleLocalBinding;
     this.durableMaterialRef = fields.durableMaterialRef;
@@ -533,6 +546,7 @@ class DurableEcdsaMaterialBindingProof extends EcdsaCapabilityManifestProof {
     this.ciphertextDigest = fields.ciphertextDigest;
     this.activationDigest = fields.activationDigest;
     this.activatedAt = fields.activatedAt;
+    this.runtimePolicyScope = fields.runtimePolicyScope;
   }
 }
 
@@ -873,8 +887,10 @@ export function buildServerCommittedEcdsaActivationJournal(input: {
 export function buildDurableEcdsaMaterialBinding(input: {
   readonly activationBinding: EcdsaActivationBinding;
   readonly serverActivation: EcdsaServerActivationCommit;
+  readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
   readonly roleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
   readonly ciphertextDigest: EcdsaCiphertextDigest;
+  readonly runtimePolicyScope: RuntimePolicyScope;
   readonly kind?: never;
   readonly materialActivation?: never;
   readonly lifecycleId?: never;
@@ -885,12 +901,15 @@ export function buildDurableEcdsaMaterialBinding(input: {
   assertServerActivationMatchesBinding(input.serverActivation, input.activationBinding);
   const facts = input.roleLocalPublicFacts;
   const binding = input.activationBinding;
+  const runtimePolicyScope = normalizeRuntimePolicyScope(input.runtimePolicyScope);
   if (
     facts.walletId !== binding.signer.walletId ||
     facts.keyHandle !== binding.roleLocalBinding.keyHandle ||
     facts.ecdsaThresholdKeyId !== binding.roleLocalBinding.ecdsaThresholdKeyId ||
     facts.signingRootId !== binding.signer.signingRootId ||
     facts.signingRootVersion !== binding.signer.signingRootVersion ||
+    deriveSigningRootId(runtimePolicyScope) !== binding.signer.signingRootId ||
+    runtimePolicyScope.signingRootVersion !== binding.signer.signingRootVersion ||
     facts.contextBinding32B64u !== binding.bindingDigest ||
     !participantIdsMatch(facts.participantIds, binding.roleLocalBinding.participantIds) ||
     !binding.signer.scope.targetMemberships.some(
@@ -900,11 +919,18 @@ export function buildDurableEcdsaMaterialBinding(input: {
     throw new Error('ECDSA role-local public facts do not match their activation');
   }
   const receipt = input.serverActivation.serverActivationReceipt;
+  assertNormalSigningMatchesActivation({
+    normalSigning: input.routerAbEcdsaDerivationNormalSigning,
+    activationBinding: binding,
+    roleLocalPublicFacts: facts,
+    receipt: receipt.protocolReceipt,
+  });
   return new DurableEcdsaMaterialBindingProof({
     materialActivation: materialActivationFromCommit(
       input.activationBinding,
       receipt.protocolReceipt,
     ),
+    routerAbEcdsaDerivationNormalSigning: input.routerAbEcdsaDerivationNormalSigning,
     roleLocalPublicFacts: input.roleLocalPublicFacts,
     roleLocalBinding: input.activationBinding.roleLocalBinding,
     durableMaterialRef: input.activationBinding.durableMaterialRef,
@@ -913,6 +939,7 @@ export function buildDurableEcdsaMaterialBinding(input: {
     ciphertextDigest: input.ciphertextDigest,
     activationDigest: receipt.activationDigest,
     activatedAt: receipt.activatedAt,
+    runtimePolicyScope,
   });
 }
 
@@ -1105,10 +1132,19 @@ function assertProtocolReceiptMatchesActivationBinding(
   activationBinding: EcdsaActivationBinding,
 ): void {
   const publicIdentity = receipt.ecdsa_activation.public_identity;
+  const materialActivation = receipt.ecdsa_activation.material_activation;
+  const expectedMaterialActivation = materialActivationFromCommit(activationBinding, receipt);
   if (
     publicIdentity.context_binding_b64u !== String(activationBinding.bindingDigest) ||
     publicIdentity.derivation_client_share_public_key33_b64u !==
-      String(activationBinding.roleLocalBinding.clientVerifyingPublicKey33B64u)
+      String(activationBinding.roleLocalBinding.clientVerifyingPublicKey33B64u) ||
+    materialActivation.activation_id !== String(expectedMaterialActivation.activationId) ||
+    materialActivation.capability !== String(expectedMaterialActivation.capability) ||
+    materialActivation.material_owner !== String(expectedMaterialActivation.materialOwner) ||
+    materialActivation.key_binding !== String(expectedMaterialActivation.keyBinding) ||
+    materialActivation.lifecycle_binding !==
+      String(expectedMaterialActivation.lifecycleBinding) ||
+    materialActivation.signing_worker !== String(expectedMaterialActivation.signingWorker)
   ) {
     throw new Error('ECDSA activation receipt does not match the prepared material binding');
   }
@@ -1219,6 +1255,59 @@ function assertDurableMaterialMatchesActivation(
     durableMaterial.activatedAt !== receipt.activatedAt
   ) {
     throw new Error('Durable ECDSA material does not match its activation');
+  }
+  assertNormalSigningMatchesActivation({
+    normalSigning: durableMaterial.routerAbEcdsaDerivationNormalSigning,
+    activationBinding,
+    roleLocalPublicFacts: durableMaterial.roleLocalPublicFacts,
+    receipt: receipt.protocolReceipt,
+  });
+}
+
+function canonicalValuesMatch(left: unknown, right: unknown): boolean {
+  return alphabetizeStringify(left) === alphabetizeStringify(right);
+}
+
+function assertNormalSigningMatchesActivation(input: {
+  readonly normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+  readonly activationBinding: EcdsaActivationBinding;
+  readonly roleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
+  readonly receipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+}): void {
+  const scope = input.normalSigning.scope;
+  const facts = input.roleLocalPublicFacts;
+  const expectedMaterialActivation = materialActivationFromCommit(
+    input.activationBinding,
+    input.receipt,
+  );
+  const expectedMaterialActivationWire = routerAbMpcMaterialActivationRefToWire({
+    kind: expectedMaterialActivation.kind,
+    activationId: expectedMaterialActivation.activationId,
+    capability: expectedMaterialActivation.capability,
+    materialOwner: expectedMaterialActivation.materialOwner,
+    keyBinding: expectedMaterialActivation.keyBinding,
+    lifecycleBinding: expectedMaterialActivation.lifecycleBinding,
+    signingWorker: expectedMaterialActivation.signingWorker,
+  });
+  if (
+    scope.wallet_id !== String(input.activationBinding.signer.walletId) ||
+    scope.ecdsa_threshold_key_id !==
+      String(input.activationBinding.roleLocalBinding.ecdsaThresholdKeyId) ||
+    scope.signing_root_id !== String(input.activationBinding.signer.signingRootId) ||
+    scope.signing_root_version !== String(input.activationBinding.signer.signingRootVersion) ||
+    scope.context.application_binding_digest_b64u !==
+      input.receipt.ecdsa_activation.context.application_binding_digest_b64u ||
+    !canonicalValuesMatch(scope.public_identity, input.receipt.ecdsa_activation.public_identity) ||
+    !canonicalValuesMatch(scope.signing_worker, input.receipt.ecdsa_activation.signing_worker) ||
+    scope.activation_epoch !== input.receipt.ecdsa_activation.activation_epoch ||
+    scope.public_identity.context_binding_b64u !== facts.contextBinding32B64u ||
+    scope.public_identity.derivation_client_share_public_key33_b64u !==
+      facts.derivationClientSharePublicKey33B64u ||
+    scope.public_identity.server_public_key33_b64u !== facts.relayerPublicKey33B64u ||
+    scope.public_identity.threshold_public_key33_b64u !== facts.groupPublicKey33B64u ||
+    !canonicalValuesMatch(scope.material_activation, expectedMaterialActivationWire)
+  ) {
+    throw new Error('ECDSA normal-signing runtime does not match its activation');
   }
 }
 

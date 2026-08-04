@@ -822,16 +822,9 @@ async fn activate_output_v1(
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerPrivateD1ResponseV1> {
     let material_key = request.storage_key();
     let active_key = request.active_state_index_key()?;
-    let material_activation = match request {
-        CloudflareSigningWorkerPrivateD1RequestV1::OutputActivate {
-            material_activation,
-            ..
-        } => material_activation.clone(),
-        _ => return Err(d1_error("SigningWorker activation request kind is invalid")),
-    };
     let active_state = cloudflare_active_signing_worker_state_from_activation_request_v1(
         activation,
-        material_activation,
+        activation.material_activation.clone(),
         material_key.clone(),
         activated_at_ms,
     )?;

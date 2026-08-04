@@ -140,6 +140,21 @@ test('Near operation step-up preserves the exact sealed material activation', ()
   ).toThrow('operation assertion changed material activation');
 });
 
+test('Near hydration uses an exact live runtime when the local sealed locator is absent', () => {
+  const fixture = nearEd25519YaoCapabilityHydrationFixture();
+  const plan = resolveNearEd25519YaoCapabilityHydrationV1({
+    publicLocator: fixture.publicLocator,
+    sealed: { kind: 'missing' },
+    runtime: fixture.runtime,
+    unlockSource: { kind: 'unavailable' },
+  });
+
+  expect(plan).toMatchObject({
+    kind: 'use_live_runtime',
+    materialActivation: fixture.materialActivation,
+  });
+});
+
 test('Near material hydration remains independent from reusable authorization', () => {
   const fixture = nearEd25519YaoCapabilityHydrationFixture();
   const hydration = resolveNearEd25519YaoCapabilityHydrationV1({

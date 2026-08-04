@@ -41,6 +41,7 @@ import {
 import {
   parseMpcWalletSigningQuotaId,
   parseSeamsSessionId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { buildActiveWalletSessionAuthorizationProjection } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -69,6 +70,13 @@ const WALLET_SESSION_ID = unwrapDomainId(parseWalletSessionId('email-otp-ed25519
 const WALLET_SESSION_QUOTA_ID = unwrapDomainId(
   parseMpcWalletSigningQuotaId('email-otp-ed25519-wallet-session-quota'),
 );
+const AUTHORIZATION_ID = unwrapDomainId(
+  parseWalletSessionAuthorizationId('email-otp-ed25519-wallet-session-authorization'),
+);
+const AUTHORIZATION_SESSION_ID = unwrapDomainId(
+  parseSeamsSessionId('email-otp-ed25519-app-session'),
+);
+const WALLET_SESSION_EXPIRES_AT_MS = 1_900_000_000_000;
 const PROVIDER_SUBJECT = 'google:email-otp-ed25519-runtime';
 const EMAIL_HASH_HEX = 'email-otp-ed25519-runtime-hash';
 const RP_ID = 'wallet.example.test';
@@ -145,16 +153,24 @@ function jsonB64u(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 }
 
-function walletSessionJwt(version: string, quotaId = WALLET_SESSION_QUOTA_ID): string {
+function walletSessionJwt(
+  version: string,
+  quotaId = WALLET_SESSION_QUOTA_ID,
+  expiresAtMs = WALLET_SESSION_EXPIRES_AT_MS,
+): string {
   return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
     kind: 'router_ab_ed25519_wallet_session_v1',
     sub: String(WALLET_ID),
     walletId: String(WALLET_ID),
+    authorizationId: String(AUTHORIZATION_ID),
     nearAccountId: String(NEAR_ACCOUNT_ID),
     nearEd25519SigningKeyId: String(NEAR_ED25519_SIGNING_KEY_ID),
     walletSessionId: WALLET_SESSION_ID,
     quotaId,
+    sid: String(AUTHORIZATION_SESSION_ID),
     thresholdSessionId: THRESHOLD_SESSION_ID,
+    thresholdExpiresAtMs: expiresAtMs,
+    exp: Math.floor(expiresAtMs / 1_000),
     relayerKeyId: SIGNING_WORKER_ID,
     rpId: RP_ID,
     participantIds: [...PARTICIPANT_IDS],
@@ -169,20 +185,27 @@ async function readActiveEmailOtpWalletSessionAuthorization() {
     providerUserId: PROVIDER_SUBJECT,
     emailHashHex: EMAIL_HASH_HEX,
   });
-  const authorizationSessionId = unwrapDomainId(
-    parseSeamsSessionId('email-otp-ed25519-app-session'),
-  );
   return {
     kind: 'found' as const,
     projection: buildActiveWalletSessionAuthorizationProjection({
       walletId: WALLET_ID,
-      authorizationSessionId,
+      seamsSessionId: AUTHORIZATION_SESSION_ID,
+      authorizationId: AUTHORIZATION_ID,
       walletSessionId: WALLET_SESSION_ID,
       quotaId: WALLET_SESSION_QUOTA_ID,
-      walletSessionJwt: walletSessionJwt('sealed-refresh'),
+      walletSessionTokens: {
+        kind: 'near_ed25519',
+        ed25519: {
+          walletSessionJwt: walletSessionJwt(
+            'sealed-refresh',
+            WALLET_SESSION_QUOTA_ID,
+            WALLET_SESSION_EXPIRES_AT_MS,
+          ),
+        },
+      },
       authMethod: 'email_otp',
       authority: await walletAuthAuthorityRef({ authority }),
-      expiresAtMs: Date.now() + 60_000,
+      expiresAtMs: WALLET_SESSION_EXPIRES_AT_MS,
     }),
   };
 }
@@ -590,7 +613,12 @@ async function warmRecoveryBootstrapResponse(args: {
     },
     runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
-    capability: bootstrap.capability,
+    capability: {
+      ...bootstrap.capability,
+      materialActivation: routerAbMpcMaterialActivationRefToWire(
+        bootstrap.capability.materialActivation,
+      ),
+    },
   };
 }
 
@@ -874,7 +902,10 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
         quotaId: WALLET_SESSION_QUOTA_ID,
       },
       authorization: {
-        walletSessionJwt: walletSessionJwt('sealed-refresh'),
+        walletSessionTokens: {
+          kind: 'near_ed25519',
+          ed25519: { walletSessionJwt: walletSessionJwt('sealed-refresh') },
+        },
       },
       material: {
         materialActivation: publicCapabilityReference().materialActivation,
@@ -1011,6 +1042,12 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
     );
     expect(mpcMaterialActivationRefsEqual(recoveredActivation, priorMetadata.materialActivation))
       .toBe(false);
+    expect(
+      mpcMaterialActivationRefsEqual(
+        result.publicationContext.materialActivation,
+        recoveredActivation,
+      ),
+    ).toBe(true);
   });
 
   test('cold activation rejects a Wallet Session bearer bound to another quota', async () => {
