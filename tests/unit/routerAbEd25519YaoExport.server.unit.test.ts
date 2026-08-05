@@ -39,37 +39,37 @@ import {
   type RouterAbEd25519YaoExportServerAuthorizationIdentityV1,
   type RouterAbEd25519YaoExportBackend,
   type RouterAbEd25519YaoExportBackendResult,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoExport';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExport';
 import {
   handleRouterAbEd25519YaoExportRequestScopedCloudflareV1,
   type RouterAbEd25519YaoExportRequestScopedCloudflareInputV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoExportRequestScopedCloudflare';
-import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExportRequestScopedCloudflare';
+import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
 import {
   encodeRouterAbEd25519YaoProductRegistrationStateV1,
   parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPersistence';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPersistence';
 import {
   partitionRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationSharedStateV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitioning';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitioning';
 import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitInputV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import type {
   RouterAbEd25519YaoActiveCapabilityLookupV1,
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,
   RouterAbEd25519YaoActiveCapabilityResolverV1,
   RouterAbEd25519YaoActiveCapabilityDescriptorV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
   type RouterAbEd25519YaoRecoveryBackend,
   type RouterAbEd25519YaoRecoveryBackendResult,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { buildRouterAbEd25519YaoCapabilityReplacementFixture } from './helpers/routerAbEd25519YaoRecoveryRequestScoped.fixtures';
 import {

@@ -31,7 +31,7 @@ import type {
   AuthorizedOperation,
   AuthorizedOperationInput,
 } from '../../packages/sdk-server-ts/src/authorization/domain';
-import { admitRouterAbEcdsaReusableWalletSessionOperation } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
+import { admitRouterAbEcdsaReusableWalletSessionOperation } from '../../packages/sdk-server-ts/src/router/domains/normalSigning/routerAbPrivateSigningWorker';
 import { buildRouterAbEcdsaWalletSessionClaimsFixture } from './helpers/routerAbEcdsaWalletSessionClaims.fixtures';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';

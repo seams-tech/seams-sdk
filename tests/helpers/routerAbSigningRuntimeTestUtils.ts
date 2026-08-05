@@ -19,7 +19,7 @@ import {
   parseStoredRouterAbEcdsaPendingActivationV1,
   type RouterAbEcdsaStrictRegistrationPort,
   type RouterAbEcdsaStrictRegistrationTopology,
-} from '@server/router/routerAbEcdsaStrictRegistration';
+} from '@server/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
 import type { ThresholdStoreConfigInput } from '@server/core/types';
 import {
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
