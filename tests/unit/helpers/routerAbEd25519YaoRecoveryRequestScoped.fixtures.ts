@@ -15,7 +15,7 @@ import {
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { CloudflareVersionedJsonRecordReadResult } from '../../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
+import type { VersionedJsonRecordReadResult } from '../../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
 import {
   parseRouterAbEd25519WalletSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
@@ -161,12 +161,12 @@ class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistratio
   async readMany(keys: readonly string[]): Promise<
     readonly {
       readonly key: string;
-      readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
+      readonly result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
     }[]
   > {
     const results: {
       readonly key: string;
-      readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
+      readonly result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
     }[] = [];
     for (const key of keys) {
       const record = this.records.get(key);

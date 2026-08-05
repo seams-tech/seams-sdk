@@ -1,6 +1,6 @@
 import type {
-  CloudflareVersionedJsonRecordPutResult,
-  CloudflareVersionedJsonRecordReadResult,
+  VersionedJsonRecordPutResult,
+  VersionedJsonRecordReadResult,
 } from '../../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
 import type { SessionAdapter } from '../../../packages/sdk-server-ts/src/router/framework/routerApi';
 import type {
@@ -54,7 +54,7 @@ export class RegistrationSideEffectMemoryStore<
   async read(
     key: string,
   ): Promise<
-    CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>>
+    VersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>>
   > {
     this.readCalls += 1;
     if (this.throwReadCalls.delete(this.readCalls)) {
@@ -78,7 +78,7 @@ export class RegistrationSideEffectMemoryStore<
     key: string,
     value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>,
     expectedVersion: string | null,
-  ): Promise<CloudflareVersionedJsonRecordPutResult> {
+  ): Promise<VersionedJsonRecordPutResult> {
     if (
       value.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1' &&
       this.throwClaimPuts > 0
@@ -198,7 +198,7 @@ export class RegistrationBridgePartitionRecordStore implements RouterAbEd25519Ya
   async readMany(keys: readonly string[]): Promise<
     readonly {
       readonly key: string;
-      readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
+      readonly result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
     }[]
   > {
     return keys.map((key) => {
