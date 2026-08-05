@@ -1,7 +1,11 @@
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetFromRequest,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toError } from '@shared/utils/errors';
 import type {
   EcdsaSessionBootstrapSurface,
+  EvmFamilySigningSurface,
   EvmSignerCapability,
   RegistrationSigningSurface,
   RegistrationWebContext,
@@ -13,6 +17,21 @@ import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { registerWallet as registerWalletWithUnifiedCeremony } from '@/SeamsWeb/operations/registration/registration';
 import { buildEvmBootstrapArgs, buildEvmWalletRegistrationArgs } from '@/SeamsWeb/operations/evm';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
+import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
+import {
+  CAPABILITY_KINDS,
+  EVM_ECDSA_MPC_OPERATION_KINDS,
+} from '@shared/authorization/capabilityKinds';
+import { requireBrowserCapabilityOperation } from '@/SeamsWeb/publicApi/capabilitySelection';
+
+function requireEvmSignedResult(
+  result: Awaited<ReturnType<EvmFamilySigningSurface['signEvmFamily']>>,
+): EvmSignedResult {
+  if (result.chain !== 'evm' || result.kind !== 'eip1559') {
+    throw new Error(`[EVM capability] expected EVM result, received ${result.chain}`);
+  }
+  return result;
+}
 
 function toLocalEvmBootstrapRequest(
   args: Parameters<EvmSignerCapability['bootstrapEcdsaSession']>[0],
@@ -30,13 +49,50 @@ function toLocalEvmBootstrapRequest(
 }
 
 export function createEvmSignerCapability(deps: {
-  signingEngine: RegistrationSigningSurface & EcdsaSessionBootstrapSurface;
+  signingEngine: RegistrationSigningSurface &
+    EcdsaSessionBootstrapSurface &
+    EvmFamilySigningSurface;
   nearClient: NearClient;
   configs: SeamsConfigsReadonly;
   getTheme: () => ThemeMode;
   getWalletIframe: () => WalletIframeCoordinator;
 }): EvmSignerCapability {
   return {
+    signTransaction: async (args) => {
+      const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
+      requireBrowserCapabilityOperation(deps.configs, {
+        capabilityKind: CAPABILITY_KINDS.evmEcdsaMpcSigning,
+        operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
+        chainTarget,
+      });
+      const walletIframe = deps.getWalletIframe();
+      if (!walletIframe.shouldUseWalletIframe()) {
+        const result = await deps.signingEngine.signEvmFamily({
+          walletSession: args.walletSession,
+          request: args.request,
+          chainTarget,
+          confirmationConfigOverride: args.options?.confirmationConfig,
+          shouldAbort: args.options?.shouldAbort,
+          onEvent: args.options?.onEvent,
+        });
+        return requireEvmSignedResult(result);
+      }
+      try {
+        const router = await walletIframe.requireRouter(toWalletId(args.walletSession.walletId));
+        const result = await router.signTempo({
+          walletSession: args.walletSession,
+          request: args.request,
+          chainTarget,
+          options: {
+            confirmationConfig: args.options?.confirmationConfig,
+            onEvent: args.options?.onEvent,
+          },
+        });
+        return requireEvmSignedResult(result);
+      } catch (error: unknown) {
+        throw toError(error);
+      }
+    },
     registerEvmWallet: async (args) => {
       const walletIframe = deps.getWalletIframe();
       const registerWalletArgs = buildEvmWalletRegistrationArgs(args);

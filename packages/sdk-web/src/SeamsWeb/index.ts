@@ -7,6 +7,7 @@ export type {
 } from './publicApi/capabilitySelection';
 
 export type { DemoEmailOtpCodeResponse } from '@/core/signingEngine/session/emailOtp/publicTypes';
+export type { TempoFeeTokenValidation } from '@/core/signingEngine/chains/tempo/feeToken';
 
 export type {
   AuthCapability,
@@ -43,6 +44,7 @@ export type {
   GoogleEmailOtpWalletAuthResult,
   GoogleEmailOtpWalletAuthStartInput,
   GoogleEmailOtpWalletAuthSubmitSuccess,
+  GetTempoFeeTokenPreferenceArgs,
   RegistrationFinalizeIdempotencyKey,
   ExecuteEvmFamilyTransactionArgs,
   ExecuteEvmFamilyTransactionResult,
@@ -59,11 +61,14 @@ export type {
   ReportTempoBroadcastRejectedArgs,
   ReportTempoDroppedOrReplacedArgs,
   ReportTempoFinalizedArgs,
+  SignEvmTransactionArgs,
+  SetTempoFeeTokenPreferenceArgs,
   SignTempoArgs,
   TempoNonceLifecycleEvent,
   TempoNonceLifecycleOptions,
   TempoNonceLaneStatus,
   TempoSignerCapability,
+  ValidateTempoFeeTokenArgs,
 } from './publicApi/types';
 
 export type {

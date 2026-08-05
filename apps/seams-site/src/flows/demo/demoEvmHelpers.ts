@@ -1,9 +1,8 @@
 import {
-  buildTempoSetUserTokenCall,
+  buildTempoSetUserTokenRequest as buildSdkTempoSetUserTokenRequest,
   createEvmClient,
-  decodeTempoUserTokenResult,
-  encodeTempoUserTokensCalldata,
   parseEvmRpcHexQuantity,
+  readTempoFeeTokenPreference,
   TEMPO_ALPHA_USD_FEE_TOKEN,
   TEMPO_FEE_MANAGER_CONTRACT,
   TEMPO_FEE_MANAGER_ABI,
@@ -279,27 +278,11 @@ export async function readTempoUserFeeToken(args: {
   userAddress: `0x${string}`;
   timeoutMs?: number;
 }): Promise<`0x${string}` | null> {
-  const client = createDemoEvmClient({
+  return await readTempoFeeTokenPreference({
     rpcUrl: args.rpcUrl,
-    ...(args.timeoutMs != null ? { requestTimeoutMs: args.timeoutMs } : {}),
-  });
-  const result = await client.request<string>({
-    method: 'eth_call',
-    params: [
-      {
-        to: TEMPO_FEE_MANAGER_CONTRACT,
-        data: encodeTempoUserTokensCalldata(args.userAddress),
-      },
-      'latest',
-    ],
+    account: args.userAddress,
     ...(args.timeoutMs != null ? { timeoutMs: args.timeoutMs } : {}),
   });
-
-  if (typeof result !== 'string' || !result.startsWith('0x')) {
-    throw new Error('Invalid userTokens(address) eth_call response');
-  }
-
-  return decodeTempoUserTokenResult(result);
 }
 
 export async function readTempoTokenBalanceRaw(args: {
@@ -455,28 +438,13 @@ export function buildTempoSetUserTokenRequest(args: {
   feeCaps: Eip1559FeeCaps;
   feeToken: `0x${string}`;
 }) {
-  const setUserTokenCall = buildTempoSetUserTokenCall({
-    token: args.feeToken,
-    feeManager: TEMPO_FEE_MANAGER_CONTRACT,
+  return buildSdkTempoSetUserTokenRequest({
+    chainId: 42431,
+    feeToken: args.feeToken,
+    maxPriorityFeePerGas: args.feeCaps.maxPriorityFeePerGas,
+    maxFeePerGas: args.feeCaps.maxFeePerGas,
+    gasLimit: TEMPO_SET_USER_TOKEN_GAS_LIMIT,
   });
-  return {
-    // Tempo treats a top-level non-Tempo setUserToken(address) call specially and
-    // uses the token argument for fee settlement before an account preference exists.
-    chain: 'evm' as const,
-    kind: 'eip1559' as const,
-    senderSignatureAlgorithm: 'secp256k1' as const,
-    tx: {
-      chainId: 42431,
-      maxPriorityFeePerGas: args.feeCaps.maxPriorityFeePerGas,
-      maxFeePerGas: args.feeCaps.maxFeePerGas,
-      gasLimit: TEMPO_SET_USER_TOKEN_GAS_LIMIT,
-      to: setUserTokenCall.to,
-      value: 0n,
-      data: setUserTokenCall.input || '0x',
-      abi: setUserTokenCall.abi || TEMPO_FEE_MANAGER_ABI,
-      accessList: [],
-    },
-  };
 }
 
 export function buildDemoEip1559Request(greeting: string, feeCaps: Eip1559FeeCaps) {

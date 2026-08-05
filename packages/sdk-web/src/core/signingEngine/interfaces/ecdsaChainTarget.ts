@@ -1,6 +1,4 @@
-import {
-  chainFamilyFromNetwork,
-} from '@/core/config/chains';
+import { chainFamilyFromNetwork } from '@/core/config/chains';
 import type { AccountId } from '@/core/types/accountIds';
 import type { SeamsChainConfig } from '@/core/types/seams';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
@@ -112,6 +110,21 @@ export function thresholdEcdsaChainTargetsEqual(
 }
 
 export function thresholdEcdsaChainTargetFromChainFamily(args: {
+  chain: 'tempo';
+  chainId: unknown;
+  networkSlug?: unknown;
+}): TempoChainTarget;
+export function thresholdEcdsaChainTargetFromChainFamily(args: {
+  chain: 'evm';
+  chainId: unknown;
+  networkSlug?: unknown;
+}): EvmEip155ChainTarget;
+export function thresholdEcdsaChainTargetFromChainFamily(args: {
+  chain: BoundaryEcdsaChainFamily;
+  chainId: unknown;
+  networkSlug?: unknown;
+}): ThresholdEcdsaChainTarget;
+export function thresholdEcdsaChainTargetFromChainFamily(args: {
   chain: BoundaryEcdsaChainFamily;
   chainId: unknown;
   networkSlug?: unknown;
@@ -162,12 +175,16 @@ export function thresholdEcdsaChainTargetFromRequest(args: {
   chainId?: unknown;
   networkSlug?: unknown;
 }): ThresholdEcdsaChainTarget {
-  const rawKind = String(args.kind ?? args.chain ?? '').trim().toLowerCase();
+  const rawKind = String(args.kind ?? args.chain ?? '')
+    .trim()
+    .toLowerCase();
   if (rawKind !== 'evm' && rawKind !== 'tempo') {
     throw new Error('[threshold-ecdsa] ECDSA request target requires chain kind evm or tempo');
   }
   if (rawKind === 'evm') {
-    const namespace = String(args.namespace ?? 'eip155').trim().toLowerCase();
+    const namespace = String(args.namespace ?? 'eip155')
+      .trim()
+      .toLowerCase();
     if (namespace !== 'eip155') {
       throw new Error('[threshold-ecdsa] EVM chain target namespace must be eip155');
     }

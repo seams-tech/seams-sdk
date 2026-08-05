@@ -11,7 +11,16 @@ function makeTempoRequest(requestId: string): any {
     type: 'PM_SIGN_TEMPO',
     requestId,
     payload: {
-      nearAccountId: 'alice.testnet',
+      walletSession: {
+        walletId: 'alice.testnet',
+        walletSessionUserId: 'alice.testnet',
+      },
+      chainTarget: {
+        kind: 'evm',
+        namespace: 'eip155',
+        chainId: 1,
+        networkSlug: 'ethereum',
+      },
       request: {
         chain: 'evm',
         kind: 'eip1559',
@@ -32,8 +41,8 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
     const handlers = createWalletIframeHandlers({
       getSeamsWeb: () =>
         ({
-          tempo: {
-            signTempo: async () => {
+          evm: {
+            signTransaction: async () => {
               signCalls += 1;
               return { chain: 'evm', txHashHex: '0x1', rawTxHex: '0x2' } as any;
             },
@@ -55,7 +64,7 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
     expect(posts.length).toBe(0);
   });
 
-  test('forwards shouldAbort probe into signTempo call', async () => {
+  test('forwards shouldAbort probe into EVM signing call', async () => {
     const posts: ChildToParentEnvelope[] = [];
     let cancelled = false;
     let signCalls = 0;
@@ -63,8 +72,8 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
     const handlers = createWalletIframeHandlers({
       getSeamsWeb: () =>
         ({
-          tempo: {
-            signTempo: async (args: any) => {
+          evm: {
+            signTransaction: async (args: any) => {
               signCalls += 1;
               const shouldAbort = args?.options?.shouldAbort;
               expect(typeof shouldAbort).toBe('function');
