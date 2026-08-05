@@ -24,12 +24,12 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-server-ts/src/core/types';
-import type { RouterApiWebAuthnService } from '../../packages/sdk-server-ts/src/router/authServicePort';
-import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/logger';
+import type { RouterApiWebAuthnService } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
+import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/framework/logger';
 import type {
   SessionAdapter,
   SessionClaims,
-} from '../../packages/sdk-server-ts/src/router/routerApi';
+} from '../../packages/sdk-server-ts/src/router/framework/routerApi';
 import {
   InMemoryRouterAbEd25519YaoExportService,
   RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter,

@@ -3,7 +3,7 @@ import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
   handleEmailOtpSigningSessionChallengeRoute,
   handleEmailOtpSigningSessionUnsealRoute,
-} from '@server/router/emailOtpRouteHandlers';
+} from '@server/router/domains/emailOtp/emailOtpRouteHandlers';
 
 type CapturedSigningSessionUnsealCalls = {
   readActiveEnrollmentInput: Record<string, unknown> | null;

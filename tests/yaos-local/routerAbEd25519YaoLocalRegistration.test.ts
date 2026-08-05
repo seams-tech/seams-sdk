@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { type RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
-import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/logger';
+import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/framework/logger';
 import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
 import {
   InMemoryRouterAbEd25519YaoRegistrationService,
@@ -15,8 +15,8 @@ import {
   type RouterAbEd25519YaoRegistrationAuthorizationInput,
   type RouterAbEd25519YaoRegistrationAuthorizationResult,
 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
-import type { RouterApiRouteExtension } from '../../packages/sdk-server-ts/src/router/routeExtensions';
-import type { RouteDefinition } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
+import type { RouterApiRouteExtension } from '../../packages/sdk-server-ts/src/router/framework/routeExtensions';
+import type { RouteDefinition } from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
 import {
   RouterAbEd25519YaoClientV1,
   type RouterAbEd25519YaoRegistrationTransportRequestV1,

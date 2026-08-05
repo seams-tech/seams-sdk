@@ -9,9 +9,9 @@ import {
   type VaultProxySecretStore,
 } from '../../packages/sdk-server-ts/src/authorization/vaultProxyUse';
 import { parseSessionOrigin } from '../../packages/sdk-server-ts/src/authorization/domain';
-import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1AuthorizationStore';
-import { CloudflareD1VaultProxyStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1VaultProxyStore';
-import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/logger';
+import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
+import { CloudflareD1VaultProxyStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/authorization/d1VaultProxyStore';
+import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/framework/logger';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

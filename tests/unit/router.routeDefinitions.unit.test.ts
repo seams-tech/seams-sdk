@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { applyRouteMetering } from '../../packages/sdk-server-ts/src/router/applyRouteMetering';
-import { enforceRoutePolicy } from '../../packages/sdk-server-ts/src/router/enforceRoutePolicy';
-import { API_CREDENTIAL_ROUTE_SCOPES } from '../../packages/sdk-server-ts/src/router/routeAuthPolicy';
-import { ROUTE_SERVICE_KEYS } from '../../packages/sdk-server-ts/src/router/routeExecutionContext';
+import { applyRouteMetering } from '../../packages/sdk-server-ts/src/router/framework/applyRouteMetering';
+import { enforceRoutePolicy } from '../../packages/sdk-server-ts/src/router/framework/enforceRoutePolicy';
+import { API_CREDENTIAL_ROUTE_SCOPES } from '../../packages/sdk-server-ts/src/router/framework/routeAuthPolicy';
+import { ROUTE_SERVICE_KEYS } from '../../packages/sdk-server-ts/src/router/framework/routeExecutionContext';
 import {
   createRouterApiRouteDefinitions,
   defineRoute,
   type RouteDefinition,
-} from '../../packages/sdk-server-ts/src/router/routeDefinitions';
+} from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
 import {
   ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH,

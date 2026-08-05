@@ -28,7 +28,7 @@ import {
   type RouterAbEd25519YaoRegistrationBackendFailure,
   type RouterAbEd25519YaoRegistrationBackendResult,
 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
-import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/logger';
+import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/framework/logger';
 import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
 
 type RouterAbEd25519YaoRegistrationBindingV1 =

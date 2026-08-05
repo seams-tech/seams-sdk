@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { AuthorizationService } from '../../packages/sdk-server-ts/src/authorization/service';
 import type { EcdsaMaterialActivationScope } from '../../packages/sdk-server-ts/src/authorization/service';
-import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1AuthorizationStore';
+import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import {
   D1WalletStore,
   type D1WalletStoreScope,

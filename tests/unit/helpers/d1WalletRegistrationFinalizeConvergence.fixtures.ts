@@ -11,9 +11,9 @@ import type { WalletRegistrationFinalizeRequest } from '../../../packages/sdk-se
 import {
   createCloudflareD1RouterApiAuthService,
   type CloudflareD1RouterApiAuthService,
-} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
-import { buildRegistrationIntent } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
-import { CloudflareD1RegistrationCeremonyIntentStore } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyStore';
+} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { buildRegistrationIntent } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
+import { CloudflareD1RegistrationCeremonyIntentStore } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,

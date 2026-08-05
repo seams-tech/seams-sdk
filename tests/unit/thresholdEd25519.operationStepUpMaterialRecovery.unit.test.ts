@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { recoverEd25519OperationStepUpMaterial } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519';
+import { recoverEd25519OperationStepUpMaterial } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEd25519';
 
 test('Passkey operation step-up never invokes Email OTP material unseal', async () => {
   let unsealCalls = 0;
