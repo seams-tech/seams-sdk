@@ -285,11 +285,10 @@ ROUTER_API_KEY_AUTH_ENABLED=1
 # CONSOLE_OBSERVABILITY_RETENTION_PRUNE_INTERVAL_MS=300000
 # CONSOLE_OBSERVABILITY_RETENTION_BATCH_SIZE=1000
 
-# Threshold signing-root shares
-# Local dev automatically wires fixture signing-root shares for localhost/.local origins
-# unless NODE_ENV=production.
-# Use real sealed signing-root share storage before using the signer for real funds.
-# THRESHOLD_SIGNING_ROOT_LOCAL_DEV_RESOLVER=1
+# Threshold Router A/B role-local root-share fixtures
+# Local dev automatically wires Deriver A/B fixtures for localhost/.local origins
+# unless NODE_ENV=production. Use independent role-local custody before using the
+# signer for real funds.
 # The authenticated project/environment runtime scope supplies signingRootId per request.
 # Active environment metadata supplies signingRootVersion=default for the local fixture.
 # Do not configure a process-wide signing root on the Router API for hosted multi-project flows.

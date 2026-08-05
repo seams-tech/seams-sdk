@@ -20,16 +20,18 @@ It consumes:
 - [refactor-90-modular-auth-capabilities-plan.md](./refactor-90-modular-auth-capabilities-plan.md)
   for canonical capability hydration, active ECDSA manifests, activation
   commits, exact operation execution, and Wallet Session admission;
-- [refactor-95-passkey-account-refactor.md](./refactor-95-passkey-account-refactor.md)
+- [refactor-100-passkey-account-refactor.md](./refactor-100-passkey-account-refactor.md)
   for wrapped roots, holder-share envelopes, and wallet-scoped recovery;
-- [refactor-96-wallet-execution-lanes.md](./refactor-96-wallet-execution-lanes.md)
+- [refactor-101-wallet-execution-lanes.md](./refactor-101-wallet-execution-lanes.md)
   for curve-specific wallet keys, linked-device lanes, lifecycle, and
   execution admission;
-- [refactor-97-share-rotation.md](./refactor-97-share-rotation.md) for Yao
+- [refactor-102-share-rotation.md](./refactor-102-share-rotation.md) for Yao
   Ed25519 recipient provisioning, ECDSA additive target-lane resharing,
   aggregate activation, refresh, and revocation.
 
-[refactor-99-agent-id-spending.md](./refactor-99-agent-id-spending.md) owns
+- [refactor-103-device-linking.md](./refactor-103-device-linking.md) for device linking
+
+[refactor-104-agent-id-spending.md](./refactor-104-agent-id-spending.md) owns
 agent identity and delegated spending. No agent identity, custody, mandate,
 budget, or agent-request type belongs in this plan.
 

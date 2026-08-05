@@ -103,15 +103,12 @@ export type {
   CloudflareD1ConsoleStorageBindingNames,
   CloudflareD1ConsoleStorageBindings,
   CloudflareD1RouterApiStorageOptions,
-  CloudflareD1SigningRootSecretAdapterOptions,
-  CloudflareD1SigningRootSecretAdapters,
 } from './cloudflare/d1ConsoleServices';
 export {
   asConsoleRouterOptions,
   asRouterApiOptions,
   createCloudflareD1ConsoleOnlyServiceBundle,
   createCloudflareD1ConsoleServiceBundle,
-  createCloudflareD1SigningRootSecretAdapters,
 } from './cloudflare/d1ConsoleServices';
 export type { CloudflareCronOptions } from './cloudflare/cron';
 export { createCloudflareCron } from './cloudflare/cron';

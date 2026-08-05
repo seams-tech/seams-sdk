@@ -7,7 +7,6 @@ import {
   readD1StagingJsonFile,
 } from './helpers/d1StagingScriptFixtures';
 
-const missingKekSignerCustodyResultId = 'ecdsa_export_share_missing_kek_fail_closed';
 const consoleRestoreDatabaseName = 'seams-console-staging-nrt-restore-drill-20260628t000000z';
 const signerRestoreDatabaseName = 'seams-signer-staging-nrt-restore-drill-20260628t000000z';
 const consoleIntegrityCommand = `integrity console ${consoleRestoreDatabaseName} PRAGMA integrity_check`;
@@ -33,7 +32,6 @@ type PassingEvidenceFixture = {
 
 type PassingEvidenceManifestKey =
   | 'resources'
-  | 'kekCheck'
   | 'migrations'
   | 'bookmarkBeforeFixtureImport'
   | 'fixtureImport'
@@ -277,7 +275,6 @@ function passingManifests(dir: string): PassingEvidenceManifests {
             { binding: 'CONSOLE_DB', databaseId: 'd1-console-id' },
           ],
           durableObjects: [],
-          secretsStoreSecrets: [],
         },
         gatewayWorker: {
           d1Databases: [
@@ -285,18 +282,7 @@ function passingManifests(dir: string): PassingEvidenceManifests {
             { binding: 'SIGNER_DB', databaseId: 'd1-signer-id' },
           ],
           durableObjects: [],
-          secretsStoreSecrets: [
-            {
-              binding: 'SIGNING_ROOT_KEK_R1',
-              storeId: 'secret-store',
-              secretName: 'kek-r1',
-            },
-          ],
-          stagingVars: {
-            ...tenant,
-            signingRootKekProvider: 'cloudflare-secrets-store',
-            signingRootKekIds: ['kek-r1'],
-          },
+          stagingVars: tenant,
         },
       },
       commands: [
@@ -329,23 +315,6 @@ function passingManifests(dir: string): PassingEvidenceManifests {
           status: 0,
           command: 'resource Gateway deployments status',
           json: { id: 'gateway-worker' },
-        },
-      ],
-    }),
-    kekCheck: writeManifest(dir, 'kek-check', {
-      version: 'seams_d1_staging_kek_check_v1',
-      generatedAtIso: '2026-06-28T00:00:00.000Z',
-      mode: 'remote',
-      environmentName,
-      gatewayConfigPath,
-      keks: [{ kekId: 'kek-r1', storeId: 'secret-store', secretName: 'kek-r1' }],
-      commands: ['secrets-store secret list secret-store'],
-      checks: [
-        {
-          storeId: 'secret-store',
-          command: 'secrets-store secret list secret-store',
-          status: 0,
-          presentSecretNames: ['kek-r1'],
         },
       ],
     }),
@@ -526,14 +495,6 @@ function passingManifests(dir: string): PassingEvidenceManifests {
           id: 'sponsored_call_settlement_amount_mismatch',
           command: 'reconcile sponsored call settlement amount',
         },
-        {
-          id: 'signer_share_unknown_kek',
-          command: 'reconcile signer share unknown kek',
-        },
-        {
-          id: 'signer_share_invalid_rotation_state',
-          command: 'reconcile signer share rotation state',
-        },
       ],
       executed: [
         {
@@ -557,18 +518,6 @@ function passingManifests(dir: string): PassingEvidenceManifests {
         {
           id: 'sponsored_call_settlement_amount_mismatch',
           command: 'reconcile sponsored call settlement amount',
-          status: 0,
-          rowCount: 0,
-        },
-        {
-          id: 'signer_share_unknown_kek',
-          command: 'reconcile signer share unknown kek',
-          status: 0,
-          rowCount: 0,
-        },
-        {
-          id: 'signer_share_invalid_rotation_state',
-          command: 'reconcile signer share rotation state',
           status: 0,
           rowCount: 0,
         },
@@ -599,12 +548,6 @@ function passingManifests(dir: string): PassingEvidenceManifests {
           url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/share',
           expectedStatus: 200,
         },
-        {
-          id: 'ecdsa_export_share_missing_kek_fail_closed',
-          method: 'POST',
-          url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/share',
-          expectedStatus: 503,
-        },
       ],
       results: [
         {
@@ -624,13 +567,6 @@ function passingManifests(dir: string): PassingEvidenceManifests {
           ok: true,
           status: 200,
           url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/share',
-        },
-        {
-          id: 'ecdsa_export_share_missing_kek_fail_closed',
-          ok: true,
-          status: 503,
-          url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/share',
-          body: { ok: false, code: 'missing_signing_root_kek' },
         },
       ],
     }),
@@ -722,7 +658,6 @@ test('D1 staging evidence verifier writes a passing summary for remote manifests
   expect(result.summary.ok).toBe(true);
   expect(result.summary.evidence.map((entry) => entry.id)).toEqual([
     'resource_inventory',
-    'hosted_signer_kek_metadata',
     'remote_d1_migrations',
     'time_travel_before_fixture_import',
     'fixture_import',
@@ -745,11 +680,6 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
     name: 'D1 staging evidence verifier rejects reconciliation mismatch rows',
     mutate: (m) => patchManifest(m.reconciliation, { executed: [{ id: 'billing_account_balance_mismatch', status: 0, rowCount: 1 }] }),
     expectedError: /d1_reconciliation: billing_account_balance_mismatch returned 1 mismatch rows/,
-  },
-  {
-    name: 'D1 staging evidence verifier rejects substituted reconciliation commands',
-    mutate: (m) => patchManifestRecordById(m.reconciliation, 'executed', 'signer_share_unknown_kek', { command: 'reconcile signer shares against another database' }),
-    expectedError: /d1_reconciliation: executed\[signer_share_unknown_kek\]\.command does not match planned command/,
   },
   {
     name: 'D1 staging evidence verifier rejects incomplete resource inventory evidence',
@@ -780,8 +710,6 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
             orgId: 'org_staging',
             projectId: 'project_staging',
             envId: 'env_staging',
-            signingRootKekProvider: 'cloudflare-secrets-store',
-            signingRootKekIds: ['kek-r1'],
           },
         },
       },
@@ -799,13 +727,6 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
     expectedError: /resource_inventory: resources\.consoleWorker\.d1Databases must not include signer-only binding SIGNER_DB/,
   },
   {
-    name: 'D1 staging evidence verifier rejects signer KEK bindings on the console Worker',
-    mutate: (m) => patchResourceWorker(m.resources, 'consoleWorker', {
-      secretsStoreSecrets: [{ binding: 'SIGNING_ROOT_KEK_R1', storeId: 'secret-store', secretName: 'kek-r1' }],
-    }),
-    expectedError: /resource_inventory: resources\.consoleWorker\.secretsStoreSecrets must not include signer KEK binding SIGNING_ROOT_KEK_R1/,
-  },
-  {
     name: 'D1 staging evidence verifier rejects a retired Gateway runtime binding',
     mutate: (m) =>
       patchResourceWorker(m.resources, 'gatewayWorker', {
@@ -813,11 +734,6 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
       }),
     expectedError:
       /resource_inventory: resources\.gatewayWorker\.durableObjects includes unexpected binding ROUTER_API_RUNTIME/,
-  },
-  {
-    name: 'D1 staging evidence verifier rejects gateway resource inventory without configured signer KEKs',
-    mutate: (m) => patchResourceWorker(m.resources, 'gatewayWorker', { secretsStoreSecrets: [] }),
-    expectedError: /resource_inventory: resources\.gatewayWorker\.secretsStoreSecrets missing signer KEK secret kek-r1/,
   },
   {
     name: 'D1 staging evidence verifier rejects mismatched remote D1 database evidence',
@@ -937,11 +853,6 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
     expectedError: /signer_custody: missing signer_custody_ed25519_healthz evidence/,
   },
   {
-    name: 'D1 staging evidence verifier rejects missing signer custody missing-KEK evidence',
-    mutate: (m) => removeManifestRecordById(m.signerCustody, 'results', missingKekSignerCustodyResultId),
-    expectedError: /signer_custody: missing ecdsa_export_share_missing_kek_fail_closed evidence in results/,
-  },
-  {
     name: 'D1 staging evidence verifier rejects signer custody responses for unplanned URLs',
     mutate: (m) => patchManifestRecordById(m.signerCustody, 'checks', 'ecdsa_export_share_success', { url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/other-share' }),
     expectedError: /signer_custody: results\.ecdsa_export_share_success\.url does not match planned plannedChecks\.ecdsa_export_share_success\.url/,
@@ -962,16 +873,6 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
     expectedError: /signer_custody: results\.ecdsa_export_share_success\.status is 202, expected 200/,
   },
   {
-    name: 'D1 staging evidence verifier rejects missing-KEK evidence that does not fail closed',
-    mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', missingKekSignerCustodyResultId, { status: 200, body: { ok: true } }),
-    expectedError: /signer_custody: results\.ecdsa_export_share_missing_kek_fail_closed\.status must be a 4xx\/5xx fail-closed status, got 200/,
-  },
-  {
-    name: 'D1 staging evidence verifier rejects missing-KEK evidence with the wrong error code',
-    mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', missingKekSignerCustodyResultId, { body: { ok: false, code: 'internal_error' } }),
-    expectedError: /signer_custody: results\.ecdsa_export_share_missing_kek_fail_closed\.body\.code must be missing_signing_root_kek/,
-  },
-  {
     name: 'D1 staging evidence verifier rejects signer custody evidence on wrong endpoint paths',
     mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', 'ecdsa_export_share_success', { url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/share?debug=true' }),
     expectedError: /signer_custody: results\.ecdsa_export_share_success\.url uses path \/router-ab\/ecdsa-derivation\/export\/share\?debug=true, expected \/router-ab\/ecdsa-derivation\/export\/share/,
@@ -984,14 +885,14 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
   {
     name: 'D1 staging evidence verifier rejects incomplete reconciliation evidence',
     mutate: (m) => patchManifest(m.reconciliation, { executed: [{ id: 'billing_account_balance_mismatch', status: 0, rowCount: 0 }] }),
-    expectedError: /d1_reconciliation: missing signer_share_unknown_kek evidence in executed/,
+    expectedError: /d1_reconciliation: missing prepaid_reservation_summary_mismatch evidence in executed/,
   },
   {
     name: 'D1 staging evidence verifier rejects duplicate reconciliation executed IDs',
     mutate: (m) => appendManifestRecords(m.reconciliation, {
-      executed: { id: 'signer_share_unknown_kek', command: 'reconcile signer share unknown kek', status: 0, rowCount: 0 },
+      executed: { id: 'billing_account_balance_mismatch', command: 'reconcile billing account balance', status: 0, rowCount: 0 },
     }),
-    expectedError: /d1_reconciliation: executed\.signer_share_unknown_kek is duplicated/,
+    expectedError: /d1_reconciliation: executed\.billing_account_balance_mismatch is duplicated/,
   },
   {
     name: 'D1 staging evidence verifier rejects incomplete R2 restore artifact evidence',
@@ -1050,24 +951,7 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
   {
     name: 'D1 staging evidence verifier rejects resource inventory captured after migrations',
     mutate: (m) => patchManifest(m.resources, { generatedAtIso: '2026-06-28T00:02:00.000Z' }),
-    expectedError: /evidence order mismatch: hosted_signer_kek_metadata/,
-  },
-  {
-    name: 'D1 staging evidence verifier rejects missing configured KEK evidence',
-    mutate: (m) => patchManifest(m.kekCheck, { checks: [{ storeId: 'secret-store', status: 0, presentSecretNames: ['kek-other'] }] }),
-    expectedError: /configured KEK kek-r1 was not found/,
-  },
-  {
-    name: 'D1 staging evidence verifier rejects substituted hosted signer KEK commands',
-    mutate: (m) => patchManifest(m.kekCheck, {
-      checks: [{
-        storeId: 'secret-store',
-        command: 'secrets-store secret list other-secret-store',
-        status: 0,
-        presentSecretNames: ['kek-r1'],
-      }],
-    }),
-    expectedError: /hosted_signer_kek_metadata: checks\[0\]\.command does not match planned command/,
+    expectedError: /evidence order mismatch/,
   },
   {
     name: 'D1 staging evidence verifier rejects missing manifests',

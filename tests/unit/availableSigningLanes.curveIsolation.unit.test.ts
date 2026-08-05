@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import {
+  buildEmailOtpEd25519AuthorizationProjectionFixture,
+  buildEmailOtpEd25519SealedSessionRecordFixture,
   buildPasskeyEd25519AuthorizationProjectionFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
@@ -192,7 +194,7 @@ test.describe('available signing lane curve isolation', () => {
     });
   });
 
-  test('admits a public-only lane only while its exact Yao client is live', async ({ page }) => {
+  test('does not advertise a public-only lane without a sealed runtime', async ({ page }) => {
     const record = buildPasskeyEd25519SealedSessionRecordFixture({
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 9,
@@ -234,7 +236,6 @@ test.describe('available signing lane curve isolation', () => {
         return {
           live: {
             candidateCount: live.candidates.ed25519.near.length,
-            source: live.lanes.ed25519.near.source,
             state: live.lanes.ed25519.near.state,
           },
           stale: {
@@ -252,9 +253,76 @@ test.describe('available signing lane curve isolation', () => {
 
     expect(result).toEqual({
       live: {
-        candidateCount: 1,
-        source: 'public_capability_reference',
-        state: 'ready',
+        candidateCount: 0,
+        state: 'missing',
+      },
+      stale: {
+        candidateCount: 0,
+        state: 'missing',
+      },
+    });
+  });
+
+  test('does not advertise an Email OTP public-only lane without a sealed runtime', async ({ page }) => {
+    const record = buildEmailOtpEd25519SealedSessionRecordFixture({
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 9,
+    });
+    const authorization = buildEmailOtpEd25519AuthorizationProjectionFixture(record);
+    const restore = record.ed25519Restore;
+    const publicCapabilityReference = {
+      walletId: record.walletId,
+      nearAccountId: restore.nearAccountId,
+      thresholdSessionId: record.thresholdSessionIds.ed25519,
+      runtimePolicyScope: restore.runtimePolicyScope,
+      materialActivation: restore.materialActivation,
+      auth: {
+        kind: 'email_otp' as const,
+        providerSubjectId: restore.providerSubjectId,
+      },
+      nearEd25519SigningKeyId: restore.nearEd25519SigningKeyId,
+      signerSlot: restore.signerSlot,
+    };
+    const result = await page.evaluate(
+      async ({ modulePath, publicCapabilityReference, authorization }) => {
+        const { readAvailableSigningLanes } = await import(modulePath);
+        const read = async (isActive: boolean) =>
+          await readAvailableSigningLanes(
+            {
+              walletId: publicCapabilityReference.walletId,
+              ecdsaChainTargets: [],
+            },
+            {
+              listSealedRecordsForWallet: async () => [],
+              listPublicCapabilityReferences: async () => [publicCapabilityReference],
+              isPublicCapabilityActive: () => isActive,
+              readActiveWalletSessionAuthorization: async () => authorization,
+            },
+          );
+        const live = await read(true);
+        const stale = await read(false);
+        return {
+          live: {
+            candidateCount: live.candidates.ed25519.near.length,
+            state: live.lanes.ed25519.near.state,
+          },
+          stale: {
+            candidateCount: stale.candidates.ed25519.near.length,
+            state: stale.lanes.ed25519.near.state,
+          },
+        };
+      },
+      {
+        modulePath: AVAILABLE_SIGNING_LANES_PATH,
+        publicCapabilityReference,
+        authorization,
+      },
+    );
+
+    expect(result).toEqual({
+      live: {
+        candidateCount: 0,
+        state: 'missing',
       },
       stale: {
         candidateCount: 0,

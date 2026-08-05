@@ -7,8 +7,6 @@ const sdkServerRoot = dirname(require.resolve('@seams/sdk-server/package.json'))
 const requiredArtifacts = [
   'dist/esm/wasm/near_signer/pkg/wasm_signer_worker.js',
   'dist/esm/wasm/near_signer/pkg/wasm_signer_worker_bg.wasm',
-  'dist/esm/wasm/threshold_prf/pkg/threshold_prf.js',
-  'dist/esm/wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
   'dist/esm/wasm/evm_crypto/pkg/evm_crypto.js',
   'dist/esm/wasm/evm_crypto/pkg/evm_crypto_bg.wasm',
   'dist/esm/wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.js',

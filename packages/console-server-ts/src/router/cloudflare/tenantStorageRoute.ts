@@ -15,7 +15,6 @@ import {
   type ResolveTenantStorageRouteInput,
   type RouteVersion,
   type SignerD1DoStorageTarget,
-  type SigningRootKekProvider,
   type TenantDataJurisdiction,
   type TenantStorageRouteDiagnostic,
 } from '@seams/sdk-server/cloud-host';
@@ -72,7 +71,6 @@ export interface StaticCloudflareTenantStorageRouteResolverBindingInput {
   readonly signerMetadataBindingName: D1BindingName;
   readonly signerMetadataDatabaseName: D1DatabaseName;
   readonly signerMetadataDatabase: D1DatabaseLike;
-  readonly kekProvider: SigningRootKekProvider;
 }
 
 function normalizeRequiredString(value: string, field: string): string {
@@ -172,7 +170,6 @@ export function createStaticCloudflareTenantStorageRouteResolverFromBindings(
     metadataBindingName: input.signerMetadataBindingName,
     metadataDatabaseName: input.signerMetadataDatabaseName,
     metadataDatabase: input.signerMetadataDatabase,
-    kekProvider: input.kekProvider,
   });
   return createStaticCloudflareTenantStorageRouteResolver({
     routeVersion: input.routeVersion,

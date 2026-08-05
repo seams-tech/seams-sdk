@@ -82,7 +82,6 @@ export function createBrowserRecoveryPublicDeps(args: {
   resolveEmailOtpEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['emailOtp']['resolveExportContext'];
   getSigningSessionCoordinator: () => SigningSessionCoordinator;
   getTheme: () => ThemeMode;
-  ed25519YaoPublicCapabilityLanes: PersistedAvailableSigningLanesDeps['ed25519YaoPublicCapabilityLanes'];
   readActiveWalletSessionAuthorization: PersistedAvailableSigningLanesDeps['readActiveWalletSessionAuthorization'];
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
 }): RecoveryPublicDeps {
@@ -109,7 +108,6 @@ export function createBrowserRecoveryPublicDeps(args: {
       }),
     ecdsaSessions: args.warmSigning.ecdsaSessions,
     relayerUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
-    ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
     readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
     listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
     touchConfirm: args.touchConfirm,

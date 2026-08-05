@@ -1395,21 +1395,6 @@ export class BrowserSigningSurface {
       touchConfirm: this.touchConfirm,
       passkeyMpcSession: this.passkeyMpcSession,
       emailOtpSessions: this.emailOtpSessions,
-      ed25519YaoPublicCapabilityLanes: this.ed25519YaoPublicCapabilityReferences,
-      isEd25519YaoPublicCapabilityActive: (reference) => {
-        switch (reference.auth.kind) {
-          case 'email_otp':
-            return true;
-          case 'passkey':
-            return (
-              this.enginePorts.ed25519YaoActiveClients.resolve({
-                walletId: reference.walletId,
-                nearAccountId: reference.nearAccountId,
-                materialActivation: reference.materialActivation,
-              }) !== null
-            );
-        }
-      },
       readActiveWalletSessionAuthorization: resolveActiveEd25519WalletSessionAuthorization,
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(
@@ -1461,7 +1446,6 @@ export class BrowserSigningSurface {
         this.resolveEmailOtpEd25519YaoExportContext.bind(this),
       getSigningSessionCoordinator: () => this.enginePorts.signingSessionCoordinator,
       getTheme: () => this.appearance.theme.mode,
-      ed25519YaoPublicCapabilityLanes: deps.ed25519YaoPublicCapabilityReferences,
       readActiveWalletSessionAuthorization: resolveActiveEd25519WalletSessionAuthorization,
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(

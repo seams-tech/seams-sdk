@@ -193,11 +193,6 @@ service = "router-ab-signing-worker-staging"
 binding = "MPC_ROUTER"
 service = "router-ab-mpc-router-staging"
 
-[[secrets_store_secrets]]
-binding = "SIGNING_ROOT_KEK_STAGING_R1"
-store_id = "33333333333333333333333333333333"
-secret_name = "signing-root-kek-staging-r1"
-
 [vars]
 SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
 SEAMS_STAGING_ORG_ID = "org_staging"
@@ -221,10 +216,6 @@ CONSOLE_EMAIL_PROVIDER = "RESEND"
 CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID = "console-email-staging-r1"
 CONSOLE_EMAIL_FROM = "Seams <notifications@seams.sh>"
 CONSOLE_EMAIL_CRON_EXPRESSIONS = "*/5 * * * *"
-SIGNING_ROOT_KEK_PROVIDER = "cloudflare_secrets_store"
-SIGNING_ROOT_KEK_ENCODING = "base64url"
-SIGNING_ROOT_KEK_IDS = "signing-root-kek-staging-r1"
-
 [triggers]
 crons = ["*/5 * * * *"]
 

@@ -129,13 +129,6 @@ const postgresTenantStorageRoute: PostgresTenantStorageRoute = {
     hyperdriveBindingName: 'SEAMS_POSTGRES',
     hyperdrive: { connectionString: 'postgres://example.invalid/seams' },
     postgresSchema: 'seams_signer',
-    kekProvider: {
-      kind: 'worker_secret',
-      workerSecretsByKekId: {
-        'signing-root-kek-test-r1': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-      },
-      encoding: 'base64url',
-    },
   },
 };
 

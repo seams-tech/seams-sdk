@@ -8,7 +8,7 @@ const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const manifestPath = 'crates/router-ab-dev/Cargo.toml';
 const protectedPorts = Object.freeze([9090, 9100, 9101, 9102, 9103]);
 const portCheckTimeoutMs = 500;
-const stateDirectoryNames = Object.freeze(['router-ab-strict-state', 'router-d1-local']);
+const stateDirectoryNames = Object.freeze(['gateway', 'router-ab']);
 
 try {
   await resetLocalRouter(process.argv.slice(2));
@@ -112,16 +112,16 @@ function inspectPort(port) {
 }
 
 function moveLocalState(root) {
-  const runtimeRoot = join(root, '.runtime');
+  const cloudflareStateRoot = join(root, '.local', 'cloudflare-state');
   const existingState = stateDirectoryNames
-    .map((name) => ({ name, sourcePath: join(runtimeRoot, name) }))
+    .map((name) => ({ name, sourcePath: join(cloudflareStateRoot, name) }))
     .filter(({ sourcePath }) => existsSync(sourcePath));
   if (existingState.length === 0) return [];
 
-  mkdirSync(runtimeRoot, { recursive: true });
+  mkdirSync(cloudflareStateRoot, { recursive: true });
   const timestamp = backupTimestamp();
   return existingState.map(({ name, sourcePath }) => {
-    const backupPath = collisionSafeBackupPath(runtimeRoot, name, timestamp);
+    const backupPath = collisionSafeBackupPath(cloudflareStateRoot, name, timestamp);
     renameSync(sourcePath, backupPath);
     return { sourcePath, backupPath };
   });
@@ -132,8 +132,8 @@ function backupTimestamp() {
   return `${iso.slice(0, 10).replaceAll('-', '')}-${iso.slice(11, 19).replaceAll(':', '')}-${iso.slice(20, 23)}Z`;
 }
 
-function collisionSafeBackupPath(runtimeRoot, stateName, timestamp) {
-  const basePath = join(runtimeRoot, `${basename(stateName)}.backup-${timestamp}`);
+function collisionSafeBackupPath(stateRoot, stateName, timestamp) {
+  const basePath = join(stateRoot, `${basename(stateName)}.backup-${timestamp}`);
   let candidate = basePath;
   let suffix = 1;
   while (existsSync(candidate)) {

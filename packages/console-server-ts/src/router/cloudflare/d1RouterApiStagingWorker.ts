@@ -49,12 +49,10 @@ import {
   type RouterAbEcdsaStrictRegistrationTopology,
 } from '@seams/sdk-server/cloud-host';
 import {
-  createCloudflareSecretsStoreKekProviderFromEnv,
   createEd25519SessionAdapter,
   readCsvList,
   readEnvString,
   requireEnvString,
-  type CloudflareD1StagingSecretEnv,
   type CloudflareD1StagingSessionEnv,
 } from './d1StagingSession';
 import {
@@ -91,7 +89,6 @@ import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.ty
 
 interface CloudflareD1RouterApiStagingEnv
   extends
-    CloudflareD1StagingSecretEnv,
     CloudflareD1StagingSessionEnv,
     RouterAbServiceBindingEnv,
     RouterApiCloudflareConsoleWorkerEnv {
@@ -202,7 +199,6 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'app_session_versions',
   'email_otp_challenges',
   'email_otp_grants',
-  'signing_root_secret_shares',
   'router_ab_yao_versioned_json_records',
   'router_ab_yao_versioned_json_cas_guard',
   'router_ab_yao_capability_replacements',
@@ -260,7 +256,6 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
       signerMetadataDatabase: env.SIGNER_DB,
-      kekProvider: createCloudflareSecretsStoreKekProviderFromEnv(env),
     },
     route: {
       namespace: scope.namespace,

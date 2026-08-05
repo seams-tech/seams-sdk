@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import {
-  buildGatewayDeploymentPlan,
   DEFAULT_EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX,
   DEFAULT_EMAIL_OTP_GRANT_RATE_LIMIT_MAX,
   DEFAULT_EMAIL_OTP_LOCKOUT_TTL_MS,
@@ -25,16 +24,13 @@ function main() {
   const deployment = readDeploymentTarget(options.target).gatewayDeploymentConfig;
   assertNearRelayerSecretConsistency(deployment.optional.nearRelayer);
   const config = buildConfig(deployment, process.cwd());
-  const plan = buildGatewayDeploymentPlan(deployment);
   writePrivateJson(options.output, config);
-  writePrivateJson(options.deploymentPlanOutput, plan);
   process.stdout.write(`${path.resolve(process.cwd(), options.output)}\n`);
 }
 
 function parseArguments(args) {
   let target = '';
   let output = '';
-  let deploymentPlanOutput = '';
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === '--target') {
@@ -47,17 +43,11 @@ function parseArguments(args) {
       index += 1;
       continue;
     }
-    if (argument === '--deployment-plan-output') {
-      deploymentPlanOutput = requireArgumentValue(args, index, argument);
-      index += 1;
-      continue;
-    }
     throw new Error(`Unknown argument: ${argument}`);
   }
   if (!VALID_TARGETS.has(target)) throw new Error('--target must be staging or production');
   if (!output) throw new Error('--output is required');
-  if (!deploymentPlanOutput) throw new Error('--deployment-plan-output is required');
-  return { target, output, deploymentPlanOutput };
+  return { target, output };
 }
 
 function requireArgumentValue(args, index, name) {
@@ -126,13 +116,6 @@ function buildConfig(deployment, packageRoot) {
         head_sampling_rate: 1,
       },
     },
-    secrets_store_secrets: [
-      {
-        binding: signingRootBindingName(deployment.signingRoot.id),
-        store_id: resources.secretsStoreId,
-        secret_name: deployment.signingRoot.secretName,
-      },
-    ],
     vars,
   };
 }
@@ -190,9 +173,6 @@ function buildWorkerVars(deployment) {
       DEFAULT_EMAIL_OTP_SENSITIVE_ATTEMPT_RATE_LIMIT_MAX,
     EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS:
       DEFAULT_EMAIL_OTP_RATE_LIMIT_WINDOW_MS,
-    SIGNING_ROOT_KEK_PROVIDER: 'cloudflare_secrets_store',
-    SIGNING_ROOT_KEK_ENCODING: deployment.signingRoot.encoding,
-    SIGNING_ROOT_KEK_IDS: deployment.signingRoot.id,
     SPONSORED_EXECUTION_REAL_PRICING_JSON: JSON.stringify(
       buildOutlayerSponsoredExecutionPricingConfig(deployment.runtimeProfile),
     ),
@@ -271,18 +251,6 @@ function assertNearRelayerSecretConsistency(nearRelayer) {
   if (!nearRelayer && hasPrivateKey) {
     throw new Error('RELAYER_PRIVATE_KEY must be absent when optional.nearRelayer is null');
   }
-}
-
-function requireEnvironmentValue(name) {
-  const value = String(process.env[name] || '').trim();
-  if (!value) throw new Error(`${name} is required`);
-  return value;
-}
-
-function signingRootBindingName(kekId) {
-  const bindingName = kekId.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-  if (!bindingName) throw new Error('signingRoot.id must produce a binding name');
-  return bindingName;
 }
 
 main();

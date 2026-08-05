@@ -1,4 +1,3 @@
-import type { CloudflareDurableObjectNamespaceLike } from '../../core/types';
 import type { RouterApiServiceBag } from '../authServicePort';
 import type { RouterApiOptions } from '../routerApi';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../routerApi';
@@ -22,25 +21,6 @@ type SelfHostedWorker<Env> = {
   fetch(request: Request, env: Env, ctx: CfExecutionContext): Promise<Response>;
 };
 
-export type SelfHostedSigningRootAdminAuthResult =
-  | boolean
-  | { ok: true }
-  | { ok: false; status?: number; code?: string; message?: string };
-
-export type SelfHostedSigningRootAdminAuthHook = (input: {
-  readonly request: Request;
-}) => SelfHostedSigningRootAdminAuthResult | Promise<SelfHostedSigningRootAdminAuthResult>;
-
-export type SelfHostedSigningRootAdminRoutes = {
-  readonly namespace: CloudflareDurableObjectNamespaceLike;
-  readonly objectName?: string;
-  readonly authenticate: SelfHostedSigningRootAdminAuthHook;
-};
-
-export type SelfHostedCloudflareSigningRouterOptions = {
-  readonly signingRootAdmin?: SelfHostedSigningRootAdminRoutes;
-};
-
 export type SelfHostedCloudflareSigningWorkerFactoryInput<Env extends CfEnv = CfEnv> = {
   readonly createAuthService: (input: {
     readonly request: Request;
@@ -55,84 +35,10 @@ export type SelfHostedCloudflareSigningWorkerFactoryInput<Env extends CfEnv = Cf
         readonly ctx: CfExecutionContext;
         readonly service: RouterApiServiceBag;
       }) => RouterApiOptions | Promise<RouterApiOptions>);
-  readonly signingRootAdmin?:
-    | SelfHostedSigningRootAdminRoutes
-    | ((input: {
-        readonly request: Request;
-        readonly env: Env;
-        readonly ctx: CfExecutionContext;
-        readonly service: RouterApiServiceBag;
-      }) =>
-        | SelfHostedSigningRootAdminRoutes
-        | null
-        | undefined
-        | Promise<SelfHostedSigningRootAdminRoutes | null | undefined>);
 };
 
 function notFound(): Response {
   return new Response('Not Found', { status: 404 });
-}
-
-async function readJson(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
-}
-
-function resolveSigningRootAdminStub(input: SelfHostedSigningRootAdminRoutes) {
-  const id = input.namespace.idFromName(input.objectName || 'threshold-signing-root-secrets');
-  return input.namespace.get(id);
-}
-
-async function callSigningRootAdminDo<T>(
-  input: SelfHostedSigningRootAdminRoutes,
-  body: Record<string, unknown>,
-): Promise<T> {
-  const response = await resolveSigningRootAdminStub(input).fetch(
-    'https://threshold-store.invalid/',
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    },
-  );
-  const text = await response.text();
-  let parsed: unknown;
-  try {
-    parsed = text ? JSON.parse(text) : null;
-  } catch {
-    throw new Error(`signing-root Durable Object returned non-JSON response: ${text}`);
-  }
-  if (!response.ok) {
-    return {
-      ok: false,
-      code: 'signing_root_store_http_error',
-      message: `signing-root Durable Object returned HTTP ${response.status}`,
-    } as T;
-  }
-  return parsed as T;
-}
-
-async function authorizeSigningRootAdmin(
-  request: Request,
-  config: SelfHostedSigningRootAdminRoutes,
-): Promise<Response | null> {
-  const auth = await config.authenticate({ request });
-  if (auth === true || (isPlainObject(auth) && auth.ok === true)) return null;
-  const status = isPlainObject(auth) && typeof auth.status === 'number' ? auth.status : 401;
-  const code = isPlainObject(auth) && typeof auth.code === 'string' ? auth.code : 'unauthorized';
-  const message =
-    isPlainObject(auth) && typeof auth.message === 'string'
-      ? auth.message
-      : 'self-host signing-root admin authorization failed';
-  return json({ ok: false, code, message }, { status });
-}
-
-function requireQueryParam(url: URL, name: string): string | null {
-  const value = url.searchParams.get(name)?.trim();
-  return value || null;
 }
 
 function requireBodyString(body: unknown, name: string): string | null {
@@ -170,77 +76,6 @@ function selfHostedHealthResponse(ctx: SelfHostedCloudflareRouterApiContext): Re
   );
 }
 
-async function handleSigningRootAdminRoutes(
-  ctx: SelfHostedCloudflareRouterApiContext,
-  config?: SelfHostedSigningRootAdminRoutes,
-): Promise<Response | null> {
-  if (!ctx.pathname.startsWith('/self-host/signing-root/')) return null;
-  if (!config) return notFound();
-
-  const unauthorized = await authorizeSigningRootAdmin(ctx.request, config);
-  if (unauthorized) return unauthorized;
-
-  if (ctx.method === 'POST' && ctx.pathname === '/self-host/signing-root/import') {
-    const body = await readJson(ctx.request);
-    const record =
-      isPlainObject(body) && 'record' in body
-        ? body.record
-        : isPlainObject(body) && 'bundle' in body
-          ? body.bundle
-          : body;
-    const result = await callSigningRootAdminDo(config, {
-      op: 'signingRootPut',
-      record,
-    });
-    return json(result);
-  }
-
-  if (ctx.method === 'GET' && ctx.pathname === '/self-host/signing-root/status') {
-    const signingRootId = requireQueryParam(ctx.url, 'signingRootId');
-    const signingRootVersion = requireQueryParam(ctx.url, 'signingRootVersion');
-    if (!signingRootId || !signingRootVersion) {
-      return json(
-        {
-          ok: false,
-          code: 'invalid_request',
-          message: 'signingRootId and signingRootVersion are required',
-        },
-        { status: 400 },
-      );
-    }
-    const result = await callSigningRootAdminDo(config, {
-      op: 'signingRootStatus',
-      signingRootId,
-      signingRootVersion,
-    });
-    return json(result);
-  }
-
-  if (ctx.method === 'POST' && ctx.pathname === '/self-host/signing-root/delete') {
-    const body = await readJson(ctx.request);
-    const signingRootId = requireBodyString(body, 'signingRootId');
-    const signingRootVersion = requireBodyString(body, 'signingRootVersion');
-    if (!signingRootId || !signingRootVersion) {
-      return json(
-        {
-          ok: false,
-          code: 'invalid_request',
-          message: 'signingRootId and signingRootVersion are required',
-        },
-        { status: 400 },
-      );
-    }
-    const result = await callSigningRootAdminDo(config, {
-      op: 'signingRootDelete',
-      signingRootId,
-      signingRootVersion,
-    });
-    return json(result);
-  }
-
-  return null;
-}
-
 function createSelfHostedContext(input: {
   readonly request: Request;
   readonly env?: CfEnv;
@@ -268,7 +103,6 @@ function createSelfHostedContext(input: {
 export function createSelfHostedCloudflareSigningRouter(
   service: RouterApiServiceBag,
   opts: RouterApiOptions = {},
-  selfHostedOpts: SelfHostedCloudflareSigningRouterOptions = {},
 ): FetchHandler {
   const sessionCookieName =
     String(opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
@@ -297,7 +131,6 @@ export function createSelfHostedCloudflareSigningRouter(
     try {
       const response =
         selfHostedHealthResponse(ctx) ||
-        (await handleSigningRootAdminRoutes(ctx, selfHostedOpts.signingRootAdmin)) ||
         (await handleThresholdEd25519(ctx)) ||
         (await handleThresholdEcdsa(ctx)) ||
         notFound();
@@ -326,13 +159,7 @@ export function createSelfHostedCloudflareSigningWorker<Env extends CfEnv = CfEn
         typeof input.routerOptions === 'function'
           ? await input.routerOptions({ request, env, ctx, service })
           : input.routerOptions || {};
-      const signingRootAdmin =
-        typeof input.signingRootAdmin === 'function'
-          ? await input.signingRootAdmin({ request, env, ctx, service })
-          : input.signingRootAdmin;
-      const router = createSelfHostedCloudflareSigningRouter(service, routerOptions, {
-        ...(signingRootAdmin ? { signingRootAdmin } : {}),
-      });
+      const router = createSelfHostedCloudflareSigningRouter(service, routerOptions);
       return router(request, env, ctx);
     },
   };

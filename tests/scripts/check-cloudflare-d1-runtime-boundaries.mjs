@@ -792,7 +792,6 @@ const d1LocalBackupRestoreDrillScript = 'packages/console-server-ts/scripts/d1-l
 const d1StagingManifestWriterScripts = [
     d1LocalBackupRestoreDrillScript,
     'packages/console-server-ts/scripts/d1-staging-fixture-import.mjs',
-    'packages/console-server-ts/scripts/d1-staging-kek-check.mjs',
     'packages/console-server-ts/scripts/d1-staging-migrate.mjs',
     'packages/console-server-ts/scripts/d1-staging-r2-restore-drill.mjs',
     'packages/console-server-ts/scripts/d1-staging-reconciliation.mjs',
@@ -1753,11 +1752,9 @@ function consoleOnlyStagingSignerCustodyViolations() {
     if (!body)
         return [`${cloudflareD1ConsoleServicesPath}: missing ${functionName}`];
     const forbidden = [
-        'kekProvider',
         'signerMetadataDatabase',
         'thresholdStore',
         'createCloudflareD1TenantRouteResolver',
-        'createCloudflareD1SigningRootSecretAdapters',
     ];
     const violations = [];
     for (const token of forbidden) {
@@ -1772,9 +1769,7 @@ function consoleStagingWorkerSignerCustodyViolations() {
     const forbidden = [
         'SIGNER_DB',
         'THRESHOLD_STORE',
-        'kekProvider',
         'createCloudflareD1ConsoleServiceBundle',
-        'createCloudflareSecretsStoreKekProviderFromEnv',
     ];
     const violations = [];
     for (const token of forbidden) {
@@ -1788,7 +1783,6 @@ function routerApiStagingWorkerSignerCustodyViolations() {
     const source = readSource(cloudflareD1RouterApiStagingWorkerPath);
     const required = [
         'SIGNER_DB',
-        'createCloudflareSecretsStoreKekProviderFromEnv',
         'resolveSponsoredEvmWorkerExecutionAdapter',
     ];
     const violations = [];
@@ -2168,16 +2162,6 @@ test('concrete D1 staging Wrangler configs stay untracked', () => {
     const source = readSource(gitignorePath);
     expect(source).toContain('packages/console-server-ts/wrangler.d1-staging-console.toml');
     expect(source).toContain('packages/console-server-ts/wrangler.d1-staging-gateway.toml');
-});
-test('D1 staging README documents missing-KEK signer custody evidence', () => {
-    const source = readSource(sdkServerReadmePath);
-    expect(source).toContain('--wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT');
-    expect(source).toContain('--missing-kek-fixture ./staging/fixtures/ecdsa-export-share-missing-kek.json');
-    expect(source).toContain('--missing-kek-wallet-session-jwt-env SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT');
-    expect(source).toContain('--missing-kek-expected-status 503');
-    expect(source).toContain('--missing-kek-expected-code missing_signing_root_kek');
-    expect(source).toContain('ecdsa_export_share_missing_kek_fail_closed');
-    expect(source).toContain('--output .wrangler/d1-staging-evidence/verification.json');
 });
 test('D1 staging README shows dry-run before remote mutating commands', () => {
     const source = readSource(sdkServerReadmePath);

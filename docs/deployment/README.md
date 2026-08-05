@@ -93,7 +93,7 @@ The backend lane contains five separately bound component environments:
 | `<target>-deriver-a`      | Deriver A root-share, envelope, and peer-signing secrets             |
 | `<target>-deriver-b`      | Deriver B root-share, envelope, and peer-signing secrets             |
 | `<target>-mpc-router`     | Router A/B internal service-auth secret                              |
-| `<target>-gateway`        | Gateway secrets, signing-root KEK, and signing-session seal set      |
+| `<target>-gateway`        | Gateway secrets and signing-session seal set                         |
 | `<target>`                | Cloudflare Pages credentials and public frontend build configuration |
 
 Deriver A and Deriver B secrets never share a job. The preflight matrix binds
@@ -117,8 +117,7 @@ The hand-written backend workflow makes this dependency order visible:
    fingerprints guard the operation.
 4. Validate and deploy SigningWorker, Deriver A, and Deriver B concurrently.
 5. Validate and deploy MPC Router after all three workers complete.
-6. Validate Gateway configuration, upsert the signing-root KEK, and deploy
-   Gateway.
+6. Validate Gateway configuration and deploy Gateway.
 7. Run backend smoke checks as the final Gateway job step.
 
 Gateway is last because it depends on the preceding backend services. Worker

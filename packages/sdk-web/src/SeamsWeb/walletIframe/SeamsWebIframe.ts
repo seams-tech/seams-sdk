@@ -106,7 +106,10 @@ import type {
   TempoNonceLaneStatus,
   TempoSignerCapability,
 } from '@/SeamsWeb';
-import { executeEvmFamilyTransactionLifecycle } from '@/SeamsWeb/operations/tempo/executeEvmFamilyTransaction';
+import {
+  executeEvmFamilyTransactionLifecycle,
+  type EvmFamilyTransactionSignArgs,
+} from '@/SeamsWeb/operations/tempo/executeEvmFamilyTransaction';
 import {
   getTempoFeeTokenPreference,
   setTempoFeeTokenPreference,
@@ -129,6 +132,9 @@ import {
   type NearEd25519MpcOperationKind,
 } from '@shared/authorization/capabilityKinds';
 import { requireBrowserCapabilityOperation } from '@/SeamsWeb/publicApi/capabilitySelection';
+import { requireTempoFeeTokenPreferenceSigningRequest } from '@/core/signingEngine/chains/tempo/feeToken';
+import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
+import type { TempoChainTarget } from '@/core/platform/types';
 
 function resolveRuntimeAppearance(
   current: AppearanceConfig,
@@ -1048,6 +1054,38 @@ export class SeamsWebIframe {
     return result;
   }
 
+  private async signTempoFeeTokenPreferenceDomain(
+    args: EvmFamilyTransactionSignArgs & {
+      request: EvmSigningRequest;
+      chainTarget: TempoChainTarget;
+    },
+  ): Promise<EvmSignedResult> {
+    if (args.chainTarget.kind !== 'tempo') {
+      throw new Error('[SeamsWebIframe][tempo] fee-token preference requires a Tempo target');
+    }
+    const request = requireTempoFeeTokenPreferenceSigningRequest({
+      request: args.request,
+      chainTarget: args.chainTarget,
+    });
+    requireIframeEvmSigningCapability(this.configs, args.chainTarget);
+    await this.requireRouterReady();
+    const result = await this.router.signTempo({
+      walletSession: args.walletSession,
+      request,
+      chainTarget: args.chainTarget,
+      options: {
+        confirmationConfig: args.options?.confirmationConfig,
+        onEvent: args.options?.onEvent,
+      },
+    });
+    if (result.chain !== 'evm' || result.kind !== 'eip1559') {
+      throw new Error(
+        `[SeamsWebIframe][tempo] expected EVM FeeManager result, received ${result.chain}`,
+      );
+    }
+    return result;
+  }
+
   private async executeEvmFamilyTransactionDomain(
     args: ExecuteEvmFamilyTransactionArgs,
   ): Promise<ExecuteEvmFamilyTransactionResult> {
@@ -1065,8 +1103,12 @@ export class SeamsWebIframe {
               options: innerArgs.options,
             });
           }
-          if (innerArgs.chainTarget.kind !== 'evm') {
-            throw new Error('[SeamsWebIframe][evm] EVM request requires an EVM target');
+          if (innerArgs.chainTarget.kind === 'tempo') {
+            return await this.signTempoFeeTokenPreferenceDomain({
+              ...innerArgs,
+              request: innerArgs.request,
+              chainTarget: innerArgs.chainTarget,
+            });
           }
           return await this.signEvmTransactionDomain({
             walletSession: innerArgs.walletSession,

@@ -2511,22 +2511,30 @@ function parseWalletRegistrationRespondEd25519DeferredWork(
 
 type WalletRegistrationSignerPlanKind = WalletRegistrationRespondResponseV2['kind'];
 
-type RespondWalletRegistrationArgs = {
+type RespondWalletRegistrationArgsBase = {
   relayerUrl: string;
   headers?: Record<string, string>;
   registrationCeremonyId: string;
-  signerPlanKind: WalletRegistrationSignerPlanKind;
   /** Opaque; echoed exactly as setup returned it. */
   signedSetup: string;
-  /* Absent for an Ed25519-only plan: no ECDSA ceremony was created, so there
-     is no registration request to forward. */
-  ecdsa?: {
-    kind: 'router_ab_ecdsa_registration_v1';
-    strictRegistration: RouterAbEcdsaRegistrationRequestV1;
-    requestDigestB64u: string;
-  };
   onServerTiming?: (header: string | null) => void;
 } & WalletRegistrationStartAuthority;
+
+type WalletRegistrationRespondEcdsaRequest = {
+  kind: 'router_ab_ecdsa_registration_v1';
+  strictRegistration: RouterAbEcdsaRegistrationRequestV1;
+  requestDigestB64u: string;
+};
+
+type RespondWalletRegistrationArgs =
+  | (RespondWalletRegistrationArgsBase & {
+      signerPlanKind: 'near_ed25519';
+      ecdsa?: never;
+    })
+  | (RespondWalletRegistrationArgsBase & {
+      signerPlanKind: Exclude<WalletRegistrationSignerPlanKind, 'near_ed25519'>;
+      ecdsa: WalletRegistrationRespondEcdsaRequest;
+    });
 
 function walletRegistrationRespondBody(
   args: RespondWalletRegistrationArgs,
@@ -3114,26 +3122,34 @@ function parseWalletRegistrationActivateResponseV2(
   };
 }
 
-type ActivateWalletRegistrationArgs = {
+type ActivateWalletRegistrationArgsBase = {
   relayerUrl: string;
   headers?: Record<string, string>;
   registrationCeremonyId: string;
-  signerPlanKind: WalletRegistrationSignerPlanKind;
   signedSetup: string;
   idempotencyKey: string;
-  /* Absent for an Ed25519-only plan: nothing was verified in the browser
-     because no ECDSA proof bundles were produced. */
-  ecdsa?: {
-    activationCorrelationId: CorrelationId;
-    activationRequestDigestB64u: string;
-    materialActivation: RouterAbMpcMaterialActivationRefWire;
-    clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
-    expectedKeyHandles?: string[];
-  };
   emailOtpEnrollment?: WalletRegistrationEmailOtpEnrollmentMaterial;
   emailOtpBackupAck?: WalletRegistrationEmailOtpBackupAck;
   onServerTiming?: (header: string | null) => void;
 };
+
+type WalletRegistrationActivateEcdsaRequest = {
+  activationCorrelationId: CorrelationId;
+  activationRequestDigestB64u: string;
+  materialActivation: RouterAbMpcMaterialActivationRefWire;
+  clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  expectedKeyHandles?: string[];
+};
+
+type ActivateWalletRegistrationArgs =
+  | (ActivateWalletRegistrationArgsBase & {
+      signerPlanKind: 'near_ed25519';
+      ecdsa?: never;
+    })
+  | (ActivateWalletRegistrationArgsBase & {
+      signerPlanKind: Exclude<WalletRegistrationSignerPlanKind, 'near_ed25519'>;
+      ecdsa: WalletRegistrationActivateEcdsaRequest;
+    });
 
 function walletRegistrationActivateBody(
   args: ActivateWalletRegistrationArgs,

@@ -37,6 +37,7 @@ import type {
   SdkLifecycleEvent,
   SdkLifecycleEventListener,
   UnlockFlowEvent,
+  SigningFlowEvent,
 } from '@/core/types/sdkSentEvents';
 import {
   createRegistrationFlowEvent,
@@ -113,6 +114,13 @@ import {
   type WalletId,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { TempoChainTarget } from '@/core/platform/types';
+import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import {
+  requireTempoFeeTokenPreferenceSigningRequest,
+  type TempoFeeTokenPreferenceSigningRequest,
+} from '@/core/signingEngine/chains/tempo/feeToken';
 import {
   parseExactEcdsaSigningLaneIdentity,
   parseExactEd25519ExportMaterialIdentity,
@@ -2321,6 +2329,29 @@ export class SeamsWeb {
         nearClient: this.nearClient,
       });
     } catch {}
+  }
+
+  /** Wallet-host entrypoint for the exact FeeManager preference operation. */
+  async signTempoFeeTokenPreferenceInternal(args: {
+    walletSession: WalletSessionRef;
+    request: TempoFeeTokenPreferenceSigningRequest;
+    chainTarget: TempoChainTarget;
+    confirmationConfigOverride?: Partial<ConfirmationConfig>;
+    shouldAbort?: () => boolean;
+    onEvent?: (event: SigningFlowEvent) => void;
+  }): Promise<EvmSignedResult> {
+    if (!__isWalletIframeHostMode()) {
+      throw new Error('[SeamsWeb][tempo] fee-token preference signing requires wallet-host mode');
+    }
+    const request = requireTempoFeeTokenPreferenceSigningRequest(args);
+    const result = await this.signingEngine.signEvmFamily({
+      ...args,
+      request,
+    });
+    if (result.chain !== 'evm' || result.kind !== 'eip1559') {
+      throw new Error(`[SeamsWeb][tempo] expected EVM FeeManager result, received ${result.chain}`);
+    }
+    return result;
   }
 
   ///////////////////////////////////////

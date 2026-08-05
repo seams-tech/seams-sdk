@@ -1,11 +1,6 @@
 import { base64UrlDecode } from '@shared/utils/encoders';
 import { normalizeLogger, type Logger } from '@server/core/logger';
 import {
-  createHostedSigningRootShareResolver,
-  type SealedSigningRootShare,
-  type SigningRootShareResolver,
-} from '@server/core/ThresholdService/signingRootShareResolver';
-import {
   createEcdsaWalletSessionStore,
   createEd25519WalletSessionStore,
   type Ed25519WalletSessionStore,
@@ -36,14 +31,6 @@ import {
   type RouterAbEcdsaRegistrationRequestV1,
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import { readFileSync } from 'node:fs';
-
-let fixtureSigningRootShareWires: Map<number, Uint8Array> | null = null;
-const FIXTURE_THRESHOLD_PRF_POLICY = {
-  protocol: 'threshold-prf',
-  threshold: 2,
-  shareCount: 3,
-} as const;
 
 const FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY: RouterAbEcdsaStrictRegistrationTopology = {
   routerId: 'router-unit-fixture',
@@ -255,71 +242,6 @@ function fixtureActivationRequestDigest(requestDigestB64u: string): { bytes: num
 
 export function silentLogger(): Logger {
   return { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
-}
-
-function loadFixtureSigningRootShareWiresForUnitTests(): Map<number, Uint8Array> {
-  if (fixtureSigningRootShareWires) return fixtureSigningRootShareWires;
-  const corpus = JSON.parse(
-    readFileSync(
-      new URL('../../crates/threshold-prf/fixtures/protocol-t-of-n.json', import.meta.url),
-      'utf8',
-    ),
-  ) as {
-    vectors?: Array<{
-      purpose?: string;
-      policy?: { threshold?: number; share_count?: number };
-      shares?: Array<{ id?: number; wire_hex?: string }>;
-    }>;
-  };
-  const vector = corpus.vectors?.find(
-    (entry) => entry.purpose === 'router-ab-ecdsa-derivation/y-server/v1',
-  );
-  if (
-    vector?.policy?.threshold !== FIXTURE_THRESHOLD_PRF_POLICY.threshold ||
-    vector.policy.share_count !== FIXTURE_THRESHOLD_PRF_POLICY.shareCount
-  ) {
-    throw new Error('Missing threshold-prf 2-of-3 signing-root fixture policy');
-  }
-  const shares = new Map<number, Uint8Array>();
-  for (const share of vector.shares || []) {
-    if (typeof share.id !== 'number' || share.id < 1 || share.id > 3) continue;
-    const wireHex = String(share.wire_hex || '').trim();
-    if (wireHex) shares.set(share.id, new Uint8Array(Buffer.from(wireHex, 'hex')));
-  }
-  if (shares.size < FIXTURE_THRESHOLD_PRF_POLICY.threshold) {
-    throw new Error('Missing threshold-prf signing-root fixture shares');
-  }
-  fixtureSigningRootShareWires = shares;
-  return shares;
-}
-
-export function createFixtureSigningRootShareResolverForUnitTests(): SigningRootShareResolver {
-  const shares = loadFixtureSigningRootShareWiresForUnitTests();
-  return createHostedSigningRootShareResolver({
-    policy: FIXTURE_THRESHOLD_PRF_POLICY,
-    storageAdapter: {
-      listSealedSigningRootShares: async (input) =>
-        Array.from(shares.keys())
-          .sort((left, right) => left - right)
-          .map(
-            (shareId): SealedSigningRootShare => ({
-              signingRootId: input.signingRootId,
-              signingRootVersion: input.signingRootVersion,
-              shareId,
-              sealedShare: new Uint8Array([shareId]),
-              storageId: `fixture-share-${shareId}`,
-              kekId: 'fixture-share-kek',
-            }),
-          ),
-    },
-    decryptAdapter: {
-      decryptSigningRootShare: async (record) => {
-        const wire = shares.get(record.shareId);
-        if (!wire) throw new Error(`missing fixture signing-root share ${record.shareId}`);
-        return new Uint8Array(wire);
-      },
-    },
-  });
 }
 
 export function createRouterAbSigningRuntimesForUnitTests(input: {

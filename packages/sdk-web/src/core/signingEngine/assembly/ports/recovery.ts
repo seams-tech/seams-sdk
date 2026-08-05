@@ -31,7 +31,6 @@ export function createRecoveryPublicDeps(args: {
   withThresholdEd25519CommitQueue: Ed25519YaoExportFlowDeps['withThresholdEd25519CommitQueue'];
   ecdsaSessions: Pick<RecoveryPublicEcdsaSessionStoreDeps, 'exportArtifactsByLane'>;
   relayerUrl: string;
-  ed25519YaoPublicCapabilityLanes: PersistedAvailableSigningLanesDeps['ed25519YaoPublicCapabilityLanes'];
   readActiveWalletSessionAuthorization: PersistedAvailableSigningLanesDeps['readActiveWalletSessionAuthorization'];
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
   touchConfirm: UiConfirmRuntimeBridgePort;
@@ -83,7 +82,6 @@ export function createRecoveryPublicDeps(args: {
       readPersistedAvailableSigningLanesForTargets: (availableLanesArgs) =>
         readPersistedAvailableSigningLanesForTargets(
           {
-            ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
             readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
             listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
           },

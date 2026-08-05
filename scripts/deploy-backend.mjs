@@ -28,12 +28,6 @@ const GATEWAY_BUILD_CONFIG = path.join(
   'gateway-build.jsonc',
 );
 const GATEWAY_CONFIG = path.join(GATEWAY_ROOT, '.wrangler', 'generated', 'gateway.jsonc');
-const GATEWAY_PLAN = path.join(
-  GATEWAY_ROOT,
-  '.wrangler',
-  'generated',
-  'gateway-deployment-plan.json',
-);
 const GATEWAY_SECRETS = path.join(GATEWAY_ROOT, '.wrangler', 'generated', 'gateway-secrets.json');
 const GATEWAY_BUNDLE = path.join(
   REPOSITORY_ROOT,
@@ -176,9 +170,8 @@ function printPlan(targetName, target) {
     `  4. migrate ${target.resources.gateway.signerD1Name} (signer D1)`,
     '  5. migrate and deploy signing-worker, deriver-a, and deriver-b concurrently',
     '  6. deploy router after all three workers complete',
-    '  7. upsert Gateway signing-root KEK',
-    '  8. deploy gateway',
-    '  9. smoke Gateway and Router A/B endpoints',
+    '  7. deploy gateway',
+    '  8. smoke Gateway and Router A/B endpoints',
   ];
   process.stdout.write(`${lines.join('\n')}\n`);
 }
@@ -254,7 +247,6 @@ function preflightBackend(targetName, target, component, environment = process.e
     requiredNames.push(name);
   }
   if (component === 'gateway') {
-    requiredNames.push('SIGNING_ROOT_KEK_VALUE');
     const config = target.gatewayDeploymentConfig;
     if (config.optional.nearRelayer) requiredNames.push('RELAYER_PRIVATE_KEY');
   }
@@ -485,9 +477,6 @@ function deployMpcRouter(targetName, target) {
 function deployGateway(targetName) {
   renderGatewayConfig(targetName);
   assertFile(GATEWAY_BUNDLE, 'Gateway build entry');
-  runCommand('node', ['scripts/upsert-signing-root-kek.mjs', '--plan', GATEWAY_PLAN], {
-    cwd: GATEWAY_ROOT,
-  });
   runCommand('node', ['scripts/write-gateway-secrets-file.mjs', '--output', GATEWAY_SECRETS], {
     cwd: GATEWAY_ROOT,
     env: buildEnvironment({ DEPLOY_TARGET: targetName }),
@@ -629,8 +618,6 @@ function renderGatewayConfig(targetName) {
       targetName,
       '--output',
       GATEWAY_CONFIG,
-      '--deployment-plan-output',
-      GATEWAY_PLAN,
     ],
     { cwd: GATEWAY_ROOT },
   );

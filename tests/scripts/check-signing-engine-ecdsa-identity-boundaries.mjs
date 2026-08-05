@@ -1009,9 +1009,6 @@ function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
     'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
   );
   const serverSource = readRepoFile('packages/sdk-server-ts/src/core/types.ts');
-  const thresholdPrfSource = readRepoFile(
-    'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts',
-  );
   const ecdsaDerivationClientSource = readRepoFile(
     'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts',
   );
@@ -1059,47 +1056,6 @@ function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
     );
   }
 
-  const signingRootContextBlock = findTypeDeclaration(
-    thresholdPrfSource,
-    'EcdsaDerivationStableKeyPrfContext',
-  );
-  offenders.push(
-    ...expectRequiredFields(
-      signingRootContextBlock,
-      ['applicationBindingDigest'],
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
-    ),
-    ...expectNoField(
-      signingRootContextBlock,
-      'walletId',
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
-    ),
-    ...expectNoField(
-      signingRootContextBlock,
-      'rpId',
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
-    ),
-    ...expectNoField(
-      signingRootContextBlock,
-      'signingRootId',
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
-    ),
-    ...expectNoField(
-      signingRootContextBlock,
-      'keyPurpose',
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
-    ),
-    ...expectNoField(
-      signingRootContextBlock,
-      'keyVersion',
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
-    ),
-    ...expectNoNearAccountId(
-      signingRootContextBlock,
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
-    ),
-  );
-
   const ecdsaClientContextBlock = findTypeDeclaration(
     ecdsaDerivationClientSource,
     'ThresholdEcdsaDerivationStableKeyContext',
@@ -1137,10 +1093,6 @@ function checkEcdsaDerivationRoleLocalBootstrapTypesKeepLaneIdentityExplicit() {
   );
 
   for (const [block, context] of [
-    [
-      signingRootContextBlock,
-      'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaDerivationStableKeyPrfContext',
-    ],
     [
       ecdsaClientContextBlock,
       'packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts ThresholdEcdsaDerivationStableKeyContext',

@@ -16,7 +16,6 @@ import {
   printD1StagingCliError,
   printStagingManifestResult,
   relativeToRepo,
-  resolvePackagePath,
   resolveRequiredPackagePath,
   sha256String,
   writeD1StagingManifest,
@@ -58,9 +57,6 @@ const responseSecretFieldNames = new Set([
 export function buildD1StagingSignerCustodyPlan(input = {}) {
   const options = normalizeOptions(input);
   const exportShareFixture = readFixture(options.exportShareFixturePath, '--export-share-fixture');
-  const missingKekFixture = options.missingKekFixturePath
-    ? readFixture(options.missingKekFixturePath, '--missing-kek-fixture')
-    : null;
   return {
     version: 'seams_d1_staging_signer_custody_v1',
     generatedAtIso: options.generatedAtIso,
@@ -74,7 +70,6 @@ export function buildD1StagingSignerCustodyPlan(input = {}) {
     checks: signerCustodyChecks({
       options,
       exportShareFixture,
-      missingKekFixture,
     }),
   };
 }
@@ -133,10 +128,6 @@ function parseArgs(args) {
     exportShareFixturePath: '',
     generatedAtIso: '',
     manifestPath: '',
-    missingKekExpectedCode: '',
-    missingKekExpectedStatus: '',
-    missingKekFixturePath: '',
-    missingKekJwtEnvName: '',
     mode: 'dry-run',
     origin: '',
     gatewayOrigin: '',
@@ -146,10 +137,6 @@ function parseArgs(args) {
     '--export-share-fixture': 'exportShareFixturePath',
     '--generated-at': 'generatedAtIso',
     '--manifest': 'manifestPath',
-    '--missing-kek-expected-code': 'missingKekExpectedCode',
-    '--missing-kek-expected-status': 'missingKekExpectedStatus',
-    '--missing-kek-fixture': 'missingKekFixturePath',
-    '--missing-kek-wallet-session-jwt-env': 'missingKekJwtEnvName',
     '--mode': 'mode',
     '--origin': 'origin',
     '--gateway-origin': 'gatewayOrigin',
@@ -159,8 +146,6 @@ function parseArgs(args) {
 }
 
 function normalizeOptions(input) {
-  const missingKekFixturePath = resolvePackagePath(input.missingKekFixturePath, '');
-  const missingKekExpectedCode = normalizeString(input.missingKekExpectedCode);
   const mode = normalizeStagingMode(input.mode, signerCustodyModes, 'staging signer custody');
   return {
     exportShareFixturePath: resolveRequiredPackagePath(
@@ -170,11 +155,6 @@ function normalizeOptions(input) {
     fetchImpl: input.fetchImpl || globalThis.fetch,
     generatedAtIso: normalizeString(input.generatedAtIso) || new Date().toISOString(),
     manifestPath: normalizeString(input.manifestPath),
-    missingKekExpectedCode,
-    missingKekExpectedStatus: normalizeExpectedStatus(input.missingKekExpectedStatus, 500),
-    missingKekFixturePath,
-    missingKekJwtEnvName:
-      normalizeString(input.missingKekJwtEnvName) || 'SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT',
     mode,
     origin: normalizeOptionalOrigin(input.origin, mode),
     gatewayOrigin: normalizeStagingOrigin(input.gatewayOrigin, '--gateway-origin', {
@@ -189,7 +169,7 @@ function normalizeOptions(input) {
 }
 
 function signerCustodyChecks(input) {
-  const checks = [
+  return [
     {
       id: 'ecdsa_export_share_success',
       method: 'POST',
@@ -203,25 +183,6 @@ function signerCustodyChecks(input) {
       origin: input.options.origin,
     },
   ];
-  if (input.missingKekFixture) {
-    checks.push({
-      id: 'ecdsa_export_share_missing_kek_fail_closed',
-      method: 'POST',
-      path: ecdsaExportSharePath,
-      url: `${input.options.gatewayOrigin}${ecdsaExportSharePath}`,
-      expectedStatus: input.options.missingKekExpectedStatus,
-      expectedJson: missingKekExpectedJson(input.options.missingKekExpectedCode),
-      expectServerExportShare: false,
-      fixture: fixtureSummary(input.missingKekFixture),
-      walletSessionJwtEnvName: input.options.missingKekJwtEnvName,
-      origin: input.options.origin,
-    });
-  }
-  return checks;
-}
-
-function missingKekExpectedJson(expectedCode) {
-  return expectedCode ? { ok: false, code: expectedCode } : { ok: false };
 }
 
 async function executeSignerCustodyCheck(input) {
@@ -329,16 +290,6 @@ function normalizeOptionalOrigin(input, mode) {
         mode,
       })
     : '';
-}
-
-function normalizeExpectedStatus(input, fallback) {
-  const value = normalizeString(input);
-  if (!value) return fallback;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 400 || parsed > 599) {
-    throw new Error('--missing-kek-expected-status must be an integer between 400 and 599');
-  }
-  return parsed;
 }
 
 if (isDirectInvocation(import.meta.url)) await main();

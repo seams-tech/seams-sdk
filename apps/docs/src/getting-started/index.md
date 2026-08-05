@@ -41,7 +41,12 @@ const seamsConfig = {
   },
   relayerAccount: 'w3a-relayer.testnet',
   relayer: {
-    url: import.meta.env.VITE_SEAMS_ROUTER_URL,
+    url: import.meta.env.VITE_RELAYER_URL,
+  },
+  registration: {
+    mode: 'managed',
+    projectEnvironmentId: import.meta.env.VITE_SEAMS_PROJECT_ENVIRONMENT_ID,
+    publishableKey: import.meta.env.VITE_SEAMS_PUBLISHABLE_KEY,
   },
   chains: [
     {

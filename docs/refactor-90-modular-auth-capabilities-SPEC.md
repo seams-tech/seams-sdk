@@ -142,8 +142,9 @@ invariant.
   this migration. Ordinary unlock creates a 24-hour session with three
   remaining uses, subject to the server maximum. Active, expired, exhausted,
   missing, unavailable, and invalid remain distinct typed outcomes. Expired or
-  absent sessions request same-method authority for one operation; step-up does
-  not mint a reusable Wallet Session, and only explicit wallet unlock does.
+  absent sessions request same-method authority for one operation. Registration
+  establishes the initial reusable Wallet Session; explicit wallet unlock
+  establishes or renews one. Step-up and refresh do not mint one.
   Expiry invalidates the exact JWT, live worker bindings, readiness caches, and
   active session projections while preserving sealed material, public
   capabilities, auth bindings, wallet metadata, and app identity. Expiry never
