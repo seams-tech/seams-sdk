@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { resolveTrackedNearRecoveryExecution } from '../../packages/sdk-server-ts/src/router/recoveryExecutionTracking';
+import { resolveTrackedNearRecoveryExecution } from '../../packages/sdk-server-ts/src/router/domains/emailRecovery/recoveryExecutionTracking';
 import {
   buildRecoveryEmailPayload,
   hashRecoveryEmailPayload,

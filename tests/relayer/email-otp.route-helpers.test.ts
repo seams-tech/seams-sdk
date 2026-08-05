@@ -16,11 +16,11 @@ import {
   validateEmailOtpJsonObjectBody,
   validateEmailOtpRequiredString,
   validateEmailOtpWalletId,
-} from '@server/router/emailOtpSessionRouteHelpers';
+} from '@server/router/domains/emailOtp/emailOtpSessionRouteHelpers';
 import {
   emailOtpExportDeniedDecisionFromResult,
   emailOtpExportPolicyWebhookEventDescriptor,
-} from '@server/router/emailOtpExportPolicy';
+} from '@server/router/domains/emailOtp/emailOtpExportPolicy';
 
 test.describe('Email OTP route helpers', () => {
   test('classifies Google Email OTP sessions from the canonical auth source', () => {

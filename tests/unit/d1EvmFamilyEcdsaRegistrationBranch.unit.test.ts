@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { buildD1EvmFamilyEcdsaRegistrationPrepare } from '../../packages/sdk-server-ts/src/router/cloudflare/d1EvmFamilyEcdsaRegistrationBranch';
+import { buildD1EvmFamilyEcdsaRegistrationPrepare } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1EvmFamilyEcdsaRegistrationBranch';
 import { registrationPreparationIdFromString } from '../../packages/sdk-server-ts/src/core/registrationContracts';
 import type {
   ThresholdEcdsaChainTarget,

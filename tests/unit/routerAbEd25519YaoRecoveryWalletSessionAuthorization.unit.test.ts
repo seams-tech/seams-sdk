@@ -20,7 +20,7 @@ import type {
 import type {
   SessionAdapter,
   SessionClaims,
-} from '../../packages/sdk-server-ts/src/router/routerApi';
+} from '../../packages/sdk-server-ts/src/router/framework/routerApi';
 import type { RouterAbEd25519YaoRecoveryAuthorizationInput } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
 

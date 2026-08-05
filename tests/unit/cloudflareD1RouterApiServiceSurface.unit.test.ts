@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import {
   parseOrgId,
   parseProviderSubject,
