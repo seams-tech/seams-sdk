@@ -36,15 +36,15 @@ import {
   signingRootScopeFromRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
-import { json, readJson } from './framework/http';
-import { createRouterApiModule, type RouterApiModule } from './modules';
-import { defineRoute } from './routeDefinitions';
+import { json, readJson } from '../../../framework/http';
+import { createRouterApiModule, type RouterApiModule } from '../../../framework/modules';
+import { defineRoute } from '../../../framework/routeDefinitions';
 import type {
   RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
-} from './routeExtensions';
-import type { WalletEd25519YaoActiveCapabilityRecord } from '../core/WalletStore';
-import type { RouterAbEd25519WalletSessionClaims } from '../core/ThresholdService/validation';
+} from '../../../framework/routeExtensions';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../../core/WalletStore';
+import type { RouterAbEd25519WalletSessionClaims } from '../../../../core/ThresholdService/validation';
 import {
   walletAuthAuthorityRef,
   type WalletAuthAuthorityRef,

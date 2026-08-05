@@ -15,7 +15,7 @@ import {
   parseWalletAuthAuthority,
   parseWalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
-import type { WebAuthnAuthenticationCredential } from '../core/types';
+import type { WebAuthnAuthenticationCredential } from '../../../../core/types';
 import type {
   RouterAbEd25519YaoOperationStepUpGrantCommandV1,
   RouterAbEd25519YaoSessionPolicyV1,
@@ -51,7 +51,7 @@ import {
   findUnexpectedRouteKey,
   optionalRouteTrimmedString,
   parseWebAuthnAuthenticationCredential,
-} from './routeRequestValidation';
+} from '../../../framework/routeRequestValidation';
 
 export type ThresholdEd25519RouteErrorBody = {
   ok: false;

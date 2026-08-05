@@ -1,18 +1,18 @@
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import { ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 } from '@shared/utils/routerAbEd25519Yao';
-import type { WalletRegistrationEd25519YaoBootstrapSession } from '../core/registrationContracts';
-import { thresholdEd25519StatusCode } from '../threshold/statusCodes';
+import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../../core/registrationContracts';
+import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
 import type {
   RouterApiWalletRegistrationService,
   RouterApiWalletUnlockService,
-} from './authServicePort';
-import { parseWalletUnlockBackend } from './emailOtpRequestValidation';
+} from '../../framework/authServicePort';
+import { parseWalletUnlockBackend } from '../emailOtp/emailOtpRequestValidation';
 import {
   emailOtpFailureWebhookEventDescriptors,
   emailOtpLoggedInWebhookEventDescriptor,
   type EmailOtpWebhookEventDescriptor,
-} from './emailOtpSessionRouteHelpers';
-import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from './routerAbEd25519YaoRecovery';
+} from '../emailOtp/emailOtpSessionRouteHelpers';
+import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type { RouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   WalletUnlockEmailOtpRequestedCapabilitiesRequestV1,

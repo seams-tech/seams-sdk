@@ -3,7 +3,7 @@ import type {
   WalletAddSignerEcdsaActivationPrepareRequest,
   WalletAddSignerEcdsaActivationQueryRequest,
   WalletAddSignerEcdsaActivationRequest,
-} from '../../core/registrationContracts';
+} from '../../../../core/registrationContracts';
 
 declare const activationPrepareRequest: WalletAddSignerEcdsaActivationPrepareRequest;
 

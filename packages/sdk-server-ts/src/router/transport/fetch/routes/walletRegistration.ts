@@ -15,16 +15,16 @@ import {
   handleRouterApiWalletRegistrationSetup,
   handleRouterApiWalletEcdsaKeyFactsInventory,
   handleRouterApiWalletNearImplicitAccountFund,
-} from '../../../walletRegistrationRoutes';
-import { routerApiWalletRegistrationRouteService } from '../../../authServicePort';
-import { resolveSourceIpFromFetchHeaders } from '../../../routerApiKeyAuth';
-import type { RouteResponse } from '../../../routeExecutionContext';
+} from '../../../domains/walletRegistration/walletRegistrationRoutes';
+import { routerApiWalletRegistrationRouteService } from '../../../framework/authServicePort';
+import { resolveSourceIpFromFetchHeaders } from '../../../auth/routerApiKeyAuth';
+import type { RouteResponse } from '../../../framework/routeExecutionContext';
 import {
   findRouteDefinitionById,
   matchesRouteDefinitionRequest,
   type RouteDefinition,
-} from '../../../routeDefinitions';
-import { toFetchRouteResponse } from '../../../routeResponses';
+} from '../../../framework/routeDefinitions';
+import { toFetchRouteResponse } from '../../../framework/routeResponses';
 import { readJson } from '../../../framework/http';
 
 const ROUTE_IDS = [

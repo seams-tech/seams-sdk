@@ -12,7 +12,7 @@ import type {
   EmailOtpChallengeRecord,
   EmailOtpLoginChallengeOperation,
   EmailOtpWalletEnrollmentRecord,
-} from '../../core/EmailOtpStores';
+} from '../../../../core/EmailOtpStores';
 import type { CloudflareD1EmailOtpChallengeStore } from './d1EmailOtpChallengeStore';
 import type { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
 import type { CloudflareD1EmailOtpRateLimitStore } from './d1EmailOtpRateLimitStore';

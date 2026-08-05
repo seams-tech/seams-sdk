@@ -2,19 +2,19 @@ import type {
   EcdsaDerivationServerBootstrapResponse,
   ThresholdEd25519AuthorityScope,
   ThresholdRuntimePolicyScope,
-} from '../core/types';
+} from '../../core/types';
 import {
   parseRouterAbEd25519WalletSessionClaims,
   parseRouterAbEcdsaDerivationWalletSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
   type RouterAbEd25519WalletSessionClaims,
   type RouterAbEcdsaDerivationWalletSessionClaims,
-} from '../core/ThresholdService/validation';
-import type { SessionAdapter } from './routerApi';
+} from '../../core/ThresholdService/validation';
+import type { SessionAdapter } from '../framework/routerApi';
 import type {
   RouterApiProjectEnvironmentResolver,
   RouterApiPublishableKeyAuthAdapter,
-} from './routerApi';
+} from '../framework/routerApi';
 import { extractBearerCredential } from './routerApiKeyAuth';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {

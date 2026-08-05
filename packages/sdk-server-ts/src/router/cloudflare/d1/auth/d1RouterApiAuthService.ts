@@ -32,27 +32,27 @@ import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope'
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { parseThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { WalletRegistrationActivateResponseV2 } from '../../core/threeRouteRegistrationContracts';
+import type { WalletRegistrationActivateResponseV2 } from '../../../../core/threeRouteRegistrationContracts';
 import {
   D1WalletAuthMethodStore,
   type WalletAuthMethodStore,
-} from '../../core/d1WalletAuthMethodStore';
-import { D1WalletStore } from '../../core/d1WalletStore';
-import { D1IdentityStore } from '../../core/d1IdentityStore';
-import { D1EmailRecoveryPreparationStore } from '../../core/EmailRecoveryPreparationStore';
-import { D1WebAuthnCredentialBindingStore } from '../../core/WebAuthnCredentialBindingStore';
-import type { IdentityStore, LinkIdentityResult } from '../../core/IdentityStore';
-import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
-import { normalizeLogger } from '../../core/logger';
-import { toPublicKeyStringFromSecretKey } from '../../core/nearKeys';
-import { signGasRelayerNearTransactionWithDeps } from '../../core/authService/nearTransactions';
-import { ensureSignerWasmRuntime, type SignerWasmRuntimeState } from '../../core/authService/wasm';
-import { MinimalNearClient } from '../../core/rpcClients/near/NearClient';
+} from '../../../../core/d1WalletAuthMethodStore';
+import { D1WalletStore } from '../../../../core/d1WalletStore';
+import { D1IdentityStore } from '../../../../core/d1IdentityStore';
+import { D1EmailRecoveryPreparationStore } from '../../../../core/EmailRecoveryPreparationStore';
+import { D1WebAuthnCredentialBindingStore } from '../../../../core/WebAuthnCredentialBindingStore';
+import type { IdentityStore, LinkIdentityResult } from '../../../../core/IdentityStore';
+import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
+import { normalizeLogger } from '../../../../core/logger';
+import { toPublicKeyStringFromSecretKey } from '../../../../core/nearKeys';
+import { signGasRelayerNearTransactionWithDeps } from '../../../../core/authService/nearTransactions';
+import { ensureSignerWasmRuntime, type SignerWasmRuntimeState } from '../../../../core/authService/wasm';
+import { MinimalNearClient } from '../../../../core/rpcClients/near/NearClient';
 import {
   executeSignedDelegateWithRelayer,
   type ExecuteSignedDelegateRequest,
   type ExecuteSignedDelegateResult,
-} from '../../delegateAction';
+} from '../../../../delegateAction';
 import type { ActionArgsWasm } from '@shared/near/actions';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
@@ -60,38 +60,38 @@ import type {
   AccountCreationResult,
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
-} from '../../core/types';
-import { EmailRecoveryAuthOperations } from '../../core/authService/emailRecoveryAuthOperations';
-import type { RouterApiServiceBag } from '../authServicePort';
-import { AuthorizationService } from '../../authorization/service';
-import { capabilityPolicyPort } from '../../authorization/capabilityPolicy';
-import { CloudflareD1AuthorizationStore } from './d1AuthorizationStore';
+} from '../../../../core/types';
+import { EmailRecoveryAuthOperations } from '../../../../core/authService/emailRecoveryAuthOperations';
+import type { RouterApiServiceBag } from '../../../framework/authServicePort';
+import { AuthorizationService } from '../../../../authorization/service';
+import { capabilityPolicyPort } from '../../../../authorization/capabilityPolicy';
+import { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
 import { parseTenantId } from '@shared/authorization/capabilityKinds';
-import type { RouterApiEmailRecoveryAuthService } from '../routerApi';
-import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
+import type { RouterApiEmailRecoveryAuthService } from '../../../framework/routerApi';
+import { CloudflareD1RegistrationCeremonyIntentStore } from '../registration/d1RegistrationCeremonyStore';
 import { isRecordValue, sha256BytesPortable } from './d1RouterApiAuthBoundary';
-import { CloudflareD1NearPublicKeyStore } from './d1NearPublicKeyStore';
-import { CloudflareD1WebAuthnStore } from './d1WebAuthnStore';
-import { CloudflareD1EmailOtpChallengeStore } from './d1EmailOtpChallengeStore';
-import { CloudflareD1EmailOtpDeliveryRuntime } from './d1EmailOtpDeliveryRuntime';
-import { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
-import { CloudflareD1EmailOtpGrantStore } from './d1EmailOtpGrantStore';
-import { CloudflareD1EmailOtpRateLimitStore } from './d1EmailOtpRateLimitStore';
-import { CloudflareD1EmailOtpRecoveryEscrowStore } from './d1EmailOtpRecoveryEscrowStore';
-import { CloudflareD1EmailOtpServerSealRuntime } from './d1EmailOtpServerSealRuntime';
-import { CloudflareD1EmailOtpRegistrationEnrollmentFinalizer } from './d1EmailOtpRegistrationEnrollmentFinalizer';
-import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVerifier';
-import { CloudflareD1EmailOtpChallengeIssuer } from './d1EmailOtpChallengeIssuer';
-import { CloudflareD1EmailOtpChallengeService } from './d1EmailOtpChallengeService';
-import { CloudflareD1EmailOtpRecoveryService } from './d1EmailOtpRecoveryService';
-import { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from './d1GoogleEmailOtpRegistrationAttemptStore';
-import { CloudflareD1GoogleEmailOtpSessionResolver } from './d1GoogleEmailOtpSessionResolver';
-import { CloudflareD1SessionStore } from './d1SessionStore';
-import { CloudflareD1SessionService } from './d1SessionService';
-import { CloudflareD1IdentityService } from './d1IdentityService';
-import { CloudflareD1OidcVerificationService } from './d1OidcVerificationService';
-import { CloudflareD1WebAuthnAuthService } from './d1WebAuthnAuthService';
-import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
+import { CloudflareD1NearPublicKeyStore } from '../near/d1NearPublicKeyStore';
+import { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
+import { CloudflareD1EmailOtpChallengeStore } from '../emailOtp/d1EmailOtpChallengeStore';
+import { CloudflareD1EmailOtpDeliveryRuntime } from '../emailOtp/d1EmailOtpDeliveryRuntime';
+import { CloudflareD1EmailOtpEnrollmentStore } from '../emailOtp/d1EmailOtpEnrollmentStore';
+import { CloudflareD1EmailOtpGrantStore } from '../emailOtp/d1EmailOtpGrantStore';
+import { CloudflareD1EmailOtpRateLimitStore } from '../emailOtp/d1EmailOtpRateLimitStore';
+import { CloudflareD1EmailOtpRecoveryEscrowStore } from '../emailOtp/d1EmailOtpRecoveryEscrowStore';
+import { CloudflareD1EmailOtpServerSealRuntime } from '../emailOtp/d1EmailOtpServerSealRuntime';
+import { CloudflareD1EmailOtpRegistrationEnrollmentFinalizer } from '../emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
+import { CloudflareD1EmailOtpChallengeVerifier } from '../emailOtp/d1EmailOtpChallengeVerifier';
+import { CloudflareD1EmailOtpChallengeIssuer } from '../emailOtp/d1EmailOtpChallengeIssuer';
+import { CloudflareD1EmailOtpChallengeService } from '../emailOtp/d1EmailOtpChallengeService';
+import { CloudflareD1EmailOtpRecoveryService } from '../emailOtp/d1EmailOtpRecoveryService';
+import { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from '../emailOtp/d1GoogleEmailOtpRegistrationAttemptStore';
+import { CloudflareD1GoogleEmailOtpSessionResolver } from '../emailOtp/d1GoogleEmailOtpSessionResolver';
+import { CloudflareD1SessionStore } from '../session/d1SessionStore';
+import { CloudflareD1SessionService } from '../session/d1SessionService';
+import { CloudflareD1IdentityService } from '../identity/d1IdentityService';
+import { CloudflareD1OidcVerificationService } from '../oidc/d1OidcVerificationService';
+import { CloudflareD1WebAuthnAuthService } from '../webauthn/d1WebAuthnAuthService';
+import { CloudflareD1WalletAuthMethodService } from '../wallet/d1WalletAuthMethodService';
 import {
   CloudflareD1WalletRegistrationService,
   type D1WalletRegistrationOperationPreparedV1,
@@ -100,12 +100,12 @@ import {
   type D1WalletRegistrationNearProvisioningSideEffectRecord,
   type D1WalletRegistrationNearProvisioningSideEffectStore,
   type SponsoredNamedNearAccountCreationResult,
-} from './d1WalletRegistrationService';
+} from '../registration/d1WalletRegistrationService';
 import {
   parseD1EcdsaDerivationServerBootstrapResponse,
   parseD1WalletRegistrationFinalizeTerminalResponse,
-} from './d1RegistrationCeremonyRecords';
-import { CloudflareD1WalletRegistrationCommitStore } from './d1WalletRegistrationCommitStore';
+} from '../registration/d1RegistrationCeremonyRecords';
+import { CloudflareD1WalletRegistrationCommitStore } from '../registration/d1WalletRegistrationCommitStore';
 import {
   CloudflareD1WalletAddSignerService,
   parseD1WalletAddSignerFinalizeSideEffectRecord,
@@ -114,28 +114,28 @@ import {
   type D1WalletAddSignerFinalizeSideEffectStore,
   type D1WalletAddSignerStartSideEffectRecord,
   type D1WalletAddSignerStartSideEffectStore,
-} from './d1WalletAddSignerService';
-import { CloudflareD1RegistrationIntentService } from './d1RegistrationIntentService';
+} from '../wallet/d1WalletAddSignerService';
+import { CloudflareD1RegistrationIntentService } from '../registration/d1RegistrationIntentService';
 import {
   broadcastPreparedSponsoredNearAccountCreation,
   fundImplicitNearAccountWithRelayer,
   preparedSponsoredNearAccountCreationArtifactFingerprint,
   prepareSponsoredNearAccountCreationWithRelayer,
   type PreparedSponsoredNearAccountCreationV1,
-} from '../../core/nearRelayerAccountProvisioning';
+} from '../../../../core/nearRelayerAccountProvisioning';
 import {
   runRouterAbEd25519YaoRegistrationSideEffectV1,
   type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
   type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
-} from '../routerAbEd25519YaoRegistrationSideEffectBoundary';
-import { createCloudflareD1VersionedJsonRecordStore } from './d1VersionedJsonRecordStore';
-import type { VersionedJsonObject } from '../framework/versionedJsonRecordStore';
+} from '../../../domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
+import { createCloudflareD1VersionedJsonRecordStore } from '../versionedJson/d1VersionedJsonRecordStore';
+import type { VersionedJsonObject } from '../../../framework/versionedJsonRecordStore';
 import {
   normalizeD1RouterApiAuthOptions,
   type CloudflareD1RouterApiAuthServiceOptions,
   type NormalizedCloudflareD1RouterApiAuthServiceOptions,
 } from './d1RouterApiAuthConfig';
-import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';
+import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../../domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
 
 export type {
   CloudflareD1EmailOtpDeliveryProvider,

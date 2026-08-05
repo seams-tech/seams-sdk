@@ -7,7 +7,7 @@ import type {
 import type {
   CreateSigningSessionSealOptionsInput,
   SigningSessionSealService,
-} from '../threshold/session/signingSessionSeal';
+} from '../../threshold/session/signingSessionSeal';
 
 declare const emailRecoveryAuthService: RouterApiEmailRecoveryAuthService;
 declare const emailRecoveryExecutionService: RouterApiEmailRecoveryExecutionService;

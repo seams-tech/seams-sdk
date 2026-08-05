@@ -10,7 +10,7 @@ import {
   optionalNonNegativeInteger,
   positiveInteger,
   toRecordValue,
-} from './d1RouterApiAuthBoundary';
+} from '../auth/d1RouterApiAuthBoundary';
 
 export type D1AuthenticatorRow = {
   readonly credential_id_b64u?: unknown;

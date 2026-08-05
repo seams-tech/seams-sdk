@@ -14,8 +14,8 @@ import {
   ROUTER_AB_TRACE_ID_HEADER_V1,
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
-import { normalizeCorsOrigin } from '../core/SessionService';
-import { json, readJson } from './framework/http';
+import { normalizeCorsOrigin } from '../../../../core/SessionService';
+import { json, readJson } from '../../../framework/http';
 import {
   InMemoryRouterAbEd25519YaoExportService,
   parseRouterAbEd25519YaoExportAdmissionEnvelopeV1,
@@ -32,19 +32,19 @@ import {
   type RouterAbEd25519YaoExportAdmissionEnvelopeParseResultV1,
   type RouterAbEd25519YaoExportServerAuthorizationIdentityV1,
 } from './routerAbEd25519YaoExport';
-import type { RouterAbEd25519YaoActiveCapabilityResolverV1 } from './routerAbEd25519YaoRecovery';
+import type { RouterAbEd25519YaoActiveCapabilityResolverV1 } from '../recovery/routerAbEd25519YaoRecovery';
 import {
   runRouterAbEd25519YaoRegistrationTwoPhaseV1,
   type RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1,
   type RouterAbEd25519YaoRegistrationTwoPhaseCompletionV1,
   type RouterAbEd25519YaoRegistrationTwoPhasePrepareResultV1,
   type RouterAbEd25519YaoRegistrationTwoPhaseRunResultV1,
-} from './routerAbEd25519YaoRegistrationTwoPhaseRunner';
+} from '../registration/routerAbEd25519YaoRegistrationTwoPhaseRunner';
 import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-} from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-import type { RouterAbEd25519YaoProductRegistrationStateV1 } from './routerAbEd25519YaoProductRegistration';
+} from '../productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../productRegistration/routerAbEd25519YaoProductRegistration';
 
 type AuthorizationFailure = Extract<
   RouterAbEd25519YaoExportAuthorizationResult,

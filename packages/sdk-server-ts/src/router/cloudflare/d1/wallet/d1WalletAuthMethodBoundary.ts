@@ -18,27 +18,27 @@ import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type {
   StoredWalletAddAuthMethodCeremony,
   StoredWalletAddSignerCeremony,
-} from '../../core/RegistrationCeremonyStore';
+} from '../../../../core/RegistrationCeremonyStore';
 import type {
   WebAuthnAuthenticationCredential
-} from '../../core/types';
+} from '../../../../core/types';
 import type {
   WalletAddAuthMethodStartRequest,
   WalletAddSignerStartRequest,
   WalletRegistrationFinalizeAuthMethod,
   WalletRevokeAuthMethodResponse
-} from '../../core/registrationContracts';
+} from '../../../../core/registrationContracts';
 import type {
   WalletAuthMethodRecord,
   WalletAuthMethodStore,
-} from '../../core/d1WalletAuthMethodStore';
+} from '../../../../core/d1WalletAuthMethodStore';
 import {
   addAuthMethodInputMatches,
   addSignerSelectionMatches,
   runtimePolicyScopeMatches,
-} from './d1RegistrationCeremonyRecords';
-import { parseJsonObject, toRecordValue } from './d1RouterApiAuthBoundary';
-import type { RevokeWalletAuthMethodCommand } from '../authServicePort';
+} from '../registration/d1RegistrationCeremonyRecords';
+import { parseJsonObject, toRecordValue } from '../auth/d1RouterApiAuthBoundary';
+import type { RevokeWalletAuthMethodCommand } from '../../../framework/authServicePort';
 
 type StartWalletAddSignerInput = WalletAddSignerStartRequest;
 type StartWalletAddAuthMethodInput = WalletAddAuthMethodStartRequest;

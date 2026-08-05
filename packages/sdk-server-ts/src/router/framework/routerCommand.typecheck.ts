@@ -4,8 +4,8 @@ import type {
   AuthProviderActionRoute,
   AuthUnlinkIdentityRequest,
   PasskeyLoginOptionsRequest,
-} from './authRequestValidation';
-import type { PrepareEmailRecoveryRequest } from './emailRecoveryRequestValidation';
+} from '../auth/authRequestValidation';
+import type { PrepareEmailRecoveryRequest } from '../domains/emailRecovery/emailRecoveryRequestValidation';
 
 const passkeyOptions: PasskeyLoginOptionsRequest = {
   user_id: 'wallet-1',

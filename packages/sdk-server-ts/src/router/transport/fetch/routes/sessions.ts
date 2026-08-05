@@ -2,19 +2,19 @@ import {
   DEFAULT_SESSION_COOKIE_NAME,
   deriveJwtExpiresAtIso,
   parseSessionKind,
-} from '../../../routerApi';
-import { extractBearerCredential, resolveSourceIpFromFetchHeaders } from '../../../routerApiKeyAuth';
-import { emitRouterApiWebhookEvent } from '../../../routerApiWebhooks';
+} from '../../../framework/routerApi';
+import { extractBearerCredential, resolveSourceIpFromFetchHeaders } from '../../../auth/routerApiKeyAuth';
+import { emitRouterApiWebhookEvent } from '../../../framework/routerApiWebhooks';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { headersToRecord, json, readJson } from '../../../framework/http';
-import { resolveThresholdRuntimePolicyScope } from '../../../commonRouterUtils';
+import { resolveThresholdRuntimePolicyScope } from '../../../auth/commonRouterUtils';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   handleWalletUnlockChallengeRoute,
   handleWalletUnlockVerifyRoute,
   type WalletUnlockEcdsaSessionContext,
   type WalletUnlockCapabilityContext,
-} from '../../../walletUnlockRouteHandlers';
+} from '../../../domains/walletUnlock/walletUnlockRouteHandlers';
 import { handleStrictEcdsaSessionActivation } from './thresholdEcdsa';
 import {
   parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
@@ -24,7 +24,7 @@ import {
 import {
   routerApiEmailOtpRouteService,
   type EmailOtpChallengeDelivery,
-} from '../../../authServicePort';
+} from '../../../framework/authServicePort';
 import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
   handleEmailOtpDevOtpOutboxRoute,
@@ -44,7 +44,7 @@ import {
   handleEmailOtpRegistrationSealRoute,
   handleEmailOtpUnsealRoute,
   handleEmailOtpSigningSessionUnsealRoute,
-} from '../../../emailOtpRouteHandlers';
+} from '../../../domains/emailOtp/emailOtpRouteHandlers';
 import {
   emailOtpChallengeResponseBody,
   emailOtpStatusCode,
@@ -52,18 +52,18 @@ import {
   emailOtpAppSessionClaimsForSubject,
   hashEmailOtpAppSessionClaims,
   hashEmailOtpSigningSessionClaims,
-} from '../../../emailOtpSessionRouteHelpers';
+} from '../../../domains/emailOtp/emailOtpSessionRouteHelpers';
 import {
   parseSessionExchangeRouteCommand,
   type SessionExchangeRouteCommand,
-} from '../../../sessionExchangeRequestValidation';
+} from '../../../auth/sessionExchangeRequestValidation';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
   parseRouterAbEcdsaDerivationWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
 } from '../../../../core/ThresholdService/validation';
 import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/utils/domainIds';
-import { parseWalletUnlockRequestedCapabilitiesRequest } from '../../../walletUnlockRequestedCapabilitiesValidation';
+import { parseWalletUnlockRequestedCapabilitiesRequest } from '../../../domains/walletUnlock/walletUnlockRequestedCapabilitiesValidation';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,

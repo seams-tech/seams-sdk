@@ -4,7 +4,7 @@ import {
   buildWalletEd25519SignerId,
   type WalletEd25519SignerRecord,
   type WalletEd25519YaoActiveCapabilityRecord,
-} from '../../core/WalletStore';
+} from '../../../../core/WalletStore';
 
 export function implicitNearAccountIdFromEd25519PublicKeyBytes(bytes: readonly number[]): string {
   let encoded = '';
