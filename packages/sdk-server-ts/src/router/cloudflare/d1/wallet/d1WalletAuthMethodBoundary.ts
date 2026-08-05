@@ -1,5 +1,3 @@
-import { errorMessage } from '@shared/utils/errors';
-import { base64Decode, base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
   type AddAuthMethodIntentV1,
@@ -20,9 +18,6 @@ import type {
   StoredWalletAddSignerCeremony,
 } from '../../../../core/RegistrationCeremonyStore';
 import type {
-  WebAuthnAuthenticationCredential
-} from '../../../../core/types';
-import type {
   WalletAddAuthMethodStartRequest,
   WalletAddSignerStartRequest,
   WalletRegistrationFinalizeAuthMethod,
@@ -37,8 +32,9 @@ import {
   addSignerSelectionMatches,
   runtimePolicyScopeMatches,
 } from '../registration/d1RegistrationCeremonyRecords';
-import { parseJsonObject, toRecordValue } from '../auth/d1RouterApiAuthBoundary';
+import { toRecordValue } from '../auth/d1RouterApiAuthBoundary';
 import type { RevokeWalletAuthMethodCommand } from '../../../framework/authServicePort';
+import { webAuthnCredentialIdB64uFromCredential } from '../../../auth/webAuthnCredentialCodecs';
 
 type StartWalletAddSignerInput = WalletAddSignerStartRequest;
 type StartWalletAddAuthMethodInput = WalletAddAuthMethodStartRequest;
@@ -84,10 +80,6 @@ export type D1RevokeWalletAuthMethodBoundary =
       readonly result: RevokeWalletAuthMethodResult;
     };
 
-export type D1WebAuthnCredentialIdParseResult =
-  | { readonly ok: true; readonly credentialIdB64u: string }
-  | { readonly ok: false; readonly code: string; readonly message: string };
-
 export type D1WalletAuthMethodEmailHash = (email: string) => Promise<string>;
 
 export type D1AddSignerExistingAuthResolution =
@@ -111,12 +103,6 @@ export type D1AddAuthMethodExistingAuthResolution =
       readonly code: string;
       readonly message: string;
     };
-
-export type D1WebAuthnClientDataJson = {
-  readonly challenge: string;
-  readonly origin: string;
-  readonly type: string;
-};
 
 export function walletRegistrationFinalizeAuthMethodFromAuthority(
   authority: RegistrationAuthority,
@@ -309,7 +295,7 @@ export async function authorizeD1WalletAuthMethodRevoke(input: {
   readonly auth: D1RevokeWalletAuthMethodAuth;
 }): Promise<RevokeWalletAuthMethodResult | null> {
   if (input.auth.kind !== 'webauthn_assertion') return null;
-  const authorizationCredentialId = d1WebAuthnCredentialIdB64uFromCredential(input.auth.credential);
+  const authorizationCredentialId = webAuthnCredentialIdB64uFromCredential(input.auth.credential);
   if (!authorizationCredentialId.ok) return authorizationCredentialId;
   const authorizationMethod = await input.walletAuthMethodStore.getPasskey({
     rpId: input.auth.rpId,
@@ -483,49 +469,6 @@ export async function resolveD1AddAuthMethodExistingAuth(input: {
   };
 }
 
-export function decodeD1WebAuthnBase64UrlOrBase64(input: string, fieldName: string): Uint8Array {
-  try {
-    return base64UrlDecode(input);
-  } catch {
-    try {
-      return base64Decode(input);
-    } catch (error: unknown) {
-      throw new Error(
-        `Invalid ${fieldName}: expected base64url/base64 string (${
-          errorMessage(error) || 'decode failed'
-        })`,
-      );
-    }
-  }
-}
-
-export function parseD1WebAuthnClientDataJsonBase64url(
-  clientDataJSONB64u: string,
-): D1WebAuthnClientDataJson {
-  const bytes = decodeD1WebAuthnBase64UrlOrBase64(
-    clientDataJSONB64u,
-    'webauthn_authentication.response.clientDataJSON',
-  );
-  const json = new TextDecoder().decode(bytes);
-  const record = parseJsonObject(json);
-  if (!record) throw new Error('Invalid clientDataJSON: expected object');
-  const challenge = toOptionalTrimmedString(record.challenge);
-  const origin = toOptionalTrimmedString(record.origin);
-  const type = toOptionalTrimmedString(record.type);
-  if (!challenge) throw new Error('Invalid clientDataJSON.challenge');
-  if (!origin) throw new Error('Invalid clientDataJSON.origin');
-  if (!type) throw new Error('Invalid clientDataJSON.type');
-  return { challenge, origin, type };
-}
-
-export function d1WebAuthnOriginHostnameOrEmpty(origin: string): string {
-  try {
-    return new URL(origin).hostname.toLowerCase();
-  } catch {
-    return '';
-  }
-}
-
 export function d1HostIsWithinWebAuthnRpId(host: string, rpId: string): boolean {
   const normalizedHost = host.toLowerCase();
   const normalizedRpId = rpId.toLowerCase();
@@ -539,70 +482,6 @@ export function d1HostIsWithinWebAuthnRpId(host: string, rpId: string): boolean 
     return true;
   }
   return normalizedHost === normalizedRpId || normalizedHost.endsWith(`.${normalizedRpId}`);
-}
-
-export function d1WebAuthnCredentialIdB64uFromCredential(
-  input: unknown,
-): D1WebAuthnCredentialIdParseResult {
-  const credential = toRecordValue(input) || {};
-  const rawId = toOptionalTrimmedString(credential.rawId);
-  const id = toOptionalTrimmedString(credential.id);
-  const selected = rawId || id;
-  if (!selected) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'Missing webauthn_authentication.id/rawId',
-    };
-  }
-  try {
-    return {
-      ok: true,
-      credentialIdB64u: base64UrlEncode(
-        decodeD1WebAuthnBase64UrlOrBase64(selected, 'webauthn_authentication.rawId'),
-      ),
-    };
-  } catch (error: unknown) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: errorMessage(error) || 'Invalid credential rawId',
-    };
-  }
-}
-
-export function parseD1WebAuthnAuthenticationCredential(
-  input: unknown,
-): WebAuthnAuthenticationCredential | null {
-  const credential = toRecordValue(input);
-  const response = toRecordValue(credential?.response);
-  const id = toOptionalTrimmedString(credential?.id);
-  const rawId = toOptionalTrimmedString(credential?.rawId);
-  const type = toOptionalTrimmedString(credential?.type);
-  const clientDataJSON = toOptionalTrimmedString(response?.clientDataJSON);
-  const authenticatorData = toOptionalTrimmedString(response?.authenticatorData);
-  const signature = toOptionalTrimmedString(response?.signature);
-  const userHandle =
-    response?.userHandle === null ? null : toOptionalTrimmedString(response?.userHandle) || null;
-  const authenticatorAttachment =
-    credential?.authenticatorAttachment === null
-      ? null
-      : toOptionalTrimmedString(credential?.authenticatorAttachment) || null;
-  if (!id || !rawId || type !== 'public-key') return null;
-  if (!clientDataJSON || !authenticatorData || !signature) return null;
-  return {
-    id,
-    rawId,
-    type,
-    authenticatorAttachment,
-    response: {
-      clientDataJSON,
-      authenticatorData,
-      signature,
-      userHandle,
-    },
-    clientExtensionResults: credential?.clientExtensionResults ?? null,
-  };
 }
 
 function parseD1RevokeWalletAuthMethodTarget(
@@ -642,7 +521,7 @@ async function resolveD1WebAuthnExistingWalletAuth(input: {
   | { readonly ok: true; readonly credentialIdB64u: string }
   | { readonly ok: false; readonly code: string; readonly message: string }
 > {
-  const credentialId = d1WebAuthnCredentialIdB64uFromCredential(input.credential);
+  const credentialId = webAuthnCredentialIdB64uFromCredential(input.credential);
   if (!credentialId.ok) return credentialId;
   const authorizationMethod = await input.walletAuthMethodStore.getPasskey({
     rpId: input.rpId,

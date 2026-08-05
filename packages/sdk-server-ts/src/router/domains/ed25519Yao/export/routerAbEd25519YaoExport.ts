@@ -31,9 +31,9 @@ import { isPlainObject } from '@shared/utils/validation';
 import type { WebAuthnAuthenticationCredential } from '../../../../core/types';
 import { normalizeCorsOrigin } from '../../../../core/SessionService';
 import {
-  d1WebAuthnCredentialIdB64uFromCredential,
-  parseD1WebAuthnAuthenticationCredential,
-} from '../../../cloudflare/d1/wallet/d1WalletAuthMethodBoundary';
+  parseWebAuthnAuthenticationCredential,
+  webAuthnCredentialIdB64uFromCredential,
+} from '../../../auth/webAuthnCredentialCodecs';
 import type { RouterApiWebAuthnService } from '../../../framework/authServicePort';
 import {
   parseRouterAbEd25519WalletSessionClaims,
@@ -1264,7 +1264,7 @@ async function authorizePasskeyExportAdmission(args: {
         message: 'Ed25519 Yao export authorization method does not match the Wallet Session',
       });
     case 'passkey': {
-      const credentialId = d1WebAuthnCredentialIdB64uFromCredential(
+      const credentialId = webAuthnCredentialIdB64uFromCredential(
         args.input.authorization.webauthnAuthentication,
       );
       if (!credentialId.ok || credentialId.credentialIdB64u !== args.authority.credentialIdB64u) {
@@ -1596,7 +1596,7 @@ function parsePasskeyExportAdmissionAuthorization(
       message: `passkey export authorization has unknown field: ${unexpectedField}`,
     };
   }
-  const webauthnAuthentication = parseD1WebAuthnAuthenticationCredential(
+  const webauthnAuthentication = parseWebAuthnAuthenticationCredential(
     authorization.webauthnAuthentication,
   );
   if (!webauthnAuthentication) {

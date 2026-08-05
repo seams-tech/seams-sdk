@@ -54,10 +54,8 @@ import {
   activeWalletAuthMethodRecord,
   authorizeD1WalletAuthMethodRevoke,
   d1HostIsWithinWebAuthnRpId,
-  d1WebAuthnOriginHostnameOrEmpty,
   findD1WalletAuthMethodRecordForRevokeTarget,
   parseD1RevokeWalletAuthMethodInput,
-  parseD1WebAuthnClientDataJsonBase64url,
   resolveD1AddAuthMethodExistingAuth,
   resolveD1AddSignerExistingAuth,
   revokedD1WalletAuthMethodRecord,
@@ -67,6 +65,10 @@ import {
   type D1AddAuthMethodExistingAuthResolution,
   type D1AddSignerExistingAuthResolution,
 } from './d1WalletAuthMethodBoundary';
+import {
+  parseWebAuthnClientDataJsonBase64url,
+  webAuthnOriginHostnameOrEmpty,
+} from '../../../auth/webAuthnCredentialCodecs';
 import type { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
 import type {
   FinalizeWalletAddAuthMethodCommand,
@@ -677,7 +679,7 @@ export class CloudflareD1WalletAuthMethodService {
     }
     const response = toRecordValue(credential.response);
     const clientDataJSON = toOptionalTrimmedString(response?.clientDataJSON);
-    const clientData = parseD1WebAuthnClientDataJsonBase64url(clientDataJSON);
+    const clientData = parseWebAuthnClientDataJsonBase64url(clientDataJSON);
     if (clientData.type !== 'webauthn.create') {
       return {
         ok: false,
@@ -697,7 +699,7 @@ export class CloudflareD1WalletAuthMethodService {
       };
     }
     if (
-      !d1HostIsWithinWebAuthnRpId(d1WebAuthnOriginHostnameOrEmpty(clientData.origin), input.rpId)
+      !d1HostIsWithinWebAuthnRpId(webAuthnOriginHostnameOrEmpty(clientData.origin), input.rpId)
     ) {
       return { ok: false, code: 'invalid_origin', message: 'WebAuthn origin is not within rpId' };
     }
