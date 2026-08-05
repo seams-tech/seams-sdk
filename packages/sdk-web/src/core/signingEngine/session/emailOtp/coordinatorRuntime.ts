@@ -89,6 +89,7 @@ export class EmailOtpWalletSessionRuntime {
       provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
       provisionEmailOtpEcdsaExplicitExportSession: deps.provisionEmailOtpEcdsaExplicitExportSession,
       runtimeConfig: this.runtimeConfig,
+      resolveCurrentEcdsaCapabilityRuntime: deps.resolveCurrentEcdsaCapabilityRuntime,
       rememberAppSessionJwt: (request) => this.rememberAppSessionJwt(request),
       publicationPorts: () => this.sealedSessionRegistry.ecdsaPublicationPorts(),
     });
@@ -216,6 +217,14 @@ export class EmailOtpWalletSessionRuntime {
     relayUrl: string;
   }): Promise<string> {
     return await this.appSessionJwtCache.resolveJwtForWallet(args);
+  }
+
+  async resolveAppSessionJwtForProviderSubject(args: {
+    walletId: WalletId;
+    providerSubject: string;
+    relayUrl: string;
+  }): Promise<string> {
+    return await this.appSessionJwtCache.resolveJwtForProviderSubject(args);
   }
 
   async requestTransactionSigningChallenge(

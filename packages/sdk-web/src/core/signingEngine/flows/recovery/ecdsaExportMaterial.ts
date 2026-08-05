@@ -3,6 +3,7 @@ import type {
   PasskeyWalletAuthAuthority,
   WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
+import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   assertMatchingVerifiedEcdsaPublicFacts,
   deriveEvmFamilyKeyFingerprintFromPublicFacts,
@@ -21,17 +22,20 @@ import {
 } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetsEqual,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../session/material/ecdsaSigningCapability';
-import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationNormalSigningStateV1,
+  RouterAbEcdsaDerivationPublicCapabilityV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
 import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
-import {
-  resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime,
-  type EmailOtpEcdsaSigningSessionAuthority,
-} from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 
 export type EcdsaExportMaterialAvailability =
   | { kind: 'loaded_worker_material' }
@@ -48,6 +52,7 @@ type ExactEcdsaExportLaneBase = {
   material: EcdsaExportMaterialAvailability;
   state: Exclude<ConcreteAvailableEcdsaSigningLane['state'], 'expired' | 'exhausted'>;
   source: 'canonical_capability';
+  capability: CanonicalEvmFamilyEcdsaSigningCapability;
   ecdsaThresholdKeyId?: never;
   signingRootId?: never;
   signingRootVersion?: never;
@@ -68,6 +73,7 @@ export type ExactEcdsaExportLane =
 
 export type EcdsaExportSessionStoreDeps = {
   exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
+  relayerUrl: string;
 };
 
 export type EmailOtpEcdsaExportAuthLane = Extract<
@@ -75,9 +81,9 @@ export type EmailOtpEcdsaExportAuthLane = Extract<
   { curve: 'ecdsa' }
 >;
 
-type FreshEmailOtpEcdsaWalletSessionExportAuthority = {
-  kind: 'wallet_session_authorized';
-  signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
+type FreshEmailOtpEcdsaOperationExportAuthority = {
+  kind: 'fresh_operation_authorization_required';
+  authority: EmailOtpWalletAuthAuthority;
 };
 
 export type FreshEmailOtpEcdsaExportMaterial = {
@@ -85,7 +91,12 @@ export type FreshEmailOtpEcdsaExportMaterial = {
   chainTarget: ThresholdEcdsaChainTarget;
   publicFacts: VerifiedEcdsaPublicFacts;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  authorization: FreshEmailOtpEcdsaWalletSessionExportAuthority;
+  persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+  normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+  relayerKeyId: string;
+  participantIds: readonly [number, number];
+  relayerUrl: string;
+  authorization: FreshEmailOtpEcdsaOperationExportAuthority;
   record?: never;
   authLane?: never;
 };
@@ -124,7 +135,7 @@ export function isConcreteEcdsaExportLane(
     }
   | {
       authorization?: never;
-      auth: Extract<ConcreteAvailableEcdsaSigningLane['auth'], { kind: 'passkey' }>;
+      auth: ConcreteAvailableEcdsaSigningLane['auth'];
     }
 ) {
   if (
@@ -138,24 +149,123 @@ export function isConcreteEcdsaExportLane(
     return false;
   }
   if (lane.authorization) return true;
-  return lane.auth.kind === 'passkey' && lane.state === 'deferred';
+  return lane.state === 'deferred';
 }
 
-export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
-  _deps: EcdsaExportSessionStoreDeps,
-  exportLane: ExactEcdsaExportLane,
-): Promise<FreshEmailOtpEcdsaExportMaterial> {
-  if (exportLane.authMethod !== 'email_otp') {
-    throw new Error('[SigningEngine][ecdsa-export] fresh Email OTP export requires Email OTP lane');
+function exactEcdsaParticipantIds(value: readonly number[]): readonly [number, number] {
+  if (value.length !== 2) {
+    throw new Error('[SigningEngine][ecdsa-export] ECDSA participant set must contain two parties');
   }
-  const resolution = await resolveActiveEcdsaCapabilityRuntime({
-    walletId: exportLane.key.walletId,
-    chainTarget: exportLane.chainTarget,
+  const first = value[0];
+  const second = value[1];
+  if (
+    !Number.isSafeInteger(first) ||
+    !Number.isSafeInteger(second) ||
+    first <= 0 ||
+    second <= 0 ||
+    first === second
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] ECDSA participant set is invalid');
+  }
+  return [first, second];
+}
+
+export function resolveCanonicalEmailOtpEcdsaExportMaterialForLane(args: {
+  deps: EcdsaExportSessionStoreDeps;
+  exportLane: ExactEcdsaExportLane;
+}): FreshEmailOtpEcdsaExportMaterial {
+  const { exportLane } = args;
+  const capability = exportLane.capability;
+  if (!isEmailOtpWalletAuthAuthority(capability.authority)) {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP capability authority mismatch');
+  }
+  const signer = capability.manifest.signer;
+  if (
+    signer.walletId !== exportLane.key.walletId ||
+    !signer.scope.targetMemberships.some(
+      (target) => thresholdEcdsaChainTargetsEqual(target, exportLane.chainTarget),
+    )
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP capability target mismatch');
+  }
+  if (
+    exportLane.laneIdentity.auth.kind !== 'email_otp' ||
+    exportLane.laneIdentity.auth.providerSubjectId !== capability.authority.factor.providerUserId
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP capability auth mismatch');
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      capability.manifest.activation.materialActivation,
+      exportLane.laneIdentity.signer.materialActivation,
+    )
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP material activation mismatch');
+  }
+  assertMatchingVerifiedEcdsaPublicFacts({
+    expected: exportLane.publicFacts,
+    actual: capability.manifest.signer.registeredPublicFacts,
+    context: 'canonical Email OTP export lane',
   });
-  if (resolution.kind !== 'resolved') {
-    throw new Error(
-      `[SigningEngine][ecdsa-export] Email OTP capability runtime unavailable: ${resolution.reason}`,
-    );
+  const materialFacts = capability.material.publicFacts;
+  if (
+    materialFacts.walletId !== signer.walletId ||
+    String(materialFacts.keyHandle) !== String(exportLane.publicFacts.keyHandle) ||
+    String(materialFacts.groupPublicKey33B64u) !== String(exportLane.publicFacts.publicKeyB64u) ||
+    String(materialFacts.ethereumAddress) !== String(exportLane.publicFacts.thresholdOwnerAddress) ||
+    materialFacts.participantIds.length !== exportLane.publicFacts.participantIds.length ||
+    materialFacts.participantIds.some(
+      (participantId, index) => participantId !== exportLane.publicFacts.participantIds[index],
+    )
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] canonical Email OTP export material mismatch');
+  }
+  const durable = capability.manifest.durableMaterial;
+  const runtimePolicyScope = durable.runtimePolicyScope;
+  const relayerUrl = String(args.deps.relayerUrl).trim().replace(/\/+$/g, '');
+  if (!runtimePolicyScope) {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP runtime policy scope is missing');
+  }
+  if (!relayerUrl) {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP export relayer URL is missing');
+  }
+  return {
+    kind: 'fresh_email_otp_route_auth_ready',
+    chainTarget: exportLane.chainTarget,
+    publicFacts: exportLane.publicFacts,
+    runtimePolicyScope,
+    persistedMaterial: capability.material,
+    normalSigning: durable.routerAbEcdsaDerivationNormalSigning,
+    relayerKeyId: String(durable.roleLocalBinding.relayerKeyId),
+    participantIds: exactEcdsaParticipantIds(durable.roleLocalBinding.participantIds),
+    relayerUrl,
+    authorization: {
+      kind: 'fresh_operation_authorization_required',
+      authority: capability.authority,
+    },
+  };
+}
+
+function sealedEmailOtpExportMaterial(args: {
+  deps: EcdsaExportSessionStoreDeps;
+  exportLane: ExactEcdsaExportLane;
+  resolution: Extract<
+    Awaited<ReturnType<typeof resolveActiveEcdsaCapabilityRuntime>>,
+    { kind: 'resolved' }
+  >;
+}): FreshEmailOtpEcdsaExportMaterial {
+  const { exportLane, resolution } = args;
+  if (exportLane.laneIdentity.auth.kind !== 'email_otp') {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP runtime auth mismatch');
+  }
+  if (resolution.runtime.authBinding.kind !== 'email_otp') {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP runtime authority mismatch');
+  }
+  if (
+    exportLane.laneIdentity.auth.providerSubjectId !==
+    resolution.runtime.authBinding.providerSubjectId
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] Email OTP runtime auth mismatch');
   }
   if (
     !mpcMaterialActivationRefsEqual(
@@ -165,34 +275,52 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
   ) {
     throw new Error('[SigningEngine][ecdsa-export] Email OTP material activation mismatch');
   }
-  if (exportLane.authorizationState !== 'authorized') {
-    throw new Error(
-      '[SigningEngine][ecdsa-export] Email OTP export requires reusable Wallet Session authorization',
-    );
-  }
-  const authority = resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime({
-    runtime: resolution.runtime,
-    authorization: exportLane.authorization.projection,
-  });
-  if (authority.kind !== 'ready') {
-    throw new Error(
-      `[SigningEngine][ecdsa-export] Email OTP signing-session authority unavailable: ${authority.kind}`,
-    );
-  }
   const runtimePolicyScope = resolution.runtime.runtimePolicyScope;
   if (!runtimePolicyScope) {
     throw new Error('[SigningEngine][ecdsa-export] Email OTP runtime policy scope is missing');
   }
+  const persistedMaterial = buildPersistedEcdsaRoleLocalMaterial({
+    authority: resolution.manifest.signer.authority,
+    materialActivation: resolution.manifest.activation.materialActivation,
+    publicFacts: resolution.manifest.durableMaterial.roleLocalPublicFacts,
+  });
   return {
     kind: 'fresh_email_otp_route_auth_ready',
     chainTarget: exportLane.chainTarget,
     publicFacts: exportLane.publicFacts,
     runtimePolicyScope,
+    persistedMaterial,
+    normalSigning: resolution.runtime.normalSigning,
+    relayerKeyId: resolution.runtime.relayerKeyId,
+    participantIds: resolution.runtime.participantIds,
+    relayerUrl: resolution.runtime.relayerUrl,
     authorization: {
-      kind: 'wallet_session_authorized',
-      signingSessionAuthority: authority.authority,
+      kind: 'fresh_operation_authorization_required',
+      authority: resolution.runtime.authBinding.emailOtpAuthority,
     },
   };
+}
+
+export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
+  deps: EcdsaExportSessionStoreDeps,
+  exportLane: ExactEcdsaExportLane,
+): Promise<FreshEmailOtpEcdsaExportMaterial> {
+  if (exportLane.authMethod !== 'email_otp') {
+    throw new Error('[SigningEngine][ecdsa-export] fresh Email OTP export requires Email OTP lane');
+  }
+  const resolution = await resolveActiveEcdsaCapabilityRuntime({
+    walletId: exportLane.key.walletId,
+    chainTarget: exportLane.chainTarget,
+  });
+  if (resolution.kind === 'blocked' && resolution.reason === 'missing_material') {
+    return resolveCanonicalEmailOtpEcdsaExportMaterialForLane({ deps, exportLane });
+  }
+  if (resolution.kind !== 'resolved') {
+    throw new Error(
+      `[SigningEngine][ecdsa-export] Email OTP capability runtime unavailable: ${resolution.reason}`,
+    );
+  }
+  return sealedEmailOtpExportMaterial({ deps, exportLane, resolution });
 }
 
 export async function resolveEcdsaExportMaterialForLane(

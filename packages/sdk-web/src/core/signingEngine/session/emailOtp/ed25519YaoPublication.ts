@@ -199,6 +199,8 @@ export async function persistEmailOtpEd25519YaoCapabilityForRefresh(
     curve: 'ed25519',
     thresholdSessionIds: { ed25519: thresholdSessionId },
     walletId: String(signer.account.wallet.walletId),
+    signingRootId: state.signingRootId,
+    signingRootVersion: state.signingRootVersion,
     relayerUrl,
     ed25519Restore: {
       materialActivation: sealed.materialActivation,

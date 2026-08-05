@@ -18,12 +18,12 @@ import {
 import { deriveEvmFamilyKeyFingerprintFromPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   buildEvmFamilyEcdsaSignerBinding,
-  exactEd25519SigningLaneIdentity,
+  exactEd25519ExportMaterialIdentity,
   exactEcdsaSigningLaneIdentity,
   exactSigningLaneIdentityKey,
   nearEd25519SignerBindingFromBoundaryFields,
   type ExactEcdsaSigningLaneIdentity,
-  type ExactEd25519SigningLaneIdentity,
+  type ExactEd25519ExportMaterialIdentity,
 } from '../../session/identity/exactSigningLaneIdentity';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
 import {
@@ -44,7 +44,7 @@ type ConcreteEcdsaExportAvailableLane = ConcreteAvailableEcdsaSigningLane & {
     }
   | {
       authorization?: never;
-      auth: Extract<ConcreteAvailableEcdsaSigningLane['auth'], { kind: 'passkey' }>;
+      auth: ConcreteAvailableEcdsaSigningLane['auth'];
     }
 );
 
@@ -207,6 +207,7 @@ function exactEcdsaExportLaneFromAvailableLane(args: {
       laneIdentity,
       authorizationState: 'authorized',
       authorization: args.lane.authorization,
+      capability: args.lane.capability,
       key: args.lane.key,
       publicFacts: args.lane.publicFacts,
       ...state,
@@ -216,6 +217,7 @@ function exactEcdsaExportLaneFromAvailableLane(args: {
     curve: 'ecdsa',
     laneIdentity,
     authorizationState: 'authorization_required',
+    capability: args.lane.capability,
     key: args.lane.key,
     publicFacts: args.lane.publicFacts,
     ...state,
@@ -315,22 +317,20 @@ function isUsableEd25519ExportLane(args: {
   walletId: string;
   nearAccountId: string;
 }): boolean {
-  const hasRecoverableSource = args.lane.source === 'durable_sealed_record';
+  const hasRecoverableSource =
+    args.lane.source === 'durable_sealed_record' ||
+    args.lane.source === 'public_capability_reference';
   return (
     String(args.lane.walletId) === args.walletId &&
     String(args.lane.nearAccountId) === args.nearAccountId &&
-    hasRecoverableSource &&
-    args.lane.state !== 'deferred'
+    hasRecoverableSource
   );
 }
 
-function exactEd25519IdentityForExportLane(
+function exactEd25519MaterialIdentityForExportLane(
   lane: ConcreteAvailableEd25519SigningLane,
-): ExactEd25519SigningLaneIdentity {
-  if (!lane.authorization) {
-    throw new Error('Ed25519 export requires reusable Wallet Session authorization');
-  }
-  return exactEd25519SigningLaneIdentity({
+): ExactEd25519ExportMaterialIdentity {
+  return exactEd25519ExportMaterialIdentity({
     signer: nearEd25519SignerBindingFromBoundaryFields({
       walletId: lane.walletId,
       nearAccountId: lane.nearAccountId,
@@ -338,8 +338,6 @@ function exactEd25519IdentityForExportLane(
       signerSlot: lane.signerSlot,
     }),
     auth: lane.auth,
-    walletSessionId: lane.authorization.walletSessionId,
-    quotaId: lane.authorization.quotaId,
     thresholdSessionId: lane.thresholdSessionId,
   });
 }
@@ -373,7 +371,7 @@ async function resolveExactEd25519KeyExportLane(
   const [selectedLane] = candidates;
   return {
     kind: 'ed25519',
-    laneIdentity: exactEd25519IdentityForExportLane(selectedLane),
+    laneIdentity: exactEd25519MaterialIdentityForExportLane(selectedLane),
     materialActivation: selectedLane.materialActivation,
   };
 }

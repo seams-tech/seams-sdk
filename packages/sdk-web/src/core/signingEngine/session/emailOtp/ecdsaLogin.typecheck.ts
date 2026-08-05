@@ -138,6 +138,7 @@ const validCapabilityLoginWithExplicitProvider: LoginEmailOtpEcdsaCapabilityArgs
   ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
   providerIdentity: {
     kind: 'explicit_provider_user',
+    provider: 'google',
     providerUserId: 'google-provider-user-1',
   },
   ed25519YaoRecovery: { kind: 'not_requested' },

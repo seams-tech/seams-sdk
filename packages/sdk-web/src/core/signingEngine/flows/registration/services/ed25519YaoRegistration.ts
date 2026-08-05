@@ -74,11 +74,17 @@ export type ProductEd25519YaoRegistrationMaterialPersistenceV1 =
       kind: 'worker_owned';
       persistence?: never;
       walletId: string;
+      providerSubject: string;
       nearAccountId: string;
       nearEd25519SigningKeyId: string;
       signerSlot: number;
       signingRootVersion: string;
       expectedOperationalPublicKey: string;
+      sessionPolicy: {
+        thresholdSessionId: string;
+        expiresAtMs: number;
+        remainingUses: number;
+      };
     };
 
 export interface ProductEd25519YaoPendingRegistrationPortV1 {

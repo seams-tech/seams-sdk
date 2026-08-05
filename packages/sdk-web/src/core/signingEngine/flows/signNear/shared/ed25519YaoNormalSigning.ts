@@ -92,28 +92,23 @@ import type {
 
 const ROUTER_AB_NORMAL_SIGNING_REQUEST_TTL_MS = 120_000;
 
-function nearOperationStepUpCredential(args: {
+async function nearOperationStepUpCredential(args: {
   ctx: NearSigningRuntimeDeps;
   walletId: WalletId;
   relayerUrl: string;
   proof: Ed25519OperationStepUpProof;
-}): Ed25519OperationStepUpCredential {
-  switch (args.proof.kind) {
-    case 'passkey': {
-      const credential = args.ctx.resolvePasskeyOperationStepUpCredential({
-        walletId: args.walletId,
-        relayerUrl: args.relayerUrl,
-      });
-      if (credential.kind === 'wallet_session_jwt') {
-        throw new Error(
-          '[SigningEngine][near] operation step-up requires an app-session credential',
-        );
-      }
-      return credential;
-    }
-    case 'email_otp':
-      return { kind: 'app_session_cookie' };
+}): Promise<Ed25519OperationStepUpCredential> {
+  const credential = await args.ctx.resolveOperationStepUpCredential({
+    walletId: args.walletId,
+    relayerUrl: args.relayerUrl,
+    proof: args.proof,
+  });
+  if (credential.kind === 'wallet_session_jwt') {
+    throw new Error(
+      '[SigningEngine][near] operation step-up requires an app-session credential',
+    );
   }
+  return credential;
 }
 
 export function requireIssuedNearEd25519OperationStepUpAuthorization(args: {
@@ -1008,7 +1003,7 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(
       throw new Error('[SigningEngine][near] signature-only operation digest changed');
     }
     const prepare = args.authorization.prepared.prepare;
-    const credential = nearOperationStepUpCredential({
+    const credential = await nearOperationStepUpCredential({
       ctx: args.ctx,
       walletId: args.walletId,
       relayerUrl: args.materialFacts.relayerUrl,
@@ -1299,7 +1294,7 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(
   let issuedAuthorization: NearEd25519OperationStepUpAuthorization | undefined;
   if (operationStepUp) {
     prepare = args.authorization.prepared.prepare;
-    credential = nearOperationStepUpCredential({
+    credential = await nearOperationStepUpCredential({
       ctx: args.ctx,
       walletId: args.walletId,
       relayerUrl: materialFacts.relayerUrl,

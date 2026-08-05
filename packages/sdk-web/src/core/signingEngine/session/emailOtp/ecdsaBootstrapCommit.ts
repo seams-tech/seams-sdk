@@ -1,8 +1,5 @@
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
-import {
-  walletAuthAuthorityRef,
-  type WalletAuthAuthorityRef,
-} from '@shared/utils/walletAuthAuthority';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { DurableRecordStore } from '@/core/platform';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
@@ -48,6 +45,7 @@ type CommitThresholdEcdsaSessionBaseArgs = {
 
 type CommitEmailOtpThresholdEcdsaSessionArgs = CommitThresholdEcdsaSessionBaseArgs & {
   source: 'email_otp';
+  authority: WalletAuthAuthorityRef;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 };
 
@@ -70,6 +68,7 @@ type CommitEvmFamilyThresholdEcdsaSessionsBaseArgs = {
 type CommitEmailOtpEvmFamilyThresholdEcdsaSessionsArgs =
   CommitEvmFamilyThresholdEcdsaSessionsBaseArgs & {
     source: 'email_otp';
+    authority: WalletAuthAuthorityRef;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   };
 
@@ -200,12 +199,7 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
       walletSessionAuthorizations,
       {
         walletId: args.walletId,
-        authority:
-          args.source === 'email_otp'
-            ? await walletAuthAuthorityRef({
-                authority: args.emailOtpAuthContext.authority,
-              })
-            : args.authority,
+        authority: args.authority,
         authMethod: signerAuthMethodForThresholdEcdsaSource(args.source),
         bootstrap: canonicalBootstrap,
       },
@@ -228,6 +222,7 @@ export async function commitEvmFamilyThresholdEcdsaSessions(
           chainTarget: args.chainTarget,
           bootstrap: args.bootstrap,
           source: 'email_otp',
+          authority: args.authority,
           emailOtpAuthContext: args.emailOtpAuthContext,
         })
       : await commitWorkerProvisionedThresholdEcdsaSession(deps, {

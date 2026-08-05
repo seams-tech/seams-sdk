@@ -442,6 +442,7 @@ async function runFencedEmailOtpSigningSessionRefresh(input: {
     ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
     providerIdentity: {
       kind: 'explicit_provider_user',
+      provider: emailOtpBinding.emailOtpAuthority.factor.provider,
       providerUserId: emailOtpBinding.providerSubjectId,
     },
     emailHashHex: emailOtpBinding.emailHashHex,

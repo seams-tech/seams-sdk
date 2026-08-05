@@ -120,7 +120,7 @@ import {
 import { registrationSignerSetRequestSelection } from '@/core/rpcClients/relayer/registrationSignerSetRequest';
 import {
   parseExactEcdsaSigningLaneIdentity,
-  parseExactEd25519SigningLaneIdentity,
+  parseExactEd25519ExportMaterialIdentity,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
@@ -405,7 +405,7 @@ function parseResolveExactKeyExportLaneResult(
       if (!materialActivation.ok) throw new Error(materialActivation.error.message);
       return {
         kind: 'ed25519',
-        laneIdentity: parseExactEd25519SigningLaneIdentity(result.laneIdentity),
+        laneIdentity: parseExactEd25519ExportMaterialIdentity(result.laneIdentity),
         materialActivation: materialActivation.value,
       };
     }
@@ -438,7 +438,7 @@ function walletIframeExportPayload(
       };
     }
     case 'ed25519': {
-      const laneIdentity = parseExactEd25519SigningLaneIdentity(input.laneIdentity);
+      const laneIdentity = parseExactEd25519ExportMaterialIdentity(input.laneIdentity);
       if (
         String(laneIdentity.signer.account.wallet.walletId) !== String(input.walletSession.walletId)
       ) {

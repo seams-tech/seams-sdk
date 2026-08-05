@@ -116,7 +116,7 @@ type ConcreteAvailableEcdsaSigningLaneBase = {
 
 export type ConcreteAvailableEcdsaSigningLane = ConcreteAvailableEcdsaSigningLaneBase & {
   source: 'canonical_capability';
-  capability: Pick<CanonicalEvmFamilyEcdsaSigningCapability, 'kind' | 'manifest' | 'material'>;
+  capability: CanonicalEvmFamilyEcdsaSigningCapability;
   sourceChainTarget?: never;
   publicReauthAuthority?: never;
   thresholdSessionId?: never;

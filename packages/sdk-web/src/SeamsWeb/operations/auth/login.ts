@@ -48,7 +48,6 @@ import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject } from '@shared/utils/validation';
 import {
   mpcMaterialActivationRefsEqual,
-  parseProviderSubject,
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
   type MpcMaterialActivationRef,
@@ -65,6 +64,7 @@ import {
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
+  type EmailOtpProvider,
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { IndexedDBManager } from '@/core/indexedDB';
@@ -226,6 +226,10 @@ import {
   type WalletUnlockSubjectSet,
 } from './walletUnlockSubject';
 import { resolveEcdsaActivationJournalSelectors } from './walletUnlockEcdsaSubject';
+import {
+  emailOtpAppSessionBindingFromJwt,
+  emailOtpProviderFromAppSessionJwt,
+} from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 
 type EmitUnlockEventInput = Omit<CreateUnlockFlowEventInput, 'accountId' | 'flowId'>;
 
@@ -814,27 +818,19 @@ function resolveLoginWarmupRouteAuthorization(args: {
   };
 }
 
-function readLoginAppSessionClaimString(args: {
-  claims: Record<string, unknown>;
-  field: string;
-}): string {
-  const value = args.claims[args.field];
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function emailOtpProviderUserIdFromLoginAppSession(args: {
+function emailOtpIdentityFromLoginAppSession(args: {
   routeAuthorization: Extract<LoginWarmupRouteAuthorization, { kind: 'app_session_jwt' }>;
-}): string {
-  const claims = decodeJwtPayloadRecord(args.routeAuthorization.appSessionJwt);
-  if (!claims) {
-    throw new Error('[login] Email OTP Ed25519 warm-up requires a valid app-session JWT');
-  }
-  const providerSubject = readLoginAppSessionClaimString({ claims, field: 'providerSubject' });
-  const parsedProviderSubject = parseProviderSubject(providerSubject);
-  if (!parsedProviderSubject.ok) {
-    throw new Error('[login] Email OTP Ed25519 warm-up requires app-session provider subject');
-  }
-  return parsedProviderSubject.value;
+  walletId: WalletId;
+}): { provider: EmailOtpProvider; providerUserId: string } {
+  const binding = emailOtpAppSessionBindingFromJwt({
+    walletId: args.walletId,
+    appSessionJwt: args.routeAuthorization.appSessionJwt,
+  });
+  const provider = emailOtpProviderFromAppSessionJwt(args.routeAuthorization.appSessionJwt);
+  return {
+    provider,
+    providerUserId: binding.providerSubject,
+  };
 }
 
 function loginPasskeyCredentialIdB64u(args: {
@@ -891,8 +887,9 @@ function resolveLoginEd25519SessionAuthority(args: {
     if (!args.authMethodBinding || args.authMethodBinding.kind !== 'email_otp') {
       throw new Error('[login] Email OTP Ed25519 warm-up requires wallet auth-method binding');
     }
-    const providerUserId = emailOtpProviderUserIdFromLoginAppSession({
+    const emailOtpIdentity = emailOtpIdentityFromLoginAppSession({
       routeAuthorization: args.routeAuthorization,
+      walletId: args.walletId,
     });
     const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
       policy: args.emailOtpAuthPolicy,
@@ -900,8 +897,8 @@ function resolveLoginEd25519SessionAuthority(args: {
       emailHashHex: args.authMethodBinding.emailHashHex,
       retention: 'session',
       reason: 'login',
-      provider: 'google',
-      providerUserId,
+      provider: emailOtpIdentity.provider,
+      providerUserId: emailOtpIdentity.providerUserId,
     });
     return {
       kind: 'email_otp',
@@ -4756,6 +4753,30 @@ async function resolveProfileContinuityThresholdEcdsaPublicKeyB64u(
   return null;
 }
 
+async function resolveAvailableThresholdEcdsaPublicKeyB64u(
+  context: WalletSessionWebContext,
+  walletId: WalletId,
+): Promise<string | null> {
+  const snapshot = await readAvailableSigningLanesForUi(context, walletId).catch(() => null);
+  if (!snapshot || String(snapshot.walletId) !== String(walletId)) return null;
+  const publicKeys = new Set<string>();
+  for (const target of ecdsaAvailableLaneTargets(snapshot)) {
+    const lane = ecdsaAvailableLaneForTarget(snapshot, target);
+    if (lane.curve !== 'ecdsa' || !isConcreteAvailableSigningLane(lane)) continue;
+    const publicKey = String(lane.publicFacts.publicKeyB64u || '').trim();
+    if (publicKey) publicKeys.add(publicKey);
+  }
+  const uniquePublicKeys = [...publicKeys];
+  if (uniquePublicKeys.length === 1) return uniquePublicKeys[0]!;
+  if (uniquePublicKeys.length > 1) {
+    console.warn('[WalletSession] conflicting threshold ECDSA sealed lane public keys', {
+      walletId: String(walletId),
+      publicKeyCount: uniquePublicKeys.length,
+    });
+  }
+  return null;
+}
+
 async function resolveThresholdEcdsaLoginMetadata(
   context: WalletSessionWebContext,
   walletId: WalletId,
@@ -4763,10 +4784,12 @@ async function resolveThresholdEcdsaLoginMetadata(
   ethereumAddress: string | null;
   thresholdEcdsaPublicKeyB64u: string | null;
 }> {
-  const [ethereumAddress, thresholdEcdsaPublicKeyB64u] = await Promise.all([
+  const [ethereumAddress, profilePublicKey] = await Promise.all([
     resolveThresholdEcdsaEthereumAddress(context, walletId),
-    (async () => await resolveProfileContinuityThresholdEcdsaPublicKeyB64u(context, walletId))(),
+    resolveProfileContinuityThresholdEcdsaPublicKeyB64u(context, walletId),
   ]);
+  const thresholdEcdsaPublicKeyB64u =
+    profilePublicKey || (await resolveAvailableThresholdEcdsaPublicKeyB64u(context, walletId));
   return {
     ethereumAddress,
     thresholdEcdsaPublicKeyB64u,

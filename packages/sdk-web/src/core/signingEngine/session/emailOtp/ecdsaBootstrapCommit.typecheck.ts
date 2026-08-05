@@ -5,10 +5,12 @@ import type {
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { EmailOtpEcdsaSessionPorts } from './ports';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '../identity/laneIdentity';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 declare const walletId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const bootstrap: ThresholdEcdsaSessionBootstrapResult;
+declare const authority: WalletAuthAuthorityRef;
 declare const ports: EmailOtpEcdsaSessionPorts;
 
 void bootstrap.session.runtimePolicyScope.projectId;
@@ -38,6 +40,16 @@ void ports.commitEvmFamilyThresholdEcdsaSessions({
   chainTarget,
   bootstrap,
   source: 'email_otp',
+  authority,
+  emailOtpAuthContext,
+});
+
+// @ts-expect-error Email OTP ECDSA bootstrap commit requires canonical authority.
+void ports.commitEvmFamilyThresholdEcdsaSessions({
+  walletId,
+  chainTarget,
+  bootstrap,
+  source: 'email_otp',
   emailOtpAuthContext,
 });
 
@@ -47,6 +59,7 @@ void ports.commitEvmFamilyThresholdEcdsaSessions({
   chainTarget,
   bootstrap,
   source: 'email_otp',
+  authority,
   emailOtpAuthContext,
 });
 

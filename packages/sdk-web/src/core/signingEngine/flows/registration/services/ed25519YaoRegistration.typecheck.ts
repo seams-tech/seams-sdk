@@ -21,11 +21,17 @@ pendingRegistration.persistRegistrationMaterial({
 pendingRegistration.persistRegistrationMaterial({
   kind: 'worker_owned',
   walletId: 'wallet-1',
+  providerSubject: 'provider-user-1',
   nearAccountId: 'account.near',
   nearEd25519SigningKeyId: 'ed25519-key-1',
   signerSlot: 1,
   signingRootVersion: 'root-version-1',
   expectedOperationalPublicKey: 'ed25519:public-key',
+  sessionPolicy: {
+    thresholdSessionId: 'ed25519-session-1',
+    expiresAtMs: 1_900_000_000_000,
+    remainingUses: 10,
+  },
 });
 // @ts-expect-error worker-owned persistence requires the exact signer identity.
 pendingRegistration.persistRegistrationMaterial({ kind: 'worker_owned' });

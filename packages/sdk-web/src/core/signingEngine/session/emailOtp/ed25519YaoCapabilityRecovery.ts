@@ -1,7 +1,6 @@
 import { toAccountId } from '@/core/types/accountIds';
 import type {
   NearEd25519YaoOperationMaterial,
-  NearResolvedEd25519SigningSessionState,
 } from '@/core/signingEngine/interfaces/near';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
@@ -14,7 +13,10 @@ import {
   registrationNearEd25519BranchKey,
 } from '@shared/utils/registrationIntent';
 import type { ThresholdEd25519SessionId } from '../operationState/types';
-import { buildEmailOtpRouterAbEd25519WalletSessionState } from '../warmCapabilities/routerAbEd25519WalletSessionState';
+import {
+  buildEmailOtpRouterAbEd25519WalletSessionState,
+  type ResolvedRouterAbEd25519WalletSessionState,
+} from '../warmCapabilities/routerAbEd25519WalletSessionState';
 import type {
   Ed25519YaoActiveClientIdentityV1,
   Ed25519YaoActiveClientLookupScopeV1,
@@ -50,7 +52,7 @@ export type EmailOtpEd25519YaoCapabilityRecoveryResult = {
   thresholdSessionId: ThresholdEd25519SessionId;
   publicationContext: EmailOtpEd25519YaoPublicationContext;
   material: NearEd25519YaoOperationMaterial;
-  walletSessionState: NearResolvedEd25519SigningSessionState;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
 };
 
 export type EmailOtpEd25519YaoRecoveryContinuityFailure = {
@@ -314,7 +316,7 @@ async function buildColdRecoveredWalletSessionState(args: {
   prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
   bootstrap: EmailOtpEd25519YaoUnlockBootstrapV1;
   claims: RouterAbEd25519WalletSessionIdentityClaims;
-}): Promise<NearResolvedEd25519SigningSessionState> {
+}): Promise<ResolvedRouterAbEd25519WalletSessionState> {
   const session = args.bootstrap.session;
   if (session.authorityScope.kind !== 'email_otp') {
     throw new Error('Email OTP Ed25519 Yao recovery returned another authority kind');
@@ -531,8 +533,11 @@ export async function recoverColdEmailOtpEd25519CapabilityForLoginV1(args: {
     },
     relayUrl: args.prepared.relayerUrl,
     groupId: requireNonEmpty(args.groupId, 'groupId'),
-    otpCode: requireNonEmpty(args.otpCode, 'otpCode'),
-    challengeId: requireNonEmpty(args.challengeId, 'challengeId'),
+    verification: {
+      kind: 'otp',
+      otpCode: requireNonEmpty(args.otpCode, 'otpCode'),
+      challengeId: requireNonEmpty(args.challengeId, 'challengeId'),
+    },
     routePlan: buildEmailOtpEd25519LoginRoutePlan(appSessionJwt),
     workerCtx: args.workerContext,
     providerSubject: args.prepared.providerSubject,

@@ -1,31 +1,46 @@
 import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import { listExactSealedSessionsForWallet } from '../../session/persistence/sealedSessionStore';
-import { exactEmailOtpEcdsaSigningSessionAuthorityFromSealedRecords } from '../../session/emailOtp/sealedSigningSessionAuth';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
-import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
+import {
+  resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability,
+  type EmailOtpEcdsaSigningSessionAuthority,
+} from '../../session/emailOtp/ecdsaSigningSessionAuthority';
+import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
-async function resolveDurableEmailOtpEcdsaAuthority(
+async function resolveDurableEmailOtpEcdsaAuthority(args: {
   lane: ExactEcdsaSigningLaneIdentity,
-): Promise<EmailOtpEcdsaSigningSessionAuthority | null> {
-  let sealedRecords;
+  createArgs: CreateSigningEnginePortsArgs;
+}): Promise<EmailOtpEcdsaSigningSessionAuthority | null> {
+  if (args.lane.auth.kind !== 'email_otp') return null;
   try {
-    sealedRecords = await listExactSealedSessionsForWallet({
-      walletId: String(lane.signer.walletId),
-      filter: {
-        authMethod: 'email_otp',
-        curve: 'ecdsa',
-        chainTarget: lane.signer.chainTarget,
-      },
+    const capability = await args.createArgs.resolveCanonicalEcdsaSigningCapability({
+      walletId: args.lane.signer.walletId,
+      chainTarget: args.lane.signer.chainTarget,
+      materialActivation: args.lane.signer.materialActivation,
     });
+    if (
+      !isEmailOtpWalletAuthAuthority(capability.authority) ||
+      capability.authority.factor.providerUserId !== args.lane.auth.providerSubjectId
+    ) {
+      return null;
+    }
+    const authorization = await args.createArgs.resolveActiveEcdsaWalletSessionAuthorization(
+      args.lane.signer.walletId,
+    );
+    if (!authorization) return null;
+    const resolution = resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability({
+      capability,
+      authorization: authorization.projection,
+      chainTarget: args.lane.signer.chainTarget,
+    });
+    return resolution.kind === 'ready' ? resolution.authority : null;
   } catch {
     return null;
   }
-  return exactEmailOtpEcdsaSigningSessionAuthorityFromSealedRecords({ lane, sealedRecords });
 }
 
 export function createEvmFamilySigningDeps(args: {
@@ -56,7 +71,7 @@ export function createEvmFamilySigningDeps(args: {
         authority,
       }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
     resolveDurableEmailOtpEcdsaSigningSessionAuthority: async ({ lane }) =>
-      await resolveDurableEmailOtpEcdsaAuthority(lane),
+      await resolveDurableEmailOtpEcdsaAuthority({ lane, createArgs }),
     resolveEcdsaOperationStepUpSessionAuth: (input) =>
       createArgs.resolveEcdsaOperationStepUpSessionAuth(input),
     restorePersistedSessionForSigning: (restoreArgs) =>

@@ -1,10 +1,24 @@
-import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  isEmailOtpWalletAuthAuthority,
+  type EmailOtpWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import { type EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
+import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../material/ecdsaSigningCapability';
 import {
   walletSessionJwtForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  parseThresholdEcdsaSessionId,
+  type ThresholdEcdsaSessionId,
+} from '@shared/utils/domainIds';
+import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
+import { parseWalletSessionAuthorizationIdentityClaims } from '../identity/walletSessionAuthorizationJwt';
+import {
+  thresholdEcdsaChainTargetsEqual,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type EmailOtpEcdsaSigningSessionAuthority = {
   authLane: Extract<EmailOtpAuthLane, { kind: 'signing_session'; curve: 'ecdsa' }>;
@@ -76,4 +90,69 @@ export function resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime(args: {
   });
   if (!authority) return { kind: 'authority_not_ecdsa_signing_session' };
   return { kind: 'ready', authority };
+}
+
+/**
+ * Registration establishes the canonical capability and a reusable Wallet
+ * Session before any Email OTP sealed session exists. The Wallet Session JWT
+ * carries the threshold-session identity needed by the signing-session route;
+ * the capability carries the Email OTP authority. Keep this path separate from
+ * sealed-runtime resolution so a missing sealed record cannot hide a usable
+ * post-registration lane.
+ */
+export function resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability(args: {
+  capability: CanonicalEvmFamilyEcdsaSigningCapability;
+  authorization: ActiveWalletSessionAuthorizationProjection;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): EmailOtpEcdsaSigningSessionAuthorityResolution {
+  const capabilityAuthority = args.capability.authority;
+  if (!isEmailOtpWalletAuthAuthority(capabilityAuthority)) {
+    return { kind: 'record_missing' };
+  }
+  const signer = args.capability.manifest.signer;
+  if (
+    signer.walletId !== args.authorization.walletId ||
+    signer.authority.authorityDigest !== args.authorization.authority.authorityDigest ||
+    !signer.scope.targetMemberships.some((target) =>
+      thresholdEcdsaChainTargetsEqual(target, args.chainTarget),
+    ) ||
+    args.capability.material.publicFacts.walletId !== signer.walletId
+  ) {
+    return { kind: 'record_missing' };
+  }
+  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ecdsa');
+  if (!walletSessionJwt) {
+    return { kind: 'wallet_session_auth_unavailable', reason: 'missing_wallet_session_jwt' };
+  }
+  const claims = parseWalletSessionAuthorizationIdentityClaims(walletSessionJwt);
+  if (
+    !claims ||
+    claims.walletId !== args.authorization.walletId ||
+    claims.walletSessionId !== args.authorization.walletSessionId ||
+    claims.quotaId !== args.authorization.quotaId
+  ) {
+    return { kind: 'missing_session_identity' };
+  }
+  const thresholdSessionId = thresholdEcdsaSessionIdFromWalletSessionJwt(walletSessionJwt);
+  if (!thresholdSessionId) return { kind: 'missing_session_identity' };
+  const authority = buildEmailOtpEcdsaSigningSessionAuthority({
+    authority: capabilityAuthority,
+    authLane: {
+      kind: 'signing_session',
+      jwt: walletSessionJwt,
+      thresholdSessionId,
+      curve: 'ecdsa',
+      chainTarget: args.chainTarget,
+    },
+  });
+  if (!authority) return { kind: 'authority_not_ecdsa_signing_session' };
+  return { kind: 'ready', authority };
+}
+
+function thresholdEcdsaSessionIdFromWalletSessionJwt(
+  walletSessionJwt: string,
+): ThresholdEcdsaSessionId | null {
+  const payload = decodeJwtPayloadRecord(walletSessionJwt);
+  const parsed = parseThresholdEcdsaSessionId(payload?.thresholdSessionId);
+  return parsed.ok ? parsed.value : null;
 }

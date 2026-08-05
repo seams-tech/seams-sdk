@@ -3,6 +3,7 @@ import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChai
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpRuntimeConfig } from './runtimeConfig';
 import type { EmailOtpEcdsaPublicationPorts } from './ecdsaPublication';
+import type { EmailOtpWalletSessionCoordinatorDeps } from './ports';
 import type {
   ThresholdEcdsaActivationRequest,
   ThresholdEcdsaEmailOtpExportActivationRequest,
@@ -32,6 +33,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
         request: ThresholdEcdsaEmailOtpExportActivationRequest,
       ) => Promise<EmailOtpEcdsaExplicitExportBootstrapResult>;
       runtimeConfig: EmailOtpRuntimeConfig;
+      resolveCurrentEcdsaCapabilityRuntime: EmailOtpWalletSessionCoordinatorDeps['resolveCurrentEcdsaCapabilityRuntime'];
       rememberAppSessionJwt: (args: {
         walletId: WalletSessionRef['walletId'];
         appSessionJwt: string;
@@ -45,6 +47,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
   ): Promise<EmailOtpThresholdEcdsaLoginResult> {
     return await loginWithEmailOtpEcdsaCapabilityForSigning(args, {
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
+      resolveCurrentEcdsaCapabilityRuntime: this.ports.resolveCurrentEcdsaCapabilityRuntime,
       loginWithEcdsaCapabilityInternal: (request) => this.loginWithEcdsaCapabilityInternal(request),
     });
   }

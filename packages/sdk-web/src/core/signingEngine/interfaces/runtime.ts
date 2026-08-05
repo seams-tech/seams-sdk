@@ -18,6 +18,7 @@ import type {
   SignerWorkerOperationResult,
   SignerWorkerOperationType,
 } from '../workerManager/workerTypes';
+import type { Ed25519OperationStepUpProof } from '../threshold/ed25519/walletSession';
 
 export type NearSigningKeyMaterialStorePort = NearAccountClientDbPort &
   AccountKeyMaterialStorePort & {
@@ -29,10 +30,11 @@ export type NearSigningKeyMaterialStorePort = NearAccountClientDbPort &
  * Keeps chain signing logic decoupled from SignerWorkerManager internals.
  */
 export interface NearSigningRuntimeDeps {
-  resolvePasskeyOperationStepUpCredential: (args: {
+  resolveOperationStepUpCredential: (args: {
     walletId: WalletId;
     relayerUrl: string;
-  }) => RouterAbEd25519NormalSigningCredential;
+    proof: Ed25519OperationStepUpProof;
+  }) => Promise<RouterAbEd25519NormalSigningCredential>;
   touchIdPrompt: TouchIdPrompt;
   nearClient: NearClient;
   nearKeyMaterialStore: NearSigningKeyMaterialStorePort;

@@ -92,6 +92,7 @@ export type EmailOtpEcdsaSealedRecoveryPorts = {
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: 'email_otp';
+    authority: ResolvedEmailOtpExistingEcdsaKey['persistedRoleLocalMaterial']['authority'];
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   }) => Promise<{
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
@@ -143,14 +144,11 @@ function emailOtpSealedRoleLocalParticipantIds(participantIds: readonly number[]
 async function emailOtpSealedExistingKey(
   sealedRecord: EmailOtpEcdsaSealedRecoveryRecord,
 ): Promise<ResolvedEmailOtpExistingEcdsaKey> {
-  const authority = await walletAuthAuthorityRef({
+  const emailOtpAuthority = await walletAuthAuthorityRef({
     authority: sealedRecord.emailOtpAuthority,
   });
-  if (
-    authority.walletId !== sealedRecord.authority.walletId ||
-    authority.authorityDigest !== sealedRecord.authority.authorityDigest
-  ) {
-    throw new Error('Email OTP sealed refresh authority reference mismatch');
+  if (emailOtpAuthority.walletId !== sealedRecord.authority.walletId) {
+    throw new Error('Email OTP sealed refresh route authority wallet mismatch');
   }
   const capability = sealedRecord.publicCapability;
   const publicIdentity = capability.public_identity;
@@ -187,6 +185,7 @@ async function emailOtpSealedExistingKey(
     keyHandle: String(walletKey.keyHandle),
     publicCapability: capability,
     walletKey,
+    runtimePolicyScope: sealedRecord.runtimePolicyScope,
     persistedRoleLocalMaterial: buildPersistedEcdsaRoleLocalMaterial({
       authority: sealedRecord.authority,
       materialActivation: sealedRecord.roleLocalMaterialRef.materialActivation,
@@ -425,6 +424,7 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
     chainTarget: restoreSource.chainTarget,
     bootstrap,
     source: 'email_otp',
+    authority: existingKey.persistedRoleLocalMaterial.authority,
     emailOtpAuthContext: restoreSource.emailOtpAuthContext,
   });
   return {

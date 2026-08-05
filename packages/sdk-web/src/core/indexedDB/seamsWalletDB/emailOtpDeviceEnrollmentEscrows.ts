@@ -203,23 +203,6 @@ export class EmailOtpDeviceEnrollmentEscrowRepository {
     return normalizeEmailOtpDeviceEnrollmentEscrowRecord(value);
   }
 
-  async readSingleForWallet(args: {
-    walletId: string;
-  }): Promise<EmailOtpDeviceEnrollmentEscrowRecord | null> {
-    const walletId = normalizeOptionalNonEmptyString(args.walletId);
-    if (!walletId) return null;
-    const db = await this.manager.getDB();
-    const values = await db.getAllFromIndex(
-      EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME,
-      SEAMS_WALLET_INDEXES.walletId,
-      walletId,
-    );
-    const records = values
-      .map((value) => normalizeEmailOtpDeviceEnrollmentEscrowRecord(value))
-      .filter((record): record is EmailOtpDeviceEnrollmentEscrowRecord => !!record);
-    return records.length === 1 ? records[0] : null;
-  }
-
   async write(args: WriteEmailOtpDeviceEnrollmentEscrowRecordInput): Promise<void> {
     const nowMs = Date.now();
     const record = normalizeEmailOtpDeviceEnrollmentEscrowRecord({

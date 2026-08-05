@@ -48,6 +48,7 @@ import {
   type RouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   type RouterAbEcdsaOperationStepUpPreparationV1Wire,
+  type RouterAbEcdsaOperationStepUpUnsealV1Wire,
   parseRouterAbEcdsaOperationStepUpPreparationV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
@@ -113,14 +114,18 @@ export type ThresholdEcdsaSessionBootstrapResult = {
 
 export type EcdsaExplicitExportSessionAuth = AppSessionJwtAuth | CookieSessionAuth;
 
-export type EcdsaExplicitExportOperationAuthorization = {
+type EcdsaExplicitExportOperationAuthorizationBase = {
   readonly kind: 'verified_step_up';
   readonly evidenceSetDigest: DigestB64u;
   readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
   readonly sessionAuth: EcdsaExplicitExportSessionAuth;
   readonly expiresAtMs: number;
   readonly quotaUse: 'none';
+  readonly unseal: RouterAbEcdsaOperationStepUpUnsealV1Wire;
 };
+
+export type EcdsaExplicitExportOperationAuthorization =
+  EcdsaExplicitExportOperationAuthorizationBase;
 
 export type ThresholdEcdsaExplicitKeyExportActivationResult = {
   kind: 'explicit_key_export_ecdsa_activation_result';
@@ -654,6 +659,7 @@ function normalizeEcdsaExplicitExportAuthorization(
   if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
     throw new Error('ECDSA explicit export operation authorization expiry is invalid');
   }
+  const unseal = normalizeEcdsaExplicitExportUnseal(authorization.unseal);
   switch (authorization.sessionAuth.kind) {
     case 'app_session':
       return {
@@ -666,6 +672,7 @@ function normalizeEcdsaExplicitExportAuthorization(
         },
         expiresAtMs,
         quotaUse: 'none',
+        unseal,
       };
     case 'cookie':
       return {
@@ -675,7 +682,29 @@ function normalizeEcdsaExplicitExportAuthorization(
         sessionAuth: { kind: 'cookie' },
         expiresAtMs,
         quotaUse: 'none',
+        unseal,
       };
+  }
+}
+
+function normalizeEcdsaExplicitExportUnseal(
+  unseal: RouterAbEcdsaOperationStepUpUnsealV1Wire,
+): RouterAbEcdsaOperationStepUpUnsealV1Wire {
+  switch (unseal.kind) {
+    case 'not_requested':
+      return { kind: 'not_requested' };
+    case 'email_otp_grant': {
+      const grant = String(unseal.grant || '').trim();
+      const challengeId = String(unseal.challenge_id || '').trim();
+      if (!grant || !challengeId) {
+        throw new Error('ECDSA explicit export Email OTP unseal grant is invalid');
+      }
+      return { kind: 'email_otp_grant', grant, challenge_id: challengeId };
+    }
+    default: {
+      const exhaustive: never = unseal;
+      throw new Error(`Unsupported ECDSA explicit export unseal state: ${String(exhaustive)}`);
+    }
   }
 }
 

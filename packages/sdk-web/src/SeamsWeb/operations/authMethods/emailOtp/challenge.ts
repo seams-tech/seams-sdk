@@ -1,6 +1,8 @@
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
+  WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   type WalletEmailOtpChannel,
   type WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
@@ -236,7 +238,7 @@ function buildAuthHeaders(args: { appSessionJwt?: string; publishableKey?: strin
 }
 
 export function buildWorkerEmailOtpRoutePlan(args: {
-  routeFamily: EmailOtpRouteFamily;
+  routeFamily: Extract<EmailOtpRouteFamily, 'login' | 'registration'>;
   appSessionJwt?: string;
   operation?: WalletEmailOtpLoginOperation;
 }) {
@@ -250,7 +252,10 @@ export function buildWorkerEmailOtpRoutePlan(args: {
       }),
       'worker route plan',
     ),
-    ...(args.operation ? { operation: args.operation } : {}),
+    operation:
+      args.routeFamily === 'registration'
+        ? WALLET_EMAIL_OTP_REGISTRATION_OPERATION
+        : (args.operation ?? WALLET_EMAIL_OTP_UNLOCK_OPERATION),
   });
 }
 

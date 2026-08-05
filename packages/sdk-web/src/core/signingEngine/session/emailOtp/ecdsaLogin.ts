@@ -17,12 +17,17 @@ import {
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
+import type { resolveActiveEcdsaCapabilityRuntime } from '../material/activeEcdsaCapabilityRuntime';
 import type {
   EcdsaExplicitExportOperationAuthorization,
   ThresholdEcdsaExplicitKeyExportActivationResult,
   ThresholdEcdsaSessionBootstrapResult,
 } from '@/core/signingEngine/threshold/ecdsa/activation';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  walletSessionAuthorizations,
+  walletSessionJwtForCurve,
+  type ActiveWalletSessionAuthorizationProjection,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   EmailOtpEd25519YaoRecoveryBootstrapV1,
@@ -50,6 +55,7 @@ import { type EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authL
 import {
   appSessionJwtFromEmailOtpAuthLane,
   appSessionSubjectFromEmailOtpAuthLane,
+  emailOtpProviderFromAppSessionJwt,
 } from './appSessionJwtCache';
 import {
   commitEmailOtpEcdsaPublicationBootstraps,
@@ -119,7 +125,12 @@ import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
 import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
-import { parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+  parseProviderSubject,
+  parseThresholdEcdsaSessionId,
+} from '@shared/utils/domainIds';
+import type { EmailOtpProvider } from '@shared/utils/walletAuthAuthority';
 
 type EmailOtpLoginSessionPolicy = {
   readonly ttlMs: number;
@@ -267,9 +278,11 @@ export type EmailOtpEcdsaProviderIdentity =
   | {
       kind: 'derive_from_route_auth';
       providerUserId?: never;
+      provider?: never;
     }
   | {
       kind: 'explicit_provider_user';
+      provider: EmailOtpProvider;
       providerUserId: string;
     };
 
@@ -281,19 +294,39 @@ function normalizeEmailOtpProviderUserId(value: unknown, field: string): string 
   return normalized;
 }
 
-function resolveEmailOtpEcdsaProviderUserId(args: {
+function resolveEmailOtpEcdsaProviderIdentity(args: {
   identity: EmailOtpEcdsaProviderIdentity;
   routePlan: EmailOtpRoutePlan;
-}): string {
+}): { provider: EmailOtpProvider; providerUserId: string } {
   switch (args.identity.kind) {
     case 'explicit_provider_user':
-      return normalizeEmailOtpProviderUserId(
-        args.identity.providerUserId,
+      return {
+        provider: args.identity.provider,
+        providerUserId: normalizeEmailOtpProviderUserId(
+          args.identity.providerUserId,
+          'Email OTP provider user id',
+        ),
+      };
+    case 'derive_from_route_auth': {
+      const appSessionJwt = appSessionJwtFromEmailOtpAuthLane(args.routePlan.authLane);
+      if (!appSessionJwt) {
+        throw new Error('[SigningEngine][email-otp] Email OTP app-session authority is required');
+      }
+      const provider = emailOtpProviderFromAppSessionJwt(appSessionJwt);
+      const parsedProviderSubject = parseProviderSubject(
+        appSessionSubjectFromEmailOtpAuthLane(args.routePlan.authLane),
+      );
+      if (!parsedProviderSubject.ok) {
+        throw new Error('[SigningEngine][email-otp] Email OTP provider subject is required');
+      }
+      const providerUserId = normalizeEmailOtpProviderUserId(
+        parsedProviderSubject.value,
         'Email OTP provider user id',
       );
-    case 'derive_from_route_auth': {
-      const routeProviderUserId = appSessionSubjectFromEmailOtpAuthLane(args.routePlan.authLane);
-      return normalizeEmailOtpProviderUserId(routeProviderUserId, 'Email OTP provider user id');
+      return {
+        provider,
+        providerUserId,
+      };
     }
   }
   args.identity satisfies never;
@@ -369,6 +402,25 @@ function requireEmailOtpExplicitExportInput(
     return args;
   }
   throw new Error('Email OTP ECDSA export requires prepared operation authorization');
+}
+
+function requireEmailOtpExplicitExportUnsealGrant(
+  authorization: EcdsaExplicitExportOperationAuthorization,
+): { kind: 'email_otp_unseal_grant'; grant: string; challengeId: string } {
+  switch (authorization.unseal.kind) {
+    case 'email_otp_grant':
+      return {
+        kind: 'email_otp_unseal_grant',
+        grant: authorization.unseal.grant,
+        challengeId: authorization.unseal.challenge_id,
+      };
+    case 'not_requested':
+      throw new Error('Email OTP ECDSA export requires its verified unseal grant');
+    default: {
+      const exhaustive: never = authorization.unseal;
+      throw new Error(`Unsupported Email OTP ECDSA export unseal state: ${String(exhaustive)}`);
+    }
+  }
 }
 
 function assertEmailOtpOperationMatchesRoutePlan(args: {
@@ -912,9 +964,9 @@ type EmailOtpEcdsaSigningRefreshFacts = {
 // The runtime policy scope is sealed-runtime state. It is not read back out of
 // the Wallet Session JWT, which is a bearer credential here.
 function requireEmailOtpEcdsaSigningRefreshRuntimePolicyScope(args: {
-  recordRuntimePolicyScope: ThresholdRuntimePolicyScope | undefined;
+  runtimePolicyScope: ThresholdRuntimePolicyScope | null | undefined;
 }): ThresholdRuntimePolicyScope {
-  const runtimePolicyScope = args.recordRuntimePolicyScope;
+  const runtimePolicyScope = args.runtimePolicyScope;
   if (!runtimePolicyScope) {
     throw new Error('Email OTP ECDSA signing refresh requires runtimePolicyScope');
   }
@@ -923,7 +975,7 @@ function requireEmailOtpEcdsaSigningRefreshRuntimePolicyScope(args: {
 
 function buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(
   committedLane: EcdsaCommittedLane,
-): EmailOtpEcdsaSigningRefreshFacts {
+): Omit<EmailOtpEcdsaSigningRefreshFacts, 'runtimePolicyScope'> {
   if (committedLane.authority.factor.kind !== 'email_otp' || !committedLane.authLane) {
     throw new Error(
       '[SigningEngine][email-otp][ecdsa] committed lane requires Email OTP authority',
@@ -936,26 +988,52 @@ function buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(
     emailHashHex: committedLane.authority.verifier.emailHashHex,
     providerIdentity: {
       kind: 'explicit_provider_user',
+      provider: committedLane.authority.factor.provider,
       providerUserId: committedLane.authority.factor.providerUserId,
     },
-    runtimePolicyScope: requireEmailOtpEcdsaSigningRefreshRuntimePolicyScope({
-      recordRuntimePolicyScope: undefined,
-    }),
   };
 }
 
 // Sealed-record authority is the only committed-lane form; the record-backed
 // refresh facts had no constructible input.
-function buildEmailOtpEcdsaSigningRefreshFacts(
-  committedLane: EcdsaCommittedLane,
-): EmailOtpEcdsaSigningRefreshFacts {
-  return buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(committedLane);
+async function buildEmailOtpEcdsaSigningRefreshFacts(args: {
+  committedLane: EcdsaCommittedLane;
+  chainTarget: ThresholdEcdsaChainTarget;
+  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
+}): Promise<EmailOtpEcdsaSigningRefreshFacts> {
+  const runtimeResolution = await args.resolveCurrentEcdsaCapabilityRuntime({
+    walletId: toWalletId(args.committedLane.lane.identity.signer.walletId),
+    chainTarget: args.chainTarget,
+  });
+  if (runtimeResolution.kind !== 'resolved') {
+    throw new Error(
+      `[SigningEngine][email-otp][ecdsa] signing refresh runtime unavailable: ${runtimeResolution.reason}`,
+    );
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      runtimeResolution.runtime.materialActivation,
+      args.committedLane.lane.materialActivation,
+    )
+  ) {
+    throw new Error(
+      '[SigningEngine][email-otp][ecdsa] signing refresh runtime material activation mismatch',
+    );
+  }
+  const facts = buildDurableAuthorityEmailOtpEcdsaSigningRefreshFacts(args.committedLane);
+  return {
+    ...facts,
+    runtimePolicyScope: requireEmailOtpEcdsaSigningRefreshRuntimePolicyScope({
+      runtimePolicyScope: runtimeResolution.runtime.runtimePolicyScope,
+    }),
+  };
 }
 
 export async function loginWithEmailOtpEcdsaCapabilityForSigning(
   args: LoginEmailOtpEcdsaCapabilityForSigningArgs,
   ports: {
     requireRelayUrl: () => string;
+    resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
     loginWithEcdsaCapabilityInternal: (
       args: LoginEmailOtpEcdsaCapabilityArgs,
     ) => Promise<EmailOtpThresholdEcdsaLoginResult>;
@@ -965,7 +1043,11 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
   const emailOtpAuthPolicy: EmailOtpAuthPolicy = 'session';
   const remainingUses = normalizeEmailOtpEcdsaSigningRemainingUses(args.remainingUses);
   const committedLane = args.committedLane;
-  const refreshFacts = buildEmailOtpEcdsaSigningRefreshFacts(committedLane);
+  const refreshFacts = await buildEmailOtpEcdsaSigningRefreshFacts({
+    committedLane,
+    chainTarget: args.chainTarget,
+    resolveCurrentEcdsaCapabilityRuntime: ports.resolveCurrentEcdsaCapabilityRuntime,
+  });
   const routePlan = buildEmailOtpSigningSessionRoutePlan({
     authLane: assertEmailOtpSigningSessionAuthLane(committedLane.authLane),
     operation,
@@ -988,6 +1070,24 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
     runtimePolicyScope: refreshFacts.runtimePolicyScope,
     ed25519YaoRecovery: { kind: 'not_requested' },
   });
+}
+
+async function reusableEd25519WalletSessionJwtForEcdsaUnlock(args: {
+  walletId: WalletSessionRef['walletId'];
+  authority: ResolvedEmailOtpExistingEcdsaKey['persistedRoleLocalMaterial']['authority'];
+}): Promise<string | null> {
+  const read = await walletSessionAuthorizations.readActiveForWallet(toWalletId(args.walletId));
+  if (read.kind !== 'found') return null;
+  const projection = read.projection;
+  if (
+    projection.authMethod !== 'email_otp' ||
+    projection.authority.authorityDigest !== args.authority.authorityDigest ||
+    projection.expiresAtMs <= Date.now()
+  ) {
+    return null;
+  }
+  const walletSessionJwt = walletSessionJwtForCurve(projection, 'ed25519');
+  return walletSessionJwt ? String(walletSessionJwt) : null;
 }
 
 async function runEmailOtpEcdsaCapability(
@@ -1041,21 +1141,18 @@ async function runEmailOtpEcdsaCapability(
   const bootstrapTransportAuth = bootstrapRouteAuth
     ? emailOtpEcdsaBootstrapRouteAuthToTransport(bootstrapRouteAuth)
     : undefined;
-  // Supplied by the caller from sealed runtime state; the route and bootstrap
-  // tokens are bearer credentials and are not decoded for control state.
-  const runtimePolicyScope = args.runtimePolicyScope;
+  // Runtime policy comes from sealed runtime state. The app-session claims are
+  // parsed separately to bind the provider identity at the authority boundary.
+  const requestedRuntimePolicyScope = args.runtimePolicyScope;
 
   if (!workerCtx) {
     throw new Error('Email OTP login requires the dedicated emailOtp worker');
-  }
-  if (!runtimePolicyScope) {
-    throw new Error('Email OTP ECDSA login requires runtimePolicyScope');
   }
   const appSessionJwt = appSessionJwtFromEmailOtpAuthLane(routePlan.authLane);
   if (appSessionJwt) {
     ports.rememberAppSessionJwt({ walletId: args.walletSession.walletId, appSessionJwt });
   }
-  const emailOtpProviderUserId = resolveEmailOtpEcdsaProviderUserId({
+  const emailOtpProviderIdentity = resolveEmailOtpEcdsaProviderIdentity({
     identity: args.providerIdentity,
     routePlan,
   });
@@ -1066,8 +1163,8 @@ async function runEmailOtpEcdsaCapability(
           walletId: toWalletId(args.walletSession.walletId),
           emailHashHex: args.emailHashHex,
           retention: 'single_use',
-          provider: 'google',
-          providerUserId: emailOtpProviderUserId,
+          provider: emailOtpProviderIdentity.provider,
+          providerUserId: emailOtpProviderIdentity.providerUserId,
         })
       : buildEmailOtpAuthContextForWalletAuthMethod({
           policy: emailOtpAuthContextPolicy,
@@ -1075,8 +1172,8 @@ async function runEmailOtpEcdsaCapability(
           emailHashHex: args.emailHashHex,
           retention: 'session',
           reason: emailOtpAuthReason,
-          provider: 'google',
-          providerUserId: emailOtpProviderUserId,
+          provider: emailOtpProviderIdentity.provider,
+          providerUserId: emailOtpProviderIdentity.providerUserId,
         });
   const publicationChainTargets = emailOtpEcdsaPublicationChainTargets({
     configs: ports.configs,
@@ -1090,7 +1187,9 @@ async function runEmailOtpEcdsaCapability(
   const existingKey = await resolveEmailOtpExistingEcdsaKey({
     walletId: toWalletId(args.walletSession.walletId),
     chainTarget,
-    runtimePolicyScope,
+    scope: requestedRuntimePolicyScope
+      ? { kind: 'exact', runtimePolicyScope: requestedRuntimePolicyScope }
+      : { kind: 'durable_manifest' },
     keyHandle: args.keyHandle,
     listActiveEcdsaCapabilityManifestsForWallet:
       publicationPorts.listActiveEcdsaCapabilityManifestsForWallet,
@@ -1100,6 +1199,15 @@ async function runEmailOtpEcdsaCapability(
       `device_link_required: local threshold ECDSA material is unavailable for ${chainTarget.kind}:${chainTarget.chainId}`,
     );
   }
+  const runtimePolicyScope = existingKey.runtimePolicyScope;
+  const reusableEd25519WalletSessionJwt =
+    operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION &&
+    args.ed25519YaoRecovery.kind === 'not_requested'
+      ? await reusableEd25519WalletSessionJwtForEcdsaUnlock({
+          walletId: args.walletSession.walletId,
+          authority: existingKey.persistedRoleLocalMaterial.authority,
+        })
+      : null;
   const preparedUnlockSessionPolicy =
     operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION
       ? clampThresholdSessionPolicy({
@@ -1124,17 +1232,37 @@ async function runEmailOtpEcdsaCapability(
         })
       : null;
   let timingStartedAtMs = nowMs();
-  const unlockArgs = {
-    walletSession: args.walletSession,
-    relayUrl,
-    groupId,
-    otpCode: args.otpCode,
-    routePlan,
-    workerCtx,
-    ...(args.challengeId ? { challengeId: args.challengeId } : {}),
-    runtimePolicyScope,
-    ...(args.onProgress ? { onProgress: args.onProgress } : {}),
-  };
+  const exportInput =
+    operation === WALLET_EMAIL_OTP_EXPORT_OPERATION
+      ? requireEmailOtpExplicitExportInput(args)
+      : null;
+  const unlockArgs = exportInput
+    ? {
+        walletSession: args.walletSession,
+        relayUrl,
+        groupId,
+        verification: requireEmailOtpExplicitExportUnsealGrant(
+          exportInput.explicitExportAuthorization,
+        ),
+        routePlan,
+        workerCtx,
+        runtimePolicyScope,
+        ...(args.onProgress ? { onProgress: args.onProgress } : {}),
+      }
+    : {
+        walletSession: args.walletSession,
+        relayUrl,
+        groupId,
+        verification: {
+          kind: 'otp' as const,
+          ...(args.challengeId ? { challengeId: args.challengeId } : {}),
+          otpCode: args.otpCode,
+        },
+        routePlan,
+        workerCtx,
+        runtimePolicyScope,
+        ...(args.onProgress ? { onProgress: args.onProgress } : {}),
+      };
   const unlockResult =
     args.ed25519YaoRecovery.kind === 'not_requested'
       ? await unlockEmailOtpWallet({
@@ -1143,16 +1271,22 @@ async function runEmailOtpEcdsaCapability(
             ? {
                 ecdsaClientRootHandleBinding: {
                   keyHandle: String(existingKey.keyHandle),
-                  authSubjectId: emailOtpProviderUserId,
+                  authSubjectId: emailOtpProviderIdentity.providerUserId,
                   operation: 'wallet_unlock' as const,
                   chainTarget,
                 },
                 ecdsaSessionActivation: preparedUnlockSessionActivation,
+                walletSessionAuthorization: reusableEd25519WalletSessionJwt
+                  ? {
+                      kind: 'reuse_ed25519_wallet_session' as const,
+                      walletSessionJwt: reusableEd25519WalletSessionJwt,
+                    }
+                  : { kind: 'verified_wallet_unlock' as const },
               }
             : {
                 ecdsaClientRootHandleBinding: emailOtpNonUnlockEcdsaHandleBinding({
                   keyHandle: String(existingKey.keyHandle),
-                  authSubjectId: emailOtpProviderUserId,
+                  authSubjectId: emailOtpProviderIdentity.providerUserId,
                   operation: emailOtpNonUnlockWorkerHandleOperationFromLoginOperation(
                     routePlan.operation,
                   ),
@@ -1164,7 +1298,7 @@ async function runEmailOtpEcdsaCapability(
           ...unlockArgs,
           ecdsaClientRootHandleBinding: {
             keyHandle: String(existingKey.keyHandle),
-            authSubjectId: emailOtpProviderUserId,
+            authSubjectId: emailOtpProviderIdentity.providerUserId,
             operation: 'wallet_unlock',
             chainTarget,
           },
@@ -1221,11 +1355,11 @@ async function runEmailOtpEcdsaCapability(
       if (!exportClientRootShareHandle || !exportEmailOtpAuthContext) {
         throw new Error('Email OTP ECDSA export worker handle is unavailable');
       }
-      const exportInput = requireEmailOtpExplicitExportInput(args);
+      const preparedExportInput = requireEmailOtpExplicitExportInput(args);
       const bootstrap = await provisionEmailOtpExplicitExportSession({
         relayerUrl: relayUrl,
-        persistedMaterial: exportInput.persistedExportMaterial,
-        authorization: exportInput.explicitExportAuthorization,
+        persistedMaterial: preparedExportInput.persistedExportMaterial,
+        authorization: preparedExportInput.explicitExportAuthorization,
         ports,
       });
       addEmailOtpThresholdEcdsaLoginTiming(timings, 'ecdsaMaterialRestoreMs', timingStartedAtMs);
@@ -1270,6 +1404,7 @@ async function runEmailOtpEcdsaCapability(
         publicationChainTargets,
         bootstraps,
         runtimePolicyScope,
+        authority: existingKey.persistedRoleLocalMaterial.authority,
         emailOtpAuthContext,
         relayerUrl: relayUrl,
         groupId,

@@ -107,6 +107,7 @@ import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import type { EmailOtpAppSessionBinding } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
+import type { EmailOtpEd25519YaoPublicationInput } from '@/core/signingEngine/session/emailOtp/ed25519YaoPublication';
 import type {
   EnrollEmailOtpInternalArgs,
   EnrollEmailOtpInternalResult,
@@ -194,6 +195,10 @@ export interface RegistrationResourceWarmupSurface {
 export interface RuntimeStartupSurface {
   assertSealedRefreshStartupParity(): Promise<void>;
 }
+
+export type WalletAuthenticationRestoreAuth =
+  | { readonly kind: 'cookie' }
+  | { readonly kind: 'caller_app_session_jwt'; readonly appSessionJwt: string };
 
 export interface SigningEngineLifecycleEventSurface {
   onSdkLifecycleEvent(listener: SdkLifecycleEventListener): () => void;
@@ -344,8 +349,11 @@ export interface SigningSessionSurface {
 export interface WalletAuthenticationSurface {
   readWalletAuthenticationState(): WalletAuthenticationState;
   restoreWalletAuthenticationState(
-    walletId?: WalletId | string,
-    appSessionJwt?: string,
+    walletId: WalletId | string | undefined,
+    auth: WalletAuthenticationRestoreAuth,
+  ): Promise<WalletAuthenticationState>;
+  restoreWalletAuthenticationStateFromHostSession(
+    walletId: WalletId | string | undefined,
   ): Promise<WalletAuthenticationState>;
   setWalletAuthenticated(
     state: Extract<WalletAuthenticationState, { kind: 'authenticated' }>,
@@ -466,6 +474,9 @@ export interface PasskeyLoginAssertionSurface {
 export interface EmailOtpSigningSessionSurface {
   rememberEmailOtpAppSessionBinding(binding: EmailOtpAppSessionBinding): void;
   rememberEmailOtpAppSessionJwt(walletId: WalletId, appSessionJwt: string): void;
+  persistEmailOtpEd25519YaoCapabilityForRefreshInternal(
+    input: EmailOtpEd25519YaoPublicationInput,
+  ): Promise<void>;
   prepareEmailOtpEd25519YaoLoginRecoveryInternal(args: {
     walletSession: WalletSessionRef;
     remainingUses: number;
@@ -545,7 +556,10 @@ export type RegistrationSigningSurface = RpIdSurface &
     EmailOtpRegistrationEnrollmentSurface,
     'prepareEmailOtpRegistrationEnrollmentMaterialInternal'
   > &
-  Pick<EmailOtpSigningSessionSurface, 'rememberEmailOtpAppSessionBinding'> &
+  Pick<
+    EmailOtpSigningSessionSurface,
+    'rememberEmailOtpAppSessionBinding' | 'persistEmailOtpEd25519YaoCapabilityForRefreshInternal'
+  > &
   SignerWorkerContextSurface &
   PasskeyLoginAssertionSurface &
   Pick<WalletAuthenticationSurface, 'setWalletAuthenticated'> &

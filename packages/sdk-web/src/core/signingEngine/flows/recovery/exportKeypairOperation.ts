@@ -302,36 +302,8 @@ async function exportEd25519KeypairWithFlowId(
 async function exportEd25519KeypairWithSessionLifecycle(
   deps: ExportKeypairWithUIDeps,
   args: Extract<SigningEngineExportKeypairWithUIInput, { kind: 'ed25519' }> & { flowId: string },
-  attempt: KeyExportAttempt,
 ): Promise<ExportKeypairResult> {
-  const preflightState = await readAndInvalidateExpiredExportAuthorization({
-    deps,
-    request: {
-      kind: 'ed25519',
-      laneIdentity: args.laneIdentity,
-      nowMs: Date.now(),
-    },
-  });
-  try {
-    return await exportEd25519KeypairWithFlowId(deps, args);
-  } catch (error: unknown) {
-    const failure = walletSessionFailureFromError(error);
-    if (attempt.kind === 'fresh_auth_retry' || failure?.kind !== 'expired') throw error;
-    const expiredState = authoritativeExpiredExportAuthorization({
-      source: { kind: 'ed25519', laneIdentity: args.laneIdentity },
-      preflightState,
-      detectedAtMs: Date.now(),
-    });
-    if (!expiredState) throw error;
-    await invalidateExpiredExportAuthorization({
-      deps,
-      state: expiredState,
-      source: SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.serverRejection,
-    });
-    return await exportEd25519KeypairWithSessionLifecycle(deps, args, {
-      kind: 'fresh_auth_retry',
-    });
-  }
+  return await exportEd25519KeypairWithFlowId(deps, args);
 }
 
 export async function exportKeypairWithUI(
@@ -343,7 +315,7 @@ export async function exportKeypairWithUI(
       case 'ecdsa':
         return await exportEcdsaKeypairWithSessionLifecycle(deps, args, { kind: 'initial' });
       case 'ed25519':
-        return await exportEd25519KeypairWithSessionLifecycle(deps, args, { kind: 'initial' });
+        return await exportEd25519KeypairWithSessionLifecycle(deps, args);
     }
   });
 }
