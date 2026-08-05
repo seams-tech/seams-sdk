@@ -52,7 +52,12 @@ export type WalletUnlockCapabilityContext =
   | {
       readonly kind: 'email_otp';
       readonly request: WalletUnlockEmailOtpRequestedCapabilitiesRequestV1;
-      readonly provisionWalletSession: RouterApiWalletRegistrationService['provisionEd25519YaoWalletSession'];
+      readonly provisionWalletSession: (
+        input: Omit<
+          Parameters<RouterApiWalletRegistrationService['provisionEd25519YaoWalletSession']>[0],
+          'seamsSessionId'
+        >,
+      ) => ReturnType<RouterApiWalletRegistrationService['provisionEd25519YaoWalletSession']>;
     };
 
 type WalletUnlockEd25519YaoRequestedContext = Extract<
@@ -335,6 +340,15 @@ async function emitSuccessfulWalletUnlock(input: {
   });
 }
 
+function parseOptionalEd25519WalletSessionJwt(
+  body: Record<string, unknown>,
+): { readonly ok: true; readonly walletSessionJwt?: string } | { readonly ok: false } {
+  const raw = body.ed25519WalletSessionJwt;
+  if (raw === undefined) return { ok: true };
+  if (typeof raw !== 'string' || !raw.trim()) return { ok: false };
+  return { ok: true, walletSessionJwt: raw.trim() };
+}
+
 export async function handleWalletUnlockVerifyRoute(input: {
   body: unknown;
   origin?: string;
@@ -425,6 +439,17 @@ export async function handleWalletUnlockVerifyRoute(input: {
       body: { ok: false, code: 'invalid_body', message: 'Email OTP unlock context is invalid' },
     };
   }
+  const reuseEd25519WalletSession = parseOptionalEd25519WalletSessionJwt(body);
+  if (!reuseEd25519WalletSession.ok) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_body',
+        message: 'ed25519WalletSessionJwt must be a non-empty string when provided',
+      },
+    };
+  }
   const result = await input.service.verifyEmailOtpUnlockProof({
     walletId: body.walletId,
     orgId: body.orgId,
@@ -452,10 +477,15 @@ export async function handleWalletUnlockVerifyRoute(input: {
     const ecdsaSession = await provisionFirstEcdsaWalletSession({
       context: input.ecdsaSession,
       verifiedWalletId: result.walletId,
-      authorization: {
-        kind: 'verified_wallet_unlock',
-        verifiedProviderUserId: result.providerUserId,
-      },
+      authorization: reuseEd25519WalletSession.walletSessionJwt
+        ? {
+            kind: 'reuse_ed25519_wallet_session',
+            walletSessionJwt: reuseEd25519WalletSession.walletSessionJwt,
+          }
+        : {
+            kind: 'verified_wallet_unlock',
+            verifiedProviderUserId: result.providerUserId,
+          },
     });
     if (!ecdsaSession.ok) return ecdsaSession.response;
     await emitSuccessfulWalletUnlock({

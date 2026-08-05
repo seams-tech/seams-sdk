@@ -24,6 +24,7 @@ import {
 import {
   isPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
+  type WalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
@@ -136,6 +137,15 @@ type Ed25519AuthorizedOperationAdmission =
       readonly kind: 'replayed';
       readonly operation: AuthorizedOperation;
     };
+
+function reusableWalletSessionPrincipalSubject(authority: WalletAuthAuthority): string {
+  switch (authority.factor.kind) {
+    case 'email_otp':
+      return authority.factor.providerUserId;
+    case 'passkey':
+      return authority.walletId;
+  }
+}
 
 type RouterAbEd25519AuthorizedOperationWire = {
   readonly binding:
@@ -623,7 +633,9 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
     const claims = input.authorization.validated.claims;
     const nowMs = Date.now();
     const tenantId = requireAuthorizationValue(parseTenantId(claims.runtimePolicyScope.orgId));
-    const principalId = requireAuthorizationValue(parsePrincipalId(claims.sub));
+    const principalId = requireAuthorizationValue(
+      parsePrincipalId(reusableWalletSessionPrincipalSubject(claims.authority)),
+    );
     if (
       tenantId !== input.ctx.service.authorizedOperations.tenantId ||
       tenantId !== input.ctx.service.authorizationSessions.tenantId ||
@@ -892,7 +904,9 @@ async function validateEd25519ReusableAuthorizedOperation(input: {
     }
     const claims = input.authorization.validated.claims;
     const tenantId = requireAuthorizationValue(parseTenantId(claims.runtimePolicyScope.orgId));
-    const principalId = requireAuthorizationValue(parsePrincipalId(claims.sub));
+    const principalId = requireAuthorizationValue(
+      parsePrincipalId(reusableWalletSessionPrincipalSubject(claims.authority)),
+    );
     const capabilityId = requireAuthorizationValue(
       parseCapabilityId(scope.material_activation.capability),
     );

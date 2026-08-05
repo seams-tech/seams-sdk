@@ -107,6 +107,13 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
       readonly seamsSessionId?: never;
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
+      readonly kind: 'verified_app_session_wallet_unlock_v1';
+      readonly ttlMs?: never;
+      readonly expiresAtMs: number;
+      readonly remainingUses: number;
+      readonly seamsSessionId: SeamsSessionId;
+    })
+  | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'same_identity_budget_refresh_v1';
       readonly expiresAtMs?: never;
       readonly remainingUses: number;
@@ -394,6 +401,7 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
   const nowMs = Date.now();
   switch (input.kind) {
     case 'verified_wallet_unlock_v1':
+    case 'verified_app_session_wallet_unlock_v1':
       if (!Number.isSafeInteger(input.expiresAtMs) || input.expiresAtMs <= nowMs) {
         throw new Error('Verified wallet unlock expiry must follow issuance');
       }

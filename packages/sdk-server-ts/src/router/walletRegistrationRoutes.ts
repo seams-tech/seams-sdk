@@ -119,14 +119,15 @@ import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
-import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  isEmailOtpWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import {
   parseRouterAbTraceContextV1,
   ROUTER_AB_TRACE_ID_HEADER_V1,
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
 import type { RouterAbEd25519YaoGatewaySpanV1 } from './routerAbEd25519YaoHttpRegistrationBackend';
-import { verifyWalletRegistrationSetupClaims } from './walletRegistrationSetupPayload';
 
 type RouterApiWalletRegistrationServices = {
   walletRegistration: RouterApiWalletRegistrationRouteService;
@@ -2120,55 +2121,21 @@ export async function handleRouterApiWalletRegistrationActivate(
     traceContext.value ?? undefined,
   );
   if (!result.ok) return routeJson(400, result);
-  /* One verification serves both mints below: the wallet-session JWT needs the
-     signed policy scope, and the app session carries the same scope so it
-     stays at parity with the /session/exchange mint. */
-  const verifiedSetup = await verifyWalletRegistrationSetupClaims(session, signedSetup, {
-    registrationCeremonyId,
-    nowMs: Date.now(),
-  });
-  if (!verifiedSetup.ok) {
-    return routeJson(400, {
-      ok: false,
-      code: verifiedSetup.code,
-      message: verifiedSetup.message,
-    });
+  if (
+    !isEmailOtpWalletRegistrationActivateSuccessV2(result) &&
+    !isPasskeyWalletRegistrationActivateSuccessV2(result)
+  ) {
+    return routeError(500, 'internal', 'Wallet registration activation returned an invalid authority');
   }
-  const setupPolicyScope =
-    verifiedSetup.claims.policy.kind === 'runtime_policy_scope'
-      ? verifiedSetup.claims.policy.scope
-      : null;
-  let routeResult: WalletRegistrationActivateRouteResponseV2;
-  if (isEmailOtpWalletRegistrationActivateSuccessV2(result)) {
-    if (!isEmailOtpWalletAuthAuthority(result.authority)) {
-      return routeError(500, 'internal', 'Email OTP registration returned a different authority');
-    }
-    const appSessionVersion = await input.services.walletRegistration.getOrCreateAppSessionVersion({
-      userId: result.authority.factor.providerUserId,
-    });
-    if (!appSessionVersion.ok) {
-      return routeError(500, 'internal', appSessionVersion.message);
-    }
-    const appSessionJwt = await session.signJwt(result.authority.factor.providerUserId, {
-      kind: 'app_session_v1',
-      appSessionVersion: appSessionVersion.appSessionVersion,
-      provider: result.authority.factor.provider,
-      providerSubject: result.authority.factor.providerUserId,
-      walletId: result.walletId,
-      ...(setupPolicyScope ? { runtimePolicyScope: setupPolicyScope } : {}),
-    });
-    routeResult = { ...result, appSessionJwt };
-  } else {
-    if (!isPasskeyWalletRegistrationActivateSuccessV2(result)) {
-      return routeError(500, 'internal', 'Wallet registration activation returned an invalid authority');
-    }
-    if (typeof result.appSessionJwt !== 'string' || result.appSessionJwt.length === 0) {
-      return routeError(500, 'internal', 'Passkey registration activation is missing app session');
-    }
-    const appSessionJwt: string = result.appSessionJwt;
-    const { appSessionJwt: _internalAppSessionJwt, ...publicResult } = result;
-    routeResult = { ...publicResult, appSessionJwt };
+  if (typeof result.appSessionJwt !== 'string' || result.appSessionJwt.length === 0) {
+    return routeError(500, 'internal', 'Wallet registration activation is missing app session');
   }
+  const appSessionJwt: string = result.appSessionJwt;
+  const { appSessionJwt: _internalAppSessionJwt, ...publicResult } = result;
+  const routeResult: WalletRegistrationActivateRouteResponseV2 = {
+    ...publicResult,
+    appSessionJwt,
+  };
   return routeJson(200, routeResult);
 }
 
@@ -2219,39 +2186,10 @@ export async function handleRouterApiWalletRegistrationNearProvisioning(
   if (!isEmailOtpWalletAuthAuthority(result.authority)) {
     return routeError(500, 'internal', 'Email OTP registration returned a different authority');
   }
-  /* The service returns the same terminal signer result used by the activate
-     route. Email OTP responses must carry the first-party app session as
-     well, otherwise the client cannot normalize the finalized authority. */
-  const verifiedSetup = await verifyWalletRegistrationSetupClaims(session, signedSetup, {
-    registrationCeremonyId,
-    nowMs: Date.now(),
-  });
-  if (!verifiedSetup.ok) {
-    return routeJson(400, {
-      ok: false,
-      code: verifiedSetup.code,
-      message: verifiedSetup.message,
-    });
+  if (typeof result.appSessionJwt !== 'string' || result.appSessionJwt.length === 0) {
+    return routeError(500, 'internal', 'Email OTP registration is missing app session');
   }
-  const setupPolicyScope =
-    verifiedSetup.claims.policy.kind === 'runtime_policy_scope'
-      ? verifiedSetup.claims.policy.scope
-      : null;
-  const appSessionVersion = await input.services.walletRegistration.getOrCreateAppSessionVersion({
-    userId: result.authority.factor.providerUserId,
-  });
-  if (!appSessionVersion.ok) {
-    return routeError(500, 'internal', appSessionVersion.message);
-  }
-  const appSessionJwt = await session.signJwt(result.authority.factor.providerUserId, {
-    kind: 'app_session_v1',
-    appSessionVersion: appSessionVersion.appSessionVersion,
-    provider: result.authority.factor.provider,
-    providerSubject: result.authority.factor.providerUserId,
-    walletId: result.walletId,
-    ...(setupPolicyScope ? { runtimePolicyScope: setupPolicyScope } : {}),
-  });
-  return routeJson(200, { ...result, appSessionJwt });
+  return routeJson(200, result);
 }
 
 /**

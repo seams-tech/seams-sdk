@@ -27,7 +27,9 @@ import {
 import { parseWebAuthnRpId, type WebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
 import { thresholdEcdsaChainTargetKey } from '../../packages/sdk-server-ts/src/core/thresholdEcdsaChainTarget';
-import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import {
+  buildEmailOtpWalletAuthAuthority,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 const routeDefinitions = createRouterApiRouteDefinitions({
   enableHealthz: true,
@@ -1482,6 +1484,7 @@ test.describe('wallet registration route boundaries', () => {
             },
           },
           nearProvisioning: { status: 'near_ready' },
+          appSessionJwt: 'registration-email-otp-app-session',
           registrationEstablishedSession: {},
         }) as never,
       getOrCreateAppSessionVersion: async () => ({
@@ -1516,19 +1519,6 @@ test.describe('wallet registration route boundaries', () => {
       ok: true,
       appSessionJwt: 'registration-email-otp-app-session',
     });
-    expect(sessionClaims).toMatchObject({
-      subject: 'google:alice',
-      kind: 'app_session_v1',
-      appSessionVersion: 'app-session-v1',
-      provider: 'google',
-      providerSubject: 'google:alice',
-      walletId: 'wallet_alice',
-      runtimePolicyScope: {
-        orgId: 'org',
-        projectId: 'project',
-        envId: 'dev',
-        signingRootVersion: 'root-v1',
-      },
-    });
+    expect(sessionClaims).toEqual({});
   });
 });

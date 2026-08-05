@@ -371,6 +371,87 @@ async function readAndValidateAppSession(
   return { ok: true, claims, userId, appSessionVersion };
 }
 
+async function readWalletUnlockSourceSession(ctx: CloudflareRouterApiContext): Promise<
+  | {
+      readonly ok: true;
+      readonly sessionId: ActiveAuthorizationSession['sessionId'];
+      readonly principalId: ActiveAuthorizationSession['principalId'];
+      readonly walletId: string;
+    }
+  | { readonly ok: false; readonly response: Response }
+> {
+  const session = ctx.opts.session;
+  if (!session) {
+    return {
+      ok: false,
+      response: json(
+        { ok: false, code: 'sessions_disabled', message: 'Sessions are not configured' },
+        { status: 501 },
+      ),
+    };
+  }
+  try {
+    const parsed = await session.parse(headersToRecord(ctx.request.headers));
+    if (!parsed.ok) throw new Error('No valid authorization session');
+    const ed25519WalletSession = parseRouterAbEd25519WalletSessionClaims(parsed.claims);
+    if (ed25519WalletSession) {
+      const sessionId = ed25519WalletSession.sid;
+      if (!sessionId) throw new Error('Wallet Session app-session binding is missing');
+      const principalSubject =
+        ed25519WalletSession.authority.factor.kind === 'email_otp'
+          ? ed25519WalletSession.authority.factor.providerUserId
+          : ed25519WalletSession.authority.walletId;
+      const principalId = requiredAuthorizationValue(parsePrincipalId(principalSubject));
+      const activeSession = await ctx.service.authorizationSessions.readActiveSession({
+        tenantId: ctx.service.authorizationSessions.tenantId,
+        sessionId,
+        nowMs: Date.now(),
+      });
+      if (!activeSession || activeSession.principalId !== principalId) {
+        throw new Error('Wallet Session authorization is unavailable');
+      }
+      return {
+        ok: true,
+        sessionId,
+        principalId,
+        walletId: ed25519WalletSession.walletId,
+      };
+    }
+    const validated = await readAndValidateAppSession(ctx);
+    if (!validated.ok) return { ok: false, response: validated.response };
+    const claims = validated.claims as Record<string, unknown>;
+    const sourceIds = sourceSessionClaimIds(claims);
+    const walletId = String(claims.walletId || '').trim();
+    if (!walletId) throw new Error('App session wallet identity is missing');
+    const activeSession = await ctx.service.authorizationSessions.readActiveSession({
+      tenantId: ctx.service.authorizationSessions.tenantId,
+      sessionId: sourceIds.sessionId,
+      nowMs: Date.now(),
+    });
+    if (!activeSession || activeSession.principalId !== sourceIds.principalId) {
+      throw new Error('App session authorization is unavailable');
+    }
+    return {
+      ok: true,
+      sessionId: sourceIds.sessionId,
+      principalId: sourceIds.principalId,
+      walletId,
+    };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      response: json(
+        {
+          ok: false,
+          code: 'unauthorized',
+          message: error instanceof Error ? error.message : 'App session is invalid',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+}
+
 async function hashAppSessionClaims(claims: Record<string, unknown>): Promise<string> {
   return hashEmailOtpAppSessionClaims(claims);
 }
@@ -744,6 +825,7 @@ export async function handleSessionExchange(
     let passkeyChallengeId: string | undefined;
     let passkeyCredentialIdB64u: string | undefined;
     let passkeyAuthorityRef: WalletAuthAuthorityRef | undefined;
+    let emailOtpAuthorityRef: WalletAuthAuthorityRef | undefined;
     let walletId: string | undefined;
     let googleEmailOtpResolution:
       | {
@@ -1159,6 +1241,44 @@ export async function handleSessionExchange(
       appSessionVersion = appVersion.appSessionVersion;
     }
 
+    if (googleEmailOtpResolution?.mode === 'existing_wallet') {
+      if (!walletId || !providerSubject) {
+        throw new Error('Google Email OTP exchange did not resolve its wallet authority');
+      }
+      const resolvedAuthority =
+        await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+          walletId,
+          providerUserId: providerSubject,
+        });
+      if (!resolvedAuthority.ok) {
+        const status =
+          resolvedAuthority.code === 'unauthorized'
+            ? 401
+            : resolvedAuthority.code === 'invalid_body'
+              ? 400
+              : 500;
+        await emitSessionExchangeFailed(ctx, {
+          status,
+          code: resolvedAuthority.code,
+          message: resolvedAuthority.message,
+          exchangeType,
+          sessionKind,
+          userId,
+        });
+        return json(
+          {
+            ok: false,
+            code: resolvedAuthority.code,
+            message: resolvedAuthority.message,
+          },
+          { status },
+        );
+      }
+      emailOtpAuthorityRef = await walletAuthAuthorityRef({
+        authority: resolvedAuthority.authority,
+      });
+    }
+
     let principalId: ActiveAuthorizationSession['principalId'];
     let seamsSessionId: ActiveAuthorizationSession['sessionId'];
     let deviceId: ActiveAuthorizationSession['deviceId'];
@@ -1241,6 +1361,9 @@ export async function handleSessionExchange(
     };
     if (passkeyAuthorityRef) {
       sessionClaims.walletAuthAuthorityRef = passkeyAuthorityRef;
+    }
+    if (emailOtpAuthorityRef) {
+      sessionClaims.walletAuthAuthorityRef = emailOtpAuthorityRef;
     }
     const jwt = await session.signJwt(userId, sessionClaims);
     const sessionExpiresAt = deriveJwtExpiresAtIso(jwt);
@@ -1616,6 +1739,23 @@ type WalletSessionStatusAuthorization = {
   readonly quotaId: MpcWalletSigningQuotaId;
 };
 
+function walletSessionStatusClaimsInvalidResponse(): {
+  readonly ok: false;
+  readonly response: Response;
+} {
+  return {
+    ok: false,
+    response: json(
+      {
+        authenticated: false,
+        code: 'wallet_session_claims_invalid',
+        message: 'Wallet Session claims are invalid',
+      },
+      { status: 401 },
+    ),
+  };
+}
+
 async function readAndValidateWalletSessionStatusAuthorization(
   ctx: CloudflareRouterApiContext,
 ): Promise<
@@ -1700,26 +1840,41 @@ async function readAndValidateWalletSessionStatusAuthorization(
     };
   }
 
-  const principalId = parsePrincipalId(walletSession.walletId);
-  if (!principalId.ok) {
-    return {
-      ok: false,
-      response: json(
-        {
-          authenticated: false,
-          code: 'wallet_session_claims_invalid',
-          message: 'Wallet Session claims are invalid',
-        },
-        { status: 401 },
-      ),
-    };
+  let principalId: PrincipalId;
+  if ('authorizationSessionId' in walletSession) {
+    // ECDSA `sub` identifies the wallet key. Reusable grants are owned by the
+    // authorization-session principal, which may be a provider subject.
+    const authorizationSession = await ctx.service.authorizationSessions.readActiveSession({
+      tenantId: ctx.service.authorizationSessions.tenantId,
+      sessionId: walletSession.authorizationSessionId,
+      nowMs: Date.now(),
+    });
+    if (!authorizationSession) return walletSessionStatusClaimsInvalidResponse();
+    principalId = authorizationSession.principalId;
+  } else {
+    const authorityPrincipalSubject =
+      walletSession.authority.factor.kind === 'email_otp'
+        ? walletSession.authority.factor.providerUserId
+        : walletSession.authority.walletId;
+    const authorityPrincipal = parsePrincipalId(authorityPrincipalSubject);
+    if (!authorityPrincipal.ok) return walletSessionStatusClaimsInvalidResponse();
+    if (walletSession.sid) {
+      const authorizationSession = await ctx.service.authorizationSessions.readActiveSession({
+        tenantId: ctx.service.authorizationSessions.tenantId,
+        sessionId: walletSession.sid,
+        nowMs: Date.now(),
+      });
+      if (!authorizationSession || authorizationSession.principalId !== authorityPrincipal.value) {
+        return walletSessionStatusClaimsInvalidResponse();
+      }
+    }
+    principalId = authorityPrincipal.value;
   }
-
   return {
     ok: true,
     authorization: {
       walletId: walletSession.walletId,
-      principalId: principalId.value,
+      principalId,
       walletSessionId: walletSession.walletSessionId,
       quotaId: walletSession.quotaId,
     },
@@ -1844,14 +1999,31 @@ export async function handleWalletUnlockVerify(
   if (!parsedRequestedCapabilities.ok) {
     return json(parsedRequestedCapabilities.body, { status: parsedRequestedCapabilities.status });
   }
+  const unlockSourceSession = parsedRequestedCapabilities.request
+    ? await readWalletUnlockSourceSession(ctx)
+    : null;
+  if (unlockSourceSession && !unlockSourceSession.ok) return unlockSourceSession.response;
   const capabilityContext: WalletUnlockCapabilityContext = parsedRequestedCapabilities.request
     ? {
         kind: 'email_otp',
         request: parsedRequestedCapabilities.request,
-        provisionWalletSession:
-          ctx.service.walletRegistration.provisionEd25519YaoWalletSession.bind(
-            ctx.service.walletRegistration,
-          ),
+        provisionWalletSession: async (request) => {
+          if (
+            !unlockSourceSession ||
+            request.walletId !== unlockSourceSession.walletId ||
+            request.verifiedProviderUserId !== unlockSourceSession.principalId
+          ) {
+            return {
+              ok: false,
+              code: 'scope_mismatch',
+              message: 'Verified wallet unlock does not match the active app session',
+            };
+          }
+          return await ctx.service.walletRegistration.provisionEd25519YaoWalletSession({
+            ...request,
+            seamsSessionId: unlockSourceSession.sessionId,
+          });
+        },
       }
     : { kind: 'passkey_unlock' };
   const response = await handleWalletUnlockVerifyRoute({

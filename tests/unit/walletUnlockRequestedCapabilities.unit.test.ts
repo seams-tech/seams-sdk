@@ -9,6 +9,7 @@ import {
   EMAIL_OTP_NO_REQUESTED_CAPABILITIES_KIND,
   parseWalletUnlockRequestedCapabilitiesRequest,
 } from '../../packages/sdk-server-ts/src/router/walletUnlockRequestedCapabilitiesValidation';
+import { createEcdsaSessionActivationFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 const BASE_BODY = {
   unlockBackend: 'email_otp',
@@ -165,5 +166,53 @@ test.describe('wallet unlock requested capabilities boundary', () => {
     });
     expect(ed25519Response.status).toBeGreaterThanOrEqual(400);
     expect(ed25519ProvisionCalls).toBe(1);
+  });
+
+  test('reuses an active Ed25519 Wallet Session for ECDSA-only unlock activation', async () => {
+    const service = buildUnlockService();
+    const activation = createEcdsaSessionActivationFixture({
+      walletId: BASE_BODY.walletId,
+      chain: 'tempo',
+      sessionId: 'reuse-ed25519-session',
+    });
+    const ed25519WalletSessionJwt = 'ed25519-wallet-session-jwt';
+    let authorization: unknown;
+    const response = await handleWalletUnlockVerifyRoute({
+      body: {
+        ...BASE_BODY,
+        ed25519WalletSessionJwt,
+        ecdsaSessionActivation: activation.request,
+        requestedCapabilities: { kind: EMAIL_OTP_NO_REQUESTED_CAPABILITIES_KIND },
+      },
+      service,
+      capabilityContext: {
+        kind: 'email_otp',
+        request: parseRequest({
+          ...BASE_BODY,
+          requestedCapabilities: { kind: EMAIL_OTP_NO_REQUESTED_CAPABILITIES_KIND },
+        }),
+        provisionWalletSession: async () => ({
+          ok: false,
+          code: 'not_configured',
+          message: 'unused in this test',
+        }),
+      },
+      ecdsaSession: {
+        kind: 'provision_first_ecdsa_session',
+        walletId: BASE_BODY.walletId,
+        provisionWalletSession: async (input) => {
+          authorization = input;
+          return { ok: true, activation: activation.response };
+        },
+      },
+      emitRouterApiWebhook: async () => undefined,
+      emitEmailOtpWebhook: async () => undefined,
+    });
+
+    expect(response.status).toBe(200);
+    expect(authorization).toEqual({
+      kind: 'reuse_ed25519_wallet_session',
+      walletSessionJwt: ed25519WalletSessionJwt,
+    });
   });
 });

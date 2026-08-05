@@ -173,6 +173,7 @@ export type RouterAbEd25519YaoBudgetRefreshResponseV1 =
 export type RouterAbEd25519YaoVerifiedWalletUnlockRequestV1 = {
   readonly walletId: string;
   readonly orgId: string;
+  readonly seamsSessionId: SeamsSessionId;
   readonly signerSlot: number;
   readonly remainingUses: number;
   readonly verifiedChallengeId: string;

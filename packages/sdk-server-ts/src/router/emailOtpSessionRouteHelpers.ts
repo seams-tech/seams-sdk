@@ -1,6 +1,11 @@
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import { toOptionalRecordString, toOptionalTrimmedString } from '@shared/utils/validation';
+import { parseProviderSubject } from '@shared/utils/domainIds';
+import {
+  isPlainObject,
+  toOptionalRecordString,
+  toOptionalTrimmedString,
+} from '@shared/utils/validation';
 import { EMAIL_OTP_CHANNEL, type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { EmailOtpChallengeDelivery } from './authServicePort';
 
@@ -221,11 +226,23 @@ export function getSessionWalletId(claims: unknown, userId: string): string {
 }
 
 export function isGoogleOidcEmailOtpSession(claims: unknown): boolean {
-  const provider = toOptionalRecordString(claims, 'provider')?.toLowerCase() || '';
-  const oidcProvider = toOptionalRecordString(claims, 'oidcProvider')?.toLowerCase() || '';
-  const providerSubject = toOptionalRecordString(claims, 'providerSubject')?.toLowerCase() || '';
-  return (
-    provider === 'oidc' && (oidcProvider === 'google' || providerSubject.startsWith('google:'))
+  if (!isPlainObject(claims)) return false;
+  const authSource = claims.authSource;
+  if (!isPlainObject(authSource) || authSource.kind !== 'oidc_provider') return false;
+  if (
+    toOptionalRecordString(authSource, 'providerId') !== 'google_oidc' ||
+    toOptionalRecordString(claims, 'provider') !== 'oidc' ||
+    toOptionalRecordString(claims, 'oidcProvider') !== 'google'
+  ) {
+    return false;
+  }
+  const providerSubject = toOptionalRecordString(claims, 'providerSubject');
+  const authSourceProviderSubject = toOptionalRecordString(authSource, 'providerSubject');
+  const parsedProviderSubject = parseProviderSubject(providerSubject);
+  return Boolean(
+    parsedProviderSubject.ok &&
+      parsedProviderSubject.value.startsWith('google:') &&
+      authSourceProviderSubject === parsedProviderSubject.value,
   );
 }
 
