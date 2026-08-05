@@ -213,6 +213,7 @@ try {
 
   process.once('SIGINT', () => shutdown(130));
   process.once('SIGTERM', () => shutdown(143));
+  assertFreshPrivateD1StatePolicy();
   if (!options.buildOnly) {
     await stopExistingProductionWorkerProcesses();
   }
@@ -283,6 +284,16 @@ function ensureLocalEnv() {
     '--force',
   ];
   run('cargo', args);
+}
+
+function assertFreshPrivateD1StatePolicy() {
+  if (!options.fresh || !existsSync(strictPersistPath)) {
+    return;
+  }
+  throw new Error(
+    `--fresh would rotate Router A/B HPKE and private-D1 secrets while retaining encrypted strict state at ${strictPersistPath}. ` +
+      `Rerun without --fresh to preserve that state, or remove the strict state explicitly before retrying.`,
+  );
 }
 
 function prepareD1LocalRouterConfig() {
