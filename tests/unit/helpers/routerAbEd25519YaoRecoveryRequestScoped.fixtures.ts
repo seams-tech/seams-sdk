@@ -15,7 +15,7 @@ import {
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { CloudflareVersionedJsonRecordReadResult } from '../../../packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore';
+import type { CloudflareVersionedJsonRecordReadResult } from '../../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/versionedJsonRecordStore';
 import {
   parseRouterAbEd25519WalletSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,

@@ -4,7 +4,7 @@ import {
   buildD1EcdsaWalletKeysFromBootstrap,
   parseD1WalletRegistrationFinalizeReplayResponse,
   parseD1WalletRegistrationFinalizeTerminalResponse,
-} from '@server/router/cloudflare/d1RegistrationCeremonyRecords';
+} from '@server/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
 import type { EcdsaDerivationServerBootstrapResponse } from '@server/core/types';
 import {
   thresholdEcdsaChainTargetKey,

@@ -9,7 +9,7 @@ import type {
   D1PreparedStatementLike,
   D1ResultLike,
 } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
-import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
+import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
 import localD1DevWorker, {
   buildLocalRouterRequest,
 } from '../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';

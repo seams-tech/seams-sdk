@@ -8,7 +8,7 @@ import {
   CloudflareVersionedJsonRecordStoreError,
   createCloudflareDurableObjectVersionedJsonRecordStore,
   type CloudflareVersionedJsonObject,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore';
+} from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/versionedJsonRecordStore';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 
 type CeremonyRecord = {

@@ -8,7 +8,7 @@ import {
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '../../packages/sdk-server-ts/src/router/cloudflare/d1Ed25519YaoCapabilityPersistence';
+import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence';
 import {
   handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1,
   type RouterAbEd25519YaoRecoveryRequestScopedCloudflareInputV1,

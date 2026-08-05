@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { createWalletStore } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
-import type { CloudflareRouterApiContext } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
-import { handleThresholdEcdsa } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa';
+import type { CloudflareRouterApiContext } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
+import { handleThresholdEcdsa } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa';
 import { buildVerifiedFactorEvidenceSet } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import {

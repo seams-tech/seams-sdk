@@ -2,11 +2,11 @@ import { expect, test } from '@playwright/test';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { SessionParseResult } from '../../packages/sdk-server-ts/src/core/sessionValidation';
-import { signRouterAbEd25519WalletSessionJwt } from '../../packages/sdk-server-ts/src/router/commonRouterUtils';
+import { signRouterAbEd25519WalletSessionJwt } from '../../packages/sdk-server-ts/src/router/auth/commonRouterUtils';
 import {
   type SessionAdapter,
   type SessionClaims,
-} from '../../packages/sdk-server-ts/src/router/routerApi';
+} from '../../packages/sdk-server-ts/src/router/framework/routerApi';
 import { createSigningSessionSealRoutesOptions } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/routesOptions';
 import type { SigningSessionSealCipherAdapter } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/signingSessionSeal.types';
 

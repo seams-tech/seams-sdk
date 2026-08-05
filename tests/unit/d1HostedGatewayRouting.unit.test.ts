@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { FetchHandler } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
+import type { FetchHandler } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
 import { dispatchHostedGatewayRequest } from '../../packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker';
 
 function markerHandler(marker: string): FetchHandler {
