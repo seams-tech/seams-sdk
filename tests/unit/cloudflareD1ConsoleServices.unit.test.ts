@@ -873,6 +873,16 @@ test('local D1 Worker serves dashboard onboarding state through D1 services', as
         currentStep: 'organization',
       },
     });
+
+    const approvalsResponse = await callLocalWorkflowWorker(env, {
+      method: 'GET',
+      path: '/console/approvals',
+    });
+    expect(approvalsResponse.status).toBe(200);
+    await expect(readJsonRecord(approvalsResponse)).resolves.toMatchObject({
+      ok: true,
+      approvals: [],
+    });
   } finally {
     cleanupTemporaryD1Database(consoleTemp.tempDir);
     cleanupTemporaryD1Database(signerTemp.tempDir);
