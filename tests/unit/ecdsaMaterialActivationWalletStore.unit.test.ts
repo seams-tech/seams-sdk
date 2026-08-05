@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createWalletStore } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
-import type { CloudflareRouterApiContext } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
+import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
 import { handleThresholdEcdsa } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa';
 import { buildVerifiedFactorEvidenceSet } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
@@ -104,7 +104,7 @@ async function stepUpRouteFixture(input: {
   requestedActivation: RouterAbMpcMaterialActivationRefWire;
   sideEffects: RouteSideEffects;
   materialResolutionQueue?: readonly RouterAbMpcMaterialActivationRefWire[];
-}): Promise<CloudflareRouterApiContext> {
+}): Promise<FetchRouterApiContext> {
   const nowMs = Date.now();
   const walletId = String(input.signer.walletId);
   const sessionFixture = await buildPasskeyAuthorizationSessionFixture({
@@ -344,7 +344,7 @@ async function stepUpRouteFixture(input: {
     },
     mePath: '/me',
     routeDefinitions: [],
-  } as unknown as CloudflareRouterApiContext;
+  } as unknown as FetchRouterApiContext;
 }
 
 test('wallet store resolves ECDSA signers only by the exact material activation ref', async () => {

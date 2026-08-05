@@ -8,7 +8,10 @@ import express, {
 import type { RouterApiServiceBag } from './framework/authServicePort';
 import { createFetchRouter } from './transport/fetch/createFetchRouter';
 import type { RouterApiOptions } from './framework/routerApi';
-import { attachRouterApiRouteSurface, getRouterApiRouteSurface } from './framework/routerApiRouteSurface';
+import {
+  attachRouterApiRouteSurface,
+  getRouterApiRouteSurface,
+} from './framework/routerApiRouteSurface';
 
 export type {
   RouterApiOptions,
@@ -49,10 +52,6 @@ export {
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
 } from './domains/normalSigning/routerAbNormalSigningAdmissionCore';
-export {
-  CloudflareD1RouterAbNormalSigningAdmissionStore,
-  createCloudflareD1RouterAbNormalSigningAdmissionStore,
-} from './cloudflare/d1/normalSigning/d1RouterAbNormalSigningAdmissionStore';
 export type {
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
@@ -60,14 +59,17 @@ export type {
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningProjectPolicyProvider,
 } from './domains/normalSigning/routerAbNormalSigningAdmissionCore';
-export type { CloudflareD1RouterAbNormalSigningAdmissionStoreOptions } from './cloudflare/d1/normalSigning/d1RouterAbNormalSigningAdmissionStore';
 export type {
   RouterApiFetchRouteExtension,
   RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
   RouterApiRouteExtensionTransport,
 } from './framework/routeExtensions';
-export type { RouterApiModule, RouterApiModuleKind, RouterApiModuleOptions } from './framework/modules';
+export type {
+  RouterApiModule,
+  RouterApiModuleKind,
+  RouterApiModuleOptions,
+} from './framework/modules';
 export { createRouterApiModule } from './framework/modules';
 export type { RouteDefinition } from './framework/routeDefinitions';
 export { defineRoute } from './framework/routeDefinitions';

@@ -11,9 +11,12 @@ at the current branch HEAD.
 - No R97 structural symlinks or fallback paths remain.
 - Server package typecheck, console-server typecheck, and unit typecheck pass.
 - Package export contract passes 12/12; export server passes 17/17; route
-  surface passes 10/10.
+  surface passes 11/11, including Cloudflare metadata, eager validation, and
+  runtime forwarding coverage.
 - R97 contract, recovery, and vault tests pass 33/33.
 - ECDSA derivation guard passes.
+- The resolved Express runtime graph reports zero Cloudflare runtime or
+  persistence edges.
 - Static local-router resolver reports zero unresolved imports.
 - The full source-guard chain stops on existing sdk-web auth-method fallback
   findings and the existing ECDSA identity guard finding; both are outside

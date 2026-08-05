@@ -7,8 +7,8 @@ import type {
 import {
   CloudflareVersionedJsonRecordStoreError,
   createCloudflareDurableObjectVersionedJsonRecordStore,
-  type CloudflareVersionedJsonObject,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/versionedJsonRecordStore';
+import type { VersionedJsonObject } from '../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 
 type CeremonyRecord = {
@@ -77,7 +77,7 @@ class MemoryNamespace implements CloudflareDurableObjectNamespaceLike {
   }
 }
 
-function encodeCeremony(value: CeremonyRecord): CloudflareVersionedJsonObject {
+function encodeCeremony(value: CeremonyRecord): VersionedJsonObject {
   return {
     kind: value.kind,
     ceremonyId: value.ceremonyId,

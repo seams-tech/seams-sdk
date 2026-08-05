@@ -6,6 +6,7 @@ import {
   createRouterApiRouter,
   type RouterAbEd25519YaoProductRegistrationPortsV1,
 } from '@seams/sdk-server/router/express';
+import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
 import { createRouterApiModule } from '../../packages/sdk-server-ts/src/router/framework/modules';
 import type {
   RouterApiFetchRouteExtensionInput,
@@ -18,7 +19,7 @@ import {
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
 } from '@shared/utils/routerAbPublicKeyset';
 import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
-import { callCf } from '../relayer/helpers';
+import { callCf, makeCfCtx } from '../relayer/helpers';
 
 function makeUnexpectedRouterApiServiceValue(path: string): unknown {
   const target = function unexpectedRouterApiServiceCall(): never {
@@ -191,9 +192,8 @@ const EMAIL_RECOVERY_EXECUTION_SERVICE = {
 
 test.describe('Router API route surface wiring', () => {
   test('Express public entrypoint composes the canonical Ed25519 Yao module and envelope', async () => {
-    const composition = createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1(
-      makeNodeYaoProductPorts(),
-    );
+    const composition =
+      createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1(makeNodeYaoProductPorts());
     const surface = getRouterApiRouteSurface(
       createRouterApiRouter(makeRouterApiServiceBagFixture(), {
         modules: [composition.module],
@@ -262,6 +262,45 @@ test.describe('Router API route surface wiring', () => {
 
     expect([...expectedKeys].filter((key) => !actualKeys.has(key))).toEqual([]);
     expect([...actualKeys].filter((key) => !expectedKeys.has(key))).toEqual([]);
+  });
+
+  test('Cloudflare adapter validates eagerly, preserves route metadata, and forwards request runtime', async () => {
+    const service = makeRouterApiServiceBagFixture();
+    const runtimeRoute = testExtensionRoute('cloudflare_runtime', 'GET', '/test/runtime');
+    const runtimeExtension: RouterApiRouteExtension = {
+      kind: 'fetch_route_extension',
+      id: 'cloudflare-runtime',
+      routes: [runtimeRoute],
+      handleFetchRoute: ({ runtime }) => {
+        if (runtime.kind === 'background') runtime.waitUntil(Promise.resolve());
+        return new Response(JSON.stringify({ runtime: runtime.kind }));
+      },
+    };
+    const handler = createCloudflareRouter(service, {
+      routeExtensions: [runtimeExtension],
+    });
+    const surface = getRouterApiRouteSurface(handler);
+    expect(surface?.routeDefinitions.some((route) => route.path === '/test/runtime')).toBe(true);
+
+    const { ctx, waited } = makeCfCtx();
+    const response = await callCf(handler, {
+      method: 'GET',
+      path: '/test/runtime',
+      ctx,
+    });
+    expect(response.status).toBe(200);
+    expect(response.json).toEqual({ runtime: 'background' });
+    expect(waited).toHaveLength(1);
+
+    const duplicateRouteExtension: RouterApiRouteExtension = {
+      kind: 'fetch_route_extension',
+      id: 'cloudflare-duplicate',
+      routes: [testExtensionRoute('cloudflare_duplicate', 'GET', '/session/state')],
+      handleFetchRoute: () => new Response(null, { status: 204 }),
+    };
+    expect(() =>
+      createCloudflareRouter(service, { routeExtensions: [duplicateRouteExtension] }),
+    ).toThrow(/duplicate Router API route definition path GET \/session\/state/);
   });
 
   test('conditional Router API route families are only attached when enabled', async () => {
@@ -401,11 +440,7 @@ test.describe('Router API route surface wiring', () => {
 
   test('route extensions are surfaced and mounted by supported transport', async () => {
     const service = makeRouterApiServiceBagFixture();
-    const fetchRoute = testExtensionRoute(
-      'test_evidence_fetch',
-      'POST',
-      '/test/evidence',
-    );
+    const fetchRoute = testExtensionRoute('test_evidence_fetch', 'POST', '/test/evidence');
     const capabilitiesRoute = testExtensionRoute('test_capabilities', 'GET', '/test/capabilities');
     const extensions: RouterApiRouteExtension[] = [
       {
@@ -434,9 +469,7 @@ test.describe('Router API route surface wiring', () => {
       { kind: 'inline' },
     );
     const fetchSurface = getRouterApiRouteSurface(fetchHandler);
-    const fetchIds = new Set(
-      (fetchSurface?.routeDefinitions || []).map((route) => route.id),
-    );
+    const fetchIds = new Set((fetchSurface?.routeDefinitions || []).map((route) => route.id));
     expect(fetchIds.has('test_evidence_fetch')).toBe(true);
     expect(fetchIds.has('test_capabilities')).toBe(true);
 
@@ -467,11 +500,9 @@ test.describe('Router API route surface wiring', () => {
       handleFetchRoute: () => new Response(null, { status: 204 }),
     };
 
-    expect(
-      () => createFetchRouter(service, { routeExtensions: [extension] }, { kind: 'inline' }),
-    ).toThrow(
-      /duplicate Router API route definition path GET \/session\/state/,
-    );
+    expect(() =>
+      createFetchRouter(service, { routeExtensions: [extension] }, { kind: 'inline' }),
+    ).toThrow(/duplicate Router API route definition path GET \/session\/state/);
   });
 
   test('Router API modules reject duplicate module ids', async () => {
@@ -486,10 +517,8 @@ test.describe('Router API route surface wiring', () => {
     const first = createRouterApiModule({ id: 'test-module', routeExtensions: [extension] });
     const second = createRouterApiModule({ id: 'test-module', routeExtensions: [extension] });
 
-    expect(
-      () => createFetchRouter(service, { modules: [first, second] }, { kind: 'inline' }),
-    ).toThrow(
-      /duplicate Router API module id test-module/,
-    );
+    expect(() =>
+      createFetchRouter(service, { modules: [first, second] }, { kind: 'inline' }),
+    ).toThrow(/duplicate Router API module id test-module/);
   });
 });

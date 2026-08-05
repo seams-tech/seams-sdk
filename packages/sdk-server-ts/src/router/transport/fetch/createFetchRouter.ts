@@ -63,7 +63,11 @@ import type {
   FetchRouterRuntime,
 } from './fetchRouter.types';
 
-export type { FetchRouterApiContext, FetchRouterHandler, FetchRouterRuntime } from './fetchRouter.types';
+export type {
+  FetchRouterApiContext,
+  FetchRouterHandler,
+  FetchRouterRuntime,
+} from './fetchRouter.types';
 
 export function createFetchRouter(
   service: RouterApiServiceBag,
@@ -158,7 +162,10 @@ export function createFetchRouter(
     handleReady,
   ];
 
-  const handler: FetchRouterHandler = async function handler(request: Request): Promise<Response> {
+  const handler: FetchRouterHandler = async function handler(
+    request: Request,
+    requestRuntime: FetchRouterRuntime = runtime,
+  ): Promise<Response> {
     const url = new URL(request.url);
     const { pathname } = url;
     const method = request.method.toUpperCase();
@@ -171,7 +178,7 @@ export function createFetchRouter(
     }
 
     const baseCtx: Omit<FetchRouterApiContext, 'request' | 'url' | 'pathname' | 'method'> = {
-      runtime,
+      runtime: requestRuntime,
       service,
       opts: effectiveOpts,
       logger,
