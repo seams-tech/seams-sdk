@@ -269,12 +269,13 @@ async function invokeRoute(
     headers: { 'content-type': 'application/json', authorization: 'Bearer local-grant' },
     body: JSON.stringify(body),
   });
-  return await extension.handleCloudflareRoute({
+  return await extension.handleFetchRoute({
     request,
     route,
     pathname: route.path,
     method: 'POST',
     logger: coerceRouterLogger(null),
+    runtime: { kind: 'inline' },
   });
 }
 

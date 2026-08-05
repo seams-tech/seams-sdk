@@ -874,12 +874,13 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
       ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
       registrationAdmissionRequest(),
     );
-    const admissionResponse = await extension.handleCloudflareRoute({
+    const admissionResponse = await extension.handleFetchRoute({
       request: admissionRequest,
       route: admissionRoute,
       pathname: admissionRoute.path,
       method: 'POST',
       logger,
+      runtime: { kind: 'inline' },
     });
     expect(admissionResponse.status).toBe(200);
     expect(
@@ -890,12 +891,13 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
       ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
       registrationExecuteRequest(),
     );
-    const executeResponse = await extension.handleCloudflareRoute({
+    const executeResponse = await extension.handleFetchRoute({
       request: executeRequest,
       route: executeRoute,
       pathname: executeRoute.path,
       method: 'POST',
       logger,
+      runtime: { kind: 'inline' },
     });
     expect(executeResponse.status).toBe(200);
     expect(parseRouterAbEd25519YaoRegistrationResultV1(await executeResponse.json()).ok).toBe(true);
@@ -918,12 +920,13 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     if (!route) throw new Error('registration admission route is required');
     const request = jsonRequest(route.path, registrationAdmissionRequest());
     request.headers.set('x-seams-trace-id', 'contains-sensitive-data');
-    const response = await extension.handleCloudflareRoute({
+    const response = await extension.handleFetchRoute({
       request,
       route,
       pathname: route.path,
       method: 'POST',
       logger: coerceRouterLogger(null),
+      runtime: { kind: 'inline' },
     });
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
@@ -952,12 +955,13 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     const route = extension?.routes[0];
     if (!extension || !route) throw new Error('registration admission route is required');
     const request = jsonRequest(route.path, registrationAdmissionRequest());
-    const response = await extension.handleCloudflareRoute({
+    const response = await extension.handleFetchRoute({
       request,
       route,
       pathname: route.path,
       method: 'POST',
       logger: coerceRouterLogger(null),
+      runtime: { kind: 'inline' },
     });
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
