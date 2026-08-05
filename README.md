@@ -82,14 +82,17 @@ See `docs/router-ab/local-development.md` for the full local-development flow.
 
 ### Router A/B Deployment Prep
 
-- Deployment key generation: `pnpm router:deploy:keygen -- --env staging`
+- Complete environment preparation: `pnpm wallet-core:deploy:env-prepare -- --env staging --repo <owner/repo>`
 - Cloudflare startup dry-run: `pnpm router:deploy:dry-run`
 - Cloudflare version upload evidence: `pnpm router:deploy:upload -- --env staging`
 - Public keyset discovery: `/v1/router-ab/keyset`
 
-`router:deploy:keygen` generates stable per-environment deployment identity keys
-for Deriver A, Deriver B, and SigningWorker. Root-share wire secrets still come
-from the derivation/provisioning ceremony. The Router or self-host relay serves
+`wallet-core:deploy:env-prepare` generates one matched deployment generation:
+Router A/B role identities, root-share wire secrets, internal service
+authentication, ceremony signing material, Gateway secrets, and signing-session
+seal material. The lower-level `router:deploy:keygen` command generates role
+identity keys only; `router:deploy:root-share-keygen` generates a matched root-share
+pair for controlled rotation or inspection. The Router or self-host relay serves
 the public keyset for SDK prefetch. The deployment workflow performs its
 component-scoped preflight before any remote mutation.
 

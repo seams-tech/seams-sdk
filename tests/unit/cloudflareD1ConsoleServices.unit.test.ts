@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test';
-import type { SigningRootKekProvider } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootKekProvider';
 import type { RouterAbNormalSigningAdmissionInput } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import {
   createCloudflareD1ConsoleOnlyServiceBundle,
@@ -155,16 +154,6 @@ function webAuthnRpId(value: string) {
     throw new Error(parsed.error.message);
   }
   return parsed.value;
-}
-
-function createKekProvider(): SigningRootKekProvider {
-  return {
-    kind: 'worker_secret',
-    workerSecretsByKekId: {
-      'signing-root-kek-test-r1': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-    },
-    encoding: 'base64url',
-  };
 }
 
 function createAdmissionInput(): RouterAbNormalSigningAdmissionInput {
@@ -341,7 +330,6 @@ test('Cloudflare D1 service bundle wires signer-D1 normal-signing admission into
       bindings: {
         consoleDatabase: database,
         signerMetadataDatabase: signer.database,
-        kekProvider: createKekProvider(),
       },
       route: {
         namespace: 'seams',
@@ -409,7 +397,6 @@ test('D1 Router API storage options attach sponsored EVM route extension with ex
     bindings: {
       consoleDatabase: database,
       signerMetadataDatabase: database,
-      kekProvider: createKekProvider(),
     },
     route: {
       namespace: 'seams',
@@ -453,7 +440,6 @@ test('D1 Router API routes NEAR pricing around the EVM-only D1 pricing adapter',
     bindings: {
       consoleDatabase: database,
       signerMetadataDatabase: database,
-      kekProvider: createKekProvider(),
     },
     route: {
       namespace: 'seams',

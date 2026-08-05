@@ -5,14 +5,13 @@ Created: 2026-06-28
 Consolidated: 2026-07-27
 
 Status: **implementation complete — local OTP and Passkey lifecycle checkpoint
-established; three Passkey local-registration contracts and deployment acceptance
-remain open**
+established; deployment acceptance remains open**
 
-Working checkpoint: `3ab4d27bc` (2026-08-05). Manual verification covers OTP
+Working checkpoint: `a0e8bece4` (2026-08-05). Manual verification covers OTP
 unlock, NEAR/Tempo/EVM signing, Ed25519/ECDSA export, same-method step-up, and
 post-refresh rehydration. The focused OTP intended contracts pass 3/3. The full
-healthy local intended run passes 7/10; the remaining three failures are isolated
-to the Passkey Ed25519 local-registration `authorityScope` contract.
+healthy local intended run passes 10/10 after the pending-Ed25519 activation
+parser correction.
 
 This document is the execution tracker for
 [the normative SPEC](./refactor-90-modular-auth-capabilities-SPEC.md). If this plan
@@ -2010,22 +2009,24 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
       active.
 - [x] Lock on authoritative expiry, request step-up on exhaustion, and preserve
       the broader app identity session.
-- [x] Ensure only explicit wallet unlock creates a reusable Wallet Session.
-      Move first ECDSA session activation inside verified wallet unlock, make
-      the activation route Wallet-Session-only for additional targets, and
-      delete the app-session/export path that can currently mint one.
-- [x] Restrict direct ECDSA session activation to an existing same-wallet
-      Wallet Session and expose first-session provisioning only after a verified
-      unlock proof.
-- [x] Send the first exact activation through Passkey session exchange and
-      Email OTP wallet-unlock verification; use its Wallet Session JWT for
-      additional configured targets.
-  - [x] Passkey assertion exchange verifies the proof, provisions the first
-        exact ECDSA activation, adopts that correlated activation locally, and
-        reuses its Wallet Session JWT for later targets.
-  - [x] Email OTP wallet-unlock verification performs the equivalent first
-        activation and later-target reuse without exposing worker-owned secret
-        material.
+- [x] Registration establishes the initial reusable Wallet Session. Explicit
+      wallet unlock establishes or renews one; refresh and one-operation
+      step-up do not mint one. Keep first ECDSA registration activation inside
+      the registration ceremony, make later activation Wallet-Session-only for
+      additional targets, and delete the app-session/export path that can mint
+      one.
+- [x] Restrict direct ECDSA session activation for additional targets to an
+      existing same-wallet Wallet Session; registration remains the first-session
+      provisioning path.
+- [x] Send the first exact activation through the registration authority
+      exchange and use the Wallet Session JWT from explicit unlock for additional
+      configured targets.
+  - [x] Passkey registration verifies the registration proof, provisions the
+        first exact ECDSA activation, adopts that correlated activation locally,
+        and establishes the initial reusable Wallet Session.
+  - [x] Email OTP registration verification performs the equivalent initial
+        activation and Wallet Session establishment without exposing
+        worker-owned secret material.
 - [x] Keep step-up single-operation across signing and export surfaces.
 
 ### Provisioning

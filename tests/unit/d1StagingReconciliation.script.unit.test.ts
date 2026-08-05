@@ -91,7 +91,7 @@ function emptyStdoutResultRunner(command: string): D1StagingCommandResult {
   };
 }
 
-test('D1 staging reconciliation builds read-only console and signer checks', async () => {
+test('D1 staging reconciliation builds read-only console checks', async () => {
   const module = await reconciliationModule;
   const plan = module.buildD1StagingReconciliationPlan(reconciliationInput);
 
@@ -106,12 +106,8 @@ test('D1 staging reconciliation builds read-only console and signer checks', asy
     'prepaid_reservation_summary_mismatch',
     'sponsored_call_missing_billing_links',
     'sponsored_call_settlement_amount_mismatch',
-    'signer_share_unknown_kek',
-    'signer_share_invalid_rotation_state',
   ]);
   expect(plan.checks[0].command).toContain('d1 execute seams-console-staging-nrt --remote --json');
-  expect(plan.checks[4].command).toContain('d1 execute seams-signer-staging-nrt --remote --json');
-  expect(plan.checks[4].command).toContain('signing-root-kek-staging-r1');
 });
 
 test('D1 staging reconciliation dry-run writes a manifest without executing commands', async () => {
@@ -123,7 +119,7 @@ test('D1 staging reconciliation dry-run writes a manifest without executing comm
   });
 
   expect(result.manifest.executed).toEqual([]);
-  expect(readD1StagingJsonFile(manifestPath).checks).toHaveLength(6);
+  expect(readD1StagingJsonFile(manifestPath).checks).toHaveLength(4);
 });
 
 test('D1 staging reconciliation remote mode records zero-row evidence', async () => {
@@ -136,7 +132,7 @@ test('D1 staging reconciliation remote mode records zero-row evidence', async ()
     commandRunner: emptyResultRunner,
   });
 
-  expect(result.manifest.executed).toHaveLength(6);
+  expect(result.manifest.executed).toHaveLength(4);
   expect(result.manifest.executed.every((check) => check.rowCount === 0)).toBe(true);
 });
 

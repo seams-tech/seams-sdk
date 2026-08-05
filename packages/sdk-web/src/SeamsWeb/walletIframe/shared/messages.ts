@@ -6,11 +6,15 @@ import { ActionArgs, TransactionInput } from '@/core/types';
 import { type DeviceLinkingQRData } from '@/core/types/linkDevice';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
+import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
+import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
+import type { TempoFeeTokenPreferenceSigningRequest } from '@/core/signingEngine/chains/tempo/feeToken';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type {
+  EvmEip155ChainTarget,
   NearAccountRef,
+  TempoChainTarget,
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -350,14 +354,29 @@ export interface PMSignNep413Payload {
   };
 }
 
-export interface PMSignTempoPayload {
+type PMSignTempoPayloadBase = {
   walletSession: WalletSessionRef;
-  request: MultichainSigningRequest;
-  chainTarget: ThresholdEcdsaChainTarget;
   options?: {
     confirmationConfig?: Partial<ConfirmationConfig>;
   };
-}
+};
+
+export type PMSignTempoPayload =
+  | (PMSignTempoPayloadBase & {
+      operationKind: 'tempo_transaction';
+      request: TempoSigningRequest;
+      chainTarget: TempoChainTarget;
+    })
+  | (PMSignTempoPayloadBase & {
+      operationKind: 'evm_transaction';
+      request: EvmSigningRequest;
+      chainTarget: EvmEip155ChainTarget;
+    })
+  | (PMSignTempoPayloadBase & {
+      operationKind: 'tempo_fee_token_preference';
+      request: TempoFeeTokenPreferenceSigningRequest;
+      chainTarget: TempoChainTarget;
+    });
 
 export interface PMTempoNonceLifecyclePayloadBase {
   walletSession: WalletSessionRef;

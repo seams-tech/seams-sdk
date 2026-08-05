@@ -2,12 +2,6 @@
 // Keep additions limited to primitives already required by that composition.
 export * from './core/SessionService';
 export * from './core/ThresholdService/evmCryptoWasm';
-export * from './core/ThresholdService/signingRootKekProvider';
-export * from './core/ThresholdService/signingRootSecretSealing';
-export * from './core/ThresholdService/signingRootSecretShareWires';
-export * from './core/ThresholdService/signingRootShareResolver';
-export * from './core/ThresholdService/stores/SigningRootSecretStore.d1';
-export * from './core/ThresholdService/stores/SigningRootSecretStore.shared';
 export * from './core/d1WalletStore';
 export * from './core/logger';
 export * from './core/routerAbSigning/RouterAbEcdsaPresignRuntime';

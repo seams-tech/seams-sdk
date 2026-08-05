@@ -2,7 +2,7 @@
   "staging": {
     "branch": "dev",
     "gatewayDeploymentConfig": {
-      "schemaVersion": 3,
+      "schemaVersion": 4,
       "target": "staging",
       "runtimeProfile": {
         "kind": "testnet_live_demo",
@@ -23,8 +23,7 @@
         "signerD1": {
           "name": "seams-signer-staging-nrt",
           "id": "c68fdf27-ced3-464a-ad40-c3acf8727f8e"
-        },
-        "secretsStoreId": "41fe2fa0a4a64d25a120a6c00973da1d"
+        }
       },
       "tenant": {
         "namespace": "seams-staging",
@@ -38,11 +37,6 @@
           "https://staging.seams.sh",
           "https://staging.sign.seams.sh"
         ]
-      },
-      "signingRoot": {
-        "id": "signing-root-kek-staging-r1",
-        "secretName": "signing-root-kek-staging-r1",
-        "encoding": "base64url"
       },
       "session": {
         "issuer": "seams-gateway-staging"
@@ -212,7 +206,7 @@
   "production": {
     "branch": "main",
     "gatewayDeploymentConfig": {
-      "schemaVersion": 3,
+      "schemaVersion": 4,
       "target": "production",
       "runtimeProfile": {
         "kind": "testnet_live_demo",
@@ -233,8 +227,7 @@
         "signerD1": {
           "name": "seams-signer",
           "id": "3f9eab6f-99ee-4512-b09f-02d2bf931d62"
-        },
-        "secretsStoreId": "41fe2fa0a4a64d25a120a6c00973da1d"
+        }
       },
       "tenant": {
         "namespace": "seams-production",
@@ -248,11 +241,6 @@
           "https://seams.sh",
           "https://sign.seams.sh"
         ]
-      },
-      "signingRoot": {
-        "id": "signing-root-kek-production-r1",
-        "secretName": "signing-root-kek-production-r1",
-        "encoding": "base64url"
       },
       "session": {
         "issuer": "seams-gateway-production"

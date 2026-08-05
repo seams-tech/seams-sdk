@@ -46,7 +46,6 @@ const runbookOptions = {
 };
 const finalEvidenceManifestFlags = [
   '--resources "$RESOURCE_INVENTORY_MANIFEST"',
-  '--kek-check "$KEK_CHECK_MANIFEST"',
   '--migrations "$MIGRATIONS_MANIFEST"',
   '--bookmark-before-fixture-import "$BOOKMARK_BEFORE_FIXTURE_IMPORT_MANIFEST"',
   '--fixture-import "$FIXTURE_IMPORT_MANIFEST"',
@@ -67,7 +66,6 @@ test('D1 staging runbook renders exact Phase 6 command sequence from readiness-c
   expect(markdown).toContain('Generated: 2026-06-28T00:00:00.000Z');
   expect(markdown).toContain('Operator: staging-operator');
   expect(markdown).toContain('pnpm --dir packages/console-server-ts run d1:staging:resources');
-  expect(markdown).toContain('pnpm --dir packages/console-server-ts run d1:staging:kek-check');
   expect(markdown).toContain('pnpm --dir packages/console-server-ts run d1:staging:migrate');
   expect(markdown).toContain('pnpm --dir packages/console-server-ts run d1:staging:bookmark');
   expect(markdown).toContain('--purpose before_fixture_import');
@@ -82,14 +80,10 @@ test('D1 staging runbook renders exact Phase 6 command sequence from readiness-c
   for (const flag of finalEvidenceManifestFlags) expect(markdown).toContain(flag);
   expect(markdown).toContain('--origin https://console.staging.example');
   expect(markdown).toContain('--wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT');
-  expect(markdown).toContain('SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT');
-  expect(markdown).toContain('--missing-kek-fixture "$ECDSA_MISSING_KEK_EXPORT_SHARE_FIXTURE"');
-  expect(markdown).toContain('--missing-kek-expected-status 503');
-  expect(markdown).toContain('ecdsa_export_share_missing_kek_fail_closed');
   expect(markdown).toContain('--console-origin https://console.staging.example');
   expect(markdown).toContain('Gateway `/router-ab/ed25519/healthz` configured');
   expect(markdown).toContain('Gateway `/router-ab/ecdsa-derivation/healthz` configured');
-  expect(markdown).toContain('Fixture-backed signer custody, KEK isolation, and missing-KEK fail-closed');
+  expect(markdown).toContain('Fixture-backed signer custody');
   expect(markdown.indexOf('## Preflight')).toBeLessThan(
     markdown.indexOf('## Resource Inventory Capture'),
   );

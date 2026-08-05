@@ -26,13 +26,6 @@ import type {
   SeamsSessionId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type {
-  CreateHostedSigningRootShareResolverInput,
-  SigningRootShareDecryptAdapter,
-  SigningRootShareResolver,
-  SigningRootShareSource,
-  ThresholdPrfPolicy,
-} from './ThresholdService/signingRootShareResolver';
 
 /**
  * WASM Bindgen generates a `free` method and a `[Symbol.dispose]` method on all structs.
@@ -233,16 +226,6 @@ export type ThresholdStoreEnvInput = {
   SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL?: string;
   SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX?: string;
   SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS?: string;
-  /**
-   * Core signing-root dependency for active signing. Hosted deployments
-   * usually build this from storage/decrypt adapters. Direct self-host
-   * deployments can supply a resolver backed by imported signing-root shares.
-   */
-  signingRootShareResolver?: SigningRootShareResolver;
-  signingRootShareResolverAdapters?: CreateHostedSigningRootShareResolverInput;
-  signingRootSharePolicy?: ThresholdPrfPolicy;
-  signingRootShareStore?: SigningRootShareSource;
-  signingRootShareDecryptAdapter?: SigningRootShareDecryptAdapter;
 };
 
 /**

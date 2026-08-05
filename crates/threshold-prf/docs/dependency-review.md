@@ -119,4 +119,4 @@ Decision:
   becomes a production deployment path; the current implementation uses
   existing Ristretto, SHA-512, `rand_core`, `subtle`, and `zeroize`
   dependencies.
-- Run Cloudflare Worker or WASM benchmarks before making Worker latency claims.
+- Run native or local WASM benchmarks before making runtime latency claims.

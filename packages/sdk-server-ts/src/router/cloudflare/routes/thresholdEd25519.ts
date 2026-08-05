@@ -1155,6 +1155,19 @@ export function replayCompletedEd25519Operation(operation: AuthorizedOperation):
   });
 }
 
+/**
+ * Completion readback is the authority for a terminal response. A claimed
+ * operation must never fall back to the live upstream response after the
+ * completion write, since that would make retries non-idempotent.
+ */
+export function requireCompletedEd25519OperationResponse(
+  operation: AuthorizedOperation,
+): Response {
+  const replay = replayCompletedEd25519Operation(operation);
+  if (!replay) throw new Error('Ed25519 operation completion readback is not completed');
+  return replay;
+}
+
 export function buildEd25519ReplayResponse(input: {
   readonly response: Response;
   readonly bodyText: string;
@@ -1707,7 +1720,7 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
           result: upstream.status < 500 ? 'failed_before_side_effect' : 'failed_after_side_effect',
           response: buildEd25519ReplayResponse({ response: upstream, bodyText: upstreamBodyText }),
         });
-        return replayCompletedEd25519Operation(completed) ?? upstream;
+        return requireCompletedEd25519OperationResponse(completed);
       }
       return new Response(
         JSON.stringify({
@@ -1774,7 +1787,7 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
           : 'failed_after_side_effect',
       response: buildEd25519ReplayResponse({ response: upstream, bodyText: upstreamBodyText }),
     });
-    return replayCompletedEd25519Operation(completed) ?? upstream;
+    return requireCompletedEd25519OperationResponse(completed);
   }
   if (input.phase === 'prepare') {
     const authorized = await authorizeEd25519ReusableWalletSessionOperation({
@@ -1832,7 +1845,7 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
         result: upstream.status < 500 ? 'failed_before_side_effect' : 'failed_after_side_effect',
         response: buildEd25519ReplayResponse({ response: upstream, bodyText: upstreamBodyText }),
       });
-      return replayCompletedEd25519Operation(completed) ?? upstream;
+      return requireCompletedEd25519OperationResponse(completed);
     }
     return new Response(
       JSON.stringify({
@@ -1891,7 +1904,7 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
         : 'failed_after_side_effect',
     response: buildEd25519ReplayResponse({ response: upstream, bodyText: upstreamBodyText }),
   });
-  return replayCompletedEd25519Operation(completed) ?? upstream;
+  return requireCompletedEd25519OperationResponse(completed);
 }
 
 export async function handleThresholdEd25519(

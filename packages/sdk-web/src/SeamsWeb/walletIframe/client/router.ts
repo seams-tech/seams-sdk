@@ -105,6 +105,7 @@ import type {
 import type { WalletIframeRequestId } from '@/SeamsWeb/publicApi/types';
 import { walletIframeSurfaceIdFromBoundary } from '@/core/types/walletIframeIdentity';
 import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
+import { requireTempoFeeTokenPreferenceSigningRequest } from '@/core/signingEngine/chains/tempo/feeToken';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type { NonceLeaseRef } from '@/core/signingEngine/nonce/NonceCoordinator';
@@ -367,6 +368,48 @@ function shouldHideWalletIframeSurface(payload: ProgressPayload): boolean {
 const WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR = 4;
 const WALLET_IFRAME_REGISTRATION_TIMEOUT_MS = 180_000;
 const WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS = 30_000;
+
+type SignTempoRouterPayload = {
+  walletSession: WalletSessionRef;
+  request: MultichainSigningRequest;
+  chainTarget: ThresholdEcdsaChainTarget;
+  options?: {
+    confirmationConfig?: Partial<ConfirmationConfig>;
+  };
+};
+
+function buildSignTempoIframePayload(
+  payload: SignTempoRouterPayload,
+): Extract<ParentToChildEnvelope, { type: 'PM_SIGN_TEMPO' }>['payload'] {
+  if (payload.request.chain === 'tempo') {
+    if (payload.chainTarget.kind !== 'tempo') {
+      throw new Error('[wallet-iframe] Tempo request requires a Tempo target');
+    }
+    return {
+      ...payload,
+      operationKind: 'tempo_transaction',
+      request: payload.request,
+      chainTarget: payload.chainTarget,
+    };
+  }
+  if (payload.chainTarget.kind === 'evm') {
+    return {
+      ...payload,
+      operationKind: 'evm_transaction',
+      request: payload.request,
+      chainTarget: payload.chainTarget,
+    };
+  }
+  return {
+    ...payload,
+    operationKind: 'tempo_fee_token_preference',
+    request: requireTempoFeeTokenPreferenceSigningRequest({
+      request: payload.request,
+      chainTarget: payload.chainTarget,
+    }),
+    chainTarget: payload.chainTarget,
+  };
+}
 const WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS = 5 * 60 * 1000;
 
 type WalletIframeLoginStatusSnapshot = {
@@ -2178,7 +2221,7 @@ export class WalletIframeRouter {
     const res = await this.post<TempoSignedResult>(
       {
         type: 'PM_SIGN_TEMPO',
-        payload: {
+        payload: buildSignTempoIframePayload({
           walletSession: payload.walletSession,
           request: payload.request,
           chainTarget: payload.chainTarget,
@@ -2189,7 +2232,7 @@ export class WalletIframeRouter {
                   : {}),
               }
             : undefined,
-        },
+        }),
         options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
       },
       {

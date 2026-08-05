@@ -23,6 +23,7 @@ clients/ios/.build
 examples/relay-cloudflare-worker/.wrangler
 packages/console-server-ts/.wrangler/
 .runtime/
+.local/
 
 # Local Wrangler secrets. Use packages/console-server-ts/dev.vars as the checked-in template.
 packages/console-server-ts/.dev.vars
@@ -53,9 +54,7 @@ wasm/tempo_signer/target
 wasm/shamir3pass_runtime/pkg
 wasm/shamir3pass_runtime/target
 wasm/email_otp_runtime/pkg
-wasm/threshold_prf/pkg
 wasm/email_otp_runtime/target
-wasm/threshold_prf/target
 crates/*/target
 tools/*/target
 crates/threshold-prf/wasm-bench/pkg

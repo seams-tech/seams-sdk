@@ -80,7 +80,6 @@ import {
 import { D1RecoverySessionStore } from '../../packages/sdk-server-ts/src/core/RecoverySessionStore';
 import { D1WalletAuthMethodStore } from '../../packages/sdk-server-ts/src/core/WalletAuthMethodStore';
 import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/WalletStore';
-import { D1SigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore.d1';
 import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
@@ -269,28 +268,6 @@ type RawD1WalletSignerInsertInput = {
 type RawD1WalletInsertInput = {
   readonly walletId: string;
   readonly recordJson: string;
-  readonly createdAtMs: number;
-  readonly updatedAtMs: number;
-};
-type RawD1SigningRootSecretShareInsertInput = {
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly signingRootId: string;
-  readonly signingRootVersion: string;
-  readonly shareId: number;
-  readonly sealedShareB64u: string;
-  readonly storageId: string | null;
-  readonly kekId: string;
-  readonly envelopeVersion: string;
-  readonly aadDigestB64u: string;
-  readonly ciphertextDigestB64u: string;
-  readonly rotationState: string;
-  readonly rotatedFromKekId: string | null;
-  readonly rotatedAtMs: number | null;
-  readonly retiredAtMs: number | null;
-  readonly lastAuditEventId: string;
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
 };
@@ -1079,34 +1056,6 @@ function buildRawD1EcdsaWalletSignerInsertInput(input: {
       }),
     createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
     updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
-  };
-}
-
-function buildRawD1SigningRootSecretShareInsertInput(
-  input: Partial<RawD1SigningRootSecretShareInsertInput>,
-): RawD1SigningRootSecretShareInsertInput {
-  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
-  return {
-    namespace: input.namespace ?? 'd1-contracts',
-    orgId: input.orgId ?? 'org-d1-signer-schema',
-    projectId: input.projectId ?? 'project-d1-signer-schema',
-    envId: input.envId ?? 'env-production',
-    signingRootId: input.signingRootId ?? 'signing-root-raw-secret',
-    signingRootVersion: input.signingRootVersion ?? '',
-    shareId: input.shareId ?? 1,
-    sealedShareB64u: input.sealedShareB64u ?? 'AQIDBA',
-    storageId: input.storageId === undefined ? null : input.storageId,
-    kekId: input.kekId ?? 'kek-raw-secret-share',
-    envelopeVersion: input.envelopeVersion ?? 'd1-secret-share-v1',
-    aadDigestB64u: input.aadDigestB64u ?? 'A'.repeat(43),
-    ciphertextDigestB64u: input.ciphertextDigestB64u ?? 'B'.repeat(43),
-    rotationState: input.rotationState ?? 'active',
-    rotatedFromKekId: input.rotatedFromKekId === undefined ? null : input.rotatedFromKekId,
-    rotatedAtMs: input.rotatedAtMs === undefined ? null : input.rotatedAtMs,
-    retiredAtMs: input.retiredAtMs === undefined ? null : input.retiredAtMs,
-    lastAuditEventId: input.lastAuditEventId ?? 'audit-raw-secret-share',
-    createdAtMs,
-    updatedAtMs: input.updatedAtMs ?? createdAtMs + 1000,
   };
 }
 
@@ -2090,60 +2039,6 @@ async function insertRawD1WalletAuthMethodRecord(
     .run();
 }
 
-async function insertRawD1SigningRootSecretShareRecord(
-  database: D1DatabaseLike,
-  input: RawD1SigningRootSecretShareInsertInput,
-): Promise<void> {
-  await database
-    .prepare(
-      `INSERT INTO signing_root_secret_shares (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        signing_root_id,
-        signing_root_version,
-        share_id,
-        sealed_share_b64u,
-        storage_id,
-        kek_id,
-        envelope_version,
-        aad_digest_b64u,
-        ciphertext_digest_b64u,
-        rotation_state,
-        rotated_from_kek_id,
-        rotated_at_ms,
-        retired_at_ms,
-        last_audit_event_id,
-        created_at_ms,
-        updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      input.signingRootId,
-      input.signingRootVersion,
-      input.shareId,
-      input.sealedShareB64u,
-      input.storageId,
-      input.kekId,
-      input.envelopeVersion,
-      input.aadDigestB64u,
-      input.ciphertextDigestB64u,
-      input.rotationState,
-      input.rotatedFromKekId,
-      input.rotatedAtMs,
-      input.retiredAtMs,
-      input.lastAuditEventId,
-      input.createdAtMs,
-      input.updatedAtMs,
-    )
-    .run();
-}
-
 async function insertRawD1IdentityLinkRecord(
   database: D1DatabaseLike,
   input: RawD1IdentityLinkInsertInput,
@@ -2800,15 +2695,6 @@ async function expectRawD1WalletAuthMethodInsertRejected(
   );
 }
 
-async function expectRawD1SigningRootSecretShareInsertRejected(
-  database: D1DatabaseLike,
-  input: RawD1SigningRootSecretShareInsertInput,
-): Promise<void> {
-  await expect(insertRawD1SigningRootSecretShareRecord(database, input)).rejects.toThrow(
-    /CHECK constraint failed/,
-  );
-}
-
 async function expectRawD1IdentityLinkInsertRejected(
   database: D1DatabaseLike,
   input: RawD1IdentityLinkInsertInput,
@@ -3331,73 +3217,6 @@ test.describe('D1 migration smoke', () => {
         .prepare('SELECT COUNT(*) AS record_count FROM wallet_auth_methods')
         .first<{ record_count?: unknown }>();
       expect(Number(row?.record_count || 0)).toBe(2);
-    } finally {
-      cleanupTemporaryD1Database(temp.tempDir);
-    }
-  });
-
-  test('d1-signer sealed-share migration rejects corrupt raw custody rows', async () => {
-    const temp = createTemporaryD1Database();
-    try {
-      await applyD1MigrationFiles(temp.database, listD1MigrationFiles('d1-signer'));
-
-      await expectRawD1SigningRootSecretShareInsertRejected(
-        temp.database,
-        buildRawD1SigningRootSecretShareInsertInput({
-          namespace: '',
-        }),
-      );
-      await expectRawD1SigningRootSecretShareInsertRejected(
-        temp.database,
-        buildRawD1SigningRootSecretShareInsertInput({
-          signingRootId: '',
-        }),
-      );
-      await expectRawD1SigningRootSecretShareInsertRejected(
-        temp.database,
-        buildRawD1SigningRootSecretShareInsertInput({
-          sealedShareB64u: 'AQIDBA=',
-        }),
-      );
-      await expectRawD1SigningRootSecretShareInsertRejected(
-        temp.database,
-        buildRawD1SigningRootSecretShareInsertInput({
-          aadDigestB64u: 'short',
-        }),
-      );
-      await expectRawD1SigningRootSecretShareInsertRejected(
-        temp.database,
-        buildRawD1SigningRootSecretShareInsertInput({
-          storageId: '',
-        }),
-      );
-      await expectRawD1SigningRootSecretShareInsertRejected(
-        temp.database,
-        buildRawD1SigningRootSecretShareInsertInput({
-          createdAtMs: 0,
-        }),
-      );
-      await expectRawD1SigningRootSecretShareInsertRejected(
-        temp.database,
-        buildRawD1SigningRootSecretShareInsertInput({
-          updatedAtMs: Date.parse('2026-06-26T23:59:59.000Z'),
-        }),
-      );
-      await expectRawD1SigningRootSecretShareInsertRejected(
-        temp.database,
-        buildRawD1SigningRootSecretShareInsertInput({
-          rotatedAtMs: Date.parse('2026-06-26T23:59:59.000Z'),
-        }),
-      );
-
-      await insertRawD1SigningRootSecretShareRecord(
-        temp.database,
-        buildRawD1SigningRootSecretShareInsertInput({}),
-      );
-      const row = await temp.database
-        .prepare('SELECT COUNT(*) AS record_count FROM signing_root_secret_shares')
-        .first<{ record_count?: unknown }>();
-      expect(Number(row?.record_count || 0)).toBe(1);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }
@@ -7934,69 +7753,6 @@ test.describe('D1 adapter contracts', () => {
       });
       await expect(otherEnvKeyStore.listByUserId('user-d1-near-key')).resolves.toHaveLength(0);
       await expect(keyStore.listByUserId('')).resolves.toHaveLength(0);
-    } finally {
-      cleanupTemporaryD1Database(temp.tempDir);
-    }
-  });
-
-  test('signer sealed shares are scoped by tenant, project, and environment', async () => {
-    const temp = createTemporaryD1Database();
-    try {
-      const sharedOptions = {
-        database: temp.database,
-        namespace: 'd1-contracts',
-        orgId: 'org-d1-signer',
-        projectId: 'project-d1-signer',
-        envelopeVersion: 'd1-secret-share-v1',
-        lastAuditEventId: 'audit-event-1',
-        now: () => new Date('2026-06-27T00:00:00.000Z'),
-      };
-      const productionStore = new D1SigningRootSecretStore({
-        ...sharedOptions,
-        envId: 'env-production',
-      });
-      const developmentStore = new D1SigningRootSecretStore({
-        ...sharedOptions,
-        envId: 'env-development',
-      });
-
-      await productionStore.putSealedSigningRootSecretShare({
-        signingRootId: 'signing-root-1',
-        signingRootVersion: 'version-1',
-        shareId: 1,
-        sealedShare: new Uint8Array([1, 2, 3, 4]),
-        storageId: 'r2://shares/signing-root-1/share-1',
-        kekId: 'kek-production-1',
-      });
-
-      const productionShares = await productionStore.listSealedSigningRootSecretShares({
-        signingRootId: 'signing-root-1',
-        signingRootVersion: 'version-1',
-      });
-      const developmentShares = await developmentStore.listSealedSigningRootSecretShares({
-        signingRootId: 'signing-root-1',
-        signingRootVersion: 'version-1',
-      });
-
-      expect(productionShares).toHaveLength(1);
-      expect(productionShares[0]?.kekId).toBe('kek-production-1');
-      expect(Array.from(productionShares[0]?.sealedShare || [])).toEqual([1, 2, 3, 4]);
-      expect(developmentShares).toHaveLength(0);
-
-      let missingKekError: unknown = null;
-      try {
-        await productionStore.putSealedSigningRootSecretShare({
-          signingRootId: 'signing-root-1',
-          signingRootVersion: 'version-1',
-          shareId: 2,
-          sealedShare: new Uint8Array([5, 6, 7, 8]),
-        });
-      } catch (error: unknown) {
-        missingKekError = error;
-      }
-      expect(String(missingKekError)).toContain(
-        'kekId is required for D1 signing-root secret shares',
-      );
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

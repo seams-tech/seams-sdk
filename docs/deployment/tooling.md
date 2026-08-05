@@ -52,7 +52,7 @@ needs. It does not contain Deriver, SigningWorker, or Gateway private material.
 The generator creates fresh Router A/B identities, matched root shares,
 ceremony JWT signing material, internal service authentication, Gateway
 secrets, and signing-session seal material. Prepare mode also provisions the
-target's D1 databases, Pages projects, and Secrets Store when they do not exist.
+target's D1 databases and Pages projects when they do not exist.
 Supply the administrator-created organization, project, environment, and
 project-environment IDs plus the publishable key in the protected deployment
 values file after completing onboarding.
@@ -119,12 +119,12 @@ The generator automatically loads
 select a different protected file.
 
 Prepare mode provisions or discovers shared Cloudflare resources and validates
-the complete seven-environment topology. Component apply mode:
+the complete six-environment topology: one frontend environment plus the five
+wallet-core role environments. Component apply mode:
 
 - Creates missing GitHub Environments.
 - Preserves existing environments and their protection rules.
-- Creates missing target-scoped D1 databases and Pages projects. It reuses the
-  account Secrets Store or creates one when the account has none.
+- Creates missing target-scoped D1 databases and Pages projects.
 - Generates and uploads all repository-owned cryptographic secrets.
 - Uploads externally owned values loaded from the protected file or shell.
 - Discovers the Cloudflare account ID and existing Cloudflare resources through

@@ -1,11 +1,13 @@
 import type {
   EvmAddress,
   EvmContractAbi,
+  Eip1559UnsignedTx,
   EvmSigningRequest,
   Hex,
 } from '../evm/evmSigning.types';
 import type { TempoCall } from './tempoSigning.types';
 import { createEvmClient } from '@/core/rpcClients/evm/EvmClient';
+import type { TempoChainTarget } from '@/core/platform/types';
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const ABI_WORD_HEX_LENGTH = 64;
@@ -44,6 +46,14 @@ export const TEMPO_FEE_MANAGER_ABI: EvmContractAbi = [
   },
 ];
 
+export type TempoFeeTokenPreferenceSigningRequest = Omit<EvmSigningRequest, 'tx'> & {
+  tx: Omit<Eip1559UnsignedTx, 'to' | 'value' | 'data'> & {
+    to: typeof TEMPO_FEE_MANAGER_CONTRACT;
+    value: 0n;
+    data: Hex;
+  };
+};
+
 export function parseTempoEvmAddress(label: string, value: unknown): EvmAddress {
   const normalized = String(value || '').trim();
   if (!EVM_ADDRESS_RE.test(normalized)) {
@@ -56,6 +66,50 @@ export function encodeTempoSetUserTokenCalldata(token: EvmAddress): Hex {
   const normalizedToken = parseTempoEvmAddress('fee token address', token).slice(2).toLowerCase();
   const tokenWord = normalizedToken.padStart(ABI_WORD_HEX_LENGTH, '0');
   return `${TEMPO_SET_USER_TOKEN_SELECTOR}${tokenWord}` as Hex;
+}
+
+export function requireTempoFeeTokenPreferenceSigningRequest(args: {
+  request: EvmSigningRequest;
+  chainTarget: TempoChainTarget;
+}): TempoFeeTokenPreferenceSigningRequest {
+  const { request, chainTarget } = args;
+  if (
+    request.chain !== 'evm' ||
+    request.kind !== 'eip1559' ||
+    request.senderSignatureAlgorithm !== 'secp256k1'
+  ) {
+    throw new Error('[tempo] fee-token request must use the EIP-1559 secp256k1 envelope');
+  }
+  if (request.tx.chainId !== chainTarget.chainId) {
+    throw new Error('[tempo] fee-token request chain id does not match the Tempo target');
+  }
+  if (request.tx.to?.toLowerCase() !== TEMPO_FEE_MANAGER_CONTRACT) {
+    throw new Error('[tempo] fee-token request must call the Tempo FeeManager');
+  }
+  if (request.tx.value !== 0n) {
+    throw new Error('[tempo] fee-token request must not transfer value');
+  }
+  const data = String(request.tx.data ?? '').toLowerCase();
+  const encodedToken = data.slice(TEMPO_SET_USER_TOKEN_SELECTOR.length);
+  if (
+    !data.startsWith(TEMPO_SET_USER_TOKEN_SELECTOR) ||
+    !/^0{24}[0-9a-f]{40}$/.test(encodedToken)
+  ) {
+    throw new Error('[tempo] fee-token request must call FeeManager.setUserToken(address)');
+  }
+  if (request.tx.accessList && request.tx.accessList.length !== 0) {
+    throw new Error('[tempo] fee-token request must not carry an access list');
+  }
+  const feeToken = parseTempoEvmAddress('fee token address', `0x${encodedToken.slice(24)}`);
+  return {
+    ...request,
+    tx: {
+      ...request.tx,
+      to: TEMPO_FEE_MANAGER_CONTRACT,
+      value: 0n,
+      data: encodeTempoSetUserTokenCalldata(feeToken),
+    },
+  };
 }
 
 export function encodeTempoUserTokensCalldata(user: EvmAddress): Hex {
@@ -234,7 +288,7 @@ export function buildTempoSetUserTokenRequest(args: {
   maxPriorityFeePerGas: bigint;
   maxFeePerGas: bigint;
   gasLimit: bigint;
-}): EvmSigningRequest {
+}): TempoFeeTokenPreferenceSigningRequest {
   if (!Number.isSafeInteger(args.chainId) || args.chainId <= 0) {
     throw new Error('[tempo] chainId must be a positive safe integer');
   }

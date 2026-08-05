@@ -32,7 +32,9 @@ single-signer custody model.
 ## Decision
 
 Use randomly generated signing roots, but never let the normal hosted runtime
-combine enough root material in one process.
+combine enough root material in one process. Provision custody independently to
+Deriver A and Deriver B; there is no centralized hosted signing-root record or
+resolver.
 
 For each project/environment:
 
@@ -40,11 +42,13 @@ For each project/environment:
    notation.
 2. Split it into a recoverable threshold sharing, initially 2-of-3.
 3. Assign active custody roles to Signer A and Signer B.
-4. Seal each custody share under role-specific wrapping keys.
-5. Persist sealed shares with `signing_root_version`, `root_share_epoch`,
-   storage locator, wrapping-key locator, and signer-role metadata.
-6. Discard plaintext `k_org` after the root ceremony and backup/export ceremony
-   complete.
+4. Provision each role's share to its own Deriver and protect it with that
+   role's KEK. Role-local metadata includes `signing_root_version`,
+   `root_share_epoch`, and the active key epoch.
+5. Produce an offline customer backup/export package through an approved
+   ceremony; the hosted request path does not import or resolve this package.
+6. Discard plaintext `k_org` after provisioning and the offline backup/export
+   ceremony complete.
 7. Use Router + A + B for derivation-time ceremonies.
 8. Use Router + one relayer for day-to-day signing after A/B have produced the
    allowed relayer output.
@@ -62,7 +66,7 @@ Client opens only x_client_base.
 Relayer opens only x_relayer_base.
 ```
 
-The canonical durable recovery material is the set of sealed signing-root
+The canonical recovery material is the independently held role-local custody
 shares plus the customer backup package. There is no platform-only
 `master_secret -> k_org` recovery path.
 
@@ -93,8 +97,8 @@ signing_root_secret / k_org
 
 The old "one signer decrypts two shares and combines into full `y_relayer`"
 shape is no longer the target for hosted production. It remains useful only as
-a reference-vector or emergency recovery ceremony, and must not be presented as
-the security boundary for Router A/B.
+a reference-vector or offline emergency recovery ceremony, and must not be
+presented as the security boundary for Router A/B.
 
 ## Naming
 
@@ -106,11 +110,10 @@ names only in protocol internals.
 | Random signing root | `signing_root_secret` | `k_org` |
 | Signing root version | `signing_root_version` | `k_org_version` |
 | Root share epoch | `root_share_epoch` | share epoch |
-| A custody share | `signing_root_secret_share_a` | `k_org_share_a` |
-| B custody share | `signing_root_secret_share_b` | `k_org_share_b` |
-| Backup/recovery share | `signing_root_secret_share_backup` | `k_org_share_backup` |
-| Sealed root share | `sealed_signing_root_secret_share` | `enc(k_org_share_i)` |
-| Share wrapping key | `share_wrapping_key` | KEK |
+| A role-local custody share | `deriver_a_root_share` | `k_org_share_a` |
+| B role-local custody share | `deriver_b_root_share` | `k_org_share_b` |
+| Offline customer backup | `customer_backup_package` | backup share |
+| Role wrapping key | `deriver_role_kek` | KEK |
 | A-side relayer root input | `server_wallet_root_input_a` | `y_A` |
 | B-side relayer root input | `server_wallet_root_input_b` | `y_B` |
 | Joined relayer root input | `server_wallet_root_input` | `y_relayer` |
@@ -189,28 +192,16 @@ client contribution + relayer x_relayer_base -> threshold signature
 
 Normal signing should not unwrap `k_org` shares or invoke Signer A and Signer B.
 
-## Canonical Records
+## Role-Local Custody Metadata
 
-`SigningRootRecord` is the durable root record for one
-project/environment/root version.
+Deriver A and Deriver B own independent custody records for their active root
+share. Each role-local record is scoped to the project/environment and carries
+the signing-root identifier and version, root-share epoch, derivation version,
+role identity, and the role's KEK version. A record never contains the other
+role's share, a joined root, or a platform-wide resolver locator.
 
-It should contain:
-
-- `project_id`
-- `env_id`
-- `signing_root_id`
-- `signing_root_version`
-- `root_share_epoch`
-- `derivation_version`
-- wallet origin and RP ID binding
-- share threshold and share count
-- sealed signing-root shares
-- per-share role: A, B, backup, export, or recovery
-- per-share storage locator
-- per-share wrapping-key locator
-- signer identity policy for A and B
-- source metadata such as hosted generated, customer imported, customer
-  generated, dev, or self-host
+Customer backup and export material is generated and verified offline. It is
+kept outside the hosted request path and is never treated as a hosted record.
 
 Wallet metadata should include:
 
@@ -236,17 +227,16 @@ Project creation uses an audited root ceremony:
 2. Assign `signing_root_version = 1`.
 3. Assign `root_share_epoch = 1`.
 4. Split the root with the selected threshold sharing.
-5. Assign role-specific shares to Signer A, Signer B, and backup/recovery.
-6. Seal each hosted share under its role-specific wrapping key.
-7. Persist `SigningRootRecord` and indexed sealed shares atomically.
-8. Export a customer backup package.
-9. Require customer backup confirmation before production activation.
-10. Zeroize plaintext `signing_root_secret` and plaintext root shares from the
+5. Provision independent role-local shares to Deriver A and Deriver B under
+   their role-specific KEKs.
+6. Export and verify a customer backup package through an offline ceremony.
+7. Require customer backup confirmation before production activation.
+8. Zeroize plaintext `signing_root_secret` and plaintext root shares from the
     provisioning boundary.
 
-The root ceremony is the only normal hosted ceremony that may reconstruct
-`k_org`. In production, it should run in a narrow provisioning boundary with
-approval, audit logging, and no request-driven signing capability.
+Root generation and backup export run in a narrow approved ceremony with audit
+logging and no request-driven signing capability. Hosted request handling never
+reconstructs `k_org`.
 
 ## Derivation-Time Flow
 
@@ -350,16 +340,17 @@ Result:
 
 Router A/B handling:
 
-- A rewraps only A custody shares.
-- B rewraps only B custody shares.
-- backup/export shares are rewrapped by their custody boundary.
+- Deriver A rewraps only its role-local custody record.
+- Deriver B rewraps only its role-local custody record.
+- offline customer backup material is reissued by the approved backup
+  ceremony.
 - Router coordinates approvals and records public audit state.
 - No party opens joined `k_org`, `y_relayer`, or `tau_relayer`.
 
 ### Refresh Root Shares
 
-Refresh means replacing hosted root shares while preserving the same underlying
-`signing_root_secret`.
+Refresh means replacing role-local root shares while preserving the same
+underlying `signing_root_secret`.
 
 Result:
 
@@ -373,10 +364,10 @@ Result:
 
 This is the address-preserving operational rotation.
 
-Preferred hosted refresh is distributed resharing:
+Preferred refresh is a distributed offline or approved provisioning ceremony:
 
 ```text
-A old share + B old share + optional recovery participant
+A old share + B old share + optional offline recovery participant
   -> new A share
   -> new B share
   -> new backup/recovery share
@@ -393,13 +384,14 @@ Refresh protocol requirements:
 2. Pin `signing_root_version` and current `root_share_epoch`.
 3. Freeze new derivation ceremonies for the project/environment.
 4. Run distributed resharing or approved provisioning ceremony.
-5. Seal new A, B, and backup/recovery shares under active wrapping keys.
-6. Write all shares under `root_share_epoch + 1` atomically.
+5. Provision new A and B role-local shares under active role-specific KEKs.
+6. Commit each role-local record under `root_share_epoch + 1` atomically.
 7. Run address/public-key parity checks against known wallet inventory.
 8. Run a Router A/B relayer-share refresh for active relayer material when
    policy requires it.
 9. Mark the new epoch active.
-10. Retire old sealed shares after rollback window and evidence export.
+10. Retire old role-local shares after the rollback window and export audit
+    evidence.
 
 ### Replace Signing Root
 
@@ -438,19 +430,20 @@ refresh is complete.
 
 ## Recovery Model
 
-Recovery requires enough root shares to reconstruct or reshare the root, or the
-customer backup package.
+Recovery uses the offline customer backup package or an approved ceremony with
+the available role-local shares.
 
 Recovery paths:
 
-- one hosted signer unavailable: use the remaining hosted/recovery shares
-  through an approved recovery ceremony
-- one storage location lost: recover from the other shares
-- one wrapping key unavailable: recover from other shares if their wrapping keys
-  are available
-- all hosted storage lost: recover from customer backup
-- customer self-host migration: export or reshare root shares to customer
-  infrastructure
+- one Deriver unavailable: use the remaining role-local/recovery material
+  through an approved offline ceremony
+- one role-local storage location lost: recover from the other role or the
+  customer backup package
+- one role-specific KEK unavailable: recover through the approved backup
+  ceremony
+- all hosted role-local storage lost: recover from customer backup
+- customer self-host migration: export or reshare role-local shares to customer
+  infrastructure through the offline ceremony
 
 There is no deterministic platform `master_secret` recovery path. That improves
 post-migration trust semantics, but it requires customer backup and recovery
@@ -546,17 +539,16 @@ Recommended flow:
 
 1. Freeze new wallet enrollment for the project/environment.
 2. Pin `signing_root_version` and `root_share_epoch`.
-3. Customer provides import wrapping metadata.
-4. Hosted export ceremony loads the active `SigningRootRecord`.
-5. Hosted export ceremony rewraps or reshares hosted shares into customer
-   custody.
-6. Export `SigningRootMigrationExportArtifactV1` with customer-sealed shares,
-   wallet inventory, and checksum.
-7. Customer imports the artifact.
-8. Customer verifies known wallet addresses.
-9. Hosted signing is disabled.
-10. Hosted shares are deleted or retired.
-11. Deletion and disablement evidence is exported.
+3. Customer provides offline export authorization and wrapping metadata.
+4. Deriver A and Deriver B each export their role-local share through the
+   approved offline ceremony.
+5. The ceremony produces a customer backup package with wallet inventory and
+   checksum.
+6. Customer imports and verifies the package outside the hosted request path.
+7. Customer verifies known wallet addresses.
+8. Hosted signing is disabled.
+9. Hosted role-local shares are deleted or retired.
+10. Deletion and disablement evidence is exported.
 
 Result:
 
@@ -575,12 +567,12 @@ localhost:9090  Router
 localhost:9091  Signer A
 localhost:9092  Signer B
 localhost:9093  Relayer
-local Postgres  signing-root metadata and sealed-share records
+role-local stores  Deriver A and Deriver B custody material
 ```
 
 Local requirements:
 
-- local Postgres stores active `SigningRootRecord` and sealed shares
+- role-local stores hold only each Deriver's active custody material
 - Router env has no share decrypt keys
 - Signer A env has only A keys and A share access
 - Signer B env has only B keys and B share access
@@ -640,8 +632,8 @@ These phases replace the old single-signer-first rollout.
 ### Phase 1. Local Router A/B Boundary Simulation
 
 1. Add local Router, Signer A, Signer B, and Relayer processes.
-2. Seed local SQLite or Postgres with signing-root metadata and role-specific
-   sealed shares.
+2. Seed role-local Deriver A and Deriver B fixtures with independent custody
+   material.
 3. Use deterministic transcript-bound dev outputs.
 4. Prove Router opacity, wrong-role rejection, transcript binding, replay
    rejection, and output-kind separation.
@@ -689,20 +681,13 @@ These phases replace the old single-signer-first rollout.
 
 ### Milestone A. Data Model
 
-- [x] Define `SigningRootRecord`.
-- [x] Define `SealedSigningRootSecretShare`.
 - [x] Define `root_share_epoch`.
-- [x] Define share wrapping-key locator metadata on sealed share records.
-- [x] Define migration bundle and export artifact shapes for self-host export.
-- [x] Define durable sealed-share storage for Postgres, Cloudflare Durable
-      Objects, and in-memory tests.
 - [x] Define wallet metadata that includes `signing_root_version` and
       `derivation_version`.
 - [x] Remove public docs that present deterministic `master_secret -> k_org` as
       the target model.
-- [ ] Add role ownership to hosted sealed-share records: A, B, backup, export,
-      or recovery.
-- [ ] Add signer identity policy to `SigningRootRecord`.
+- [x] Keep Deriver A and Deriver B custody metadata role-local, including
+      role-specific KEK versions.
 - [ ] Make hosted `signingRootVersion` and `rootShareEpoch` mandatory at the
       Router A/B boundary.
 
@@ -710,8 +695,8 @@ These phases replace the old single-signer-first rollout.
 
 - [ ] Implement random root generation.
 - [ ] Implement 2-of-3 or selected threshold splitting.
-- [ ] Implement role-specific share sealing.
-- [ ] Write complete `SigningRootRecord` and indexed sealed shares atomically.
+- [ ] Implement role-specific share provisioning under Deriver A and Deriver B
+      KEKs.
 - [ ] Implement customer backup package generation.
 - [ ] Implement root zeroization after provisioning.
 - [ ] Add recovery drills proving root creation and backup restore do not depend
@@ -730,7 +715,8 @@ These phases replace the old single-signer-first rollout.
 ### Milestone D. Local Simulation
 
 - [x] Start local Router, Signer A, Signer B, and Relayer processes.
-- [x] Seed local SQLite/Postgres plans with role-specific sealed shares.
+- [x] Seed role-local Deriver A and Deriver B fixtures with independent custody
+      material.
 - [x] Add deterministic transcript-bound dev derivation.
 - [x] Add end-to-end local request through Router.
 - [ ] Add negative tests for Router plaintext access, wrong-role payloads,
@@ -768,10 +754,10 @@ These phases replace the old single-signer-first rollout.
 ### Milestone H. Self-Host Migration
 
 - [ ] Implement hosted export authorization and approval flow.
-- [ ] Export `SigningRootMigrationExportArtifactV1` with checksum, wallet
-      inventory, and customer-sealed shares.
-- [ ] Rewrap or reshare hosted shares into customer custody.
-- [ ] Verify imported artifact checksum before persisting self-host records.
+- [ ] Export an offline customer backup package with checksum, wallet inventory,
+      and role-local shares.
+- [ ] Rewrap or reshare role-local shares into customer custody.
+- [ ] Verify the imported package checksum before activating self-host custody.
 - [ ] Verify self-host worker derives the same wallet addresses.
 - [ ] Disable hosted signing after customer verification.
 - [ ] Delete or retire hosted shares.
@@ -793,8 +779,8 @@ These phases replace the old single-signer-first rollout.
 
 - Which split derivation primitive should replace the old full-`y_relayer`
   combiner path?
-- Should the initial production shares start in one Postgres database with
-  role-specific KEKs, or split across storage accounts from day one?
+- Should role-local custody start in one deployment with separate role-specific
+  KEKs, or split across storage accounts from day one?
 - Which share wrapping keys are acceptable for Signer A and Signer B?
 - Should the customer backup contain the hosted sharing or a distinct customer
   backup sharing?

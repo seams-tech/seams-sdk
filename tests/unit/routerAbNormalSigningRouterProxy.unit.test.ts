@@ -5,6 +5,7 @@ import {
   decideEd25519NormalSigningExecution,
   decideEd25519OperationStepUpExecution,
   isRouterAbEd25519OperationInProgressResponse,
+  requireCompletedEd25519OperationResponse,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519';
 import { decideRouterAbEcdsaOperationStepUpExecution } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa';
 import {
@@ -158,20 +159,24 @@ test('Ed25519 operation step-up reuses its preclaimed operation through prepare'
   await expect(replay.response.text()).resolves.toBe('{"ok":true}');
 });
 
-test('Ed25519 completed admission returns the recorded response without an execution decision', async () => {
+test('Ed25519 completion readback is required and preserves the recorded response', async () => {
   const fixture = await buildReusableAuthorizationCoreFixture();
+  expect(() => requireCompletedEd25519OperationResponse(fixture.authorizedOperation)).toThrow(
+    'Ed25519 operation completion readback is not completed',
+  );
+
   const operation = await buildCompletedAuthorizedOperationFixture(fixture);
+  const replay = requireCompletedEd25519OperationResponse(operation);
+  expect(replay.status).toBe(200);
+  expect(replay.headers.get('content-type')).toBe('application/json');
+  await expect(replay.text()).resolves.toBe('{"ok":true}');
+
   const decision = decideEd25519NormalSigningExecution({
     phase: 'prepare',
     admissionKind: 'replayed',
     operation,
   });
-
   expect(decision.kind).toBe('replayed');
-  if (decision.kind !== 'replayed') throw new Error('expected replay decision');
-  expect(decision.response.status).toBe(200);
-  expect(decision.response.headers.get('content-type')).toBe('application/json');
-  await expect(decision.response.text()).resolves.toBe('{"ok":true}');
 });
 
 test('normal-signing proxy forwards the trusted body selected by the gateway', async () => {

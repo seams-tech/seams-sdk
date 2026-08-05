@@ -1,17 +1,13 @@
 const TARGETS = new Set(['staging', 'production']);
-const KEK_ENCODINGS = new Set(['base64url', 'base64', 'hex']);
 const RESOURCE_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const D1_DATABASE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const CLOUDFLARE_ID_PATTERN = /^[0-9a-f]{32}$/;
 const TENANT_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,126}[A-Za-z0-9])?$/;
-const SECRET_NAME_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
 const X25519_PUBLIC_KEY_PATTERN = /^x25519:[0-9a-f]{64}$/;
 const ED25519_PUBLIC_KEY_PATTERN = /^ed25519:[1-9A-HJ-NP-Za-km-z]+$/;
 const ED25519_VERIFYING_KEY_PATTERN = /^[0-9a-f]{64}$/;
 const UNSIGNED_INTEGER_PATTERN = /^(?:0|[1-9][0-9]*)$/;
 
-export const GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION = 3;
-export const GATEWAY_DEPLOYMENT_PLAN_SCHEMA_VERSION = 2;
+export const GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION = 4;
 export const DEFAULT_NEAR_INITIAL_BALANCE_YOCTO = '30000000000000000000000';
 export const DEFAULT_RELAY_SESSION_AUDIENCE = 'seams-wallet-session';
 export const DEFAULT_SESSION_COOKIE_NAME = 'seams-jwt';
@@ -116,7 +112,6 @@ export function parseGatewayDeploymentConfig(source, expectedTarget) {
   const resources = parseResources(root.resources);
   const tenant = parseTenant(root.tenant);
   const origins = parseOrigins(root.origins);
-  const signingRoot = parseSigningRoot(root.signingRoot);
   const session = parseSession(root.session);
   const signingSessionSeal = parseSigningSessionSeal(root.signingSessionSeal);
   const routerAb = parseRouterAb(root.routerAb, serviceNames);
@@ -130,7 +125,6 @@ export function parseGatewayDeploymentConfig(source, expectedTarget) {
     resources,
     tenant,
     origins,
-    signingRoot,
     session,
     signingSessionSeal,
     routerAb,
@@ -147,7 +141,6 @@ function gatewayDeploymentConfigKeys() {
     'resources',
     'tenant',
     'origins',
-    'signingRoot',
     'session',
     'signingSessionSeal',
     'routerAb',
@@ -223,86 +216,17 @@ function knownNearNetworkForRpcUrl(rpcUrl) {
   return null;
 }
 
-export function buildGatewayDeploymentPlan(config) {
-  return {
-    schemaVersion: GATEWAY_DEPLOYMENT_PLAN_SCHEMA_VERSION,
-    target: config.target,
-    gatewayOrigin: config.origins.gateway,
-    consoleD1: {
-      name: config.resources.consoleD1.name,
-    },
-    signingRootSecret: {
-      storeId: config.resources.secretsStoreId,
-      secretName: config.signingRoot.secretName,
-    },
-  };
-}
-
-export function parseGatewayDeploymentPlan(source) {
-  const root =
-    typeof source === 'string'
-      ? parseJsonObject(source, 'deployment plan')
-      : requireObject(source, 'deployment plan');
-  requireExactKeys(
-    root,
-    ['schemaVersion', 'target', 'gatewayOrigin', 'consoleD1', 'signingRootSecret'],
-    'deployment plan',
-  );
-  requireExactInteger(
-    root.schemaVersion,
-    GATEWAY_DEPLOYMENT_PLAN_SCHEMA_VERSION,
-    'deployment plan.schemaVersion',
-  );
-  const target = requireTarget(root.target, 'deployment plan.target');
-  const consoleD1 = requireObject(root.consoleD1, 'deployment plan.consoleD1');
-  requireExactKeys(consoleD1, ['name'], 'deployment plan.consoleD1');
-  const signingRootSecret = requireObject(
-    root.signingRootSecret,
-    'deployment plan.signingRootSecret',
-  );
-  requireExactKeys(
-    signingRootSecret,
-    ['storeId', 'secretName'],
-    'deployment plan.signingRootSecret',
-  );
-  return {
-    schemaVersion: GATEWAY_DEPLOYMENT_PLAN_SCHEMA_VERSION,
-    target,
-    gatewayOrigin: requireHttpsUrl(root.gatewayOrigin, 'deployment plan.gatewayOrigin'),
-    consoleD1: {
-      name: requirePattern(consoleD1.name, RESOURCE_NAME_PATTERN, 'deployment plan.consoleD1.name'),
-    },
-    signingRootSecret: {
-      storeId: requirePattern(
-        signingRootSecret.storeId,
-        CLOUDFLARE_ID_PATTERN,
-        'deployment plan.signingRootSecret.storeId',
-      ),
-      secretName: requirePattern(
-        signingRootSecret.secretName,
-        SECRET_NAME_PATTERN,
-        'deployment plan.signingRootSecret.secretName',
-      ),
-    },
-  };
-}
-
 function parseResources(value) {
   const resources = requireObject(value, 'resources');
   requireExactKeys(
     resources,
-    ['workerName', 'consoleD1', 'signerD1', 'secretsStoreId'],
+    ['workerName', 'consoleD1', 'signerD1'],
     'resources',
   );
   return {
     workerName: requirePattern(resources.workerName, RESOURCE_NAME_PATTERN, 'resources.workerName'),
     consoleD1: parseD1Resource(resources.consoleD1, 'resources.consoleD1'),
     signerD1: parseD1Resource(resources.signerD1, 'resources.signerD1'),
-    secretsStoreId: requirePattern(
-      resources.secretsStoreId,
-      CLOUDFLARE_ID_PATTERN,
-      'resources.secretsStoreId',
-    ),
   };
 }
 
@@ -332,24 +256,6 @@ function parseOrigins(value) {
   return {
     gateway: requireHttpsUrl(origins.gateway, 'origins.gateway'),
     allowedCors: parseOriginArray(origins.allowedCors, 'origins.allowedCors'),
-  };
-}
-
-function parseSigningRoot(value) {
-  const signingRoot = requireObject(value, 'signingRoot');
-  requireExactKeys(signingRoot, ['id', 'secretName', 'encoding'], 'signingRoot');
-  const encoding = requireString(signingRoot.encoding, 'signingRoot.encoding');
-  if (!KEK_ENCODINGS.has(encoding)) {
-    throw new Error('signingRoot.encoding must be base64url, base64, or hex');
-  }
-  return {
-    id: requireTenantId(signingRoot.id, 'signingRoot.id'),
-    secretName: requirePattern(
-      signingRoot.secretName,
-      SECRET_NAME_PATTERN,
-      'signingRoot.secretName',
-    ),
-    encoding,
   };
 }
 

@@ -1,22 +1,11 @@
 import { base64UrlDecode, base64UrlEncode } from '@seams/sdk-server/cloud-host';
 import { SessionService } from '@seams/sdk-server/cloud-host';
 import type {
-  CloudflareSecretsStoreSecretBinding,
-  SigningRootEncodedKekMaterialEncoding,
-  SigningRootKekProvider,
-} from '@seams/sdk-server/cloud-host';
-import type {
   ActiveOrganizationAuthorization,
   ConsoleOrganizationAccessService,
 } from '@seams-internal/console-server/teamRbac';
 import type { ConsoleAuthAdapter, ConsoleAuthAdapterResult, HeaderRecord } from '../consoleAuth';
 import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
-
-export interface CloudflareD1StagingSecretEnv extends Readonly<Record<string, unknown>> {
-  readonly SIGNING_ROOT_KEK_PROVIDER?: string;
-  readonly SIGNING_ROOT_KEK_ENCODING?: string;
-  readonly SIGNING_ROOT_KEK_IDS?: string;
-}
 
 export type CloudflareD1StagingSessionEnv = Readonly<Record<string, unknown>>;
 
@@ -541,30 +530,6 @@ export function createConsoleSessionAuthAdapter(
   return new ConsoleSessionAuthAdapter(options);
 }
 
-export function createCloudflareSecretsStoreKekProviderFromEnv(
-  env: CloudflareD1StagingSecretEnv,
-): SigningRootKekProvider {
-  const provider = requireEnvString(env, 'SIGNING_ROOT_KEK_PROVIDER');
-  if (provider !== 'cloudflare_secrets_store') {
-    throw new Error('SIGNING_ROOT_KEK_PROVIDER must be cloudflare_secrets_store');
-  }
-  const encoding = parseKekEncoding(requireEnvString(env, 'SIGNING_ROOT_KEK_ENCODING'));
-  const secretsByKekId: Record<string, CloudflareSecretsStoreSecretBinding> = {};
-  for (const kekId of readCsvList(env.SIGNING_ROOT_KEK_IDS)) {
-    const bindingName = secretBindingNameForKekId(kekId);
-    const binding = readSecretStoreBinding(env, bindingName);
-    secretsByKekId[kekId] = binding;
-  }
-  if (Object.keys(secretsByKekId).length === 0) {
-    throw new Error('SIGNING_ROOT_KEK_IDS must list at least one signer KEK id');
-  }
-  return {
-    kind: 'cloudflare_secrets_store',
-    secretsByKekId,
-    encoding,
-  };
-}
-
 export function requireEnvString(
   env: Readonly<Record<string, unknown>>,
   name: string,
@@ -588,12 +553,6 @@ export function readCsvList(input: unknown): string[] {
     seen.add(value);
   }
   return values;
-}
-
-export function secretBindingNameForKekId(kekId: string): string {
-  const normalized = normalizeString(kekId).toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-  if (!normalized) throw new Error('signing-root KEK id is required');
-  return normalized;
 }
 
 function encodeRequiredSecret(secret: string): Uint8Array {
@@ -689,34 +648,6 @@ function normalizeEmailList(input: unknown): string[] {
     seen.add(email);
   }
   return out;
-}
-
-function parseKekEncoding(input: string): SigningRootEncodedKekMaterialEncoding {
-  switch (input) {
-    case 'base64url':
-    case 'base64':
-    case 'hex':
-      return input;
-    default:
-      throw new Error('SIGNING_ROOT_KEK_ENCODING must be base64url, base64, or hex');
-  }
-}
-
-function readSecretStoreBinding(
-  env: Readonly<Record<string, unknown>>,
-  bindingName: string,
-): CloudflareSecretsStoreSecretBinding {
-  const binding = env[bindingName];
-  if (!isSecretStoreBinding(binding)) {
-    throw new Error(`Cloudflare Secrets Store binding ${bindingName} is required`);
-  }
-  return binding;
-}
-
-function isSecretStoreBinding(input: unknown): input is CloudflareSecretsStoreSecretBinding {
-  if (!input || typeof input !== 'object') return false;
-  const candidate = input as { readonly get?: unknown };
-  return typeof candidate.get === 'function';
 }
 
 function normalizeString(input: unknown): string {

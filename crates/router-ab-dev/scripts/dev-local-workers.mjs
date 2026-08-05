@@ -85,14 +85,15 @@ const localEnvRoles = [
 const argv = process.argv.slice(2);
 const options = parseArgs(argv);
 const root = resolvePath(options.root);
+const cloudflareStateRoot = join(root, '.local', 'cloudflare-state');
 const d1LocalPersistPath = resolvePath(
-  process.env.SEAMS_D1_LOCAL_PERSIST_TO || join(root, '.runtime', 'router-d1-local'),
+  process.env.SEAMS_D1_LOCAL_PERSIST_TO || join(cloudflareStateRoot, 'gateway'),
 );
 const d1LocalWranglerConfigPath = resolvePath(
   process.env.SEAMS_D1_LOCAL_WRANGLER_CONFIG ||
     join(root, '.runtime', 'wrangler-d1-local', 'wrangler.d1-local.toml'),
 );
-const strictPersistPath = join(root, '.runtime', 'router-ab-strict-state');
+const strictPersistPath = join(cloudflareStateRoot, 'router-ab');
 const strictWorkerBuildRoot = join(repoRoot, 'crates', 'router-ab-cloudflare', 'build');
 const strictBuildReceiptPath = join(strictWorkerBuildRoot, 'local-build-receipt.json');
 const strictWorkerBuildProfile = resolveStrictWorkerBuildProfile({
@@ -646,7 +647,7 @@ function matchingGeneratedProductionWorkerProcessSpec(command) {
   if (!endpoint) return null;
   const persistPath = `${configMatch[1].replace(
     /\/\.runtime\/router-ab-strict\/wrangler\.[^.]+\.toml$/,
-    '/.runtime/router-ab-strict-state',
+    '/.local/cloudflare-state/router-ab',
   )}/${role}`;
   if (
     !command.includes(`--port ${endpoint.port}`) ||

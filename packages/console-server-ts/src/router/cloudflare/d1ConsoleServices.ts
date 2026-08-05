@@ -1,23 +1,4 @@
-import { toOptionalTrimmedString } from '@seams/sdk-server/cloud-host';
 import { normalizeLogger, type Logger } from '@seams/sdk-server/cloud-host';
-import {
-  createSigningRootSecretShareKekResolver,
-  type SigningRootKekProvider,
-} from '@seams/sdk-server/cloud-host';
-import { openSigningRootSecretShareWireV1 } from '@seams/sdk-server/cloud-host';
-import {
-  type CreateHostedSigningRootShareResolverInput,
-  type SealedSigningRootShare,
-  type SigningRootShareDecryptAdapter,
-  type SigningRootShareSource,
-  type ThresholdPrfPolicy,
-} from '@seams/sdk-server/cloud-host';
-import { D1SigningRootSecretStore } from '@seams/sdk-server/cloud-host';
-import type { SigningRootSecretShareSource } from '@seams/sdk-server/cloud-host';
-import {
-  normalizeSigningRootSecretShareId,
-  type SealedSigningRootSecretShare,
-} from '@seams/sdk-server/cloud-host';
 import { createD1ConsoleAccountService } from '@seams-internal/console-server/account/d1';
 import type { ConsoleAccountService } from '@seams-internal/console-server/account/service';
 import { createD1ConsoleApiKeyService } from '@seams-internal/console-server/apiKeys/d1';
@@ -139,7 +120,6 @@ const DEFAULT_JURISDICTION: TenantDataJurisdiction = 'automatic';
 export interface CloudflareD1ConsoleStorageBindings {
   readonly consoleDatabase: D1DatabaseLike;
   readonly signerMetadataDatabase: D1DatabaseLike;
-  readonly kekProvider: SigningRootKekProvider;
 }
 
 export interface CloudflareD1ConsoleOnlyStorageBindings {
@@ -267,17 +247,6 @@ export type CloudflareD1ConsoleOnlyServiceBundle = Omit<
   readonly consoleRouterOptions: ConsoleRouterOptions;
 };
 
-export interface CloudflareD1SigningRootSecretAdapterOptions {
-  readonly route: CloudflareTenantStorageRoute;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly envelopeVersion: string;
-  readonly lastAuditEventId: string;
-  readonly policy: ThresholdPrfPolicy;
-  readonly ensureSchema?: boolean;
-  readonly now?: () => Date;
-}
-
 export function createCloudflareD1RouterApiRouteExtensions(
   bundle: CloudflareD1ConsoleServiceBundle,
   authService: CloudflareD1RouterApiAuthService,
@@ -305,14 +274,6 @@ export function createCloudflareD1RouterApiRouteExtensions(
   ];
 }
 
-export interface CloudflareD1SigningRootSecretAdapters {
-  readonly signingRootSecretStore: D1SigningRootSecretStore;
-  readonly signingRootShareStore: SigningRootShareSource;
-  readonly signingRootShareDecryptAdapter: SigningRootShareDecryptAdapter;
-  readonly signingRootSharePolicy: ThresholdPrfPolicy;
-  readonly signingRootShareResolverAdapters: CreateHostedSigningRootShareResolverInput;
-}
-
 interface NormalizedCloudflareD1ConsoleCommonOptions {
   readonly consoleDatabase: D1DatabaseLike;
   readonly namespace: string;
@@ -337,7 +298,6 @@ interface NormalizedCloudflareD1ConsoleCommonOptions {
 
 interface NormalizedCloudflareD1ConsoleServiceBundleOptions extends NormalizedCloudflareD1ConsoleCommonOptions {
   readonly signerMetadataDatabase: D1DatabaseLike;
-  readonly kekProvider: SigningRootKekProvider;
   readonly routeVersion: number;
   readonly topology: CloudflareTenantTopology;
   readonly jurisdiction: TenantDataJurisdiction;
@@ -543,75 +503,6 @@ function normalizeNamespace(input: string): string {
   return namespace;
 }
 
-function requireSigningRootAdapterString(input: unknown, field: string): string {
-  const value = toOptionalTrimmedString(input);
-  if (!value) throw new Error(`${field} is required for D1 signing-root adapters`);
-  return value;
-}
-
-function normalizeSecretShareDecryptRecord(
-  record: SealedSigningRootShare,
-): SealedSigningRootSecretShare {
-  const signingRootId = requireSigningRootAdapterString(record.signingRootId, 'signingRootId');
-  const shareId = normalizeSigningRootSecretShareId(record.shareId);
-  const kekId = requireSigningRootAdapterString(record.kekId, 'kekId');
-  if (!shareId) throw new Error('sealed signing-root share record has invalid shareId');
-  if (!(record.sealedShare instanceof Uint8Array) || record.sealedShare.byteLength === 0) {
-    throw new Error('sealed signing-root share record requires sealedShare bytes');
-  }
-  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
-  const storageId = toOptionalTrimmedString(record.storageId);
-  return {
-    signingRootId,
-    shareId,
-    sealedShare: record.sealedShare,
-    ...(signingRootVersion ? { signingRootVersion } : {}),
-    ...(storageId ? { storageId } : {}),
-    kekId,
-  };
-}
-
-class SigningRootSecretShareSourceBridge implements SigningRootShareSource {
-  private readonly source: SigningRootSecretShareSource;
-
-  constructor(source: SigningRootSecretShareSource) {
-    this.source = source;
-  }
-
-  async listSealedSigningRootShares(
-    input: Parameters<SigningRootShareSource['listSealedSigningRootShares']>[0],
-  ): Promise<readonly SealedSigningRootShare[]> {
-    return await this.source.listSealedSigningRootSecretShares(input);
-  }
-}
-
-class SigningRootKekProviderDecryptAdapter implements SigningRootShareDecryptAdapter {
-  private readonly resolveKek: ReturnType<typeof createSigningRootSecretShareKekResolver>;
-
-  constructor(kekProvider: SigningRootKekProvider) {
-    this.resolveKek = createSigningRootSecretShareKekResolver(kekProvider);
-  }
-
-  async decryptSigningRootShare(record: SealedSigningRootShare): Promise<Uint8Array> {
-    return await openSigningRootSecretShareWireV1({
-      record: normalizeSecretShareDecryptRecord(record),
-      resolveKek: this.resolveKek,
-    });
-  }
-}
-
-function createCloudflareD1SigningRootSecretShareStore(
-  store: D1SigningRootSecretStore,
-): SigningRootShareSource {
-  return new SigningRootSecretShareSourceBridge(store);
-}
-
-export function createCloudflareD1SigningRootShareDecryptAdapter(
-  kekProvider: SigningRootKekProvider,
-): SigningRootShareDecryptAdapter {
-  return new SigningRootKekProviderDecryptAdapter(kekProvider);
-}
-
 function normalizeRouteVersion(input: number | undefined): number {
   const routeVersion = Number(input || DEFAULT_ROUTE_VERSION);
   if (!Number.isInteger(routeVersion) || routeVersion < 1) {
@@ -634,7 +525,6 @@ function normalizeCloudflareD1ConsoleServiceBundleOptions(
   return {
     consoleDatabase: options.bindings.consoleDatabase,
     signerMetadataDatabase: options.bindings.signerMetadataDatabase,
-    kekProvider: options.bindings.kekProvider,
     namespace: normalizeNamespace(options.route.namespace),
     routeVersion: normalizeRouteVersion(options.route.routeVersion),
     topology: normalizeTopology(options.route.topology),
@@ -723,7 +613,6 @@ function createCloudflareD1TenantRouteResolver(
     signerMetadataBindingName: options.signerMetadataBindingName,
     signerMetadataDatabaseName: options.signerMetadataDatabaseName,
     signerMetadataDatabase: options.signerMetadataDatabase,
-    kekProvider: options.kekProvider,
   });
 }
 
@@ -1016,38 +905,6 @@ async function createCloudflareD1ConsoleCommonServices(
     prepaidReservations,
     sponsoredCalls,
     runtimeSnapshots,
-  };
-}
-
-export function createCloudflareD1SigningRootSecretAdapters(
-  options: CloudflareD1SigningRootSecretAdapterOptions,
-): CloudflareD1SigningRootSecretAdapters {
-  const signingRootSecretStore = new D1SigningRootSecretStore({
-    database: options.route.signer.metadataDatabase,
-    namespace: options.route.namespace,
-    orgId: options.route.orgId,
-    projectId: requireSigningRootAdapterString(options.projectId, 'projectId'),
-    envId: requireSigningRootAdapterString(options.envId, 'envId'),
-    envelopeVersion: requireSigningRootAdapterString(options.envelopeVersion, 'envelopeVersion'),
-    lastAuditEventId: requireSigningRootAdapterString(options.lastAuditEventId, 'lastAuditEventId'),
-    ensureSchema: options.ensureSchema,
-    now: options.now,
-  });
-  const signingRootShareStore =
-    createCloudflareD1SigningRootSecretShareStore(signingRootSecretStore);
-  const signingRootShareDecryptAdapter = createCloudflareD1SigningRootShareDecryptAdapter(
-    options.route.signer.kekProvider,
-  );
-  return {
-    signingRootSecretStore,
-    signingRootShareStore,
-    signingRootShareDecryptAdapter,
-    signingRootSharePolicy: options.policy,
-    signingRootShareResolverAdapters: {
-      policy: options.policy,
-      storageAdapter: signingRootShareStore,
-      decryptAdapter: signingRootShareDecryptAdapter,
-    },
   };
 }
 

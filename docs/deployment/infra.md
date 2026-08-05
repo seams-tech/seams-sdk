@@ -168,8 +168,8 @@ cross-run artifact inputs.
 | `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`                | Pages build       | Exact SigningWorker id bound into Router A/B warm signing sessions.            |
 | `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED`                  | Pages build       | Optional dashboard route gate.                                                 |
 
-`deployment/targets.json` owns the non-secret Gateway configuration: D1 and
-Secrets Store resource IDs, runtime tenant identity, origins, Router A/B public
+`deployment/targets.json` owns the non-secret Gateway configuration: D1
+resource IDs, runtime tenant identity, origins, Router A/B public
 identity, session settings, and optional integration configuration. The
 deployment target parser validates this document once and the renderer emits
 the individual Worker bindings expected by the runtime. Tenant identifiers are
@@ -437,14 +437,14 @@ The staging templates already point at the deployable Worker entrypoints:
 `src/router/cloudflare/d1ConsoleStagingWorker.ts` for the dashboard Worker and
 `src/router/cloudflare/d1RouterApiStagingWorker.ts` for Gateway.
 Fill `wrangler.d1-staging-console.toml` and `wrangler.d1-staging-gateway.toml`
-with remote D1 database IDs, Cloudflare Secrets Store ID, relayer public key, and
+with remote D1 database IDs, relayer public key, and
 the required Wrangler secret declarations before running the preflight. The
 console Worker config binds only `CONSOLE_DB`. The Gateway config binds
-`CONSOLE_DB`, `SIGNER_DB`, `THRESHOLD_STORE`, hosted signer KEKs, Gateway
-session env secrets, and relayer secrets. The check fails if either config points at the wrong staging Worker,
+`CONSOLE_DB`, `SIGNER_DB`, `THRESHOLD_STORE`, Gateway session env secrets, and
+relayer secrets. The check fails if either config points at the wrong staging Worker,
 contains Postgres env tokens, stores signer KEKs, session secrets, or
 sponsored-EVM executor config in plaintext vars, omits required profile
-bindings, or leaves D1/Secrets Store placeholders in place.
+bindings, or leaves D1 placeholders in place.
 
 Production uses separate database names and IDs from staging. Apply D1
 migrations before deploying Workers that depend on new columns or tables.
@@ -477,8 +477,8 @@ pnpm --dir packages/console-server-ts run d1:staging:resources -- --mode remote
 ```
 
 The inventory script records config-derived Worker names, D1 database IDs,
-Durable Object bindings, Secrets Store metadata, required secret names, and remote
-D1/Worker JSON metadata under
+Durable Object bindings, required secret names, and remote D1/Worker JSON
+metadata under
 `packages/console-server-ts/.wrangler/d1-staging-resource-inventory`.
 
 Apply staging D1 migrations through the checked migration script:
@@ -508,21 +508,6 @@ The bookmark script validates the same console and Gateway staging configs as th
 readiness gate, captures console and signer bookmark JSON via `wrangler d1
 time-travel info`, and writes manifests under
 `packages/console-server-ts/.wrangler/d1-staging-bookmarks`.
-
-Check hosted signer KEK metadata through Wrangler Secrets Store before deploying
-Gateway:
-
-```bash
-pnpm --dir packages/console-server-ts run d1:staging:kek-check -- --mode dry-run
-pnpm --dir packages/console-server-ts run d1:staging:kek-check -- --mode remote
-```
-
-The check reads the Gateway staging Wrangler config, derives the expected
-Cloudflare Secrets Store secret names and binding names, lists remote Secrets
-Store metadata, and writes a manifest under
-`packages/console-server-ts/.wrangler/d1-staging-kek-checks`. Do not use `wrangler
-secrets-store secret get` for this check; the deployment log needs metadata
-presence only.
 
 Import fixture SQL through the checked script:
 
@@ -617,7 +602,6 @@ evidence verifier:
 ```bash
 pnpm --dir packages/console-server-ts run d1:staging:evidence -- \
   --resources <resource-inventory-remote-manifest.json> \
-  --kek-check <kek-check-remote-manifest.json> \
   --migrations <migrations-remote-manifest.json> \
   --bookmark-before-fixture-import <before-fixture-import-bookmark-manifest.json> \
   --fixture-import <fixture-import-remote-manifest.json> \

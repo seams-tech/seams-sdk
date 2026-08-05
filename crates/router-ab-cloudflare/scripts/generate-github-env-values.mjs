@@ -47,10 +47,6 @@ const OBSOLETE_GATEWAY_VARIABLE_NAMES = new Set([
   'GATEWAY_CONSOLE_D1_DATABASE_ID',
   'GATEWAY_SIGNER_D1_DATABASE_NAME',
   'GATEWAY_SIGNER_D1_DATABASE_ID',
-  'GATEWAY_SECRETS_STORE_ID',
-  'SIGNING_ROOT_KEK_ID',
-  'SIGNING_ROOT_KEK_SECRET_NAME',
-  'SIGNING_ROOT_KEK_ENCODING',
   'SEAMS_TENANT_STORAGE_NAMESPACE',
   'SEAMS_ORG_ID',
   'SEAMS_PROJECT_ID',
@@ -525,14 +521,6 @@ function buildTargetConfiguration(targetName, suppliedValues) {
       `${targetName}-signing-worker`,
       'ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID',
     ) || manual(`${targetName}-signing-worker-private-d1-database-id`);
-  const secretsStoreId =
-    readSuppliedValue(
-      suppliedValues,
-      targetName,
-      `${targetName}-gateway`,
-      'GATEWAY_SECRETS_STORE_ID',
-    ) || manual(`${targetName}-cloudflare-secrets-store-id`);
-
   return {
     suppliedValues,
     runtimeProfile,
@@ -560,8 +548,6 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     deriverAPrivateDatabaseId,
     deriverBPrivateDatabaseId,
     signingWorkerPrivateDatabaseId,
-    secretsStoreId,
-    signingRootKekId: `signing-root-kek-${targetName}-r1`,
     ceremonyJwtKeyId: `router-ab-ceremony-${targetName}-r1`,
     signerSetId: `router-ab-${targetName}-signers-r1`,
     relaySessionIssuer: `seams-gateway-${targetName}`,
@@ -577,7 +563,6 @@ function buildGeneratedSecrets(targetName) {
     accountIdDerivation: randomBase64Url(32),
     consoleEmailInvitationSecret: randomBase64Url(32),
     ceremonyPrivateJwk: generateCeremonyPrivateJwk(),
-    signingRootKek: randomBase64Url(32),
     signingSession: {
       rootSecretB64u: randomBase64Url(32),
       currentKeyVersion: `signing-session-seal-${targetName}-r2`,
@@ -775,7 +760,6 @@ function buildGatewayEnvironment(input) {
         STRIPE_API_SK: manual(`${input.target}-stripe-secret-key`),
         STRIPE_WEBHOOK_SECRET: manual(`${input.target}-stripe-webhook-signing-secret`),
         CONSOLE_INITIAL_OWNER_EMAIL: manual(`${input.target}-console-initial-owner-email`),
-        SIGNING_ROOT_KEK_VALUE: input.generatedSecrets.signingRootKek,
         SIGNING_SESSION_SEAL_ROOT_SECRET_B64U:
           input.generatedSecrets.signingSession.rootSecretB64u,
       },
@@ -800,7 +784,6 @@ function buildGatewayDeploymentConfig(input) {
         name: configuration.signerDatabaseName,
         id: configuration.signerDatabaseId,
       },
-      secretsStoreId: configuration.secretsStoreId,
     },
     tenant: {
       namespace: configuration.tenantNamespace,
@@ -811,11 +794,6 @@ function buildGatewayDeploymentConfig(input) {
     origins: {
       gateway: configuration.gatewayOrigin,
       allowedCors: [configuration.appOrigin, configuration.walletOrigin],
-    },
-    signingRoot: {
-      id: configuration.signingRootKekId,
-      secretName: configuration.signingRootKekId,
-      encoding: 'base64url',
     },
     session: {
       issuer: configuration.relaySessionIssuer,
@@ -1266,7 +1244,6 @@ async function discoverCloudflareValues(targetName, suppliedValues, progressLogg
     locationHint: 'apac',
   });
   ensurePagesProjects(targetName, suppliedValues, progressLogger);
-  ensureSecretsStore(targetName, suppliedValues, progressLogger);
   await discoverWorkersDevOrigin(targetName, suppliedValues, accountId, progressLogger);
 }
 
@@ -1465,60 +1442,6 @@ function pagesProjectOrigin(projectName, project) {
       : [];
   const customDomain = domains.find((domain) => domain !== `${projectName}.pages.dev`);
   return `https://${customDomain || `${projectName}.pages.dev`}`;
-}
-
-function ensureSecretsStore(targetName, suppliedValues, progressLogger) {
-  const suppliedStoreId = readSuppliedValue(
-    suppliedValues,
-    targetName,
-    `${targetName}-gateway`,
-    'GATEWAY_SECRETS_STORE_ID',
-  );
-  if (suppliedStoreId) {
-    return;
-  }
-  const storeName = `seams-gateway-${targetName}`;
-  let stores = listSecretsStores();
-  let storeId = stores.get(storeName);
-  if (!storeId && stores.size === 1) {
-    const [[existingStoreName, existingStoreId]] = stores;
-    storeId = existingStoreId;
-    progressLogger.detail(`Reusing account Secrets Store ${existingStoreName}`);
-  }
-  if (!storeId && stores.size > 1) {
-    throw new Error(
-      'Multiple Cloudflare Secrets Stores are available; supply GATEWAY_SECRETS_STORE_ID',
-    );
-  }
-  if (!storeId) {
-    const created = runWrangler(['secrets-store', 'store', 'create', storeName, '--remote']);
-    if (created.status !== 0) {
-      throw new Error(formatWranglerFailure(`create Secrets Store ${storeName}`, created));
-    }
-    stores = listSecretsStores();
-    storeId = stores.get(storeName);
-    if (!storeId) {
-      throw new Error(`created Secrets Store ${storeName} but could not resolve its ID`);
-    }
-    progressLogger.detail(`Created Secrets Store ${storeName}`);
-  }
-  suppliedValues.GATEWAY_SECRETS_STORE_ID = storeId;
-  progressLogger.detail(`Resolved GATEWAY_SECRETS_STORE_ID from ${storeName}`);
-}
-
-function listSecretsStores() {
-  const listed = runWrangler(['secrets-store', 'store', 'list', '--remote', '--per-page', '100']);
-  if (listed.status !== 0) {
-    throw new Error(formatWranglerFailure('list Secrets Stores', listed));
-  }
-  const stores = new Map();
-  for (const line of String(listed.stdout).split(/\r?\n/)) {
-    const match = /^│\s*([A-Za-z0-9_.-]+)\s*│\s*([a-f0-9]{32})\s*│/.exec(line);
-    if (match) {
-      stores.set(match[1], match[2]);
-    }
-  }
-  return stores;
 }
 
 async function discoverWorkersDevOrigin(targetName, suppliedValues, accountId, progressLogger) {

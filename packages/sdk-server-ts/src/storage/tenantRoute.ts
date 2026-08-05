@@ -1,4 +1,3 @@
-import type { SigningRootKekProvider } from '../core/ThresholdService/signingRootKekProvider';
 import type { OrgId } from '@shared/utils/domainIds';
 
 export type { OrgId } from '@shared/utils/domainIds';
@@ -51,7 +50,6 @@ export type SignerD1DoStorageTarget = {
   readonly metadataBindingName: D1BindingName;
   readonly metadataDatabaseName: D1DatabaseName;
   readonly metadataDatabase: D1DatabaseLike;
-  readonly kekProvider: SigningRootKekProvider;
   readonly hyperdriveBindingName?: never;
   readonly hyperdrive?: never;
   readonly postgresSchema?: never;
@@ -62,7 +60,6 @@ export type SignerPostgresStorageTarget = {
   readonly hyperdriveBindingName: HyperdriveBindingName;
   readonly hyperdrive: HyperdriveBindingLike;
   readonly postgresSchema: PostgresSchemaName;
-  readonly kekProvider: SigningRootKekProvider;
   readonly metadataBindingName?: never;
   readonly metadataDatabaseName?: never;
   readonly metadataDatabase?: never;
@@ -121,7 +118,6 @@ export interface StaticCloudflareTenantStorageRouteResolverBindingInput {
   readonly signerMetadataBindingName: D1BindingName;
   readonly signerMetadataDatabaseName: D1DatabaseName;
   readonly signerMetadataDatabase: D1DatabaseLike;
-  readonly kekProvider: SigningRootKekProvider;
 }
 
 export interface TenantStoreFactory<TStores> {
@@ -163,7 +159,6 @@ export function createSignerD1DoStorageTarget(input: {
   readonly metadataBindingName: D1BindingName;
   readonly metadataDatabaseName: D1DatabaseName;
   readonly metadataDatabase: D1DatabaseLike;
-  readonly kekProvider: SigningRootKekProvider;
 }): SignerD1DoStorageTarget {
   return {
     kind: 'cloudflare_d1_do',
@@ -176,7 +171,6 @@ export function createSignerD1DoStorageTarget(input: {
       'signer D1 metadataDatabaseName',
     ),
     metadataDatabase: input.metadataDatabase,
-    kekProvider: input.kekProvider,
   };
 }
 
@@ -237,7 +231,6 @@ export function createStaticCloudflareTenantStorageRouteResolverFromBindings(
     metadataBindingName: input.signerMetadataBindingName,
     metadataDatabaseName: input.signerMetadataDatabaseName,
     metadataDatabase: input.signerMetadataDatabase,
-    kekProvider: input.kekProvider,
   });
   return createStaticCloudflareTenantStorageRouteResolver({
     routeVersion: input.routeVersion,

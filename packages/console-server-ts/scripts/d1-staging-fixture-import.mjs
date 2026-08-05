@@ -197,7 +197,6 @@ function checkForbiddenSql(sql, label, errors) {
     ['Cloudflare internal table writes', /\b_cf_/i, schemaSql],
     ['writable schema changes', /\bPRAGMA\s+writable_schema\b/i, schemaSql],
     ['PEM private key material', /-----BEGIN [A-Z ]*PRIVATE KEY-----/i, sql],
-    ['local plaintext KEK variables', /\bSEAMS_LOCAL_SIGNING_ROOT_KEK_B64U\b/i, sql],
   ];
   for (const pattern of forbiddenPatterns) {
     if (pattern[1].test(pattern[2])) errors.push(`${label} contains ${pattern[0]}`);

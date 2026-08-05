@@ -8,7 +8,6 @@ import type {
   CloudflareTenantStorageRoute,
   TenantStorageRouteResolver,
 } from './cloudflare/tenantStorageRoute';
-import type { SigningRootKekProvider } from '@seams/sdk-server/cloud-host';
 import { parseOrgId, type OrgId } from '@seams/sdk-server/cloud-host';
 
 const preparedStatement: D1PreparedStatementLike = {
@@ -52,14 +51,6 @@ function orgIdFromString(input: string): OrgId {
   return parsed.value;
 }
 
-const kekProvider: SigningRootKekProvider = {
-  kind: 'worker_secret',
-  workerSecretsByKekId: {
-    'signing-root-kek-test-r1': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-  },
-  encoding: 'base64url',
-};
-
 const route: CloudflareTenantStorageRoute = {
   kind: 'cloudflare_d1_do',
   namespace: 'seams',
@@ -78,7 +69,6 @@ const route: CloudflareTenantStorageRoute = {
     metadataBindingName: 'SIGNER_DB',
     metadataDatabaseName: 'seams-signer',
     metadataDatabase: database,
-    kekProvider,
   },
 };
 

@@ -31,12 +31,6 @@ const evidenceSpecs = Object.freeze([
     validate: validateResourceInventory,
   }),
   Object.freeze({
-    id: 'hosted_signer_kek_metadata',
-    flag: 'kekCheck',
-    version: 'seams_d1_staging_kek_check_v1',
-    validate: validateKekCheck,
-  }),
-  Object.freeze({
     id: 'remote_d1_migrations',
     flag: 'migrations',
     version: 'seams_d1_staging_migration_v1',
@@ -88,7 +82,6 @@ const evidenceSpecs = Object.freeze([
 
 const environmentEvidenceIds = Object.freeze([
   'resource_inventory',
-  'hosted_signer_kek_metadata',
   'remote_d1_migrations',
   'fixture_import',
   'd1_reconciliation',
@@ -106,7 +99,6 @@ const consoleConfigEvidenceIds = Object.freeze([
 
 const gatewayConfigEvidenceIds = Object.freeze([
   'resource_inventory',
-  'hosted_signer_kek_metadata',
   'remote_d1_migrations',
   'time_travel_before_fixture_import',
   'fixture_import',
@@ -117,7 +109,6 @@ const gatewayConfigEvidenceIds = Object.freeze([
 
 const orderedRunEvidenceIds = Object.freeze([
   'resource_inventory',
-  'hosted_signer_kek_metadata',
   'remote_d1_migrations',
   'time_travel_before_fixture_import',
   'fixture_import',
@@ -181,19 +172,15 @@ const gatewaySmokeCheckIds = Object.freeze([
   'signer_custody_ed25519_healthz',
   'signer_custody_ecdsa_derivation_healthz',
 ]);
-const signerCustodyMissingKekResultId = 'ecdsa_export_share_missing_kek_fail_closed';
-const signerCustodyMissingKekCode = 'missing_signing_root_kek';
 const requiredSignerCustodyResultIds = Object.freeze([
   'signer_custody_ed25519_healthz',
   'signer_custody_ecdsa_derivation_healthz',
   'ecdsa_export_share_success',
-  signerCustodyMissingKekResultId,
 ]);
 const signerCustodyExpectedPathsById = Object.freeze({
   signer_custody_ed25519_healthz: '/router-ab/ed25519/healthz',
   signer_custody_ecdsa_derivation_healthz: '/router-ab/ecdsa-derivation/healthz',
   ecdsa_export_share_success: '/router-ab/ecdsa-derivation/export/share',
-  [signerCustodyMissingKekResultId]: '/router-ab/ecdsa-derivation/export/share',
 });
 const signerCustodyExpectedStatusesById = Object.freeze({
   signer_custody_ed25519_healthz: 200,
@@ -218,8 +205,6 @@ const requiredReconciliationCheckIds = Object.freeze([
   'prepaid_reservation_summary_mismatch',
   'sponsored_call_missing_billing_links',
   'sponsored_call_settlement_amount_mismatch',
-  'signer_share_unknown_kek',
-  'signer_share_invalid_rotation_state',
 ]);
 
 export function verifyD1StagingEvidence(input = {}) {
@@ -271,7 +256,6 @@ function parseArgs(args) {
     bookmarkBeforeRouteSwitch: '',
     fixtureImport: '',
     generatedAtIso: '',
-    kekCheck: '',
     migrations: '',
     outputPath: '',
     r2RestoreDrill: '',
@@ -468,7 +452,6 @@ function validateResourceInventorySignerIsolation(input) {
     bindings: readArray(consoleWorker.durableObjects),
     forbiddenBindings: signerOnlyConsoleDurableObjectBindings,
   });
-  validateConsoleDoesNotReceiveSignerKeks(input, consoleWorker);
 }
 
 function validateResourceInventoryGatewaySignerBindings(input) {
@@ -492,7 +475,6 @@ function validateResourceInventoryGatewaySignerBindings(input) {
     bindings: readArray(gatewayWorker.durableObjects),
     allowedBindings: requiredGatewayDurableObjectBindings,
   });
-  validateGatewayReceivesConfiguredSignerKeks(input, gatewayWorker);
 }
 
 function validateForbiddenResourceBindings(input) {
@@ -529,49 +511,6 @@ function validateOnlyResourceBindings(input) {
       `${input.id}: resources.${input.workerFieldName}.${input.resourceFieldName} includes unexpected binding ${name}`,
     );
   }
-}
-
-function validateConsoleDoesNotReceiveSignerKeks(input, consoleWorker) {
-  const signerKekIds = resourceInventorySignerKekIds(input.manifest);
-  for (const secret of readArray(consoleWorker.secretsStoreSecrets)) {
-    const binding = normalizeString(secret?.binding);
-    const secretName = normalizeString(secret?.secretName);
-    if (binding.startsWith('SIGNING_ROOT_KEK')) {
-      input.errors.push(
-        `${input.id}: resources.consoleWorker.secretsStoreSecrets must not include signer KEK binding ${binding}`,
-      );
-    }
-    if (signerKekIds.has(secretName)) {
-      input.errors.push(
-        `${input.id}: resources.consoleWorker.secretsStoreSecrets must not include signer KEK secret ${secretName}`,
-      );
-    }
-  }
-}
-
-function validateGatewayReceivesConfiguredSignerKeks(input, gatewayWorker) {
-  const signerKekIds = resourceInventorySignerKekIds(input.manifest);
-  const gatewaySecretNames = new Set();
-  for (const secret of readArray(gatewayWorker.secretsStoreSecrets)) {
-    const secretName = normalizeString(secret?.secretName);
-    if (secretName) gatewaySecretNames.add(secretName);
-  }
-  for (const kekId of signerKekIds) {
-    if (gatewaySecretNames.has(kekId)) continue;
-    input.errors.push(
-      `${input.id}: resources.gatewayWorker.secretsStoreSecrets missing signer KEK secret ${kekId}`,
-    );
-  }
-}
-
-function resourceInventorySignerKekIds(manifest) {
-  const tenant = resourceInventoryTenant(manifest);
-  const ids = new Set();
-  for (const id of readArray(tenant?.signingRootKekIds)) {
-    const normalized = normalizeString(id);
-    if (normalized) ids.add(normalized);
-  }
-  return ids;
 }
 
 function requireResourceD1DatabaseId(input) {
@@ -636,97 +575,6 @@ function d1InfoDatabaseId(json) {
     normalizeString(record.database_id) ||
     normalizeString(record.id)
   );
-}
-
-function validateKekCheck(input) {
-  const checks = readArray(input.manifest.checks);
-  requireNonEmpty(input, checks, 'checks');
-  const configuredKeks = readArray(input.manifest.keks);
-  requireNonEmpty(input, configuredKeks, 'keks');
-  validateKekCheckCommandCoverage(input, checks, configuredKeks);
-  const presentSecretNames = new Set();
-  for (const check of checks) {
-    requireStatusZero(input, check, `checks.${String(check?.storeId || 'unknown')}`);
-    const checkSecretNames = readArray(check?.presentSecretNames);
-    if (checkSecretNames.length === 0) {
-      input.errors.push(`${input.id}: KEK metadata check for ${String(check?.storeId || '')} found no secrets`);
-    }
-    for (const secretName of checkSecretNames) presentSecretNames.add(String(secretName || ''));
-  }
-  for (const kek of configuredKeks) {
-    const secretName = normalizeString(kek?.secretName);
-    if (!secretName) {
-      input.errors.push(`${input.id}: configured KEK is missing secretName`);
-      continue;
-    }
-    if (!presentSecretNames.has(secretName)) {
-      input.errors.push(`${input.id}: configured KEK ${secretName} was not found in Secrets Store evidence`);
-    }
-  }
-}
-
-function validateKekCheckCommandCoverage(input, checks, configuredKeks) {
-  const commands = readArray(input.manifest.commands);
-  if (commands.length === 0) {
-    input.errors.push(`${input.id}: commands must be non-empty`);
-    return;
-  }
-  if (commands.length !== checks.length) {
-    input.errors.push(
-      `${input.id}: check command count ${checks.length} does not match planned command count ${commands.length}`,
-    );
-  }
-
-  const expectedStoreIds = new Set();
-  for (const kek of configuredKeks) {
-    const storeId = normalizeString(kek?.storeId);
-    if (!storeId) {
-      input.errors.push(`${input.id}: configured KEK is missing storeId`);
-      continue;
-    }
-    expectedStoreIds.add(storeId);
-  }
-
-  const checkedStoreIds = new Set();
-  const commandCount = Math.min(commands.length, checks.length);
-  for (let index = 0; index < commandCount; index += 1) {
-    const check = checks[index];
-    const storeId = normalizeString(check?.storeId);
-    if (!storeId) {
-      input.errors.push(`${input.id}: checks[${index}].storeId must be present`);
-      continue;
-    }
-    checkedStoreIds.add(storeId);
-    if (!expectedStoreIds.has(storeId)) {
-      input.errors.push(`${input.id}: checks[${index}].storeId ${storeId} is not configured`);
-    }
-    validatePlannedCommandMatchesEvidence({
-      id: input.id,
-      errors: input.errors,
-      label: `checks[${index}]`,
-      plannedCommand: plannedCommandText(commands[index]),
-      evidenceCommand: normalizeString(check?.command),
-    });
-    validateCommandMentionsStoreId({
-      id: input.id,
-      errors: input.errors,
-      label: `checks[${index}].command`,
-      command: check?.command,
-      storeId,
-    });
-  }
-
-  for (const storeId of expectedStoreIds) {
-    if (checkedStoreIds.has(storeId)) continue;
-    input.errors.push(`${input.id}: missing Secrets Store check evidence for ${storeId}`);
-  }
-}
-
-function validateCommandMentionsStoreId(input) {
-  const command = normalizeString(input.command);
-  if (!command) return;
-  if (command.includes(input.storeId)) return;
-  input.errors.push(`${input.id}: ${input.label} must reference store ${input.storeId}`);
 }
 
 function validateExecutedStatuses(input) {
@@ -1038,7 +886,6 @@ function validateSignerCustody(input) {
     fieldName: 'results',
     expectedStatusesById: signerCustodyExpectedStatusesById,
   });
-  validateMissingKekFailClosedResult(input);
   validateSignerCustodyBodyRedaction(input);
 }
 
@@ -1135,31 +982,6 @@ function validateHttpResultMatchesPlan(input) {
       `${input.id}: ${input.resultFieldName}.${input.resultId}.status ${String(input.result?.status)} does not match planned ${input.planFieldName}.${input.resultId}.expectedStatus ${expectedStatus}`,
     );
   }
-}
-
-function validateMissingKekFailClosedResult(input) {
-  const result = findResultById(readArray(input.manifest.results), signerCustodyMissingKekResultId);
-  if (!result) return;
-
-  const actualStatus = Number(result.status);
-  if (!Number.isInteger(actualStatus) || actualStatus < 400 || actualStatus > 599) {
-    input.errors.push(
-      `${input.id}: results.${signerCustodyMissingKekResultId}.status must be a 4xx/5xx fail-closed status, got ${String(result.status)}`,
-    );
-  }
-
-  const body = recordOrNull(result.body);
-  if (!body) {
-    input.errors.push(`${input.id}: results.${signerCustodyMissingKekResultId}.body must be a JSON object`);
-    return;
-  }
-  if (body.ok !== false) {
-    input.errors.push(`${input.id}: results.${signerCustodyMissingKekResultId}.body.ok must be false`);
-  }
-  if (body.code === signerCustodyMissingKekCode) return;
-  input.errors.push(
-    `${input.id}: results.${signerCustodyMissingKekResultId}.body.code must be ${signerCustodyMissingKekCode}`,
-  );
 }
 
 function findResultById(results, id) {
@@ -1605,7 +1427,6 @@ function validateManifestConsistency(input) {
     fieldName: 'gatewayConfigPath',
   });
   validateTenantConsistency(input);
-  validateKekConfigConsistency(input);
   validateGatewayOriginConsistency(input);
   validateRunOrder(input);
 }
@@ -1656,34 +1477,6 @@ function validateTenantConsistency(input) {
       input.errors.push(
         `tenant ${fieldName} mismatch: d1_reconciliation uses ${reconciliationValue}, expected ${resourceValue} from resource_inventory`,
       );
-    }
-  }
-}
-
-function validateKekConfigConsistency(input) {
-  const resourceInventory = input.manifestsById.get('resource_inventory');
-  const kekCheck = input.manifestsById.get('hosted_signer_kek_metadata');
-  if (!resourceInventory || !kekCheck) return;
-
-  const resourceTenant = resourceInventoryTenant(resourceInventory);
-  const provider = normalizeString(resourceTenant?.signingRootKekProvider);
-  const configuredKekIds = readArray(resourceTenant?.signingRootKekIds).map(String).filter(Boolean);
-  if (!provider) {
-    input.errors.push('resource_inventory: resources.gatewayWorker.stagingVars.signingRootKekProvider must be present');
-  }
-  if (configuredKekIds.length === 0) {
-    input.errors.push('resource_inventory: resources.gatewayWorker.stagingVars.signingRootKekIds must be non-empty');
-  }
-
-  const presentSecretNames = new Set();
-  for (const check of readArray(kekCheck.checks)) {
-    for (const secretName of readArray(check?.presentSecretNames)) {
-      presentSecretNames.add(String(secretName || ''));
-    }
-  }
-  for (const kekId of configuredKekIds) {
-    if (!presentSecretNames.has(kekId)) {
-      input.errors.push(`hosted_signer_kek_metadata: missing Secrets Store evidence for configured KEK ${kekId}`);
     }
   }
 }
