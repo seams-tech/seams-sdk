@@ -112,12 +112,12 @@ router/
     syncAccount/
     ed25519Yao/
       registration/
-      productRegistration/
+      capabilityLifecycle/
       recovery/
       export/
       session/
     ecdsa/
-    normalSigning/
+    signingOperations/
 
   transport/
     fetch/                     # shared Request/Response router
@@ -129,7 +129,7 @@ router/
     runtime/                   # Worker wrapper, Worker types, email handling
     d1/                        # D1 records/stores/services/boundaries
       emailOtp/ registration/ session/ identity/ oidc/ webauthn/
-      auth/ wallet/ authorization/ ed25519Yao/ near/ normalSigning/
+      auth/ wallet/ authorization/ ed25519Yao/ near/ signingAdmission/
       versionedJson/
     durableObjects/            # thresholdStore and versioned JSON DO adapter
 ```
@@ -250,7 +250,7 @@ Ownership is fixed for the whole stack:
 | `I` integrator | Applies and gates each extraction; owns shared importers when a hotspot overlaps | Merges `A` → `B` → `C` → `D`; does not rename files in a worker lane | Merges all repair lanes, runs the resolved import-graph audit, and owns every integrated gate |
 | `A` | Fetch helpers, shared Fetch transport (including the signing-session seal Fetch adapter), and WebAuthn codecs | `framework/`, `auth/`, and `framework/ror/` | SDK production import specifiers, excluding hubs owned by `D` |
 | `B` | Wallet-registration input types | `domains/walletRegistration`, `walletUnlock`, `emailOtp`, `emailRecovery`, `syncAccount`, and `ecdsa` | Test/helper source paths and `@server/router/...` aliases |
-| `C` | Normal-signing D1 split | `domains/ed25519Yao/**` and `domains/normalSigning/**` | Retained source guards and path checks |
+| `C` | Normal-signing D1 split | `domains/ed25519Yao/**` and `domains/signingOperations/**` | Retained source guards and path checks |
 | `D` | Versioned-JSON ports and Yao partitioned-state D1 split | `cloudflare/runtime/**`, `cloudflare/d1/**`, and `cloudflare/durableObjects/**` | `cloud-host.ts`, the three adaptors, `src/index.ts`, package export metadata, and the package-export assertion |
 
 The foundation tasks are applied serially because their importer hotspots
@@ -325,7 +325,7 @@ These Phase 1–2 destinations are agreed before any worktree is created:
 | Versioned-JSON ports | `framework/versionedJsonRecordStore.ts` |
 | Wallet-registration inputs | `domains/walletRegistration/walletRegistrationInputs.ts` |
 | WebAuthn credential codecs | `auth/webAuthnCredentialCodecs.ts` |
-| Normal-signing D1 admission | `cloudflare/d1/normalSigning/d1RouterAbNormalSigningAdmissionStore.ts` |
+| Normal-signing D1 admission | `cloudflare/d1/signingAdmission/d1RouterAbNormalSigningAdmissionStore.ts` |
 | Yao partitioned-state D1 factory/options | `cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore.ts` |
 
 No compatibility barrel is created for a moved or deleted module. The
@@ -407,7 +407,7 @@ Extract the following boundaries:
    import that module directly, with no compatibility re-export.
 5. Move the Cloudflare D1 implementation, options, and factory for normal-signing
    admission out of `routerAbNormalSigningAdmissionCore` into
-   `cloudflare/d1/normalSigning/d1RouterAbNormalSigningAdmissionStore.ts`.
+   `cloudflare/d1/signingAdmission/d1RouterAbNormalSigningAdmissionStore.ts`.
    Leave the domain port, in-memory store, and admission adapter in the core
    module. Delete the old thin `routerAbNormalSigningAdmissionStore.ts` barrel
    and update every importer to the owning domain or D1 module; do not retain a
@@ -491,12 +491,12 @@ the churn is not worth the readability gain.
 | `domains/emailRecovery/` | `emailRecoveryRequestValidation`, `recoveryExecutionTracking` |
 | `domains/syncAccount/` | `syncAccountRequestValidation` |
 | `domains/ed25519Yao/registration/` | `routerAbEd25519YaoHttpRegistrationBackend`, `routerAbEd25519YaoRegistration`, `routerAbEd25519YaoRegistrationExecutionRecord`, `routerAbEd25519YaoRegistrationIntentAuthorization`, `routerAbEd25519YaoRegistrationRequestScopedCloudflare`, `routerAbEd25519YaoRegistrationSideEffectBoundary` (+typecheck), `routerAbEd25519YaoRegistrationTwoPhaseRunner` |
-| `domains/ed25519Yao/productRegistration/` | `routerAbEd25519YaoProductRegistration` (+typecheck), `routerAbEd25519YaoProductRegistrationPartitionedStateStore`, `routerAbEd25519YaoProductRegistrationPartitioning`, `routerAbEd25519YaoProductRegistrationPersistence`, `routerAbEd25519YaoProductRegistrationRequestScopedRunner`, `routerAbEd25519YaoProductRegistrationRequestScopedRuntime` |
+| `domains/ed25519Yao/capabilityLifecycle/` | `routerAbEd25519YaoProductRegistration` (+typecheck), `routerAbEd25519YaoProductRegistrationPartitionedStateStore`, `routerAbEd25519YaoProductRegistrationPartitioning`, `routerAbEd25519YaoProductRegistrationPersistence`, `routerAbEd25519YaoProductRegistrationRequestScopedRunner`, `routerAbEd25519YaoProductRegistrationRequestScopedRuntime` |
 | `domains/ed25519Yao/recovery/` | `routerAbEd25519YaoRecovery` (+`RecoveryActivation.typecheck`), `routerAbEd25519YaoRecoveryRequestScopedCloudflare`, `routerAbEd25519YaoRecoveryWalletSessionAuthorization` |
 | `domains/ed25519Yao/export/` | `routerAbEd25519YaoExport`, `routerAbEd25519YaoExportRequestScopedCloudflare` |
 | `domains/ed25519Yao/session/` | `routerAbEd25519YaoWalletSession` (+typecheck), `thresholdEd25519RequestValidation` |
 | `domains/ecdsa/` | `routerAbEcdsaStrictRegistration`, `thresholdEcdsaRequestValidation` |
-| `domains/normalSigning/` | `routerAbNormalSigningAdmissionCore`, `routerAbPrivateSigningWorker`; `routerAbNormalSigningAdmissionStore` is deleted in Phase 2 |
+| `domains/signingOperations/` | `routerAbNormalSigningAdmissionCore`, `routerAbPrivateSigningWorker`; `routerAbNormalSigningAdmissionStore` is deleted in Phase 2 |
 | root (unchanged) | `express-adaptor`, `cloudflare-adaptor`, `ror-adaptor` |
 
 ## Move map — shared Fetch transport
@@ -528,7 +528,7 @@ their Fetch equivalents in Phase 2. The old names are deleted.
 | `d1/authorization/` | `d1AuthorizationStore`, `d1VaultProxyStore` |
 | `d1/ed25519Yao/` | `d1Ed25519YaoCapabilityPersistence`, `d1Ed25519YaoWalletSigner`, and `d1Ed25519YaoProductRegistrationPartitionedStateStore` (Phase 2 factory/options) |
 | `d1/near/` | `d1NearPublicKeyStore` |
-| `d1/normalSigning/` | `d1RouterAbNormalSigningAdmissionStore` (Phase 2 implementation, options, and factory) |
+| `d1/signingAdmission/` | `d1RouterAbNormalSigningAdmissionStore` (Phase 2 implementation, options, and factory) |
 | `d1/versionedJson/` | `d1VersionedJsonRecordStore` |
 | `durableObjects/` | `versionedJsonRecordStore`, `durableObjects/thresholdStore` (the latter keeps its existing basename) |
 

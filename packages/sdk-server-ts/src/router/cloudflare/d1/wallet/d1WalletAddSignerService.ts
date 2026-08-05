@@ -52,7 +52,7 @@ import {
   buildRouterAbEd25519YaoAddSignerAdmissionRequestV1,
   createRouterAbEd25519YaoMaterialActivationRefV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
-} from '../../../domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+} from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../../../domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import {
   buildYaoEd25519WalletSignerRecord,

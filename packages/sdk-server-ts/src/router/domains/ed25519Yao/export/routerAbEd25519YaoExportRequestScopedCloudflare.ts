@@ -43,8 +43,8 @@ import {
 import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-} from '../productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../productRegistration/routerAbEd25519YaoProductRegistration';
+} from '../capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 
 type AuthorizationFailure = Extract<
   RouterAbEd25519YaoExportAuthorizationResult,
