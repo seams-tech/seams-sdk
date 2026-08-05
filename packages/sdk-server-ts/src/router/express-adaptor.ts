@@ -5,10 +5,10 @@ import express, {
   type Response as ExpressResponse,
   type Router as ExpressRouter,
 } from 'express';
-import type { RouterApiServiceBag } from './authServicePort';
+import type { RouterApiServiceBag } from './framework/authServicePort';
 import { createFetchRouter } from './transport/fetch/createFetchRouter';
-import type { RouterApiOptions } from './routerApi';
-import { attachRouterApiRouteSurface, getRouterApiRouteSurface } from './routerApiRouteSurface';
+import type { RouterApiOptions } from './framework/routerApi';
+import { attachRouterApiRouteSurface, getRouterApiRouteSurface } from './framework/routerApiRouteSurface';
 
 export type {
   RouterApiOptions,
@@ -28,7 +28,7 @@ export type {
   RouterApiRuntimePolicyScope,
   RouterApiRuntimeSnapshotEnvelope,
   RouterApiRuntimeSnapshotConsumer,
-} from './routerApi';
+} from './framework/routerApi';
 export {
   ROUTER_AB_PUBLIC_KEYSET_PATH,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
@@ -42,13 +42,13 @@ export type {
   RouterAbNormalSigningAdmissionFailureCode,
   RouterAbNormalSigningAdmissionInput,
   RouterAbNormalSigningAdmissionResult,
-} from './routerAbPrivateSigningWorker';
+} from './domains/normalSigning/routerAbPrivateSigningWorker';
 export {
   InMemoryRouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
-} from './routerAbNormalSigningAdmissionCore';
+} from './domains/normalSigning/routerAbNormalSigningAdmissionCore';
 export {
   CloudflareD1RouterAbNormalSigningAdmissionStore,
   createCloudflareD1RouterAbNormalSigningAdmissionStore,
@@ -59,39 +59,39 @@ export type {
   RouterAbNormalSigningAdmissionStore,
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningProjectPolicyProvider,
-} from './routerAbNormalSigningAdmissionCore';
+} from './domains/normalSigning/routerAbNormalSigningAdmissionCore';
 export type { CloudflareD1RouterAbNormalSigningAdmissionStoreOptions } from './cloudflare/d1/normalSigning/d1RouterAbNormalSigningAdmissionStore';
 export type {
   RouterApiFetchRouteExtension,
   RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
   RouterApiRouteExtensionTransport,
-} from './routeExtensions';
-export type { RouterApiModule, RouterApiModuleKind, RouterApiModuleOptions } from './modules';
-export { createRouterApiModule } from './modules';
-export type { RouteDefinition } from './routeDefinitions';
-export { defineRoute } from './routeDefinitions';
+} from './framework/routeExtensions';
+export type { RouterApiModule, RouterApiModuleKind, RouterApiModuleOptions } from './framework/modules';
+export { createRouterApiModule } from './framework/modules';
+export type { RouteDefinition } from './framework/routeDefinitions';
+export { defineRoute } from './framework/routeDefinitions';
 export type {
   InMemoryRouterApiRuntimeSnapshotConsumer,
   RouterApiRuntimeSnapshotPublishedUpdate,
-} from './runtimeSnapshotConsumer';
+} from './framework/runtimeSnapshotConsumer';
 export {
   createInMemoryRouterApiRuntimeSnapshotConsumer,
   validateRuntimeSnapshotExpectation,
-} from './runtimeSnapshotConsumer';
+} from './framework/runtimeSnapshotConsumer';
 export {
   RouterAbEd25519YaoHttpRegistrationBackend,
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
-} from './routerAbEd25519YaoHttpRegistrationBackend';
+} from './domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
 export type {
   RouterAbEd25519YaoHttpRegistrationBackendConfig,
   RouterAbEd25519YaoHttpRegistrationBackendRawEnv,
-} from './routerAbEd25519YaoHttpRegistrationBackend';
+} from './domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
 export {
   createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
   createRouterAbEd25519YaoProductRegistrationRuntimeV1,
   createRouterAbEd25519YaoProductRegistrationStateV1,
-} from './routerAbEd25519YaoProductRegistration';
+} from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
 export type {
   RouterAbEd25519YaoProductRecoveryServicePortV1,
   RouterAbEd25519YaoProductRegistrationAuthorizationPortV1,
@@ -100,7 +100,7 @@ export type {
   RouterAbEd25519YaoProductRegistrationRuntimeV1,
   RouterAbEd25519YaoProductRegistrationServicePortV1,
   RouterAbEd25519YaoProductRegistrationStateV1,
-} from './routerAbEd25519YaoProductRegistration';
+} from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
 
 function appendExpressRequestHeaders(headers: Headers, req: ExpressRequest): void {
   for (const [name, value] of Object.entries(req.headers)) {

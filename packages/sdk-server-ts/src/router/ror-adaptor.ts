@@ -1,4 +1,4 @@
-export type { RorOriginsProvider, RouterApiRorOptions } from './ror';
+export type { RorOriginsProvider, RouterApiRorOptions } from './framework/ror';
 
 export {
   validateRouterApiRorOptions,
@@ -6,4 +6,4 @@ export {
   sanitizeRorOrigins,
   normalizeRorHost,
   StaticRorOriginsProvider,
-} from './ror';
+} from './framework/ror';
