@@ -274,10 +274,10 @@ check('route/lifecycle boundary public result types use success-specific branche
 
 check('route/lifecycle boundary sync-account routes parse request bodies at the boundary', () => {
   const parserSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/syncAccountRequestValidation.ts',
+    'packages/sdk-server-ts/src/router/domains/syncAccount/syncAccountRequestValidation.ts',
   );
   const guardedFiles = [
-    'packages/sdk-server-ts/src/router/cloudflare/routes/syncAccount.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/syncAccount.ts',
   ];
 
   expect(parserSource).toContain('export function parseSyncAccountOptionsRequest');
@@ -294,10 +294,10 @@ check('route/lifecycle boundary sync-account routes parse request bodies at the 
 
 check('route/lifecycle boundary email-recovery prepare parses request bodies at the boundary', () => {
   const parserSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/emailRecoveryRequestValidation.ts',
+    'packages/sdk-server-ts/src/router/domains/emailRecovery/emailRecoveryRequestValidation.ts',
   );
   const guardedFiles = [
-    'packages/sdk-server-ts/src/router/cloudflare/routes/emailRecovery.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/emailRecovery.ts',
   ];
 
   expect(parserSource).toContain('export function parsePrepareEmailRecoveryRequest');
@@ -312,9 +312,11 @@ check('route/lifecycle boundary email-recovery prepare parses request bodies at 
 });
 
 check('route/lifecycle boundary auth provider routes parse request bodies at the boundary', () => {
-  const parserSource = readRepoSource('packages/sdk-server-ts/src/router/authRequestValidation.ts');
+  const parserSource = readRepoSource(
+    'packages/sdk-server-ts/src/router/auth/authRequestValidation.ts',
+  );
   const cloudflareSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/routes/auth.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/auth.ts',
   );
   const cloudflareProviderRoute = sourceRange(
     cloudflareSource,
@@ -347,7 +349,7 @@ check('route/lifecycle boundary auth provider routes parse request bodies at the
 
 check('route/lifecycle boundary auth identity mutation routes parse request bodies at the boundary', () => {
   const cloudflareSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/routes/auth.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/auth.ts',
   );
   const cloudflareMutationRoute = sourceRange(
     cloudflareSource,
@@ -362,7 +364,7 @@ check('route/lifecycle boundary auth identity mutation routes parse request bodi
 
 check('route/lifecycle boundary threshold ECDSA key-identity inventory has one wallet boundary', () => {
   const walletRegistrationSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
+    'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
   );
 
   expect(walletRegistrationSource).toContain('handleRouterApiWalletEcdsaKeyFactsInventory');
@@ -371,38 +373,38 @@ check('route/lifecycle boundary threshold ECDSA key-identity inventory has one w
 
 check('route/lifecycle boundary threshold and session exchange routes parse commands before services', () => {
   const ed25519Parser = readRepoSource(
-    'packages/sdk-server-ts/src/router/thresholdEd25519RequestValidation.ts',
+    'packages/sdk-server-ts/src/router/domains/ed25519Yao/session/thresholdEd25519RequestValidation.ts',
   );
   const ecdsaParser = readRepoSource(
-    'packages/sdk-server-ts/src/router/thresholdEcdsaRequestValidation.ts',
+    'packages/sdk-server-ts/src/router/domains/ecdsa/thresholdEcdsaRequestValidation.ts',
   );
   const sessionExchangeParser = readRepoSource(
-    'packages/sdk-server-ts/src/router/sessionExchangeRequestValidation.ts',
+    'packages/sdk-server-ts/src/router/auth/sessionExchangeRequestValidation.ts',
   );
   const routeValidation = readRepoSource(
-    'packages/sdk-server-ts/src/router/routeRequestValidation.ts',
+    'packages/sdk-server-ts/src/router/framework/routeRequestValidation.ts',
   );
   const coreTypes = readRepoSource('packages/sdk-server-ts/src/core/types.ts');
   const normalSigningRuntime = readRepoSource(
     'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts',
   );
   const cloudflareEd25519 = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEd25519.ts',
   );
   const cloudflareEcdsa = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa.ts',
   );
   const cloudflareSessions = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/sessions.ts',
   );
 
   expect(ed25519Parser).toContain('parseThresholdEd25519SessionRouteRequest');
   expect(ecdsaParser).toContain('parseRouterAbEcdsaDerivationPoolFillInitRouteRequest');
   expect(ecdsaParser).toContain('parseRouterAbEcdsaDerivationPoolFillStepRouteRequest');
   expect(sessionExchangeParser).toContain('export function parseSessionExchangeRouteCommand');
-  expect(sessionExchangeParser).toContain("import { parseSessionKind } from './routerApi'");
+  expect(sessionExchangeParser).toContain("import { parseSessionKind } from '../framework/routerApi'");
   expect(sessionExchangeParser).toContain(
-    "import { parseOidcAccountMode } from './emailOtpSessionRouteHelpers'",
+    "import { parseOidcAccountMode } from '../domains/emailOtp/emailOtpSessionRouteHelpers'",
   );
   expect(sessionExchangeParser).not.toContain('function unexpectedKey');
   expect(sessionExchangeParser).not.toContain('function normalizedString');

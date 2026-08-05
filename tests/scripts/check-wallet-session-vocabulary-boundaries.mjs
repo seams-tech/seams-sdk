@@ -67,16 +67,16 @@ const classifiedSessionIdPublicSurfaceFiles = {
   'packages/sdk-server-ts/src/core/RegistrationCeremonyStore.ts':
     'keep_ed25519_yao_protocol_session',
   'packages/sdk-server-ts/src/core/types.ts': 'rename_later_agent_b_signing_or_wasm',
-  'packages/sdk-server-ts/src/router/authServicePort.ts': 'keep_app_device_or_recovery_session',
-  'packages/sdk-server-ts/src/router/recoveryExecutionTracking.ts':
+  'packages/sdk-server-ts/src/router/framework/authServicePort.ts': 'keep_app_device_or_recovery_session',
+  'packages/sdk-server-ts/src/router/domains/emailRecovery/recoveryExecutionTracking.ts':
     'keep_app_device_or_recovery_session',
-  'packages/sdk-server-ts/src/router/routerAbEd25519YaoExport.ts':
+  'packages/sdk-server-ts/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExport.ts':
     'keep_ed25519_yao_protocol_session',
-  'packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery.ts':
+  'packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery.ts':
     'keep_ed25519_yao_protocol_session',
-  'packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistration.ts':
+  'packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistration.ts':
     'keep_ed25519_yao_protocol_session',
-  'packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration.ts':
+  'packages/sdk-server-ts/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts':
     'rename_later_agent_b_signing_or_wasm',

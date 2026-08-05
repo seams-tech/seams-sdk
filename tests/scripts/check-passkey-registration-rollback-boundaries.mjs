@@ -13,7 +13,7 @@ const productionContinuationScanPaths = [
   'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
   'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
   'packages/sdk-server-ts/src/core/types.ts',
-  'packages/sdk-server-ts/src/router/commonRouterUtils.ts',
+  'packages/sdk-server-ts/src/router/auth/commonRouterUtils.ts',
 ];
 
 function absolutePath(relativePath) {
