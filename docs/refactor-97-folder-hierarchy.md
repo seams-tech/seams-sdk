@@ -3,11 +3,11 @@
 ## Status
 
 Implemented and integrated through Phases 1–6 on `codex/r97-folder-hierarchy`
-at `45551889b`.
+at `c1a81f62a`.
 
 ### Implementation record
 
-- Integrated branch/HEAD: `codex/r97-folder-hierarchy` / `45551889b`.
+- Integrated branch/HEAD: `codex/r97-folder-hierarchy` / `c1a81f62a`.
 - No R97 structural symlinks or fallback paths remain.
 - Server package typecheck, console-server typecheck, and unit typecheck pass.
 - Package export contract passes 12/12; export server passes 17/17; route
