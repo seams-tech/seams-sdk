@@ -4,12 +4,14 @@ import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { RouterApiWebAuthnService } from '../../../framework/authServicePort';
 import {
   d1HostIsWithinWebAuthnRpId,
-  d1WebAuthnCredentialIdB64uFromCredential,
-  d1WebAuthnOriginHostnameOrEmpty,
-  decodeD1WebAuthnBase64UrlOrBase64,
-  parseD1WebAuthnAuthenticationCredential,
-  parseD1WebAuthnClientDataJsonBase64url,
 } from '../wallet/d1WalletAuthMethodBoundary';
+import {
+  webAuthnCredentialIdB64uFromCredential,
+  webAuthnOriginHostnameOrEmpty,
+  decodeWebAuthnBase64UrlOrBase64,
+  parseWebAuthnAuthenticationCredential,
+  parseWebAuthnClientDataJsonBase64url,
+} from '../../../auth/webAuthnCredentialCodecs';
 import {
   isRecordValue,
   nonNegativeSafeInteger,
@@ -250,7 +252,7 @@ export class CloudflareD1WebAuthnAuthService {
       const rpId = parseWebAuthnRpId(input.rpId);
       const expectedChallenge = toOptionalTrimmedString(input.expectedChallenge);
       const expectedOrigin = toOptionalTrimmedString(input.expected_origin);
-      const credential = parseD1WebAuthnAuthenticationCredential(input.webauthn_authentication);
+      const credential = parseWebAuthnAuthenticationCredential(input.webauthn_authentication);
       if (!userId.ok) {
         return {
           success: false,
@@ -293,12 +295,12 @@ export class CloudflareD1WebAuthnAuthService {
       }
 
       try {
-        const clientData = parseD1WebAuthnClientDataJsonBase64url(
+        const clientData = parseWebAuthnClientDataJsonBase64url(
           toOptionalTrimmedString(parseJsonObject(credential.response)?.clientDataJSON),
         );
         if (
           !d1HostIsWithinWebAuthnRpId(
-            d1WebAuthnOriginHostnameOrEmpty(clientData.origin),
+            webAuthnOriginHostnameOrEmpty(clientData.origin),
             String(rpId.value),
           )
         ) {
@@ -318,7 +320,7 @@ export class CloudflareD1WebAuthnAuthService {
         };
       }
 
-      const credentialId = d1WebAuthnCredentialIdB64uFromCredential(credential);
+      const credentialId = webAuthnCredentialIdB64uFromCredential(credential);
       if (!credentialId.ok) {
         return {
           success: false,
@@ -353,7 +355,7 @@ export class CloudflareD1WebAuthnAuthService {
 
       let credentialPublicKeyBytes: Uint8Array;
       try {
-        credentialPublicKeyBytes = decodeD1WebAuthnBase64UrlOrBase64(
+        credentialPublicKeyBytes = decodeWebAuthnBase64UrlOrBase64(
           authenticator.credentialPublicKeyB64u,
           'authenticator.credentialPublicKeyB64u',
         );
@@ -452,7 +454,7 @@ export class CloudflareD1WebAuthnAuthService {
           message: `Stored login challenge rpId is invalid: ${rpId.error.message}`,
         };
       }
-      const credential = parseD1WebAuthnAuthenticationCredential(input.webauthn_authentication);
+      const credential = parseWebAuthnAuthenticationCredential(input.webauthn_authentication);
       if (!credential) {
         return {
           ok: false,
@@ -502,7 +504,7 @@ export class CloudflareD1WebAuthnAuthService {
           message: 'Sync challenge expired or invalid',
         };
       }
-      const credential = parseD1WebAuthnAuthenticationCredential(input.webauthn_authentication);
+      const credential = parseWebAuthnAuthenticationCredential(input.webauthn_authentication);
       if (!credential) {
         return {
           ok: false,
@@ -511,7 +513,7 @@ export class CloudflareD1WebAuthnAuthService {
           message: 'Missing webauthn_authentication',
         };
       }
-      const credentialId = d1WebAuthnCredentialIdB64uFromCredential(credential);
+      const credentialId = webAuthnCredentialIdB64uFromCredential(credential);
       if (!credentialId.ok) {
         return {
           ok: false,
