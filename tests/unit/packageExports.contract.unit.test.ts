@@ -157,7 +157,7 @@ test.describe('package export contracts', () => {
     });
     expect(exportsMap['./console']).toBeUndefined();
     const cloudflareTypes = readRepoFile(
-      'packages/sdk-server-ts/src/router/cloudflare/cloudflare.types.ts',
+      'packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types.ts',
     );
     expect(cloudflareTypes).toContain('RouterApiCloudflareSignerWorkerEnv');
     expect(cloudflareTypes).toContain('SeamsD1SignerTenantStorageWorkerEnv');
