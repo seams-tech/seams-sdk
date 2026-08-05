@@ -66,8 +66,12 @@ function checkNormalLoginRequiresDeviceLocalEscrow() {
 function checkServerEnrollmentApisDoNotExposeDirectEscrowStorage() {
   const storesSource = readRepoFile('packages/sdk-server-ts/src/core/EmailOtpStores.ts');
   const authServiceSource = readRepoFile('packages/sdk-server-ts/src/core/authService/AuthService.ts');
-  const routeHandlersSource = readRepoFile('packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts');
-  const routeHelpersSource = readRepoFile('packages/sdk-server-ts/src/router/emailOtpSessionRouteHelpers.ts');
+  const routeHandlersSource = readRepoFile(
+    'packages/sdk-server-ts/src/router/domains/emailOtp/emailOtpRouteHandlers.ts',
+  );
+  const routeHelpersSource = readRepoFile(
+    'packages/sdk-server-ts/src/router/domains/emailOtp/emailOtpSessionRouteHelpers.ts',
+  );
 
   const walletEnrollmentType = sliceBetween(
     storesSource,

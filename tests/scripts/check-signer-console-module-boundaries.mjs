@@ -17,16 +17,16 @@ const signerCoreRoots = [
 ];
 
 const signerRouterFiles = [
-  'packages/sdk-server-ts/src/router/routerApi.ts',
-  'packages/sdk-server-ts/src/router/commonRouterUtils.ts',
-  'packages/sdk-server-ts/src/router/routerApiKeyAuth.ts',
-  'packages/sdk-server-ts/src/router/routerApiCredentialAuth.ts',
-  'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
-  'packages/sdk-server-ts/src/router/routeDefinitions.ts',
-  'packages/sdk-server-ts/src/router/routeAuthPolicy.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/cloudflare.types.ts',
+  'packages/sdk-server-ts/src/router/framework/routerApi.ts',
+  'packages/sdk-server-ts/src/router/auth/commonRouterUtils.ts',
+  'packages/sdk-server-ts/src/router/auth/routerApiKeyAuth.ts',
+  'packages/sdk-server-ts/src/router/auth/routerApiCredentialAuth.ts',
+  'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
+  'packages/sdk-server-ts/src/router/framework/routeDefinitions.ts',
+  'packages/sdk-server-ts/src/router/framework/routeAuthPolicy.ts',
+  'packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter.ts',
+  'packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa.ts',
+  'packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types.ts',
 ];
 
 const signerPackageConfigFiles = [
