@@ -154,6 +154,15 @@ type D1WalletRegistrationFinalizeSuccess = Extract<
   WalletRegistrationFinalizeResponse,
   { ok: true }
 >;
+type D1WalletRegistrationFinalizeEmailOtpSuccess = Extract<
+  D1WalletRegistrationFinalizeSuccess,
+  { authMethod: { kind: 'email_otp' } }
+> & {
+  readonly appSessionJwt: string;
+};
+type D1WalletRegistrationFinalizeReplaySuccess =
+  | Exclude<D1WalletRegistrationFinalizeSuccess, { authMethod: { kind: 'email_otp' } }>
+  | D1WalletRegistrationFinalizeEmailOtpSuccess;
 type D1WalletRegistrationFinalizeEcdsaPayload = {
   readonly walletKeys: WalletRegistrationEcdsaWalletKey[];
 };
@@ -489,7 +498,7 @@ export function parseD1WalletAddSignerFinalizeTerminalResponse(
 
 export function parseD1WalletRegistrationFinalizeReplayResponse(
   raw: unknown,
-): D1WalletRegistrationFinalizeSuccess | null {
+): D1WalletRegistrationFinalizeReplaySuccess | null {
   const record = toRecordValue(raw);
   if (!record || record.ok !== true) {
     return null;
@@ -505,6 +514,10 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
     return null;
   }
   if (authMethod.kind === 'email_otp' && rpId) {
+    return null;
+  }
+  const appSessionJwt = toOptionalTrimmedString(record.appSessionJwt);
+  if (record.appSessionJwt !== undefined && !appSessionJwt) {
     return null;
   }
   const ecdsa = parseD1WalletRegistrationFinalizeEcdsa(record.ecdsa);
@@ -524,14 +537,16 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
         ecdsa,
       };
     }
-    return {
+    const response = {
       ok: true,
       kind: 'evm_family_ecdsa',
       walletId,
       authority,
       authMethod,
       ecdsa,
-    };
+    } as const;
+    if (!appSessionJwt) return null;
+    return { ...response, appSessionJwt };
   }
   /* Refactor 94 Phase 4+5: finalize commits one signer branch per call, so a
      replayed Ed25519 response never carries ECDSA work. */
@@ -580,7 +595,7 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
       ed25519,
     };
   }
-  return {
+  const response = {
     ok: true,
     kind: 'near_ed25519',
     walletId,
@@ -590,7 +605,9 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
     accountProvisioning,
     resolvedAccount,
     ed25519,
-  };
+  } as const;
+  if (!appSessionJwt) return null;
+  return { ...response, appSessionJwt };
 }
 
 function parseWalletRegistrationRouteTimingName(
@@ -651,6 +668,9 @@ export function parseD1WalletRegistrationFinalizeTerminalResponse(
   }
   const success = parseD1WalletRegistrationFinalizeReplayResponse(record);
   if (!success) return null;
+  if (success.authMethod.kind === 'email_otp') {
+    if (!('appSessionJwt' in success) || !success.appSessionJwt) return null;
+  }
   if (record.registrationDiagnostics === undefined) return success;
   const registrationDiagnostics = parseWalletRegistrationRouteDiagnostics(
     record.registrationDiagnostics,

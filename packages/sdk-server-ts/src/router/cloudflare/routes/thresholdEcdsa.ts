@@ -369,6 +369,7 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
       materialActivation: authorization.admission.materialActivation,
       claims: authorization.validated.claims,
       authorizedOperations: input.ctx.service.authorizedOperations,
+      authorizationSessions: input.ctx.service.authorizationSessions,
       resolveEcdsaMaterialActivation:
         input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation.bind(
           input.ctx.service.walletRegistration,
@@ -622,6 +623,9 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
     parseAuthorizationEvidenceSetId(`ecdsa-step-up-evidence-set:${requestId}`),
   );
   const expiresAtMs = Math.min(operation.expires_at_ms, authenticated.expiresAtMs);
+  let emailOtpUnseal:
+    | { readonly grant: string; readonly challengeId: string }
+    | undefined;
   let factor!: VerifiedAuthorizationFactorResult;
   switch (proof.kind) {
     case 'passkey': {
@@ -701,19 +705,29 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
       if (!verified.ok) {
         return json(verified, { status: verified.code === 'invalid_body' ? 400 : 401 });
       }
-      const consumed = await input.ctx.service.emailOtp.consumeEmailOtpGrant({
-        subject: {
-          kind: 'authorization_session',
-          tenantId: authenticated.session.tenantId,
-          principalId: authenticated.session.principalId,
-          walletId: walletIdFromString(authenticated.session.walletId),
-        },
-        loginGrant: verified.loginGrant,
-        otpChannel: EMAIL_OTP_CHANNEL,
-      });
-      if (!consumed.ok) {
+      const consumed =
+        operation.operation_kind === 'evm.export_key'
+          ? null
+          : await input.ctx.service.emailOtp.consumeEmailOtpGrant({
+              subject: {
+                kind: 'authorization_session',
+                tenantId: authenticated.session.tenantId,
+                principalId: authenticated.session.principalId,
+                walletId: walletIdFromString(authenticated.session.walletId),
+              },
+              loginGrant: verified.loginGrant,
+              otpChannel: EMAIL_OTP_CHANNEL,
+            });
+      if (consumed && !consumed.ok) {
         return json(consumed, { status: consumed.code === 'invalid_body' ? 400 : 401 });
       }
+      if (operation.operation_kind === 'evm.export_key') {
+        emailOtpUnseal = {
+          grant: verified.loginGrant,
+          challengeId: verified.challengeId,
+        };
+      }
+      const verifiedChallengeId = consumed?.ok ? consumed.challengeId : verified.challengeId;
       factor = buildVerifiedEmailOtpFactorResult({
         tenantId: authenticated.session.tenantId,
         principalId: authenticated.session.principalId,
@@ -726,12 +740,12 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
         ),
         authorityRef: authenticated.authorityRef,
         operation: envelope,
-        challengeId: requireAuthorizationValue(parseEmailOtpChallengeId(consumed.challengeId)),
+        challengeId: requireAuthorizationValue(parseEmailOtpChallengeId(verifiedChallengeId)),
         verificationReceiptDigest: parseDigestB64u(
           base64UrlEncode(
             await sha256BytesUtf8(
               alphabetizeStringify({
-                challengeId: consumed.challengeId,
+                challengeId: verifiedChallengeId,
                 operationFingerprint: expectedChallenge,
               }),
             ),
@@ -816,6 +830,13 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
       authorization: {
         kind: 'operation_step_up',
         evidence_set_digest: evidenceSet.evidenceSetDigest,
+        unseal: emailOtpUnseal
+          ? {
+              kind: 'email_otp_grant',
+              grant: emailOtpUnseal.grant,
+              challenge_id: emailOtpUnseal.challengeId,
+            }
+          : { kind: 'not_requested' },
       },
       expires_at_ms: expiresAtMs,
     },
@@ -2198,26 +2219,22 @@ async function authorizeStrictEcdsaSessionActivation(input: {
     if (input.source === 'verified_wallet_unlock') {
       return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
     }
-    const principalId = parsePrincipalId(ecdsaClaims.sub);
-    if (!principalId.ok) {
-      return {
-        ok: false,
-        code: 'identity_mismatch',
-        message: 'ECDSA Wallet Session principal is invalid',
-      };
-    }
     const nowMs = Date.now();
     const activeSession = await input.ctx.service.authorizationSessions.readActiveSession({
       tenantId: input.ctx.service.authorizationSessions.tenantId,
       sessionId: ecdsaClaims.authorizationSessionId,
       nowMs,
     });
-    if (!activeSession || activeSession.principalId !== principalId.value) {
+    if (!activeSession) {
       return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.expired);
     }
+    // ECDSA Wallet Session `sub` identifies the wallet key. Reusable grants are
+    // owned by the authorization-session principal, which may be a provider
+    // subject for Email OTP wallets.
+    const principalId = activeSession.principalId;
     const status = await input.ctx.service.authorizationSessions.readReusableWalletSessionStatus({
       tenantId: input.ctx.service.authorizationSessions.tenantId,
-      principalId: principalId.value,
+      principalId,
       walletSessionId: ecdsaClaims.walletSessionId,
       quotaId: ecdsaClaims.quotaId,
       nowMs,
@@ -2234,7 +2251,7 @@ async function authorizeStrictEcdsaSessionActivation(input: {
     return {
       ok: true,
       kind: 'reuse_reusable_wallet_session',
-      principalId: principalId.value,
+      principalId,
       authorizationSessionId: ecdsaClaims.authorizationSessionId,
       authorizationId: ecdsaClaims.authorizationId,
       walletSessionId: ecdsaClaims.walletSessionId,

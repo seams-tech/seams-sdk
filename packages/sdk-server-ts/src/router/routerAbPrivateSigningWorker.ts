@@ -100,7 +100,7 @@ const ED25519_ROUND1_BINDING_VERSION_V2 =
 const ED25519_TRUSTED_SOURCE_VERSION_V2 = 'router-ab-cloudflare-trusted-source/v2';
 
 export function routerAbEcdsaAtomicAuthorizationConfigured(
-  authorizedOperations: RouterApiAuthorizedOperationService,
+  authorizedOperations: Pick<RouterApiAuthorizedOperationService, 'admitAuthorizedOperation'>,
 ): boolean {
   const runtime = authorizedOperations as unknown as Record<string, unknown>;
   return typeof runtime.admitAuthorizedOperation === 'function';
@@ -2333,7 +2333,14 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
   request: RouterAbEcdsaOperationStepUpRequest;
   materialActivation: RouterAbMpcMaterialActivationRefWire;
   claims: RouterAbEcdsaDerivationWalletSessionClaims;
-  authorizedOperations: RouterApiAuthorizedOperationService;
+  authorizedOperations: Pick<
+    RouterApiAuthorizedOperationService,
+    'tenantId' | 'admitAuthorizedOperation'
+  >;
+  authorizationSessions: Pick<
+    RouterApiAuthorizationSessionService,
+    'tenantId' | 'readActiveSession'
+  > | null | undefined;
   resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
 }): Promise<
   | {
@@ -2362,6 +2369,16 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
       ),
     };
   }
+  if (!input.authorizationSessions) {
+    return {
+      ok: false,
+      error: routerAbStepUpError(
+        501,
+        'not_configured',
+        'Reusable Wallet Session authorization is not configured',
+      ),
+    };
+  }
   const nowMs = Date.now();
   try {
     const runtimePolicyScope = input.claims.runtimePolicyScope;
@@ -2369,9 +2386,31 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
       throw new Error('ECDSA operation runtime policy scope is required');
     }
     const tenantId = requireAuthorizationValue(parseTenantId(runtimePolicyScope.orgId));
-    const principalId = requireAuthorizationValue(parsePrincipalId(input.claims.sub));
+    const authorizationTenantId = input.authorizationSessions.tenantId;
+    if (authorizationTenantId !== input.authorizedOperations.tenantId) {
+      return {
+        ok: false,
+        error: routerAbStepUpError(
+          501,
+          'not_configured',
+          'ECDSA authorization services are configured for different tenants',
+        ),
+      };
+    }
+    const activeSession = await input.authorizationSessions.readActiveSession({
+      tenantId: authorizationTenantId,
+      sessionId: input.claims.authorizationSessionId,
+      nowMs,
+    });
+    if (!activeSession) {
+      return {
+        ok: false,
+        error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.expired),
+      };
+    }
+    const principalId = activeSession.principalId;
     if (
-      tenantId !== input.authorizedOperations.tenantId ||
+      tenantId !== authorizationTenantId ||
       input.request.authorization.wallet_session_id !== input.claims.walletSessionId
     ) {
       return {
@@ -3033,6 +3072,7 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
     materialActivation: admission.materialActivation,
     claims: validated.claims,
     authorizedOperations: input.authorizedOperations,
+    authorizationSessions: input.authorizationSessions,
     resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
   });
   if (!claimed.ok) return claimed.error;

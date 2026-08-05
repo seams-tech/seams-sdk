@@ -865,7 +865,10 @@ function parseD1WalletRegistrationActivateTerminalResponse(
     return null;
   }
   const appSessionJwt = toOptionalTrimmedString(raw.appSessionJwt);
-  if (commit.authMethod.kind === 'passkey' && !appSessionJwt) {
+  if (
+    (commit.authMethod.kind === 'passkey' || commit.authMethod.kind === 'email_otp') &&
+    !appSessionJwt
+  ) {
     return null;
   }
   const stored = isRecordValue(raw.ecdsa) ? raw.ecdsa : null;

@@ -31,6 +31,8 @@ import type {
   AuthorizedOperation,
   AuthorizedOperationInput,
 } from '../../packages/sdk-server-ts/src/authorization/domain';
+import { admitRouterAbEcdsaReusableWalletSessionOperation } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
+import { buildRouterAbEcdsaWalletSessionClaimsFixture } from './helpers/routerAbEcdsaWalletSessionClaims.fixtures';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { parseVerifiedAuthorizationEvidenceSetFromPersistence } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
@@ -40,8 +42,14 @@ import {
   parseAuthorizationAuditEventId,
   parseAuthorizedOperationId,
   parseMpcWalletSigningQuotaId,
+  parsePrincipalId,
   parseReusableWalletSessionMintId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import {
+  buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+  parseRouterAbEcdsaDerivationNormalSigningStateV1,
+  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+} from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 
 const signerMigrations = listD1MigrationFiles('d1-signer');
 
@@ -91,6 +99,45 @@ test.describe('D1 authorization core', () => {
       await expect(
         rowCount(temporary.database, 'authorization_wallet_session_quotas'),
       ).resolves.toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('replays an active authorization session only for the same identity', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const service = createService(temporary.database, 'authorization-session-replay');
+      const fixture = await buildPasskeyAuthorizationSessionFixture({
+        tenantId: 'tenant-authorization-session-replay',
+        principalId: 'principal-authorization-session-replay',
+        sessionId: 'session-authorization-session-replay',
+        deviceId: 'device-authorization-session-replay',
+        walletId: 'wallet-authorization-session-replay',
+        credentialIdB64u: 'credential-authorization-session-replay',
+        rpId: 'example.test',
+        origin: 'https://app.example.test',
+        expiresAtMs: 1_900_000_100_000,
+      });
+      await service.recordActiveSession(fixture.session);
+      await expect(service.recordActiveSession(fixture.session)).resolves.toBeUndefined();
+
+      const conflicting = await buildPasskeyAuthorizationSessionFixture({
+        tenantId: 'tenant-authorization-session-replay',
+        principalId: 'principal-authorization-session-conflict',
+        sessionId: 'session-authorization-session-replay',
+        deviceId: 'device-authorization-session-replay',
+        walletId: 'wallet-authorization-session-conflict',
+        credentialIdB64u: 'credential-authorization-session-conflict',
+        rpId: 'example.test',
+        origin: 'https://app.example.test',
+        expiresAtMs: 1_900_000_100_000,
+      });
+      await expect(service.recordActiveSession(conflicting.session)).rejects.toThrow(
+        'active authorization session identity does not match the persisted session',
+      );
+      await expect(rowCount(temporary.database, 'authorization_sessions')).resolves.toBe(1);
     } finally {
       cleanupTemporaryD1Database(temporary.tempDir);
     }
@@ -416,6 +463,205 @@ test.describe('D1 authorization core', () => {
         ),
       ).resolves.toBe(1);
       await expect(rowCount(temporary.database, 'authorized_operations')).resolves.toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('admits an Email OTP registration ECDSA prepare under its authorization principal', async () => {
+    const temporary = createTemporaryD1Database();
+    const namespace = 'authorized-operation-email-otp-registration';
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const fixture = await buildReusableAuthorizationCoreFixture({ quotaRemainingUses: 3 });
+      const walletSignerScope = signerPersistenceScope(
+        namespace,
+        fixture.authorizedOperation.tenantId,
+        'env-a',
+      );
+      const store = new CloudflareD1AuthorizationStore({
+        database: temporary.database,
+        namespace,
+        walletSignerScope,
+      });
+      const service = new AuthorizationService({
+        policy: capabilityPolicyPort,
+        sessions: store,
+        evidence: store,
+        grants: store,
+        authorizedOperations: store,
+        audit: store,
+      });
+      await service.recordActiveSession(fixture.session);
+      await store.putWalletSessionAuthorization({
+        session: fixture.reusableWalletSession,
+        quota: fixture.quota,
+      });
+
+      const signer = createWalletEcdsaSignerRecord({
+        walletId: fixture.reusableWalletSession.walletId,
+        now: fixture.session.createdAtMs,
+        materialActivationCapability: String(fixture.authorizedOperation.operation.capabilityId),
+      });
+      const walletStore = new D1WalletStore({
+        database: temporary.database,
+        ...walletSignerScope,
+      });
+      await walletStore.putSigner(signer);
+      const material = {
+        walletId: signer.walletId,
+        keyHandle: signer.walletKey.keyHandle,
+        runtimePolicyScope: {
+          orgId: fixture.session.tenantId,
+          projectId: 'project-a',
+          envId: 'env-a',
+          signingRootVersion: signer.walletKey.signingRootVersion,
+        },
+        materialActivation: signer.walletKey.publicCapability.material_activation,
+      } as const;
+      const capability = signer.walletKey.publicCapability;
+      const normalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1({
+        kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+        scope: {
+          wallet_id: signer.walletKey.walletId,
+          ecdsa_threshold_key_id: signer.walletKey.ecdsaThresholdKeyId,
+          signing_root_id: signer.walletKey.signingRootId,
+          signing_root_version: signer.walletKey.signingRootVersion,
+          context: capability.context,
+          public_identity: capability.public_identity,
+          material_activation: capability.material_activation,
+          signing_worker: capability.signer_set.selected_server,
+          activation_epoch: capability.activation_epoch,
+        },
+      });
+      if (!normalSigning) throw new Error('ECDSA normal-signing fixture is invalid');
+      const claims = buildRouterAbEcdsaWalletSessionClaimsFixture({
+        walletId: String(fixture.reusableWalletSession.walletId),
+        keyHandle: signer.walletKey.keyHandle,
+        relayerKeyId: signer.walletKey.relayerKeyId,
+        participantIds: signer.walletKey.participantIds,
+        thresholdExpiresAtMs: fixture.quota.expiresAtMs,
+        runtimePolicyScope: material.runtimePolicyScope,
+        normalSigningScope: normalSigning.scope,
+        authorizationSessionId: String(fixture.session.sessionId),
+        authorizationId: String(fixture.reusableWalletSession.authorizationId),
+        walletSessionId: String(fixture.reusableWalletSession.walletSessionId),
+        quotaId: String(fixture.reusableWalletSession.quotaId),
+      });
+      expect(String(claims.sub)).not.toBe(String(fixture.session.principalId));
+      const request = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
+        scope: normalSigning.scope,
+        requestId: 'email-otp-registration-prepare',
+        operationId: 'email-otp-registration-operation',
+        operationDigests: {
+          lane_digest_b64u: base64UrlEncode(new Uint8Array(32).fill(1)),
+          intent_digest_b64u: base64UrlEncode(new Uint8Array(32).fill(2)),
+          display_digest_b64u: base64UrlEncode(new Uint8Array(32).fill(3)),
+        },
+        authorization: {
+          kind: 'reusable_wallet_session',
+          wallet_session_id: String(fixture.reusableWalletSession.walletSessionId),
+        },
+        materialActivation: material.materialActivation,
+        clientPresignatureId: 'email-otp-registration-presignature',
+        expiresAtMs: fixture.quota.expiresAtMs,
+        signingDigest32: new Uint8Array(32).fill(2),
+        clientRerandomizationCommitment32: new Uint8Array(32).fill(5),
+      });
+      const authorizedOperations = {
+        tenantId: fixture.session.tenantId,
+        admitAuthorizedOperation: service.admitAuthorizedOperation.bind(service),
+      };
+      const authorizationSessions = {
+        tenantId: fixture.session.tenantId,
+        readActiveSession: service.readActiveSession.bind(service),
+      };
+
+      const first = await admitRouterAbEcdsaReusableWalletSessionOperation({
+        request,
+        materialActivation: material.materialActivation,
+        claims,
+        authorizedOperations,
+        authorizationSessions,
+        resolveEcdsaMaterialActivation: async () => ({
+          ok: true as const,
+          materialActivation: material.materialActivation,
+          keyHandle: material.keyHandle,
+          relayerKeyId: signer.walletKey.relayerKeyId,
+          participantIds: signer.walletKey.participantIds,
+        }),
+      });
+      expect(first).toMatchObject({ ok: true, admission: { kind: 'claimed' } });
+      if (!first.ok || first.admission.kind !== 'claimed') {
+        throw new Error('expected a newly admitted Email OTP operation');
+      }
+      await expect(
+        readQuotaRemainingUses(
+          temporary.database,
+          fixture.session.tenantId,
+          fixture.quota.quotaId,
+        ),
+      ).resolves.toBe(2);
+
+      const mismatchedPrincipal = parsePrincipalId(
+        String(fixture.reusableWalletSession.walletId),
+      );
+      if (!mismatchedPrincipal.ok) throw new Error(mismatchedPrincipal.error.message);
+      const admittedInput = authorizedOperationInput(first.admission.operation);
+      const mismatchedOperation = buildCapabilityOperationEnvelope({
+        tenantId: admittedInput.operation.tenantId,
+        principalId: mismatchedPrincipal.value,
+        capabilityId: admittedInput.operation.capabilityId,
+        operationId: admittedInput.operation.operationId,
+        operation: admittedInput.operation.operation,
+        digests: admittedInput.operation.digests,
+      });
+      await expect(
+        service.admitAuthorizedOperation({
+          operation: {
+            tenantId: admittedInput.tenantId,
+            authorizedOperationId: requiredAuthorizedOperationId(
+              'authorized-operation-principal-mismatch',
+            ),
+            auditEventId: requiredAuthorizationAuditEventId('audit-principal-mismatch'),
+            authorization: admittedInput.authorization,
+            quota: admittedInput.quota,
+            claimedAtMs: admittedInput.claimedAtMs,
+            operation: mismatchedOperation,
+          },
+          material,
+        }),
+      ).resolves.toEqual({ kind: 'authorization_grant_rejected' });
+      await expect(
+        readQuotaRemainingUses(
+          temporary.database,
+          fixture.session.tenantId,
+          fixture.quota.quotaId,
+        ),
+      ).resolves.toBe(2);
+
+      const retry = await admitRouterAbEcdsaReusableWalletSessionOperation({
+        request,
+        materialActivation: material.materialActivation,
+        claims,
+        authorizedOperations,
+        authorizationSessions,
+        resolveEcdsaMaterialActivation: async () => ({
+          ok: true as const,
+          materialActivation: material.materialActivation,
+          keyHandle: material.keyHandle,
+          relayerKeyId: signer.walletKey.relayerKeyId,
+          participantIds: signer.walletKey.participantIds,
+        }),
+      });
+      expect(retry).toMatchObject({ ok: true, admission: { kind: 'operation_in_progress' } });
+      await expect(
+        readQuotaRemainingUses(
+          temporary.database,
+          fixture.session.tenantId,
+          fixture.quota.quotaId,
+        ),
+      ).resolves.toBe(2);
     } finally {
       cleanupTemporaryD1Database(temporary.tempDir);
     }

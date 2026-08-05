@@ -674,6 +674,7 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
         acknowledgedAtMs: Date.now(),
         idempotencyKey: 'ed25519-otp-backup-ack',
       },
+      session: signer,
       verifier: signer,
       minter: signer,
     };

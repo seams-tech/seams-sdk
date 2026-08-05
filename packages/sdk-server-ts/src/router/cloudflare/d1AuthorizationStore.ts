@@ -158,7 +158,7 @@ export class CloudflareD1AuthorizationStore
   async putActiveSession(session: ActiveAuthorizationSession): Promise<void> {
     const result = await this.database
       .prepare(
-        `INSERT INTO authorization_sessions (
+        `INSERT OR IGNORE INTO authorization_sessions (
           namespace,
           tenant_id,
           session_id,
@@ -191,7 +191,23 @@ export class CloudflareD1AuthorizationStore
         requirePositiveInteger(session.lifecycle.expiresAtMs, 'session.lifecycle.expiresAtMs'),
       )
       .run();
-    requireOneChangedRow(result, 'active authorization session');
+    if (d1ChangedRows(result) === 1) return;
+
+    const row = await this.database
+      .prepare(
+        `SELECT *
+           FROM authorization_sessions
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND session_id = ?
+          LIMIT 1`,
+      )
+      .bind(this.namespace, session.tenantId, session.sessionId)
+      .first<D1Row>();
+    const persisted = row ? parseAuthorizationSessionRow(row) : null;
+    if (!persisted || !activeAuthorizationSessionReplayMatches(session, persisted)) {
+      throw new Error('active authorization session identity does not match the persisted session');
+    }
   }
 
   async readActiveSession(input: {
@@ -939,7 +955,7 @@ export class CloudflareD1AuthorizationStore
             .bind(...values);
       const result = await statement.run();
       if (input.material && d1ChangedRows(result) === 0) return { kind: 'material_mismatch' };
-    } catch {
+    } catch (error: unknown) {
       const raced = await this.readAuthorizedOperationRecord({
         tenantId: operation.tenantId,
         operationFingerprintDigest: operation.operationFingerprintDigest,
@@ -959,11 +975,9 @@ export class CloudflareD1AuthorizationStore
         }
         return { kind: 'operation_in_progress', operation: raced.operation };
       }
-      return source.kind === 'verified_step_up'
-        ? { kind: 'verified_step_up_rejected' }
-        : quota.kind === 'consume_reusable_wallet_session'
-          ? { kind: 'wallet_session_quota_exhausted' }
-          : { kind: 'authorization_grant_rejected' };
+      const triggerFailure = classifyAuthorizedOperationAdmissionError(error);
+      if (triggerFailure) return triggerFailure;
+      throw error;
     }
     const committed = await this.readAuthorizedOperationRecord({
       tenantId: operation.tenantId,
@@ -1175,6 +1189,26 @@ type AuthorizedOperationReplayMismatch =
   | { readonly kind: 'verified_step_up_rejected' }
   | { readonly kind: 'material_mismatch' };
 
+function classifyAuthorizedOperationAdmissionError(
+  error: unknown,
+):
+  | { readonly kind: 'authorization_grant_rejected' }
+  | { readonly kind: 'verified_step_up_rejected' }
+  | { readonly kind: 'wallet_session_quota_exhausted' }
+  | null {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('authorization_wallet_session_quota_rejected')) {
+    return { kind: 'wallet_session_quota_exhausted' };
+  }
+  if (message.includes('authorization_wallet_session_rejected')) {
+    return { kind: 'authorization_grant_rejected' };
+  }
+  if (message.includes('authorization_evidence_claim_rejected')) {
+    return { kind: 'verified_step_up_rejected' };
+  }
+  return null;
+}
+
 function authorizedOperationReplayMismatch(input: {
   readonly existing: D1Row;
   readonly incoming: AuthorizedOperation;
@@ -1246,6 +1280,24 @@ function audiencePayload(audience: ActiveAuthorizationSession['audience']) {
     case 'hosted_wallet_iframe':
       return { appOrigin: audience.appOrigin, walletOrigin: audience.walletOrigin };
   }
+}
+
+function activeAuthorizationSessionReplayMatches(
+  expected: ActiveAuthorizationSession,
+  persisted: ActiveAuthorizationSession,
+): boolean {
+  return (
+    expected.tenantId === persisted.tenantId &&
+    expected.principalId === persisted.principalId &&
+    expected.sessionId === persisted.sessionId &&
+    expected.deviceId === persisted.deviceId &&
+    expected.appSessionVersion === persisted.appSessionVersion &&
+    expected.assurance === persisted.assurance &&
+    JSON.stringify({ kind: expected.authSource.kind, ...authSourcePayload(expected.authSource) }) ===
+      JSON.stringify({ kind: persisted.authSource.kind, ...authSourcePayload(persisted.authSource) }) &&
+    JSON.stringify({ kind: expected.audience.kind, ...audiencePayload(expected.audience) }) ===
+      JSON.stringify({ kind: persisted.audience.kind, ...audiencePayload(persisted.audience) })
+  );
 }
 
 function parseAuthorizationSessionRow(row: D1Row): ActiveAuthorizationSession {

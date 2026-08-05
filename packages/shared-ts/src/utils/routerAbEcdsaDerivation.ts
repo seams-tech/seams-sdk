@@ -685,9 +685,20 @@ export type RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire = {
   readonly proof: RouterAbEcdsaOperationStepUpProofV1Wire;
 };
 
+export type RouterAbEcdsaOperationStepUpUnsealV1Wire =
+  | {
+      readonly kind: 'not_requested';
+    }
+  | {
+      readonly kind: 'email_otp_grant';
+      readonly grant: string;
+      readonly challenge_id: string;
+    };
+
 export type RouterAbEcdsaOperationStepUpAuthorizationV1Wire = {
   readonly kind: 'operation_step_up';
   readonly evidence_set_digest: DigestB64u;
+  readonly unseal: RouterAbEcdsaOperationStepUpUnsealV1Wire;
 };
 
 export type RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire = {
@@ -717,6 +728,7 @@ export function parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1(
   requireExactKeys(authorization, 'operationStepUpAuthorizationResponse.authorization', [
     'kind',
     'evidence_set_digest',
+    'unseal',
   ]);
   if (authorization.kind !== 'operation_step_up') {
     throw new Error('operationStepUpAuthorizationResponse.authorization.kind is invalid');
@@ -728,13 +740,56 @@ export function parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1(
   if (expiresAtMs <= Date.now()) {
     throw new Error('operationStepUpAuthorizationResponse.expires_at_ms is expired');
   }
+  const unseal = requireRecord(
+    authorization.unseal,
+    'operationStepUpAuthorizationResponse.authorization.unseal',
+  );
+  const unsealKind = requireAsciiNonEmptyString(
+    unseal.kind,
+    'operationStepUpAuthorizationResponse.authorization.unseal.kind',
+  );
+  let parsedUnseal: RouterAbEcdsaOperationStepUpUnsealV1Wire;
+  switch (unsealKind) {
+    case 'not_requested':
+      requireExactKeys(
+        unseal,
+        'operationStepUpAuthorizationResponse.authorization.unseal',
+        ['kind'],
+      );
+      parsedUnseal = { kind: 'not_requested' };
+      break;
+    case 'email_otp_grant':
+      requireExactKeys(
+        unseal,
+        'operationStepUpAuthorizationResponse.authorization.unseal',
+        ['kind', 'grant', 'challenge_id'],
+      );
+      parsedUnseal = {
+        kind: 'email_otp_grant',
+        grant: requireAsciiNonEmptyString(
+          unseal.grant,
+          'operationStepUpAuthorizationResponse.authorization.unseal.grant',
+        ),
+        challenge_id: requireAsciiNonEmptyString(
+          unseal.challenge_id,
+          'operationStepUpAuthorizationResponse.authorization.unseal.challenge_id',
+        ),
+      };
+      break;
+    default:
+      throw new Error(
+        'operationStepUpAuthorizationResponse.authorization.unseal.kind is invalid',
+      );
+  }
+  const parsedAuthorization = {
+    kind: 'operation_step_up' as const,
+    evidence_set_digest: parseDigestB64u(authorization.evidence_set_digest),
+    unseal: parsedUnseal,
+  };
   return {
     ok: true,
     kind: 'verified_step_up',
-    authorization: {
-      kind: 'operation_step_up',
-      evidence_set_digest: parseDigestB64u(authorization.evidence_set_digest),
-    },
+    authorization: parsedAuthorization,
     expires_at_ms: expiresAtMs,
   };
 }

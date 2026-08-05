@@ -51,6 +51,7 @@ import {
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
   parseAppSessionVersion,
+  parseProviderSubject,
 } from '@shared/utils/domainIds';
 import { getSessionJwtExpiresAtMs } from '@shared/utils/sessionTokens';
 import type {
@@ -203,6 +204,7 @@ import {
   isPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
   walletAuthAuthoritiesMatch,
+  type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
   type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
@@ -270,15 +272,61 @@ export type D1WalletRegistrationActivateSideEffectRecord =
     D1WalletRegistrationOperationPreparedV1
   >;
 
+type WalletRegistrationNearProvisioningFinalizeResponse =
+  | WalletRegistrationFinalizeResponse
+  | (Extract<
+      WalletRegistrationFinalizeSuccess,
+      { kind: 'near_ed25519'; authMethod: { kind: 'email_otp' } }
+    > & {
+      appSessionJwt: string;
+    });
+
+type RegistrationAppSessionContext = {
+  readonly expectedOrigin: string;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly expiresAtMs: number;
+};
+
+function isEmailOtpWalletRegistrationFinalizeSuccess(
+  value: WalletRegistrationFinalizeResponse,
+): value is Extract<
+  WalletRegistrationFinalizeSuccess,
+  { kind: 'near_ed25519'; authMethod: { kind: 'email_otp' } }
+> {
+  return value.ok && value.kind === 'near_ed25519' && value.authMethod.kind === 'email_otp';
+}
+
+function isEmailOtpWalletRegistrationNearProvisioningSuccess(
+  value: WalletRegistrationNearProvisioningFinalizeResponse,
+): value is Extract<
+  WalletRegistrationFinalizeSuccess,
+  { kind: 'near_ed25519'; authMethod: { kind: 'email_otp' } }
+> & { appSessionJwt: string } {
+  return (
+    isEmailOtpWalletRegistrationFinalizeSuccess(value) &&
+    'appSessionJwt' in value &&
+    typeof value.appSessionJwt === 'string'
+  );
+}
+
+function isPasskeyWalletRegistrationFinalizeSuccess(
+  value: WalletRegistrationNearProvisioningFinalizeResponse,
+): value is Extract<
+  WalletRegistrationFinalizeSuccess,
+  { kind: 'near_ed25519'; authMethod: { kind: 'passkey' } }
+> {
+  return value.ok && value.kind === 'near_ed25519' && value.authMethod.kind === 'passkey';
+}
+
 export type D1WalletRegistrationNearProvisioningSideEffectStore =
   RouterAbEd25519YaoRegistrationSideEffectStoreV1<
-    WalletRegistrationFinalizeResponse,
+    WalletRegistrationNearProvisioningFinalizeResponse,
     D1WalletRegistrationOperationPreparedV1
   >;
 
 export type D1WalletRegistrationNearProvisioningSideEffectRecord =
   RouterAbEd25519YaoRegistrationSideEffectRecordV1<
-    WalletRegistrationFinalizeResponse,
+    WalletRegistrationNearProvisioningFinalizeResponse,
     D1WalletRegistrationOperationPreparedV1
   >;
 
@@ -1227,6 +1275,77 @@ export class CloudflareD1WalletRegistrationService {
     return jwt;
   }
 
+  private async issueRegistrationEmailOtpAppSession(input: {
+    readonly registrationCeremonyId: string;
+    readonly authority: EmailOtpWalletAuthAuthority;
+    readonly expectedOrigin: string;
+    readonly runtimePolicyScope: RuntimePolicyScope;
+    readonly session: SessionAdapter;
+    readonly expiresAtMs: number;
+  }): Promise<string> {
+    const appSessionVersion = await this.getOrCreateAppSessionVersion({
+      userId: String(input.authority.factor.providerUserId),
+    });
+    if (!appSessionVersion.ok) {
+      throw new Error(appSessionVersion.message);
+    }
+    const parsedAppSessionVersion = parseAppSessionVersion(appSessionVersion.appSessionVersion);
+    if (!parsedAppSessionVersion.ok) {
+      throw new Error(parsedAppSessionVersion.error.message);
+    }
+    const principalId = parsePrincipalId(String(input.authority.factor.providerUserId));
+    if (!principalId.ok) throw new Error(principalId.error.message);
+    const providerSubject = parseProviderSubject(String(input.authority.factor.providerUserId));
+    if (!providerSubject.ok) throw new Error(providerSubject.error.message);
+    const sessionId = registrationEstablishedSeamsSessionId(input.registrationCeremonyId);
+    const deviceId = parseDeviceId(`dev_registration_${input.registrationCeremonyId}`);
+    if (!deviceId.ok) throw new Error(deviceId.error.message);
+    const origin = parseSessionOrigin(input.expectedOrigin);
+    const providerId: 'google_oidc' | 'oidc' =
+      input.authority.factor.provider === 'google' ? 'google_oidc' : 'oidc';
+    const authSource = {
+      kind: 'oidc_provider' as const,
+      providerId,
+      providerSubject: providerSubject.value,
+    };
+    const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
+    const jwt = await input.session.signJwt(String(input.authority.factor.providerUserId), {
+      kind: 'app_session_v1',
+      appSessionVersion: parsedAppSessionVersion.value,
+      tenantId: String(this.authorizationTenantId),
+      seamsSessionId: String(sessionId),
+      deviceId: String(deviceId.value),
+      authSource,
+      sessionAudience: {
+        kind: 'first_party_web',
+        origin,
+      },
+      provider: input.authority.factor.provider,
+      providerSubject: input.authority.factor.providerUserId,
+      walletId: String(input.authority.walletId),
+      walletAuthAuthorityRef: authorityRef,
+      runtimePolicyScope: input.runtimePolicyScope,
+    });
+    const jwtExpiresAtMs = getSessionJwtExpiresAtMs(jwt);
+    if (jwtExpiresAtMs === null) throw new Error('Registration Email OTP app session expiry is invalid');
+    const expiresAtMs = Math.min(input.expiresAtMs, jwtExpiresAtMs);
+    if (expiresAtMs <= Date.now()) throw new Error('Registration Email OTP app session is expired');
+    const activeSession = buildActiveAuthorizationSession({
+      tenantId: this.authorizationTenantId,
+      principalId: principalId.value,
+      sessionId,
+      authSource,
+      deviceId: deviceId.value,
+      audience: { kind: 'first_party_web', origin },
+      appSessionVersion: parsedAppSessionVersion.value,
+      assurance: 'session',
+      createdAtMs: Date.now(),
+      lifecycle: { kind: 'active', expiresAtMs },
+    });
+    await this.authorizationService.recordActiveSession(activeSession);
+    return jwt;
+  }
+
   private async issueRegistrationEstablishedEcdsaSession(input: {
     readonly registrationCeremonyId: string;
     readonly authority: WalletAuthAuthority;
@@ -1877,6 +1996,7 @@ export class CloudflareD1WalletRegistrationService {
       const orgId = toOptionalTrimmedString(request.orgId);
       const providerUserId = toOptionalTrimmedString(request.verifiedProviderUserId);
       const verifiedChallengeId = toOptionalTrimmedString(request.verifiedChallengeId);
+      const seamsSessionId = parseSeamsSessionId(request.seamsSessionId);
       const signerSlot = Math.floor(Number(request.signerSlot));
       const remainingUses = Math.floor(Number(request.remainingUses));
       if (
@@ -1884,6 +2004,7 @@ export class CloudflareD1WalletRegistrationService {
         !orgId ||
         !providerUserId ||
         !verifiedChallengeId ||
+        !seamsSessionId.ok ||
         !Number.isSafeInteger(signerSlot) ||
         signerSlot < 1 ||
         !Number.isSafeInteger(remainingUses) ||
@@ -1999,7 +2120,7 @@ export class CloudflareD1WalletRegistrationService {
         expiresAtMs,
       });
       const minted = await yaoRuntime.mintWalletSession({
-        kind: 'verified_wallet_unlock_v1',
+        kind: 'verified_app_session_wallet_unlock_v1',
         walletId: walletIdFromString(walletId),
         nearAccountId: signer.nearAccountId,
         nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
@@ -2012,6 +2133,7 @@ export class CloudflareD1WalletRegistrationService {
         runtimePolicyScope: signer.runtimePolicyScope,
         expiresAtMs,
         remainingUses: reusableRemainingUses,
+        seamsSessionId: seamsSessionId.value,
       });
       if (!minted.ok) return minted;
       const session = minted.session;
@@ -2492,20 +2614,65 @@ export class CloudflareD1WalletRegistrationService {
    * without going through the standalone finalize wrapper. The operation row
    * owns idempotency here, so the commit keeps no replay cache of its own.
    */
+  private async readRegistrationAppSessionContext(
+    registrationCeremonyId: string,
+  ): Promise<RegistrationAppSessionContext | null> {
+    const ceremony = await this.getRegistrationCeremonyIntentStore().getCeremony(
+      registrationCeremonyId,
+    );
+    if (!ceremony) return null;
+    const expectedOrigin = toOptionalTrimmedString(ceremony.expectedOrigin);
+    const runtimePolicyScope = registrationPreparedContextRuntimePolicyScope(
+      ceremony.preparedContext,
+    );
+    if (!expectedOrigin || !runtimePolicyScope) {
+      throw new Error('Registration is missing its session origin or runtime policy scope');
+    }
+    return {
+      expectedOrigin,
+      runtimePolicyScope,
+      expiresAtMs: ceremony.expiresAtMs,
+    };
+  }
+
   private async commitDeferredEd25519Signer(
-    input: WalletRegistrationNearProvisioningInput,
-  ): Promise<WalletRegistrationFinalizeResponse> {
+    args: {
+      readonly input: WalletRegistrationNearProvisioningInput;
+    },
+  ): Promise<WalletRegistrationNearProvisioningFinalizeResponse> {
+    /* The ceremony is still present for a fresh side-effect execution. Keep
+       this read inside the operation callback so an exact replay can return
+       its stored response after finalize has tombstoned the ceremony. */
+    const appSessionContext = await this.readRegistrationAppSessionContext(
+      args.input.registrationCeremonyId,
+    );
+    if (!appSessionContext) {
+      throw new Error('Registration app session context is unavailable');
+    }
     const committed = await this.executeWalletRegistrationFinalize({
       kind: 'near_ed25519',
-      registrationCeremonyId: input.registrationCeremonyId,
-      idempotencyKey: input.idempotencyKey,
-      ed25519: input.ed25519,
-      emailOtpEnrollment: input.emailOtpEnrollment,
-      emailOtpBackupAck: input.emailOtpBackupAck,
+      registrationCeremonyId: args.input.registrationCeremonyId,
+      idempotencyKey: args.input.idempotencyKey,
+      ed25519: args.input.ed25519,
+      emailOtpEnrollment: args.input.emailOtpEnrollment,
+      emailOtpBackupAck: args.input.emailOtpBackupAck,
     } as FinalizeWalletRegistrationInput);
-    return committed.ok
+    const finalized = committed.ok
       ? committed
       : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(committed);
+    if (!isEmailOtpWalletRegistrationFinalizeSuccess(finalized)) return finalized;
+    if (!isEmailOtpWalletAuthAuthority(finalized.authority)) {
+      throw new Error('Email OTP registration returned a different authority');
+    }
+    const appSessionJwt = await this.issueRegistrationEmailOtpAppSession({
+      registrationCeremonyId: args.input.registrationCeremonyId,
+      authority: finalized.authority,
+      expectedOrigin: appSessionContext.expectedOrigin,
+      runtimePolicyScope: appSessionContext.runtimePolicyScope,
+      session: args.input.session,
+      expiresAtMs: appSessionContext.expiresAtMs,
+    });
+    return { ...finalized, appSessionJwt };
   }
 
   /**
@@ -2561,7 +2728,7 @@ export class CloudflareD1WalletRegistrationService {
           prepare: async () => ({ kind: 'd1_wallet_registration_operation_prepared_v1' }) as const,
           derivePreparedArtifactFingerprint: async (prepared) =>
             base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared))),
-          execute: this.commitDeferredEd25519Signer.bind(this, input),
+          execute: this.commitDeferredEd25519Signer.bind(this, { input }),
         },
       );
       switch (run.kind) {
@@ -2614,6 +2781,29 @@ export class CloudflareD1WalletRegistrationService {
         remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
         publicResult: committed.ed25519,
       });
+      if (committed.authMethod.kind === 'email_otp') {
+        if (!isEmailOtpWalletRegistrationNearProvisioningSuccess(committed)) {
+          return {
+            ok: false,
+            code: 'internal',
+            message: 'Email OTP registration is missing its app session',
+            nearProvisioning: { status: 'near_failed_retryable' },
+          };
+        }
+        return {
+          ...committed,
+          nearProvisioning: { status: 'near_ready' },
+          registrationEstablishedSession,
+        };
+      }
+      if (!isPasskeyWalletRegistrationFinalizeSuccess(committed)) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'NEAR provisioning committed an unsupported authority',
+          nearProvisioning: { status: 'near_failed_retryable' },
+        };
+      }
       return {
         ...committed,
         nearProvisioning: { status: 'near_ready' },
@@ -2706,7 +2896,6 @@ export class CloudflareD1WalletRegistrationService {
       authMethod,
       nearProvisioning: { status: 'near_pending' as const },
     };
-    if (authMethod.kind !== 'passkey') return base as WalletRegistrationActivateResponseV2;
     const expectedOrigin = toOptionalTrimmedString(ceremony.expectedOrigin);
     const runtimePolicyScope = registrationPreparedContextRuntimePolicyScope(
       ceremony.preparedContext,
@@ -2715,41 +2904,67 @@ export class CloudflareD1WalletRegistrationService {
       return {
         ok: false,
         code: 'invalid_state',
-        message: 'Passkey registration is missing its session origin or runtime policy scope',
+        message: 'Registration is missing its session origin or runtime policy scope',
       };
     }
-    if (!isPasskeyWalletAuthAuthority(walletAuthAuthority)) {
+    if (authMethod.kind === 'passkey') {
+      if (!isPasskeyWalletAuthAuthority(walletAuthAuthority)) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Passkey registration returned a different authority',
+        };
+      }
+      let appSessionJwt: string;
+      try {
+        /* The setup ceremony binds the origin before this activation request, so
+           this parse is the only accepted source for the first-party audience. */
+        const sessionOrigin = parseSessionOrigin(expectedOrigin);
+        appSessionJwt = await this.issueRegistrationPasskeyAppSession({
+          registrationCeremonyId: ceremony.registrationCeremonyId,
+          authority: walletAuthAuthority,
+          expectedOrigin: sessionOrigin,
+          runtimePolicyScope,
+          session: input.session,
+          expiresAtMs: ceremony.expiresAtMs,
+        });
+      } catch (error: unknown) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: errorMessage(error) || 'Failed to issue the passkey app session',
+        };
+      }
+      return {
+        ...base,
+        rpId: finalizePasskeyRpId(authority),
+        appSessionJwt,
+      } as WalletRegistrationActivateResponseV2;
+    }
+    if (!isEmailOtpWalletAuthAuthority(walletAuthAuthority)) {
       return {
         ok: false,
         code: 'internal',
-        message: 'Passkey registration returned a different authority',
+        message: 'Email OTP registration returned a different authority',
       };
     }
-    let appSessionJwt: string;
     try {
-      /* The setup ceremony binds the origin before this activation request, so
-         this parse is the only accepted source for the first-party audience. */
-      const sessionOrigin = parseSessionOrigin(expectedOrigin);
-      appSessionJwt = await this.issueRegistrationPasskeyAppSession({
+      const appSessionJwt = await this.issueRegistrationEmailOtpAppSession({
         registrationCeremonyId: ceremony.registrationCeremonyId,
         authority: walletAuthAuthority,
-        expectedOrigin: sessionOrigin,
+        expectedOrigin,
         runtimePolicyScope,
         session: input.session,
         expiresAtMs: ceremony.expiresAtMs,
       });
+      return { ...base, appSessionJwt } as WalletRegistrationActivateResponseV2;
     } catch (error: unknown) {
       return {
         ok: false,
         code: 'internal',
-        message: errorMessage(error) || 'Failed to issue the passkey app session',
+        message: errorMessage(error) || 'Failed to issue the Email OTP app session',
       };
     }
-    return {
-      ...base,
-      rpId: finalizePasskeyRpId(authority),
-      appSessionJwt,
-    } as WalletRegistrationActivateResponseV2;
   }
 
   /**
@@ -3218,6 +3433,30 @@ export class CloudflareD1WalletRegistrationService {
         registrationCeremonyId: context.registrationCeremonyId,
         authority: commit.authority,
         expectedOrigin: sessionOrigin,
+        runtimePolicyScope,
+        session: context.input.session,
+        expiresAtMs: registrationEstablishedSession.expiresAtMs,
+      });
+    } else {
+      if (!isEmailOtpWalletAuthAuthority(commit.authority)) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Email OTP registration returned a different authority',
+        };
+      }
+      const expectedOrigin = toOptionalTrimmedString(ceremony.expectedOrigin);
+      if (!expectedOrigin) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'Email OTP registration is missing its session origin',
+        };
+      }
+      appSessionJwt = await this.issueRegistrationEmailOtpAppSession({
+        registrationCeremonyId: context.registrationCeremonyId,
+        authority: commit.authority,
+        expectedOrigin,
         runtimePolicyScope,
         session: context.input.session,
         expiresAtMs: registrationEstablishedSession.expiresAtMs,

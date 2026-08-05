@@ -400,11 +400,28 @@ export type WalletRegistrationNearProvisioningRequestV2 = {
   emailOtpBackupAck?: NonNullable<WalletRegistrationFinalizeRequest['emailOtpBackupAck']>;
 };
 
+type WalletRegistrationNearProvisioningPasskeySuccessV2 = Extract<
+  WalletRegistrationFinalizeResponse,
+  { ok: true; kind: 'near_ed25519'; authMethod: { kind: 'passkey' } }
+> & {
+  registrationEstablishedSession: RegistrationEstablishedSession;
+  nearProvisioning: { status: 'near_ready' };
+  appSessionJwt?: never;
+};
+
+type WalletRegistrationNearProvisioningEmailOtpSuccessV2 = Extract<
+  WalletRegistrationFinalizeResponse,
+  { ok: true; kind: 'near_ed25519'; authMethod: { kind: 'email_otp' } }
+> & {
+  registrationEstablishedSession: RegistrationEstablishedSession;
+  nearProvisioning: { status: 'near_ready' };
+  /** Internal first-party Email OTP authority consumed before public return. */
+  appSessionJwt: string;
+};
+
 export type WalletRegistrationNearProvisioningResponseV2 =
-  | (Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'near_ed25519' }> & {
-      registrationEstablishedSession: RegistrationEstablishedSession;
-      nearProvisioning: { status: 'near_ready' };
-    })
+  | WalletRegistrationNearProvisioningPasskeySuccessV2
+  | WalletRegistrationNearProvisioningEmailOtpSuccessV2
   | (WalletRegistrationRouteErrorV2 & {
       /**
        * A retryable failure leaves the pending wallet intact and the call
