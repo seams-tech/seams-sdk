@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from benchmark import load_benchmark_manifest
-from freeze_corpus import CorpusFreezeError, freeze_corpus
+from freeze_corpus import CorpusFreezeError, freeze_corpus, write_immutable_json
 
 
 class FreezeCorpusTest(unittest.TestCase):
@@ -55,6 +55,14 @@ class FreezeCorpusTest(unittest.TestCase):
                     created_at="2026-07-26T00:00:00Z",
                     output_dir=root / "frozen",
                 )
+
+    def test_manifest_writer_is_idempotent_and_rejects_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "manifest.json"
+            write_immutable_json(path, {"value": 1})
+            write_immutable_json(path, {"value": 1})
+            with self.assertRaisesRegex(CorpusFreezeError, "immutable output collision"):
+                write_immutable_json(path, {"value": 2})
 
 
 def write_source_manifest(root: Path, partition: str, subject_id: str) -> Path:

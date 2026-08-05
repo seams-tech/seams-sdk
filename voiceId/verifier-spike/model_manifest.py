@@ -9,6 +9,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = "voice_id_model_manifest_v1"
+IGNORED_ARTIFACT_FILE_NAMES = frozenset({".gitattributes", "README.md"})
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,7 @@ def build_artifact(root: Path, spec: ArtifactSpec) -> dict[str, Any]:
         if path.is_file()
         and ".cache" not in path.parts
         and not path.name.endswith((".lock", ".metadata"))
+        and path.name not in IGNORED_ARTIFACT_FILE_NAMES
     ):
         relative_path = path.relative_to(artifact_root).as_posix()
         content = path.read_bytes()

@@ -2,7 +2,9 @@
 name = "voiceid-verifier-spike"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "numpy>=1.26",
+]
 
 [project.optional-dependencies]
 moonshine = [
