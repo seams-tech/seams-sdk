@@ -3,6 +3,7 @@ import {
   respondWalletRegistration,
   activateWalletRegistration,
 } from '../../packages/sdk-web/src/core/rpcClients/relayer/walletRegistration';
+import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 /**
  * Refactor 94C. Strict boundary parsers for routes 2 and 3.
@@ -229,4 +230,44 @@ test('activate rejects a response missing the activation payload', async () => {
       () => activateWalletRegistration(ACTIVATE_ARGS),
     ),
   ).rejects.toThrow(/missing the activation payload/);
+});
+
+test('activate accepts an Ed25519 wallet pending signer provisioning', async () => {
+  const walletId = 'pending-ed25519.testnet';
+  const rpId = 'example.test';
+  const credentialIdB64u = 'credential-id';
+  const authority = buildPasskeyWalletAuthAuthority({ walletId, rpId, credentialIdB64u });
+
+  const result = await withStubbedFetch(
+    {
+      ok: true,
+      kind: 'near_ed25519',
+      walletId,
+      authority,
+      rpId,
+      authMethod: {
+        kind: 'passkey',
+        credentialIdB64u,
+        credentialPublicKeyB64u: 'credential-public-key',
+      },
+      appSessionJwt: 'app-session-jwt',
+      nearProvisioning: { status: 'near_pending' },
+    },
+    () =>
+      activateWalletRegistration({
+        relayerUrl: RELAYER,
+        registrationCeremonyId: 'wrc_pending_ed25519',
+        signerPlanKind: 'near_ed25519',
+        signedSetup: 'signed-setup-token',
+        idempotencyKey: 'idem-pending-ed25519',
+      }),
+  );
+
+  expect(result).toMatchObject({
+    ok: true,
+    kind: 'near_ed25519',
+    walletId,
+    nearProvisioning: { status: 'near_pending' },
+  });
+  expect(result).not.toHaveProperty('authorityScope');
 });

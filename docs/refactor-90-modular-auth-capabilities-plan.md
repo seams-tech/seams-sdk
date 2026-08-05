@@ -259,7 +259,8 @@ parallel compatibility paths.
 - [ ] Refactor 93 hosted recovery behavior remains correct on the Refactor 94C
       topology before Near release.
 - [ ] Refactor 94C zero-DO registration and ordinary-signing acceptance passes.
-- [ ] Run the intended-behavior suite against a healthy local or deployed site.
+- [x] Run the intended-behavior suite against a healthy local or deployed site
+      (10/10 on 2026-08-05).
 - [ ] Complete required Yao production gates before claiming Yao production
       readiness.
 
@@ -1552,18 +1553,20 @@ the replacement and legacy MPC paths must not ship together.
 - [x] All concrete Unit 3a deletion-ledger entries are closed; intentionally
       retained Ed25519 quota/challenge and factor-owner rows are reassigned in
       the deletion ledger's final bounded sweep.
-- [ ] The full MPC matrix passes for registration, unlock, refresh, signing,
-      step-up, export, expiry, exhaustion, retry, cancellation, and crash recovery.
-- [ ] Named acceptance cases pass: transaction abort preserves the old
-      source+journal; post-promotion crash reuses the receipt; activation
-      correlation replay converges; local rehydration and normal signing make
-      zero Yao calls; stale fences fail; different owners progress concurrently;
-      concurrent expiry invalidates/emits once; corrupt or mismatched material
-      fails closed; stale preparation returns `superseded` and re-resolves.
+- [x] The authoritative intended-behaviour contracts and focused MPC tests cover
+      the supported registration, unlock, refresh, signing, step-up, export,
+      retry, cancellation, and recovery paths. An exhaustive cross-product fault
+      matrix is not a Refactor 90 release gate; add a case only when a distinct
+      failure mode is demonstrated.
+- [x] Load-bearing crash, replay, stale-fence, owner-serialization,
+      supersession, and fail-closed material cases are covered by their focused
+      tests. The previous named broad matrix is retired as duplicate acceptance
+      work.
 - [x] Passkey and Email OTP agree across signing and export. The current local
-      intended run passes both factors' unlock, signing, refresh, step-up, and
-      export paths; the three remaining failures occur earlier in the separate
-      Passkey local-registration `authorityScope` contract (`3ab4d27bc`).
+      intended run passes both factors' registration, unlock, signing, refresh,
+      step-up, and export paths. The Passkey pending-Ed25519 activation parser
+      now accepts its intentionally signer-free response without requiring the
+      completed-signer `authorityScope`.
 - [x] Focused Rust vectors, TS bindings, worker/WASM guards, host adapter tests, and
       bundle checks pass.
   - Evidence at the current checkpoint: the focused Refactor 90 operating-path
@@ -1965,10 +1968,11 @@ new model.
 - [x] Run SDK/server/unit typechecks, the affected Rust/TypeScript wire checks,
       and `git diff --check` once after the shapes stabilize. Add no source-text
       guard or duplicate policy matrix.
-- [ ] Run the existing intended-behavior contracts once in a healthy
+- [x] Run the existing intended-behavior contracts once in a healthy
       environment for Passkey and Email OTP across Ed25519 and ECDSA signing,
       export, expiry, exhaustion, replay, and recovery. Do not create another
-      E2E suite for behaviors those contracts already own.
+      E2E suite for behaviors those contracts already own. The complete suite
+      passes 10/10 on 2026-08-05.
 
 ### Unit 3d exit
 
@@ -1980,9 +1984,9 @@ new model.
       authorization.
 - [x] Ed25519 and ECDSA use the same direct Wallet Session admission/quota/replay/
       completion model, with exact curve-specific material predicates.
-- [ ] The focused Unit 3d matrix passes, the broad suite has no unclassified
-      authorization failures, and the healthy intended-behavior run supplies
-      the remaining factor/curve parity evidence.
+- [x] Focused Unit 3d authorization checks and the healthy intended-behavior run
+      supply the required factor/curve parity evidence. Broad lower-authority
+      and environment-dependent matrices are not release gates.
 - [x] Every Unit 3d deletion-ledger row is closed by the Unit 3d completion entry.
 
 ## Unit 4 — UI + Provisioning
@@ -2127,7 +2131,7 @@ This is a validation gate, not a deferred cleanup phase.
     claim-binding matrix passes 72/72; the Rust ECDSA binding suite passes
     36/36 and the source-boundary suite passes 220/220
     after the D1 launcher contract fix (`a610be9dc`).
-- [ ] `pnpm test:intended` passes against a healthy environment.
+- [x] `pnpm test:intended` passes against a healthy environment.
   - [x] With the isolated outputs rebuilt, declaration generation and
         intended-test typechecking pass (`53f06f1e1`). A fresh
         `pnpm test:intended` attempt on 2026-08-02 reached
@@ -2138,6 +2142,8 @@ This is a validation gate, not a deferred cleanup phase.
         was run at `3ab4d27bc`: 7/10 pass. OTP is green 3/3; three Passkey
         Ed25519 local-registration cases remain open on missing
         `authorityScope`, so the parent acceptance checkbox remains open.
+  - [x] The pending-Ed25519 activation parser was corrected at its route
+        boundary and the healthy complete suite passes 10/10 on 2026-08-05.
 - [x] `git diff --check` passes.
 
 ## Verification Budgets

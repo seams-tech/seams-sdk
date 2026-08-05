@@ -2955,22 +2955,50 @@ function parseWalletRegistrationActivateResponseV2(
     if (rawEstablishedSession !== undefined) {
       throw new Error(`${responseName} pending Ed25519 wallet cannot carry an established session`);
     }
+    assertExactResponseKeys(
+      record,
+      [
+        'ok',
+        'walletId',
+        'authority',
+        'registrationDiagnostics',
+        'rpId',
+        'authMethod',
+        'appSessionJwt',
+        'kind',
+        'nearProvisioning',
+      ],
+      responseName,
+    );
+    if (record.ok !== true) {
+      throw new Error(`${responseName} did not return a pending Ed25519 wallet`);
+    }
+    const walletId = walletIdFromString(
+      requireResponseString({
+        responseName,
+        field: 'walletId',
+        value: terminal.walletId,
+      }),
+    );
+    const authority = parseWalletRegistrationFinalizeAuthority(terminal.authority);
     const authMethod = requireResponseRecord({
       responseName,
       field: 'authMethod',
       value: terminal.authMethod,
     });
-    const finalizeTerminal =
+    const pendingAuthorityResponse =
       authMethod.kind === 'email_otp' && rawAppSessionJwt !== undefined
         ? { ...terminal, appSessionJwt: rawAppSessionJwt }
         : terminal;
-    const finalized = parseWalletRegistrationFinalizeResponse({
-      value: finalizeTerminal,
-      expectedKind: 'near_ed25519',
+    const authorityBranch = parseWalletRegistrationFinalizeAuthorityBranch({
+      response: pendingAuthorityResponse,
+      walletId,
+      authority,
     });
-    if (!finalized.ok || finalized.kind !== 'near_ed25519') {
-      throw new Error(`${responseName} did not return a pending Ed25519 wallet`);
-    }
+    const registrationDiagnostics =
+      terminal.registrationDiagnostics === undefined
+        ? undefined
+        : parseWalletRegistrationFinalizeDiagnostics(terminal.registrationDiagnostics);
     const appSessionJwt =
       rawAppSessionJwt === undefined
         ? undefined
@@ -2979,24 +3007,18 @@ function parseWalletRegistrationActivateResponseV2(
             field: 'appSessionJwt',
             value: rawAppSessionJwt,
           });
-    if (finalized.authMethod.kind === 'passkey') {
+    if (authorityBranch.kind === 'passkey') {
       if (!appSessionJwt) {
         throw new Error(`${responseName} passkey activation is missing appSessionJwt`);
-      }
-      const rpId = finalized.rpId;
-      if (!rpId) {
-        throw new Error(`${responseName} passkey activation is missing rpId`);
       }
       return {
         ok: true,
         kind: 'near_ed25519',
-        walletId: finalized.walletId,
-        authority: finalized.authority,
-        ...(finalized.registrationDiagnostics
-          ? { registrationDiagnostics: finalized.registrationDiagnostics }
-          : {}),
-        rpId,
-        authMethod: finalized.authMethod,
+        walletId,
+        authority,
+        ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
+        rpId: authorityBranch.rpId,
+        authMethod: authorityBranch.authMethod,
         appSessionJwt,
         nearProvisioning: { status: 'near_pending' },
       };
@@ -3007,12 +3029,10 @@ function parseWalletRegistrationActivateResponseV2(
     return {
       ok: true,
       kind: 'near_ed25519',
-      walletId: finalized.walletId,
-      authority: finalized.authority,
-      ...(finalized.registrationDiagnostics
-        ? { registrationDiagnostics: finalized.registrationDiagnostics }
-        : {}),
-      authMethod: finalized.authMethod,
+      walletId,
+      authority,
+      ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
+      authMethod: authorityBranch.authMethod,
       appSessionJwt,
       nearProvisioning: { status: 'near_pending' },
     };

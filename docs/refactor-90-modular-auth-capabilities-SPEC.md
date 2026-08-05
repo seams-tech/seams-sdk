@@ -692,9 +692,10 @@ implementing commit SHA as the evidence.
   - [x] The local Refactor 92 boundary, retry, invalidation, planning, demo,
     persistence, and policy set passes 38/38. It proves typed
     expiry/exhaustion separation and same-method step-up; deployed refresh
-    allowance and cross-factor parity remain open (`5d3518c98`). The later
-    healthy local lifecycle run closes refresh allowance and factor parity for
-    unlock, signing, step-up, and export (`3ab4d27bc`).
+    allowance and cross-factor parity remain open (`5d3518c98`). The healthy
+    local intended-behaviour suite closes refresh allowance and factor parity
+    for registration, unlock, signing, step-up, and export (10/10 on
+    2026-08-05).
 
 ### Final conformance
 
