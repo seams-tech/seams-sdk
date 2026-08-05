@@ -12,7 +12,7 @@ import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '../../packa
 import {
   handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1,
   type RouterAbEd25519YaoRecoveryRequestScopedCloudflareInputV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
 import type {
   RouterAbEd25519YaoActiveCapabilityResolverV1,
   RouterAbEd25519YaoCapabilityPersistenceV1,
@@ -20,13 +20,13 @@ import type {
   RouterAbEd25519YaoCapabilityReplacementOperationV1,
   RouterAbEd25519YaoRecoveryBackend,
   RouterAbEd25519YaoRecoveryBackendResult,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitInputV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import {
   buildRouterAbEd25519YaoRecoveryRequestScopedFixture,
   buildRouterAbEd25519YaoCapabilityReplacementFixture,

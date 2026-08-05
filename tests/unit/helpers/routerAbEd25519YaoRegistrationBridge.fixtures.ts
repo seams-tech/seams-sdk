@@ -6,11 +6,11 @@ import type { SessionAdapter } from '../../../packages/sdk-server-ts/src/router/
 import type {
   RouterAbEd25519YaoRegistrationBackend,
   RouterAbEd25519YaoRegistrationBackendResult,
-} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistration';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
 import type {
   RouterAbEd25519YaoRegistrationSideEffectRecordV1,
   RouterAbEd25519YaoRegistrationSideEffectStoreV1,
-} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistrationSideEffectBoundary';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
 import {
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionBatchResultV1,
@@ -21,7 +21,7 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
-} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 
 type StoredSideEffect<T, P = undefined> = {
   readonly version: number;

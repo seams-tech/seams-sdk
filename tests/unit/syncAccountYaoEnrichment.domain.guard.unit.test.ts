@@ -21,12 +21,12 @@ import {
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
   type RouterAbEd25519YaoWalletSessionMintInputV1,
   type RouterAbEd25519YaoWalletSessionMintResultV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
 import type {
   RouterAbEd25519YaoActiveCapabilityDescriptorV1,
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,
   RouterAbEd25519YaoActiveCapabilityLookupV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 
 function parseFixtureThresholdSessionId(value: string): ThresholdEd25519SessionId {
   const parsed = parseThresholdEd25519SessionId(value);
