@@ -1,5 +1,5 @@
-import { DEFAULT_SESSION_COOKIE_NAME } from '../../../routerApi';
-import { emitRouterApiWebhookEvent } from '../../../routerApiWebhooks';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../../../framework/routerApi';
+import { emitRouterApiWebhookEvent } from '../../../framework/routerApiWebhooks';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json } from '../../../framework/http';
 

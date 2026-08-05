@@ -4,8 +4,8 @@ import {
   normalizeRorHost,
   resolveWellKnownSigningSessionSealCapabilities,
   sanitizeRorOrigins,
-} from '../../../ror/normalize';
-import { resolveRorRpId } from '../../../ror/provider';
+} from '../../../framework/ror/normalize';
+import { resolveRorRpId } from '../../../framework/ror/provider';
 import {
   ROUTER_AB_PUBLIC_KEYSET_PATH,
   ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH,

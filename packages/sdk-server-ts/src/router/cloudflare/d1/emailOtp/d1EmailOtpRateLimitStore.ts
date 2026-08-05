@@ -1,5 +1,5 @@
-import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
-import type { EmailOtpRateLimitPolicy } from './d1RouterApiAuthConfig';
+import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
+import type { EmailOtpRateLimitPolicy } from '../auth/d1RouterApiAuthConfig';
 import {
   emailOtpRateLimitExceeded,
   emailOtpRateLimitKeys,

@@ -1,10 +1,10 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
+import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import {
   parseNearPublicKey,
   type D1RecordJsonRow,
   type NearPublicKeyRecord,
-} from './d1WebAuthnRecords';
+} from '../webauthn/d1WebAuthnRecords';
 
 type ScopedD1Prepare = (sql: string, values: readonly unknown[]) => D1PreparedStatementLike;
 

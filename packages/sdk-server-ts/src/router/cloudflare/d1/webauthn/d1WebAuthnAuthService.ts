@@ -1,7 +1,7 @@
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { RouterApiWebAuthnService } from '../authServicePort';
+import type { RouterApiWebAuthnService } from '../../../framework/authServicePort';
 import {
   d1HostIsWithinWebAuthnRpId,
   d1WebAuthnCredentialIdB64uFromCredential,
@@ -9,7 +9,7 @@ import {
   decodeD1WebAuthnBase64UrlOrBase64,
   parseD1WebAuthnAuthenticationCredential,
   parseD1WebAuthnClientDataJsonBase64url,
-} from './d1WalletAuthMethodBoundary';
+} from '../wallet/d1WalletAuthMethodBoundary';
 import {
   isRecordValue,
   nonNegativeSafeInteger,
@@ -17,7 +17,7 @@ import {
   parseD1BoundaryWalletId,
   parseD1BoundaryWalletIdResult,
   parseJsonObject,
-} from './d1RouterApiAuthBoundary';
+} from '../auth/d1RouterApiAuthBoundary';
 import { CloudflareD1WebAuthnStore } from './d1WebAuthnStore';
 import {
   parseWebAuthnAuthenticatorRowDeviceInfo,

@@ -8,12 +8,12 @@ import {
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { ThresholdRuntimePolicyScope } from '../../core/types';
+import type { ThresholdRuntimePolicyScope } from '../../../../core/types';
 import type {
   CreateAddAuthMethodIntentResponse,
   CreateAddSignerIntentResponse,
-} from '../../core/registrationContracts';
-import { thresholdEcdsaChainTargetFromValue } from '../../core/thresholdEcdsaChainTarget';
+} from '../../../../core/registrationContracts';
+import { thresholdEcdsaChainTargetFromValue } from '../../../../core/thresholdEcdsaChainTarget';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import {
   buildAddAuthMethodIntent,
@@ -25,7 +25,7 @@ import {
 import type {
   CreateAddAuthMethodIntentCommand,
   CreateAddSignerIntentCommand,
-} from '../authServicePort';
+} from '../../../framework/authServicePort';
 
 type CreateAddSignerIntentInput = {
   readonly command: CreateAddSignerIntentCommand;

@@ -25,13 +25,13 @@ import type {
   EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpUnlockChallengeRecord,
   EmailOtpWalletEnrollmentRecord,
-} from '../../core/EmailOtpStores';
+} from '../../../../core/EmailOtpStores';
 import {
   isB64uString,
   nonNegativeSafeInteger,
   parseJsonObject,
   positiveSafeInteger,
-} from './d1RouterApiAuthBoundary';
+} from '../auth/d1RouterApiAuthBoundary';
 
 export type EmailOtpChallengeIssueAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.login

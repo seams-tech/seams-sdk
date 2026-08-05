@@ -1,10 +1,10 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { LinkIdentityResult } from '../../core/IdentityStore';
-import { GOOGLE_EMAIL_OTP_STALE_IDENTITY_MESSAGE } from '../../core/authService/googleEmailOtpErrors';
+import type { LinkIdentityResult } from '../../../../core/IdentityStore';
+import { GOOGLE_EMAIL_OTP_STALE_IDENTITY_MESSAGE } from '../../../../core/authService/googleEmailOtpErrors';
 import type {
   RouterApiIdentityService,
-} from '../authServicePort';
-import { positiveInteger } from './d1RouterApiAuthBoundary';
+} from '../../../framework/authServicePort';
+import { positiveInteger } from '../auth/d1RouterApiAuthBoundary';
 
 type ResolveGoogleEmailOtpSessionResult = Awaited<
   ReturnType<RouterApiIdentityService['resolveGoogleEmailOtpSession']>

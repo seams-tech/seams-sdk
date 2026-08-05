@@ -8,13 +8,13 @@ import type {
 import {
   abusePrincipalKey,
   runtimePolicyScopeKey,
-} from '../../../routerAbNormalSigningAdmissionCore';
-import type { RouterAbNormalSigningAdmissionInput } from '../../../routerAbPrivateSigningWorker';
+} from '../../../domains/normalSigning/routerAbNormalSigningAdmissionCore';
+import type { RouterAbNormalSigningAdmissionInput } from '../../../domains/normalSigning/routerAbPrivateSigningWorker';
 import type {
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAdmissionStore,
   RouterAbNormalSigningProjectPolicyDecision,
-} from '../../../routerAbNormalSigningAdmissionCore';
+} from '../../../domains/normalSigning/routerAbNormalSigningAdmissionCore';
 
 export type CloudflareD1RouterAbNormalSigningAdmissionStoreOptions = {
   readonly database: D1DatabaseLike;

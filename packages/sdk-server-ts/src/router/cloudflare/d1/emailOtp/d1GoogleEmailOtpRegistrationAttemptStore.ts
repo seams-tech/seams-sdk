@@ -5,9 +5,9 @@ import type {
   GoogleEmailOtpRegistrationAttemptRecord,
   NonEmptyGoogleEmailOtpRegistrationOfferCandidates,
   PendingGoogleEmailOtpRegistrationAttemptRecord,
-} from '../../core/EmailOtpStores';
-import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
-import { d1MutationChanges } from './d1RouterApiAuthBoundary';
+} from '../../../../core/EmailOtpStores';
+import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
+import { d1MutationChanges } from '../auth/d1RouterApiAuthBoundary';
 import {
   abandonedGoogleEmailOtpRegistrationAttemptRecord,
   googleEmailOtpRegistrationOfferWalletIdsJson,

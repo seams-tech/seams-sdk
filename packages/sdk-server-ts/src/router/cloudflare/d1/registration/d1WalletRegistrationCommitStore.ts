@@ -3,28 +3,28 @@ import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   prepareD1WalletAuthMethodPutStatement,
   type D1WalletAuthMethodStoreScope,
-} from '../../core/d1WalletAuthMethodStore';
+} from '../../../../core/d1WalletAuthMethodStore';
 import {
   prepareD1WalletPutSignerStatement,
   prepareD1WalletPutSubjectStatement,
   type D1WalletStoreScope,
-} from '../../core/d1WalletStore';
-import type { WalletRecord, WalletSignerRecord } from '../../core/WalletStore';
+} from '../../../../core/d1WalletStore';
+import type { WalletRecord, WalletSignerRecord } from '../../../../core/WalletStore';
 import {
   prepareD1WebAuthnCredentialBindingPutStatement,
   type WebAuthnCredentialBindingRecord,
-} from '../../core/WebAuthnCredentialBindingStore';
+} from '../../../../core/WebAuthnCredentialBindingStore';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
   D1ResultLike,
-} from '../../storage/tenantRoute';
-import { walletAuthMethodRecordFromRegistrationAuthority } from './d1WalletAuthMethodBoundary';
+} from '../../../../storage/tenantRoute';
+import { walletAuthMethodRecordFromRegistrationAuthority } from '../wallet/d1WalletAuthMethodBoundary';
 import {
   prepareD1WebAuthnAuthenticatorPutStatement,
   type D1WebAuthnStoreScope,
-} from './d1WebAuthnStore';
-import type { D1EmailOtpRegistrationCommitPlan } from './d1EmailOtpRegistrationEnrollmentFinalizer';
+} from '../webauthn/d1WebAuthnStore';
+import type { D1EmailOtpRegistrationCommitPlan } from '../emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
 
 type D1WalletRegistrationCommitBase = {
   readonly wallet: WalletRecord;

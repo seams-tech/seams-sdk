@@ -3,13 +3,13 @@ import type {
   WalletRegistrationActivateResponseV2,
   WalletRegistrationRespondResponseV2,
   WalletRegistrationSetupResponseV2,
-} from '../core/threeRouteRegistrationContracts';
+} from '../../core/threeRouteRegistrationContracts';
 import type {
   WalletRegistrationNearProvisioningInput,
   WalletRegistrationActivateInput,
   WalletRegistrationRespondInput,
   WalletRegistrationSetupInput,
-} from './domains/walletRegistration/walletRegistrationInputs';
+} from '../domains/walletRegistration/walletRegistrationInputs';
 import type { WalletEmailOtpAction } from '@shared/utils/emailOtpDomain';
 import type {
   OrgId,
@@ -27,17 +27,17 @@ import type {
   EmailOtpChallengeOperation,
   EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpWalletEnrollmentRecord,
-} from '../core/EmailOtpStores';
-import type { EmailRecoveryResolvedWalletBinding } from '../core/EmailRecoveryPreparationStore';
-import type { LinkIdentityResult, UnlinkIdentityResult } from '../core/IdentityStore';
-import type { NearPublicKeyAuthBinding, NearPublicKeyKind } from '../core/NearPublicKeyStore';
+} from '../../core/EmailOtpStores';
+import type { EmailRecoveryResolvedWalletBinding } from '../../core/EmailRecoveryPreparationStore';
+import type { LinkIdentityResult, UnlinkIdentityResult } from '../../core/IdentityStore';
+import type { NearPublicKeyAuthBinding, NearPublicKeyKind } from '../../core/NearPublicKeyStore';
 import type {
   RecoveryExecutionRecord,
   RecoveryExecutionStatus,
-} from '../core/RecoveryExecutionStore';
-import type { RecoverySessionRecord, RecoverySessionStatus } from '../core/RecoverySessionStore';
-import type { RouterAbEcdsaPresignRuntime } from '../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
-import type { WalletEcdsaSignerKey } from '../core/WalletStore';
+} from '../../core/RecoveryExecutionStore';
+import type { RecoverySessionRecord, RecoverySessionStatus } from '../../core/RecoverySessionStore';
+import type { RouterAbEcdsaPresignRuntime } from '../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
+import type { WalletEcdsaSignerKey } from '../../core/WalletStore';
 import type {
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
@@ -45,7 +45,7 @@ import type {
   ThresholdEd25519AuthorityScope,
   ThresholdRuntimePolicyScope,
   WebAuthnAuthenticationCredential,
-} from '../core/types';
+} from '../../core/types';
 import type {
   AddAuthMethodInput,
   AddSignerSelection,
@@ -69,7 +69,7 @@ import type {
   WalletRegistrationEcdsaDerivationRespondResponse,
   WalletRevokeAuthMethodRequest,
   WalletRevokeAuthMethodResponse,
-} from '../core/registrationContracts';
+} from '../../core/registrationContracts';
 
 export type WalletAuthMethodManagementSubject = Readonly<{
   kind: 'wallet_auth_method_management';
@@ -144,7 +144,7 @@ import type {
   RouterAbEd25519YaoBudgetRefreshResponseV1,
   RouterAbEd25519YaoVerifiedWalletUnlockRequestV1,
   RouterAbEd25519YaoVerifiedWalletUnlockResponseV1,
-} from './routerAbEd25519YaoWalletSession';
+} from '../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
 import type {
   RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
   RouterAbEcdsaDerivationActivationRefreshRequestV1,
@@ -164,16 +164,16 @@ import type {
   ReusableWalletSessionStatus,
   SessionOrigin,
   VerifiedAuthorizationEvidenceSet,
-} from '../authorization/domain';
+} from '../../authorization/domain';
 import type {
   VerifiedFactorEvidenceSetInput,
   VerifiedSessionEvidenceSetInput,
-} from '../authorization/factorEvidence';
+} from '../../authorization/factorEvidence';
 import type {
   IssueReusableWalletSessionInput,
   IssuedReusableWalletSession,
   EcdsaMaterialActivationScope,
-} from '../authorization/service';
+} from '../../authorization/service';
 import type { PrincipalId, SeamsSessionId, TenantId } from '@shared/authorization/capabilityKinds';
 
 export type EmailOtpChallengeDelivery =
@@ -1474,8 +1474,8 @@ export interface RouterApiAuthorizedOperationService {
   >;
   completeAuthorizedOperation(input: {
     readonly operation: AuthorizedOperation;
-    readonly result: import('../authorization/domain').CompletedCapabilityOperationResult;
-    readonly response: import('../authorization/domain').AuthorizedOperationReplayResponse;
+    readonly result: import('../../authorization/domain').CompletedCapabilityOperationResult;
+    readonly response: import('../../authorization/domain').AuthorizedOperationReplayResponse;
     readonly completedAtMs: number;
   }): Promise<AuthorizedOperation>;
 }

@@ -1,11 +1,11 @@
 import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
-import type { WebAuthnAuthenticationCredential } from '../core/types';
+import type { WebAuthnAuthenticationCredential } from '../../core/types';
 import {
   findUnexpectedRouteKey,
   parseWebAuthnAuthenticationCredential,
-} from './routeRequestValidation';
-import { parseSessionKind } from './routerApi';
-import { parseOidcAccountMode } from './emailOtpSessionRouteHelpers';
+} from '../framework/routeRequestValidation';
+import { parseSessionKind } from '../framework/routerApi';
+import { parseOidcAccountMode } from '../domains/emailOtp/emailOtpSessionRouteHelpers';
 import {
   parseHostedWalletSeamsSessionExchangeCode,
   parseHostedWalletSeamsSessionExchangeNonce,
@@ -13,7 +13,7 @@ import {
   type HostedWalletSeamsSessionExchangeCode,
   type HostedWalletSeamsSessionExchangeNonce,
   type SessionOrigin,
-} from '../authorization/domain';
+} from '../../authorization/domain';
 import {
   parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,

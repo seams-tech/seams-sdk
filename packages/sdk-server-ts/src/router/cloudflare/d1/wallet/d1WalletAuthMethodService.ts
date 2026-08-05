@@ -29,7 +29,7 @@ import {
   type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
-import type { WalletAuthMethodStore } from '../../core/d1WalletAuthMethodStore';
+import type { WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
 import type {
   WalletAddAuthMethodFinalizeResponse,
   WalletAddAuthMethodStartRequest,
@@ -39,17 +39,17 @@ import type {
   PasskeyWalletRegistrationAuthorityInput,
   WalletRegistrationAuthorityInput,
   WalletRevokeAuthMethodResponse,
-} from '../../core/registrationContracts';
-import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVerifier';
-import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
-import { parseWalletIdForIntent } from './d1RegistrationCeremonyRecords';
-import type { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from './d1GoogleEmailOtpRegistrationAttemptStore';
+} from '../../../../core/registrationContracts';
+import { CloudflareD1EmailOtpChallengeVerifier } from '../emailOtp/d1EmailOtpChallengeVerifier';
+import { CloudflareD1RegistrationCeremonyIntentStore } from '../registration/d1RegistrationCeremonyStore';
+import { parseWalletIdForIntent } from '../registration/d1RegistrationCeremonyRecords';
+import type { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from '../emailOtp/d1GoogleEmailOtpRegistrationAttemptStore';
 import {
   expiredGoogleEmailOtpRegistrationAttemptRecord,
   pendingGoogleEmailOtpRegistrationAttemptWithSelectedCandidate,
   runtimePolicyScopeKey,
-} from './d1GoogleEmailOtpRegistrationRecords';
-import { toRecordValue } from './d1RouterApiAuthBoundary';
+} from '../emailOtp/d1GoogleEmailOtpRegistrationRecords';
+import { toRecordValue } from '../auth/d1RouterApiAuthBoundary';
 import {
   activeWalletAuthMethodRecord,
   authorizeD1WalletAuthMethodRevoke,
@@ -67,12 +67,12 @@ import {
   type D1AddAuthMethodExistingAuthResolution,
   type D1AddSignerExistingAuthResolution,
 } from './d1WalletAuthMethodBoundary';
-import type { CloudflareD1WebAuthnStore } from './d1WebAuthnStore';
+import type { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
 import type {
   FinalizeWalletAddAuthMethodCommand,
   RevokeWalletAuthMethodCommand,
   StartWalletAddAuthMethodCommand,
-} from '../authServicePort';
+} from '../../../framework/authServicePort';
 
 type StartWalletAddAuthMethodInput = StartWalletAddAuthMethodCommand;
 type StartWalletAddAuthMethodResult = WalletAddAuthMethodStartResponse;

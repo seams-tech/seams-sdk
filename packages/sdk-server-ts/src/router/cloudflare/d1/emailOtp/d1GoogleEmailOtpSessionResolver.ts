@@ -11,23 +11,23 @@ import type {
   EmailOtpWalletEnrollmentRecord,
   GoogleEmailOtpRegistrationOfferCandidateRecord,
   NonEmptyGoogleEmailOtpRegistrationOfferCandidates,
-} from '../../core/EmailOtpStores';
+} from '../../../../core/EmailOtpStores';
 import type {
   IdentityStore,
   LinkIdentityResult,
   UnlinkIdentityResult,
-} from '../../core/IdentityStore';
+} from '../../../../core/IdentityStore';
 import type {
   RouterApiEmailOtpRouteService,
   RouterApiIdentityService,
-} from '../authServicePort';
+} from '../../../framework/authServicePort';
 import type { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
 import type { CloudflareD1EmailOtpRateLimitStore } from './d1EmailOtpRateLimitStore';
 import type { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from './d1GoogleEmailOtpRegistrationAttemptStore';
 import {
   googleEmailOtpStaleIdentityMapping,
   hasDifferentWalletIdentitySubject,
-} from './d1IdentityRecords';
+} from '../identity/d1IdentityRecords';
 import {
   abandonedGoogleEmailOtpRegistrationAttemptRecord,
   activeGoogleEmailOtpRegistrationAttemptRecord,
@@ -36,7 +36,7 @@ import {
   googleEmailOtpRegistrationOfferForResponse,
   requireRuntimePolicyScope,
 } from './d1GoogleEmailOtpRegistrationRecords';
-import { parseD1BoundaryWalletId, parseD1BoundaryWalletIdResult } from './d1RouterApiAuthBoundary';
+import { parseD1BoundaryWalletId, parseD1BoundaryWalletIdResult } from '../auth/d1RouterApiAuthBoundary';
 
 type ResolveGoogleEmailOtpSessionInput =
   Parameters<RouterApiIdentityService['resolveGoogleEmailOtpSession']>[0];

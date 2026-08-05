@@ -1,7 +1,7 @@
-import type { RouterApiServiceBag } from '../authServicePort';
-import type { RouterApiOptions } from '../routerApi';
-import { createFetchRouter } from '../transport/fetch/createFetchRouter';
-import type { FetchRouterRuntime } from '../transport/fetch/fetchRouter.types';
+import type { RouterApiServiceBag } from '../../framework/authServicePort';
+import type { RouterApiOptions } from '../../framework/routerApi';
+import { createFetchRouter } from '../../transport/fetch/createFetchRouter';
+import type { FetchRouterRuntime } from '../../transport/fetch/fetchRouter.types';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './cloudflare.types';
 
 export function createCloudflareRouter(

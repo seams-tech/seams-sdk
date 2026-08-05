@@ -1,7 +1,7 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { createSigningSessionSealShamir3PassCipherAdapter } from '../../threshold/session/signingSessionSeal/crypto/cipher';
-import type { SigningSessionSealCipherAdapter } from '../../threshold/session/signingSessionSeal/signingSessionSeal.types';
-import type { EmailOtpServerSealRuntimeConfig } from './d1RouterApiAuthConfig';
+import { createSigningSessionSealShamir3PassCipherAdapter } from '../../../../threshold/session/signingSessionSeal/crypto/cipher';
+import type { SigningSessionSealCipherAdapter } from '../../../../threshold/session/signingSessionSeal/signingSessionSeal.types';
+import type { EmailOtpServerSealRuntimeConfig } from '../auth/d1RouterApiAuthConfig';
 
 type EmailOtpServerSealInput = {
   readonly wrappedCiphertext?: unknown;

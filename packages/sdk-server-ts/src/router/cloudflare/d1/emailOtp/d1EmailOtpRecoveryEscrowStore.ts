@@ -1,8 +1,8 @@
 import type {
   EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpWalletEnrollmentRecord,
-} from '../../core/EmailOtpStores';
-import type { D1DatabaseLike, D1PreparedStatementLike } from '../../storage/tenantRoute';
+} from '../../../../core/EmailOtpStores';
+import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import {
   consumedEmailOtpRecoveryEscrowRecord,
   emailOtpRecoveryEscrowMatchesEnrollment,

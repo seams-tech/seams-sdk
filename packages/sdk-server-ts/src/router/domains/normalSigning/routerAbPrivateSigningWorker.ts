@@ -1,27 +1,27 @@
 import type {
   RouterAbNormalSigningAuthorizationIdentity,
   RouterAbSigningWorkerPrivateTransport,
-} from '../core/routerAbSigning/RouterAbNormalSigningRuntime';
-import type { RouterAbNormalSigningRuntime } from '../core/routerAbSigning/RouterAbNormalSigningRuntime';
-import type { ThresholdEd25519AuthorityScope } from '../core/types';
-import { postRouterAbInternalServiceJson } from '../core/ThresholdService/routerAb/internalServiceHttp';
+} from '../../../core/routerAbSigning/RouterAbNormalSigningRuntime';
+import type { RouterAbNormalSigningRuntime } from '../../../core/routerAbSigning/RouterAbNormalSigningRuntime';
+import type { ThresholdEd25519AuthorityScope } from '../../../core/types';
+import { postRouterAbInternalServiceJson } from '../../../core/ThresholdService/routerAb/internalServiceHttp';
 import type {
   RouterAbEcdsaDerivationWalletSessionClaims,
   RouterAbEd25519WalletSessionClaims,
-} from '../core/ThresholdService/validation';
+} from '../../../core/ThresholdService/validation';
 import {
   parseAppSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-} from '../core/ThresholdService/validation';
+} from '../../../core/ThresholdService/validation';
 import type {
   VerifiedEcdsaWalletSessionAuth,
   VerifiedEd25519WalletSessionAuth,
-} from './verifiedWalletSessionAuth';
+} from '../../auth/verifiedWalletSessionAuth';
 import {
   validateRouterAbEcdsaDerivationWalletSessionInputs,
   validateRouterAbEd25519WalletSessionTokenInputs,
-} from './commonRouterUtils';
-import { parseSessionKind, type SessionAdapter } from './routerApi';
+} from '../../auth/commonRouterUtils';
+import { parseSessionKind, type SessionAdapter } from '../../framework/routerApi';
 import {
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
   parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
@@ -44,12 +44,12 @@ import {
   WALLET_SESSION_FAILURE_CODES,
   type WalletSessionFailureCode,
 } from '@shared/utils/walletSessionFailure';
-import { walletSessionFailure, walletSessionFailureStatus } from './walletSessionFailure';
+import { walletSessionFailure, walletSessionFailureStatus } from '../../auth/walletSessionFailure';
 import type {
   RouterApiAuthorizedOperationService,
   RouterApiAuthorizationSessionService,
   RouterApiWalletRegistrationService,
-} from './authServicePort';
+} from '../../framework/authServicePort';
 import {
   buildEvmEcdsaMpcOperationRef,
   buildNearEd25519MpcOperationRef,
@@ -81,7 +81,7 @@ import {
   type AuthorizedOperation,
   type AuthorizedOperationInput,
   type AuthorizedOperationReplayResponse,
-} from '../authorization/domain';
+} from '../../../authorization/domain';
 import {
   sameRouterAbMpcMaterialActivationRef,
   type RouterAbNormalSigningAuthorizationWire,

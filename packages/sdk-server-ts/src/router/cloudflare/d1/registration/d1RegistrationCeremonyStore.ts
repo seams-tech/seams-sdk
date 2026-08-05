@@ -9,9 +9,9 @@ import {
   type StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch,
   type StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch,
   type TerminalRegistrationCeremonyCancellationResult,
-} from '../../core/RegistrationCeremonyStore';
-import type { WalletId } from '../../core/registrationContracts';
-import type { D1DatabaseLike } from '../../storage/tenantRoute';
+} from '../../../../core/RegistrationCeremonyStore';
+import type { WalletId } from '../../../../core/registrationContracts';
+import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import {
   parseD1StoredAddAuthMethodIntent,
   parseD1StoredAddSignerIntent,

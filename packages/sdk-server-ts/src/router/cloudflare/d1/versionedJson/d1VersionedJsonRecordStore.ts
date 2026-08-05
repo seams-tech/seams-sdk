@@ -3,16 +3,16 @@ import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
   D1ResultLike,
-} from '../../storage/tenantRoute';
-import { isD1DatabaseLike } from '../../storage/d1Sql';
+} from '../../../../storage/tenantRoute';
+import { isD1DatabaseLike } from '../../../../storage/d1Sql';
 import {
   containsControlCharacter,
-} from './versionedJsonRecordStore';
+} from '../../durableObjects/versionedJsonRecordStore';
 import type {
   VersionedJsonObject,
   VersionedJsonRecordPutResult,
   VersionedJsonRecordReadResult,
-} from '../framework/versionedJsonRecordStore';
+} from '../../../framework/versionedJsonRecordStore';
 
 const TABLE_NAME = 'router_ab_yao_versioned_json_records';
 const CAS_GUARD_TABLE_NAME = 'router_ab_yao_versioned_json_cas_guard';

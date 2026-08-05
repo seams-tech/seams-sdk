@@ -10,12 +10,12 @@ import {
   resolveAppSessionProviderUserIdForWalletScope,
 } from '../../../../core/ThresholdService/validation';
 import { thresholdEcdsaStatusCode } from '../../../../threshold/statusCodes';
-import { parseSessionKind } from '../../../routerApi';
+import { parseSessionKind } from '../../../framework/routerApi';
 import {
   signRouterAbEcdsaDerivationWalletSessionJwt,
   validateRouterAbEcdsaDerivationWalletSessionInputs,
   validateRouterAbEd25519WalletSessionTokenInputs,
-} from '../../../commonRouterUtils';
+} from '../../../auth/commonRouterUtils';
 import {
   parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
@@ -58,13 +58,13 @@ import {
   resolveFreshRouterAbEcdsaMaterialActivation,
   routerAbEcdsaAtomicAuthorizationConfigured,
   type RouterAbEcdsaOperationAdmissionKind,
-} from '../../../routerAbPrivateSigningWorker';
+} from '../../../domains/normalSigning/routerAbPrivateSigningWorker';
 import {
   parseRouterAbEcdsaDerivationPoolFillInitRouteRequest,
   parseRouterAbEcdsaDerivationPoolFillStepRouteRequest,
   type RouterAbEcdsaPoolFillInitRouteRequest,
   type RouterAbEcdsaPoolFillStepRouteRequest,
-} from '../../../thresholdEcdsaRequestValidation';
+} from '../../../domains/ecdsa/thresholdEcdsaRequestValidation';
 import type {
   RouterAbEcdsaDerivationPoolFillInitRequest,
   RouterAbEcdsaDerivationPoolFillStepRequest,
@@ -74,18 +74,18 @@ import type {
   RouterAbEcdsaStrictPostRegistrationResult,
   RouterAbEcdsaStrictExportAuthority,
   RouterAbEcdsaStrictRegistrationAuthority,
-} from '../../../routerAbEcdsaStrictRegistration';
+} from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
 import type {
   RouterApiAuthorizedOperationService,
   RouterApiAuthorizationSessionService,
-} from '../../../authServicePort';
+} from '../../../framework/authServicePort';
 import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
 import {
   walletSessionFailure,
   walletSessionFailureStatus,
   walletSessionParseFailure,
   type WalletSessionBoundaryFailure,
-} from '../../../walletSessionFailure';
+} from '../../../auth/walletSessionFailure';
 import {
   parsePrincipalId,
   parseReusableWalletSessionMintId,
@@ -132,7 +132,7 @@ import {
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
 } from '@shared/utils/emailOtpDomain';
-import { hashEmailOtpAppSessionClaims } from '../../../emailOtpSessionRouteHelpers';
+import { hashEmailOtpAppSessionClaims } from '../../../domains/emailOtp/emailOtpSessionRouteHelpers';
 import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
 import {
   sameRouterAbMpcMaterialActivationRef,

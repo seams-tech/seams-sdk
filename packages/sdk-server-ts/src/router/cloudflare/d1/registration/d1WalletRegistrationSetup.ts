@@ -48,21 +48,21 @@ import type {
   RespondEd25519DeferredWorkV2,
   WalletRegistrationRespondResponseV2,
   WalletRegistrationSetupResponseV2,
-} from '../../core/threeRouteRegistrationContracts';
-import type { StoredWalletRegistrationCeremony } from '../../core/RegistrationCeremonyStore';
-import { thresholdEcdsaChainTargetFromValue } from '../../core/thresholdEcdsaChainTarget';
+} from '../../../../core/threeRouteRegistrationContracts';
+import type { StoredWalletRegistrationCeremony } from '../../../../core/RegistrationCeremonyStore';
+import { thresholdEcdsaChainTargetFromValue } from '../../../../core/thresholdEcdsaChainTarget';
 import {
   computeWalletRegistrationSetupDigestB64u,
   mintSignedWalletRegistrationSetup,
   type WalletRegistrationSetupMinter,
-} from '../walletRegistrationSetupPayload';
+} from '../../../domains/walletRegistration/walletRegistrationSetupPayload';
 import type {
   WalletRegistrationSetupRequest,
   WalletRegistrationSetupInput,
   WalletRegistrationRespondInput,
   WalletRegistrationActivateInput,
   WalletRegistrationNearProvisioningInput,
-} from '../domains/walletRegistration/walletRegistrationInputs';
+} from '../../../domains/walletRegistration/walletRegistrationInputs';
 
 /** Setup's ceremony lives only as long as an authenticator prompt plausibly takes. */
 const WALLET_REGISTRATION_SETUP_TTL_MS = 10 * 60_000;

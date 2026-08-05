@@ -2,14 +2,14 @@ import type { RouterAbEd25519YaoActivationBindingV1 } from '@shared/utils/router
 import {
   parseRouterAbEd25519WalletSessionClaims,
   type RouterAbEd25519WalletSessionClaims,
-} from '../core/ThresholdService/validation';
-import { headersToRecord } from './framework/http';
-import type { SessionAdapter } from './routerApi';
+} from '../../../../core/ThresholdService/validation';
+import { headersToRecord } from '../../../framework/http';
+import type { SessionAdapter } from '../../../framework/routerApi';
 import {
   walletSessionFailureCodeFromParseReason,
   walletSessionFailureMessage,
   walletSessionFailureStatus,
-} from './walletSessionFailure';
+} from '../../../auth/walletSessionFailure';
 import type {
   RouterAbEd25519YaoRecoveryAuthorizationAdapter,
   RouterAbEd25519YaoRecoveryAuthorizationInput,

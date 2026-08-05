@@ -1,5 +1,5 @@
-import type { EmailOtpGrantRecord } from '../../core/EmailOtpStores';
-import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
+import type { EmailOtpGrantRecord } from '../../../../core/EmailOtpStores';
+import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import { parseEmailOtpGrantRow, type D1EmailOtpGrantRow } from './d1EmailOtpRecords';
 
 type ScopedD1Prepare = (sql: string, values: readonly unknown[]) => D1PreparedStatementLike;

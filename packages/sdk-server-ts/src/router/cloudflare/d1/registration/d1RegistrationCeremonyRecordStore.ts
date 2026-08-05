@@ -4,8 +4,8 @@ import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
   D1ResultLike,
-} from '../../storage/tenantRoute';
-import { isD1DatabaseLike } from '../../storage/d1Sql';
+} from '../../../../storage/tenantRoute';
+import { isD1DatabaseLike } from '../../../../storage/d1Sql';
 
 const TABLE_NAME = 'registration_ceremony_records';
 const CAS_GUARD_SQL = `INSERT INTO registration_ceremony_cas_guard (guard_id)

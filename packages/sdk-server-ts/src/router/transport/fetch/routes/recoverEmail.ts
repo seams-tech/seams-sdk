@@ -6,7 +6,7 @@ import {
   recordTrackedRecoverEmailPending,
   runTrackedRecoverEmailExecution,
   runTrackedRecoverEmailExecutionAsync,
-} from '../../../recoveryExecutionTracking';
+} from '../../../domains/emailRecovery/recoveryExecutionTracking';
 
 function isFetchRecoverEmailAsync(ctx: FetchRouterApiContext): boolean {
   const prefer = String(ctx.request.headers.get('prefer') || '').toLowerCase();

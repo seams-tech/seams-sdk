@@ -1,10 +1,10 @@
 import type {
   InMemoryRouterAbEd25519YaoRegistrationStateV1,
   RouterAbEd25519YaoRegistrationAdmissionClaimV1,
-} from './routerAbEd25519YaoRegistration';
-import type { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationStateV1 } from './routerAbEd25519YaoRegistrationIntentAuthorization';
-import type { InMemoryRouterAbEd25519YaoRecoveryStateV1 } from './routerAbEd25519YaoRecovery';
-import type { InMemoryRouterAbEd25519YaoExportStateV1 } from './routerAbEd25519YaoExport';
+} from '../registration/routerAbEd25519YaoRegistration';
+import type { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationStateV1 } from '../registration/routerAbEd25519YaoRegistrationIntentAuthorization';
+import type { InMemoryRouterAbEd25519YaoRecoveryStateV1 } from '../recovery/routerAbEd25519YaoRecovery';
+import type { InMemoryRouterAbEd25519YaoExportStateV1 } from '../export/routerAbEd25519YaoExport';
 import type { RouterAbEd25519YaoProductRegistrationStateV1 } from './routerAbEd25519YaoProductRegistration';
 
 type MapValue<T> = T extends Map<string, infer Value> ? Value : never;

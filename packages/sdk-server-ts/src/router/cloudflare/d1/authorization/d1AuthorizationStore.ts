@@ -31,7 +31,7 @@ import type {
   ReusableWalletSessionStatus,
   VerifiedAuthorizationEvidenceSet,
   WalletSessionId,
-} from '../../authorization/domain';
+} from '../../../../authorization/domain';
 import {
   buildActiveAuthorizationSession,
   buildActiveWalletSessionQuota,
@@ -40,8 +40,8 @@ import {
   parseAuthorizedOperationReplayResponse,
   parseMpcWalletSigningQuotaId,
   parseSessionOrigin,
-} from '../../authorization/domain';
-import { buildAuthorizedOperation } from '../../authorization/domain';
+} from '../../../../authorization/domain';
+import { buildAuthorizedOperation } from '../../../../authorization/domain';
 import {
   buildCapabilityOperationEnvelope,
   computeCapabilityOperationFingerprintDigest,
@@ -55,10 +55,10 @@ import type {
   AuthorizationSessionPort,
   EcdsaMaterialActivationScope,
   IssuedReusableWalletSession,
-} from '../../authorization/service';
-import type { D1WalletStoreScope } from '../../core/d1WalletStore';
-import { d1ChangedRows, type D1Row } from '../../storage/d1Sql';
-import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
+} from '../../../../authorization/service';
+import type { D1WalletStoreScope } from '../../../../core/d1WalletStore';
+import { d1ChangedRows, type D1Row } from '../../../../storage/d1Sql';
+import type { D1DatabaseLike, D1ResultLike } from '../../../../storage/tenantRoute';
 import {
   parseAppSessionVersion,
   parseProviderSubject,
