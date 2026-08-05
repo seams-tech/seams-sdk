@@ -21,7 +21,7 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 
 type StoredSideEffect<T, P = undefined> = {
   readonly version: number;

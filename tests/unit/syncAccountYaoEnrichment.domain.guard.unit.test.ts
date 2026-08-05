@@ -21,7 +21,7 @@ import {
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
   type RouterAbEd25519YaoWalletSessionMintInputV1,
   type RouterAbEd25519YaoWalletSessionMintResultV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import type {
   RouterAbEd25519YaoActiveCapabilityDescriptorV1,
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,

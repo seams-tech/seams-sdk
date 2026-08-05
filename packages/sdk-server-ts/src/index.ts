@@ -189,12 +189,12 @@ export {
   type RouterAbNormalSigningAdmissionStore,
   type RouterAbNormalSigningProjectPolicyDecision,
   type RouterAbNormalSigningProjectPolicyProvider,
-} from './router/domains/normalSigning/routerAbNormalSigningAdmissionCore';
+} from './router/domains/signingOperations/routerAbNormalSigningAdmissionCore';
 export {
   CloudflareD1RouterAbNormalSigningAdmissionStore,
   createCloudflareD1RouterAbNormalSigningAdmissionStore,
   type CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
-} from './router/cloudflare/d1/normalSigning/d1RouterAbNormalSigningAdmissionStore';
+} from './router/cloudflare/d1/signingAdmission/d1RouterAbNormalSigningAdmissionStore';
 export * from './email-recovery';
 export * from './threshold/session/signingSessionSeal';
 export type {

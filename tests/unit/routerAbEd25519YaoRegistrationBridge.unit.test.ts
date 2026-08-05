@@ -8,7 +8,7 @@ import {
   type RouterAbEd25519YaoRegistrationSideEffectClaimV1,
   type RouterAbEd25519YaoRegistrationSideEffectCompletionV1,
 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
-import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
 import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
 import {
   AlwaysConflictRegistrationBridgePartitionStore,

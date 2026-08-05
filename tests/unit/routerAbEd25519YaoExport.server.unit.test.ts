@@ -44,21 +44,21 @@ import {
   handleRouterAbEd25519YaoExportRequestScopedCloudflareV1,
   type RouterAbEd25519YaoExportRequestScopedCloudflareInputV1,
 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExportRequestScopedCloudflare';
-import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import {
   encodeRouterAbEd25519YaoProductRegistrationStateV1,
   parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPersistence';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPersistence';
 import {
   partitionRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationSharedStateV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitioning';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitioning';
 import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitInputV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import type {
   RouterAbEd25519YaoActiveCapabilityLookupV1,
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,

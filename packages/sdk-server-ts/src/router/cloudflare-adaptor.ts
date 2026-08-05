@@ -29,25 +29,25 @@ export type {
   RouterAbNormalSigningAdmissionFailureCode,
   RouterAbNormalSigningAdmissionInput,
   RouterAbNormalSigningAdmissionResult,
-} from './domains/normalSigning/routerAbPrivateSigningWorker';
+} from './domains/signingOperations/routerAbPrivateSigningWorker';
 export {
   InMemoryRouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
-} from './domains/normalSigning/routerAbNormalSigningAdmissionCore';
+} from './domains/signingOperations/routerAbNormalSigningAdmissionCore';
 export type {
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
   RouterAbNormalSigningAdmissionStore,
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningProjectPolicyProvider,
-} from './domains/normalSigning/routerAbNormalSigningAdmissionCore';
+} from './domains/signingOperations/routerAbNormalSigningAdmissionCore';
 export {
   CloudflareD1RouterAbNormalSigningAdmissionStore,
   createCloudflareD1RouterAbNormalSigningAdmissionStore,
-} from './cloudflare/d1/normalSigning/d1RouterAbNormalSigningAdmissionStore';
-export type { CloudflareD1RouterAbNormalSigningAdmissionStoreOptions } from './cloudflare/d1/normalSigning/d1RouterAbNormalSigningAdmissionStore';
+} from './cloudflare/d1/signingAdmission/d1RouterAbNormalSigningAdmissionStore';
+export type { CloudflareD1RouterAbNormalSigningAdmissionStoreOptions } from './cloudflare/d1/signingAdmission/d1RouterAbNormalSigningAdmissionStore';
 export type {
   RouterApiFetchRouteExtension,
   RouterApiFetchRouteExtensionInput,
@@ -73,7 +73,7 @@ export {
   createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
   createRouterAbEd25519YaoProductRegistrationStateV1,
   createRouterAbEd25519YaoProductRegistrationRuntimeV1,
-} from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 export {
   RouterAbEd25519YaoHttpRegistrationBackend,
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
@@ -109,7 +109,7 @@ export type {
   RouterAbEd25519YaoProductRegistrationCompositionV1,
   RouterAbEd25519YaoProductRegistrationStateV1,
   RouterAbEd25519YaoWalletSessionMintResultV1,
-} from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 export type { RouteDefinition } from './framework/routeDefinitions';
 export { defineRoute } from './framework/routeDefinitions';
 export type {
@@ -198,27 +198,27 @@ export {
   parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
   parseRouterAbEd25519YaoCeremonyKeyV1,
   resolveRouterAbEd25519YaoCeremonyKeyFromRequestV1,
-} from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPersistence';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPersistence';
 export type {
   RouterAbEd25519YaoCeremonyKeyV1,
   RouterAbEd25519YaoCeremonyKeyResolutionV1,
   RouterAbEd25519YaoCeremonyStateStoreV1,
-} from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPersistence';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPersistence';
 export {
   mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1,
   partitionRouterAbEd25519YaoProductRegistrationStateV1,
-} from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitioning';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitioning';
 export type {
   RouterAbEd25519YaoProductRegistrationCeremonyStateV1,
   RouterAbEd25519YaoProductRegistrationSharedStateV1,
   RouterAbEd25519YaoProductRegistrationStatePartitionV1,
-} from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitioning';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitioning';
 export {
   ROUTER_AB_ED25519_YAO_SHARED_STATE_RECORD_KEY_V1,
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   encodeRouterAbEd25519YaoProductRegistrationPartitionRecordV1,
   parseRouterAbEd25519YaoProductRegistrationPartitionRecordV1,
-} from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 export type {
   RouterAbEd25519YaoProductRegistrationPartitionBatchResultV1,
   RouterAbEd25519YaoProductRegistrationPartitionMutationV1,
@@ -228,21 +228,21 @@ export type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
-} from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 export {
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1,
 } from './cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
 export type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateD1OptionsV1,
 } from './cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
-export { runRouterAbEd25519YaoProductRegistrationRequestScopedV1 } from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationRequestScopedRunner';
+export { runRouterAbEd25519YaoProductRegistrationRequestScopedV1 } from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRunner';
 export type {
   RouterAbEd25519YaoProductRegistrationRequestScopedExecutionV1,
   RouterAbEd25519YaoProductRegistrationRequestScopedRunInputV1,
   RouterAbEd25519YaoProductRegistrationRequestScopedRunResultV1,
-} from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationRequestScopedRunner';
-export { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
-export type { RouterAbEd25519YaoProductRegistrationRequestScopedRuntimeInputV1 } from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRunner';
+export { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+export type { RouterAbEd25519YaoProductRegistrationRequestScopedRuntimeInputV1 } from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
 export { runRouterAbEd25519YaoRegistrationSideEffectV1 } from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
 export type {
   RouterAbEd25519YaoRegistrationSideEffectClaimV1,

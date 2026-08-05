@@ -75,7 +75,7 @@ function checkRouterAbServerWalletSessionIssuerUsesExactClaimBuilders() {
 function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes() {
   const guardedFiles = [
     'packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts',
-    'packages/sdk-server-ts/src/router/domains/normalSigning/routerAbPrivateSigningWorker.ts',
+    'packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
     'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
   ];
   const forbiddenMarkers = [
@@ -94,7 +94,7 @@ function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes()
   );
   assert.ok(
     readRepoFile(
-      'packages/sdk-server-ts/src/router/domains/normalSigning/routerAbPrivateSigningWorker.ts',
+      'packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
     ).includes(
       'sameRouterAbEcdsaDerivationNormalSigningScopeV1',
     ),
@@ -111,7 +111,7 @@ function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes()
 function checkRouterAbPrivateServiceJsonCallsUseSharedInternalAuthHelper() {
   const guardedFiles = [
     'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge.ts',
-    'packages/sdk-server-ts/src/router/domains/normalSigning/routerAbPrivateSigningWorker.ts',
+    'packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
   ];
   const forbiddenMarkers = [
     '[ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1]:',

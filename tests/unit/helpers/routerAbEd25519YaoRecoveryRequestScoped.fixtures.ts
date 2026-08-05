@@ -23,7 +23,7 @@ import {
 import {
   createRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationStateV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import {
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionBatchResultV1,
@@ -31,7 +31,7 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
   type RouterAbEd25519YaoRecoveryAdmissionCommitInputV1,
