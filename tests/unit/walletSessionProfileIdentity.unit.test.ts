@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
-import { readAvailableLanesFixture } from './helpers/availableSigningLanes.fixtures';
+import {
+  canonicalEcdsaAvailableLane,
+  readAvailableLanesFixture,
+} from './helpers/availableSigningLanes.fixtures';
 import {
   ecdsaCapabilityActivationFixture,
   type EcdsaCapabilityActivationFixture,
@@ -75,10 +78,15 @@ async function exerciseCanonicalEcdsaRefreshReconciliation(input: {
     throw new Error(`ECDSA refresh capability projection failed: ${projection.kind}`);
   }
   const subject = projection.subjectSet.subjects[0];
+  const appIdentity = session.appIdentity;
   return {
     projectionKind: projection.kind,
     subject,
     reconciliationRequestCount: reconciliationRequests.length,
+    thresholdEcdsaEthereumAddress:
+      appIdentity.kind === 'resolved' ? appIdentity.thresholdEcdsaEthereumAddress : null,
+    thresholdEcdsaPublicKeyB64u:
+      appIdentity.kind === 'resolved' ? appIdentity.thresholdEcdsaPublicKeyB64u : null,
   };
 }
 
@@ -451,6 +459,35 @@ test.describe('wallet session profile identity restore', () => {
           fixture.prepareInput.activationBinding.roleLocalBinding.ecdsaThresholdKeyId,
       },
       reconciliationRequestCount: 1,
+      thresholdEcdsaEthereumAddress: null,
+      thresholdEcdsaPublicKeyB64u: null,
+    });
+  });
+
+  test('projects the canonical ECDSA public key from an available lane', async ({ page }) => {
+    const fixture = ecdsaCapabilityActivationFixture();
+    const chainTarget = fixture.prepareInput.activationBinding.signer.scope.targetMemberships[0]!;
+    const availableLanes = await readAvailableLanesFixture({
+      walletId: fixture.prepareInput.activationBinding.signer.authority.walletId,
+      ecdsaChainTargets: [chainTarget],
+      canonicalEcdsaLanes: [
+        canonicalEcdsaAvailableLane({
+          walletId: String(fixture.prepareInput.activationBinding.signer.authority.walletId),
+          chainTarget,
+          thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
+          authMethod: 'email_otp',
+        }),
+      ],
+    });
+    const result = await page.evaluate(exerciseCanonicalEcdsaRefreshReconciliation, {
+      paths: IMPORT_PATHS,
+      fixture,
+      availableLanes,
+    });
+
+    expect(result).toMatchObject({
+      thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+      thresholdEcdsaPublicKeyB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     });
   });
 

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { ClientUserData } from '../../packages/sdk-web/src/core/accountData/near/nearAccountData.types';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import { Ed25519YaoPageLifecycleOwner } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoPageLifecycleOwner';
@@ -8,6 +9,7 @@ import {
   IndexedDbEd25519YaoPublicCapabilityReferenceStore,
   parseEd25519YaoPublicCapabilityLanesV1,
   parseEd25519YaoPublicCapabilityReferencesV1,
+  publishEd25519YaoPublicCapabilityReferenceAndLane,
 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import {
   buildMpcMaterialActivationRefFixture,
@@ -28,6 +30,7 @@ import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/sess
 import { buildRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { resolveNearEd25519YaoCapabilityHydrationV1 } from '../../packages/sdk-web/src/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 import { buildRestorableMpcMaterialRefInternal } from '../../packages/sdk-web/src/core/signingEngine/session/material/restorableMpcMaterialRef.internal';
+import { resolveEmailOtpEd25519YaoColdRecoveryV1 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoLogin';
 
 const APP_STATE_KEY = 'ed25519YaoPublicCapabilityReferencesV1';
 const LANES_APP_STATE_KEY = 'ed25519YaoPublicCapabilityLanesV1';
@@ -127,6 +130,52 @@ test.describe('Ed25519 Yao public capability lifecycle', () => {
     await store.upsertLane(replacement);
 
     expect(await store.listLanes()).toEqual([replacement]);
+  });
+
+  test('publishes one identity for cold Email OTP recovery and its signing lane', async () => {
+    const appState = new AppStateFixture();
+    const store = new IndexedDbEd25519YaoPublicCapabilityReferenceStore(appState);
+    const identity = publicIdentityFixture();
+    const lane = {
+      ...identity,
+      auth: {
+        kind: 'email_otp' as const,
+        providerSubjectId: 'provider-subject-yao-lifecycle',
+      },
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('scope-yao-lifecycle'),
+      signerSlot: 1,
+    };
+    const user: ClientUserData = {
+      walletId: String(identity.walletId),
+      nearAccountId: identity.nearAccountId,
+      loginDisplayName: 'email-otp-yao-lifecycle',
+      signerSlot: lane.signerSlot,
+      operationalPublicKey: 'ed25519:yao-lifecycle',
+      passkeyCredential: {
+        id: 'email-otp-yao-lifecycle',
+        rawId: 'email-otp-yao-lifecycle',
+      },
+      authMethod: 'email_otp',
+    };
+
+    await publishEd25519YaoPublicCapabilityReferenceAndLane(store, lane);
+
+    expect(await store.list()).toEqual([identity]);
+    const resolved = await resolveEmailOtpEd25519YaoColdRecoveryV1(
+      {
+        listUsers: async () => [user],
+        listPublicCapabilityReferences: store.list.bind(store),
+      },
+      {
+        walletId: identity.walletId,
+        walletSessionUserId: 'provider-subject-yao-lifecycle',
+      },
+    );
+    expect(resolved).toEqual({
+      identity,
+      user,
+      providerSubject: 'provider-subject-yao-lifecycle',
+    });
   });
 
   test('lane projection drives exact signing hydration lookup', async () => {

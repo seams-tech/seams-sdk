@@ -132,15 +132,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
     let capturedChallengeKind = '';
     const exportEvents: KeyExportFlowEvent[] = [];
 
-    const authLane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'wallet_session', jwt: 'wallet-session-jwt' },
-      thresholdSessionId: 'threshold-session-1',
-      curve: 'ecdsa',
-      chainTarget: EVM_TARGET,
-    });
-    if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ecdsa') {
-      throw new Error('expected ECDSA signing-session auth lane');
-    }
+    const appSessionJwt = 'app-session-jwt';
     const authorization = await requestEmailOtpKeyExportAuthorization(
       {
         touchConfirm: {
@@ -186,7 +178,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
         chain: 'evm',
         publicKey: '0x02abcdef',
         curve: 'ecdsa',
-        challengeAuthority: { kind: 'signing_session', authLane },
+        challengeAuthority: { kind: 'app_session', appSessionJwt },
         flowId: 'key-export-flow-1',
         onEvent: (event) => exportEvents.push(event),
       },
@@ -195,7 +187,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
     expect(authorization.walletSessionUserId).toBe('frost-vermillion-k7p9m2');
     expect(authorization.challengeId).toBe('email-otp-export-1');
     expect(authorization.otpCode).toBe('123456');
-    expect(capturedChallengeKind).toBe('wallet_session_challenge');
+    expect(capturedChallengeKind).toBe('wallet_capability_export_challenge');
     expect(capturedSummaryAccountId).toBe('frost-vermillion-k7p9m2');
     expect(capturedPayloadWalletId).toBe('frost-vermillion-k7p9m2');
     expect(exportEvents).toEqual([
@@ -211,17 +203,8 @@ test.describe('threshold ECDSA export viewer payload', () => {
     ]);
   });
 
-  test('requests fresh Email OTP export authorization from the ECDSA signing-session authority', async () => {
+  test('requests fresh Email OTP export authorization from the current app session', async () => {
     const walletId = toWalletId('frost-vermillion-k7p9m2');
-    const authLane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'wallet_session', jwt: 'wallet-session-jwt' },
-      thresholdSessionId: 'threshold-session-2',
-      curve: 'ecdsa',
-      chainTarget: EVM_TARGET,
-    });
-    if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ecdsa') {
-      throw new Error('expected ECDSA signing-session auth lane');
-    }
 
     const authorization = await requestEmailOtpKeyExportAuthorization(
       {
@@ -254,7 +237,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
         chain: 'evm',
         publicKey: '0x02abcdef',
         curve: 'ecdsa',
-        challengeAuthority: { kind: 'signing_session', authLane },
+        challengeAuthority: { kind: 'app_session', appSessionJwt: 'app-session-jwt' },
         flowId: 'key-export-flow-2',
         onEvent: (event) => {
           expect(event.data?.demoOtpCode).toBeNull();

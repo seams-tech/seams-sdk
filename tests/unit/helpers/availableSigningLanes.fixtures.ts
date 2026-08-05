@@ -45,6 +45,10 @@ import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixture
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { ecdsaCapabilityActivationLookupFixture } from './ecdsaCapabilityManifest.fixtures';
 import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 
 export const AVAILABLE_LANES_WALLET_ID = 'alice.testnet';
 export const AVAILABLE_LANES_ED25519_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
@@ -169,7 +173,12 @@ export function availableLaneEd25519Authorization(args: {
     authority: buildWalletAuthAuthorityRefFixture({ walletId: args.walletId }),
     expiresAtMs: args.expiresAtMs ?? AVAILABLE_LANES_EXPIRES_AT_MS,
     status: 'active',
-    walletSessionJwt: `fixture-wallet-session-jwt:${args.identitySeed}` as never,
+    walletSessionTokens: {
+      kind: 'near_ed25519',
+      ed25519: {
+        walletSessionJwt: `fixture-wallet-session-jwt:${args.identitySeed}` as never,
+      },
+    },
   };
 }
 
@@ -205,7 +214,12 @@ function availableLaneEcdsaAuthorization(args: {
       authority: buildWalletAuthAuthorityRefFixture({ walletId: args.walletId }),
       expiresAtMs: args.expiresAtMs,
       status: 'active',
-      walletSessionJwt: `fixture-wallet-session-jwt:${args.identitySeed}` as never,
+      walletSessionTokens: {
+        kind: 'evm_family_ecdsa',
+        ecdsa: {
+          walletSessionJwt: `fixture-wallet-session-jwt:${args.identitySeed}` as never,
+        },
+      },
     },
     status: {
       walletSessionId,
@@ -254,6 +268,19 @@ export function canonicalEcdsaAvailableLane(args: {
   }).manifest;
   const capability = {
     kind: 'canonical_evm_family_ecdsa_signing_capability' as const,
+    authority:
+      authMethod === 'email_otp'
+        ? buildEmailOtpWalletAuthAuthority({
+            walletId,
+            provider: 'google',
+            providerUserId: 'google:available-lanes',
+            emailHashHex: 'available-lanes-email-hash',
+          })
+        : buildPasskeyWalletAuthAuthority({
+            walletId,
+            rpId: AVAILABLE_LANES_ECDSA_RP_ID,
+            credentialIdB64u: AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID,
+          }),
     manifest,
     material: buildPersistedEcdsaRoleLocalMaterial({
       authority: manifest.signer.authority,

@@ -587,8 +587,8 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   }
 
   async restoreWalletAuthenticationState(
-    walletId?: Parameters<AccountSyncSigningSurface['restoreWalletAuthenticationState']>[0],
-    _appSessionJwt?: Parameters<AccountSyncSigningSurface['restoreWalletAuthenticationState']>[1],
+    walletId: Parameters<AccountSyncSigningSurface['restoreWalletAuthenticationState']>[0],
+    _auth: Parameters<AccountSyncSigningSurface['restoreWalletAuthenticationState']>[1],
   ): Promise<WalletAuthenticationState> {
     const resolvedWalletId = toWalletId(String(walletId || DISCOVERED_WALLET_ID));
     this.walletAuthenticationState = {

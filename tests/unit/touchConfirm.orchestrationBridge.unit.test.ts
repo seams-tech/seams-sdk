@@ -380,6 +380,50 @@ test.describe('touchConfirm orchestration manager bridge', () => {
     expect('transactionContext' in result).toBe(false);
   });
 
+  test('near delegate returns operation step-up preparation from confirmation', async () => {
+    const operationStepUpPreparation = {
+      kind: 'near_operation_step_up_prepared_v1',
+      handle: 'near-operation-step-up:delegate',
+      challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    } as const;
+
+    const result = await orchestrateSigningConfirmation({
+      ctx: {
+        touchConfirm: {
+          requestUserConfirmation: async (request: any) => ({
+            requestId: request.requestId,
+            confirmed: true,
+            intentDigest: request.intentDigest,
+            operationStepUpPreparation,
+          }),
+        },
+      } as any,
+      sessionId: 'session-near-delegate-step-up',
+      chain: 'near',
+      kind: 'delegate',
+      walletId: 'alice.testnet',
+      signingAuthPlan: {
+        kind: 'passkeyReauth',
+        method: 'passkey',
+      },
+      nearAccountId: 'alice.testnet',
+      nearPublicKeyStr: 'ed25519:delegate-key',
+      delegate: {
+        senderId: 'alice.testnet',
+        receiverId: 'receiver.testnet',
+        actions: [{ action_type: 2, method_name: 'ping', args: '', gas: '1', deposit: '0' }] as any,
+        nonce: '7',
+        maxBlockHeight: '999',
+      },
+      rpcCall: {
+        nearRpcUrl: 'https://rpc.testnet.near.org',
+        nearAccountId: 'alice.testnet',
+      } as any,
+    });
+
+    expect(result.operationStepUpPreparation).toEqual(operationStepUpPreparation);
+  });
+
   test('near warmSession nep413 keeps request-scoped public key', async () => {
     let capturedRequest: any;
 

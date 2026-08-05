@@ -101,6 +101,7 @@ test('dedicated ECDSA export provision keeps material auth-neutral and quota-neu
         sessionAuth: { kind: 'cookie' },
         expiresAtMs,
         quotaUse: 'none',
+        unseal: { kind: 'not_requested' },
       },
     }),
   );
@@ -120,6 +121,7 @@ test('dedicated ECDSA export provision keeps material auth-neutral and quota-neu
       sessionAuth: { kind: 'cookie' },
       expiresAtMs,
       quotaUse: 'none',
+      unseal: { kind: 'not_requested' },
     },
   });
   expect(Object.keys(result)).not.toContain('walletSessionJwt');

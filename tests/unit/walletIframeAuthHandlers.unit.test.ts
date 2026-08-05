@@ -15,6 +15,7 @@ import {
   clearWalletOriginAppSession,
 } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import { activeWalletSessionFixture } from './helpers/walletSessionReadProjection.fixtures';
+import type { WalletAuthenticationRestoreAuth } from '@/SeamsWeb/signingSurface/ports';
 
 function encoded(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -95,8 +96,9 @@ function createDeps(input: {
   onUnlock?: (...args: unknown[]) => unknown;
   onRestoreWalletAuthenticationState?: (
     walletId: string | undefined,
-    appSessionJwt: string | undefined,
+    auth: WalletAuthenticationRestoreAuth,
   ) => unknown;
+  onRestoreWalletAuthenticationStateFromHostSession?: (walletId: string | undefined) => unknown;
   posted: ChildToParentEnvelope[];
 }): HandlerDeps {
   const seamsWeb = {
@@ -116,13 +118,15 @@ function createDeps(input: {
       lock: async () => undefined,
       restoreWalletAuthenticationState: async (
         walletId: string | undefined,
-        appSessionJwt: string | undefined,
-      ) => input.onRestoreWalletAuthenticationState?.(walletId, appSessionJwt),
+        auth: WalletAuthenticationRestoreAuth,
+      ) => input.onRestoreWalletAuthenticationState?.(walletId, auth),
     },
     restoreWalletAuthenticationState: async (
       walletId: string | undefined,
-      appSessionJwt: string | undefined,
-    ) => input.onRestoreWalletAuthenticationState?.(walletId, appSessionJwt),
+      auth: WalletAuthenticationRestoreAuth,
+    ) => input.onRestoreWalletAuthenticationState?.(walletId, auth),
+    restoreWalletAuthenticationStateFromHostSession: async (walletId: string | undefined) =>
+      input.onRestoreWalletAuthenticationStateFromHostSession?.(walletId),
   } as unknown as ReturnType<HandlerDeps['getSeamsWeb']>;
 
   return {
@@ -288,7 +292,7 @@ test.describe('wallet iframe auth handlers', () => {
     const walletId = 'harbor-current';
     const freshJwt = walletOriginPasskeyJwt(walletId);
     const posted: ChildToParentEnvelope[] = [];
-    const restoreCalls: Array<[string | undefined, string | undefined]> = [];
+    const restoreCalls: Array<string | undefined> = [];
     const deps = createDeps({
       currentWalletId: null,
       posted,
@@ -303,8 +307,8 @@ test.describe('wallet iframe auth handlers', () => {
         operationalPublicKey: 'ed25519:public-key',
         jwt: freshJwt,
       }),
-      onRestoreWalletAuthenticationState: (requestedWalletId, appSessionJwt) => {
-        restoreCalls.push([requestedWalletId, appSessionJwt]);
+      onRestoreWalletAuthenticationStateFromHostSession: (requestedWalletId) => {
+        restoreCalls.push(requestedWalletId);
       },
     });
     Reflect.set(globalThis, 'window', { location: { origin: 'https://wallet.example.test' } });
@@ -328,7 +332,7 @@ test.describe('wallet iframe auth handlers', () => {
         requestId: 'restore-after-refresh',
         payload: { authenticationRead: 'restore', wallet: { kind: 'current' } },
       });
-      expect(restoreCalls).toEqual([[undefined, freshJwt]]);
+      expect(restoreCalls).toEqual([undefined]);
 
       clearWalletOriginAppSession();
       sessionStorage.setItem(storageKey, persisted!);

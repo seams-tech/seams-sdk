@@ -140,6 +140,7 @@ function ed25519Lane(
     expiresAtMs: 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,
     source: 'durable_sealed_record',
+    authorizationState: 'authorized',
     authorization: ED25519_AUTHORIZATION,
     ...overrides,
   };
@@ -226,6 +227,14 @@ function ecdsaLaneIdentity(
   });
 }
 
+function expectEd25519ExportMaterialIdentity(lane: ConcreteAvailableEd25519SigningLane) {
+  return expect.objectContaining({
+    kind: 'exact_ed25519_export_material',
+    auth: lane.auth,
+    thresholdSessionId: lane.thresholdSessionId,
+  });
+}
+
 test.describe('Ed25519 export lane selection', () => {
   test('selects one exact ready passkey Router A/B lane', async () => {
     const lane = ed25519Lane();
@@ -241,18 +250,11 @@ test.describe('Ed25519 export lane selection', () => {
 
     expect(selected).toEqual({
       kind: 'ed25519',
-      laneIdentity: expect.objectContaining({
-        kind: 'exact_signing_lane',
-        auth: expect.objectContaining({
-          kind: 'passkey',
-          credentialIdB64u: PASSKEY_CREDENTIAL_ID,
-        }),
-        walletSessionId: ED25519_AUTHORIZATION.walletSessionId,
-        quotaId: ED25519_AUTHORIZATION.quotaId,
-        thresholdSessionId: lane.thresholdSessionId,
-      }),
+      laneIdentity: expectEd25519ExportMaterialIdentity(lane),
       materialActivation: lane.materialActivation,
     });
+    expect(selected.laneIdentity).not.toHaveProperty('walletSessionId');
+    expect(selected.laneIdentity).not.toHaveProperty('quotaId');
   });
 
   test('selects an exact restorable durable passkey Router A/B lane after refresh', async () => {
@@ -272,12 +274,7 @@ test.describe('Ed25519 export lane selection', () => {
 
     expect(selected).toEqual({
       kind: 'ed25519',
-      laneIdentity: expect.objectContaining({
-        kind: 'exact_signing_lane',
-        walletSessionId: ED25519_AUTHORIZATION.walletSessionId,
-        quotaId: ED25519_AUTHORIZATION.quotaId,
-        thresholdSessionId: lane.thresholdSessionId,
-      }),
+      laneIdentity: expectEd25519ExportMaterialIdentity(lane),
       materialActivation: lane.materialActivation,
     });
   });
@@ -296,15 +293,7 @@ test.describe('Ed25519 export lane selection', () => {
 
     expect(selected).toEqual({
       kind: 'ed25519',
-      laneIdentity: expect.objectContaining({
-        auth: {
-          kind: 'email_otp',
-          providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
-        },
-        walletSessionId: ED25519_AUTHORIZATION.walletSessionId,
-        quotaId: ED25519_AUTHORIZATION.quotaId,
-        thresholdSessionId: lane.thresholdSessionId,
-      }),
+      laneIdentity: expectEd25519ExportMaterialIdentity(lane),
       materialActivation: lane.materialActivation,
     });
   });
@@ -328,39 +317,49 @@ test.describe('Ed25519 export lane selection', () => {
         }),
       ).resolves.toEqual({
         kind: 'ed25519',
-        laneIdentity: expect.objectContaining({
-          walletSessionId: ED25519_AUTHORIZATION.walletSessionId,
-          quotaId: ED25519_AUTHORIZATION.quotaId,
-          thresholdSessionId: lane.thresholdSessionId,
-        }),
+        laneIdentity: expectEd25519ExportMaterialIdentity(lane),
         materialActivation: lane.materialActivation,
       });
     }
   });
 
-  test('rejects deferred material and duplicate lanes', async () => {
-    const invalidSets: ConcreteAvailableEd25519SigningLane[][] = [
-      [
-        ed25519Lane({
-          state: 'deferred',
-          source: 'durable_sealed_record',
-        }),
-      ],
-      [ed25519Lane(), ed25519Lane()],
-    ];
+  test('selects deferred durable material without reusable authorization', async () => {
+    const lane = ed25519Lane({
+      state: 'deferred',
+      source: 'durable_sealed_record',
+      authorizationState: 'authorization_required',
+      authorization: undefined,
+      remainingUses: undefined,
+      expiresAtMs: undefined,
+    });
 
-    for (const lanes of invalidSets) {
-      await expect(
-        resolveExactKeyExportLane(depsForEd25519(lanes), {
-          kind: 'ed25519',
-          walletSession: walletSessionRefFromSession({
-            walletId: WALLET_ID,
-            walletSessionUserId: WALLET_ID,
-          }),
-          nearAccount: NEAR_ACCOUNT,
+    await expect(
+      resolveExactKeyExportLane(depsForEd25519([lane]), {
+        kind: 'ed25519',
+        walletSession: walletSessionRefFromSession({
+          walletId: WALLET_ID,
+          walletSessionUserId: WALLET_ID,
         }),
-      ).rejects.toThrow('exact Yao lane selection failed');
-    }
+        nearAccount: NEAR_ACCOUNT,
+      }),
+    ).resolves.toEqual({
+      kind: 'ed25519',
+      laneIdentity: expectEd25519ExportMaterialIdentity(lane),
+      materialActivation: lane.materialActivation,
+    });
+  });
+
+  test('rejects duplicate durable material lanes', async () => {
+    await expect(
+      resolveExactKeyExportLane(depsForEd25519([ed25519Lane(), ed25519Lane()]), {
+        kind: 'ed25519',
+        walletSession: walletSessionRefFromSession({
+          walletId: WALLET_ID,
+          walletSessionUserId: WALLET_ID,
+        }),
+        nearAccount: NEAR_ACCOUNT,
+      }),
+    ).rejects.toThrow('exact Yao lane selection failed');
   });
 
   test('rejects same signer and session when material activation differs', async () => {
@@ -517,6 +516,27 @@ test.describe('ECDSA export lane selection', () => {
       kind: 'material_pending',
       reason: 'email_otp_route_auth',
     });
+  });
+
+  test('selects deferred canonical Email OTP material after reusable quota exhaustion', async () => {
+    const lane = authorizationRequiredCanonicalEcdsaAvailableLane({
+      authMethod: 'email_otp',
+      chainTarget: EVM_TARGET,
+      thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
+    });
+
+    const selected = await resolveEcdsaSessionForExport(depsFor([lane]), {
+      walletId: WALLET_ID,
+      signingTarget: EVM_TARGET,
+      laneIdentity: ecdsaLaneIdentity(lane),
+    });
+
+    expect(selected).toMatchObject({
+      authorizationState: 'authorization_required',
+      authMethod: 'email_otp',
+      material: { kind: 'material_pending', reason: 'email_otp_route_auth' },
+    });
+    expect(selected).not.toHaveProperty('authorization');
   });
 
   test('rejects duplicate Email OTP capabilities before AccountMenu export', async () => {

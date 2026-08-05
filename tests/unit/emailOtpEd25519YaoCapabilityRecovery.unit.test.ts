@@ -630,6 +630,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
     const worker = new RecoveryWorkerFixture({ prior, substitutePublicKey: false });
     const activation = new RecoveryActivationHarness(null);
     let publicationInput: EmailOtpEd25519YaoPublicationInput | null = null;
+    let warmBootstrapFetchCalls = 0;
 
     const result = await recoverEmailOtpEd25519YaoFromSealedSessionV1({
       subject: {
@@ -653,8 +654,9 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
         persistRecoveredSession: async (input) => {
           publicationInput = input;
         },
-        fetch: async () =>
-          new Response(
+        fetch: async () => {
+          warmBootstrapFetchCalls += 1;
+          return new Response(
             JSON.stringify(
               await warmRecoveryBootstrapResponse({
                 expiresAtMs,
@@ -663,12 +665,14 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
               }),
             ),
             { status: 200, headers: { 'Content-Type': 'application/json' } },
-          ),
+          );
+        },
         nowMs: Date.now,
       },
     });
 
     expect(result.kind).toBe('recovered');
+    expect(warmBootstrapFetchCalls).toBe(0);
     expect(worker.operations).toEqual(['rehydrateEmailOtpEd25519YaoLocalMaterial']);
     expect(worker.operations).not.toContain('loginWithEmailOtpWallet');
     expect(activation.activateCalls).toBe(1);
