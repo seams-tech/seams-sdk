@@ -1,13 +1,9 @@
 import type {
-  CloudflareVersionedJsonObject,
-  CloudflareVersionedJsonRecordReadResult,
-  CloudflareVersionedJsonValue,
-} from './cloudflare/versionedJsonRecordStore';
-import {
-  createCloudflareD1VersionedJsonRecordStore,
-  type CloudflareD1VersionedJsonRecordAtomicPatchV1,
-  type CloudflareD1VersionedJsonRecordStoreOptions,
-} from './cloudflare/d1VersionedJsonRecordStore';
+  VersionedJsonObject,
+  VersionedJsonRecordPutResult,
+  VersionedJsonRecordReadResult,
+  VersionedJsonValue,
+} from './framework/versionedJsonRecordStore';
 import type {
   RouterAbEd25519YaoActivationConsumptionRequestV1,
   RouterAbEd25519YaoActivationConsumptionResultV1,
@@ -48,13 +44,13 @@ type EncodedPartitionRecord =
       readonly kind: typeof PARTITION_RECORD_CODEC_KIND;
       readonly recordKind: typeof SHARED_RECORD_KIND | typeof CEREMONY_RECORD_KIND;
       readonly lifecycleId: string;
-      readonly state: CloudflareVersionedJsonObject;
+      readonly state: VersionedJsonObject;
     }
   | {
       readonly kind: typeof PARTITION_RECORD_CODEC_KIND;
       readonly recordKind: typeof EXECUTION_RECORD_KIND;
       readonly lifecycleId: string;
-      readonly execution: CloudflareVersionedJsonObject;
+      readonly execution: VersionedJsonObject;
     };
 
 export type RouterAbEd25519YaoProductRegistrationPartitionRecordV1 =
@@ -93,7 +89,7 @@ export type RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1 = {
   readonly readMany: (keys: readonly string[]) => Promise<
     readonly {
       readonly key: string;
-      readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
+      readonly result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
     }[]
   >;
   readonly putMany: (
@@ -224,31 +220,9 @@ export function createRouterAbEd25519YaoProductRegistrationPartitionedStateStore
   return new RouterAbEd25519YaoProductRegistrationPartitionedStateStore(store, atomicPatch);
 }
 
-export type RouterAbEd25519YaoProductRegistrationPartitionedStateD1OptionsV1 = Omit<
-  CloudflareD1VersionedJsonRecordStoreOptions<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>,
-  'encode' | 'parse'
->;
-
-export function createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1(
-  options: RouterAbEd25519YaoProductRegistrationPartitionedStateD1OptionsV1,
-): RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1 {
-  const records = createCloudflareD1VersionedJsonRecordStore({
-    ...options,
-    encode: encodeRouterAbEd25519YaoProductRegistrationPartitionRecordV1,
-    parse: parseRouterAbEd25519YaoProductRegistrationPartitionRecordV1,
-  });
-  return createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1(
-    {
-      readMany: records.readMany.bind(records),
-      putMany: records.putMany.bind(records),
-    },
-    records.patchAtomically.bind(records),
-  );
-}
-
 export function encodeRouterAbEd25519YaoProductRegistrationPartitionRecordV1(
   record: RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
-): CloudflareVersionedJsonObject {
+): VersionedJsonObject {
   if (record.kind === EXECUTION_RECORD_KIND) {
     return {
       kind: PARTITION_RECORD_CODEC_KIND,
@@ -308,14 +282,23 @@ export function parseRouterAbEd25519YaoProductRegistrationPartitionRecordV1(
 }
 
 type AtomicPatch = (
-  input: CloudflareD1VersionedJsonRecordAtomicPatchV1,
+  input: {
+    readonly key: string;
+    readonly expectedVersion: string;
+    readonly exactStringPredicates: readonly {
+      readonly jsonPath: string;
+      readonly value: string;
+    }[];
+    readonly unexpired: {
+      readonly jsonPath: string;
+      readonly nowMs: number;
+    };
+    readonly patch: VersionedJsonObject;
+  },
 ) => Promise<
-  | {
-      readonly kind: 'stored';
-      readonly version: string;
-      readonly value?: RouterAbEd25519YaoProductRegistrationPartitionRecordV1;
-    }
-  | { readonly kind: 'version_mismatch' }
+  VersionedJsonRecordPutResult & {
+    readonly value?: RouterAbEd25519YaoProductRegistrationPartitionRecordV1;
+  }
 >;
 
 class RouterAbEd25519YaoProductRegistrationPartitionedStateStore implements RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1 {
@@ -450,7 +433,7 @@ class RouterAbEd25519YaoProductRegistrationPartitionedStateStore implements Rout
           execution: {
             kind: 'claimed',
             requestDigestSha256Hex: input.requestDigestSha256Hex,
-            request: cloudflareJsonObject(input.request),
+            request: versionedJsonObject(input.request),
             claimedAtMs: input.nowMs,
             reconcileAfterMs: input.nowMs + EXECUTION_RECONCILIATION_LEASE_MS,
           },
@@ -782,7 +765,7 @@ type ReadExecutionRecordResult = {
 };
 
 function readSharedRecord(
-  result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>,
+  result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>,
 ): ReadPartitionRecordResult {
   if (result.kind === 'missing') {
     const empty = partitionRouterAbEd25519YaoProductRegistrationStateV1(
@@ -798,7 +781,7 @@ function readSharedRecord(
 }
 
 function readCeremonyRecord(
-  result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>,
+  result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>,
   lifecycleId: string,
 ): ReadCeremonyRecordResult {
   if (result.kind === 'missing') {
@@ -819,7 +802,7 @@ function readCeremonyRecord(
 }
 
 function readExecutionRecord(
-  result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>,
+  result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>,
   lifecycleId: string,
 ): ReadExecutionRecordResult {
   if (result.kind === 'missing') return { value: null, version: null };
@@ -928,19 +911,19 @@ function stateFingerprint(value: unknown): string {
   throw new Error('Router A/B shared state contains an unsupported value');
 }
 
-function cloudflareJsonObject(input: unknown): CloudflareVersionedJsonObject {
+function versionedJsonObject(input: unknown): VersionedJsonObject {
   const value = JSON.parse(JSON.stringify(input));
-  if (!isCloudflareJsonObject(value)) {
+  if (!isVersionedJsonObject(value)) {
     throw new Error('Router A/B execution request is not canonical JSON');
   }
   return value;
 }
 
-function isCloudflareJsonObject(input: unknown): input is CloudflareVersionedJsonObject {
-  return isRecord(input) && Object.values(input).every(isCloudflareJsonValue);
+function isVersionedJsonObject(input: unknown): input is VersionedJsonObject {
+  return isRecord(input) && Object.values(input).every(isVersionedJsonValue);
 }
 
-function isCloudflareJsonValue(input: unknown): input is CloudflareVersionedJsonValue {
+function isVersionedJsonValue(input: unknown): input is VersionedJsonValue {
   if (
     input === null ||
     typeof input === 'string' ||
@@ -949,6 +932,6 @@ function isCloudflareJsonValue(input: unknown): input is CloudflareVersionedJson
   ) {
     return typeof input !== 'number' || Number.isFinite(input);
   }
-  if (Array.isArray(input)) return input.every(isCloudflareJsonValue);
-  return isCloudflareJsonObject(input);
+  if (Array.isArray(input)) return input.every(isVersionedJsonValue);
+  return isVersionedJsonObject(input);
 }

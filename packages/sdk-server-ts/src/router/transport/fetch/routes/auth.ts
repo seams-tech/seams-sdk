@@ -1,7 +1,7 @@
-import { DEFAULT_SESSION_COOKIE_NAME } from '../../routerApi';
-import { emitRouterApiWebhookEvent } from '../../routerApiWebhooks';
-import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
-import { headersToRecord, json, readJson } from '../http';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../../../routerApi';
+import { emitRouterApiWebhookEvent } from '../../../routerApiWebhooks';
+import type { FetchRouterApiContext } from '../createFetchRouter';
+import { headersToRecord, json, readJson } from '../../../framework/http';
 import {
   parseAuthIdentityMutationRequest,
   parseAuthProviderActionPath,
@@ -9,7 +9,7 @@ import {
   parsePasskeyLoginOptionsRequest,
   parsePasskeyLoginVerifyRequest,
   type AuthPasskeyStepUpRequest,
-} from '../../authRequestValidation';
+} from '../../../authRequestValidation';
 
 function assertNeverAuthProviderAction(route: never): never {
   throw new Error(`Unsupported auth provider action: ${String((route as any)?.kind || '')}`);
@@ -19,7 +19,7 @@ function assertNeverAuthIdentityMutation(route: never): never {
   throw new Error(`Unsupported auth identity mutation: ${String((route as any)?.kind || '')}`);
 }
 
-export async function handleAuth(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response | null> {
   const hasBearerSessionSignal = (): boolean => {
     const authorization = String(ctx.request.headers.get('authorization') || '').trim();
     return authorization.toLowerCase().startsWith('bearer ');

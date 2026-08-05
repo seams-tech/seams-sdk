@@ -6,7 +6,7 @@ import express, {
   type Router as ExpressRouter,
 } from 'express';
 import type { RouterApiServiceBag } from './authServicePort';
-import { createCloudflareRouter } from './cloudflare/createCloudflareRouter';
+import { createFetchRouter } from './transport/fetch/createFetchRouter';
 import type { RouterApiOptions } from './routerApi';
 import { attachRouterApiRouteSurface, getRouterApiRouteSurface } from './routerApiRouteSurface';
 
@@ -44,24 +44,26 @@ export type {
   RouterAbNormalSigningAdmissionResult,
 } from './routerAbPrivateSigningWorker';
 export {
-  CloudflareD1RouterAbNormalSigningAdmissionStore,
   InMemoryRouterAbNormalSigningAdmissionStore,
-  createCloudflareD1RouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
-} from './routerAbNormalSigningAdmissionStore';
+} from './routerAbNormalSigningAdmissionCore';
+export {
+  CloudflareD1RouterAbNormalSigningAdmissionStore,
+  createCloudflareD1RouterAbNormalSigningAdmissionStore,
+} from './cloudflare/d1/normalSigning/d1RouterAbNormalSigningAdmissionStore';
 export type {
-  CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
   RouterAbNormalSigningAdmissionStore,
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningProjectPolicyProvider,
-} from './routerAbNormalSigningAdmissionStore';
+} from './routerAbNormalSigningAdmissionCore';
+export type { CloudflareD1RouterAbNormalSigningAdmissionStoreOptions } from './cloudflare/d1/normalSigning/d1RouterAbNormalSigningAdmissionStore';
 export type {
-  RouterApiCloudflareRouteExtension,
-  RouterApiCloudflareRouteExtensionInput,
+  RouterApiFetchRouteExtension,
+  RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
   RouterApiRouteExtensionTransport,
 } from './routeExtensions';
@@ -161,7 +163,7 @@ async function sendFetchResponseToExpress(
 }
 
 function createFetchBackedExpressMiddleware(
-  fetchHandler: ReturnType<typeof createCloudflareRouter>,
+  fetchHandler: ReturnType<typeof createFetchRouter>,
 ): RequestHandler {
   return async function fetchBackedExpressMiddleware(
     req: ExpressRequest,
@@ -186,7 +188,7 @@ export function createRouterApiRouter(
   service: RouterApiServiceBag,
   opts: RouterApiOptions = {},
 ): ExpressRouter {
-  const fetchHandler = createCloudflareRouter(service, opts);
+  const fetchHandler = createFetchRouter(service, opts, { kind: 'inline' });
   const router = express.Router();
   router.use(createFetchBackedExpressMiddleware(fetchHandler));
   const surface = getRouterApiRouteSurface(fetchHandler);

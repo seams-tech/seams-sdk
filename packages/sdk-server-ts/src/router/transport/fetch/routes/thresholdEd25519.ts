@@ -1,14 +1,14 @@
-import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
-import { json, readJson } from '../http';
-import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
+import type { FetchRouterApiContext } from '../createFetchRouter';
+import { json, readJson } from '../../../framework/http';
+import { thresholdEd25519StatusCode } from '../../../../threshold/statusCodes';
 import {
   ROUTER_AB_ED25519_HEALTH_PATH,
   ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
   ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
   ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
-import { resolveThresholdRuntimePolicyScope } from '../../commonRouterUtils';
-import { normalizeCorsOrigin } from '../../../core/SessionService';
+import { resolveThresholdRuntimePolicyScope } from '../../../commonRouterUtils';
+import { normalizeCorsOrigin } from '../../../../core/SessionService';
 import {
   authenticateRouterAbOperationStepUpAppSession,
   authorizeRouterAbEd25519NormalSigningRoute,
@@ -16,11 +16,11 @@ import {
   parseRouterAbEd25519OperationStepUpScope,
   parseRouterAbOperationStepUpOperation,
   type RouterAbEd25519NormalSigningRoutePhase,
-} from '../../routerAbPrivateSigningWorker';
+} from '../../../routerAbPrivateSigningWorker';
 import {
   parseThresholdEd25519OperationStepUpGrantRequest,
   parseThresholdEd25519SessionRouteRequest,
-} from '../../thresholdEd25519RequestValidation';
+} from '../../../thresholdEd25519RequestValidation';
 import {
   isPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
@@ -58,21 +58,21 @@ import {
   type AuthorizedOperation,
   type AuthorizedOperationInput,
   type AuthorizedOperationReplayResponse,
-} from '../../../authorization/domain';
+} from '../../../../authorization/domain';
 import {
   buildVerifiedEmailOtpFactorResult,
   buildVerifiedPasskeyFactorResult,
   type VerifiedAuthorizationFactorResult,
-} from '../../../authorization/factorEvidence';
+} from '../../../../authorization/factorEvidence';
 import {
   parseAppSessionClaims,
   resolveAppSessionWalletIdForWalletScope,
-} from '../../../core/ThresholdService/validation';
+} from '../../../../core/ThresholdService/validation';
 import type {
   RouterAbEd25519YaoBudgetRefreshAuthorizationV1,
   RouterAbEd25519YaoOperationStepUpGrantCommandV1,
   RouterAbEd25519YaoSessionRouteCommandV1,
-} from '../../routerAbEd25519YaoWalletSession';
+} from '../../../routerAbEd25519YaoWalletSession';
 import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
 import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
 import {
@@ -83,11 +83,11 @@ import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   emailOtpStatusCode,
   hashEmailOtpAppSessionClaims,
-} from '../../emailOtpSessionRouteHelpers';
+} from '../../../emailOtpSessionRouteHelpers';
 import type {
   RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest,
   RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse,
-} from '../../routerAbEd25519YaoWalletSession';
+} from '../../../routerAbEd25519YaoWalletSession';
 
 type Ed25519ReusableAuthorizedOperationReceipt = {
   readonly kind: 'reusable_wallet_session_authorized_operation_v1';
@@ -314,7 +314,7 @@ type PasskeyEd25519AuthorizationResult =
   | { ok: false; response: Response };
 
 async function validatePasskeyEd25519SessionAuthorization(input: {
-  ctx: CloudflareRouterApiContext;
+  ctx: FetchRouterApiContext;
   request: RouterAbEd25519YaoSessionRouteCommandV1;
   authority: PasskeyWalletAuthAuthority;
 }): Promise<PasskeyEd25519AuthorizationResult> {
@@ -386,7 +386,7 @@ async function validatePasskeyEd25519SessionAuthorization(input: {
 }
 
 async function validateSignedEd25519SessionAuthorization(input: {
-  ctx: CloudflareRouterApiContext;
+  ctx: FetchRouterApiContext;
   request: RouterAbEd25519YaoSessionRouteCommandV1;
   authority: PasskeyWalletAuthAuthority;
 }): Promise<PasskeyEd25519AuthorizationResult> {
@@ -596,7 +596,7 @@ function parseEd25519VerifiedStepUpAuthorizedOperationReceipt(
 }
 
 async function authorizeEd25519ReusableWalletSessionOperation(input: {
-  ctx: CloudflareRouterApiContext;
+  ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
   authorization: Extract<
     Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
@@ -745,7 +745,7 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
 }
 
 async function revalidateEd25519AuthorizedOperation(input: {
-  readonly ctx: CloudflareRouterApiContext;
+  readonly ctx: FetchRouterApiContext;
   readonly operation: AuthorizedOperation;
 }): Promise<
   | { readonly ok: true; readonly operation: AuthorizedOperation }
@@ -882,7 +882,7 @@ function buildEd25519ReusableOperationEnvelope(
 }
 
 async function validateEd25519ReusableAuthorizedOperation(input: {
-  ctx: CloudflareRouterApiContext;
+  ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
   authorization: Extract<
     Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
@@ -1018,7 +1018,7 @@ function buildEd25519VerifiedStepUpAuthorizedOperationReceipt(input: {
 }
 
 async function validateEd25519VerifiedStepUpAuthorizedOperation(input: {
-  ctx: CloudflareRouterApiContext;
+  ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
   authorization: Extract<
     Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
@@ -1134,7 +1134,7 @@ async function validateEd25519VerifiedStepUpAuthorizedOperation(input: {
 }
 
 async function completeEd25519Operation(input: {
-  ctx: CloudflareRouterApiContext;
+  ctx: FetchRouterApiContext;
   operation: AuthorizedOperation;
   result: 'succeeded' | 'failed_before_side_effect' | 'failed_after_side_effect';
   response: AuthorizedOperationReplayResponse;
@@ -1295,7 +1295,7 @@ export async function recoverEd25519OperationStepUpMaterial(input: {
 }
 
 async function issueEd25519OperationStepUpGrant(input: {
-  ctx: CloudflareRouterApiContext;
+  ctx: FetchRouterApiContext;
   request: RouterAbEd25519YaoOperationStepUpGrantCommandV1;
 }): Promise<Response> {
   const scope = parseRouterAbEd25519OperationStepUpScope(input.request.normalSigningRequest.scope);
@@ -1646,7 +1646,7 @@ async function issueEd25519OperationStepUpGrant(input: {
 }
 
 async function handleRouterAbEd25519NormalSigningRoute(input: {
-  ctx: CloudflareRouterApiContext;
+  ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
   phase: RouterAbEd25519NormalSigningRoutePhase;
 }): Promise<Response> {
@@ -1908,7 +1908,7 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
 }
 
 export async function handleThresholdEd25519(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ED25519_HEALTH_PATH) {
     if (!ctx.opts.routerAbNormalSigningRouterProxy) {

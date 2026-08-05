@@ -39,7 +39,7 @@ import {
   parseRouterAbEd25519WalletSessionClaims,
   type RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
-import { headersToRecord, json, readJson } from './cloudflare/http';
+import { headersToRecord, json, readJson } from './framework/http';
 import { createRouterApiModule, type RouterApiModule } from './modules';
 import { defineRoute } from './routeDefinitions';
 import type { SessionAdapter } from './routerApi';
@@ -49,7 +49,7 @@ import {
   walletSessionFailureStatus,
 } from './walletSessionFailure';
 import type {
-  RouterApiCloudflareRouteExtensionInput,
+  RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
 } from './routeExtensions';
 import type {
@@ -1701,7 +1701,7 @@ export function parseRouterAbEd25519YaoExportExecuteEnvelopeV1(
 }
 
 class RouterAbEd25519YaoExportRouteExtension implements RouterApiRouteExtension {
-  readonly kind = 'cloudflare_route_extension' as const;
+  readonly kind = 'fetch_route_extension' as const;
   readonly id = 'router_ab_ed25519_yao_export';
   readonly routes = ROUTES;
 
@@ -1710,7 +1710,7 @@ class RouterAbEd25519YaoExportRouteExtension implements RouterApiRouteExtension 
     private readonly authorization: RouterAbEd25519YaoExportAuthorizationAdapter,
   ) {}
 
-  async handleCloudflareRoute(input: RouterApiCloudflareRouteExtensionInput): Promise<Response> {
+  async handleFetchRoute(input: RouterApiFetchRouteExtensionInput): Promise<Response> {
     if (input.method !== 'POST') {
       return json(
         { ok: false, code: 'method_not_allowed', message: 'Method not allowed' },

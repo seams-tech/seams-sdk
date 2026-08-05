@@ -1,10 +1,10 @@
-import { DEFAULT_SESSION_COOKIE_NAME } from '../../routerApi';
-import { emitRouterApiWebhookEvent } from '../../routerApiWebhooks';
-import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
-import { json } from '../http';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../../../routerApi';
+import { emitRouterApiWebhookEvent } from '../../../routerApiWebhooks';
+import type { FetchRouterApiContext } from '../createFetchRouter';
+import { json } from '../../../framework/http';
 
 export async function handleWebAuthnAuthenticators(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'GET') return null;
   if (ctx.pathname !== '/webauthn/authenticators') return null;

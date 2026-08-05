@@ -1,16 +1,16 @@
 import { defineRouteExtension, type RouteDefinition } from './routeDefinitions';
 import type { NormalizedRouterLogger } from './logger';
+import type { FetchRouterRuntime } from './transport/fetch/fetchRouter.types';
 
-export type RouterApiRouteExtensionTransport = 'cloudflare';
+export type RouterApiRouteExtensionTransport = 'fetch';
 
-export interface RouterApiCloudflareRouteExtensionInput {
+export interface RouterApiFetchRouteExtensionInput {
   request: Request;
   route: RouteDefinition;
   pathname: string;
   method: string;
   logger: NormalizedRouterLogger;
-  env?: unknown;
-  cfCtx?: unknown;
+  runtime: FetchRouterRuntime;
 }
 
 interface RouterApiRouteExtensionBase {
@@ -19,11 +19,11 @@ interface RouterApiRouteExtensionBase {
 }
 
 export type RouterApiRouteExtension = RouterApiRouteExtensionBase & {
-  kind: 'cloudflare_route_extension';
-  handleCloudflareRoute(input: RouterApiCloudflareRouteExtensionInput): Promise<Response> | Response;
+  kind: 'fetch_route_extension';
+  handleFetchRoute(input: RouterApiFetchRouteExtensionInput): Promise<Response> | Response;
 };
 
-export type RouterApiCloudflareRouteExtension = RouterApiRouteExtension;
+export type RouterApiFetchRouteExtension = RouterApiRouteExtension;
 
 function normalizeExtensionId(extension: RouterApiRouteExtension): string {
   const id = String(extension.id || '').trim();
@@ -38,8 +38,8 @@ function relayRouteExtensionSupportsTransport(
   transport: RouterApiRouteExtensionTransport,
 ): boolean {
   switch (extension.kind) {
-    case 'cloudflare_route_extension':
-      return transport === 'cloudflare';
+    case 'fetch_route_extension':
+      return transport === 'fetch';
   }
 }
 
@@ -103,8 +103,8 @@ export function assertUniqueRouterApiRouteDefinitions(definitions: readonly Rout
 
 export function getRouterApiRouteExtensionsForTransport(
   extensions: readonly RouterApiRouteExtension[] | undefined,
-  transport: 'cloudflare',
-): readonly RouterApiCloudflareRouteExtension[];
+  transport: 'fetch',
+): readonly RouterApiFetchRouteExtension[];
 export function getRouterApiRouteExtensionsForTransport(
   extensions: readonly RouterApiRouteExtension[] | undefined,
   transport: RouterApiRouteExtensionTransport,

@@ -1,7 +1,7 @@
 import type {
-  CloudflareVersionedJsonRecordPutResult,
-  CloudflareVersionedJsonRecordReadResult,
-} from './cloudflare/versionedJsonRecordStore';
+  VersionedJsonRecordPutResult,
+  VersionedJsonRecordReadResult,
+} from './framework/versionedJsonRecordStore';
 
 export type RouterAbEd25519YaoRegistrationSideEffectOperationV1 =
   | 'finalize'
@@ -72,13 +72,13 @@ export interface RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P> {
   read(
     key: string,
   ): Promise<
-    CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>>
+    VersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>>
   >;
   put(
     key: string,
     value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>,
     expectedVersion: string | null,
-  ): Promise<CloudflareVersionedJsonRecordPutResult>;
+  ): Promise<VersionedJsonRecordPutResult>;
 }
 
 export function parseRouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>(
@@ -182,7 +182,7 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P>(
   const requestFingerprint = requireRequestFingerprint(input.requestFingerprint);
   const resumeAfterMs = requirePositiveDuration(input.resumeAfterMs, 'resumeAfterMs');
 
-  let existing: CloudflareVersionedJsonRecordReadResult<
+  let existing: VersionedJsonRecordReadResult<
     RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>
   >;
   let disposition: ExistingDisposition<T, P>;
@@ -223,7 +223,7 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P>(
       claimedAtMs: requireTimestamp(input.nowMs(), 'claimedAtMs'),
       prepared: preparedForExecution,
     };
-    let takeover: CloudflareVersionedJsonRecordPutResult;
+    let takeover: VersionedJsonRecordPutResult;
     try {
       takeover = await store.put(key, takeoverClaim, existing.version);
     } catch (error: unknown) {
@@ -269,7 +269,7 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P>(
     };
     claimedAtMs = claim.claimedAtMs;
 
-    let claimed: CloudflareVersionedJsonRecordPutResult;
+    let claimed: VersionedJsonRecordPutResult;
     try {
       claimed = await store.put(key, claim, null);
     } catch (error: unknown) {
@@ -315,7 +315,7 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P>(
     prepared: preparedForExecution,
     response,
   };
-  let committed: CloudflareVersionedJsonRecordPutResult;
+  let committed: VersionedJsonRecordPutResult;
   try {
     committed = await store.put(key, completion, claimVersion);
   } catch (error: unknown) {
@@ -363,7 +363,7 @@ async function readDisposition<T, P>(
 }
 
 async function existingDisposition<T, P>(
-  record: CloudflareVersionedJsonRecordReadResult<
+  record: VersionedJsonRecordReadResult<
     RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>
   >,
   requestFingerprint: string,

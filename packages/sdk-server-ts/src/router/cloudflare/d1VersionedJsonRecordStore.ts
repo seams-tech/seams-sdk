@@ -7,10 +7,12 @@ import type {
 import { isD1DatabaseLike } from '../../storage/d1Sql';
 import {
   containsControlCharacter,
-  type CloudflareVersionedJsonObject,
-  type CloudflareVersionedJsonRecordPutResult,
-  type CloudflareVersionedJsonRecordReadResult,
 } from './versionedJsonRecordStore';
+import type {
+  VersionedJsonObject,
+  VersionedJsonRecordPutResult,
+  VersionedJsonRecordReadResult,
+} from '../framework/versionedJsonRecordStore';
 
 const TABLE_NAME = 'router_ab_yao_versioned_json_records';
 const CAS_GUARD_TABLE_NAME = 'router_ab_yao_versioned_json_cas_guard';
@@ -28,7 +30,7 @@ export type CloudflareD1VersionedJsonRecordScopeV1 = {
 export type CloudflareD1VersionedJsonRecordStoreOptions<T> = {
   readonly database: D1DatabaseLike;
   readonly scope: CloudflareD1VersionedJsonRecordScopeV1;
-  readonly encode: (value: T) => CloudflareVersionedJsonObject;
+  readonly encode: (value: T) => VersionedJsonObject;
   readonly parse: (raw: unknown) => T | null;
   readonly keyPrefix?: string;
 };
@@ -41,7 +43,7 @@ export type CloudflareD1VersionedJsonRecordMutationV1<T> = {
 
 export type CloudflareD1VersionedJsonRecordReadManyEntryV1<T> = {
   readonly key: string;
-  readonly result: CloudflareVersionedJsonRecordReadResult<T>;
+  readonly result: VersionedJsonRecordReadResult<T>;
 };
 
 export type CloudflareD1VersionedJsonRecordBatchPutResultV1 =
@@ -65,7 +67,7 @@ export type CloudflareD1VersionedJsonRecordAtomicPatchV1 = {
     readonly jsonPath: string;
     readonly nowMs: number;
   };
-  readonly patch: CloudflareVersionedJsonObject;
+  readonly patch: VersionedJsonObject;
 };
 
 type StoredRecord = {
@@ -86,7 +88,7 @@ export class CloudflareD1VersionedJsonRecordStoreError extends Error {
 export class CloudflareD1VersionedJsonRecordStore<T> {
   private readonly database: D1DatabaseLike;
   private readonly scope: CloudflareD1VersionedJsonRecordScopeV1;
-  private readonly encode: (value: T) => CloudflareVersionedJsonObject;
+  private readonly encode: (value: T) => VersionedJsonObject;
   private readonly parse: (raw: unknown) => T | null;
   private readonly keyPrefix: string;
 
@@ -104,7 +106,7 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
     this.keyPrefix = normalizeKeyPrefix(options.keyPrefix);
   }
 
-  async read(key: string): Promise<CloudflareVersionedJsonRecordReadResult<T>> {
+  async read(key: string): Promise<VersionedJsonRecordReadResult<T>> {
     const [entry] = await this.readMany([key]);
     if (!entry) throw new Error('Cloudflare D1 versioned JSON read returned no entry');
     return entry.result;
@@ -161,7 +163,7 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
 
   private parseReadResult(
     result: D1ResultLike<StoredRecord> | undefined,
-  ): CloudflareVersionedJsonRecordReadResult<T> {
+  ): VersionedJsonRecordReadResult<T> {
     const row = firstResult(result);
     if (row === null) return { kind: 'missing' };
     const version = parseVersion(row.version);
@@ -178,7 +180,7 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
     key: string,
     value: T,
     expectedVersion: string | null,
-  ): Promise<CloudflareVersionedJsonRecordPutResult> {
+  ): Promise<VersionedJsonRecordPutResult> {
     const storageKey = this.storageKey(key);
     const encoded = this.encode(value);
     if (!isJsonObject(encoded)) {
@@ -226,7 +228,7 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
 
   async patchAtomically(
     input: CloudflareD1VersionedJsonRecordAtomicPatchV1,
-  ): Promise<CloudflareVersionedJsonRecordPutResult & { readonly value?: T }> {
+  ): Promise<VersionedJsonRecordPutResult & { readonly value?: T }> {
     const storageKey = this.storageKey(input.key);
     const expectedVersion = parseVersion(input.expectedVersion);
     if (expectedVersion === null) {
@@ -381,7 +383,7 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
   private async insert(
     storageKey: string,
     recordJson: string,
-  ): Promise<CloudflareVersionedJsonRecordPutResult> {
+  ): Promise<VersionedJsonRecordPutResult> {
     let result: D1ResultLike<unknown>;
     try {
       result = await this.database
@@ -409,7 +411,7 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
     storageKey: string,
     recordJson: string,
     expectedVersion: number,
-  ): Promise<CloudflareVersionedJsonRecordPutResult> {
+  ): Promise<VersionedJsonRecordPutResult> {
     let result: D1ResultLike<unknown>;
     try {
       result = await this.database
@@ -561,7 +563,7 @@ function assertBatchSucceeded(
 }
 
 function matchesExpectedVersion(
-  current: CloudflareVersionedJsonRecordReadResult<unknown>,
+  current: VersionedJsonRecordReadResult<unknown>,
   expectedVersion: number | null,
 ): boolean {
   if (expectedVersion === null) return current.kind === 'missing';
@@ -575,7 +577,7 @@ type PreparedMutation = {
   readonly expectedVersion: number | null;
 };
 
-function isJsonObject(value: unknown): value is CloudflareVersionedJsonObject {
+function isJsonObject(value: unknown): value is VersionedJsonObject {
   return isPlainObject(value) && Object.values(value).every(isJsonValue);
 }
 

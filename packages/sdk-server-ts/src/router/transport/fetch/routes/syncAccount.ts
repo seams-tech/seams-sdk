@@ -1,9 +1,9 @@
-import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
-import { json, readJson } from '../http';
+import type { FetchRouterApiContext } from '../createFetchRouter';
+import { json, readJson } from '../../../framework/http';
 import {
   parseSyncAccountOptionsRequest,
   parseSyncAccountVerifyRequest,
-} from '../../syncAccountRequestValidation';
+} from '../../../syncAccountRequestValidation';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
@@ -32,7 +32,7 @@ function syncAccountResponseStatus(result: { ok: boolean; verified?: boolean; co
   }
 }
 
-export async function handleSyncAccount(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST') return null;
 
   if (ctx.pathname === '/sync-account/options') {

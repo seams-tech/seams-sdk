@@ -3,7 +3,7 @@ import {
   parseRouterAbEd25519WalletSessionClaims,
   type RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
-import { headersToRecord } from './cloudflare/http';
+import { headersToRecord } from './framework/http';
 import type { SessionAdapter } from './routerApi';
 import {
   walletSessionFailureCodeFromParseReason,

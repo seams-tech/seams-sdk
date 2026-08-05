@@ -8,11 +8,11 @@ import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type {
-  CloudflareVersionedJsonObject,
-  CloudflareVersionedJsonRecordPutResult,
-  CloudflareVersionedJsonRecordReadResult,
-  CloudflareVersionedJsonValue,
-} from './cloudflare/versionedJsonRecordStore';
+  VersionedJsonObject,
+  VersionedJsonRecordPutResult,
+  VersionedJsonRecordReadResult,
+  VersionedJsonValue,
+} from './framework/versionedJsonRecordStore';
 import {
   parseRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationStateV1,
@@ -42,21 +42,21 @@ export type RouterAbEd25519YaoCeremonyKeyResolutionV1 =
 export interface RouterAbEd25519YaoCeremonyStateStoreV1 {
   read(
     key: RouterAbEd25519YaoCeremonyKeyV1,
-  ): Promise<CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationStateV1>>;
+  ): Promise<VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationStateV1>>;
   put(
     key: RouterAbEd25519YaoCeremonyKeyV1,
     value: RouterAbEd25519YaoProductRegistrationStateV1,
     expectedVersion: string | null,
-  ): Promise<CloudflareVersionedJsonRecordPutResult>;
+  ): Promise<VersionedJsonRecordPutResult>;
 }
 
 type VersionedJsonStoreLike<T> = {
-  read(key: string): Promise<CloudflareVersionedJsonRecordReadResult<T>>;
+  read(key: string): Promise<VersionedJsonRecordReadResult<T>>;
   put(
     key: string,
     value: T,
     expectedVersion: string | null,
-  ): Promise<CloudflareVersionedJsonRecordPutResult>;
+  ): Promise<VersionedJsonRecordPutResult>;
 };
 
 /** Bind the generic JSON adapter to the validated opaque ceremony key. */
@@ -70,7 +70,7 @@ export function createRouterAbEd25519YaoCeremonyStateStoreV1(
   };
 }
 
-type EncodedStateValue = CloudflareVersionedJsonValue;
+type EncodedStateValue = VersionedJsonValue;
 
 const CODEC_KIND = 'router_ab_ed25519_yao_product_registration_state_json_v1';
 const MAP_KIND = 'map_v1';
@@ -103,7 +103,7 @@ type EncodedStateRecord = {
 
 export function encodeRouterAbEd25519YaoProductRegistrationStateV1(
   state: RouterAbEd25519YaoProductRegistrationStateV1,
-): CloudflareVersionedJsonObject {
+): VersionedJsonObject {
   const encoded = encodeStateValue(state);
   if (!isEncodedStateObject(encoded)) {
     throw new Error('Ed25519 Yao product state must encode to a JSON object');

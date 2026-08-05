@@ -43,10 +43,7 @@ import {
   type WalletId,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
-import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { ThresholdRuntimePolicyScope } from '../../core/types';
 import type {
   RespondEd25519DeferredWorkV2,
   WalletRegistrationRespondResponseV2,
@@ -58,92 +55,17 @@ import {
   computeWalletRegistrationSetupDigestB64u,
   mintSignedWalletRegistrationSetup,
   type WalletRegistrationSetupMinter,
-  type WalletRegistrationSetupVerifier,
 } from '../walletRegistrationSetupPayload';
-import type { WalletRegistrationAuthorityInput } from '../../core/registrationContracts';
-import type { SessionAdapter } from '../routerApi';
 import type {
-  RouterAbEcdsaRegistrationRequestV1,
-  RouterAbEcdsaVerifiedClientActivationFactsV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
+  WalletRegistrationSetupRequest,
+  WalletRegistrationSetupInput,
+  WalletRegistrationRespondInput,
+  WalletRegistrationActivateInput,
+  WalletRegistrationNearProvisioningInput,
+} from '../domains/walletRegistration/walletRegistrationInputs';
 
 /** Setup's ceremony lives only as long as an authenticator prompt plausibly takes. */
 const WALLET_REGISTRATION_SETUP_TTL_MS = 10 * 60_000;
-
-export type WalletRegistrationSetupRequest = {
-  readonly wallet?: RegisterWalletInput;
-  readonly signerSelection: RegistrationSignerSetSelection;
-  readonly authMethod: RegistrationAuthMethodInput;
-};
-
-export type WalletRegistrationSetupInput = {
-  readonly request: WalletRegistrationSetupRequest;
-  readonly orgId: string;
-  readonly expectedOrigin: string;
-  /* The Gateway session signer, supplied at the route boundary where the
-     other wallet-session minting already happens. Gateway is the sole
-     minting authority (94C checkpoint decision 4). */
-  readonly signer: WalletRegistrationSetupMinter;
-  readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  readonly signingRootId?: string;
-  readonly signingRootVersion?: string;
-};
-
-export type WalletRegistrationRespondInput = {
-  readonly registrationCeremonyId: string;
-  readonly signedSetup: unknown;
-  readonly authority: WalletRegistrationAuthorityInput;
-  /** Checked against the plan the ceremony recorded before anything runs. */
-  readonly planKind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa' | 'near_ed25519';
-  /** Absent exactly when the plan is Ed25519-only. */
-  readonly ecdsa?: {
-    readonly kind: 'router_ab_ecdsa_registration_v1';
-    readonly strictRegistration: RouterAbEcdsaRegistrationRequestV1;
-    readonly requestDigestB64u: string;
-  };
-  /** Verifies the opaque setup token before authority-bound work begins. */
-  readonly verifier: WalletRegistrationSetupVerifier;
-  readonly userAgent?: string;
-};
-
-export type WalletRegistrationActivateInput = {
-  readonly registrationCeremonyId: string;
-  readonly signedSetup: unknown;
-  readonly idempotencyKey: string;
-  /**
-   * No `expectedKeyHandles`. That field was the client's cross-check between
-   * two separate requests: activate returned the key handle, and the client
-   * echoed it to finalize so a mismatched pair could be caught. With both
-   * legs in one call the handle is produced and consumed inside the same
-   * request, so the client has nothing to cross-check against and asking it
-   * to supply one would be theatre.
-   */
-  readonly planKind: 'evm_family_ecdsa' | 'near_ed25519_and_evm_family_ecdsa' | 'near_ed25519';
-  /** Absent exactly when the plan is Ed25519-only. */
-  readonly ecdsa?: {
-    readonly activationCorrelationId: CorrelationId;
-    readonly activationRequestDigestB64u: string;
-    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
-    readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
-  };
-  readonly emailOtpEnrollment?: unknown;
-  readonly emailOtpBackupAck?: unknown;
-  readonly verifier: WalletRegistrationSetupVerifier;
-  /** Signs the registration-established Router Wallet Session JWTs. */
-  readonly session: SessionAdapter;
-};
-
-export type WalletRegistrationNearProvisioningInput = {
-  readonly registrationCeremonyId: string;
-  readonly signedSetup: unknown;
-  readonly idempotencyKey: string;
-  readonly ed25519: unknown;
-  readonly emailOtpEnrollment?: unknown;
-  readonly emailOtpBackupAck?: unknown;
-  readonly verifier: WalletRegistrationSetupVerifier;
-  /** Signs the registration-established Router Wallet Session JWTs. */
-  readonly session: SessionAdapter;
-};
 
 export function walletRegistrationSetupIds(): {
   readonly registrationCeremonyId: string;

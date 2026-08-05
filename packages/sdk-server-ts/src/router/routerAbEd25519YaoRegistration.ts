@@ -18,11 +18,11 @@ import {
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
 import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
-import { json, readJson } from './cloudflare/http';
+import { json, readJson } from './framework/http';
 import { createRouterApiModule, type RouterApiModule } from './modules';
 import { defineRoute, type RouteDefinition } from './routeDefinitions';
 import type {
-  RouterApiCloudflareRouteExtensionInput,
+  RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
 } from './routeExtensions';
 
@@ -431,7 +431,7 @@ function routeFailureResponse(
 }
 
 class RouterAbEd25519YaoRegistrationRouteExtension implements RouterApiRouteExtension {
-  readonly kind = 'cloudflare_route_extension' as const;
+  readonly kind = 'fetch_route_extension' as const;
   readonly id = 'router_ab_ed25519_yao_registration';
   readonly routes = ROUTER_AB_ED25519_YAO_REGISTRATION_ROUTES;
 
@@ -440,7 +440,7 @@ class RouterAbEd25519YaoRegistrationRouteExtension implements RouterApiRouteExte
     private readonly authorization: RouterAbEd25519YaoRegistrationAuthorizationAdapter,
   ) {}
 
-  async handleCloudflareRoute(input: RouterApiCloudflareRouteExtensionInput): Promise<Response> {
+  async handleFetchRoute(input: RouterApiFetchRouteExtensionInput): Promise<Response> {
     if (input.method !== 'POST') {
       return json(
         { ok: false, code: 'method_not_allowed', message: 'Method not allowed' },

@@ -54,7 +54,7 @@ export function resolveRouterApiRouteSurface(
   input: { transport?: RouterApiRouteExtensionTransport } = {},
 ): RouterApiRouteSurface {
   const mePath = String(opts.sessionRoutes?.state || '').trim() || '/session/state';
-  const transport = input.transport || 'cloudflare';
+  const transport = input.transport || 'fetch';
   const routeExtensions = resolveRouterApiModuleRouteExtensions(opts);
   const routeDefinitions = [
     ...createRouterApiRouteDefinitions(resolveRouterApiRouteDefinitionOptions(opts)),
