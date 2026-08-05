@@ -60,10 +60,7 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   emailHashHex: string;
   authSubjectId?: never;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
-  ed25519YaoRecovery?: Extract<
-    LoginEmailOtpEcdsaCapabilityArgs['ed25519YaoRecovery'],
-    { kind: 'requested' }
-  >;
+  ed25519YaoRecovery?: LoginEmailOtpEcdsaCapabilityArgs['ed25519YaoRecovery'];
 };
 
 export type LoginWithEmailOtpEcdsaCapabilityInternalResult = EmailOtpThresholdEcdsaLoginResult;

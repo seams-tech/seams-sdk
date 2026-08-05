@@ -26,6 +26,7 @@ import type {
 import type { ThresholdEcdsaActivationRequest } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
 import type { ThresholdEcdsaEmailOtpExportActivationRequest } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
 import type { EmailOtpEcdsaExplicitExportBootstrapResult } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export type EmailOtpCoordinatorRuntimePorts = {
   configs: SeamsConfigsReadonly;
@@ -56,6 +57,7 @@ export type EmailOtpEcdsaSessionPorts = {
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: 'email_otp';
+    authority: WalletAuthAuthorityRef;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   }) => Promise<{
     bootstrap: ThresholdEcdsaSessionBootstrapResult;

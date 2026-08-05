@@ -57,16 +57,22 @@ type WorkerPendingRegistrationLifecycle =
   | { kind: 'pending'; pendingHandle: string }
   | {
       kind: 'persisting_material';
-      result: Promise<RouterAbEd25519YaoActiveClientMetadataV1>;
+      result: Promise<WorkerPersistedRegistrationMaterial>;
       pendingHandle?: never;
     }
   | {
       kind: 'material_persisted';
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+      activeClientHandle: string;
       pendingHandle?: never;
       result?: never;
     }
   | { kind: 'disposed'; pendingHandle?: never; result?: never };
+
+type WorkerPersistedRegistrationMaterial = {
+  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+  activeClientHandle: string;
+};
 
 type WorkerFactorOwnership =
   | {
@@ -559,7 +565,7 @@ export async function rehydrateEmailOtpEd25519YaoOperationMaterialV1(
   };
 }
 
-class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519YaoPendingRegistrationPortV1 {
+export class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519YaoPendingRegistrationPortV1 {
   private lifecycle: WorkerPendingRegistrationLifecycle;
 
   constructor(
@@ -616,19 +622,25 @@ class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519Yao
         const result = this.persistPendingRegistrationMaterial({
           pendingHandle: this.lifecycle.pendingHandle,
           walletId: args.walletId,
+          providerSubject: args.providerSubject,
           nearAccountId: args.nearAccountId,
           nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
           signerSlot: args.signerSlot,
           signingRootVersion: args.signingRootVersion,
           expectedOperationalPublicKey: args.expectedOperationalPublicKey,
+          sessionPolicy: args.sessionPolicy,
         });
         this.lifecycle = { kind: 'persisting_material', result };
-        const metadata = await result;
-        this.lifecycle = { kind: 'material_persisted', metadata };
-        return metadata;
+        const persisted = await result;
+        this.lifecycle = {
+          kind: 'material_persisted',
+          metadata: persisted.metadata,
+          activeClientHandle: persisted.activeClientHandle,
+        };
+        return persisted.metadata;
       }
       case 'persisting_material':
-        return await this.lifecycle.result;
+        return (await this.lifecycle.result).metadata;
       case 'material_persisted':
         return this.lifecycle.metadata;
       case 'disposed':
@@ -663,15 +675,39 @@ class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519Yao
     }
   }
 
+  persistedActiveClient(): EmailOtpEd25519YaoWorkerActiveClientV1 {
+    switch (this.lifecycle.kind) {
+      case 'material_persisted':
+        return new EmailOtpEd25519YaoWorkerActiveClientV1(
+          this.workerContext,
+          this.lifecycle.activeClientHandle,
+          this.lifecycle.metadata,
+        );
+      case 'pending':
+      case 'persisting_material':
+        throw new Error('Email OTP Ed25519 registration material is not persisted');
+      case 'disposed':
+        throw new Error('Email OTP Ed25519 Yao registration is disposed');
+      default:
+        return assertNever(this.lifecycle);
+    }
+  }
+
   private async persistPendingRegistrationMaterial(args: {
     pendingHandle: string;
     walletId: string;
+    providerSubject: string;
     nearAccountId: string;
     nearEd25519SigningKeyId: string;
     signerSlot: number;
     signingRootVersion: string;
     expectedOperationalPublicKey: string;
-  }): Promise<RouterAbEd25519YaoActiveClientMetadataV1> {
+    sessionPolicy: {
+      thresholdSessionId: string;
+      expiresAtMs: number;
+      remainingUses: number;
+    };
+  }): Promise<WorkerPersistedRegistrationMaterial> {
     try {
       const result = await this.workerContext.requestWorkerOperation({
         kind: 'emailOtp',
@@ -689,9 +725,13 @@ class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519Yao
         result.metadata.applicationBinding.key_creation_signer_slot !== args.signerSlot ||
         result.metadata.scope.root_share_epoch !== args.signingRootVersion
       ) {
+        await disposeEmailOtpEd25519YaoActiveClientV1({
+          workerContext: this.workerContext,
+          activeClientHandle: result.activeClientHandle,
+        }).catch(() => undefined);
         throw new Error('Email OTP Ed25519 worker persisted a different signer material identity');
       }
-      return result.metadata;
+      return result;
     } catch (error: unknown) {
       this.lifecycle = { kind: 'disposed' };
       throw error;

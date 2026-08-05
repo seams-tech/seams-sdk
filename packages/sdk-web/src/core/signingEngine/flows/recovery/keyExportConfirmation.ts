@@ -7,7 +7,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { RequestEmailOtpChallengeArgs } from '../../session/emailOtp/exportRecoveryRuntime';
+import type { RequestEmailOtpExportChallengeArgs } from '../../session/emailOtp/exportRecoveryRuntime';
 import { requestEmailOtpExportAuthorization as requestEmailOtpExportAuthorizationValue } from '../../stepUpConfirmation/otpPrompt/exportAuthorization';
 import {
   buildExportStepUpAuthorization,
@@ -33,10 +33,7 @@ export type KeyExportConfirmationDeps = {
   theme?: ThemeMode;
 };
 
-export type EmailOtpWalletSessionExportChallengeArgs = Extract<
-  RequestEmailOtpChallengeArgs,
-  { kind: 'wallet_session_challenge' | 'near_account_challenge' }
->;
+export type EmailOtpWalletSessionExportChallengeArgs = RequestEmailOtpExportChallengeArgs;
 
 export type EmailOtpWalletSessionExportAuthorizationDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'requestUserConfirmation'>;
@@ -46,8 +43,8 @@ export type EmailOtpWalletSessionExportAuthorizationDeps = {
 };
 
 type WalletSessionEcdsaExportChallengeAuthority = {
-  kind: 'signing_session';
-  authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
+  kind: 'app_session';
+  appSessionJwt: string;
 };
 
 type WalletSessionEcdsaExportAuthorizationArgs = {
@@ -82,10 +79,10 @@ async function requestWalletSessionEcdsaExportChallenge(
   args: WalletSessionEcdsaExportAuthorizationArgs,
 ): Promise<EmailOtpTransactionSigningChallenge> {
   return await deps.requestExportChallenge({
-    kind: 'wallet_session_challenge',
+    kind: 'wallet_capability_export_challenge',
     walletSession: args.walletSession,
     chain: args.chain,
-    authLane: args.challengeAuthority.authLane,
+    appSessionJwt: args.challengeAuthority.appSessionJwt,
   });
 }
 

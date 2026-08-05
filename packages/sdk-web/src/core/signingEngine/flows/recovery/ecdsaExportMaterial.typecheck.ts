@@ -2,8 +2,9 @@ import type { VerifiedEcdsaPublicFacts } from '../../session/identity/evmFamilyE
 import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
-import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
+import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   ExactEcdsaExportLane,
   FreshEmailOtpEcdsaExportMaterial,
@@ -13,10 +14,14 @@ import type {
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const publicFacts: VerifiedEcdsaPublicFacts;
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
-declare const signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
+declare const persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+declare const authority: EmailOtpWalletAuthAuthority;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
 declare const relayerUrl: string;
+declare const normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+declare const relayerKeyId: string;
+declare const participantIds: readonly [number, number];
 declare const currentExactExportLane: ExactEcdsaExportLane;
 declare const obsoleteRecord: unknown;
 
@@ -32,9 +37,14 @@ const walletSessionAuthorizedMaterial: FreshEmailOtpEcdsaExportMaterial = {
   chainTarget,
   publicFacts,
   runtimePolicyScope,
+  persistedMaterial,
+  normalSigning,
+  relayerKeyId,
+  participantIds,
+  relayerUrl,
   authorization: {
-    kind: 'wallet_session_authorized',
-    signingSessionAuthority,
+    kind: 'fresh_operation_authorization_required',
+    authority,
   },
 };
 

@@ -6,7 +6,7 @@ import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/ot
 declare const walletId: WalletId;
 declare const walletDeps: EmailOtpWalletSessionExportAuthorizationDeps;
 declare const ecdsaAuthLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
-declare const ed25519AuthLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
+const appSessionJwt = 'app-session-jwt';
 
 void requestEmailOtpKeyExportAuthorization(walletDeps, {
   kind: 'wallet_session_export_auth',
@@ -48,7 +48,7 @@ void requestEmailOtpKeyExportAuthorization(walletDeps, {
   publicKey: '02'.padEnd(66, '1'),
   curve: 'ecdsa',
   flowId: 'key-export-flow-3',
-  challengeAuthority: { kind: 'signing_session', authLane: ecdsaAuthLane },
+  challengeAuthority: { kind: 'app_session', appSessionJwt },
 });
 
 void requestEmailOtpKeyExportAuthorization(walletDeps, {
@@ -62,9 +62,9 @@ void requestEmailOtpKeyExportAuthorization(walletDeps, {
   curve: 'ecdsa',
   flowId: 'key-export-flow-4',
   challengeAuthority: {
+    // @ts-expect-error ECDSA export challenge cannot use a signing-session lane.
     kind: 'signing_session',
-    // @ts-expect-error committed wallet-session ECDSA export requires ECDSA signing-session authority.
-    authLane: ed25519AuthLane,
+    authLane: ecdsaAuthLane,
   },
 });
 

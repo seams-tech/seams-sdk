@@ -7,6 +7,10 @@ import type {
   WalletEmailOtpTransactionSignOperation,
 } from '@shared/utils/emailOtpDomain';
 import {
+  WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+} from '@shared/utils/emailOtpDomain';
+import {
   buildEmailOtpRoutePlan,
   routeFamilyForAuthLane,
   type EmailOtpAuthLane,
@@ -101,13 +105,17 @@ export function buildFreshEmailOtpRoutePlan(args: {
   authLane: EmailOtpAuthLane;
   operation?: WalletEmailOtpLoginOperation;
 }): EmailOtpRoutePlan {
+  const operation =
+    args.freshRouteFamily === 'registration'
+      ? WALLET_EMAIL_OTP_REGISTRATION_OPERATION
+      : (args.operation ?? WALLET_EMAIL_OTP_UNLOCK_OPERATION);
   return buildEmailOtpRoutePlan({
     routeFamily: routeFamilyForAuthLane({
       authLane: args.authLane,
       freshRouteFamily: args.freshRouteFamily,
     }),
     authLane: args.authLane,
-    operation: args.operation,
+    operation,
   });
 }
 

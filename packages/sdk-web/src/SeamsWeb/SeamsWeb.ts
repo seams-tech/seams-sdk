@@ -1,4 +1,5 @@
 import { BrowserSigningSurface } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
+import type { WalletAuthenticationRestoreAuth } from '@/SeamsWeb/signingSurface/ports';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   addWalletSigner as addWalletSignerWithUnifiedCeremony,
@@ -114,7 +115,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   parseExactEcdsaSigningLaneIdentity,
-  parseExactEd25519SigningLaneIdentity,
+  parseExactEd25519ExportMaterialIdentity,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
   assertWalletRuntimePostconditions,
@@ -539,7 +540,7 @@ function normalizeResolveExactKeyExportLaneResult(
       if (!materialActivation.ok) throw new Error(materialActivation.error.message);
       return {
         kind: 'ed25519',
-        laneIdentity: parseExactEd25519SigningLaneIdentity(result.laneIdentity),
+        laneIdentity: parseExactEd25519ExportMaterialIdentity(result.laneIdentity),
         materialActivation: materialActivation.value,
       };
     }
@@ -572,7 +573,7 @@ function normalizeExportKeypairWithUIInput(
       };
     }
     case 'ed25519': {
-      const laneIdentity = parseExactEd25519SigningLaneIdentity(input.laneIdentity);
+      const laneIdentity = parseExactEd25519ExportMaterialIdentity(input.laneIdentity);
       const materialActivation = parseMpcMaterialActivationRef(input.materialActivation);
       if (!materialActivation.ok) throw new Error(materialActivation.error.message);
       if (
@@ -798,8 +799,15 @@ export class SeamsWeb {
     // UserConfirm worker initializes automatically in the constructor
   }
 
-  async restoreWalletAuthenticationState(walletId?: string, appSessionJwt?: string): Promise<void> {
-    await this.signingEngine.restoreWalletAuthenticationState(walletId, appSessionJwt);
+  async restoreWalletAuthenticationState(
+    walletId?: string,
+    auth: WalletAuthenticationRestoreAuth = { kind: 'cookie' },
+  ): Promise<void> {
+    await this.signingEngine.restoreWalletAuthenticationState(walletId, auth);
+  }
+
+  async restoreWalletAuthenticationStateFromHostSession(walletId?: string): Promise<void> {
+    await this.signingEngine.restoreWalletAuthenticationStateFromHostSession(walletId);
   }
 
   /**
@@ -2014,28 +2022,30 @@ export class SeamsWeb {
             DEFAULT_UNLOCK_REMAINING_USES,
           ),
         });
-      if (!preparedEd25519YaoRecovery) {
-        throw new Error('Email OTP wallet unlock requires a registered capability scope');
-      }
       const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         ...args,
         chainTarget,
         emailHashHex,
-        runtimePolicyScope: preparedEd25519YaoRecovery.runtimePolicyScope,
+        ...(preparedEd25519YaoRecovery
+          ? {
+              runtimePolicyScope: preparedEd25519YaoRecovery.runtimePolicyScope,
+              ed25519YaoRecovery: {
+                kind: 'requested' as const,
+                providerSubject: preparedEd25519YaoRecovery.providerSubject,
+                signerSlot: preparedEd25519YaoRecovery.signerSlot,
+                nearAccountId: String(preparedEd25519YaoRecovery.identity.nearAccountId),
+                expectedOperationalPublicKey:
+                  preparedEd25519YaoRecovery.expectedOperationalPublicKey,
+                expectedThresholdSessionId: preparedEd25519YaoRecovery.thresholdSessionId,
+              },
+            }
+          : { ed25519YaoRecovery: { kind: 'not_requested' as const } }),
         ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
         providerIdentity: { kind: 'derive_from_route_auth' },
-        ed25519YaoRecovery: {
-          kind: 'requested',
-          providerSubject: preparedEd25519YaoRecovery.providerSubject,
-          signerSlot: preparedEd25519YaoRecovery.signerSlot,
-          nearAccountId: String(preparedEd25519YaoRecovery.identity.nearAccountId),
-          expectedOperationalPublicKey: preparedEd25519YaoRecovery.expectedOperationalPublicKey,
-          expectedThresholdSessionId: preparedEd25519YaoRecovery.thresholdSessionId,
-        },
         onProgress: markWorkerProgress,
       });
       let walletActivation: EmailOtpWalletPostUnlockActivation;
-      {
+      if (preparedEd25519YaoRecovery) {
         let recoveredEd25519Signer: NearEd25519SignerBinding;
         switch (result.ed25519YaoRecovery.kind) {
           case 'unlocked':
@@ -2063,6 +2073,16 @@ export class SeamsWeb {
         walletActivation = {
           kind: 'near_ed25519_wallet',
           signer: recoveredEd25519Signer,
+        };
+      } else {
+        if (result.ed25519YaoRecovery.kind !== 'not_requested') {
+          throw new Error(
+            'EVM-family ECDSA Email OTP unlock returned unexpected Ed25519 Yao material',
+          );
+        }
+        walletActivation = {
+          kind: 'evm_family_ecdsa_wallet',
+          walletId,
         };
       }
       const workerUnlockMs = nowMs() - timingStartedAtMs;

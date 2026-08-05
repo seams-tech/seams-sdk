@@ -30,7 +30,7 @@ export async function restoreLocalLoginState(args: {
   }
 
   await args.context.signingEngine.setLastUser(walletId, signerSlot);
-  await args.context.signingEngine.restoreWalletAuthenticationState(walletId);
+  await args.context.signingEngine.restoreWalletAuthenticationState(walletId, { kind: 'cookie' });
   const session = await getWalletSession(args.context, walletId);
   const appIdentity = session.appIdentity;
   const loginWalletId = appIdentity.kind === 'resolved' ? String(appIdentity.walletId).trim() : '';

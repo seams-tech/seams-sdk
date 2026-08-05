@@ -29,7 +29,8 @@ export function createRecoveryPublicDeps(args: {
   getTheme: CreateSigningEnginePortsArgs['getTheme'];
   withThresholdEcdsaSigningQueue: EcdsaExportFlowDeps['withThresholdEcdsaSigningQueue'];
   withThresholdEd25519CommitQueue: Ed25519YaoExportFlowDeps['withThresholdEd25519CommitQueue'];
-  ecdsaSessions: RecoveryPublicEcdsaSessionStoreDeps;
+  ecdsaSessions: Pick<RecoveryPublicEcdsaSessionStoreDeps, 'exportArtifactsByLane'>;
+  relayerUrl: string;
   ed25519YaoPublicCapabilityLanes: PersistedAvailableSigningLanesDeps['ed25519YaoPublicCapabilityLanes'];
   readActiveWalletSessionAuthorization: PersistedAvailableSigningLanesDeps['readActiveWalletSessionAuthorization'];
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
@@ -90,7 +91,10 @@ export function createRecoveryPublicDeps(args: {
         ),
     },
     ecdsa: {
-      sessionStore: args.ecdsaSessions,
+      sessionStore: {
+        ...args.ecdsaSessions,
+        relayerUrl: String(args.relayerUrl).trim().replace(/\/+$/g, ''),
+      },
       touchConfirm: args.touchConfirm,
       emailOtp: {
         requestExportChallenge: (

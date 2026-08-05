@@ -164,18 +164,23 @@ import { rememberWalletOriginAppSession } from '@/SeamsWeb/walletIframe/host/hos
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
   startEmailOtpEd25519YaoWorkerRegistrationV1,
+  EmailOtpEd25519YaoWorkerPendingRegistrationV1,
+  type EmailOtpEd25519YaoWorkerActiveClientV1,
   type EmailOtpEd25519YaoRegistrationDiagnosticsV1,
 } from '@/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient';
 import {
   buildEmailOtpAuthContextForWalletAuthMethod,
   emailOtpAuthContextEmailHashHex,
+  emailOtpAuthContextProvider,
   emailOtpAuthContextProviderUserId,
   type ThresholdEcdsaEmailOtpAuthContext,
 } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
+  isEmailOtpWalletAuthAuthority,
   walletAuthAuthorityRef,
+  type EmailOtpProvider,
   type WalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
@@ -202,6 +207,8 @@ import {
 } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
 import {
   buildPasskeyRouterAbEd25519WalletSessionState,
+  buildEmailOtpRouterAbEd25519WalletSessionState,
+  nearEd25519YaoOperationMaterialFacts,
   type ResolvedRouterAbEd25519WalletSessionState,
 } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/session/routerAbSigningWalletSession';
@@ -2389,10 +2396,24 @@ async function emailOtpEmailHashHex(email: string): Promise<string> {
   return sha256HexUtf8(normalizedEmail);
 }
 
+function emailOtpProviderFromRegistrationProof(
+  proof: EmailOtpRegistrationProof,
+): EmailOtpProvider {
+  switch (proof.proofKind) {
+    case 'otp_challenge':
+      return 'email';
+    case 'google_sso_registration':
+      return 'google';
+    default:
+      return assertNever(proof);
+  }
+}
+
 async function buildRegistrationEmailOtpAuthContext(args: {
   configs: SeamsConfigsReadonly;
   walletId: WalletId;
   email: string;
+  provider: EmailOtpProvider;
   providerSubject: string;
 }): Promise<ThresholdEcdsaEmailOtpAuthContext> {
   const policy = args.configs.signing.emailOtp.authPolicy;
@@ -2406,7 +2427,7 @@ async function buildRegistrationEmailOtpAuthContext(args: {
     emailHashHex: await emailOtpEmailHashHex(args.email),
     retention: 'session',
     reason: 'login',
-    provider: 'google',
+    provider: args.provider,
     providerUserId,
   });
 }
@@ -2521,6 +2542,9 @@ async function buildRegistrationPersistenceAuth(args: {
       if (!email || !providerSubject || !registrationAuthorityId) {
         throw new Error('Email OTP registration persistence requires provider identity');
       }
+      if (!isEmailOtpWalletAuthAuthority(args.finalized.authority)) {
+        throw new Error('Email OTP registration finalize returned a different authority');
+      }
       return {
         kind: 'email_otp',
         email,
@@ -2529,6 +2553,7 @@ async function buildRegistrationPersistenceAuth(args: {
           configs: args.configs,
           walletId: args.walletId,
           email,
+          provider: args.finalized.authority.factor.provider,
           providerSubject,
         }),
       };
@@ -4052,6 +4077,67 @@ function buildRegistrationPasskeyEd25519SessionState(args: {
   });
 }
 
+async function buildRegistrationEmailOtpEd25519SessionState(args: {
+  registrationEstablishedSession: RegistrationEstablishedSession;
+  walletId: WalletId;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  thresholdSessionId: string;
+  runtimePolicyScope: ReturnType<typeof normalizeRuntimePolicyScope>;
+  signerSlot: number;
+  relayerUrl: string;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+}): Promise<ResolvedRouterAbEd25519WalletSessionState> {
+  const token = registrationEstablishedEd25519Session(args.registrationEstablishedSession);
+  if (
+    token.nearAccountId !== String(args.nearAccountId) ||
+    token.nearEd25519SigningKeyId !== String(args.nearEd25519SigningKeyId) ||
+    token.thresholdSessionId !== String(args.thresholdSessionId) ||
+    !sameRuntimePolicyScope(token.runtimePolicyScope, args.runtimePolicyScope)
+  ) {
+    throw new Error('Registration-established Email OTP Ed25519 session changed signer identity');
+  }
+  const signingRoot = signingRootScopeFromRuntimePolicyScope(token.runtimePolicyScope);
+  const signingRootVersion = signingRoot.signingRootVersion;
+  if (!signingRootVersion) {
+    throw new Error('Registration-established Ed25519 session is missing a signing-root version');
+  }
+  const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
+    walletId: String(args.walletId),
+    nearAccountId: String(args.nearAccountId),
+    nearEd25519SigningKeyId: String(args.nearEd25519SigningKeyId),
+    walletSessionId: String(args.registrationEstablishedSession.walletSessionId),
+    quotaId: String(args.registrationEstablishedSession.quotaId),
+    thresholdSessionId: token.thresholdSessionId,
+    remainingUses: args.registrationEstablishedSession.remainingUses,
+    expiresAtMs: args.registrationEstablishedSession.expiresAtMs,
+    runtimePolicyScope: token.runtimePolicyScope,
+    signingRootId: signingRoot.signingRootId,
+    signingRootVersion,
+    routerAbNormalSigning: token.routerAbNormalSigning,
+    walletSessionJwt: token.walletSessionJwt,
+    nowMs: Date.now(),
+  });
+  if (!signingWalletSession.ok) {
+    throw new Error(
+      `Registration-established Email OTP Ed25519 session is unusable (${signingWalletSession.reason})`,
+    );
+  }
+  const authority = await walletAuthAuthorityRef({
+    authority: args.emailOtpAuthContext.authority,
+  });
+  return buildEmailOtpRouterAbEd25519WalletSessionState({
+    walletId: args.walletId,
+    nearAccountId: toAccountId(args.nearAccountId),
+    nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(args.nearEd25519SigningKeyId),
+    providerSubjectId: emailOtpAuthContextProviderUserId(args.emailOtpAuthContext),
+    signerSlot: args.signerSlot,
+    relayerUrl: args.relayerUrl,
+    authority,
+    signingWalletSession: signingWalletSession.value,
+  });
+}
+
 async function persistRegistrationPasskeyEd25519SealedRuntime(args: {
   context: RegistrationWebContext;
   registrationEstablishedSession: RegistrationEstablishedSession;
@@ -4148,20 +4234,29 @@ async function persistEmailOtpRegistrationEd25519Material(args: {
   pending: ProductEd25519YaoPendingRegistrationPortV1;
   facts: RegistrationEd25519MaterialFacts;
   expectedOperationalPublicKey: string;
+  providerSubject: string;
+  sessionPolicy: {
+    thresholdSessionId: string;
+    expiresAtMs: number;
+    remainingUses: number;
+  };
 }): Promise<RouterAbEd25519YaoActiveClientMetadataV1> {
   return await args.pending.persistRegistrationMaterial({
     kind: 'worker_owned',
     walletId: args.facts.identity.walletId,
+    providerSubject: args.providerSubject,
     nearAccountId: args.facts.identity.nearAccountId,
     nearEd25519SigningKeyId: args.facts.identity.nearEd25519SigningKeyId,
     signerSlot: args.facts.identity.signerSlot,
     signingRootVersion: args.facts.identity.signingRootVersion,
     expectedOperationalPublicKey: args.expectedOperationalPublicKey,
+    sessionPolicy: args.sessionPolicy,
   });
 }
 
 class RegistrationYaoWork {
   private state: RegistrationYaoWorkState;
+  private persistedEmailOtpActiveClient: EmailOtpEd25519YaoWorkerActiveClientV1 | null = null;
   /** Router Server-Timing captured when the ceremony settled. Diagnostics only. */
   private routerServerTiming: string | null = null;
   /** Client-observed Yao sub-step durations. Diagnostics only. */
@@ -4271,6 +4366,12 @@ class RegistrationYaoWork {
           kind: 'email_otp';
           facts: RegistrationEd25519MaterialFacts;
           expectedOperationalPublicKey: string;
+          providerSubject: string;
+          sessionPolicy: {
+            thresholdSessionId: string;
+            expiresAtMs: number;
+            remainingUses: number;
+          };
         },
   ): Promise<RouterAbEd25519YaoActiveClientMetadataV1> {
     if (this.state.kind !== 'pending') {
@@ -4284,12 +4385,26 @@ class RegistrationYaoWork {
         break;
       case 'email_otp':
         metadata = await persistEmailOtpRegistrationEd25519Material({ pending, ...args });
+        if (pending instanceof EmailOtpEd25519YaoWorkerPendingRegistrationV1) {
+          this.persistedEmailOtpActiveClient = pending.persistedActiveClient();
+        }
         break;
       default:
         return assertNever(args);
     }
     this.state = { kind: 'committed' };
     return metadata;
+  }
+
+  persistedEmailOtpYaoActiveClient(): EmailOtpEd25519YaoWorkerActiveClientV1 {
+    if (!this.persistedEmailOtpActiveClient) {
+      throw new Error('Email OTP Ed25519 Yao registration active material is unavailable');
+    }
+    return this.persistedEmailOtpActiveClient;
+  }
+
+  releasePersistedEmailOtpYaoActiveClient(): void {
+    this.persistedEmailOtpActiveClient = null;
   }
 
   async dispose(): Promise<void> {
@@ -4309,6 +4424,9 @@ class RegistrationYaoWork {
         this.state = { kind: 'disposed' };
         return;
       case 'committed':
+        this.persistedEmailOtpActiveClient?.dispose();
+        this.persistedEmailOtpActiveClient = null;
+        return;
       case 'disposed':
         return;
       default:
@@ -4666,11 +4784,47 @@ async function commitDeferredEd25519Registration(args: {
         metadata,
       });
     } else {
+      const registrationSession = registrationEstablishedEd25519Session(
+        finalized.registrationEstablishedSession,
+      );
       const metadata = await args.yaoWork.persistMaterial({
         kind: 'email_otp',
         facts: materialFacts,
         expectedOperationalPublicKey: clientPublicKey,
+        providerSubject: emailOtpAuthContextProviderUserId(auth.emailOtpAuthContext),
+        sessionPolicy: {
+          thresholdSessionId: registrationSession.thresholdSessionId,
+          expiresAtMs: finalized.registrationEstablishedSession.expiresAtMs,
+          remainingUses: finalized.registrationEstablishedSession.remainingUses,
+        },
       });
+      const walletSessionState = await buildRegistrationEmailOtpEd25519SessionState({
+        registrationEstablishedSession: finalized.registrationEstablishedSession,
+        walletId: args.walletId,
+        nearAccountId,
+        nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+        thresholdSessionId: materialFacts.identity.thresholdSessionId,
+        runtimePolicyScope: materialFacts.stableServerScope.runtimePolicyScope,
+        signerSlot: finalized.ed25519.signerSlot,
+        relayerUrl: args.relayerUrl,
+        emailOtpAuthContext: auth.emailOtpAuthContext,
+      });
+      const material = {
+        activeClient: args.yaoWork.persistedEmailOtpYaoActiveClient(),
+        facts: nearEd25519YaoOperationMaterialFacts(walletSessionState),
+      };
+      await args.context.signingEngine.persistEmailOtpEd25519YaoCapabilityForRefreshInternal({
+        material,
+        walletSessionState,
+        publicationContext: {
+          rpId: args.context.signingEngine.getRpId(),
+          provider: emailOtpAuthContextProvider(auth.emailOtpAuthContext),
+          providerSubjectId: emailOtpAuthContextProviderUserId(auth.emailOtpAuthContext),
+          emailHashHex: emailOtpAuthContextEmailHashHex(auth.emailOtpAuthContext),
+          materialActivation: nearEd25519YaoMaterialActivationFromMetadata(metadata),
+        },
+      });
+      await args.context.signingEngine.activateVerifiedNearEd25519YaoMaterial(material);
       await args.context.signingEngine.upsertEd25519YaoPublicCapabilityLaneReference({
         walletId: args.walletId,
         nearAccountId,
@@ -4686,6 +4840,7 @@ async function commitDeferredEd25519Registration(args: {
         ),
         signerSlot: finalized.ed25519.signerSlot,
       });
+      args.yaoWork.releasePersistedEmailOtpYaoActiveClient();
     }
     await persistActiveWalletSessionAuthorizationFromRegistration(walletSessionAuthorizations, {
       authority: args.plan.ecdsa.session.authority,
@@ -4827,6 +4982,7 @@ async function registerEcdsaOrMixedWallet(
     let emailOtpRegistrationAuthorityId = '';
     let emailOtpEmail = '';
     let emailOtpProviderSubject = '';
+    let emailOtpProvider: EmailOtpProvider | null = null;
     let emailOtpAppSessionBinding: EmailOtpAppSessionBinding | null = null;
     let emailOtpRecoveryCodeBackup: Promise<EmailOtpRecoveryCodeBackupOutcome> | null = null;
     let passkeyAuthority: RegistrationPasskeyAuthority | null = null;
@@ -4911,6 +5067,7 @@ async function registerEcdsaOrMixedWallet(
       emailOtpRegistrationAuthorityId = emailAuthority.registrationAuthorityId;
       emailOtpEmail = emailAuthority.email;
       emailOtpProviderSubject = emailAuthority.providerSubject;
+      emailOtpProvider = emailOtpProviderFromRegistrationProof(emailAuthority.proof);
       emailOtpRecoveryCodeBackup = startEmailOtpRecoveryCodeBackupAfterEnrollmentMaterial({
         recorder: registrationTiming,
         authMethod: emailOtpAuthMethod,
@@ -4938,10 +5095,13 @@ async function registerEcdsaOrMixedWallet(
         }),
       });
     } else {
+      if (!emailOtpProvider) {
+        throw new Error('Email OTP registration is missing its verified provider');
+      }
       materialAuthority = await walletAuthAuthorityRef({
         authority: buildEmailOtpWalletAuthAuthority({
           walletId,
-          provider: 'google',
+          provider: emailOtpProvider,
           providerUserId: emailOtpProviderSubject,
           emailHashHex: await emailOtpEmailHashHex(emailOtpEmail),
         }),
@@ -5580,7 +5740,42 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       kind: 'email_otp',
       facts: materialFacts,
       expectedOperationalPublicKey: clientPublicKey,
+      providerSubject: emailOtpAuthContextProviderUserId(persistenceAuth.emailOtpAuthContext),
+      sessionPolicy: {
+        thresholdSessionId: registrationEstablishedEd25519Session(
+          finalized.registrationEstablishedSession,
+        ).thresholdSessionId,
+        expiresAtMs: finalized.registrationEstablishedSession.expiresAtMs,
+        remainingUses: finalized.registrationEstablishedSession.remainingUses,
+      },
     });
+    const walletSessionState = await buildRegistrationEmailOtpEd25519SessionState({
+      registrationEstablishedSession: finalized.registrationEstablishedSession,
+      walletId: toWalletId(finalized.walletId),
+      nearAccountId: finalized.ed25519.nearAccountId,
+      nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+      thresholdSessionId: materialFacts.identity.thresholdSessionId,
+      runtimePolicyScope: materialFacts.stableServerScope.runtimePolicyScope,
+      signerSlot: finalized.ed25519.signerSlot,
+      relayerUrl,
+      emailOtpAuthContext: persistenceAuth.emailOtpAuthContext,
+    });
+    const material = {
+      activeClient: yaoWork.persistedEmailOtpYaoActiveClient(),
+      facts: nearEd25519YaoOperationMaterialFacts(walletSessionState),
+    };
+    await context.signingEngine.persistEmailOtpEd25519YaoCapabilityForRefreshInternal({
+      material,
+      walletSessionState,
+      publicationContext: {
+        rpId: context.signingEngine.getRpId(),
+        provider: emailOtpAuthContextProvider(persistenceAuth.emailOtpAuthContext),
+        providerSubjectId: emailOtpAuthContextProviderUserId(persistenceAuth.emailOtpAuthContext),
+        emailHashHex: emailOtpAuthContextEmailHashHex(persistenceAuth.emailOtpAuthContext),
+        materialActivation: nearEd25519YaoMaterialActivationFromMetadata(metadata),
+      },
+    });
+    await context.signingEngine.activateVerifiedNearEd25519YaoMaterial(material);
     await context.signingEngine.upsertEd25519YaoPublicCapabilityLaneReference({
       walletId: finalized.walletId,
       nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
@@ -5596,11 +5791,12 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       ),
       signerSlot: finalized.ed25519.signerSlot,
     });
+    yaoWork.releasePersistedEmailOtpYaoActiveClient();
     await persistActiveWalletSessionAuthorizationFromRegistration(walletSessionAuthorizations, {
       authority: await walletAuthAuthorityRef({
         authority: buildEmailOtpWalletAuthAuthority({
           walletId: finalized.walletId,
-          provider: 'google',
+          provider: emailOtpAuthContextProvider(persistenceAuth.emailOtpAuthContext),
           providerUserId: emailOtpAuthContextProviderUserId(persistenceAuth.emailOtpAuthContext),
           emailHashHex: emailOtpAuthContextEmailHashHex(persistenceAuth.emailOtpAuthContext),
         }),

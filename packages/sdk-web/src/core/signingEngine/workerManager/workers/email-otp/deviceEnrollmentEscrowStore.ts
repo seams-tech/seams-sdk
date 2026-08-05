@@ -32,12 +32,6 @@ export async function readEmailOtpDeviceEnrollmentEscrowRecord(args: {
   return await emailOtpDeviceEnrollmentEscrowRepository.read(args);
 }
 
-export async function readSingleEmailOtpDeviceEnrollmentEscrowRecordForWallet(args: {
-  walletId: string;
-}): Promise<EmailOtpDeviceEnrollmentEscrowRecord | null> {
-  return await emailOtpDeviceEnrollmentEscrowRepository.readSingleForWallet(args);
-}
-
 export async function writeEmailOtpDeviceEnrollmentEscrowRecord(
   args: WriteEmailOtpDeviceEnrollmentEscrowRecordInput,
 ): Promise<void> {

@@ -148,6 +148,16 @@ export type EmailOtpEd25519YaoRecoveryBootstrapV1 = {
   readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
 };
 
+export type EmailOtpEcdsaWalletUnlockAuthorization =
+  | {
+      readonly kind: 'verified_wallet_unlock';
+      readonly walletSessionJwt?: never;
+    }
+  | {
+      readonly kind: 'reuse_ed25519_wallet_session';
+      readonly walletSessionJwt: string;
+    };
+
 export type EmailOtpWalletUnlockMaterialRequest =
   | ({
       readonly kind: 'ecdsa';
@@ -163,6 +173,7 @@ export type EmailOtpWalletUnlockMaterialRequest =
             { operation: 'wallet_unlock' }
           >;
           readonly ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+          readonly walletSessionAuthorization: EmailOtpEcdsaWalletUnlockAuthorization;
         }
       | {
           readonly ecdsaClientRootHandleBinding: Exclude<
@@ -170,6 +181,7 @@ export type EmailOtpWalletUnlockMaterialRequest =
             { operation: 'wallet_unlock' }
           >;
           readonly ecdsaSessionActivation?: never;
+          readonly walletSessionAuthorization?: never;
         }
     ))
   | {
@@ -671,14 +683,21 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       pendingHandle: string;
       walletId: string;
+      providerSubject: string;
       nearAccountId: string;
       nearEd25519SigningKeyId: string;
       signerSlot: number;
       signingRootVersion: string;
       expectedOperationalPublicKey: string;
+      sessionPolicy: {
+        thresholdSessionId: string;
+        expiresAtMs: number;
+        remainingUses: number;
+      };
     };
     result: {
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+      activeClientHandle: string;
     };
   };
   disposeEmailOtpEd25519YaoRegistration: {
@@ -822,11 +841,20 @@ export interface EmailOtpWorkerOperationMap {
       relayUrl: string;
       walletId: string;
       userId: string;
-      challengeId?: string;
-      otpCode: string;
       groupId: string;
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
+      verification:
+        | {
+            kind: 'otp';
+            challengeId?: string;
+            otpCode: string;
+          }
+        | {
+            kind: 'email_otp_unseal_grant';
+            grant: string;
+            challengeId: string;
+          };
       material: EmailOtpWalletUnlockMaterialRequest;
     };
     result: {

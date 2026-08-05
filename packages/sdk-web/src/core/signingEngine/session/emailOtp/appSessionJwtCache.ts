@@ -23,6 +23,7 @@ import {
   type AppSessionJwt,
   type ProviderSubject,
 } from '@shared/utils/domainIds';
+import type { EmailOtpProvider } from '@shared/utils/walletAuthAuthority';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { isPlainObject } from '@shared/utils/validation';
 
@@ -73,6 +74,80 @@ export type EmailOtpSessionRefreshResult =
       httpStatus: 401 | 403;
       appSessionJwt?: never;
     };
+
+function appSessionClaimString(payload: Record<string, unknown>, field: string): string {
+  const value = payload[field];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+export type EmailOtpAppSessionSource = Readonly<{
+  provider: EmailOtpProvider;
+  providerSubject: ProviderSubject;
+}>;
+
+export function emailOtpAppSessionSourceFromPayload(
+  payload: Record<string, unknown>,
+): EmailOtpAppSessionSource {
+  const authSource = payload.authSource;
+  if (!isPlainObject(authSource) || authSource.kind !== 'oidc_provider') {
+    throw new Error('Email OTP app-session authority must be an OIDC provider source');
+  }
+
+  const providerId = appSessionClaimString(authSource, 'providerId');
+  if (providerId !== 'google_oidc' && providerId !== 'oidc') {
+    throw new Error('Email OTP app-session authority providerId is invalid');
+  }
+
+  const parsedAuthSourceSubject = parseProviderSubject(authSource.providerSubject);
+  const parsedClaimSubject = parseProviderSubject(payload.providerSubject);
+  if (parsedAuthSourceSubject.ok === false) {
+    throw new Error(
+      `Email OTP app-session subject is invalid: ${parsedAuthSourceSubject.error.message}`,
+    );
+  }
+  if (parsedClaimSubject.ok === false) {
+    throw new Error(`Email OTP app-session subject is invalid: ${parsedClaimSubject.error.message}`);
+  }
+  if (parsedAuthSourceSubject.value !== parsedClaimSubject.value) {
+    throw new Error('Email OTP app-session authority does not match its provider subject');
+  }
+
+  const provider = appSessionClaimString(payload, 'provider');
+  const oidcProvider = appSessionClaimString(payload, 'oidcProvider');
+  const subject = parsedClaimSubject.value;
+  const subjectIsGoogle = subject.startsWith('google:');
+  const subjectIsEmail = subject.startsWith('email:');
+
+  if (providerId === 'google_oidc') {
+    if (!subjectIsGoogle) {
+      throw new Error('Email OTP Google app-session subject is invalid');
+    }
+    if (provider === 'google' && !oidcProvider) {
+      return { provider: 'google', providerSubject: subject };
+    }
+    if (provider === 'oidc' && oidcProvider === 'google') {
+      return { provider: 'google', providerSubject: subject };
+    }
+  } else {
+    if (!subjectIsEmail) {
+      throw new Error('Email OTP Email app-session subject is invalid');
+    }
+    if (provider === 'email' && !oidcProvider) {
+      return { provider: 'email', providerSubject: subject };
+    }
+  }
+
+  throw new Error('Email OTP app-session source does not match its provider claims');
+}
+
+export function emailOtpProviderFromAppSessionJwt(appSessionJwt: string): EmailOtpProvider {
+  const jwt = requireAppSessionJwt(appSessionJwt, 'Email OTP appSessionJwt');
+  const parsedJwt = parseAppSessionJwt(jwt);
+  if (!parsedJwt.ok) throw new Error(parsedJwt.error.message);
+  const payload = decodeJwtPayloadRecord(jwt);
+  if (!payload) throw new Error('Email OTP app-session claims are unavailable');
+  return emailOtpAppSessionSourceFromPayload(payload).provider;
+}
 
 const EMAIL_OTP_APP_SESSION_STORAGE_PREFIX = 'seams:email-otp-app-session:v1:';
 
@@ -270,6 +345,44 @@ export class EmailOtpAppSessionJwtCache {
     });
   }
 
+  async resolveJwtForProviderSubject(args: {
+    walletId: WalletId;
+    providerSubject: string;
+    relayUrl: string;
+  }): Promise<string> {
+    const parsedProviderSubject = parseProviderSubject(args.providerSubject);
+    if (!parsedProviderSubject.ok) {
+      throw new Error(parsedProviderSubject.error.message);
+    }
+    const cached = this.exactBinding({
+      walletId: args.walletId,
+      providerSubject: parsedProviderSubject.value,
+    });
+    if (
+      cached &&
+      isAppSessionJwt(cached.appSessionJwt) &&
+      isSessionJwtUnexpired(cached.appSessionJwt, { skewMs: 30_000 })
+    ) {
+      return cached.appSessionJwt;
+    }
+
+    const refreshed = this.deps.refreshAppSessionJwt
+      ? await this.deps.refreshAppSessionJwt({ relayUrl: args.relayUrl })
+      : await refreshEmailOtpAppSessionJwtRaw({ relayUrl: args.relayUrl });
+    if (typeof refreshed !== 'string') {
+      throw new Error('Email OTP step-up requires fresh Email OTP verification');
+    }
+    const binding = emailOtpAppSessionBindingFromJwt({
+      walletId: args.walletId,
+      appSessionJwt: refreshed,
+    });
+    if (binding.providerSubject !== parsedProviderSubject.value) {
+      throw new Error('Email OTP step-up app session belongs to a different provider subject');
+    }
+    this.remember(binding);
+    return refreshed;
+  }
+
   async resolveJwtForWallet(args: { walletId: WalletId; relayUrl: string }): Promise<string> {
     const walletId = String(args.walletId).trim();
     const cached = walletId ? this.uniqueBindingForWallet(walletId) : null;
@@ -321,6 +434,18 @@ export class EmailOtpAppSessionJwtCache {
     return persisted;
   }
 
+  private exactBinding(args: {
+    walletId: WalletId;
+    providerSubject: ProviderSubject;
+  }): EmailOtpAppSessionBinding | null {
+    const walletId = String(args.walletId);
+    const cached = this.byWallet.get(walletId)?.get(args.providerSubject) ?? null;
+    if (cached) return cached;
+    const persisted = readPersistedEmailOtpAppSessionBinding(args);
+    if (persisted) this.remember(persisted);
+    return persisted;
+  }
+
   private deleteBindingForIdentity(identity: EmailOtpRefreshIdentity): void {
     const walletId = String(identity.walletId);
     const entries = this.byWallet.get(walletId);
@@ -361,27 +486,16 @@ export function emailOtpAppSessionBindingFromJwt(args: {
   const parsedJwt = parseAppSessionJwt(jwt);
   if (!parsedJwt.ok) throw new Error(parsedJwt.error.message);
   const payload = decodeJwtPayloadRecord(jwt);
-  const parsedSubject = parseProviderSubject(payload?.providerSubject);
-  if (!parsedSubject.ok) {
-    throw new Error(`Email OTP app-session subject is invalid: ${parsedSubject.error.message}`);
-  }
-  const authSource = payload?.authSource;
-  if (
-    authSource !== undefined &&
-    (!isPlainObject(authSource) ||
-      authSource.kind !== 'oidc_provider' ||
-      authSource.providerSubject !== parsedSubject.value)
-  ) {
-    throw new Error('Email OTP app-session authority does not match its provider subject');
-  }
-  const parsedWalletId = parseWalletId(payload?.walletId);
+  if (!payload) throw new Error('Email OTP app-session claims are unavailable');
+  const source = emailOtpAppSessionSourceFromPayload(payload);
+  const parsedWalletId = parseWalletId(payload.walletId);
   if (!parsedWalletId.ok || parsedWalletId.value !== args.walletId) {
     throw new Error('Email OTP app-session wallet does not match the requested wallet binding');
   }
   return {
     kind: 'email_otp_app_session_binding',
     walletId: parsedWalletId.value,
-    providerSubject: parsedSubject.value,
+    providerSubject: source.providerSubject,
     appSessionJwt: parsedJwt.value,
   };
 }

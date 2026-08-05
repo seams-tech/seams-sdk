@@ -78,8 +78,10 @@ import {
   type WalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
-import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
-import { emailOtpAppSessionBindingFromJwt } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
+import {
+  emailOtpAppSessionBindingFromJwt,
+  emailOtpProviderFromAppSessionJwt as parseEmailOtpProviderFromAppSessionJwt,
+} from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import type { EmailOtpTransactionSigningChallenge } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { RestorePersistedSessionForSigningInput } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import { activeWalletOrHostedAppSessionJwt } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
@@ -126,8 +128,11 @@ type ExactWalletAuthMethods = Awaited<
 >;
 
 function emailOtpProviderFromAppSessionJwt(appSessionJwt: string): EmailOtpProvider | null {
-  const provider = decodeJwtPayloadRecord(appSessionJwt)?.provider;
-  return provider === 'google' || provider === 'email' ? provider : null;
+  try {
+    return parseEmailOtpProviderFromAppSessionJwt(appSessionJwt);
+  } catch {
+    return null;
+  }
 }
 
 async function resolveExactEmailOtpWalletAuthAuthority(args: {
@@ -719,12 +724,20 @@ export function createBrowserSigningSurfaceEnginePorts(
       readPersistedAvailableSigningLanesForSigningOperation(
         {
           ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityReferences,
-          isEd25519YaoPublicCapabilityActive: (reference) =>
-            args.getEnginePorts().ed25519YaoActiveClients.resolve({
-              walletId: reference.walletId,
-              nearAccountId: reference.nearAccountId,
-              materialActivation: reference.materialActivation,
-            }) !== null,
+          isEd25519YaoPublicCapabilityActive: (reference) => {
+            switch (reference.auth.kind) {
+              case 'email_otp':
+                return true;
+              case 'passkey':
+                return (
+                  args.getEnginePorts().ed25519YaoActiveClients.resolve({
+                    walletId: reference.walletId,
+                    nearAccountId: reference.nearAccountId,
+                    materialActivation: reference.materialActivation,
+                  }) !== null
+                );
+            }
+          },
           readActiveWalletSessionAuthorization: async (walletId) => {
             const read = await walletSessionAuthorizations.readActiveForWallet(toWalletId(walletId));
             return read.kind === 'found' ? read.projection : null;

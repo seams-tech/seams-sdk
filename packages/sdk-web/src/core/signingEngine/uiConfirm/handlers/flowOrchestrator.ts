@@ -533,6 +533,7 @@ export async function orchestrateSigningConfirmation(
       sessionId,
       intentDigest: decision.intentDigest || intentDigest,
       credential: decision.credential,
+      operationStepUpPreparation: decision.operationStepUpPreparation,
       otpCode: decision.otpCode,
       emailOtpChallengeId: decision.emailOtpChallengeId,
     };

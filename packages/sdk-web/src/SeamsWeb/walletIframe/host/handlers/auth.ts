@@ -100,10 +100,7 @@ async function resolveExactWalletSessionState(
       break;
   }
   if (payload.authenticationRead === 'restore') {
-    await pm.restoreWalletAuthenticationState(
-      walletId,
-      activeWalletOrHostedAppSessionJwt(pm.configs.network.relayer.url, walletId),
-    );
+    await pm.restoreWalletAuthenticationStateFromHostSession(walletId);
   }
   const session = await pm.auth.getWalletSession(walletId);
   return exactSessionStateFromWalletSession(session);

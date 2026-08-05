@@ -1,4 +1,9 @@
-import { EMAIL_OTP_CHANNEL, type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
+import {
+  EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+  type WalletEmailOtpChannel,
+} from '@shared/utils/emailOtpDomain';
 import {
   buildEmailOtpRecoveryCodeSet,
   type EmailOtpRecoveryCodeSet,
@@ -99,7 +104,7 @@ function cloneFixed32Bytes(value: Uint8Array, label: string): Uint8Array {
 }
 
 function buildWorkerEmailOtpRoutePlan(args: {
-  routeFamily: EmailOtpRouteFamily;
+  routeFamily: Extract<EmailOtpRouteFamily, 'login' | 'registration'>;
   appSessionJwt?: string;
 }) {
   const appSessionJwt = readOptionalString(args.appSessionJwt);
@@ -112,6 +117,10 @@ function buildWorkerEmailOtpRoutePlan(args: {
       }),
       'worker route plan',
     ),
+    operation:
+      args.routeFamily === 'registration'
+        ? WALLET_EMAIL_OTP_REGISTRATION_OPERATION
+        : WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   });
 }
 

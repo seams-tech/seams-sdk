@@ -61,6 +61,26 @@ export type Ed25519YaoPublicCapabilityLaneReferenceStorePort = Pick<
   'upsertLane' | 'removeLane' | 'listLanes'
 >;
 
+/**
+ * Publish the durable identity and its auth lane from one canonical material
+ * reference. Cold recovery reads the identity projection, while warm signing
+ * reads the lane projection; both must describe the same activation.
+ */
+export async function publishEd25519YaoPublicCapabilityReferenceAndLane(
+  store: Ed25519YaoPublicCapabilityReferenceStorePort,
+  reference: Ed25519YaoPublicCapabilityLaneReferenceV1,
+): Promise<void> {
+  const identity: Ed25519YaoPublicCapabilityReferenceV1 = {
+    walletId: reference.walletId,
+    nearAccountId: reference.nearAccountId,
+    thresholdSessionId: reference.thresholdSessionId,
+    runtimePolicyScope: reference.runtimePolicyScope,
+    materialActivation: reference.materialActivation,
+  };
+  await store.upsert(identity);
+  await store.upsertLane(reference);
+}
+
 type AppStatePort = {
   isDisabled(): boolean;
   getAppState<T = unknown>(key: string): Promise<T | undefined>;

@@ -250,7 +250,7 @@ type EmailOtpEd25519YaoExportPayload =
 type EmailOtpWalletUnlockPayload = EmailOtpWorkerOperationMap['loginWithEmailOtpWallet']['payload'];
 type EmailOtpEcdsaWalletUnlockMaterial = Extract<
   EmailOtpWalletUnlockPayload['material'],
-  { kind: 'ecdsa' }
+  { kind: 'ecdsa'; ecdsaSessionActivation: typeof ecdsaSessionActivation }
 >;
 type EmailOtpCapabilityWalletUnlockMaterial = Extract<
   EmailOtpWalletUnlockPayload['material'],
@@ -267,15 +267,16 @@ const emailOtpEcdsaExplicitUnlockMaterial: EmailOtpEcdsaWalletUnlockMaterial = {
   },
   runtimePolicyScope,
   ecdsaSessionActivation,
+  walletSessionAuthorization: { kind: 'verified_wallet_unlock' },
 };
 void emailOtpEcdsaExplicitUnlockMaterial;
 
-// @ts-expect-error signing step-up cannot mint a reusable ECDSA Wallet Session.
 const emailOtpSigningStepUpWithActivation: EmailOtpEcdsaWalletUnlockMaterial = {
   kind: 'ecdsa',
   ecdsaClientRootHandleBinding: {
     keyHandle: 'ecdsa-key-handle',
     authSubjectId: 'provider-subject',
+    // @ts-expect-error signing step-up cannot mint a reusable ECDSA Wallet Session.
     operation: 'sign',
     chainTarget,
   },
@@ -575,8 +576,11 @@ const emailOtpWalletUnlockPayload: EmailOtpWalletUnlockPayload = {
   relayUrl: 'https://relay.example',
   walletId: 'wallet.testnet',
   userId: 'wallet.testnet',
-  challengeId: 'challenge-1',
-  otpCode: '123456',
+  verification: {
+    kind: 'otp',
+    challengeId: 'challenge-1',
+    otpCode: '123456',
+  },
   groupId: 'prime',
   routePlan: emailOtpWalletUnlockRoutePlan,
   material: emailOtpEcdsaWalletUnlockMaterial,
@@ -620,11 +624,17 @@ void emailOtpYaoBindPayloadWithCallerExpiry;
 const emailOtpYaoRegistrationMaterialPayload: EmailOtpYaoRegistrationMaterialPayload = {
   pendingHandle: 'pending-registration',
   walletId: 'wallet.testnet',
+  providerSubject: 'provider-user-1',
   nearAccountId: 'wallet.testnet',
   nearEd25519SigningKeyId: 'ed25519-key-1',
   signerSlot: 1,
   signingRootVersion: 'root-v1',
   expectedOperationalPublicKey: 'ed25519:public-key',
+  sessionPolicy: {
+    thresholdSessionId: 'ed25519-session-1',
+    expiresAtMs: 1_900_000_000_000,
+    remainingUses: 10,
+  },
 };
 void emailOtpYaoRegistrationMaterialPayload;
 

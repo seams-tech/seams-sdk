@@ -26,8 +26,10 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import { type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import {
+  exactEd25519ExportMaterialIdentity,
   exactEd25519SigningLaneIdentity,
   nearEd25519SignerBindingFromBoundaryFields,
+  type ExactEd25519ExportMaterialIdentity,
   type ExactEd25519SigningLaneIdentity,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '@/core/signingEngine/interfaces/signing';
@@ -44,9 +46,10 @@ import type {
   NearSigningApiDeps,
 } from '@/core/signingEngine/interfaces/operationDeps';
 import type { Ed25519YaoActiveClientIdentityV1 } from '@/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
-import type {
-  Ed25519YaoPublicCapabilityLaneReferenceV1,
-  Ed25519YaoPublicCapabilityReferenceV1,
+import {
+  type Ed25519YaoPublicCapabilityLaneReferenceV1,
+  type Ed25519YaoPublicCapabilityReferenceV1,
+  publishEd25519YaoPublicCapabilityReferenceAndLane,
 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import { Ed25519YaoPageLifecycleOwner } from '@/core/signingEngine/threshold/ed25519/yaoPageLifecycleOwner';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
@@ -131,8 +134,10 @@ import {
   parseProviderSubject,
   parseWalletId,
   type MpcMaterialActivationRef,
+  type ProviderSubject,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
+import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import { materialActivationKey } from '@/core/signingEngine/session/sealedRecovery/materialActivationKey';
 import { isPlainObject } from '@shared/utils/validation';
 import {
@@ -140,7 +145,10 @@ import {
   walletSessionJwtForCurve,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
-import { buildThresholdEd25519WebAuthnPrfSecretSource } from '@/core/signingEngine/threshold/ed25519/walletSession';
+import {
+  buildThresholdEd25519WebAuthnPrfSecretSource,
+  type Ed25519OperationStepUpProof,
+} from '@/core/signingEngine/threshold/ed25519/walletSession';
 import {
   reconcileTempoNonceLane as reconcileTempoNonceLaneOperation,
   reportTempoBroadcastAccepted as reportTempoBroadcastAcceptedOperation,
@@ -183,6 +191,7 @@ import {
   type PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { persistActiveWalletSessionAuthorizationCurve } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import * as emailOtpPublic from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import { createManagerAssembly } from '@/core/signingEngine/assembly/createManagers';
 import { verifySealedRefreshStartupParity } from '@/core/rpcClients/relayer/sealedRefreshCapabilities';
@@ -199,6 +208,7 @@ import {
   prepareColdEmailOtpEd25519YaoRecoveryV1,
   recoverColdEmailOtpEd25519CapabilityForLoginV1,
   type PreparedColdEmailOtpEd25519YaoRecoveryV1,
+  type EmailOtpEd25519YaoCapabilityRecoveryResult,
 } from '@/core/signingEngine/session/emailOtp/ed25519YaoCapabilityRecovery';
 import type { EmailOtpEd25519YaoPublicationInput } from '@/core/signingEngine/session/emailOtp/ed25519YaoPublication';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
@@ -234,7 +244,12 @@ import {
   type EmailOtpEd25519YaoSilentRecoveryResultV1,
 } from '@/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery';
 import { rehydrateEmailOtpEd25519YaoOperationMaterialV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient';
-import type { EmailOtpAppSessionBinding } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
+import {
+  emailOtpAppSessionBindingFromJwt,
+  emailOtpAppSessionSourceFromPayload,
+  type EmailOtpAppSessionBinding,
+  type EmailOtpAppSessionSource,
+} from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type {
   DiscoverPersistedSessionsForWalletInput,
@@ -269,6 +284,7 @@ import {
 } from '../assembly/browserSigningSurfaceAssembly';
 import type { BrowserSigningSurfaceConstructorDeps } from '../assembly/browserSigningSurfacePorts';
 import type { SigningSessionLifecycleSubscription } from '@/core/signingEngine/session/SigningSessionCoordinator';
+import type { WalletAuthenticationRestoreAuth } from './ports';
 import { finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
 import type {
   WorkerResourceWarmupAccountContext,
@@ -309,7 +325,7 @@ type NearEd25519CapabilityRehydrationSubject =
       readonly nearAccountId: AccountId;
       readonly signerSlot: number;
       readonly thresholdSessionId: ThresholdEd25519SessionId;
-      readonly laneIdentity: ExactEd25519SigningLaneIdentity;
+      readonly laneIdentity: ExactEd25519ExportMaterialIdentity;
       readonly materialActivation: MpcMaterialActivationRef;
     }
   | {
@@ -362,7 +378,11 @@ function currentNearEd25519CapabilityRehydrationSubject(args: {
       return {
         ...args.subject,
         thresholdSessionId,
-        laneIdentity: args.walletSessionState.signingLane.identity,
+        laneIdentity: exactEd25519ExportMaterialIdentity({
+          signer: args.walletSessionState.signingLane.identity.signer,
+          auth: args.walletSessionState.signingLane.identity.auth,
+          thresholdSessionId,
+        }),
       };
     case 'material_identity':
       return {
@@ -555,7 +575,7 @@ async function requireExactEd25519SealedRuntimeForLane(args: {
 
 async function requireExactEd25519SealedRuntimeForExport(args: {
   walletId: WalletId;
-  laneIdentity: ExactEd25519SigningLaneIdentity;
+  laneIdentity: ExactEd25519ExportMaterialIdentity;
   materialActivation: MpcMaterialActivationRef;
 }): Promise<ExactEd25519SealedSessionRuntime> {
   const record = await readExactEd25519SealedSession(
@@ -922,9 +942,18 @@ function assertNeverSdkLifecycleEventName(value: never): never {
 /**
  * BrowserSigningSurface owns browser signing assembly state and exposes the SeamsWeb signing surface.
  */
-type AppSessionRestoreAuth =
-  | { readonly kind: 'cookie' }
-  | { readonly kind: 'jwt'; readonly jwt: string };
+type HostSelectedRestoreSource =
+  | { readonly kind: 'passkey' }
+  | { readonly kind: 'oidc_provider'; readonly providerSubject: ProviderSubject }
+  | { readonly kind: 'other' };
+
+type HostSelectedAppSessionRestoreAuth = {
+  readonly kind: 'host_selected_app_session_jwt';
+  readonly appSessionJwt: string;
+  readonly source: HostSelectedRestoreSource;
+};
+
+type AppSessionRestoreAuth = WalletAuthenticationRestoreAuth | HostSelectedAppSessionRestoreAuth;
 
 export type WalletAuthenticationRestoreExpectation =
   | { readonly kind: 'derive_wallet' }
@@ -935,8 +964,26 @@ type AuthenticatedWalletAuthentication = Extract<
   { kind: 'authenticated' }
 >;
 
+type ValidatedWalletAuthenticationSource =
+  | { readonly kind: 'passkey' }
+  | { readonly kind: 'email_otp'; readonly providerSubject: ProviderSubject };
+
+type WalletAuthenticationRestoreFailure = Exclude<
+  WalletAuthenticationRestoreOutcome,
+  { readonly kind: 'authenticated' }
+>;
+
+type WalletAuthenticationRestoreOutcomeWithSource =
+  | {
+      readonly kind: 'authenticated';
+      readonly state: AuthenticatedWalletAuthentication;
+      readonly source: ValidatedWalletAuthenticationSource;
+    }
+  | WalletAuthenticationRestoreFailure
+  | { readonly kind: 'source_mismatch' };
+
 type CachedEmailOtpWalletAuthenticationOutcome =
-  | WalletAuthenticationRestoreOutcome
+  | WalletAuthenticationRestoreOutcomeWithSource
   | { readonly kind: 'absent' };
 
 export type WalletAuthenticationRestoreOutcome =
@@ -945,14 +992,71 @@ export type WalletAuthenticationRestoreOutcome =
   | { readonly kind: 'uncorrelated' }
   | { readonly kind: 'unavailable' };
 
+function normalizeWalletAuthenticationRestoreAuth(
+  auth: WalletAuthenticationRestoreAuth,
+): AppSessionRestoreAuth | null {
+  switch (auth.kind) {
+    case 'cookie':
+      return auth;
+    case 'caller_app_session_jwt':
+      const parsedJwt = parseAppSessionJwt(auth.appSessionJwt);
+      return parsedJwt.ok
+        ? { kind: auth.kind, appSessionJwt: parsedJwt.value }
+        : null;
+  }
+}
+
+function hostSelectedRestoreAuthFromJwt(
+  appSessionJwt: string,
+): HostSelectedAppSessionRestoreAuth {
+  const claims = decodeJwtPayloadRecord(appSessionJwt);
+  const authSource = restoreClaimsRecord(claims?.authSource);
+  if (authSource?.kind === 'passkey') {
+    return {
+      kind: 'host_selected_app_session_jwt',
+      appSessionJwt,
+      source: { kind: 'passkey' },
+    };
+  }
+  if (authSource?.kind === 'oidc_provider') {
+    const providerId = authSource.providerId;
+    const providerSubject = parseProviderSubject(authSource.providerSubject);
+    if (
+      (providerId === 'google_oidc' || providerId === 'oidc') &&
+      providerSubject.ok
+    ) {
+      return {
+        kind: 'host_selected_app_session_jwt',
+        appSessionJwt,
+        source: { kind: 'oidc_provider', providerSubject: providerSubject.value },
+      };
+    }
+  }
+  return {
+    kind: 'host_selected_app_session_jwt',
+    appSessionJwt,
+    source: { kind: 'other' },
+  };
+}
+
 function restoreClaimsRecord(value: unknown): Record<string, unknown> | null {
   return isPlainObject(value) ? value : null;
 }
 
-export function authenticationFromValidatedSessionState(
+function exactEmailOtpAppSessionSourceFromClaims(
+  claims: Record<string, unknown>,
+): EmailOtpAppSessionSource | null {
+  try {
+    return emailOtpAppSessionSourceFromPayload(claims);
+  } catch {
+    return null;
+  }
+}
+
+function authenticationFromValidatedSessionStateWithSource(
   value: unknown,
   expectation: WalletAuthenticationRestoreExpectation,
-): WalletAuthenticationRestoreOutcome {
+): WalletAuthenticationRestoreOutcomeWithSource {
   const response = restoreClaimsRecord(value);
   if (response?.authenticated !== true) return { kind: 'rejected' };
   const claims = restoreClaimsRecord(response.claims);
@@ -961,6 +1065,7 @@ export function authenticationFromValidatedSessionState(
   const authSource = restoreClaimsRecord(claims.authSource);
   let walletIdValue: unknown;
   let authMethod: AuthenticatedWalletAuthentication['authMethod'];
+  let source: ValidatedWalletAuthenticationSource;
   if (
     provider === 'passkey' &&
     authSource?.kind === 'passkey' &&
@@ -969,6 +1074,7 @@ export function authenticationFromValidatedSessionState(
   ) {
     walletIdValue = claims.walletId ?? claims.sub;
     authMethod = WALLET_AUTH_METHODS.passkey;
+    source = { kind: 'passkey' };
   } else if (
     provider === undefined &&
     authSource?.kind === 'passkey' &&
@@ -977,29 +1083,20 @@ export function authenticationFromValidatedSessionState(
   ) {
     walletIdValue = claims.sub;
     authMethod = WALLET_AUTH_METHODS.passkey;
+    source = { kind: 'passkey' };
   } else if (
     provider === undefined &&
     authSource?.kind === 'oidc_provider' &&
+    (authSource.providerId === 'google_oidc' || authSource.providerId === 'oidc') &&
     parseProviderSubject(authSource.providerSubject).ok
   ) {
     return { kind: 'uncorrelated' };
-  } else if (
-    provider === 'oidc' &&
-    authSource?.kind === 'oidc_provider' &&
-    authSource.providerId === 'google_oidc' &&
-    parseProviderSubject(authSource.providerSubject).ok &&
-    authSource.providerSubject === claims.providerSubject
-  ) {
-    walletIdValue = claims.walletId;
-    authMethod = WALLET_AUTH_METHODS.emailOtp;
-  } else if (
-    (provider === 'google' || provider === 'email') &&
-    parseProviderSubject(claims.providerSubject).ok
-  ) {
-    walletIdValue = claims.walletId;
-    authMethod = WALLET_AUTH_METHODS.emailOtp;
   } else {
-    return { kind: 'rejected' };
+    const emailOtpSource = exactEmailOtpAppSessionSourceFromClaims(claims);
+    if (!emailOtpSource) return { kind: 'rejected' };
+    walletIdValue = claims.walletId;
+    authMethod = WALLET_AUTH_METHODS.emailOtp;
+    source = { kind: 'email_otp', providerSubject: emailOtpSource.providerSubject };
   }
   const walletId = parseWalletId(walletIdValue);
   if (!walletId.ok) return { kind: 'uncorrelated' };
@@ -1009,16 +1106,33 @@ export function authenticationFromValidatedSessionState(
   return {
     kind: 'authenticated',
     state: { kind: 'authenticated', walletId: walletId.value, authMethod },
+    source,
   };
+}
+
+export function authenticationFromValidatedSessionState(
+  value: unknown,
+  expectation: WalletAuthenticationRestoreExpectation,
+): WalletAuthenticationRestoreOutcome {
+  const outcome = authenticationFromValidatedSessionStateWithSource(value, expectation);
+  if (outcome.kind === 'authenticated') {
+    return { kind: 'authenticated', state: outcome.state };
+  }
+  if (outcome.kind === 'source_mismatch') {
+    return { kind: 'rejected' };
+  }
+  return outcome;
 }
 
 async function readAuthoritativeWalletAuthentication(args: {
   readonly relayerUrl: string;
   readonly auth: AppSessionRestoreAuth;
   readonly expectation: WalletAuthenticationRestoreExpectation;
-}): Promise<WalletAuthenticationRestoreOutcome> {
+}): Promise<WalletAuthenticationRestoreOutcomeWithSource> {
   const headers: HeadersInit = {};
-  if (args.auth.kind === 'jwt') headers.Authorization = `Bearer ${args.auth.jwt}`;
+  if (args.auth.kind !== 'cookie') {
+    headers.Authorization = `Bearer ${args.auth.appSessionJwt}`;
+  }
   try {
     const response = await fetch(joinNormalizedUrl(args.relayerUrl, '/session/state'), {
       method: 'GET',
@@ -1033,7 +1147,7 @@ async function readAuthoritativeWalletAuthentication(args: {
     } catch {
       return { kind: 'unavailable' };
     }
-    return authenticationFromValidatedSessionState(body, args.expectation);
+    return authenticationFromValidatedSessionStateWithSource(body, args.expectation);
   } catch {
     return { kind: 'unavailable' };
   }
@@ -1043,6 +1157,7 @@ async function readCachedEmailOtpWalletAuthentication(args: {
   readonly emailOtpSessions: EmailOtpWalletSessionCoordinator;
   readonly relayerUrl: string;
   readonly walletId: WalletId;
+  readonly providerSubject: ProviderSubject | null;
 }): Promise<CachedEmailOtpWalletAuthenticationOutcome> {
   let jwt: string;
   try {
@@ -1055,11 +1170,31 @@ async function readCachedEmailOtpWalletAuthentication(args: {
   }
   const parsedJwt = parseAppSessionJwt(jwt);
   if (!parsedJwt.ok) return { kind: 'absent' };
-  return await readAuthoritativeWalletAuthentication({
+  let binding: EmailOtpAppSessionBinding;
+  try {
+    binding = emailOtpAppSessionBindingFromJwt({
+      walletId: args.walletId,
+      appSessionJwt: parsedJwt.value,
+    });
+  } catch {
+    return { kind: 'absent' };
+  }
+  if (args.providerSubject !== null && binding.providerSubject !== args.providerSubject) {
+    return { kind: 'uncorrelated' };
+  }
+  const outcome = await readAuthoritativeWalletAuthentication({
     relayerUrl: args.relayerUrl,
-    auth: { kind: 'jwt', jwt: parsedJwt.value },
+    auth: { kind: 'caller_app_session_jwt', appSessionJwt: parsedJwt.value },
     expectation: { kind: 'exact_wallet', walletId: args.walletId },
   });
+  if (
+    outcome.kind === 'authenticated' &&
+    (outcome.state.authMethod !== WALLET_AUTH_METHODS.emailOtp ||
+      outcome.state.walletId !== args.walletId)
+  ) {
+    return { kind: 'rejected' };
+  }
+  return outcome;
 }
 
 function walletAuthenticationRestoreRequestKey(args: {
@@ -1067,7 +1202,27 @@ function walletAuthenticationRestoreRequestKey(args: {
   readonly auth: AppSessionRestoreAuth;
 }): string {
   const walletKey = args.expectedWalletId ? String(args.expectedWalletId) : 'no_wallet';
-  return args.auth.kind === 'cookie' ? `${walletKey}:cookie` : `${walletKey}:jwt:${args.auth.jwt}`;
+  switch (args.auth.kind) {
+    case 'cookie':
+      return `${walletKey}:cookie`;
+    case 'caller_app_session_jwt':
+    case 'host_selected_app_session_jwt':
+      return `${walletKey}:${args.auth.kind}:${args.auth.appSessionJwt}`;
+  }
+}
+
+function hostSelectedRestoreResponseMatches(
+  auth: HostSelectedAppSessionRestoreAuth,
+  source: ValidatedWalletAuthenticationSource,
+): boolean {
+  switch (auth.source.kind) {
+    case 'passkey':
+      return source.kind === 'passkey';
+    case 'oidc_provider':
+      return source.kind === 'email_otp' && source.providerSubject === auth.source.providerSubject;
+    case 'other':
+      return false;
+  }
 }
 
 function resolveBrowserPasskeyOperationStepUpCredential(args: {
@@ -1165,7 +1320,7 @@ export class BrowserSigningSurface {
       loadEcdsaRoleLocalReadyRecordFromRuntimePorts.bind(null, runtimePortsForUiConfirm);
 
     const assembly = createManagerAssembly({
-      resolvePasskeyOperationStepUpCredential: resolveBrowserPasskeyOperationStepUpCredential,
+      resolveOperationStepUpCredential: this.resolveOperationStepUpCredential.bind(this),
       stores: deps.managerStores,
       seamsWebConfigs: this.seamsWebConfigs,
       nearClient: this.nearClient,
@@ -1241,12 +1396,20 @@ export class BrowserSigningSurface {
       passkeyMpcSession: this.passkeyMpcSession,
       emailOtpSessions: this.emailOtpSessions,
       ed25519YaoPublicCapabilityLanes: this.ed25519YaoPublicCapabilityReferences,
-      isEd25519YaoPublicCapabilityActive: (reference) =>
-        this.enginePorts.ed25519YaoActiveClients.resolve({
-          walletId: reference.walletId,
-          nearAccountId: reference.nearAccountId,
-          materialActivation: reference.materialActivation,
-        }) !== null,
+      isEd25519YaoPublicCapabilityActive: (reference) => {
+        switch (reference.auth.kind) {
+          case 'email_otp':
+            return true;
+          case 'passkey':
+            return (
+              this.enginePorts.ed25519YaoActiveClients.resolve({
+                walletId: reference.walletId,
+                nearAccountId: reference.nearAccountId,
+                materialActivation: reference.materialActivation,
+              }) !== null
+            );
+        }
+      },
       readActiveWalletSessionAuthorization: resolveActiveEd25519WalletSessionAuthorization,
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(
@@ -1384,6 +1547,31 @@ export class BrowserSigningSurface {
         this.passkeyMpcSession.setWorkerBaseOrigin(origin);
       },
     });
+  }
+
+  private async resolveOperationStepUpCredential(args: {
+    walletId: WalletId;
+    relayerUrl: string;
+    proof: Ed25519OperationStepUpProof;
+  }): Promise<RouterAbEd25519NormalSigningCredential> {
+    switch (args.proof.kind) {
+      case 'passkey':
+        return resolveBrowserPasskeyOperationStepUpCredential({
+          walletId: args.walletId,
+          relayerUrl: args.relayerUrl,
+        });
+      case 'email_otp': {
+        const appSessionJwt = await this.emailOtpSessions.resolveAppSessionJwtForProviderSubject({
+          walletId: args.walletId,
+          providerSubject: args.proof.providerSubjectId,
+          relayUrl: args.relayerUrl,
+        });
+        return { kind: 'app_session_jwt', appSessionJwt };
+      }
+      default:
+        args.proof satisfies never;
+        throw new Error('[SigningEngine][near] unsupported operation step-up proof');
+    }
   }
 
   private async ensureSealedRefreshStartupParity(): Promise<void> {
@@ -1574,26 +1762,44 @@ export class BrowserSigningSurface {
   }
 
   async restoreWalletAuthenticationState(
-    walletId?: WalletId | string,
-    appSessionJwt?: string,
+    walletId: WalletId | string | undefined,
+    auth: WalletAuthenticationRestoreAuth,
+  ): Promise<WalletAuthenticationState> {
+    const normalizedAuth = normalizeWalletAuthenticationRestoreAuth(auth);
+    if (!normalizedAuth) {
+      this.walletAuthenticationRestoreGeneration += 1;
+      this.walletAuthenticationState = { kind: 'signed_out' };
+      return this.walletAuthenticationState;
+    }
+    return await this.restoreWalletAuthenticationStateWithAuth(walletId, normalizedAuth);
+  }
+
+  async restoreWalletAuthenticationStateFromHostSession(
+    walletId: WalletId | string | undefined,
+  ): Promise<WalletAuthenticationState> {
+    const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
+    const appSessionJwt = activeWalletOrHostedAppSessionJwt(
+      relayerUrl,
+      walletId === undefined ? undefined : String(walletId),
+    );
+    const auth: AppSessionRestoreAuth = appSessionJwt
+      ? hostSelectedRestoreAuthFromJwt(appSessionJwt)
+      : { kind: 'cookie' };
+    return await this.restoreWalletAuthenticationStateWithAuth(walletId, auth);
+  }
+
+  private async restoreWalletAuthenticationStateWithAuth(
+    walletId: WalletId | string | undefined,
+    auth: AppSessionRestoreAuth,
   ): Promise<WalletAuthenticationState> {
     if (walletId === undefined) {
       await this.userPreferencesManager.initFromIndexedDB();
       walletId = this.userPreferencesManager.getCurrentWalletId() ?? undefined;
     }
     const expectedWalletId = walletId == null ? null : parseWalletId(walletId);
-    const explicitJwt = parseAppSessionJwt(appSessionJwt);
-    if (appSessionJwt !== undefined && !explicitJwt.ok) {
-      this.walletAuthenticationRestoreGeneration += 1;
-      this.walletAuthenticationState = { kind: 'signed_out' };
-      return this.walletAuthenticationState;
-    }
     if (expectedWalletId && !expectedWalletId.ok) return this.walletAuthenticationState;
     if (this.walletAuthenticationRestorationBlocked) return this.walletAuthenticationState;
     const expected = expectedWalletId?.ok ? expectedWalletId.value : null;
-    const auth: AppSessionRestoreAuth = explicitJwt.ok
-      ? { kind: 'jwt', jwt: explicitJwt.value }
-      : { kind: 'cookie' };
     const expectation: WalletAuthenticationRestoreExpectation = expectedWalletId?.ok
       ? { kind: 'exact_wallet', walletId: expectedWalletId.value }
       : { kind: 'derive_wallet' };
@@ -1630,11 +1836,18 @@ export class BrowserSigningSurface {
     readonly expectedWalletId: WalletId | null;
     readonly restoreGeneration: number;
   }): Promise<WalletAuthenticationState> {
-    const authoritative = await readAuthoritativeWalletAuthentication({
+    let authoritative = await readAuthoritativeWalletAuthentication({
       relayerUrl: args.relayerUrl,
       auth: args.auth,
       expectation: args.expectation,
     });
+    if (
+      authoritative.kind === 'authenticated' &&
+      args.auth.kind === 'host_selected_app_session_jwt' &&
+      !hostSelectedRestoreResponseMatches(args.auth, authoritative.source)
+    ) {
+      authoritative = { kind: 'source_mismatch' };
+    }
     if (authoritative.kind === 'authenticated') {
       if (args.restoreGeneration === this.walletAuthenticationRestoreGeneration) {
         this.walletAuthenticationState = authoritative.state;
@@ -1644,17 +1857,26 @@ export class BrowserSigningSurface {
 
     const cookieEmailOtpFallbackAllowed =
       args.auth.kind === 'cookie' &&
-      authoritative.kind === 'rejected' &&
-      (this.walletAuthenticationState.kind === 'signed_out' ||
-        this.walletAuthenticationState.authMethod === 'email_otp');
+      (authoritative.kind === 'uncorrelated' ||
+        (authoritative.kind === 'rejected' &&
+          (this.walletAuthenticationState.kind === 'signed_out' ||
+            this.walletAuthenticationState.authMethod === 'email_otp')));
+    const hostSelectedEmailOtpFallbackAllowed =
+      args.auth.kind === 'host_selected_app_session_jwt' &&
+      args.auth.source.kind === 'oidc_provider' &&
+      (authoritative.kind === 'rejected' || authoritative.kind === 'uncorrelated');
+    const cachedEmailOtpProviderSubject = hostSelectedEmailOtpFallbackAllowed
+      ? args.auth.source.providerSubject
+      : null;
     const shouldReadCachedEmailOtp =
       args.expectedWalletId !== null &&
-      (authoritative.kind === 'uncorrelated' || cookieEmailOtpFallbackAllowed);
+      (cookieEmailOtpFallbackAllowed || hostSelectedEmailOtpFallbackAllowed);
     if (shouldReadCachedEmailOtp) {
       const cached = await readCachedEmailOtpWalletAuthentication({
         emailOtpSessions: this.emailOtpSessions,
         relayerUrl: args.relayerUrl,
         walletId: args.expectedWalletId,
+        providerSubject: cachedEmailOtpProviderSubject,
       });
       if (cached.kind === 'authenticated') {
         if (args.restoreGeneration === this.walletAuthenticationRestoreGeneration) {
@@ -1677,10 +1899,13 @@ export class BrowserSigningSurface {
         this.clearWalletAuthenticationFromRestoration(args);
         return this.walletAuthenticationState;
       }
-      if (args.auth.kind === 'jwt') return this.walletAuthenticationState;
     }
 
-    if (authoritative.kind === 'rejected') {
+    if (
+      authoritative.kind === 'rejected' ||
+      authoritative.kind === 'source_mismatch' ||
+      (authoritative.kind === 'uncorrelated' && args.auth.kind !== 'cookie')
+    ) {
       this.clearWalletAuthenticationFromRestoration(args);
     }
     return this.walletAuthenticationState;
@@ -2725,21 +2950,23 @@ export class BrowserSigningSurface {
     if (!lane) {
       throw new Error('[SigningEngine][near] local Ed25519 material lane is unavailable');
     }
-    const laneIdentity =
-      subject.kind === 'exact_lane' || subject.kind === 'export_exact_lane'
-        ? subject.laneIdentity
-        : exactEd25519LaneIdentityFromAvailableLane(lane);
-    const runtime =
-      subject.kind === 'export_exact_lane'
-        ? await requireExactEd25519SealedRuntimeForExport({
-            walletId: subject.walletId,
-            laneIdentity,
-            materialActivation: subject.materialActivation,
-          })
-        : await requireExactEd25519SealedRuntimeForLane({
-            walletId: subject.walletId,
-            laneIdentity,
-          });
+    let runtime: ExactEd25519SealedSessionRuntime;
+    if (subject.kind === 'export_exact_lane') {
+      runtime = await requireExactEd25519SealedRuntimeForExport({
+        walletId: subject.walletId,
+        laneIdentity: subject.laneIdentity,
+        materialActivation: subject.materialActivation,
+      });
+    } else {
+      const laneIdentity =
+        subject.kind === 'exact_lane'
+          ? subject.laneIdentity
+          : exactEd25519LaneIdentityFromAvailableLane(lane);
+      runtime = await requireExactEd25519SealedRuntimeForLane({
+        walletId: subject.walletId,
+        laneIdentity,
+      });
+    }
     const walletSessionState = await walletSessionStateFromExactEd25519Runtime(runtime);
     if (runtime.factor.kind !== 'passkey') {
       throw new Error('[SigningEngine][near] persisted Ed25519 credential is unavailable');
@@ -2936,7 +3163,10 @@ export class BrowserSigningSurface {
   async upsertEd25519YaoPublicCapabilityLaneReference(
     reference: Ed25519YaoPublicCapabilityLaneReferenceV1,
   ): Promise<void> {
-    await this.ed25519YaoPublicCapabilityReferences.upsertLane(reference);
+    await publishEd25519YaoPublicCapabilityReferenceAndLane(
+      this.ed25519YaoPublicCapabilityReferences,
+      reference,
+    );
   }
 
   setWalletNearProvisioningState(
@@ -3295,6 +3525,22 @@ export class BrowserSigningSurface {
     await this.emailOtpSessions.persistEd25519YaoCapabilityForRefresh(input);
   }
 
+  private async persistEmailOtpEd25519WalletSessionAuthorization(
+    recovery: EmailOtpEd25519YaoCapabilityRecoveryResult,
+  ): Promise<void> {
+    const state = recovery.walletSessionState;
+    await persistActiveWalletSessionAuthorizationCurve(walletSessionAuthorizations, {
+      walletId: state.signingLane.identity.signer.account.wallet.walletId,
+      walletSessionId: state.walletSessionId,
+      quotaId: state.quotaId,
+      expiresAtMs: state.signingWalletSession.expiresAtMs,
+      authority: state.authority,
+      authMethod: WALLET_AUTH_METHODS.emailOtp,
+      walletSessionJwt: state.walletSessionAuth.walletSessionJwt,
+      curve: 'ed25519',
+    });
+  }
+
   async activateEmailOtpEd25519YaoUnlockedRecoveryInternal(args: {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
@@ -3325,6 +3571,7 @@ export class BrowserSigningSurface {
         this.enginePorts.ed25519YaoActiveClients,
       ),
     });
+    await this.persistEmailOtpEd25519WalletSessionAuthorization(recovered);
     await this.persistEmailOtpEd25519YaoCapabilityForRefreshInternal({
       material: recovered.material,
       walletSessionState: recovered.walletSessionState,
@@ -3376,6 +3623,7 @@ export class BrowserSigningSurface {
         this.enginePorts.ed25519YaoActiveClients,
       ),
     });
+    await this.persistEmailOtpEd25519WalletSessionAuthorization(activated);
     await this.persistEmailOtpEd25519YaoCapabilityForRefreshInternal({
       material: activated.material,
       walletSessionState: activated.walletSessionState,
@@ -3434,6 +3682,7 @@ export class BrowserSigningSurface {
         this.enginePorts.ed25519YaoActiveClients,
       ),
     });
+    await this.persistEmailOtpEd25519WalletSessionAuthorization(recovered);
     await this.persistEmailOtpEd25519YaoCapabilityForRefreshInternal({
       material: recovered.material,
       walletSessionState: recovered.walletSessionState,

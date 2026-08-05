@@ -1,5 +1,5 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -95,6 +95,7 @@ export type EmailOtpEcdsaPublicationPorts = {
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: 'email_otp';
+    authority: WalletAuthAuthorityRef;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   }) => Promise<{
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
@@ -164,7 +165,18 @@ export type ResolvedEmailOtpExistingEcdsaKey = {
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   walletKey: EvmFamilyEcdsaWalletKey;
   persistedRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
 };
+
+export type EmailOtpEcdsaScopeSelector =
+  | {
+      kind: 'exact';
+      runtimePolicyScope: ThresholdRuntimePolicyScope;
+    }
+  | {
+      kind: 'durable_manifest';
+      runtimePolicyScope?: never;
+    };
 
 export function projectEmailOtpExistingEcdsaKeyToChainTarget(args: {
   existingKey: ResolvedEmailOtpExistingEcdsaKey;
@@ -208,6 +220,7 @@ export function projectEmailOtpExistingEcdsaKeyToChainTarget(args: {
       materialActivation: args.existingKey.persistedRoleLocalMaterial.materialActivation,
       publicFacts,
     }),
+    runtimePolicyScope: args.existingKey.runtimePolicyScope,
   };
 }
 
@@ -235,19 +248,23 @@ function manifestEmailOtpEcdsaCandidate(
       materialActivation: manifest.activation.materialActivation,
       publicFacts,
     }),
+    runtimePolicyScope: manifest.durableMaterial.runtimePolicyScope,
   };
 }
 
 export async function resolveEmailOtpExistingEcdsaKey(args: {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  scope: EmailOtpEcdsaScopeSelector;
   keyHandle?: string;
   listActiveEcdsaCapabilityManifestsForWallet: EmailOtpEcdsaPublicationPorts['listActiveEcdsaCapabilityManifestsForWallet'];
 }): Promise<ResolvedEmailOtpExistingEcdsaKey | null> {
-  const identity = resolveEmailOtpEcdsaPersistedIdentity({
-    runtimePolicyScope: args.runtimePolicyScope,
-  });
+  const identity =
+    args.scope.kind === 'exact'
+      ? resolveEmailOtpEcdsaPersistedIdentity({
+          runtimePolicyScope: args.scope.runtimePolicyScope,
+        })
+      : null;
   const requestedKeyHandle = String(args.keyHandle || '').trim();
   const manifests = await args.listActiveEcdsaCapabilityManifestsForWallet(args.walletId);
   const candidates = manifests
@@ -255,9 +272,13 @@ export async function resolveEmailOtpExistingEcdsaKey(args: {
       const publicFacts = manifest.durableMaterial.roleLocalPublicFacts;
       return (
         manifest.signer.walletId === args.walletId &&
+        manifest.signer.scope.targetMemberships.some((membership) =>
+          thresholdEcdsaChainTargetsEqual(membership, args.chainTarget),
+        ) &&
         (!requestedKeyHandle || String(publicFacts.keyHandle).trim() === requestedKeyHandle) &&
-        String(publicFacts.signingRootId).trim() === identity.signingRootId &&
-        String(publicFacts.signingRootVersion || 'default').trim() === identity.signingRootVersion
+        (!identity || String(publicFacts.signingRootId).trim() === identity.signingRootId) &&
+        (!identity ||
+          String(publicFacts.signingRootVersion || 'default').trim() === identity.signingRootVersion)
       );
     })
     .map(manifestEmailOtpEcdsaCandidate)
@@ -323,6 +344,7 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
     publicationChainTargets: ThresholdEcdsaChainTarget[];
     bootstraps: ThresholdEcdsaSessionBootstrapResult[];
     runtimePolicyScope: ThresholdRuntimePolicyScope;
+    authority: WalletAuthAuthorityRef;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
     relayerUrl: string;
     groupId: string;
@@ -419,6 +441,7 @@ async function commitEmailOtpEcdsaPublicationLane(
     chainTarget: lane.chainTarget,
     bootstrap: workerBootstrap,
     source: 'email_otp',
+    authority: context.args.authority,
     emailOtpAuthContext: context.args.emailOtpAuthContext,
   });
   addEmailOtpEcdsaPublicationTiming(timings, 'warmCapabilityPersistenceMs', commitStartedAtMs);
@@ -551,7 +574,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   const currentBeforeSeal = await resolveEmailOtpExistingEcdsaKey({
     walletId: args.walletId,
     chainTarget: args.chainTarget,
-    runtimePolicyScope,
+    scope: { kind: 'exact', runtimePolicyScope },
     keyHandle,
     listActiveEcdsaCapabilityManifestsForWallet: ports.listActiveEcdsaCapabilityManifestsForWallet,
   });
@@ -613,13 +636,10 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     remainingUses,
   };
   const persistenceStartedAtMs = nowMs();
-  const authority = await walletAuthAuthorityRef({
-    authority: args.emailOtpAuthContext.authority,
-  });
   const currentBeforeRegistration = await resolveEmailOtpExistingEcdsaKey({
     walletId: args.walletId,
     chainTarget: actualChainTarget,
-    runtimePolicyScope,
+    scope: { kind: 'exact', runtimePolicyScope },
     keyHandle,
     listActiveEcdsaCapabilityManifestsForWallet: ports.listActiveEcdsaCapabilityManifestsForWallet,
   });
@@ -632,6 +652,9 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   ) {
     throw new Error('Email OTP sealed refresh material activation was superseded');
   }
+  // The manifest is the durable authority for ECDSA material. The route
+  // authority remains on `emailOtpAuthority` for proof and restore context.
+  const authority = currentBeforeRegistration.persistedRoleLocalMaterial.authority;
   await ports.registerSigningSession({
     ...sealedRecordBase,
     ecdsaRestore: {

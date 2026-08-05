@@ -72,6 +72,20 @@ export type ExactEd25519SigningLaneIdentity<
   readonly thresholdSessionId: ThresholdEd25519SessionId;
 };
 
+/**
+ * Export material is selected before a reusable Wallet Session exists. Keep
+ * that carrier separate from the signing identity, whose session and quota
+ * fields are required for normal signing authorization.
+ */
+export type ExactEd25519ExportMaterialIdentity<
+  A extends SigningLaneAuthBinding = SigningLaneAuthBinding,
+> = {
+  readonly kind: 'exact_ed25519_export_material';
+  readonly signer: NearEd25519SignerBinding;
+  readonly auth: A;
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+};
+
 export type ExactEcdsaSigningLaneIdentity = {
   readonly kind: 'exact_signing_lane';
   readonly signer: EvmFamilyEcdsaSignerBinding;
@@ -101,6 +115,14 @@ export type ExactEd25519SigningLaneIdentityInput<
   auth: A;
   walletSessionId: unknown;
   quotaId: unknown;
+  thresholdSessionId: unknown;
+};
+
+export type ExactEd25519ExportMaterialIdentityInput<
+  A extends SigningLaneAuthBinding = SigningLaneAuthBinding,
+> = {
+  signer: NearEd25519SignerBinding;
+  auth: A;
   thresholdSessionId: unknown;
 };
 
@@ -491,6 +513,17 @@ export function exactEd25519SigningLaneIdentity<A extends SigningLaneAuthBinding
   };
 }
 
+export function exactEd25519ExportMaterialIdentity<A extends SigningLaneAuthBinding>(
+  lane: ExactEd25519ExportMaterialIdentityInput<A>,
+): ExactEd25519ExportMaterialIdentity<A> {
+  return {
+    kind: 'exact_ed25519_export_material',
+    signer: lane.signer,
+    auth: lane.auth,
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(lane.thresholdSessionId),
+  };
+}
+
 export function exactEcdsaSigningLaneIdentity(
   lane: ExactEcdsaSigningLaneIdentityInput,
 ): ExactEcdsaSigningLaneIdentity {
@@ -555,6 +588,44 @@ export function parseExactEd25519SigningLaneIdentity(
   const identity = parseExactSigningLaneIdentity(value);
   if (isExactEd25519SigningLaneIdentity(identity)) return identity;
   throw new Error('[SigningSession] expected exact Ed25519 lane identity');
+}
+
+export function parseExactEd25519ExportMaterialIdentity(
+  value: unknown,
+): ExactEd25519ExportMaterialIdentity {
+  const lane = requireRecord(value, 'exact Ed25519 export material identity');
+  if (lane.kind !== 'exact_ed25519_export_material') {
+    throw new Error('[SigningSession] expected exact Ed25519 export material identity');
+  }
+  rejectPresent(
+    lane,
+    [
+      'walletSessionId',
+      'quotaId',
+      'walletId',
+      'nearAccountId',
+      'nearEd25519SigningKeyId',
+      'chainTarget',
+      'keyHandle',
+      'key',
+      'curve',
+      'chainFamily',
+      'accountId',
+      'subjectId',
+      'authMethod',
+      'authorization',
+    ],
+    'nested',
+  );
+  const signer = nearEd25519SignerBindingFromRaw(
+    requireRecord(lane.signer, 'exact Ed25519 export material signer'),
+  );
+  if (!signer.ok) throw new Error(signer.error.message);
+  return exactEd25519ExportMaterialIdentity({
+    signer: signer.value,
+    auth: parseSigningLaneAuthBinding(lane.auth),
+    thresholdSessionId: lane.thresholdSessionId,
+  });
 }
 
 export function parseExactEcdsaSigningLaneIdentity(value: unknown): ExactEcdsaSigningLaneIdentity {

@@ -1,12 +1,12 @@
-import type { ExactEd25519SigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
+import type { ExactEd25519ExportMaterialIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import type { Ed25519YaoExportFlowDeps } from './ed25519YaoExportFlow';
 
-type PasskeyEd25519Lane = ExactEd25519SigningLaneIdentity & {
-  auth: Extract<ExactEd25519SigningLaneIdentity['auth'], { kind: 'passkey' }>;
+type PasskeyEd25519Lane = ExactEd25519ExportMaterialIdentity & {
+  auth: Extract<ExactEd25519ExportMaterialIdentity['auth'], { kind: 'passkey' }>;
 };
 
-type EmailOtpEd25519Lane = ExactEd25519SigningLaneIdentity & {
-  auth: Extract<ExactEd25519SigningLaneIdentity['auth'], { kind: 'email_otp' }>;
+type EmailOtpEd25519Lane = ExactEd25519ExportMaterialIdentity & {
+  auth: Extract<ExactEd25519ExportMaterialIdentity['auth'], { kind: 'email_otp' }>;
 };
 
 declare const deps: Ed25519YaoExportFlowDeps;

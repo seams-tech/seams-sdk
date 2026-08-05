@@ -23,6 +23,7 @@ import {
   type EmailOtpEd25519YaoPublicationPorts,
 } from './ed25519YaoPublication';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export class EmailOtpSealedSessionRegistry {
   constructor(
@@ -34,6 +35,7 @@ export class EmailOtpSealedSessionRegistry {
         chainTarget: ThresholdEcdsaChainTarget;
         bootstrap: ThresholdEcdsaSessionBootstrapResult;
         source: 'email_otp';
+        authority: WalletAuthAuthorityRef;
         emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
       }) => Promise<{
         bootstrap: ThresholdEcdsaSessionBootstrapResult;

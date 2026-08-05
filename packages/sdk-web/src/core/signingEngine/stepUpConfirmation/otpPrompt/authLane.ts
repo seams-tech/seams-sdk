@@ -1,7 +1,17 @@
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WalletEmailOtpOperation } from '@shared/utils/emailOtpDomain';
-import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
+import {
+  thresholdEcdsaChainTargetFromRequest,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  isWalletEmailOtpLoginOperation,
+  WALLET_EMAIL_OTP_EXPORT_OPERATION,
+  WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+  WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+  type WalletEmailOtpLoginOperation,
+  type WalletEmailOtpOperation,
+} from '@shared/utils/emailOtpDomain';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
+import { isPlainObject } from '@shared/utils/validation';
 
 export type EmailOtpAuthLane =
   | { kind: 'app_session'; jwt: string }
@@ -24,11 +34,26 @@ export type EmailOtpSigningSessionAuthLane =
 
 export type EmailOtpRouteFamily = 'login' | 'registration' | 'signing_session';
 
-export type EmailOtpRoutePlan = {
-  routeFamily: EmailOtpRouteFamily;
-  authLane: EmailOtpAuthLane;
-  operation: WalletEmailOtpOperation;
-};
+type EmailOtpFreshAuthLane = Extract<EmailOtpAuthLane, { kind: 'app_session' | 'cookie' }>;
+
+export type EmailOtpRoutePlan =
+  | {
+      routeFamily: 'login';
+      authLane: EmailOtpFreshAuthLane;
+      operation: WalletEmailOtpLoginOperation;
+    }
+  | {
+      routeFamily: 'registration';
+      authLane: EmailOtpFreshAuthLane;
+      operation: typeof WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
+    }
+  | {
+      routeFamily: 'signing_session';
+      authLane: EmailOtpSigningSessionAuthLane;
+      operation:
+        | typeof WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION
+        | typeof WALLET_EMAIL_OTP_EXPORT_OPERATION;
+    };
 
 export type ResolveEmailOtpAuthLaneArgs = {
   sessionKind?: 'jwt' | 'cookie';
@@ -47,7 +72,7 @@ function buildEmailOtpSigningSessionAuthLane(args: {
   jwt: unknown;
   thresholdSessionId: unknown;
   curve: unknown;
-  chainTarget?: ThresholdEcdsaChainTarget;
+  chainTarget?: unknown;
 }): EmailOtpSigningSessionAuthLane | undefined {
   const jwt = nonEmptyString(args.jwt);
   const thresholdSessionId = nonEmptyString(args.thresholdSessionId);
@@ -67,13 +92,24 @@ function buildEmailOtpSigningSessionAuthLane(args: {
       curve: 'ed25519',
     };
   }
-  if (args.curve === 'ecdsa' && args.chainTarget && thresholdSessionId) {
+  if (args.curve === 'ecdsa' && isPlainObject(args.chainTarget) && thresholdSessionId) {
+    let chainTarget: ThresholdEcdsaChainTarget;
+    try {
+      chainTarget = thresholdEcdsaChainTargetFromRequest({
+        kind: args.chainTarget.kind,
+        namespace: args.chainTarget.namespace,
+        chainId: args.chainTarget.chainId,
+        networkSlug: args.chainTarget.networkSlug,
+      });
+    } catch {
+      return undefined;
+    }
     return {
       kind: 'signing_session',
       jwt,
       thresholdSessionId,
       curve: 'ecdsa',
-      chainTarget: args.chainTarget,
+      chainTarget,
     };
   }
   console.warn(
@@ -133,23 +169,40 @@ export function requireEmailOtpAuthLane(
 export function buildEmailOtpRoutePlan(args: {
   routeFamily: EmailOtpRouteFamily;
   authLane: EmailOtpAuthLane;
-  operation?: WalletEmailOtpOperation;
+  operation: WalletEmailOtpOperation;
 }): EmailOtpRoutePlan {
   const authLane = requireEmailOtpAuthLane(args.authLane, `${args.routeFamily} route`);
-  if (args.routeFamily === 'signing_session' && authLane.kind !== 'signing_session') {
-    throw new Error('Email OTP signing-session routes require signing-session auth');
+  switch (args.routeFamily) {
+    case 'registration':
+      if (authLane.kind === 'signing_session') {
+        throw new Error('Email OTP registration routes cannot use signing-session auth');
+      }
+      if (args.operation !== WALLET_EMAIL_OTP_REGISTRATION_OPERATION) {
+        throw new Error('Email OTP registration routes require registration operation');
+      }
+      return { routeFamily: 'registration', authLane, operation: args.operation };
+    case 'login':
+      if (authLane.kind === 'signing_session') {
+        throw new Error('Email OTP login routes cannot use signing-session auth');
+      }
+      if (!isWalletEmailOtpLoginOperation(args.operation)) {
+        throw new Error('Email OTP login routes require a login operation');
+      }
+      return { routeFamily: 'login', authLane, operation: args.operation };
+    case 'signing_session':
+      if (authLane.kind !== 'signing_session') {
+        throw new Error('Email OTP signing-session routes require signing-session auth');
+      }
+      if (
+        args.operation !== WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION &&
+        args.operation !== WALLET_EMAIL_OTP_EXPORT_OPERATION
+      ) {
+        throw new Error('Email OTP signing-session routes require signing or export operation');
+      }
+      return { routeFamily: 'signing_session', authLane, operation: args.operation };
   }
-  if (
-    (args.routeFamily === 'login' || args.routeFamily === 'registration') &&
-    authLane.kind === 'signing_session'
-  ) {
-    throw new Error(`Email OTP ${args.routeFamily} routes cannot use signing-session auth`);
-  }
-  return {
-    routeFamily: args.routeFamily,
-    authLane,
-    operation: args.operation || WALLET_EMAIL_OTP_UNLOCK_OPERATION,
-  };
+  args.routeFamily satisfies never;
+  throw new Error('Unsupported Email OTP route family');
 }
 
 export function routeFamilyForAuthLane(args: {
@@ -197,6 +250,13 @@ export function normalizeEmailOtpRoutePlan(value: unknown): EmailOtpRoutePlan | 
   };
   const routeFamily = nonEmptyString(input.routeFamily);
   if (!['login', 'registration', 'signing_session'].includes(routeFamily)) return undefined;
+  const operation = nonEmptyString(input.operation);
+  if (
+    !isWalletEmailOtpLoginOperation(operation) &&
+    operation !== WALLET_EMAIL_OTP_REGISTRATION_OPERATION
+  ) {
+    return undefined;
+  }
   const laneKind = nonEmptyString(input.authLane?.kind);
   let authLane: EmailOtpAuthLane | undefined;
   if (laneKind === 'cookie') {
@@ -213,9 +273,13 @@ export function normalizeEmailOtpRoutePlan(value: unknown): EmailOtpRoutePlan | 
     });
   }
   if (!authLane) return undefined;
-  return buildEmailOtpRoutePlan({
-    routeFamily: routeFamily as EmailOtpRouteFamily,
-    authLane,
-    operation: nonEmptyString(input.operation) as WalletEmailOtpOperation,
-  });
+  try {
+    return buildEmailOtpRoutePlan({
+      routeFamily: routeFamily as EmailOtpRouteFamily,
+      authLane,
+      operation,
+    });
+  } catch {
+    return undefined;
+  }
 }

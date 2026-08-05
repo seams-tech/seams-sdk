@@ -8,7 +8,7 @@ import type { VerifiedEcdsaPublicFacts } from '@/core/signingEngine/session/iden
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ResolvedEmailOtpEd25519YaoExportV1 } from './ed25519YaoSealedRecovery';
-import type { EmailOtpEcdsaSigningSessionAuthority } from './ecdsaSigningSessionAuthority';
+import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { buildEmailOtpSigningSessionRoutePlan } from './routePlan';
 import {
   exportEd25519YaoSeedWithFreshEmailOtpLane,
@@ -57,7 +57,13 @@ export type RequestEmailOtpChallengeArgs =
 export type RequestEmailOtpExportChallengeArgs = Exclude<
   RequestEmailOtpChallengeArgs,
   { kind: 'wallet_capability_step_up_challenge' }
->;
+> | {
+  kind: 'wallet_capability_export_challenge';
+  walletSession: WalletSessionRef;
+  chain: EmailOtpEcdsaRouteChain;
+  appSessionJwt: string;
+  authLane?: never;
+};
 
 export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
   walletSession: WalletSessionRef;
@@ -66,7 +72,7 @@ export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
   otpCode: string;
   publicFacts: VerifiedEcdsaPublicFacts;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
+  authority: EmailOtpWalletAuthAuthority;
   persistedMaterial: PersistedEcdsaRoleLocalMaterial;
   explicitExportAuthorization: EcdsaExplicitExportOperationAuthorization;
 };
@@ -108,7 +114,6 @@ export class EmailOtpExportRecoveryRuntime {
       {
         getSignerWorkerContext: this.ports.getSignerWorkerContext,
         requireRelayUrl: this.ports.requireRelayUrl,
-        buildSigningSessionRoutePlan: buildEmailOtpSigningSessionRoutePlan,
       },
       {
         walletSession: args.walletSession,
@@ -117,7 +122,7 @@ export class EmailOtpExportRecoveryRuntime {
         otpCode: args.otpCode,
         publicFacts: args.publicFacts,
         runtimePolicyScope: args.runtimePolicyScope,
-        signingSessionAuthority: args.signingSessionAuthority,
+        authority: args.authority,
         persistedMaterial: args.persistedMaterial,
         explicitExportAuthorization: args.explicitExportAuthorization,
         prepareEcdsaExportCapability: this.ports.prepareEcdsaExportCapability,

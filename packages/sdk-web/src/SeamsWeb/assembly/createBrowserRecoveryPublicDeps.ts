@@ -108,6 +108,7 @@ export function createBrowserRecoveryPublicDeps(args: {
         ...queueArgs,
       }),
     ecdsaSessions: args.warmSigning.ecdsaSessions,
+    relayerUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
     ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
     readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
     listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,

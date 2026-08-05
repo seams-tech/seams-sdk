@@ -1,6 +1,7 @@
 import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
+  EmailOtpEcdsaWalletUnlockAuthorization,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
   EmailOtpEcdsaSessionBootstrapHandleBinding,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
@@ -66,15 +67,26 @@ export type EmailOtpWalletUnlockCapabilityResults = {
   ed25519Yao: EmailOtpEd25519YaoUnlockResult;
 };
 
+type EmailOtpWalletUnlockVerification =
+  | {
+      kind: 'otp';
+      challengeId?: string;
+      otpCode: string;
+    }
+  | {
+      kind: 'email_otp_unseal_grant';
+      grant: string;
+      challengeId: string;
+    };
+
 type EmailOtpWalletUnlockBaseArgs = {
   walletSession: WalletSessionRef;
   relayUrl: string;
   groupId: string;
-  otpCode: string;
   routePlan: EmailOtpRoutePlan;
   workerCtx: WorkerOperationContext;
-  challengeId?: string;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
+  verification: EmailOtpWalletUnlockVerification;
 };
 
 async function requestEmailOtpWalletUnlock(args: {
@@ -90,8 +102,7 @@ async function requestEmailOtpWalletUnlock(args: {
         relayUrl: args.base.relayUrl,
         walletId: String(args.base.walletSession.walletId),
         userId: String(args.base.walletSession.walletSessionUserId),
-        ...(args.base.challengeId ? { challengeId: args.base.challengeId } : {}),
-        otpCode: args.base.otpCode,
+        verification: args.base.verification,
         groupId: args.base.groupId,
         routePlan: args.base.routePlan,
         otpChannel: EMAIL_OTP_CHANNEL,
@@ -112,6 +123,7 @@ export async function unlockEmailOtpWallet(
             { kind: 'ecdsa'; ecdsaSessionActivation: unknown }
           >['ecdsaClientRootHandleBinding'];
           ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+          walletSessionAuthorization: EmailOtpEcdsaWalletUnlockAuthorization;
         }
       | {
           ecdsaClientRootHandleBinding: Extract<
@@ -130,6 +142,7 @@ export async function unlockEmailOtpWallet(
           ecdsaClientRootHandleBinding: args.ecdsaClientRootHandleBinding,
           runtimePolicyScope: args.runtimePolicyScope,
           ecdsaSessionActivation: args.ecdsaSessionActivation,
+          walletSessionAuthorization: args.walletSessionAuthorization,
         }
       : {
           kind: 'ecdsa',
