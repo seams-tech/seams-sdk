@@ -58,7 +58,7 @@ import {
   resolveFreshRouterAbEcdsaMaterialActivation,
   routerAbEcdsaAtomicAuthorizationConfigured,
   type RouterAbEcdsaOperationAdmissionKind,
-} from '../../../domains/normalSigning/routerAbPrivateSigningWorker';
+} from '../../../domains/signingOperations/routerAbPrivateSigningWorker';
 import {
   parseRouterAbEcdsaDerivationPoolFillInitRouteRequest,
   parseRouterAbEcdsaDerivationPoolFillStepRouteRequest,

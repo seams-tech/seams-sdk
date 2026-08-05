@@ -57,8 +57,8 @@ import {
 import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-} from '../productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../productRegistration/routerAbEd25519YaoProductRegistration';
+} from '../capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 
 type RecoveryAdmissionReceipt = RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'>;
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;

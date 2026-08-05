@@ -10,8 +10,8 @@ import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
-import type { RouterAbNormalSigningAdmissionAdapter } from '../domains/normalSigning/routerAbPrivateSigningWorker';
-import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+import type { RouterAbNormalSigningAdmissionAdapter } from '../domains/signingOperations/routerAbPrivateSigningWorker';
+import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import type { RouterAbEcdsaStrictPostRegistrationPort } from '../domains/ecdsa/routerAbEcdsaStrictRegistration';
 import type { EmailRecoveryService } from '../../email-recovery';
 import type {

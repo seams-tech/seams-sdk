@@ -7,7 +7,7 @@ import type {
 import type { SignerWasmModuleSupplier } from '../../../../core/types';
 import { EMAIL_OTP_CODE_LENGTH } from '../../../../core/authService/emailOtpConfig';
 import type { RouterAbEcdsaPresignRuntime } from '../../../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
-import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../../domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import type { RouterAbEcdsaStrictRegistrationPort } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
 import type { SigningSessionSealShamir3PassRootConfig } from '../../../../threshold/session/signingSessionSeal/crypto/cipher';
 import { parseSigningSessionSealRootConfig } from '../../../../threshold/session/signingSessionSeal/options';

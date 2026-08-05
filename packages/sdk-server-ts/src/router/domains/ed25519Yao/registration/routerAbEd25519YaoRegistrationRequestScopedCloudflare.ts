@@ -38,7 +38,7 @@ import {
 import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
-} from '../productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 
 export type RouterAbEd25519YaoRegistrationRequestScopedCloudflareInputV1 = {
   readonly request: Request;

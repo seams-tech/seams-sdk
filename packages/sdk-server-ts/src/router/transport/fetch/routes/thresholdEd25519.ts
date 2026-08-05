@@ -16,7 +16,7 @@ import {
   parseRouterAbEd25519OperationStepUpScope,
   parseRouterAbOperationStepUpOperation,
   type RouterAbEd25519NormalSigningRoutePhase,
-} from '../../../domains/normalSigning/routerAbPrivateSigningWorker';
+} from '../../../domains/signingOperations/routerAbPrivateSigningWorker';
 import {
   parseThresholdEd25519OperationStepUpGrantRequest,
   parseThresholdEd25519SessionRouteRequest,
