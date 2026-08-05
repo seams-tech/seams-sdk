@@ -266,24 +266,6 @@ const ecdsaFinalizeCoreRequest = {
 } satisfies RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
 void ecdsaFinalizeCoreRequest;
 
-const ecdsaCoreRequestWithBudgetMetadata = {
-  scope: ecdsaScope,
-  request_id: 'ecdsa-request-1',
-  operation_id: 'ecdsa-operation-1',
-  operation_digests: ecdsaFinalizeCoreRequest.operation_digests,
-  authorization: ecdsaFinalizeCoreRequest.authorization,
-  material_activation: ecdsaFinalizeCoreRequest.material_activation,
-  expires_at_ms: 1_900_000_000_000,
-  signing_digest_b64u: 'signing-digest',
-  server_presignature_id: 'server-presignature-1',
-  client_signature_share32_b64u: 'client-signature-share',
-  client_rerandomization_contribution32_b64u: 'client-rerandomization-contribution',
-  // @ts-expect-error core finalize request excludes public Router budget metadata.
-  budget_reservation_id: 'budget-reservation-1',
-  budget_operation_id: 'budget-operation-1',
-} satisfies RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
-void ecdsaCoreRequestWithBudgetMetadata;
-
 const ecdsaFinalizeRequest =
   ecdsaFinalizeCoreRequest satisfies RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire;
 void ecdsaFinalizeRequest;

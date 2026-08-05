@@ -706,8 +706,9 @@ implementing commit SHA as the evidence.
   they enter implementation scope.
 - [x] The final production-source sweep finds no composite ECDSA record,
   signing-grant identity, capability-grant-use, operation-claim, or
-  `active_state_session_id` symbol. Retired wire fields remain only in negative
-  boundary fixtures that prove strict rejection.
+  `active_state_session_id` symbol. Dedicated fixtures for retired public
+  budget fields are also deleted; exact-key parsers retain generic
+  unknown-field rejection.
 
 ## Goal
 

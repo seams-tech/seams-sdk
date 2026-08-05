@@ -275,12 +275,6 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
       'ecdsaPrepareResponse.signature_scheme must be ecdsa_secp256k1_recoverable_v1',
     );
 
-    await expect(
-      parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseForRequestV1(request, {
-        ...(await prepareResponse(request)),
-        budget_status: {},
-      }),
-    ).rejects.toThrow('ecdsaPrepareResponse.budget_status is not a supported field');
   });
 
   test('rejects mismatched finalize response request digests', async () => {

@@ -6948,18 +6948,6 @@ fn router_ab_ecdsa_authorized_finalize_parser_requires_authorized_operation_and_
         RouterAbProtocolErrorCode::MalformedWirePayload
     );
 
-    body.remove("sessionId");
-    body.insert("budget_status".to_owned(), serde_json::json!({}));
-    let legacy_budget = serde_json::to_vec(&body).expect("ECDSA legacy budget request JSON");
-    let error =
-        parse_cloudflare_router_authorized_router_ab_ecdsa_derivation_finalize_request_v1_json(
-            &legacy_budget,
-        )
-        .expect_err("public ECDSA budget fields must be rejected");
-    assert_eq!(
-        error.code(),
-        RouterAbProtocolErrorCode::MalformedWirePayload
-    );
 }
 
 #[test]

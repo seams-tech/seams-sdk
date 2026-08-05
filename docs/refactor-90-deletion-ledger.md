@@ -37,12 +37,11 @@ A direct production-source scan across `packages/*/src`, `apps/*/src`,
 ECDSA record family, `SigningGrantId` family, capability-grant-use model,
 operation-claim model, or `active_state_session_id`.
 
-The old public ECDSA budget identifiers remain only inside a TypeScript
-`@ts-expect-error` fixture and hostile Rust request fixtures. Those fixtures
-prove that current strict boundaries reject the retired wire fields; they are
-not compatibility paths. Likewise, `lifecycle_mismatch` remains only in tests
-and comments describing the rejected predecessor to the typed `superseded`
-state.
+The old public ECDSA budget identifiers and their dedicated rejection fixtures
+are absent from current source and tests. Strict exact-key parsing remains the
+general unknown-field boundary. Likewise, `lifecycle_mismatch` remains only in
+tests and comments describing the rejected predecessor to the typed
+`superseded` state.
 
 The Rust helpers reported as dead code by a default-feature local server build
 are consumed by the `workers-rs` production configuration and focused tests.
@@ -328,10 +327,9 @@ Wallet Session/quota and capability-grant identities.
 
 `f4c8c7423` removes the last active local-smoke compatibility behavior: the
 Router A/B ECDSA prepare response is parsed in its strict current shape, and
-finalize/replay requests are sent without injecting `budget_reservation_id`,
-`budget_operation_id`, or `budget_status`. The remaining occurrences are
-negative type fixtures that prove those fields are rejected, plus historical
-documentation and immutable migration records.
+finalize/replay requests carry no retired public budget metadata. The
+post-completion cleanup removes the dedicated negative fixtures as well;
+generic exact-key parsing continues to reject unknown fields.
 
 ## Foundation B / Phase 18 — legacy ECDSA record family
 
