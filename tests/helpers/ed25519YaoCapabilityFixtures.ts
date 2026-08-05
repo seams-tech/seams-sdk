@@ -8,7 +8,7 @@ import {
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../packages/sdk-server-ts/src/core/WalletStore';
-import { ed25519NearPublicKeyFromBytes } from '../../packages/sdk-server-ts/src/router/cloudflare/d1Ed25519YaoWalletSigner';
+import { ed25519NearPublicKeyFromBytes } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
 import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 
 export type Ed25519YaoCapabilityFixture = {

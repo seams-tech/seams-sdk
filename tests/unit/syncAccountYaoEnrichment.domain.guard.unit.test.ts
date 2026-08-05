@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type {
   RouterApiServiceBag,
   RouterApiWebAuthnService,
-} from '../../packages/sdk-server-ts/src/router/authServicePort';
+} from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
 import {
   parseThresholdEd25519SessionId,
   parseWebAuthnRpId,
@@ -13,9 +13,9 @@ import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
 } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
-import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
-import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
+import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/framework/routerApi';
 import {
   mintRouterAbEd25519YaoWalletSessionV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,

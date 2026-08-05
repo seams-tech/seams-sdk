@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import type { CloudflareRouterApiContext } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
-import { handleStrictEcdsaSessionActivation } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa';
-import { handleReusableWalletSessionStatus } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/sessions';
+import type { CloudflareRouterApiContext } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
+import { handleStrictEcdsaSessionActivation } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa';
+import { handleReusableWalletSessionStatus } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/sessions';
 import { buildActiveAuthorizationSession } from '../../packages/sdk-server-ts/src/authorization/domain';
 import { parsePrincipalId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';

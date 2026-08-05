@@ -5,10 +5,10 @@ import type {
   WalletEcdsaSignerRecord,
   WalletRecord,
 } from '../../packages/sdk-server-ts/src/core/WalletStore';
-import { CloudflareD1WalletRegistrationCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationCommitStore';
-import { CloudflareD1WebAuthnStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnStore';
-import { CloudflareD1EmailOtpEnrollmentStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpEnrollmentStore';
-import type { D1EmailOtpRegistrationCommitPlan } from '../../packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRegistrationEnrollmentFinalizer';
+import { CloudflareD1WalletRegistrationCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1WalletRegistrationCommitStore';
+import { CloudflareD1WebAuthnStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
+import { CloudflareD1EmailOtpEnrollmentStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1EmailOtpEnrollmentStore';
+import type { D1EmailOtpRegistrationCommitPlan } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
 import type { EmailOtpWalletEnrollmentRecord } from '../../packages/sdk-server-ts/src/core/EmailOtpStores';
 import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';

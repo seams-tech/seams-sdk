@@ -3,7 +3,7 @@ import {
   handleEmailOtpRegistrationChallengeRoute,
   handleEmailOtpRegistrationFinalizeRoute,
   handleEmailOtpRegistrationSealRoute,
-} from '@server/router/emailOtpRouteHandlers';
+} from '@server/router/domains/emailOtp/emailOtpRouteHandlers';
 
 test.describe('Email OTP registration routes', () => {
   test('registration challenge binds Google sessions to provider subject', async () => {

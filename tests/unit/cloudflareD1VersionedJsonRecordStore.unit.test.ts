@@ -7,8 +7,8 @@ import type {
 import {
   createCloudflareD1VersionedJsonRecordStore,
   type CloudflareD1VersionedJsonRecordScopeV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1VersionedJsonRecordStore';
-import type { CloudflareVersionedJsonObject } from '../../packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore';
+} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/versionedJson/d1VersionedJsonRecordStore';
+import type { CloudflareVersionedJsonObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/versionedJsonRecordStore';
 
 type RecordValue = {
   readonly kind: 'test_d1_record_v1';

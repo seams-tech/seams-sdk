@@ -10,7 +10,7 @@ import {
   signRouterAbEd25519WalletSessionJwt,
   validateRouterAbEcdsaDerivationWalletSessionInputs,
   validateRouterAbEd25519WalletSessionTokenInputs,
-} from '../../packages/sdk-server-ts/src/router/commonRouterUtils';
+} from '../../packages/sdk-server-ts/src/router/auth/commonRouterUtils';
 import {
   validateRouterAbEd25519NormalSigningRequestScope,
   authorizeRouterAbEd25519NormalSigningRoute,
@@ -21,8 +21,8 @@ import {
 import {
   buildVerifiedEcdsaWalletSessionAuth,
   buildVerifiedEd25519WalletSessionAuth,
-} from '../../packages/sdk-server-ts/src/router/verifiedWalletSessionAuth';
-import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
+} from '../../packages/sdk-server-ts/src/router/auth/verifiedWalletSessionAuth';
+import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/framework/routerApi';
 import type { EcdsaDerivationServerBootstrapResponse } from '@server/core/types';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { base64UrlEncode } from '@shared/utils/encoders';
