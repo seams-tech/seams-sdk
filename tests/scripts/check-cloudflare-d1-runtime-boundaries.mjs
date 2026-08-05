@@ -65,19 +65,19 @@ const observabilityDocPaths = [
     'docs/saas/observability-events-4.md',
 ];
 const authServicePath = 'packages/sdk-server-ts/src/core/AuthService.ts';
-const walletRegistrationRoutesPath = 'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts';
-const syncAccountRequestValidationPath = 'packages/sdk-server-ts/src/router/syncAccountRequestValidation.ts';
-const authServicePortPath = 'packages/sdk-server-ts/src/router/authServicePort.ts';
+const walletRegistrationRoutesPath = 'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts';
+const syncAccountRequestValidationPath = 'packages/sdk-server-ts/src/router/domains/syncAccount/syncAccountRequestValidation.ts';
+const authServicePortPath = 'packages/sdk-server-ts/src/router/framework/authServicePort.ts';
 const authServiceWebAuthnPath = 'packages/sdk-server-ts/src/core/authService/webauthn.ts';
-const d1WebAuthnAuthServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnAuthService.ts';
+const d1WebAuthnAuthServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1/webauthn/d1WebAuthnAuthService.ts';
 const sdkWebSyncAccountPath = 'packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount.ts';
 const sdkServerCoreTypesPath = 'packages/sdk-server-ts/src/core/types.ts';
-const routeDefinitionsPath = 'packages/sdk-server-ts/src/router/routeDefinitions.ts';
-const routeExecutionContextPath = 'packages/sdk-server-ts/src/router/routeExecutionContext.ts';
-const d1RegistrationIntentServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationIntentService.ts';
-const d1WalletRegistrationServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts';
-const d1RegistrationCeremonyRecordsPath = 'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords.ts';
-const d1RegistrationCeremonyStorePath = 'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyStore.ts';
+const routeDefinitionsPath = 'packages/sdk-server-ts/src/router/framework/routeDefinitions.ts';
+const routeExecutionContextPath = 'packages/sdk-server-ts/src/router/framework/routeExecutionContext.ts';
+const d1RegistrationIntentServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationIntentService.ts';
+const d1WalletRegistrationServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts';
+const d1RegistrationCeremonyRecordsPath = 'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords.ts';
+const d1RegistrationCeremonyStorePath = 'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore.ts';
 const d1RegistrationCeremonyDoPath = 'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyDo.ts';
 const forbiddenCloudflarePostgresEnvTokens = [
     'POSTGRES_URL',
@@ -578,8 +578,8 @@ const cloudflareD1ConsoleServicesPath = 'packages/console-server-ts/src/router/c
 const cloudflareD1ConsoleStagingWorkerPath = 'packages/console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts';
 const cloudflareD1LocalDevWorkerPath = 'packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts';
 const cloudflareD1RouterApiStagingWorkerPath = 'packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts';
-const cloudflareD1RouterApiAuthServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService.ts';
-const cloudflareD1EmailOtpRecoveryServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecoveryService.ts';
+const cloudflareD1RouterApiAuthServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService.ts';
+const cloudflareD1EmailOtpRecoveryServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1EmailOtpRecoveryService.ts';
 const authServiceEmailOtpGrantPath = 'packages/sdk-server-ts/src/core/authService/emailOtpGrant.ts';
 const authServiceEmailOtpRecoveryKeysPath = 'packages/sdk-server-ts/src/core/authService/emailOtpRecoveryKeys.ts';
 const oldCloudflareD1RelayStagingWorkerPath = 'packages/sdk-server-ts/src/router/cloudflare/d1RelayStagingWorker.ts';
@@ -623,8 +623,8 @@ const activeRouterApiTextPaths = [
     'packages/sdk-server-ts/src/core/routerAbSigning/createCloudflareDurableObjectRouterAbSigningRuntimes.ts',
     'packages/sdk-server-ts/src/core/defaultConfigsServer.ts',
     'packages/console-server-ts/src/router/cloudflare/d1ConsoleServices.ts',
-    'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyStore.ts',
-    'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts',
+    'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore.ts',
+    'packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthConfig.ts',
     'docs/saas/bring-you-own-auth.md',
     'tests/unit/cloudflareD1ConsoleServices.unit.test.ts',
     'tests/unit/cloudflareD1RouterApiEmailOtp.unit.test.ts',

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { parseSessionExchangeRouteCommand } from '../../packages/sdk-server-ts/src/router/sessionExchangeRequestValidation';
+import { parseSessionExchangeRouteCommand } from '../../packages/sdk-server-ts/src/router/auth/sessionExchangeRequestValidation';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
 import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
 

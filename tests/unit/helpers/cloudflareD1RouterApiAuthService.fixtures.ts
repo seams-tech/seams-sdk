@@ -14,10 +14,10 @@ import type {
 import type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
-} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
-import { createCloudflareD1RouterApiAuthService } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
-import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords';
-import { parseD1RegistrationIntent } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
+} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { createCloudflareD1RouterApiAuthService } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1GoogleEmailOtpRegistrationRecords';
+import { parseD1RegistrationIntent } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../../packages/shared-ts/src/utils/encoders';
 import { parseWebAuthnRpId } from '../../../packages/shared-ts/src/utils/domainIds';
 import { normalizeRuntimePolicyScope } from '../../../packages/shared-ts/src/threshold/signingRootScope';

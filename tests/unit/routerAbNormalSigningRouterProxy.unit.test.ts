@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { proxyNormalSigningRequestToMpcRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/normalSigningRouterProxy';
+import { proxyNormalSigningRequestToMpcRouter } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/normalSigningRouterProxy';
 import {
   buildEd25519ReplayResponse,
   decideEd25519NormalSigningExecution,
   decideEd25519OperationStepUpExecution,
   isRouterAbEd25519OperationInProgressResponse,
   requireCompletedEd25519OperationResponse,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519';
-import { decideRouterAbEcdsaOperationStepUpExecution } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa';
+} from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEd25519';
+import { decideRouterAbEcdsaOperationStepUpExecution } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa';
 import {
   buildCompletedAuthorizedOperationFixture,
   buildReusableAuthorizationCoreFixture,
@@ -17,7 +17,7 @@ import {
   routerAbEcdsaOperationInProgressResult,
   routerAbEcdsaReplayHttpResponse,
   routerAbEcdsaReplayResult,
-} from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
+} from '../../packages/sdk-server-ts/src/router/domains/normalSigning/routerAbPrivateSigningWorker';
 
 test('normal-signing proxy preserves authorization and source-binding headers', async () => {
   let forwarded: Request | null = null;

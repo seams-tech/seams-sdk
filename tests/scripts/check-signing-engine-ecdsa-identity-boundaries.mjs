@@ -527,7 +527,7 @@ function checkEcdsaProvisionPlansOnlyComeFromBuilders() {
 }
 
 function checkServerBudgetStatusRoutesStayParserOwned() {
-  const routeFiles = ['packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts'];
+  const routeFiles = ['packages/sdk-server-ts/src/router/transport/fetch/routes/sessions.ts'];
   const offenders = [];
   for (const relativePath of routeFiles) {
     const source = readRepoFile(relativePath);

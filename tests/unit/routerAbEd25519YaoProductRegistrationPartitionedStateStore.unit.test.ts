@@ -9,22 +9,22 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
-import { InMemoryRouterAbEd25519YaoRecoveryService } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
-import { encodeRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPersistence';
-import type { CloudflareVersionedJsonRecordReadResult } from '../../packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+import { InMemoryRouterAbEd25519YaoRecoveryService } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import { encodeRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPersistence';
+import type { VersionedJsonRecordReadResult } from '../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
 import {
   runRouterAbEd25519YaoProductRegistrationRequestScopedV1,
   type RouterAbEd25519YaoProductRegistrationRequestScopedExecutionV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationRequestScopedRunner';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationRequestScopedRunner';
 import {
   runRouterAbEd25519YaoRegistrationTwoPhaseV1,
   type RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1,
   type RouterAbEd25519YaoRegistrationTwoPhaseCompletionV1,
   type RouterAbEd25519YaoRegistrationTwoPhasePrepareResultV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistrationTwoPhaseRunner';
-import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationTwoPhaseRunner';
+import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
 
@@ -126,7 +126,7 @@ class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistratio
   async readMany(keys: readonly string[]): Promise<
     readonly {
       readonly key: string;
-      readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
+      readonly result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
     }[]
   > {
     this.readManyCallCount += 1;

@@ -7,7 +7,7 @@ import {
   ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
   ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
-import { resolveThresholdRuntimePolicyScope } from '../../../commonRouterUtils';
+import { resolveThresholdRuntimePolicyScope } from '../../../auth/commonRouterUtils';
 import { normalizeCorsOrigin } from '../../../../core/SessionService';
 import {
   authenticateRouterAbOperationStepUpAppSession,
@@ -16,11 +16,11 @@ import {
   parseRouterAbEd25519OperationStepUpScope,
   parseRouterAbOperationStepUpOperation,
   type RouterAbEd25519NormalSigningRoutePhase,
-} from '../../../routerAbPrivateSigningWorker';
+} from '../../../domains/normalSigning/routerAbPrivateSigningWorker';
 import {
   parseThresholdEd25519OperationStepUpGrantRequest,
   parseThresholdEd25519SessionRouteRequest,
-} from '../../../thresholdEd25519RequestValidation';
+} from '../../../domains/ed25519Yao/session/thresholdEd25519RequestValidation';
 import {
   isPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
@@ -72,7 +72,7 @@ import type {
   RouterAbEd25519YaoBudgetRefreshAuthorizationV1,
   RouterAbEd25519YaoOperationStepUpGrantCommandV1,
   RouterAbEd25519YaoSessionRouteCommandV1,
-} from '../../../routerAbEd25519YaoWalletSession';
+} from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
 import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
 import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
 import {
@@ -83,11 +83,11 @@ import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   emailOtpStatusCode,
   hashEmailOtpAppSessionClaims,
-} from '../../../emailOtpSessionRouteHelpers';
+} from '../../../domains/emailOtp/emailOtpSessionRouteHelpers';
 import type {
   RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest,
   RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse,
-} from '../../../routerAbEd25519YaoWalletSession';
+} from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
 
 type Ed25519ReusableAuthorizedOperationReceipt = {
   readonly kind: 'reusable_wallet_session_authorized_operation_v1';

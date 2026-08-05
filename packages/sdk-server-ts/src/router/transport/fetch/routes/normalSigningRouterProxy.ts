@@ -1,5 +1,5 @@
 import { json } from '../../../framework/http';
-import type { RouterAbNormalSigningRouterProxy } from '../../../routerApi';
+import type { RouterAbNormalSigningRouterProxy } from '../../../framework/routerApi';
 import {
   normalizeRouterAbInternalServiceAuthSecret,
   ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,

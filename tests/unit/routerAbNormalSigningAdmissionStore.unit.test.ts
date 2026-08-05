@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
 import {
-  createCloudflareD1RouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
   type RouterAbNormalSigningAdmissionInput,
 } from '@server/router/express-adaptor';
+import { createCloudflareD1RouterAbNormalSigningAdmissionStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/normalSigning/d1RouterAbNormalSigningAdmissionStore';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -221,7 +221,9 @@ test.describe('Router A/B normal-signing admission store', () => {
     const store = createInMemoryRouterAbNormalSigningAdmissionStore();
     const adapter = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
 
-    await expect(adapter.evaluatePolicy(ed25519AdmissionInput({ expiresAtMs: nowMs }))).resolves.toEqual({
+    await expect(
+      adapter.evaluatePolicy(ed25519AdmissionInput({ expiresAtMs: nowMs })),
+    ).resolves.toEqual({
       ok: false,
       status: 408,
       code: 'invalid_body',

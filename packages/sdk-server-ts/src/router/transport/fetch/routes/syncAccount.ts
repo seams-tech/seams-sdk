@@ -3,7 +3,7 @@ import { json, readJson } from '../../../framework/http';
 import {
   parseSyncAccountOptionsRequest,
   parseSyncAccountVerifyRequest,
-} from '../../../syncAccountRequestValidation';
+} from '../../../domains/syncAccount/syncAccountRequestValidation';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,

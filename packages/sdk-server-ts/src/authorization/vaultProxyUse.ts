@@ -31,11 +31,11 @@ import {
   type AuthorizedOperationReplayResponse,
 } from './domain';
 import type { AuthorizationService } from './service';
-import { defineRoute } from '../router/routeDefinitions';
+import { defineRoute } from '../router/framework/routeDefinitions';
 import type {
   RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
-} from '../router/routeExtensions';
+} from '../router/framework/routeExtensions';
 
 const VAULT_PROXY_LANE_DIGEST_DOMAIN_V1 = 'seams:vault:proxy-use-lane:v1';
 const VAULT_PROXY_INTENT_DIGEST_DOMAIN_V1 = 'seams:vault:proxy-use-intent:v1';

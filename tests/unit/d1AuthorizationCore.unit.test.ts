@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { AuthorizationService } from '../../packages/sdk-server-ts/src/authorization/service';
 import type { EcdsaMaterialActivationScope } from '../../packages/sdk-server-ts/src/authorization/service';
-import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1AuthorizationStore';
+import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import {
   D1WalletStore,
   type D1WalletStoreScope,
@@ -31,7 +31,7 @@ import type {
   AuthorizedOperation,
   AuthorizedOperationInput,
 } from '../../packages/sdk-server-ts/src/authorization/domain';
-import { admitRouterAbEcdsaReusableWalletSessionOperation } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
+import { admitRouterAbEcdsaReusableWalletSessionOperation } from '../../packages/sdk-server-ts/src/router/domains/normalSigning/routerAbPrivateSigningWorker';
 import { buildRouterAbEcdsaWalletSessionClaimsFixture } from './helpers/routerAbEcdsaWalletSessionClaims.fixtures';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';

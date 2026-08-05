@@ -1,7 +1,7 @@
 import {
   createCloudflareD1VersionedJsonRecordStore,
   type CloudflareD1VersionedJsonRecordStoreOptions,
-} from '../../d1VersionedJsonRecordStore';
+} from '../versionedJson/d1VersionedJsonRecordStore';
 import {
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   encodeRouterAbEd25519YaoProductRegistrationPartitionRecordV1,
@@ -9,7 +9,7 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-} from '../../../routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../../domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 
 export type RouterAbEd25519YaoProductRegistrationPartitionedStateD1OptionsV1 = Omit<
   CloudflareD1VersionedJsonRecordStoreOptions<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>,

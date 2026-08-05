@@ -7,8 +7,8 @@ export * from './core/logger';
 export * from './core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 export * from './core/types';
 export * from './delegateAction';
-export * from './router/apiCredentialPorts';
-export * from './router/applyRouteMetering';
+export * from './router/framework/apiCredentialPorts';
+export * from './router/framework/applyRouteMetering';
 export * from './router/cloudflare-adaptor';
 export type {
   CfEmailMessage,
@@ -20,44 +20,44 @@ export type {
   RouterApiCloudflareSignerWorkerEnv,
   ScheduledHandler,
   SeamsD1SignerTenantStorageWorkerEnv,
-} from './router/cloudflare/cloudflare.types';
+} from './router/cloudflare/runtime/cloudflare.types';
 export type {
   FetchRouterApiContext,
   FetchRouterHandler,
   FetchRouterRuntime,
 } from './router/transport/fetch/fetchRouter.types';
-export * from './router/cloudflare/createCloudflareRouter';
-export * from './router/cloudflare/d1Ed25519YaoCapabilityPersistence';
-export * from './router/cloudflare/d1OidcBoundary';
-export * from './router/cloudflare/d1RouterApiAuthConfig';
-export * from './router/cloudflare/d1RouterApiAuthService';
-export * from './router/cloudflare/d1WebAuthnAuthService';
-export * from './router/cloudflare/d1WebAuthnStore';
+export * from './router/cloudflare/runtime/createCloudflareRouter';
+export * from './router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence';
+export * from './router/cloudflare/d1/oidc/d1OidcBoundary';
+export * from './router/cloudflare/d1/auth/d1RouterApiAuthConfig';
+export * from './router/cloudflare/d1/auth/d1RouterApiAuthService';
+export * from './router/cloudflare/d1/webauthn/d1WebAuthnAuthService';
+export * from './router/cloudflare/d1/webauthn/d1WebAuthnStore';
 export * from './router/cloudflare/durableObjects/thresholdStore';
 export * from './router/framework/http';
-export * from './router/enforceRoutePolicy';
-export * from './router/logger';
-export * from './router/routeAuthPolicy';
-export * from './router/routeDefinitions';
-export * from './router/routeExecutionContext';
-export * from './router/routeExtensions';
-export * from './router/routeResponses';
-export * from './router/routerAbEcdsaStrictRegistration';
-export * from './router/routerAbEd25519YaoExport';
-export * from './router/routerAbEd25519YaoExportRequestScopedCloudflare';
-export * from './router/routerAbEd25519YaoHttpRegistrationBackend';
-export * from './router/routerAbEd25519YaoProductRegistration';
-export * from './router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-export * from './router/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
-export * from './router/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
-export * from './router/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
-export * from './router/routerAbEd25519YaoRegistrationRequestScopedCloudflare';
-export * from './router/routerAbNormalSigningAdmissionCore';
-export * from './router/routerAbPrivateSigningWorker';
-export * from './router/routerApi';
-export * from './router/routerApiCredentialAuth';
-export * from './router/routerApiKeyAuth';
-export * from './router/runtimeSnapshotConsumer';
+export * from './router/framework/enforceRoutePolicy';
+export * from './router/framework/logger';
+export * from './router/framework/routeAuthPolicy';
+export * from './router/framework/routeDefinitions';
+export * from './router/framework/routeExecutionContext';
+export * from './router/framework/routeExtensions';
+export * from './router/framework/routeResponses';
+export * from './router/domains/ecdsa/routerAbEcdsaStrictRegistration';
+export * from './router/domains/ed25519Yao/export/routerAbEd25519YaoExport';
+export * from './router/domains/ed25519Yao/export/routerAbEd25519YaoExportRequestScopedCloudflare';
+export * from './router/domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
+export * from './router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+export * from './router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+export * from './router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+export * from './router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryRequestScopedCloudflare';
+export * from './router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
+export * from './router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationRequestScopedCloudflare';
+export * from './router/domains/normalSigning/routerAbNormalSigningAdmissionCore';
+export * from './router/domains/normalSigning/routerAbPrivateSigningWorker';
+export * from './router/framework/routerApi';
+export * from './router/auth/routerApiCredentialAuth';
+export * from './router/auth/routerApiKeyAuth';
+export * from './router/framework/runtimeSnapshotConsumer';
 export * from './storage/d1Sql';
 export * from './storage/tenantRoute';
 export * from './threshold/session/signingSessionSeal/options';

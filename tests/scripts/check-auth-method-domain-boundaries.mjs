@@ -19,7 +19,7 @@ const approvedBinaryFallbacks = new Map([
   ['packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts', 1],
   ['packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts', 1],
   ['packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts', 1],
-  ['packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts', 1],
+  ['packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts', 1],
 ]);
 const approvedLiteralUnions = new Map([
   ['packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts', 1],

@@ -46,7 +46,7 @@ function collectForbiddenMarkerOffenders(paths, forbiddenMarkers) {
 }
 
 function checkRouterAbServerWalletSessionIssuerUsesExactClaimBuilders() {
-  const source = readRepoFile('packages/sdk-server-ts/src/router/commonRouterUtils.ts');
+  const source = readRepoFile('packages/sdk-server-ts/src/router/auth/commonRouterUtils.ts');
   const forbiddenMarkers = [
     'extraClaims',
     'allowedSessionKinds',
@@ -75,7 +75,7 @@ function checkRouterAbServerWalletSessionIssuerUsesExactClaimBuilders() {
 function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes() {
   const guardedFiles = [
     'packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts',
-    'packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts',
+    'packages/sdk-server-ts/src/router/domains/normalSigning/routerAbPrivateSigningWorker.ts',
     'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
   ];
   const forbiddenMarkers = [
@@ -93,7 +93,9 @@ function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes()
     'routerAbEcdsaDerivation.ts missing canonical-byte helper',
   );
   assert.ok(
-    readRepoFile('packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts').includes(
+    readRepoFile(
+      'packages/sdk-server-ts/src/router/domains/normalSigning/routerAbPrivateSigningWorker.ts',
+    ).includes(
       'sameRouterAbEcdsaDerivationNormalSigningScopeV1',
     ),
     'routerAbPrivateSigningWorker.ts missing canonical scope comparison',
@@ -109,7 +111,7 @@ function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes()
 function checkRouterAbPrivateServiceJsonCallsUseSharedInternalAuthHelper() {
   const guardedFiles = [
     'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge.ts',
-    'packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts',
+    'packages/sdk-server-ts/src/router/domains/normalSigning/routerAbPrivateSigningWorker.ts',
   ];
   const forbiddenMarkers = [
     '[ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1]:',

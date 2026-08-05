@@ -189,7 +189,7 @@ export {
   type RouterAbNormalSigningAdmissionStore,
   type RouterAbNormalSigningProjectPolicyDecision,
   type RouterAbNormalSigningProjectPolicyProvider,
-} from './router/routerAbNormalSigningAdmissionCore';
+} from './router/domains/normalSigning/routerAbNormalSigningAdmissionCore';
 export {
   CloudflareD1RouterAbNormalSigningAdmissionStore,
   createCloudflareD1RouterAbNormalSigningAdmissionStore,
@@ -201,13 +201,13 @@ export type {
   RouterApiModule,
   RouterApiModuleKind,
   RouterApiModuleOptions,
-} from './router/modules';
-export { createRouterApiModule } from './router/modules';
+} from './router/framework/modules';
+export { createRouterApiModule } from './router/framework/modules';
 export type {
   RouterApiFetchRouteExtension,
   RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
   RouterApiRouteExtensionTransport,
-} from './router/routeExtensions';
-export * from './router/ror';
+} from './router/framework/routeExtensions';
+export * from './router/framework/ror';
 export * from './storage/tenantRoute';
