@@ -3,23 +3,21 @@
 ## Status
 
 Implemented and integrated through Phases 1–6 on `codex/r97-folder-hierarchy`
-at `229a3b0d3`.
+at `45551889b`.
 
 ### Implementation record
 
-- Integrated branch/HEAD: `codex/r97-folder-hierarchy` / `229a3b0d3`.
-- No R97 structural symlinks or compatibility fallbacks remain.
-- Static resolver found zero unresolved local `router` imports in SDK
-  sources/tests.
-- Focused guards passed for Cloudflare D1 runtime, route lifecycle,
-  wallet-scoped lookup, wallet-session vocabulary, and server wallet-session
-  claims.
-- Package SDK type-check is blocked only by missing generated WASM artifacts in
-  this checkout.
-- The full source-guard chain is blocked by the existing sdk-web `.tooling`
-  permission issue plus the known baseline ECDSA identity and
-  generated-artifact findings.
-- The package export test requires the unrelated sdk-web `dist` build.
+- Integrated branch/HEAD: `codex/r97-folder-hierarchy` / `45551889b`.
+- No R97 structural symlinks or fallback paths remain.
+- Server package typecheck, console-server typecheck, and unit typecheck pass.
+- Package export contract passes 12/12; export server passes 17/17; route
+  surface passes 10/10.
+- R97 contract, recovery, and vault tests pass 33/33.
+- ECDSA derivation guard passes.
+- Static local-router resolver reports zero unresolved imports.
+- The full source-guard chain stops on existing sdk-web auth-method fallback
+  findings and the existing ECDSA identity guard finding; both are outside
+  R97.
 
 This refactor changes **no behaviour**. Phase 1 and Phase 2 are small
 boundary extractions that remove dependency inversions. Phases 3–4 are
