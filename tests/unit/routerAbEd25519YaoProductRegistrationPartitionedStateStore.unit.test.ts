@@ -13,7 +13,7 @@ import {
 import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
 import { InMemoryRouterAbEd25519YaoRecoveryService } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import { encodeRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPersistence';
-import type { CloudflareVersionedJsonRecordReadResult } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/versionedJsonRecordStore';
+import type { VersionedJsonRecordReadResult } from '../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
 import {
   runRouterAbEd25519YaoProductRegistrationRequestScopedV1,
   type RouterAbEd25519YaoProductRegistrationRequestScopedExecutionV1,
@@ -126,7 +126,7 @@ class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistratio
   async readMany(keys: readonly string[]): Promise<
     readonly {
       readonly key: string;
-      readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
+      readonly result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
     }[]
   > {
     this.readManyCallCount += 1;
