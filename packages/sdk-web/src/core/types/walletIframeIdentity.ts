@@ -6,6 +6,10 @@ export type WalletIframeRequestId = string & {
   readonly __walletIframeRequestId: unique symbol;
 };
 
+export type WalletIframeAuthMenuSessionId = string & {
+  readonly __walletIframeAuthMenuSessionId: unique symbol;
+};
+
 function requireIdentityString(value: unknown, field: string): string {
   if (typeof value !== 'string' || !value.trim()) {
     throw new Error(`${field} must be a non-empty string`);

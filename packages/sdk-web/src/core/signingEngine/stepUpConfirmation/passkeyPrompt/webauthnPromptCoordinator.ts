@@ -1,4 +1,7 @@
-import type { WalletIframeRequestId } from '@/core/types/walletIframeIdentity';
+import type {
+  WalletIframeAuthMenuSessionId,
+  WalletIframeRequestId,
+} from '@/core/types/walletIframeIdentity';
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 
 export type WebAuthnPromptReservationId = string & {
@@ -9,10 +12,18 @@ export type WebAuthnPromptOperationId = string & {
   readonly __webAuthnPromptOperationId: unique symbol;
 };
 
-export type RegistrationWebAuthnPromptOwner = {
-  kind: 'registration_modal';
+export type HostedAuthMenuRegistrationWebAuthnPromptOwner = {
+  kind: 'hosted_auth_menu_registration';
+  authMenuSessionId: WalletIframeAuthMenuSessionId;
   requestId: WalletIframeRequestId;
 };
+
+export type RegistrationWebAuthnPromptOwner =
+  | {
+      kind: 'registration_modal';
+      requestId: WalletIframeRequestId;
+    }
+  | HostedAuthMenuRegistrationWebAuthnPromptOwner;
 
 export type WebAuthnPromptOwner =
   | RegistrationWebAuthnPromptOwner
@@ -83,7 +94,22 @@ function registrationPromptOwnersEqual(
   left: RegistrationWebAuthnPromptOwner,
   right: RegistrationWebAuthnPromptOwner,
 ): boolean {
-  return left.requestId === right.requestId;
+  switch (left.kind) {
+    case 'registration_modal':
+      return right.kind === 'registration_modal' && left.requestId === right.requestId;
+    case 'hosted_auth_menu_registration':
+      return (
+        right.kind === 'hosted_auth_menu_registration' &&
+        left.authMenuSessionId === right.authMenuSessionId &&
+        left.requestId === right.requestId
+      );
+    default:
+      return assertNeverRegistrationWebAuthnPromptOwner(left);
+  }
+}
+
+function assertNeverRegistrationWebAuthnPromptOwner(value: never): never {
+  throw new Error(`Unknown registration WebAuthn prompt owner: ${String(value)}`);
 }
 
 function createReservationId(): WebAuthnPromptReservationId {

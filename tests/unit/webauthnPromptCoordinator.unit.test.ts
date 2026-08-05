@@ -4,10 +4,21 @@ import {
   WebAuthnPromptCoordinatorError,
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 import { walletIframeRequestIdFromBoundary } from '@/core/types/walletIframeIdentity';
+import { hostedAuthMenuSessionIdFromBoundary } from '@/SeamsWeb/walletIframe/shared/messages';
 
 function registrationOwner(suffix = '1') {
   return {
     kind: 'registration_modal' as const,
+    requestId: walletIframeRequestIdFromBoundary(`request-${suffix}`),
+  };
+}
+
+function hostedRegistrationOwner(suffix = '1') {
+  const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(`auth-menu-${suffix}`);
+  if (!authMenuSessionId) throw new Error('hosted auth-menu session id fixture is invalid');
+  return {
+    kind: 'hosted_auth_menu_registration' as const,
+    authMenuSessionId,
     requestId: walletIframeRequestIdFromBoundary(`request-${suffix}`),
   };
 }
@@ -90,6 +101,32 @@ test.describe('WebAuthnPromptCoordinator', () => {
       }),
     ).toThrow(/already consumed/);
     expect(calls).toBe(0);
+  });
+
+  test('binds hosted registration reservations to both auth-menu session and request identities', async () => {
+    const coordinator = new WebAuthnPromptCoordinator();
+    const owner = hostedRegistrationOwner();
+    const reservation = await coordinator.reserveRegistrationPrompt({
+      owner,
+      expiresAtMs: Date.now() + 10_000,
+      cancellation: { kind: 'none' },
+    });
+
+    expect(() =>
+      coordinator.runReserved({
+        reservation,
+        owner: hostedRegistrationOwner('different-session'),
+        operation: async () => 'wrong',
+      }),
+    ).toThrow(WebAuthnPromptCoordinatorError);
+
+    await expect(
+      coordinator.runReserved({
+        reservation,
+        owner,
+        operation: async () => 'ok',
+      }),
+    ).resolves.toBe('ok');
   });
 
   test('waits for a running operation before granting a reservation', async () => {

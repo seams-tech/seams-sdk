@@ -1590,10 +1590,25 @@ export async function unlockResolvedWalletSubjectSet(
   return await unlockInternal(context, subjectSet, options);
 }
 
+/**
+ * Host-only continuation used by the wallet-iframe auth menu after its CTA has
+ * synchronously collected the passkey assertion. Direct unlock callers keep
+ * using `unlockResolvedWalletSubjectSet`, which owns its own prompt.
+ */
+export async function unlockResolvedWalletSubjectSetWithPasskeyCredential(
+  context: LoginWebContext,
+  subjectSet: WalletUnlockSubjectSet,
+  credential: WebAuthnAuthenticationCredential,
+  options?: LoginHooksOptions,
+): Promise<LoginAndCreateSessionResult> {
+  return await unlockInternal(context, subjectSet, options, credential);
+}
+
 async function unlockInternal(
   context: LoginWebContext,
   subjectSet: WalletUnlockSubjectSet,
   options: LoginHooksOptions | undefined,
+  initialLoginCredential?: WebAuthnAuthenticationCredential,
 ): Promise<LoginAndCreateSessionResult> {
   const { onEvent, onError, afterCall } = options || {};
   const { signingEngine } = context;
@@ -1609,7 +1624,7 @@ async function unlockInternal(
     walletIdentity.kind === 'near_ed25519_capable_wallet'
       ? String(walletIdentity.nearAccountId)
       : String(walletIdentity.walletId);
-  let loginCredential: WebAuthnAuthenticationCredential | undefined;
+  let loginCredential: WebAuthnAuthenticationCredential | undefined = initialLoginCredential;
 
   // All unlock branches emit the same ordered event stream for caller progress UIs.
   emitUnlockEvent(onEvent, unlockSubjectId, {

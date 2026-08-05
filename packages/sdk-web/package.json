@@ -43,21 +43,6 @@
       "default": "./dist/esm/react/components/SeamsAuthMenu/public.js",
       "types": "./dist/types/sdk-web/src/react/components/SeamsAuthMenu/public.d.ts"
     },
-    "./react/seams-auth-menu/client": {
-      "import": "./dist/esm/react/components/SeamsAuthMenu/client.js",
-      "default": "./dist/esm/react/components/SeamsAuthMenu/client.js",
-      "types": "./dist/types/sdk-web/src/react/components/SeamsAuthMenu/client.d.ts"
-    },
-    "./react/seams-auth-menu/skeleton": {
-      "import": "./dist/esm/react/components/SeamsAuthMenu/skeleton.js",
-      "default": "./dist/esm/react/components/SeamsAuthMenu/skeleton.js",
-      "types": "./dist/types/sdk-web/src/react/components/SeamsAuthMenu/skeleton.d.ts"
-    },
-    "./react/seams-auth-menu/preload": {
-      "import": "./dist/esm/react/components/SeamsAuthMenu/preload.js",
-      "default": "./dist/esm/react/components/SeamsAuthMenu/preload.js",
-      "types": "./dist/types/sdk-web/src/react/components/SeamsAuthMenu/preload.d.ts"
-    },
     "./react/provider": {
       "import": "./dist/esm/react/context/SeamsWebProvider.js",
       "default": "./dist/esm/react/context/SeamsWebProvider.js",

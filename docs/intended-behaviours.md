@@ -46,6 +46,26 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
   persisted/sealed session state. If rehydration fails or a session is expired
   or exhausted, the next operation must use normal unlock or step-up auth.
 
+## Hosted Auth Menu Entry Point
+
+When hosted wallet-iframe mode is configured, mounting `SeamsAuthMenu` opens one
+`modal_auth_menu` surface in the wallet-origin iframe. The app document contains
+only an inert lifecycle marker; auth inputs, progress, OTP prompts, and the final
+CTA belong to the wallet origin.
+
+- Login and registration prepare their asynchronous prerequisites before enabling
+  the single wallet-origin CTA. The CTA starts the selected passkey ceremony from
+  that wallet-origin activation.
+- Registration uses the configured account-input policy and completes through the
+  same prepared surface; it does not open a second registration-confirmation modal.
+- An external provider broker may return only typed evidence. The wallet host
+  owns provider validation, OTP state, registration continuation, and unlock
+  continuation.
+- The adapter emits exactly one terminal `HostedAuthMenuOutcome` for the session.
+  Unmounting or closing cancels only that session and leaves direct
+  `registerWallet()`, `addWalletSigner()`, and `unlock()` confirmation surfaces
+  unchanged.
+
 ## Registration
 
 ### Passkey Account

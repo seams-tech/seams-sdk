@@ -30,7 +30,10 @@ import {
   runSingleFlightNearProvisioning,
 } from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntimeScope';
-import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
+import {
+  cloneAuthenticatorOptions,
+  type AuthenticatorOptions,
+} from '@/core/types/authenticatorOptions';
 import { createRegistrationFlowEvent, RegistrationEventPhase } from '@/core/types/sdkSentEvents';
 import type {
   RegistrationSigningSurface,
@@ -48,6 +51,16 @@ import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
 } from '@/core/types/webauthn';
+import type {
+  WalletIframeAuthMenuSessionId,
+  WalletIframeRequestId,
+} from '@/core/types/walletIframeIdentity';
+import {
+  webAuthnPromptCoordinator,
+  type HostedAuthMenuRegistrationWebAuthnPromptOwner,
+  type ReservedRegistrationWebAuthnPrompt,
+  type WebAuthnPromptCancellation,
+} from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
   AddSignerSelection,
@@ -148,6 +161,7 @@ import type {
 } from '@/core/signingEngine/routerAb/ecdsaDerivation/clientCeremony';
 import {
   collectPasskeyRegistrationAuthority,
+  collectPasskeyRegistrationAuthorityFromCredential,
   type PasskeyRegistrationAuthorityDiagnostics,
 } from '@/SeamsWeb/operations/authMethods/passkey/registrationAuthority';
 import { backupEmailOtpRecoveryCodes } from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
@@ -599,9 +613,69 @@ export type RegisterWalletOperationInput = {
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
 };
 
-type RegisterWalletPasskeyExecution = {
-  kind: 'collect_during_registration';
+const hostedPasskeyRegistrationPreparedBrand: unique symbol = Symbol(
+  'hostedPasskeyRegistrationPrepared',
+);
+
+export type HostedPasskeyRegistrationPrepared = Readonly<{
+  kind: 'hosted_passkey_registration_prepared_v1';
+  walletId: WalletId;
+  signerSlot: number;
+  rpId: WebAuthnRpId;
+  challengeB64u: string;
+  registrationIntentDigestB64u: string;
+  expiresAtMs: number;
+  owner: HostedAuthMenuRegistrationWebAuthnPromptOwner;
+  reservation: ReservedRegistrationWebAuthnPrompt<HostedAuthMenuRegistrationWebAuthnPromptOwner>;
+  cancellation: {
+    kind: 'abort_signal';
+    signal: AbortSignal;
+  };
+  [hostedPasskeyRegistrationPreparedBrand]: true;
+}>;
+
+export type HostedPasskeyRegistrationPreparationInput = {
+  context: RegistrationWebContext;
+  wallet: RegisterWalletInput;
+  signerSelection: RegistrationSignerSetSelection;
+  authMethod: Extract<RegistrationAuthMethodInput, { kind: 'passkey' }>;
+  authMenuSessionId: WalletIframeAuthMenuSessionId;
+  requestId: WalletIframeRequestId;
+  cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>;
+  options?: RegistrationHooksOptions;
+  confirmationConfigOverride?: Partial<ConfirmationConfig>;
+  expiresInMs?: number;
 };
+
+type HostedPasskeyRegistrationPreparationState = {
+  prepared: HostedPasskeyRegistrationPrepared;
+  context: RegistrationWebContext;
+  wallet: RegisterWalletInput;
+  signerSelection: RegistrationSignerSetSelection;
+  authMethod: Extract<RegistrationAuthMethodInput, { kind: 'passkey' }>;
+  options: RegistrationHooksOptions;
+  confirmationConfigOverride?: Partial<ConfirmationConfig>;
+  setup: Awaited<ReturnType<typeof setupThreeRouteRegistration>>;
+  controller: AbortController;
+  removeExternalCancellationListener: (() => void) | null;
+  binding: string;
+  lifecycle: 'ready' | 'consuming' | 'consumed' | 'cancelled' | 'finished';
+  authority: Promise<RegistrationPasskeyAuthority> | null;
+  registrationStarted: boolean;
+};
+
+const hostedPasskeyRegistrationStates = new WeakMap<
+  HostedPasskeyRegistrationPrepared,
+  HostedPasskeyRegistrationPreparationState
+>();
+
+type RegisterWalletPasskeyExecution =
+  | { kind: 'collect_during_registration' }
+  | {
+      kind: 'use_hosted_preparation';
+      prepared: HostedPasskeyRegistrationPrepared;
+      authority: Promise<RegistrationPasskeyAuthority>;
+    };
 
 /* Setup writes one ceremony row and nothing else, so a failed registration
    has no separate reservation or grant to release — only the page-owned Yao
@@ -1958,7 +2032,11 @@ async function resolvePasskeyRegistrationAuthority(args: {
   registrationIntentDigestB64u: string;
   options: RegistrationHooksOptions;
   confirmationConfigOverride: Partial<ConfirmationConfig>;
+  passkeyExecution?: RegisterWalletPasskeyExecution;
 }): Promise<Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>>> {
+  if (args.passkeyExecution?.kind === 'use_hosted_preparation') {
+    return await args.passkeyExecution.authority;
+  }
   return await collectPasskeyRegistrationAuthority({
     context: args.context,
     walletId: args.walletId,
@@ -1967,6 +2045,308 @@ async function resolvePasskeyRegistrationAuthority(args: {
     options: args.options,
     confirmationConfigOverride: args.confirmationConfigOverride,
   });
+}
+
+function hostedPasskeyRegistrationState(
+  prepared: HostedPasskeyRegistrationPrepared,
+): HostedPasskeyRegistrationPreparationState {
+  if (prepared[hostedPasskeyRegistrationPreparedBrand] !== true) {
+    throw new Error('Invalid hosted passkey registration preparation');
+  }
+  const state = hostedPasskeyRegistrationStates.get(prepared);
+  if (!state) throw new Error('Hosted passkey registration preparation is unknown');
+  return state;
+}
+
+function assertHostedPasskeyRegistrationLive(
+  state: HostedPasskeyRegistrationPreparationState,
+): void {
+  if (state.lifecycle !== 'ready') {
+    throw new Error('Hosted passkey registration preparation is no longer usable');
+  }
+  if (Date.now() >= state.prepared.expiresAtMs) {
+    cancelHostedPasskeyRegistration(state.prepared);
+    throw new Error('Hosted passkey registration preparation expired');
+  }
+  if (state.controller.signal.aborted) {
+    throw new Error('Hosted passkey registration preparation was cancelled');
+  }
+  if (
+    !webAuthnPromptCoordinator.isLiveReservation({
+      reservation: state.prepared.reservation,
+      owner: state.prepared.owner,
+    })
+  ) {
+    cancelHostedPasskeyRegistration(state.prepared);
+    throw new Error('Hosted passkey registration prompt reservation is no longer active');
+  }
+}
+
+function hostedPasskeyRegistrationBinding(args: {
+  wallet: RegisterWalletInput;
+  signerSelection: RegistrationSignerSetSelection;
+  authMethod: Extract<RegistrationAuthMethodInput, { kind: 'passkey' }>;
+  walletId: WalletId;
+  signerSlot: number;
+  rpId: WebAuthnRpId;
+  challengeB64u: string;
+}): string {
+  return alphabetizeStringify({
+    wallet: args.wallet,
+    signerSelection: args.signerSelection,
+    authMethod: args.authMethod,
+    walletId: args.walletId,
+    signerSlot: args.signerSlot,
+    rpId: args.rpId,
+    challengeB64u: args.challengeB64u,
+  });
+}
+
+function hostedPasskeyRegistrationCancellationError(): Error {
+  return new Error('Hosted passkey registration preparation was cancelled');
+}
+
+function throwIfHostedPasskeyRegistrationCancelled(signal: AbortSignal): void {
+  if (signal.aborted) throw hostedPasskeyRegistrationCancellationError();
+}
+
+function awaitHostedPasskeyRegistrationStage<T>(args: {
+  operation: Promise<T>;
+  cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>;
+}): Promise<T> {
+  const signal = args.cancellation.signal;
+  throwIfHostedPasskeyRegistrationCancelled(signal);
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const onAbort = (): void => {
+      rejectOnce(hostedPasskeyRegistrationCancellationError());
+    };
+    const cleanup = (): void => {
+      signal.removeEventListener('abort', onAbort);
+    };
+    const resolveOnce = (value: T): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const rejectOnce = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    void args.operation.then(resolveOnce, rejectOnce);
+  });
+}
+
+export async function prepareHostedPasskeyRegistration(
+  args: HostedPasskeyRegistrationPreparationInput,
+): Promise<HostedPasskeyRegistrationPrepared> {
+  const authMethod = args.authMethod;
+  const rpId = requireWebAuthnRpId(String(authMethod.rpId));
+  const runtimeRpId = requireWebAuthnRpId(String(args.context.signingEngine.getRpId() || ''));
+  if (runtimeRpId !== rpId) {
+    throw new Error('Hosted passkey registration rpId does not match the wallet runtime');
+  }
+  const signerSlot = registrationPreparationSignerSlot(args.signerSelection);
+  const expiresInMs = args.expiresInMs ?? 5 * 60 * 1000;
+  if (!Number.isSafeInteger(expiresInMs) || expiresInMs <= 0) {
+    throw new Error('Hosted passkey registration expiry must be a positive safe integer');
+  }
+  const expiresAtMs = Date.now() + expiresInMs;
+  const owner: HostedAuthMenuRegistrationWebAuthnPromptOwner = {
+    kind: 'hosted_auth_menu_registration',
+    authMenuSessionId: args.authMenuSessionId,
+    requestId: args.requestId,
+  };
+  const controller = new AbortController();
+  let prepared: HostedPasskeyRegistrationPrepared | null = null;
+  let reservation: ReservedRegistrationWebAuthnPrompt<HostedAuthMenuRegistrationWebAuthnPromptOwner> | null =
+    null;
+  const onHostCancellation = (): void => {
+    controller.abort();
+    if (prepared) cancelHostedPasskeyRegistration(prepared);
+  };
+  const removeExternalCancellationListener = (): void => {
+    args.cancellation.signal.removeEventListener('abort', onHostCancellation);
+  };
+  throwIfHostedPasskeyRegistrationCancelled(args.cancellation.signal);
+  args.cancellation.signal.addEventListener('abort', onHostCancellation, { once: true });
+  const recorder = new RegistrationTimingRecorder(performance.now());
+  try {
+    const setup = await awaitHostedPasskeyRegistrationStage({
+      operation: setupThreeRouteRegistration({
+        context: args.context,
+        authMethod,
+        wallet: args.wallet,
+        signerSelection: args.signerSelection,
+        recorder,
+      }),
+      cancellation: args.cancellation,
+    });
+    const intent = requirePasskeyRegistrationIntent(setup.setup.intent);
+    if (
+      String(intent.authMethod.rpId) !== String(rpId) ||
+      alphabetizeStringify(intent.signerSelection) !== alphabetizeStringify(args.signerSelection)
+    ) {
+      throw new Error('Hosted passkey registration setup changed its authority binding');
+    }
+    const walletId = walletIdFromString(String(intent.walletId));
+    const challengeB64u = String(setup.setup.registrationIntentDigestB64u || '').trim();
+    if (!challengeB64u) throw new Error('Hosted passkey registration setup returned no challenge');
+    const expectedSignerSlot = registrationPreparationSignerSlot(args.signerSelection);
+    if (signerSlot !== expectedSignerSlot) {
+      throw new Error('Hosted passkey registration signer slot changed during preparation');
+    }
+    const warmup = await awaitHostedPasskeyRegistrationStage({
+      operation: setup.registrationWarmup,
+      cancellation: args.cancellation,
+    });
+    if (warmup.kind === 'failed') throw warmup.error;
+    if (Date.now() >= expiresAtMs) {
+      throw new Error('Hosted passkey registration preparation expired before reservation');
+    }
+    const acquiredReservation = await webAuthnPromptCoordinator.reserveRegistrationPrompt({
+      owner,
+      expiresAtMs,
+      cancellation: args.cancellation,
+    });
+    reservation = acquiredReservation;
+    const binding = hostedPasskeyRegistrationBinding({
+      wallet: args.wallet,
+      signerSelection: args.signerSelection,
+      authMethod,
+      walletId,
+      signerSlot,
+      rpId,
+      challengeB64u,
+    });
+    const preparedValue: HostedPasskeyRegistrationPrepared = Object.freeze({
+      kind: 'hosted_passkey_registration_prepared_v1',
+      walletId,
+      signerSlot,
+      rpId,
+      challengeB64u,
+      registrationIntentDigestB64u: challengeB64u,
+      expiresAtMs,
+      owner,
+      reservation: acquiredReservation,
+      cancellation: {
+        kind: 'abort_signal' as const,
+        signal: controller.signal,
+      },
+      [hostedPasskeyRegistrationPreparedBrand]: true as const,
+    });
+    hostedPasskeyRegistrationStates.set(preparedValue, {
+      prepared: preparedValue,
+      context: args.context,
+      wallet: args.wallet,
+      signerSelection: args.signerSelection,
+      authMethod,
+      options: args.options ?? {},
+      ...(args.confirmationConfigOverride
+        ? { confirmationConfigOverride: args.confirmationConfigOverride }
+        : {}),
+      setup,
+      controller,
+      removeExternalCancellationListener,
+      binding,
+      lifecycle: 'ready',
+      authority: null,
+      registrationStarted: false,
+    });
+    prepared = preparedValue;
+    return preparedValue;
+  } catch (error) {
+    controller.abort();
+    removeExternalCancellationListener();
+    if (prepared) cancelHostedPasskeyRegistration(prepared);
+    else if (reservation) webAuthnPromptCoordinator.releaseReservation(reservation);
+    throw error;
+  }
+}
+
+export function cancelHostedPasskeyRegistration(prepared: HostedPasskeyRegistrationPrepared): void {
+  const state = hostedPasskeyRegistrationState(prepared);
+  if (state.lifecycle === 'finished' || state.lifecycle === 'cancelled') return;
+  state.lifecycle = 'cancelled';
+  state.controller.abort();
+  state.removeExternalCancellationListener?.();
+  state.removeExternalCancellationListener = null;
+  webAuthnPromptCoordinator.releaseReservation(prepared.reservation);
+}
+
+/**
+ * Starts WebAuthn synchronously from the caller's wallet-origin activation.
+ * The adapter call intentionally occurs before this function awaits anything.
+ */
+export function startHostedPasskeyRegistrationCredential(
+  prepared: HostedPasskeyRegistrationPrepared,
+): Promise<RegistrationPasskeyAuthority> {
+  const state = hostedPasskeyRegistrationState(prepared);
+  assertHostedPasskeyRegistrationLive(state);
+  state.lifecycle = 'consuming';
+  const credentialPromise = state.context.signingEngine.startPreparedPasskeyRegistrationCredential({
+    walletId: String(prepared.walletId),
+    signerSlot: prepared.signerSlot,
+    challengeB64u: prepared.challengeB64u,
+    expectedRpId: String(prepared.rpId),
+    reservation: prepared.reservation,
+    owner: prepared.owner,
+    cancellation: prepared.cancellation,
+  });
+  const authority = collectPasskeyRegistrationAuthorityFromCredential(credentialPromise);
+  state.authority = authority;
+  void authority.then(
+    () => {
+      if (state.lifecycle === 'consuming') state.lifecycle = 'consumed';
+    },
+    () => {
+      cancelHostedPasskeyRegistration(prepared);
+    },
+  );
+  return authority;
+}
+
+export async function registerPreparedHostedPasskeyRegistration(args: {
+  prepared: HostedPasskeyRegistrationPrepared;
+}): Promise<RegistrationResult> {
+  const state = hostedPasskeyRegistrationState(args.prepared);
+  if ((state.lifecycle !== 'consuming' && state.lifecycle !== 'consumed') || !state.authority) {
+    throw new Error('Hosted passkey registration credential must be started by its CTA');
+  }
+  if (state.registrationStarted) {
+    throw new Error('Hosted passkey registration continuation was already consumed');
+  }
+  state.registrationStarted = true;
+  try {
+    return await registerWalletInternal({
+      context: state.context,
+      authMethod: state.authMethod,
+      wallet: state.wallet,
+      signerSelection: state.signerSelection,
+      options: state.options,
+      authenticatorOptions: cloneAuthenticatorOptions(
+        state.context.configs.webauthn.authenticatorOptions,
+      ),
+      ...(state.confirmationConfigOverride
+        ? { confirmationConfigOverride: state.confirmationConfigOverride }
+        : {}),
+      passkeyExecution: {
+        kind: 'use_hosted_preparation',
+        prepared: args.prepared,
+        authority: state.authority,
+      },
+    });
+  } finally {
+    state.lifecycle = 'finished';
+    state.controller.abort();
+    state.removeExternalCancellationListener?.();
+    state.removeExternalCancellationListener = null;
+    webAuthnPromptCoordinator.releaseReservation(args.prepared.reservation);
+  }
 }
 
 function createSucceededRegistrationTimingSummary(input: {
@@ -2396,9 +2776,7 @@ async function emailOtpEmailHashHex(email: string): Promise<string> {
   return sha256HexUtf8(normalizedEmail);
 }
 
-function emailOtpProviderFromRegistrationProof(
-  proof: EmailOtpRegistrationProof,
-): EmailOtpProvider {
+function emailOtpProviderFromRegistrationProof(proof: EmailOtpRegistrationProof): EmailOtpProvider {
   switch (proof.proofKind) {
     case 'otp_challenge':
       return 'email';
@@ -2452,6 +2830,19 @@ type RegistrationPersistenceAuth =
       credential?: never;
       credentialPublicKeyB64u?: never;
     };
+
+function registrationPersistenceAuthMethod(
+  auth: RegistrationPersistenceAuth,
+): RegistrationAuthMethodInput['kind'] {
+  switch (auth.kind) {
+    case 'passkey':
+      return 'passkey';
+    case 'email_otp':
+      return 'email_otp';
+    default:
+      return assertNever(auth);
+  }
+}
 
 type RegistrationEcdsaSession = {
   chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
@@ -3259,6 +3650,53 @@ async function setupThreeRouteRegistration(args: {
   return { relayerUrl, setup, registrationWarmup };
 }
 
+async function setupRegistrationForPasskeyExecution(args: {
+  context: RegistrationWebContext;
+  authMethod: RegistrationAuthMethodInput;
+  wallet: RegisterWalletInput;
+  signerSelection: RegistrationSignerSetSelection;
+  recorder: RegistrationTimingRecorder;
+  passkeyExecution: RegisterWalletPasskeyExecution;
+}): Promise<Awaited<ReturnType<typeof setupThreeRouteRegistration>>> {
+  if (args.passkeyExecution.kind === 'collect_during_registration') {
+    return await setupThreeRouteRegistration({
+      context: args.context,
+      authMethod: args.authMethod,
+      wallet: args.wallet,
+      signerSelection: args.signerSelection,
+      recorder: args.recorder,
+    });
+  }
+  if (args.authMethod.kind !== 'passkey') {
+    throw new Error('Hosted passkey preparation requires passkey registration');
+  }
+  const state = hostedPasskeyRegistrationState(args.passkeyExecution.prepared);
+  if (state.context !== args.context || state.lifecycle === 'cancelled') {
+    throw new Error('Hosted passkey registration preparation belongs to a different operation');
+  }
+  const setup = state.setup;
+  const intent = requirePasskeyRegistrationIntent(setup.setup.intent);
+  const challengeB64u = String(setup.setup.registrationIntentDigestB64u || '').trim();
+  const signerSlot = registrationPreparationSignerSlot(args.signerSelection);
+  const binding = hostedPasskeyRegistrationBinding({
+    wallet: args.wallet,
+    signerSelection: args.signerSelection,
+    authMethod: args.authMethod,
+    walletId: walletIdFromString(String(intent.walletId)),
+    signerSlot,
+    rpId: requireWebAuthnRpId(String(args.authMethod.rpId)),
+    challengeB64u,
+  });
+  if (
+    binding !== state.binding ||
+    String(intent.walletId) !== String(args.passkeyExecution.prepared.walletId) ||
+    challengeB64u !== args.passkeyExecution.prepared.challengeB64u
+  ) {
+    throw new Error('Hosted passkey registration preparation binding changed');
+  }
+  return setup;
+}
+
 /* Exported for tests: the ordering guarantee below (deferred NEAR handed off
    before activate, never awaited) is the ceremony's contract, and it is only
    observable by driving the ceremony itself. */
@@ -3628,7 +4066,7 @@ async function persistRegistrationEcdsaPlan(args: {
   }
   await persistActiveWalletSessionAuthorizationFromRegistration(walletSessionAuthorizations, {
     authority: args.plan.ecdsa.session.authority,
-    authMethod: args.plan.auth.kind === 'passkey' ? 'passkey' : 'email_otp',
+    authMethod: registrationPersistenceAuthMethod(args.plan.auth),
     session: args.plan.ecdsa.session.registrationEstablishedSession,
   });
 }
@@ -4844,7 +5282,7 @@ async function commitDeferredEd25519Registration(args: {
     }
     await persistActiveWalletSessionAuthorizationFromRegistration(walletSessionAuthorizations, {
       authority: args.plan.ecdsa.session.authority,
-      authMethod: auth.kind === 'passkey' ? 'passkey' : 'email_otp',
+      authMethod: registrationPersistenceAuthMethod(auth),
       session: finalized.registrationEstablishedSession,
     });
     /* Durable first: finalize, capability persistence, and the Yao seal have
@@ -4957,12 +5395,13 @@ async function registerEcdsaOrMixedWallet(
     const finalizeIdempotencyKey = createRegistrationOperationIdempotencyKey(
       'wallet-registration-finalize',
     );
-    const prepared = await setupThreeRouteRegistration({
+    const prepared = await setupRegistrationForPasskeyExecution({
       context,
       authMethod: args.authMethod,
       wallet,
       signerSelection,
       recorder: registrationTiming,
+      passkeyExecution: args.passkeyExecution,
     });
     if (args.authMethod.kind === 'email_otp') {
       observeRegistrationWarmup({
@@ -5020,6 +5459,7 @@ async function registerEcdsaOrMixedWallet(
           registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
           options,
           confirmationConfigOverride: confirmationConfig,
+          passkeyExecution: args.passkeyExecution,
         }),
       );
       registrationTiming.capturePasskeyAuthDiagnostics(passkeyAuthority.diagnostics);
@@ -5906,12 +6346,13 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       'wallet-registration-finalize',
     );
     const registrationTiming = new RegistrationTimingRecorder(performance.now());
-    const prepared = await setupThreeRouteRegistration({
+    const prepared = await setupRegistrationForPasskeyExecution({
       context,
       authMethod: args.authMethod,
       wallet: args.wallet,
       signerSelection: args.signerSelection,
       recorder: registrationTiming,
+      passkeyExecution: args.passkeyExecution,
     });
     const { relayerUrl, setup } = prepared;
     const intent = requirePasskeyRegistrationIntent(setup.intent);
@@ -5933,6 +6374,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         behavior: 'requireClick',
         ...(args.confirmationConfigOverride ?? options.confirmationConfig ?? {}),
       },
+      passkeyExecution: args.passkeyExecution,
     });
     postTouchIdCompletedAt = performance.now();
     emitRegistrationEvent(options.onEvent, eventAccountId, {
