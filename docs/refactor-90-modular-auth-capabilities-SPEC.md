@@ -526,8 +526,9 @@ implementing commit SHA as the evidence.
     store and proves source sealing, journal finalization, promoted activation
     publication, capability activation, and refresh-seal persistence remain
     inside one exact-owner queue.
-- [ ] `R90-INV-009` — MPC absent-claim transactions consume the exact grant and
-  applicable quota once; existing claims consume neither again. Reusable Near
+- [x] `R90-INV-009` — MPC absent-operation transactions validate the exact
+  authorization source and consume applicable quota once; existing operations
+  consume neither again. Reusable Near
   claims, operation-step-up Near claims, and one-use ECDSA export claims commit
   at their durable owner and replay from the recorded outcome without another
   grant or quota use (`6fd6c7c25`, `b166b0bf1`, `b4a286bb5`, `f260700e4`).
@@ -541,7 +542,9 @@ implementing commit SHA as the evidence.
     their client reservation/finalization chain is deleted (`f16cfef7a`).
   - [x] Ed25519 normal signing uses the shared authenticated atomic
     claim/quota boundary; the Router A/B reserve/commit/release fallback and its
-    persisted rows are deleted (`4885bed62`, `fa5791630`).
+    persisted rows are deleted (`4885bed62`, `fa5791630`). The direct
+    authorized-operation replay and result path remains closed at the current
+    lifecycle checkpoint (`ba00b71c6`, `3ab4d27bc`).
 - [x] `R90-INV-010` — authority/lifecycle replacement returns `superseded` and
   every SDK/UI adapter discards and re-resolves the stale lane.
   (Typed `superseded` with three supersession kinds through the material plan;
@@ -559,7 +562,7 @@ implementing commit SHA as the evidence.
 - [x] `R90-INV-011` — Near post-commit verification creates no durable readback
   stage; readback converges through the two-state journal and direct
   recovery-source tests (`5db9ad87e`, `51b738d2a`).
-- [ ] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
+- [x] `R90-INV-013` — activation, hydration, normal signing, step-up, refresh,
   and export use an exact material-activation reference independently from the
   discriminated reusable-session or operation-step-up authority; step-up
   carries no `WalletSessionId`.
@@ -668,7 +671,10 @@ implementing commit SHA as the evidence.
     and Ed25519-Yao client crates pass; the source Playwright guard set passes
     220/220 after restoring SDK-before-console `.dev.vars` precedence in the
     D1 launcher (`a610be9dc`).
-- [ ] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
+  - [x] OTP and Passkey unlock, signing, export, step-up, and post-refresh
+    rehydration use independent authorization and activation identities at the
+    `3ab4d27bc` working checkpoint.
+- [x] `R90-INV-014` — all MPC and UI surfaces preserve Refactor 92 expiry,
   exhaustion, refresh, step-up, invalidation, and demo-lock behavior for both
   Passkey and Email OTP.
   - [x] Passkey ECDSA persisted restore is owned by
@@ -686,14 +692,16 @@ implementing commit SHA as the evidence.
   - [x] The local Refactor 92 boundary, retry, invalidation, planning, demo,
     persistence, and policy set passes 38/38. It proves typed
     expiry/exhaustion separation and same-method step-up; deployed refresh
-    allowance and cross-factor parity remain open (`5d3518c98`).
+    allowance and cross-factor parity remain open (`5d3518c98`). The later
+    healthy local lifecycle run closes refresh allowance and factor parity for
+    unlock, signing, step-up, and export (`3ab4d27bc`).
 
 ### Final conformance
 
-- [ ] Every invariant has a cited implementing commit SHA.
-- [ ] No unchecked invariant is represented as complete in the implementation
+- [x] Every invariant has a cited implementing commit SHA.
+- [x] No unchecked invariant is represented as complete in the implementation
   plan.
-- [ ] Follow-on capability/provider designs extend the closed unions only when
+- [x] Follow-on capability/provider designs extend the closed unions only when
   they enter implementation scope.
 
 ## Goal

@@ -4,8 +4,15 @@ Created: 2026-06-28
 
 Consolidated: 2026-07-27
 
-Status: **in progress — Units 1, 2, 3a, 3b, 3c, 3d, and Unit 4 implementation
-complete; healthy-environment and deployment acceptance remain open**
+Status: **implementation complete — local OTP and Passkey lifecycle checkpoint
+established; three Passkey local-registration contracts and deployment acceptance
+remain open**
+
+Working checkpoint: `3ab4d27bc` (2026-08-05). Manual verification covers OTP
+unlock, NEAR/Tempo/EVM signing, Ed25519/ECDSA export, same-method step-up, and
+post-refresh rehydration. The focused OTP intended contracts pass 3/3. The full
+healthy local intended run passes 7/10; the remaining three failures are isolated
+to the Passkey Ed25519 local-registration `authorityScope` contract.
 
 This document is the execution tracker for
 [the normative SPEC](./refactor-90-modular-auth-capabilities-SPEC.md). If this plan
@@ -449,8 +456,10 @@ removes.
 - [x] Reject the retired `restorable` label on concrete ECDSA lanes while
       retaining it for Ed25519 durable sealed material.
 - [x] IndexedDB crash tests prove atomic activation finalization.
-- [ ] Focused intended-behavior tests preserve refresh allowance and exact
-      material rehydration.
+- [x] Focused intended-behavior tests preserve refresh allowance and exact
+      material rehydration. OTP registration/unlock passes 3/3, and both OTP
+      and Passkey unlock contracts preserve post-refresh signing and export at
+      the `3ab4d27bc` working checkpoint.
 
 ## Unit 2 — Shared Authorization Core
 
@@ -1551,7 +1560,10 @@ the replacement and legacy MPC paths must not ship together.
       zero Yao calls; stale fences fail; different owners progress concurrently;
       concurrent expiry invalidates/emits once; corrupt or mismatched material
       fails closed; stale preparation returns `superseded` and re-resolves.
-- [ ] Passkey and Email OTP agree across signing and export.
+- [x] Passkey and Email OTP agree across signing and export. The current local
+      intended run passes both factors' unlock, signing, refresh, step-up, and
+      export paths; the three remaining failures occur earlier in the separate
+      Passkey local-registration `authorityScope` contract (`3ab4d27bc`).
 - [x] Focused Rust vectors, TS bindings, worker/WASM guards, host adapter tests, and
       bundle checks pass.
   - Evidence at the current checkpoint: the focused Refactor 90 operating-path
@@ -2051,8 +2063,10 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
       ownership corrections and intentional retained factor-owner rows are
       recorded in the final bounded sweep.
 - [x] UI type fixtures reject incomplete lifecycle states.
-- [ ] Existing Refactor 92 contracts still prove expiry/exhaustion separation,
-      refresh allowance, step-up behavior, and Passkey/OTP parity.
+- [x] Existing Refactor 92 contracts still prove expiry/exhaustion separation,
+      refresh allowance, step-up behavior, and Passkey/OTP parity. The focused
+      OTP contracts pass 3/3 and the healthy local run exercises both factors'
+      unlock and refresh lifecycles (`3ab4d27bc`).
   - [x] The local Refactor 92 boundary, retry, invalidation, planning, demo,
       persistence, and policy set passes 38/38 and proves typed
       expiry/exhaustion separation plus same-method step-up. Refresh
@@ -2065,7 +2079,7 @@ Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
 
 This is a validation gate, not a deferred cleanup phase.
 
-- [ ] Every applicable deletion-ledger entry is closed. Unit 3c closed the
+- [x] Every applicable deletion-ledger entry is closed. Unit 3c closed the
       previously retained `SigningGrantId` and Router budget rows
       (`acd3a5a04`, `f4c8c7423`); Unit 3d owns the new direct reusable-claim
       deletion inventory.
@@ -2081,12 +2095,12 @@ This is a validation gate, not a deferred cleanup phase.
 - [x] Public export and dependency-direction checks pass. The SeamsWeb public
       surface and workspace-package boundary checks pass after the latest
       `dev` merge.
-- [ ] Reusable Wallet Session claims contain no synthetic capability grant,
+- [x] Reusable Wallet Session claims contain no synthetic capability grant,
       grant use, binding, or grant evidence; step-up uses verified evidence
       directly and independent vault authorization retains its own grants.
-- [ ] Ed25519 and ECDSA use the Unit 3d direct reusable-operation claim model
+- [x] Ed25519 and ECDSA use the Unit 3d direct reusable-operation claim model
       with one atomic Wallet Session quota owner and exact material predicates.
-- [ ] Shared, SDK, server, worker, intended-test, and Rust type/build checks
+- [x] Shared, SDK, server, worker, intended-test, and Rust type/build checks
       pass.
   - [x] Package-level SDK, server, shared, and unit typechecks pass; Rust
         normal-signing vectors pass 3/3 and the ECDSA client protocol passes
@@ -2097,6 +2111,8 @@ This is a validation gate, not a deferred cleanup phase.
         parity checks; lint reports warnings only (1,291), with no errors
         (`e2fd7d254`; `pnpm check` completed successfully at the current
         checkpoint).
+  - [x] SDK web/server and intended-contract typechecks, the hosted SDK/WASM
+        build, and `git diff --check` pass at `3ab4d27bc`.
 - [x] Focused unit, crash, concurrency, host-adapter, worker/WASM, and vector
       tests pass.
   - [x] The current branch-specific Wallet Session claim and private-route
@@ -2118,6 +2134,10 @@ This is a validation gate, not a deferred cleanup phase.
         `ensure:intended-google-token` and stopped because the intended Google
         ID token is not configured. The browser acceptance remains open until
         the healthy intended-test environment is provisioned.
+  - [x] The healthy local environment is now provisioned and the complete suite
+        was run at `3ab4d27bc`: 7/10 pass. OTP is green 3/3; three Passkey
+        Ed25519 local-registration cases remain open on missing
+        `authorityScope`, so the parent acceptance checkbox remains open.
 - [x] `git diff --check` passes.
 
 ## Verification Budgets
