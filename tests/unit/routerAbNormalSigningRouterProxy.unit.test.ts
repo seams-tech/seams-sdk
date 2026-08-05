@@ -17,7 +17,7 @@ import {
   routerAbEcdsaOperationInProgressResult,
   routerAbEcdsaReplayHttpResponse,
   routerAbEcdsaReplayResult,
-} from '../../packages/sdk-server-ts/src/router/domains/normalSigning/routerAbPrivateSigningWorker';
+} from '../../packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
 
 test('normal-signing proxy preserves authorization and source-binding headers', async () => {
   let forwarded: Request | null = null;

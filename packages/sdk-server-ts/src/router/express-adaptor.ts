@@ -45,20 +45,20 @@ export type {
   RouterAbNormalSigningAdmissionFailureCode,
   RouterAbNormalSigningAdmissionInput,
   RouterAbNormalSigningAdmissionResult,
-} from './domains/normalSigning/routerAbPrivateSigningWorker';
+} from './domains/signingOperations/routerAbPrivateSigningWorker';
 export {
   InMemoryRouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
-} from './domains/normalSigning/routerAbNormalSigningAdmissionCore';
+} from './domains/signingOperations/routerAbNormalSigningAdmissionCore';
 export type {
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
   RouterAbNormalSigningAdmissionStore,
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningProjectPolicyProvider,
-} from './domains/normalSigning/routerAbNormalSigningAdmissionCore';
+} from './domains/signingOperations/routerAbNormalSigningAdmissionCore';
 export type {
   RouterApiFetchRouteExtension,
   RouterApiFetchRouteExtensionInput,
@@ -93,7 +93,7 @@ export {
   createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
   createRouterAbEd25519YaoProductRegistrationRuntimeV1,
   createRouterAbEd25519YaoProductRegistrationStateV1,
-} from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 export type {
   RouterAbEd25519YaoProductRecoveryServicePortV1,
   RouterAbEd25519YaoProductRegistrationAuthorizationPortV1,
@@ -102,7 +102,7 @@ export type {
   RouterAbEd25519YaoProductRegistrationRuntimeV1,
   RouterAbEd25519YaoProductRegistrationServicePortV1,
   RouterAbEd25519YaoProductRegistrationStateV1,
-} from './domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 
 function appendExpressRequestHeaders(headers: Headers, req: ExpressRequest): void {
   for (const [name, value] of Object.entries(req.headers)) {

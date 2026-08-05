@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { RouterAbNormalSigningAdmissionInput } from '../../packages/sdk-server-ts/src/router/domains/normalSigning/routerAbPrivateSigningWorker';
+import type { RouterAbNormalSigningAdmissionInput } from '../../packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
 import {
   createCloudflareD1ConsoleOnlyServiceBundle,
   createCloudflareD1ConsoleServiceBundle,
