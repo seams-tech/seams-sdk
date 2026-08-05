@@ -83,6 +83,7 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
     const exchange = await callCf(router, {
       method: 'POST',
       path: '/session/exchange',
+      origin: 'https://app.example.test',
       body: {
         session_kind: 'jwt',
         exchange: {

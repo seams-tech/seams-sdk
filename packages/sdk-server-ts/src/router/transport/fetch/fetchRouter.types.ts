@@ -27,4 +27,7 @@ export interface FetchRouterApiContext {
   routeDefinitions: readonly RouteDefinition[];
 }
 
-export type FetchRouterHandler = (request: Request) => Promise<Response>;
+export type FetchRouterHandler = (
+  request: Request,
+  runtime?: FetchRouterRuntime,
+) => Promise<Response>;

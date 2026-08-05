@@ -334,9 +334,9 @@ export interface RouterApiOptions {
   /** Local product runtime used to restore an authenticated Ed25519 Yao capability. */
   routerAbEd25519YaoProduct?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
   /**
-   * Optional route extensions mounted by the Router API router. Each extension declares
-   * explicit runtime support so a Cloudflare Worker can expose Worker-native
-   * handlers while an Express server can mount Express-native handlers.
+   * Optional Fetch route extensions mounted by the Router API router. Adaptors
+   * translate their host requests to the shared Fetch transport before invoking
+   * these handlers.
    */
   routeExtensions?: readonly RouterApiRouteExtension[];
   /**
