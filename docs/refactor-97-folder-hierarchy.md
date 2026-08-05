@@ -2,11 +2,24 @@
 
 ## Status
 
-Planned; not started. This plan is rebased on the current post-Refactor-90
-tree (`c0bcbc6e9`, the post-Refactor-90 working-build checkpoint). The current
-tree already contains the 94C routing and persistence cutover, so this work is
-not blocked on a future 94C landing. Start each phase from a clean SDK source
-tree and record the baseline checks before the first move.
+Implemented and integrated through Phases 1–6 on `codex/r97-folder-hierarchy`
+at `229a3b0d3`.
+
+### Implementation record
+
+- Integrated branch/HEAD: `codex/r97-folder-hierarchy` / `229a3b0d3`.
+- No R97 structural symlinks or compatibility fallbacks remain.
+- Static resolver found zero unresolved local `router` imports in SDK
+  sources/tests.
+- Focused guards passed for Cloudflare D1 runtime, route lifecycle,
+  wallet-scoped lookup, wallet-session vocabulary, and server wallet-session
+  claims.
+- Package SDK type-check is blocked only by missing generated WASM artifacts in
+  this checkout.
+- The full source-guard chain is blocked by the existing sdk-web `.tooling`
+  permission issue plus the known baseline ECDSA identity and
+  generated-artifact findings.
+- The package export test requires the unrelated sdk-web `dist` build.
 
 This refactor changes **no behaviour**. Phase 1 and Phase 2 are small
 boundary extractions that remove dependency inversions. Phases 3–4 are
