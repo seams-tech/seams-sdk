@@ -3,32 +3,18 @@ import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
 } from '../../core/types';
-
-export type CloudflareVersionedJsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | readonly CloudflareVersionedJsonValue[]
-  | { readonly [key: string]: CloudflareVersionedJsonValue };
-
-export type CloudflareVersionedJsonObject = {
-  readonly [key: string]: CloudflareVersionedJsonValue;
-};
-
-export type CloudflareVersionedJsonRecordReadResult<T> =
-  | { readonly kind: 'missing' }
-  | { readonly kind: 'present'; readonly value: T; readonly version: string };
-
-export type CloudflareVersionedJsonRecordPutResult =
-  | { readonly kind: 'stored'; readonly version: string }
-  | { readonly kind: 'version_mismatch' };
+import type {
+  VersionedJsonObject,
+  VersionedJsonRecordPutResult,
+  VersionedJsonRecordReadResult,
+  VersionedJsonValue,
+} from '../framework/versionedJsonRecordStore';
 
 export type CloudflareVersionedJsonRecordStoreOptions<T> = {
   readonly namespace: CloudflareDurableObjectNamespaceLike;
   /** Return one object name per ceremony key to avoid tenant-wide serialization. */
   readonly objectNameForKey: (key: string) => string;
-  readonly encode: (value: T) => CloudflareVersionedJsonObject;
+  readonly encode: (value: T) => VersionedJsonObject;
   readonly parse: (raw: unknown) => T | null;
   readonly keyPrefix?: string;
 };
@@ -60,7 +46,7 @@ export class CloudflareVersionedJsonRecordStoreError extends Error {
 export class CloudflareDurableObjectVersionedJsonRecordStore<T> {
   private readonly namespace: CloudflareDurableObjectNamespaceLike;
   private readonly objectNameForKey: (key: string) => string;
-  private readonly encode: (value: T) => CloudflareVersionedJsonObject;
+  private readonly encode: (value: T) => VersionedJsonObject;
   private readonly parse: (raw: unknown) => T | null;
   private readonly keyPrefix: string;
 
@@ -81,7 +67,7 @@ export class CloudflareDurableObjectVersionedJsonRecordStore<T> {
     this.keyPrefix = normalizeKeyPrefix(options.keyPrefix);
   }
 
-  async read(key: string): Promise<CloudflareVersionedJsonRecordReadResult<T>> {
+  async read(key: string): Promise<VersionedJsonRecordReadResult<T>> {
     const recordKey = normalizeRecordKey(key);
     const storageKey = this.storageKey(recordKey);
     const response = await this.call(recordKey, {
@@ -113,7 +99,7 @@ export class CloudflareDurableObjectVersionedJsonRecordStore<T> {
     value: T,
     expectedVersion: string | null,
     options: { readonly ttlMs?: number } = {},
-  ): Promise<CloudflareVersionedJsonRecordPutResult> {
+  ): Promise<VersionedJsonRecordPutResult> {
     const recordKey = normalizeRecordKey(key);
     const storageKey = this.storageKey(recordKey);
     if (expectedVersion !== null && !toOptionalTrimmedString(expectedVersion)) {
@@ -258,11 +244,11 @@ function isDurableObjectNamespaceLike(
   );
 }
 
-function isJsonObject(value: unknown): value is CloudflareVersionedJsonObject {
+function isJsonObject(value: unknown): value is VersionedJsonObject {
   return isPlainObject(value) && Object.values(value).every(isJsonValue);
 }
 
-function isJsonValue(value: unknown): value is CloudflareVersionedJsonValue {
+function isJsonValue(value: unknown): value is VersionedJsonValue {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
   if (typeof value === 'number') return Number.isFinite(value);
   if (Array.isArray(value)) return value.every(isJsonValue);

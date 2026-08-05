@@ -85,7 +85,7 @@ import {
   type RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
-import type { WalletRegistrationActivateInput } from './cloudflare/d1WalletRegistrationSetup';
+import type { WalletRegistrationActivateInput } from './domains/walletRegistration/walletRegistrationInputs';
 import { parseRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { normalizeCorsOrigin } from '../core/SessionService';

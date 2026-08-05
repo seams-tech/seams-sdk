@@ -129,7 +129,7 @@ import {
   type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
 } from '../routerAbEd25519YaoRegistrationSideEffectBoundary';
 import { createCloudflareD1VersionedJsonRecordStore } from './d1VersionedJsonRecordStore';
-import type { CloudflareVersionedJsonObject } from './versionedJsonRecordStore';
+import type { VersionedJsonObject } from '../framework/versionedJsonRecordStore';
 import {
   normalizeD1RouterApiAuthOptions,
   type CloudflareD1RouterApiAuthServiceOptions,
@@ -1127,7 +1127,7 @@ function sponsoredNearAccountSideEffectStore(
       envId: options.envId,
     },
     keyPrefix: 'router-ab-yao-sponsored-account:',
-    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    encode: (value) => value as unknown as VersionedJsonObject,
     parse: parseSponsoredNearAccountSideEffectRecord,
   });
 }
@@ -1144,7 +1144,7 @@ function walletRegistrationActivateSideEffectStore(
       envId: options.envId,
     },
     keyPrefix: 'wallet-registration-activate:',
-    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    encode: (value) => value as unknown as VersionedJsonObject,
     parse: parseWalletRegistrationActivateSideEffectRecord,
   });
 }
@@ -1161,7 +1161,7 @@ function walletRegistrationNearProvisioningSideEffectStore(
       envId: options.envId,
     },
     keyPrefix: 'wallet-registration-near-provisioning:',
-    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    encode: (value) => value as unknown as VersionedJsonObject,
     parse: parseWalletRegistrationNearProvisioningSideEffectRecord,
   });
 }
@@ -1178,7 +1178,7 @@ function walletAddSignerStartSideEffectStore(
       envId: options.envId,
     },
     keyPrefix: 'wallet-add-signer-start:',
-    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    encode: (value) => value as unknown as VersionedJsonObject,
     parse: parseD1WalletAddSignerStartSideEffectRecord,
   });
 }
@@ -1195,7 +1195,7 @@ function walletAddSignerFinalizeSideEffectStore(
       envId: options.envId,
     },
     keyPrefix: 'wallet-add-signer-finalize:',
-    encode: (value) => value as unknown as CloudflareVersionedJsonObject,
+    encode: (value) => value as unknown as VersionedJsonObject,
     parse: parseD1WalletAddSignerFinalizeSideEffectRecord,
   });
 }

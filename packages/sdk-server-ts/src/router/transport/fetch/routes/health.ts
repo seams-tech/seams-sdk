@@ -1,8 +1,8 @@
-import { buildCorsOrigins } from '../../../core/SessionService';
-import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
-import { json } from '../http';
+import { buildCorsOrigins } from '../../../../core/SessionService';
+import type { FetchRouterApiContext } from '../createFetchRouter';
+import { json } from '../../../framework/http';
 
-export async function handleHealth(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+export async function handleHealth(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (!ctx.opts.healthz || ctx.method !== 'GET' || ctx.pathname !== '/healthz') return null;
 
   // Surface simple CORS info for diagnostics (normalized)
@@ -21,7 +21,7 @@ export async function handleHealth(ctx: CloudflareRouterApiContext): Promise<Res
   );
 }
 
-export async function handleReady(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+export async function handleReady(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (!ctx.opts.readyz || ctx.method !== 'GET' || ctx.pathname !== '/readyz') return null;
 
   const allowed = buildCorsOrigins(...(ctx.opts.corsOrigins || []));

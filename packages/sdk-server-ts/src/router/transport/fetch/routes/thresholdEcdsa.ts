@@ -1,5 +1,5 @@
-import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
-import { json, readJson } from '../http';
+import type { FetchRouterApiContext } from '../createFetchRouter';
+import { json, readJson } from '../../../framework/http';
 import {
   parseAppSessionClaims,
   parseRouterAbEcdsaDerivationWalletSessionClaims,
@@ -8,14 +8,14 @@ import {
   type RouterAbEd25519WalletSessionClaims,
   resolveAppSessionWalletIdForWalletScope,
   resolveAppSessionProviderUserIdForWalletScope,
-} from '../../../core/ThresholdService/validation';
-import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
-import { parseSessionKind } from '../../routerApi';
+} from '../../../../core/ThresholdService/validation';
+import { thresholdEcdsaStatusCode } from '../../../../threshold/statusCodes';
+import { parseSessionKind } from '../../../routerApi';
 import {
   signRouterAbEcdsaDerivationWalletSessionJwt,
   validateRouterAbEcdsaDerivationWalletSessionInputs,
   validateRouterAbEd25519WalletSessionTokenInputs,
-} from '../../commonRouterUtils';
+} from '../../../commonRouterUtils';
 import {
   parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
@@ -58,34 +58,34 @@ import {
   resolveFreshRouterAbEcdsaMaterialActivation,
   routerAbEcdsaAtomicAuthorizationConfigured,
   type RouterAbEcdsaOperationAdmissionKind,
-} from '../../routerAbPrivateSigningWorker';
+} from '../../../routerAbPrivateSigningWorker';
 import {
   parseRouterAbEcdsaDerivationPoolFillInitRouteRequest,
   parseRouterAbEcdsaDerivationPoolFillStepRouteRequest,
   type RouterAbEcdsaPoolFillInitRouteRequest,
   type RouterAbEcdsaPoolFillStepRouteRequest,
-} from '../../thresholdEcdsaRequestValidation';
+} from '../../../thresholdEcdsaRequestValidation';
 import type {
   RouterAbEcdsaDerivationPoolFillInitRequest,
   RouterAbEcdsaDerivationPoolFillStepRequest,
-} from '../../../core/types';
+} from '../../../../core/types';
 import type {
   RouterAbEcdsaStrictPostRegistrationPort,
   RouterAbEcdsaStrictPostRegistrationResult,
   RouterAbEcdsaStrictExportAuthority,
   RouterAbEcdsaStrictRegistrationAuthority,
-} from '../../routerAbEcdsaStrictRegistration';
+} from '../../../routerAbEcdsaStrictRegistration';
 import type {
   RouterApiAuthorizedOperationService,
   RouterApiAuthorizationSessionService,
-} from '../../authServicePort';
+} from '../../../authServicePort';
 import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
 import {
   walletSessionFailure,
   walletSessionFailureStatus,
   walletSessionParseFailure,
   type WalletSessionBoundaryFailure,
-} from '../../walletSessionFailure';
+} from '../../../walletSessionFailure';
 import {
   parsePrincipalId,
   parseReusableWalletSessionMintId,
@@ -118,12 +118,12 @@ import {
 } from '@shared/authorization/operationFingerprint';
 import { buildEvmEcdsaMpcOperationRef } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { AuthorizedOperation } from '../../../authorization/domain';
+import type { AuthorizedOperation } from '../../../../authorization/domain';
 import {
   buildVerifiedEmailOtpFactorResult,
   buildVerifiedPasskeyFactorResult,
   type VerifiedAuthorizationFactorResult,
-} from '../../../authorization/factorEvidence';
+} from '../../../../authorization/factorEvidence';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
@@ -132,7 +132,7 @@ import {
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
 } from '@shared/utils/emailOtpDomain';
-import { hashEmailOtpAppSessionClaims } from '../../emailOtpSessionRouteHelpers';
+import { hashEmailOtpAppSessionClaims } from '../../../emailOtpSessionRouteHelpers';
 import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
 import {
   sameRouterAbMpcMaterialActivationRef,
@@ -305,7 +305,7 @@ export function decideRouterAbEcdsaOperationStepUpExecution(input: {
 }
 
 async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
-  ctx: CloudflareRouterApiContext;
+  ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
   phase: 'prepare' | 'finalize';
 }): Promise<Response> {
@@ -464,7 +464,7 @@ function routerAbEcdsaReplayResponse(operation: AuthorizedOperation): Response {
 }
 
 async function issueEcdsaOperationStepUpAuthorization(input: {
-  readonly ctx: CloudflareRouterApiContext;
+  readonly ctx: FetchRouterApiContext;
   readonly request: RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire;
 }): Promise<Response> {
   if (!routerAbEcdsaAtomicAuthorizationConfigured(input.ctx.service.authorizedOperations)) {
@@ -891,7 +891,7 @@ function validateEcdsaPoolFillOperationIdentity(
 }
 
 async function authorizeEcdsaPoolFillOperationStepUp(input: {
-  readonly ctx: CloudflareRouterApiContext;
+  readonly ctx: FetchRouterApiContext;
   readonly authorization: Extract<
     RouterAbEcdsaPoolFillInitRouteRequest['authorization'],
     { readonly kind: 'operation_step_up' }
@@ -1064,7 +1064,7 @@ async function authorizeEcdsaPoolFillOperationStepUp(input: {
 }
 
 async function authorizeEcdsaPoolFill(input: {
-  readonly ctx: CloudflareRouterApiContext;
+  readonly ctx: FetchRouterApiContext;
   readonly request: RouterAbEcdsaPoolFillInitRouteRequest | RouterAbEcdsaPoolFillStepRouteRequest;
 }): Promise<RouterAbEcdsaPoolFillAuthorizationResult> {
   switch (input.request.authorization.kind) {
@@ -1328,7 +1328,7 @@ function strictEcdsaAuthorizationFailureStatus(
 }
 
 async function parseStrictEcdsaAuthorizationSession(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<
   { readonly ok: true; readonly claims: Record<string, unknown> } | WalletSessionBoundaryFailure
 > {
@@ -1344,7 +1344,7 @@ async function parseStrictEcdsaAuthorizationSession(
 }
 
 async function resolveStrictEcdsaAuthorizationClaims(input: {
-  readonly ctx: CloudflareRouterApiContext;
+  readonly ctx: FetchRouterApiContext;
   readonly rawClaims: Record<string, unknown>;
 }): Promise<StrictEcdsaAuthorizationClaimsResult> {
   const appSessionClaims = parseAppSessionClaims(input.rawClaims);
@@ -1483,7 +1483,7 @@ function validateStrictEcdsaPostRegistrationRequestExpiry(input: {
 }
 
 async function authorizeStrictEcdsaPostRegistrationRequest(input: {
-  readonly ctx: CloudflareRouterApiContext;
+  readonly ctx: FetchRouterApiContext;
   readonly request: StrictEcdsaPostRegistrationRequest;
 }): Promise<StrictEcdsaPostRegistrationAuthorization> {
   const authority = strictEcdsaPostRegistrationRequestAuthority(input.request);
@@ -1559,7 +1559,7 @@ async function authorizeStrictEcdsaPostRegistrationRequest(input: {
 }
 
 async function handleStrictEcdsaPostRegistrationRoute(input: {
-  readonly ctx: CloudflareRouterApiContext;
+  readonly ctx: FetchRouterApiContext;
   readonly body: unknown;
   readonly pathname: string;
   readonly port: RouterAbEcdsaStrictPostRegistrationPort | null | undefined;
@@ -1848,7 +1848,7 @@ async function admitStrictEcdsaExportOperationStepUp(
 }
 
 async function authorizeStrictEcdsaExport(input: {
-  readonly ctx: CloudflareRouterApiContext;
+  readonly ctx: FetchRouterApiContext;
   readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
   readonly authorization: Extract<StrictEcdsaPostRegistrationAuthorization, { readonly ok: true }>;
 }): Promise<StrictEcdsaExportAuthorizationResult> {
@@ -2106,7 +2106,7 @@ type StrictEcdsaReusableWalletSessionAuthorization =
   | WalletSessionBoundaryFailure;
 
 async function authorizeStrictEcdsaSessionActivationFromEd25519Claims(input: {
-  readonly ctx: CloudflareRouterApiContext;
+  readonly ctx: FetchRouterApiContext;
   readonly walletId: string;
   readonly claims: RouterAbEd25519WalletSessionClaims;
 }): Promise<StrictEcdsaReusableWalletSessionAuthorization> {
@@ -2161,7 +2161,7 @@ async function authorizeStrictEcdsaSessionActivationFromEd25519Claims(input: {
 }
 
 async function authorizeStrictEcdsaSessionActivation(input: {
-  readonly ctx: CloudflareRouterApiContext;
+  readonly ctx: FetchRouterApiContext;
   readonly walletId: string;
   readonly source: 'verified_wallet_unlock' | 'additional_wallet_target';
   readonly verifiedAuthority?: WalletAuthAuthorityRef;
@@ -2323,7 +2323,7 @@ async function authorizeStrictEcdsaSessionActivation(input: {
 }
 
 async function authorizeStrictEcdsaSessionActivationFromEd25519(input: {
-  readonly ctx: CloudflareRouterApiContext;
+  readonly ctx: FetchRouterApiContext;
   readonly walletId: string;
   readonly walletSessionJwt: string;
 }): Promise<StrictEcdsaReusableWalletSessionAuthorization> {
@@ -2367,19 +2367,19 @@ function walletSessionPrincipalSubject(authority: WalletAuthAuthority): string {
 
 type StrictEcdsaSessionActivationInput =
   | {
-      readonly ctx: CloudflareRouterApiContext;
+      readonly ctx: FetchRouterApiContext;
       readonly body: unknown;
       readonly source: 'verified_wallet_unlock' | 'additional_wallet_target';
       readonly verifiedAuthority?: WalletAuthAuthorityRef;
     }
   | {
-      readonly ctx: CloudflareRouterApiContext;
+      readonly ctx: FetchRouterApiContext;
       readonly body: unknown;
       readonly source: 'verified_ed25519_wallet_session';
       readonly walletSessionJwt: string;
     }
   | {
-      readonly ctx: CloudflareRouterApiContext;
+      readonly ctx: FetchRouterApiContext;
       readonly body: unknown;
       readonly source: 'verified_passkey_session_exchange';
       readonly authorization: {
@@ -2557,7 +2557,7 @@ export async function handleStrictEcdsaSessionActivation(
 }
 
 export async function handleThresholdEcdsa(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH) {
     const runtime = ctx.service.thresholdRuntime.getRouterAbEcdsaPresignRuntime();

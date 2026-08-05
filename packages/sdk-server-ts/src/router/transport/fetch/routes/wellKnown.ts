@@ -1,17 +1,17 @@
-import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
-import { json } from '../http';
+import type { FetchRouterApiContext } from '../createFetchRouter';
+import { json } from '../../../framework/http';
 import {
   normalizeRorHost,
   resolveWellKnownSigningSessionSealCapabilities,
   sanitizeRorOrigins,
-} from '../../ror/normalize';
-import { resolveRorRpId } from '../../ror/provider';
+} from '../../../ror/normalize';
+import { resolveRorRpId } from '../../../ror/provider';
 import {
   ROUTER_AB_PUBLIC_KEYSET_PATH,
   ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH,
 } from '@shared/utils/routerAbPublicKeyset';
 
-export async function handleWellKnown(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+export async function handleWellKnown(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'GET') return null;
   if (
     ctx.pathname === ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH ||

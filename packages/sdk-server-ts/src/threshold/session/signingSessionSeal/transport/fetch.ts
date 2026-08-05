@@ -12,7 +12,7 @@ import {
 } from './shared';
 import type { SigningSessionSealRoutesOptions } from '../signingSessionSeal.types';
 
-type CloudflareSigningSessionSealContext = {
+type FetchSigningSessionSealContext = {
   request: Request;
   pathname: string;
   method: string;
@@ -49,7 +49,7 @@ function errMessage(error: unknown): string {
 }
 
 export async function handleSigningSessionSealRoutes(
-  ctx: CloudflareSigningSessionSealContext,
+  ctx: FetchSigningSessionSealContext,
 ): Promise<Response | null> {
   const options = ctx.options;
   if (!options) return null;

@@ -1,9 +1,9 @@
-import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
-import { json, readJson } from '../http';
-import { parsePrepareEmailRecoveryRequest } from '../../emailRecoveryRequestValidation';
+import type { FetchRouterApiContext } from '../createFetchRouter';
+import { json, readJson } from '../../../framework/http';
+import { parsePrepareEmailRecoveryRequest } from '../../../emailRecoveryRequestValidation';
 
 export async function handleEmailRecoveryPrepare(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/email-recovery/prepare') {
     return null;

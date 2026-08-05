@@ -156,11 +156,13 @@ import {
   walletRegistrationSetupIntentDigest,
   walletRegistrationRespondResult,
   storedRespondEd25519DeferredWork,
-  type WalletRegistrationSetupInput,
-  type WalletRegistrationRespondInput,
-  type WalletRegistrationActivateInput,
-  type WalletRegistrationNearProvisioningInput,
 } from './d1WalletRegistrationSetup';
+import type {
+  WalletRegistrationSetupInput,
+  WalletRegistrationRespondInput,
+  WalletRegistrationActivateInput,
+  WalletRegistrationNearProvisioningInput,
+} from '../domains/walletRegistration/walletRegistrationInputs';
 import {
   computeWalletRegistrationSetupDigestB64u,
   verifySignedWalletRegistrationSetup,

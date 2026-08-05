@@ -9,9 +9,9 @@ import {
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type {
-  CloudflareVersionedJsonObject,
-  CloudflareVersionedJsonValue,
-} from './cloudflare/versionedJsonRecordStore';
+  VersionedJsonObject,
+  VersionedJsonValue,
+} from './framework/versionedJsonRecordStore';
 import type {
   RouterAbEd25519YaoRegistrationFailure,
   RouterAbEd25519YaoRegistrationFailureCode,
@@ -79,7 +79,7 @@ export function routerAbEd25519YaoRegistrationExecutionRecordKeyV1(lifecycleId: 
 
 export function encodeRouterAbEd25519YaoRegistrationExecutionRecordV1(
   record: RouterAbEd25519YaoRegistrationExecutionRecordV1,
-): CloudflareVersionedJsonObject {
+): VersionedJsonObject {
   return toJsonObject({
     recordKind: ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTION_RECORD_KIND_V1,
     ...record,
@@ -283,7 +283,7 @@ function readVisibleString(input: unknown, maxLength: number): string | null {
     : null;
 }
 
-function toJsonObject(input: unknown): CloudflareVersionedJsonObject {
+function toJsonObject(input: unknown): VersionedJsonObject {
   const value = JSON.parse(JSON.stringify(input));
   if (!isJsonObject(value)) {
     throw new Error('Yao registration execution record is not canonical JSON');
@@ -291,11 +291,11 @@ function toJsonObject(input: unknown): CloudflareVersionedJsonObject {
   return value;
 }
 
-function isJsonObject(input: unknown): input is CloudflareVersionedJsonObject {
+function isJsonObject(input: unknown): input is VersionedJsonObject {
   return isRecord(input) && Object.values(input).every(isJsonValue);
 }
 
-function isJsonValue(input: unknown): input is CloudflareVersionedJsonValue {
+function isJsonValue(input: unknown): input is VersionedJsonValue {
   if (
     input === null ||
     typeof input === 'string' ||

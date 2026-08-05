@@ -2,19 +2,19 @@ import {
   DEFAULT_SESSION_COOKIE_NAME,
   deriveJwtExpiresAtIso,
   parseSessionKind,
-} from '../../routerApi';
-import { extractBearerCredential, resolveSourceIpFromFetchHeaders } from '../../routerApiKeyAuth';
-import { emitRouterApiWebhookEvent } from '../../routerApiWebhooks';
-import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
-import { headersToRecord, json, readJson } from '../http';
-import { resolveThresholdRuntimePolicyScope } from '../../commonRouterUtils';
+} from '../../../routerApi';
+import { extractBearerCredential, resolveSourceIpFromFetchHeaders } from '../../../routerApiKeyAuth';
+import { emitRouterApiWebhookEvent } from '../../../routerApiWebhooks';
+import type { FetchRouterApiContext } from '../createFetchRouter';
+import { headersToRecord, json, readJson } from '../../../framework/http';
+import { resolveThresholdRuntimePolicyScope } from '../../../commonRouterUtils';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   handleWalletUnlockChallengeRoute,
   handleWalletUnlockVerifyRoute,
   type WalletUnlockEcdsaSessionContext,
   type WalletUnlockCapabilityContext,
-} from '../../walletUnlockRouteHandlers';
+} from '../../../walletUnlockRouteHandlers';
 import { handleStrictEcdsaSessionActivation } from './thresholdEcdsa';
 import {
   parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
@@ -24,7 +24,7 @@ import {
 import {
   routerApiEmailOtpRouteService,
   type EmailOtpChallengeDelivery,
-} from '../../authServicePort';
+} from '../../../authServicePort';
 import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
   handleEmailOtpDevOtpOutboxRoute,
@@ -44,7 +44,7 @@ import {
   handleEmailOtpRegistrationSealRoute,
   handleEmailOtpUnsealRoute,
   handleEmailOtpSigningSessionUnsealRoute,
-} from '../../emailOtpRouteHandlers';
+} from '../../../emailOtpRouteHandlers';
 import {
   emailOtpChallengeResponseBody,
   emailOtpStatusCode,
@@ -52,18 +52,18 @@ import {
   emailOtpAppSessionClaimsForSubject,
   hashEmailOtpAppSessionClaims,
   hashEmailOtpSigningSessionClaims,
-} from '../../emailOtpSessionRouteHelpers';
+} from '../../../emailOtpSessionRouteHelpers';
 import {
   parseSessionExchangeRouteCommand,
   type SessionExchangeRouteCommand,
-} from '../../sessionExchangeRequestValidation';
+} from '../../../sessionExchangeRequestValidation';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
   parseRouterAbEcdsaDerivationWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
-} from '../../../core/ThresholdService/validation';
+} from '../../../../core/ThresholdService/validation';
 import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/utils/domainIds';
-import { parseWalletUnlockRequestedCapabilitiesRequest } from '../../walletUnlockRequestedCapabilitiesValidation';
+import { parseWalletUnlockRequestedCapabilitiesRequest } from '../../../walletUnlockRequestedCapabilitiesValidation';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
@@ -76,7 +76,7 @@ import {
   type ActiveAuthorizationSession,
   type RedeemHostedWalletSeamsSessionExchangeResult,
   type SessionOrigin,
-} from '../../../authorization/domain';
+} from '../../../../authorization/domain';
 import {
   parseDeviceId,
   parseMpcWalletSigningQuotaId,
@@ -100,7 +100,7 @@ import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 const HOSTED_WALLET_SESSION_EXCHANGE_TTL_MS = 60_000;
 
 function walletUnlockEcdsaSessionContext(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
   body: unknown,
 ): WalletUnlockEcdsaSessionContext {
   if (!isPlainObject(body) || body.ecdsaSessionActivation === undefined) {
@@ -167,7 +167,7 @@ function walletUnlockEcdsaSessionContext(
 }
 
 async function emitSessionExchangeFailed(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
   input: {
     code: string;
     message: string;
@@ -193,7 +193,7 @@ async function emitSessionExchangeFailed(
 }
 
 async function emitEmailOtpWebhookEvent(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
   input: {
     eventType: string;
     claims?: Record<string, unknown> | null;
@@ -218,7 +218,7 @@ async function emitEmailOtpWebhookEvent(
 }
 
 async function emitEmailOtpWebhookDescriptor(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
   input: {
     descriptor: { eventType: string; eventId?: string; payload: Record<string, unknown> };
     claims?: Record<string, unknown> | null;
@@ -236,12 +236,12 @@ async function emitEmailOtpWebhookDescriptor(
   });
 }
 
-function hasBearerSessionSignal(ctx: CloudflareRouterApiContext): boolean {
+function hasBearerSessionSignal(ctx: FetchRouterApiContext): boolean {
   const authorization = String(ctx.request.headers.get('authorization') || '').trim();
   return authorization.toLowerCase().startsWith('bearer ');
 }
 
-function hasCookieSessionSignal(ctx: CloudflareRouterApiContext): boolean {
+function hasCookieSessionSignal(ctx: FetchRouterApiContext): boolean {
   const cookie = String(ctx.request.headers.get('cookie') || '').trim();
   if (!cookie) return false;
   const cookieName = String(ctx.opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
@@ -290,7 +290,7 @@ function sessionStateFailureResponse(validated: InvalidAppSessionValidation): Re
 }
 
 async function readAndValidateAppSession(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<AppSessionValidation> {
   const session = ctx.opts.session;
   if (!session) {
@@ -371,7 +371,7 @@ async function readAndValidateAppSession(
   return { ok: true, claims, userId, appSessionVersion };
 }
 
-async function readWalletUnlockSourceSession(ctx: CloudflareRouterApiContext): Promise<
+async function readWalletUnlockSourceSession(ctx: FetchRouterApiContext): Promise<
   | {
       readonly ok: true;
       readonly sessionId: ActiveAuthorizationSession['sessionId'];
@@ -456,7 +456,7 @@ async function hashAppSessionClaims(claims: Record<string, unknown>): Promise<st
   return hashEmailOtpAppSessionClaims(claims);
 }
 
-async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRouterApiContext): Promise<
+async function readAndValidateEmailOtpSigningSession(ctx: FetchRouterApiContext): Promise<
   | {
       ok: true;
       claims: Record<string, unknown>;
@@ -543,7 +543,7 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRouterApiCon
 }
 
 async function maybeEmitWarmExpiredFromValidationFailure(input: {
-  ctx: CloudflareRouterApiContext;
+  ctx: FetchRouterApiContext;
   validated:
     | { ok: true; claims: any; userId: string; appSessionVersion: string }
     | {
@@ -588,7 +588,7 @@ async function maybeEmitWarmExpiredFromValidationFailure(input: {
 }
 
 export async function handleSessionState(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'GET') return null;
   if (ctx.pathname !== ctx.mePath && ctx.pathname !== '/session/state') return null;
@@ -630,7 +630,7 @@ function sourceSessionClaimIds(claims: Record<string, unknown>): {
 }
 
 async function handleHostedWalletExchangeCodeIssue(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
   command: Extract<SessionExchangeRouteCommand, { kind: 'hosted_wallet_exchange_code' }>,
 ): Promise<Response> {
   const validated = await readAndValidateAppSession(ctx);
@@ -695,7 +695,7 @@ function hostedWalletRedeemStatus(
 }
 
 async function handleHostedWalletExchangeCodeRedeem(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
   command: Extract<SessionExchangeRouteCommand, { kind: 'hosted_wallet_exchange_code_redeem' }>,
 ): Promise<Response> {
   const session = ctx.opts.session;
@@ -764,7 +764,7 @@ async function handleHostedWalletExchangeCodeRedeem(
 }
 
 export async function handleSessionExchange(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/exchange') return null;
 
@@ -1588,7 +1588,7 @@ export async function handleSessionExchange(
 }
 
 export async function handleSessionRevoke(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/revoke') return null;
 
@@ -1634,7 +1634,7 @@ export async function handleSessionRevoke(
 }
 
 export async function handleSessionRefresh(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/refresh') return null;
 
@@ -1757,7 +1757,7 @@ function walletSessionStatusClaimsInvalidResponse(): {
 }
 
 async function readAndValidateWalletSessionStatusAuthorization(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<
   | { readonly ok: true; readonly authorization: WalletSessionStatusAuthorization }
   | { readonly ok: false; readonly response: Response }
@@ -1882,7 +1882,7 @@ async function readAndValidateWalletSessionStatusAuthorization(
 }
 
 export async function handleReusableWalletSessionStatus(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/session/status') return null;
   const body = parseReusableWalletSessionStatusBody(await readJson(ctx.request));
@@ -1965,7 +1965,7 @@ export async function handleReusableWalletSessionStatus(
 }
 
 export async function handleWalletUnlockChallenge(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/unlock/challenge') return null;
   const body = await readJson(ctx.request);
@@ -1977,7 +1977,7 @@ export async function handleWalletUnlockChallenge(
 }
 
 export async function handleWalletUnlockVerify(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/unlock/verify') return null;
   const body = await readJson(ctx.request);
@@ -2054,7 +2054,7 @@ export async function handleWalletUnlockVerify(
 }
 
 export async function handleWalletEmailOtpRegistrationChallenge(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/registration/challenge')
     return null;
@@ -2081,7 +2081,7 @@ export async function handleWalletEmailOtpRegistrationChallenge(
 }
 
 export async function handleWalletEmailOtpRegistrationFinalize(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/registration/finalize')
     return null;
@@ -2115,7 +2115,7 @@ export async function handleWalletEmailOtpRegistrationFinalize(
 }
 
 export async function handleWalletEmailOtpRegistrationSeal(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/registration/seal') return null;
   const body = await readJson(ctx.request);
@@ -2138,7 +2138,7 @@ export async function handleWalletEmailOtpRegistrationSeal(
 }
 
 export async function handleWalletEmailOtpLoginChallenge(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/login/challenge') return null;
   const body = await readJson(ctx.request);
@@ -2173,7 +2173,7 @@ export async function handleWalletEmailOtpLoginChallenge(
 }
 
 export async function handleWalletEmailOtpSigningSessionChallenge(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/signing-session/challenge') {
     return null;
@@ -2204,7 +2204,7 @@ export async function handleWalletEmailOtpSigningSessionChallenge(
 }
 
 export async function handleWalletEmailOtpDeviceRecoveryChallenge(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-challenge') {
     return null;
@@ -2232,7 +2232,7 @@ export async function handleWalletEmailOtpDeviceRecoveryChallenge(
 }
 
 export async function handleWalletEmailOtpLoginVerify(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/login/verify') return null;
   const body = await readJson(ctx.request);
@@ -2266,7 +2266,7 @@ export async function handleWalletEmailOtpLoginVerify(
 }
 
 export async function handleWalletEmailOtpLoginVerifyAndUnseal(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/login/verify-and-unseal') {
     return null;
@@ -2302,7 +2302,7 @@ export async function handleWalletEmailOtpLoginVerifyAndUnseal(
 }
 
 export async function handleWalletEmailOtpSigningSessionVerify(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/signing-session/verify') {
     return null;
@@ -2332,7 +2332,7 @@ export async function handleWalletEmailOtpSigningSessionVerify(
 }
 
 export async function handleWalletEmailOtpRecoveryWrappedEscrows(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-wrapped-escrows') {
     return null;
@@ -2359,7 +2359,7 @@ export async function handleWalletEmailOtpRecoveryWrappedEscrows(
 }
 
 export async function handleWalletEmailOtpRecoveryKeyConsume(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/consume') {
     return null;
@@ -2386,7 +2386,7 @@ export async function handleWalletEmailOtpRecoveryKeyConsume(
 }
 
 export async function handleWalletEmailOtpRecoveryKeyStatus(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/status') {
     return null;
@@ -2413,7 +2413,7 @@ export async function handleWalletEmailOtpRecoveryKeyStatus(
 }
 
 export async function handleWalletEmailOtpRecoveryKeyRotate(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/rotate') {
     return null;
@@ -2440,7 +2440,7 @@ export async function handleWalletEmailOtpRecoveryKeyRotate(
 }
 
 export async function handleWalletEmailOtpRecoveryKeyAttemptFailed(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/attempt-failed') {
     return null;
@@ -2467,7 +2467,7 @@ export async function handleWalletEmailOtpRecoveryKeyAttemptFailed(
 }
 
 export async function handleWalletEmailOtpUnseal(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/unseal') return null;
   const body = await readJson(ctx.request);
@@ -2500,7 +2500,7 @@ export async function handleWalletEmailOtpUnseal(
 }
 
 export async function handleWalletEmailOtpSigningSessionUnseal(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/signing-session/unseal') {
     return null;
@@ -2529,7 +2529,7 @@ export async function handleWalletEmailOtpSigningSessionUnseal(
 }
 
 export async function handleWalletEmailOtpDevCleanupGoogleRegistration(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (
     ctx.method !== 'POST' ||
@@ -2547,7 +2547,7 @@ export async function handleWalletEmailOtpDevCleanupGoogleRegistration(
 }
 
 export async function handleWalletEmailOtpDevOtpOutbox(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'GET' || ctx.pathname !== '/wallet/email-otp/dev/otp-outbox') return null;
   const validated = await readAndValidateAppSession(ctx);
@@ -2570,7 +2570,7 @@ export async function handleWalletEmailOtpDevOtpOutbox(
   return json(response.body, { status: response.status });
 }
 
-export async function handleWalletState(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+export async function handleWalletState(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'GET' || ctx.pathname !== '/wallet/state') return null;
   const validated = await readAndValidateAppSession(ctx);
   if (!validated.ok) {
@@ -2596,7 +2596,7 @@ export async function handleWalletState(ctx: CloudflareRouterApiContext): Promis
   return json({ ok: true, locked: false, userId: validated.userId }, { status: 200 });
 }
 
-export async function handleWalletLock(ctx: CloudflareRouterApiContext): Promise<Response | null> {
+export async function handleWalletLock(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/lock') return null;
   const validated = await readAndValidateAppSession(ctx);
   if (!validated.ok) {

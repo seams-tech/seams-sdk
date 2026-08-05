@@ -1,4 +1,4 @@
-import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
+import type { FetchRouterApiContext } from '../createFetchRouter';
 import {
   handleRouterApiWalletAddAuthMethodFinalize,
   handleRouterApiWalletAddAuthMethodIntent,
@@ -15,17 +15,17 @@ import {
   handleRouterApiWalletRegistrationSetup,
   handleRouterApiWalletEcdsaKeyFactsInventory,
   handleRouterApiWalletNearImplicitAccountFund,
-} from '../../walletRegistrationRoutes';
-import { routerApiWalletRegistrationRouteService } from '../../authServicePort';
-import { resolveSourceIpFromFetchHeaders } from '../../routerApiKeyAuth';
-import type { RouteResponse } from '../../routeExecutionContext';
+} from '../../../walletRegistrationRoutes';
+import { routerApiWalletRegistrationRouteService } from '../../../authServicePort';
+import { resolveSourceIpFromFetchHeaders } from '../../../routerApiKeyAuth';
+import type { RouteResponse } from '../../../routeExecutionContext';
 import {
   findRouteDefinitionById,
   matchesRouteDefinitionRequest,
   type RouteDefinition,
-} from '../../routeDefinitions';
-import { toFetchRouteResponse } from '../../routeResponses';
-import { readJson } from '../http';
+} from '../../../routeDefinitions';
+import { toFetchRouteResponse } from '../../../routeResponses';
+import { readJson } from '../../../framework/http';
 
 const ROUTE_IDS = [
   'wallet_registration_setup',
@@ -56,7 +56,7 @@ function readWalletIdFromPath(route: RouteDefinition, pathname: string): string 
   return segment ? decodeURIComponent(segment) : undefined;
 }
 
-function resolveWalletRegistrationRoute(ctx: CloudflareRouterApiContext): RouteDefinition | null {
+function resolveWalletRegistrationRoute(ctx: FetchRouterApiContext): RouteDefinition | null {
   for (const routeId of ROUTE_IDS) {
     const route = findRouteDefinitionById(ctx.routeDefinitions, routeId);
     if (!route) {
@@ -68,7 +68,7 @@ function resolveWalletRegistrationRoute(ctx: CloudflareRouterApiContext): RouteD
 }
 
 export async function handleWalletRegistration(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   const route = resolveWalletRegistrationRoute(ctx);
   if (!route) return null;

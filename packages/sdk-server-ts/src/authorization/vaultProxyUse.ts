@@ -33,7 +33,7 @@ import {
 import type { AuthorizationService } from './service';
 import { defineRoute } from '../router/routeDefinitions';
 import type {
-  RouterApiCloudflareRouteExtensionInput,
+  RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
 } from '../router/routeExtensions';
 
@@ -245,7 +245,7 @@ export function createVaultProxyUseRouteExtension(input: {
 }
 
 class VaultProxyUseRouteExtension implements RouterApiRouteExtension {
-  readonly kind = 'cloudflare_route_extension' as const;
+  readonly kind = 'fetch_route_extension' as const;
   readonly id = 'vault_proxy_use';
   readonly routes = [
     defineRoute({
@@ -268,7 +268,7 @@ class VaultProxyUseRouteExtension implements RouterApiRouteExtension {
     private readonly now: () => number,
   ) {}
 
-  async handleCloudflareRoute(input: RouterApiCloudflareRouteExtensionInput): Promise<Response> {
+  async handleFetchRoute(input: RouterApiFetchRouteExtensionInput): Promise<Response> {
     const parsed = await parseVaultProxyUseRequest(await readJson(input.request), this.now());
     const result = await this.service.execute({
       claim: parsed.claim,

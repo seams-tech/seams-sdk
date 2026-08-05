@@ -21,6 +21,11 @@ export type {
   ScheduledHandler,
   SeamsD1SignerTenantStorageWorkerEnv,
 } from './router/cloudflare/cloudflare.types';
+export type {
+  FetchRouterApiContext,
+  FetchRouterHandler,
+  FetchRouterRuntime,
+} from './router/transport/fetch/fetchRouter.types';
 export * from './router/cloudflare/createCloudflareRouter';
 export * from './router/cloudflare/d1Ed25519YaoCapabilityPersistence';
 export * from './router/cloudflare/d1OidcBoundary';
@@ -29,7 +34,7 @@ export * from './router/cloudflare/d1RouterApiAuthService';
 export * from './router/cloudflare/d1WebAuthnAuthService';
 export * from './router/cloudflare/d1WebAuthnStore';
 export * from './router/cloudflare/durableObjects/thresholdStore';
-export * from './router/cloudflare/http';
+export * from './router/framework/http';
 export * from './router/enforceRoutePolicy';
 export * from './router/logger';
 export * from './router/routeAuthPolicy';

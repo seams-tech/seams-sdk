@@ -15,7 +15,7 @@ import {
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
 import { normalizeCorsOrigin } from '../core/SessionService';
-import { json, readJson } from './cloudflare/http';
+import { json, readJson } from './framework/http';
 import {
   InMemoryRouterAbEd25519YaoExportService,
   parseRouterAbEd25519YaoExportAdmissionEnvelopeV1,

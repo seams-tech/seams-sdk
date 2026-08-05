@@ -9,7 +9,7 @@ import type {
   WalletRegistrationActivateInput,
   WalletRegistrationRespondInput,
   WalletRegistrationSetupInput,
-} from './cloudflare/d1WalletRegistrationSetup';
+} from './domains/walletRegistration/walletRegistrationInputs';
 import type { WalletEmailOtpAction } from '@shared/utils/emailOtpDomain';
 import type {
   OrgId,

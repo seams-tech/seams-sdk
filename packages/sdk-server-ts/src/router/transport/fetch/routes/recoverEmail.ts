@@ -1,14 +1,14 @@
-import { parseRecoverEmailRequest } from '../../../email-recovery/emailParsers';
-import type { CloudflareRouterApiContext } from '../createCloudflareRouter';
-import { json, readJson } from '../http';
+import { parseRecoverEmailRequest } from '../../../../email-recovery/emailParsers';
+import type { FetchRouterApiContext } from '../createFetchRouter';
+import { json, readJson } from '../../../framework/http';
 import {
   prepareTrackedRecoverEmailExecution,
   recordTrackedRecoverEmailPending,
   runTrackedRecoverEmailExecution,
   runTrackedRecoverEmailExecutionAsync,
-} from '../../recoveryExecutionTracking';
+} from '../../../recoveryExecutionTracking';
 
-function isCloudflareRecoverEmailAsync(ctx: CloudflareRouterApiContext): boolean {
+function isFetchRecoverEmailAsync(ctx: FetchRouterApiContext): boolean {
   const prefer = String(ctx.request.headers.get('prefer') || '').toLowerCase();
   return (
     prefer.includes('respond-async') ||
@@ -18,7 +18,7 @@ function isCloudflareRecoverEmailAsync(ctx: CloudflareRouterApiContext): boolean
 }
 
 export async function handleRecoverEmail(
-  ctx: CloudflareRouterApiContext,
+  ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/recover-email') return null;
 
@@ -33,7 +33,7 @@ export async function handleRecoverEmail(
     );
   }
 
-  const respondAsync = isCloudflareRecoverEmailAsync(ctx);
+  const respondAsync = isFetchRecoverEmailAsync(ctx);
 
   const rawBody = await readJson(ctx.request);
   const parsed = parseRecoverEmailRequest(rawBody);
@@ -57,13 +57,13 @@ export async function handleRecoverEmail(
     );
   }
 
-  if (respondAsync && ctx.cfCtx && typeof ctx.cfCtx.waitUntil === 'function') {
+  if (respondAsync && ctx.runtime.kind === 'background') {
     await recordTrackedRecoverEmailPending({
       service: ctx.service.recovery,
       logger: ctx.logger,
       execution,
     });
-    ctx.cfCtx.waitUntil(
+    ctx.runtime.waitUntil(
       runTrackedRecoverEmailExecutionAsync({
         service: ctx.service.recovery,
         executionService: emailRecovery.executionService,

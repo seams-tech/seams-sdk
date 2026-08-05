@@ -5,9 +5,10 @@ import { validateRouterApiRorOptions } from '../ror/provider';
 import { coerceRouterLogger } from '../logger';
 import type { NormalizedRouterLogger } from '../logger';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './cloudflare.types';
-import { json, withCors } from './http';
-import { handleThresholdEd25519 } from './routes/thresholdEd25519';
-import { handleThresholdEcdsa } from './routes/thresholdEcdsa';
+import { json, withCors } from '../framework/http';
+import { handleThresholdEd25519 } from '../transport/fetch/routes/thresholdEd25519';
+import { handleThresholdEcdsa } from '../transport/fetch/routes/thresholdEcdsa';
+import type { FetchRouterRuntime } from '../transport/fetch/fetchRouter.types';
 import { isPlainObject } from '@shared/utils/validation';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import {
@@ -78,7 +79,6 @@ function selfHostedHealthResponse(ctx: SelfHostedCloudflareRouterApiContext): Re
 
 function createSelfHostedContext(input: {
   readonly request: Request;
-  readonly env?: CfEnv;
   readonly cfCtx?: CfExecutionContext;
   readonly service: RouterApiServiceBag;
   readonly opts: RouterApiOptions;
@@ -90,8 +90,12 @@ function createSelfHostedContext(input: {
     url,
     pathname: url.pathname,
     method: input.request.method.toUpperCase(),
-    env: input.env,
-    cfCtx: input.cfCtx,
+    runtime: input.cfCtx
+      ? ({
+          kind: 'background',
+          waitUntil: (promise) => input.cfCtx?.waitUntil(promise),
+        } satisfies FetchRouterRuntime)
+      : ({ kind: 'inline' } satisfies FetchRouterRuntime),
     service: input.service,
     opts: input.opts,
     logger: input.logger,
@@ -121,7 +125,6 @@ export function createSelfHostedCloudflareSigningRouter(
 
     const ctx = createSelfHostedContext({
       request,
-      env,
       cfCtx,
       service,
       opts: effectiveOpts,

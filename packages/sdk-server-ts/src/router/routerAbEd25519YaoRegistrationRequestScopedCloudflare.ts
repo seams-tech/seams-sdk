@@ -14,7 +14,7 @@ import {
   ROUTER_AB_TRACE_ID_HEADER_V1,
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
-import { json, readJson } from './cloudflare/http';
+import { json, readJson } from './framework/http';
 import type {
   RouterAbEd25519YaoRegistrationAdmissionClaimV1,
   RouterAbEd25519YaoRegistrationBackendResult,

@@ -36,11 +36,11 @@ import {
   signingRootScopeFromRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
-import { json, readJson } from './cloudflare/http';
+import { json, readJson } from './framework/http';
 import { createRouterApiModule, type RouterApiModule } from './modules';
 import { defineRoute } from './routeDefinitions';
 import type {
-  RouterApiCloudflareRouteExtensionInput,
+  RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
 } from './routeExtensions';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../core/WalletStore';
@@ -2290,7 +2290,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
 }
 
 class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtension {
-  readonly kind = 'cloudflare_route_extension' as const;
+  readonly kind = 'fetch_route_extension' as const;
   readonly id = 'router_ab_ed25519_yao_recovery';
   readonly routes = ROUTER_AB_ED25519_YAO_RECOVERY_ROUTES;
 
@@ -2300,7 +2300,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
     private readonly authorization: RouterAbEd25519YaoRecoveryAuthorizationAdapter,
   ) {}
 
-  async handleCloudflareRoute(input: RouterApiCloudflareRouteExtensionInput): Promise<Response> {
+  async handleFetchRoute(input: RouterApiFetchRouteExtensionInput): Promise<Response> {
     if (input.method !== 'POST') {
       return json(
         { ok: false, code: 'method_not_allowed', message: 'Method not allowed' },
