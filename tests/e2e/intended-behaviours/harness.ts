@@ -2701,9 +2701,9 @@ function requireEmailOtpRegistrationResult(
   if (result.walletId === result.initialWalletId) {
     throw new Error('Email OTP registration did not reroll the initial wallet id');
   }
-  if (result.signingSessionStatus !== 'locked') {
+  if (result.signingSessionStatus !== 'active') {
     throw new Error(
-      `Email OTP registration unexpectedly returned signing authority: ${result.signingSessionStatus}`,
+      `Email OTP registration did not establish an active signing session: ${result.signingSessionStatus}`,
     );
   }
   return result;

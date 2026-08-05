@@ -1992,15 +1992,18 @@ function assertEmailOtpRegistrationCompleted(args: {
     source: registrationEcdsaCapability(completed.registration),
     label: 'Email OTP registration',
   });
-  if (completed.session.reusableWalletSession.kind === 'active') {
-    throw new Error('Email OTP registration unexpectedly created reusable signing authority');
+  const reusableWalletSession = completed.session.reusableWalletSession;
+  if (reusableWalletSession.kind !== 'active') {
+    throw new Error(
+      `Email OTP registration did not return an active signing session: ${reusableWalletSession.kind}`,
+    );
   }
   const common = {
     kind: 'email_otp_registration_success' as const,
     initialWalletId: args.initialWalletId,
     walletId,
-    signingSessionStatus: 'locked',
-    remainingUses: null,
+    signingSessionStatus: reusableWalletSession.kind,
+    remainingUses: reusableWalletSession.remainingUses,
   };
   if (nearAccountId && operationalPublicKey) {
     return {
