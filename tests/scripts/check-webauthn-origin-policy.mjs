@@ -142,23 +142,6 @@ function findWalletRegistrationOriginViolations() {
     violations.push(`${preloadPath} does not preload the registration modal element`);
   }
 
-  const authMenuAdapterPath =
-    'packages/sdk-web/src/react/components/SeamsAuthMenu/adapters/seams.ts';
-  const authMenuAdapter = readRepoFile(authMenuAdapterPath);
-  if (!/walletIframeConnected:\s*ctx\.walletIframeConnected/.test(authMenuAdapter)) {
-    violations.push(`${authMenuAdapterPath} does not expose iframe readiness to the auth menu`);
-  }
-  const authMenuControllerPath =
-    'packages/sdk-web/src/react/components/SeamsAuthMenu/controller/useSeamsAuthMenuController.ts';
-  const authMenuController = readRepoFile(authMenuControllerPath);
-  if (
-    !/const canSubmit =[\s\S]{0,220}isPasskeyInteractionReady\(runtime\)/.test(authMenuController)
-  ) {
-    violations.push(
-      `${authMenuControllerPath} enables passkey interaction before iframe readiness`,
-    );
-  }
-
   const uiConfirmPath = 'packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts';
   const uiConfirm = readRepoFile(uiConfirmPath);
   if (

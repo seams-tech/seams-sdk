@@ -1,6 +1,6 @@
 import React from 'react';
 import NavbarProfileOverlay from './Navbar/NavbarProfileOverlay';
-import { preloadSeamsAuthMenu, useSeams, useTheme, type AuthMenuMode } from '@seams/sdk/react';
+import { useSeams, useTheme } from '@seams/sdk/react';
 
 import { GlassBorder } from './GlassBorder';
 import { DemoTxCardSkeleton } from './DemoTxCardSkeleton';
@@ -16,7 +16,7 @@ const DemoPage = React.lazy(() =>
 const SyncAccount = React.lazy(() =>
   import('@/flows/demo/SyncAccount').then((m) => ({ default: m.SyncAccount })),
 );
-import { AuthMenuControlProvider } from '@/context/AuthMenuControl';
+import { AuthMenuControlProvider, type AuthMenuMode } from '@/context/AuthMenuControl';
 import { ProfileMenuControlProvider } from '@/context/ProfileMenuControl';
 import { useDemoWalletSessionLifecycle } from '@/flows/demo/hooks/useDemoWalletSessionLifecycle';
 
@@ -118,10 +118,6 @@ export function DemoPasskeyColumn({
     },
     [onCurrentPageChange],
   );
-  const prefetchPasskeyMenu = React.useCallback(() => {
-    void preloadSeamsAuthMenu().catch(() => {});
-  }, []);
-
   // After unlock, jump to Demo Tx page (index 1). On lock, go back to login page (index 0).
   React.useEffect(() => {
     setCurrentPage(isDemoUnlocked ? 1 : 0);
@@ -152,13 +148,11 @@ export function DemoPasskeyColumn({
         title: 'Login',
         element: () => (
           <>
-            <PrefetchOnIntent onIntent={prefetchPasskeyMenu}>
-              <React.Suspense fallback={<SuspenseFallback />}>
-                <PasskeyLoginMenu
-                  defaultModeWhenNoDetectedAccount={defaultModeWhenNoDetectedAccount}
-                />
-              </React.Suspense>
-            </PrefetchOnIntent>
+            <React.Suspense fallback={<SuspenseFallback />}>
+              <PasskeyLoginMenu
+                defaultModeWhenNoDetectedAccount={defaultModeWhenNoDetectedAccount}
+              />
+            </React.Suspense>
           </>
         ),
       },
@@ -194,7 +188,7 @@ export function DemoPasskeyColumn({
         ),
       },
     ],
-    [defaultModeWhenNoDetectedAccount, isDemoUnlocked, prefetchPasskeyMenu],
+    [defaultModeWhenNoDetectedAccount, isDemoUnlocked],
   );
 
   return (
@@ -224,24 +218,3 @@ const SuspenseFallback = () => (
     style={{ height: 320, width: 'min(420px, calc(100vw - 2rem))' }}
   />
 );
-
-function PrefetchOnIntent(props: { onIntent: () => void; children: React.ReactNode }) {
-  const didPrefetchRef = React.useRef(false);
-  const onIntentOnce = React.useCallback(() => {
-    if (didPrefetchRef.current) return;
-    didPrefetchRef.current = true;
-    props.onIntent();
-  }, [props.onIntent]);
-
-  return (
-    <div
-      style={{ display: 'contents' }}
-      onPointerOver={onIntentOnce}
-      onMouseOver={onIntentOnce}
-      onFocusCapture={onIntentOnce}
-      onTouchStart={onIntentOnce}
-    >
-      {props.children}
-    </div>
-  );
-}

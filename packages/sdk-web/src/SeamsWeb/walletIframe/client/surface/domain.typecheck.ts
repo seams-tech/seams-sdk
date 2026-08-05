@@ -3,6 +3,7 @@ import type {
   WalletIframeSurfaceId,
 } from '@/SeamsWeb/publicApi/types';
 import {
+  modalAuthMenuSurface,
   modalDeviceLinkQrSurface,
   modalRecoveryCodesSurface,
   modalRegistrationConfirmSurface,
@@ -15,6 +16,10 @@ import {
   type RequestSurfaceIdentity,
   type WalletIframeSurface,
 } from './domain';
+import {
+  hostedAuthMenuSessionIdFromBoundary,
+  type HostedAuthMenuSessionId,
+} from '../../shared/messages';
 
 declare const surfaceId: WalletIframeSurfaceId;
 declare const requestId: WalletIframeRequestId;
@@ -26,6 +31,8 @@ const requestIdentity: RequestSurfaceIdentity = {
   requestId,
 };
 const preparation = passkeyRegistrationPreparationReceipt(Date.now() + 60_000);
+const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary('auth-menu-1');
+if (!authMenuSessionId) throw new Error('auth menu session id fixture is invalid');
 
 modalRegistrationConfirmSurface({ connectionId, identity: requestIdentity, preparation });
 modalTransactionConfirmSurface({
@@ -38,6 +45,25 @@ modalRecoveryCodesSurface({
   operation: 'show',
 });
 modalDeviceLinkQrSurface({ connectionId, identity: requestIdentity });
+modalAuthMenuSurface({ connectionId, identity: requestIdentity, authMenuSessionId });
+
+declare const exactAuthMenuSessionId: HostedAuthMenuSessionId;
+const authMenuSurface: WalletIframeSurface = {
+  kind: 'modal_auth_menu',
+  connectionId,
+  identity: requestIdentity,
+  authMenuSessionId: exactAuthMenuSessionId,
+};
+void authMenuSurface;
+
+const authMenuSurfaceWithRawSession: WalletIframeSurface = {
+  kind: 'modal_auth_menu',
+  connectionId,
+  identity: requestIdentity,
+  // @ts-expect-error Auth-menu surfaces require the exact branded session id.
+  authMenuSessionId: 'auth-menu-raw',
+};
+void authMenuSurfaceWithRawSession;
 
 // @ts-expect-error Hidden surfaces cannot carry request ownership.
 const hiddenWithIdentity: HiddenWalletIframeSurface = { kind: 'hidden', identity: requestIdentity };

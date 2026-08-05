@@ -1,4 +1,23 @@
 export { SeamsWeb } from './SeamsWeb';
+export {
+  buildHostedAuthMenuOpenRequest,
+  hostedAuthMenuExternalAuthRequestIdFromBoundary,
+  hostedAuthMenuSessionIdFromBoundary,
+} from './walletIframe/shared/messages';
+export type {
+  HostedAuthMenuCopy,
+  HostedAuthMenuCopyInput,
+  HostedAuthMenuExternalAuthEvidence,
+  HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuExternalAuthRequestId,
+  HostedAuthMenuExternalAuthResolutionInput,
+  HostedAuthMenuExternalProvider,
+  HostedAuthMenuMode,
+  HostedAuthMenuOpenRequest,
+  HostedAuthMenuOutcome,
+  HostedAuthMenuRegistrationAccountInput,
+  HostedAuthMenuSessionId,
+} from './walletIframe/shared/messages';
 export { BrowserCapabilityUnavailableError } from './publicApi/capabilitySelection';
 export type {
   BrowserCapabilitySelectionResult,

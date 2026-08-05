@@ -13,7 +13,7 @@ import {
   Twitter,
   Wallet,
 } from 'lucide-react';
-import { Theme, useSeams, type AuthMenuMode, type WalletShapeId } from '@seams/sdk/react';
+import { Theme, useSeams, type WalletShapeId } from '@seams/sdk/react';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import { EcosystemLattice } from '@/components/h2/EcosystemLattice';
 import { NETWORK_MARKS, NetworkMarkLockup } from '@/components/icons/NetworkMarks';
@@ -25,6 +25,7 @@ import {
   demoReactTokens,
   type DemoThemeId,
 } from '@/context/app-themes';
+import type { AuthMenuMode } from '@/context/AuthMenuControl';
 import '@/styles/h2.css';
 
 /* Shared section library for the h2 marketing pages (/, /wallet, /ecommerce).
@@ -138,7 +139,7 @@ export function H2DemoHero({
 
         <div className="h2-hero__demo">
           <p className="h2-demo-label">Live Demo</p>
-          {/* Feed the selected preset to the auth menu via the SDK theme context */}
+          {/* Feed the selected preset to demo controls via the SDK theme context */}
           <Theme
             theme={activePreset.mode}
             tokens={demoReactTokens(activePreset, demoShape)}

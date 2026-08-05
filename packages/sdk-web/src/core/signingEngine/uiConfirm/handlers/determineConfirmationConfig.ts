@@ -4,7 +4,7 @@ import { normalizeConfirmationConfig } from '@/core/types/confirmationConfig';
 import type { UiConfirmContext } from '../uiConfirm.types';
 import type { UserConfirmRequest } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import { UserConfirmationType } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
-import { needsExplicitActivation } from '@/react/deviceDetection';
+import { needsExplicitActivation } from '@/utils/deviceDetection';
 
 /**
  * determineConfirmationConfig

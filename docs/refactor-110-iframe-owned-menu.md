@@ -2,7 +2,8 @@
 
 Date created: August 3, 2026
 
-Status: proposed implementation plan
+Status: implementation in progress on `codex/r110`; domain, host, and adapter
+phases are landed, with consumer migration and cleanup in progress
 
 ## Decision
 
@@ -39,6 +40,14 @@ The final passkey click and the WebAuthn ceremony share the same wallet-origin
 event chain. Passkey registration initiated through `SeamsAuthMenu` therefore
 needs no second registration-confirmation button.
 
+## R110 Scope: Device Linking Deferred
+
+Device-link and QR UI are excluded from Refactor 110. The current Refactor-84
+device-link runtime fails closed with an explicit `UNSUPPORTED` result, so R110
+does not advertise or add a host-owned device-link continuation, view, test, or
+acceptance criterion. Device linking remains deferred until the Refactor-103 v4
+runtime and protocol are implemented.
+
 ## Required Invariants
 
 1. React and ReactDOM are absent from every wallet-iframe host entry and its
@@ -71,7 +80,7 @@ The current implementation splits one interaction across two documents:
 - `packages/sdk-web/src/react/components/SeamsAuthMenu/client.tsx` renders the
   visible menu in the app document;
 - `useSeamsAuthMenuController.ts` owns mode, account lookup, registration draft,
-  social, OTP, device-linking, and callback-driven operation state;
+  social, OTP, and callback-driven operation state;
 - `SeamsAuthMenuProps` accepts functions, React elements, style objects, and
   class names that cannot cross `postMessage`;
 - `PM_REGISTER_WALLET` and `PM_UNLOCK` expand the wallet iframe into separate
@@ -101,7 +110,7 @@ The React adapter owns only:
   reconnection.
 
 It must not own input state, registration drafts, account availability,
-passkey readiness, OTP prompts, waiting screens, or device-linking UI.
+passkey readiness, OTP prompts, or waiting screens.
 
 ### Wallet-Iframe Host
 
@@ -112,9 +121,10 @@ The wallet host owns:
 - login/register mode and account/passkey-name input;
 - account availability and recent-unlock lookup;
 - registration and unlock preparation;
+- passkey login and account-sync continuation;
 - WebAuthn invocation;
 - Google Email OTP wallet-auth flow state;
-- OTP, registration-completion, progress, error, and device-link views;
+- OTP, registration-completion, progress, and error views;
 - cancellation and terminal cleanup;
 - result projection back to the app.
 
@@ -144,8 +154,8 @@ session. The client renderer maps this branch to one viewport modal with a focus
 trap and an accessible title.
 
 `PM_OPEN_AUTH_MENU` remains pending until the user completes or closes the menu.
-The request owns the surface throughout all internal views. Registration, OTP,
-and device-link subviews do not open competing client-router surfaces.
+The request owns the surface throughout all internal views. Registration and OTP
+subviews do not open competing client-router surfaces.
 
 Direct SDK operations continue to use `modal_registration_confirm`,
 `modal_unlock_confirm`, and the other existing request-owned surfaces.
@@ -241,11 +251,6 @@ type HostedAuthMenuState =
       state: 'otp_prompt';
       session: HostedAuthMenuSession;
       flow: HostedAuthMenuOtpFlow;
-    }
-  | {
-      state: 'device_link';
-      session: HostedAuthMenuSession;
-      flow: HostedAuthMenuDeviceLinkFlow;
     }
   | { state: 'complete'; outcome: HostedAuthMenuOutcome };
 ```
@@ -371,12 +376,12 @@ surface should be approximately:
 
 ```ts
 type SeamsAuthMenuProps = {
-  initialMode: 'login' | 'register';
-  registrationAccountInput: SeamsAuthMenuRegistrationAccountInput;
-  showRegistrationInput: boolean;
-  showProgress: boolean;
-  copy: HostedAuthMenuCopy;
-  externalAuthBroker: HostedAuthMenuExternalAuthBroker | null;
+  initialMode?: 'login' | 'register';
+  registrationAccountInput?: SeamsAuthMenuRegistrationAccountInput;
+  showRegistrationInput?: boolean;
+  showProgress?: boolean;
+  copy?: HostedAuthMenuCopyInput;
+  externalAuthBroker?: HostedAuthMenuExternalAuthBroker | null;
   onOutcome: (outcome: HostedAuthMenuOutcome) => void;
 };
 ```
@@ -434,7 +439,7 @@ component instance.
    `w3a-passkey-halo-loading` element.
 4. Mount the element directly from the wallet-host auth-menu handler; do not
    expose it through the generic app-configurable UI registry.
-5. Keep account lookup, mode switching, waiting, OTP, and device-link state
+5. Keep account lookup, mode switching, waiting, OTP, and account-sync state
    inside the active auth-menu session.
 
 ### Phase 3: Prepared Passkey Continuations
@@ -453,8 +458,8 @@ component instance.
 
 1. Implement the external-auth request/result broker with exact correlation.
 2. Move Google Email OTP flow presentation and control into the Lit controller.
-3. Render OTP, Google registration completion, recent unlocks, account sync, and
-   device-linking inside the same auth-menu surface.
+3. Render OTP, Google registration completion, recent unlocks, and account sync
+   inside the same auth-menu surface.
 4. Add first-class evidence types before enabling any additional provider.
 
 ### Phase 5: React Adapter And Product Migration
@@ -511,7 +516,7 @@ Add focused tests under `tests/lit-components/` for:
 - registration passkey-name label and value;
 - CTA disabled during preparation and enabled only for the exact ready state;
 - fingerprint halo loading and reduced motion;
-- login, registration, OTP, error, progress, and device-link views;
+- login, registration, OTP, account-sync, error, and progress views;
 - keyboard traversal, focus trap, close behavior, and focus restoration.
 
 ### Wallet-Iframe Browser Coverage
@@ -571,9 +576,8 @@ pnpm -C packages/sdk-web check:bundle-size
   wallet-origin CTA and opens no second Seams confirmation modal.
 - Passkey login and sync use their wallet-origin auth-menu CTA without opening a
   second unlock confirmation.
-- Direct SDK registration, signer addition, unlock, signing, export, recovery,
-  and device-link operations retain their required wallet-origin confirmation
-  behavior.
+- Direct SDK registration, signer addition, unlock, signing, export, and
+  recovery retain their required wallet-origin confirmation behavior.
 - Registration and login CTAs remain disabled until their exact prepared
   operation is ready and unexpired.
 - WebAuthn starts before the CTA handler's first `await`.

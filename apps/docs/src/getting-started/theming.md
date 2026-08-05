@@ -5,17 +5,17 @@ title: Theming
 # Theming
 
 Every wallet surface the SDK renders — the auth menu, account menus, and the
-transaction confirmer inside the wallet iframe — reads its appearance from one
-token vocabulary: **colors** (what things are painted) and **shape** (how
-components are drawn: radii, control sizes, field treatment). Tokens become
-CSS custom properties, so a theme is just data.
+transaction confirmer — reads its appearance from one token vocabulary:
+**colors** (what things are painted) and **shape** (how components are drawn:
+radii, control sizes, field treatment). Tokens become CSS custom properties, so
+a theme is just data.
 
 There are two delivery channels, one per rendering context:
 
 | Surface | Rendered by | Themed via |
 | --- | --- | --- |
-| Auth menu, profile/account components | Your app (React) | `<Theme>` provider tokens |
-| Tx confirmer drawer/modal, export viewer | Wallet iframe (isolated origin) | `appearance` config / `seams.setAppearance()` |
+| Auth menu, tx confirmer, export viewer | Wallet iframe (isolated origin) | `appearance` config / `seams.setAppearance()` |
+| Profile/account components | Your app (React) | `<Theme>` provider tokens |
 
 Both channels accept the same color and shape records, so one preset object
 can drive the whole product.
@@ -26,7 +26,7 @@ Wrap the SDK components in `Theme` and pass token overrides for the active
 mode:
 
 ```tsx
-import { Theme } from '@seams/sdk/react';
+import { SeamsAuthMenu, Theme } from '@seams/sdk/react';
 
 <Theme
   theme="light"
@@ -40,7 +40,7 @@ import { Theme } from '@seams/sdk/react';
     },
   }}
 >
-  <SeamsAuthMenu />
+  <SeamsAuthMenu onOutcome={(outcome) => console.log('auth menu outcome', outcome)} />
 </Theme>
 ```
 
@@ -101,7 +101,7 @@ import { Theme, SHAPE_PRESETS } from '@seams/sdk/react';
   theme="light"
   tokens={{ light: { colors: myColors, shape: SHAPE_PRESETS.rounded } }}
 >
-  <SeamsAuthMenu />
+  <SeamsAuthMenu onOutcome={(outcome) => console.log('auth menu outcome', outcome)} />
 </Theme>
 ```
 
@@ -166,7 +166,7 @@ keeps radii, sizes, and field treatment coherent as a set.
 ## Keeping Both Channels In Sync
 
 Drive both channels from one preset object so a theme switch re-skins the
-React card and the iframe confirmer together:
+iframe-owned auth surfaces and app-owned account components together:
 
 ```tsx
 const preset = {
@@ -176,12 +176,12 @@ const preset = {
   shape: SHAPE_PRESETS.square,
 };
 
-// React surfaces
+// App-owned React surfaces
 <Theme theme={preset.mode} tokens={{ [preset.mode]: { colors: preset.colors, shape: preset.shape } }}>
   {children}
 </Theme>
 
-// Iframe surfaces — re-run whenever the preset changes
+// Wallet-iframe surfaces — re-run whenever the preset changes
 React.useEffect(() => {
   seams.setAppearance({
     theme: {

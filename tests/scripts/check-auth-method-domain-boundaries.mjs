@@ -32,7 +32,7 @@ const approvedLiteralUnions = new Map([
     'packages/sdk-web/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
     4,
   ],
-  ['packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts', 7],
+  ['packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts', 6],
   [
     'packages/sdk-web/src/core/signingEngine/session/postconditions/runtimePostconditions.ts',
     0,

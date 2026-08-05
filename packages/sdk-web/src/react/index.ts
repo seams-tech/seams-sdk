@@ -105,11 +105,6 @@ export type {
 } from './hooks/useGoogleEmailOtpWalletAuth';
 export { useQRCamera, QRScanMode } from './hooks/useQRCamera';
 export type { UseQRCameraOptions, UseQRCameraReturn } from './hooks/useQRCamera';
-export { usePostfixPosition } from './components/SeamsAuthMenu/ui/usePostfixPosition';
-export type {
-  UsePostfixPositionOptions,
-  UsePostfixPositionReturn,
-} from './components/SeamsAuthMenu/ui/usePostfixPosition';
 export { TxExecutionStatus } from '../core/types/actions';
 
 ////////////////////////////
@@ -122,23 +117,25 @@ export type { QRCodeScannerProps } from './components/QRCodeScanner';
 export { ShowQRCode } from './components/ShowQRCode';
 export type { ShowQRCodeProps } from './components/ShowQRCode';
 // Sign Up / Sign In menu
-export { SeamsAuthMenu, SeamsAuthMenuSkeleton } from './components/SeamsAuthMenu/public';
+export { SeamsAuthMenu } from './components/SeamsAuthMenu/public';
 export type {
-  SeamsAuthMenuPasskeyLoginRequest,
+  HostedAuthMenuCopy,
+  HostedAuthMenuCopyInput,
+  HostedAuthMenuExternalAuthBroker,
+  HostedAuthMenuExternalAuthEvidence,
+  HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuExternalProvider,
+  HostedAuthMenuMode,
+  HostedAuthMenuOpenRequest,
+  HostedAuthMenuOutcome,
+  HostedAuthMenuRegistrationAccountInput,
+  HostedAuthMenuSessionId,
+  SeamsAuthMenuCopy,
+  SeamsAuthMenuMode,
+  SeamsAuthMenuOutcomeHandler,
   SeamsAuthMenuProps,
-  SeamsAuthMenuRegistrationRequest,
-  SeamsAuthMenuSocialLoginArgs,
-  SeamsAuthMenuSocialLoginHandler,
-  SeamsAuthMenuSyncAccountRequest,
+  SeamsAuthMenuRegistrationAccountInput,
 } from './components/SeamsAuthMenu/public';
-export { AuthMenuMode, AuthMenuModeMap } from './components/SeamsAuthMenu/authMenuTypes';
-export type { AuthMenuModeLabel, AuthMenuHeadings } from './components/SeamsAuthMenu/authMenuTypes';
-// SSR-safe shell + explicit client entrypoints
-export {
-  SeamsAuthMenuClient,
-  SeamsAuthMenuSkeletonInner,
-  preloadSeamsAuthMenu,
-} from './components/SeamsAuthMenu';
 // Small SVG utility icon used in examples
 export { default as TouchIcon } from './components/AccountMenuButton/icons/TouchIcon';
 export { default as QRCodeIcon } from './components/QRCodeIcon';
