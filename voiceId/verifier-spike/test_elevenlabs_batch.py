@@ -16,6 +16,7 @@ from elevenlabs_batch import (
     OwnerClone,
     VoiceDesign,
     generate_plan,
+    load_api_key,
     multipart_body,
     publish_materialized_output,
     validate_cli_paths,
@@ -26,6 +27,30 @@ REAL_PUBLISH_MATERIALIZED_OUTPUT = publish_materialized_output
 
 
 class ElevenLabsBatchTest(unittest.TestCase):
+    def test_loads_api_key_from_ignored_voiceid_env_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            env_path = Path(temporary_directory) / ".env"
+            env_path.write_text(
+                "# local-only credential\nexport ELEVENLABS_API_KEY=\"file-key\"\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                load_api_key(environment={}, env_path=env_path),
+                "file-key",
+            )
+
+    def test_process_environment_takes_precedence_over_env_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            env_path = Path(temporary_directory) / ".env"
+            env_path.write_text("ELEVENLABS_API_KEY=file-key\n", encoding="utf-8")
+            self.assertEqual(
+                load_api_key(
+                    environment={"ELEVENLABS_API_KEY": "process-key"},
+                    env_path=env_path,
+                ),
+                "process-key",
+            )
+
     def test_generates_designed_and_owner_conditioned_manifest_entries(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

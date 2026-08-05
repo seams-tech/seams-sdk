@@ -1815,6 +1815,32 @@ def write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
+def load_api_key(*, environment: dict[str, str], env_path: Path) -> str:
+    configured = environment.get("ELEVENLABS_API_KEY", "").strip()
+    if configured:
+        return configured
+    if not env_path.is_file():
+        return ""
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if line == "" or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        name, separator, value = line.partition("=")
+        if separator != "=" or name.strip() != "ELEVENLABS_API_KEY":
+            continue
+        normalized = value.strip()
+        if (
+            len(normalized) >= 2
+            and normalized[0] == normalized[-1]
+            and normalized[0] in "'\""
+        ):
+            normalized = normalized[1:-1]
+        return normalized
+    return ""
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate a provenance-pinned ElevenLabs VoiceID corpus batch."
@@ -1836,7 +1862,10 @@ def main() -> None:
         manifest_path=args.manifest_out,
         report_path=args.report_out,
     )
-    api_key = os.environ.get("ELEVENLABS_API_KEY", "")
+    api_key = load_api_key(
+        environment=dict(os.environ),
+        env_path=args.plan.parents[1] / ".env",
+    )
     manifest, report = generate_plan(
         plan,
         client=ElevenLabsHttpClient(api_key),
