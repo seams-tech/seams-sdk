@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import tempfile
 import time
 import wave
 from dataclasses import dataclass
@@ -13,6 +15,7 @@ from typing import Any, Literal
 
 PLAN_SCHEMA_VERSION = "voice_id_dia2_generation_plan_v1"
 REPORT_SCHEMA_VERSION = "voice_id_dia2_generation_report_v1"
+STATE_SCHEMA_VERSION = "voice_id_dia2_generation_state_v1"
 BENCHMARK_SCHEMA_VERSION = "voice_id_benchmark_manifest_v2"
 PARTITIONS = frozenset({"development", "calibration", "evaluation"})
 CASE_KINDS = frozenset(
@@ -399,46 +402,74 @@ def generate_plan(
     mimi_dir: Path,
     asset_dir: Path,
     output_dir: Path,
+    state_path: Path,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    output_dir = output_dir.expanduser().resolve()
+    state_path = state_path.expanduser().resolve()
+    if state_path in {
+        output_dir / "manifest.json",
+        output_dir / "report.json",
+    }:
+        raise Dia2PlanError("state path must be distinct from output artifacts")
+    output_dir.mkdir(parents=True, exist_ok=True)
     verify_source_revision(source_root, plan.repository_revision)
     verify_snapshot_revision(model_dir, plan.checkpoint.revision)
     verify_snapshot_revision(mimi_dir, plan.checkpoint.mimi_revision)
-    Dia2, GenerationConfig, SamplingConfig, torch = load_dia2(source_root)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    model_load_started = time.perf_counter()
-    engine = Dia2.from_local(
-        config_path=model_dir / "config.json",
-        weights_path=model_dir / "model.safetensors",
-        device="cuda",
-        dtype=plan.settings.dtype,
-        tokenizer_id=model_dir,
-        mimi_id=str(mimi_dir),
+    state = load_or_create_state(
+        state_path,
+        plan=plan,
+        output_dir=output_dir,
     )
-    generation_config = GenerationConfig(
-        text=SamplingConfig(
-            temperature=plan.settings.text_temperature,
-            top_k=plan.settings.text_top_k,
-        ),
-        audio=SamplingConfig(
-            temperature=plan.settings.audio_temperature,
-            top_k=plan.settings.audio_top_k,
-        ),
-        cfg_scale=plan.settings.cfg_scale,
-        use_cuda_graph=plan.settings.use_cuda_graph,
-    )
-    engine._ensure_runtime()
-    model_load_ms = elapsed_ms(model_load_started)
-    generated_paths: dict[str, Path] = {}
-    benchmark_entries: list[dict[str, Any]] = []
-    report_entries: list[dict[str, Any]] = []
+    completed = state["completed"]
+    benchmark_entries = [item["benchmarkEntry"] for item in completed]
+    report_entries = [item["reportEntry"] for item in completed]
+    generated_paths = {
+        item["fixtureId"]: output_dir / item["benchmarkEntry"]["audioFileName"]
+        for item in completed
+    }
+    remaining_jobs = plan.jobs[len(completed) :]
+    model_load_ms = state["modelLoadMs"]
+    engine = None
     try:
-        for job in plan.jobs:
+        if remaining_jobs:
+            Dia2, GenerationConfig, SamplingConfig, torch = load_dia2(source_root)
+            model_load_started = time.perf_counter()
+            engine = Dia2.from_local(
+                config_path=model_dir / "config.json",
+                weights_path=model_dir / "model.safetensors",
+                device="cuda",
+                dtype=plan.settings.dtype,
+                tokenizer_id=model_dir,
+                mimi_id=str(mimi_dir),
+            )
+            generation_config = GenerationConfig(
+                text=SamplingConfig(
+                    temperature=plan.settings.text_temperature,
+                    top_k=plan.settings.text_top_k,
+                ),
+                audio=SamplingConfig(
+                    temperature=plan.settings.audio_temperature,
+                    top_k=plan.settings.audio_top_k,
+                ),
+                cfg_scale=plan.settings.cfg_scale,
+                use_cuda_graph=plan.settings.use_cuda_graph,
+            )
+            engine._ensure_runtime()
+            model_load_ms = elapsed_ms(model_load_started)
+            state["modelLoadMs"] = round(model_load_ms, 3)
+            write_generation_state(state_path, state)
+        for job in remaining_jobs:
             prefix_path = resolve_prefix_path(
                 job.prefix,
                 generated_paths=generated_paths,
                 asset_dir=asset_dir,
             )
             output_path = output_dir / job.audio_file_name
+            pending_path = pending_output_path(output_dir, job)
+            if pending_path.exists():
+                raise Dia2PlanError(
+                    f"pending Dia2 output requires manual reconciliation: {pending_path.name}"
+                )
             request = generation_request(
                 plan=plan,
                 job=job,
@@ -450,44 +481,54 @@ def generate_plan(
             engine.generate(
                 job.script,
                 config=generation_config,
-                output_wav=output_path,
+                output_wav=pending_path,
                 prefix_speaker_1=str(prefix_path) if prefix_path is not None else None,
                 include_prefix=False,
                 verbose=False,
             )
             generation_ms = elapsed_ms(started)
+            install_immutable_audio(pending_path, output_path)
             audio = inspect_wav(output_path)
             captured_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             request_hash = sha256_json(request)
-            benchmark_entries.append(
-                benchmark_entry(
-                    plan=plan,
-                    job=job,
-                    audio=audio,
-                    request_hash=request_hash,
-                    captured_at=captured_at,
-                )
+            benchmark_value = benchmark_entry(
+                plan=plan,
+                job=job,
+                audio=audio,
+                request_hash=request_hash,
+                captured_at=captured_at,
             )
-            report_entries.append(
+            report_value = {
+                "fixtureId": job.fixture_id,
+                "audioFileName": job.audio_file_name,
+                "generationMs": round(generation_ms, 3),
+                "requestHash": request_hash,
+                "outputSha256": audio["sha256"],
+                "outputBytes": audio["byteLength"],
+                "durationMs": audio["durationMs"],
+                "sampleRateHz": audio["sampleRateHz"],
+                "request": request,
+            }
+            benchmark_entries.append(benchmark_value)
+            report_entries.append(report_value)
+            state["completed"].append(
                 {
                     "fixtureId": job.fixture_id,
-                    "audioFileName": job.audio_file_name,
-                    "generationMs": round(generation_ms, 3),
-                    "requestHash": request_hash,
-                    "outputSha256": audio["sha256"],
-                    "outputBytes": audio["byteLength"],
-                    "durationMs": audio["durationMs"],
-                    "sampleRateHz": audio["sampleRateHz"],
-                    "request": request,
+                    "benchmarkEntry": benchmark_value,
+                    "reportEntry": report_value,
                 }
             )
             generated_paths[job.fixture_id] = output_path
+            write_generation_state(state_path, state)
     finally:
-        engine.close()
+        if engine is not None:
+            engine.close()
+    state["status"] = "complete"
+    write_generation_state(state_path, state)
     manifest = {
         "schemaVersion": BENCHMARK_SCHEMA_VERSION,
         "datasetVersion": plan.dataset_version,
-        "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "createdAt": state["createdAt"],
         "entries": benchmark_entries,
     }
     report = {
@@ -501,12 +542,141 @@ def generate_plan(
             "mimiRevision": plan.checkpoint.mimi_revision,
         },
         "settings": settings_to_json(plan.settings),
-        "modelLoadMs": round(model_load_ms, 3),
+        "modelLoadMs": model_load_ms,
         "fixtureCount": len(report_entries),
         "failureCount": 0,
         "entries": report_entries,
     }
     return manifest, report
+
+
+def load_or_create_state(
+    state_path: Path,
+    *,
+    plan: Dia2Plan,
+    output_dir: Path,
+) -> dict[str, Any]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise Dia2PlanError(f"cannot read Dia2 generation state: {error}") from error
+        validate_generation_state(state, plan=plan, state_path=state_path, output_dir=output_dir)
+        return state
+    state = {
+        "schemaVersion": STATE_SCHEMA_VERSION,
+        "datasetVersion": plan.dataset_version,
+        "planSha256": sha256_file(plan.path),
+        "outputDir": str(output_dir),
+        "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "status": "running",
+        "modelLoadMs": None,
+        "completed": [],
+    }
+    validate_generation_state(state, plan=plan, state_path=state_path, output_dir=output_dir)
+    write_generation_state(state_path, state)
+    return state
+
+
+def validate_generation_state(
+    state: object,
+    *,
+    plan: Dia2Plan,
+    state_path: Path,
+    output_dir: Path,
+) -> None:
+    if not isinstance(state, dict):
+        raise Dia2PlanError("Dia2 generation state must be an object")
+    require_exact_keys(
+        state,
+        "generation state",
+        {
+            "schemaVersion",
+            "datasetVersion",
+            "planSha256",
+            "outputDir",
+            "createdAt",
+            "status",
+            "modelLoadMs",
+            "completed",
+        },
+    )
+    if state.get("schemaVersion") != STATE_SCHEMA_VERSION:
+        raise Dia2PlanError(f"generation state schemaVersion must be {STATE_SCHEMA_VERSION}")
+    if state.get("datasetVersion") != plan.dataset_version:
+        raise Dia2PlanError("generation state dataset does not match plan")
+    if state.get("planSha256") != sha256_file(plan.path):
+        raise Dia2PlanError("generation state plan does not match plan input")
+    if state.get("outputDir") != str(output_dir):
+        raise Dia2PlanError("generation state output directory does not match output")
+    require_iso_date_time_value(state.get("createdAt"), "generation state createdAt")
+    if state.get("status") not in {"running", "complete"}:
+        raise Dia2PlanError("generation state status is invalid")
+    model_load_ms = state.get("modelLoadMs")
+    if model_load_ms is not None and (
+        not isinstance(model_load_ms, int | float) or isinstance(model_load_ms, bool) or model_load_ms < 0
+    ):
+        raise Dia2PlanError("generation state modelLoadMs is invalid")
+    completed = state.get("completed")
+    if not isinstance(completed, list) or len(completed) > len(plan.jobs):
+        raise Dia2PlanError("generation state completed jobs are invalid")
+    if completed and model_load_ms is None:
+        raise Dia2PlanError("generation state is missing model load timing")
+    for index, item in enumerate(completed):
+        if not isinstance(item, dict) or set(item) != {"fixtureId", "benchmarkEntry", "reportEntry"}:
+            raise Dia2PlanError("generation state completed entry is invalid")
+        job = plan.jobs[index]
+        if item["fixtureId"] != job.fixture_id:
+            raise Dia2PlanError("generation state completed jobs are out of order")
+        benchmark = item["benchmarkEntry"]
+        report = item["reportEntry"]
+        if not isinstance(benchmark, dict) or not isinstance(report, dict):
+            raise Dia2PlanError("generation state completed artifacts are invalid")
+        if benchmark.get("fixtureId") != job.fixture_id:
+            raise Dia2PlanError("generation state benchmark entry does not match plan")
+        if report.get("fixtureId") != job.fixture_id:
+            raise Dia2PlanError("generation state report entry does not match plan")
+        audio_name = benchmark.get("audioFileName")
+        if audio_name != job.audio_file_name:
+            raise Dia2PlanError("generation state audio file does not match plan")
+        audio_path = output_dir / job.audio_file_name
+        if not audio_path.is_file():
+            raise Dia2PlanError(f"completed Dia2 output is missing: {job.audio_file_name}")
+        audio = inspect_wav(audio_path)
+        for key in ("sha256", "byteLength", "durationMs", "sampleRateHz"):
+            if benchmark.get("audioSha256" if key == "sha256" else key) != audio[key]:
+                raise Dia2PlanError(f"completed Dia2 output does not match state: {job.audio_file_name}")
+        if report.get("outputSha256") != audio["sha256"]:
+            raise Dia2PlanError(f"completed Dia2 report does not match output: {job.audio_file_name}")
+    completed_names = {job.audio_file_name for job in plan.jobs[: len(completed)]}
+    for job in plan.jobs[len(completed) :]:
+        output_path = output_dir / job.audio_file_name
+        pending_path = pending_output_path(output_dir, job)
+        if output_path.exists() and job.audio_file_name not in completed_names:
+            raise Dia2PlanError(f"uncheckpointed Dia2 output collision: {job.audio_file_name}")
+        if pending_path.exists():
+            raise Dia2PlanError(f"pending Dia2 output requires manual reconciliation: {pending_path.name}")
+
+
+def pending_output_path(output_dir: Path, job: Dia2Job) -> Path:
+    return output_dir / f".{job.audio_file_name}.pending"
+
+
+def install_immutable_audio(source: Path, destination: Path) -> None:
+    if not source.is_file():
+        raise Dia2PlanError(f"Dia2 did not create pending output: {source.name}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        raise Dia2PlanError(f"Dia2 output collision: {destination.name}")
+    with source.open("rb") as file:
+        os.fsync(file.fileno())
+    try:
+        os.link(source, destination, follow_symlinks=False)
+    except FileExistsError as error:
+        raise Dia2PlanError(f"Dia2 output collision: {destination.name}") from error
+    source.unlink()
+    fsync_directory(destination.parent)
 
 
 def load_dia2(source_root: Path) -> tuple[Any, Any, Any, Any]:
@@ -777,8 +947,54 @@ def require_non_negative_number(data: dict[str, Any], field_name: str) -> float:
 
 
 def write_json(path: Path, value: object) -> None:
+    encoded = (json.dumps(value, indent=2) + "\n").encode("utf-8")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    if path.exists():
+        if path.is_file() and path.read_bytes() == encoded:
+            return
+        raise Dia2PlanError(f"immutable output collision: {path.name}")
+    with path.open("xb") as output:
+        output.write(encoded)
+
+
+def write_generation_state(path: Path, value: dict[str, Any]) -> None:
+    encoded = (json.dumps(value, indent=2) + "\n").encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(encoded)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary_path, path)
+        fsync_directory(path.parent)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def require_iso_date_time_value(value: object, field_name: str) -> None:
+    if not isinstance(value, str):
+        raise Dia2PlanError(f"{field_name} must be an ISO date-time")
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as error:
+        raise Dia2PlanError(f"{field_name} must be an ISO date-time") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise Dia2PlanError(f"{field_name} must include a UTC offset")
+
+
+def fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def main() -> None:
@@ -789,6 +1005,7 @@ def main() -> None:
     parser.add_argument("--mimi-dir", type=Path, required=True)
     parser.add_argument("--asset-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--manifest-out", type=Path, required=True)
     parser.add_argument("--report-out", type=Path, required=True)
     args = parser.parse_args()
@@ -799,6 +1016,7 @@ def main() -> None:
         mimi_dir=args.mimi_dir,
         asset_dir=args.asset_dir,
         output_dir=args.output_dir,
+        state_path=args.state,
     )
     write_json(args.manifest_out, manifest)
     write_json(args.report_out, report)

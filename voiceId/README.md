@@ -218,6 +218,21 @@ Model evaluation must use subject-disjoint speakers, multiple sessions,
 multiple channels, and a representative replay/synthesis/injection corpus
 before any threshold or PAD claim can advance.
 
+Run the runtime fault campaign and bounded soak before the final Mac release
+budget check:
+
+```sh
+pnpm -C voiceId runtime:resilience \
+  --iterations 1000 \
+  --output verifier-spike/reports/runtime-resilience.json
+```
+
+The campaign exercises model-load failure, forced worker termination, response
+loss, request timeout, queue saturation, and recovery. The soak records latency,
+peak RSS, open file descriptors, active threads, and worker count. It checks
+runtime resilience only; it does not replace the corpus-backed model benchmark
+or release-budget report.
+
 ## Next Gate
 
 The active engineering plan is the standalone VoiceID engine:

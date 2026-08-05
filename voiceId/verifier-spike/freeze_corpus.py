@@ -171,9 +171,15 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def write_json(path: Path, value: object) -> None:
+def write_immutable_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    encoded = (json.dumps(value, indent=2) + "\n").encode("utf-8")
+    if path.exists():
+        if path.is_file() and path.read_bytes() == encoded:
+            return
+        raise CorpusFreezeError(f"immutable output collision: {path.name}")
+    with path.open("xb") as output:
+        output.write(encoded)
 
 
 def main() -> None:
@@ -195,8 +201,8 @@ def main() -> None:
         created_at=args.created_at,
         output_dir=args.output_dir,
     )
-    write_json(args.manifest_out, manifest)
-    write_json(args.report_out, report)
+    write_immutable_json(args.manifest_out, manifest)
+    write_immutable_json(args.report_out, report)
     load_benchmark_manifest(args.manifest_out)
 
 
