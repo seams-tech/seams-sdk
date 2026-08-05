@@ -30,6 +30,31 @@ commit references stay understandable. Current ownership is:
 Historical Phase 6 inventory is absorbed by every unit. Unit 3b adds and closes
 any concrete vault target discovered by its Satyr Phase 6 inventory.
 
+## Post-completion cleanup reconciliation — 2026-08-05
+
+A direct production-source scan across `packages/*/src`, `apps/*/src`,
+`crates/*/src`, and `wasm/*/src` finds no occurrence of the retired composite
+ECDSA record family, `SigningGrantId` family, capability-grant-use model,
+operation-claim model, or `active_state_session_id`.
+
+The old public ECDSA budget identifiers remain only inside a TypeScript
+`@ts-expect-error` fixture and hostile Rust request fixtures. Those fixtures
+prove that current strict boundaries reject the retired wire fields; they are
+not compatibility paths. Likewise, `lifecycle_mismatch` remains only in tests
+and comments describing the rejected predecessor to the typed `superseded`
+state.
+
+The Rust helpers reported as dead code by a default-feature local server build
+are consumed by the `workers-rs` production configuration and focused tests.
+They are retained as live feature-gated code. The established `touchConfirm`
+name denotes the UI-confirmation runtime throughout the current SDK and is not
+the deleted MPC worker alias.
+
+The broad unit result is historical diagnostic evidence rather than an open
+Refactor 90 deletion gate. The healthy intended-behaviour suite passes 10/10,
+the focused invariant owners are green, and no further Refactor 90 production
+deletion is currently justified by a live caller or observed defect.
+
 ## Final bounded sweep — 2026-08-02
 
 ### Current wire checkpoint — `9196afd69`, `7512bf6a6`

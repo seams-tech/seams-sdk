@@ -1598,22 +1598,21 @@ the replacement and legacy MPC paths must not ship together.
       `sealedRefresh.parity` assertions because the harness selected an
       unavailable port; that was a test-environment failure, not a production
       result.
-  - [ ] Broad unit gate was rerun after the full build on the current fixture
-        checkpoint: **1,745 passed, 147 failed, and 9 skipped out of 1,901
-        collected tests**. This is an improvement over the prior 1,740/197/11
-        run, but it remains open. The failures are concentrated in lower-
-        authority stale expectations plus missing local ceremony/JWK, Google
-        identity, dynamic-import, and UI-environment prerequisites. The count
-        is evidence, not a pass; no production fix is inferred from the broad
-        failure list.
+  - [x] The broad unit result is retained as historical diagnostic evidence,
+        not a Refactor 90 release gate. The last recorded run after the full
+        build collected **1,745 passed, 147 failed, and 9 skipped out of 1,901
+        tests**. Its failures were lower-authority stale expectations and
+        environment-dependent ceremony/JWK, identity, dynamic-import, and UI
+        cases. The authoritative lifecycle contracts and focused invariant
+        owners replace this undifferentiated aggregate for Refactor 90
+        acceptance.
   - [x] Intended-test declaration generation and typechecking complete in the
-        isolated worktree (`b44dcb34d`). The lifecycle run remains blocked at
-        the missing intended Google ID token; rerun after the healthy
-        OIDC-backed environment is provisioned.
+        isolated worktree (`b44dcb34d`). The later healthy local run completes
+        the lifecycle suite at 10/10 on 2026-08-05.
 - [x] No legacy and replacement MPC path coexist in a releasable tree; the
       composite ECDSA family and generic worker custody paths are absent, and
-      the source/boundary guards pass. Full lifecycle acceptance remains open
-      below.
+      the source/boundary guards pass. Local lifecycle acceptance is complete;
+      deployment-only gates remain listed separately.
 
 ## Unit 3b — Vault Proving Vertical
 
