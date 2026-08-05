@@ -1621,12 +1621,13 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     const extension = module.routeExtensions[0];
     const route = extension?.routes[0];
     if (!extension || !route) throw new Error('export admission route is required');
-    const response = await extension.handleCloudflareRoute({
+    const response = await extension.handleFetchRoute({
       request: jsonAdmissionRequest(body, `${ORIGIN}/ignored-path`),
       route,
       pathname: route.path,
       method: 'POST',
       logger: coerceRouterLogger(null),
+      runtime: { kind: 'inline' },
     });
     expect(response.status).toBe(200);
     expect(authorization.inputs).toHaveLength(1);
@@ -1635,12 +1636,13 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     if (captured?.kind !== 'admit') throw new Error('admit authorization input is required');
     expect(captured.expectedOrigin).toBe(ORIGIN);
 
-    const missingOrigin = await extension.handleCloudflareRoute({
+    const missingOrigin = await extension.handleFetchRoute({
       request: jsonAdmissionRequest(body, null),
       route,
       pathname: route.path,
       method: 'POST',
       logger: coerceRouterLogger(null),
+      runtime: { kind: 'inline' },
     });
     expect(missingOrigin.status).toBe(403);
     expect(authorization.inputs).toHaveLength(1);
@@ -1678,12 +1680,13 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     ] as const;
 
     for (const invalidAuthorization of invalidAuthorizations) {
-      const response = await extension.handleCloudflareRoute({
+      const response = await extension.handleFetchRoute({
         request: jsonAdmissionEnvelopeRequest(body, invalidAuthorization, ORIGIN),
         route,
         pathname: route.path,
         method: 'POST',
         logger: coerceRouterLogger(null),
+        runtime: { kind: 'inline' },
       });
       expect(response.status).toBe(400);
     }
