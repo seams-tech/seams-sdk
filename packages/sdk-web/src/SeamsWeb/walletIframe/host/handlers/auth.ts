@@ -18,6 +18,7 @@ import {
   clearWalletOriginAppSession,
   rememberWalletOriginAppSession,
 } from '../hostedWalletSeamsSession';
+import { createHostedAuthMenuHandlers } from './authMenu';
 
 function assertUnlockPayloadHasNoParentBearer(payload: unknown): void {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
@@ -108,6 +109,7 @@ async function resolveExactWalletSessionState(
 
 export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
+    ...createHostedAuthMenuHandlers(deps),
     PM_UNLOCK: async (req: Req<'PM_UNLOCK'>) => {
       const pm = deps.getSeamsWeb();
       assertUnlockPayloadHasNoParentBearer(req.payload);

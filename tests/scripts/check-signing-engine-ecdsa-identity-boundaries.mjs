@@ -934,6 +934,7 @@ function checkEcdsaIframePayloadsStayWalletSessionShaped() {
   const namedDeclarations = [
     {
       name: 'PMSignTempoPayload',
+      declarationNames: ['PMSignTempoPayloadBase', 'PMSignTempoPayload'],
       required: ['walletSession', 'chainTarget'],
       forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
     },
@@ -971,7 +972,8 @@ function checkEcdsaIframePayloadsStayWalletSessionShaped() {
   const offenders = [];
 
   for (const declaration of namedDeclarations) {
-    const block = findTypeDeclaration(source, declaration.name);
+    const declarationNames = declaration.declarationNames || [declaration.name];
+    const block = declarationNames.map((name) => findTypeDeclaration(source, name)).join('\n');
     offenders.push(
       ...expectRequiredFields(block, declaration.required, declaration.name),
       ...declaration.forbidden.flatMap((field) => expectNoField(block, field, declaration.name)),

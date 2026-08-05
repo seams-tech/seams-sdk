@@ -97,6 +97,7 @@ interface AuthenticateCredentialsForChallengeB64uArgs {
    * Use only for explicit recovery/export flows (higher-friction paths).
    */
   includeSecondPrfOutput?: boolean;
+  cancellation?: WebAuthnPromptCancellation;
 }
 
 /**
@@ -156,10 +157,15 @@ export class TouchIdPrompt {
     challengeB64u,
     allowCredentials = [],
     includeSecondPrfOutput = false,
+    cancellation = { kind: 'none' },
   }: AuthenticateCredentialsForChallengeB64uArgs): Promise<WebAuthnAuthenticationCredential> {
     // New controller per get() call
     this.abortController = new AbortController();
     this.removePageAbortHandlers = attachPageAbortHandlers(this.abortController);
+    this.removeExternalAbortListener = attachExternalAbortSignal(
+      this.abortController,
+      cancellation,
+    );
     const rpId = this.getRpId();
 
     const challengeBytes = decodeChallengeB64u(challengeB64u);

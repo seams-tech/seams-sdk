@@ -60,16 +60,13 @@
   box-sizing: border-box;
 }
 
-/* SDK-rendered demo surfaces keep the retired page zoom: the SDK sizes its
-   own internals in px, and the marketing layout is tuned for that 0.9
-   rendering (grep-gate allowlist: this rule and .h2-heroscene__shell) */
+/* Demo surfaces keep the compact scale used by the marketing layout. */
 .h2-sdk-zoom {
   zoom: 0.9;
 }
 
 .h2-page--wallet {
   --h2-wallet-demo-shell-min-height: 468px;
-  --h2-wallet-auth-menu-block-size: 500px;
 }
 
 /* Keep overscroll/rubber-band areas white while this page is mounted */
@@ -1013,12 +1010,10 @@ body:has(.h2-page) {
   padding-top: 0;
 }
 
-/* inert SDK skeleton: clicks fall through to the panel link. Scaled down so
-   the band can run shorter; the negative margins reclaim the layout space the
-   scale frees (card is ~518px tall, 10% per side), since transforms don't
-   shrink the layout box */
+/* Decorative wallet-origin preview; the live auth menu owns its controls in
+   the wallet iframe. Keep this card inert so the surrounding hero remains a
+   presentation surface. */
 .h2-heroscene__shell {
-  /* SDK skeleton card: keep the retired page zoom (see .h2-sdk-zoom) */
   zoom: 0.9;
   pointer-events: none;
   filter: drop-shadow(0 22px 40px rgba(15, 23, 42, 0.14));
@@ -1026,18 +1021,75 @@ body:has(.h2-page) {
   margin: -52px 0;
 }
 
-/* the card's own border (--w3a borderPrimary) vanishes against the tinted
-   aside; lift it to a visible-but-light warm gray */
-.h2-heroscene__shell .w3a-signup-menu-root {
-  border-color: #ddd8d1;
+.h2-auth-preview {
+  width: min(386px, 100%);
+  padding: 24px 22px 26px;
+  border: 1px solid #ddd8d1;
+  border-radius: 20px;
+  background: #fff;
+  color: #201d1a;
 }
 
-/* the skeleton dims its disabled controls; restore the live card's contrast */
-.h2-heroscene__shell .w3a-auth-method-btn:disabled,
-.h2-heroscene__shell .w3a-seg-btn:disabled,
-.h2-heroscene__shell .w3a-link-device-btn:disabled,
-.h2-heroscene__shell .w3a-input:disabled {
-  opacity: 1;
+.h2-auth-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #777169;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+}
+
+.h2-auth-preview__close {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.h2-auth-preview__title {
+  margin: 28px 0 5px;
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+.h2-auth-preview__sub {
+  margin: 0 0 20px;
+  color: #777169;
+  font-size: 12px;
+}
+
+.h2-auth-preview__button {
+  display: grid;
+  min-height: 42px;
+  place-items: center;
+  border-radius: 10px;
+  background: #157f5f;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.h2-auth-preview__button--secondary {
+  border: 1px solid #ddd8d1;
+  background: #fff;
+  color: #201d1a;
+}
+
+.h2-auth-preview__divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0;
+  color: #a59f97;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.h2-auth-preview__divider::before,
+.h2-auth-preview__divider::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: #ebe8e4;
 }
 
 /* Confirmer scene: the signing drawer docked at the band's bottom edge,
@@ -1544,10 +1596,8 @@ body:has(.h2-page) {
     padding: 36px 22px 50px;
   }
 
-  /* the SDK card caps itself at 386px; also cap it to the padded column.
-     min-width: 0 lets the grid item shrink below the card's intrinsic width */
-  .h2-heroscene__shell,
-  .h2-heroscene__shell .w3a-signup-menu-root {
+  /* cap the preview to the padded column */
+  .h2-heroscene__shell {
     min-width: 0;
     max-width: min(386px, 100%);
   }
@@ -1866,37 +1916,6 @@ body:has(.h2-page) {
   min-height: var(--h2-wallet-demo-shell-min-height);
 }
 
-.h2-page--wallet .passkey-login-container-root {
-  width: 100%;
-  min-height: var(--h2-wallet-auth-menu-block-size);
-  padding-block: 0;
-  align-items: center;
-}
-
-.h2-page--wallet .passkey-login-menu-placeholder {
-  min-height: 0;
-  max-height: var(--h2-wallet-auth-menu-block-size);
-}
-
-.h2-page--wallet .w3a-signup-menu-root {
-  height: auto;
-  min-height: 0;
-  max-height: none;
-}
-
-.h2-page--wallet .w3a-signup-menu-root[data-waiting='true'] {
-  height: auto;
-  min-height: 170px;
-}
-
-.h2-page--wallet .w3a-signup-menu-root[data-waiting='true'] .w3a-content-switcher {
-  height: auto !important;
-}
-
-.h2-page--wallet .passkey-login-menu-placeholder {
-  height: var(--h2-wallet-auth-menu-block-size);
-}
-
 /* Wallet hero: give the stage the tall band floor and center the card in it
    (width comes from the Carousel's own fixed style). */
 .h2-page--wallet .carousel-stage {
@@ -2060,12 +2079,6 @@ body:has(.h2-page) {
     padding: 36px 7px 44px;
   }
 
-  /* The SDK auth card sizes itself to the viewport (min(100dvw, 420px)), so
-     inside this padded cell it overflows the right edge on phones: cap it to
-     the viewport minus the cell padding instead. */
-  .h2-hero__demo .w3a-signup-menu-root {
-    max-width: calc(100vw - 16px);
-  }
 }
 
 /* ---------- ecosystem (network logos) ---------- */

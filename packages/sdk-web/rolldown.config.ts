@@ -14,6 +14,15 @@ const CLIENT_REACT_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src/react');
 const CLIENT_PLUGINS_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src/plugins');
 const WALLET_STATIC_ASSETS_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src/static/wallet-assets');
 const WALLET_STATIC_ASSET_FILES = ['wallet-shims.js', 'wallet-service.css'] as const;
+const WALLET_HOST_STATIC_ASSETS = [
+  {
+    source: path.resolve(
+      SDK_ROOT_ABS,
+      'src/SeamsWeb/walletIframe/host/lit-ui/auth-menu/auth-menu.css',
+    ),
+    fileName: 'auth-menu.css',
+  },
+] as const;
 const NEAR_SIGNER_WASM_JS_ABS = path.resolve(
   SDK_ROOT_ABS,
   '../../wasm/near_signer/pkg/wasm_signer_worker.js',
@@ -192,6 +201,9 @@ const copyWalletStaticAssets = (sdkDir: string): void => {
   for (const fileName of WALLET_STATIC_ASSET_FILES) {
     copyWalletStaticAsset(sdkDir, fileName);
   }
+  for (const asset of WALLET_HOST_STATIC_ASSETS) {
+    fs.copyFileSync(asset.source, path.join(sdkDir, asset.fileName));
+  }
 };
 
 const W3A_COMPONENT_HOSTS = [
@@ -369,7 +381,7 @@ const emitWalletServiceStaticAssets = async (sdkRoot = process.cwd()): Promise<v
     path.join(sdkDir, 'overlay.css'),
   );
 
-  console.log('✅ Emitted /sdk wallet-shims.js and wallet-service.css');
+  console.log('✅ Emitted /sdk wallet-shims.js, wallet-service.css, and auth-menu.css');
 };
 
 const emitWalletServiceStaticPlugin = {
@@ -539,11 +551,6 @@ const configs = [
       'src/react/context/SeamsWebProvider.tsx',
       // Ensure public subpath entrypoints exist in dist even when re-exports are flattened.
       'src/react/components/SeamsAuthMenu/public.ts',
-      // Public subpath entrypoints (avoid treeshaking away default exports).
-      'src/react/components/SeamsAuthMenu/preload.ts',
-      'src/react/components/SeamsAuthMenu/shell.tsx',
-      'src/react/components/SeamsAuthMenu/skeleton.tsx',
-      'src/react/components/SeamsAuthMenu/client.tsx',
     ],
     output: {
       dir: BUILD_PATHS.BUILD.ESM,
@@ -655,13 +662,11 @@ const configs = [
     ],
   },
   {
-    input:
-      '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js',
+    input: '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js',
     output: {
       dir: BUILD_PATHS.BUILD.ESM,
       format: 'esm',
-      entryFileNames:
-        'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js',
+      entryFileNames: 'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js',
     },
     plugins: [
       {
@@ -684,8 +689,7 @@ const configs = [
             );
             (this as any).emitFile({
               type: 'asset',
-              fileName:
-                'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm',
+              fileName: 'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm',
               source,
             });
             console.log(

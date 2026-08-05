@@ -4,6 +4,7 @@ import {
   type WalletIframeRequestId,
   type WalletIframeSurfaceId,
 } from '@/core/types/walletIframeIdentity';
+import type { HostedAuthMenuSessionId } from '../../shared/messages';
 
 export type WalletIframeConnectionId = string & {
   readonly __walletIframeConnectionId: unique symbol;
@@ -80,6 +81,12 @@ export type ModalDeviceLinkQrSurface = OwnedWalletIframeSurface & {
   identity: RequestSurfaceIdentity;
 };
 
+export type ModalAuthMenuSurface = OwnedWalletIframeSurface & {
+  kind: 'modal_auth_menu';
+  identity: RequestSurfaceIdentity;
+  authMenuSessionId: HostedAuthMenuSessionId;
+};
+
 export type WalletIframeSurface =
   | HiddenWalletIframeSurface
   | ModalRegistrationConfirmSurface
@@ -87,7 +94,8 @@ export type WalletIframeSurface =
   | ModalKeyExportConfirmSurface
   | ModalUnlockConfirmSurface
   | ModalRecoveryCodesSurface
-  | ModalDeviceLinkQrSurface;
+  | ModalDeviceLinkQrSurface
+  | ModalAuthMenuSurface;
 
 export type ForegroundWalletIframeSurface = Exclude<WalletIframeSurface, HiddenWalletIframeSurface>;
 
@@ -129,6 +137,22 @@ export type WalletIframeSurfaceEvent =
       operation: ModalRecoveryCodesSurface['operation'];
     })
   | (RequestOwnedEvent & { kind: 'device_link_qr_modal_request_started' })
+  | (RequestOwnedEvent & {
+      kind: 'auth_menu_request_started';
+      authMenuSessionId: HostedAuthMenuSessionId;
+    })
+  | (RequestOwnedEvent & {
+      kind: 'auth_menu_request_completed';
+      authMenuSessionId: HostedAuthMenuSessionId;
+    })
+  | (RequestOwnedEvent & {
+      kind: 'auth_menu_request_closed';
+      authMenuSessionId: HostedAuthMenuSessionId;
+    })
+  | (RequestOwnedEvent & {
+      kind: 'auth_menu_request_cancelled';
+      authMenuSessionId: HostedAuthMenuSessionId;
+    })
   | (RequestOwnedEvent & { kind: 'request_surface_hidden' })
   | (RequestOwnedEvent & { kind: 'request_finished' })
   | (RequestOwnedEvent & { kind: 'request_cancelled' })
@@ -268,6 +292,19 @@ export function modalDeviceLinkQrSurface(args: {
   return { kind: 'modal_device_link_qr', ...args };
 }
 
+export function modalAuthMenuSurface(args: {
+  connectionId: WalletIframeConnectionId;
+  identity: RequestSurfaceIdentity;
+  authMenuSessionId: HostedAuthMenuSessionId;
+}): ModalAuthMenuSurface {
+  return {
+    kind: 'modal_auth_menu',
+    connectionId: args.connectionId,
+    identity: args.identity,
+    authMenuSessionId: args.authMenuSessionId,
+  };
+}
+
 function requestIdentitiesEqual(
   left: RequestSurfaceIdentity,
   right: RequestSurfaceIdentity,
@@ -280,6 +317,13 @@ function foregroundSurfaceIdentitiesEqual(
   right: ForegroundWalletIframeSurface,
 ): boolean {
   if (left.kind !== right.kind || left.connectionId !== right.connectionId) return false;
+  if (
+    left.kind === 'modal_auth_menu' &&
+    right.kind === 'modal_auth_menu' &&
+    left.authMenuSessionId !== right.authMenuSessionId
+  ) {
+    return false;
+  }
   return requestIdentitiesEqual(left.identity, right.identity);
 }
 
@@ -310,6 +354,18 @@ function requestEventOwnsSurface(
     surface.kind !== 'hidden' &&
     surface.connectionId === event.connectionId &&
     requestIdentitiesEqual(surface.identity, event.identity)
+  );
+}
+
+function authMenuEventOwnsSurface(
+  surface: WalletIframeSurface,
+  event: RequestOwnedEvent & { authMenuSessionId: HostedAuthMenuSessionId },
+): surface is ModalAuthMenuSurface {
+  return (
+    surface.kind === 'modal_auth_menu' &&
+    surface.connectionId === event.connectionId &&
+    requestIdentitiesEqual(surface.identity, event.identity) &&
+    surface.authMenuSessionId === event.authMenuSessionId
   );
 }
 
@@ -404,6 +460,24 @@ export function reduceWalletIframeSurface(
           }),
         ),
       );
+    case 'auth_menu_request_started':
+      return reduceStartResult(
+        current,
+        beginForegroundWalletIframeSurface(
+          current,
+          modalAuthMenuSurface({
+            connectionId: event.connectionId,
+            identity: event.identity,
+            authMenuSessionId: event.authMenuSessionId,
+          }),
+        ),
+      );
+    case 'auth_menu_request_completed':
+    case 'auth_menu_request_closed':
+    case 'auth_menu_request_cancelled':
+      return authMenuEventOwnsSurface(current, event)
+        ? { kind: 'applied', surface: hiddenWalletIframeSurface() }
+        : { kind: 'ignored', surface: current };
     case 'request_surface_hidden':
       return requestEventOwnsSurface(current, event)
         ? { kind: 'applied', surface: hiddenWalletIframeSurface() }

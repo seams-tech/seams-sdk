@@ -14,8 +14,6 @@ import {
   Store,
   Wallet,
 } from 'lucide-react';
-import { AuthMenuMode, SeamsAuthMenuSkeletonInner } from '@seams/sdk/react';
-import { DEMO_THEME_PRESETS } from '@/context/app-themes';
 import NavbarStatic from '@/components/Navbar/NavbarStatic';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import { NETWORK_MARKS, NetworkMarkLockup } from '@/components/icons/NetworkMarks';
@@ -164,26 +162,26 @@ function IntegrationsWindow(): React.JSX.Element {
   );
 }
 
-/* The real SeamsAuthMenu shell, inert: the SDK's skeleton renders identical
-   markup/CSS with all controls disabled and no wallet logic. The Inner export
-   reads no theme context; the Paper palette is pinned as CSS variables on the
-   wrapper so the card can't inherit the site theme (which may be dark or
-   Rosé Pine). pointer-events off so clicks fall through to the panel link. */
-const paperPreset = DEMO_THEME_PRESETS.find((t) => t.id === 'paper') ?? DEMO_THEME_PRESETS[0];
-const paperShellVars = Object.fromEntries(
-  Object.entries(paperPreset.colors).map(([key, value]) => [`--w3a-colors-${key}`, value]),
-) as React.CSSProperties;
-
+/* Static wallet-origin preview for the hero. The live auth menu owns its
+   controls inside the wallet iframe; this decorative card stays inert. */
 function WalletShellCard(): React.JSX.Element {
   return (
-    <div
-      className="h2-heroscene__shell"
-      aria-hidden
-      data-w3a-theme="light"
-      style={paperShellVars}
-    >
-      {/* Login mode shows the full method stack (passkey, SSO, other options) */}
-      <SeamsAuthMenuSkeletonInner defaultMode={AuthMenuMode.Login} />
+    <div className="h2-heroscene__shell" aria-hidden="true">
+      <div className="h2-auth-preview">
+        <div className="h2-auth-preview__header">
+          <span className="h2-auth-preview__origin">↗ localhost</span>
+          <span className="h2-auth-preview__close">×</span>
+        </div>
+        <h3 className="h2-auth-preview__title">Sign in</h3>
+        <p className="h2-auth-preview__sub">Continue with your passkey</p>
+        <div className="h2-auth-preview__button">Continue with passkey</div>
+        <div className="h2-auth-preview__divider">
+          <span>or</span>
+        </div>
+        <div className="h2-auth-preview__button h2-auth-preview__button--secondary">
+          Continue with Google
+        </div>
+      </div>
     </div>
   );
 }
