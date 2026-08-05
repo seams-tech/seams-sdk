@@ -718,7 +718,7 @@ function checkNormalSigningHasOneRuntimeOwner() {
   }
 
   const privateRoutes = readRepoFile(
-    'packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts',
+    'packages/sdk-server-ts/src/router/domains/normalSigning/routerAbPrivateSigningWorker.ts',
   );
   assert.equal(
     privateRoutes.includes('getThresholdSigningService'),
