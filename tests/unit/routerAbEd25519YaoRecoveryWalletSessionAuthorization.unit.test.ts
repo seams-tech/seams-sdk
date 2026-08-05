@@ -21,8 +21,8 @@ import type {
   SessionAdapter,
   SessionClaims,
 } from '../../packages/sdk-server-ts/src/router/routerApi';
-import type { RouterAbEd25519YaoRecoveryAuthorizationInput } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
-import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
+import type { RouterAbEd25519YaoRecoveryAuthorizationInput } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
 
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
 type AuthorizationPhase = RouterAbEd25519YaoRecoveryAuthorizationInput['kind'];

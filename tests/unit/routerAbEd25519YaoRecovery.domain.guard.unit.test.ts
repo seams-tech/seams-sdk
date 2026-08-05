@@ -28,8 +28,8 @@ import {
   type RouterAbEd25519YaoRecoveryBackend,
   type RouterAbEd25519YaoRecoveryBackendResult,
   type RouterAbEd25519YaoCapabilityPersistenceV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
-import type { RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import type { RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/logger';

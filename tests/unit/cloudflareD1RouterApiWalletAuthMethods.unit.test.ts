@@ -8,7 +8,7 @@ import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-serve
 import type {
   RouterAbEd25519YaoProductRegistrationRuntimeV1,
   RouterAbEd25519YaoWalletSessionMintInputV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
 import { normalizeRuntimePolicyScope } from '../../packages/shared-ts/src/threshold/signingRootScope';
 import {
   registrationNearEd25519BranchKey,
