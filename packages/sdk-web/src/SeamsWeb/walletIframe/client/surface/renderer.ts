@@ -27,6 +27,12 @@ export function renderWalletIframeSurface(
       };
     case 'modal_device_link_qr':
       return { kind: 'viewport_modal', title: 'Link a device', focusTrap: true };
+    case 'modal_auth_menu':
+      return {
+        kind: 'viewport_modal',
+        title: 'Sign in or create an account',
+        focusTrap: true,
+      };
     default:
       return assertNever(surface);
   }

@@ -1,5 +1,6 @@
 import React from 'react';
-import { AuthMenuMode } from '@seams/sdk/react';
+
+export type AuthMenuMode = 'login' | 'register';
 
 export type AuthMenuControl = {
   /** Optional override for the SeamsAuthMenu default mode on mount */

@@ -50,7 +50,14 @@ import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { toAccountId } from '@/core/types/accountIds';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { ActionType } from '@/core/types/actions';
-import type { PreferencesChangedPayload } from '@/SeamsWeb/walletIframe/shared/messages';
+import type {
+  HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuExternalAuthResolutionInput,
+  HostedAuthMenuOpenRequest,
+  HostedAuthMenuOutcome,
+  HostedAuthMenuSessionId,
+  PreferencesChangedPayload,
+} from '@/SeamsWeb/walletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancellationError, toError } from '@shared/utils/errors';
 import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
@@ -831,6 +838,28 @@ export class SeamsWeb {
     return await this.walletIframe.getExactSessionState();
   }
 
+  async openHostedAuthMenu(request: HostedAuthMenuOpenRequest): Promise<HostedAuthMenuOutcome> {
+    return await this.walletIframe.openHostedAuthMenu(request);
+  }
+
+  async cancelHostedAuthMenu(args: {
+    authMenuSessionId: HostedAuthMenuSessionId;
+  }): Promise<void> {
+    await this.walletIframe.cancelHostedAuthMenu(args);
+  }
+
+  onHostedAuthMenuExternalAuthRequest(
+    listener: (request: HostedAuthMenuExternalAuthRequest) => void,
+  ): () => void {
+    return this.walletIframe.onHostedAuthMenuExternalAuthRequest(listener);
+  }
+
+  async resolveHostedAuthMenuExternalAuth(
+    resolution: HostedAuthMenuExternalAuthResolutionInput,
+  ): Promise<void> {
+    await this.walletIframe.resolveHostedAuthMenuExternalAuth(resolution);
+  }
+
   async lockWalletIframeExactSession(
     identity: WalletIframeExactSessionIdentityInput,
   ): Promise<WalletIframeExactSessionLockResult> {
@@ -878,6 +907,7 @@ export class SeamsWeb {
   }
 
   dispose(): void {
+    this.walletIframe.dispose();
     this.signingEngine.dispose();
   }
 

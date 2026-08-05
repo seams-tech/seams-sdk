@@ -168,4 +168,54 @@ test.describe('wallet iframe surface domain', () => {
       'viewport_modal',
     ]);
   });
+
+  test('owns auth-menu visibility by exact session identity', async ({ page }) => {
+    const result = await page.evaluate(async (path) => {
+      const domain = await import(path);
+      const connectionId = domain.walletIframeConnectionIdFromBoundary('connection-auth-menu');
+      const identity = domain.requestSurfaceIdentity({
+        surfaceId: 'surface-auth-menu',
+        requestId: 'request-auth-menu',
+      });
+      const sessionId = 'auth-menu-session';
+      const staleSessionId = 'stale-auth-menu-session';
+      const started = domain.reduceWalletIframeSurface(domain.hiddenWalletIframeSurface(), {
+        kind: 'auth_menu_request_started',
+        connectionId,
+        identity,
+        authMenuSessionId: sessionId,
+      });
+      if (started.kind !== 'applied') throw new Error('auth-menu surface did not start');
+      const staleStart = domain.reduceWalletIframeSurface(started.surface, {
+        kind: 'auth_menu_request_started',
+        connectionId,
+        identity,
+        authMenuSessionId: staleSessionId,
+      });
+      const staleClose = domain.reduceWalletIframeSurface(started.surface, {
+        kind: 'auth_menu_request_closed',
+        connectionId,
+        identity,
+        authMenuSessionId: staleSessionId,
+      });
+      const closed = domain.reduceWalletIframeSurface(started.surface, {
+        kind: 'auth_menu_request_closed',
+        connectionId,
+        identity,
+        authMenuSessionId: sessionId,
+      });
+      return { started, staleStart, staleClose, closed };
+    }, '/_test-sdk/esm/SeamsWeb/walletIframe/client/surface/domain.js');
+
+    expect(result.started.surface.kind).toBe('modal_auth_menu');
+    expect(result.staleStart).toMatchObject({
+      kind: 'rejected',
+      surface: { kind: 'modal_auth_menu', authMenuSessionId: 'auth-menu-session' },
+    });
+    expect(result.staleClose).toMatchObject({
+      kind: 'ignored',
+      surface: { kind: 'modal_auth_menu' },
+    });
+    expect(result.closed).toMatchObject({ kind: 'applied', surface: { kind: 'hidden' } });
+  });
 });

@@ -68,37 +68,6 @@ function checkWalletScopedUnlockAvoidsCollapsedNearBindingError() {
   assertContains(walletAuth, 'WalletUnlockSubject', 'walletAuth');
 }
 
-function checkVisibleIframePasskeyRegistrationUsesProvidedWalletId() {
-  const publicTypes = readRepoSource('packages/sdk-web/src/SeamsWeb/publicApi/types.ts');
-  const messages = readRepoSource('packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts');
-  const controller = readRepoSource(
-    'packages/sdk-web/src/react/components/SeamsAuthMenu/controller/useSeamsAuthMenuController.ts',
-  );
-  const client = readRepoSource(
-    'packages/sdk-web/src/react/components/SeamsAuthMenu/client.tsx',
-  );
-
-  assertContains(controller, 'type PasskeyRegistrationDraft', 'SeamsAuthMenu controller');
-  assertContains(controller, 'createReadableWalletId()', 'SeamsAuthMenu controller');
-  assertContains(
-    controller,
-    'props.onRegister?.(registrationRequest)',
-    'SeamsAuthMenu controller',
-  );
-  assertContains(client, 'onClick={controller.onProceed}', 'SeamsAuthMenu client');
-  assertNotContains(
-    publicTypes,
-    'CreatePasskeyRegistrationActivationSurfaceArgs',
-    'registration public types',
-  );
-  assertNotContains(
-    messages,
-    'PM_REGISTRATION_ACTIVATION_PREPARE',
-    'wallet iframe messages',
-  );
-}
-
-
 function checkRegistrationTimingUsesSpanCoverage() {
   const registration = readRepoSource(
     'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
@@ -126,7 +95,6 @@ function checkRegistrationTimingUsesSpanCoverage() {
 function main() {
   checkRoleLocalEcdsaMaterialHandlesAreIdentityLocal();
   checkWalletScopedUnlockAvoidsCollapsedNearBindingError();
-  checkVisibleIframePasskeyRegistrationUsesProvidedWalletId();
   checkRegistrationTimingUsesSpanCoverage();
   console.log('[registration-capability-subjects] ok');
 }

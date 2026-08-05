@@ -66,6 +66,8 @@ export interface IframeTransportOptions {
   };
 }
 
+export type WalletIframeConnectionClosedListener = () => void;
+
 type ResolvedTransportOptions = Required<Omit<IframeTransportOptions, 'signal'>> & {
   signal?: AbortSignal;
 };
@@ -89,6 +91,8 @@ function roundTransportDurationMs(startedAt: number): number {
 export class IframeTransport {
   private readonly opts: ResolvedTransportOptions;
   private iframeEl: HTMLIFrameElement | null = null;
+  private connectionClosed = false;
+  private readonly connectionClosedListeners = new Set<WalletIframeConnectionClosedListener>();
   private serviceBooted = false; // set when wallet host sends SERVICE_HOST_BOOTED (best-effort only)
   private connectInFlight: Promise<MessagePort> | null = null;
   private readonly walletServiceUrl: URL;
@@ -168,11 +172,23 @@ export class IframeTransport {
     return { ...this.lastDiagnostics };
   }
 
+  onConnectionClosed(listener: WalletIframeConnectionClosedListener): () => void {
+    if (this.connectionClosed) {
+      listener();
+      return () => {};
+    }
+    this.connectionClosedListeners.add(listener);
+    return () => {
+      this.connectionClosedListeners.delete(listener);
+    };
+  }
+
   /** Remove global listeners created by this transport instance. */
   dispose(): void {
     if (typeof window !== 'undefined') {
       window.removeEventListener('message', this.onWindowMessage);
     }
+    this.emitConnectionClosed();
   }
 
   /** Ensure the iframe element exists and is appended to the DOM. Idempotent. */
@@ -265,5 +281,17 @@ export class IframeTransport {
     if (this.serviceBooted) return this.walletOrigin;
     if (attempt <= WILDCARD_CONNECT_ATTEMPTS) return '*';
     return this.walletOrigin;
+  }
+
+  private emitConnectionClosed(): void {
+    if (this.connectionClosed) return;
+    this.connectionClosed = true;
+    const listeners = Array.from(this.connectionClosedListeners);
+    this.connectionClosedListeners.clear();
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch {}
+    }
   }
 }

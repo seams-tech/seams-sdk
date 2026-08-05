@@ -53,6 +53,13 @@ type SyncOptionsV1 = {
   readonly walletBinding: RecoveryResolvedWalletBinding | null;
 };
 
+export type PreparedSyncAccountChallenge = Readonly<{
+  readonly walletId: string | null;
+  readonly relayerUrl: string;
+  readonly rpId: string;
+  readonly syncOptions: SyncOptionsV1;
+}>;
+
 export type PasskeyEd25519YaoUnlockRecoveryV1 = {
   readonly recovery: PasskeyEd25519YaoRecoveryResultV1;
   readonly credential: WebAuthnAuthenticationCredential;
@@ -68,6 +75,8 @@ export type RecoverPasskeyEd25519YaoForUnlockInputV1 = {
     readonly challengeB64u: string;
     readonly credentialIds: readonly string[];
   }) => Promise<WebAuthnAuthenticationCredential>;
+  readonly prepared?: SyncOptionsV1;
+  readonly credential?: WebAuthnAuthenticationCredential;
   readonly activateCapability: AccountSyncSigningSurface['activateVerifiedNearEd25519YaoMaterial'];
   readonly withExactEd25519MaterialOwner: AccountSyncSigningSurface['withExactEd25519MaterialOwner'];
   readonly sessionPersistence: Pick<
@@ -174,6 +183,27 @@ async function requestSyncOptions(input: {
     throw new Error(`No passkey recovery capability found for wallet ${input.walletId}`);
   }
   return { challengeId, challengeB64u, credentialIds, walletBinding };
+}
+
+export async function prepareSyncAccountChallenge(
+  context: AccountSyncWebContext,
+  walletId: string | null,
+): Promise<PreparedSyncAccountChallenge> {
+  const requestedWalletId = walletId ? walletIdFromString(String(walletId)) : null;
+  const relayerUrl = requireRelayerUrl(context);
+  const rpId = requireRpId(context);
+  const syncOptions = await requestSyncOptions({
+    relayerUrl,
+    rpId,
+    walletId: requestedWalletId ? String(requestedWalletId) : null,
+    fetch: fetchWithGlobalThis,
+  });
+  return Object.freeze({
+    walletId: requestedWalletId ? String(requestedWalletId) : null,
+    relayerUrl,
+    rpId,
+    syncOptions,
+  });
 }
 
 function requireSelectedCredentialId(credential: WebAuthnAuthenticationCredential): string {
@@ -365,17 +395,24 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
   if (input.walletId !== null && !requestedWalletId) {
     throw new Error('passkey Yao unlock recovery requires a valid walletId');
   }
-  const syncOptions = await requestSyncOptions({
-    relayerUrl: input.relayerUrl,
-    rpId: input.rpId,
-    walletId: requestedWalletId || null,
-    fetch: input.fetch,
-  });
+  const syncOptions =
+    input.prepared ??
+    (await requestSyncOptions({
+      relayerUrl: input.relayerUrl,
+      rpId: input.rpId,
+      walletId: requestedWalletId || null,
+      fetch: input.fetch,
+    }));
+  if (input.prepared && !input.credential) {
+    throw new Error('prepared account-sync challenge requires a CTA credential');
+  }
   input.onPromptStarted?.();
-  const credential = await input.collectCredential({
-    challengeB64u: syncOptions.challengeB64u,
-    credentialIds: syncOptions.credentialIds,
-  });
+  const credential = input.credential
+    ? input.credential
+    : await input.collectCredential({
+        challengeB64u: syncOptions.challengeB64u,
+        credentialIds: syncOptions.credentialIds,
+      });
   input.onPromptSucceeded?.();
   const selectedCredentialId = requireSelectedCredentialId(credential);
   const prfFirstB64u = getPrfFirstB64uFromCredential(credential);
@@ -526,17 +563,30 @@ function emitSyncAccountRelayVerifySucceeded(
   });
 }
 
-export async function syncAccount(
+async function syncAccountInternal(
   context: AccountSyncWebContext,
   walletId: string | null,
   options?: SyncAccountHooksOptions,
+  preparedChallenge?: PreparedSyncAccountChallenge,
+  preparedCredential?: WebAuthnAuthenticationCredential,
 ): Promise<SyncAccountResult> {
   const requestedWalletId = walletId ? walletIdFromString(String(walletId)) : null;
+  if (
+    preparedChallenge &&
+    preparedChallenge.walletId !== (requestedWalletId ? String(requestedWalletId) : null)
+  ) {
+    throw new Error('prepared account-sync challenge wallet binding changed');
+  }
   const flowId = `account-sync:${String(requestedWalletId || 'discovery')}`;
   let recoveryOwnership: RecoveredCapabilityOwnershipV1 = { kind: 'empty' };
   try {
-    const relayerUrl = requireRelayerUrl(context);
-    const rpId = requireRpId(context);
+    const relayerUrl = preparedChallenge?.relayerUrl ?? requireRelayerUrl(context);
+    const rpId = preparedChallenge?.rpId ?? requireRpId(context);
+    if (preparedChallenge) {
+      if (requireRelayerUrl(context) !== relayerUrl || requireRpId(context) !== rpId) {
+        throw new Error('prepared account-sync challenge runtime binding changed');
+      }
+    }
     emitSyncAccountEvent({
       onEvent: options?.onEvent,
       flowId,
@@ -557,6 +607,9 @@ export async function syncAccount(
       relayerUrl,
       rpId,
       fetch: fetchWithGlobalThis,
+      ...(preparedChallenge
+        ? { prepared: preparedChallenge.syncOptions, credential: preparedCredential }
+        : {}),
       collectCredential: collectSyncAccountRecoveryCredential.bind(undefined, recoveryCallbacks),
       activateCapability:
         context.signingEngine.activateVerifiedNearEd25519YaoMaterial.bind(
@@ -647,4 +700,27 @@ export async function syncAccount(
     });
     return syncAccountFailure(message);
   }
+}
+
+export async function syncAccount(
+  context: AccountSyncWebContext,
+  walletId: string | null,
+  options?: SyncAccountHooksOptions,
+): Promise<SyncAccountResult> {
+  return await syncAccountInternal(context, walletId, options);
+}
+
+export async function syncAccountWithPreparedCredential(
+  context: AccountSyncWebContext,
+  preparedChallenge: PreparedSyncAccountChallenge,
+  credential: WebAuthnAuthenticationCredential,
+  options?: SyncAccountHooksOptions,
+): Promise<SyncAccountResult> {
+  return await syncAccountInternal(
+    context,
+    preparedChallenge.walletId,
+    options,
+    preparedChallenge,
+    credential,
+  );
 }

@@ -59,6 +59,7 @@ import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type {
   RegistrationWebAuthnPromptOwner,
   ReservedRegistrationWebAuthnPrompt,
+  WebAuthnPromptCancellation,
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 import type {
   SigningEngineResolveExactKeyExportLaneInput,
@@ -432,9 +433,7 @@ export type AccountSyncSigningSurface = LocalLoginStateSurface &
   PasskeyLoginAssertionSurface &
   Pick<
     UserProfileStoreSurface & RegistrationAccountSurface,
-    | 'storeUserData'
-    | 'storeAuthenticator'
-    | 'upsertEd25519YaoPublicCapabilityLaneReference'
+    'storeUserData' | 'storeAuthenticator' | 'upsertEd25519YaoPublicCapabilityLaneReference'
   >;
 
 export interface WebAuthnRegistrationConfirmationSurface {
@@ -468,6 +467,7 @@ export interface PasskeyLoginAssertionSurface {
     challengeB64u: string;
     allowCredentials: WebAuthnAllowCredential[];
     includeSecondPrfOutput?: boolean;
+    cancellation?: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>;
   }): Promise<WebAuthnAuthenticationCredential>;
 }
 

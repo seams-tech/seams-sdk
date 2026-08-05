@@ -1,18 +1,21 @@
-export { SeamsAuthMenu } from './shell';
-export { SeamsAuthMenuClient } from './client';
-export { SeamsAuthMenuSkeleton, SeamsAuthMenuSkeletonInner } from './skeleton';
-export { preloadSeamsAuthMenu } from './preload';
-
-export { AuthMenuMode, AuthMenuModeMap } from './types';
+export { SeamsAuthMenu } from './public';
 export type {
-  AuthMenuModeLabel,
-  AuthMenuHeadings,
-  SeamsAuthMenuPasskeyLoginRequest,
+  HostedAuthMenuCopy,
+  HostedAuthMenuCopyInput,
+  HostedAuthMenuExternalAuthBroker,
+  HostedAuthMenuExternalAuthEvidence,
+  HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuExternalProvider,
+  HostedAuthMenuMode,
+  HostedAuthMenuOpenRequest,
+  HostedAuthMenuOutcome,
+  HostedAuthMenuRegistrationAccountInput,
+  HostedAuthMenuSessionId,
+  SeamsAuthMenuCopy,
+  SeamsAuthMenuMode,
+  SeamsAuthMenuOutcomeHandler,
   SeamsAuthMenuProps,
-  SeamsAuthMenuRegistrationRequest,
-  SeamsAuthMenuSocialLoginArgs,
-  SeamsAuthMenuSocialLoginHandler,
-  SeamsAuthMenuSyncAccountRequest,
+  SeamsAuthMenuRegistrationAccountInput,
 } from './types';
 
-export { default } from './shell';
+export { default } from './public';
