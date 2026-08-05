@@ -3,20 +3,20 @@ import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type {
   EmailOtpChallengeAction,
   EmailOtpChallengeOperation,
-} from '../../core/EmailOtpStores';
-import type { SignerWasmModuleSupplier } from '../../core/types';
-import { EMAIL_OTP_CODE_LENGTH } from '../../core/authService/emailOtpConfig';
-import type { RouterAbEcdsaPresignRuntime } from '../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
-import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../routerAbEd25519YaoProductRegistration';
-import type { RouterAbEcdsaStrictRegistrationPort } from '../routerAbEcdsaStrictRegistration';
-import type { SigningSessionSealShamir3PassRootConfig } from '../../threshold/session/signingSessionSeal/crypto/cipher';
-import { parseSigningSessionSealRootConfig } from '../../threshold/session/signingSessionSeal/options';
-import type { D1DatabaseLike } from '../../storage/tenantRoute';
+} from '../../../../core/EmailOtpStores';
+import type { SignerWasmModuleSupplier } from '../../../../core/types';
+import { EMAIL_OTP_CODE_LENGTH } from '../../../../core/authService/emailOtpConfig';
+import type { RouterAbEcdsaPresignRuntime } from '../../../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
+import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../../domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+import type { RouterAbEcdsaStrictRegistrationPort } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
+import type { SigningSessionSealShamir3PassRootConfig } from '../../../../threshold/session/signingSessionSeal/crypto/cipher';
+import { parseSigningSessionSealRootConfig } from '../../../../threshold/session/signingSessionSeal/options';
+import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import {
   normalizeOidcExchangeConfig,
   type CloudflareD1OidcExchangeConfig,
   type NormalizedCloudflareD1OidcExchangeConfig,
-} from './d1OidcBoundary';
+} from '../oidc/d1OidcBoundary';
 
 export type CloudflareD1EmailOtpDeliveryProviderInput = {
   readonly challengeId: string;

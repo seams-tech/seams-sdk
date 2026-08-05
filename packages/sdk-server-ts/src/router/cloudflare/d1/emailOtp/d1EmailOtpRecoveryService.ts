@@ -9,22 +9,22 @@ import { EMAIL_OTP_RECOVERY_KEY_COUNT } from '@shared/utils/emailOtpRecoveryKey'
 import type {
   EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpWalletEnrollmentRecord,
-} from '../../core/EmailOtpStores';
+} from '../../../../core/EmailOtpStores';
 import {
   validateSecp256k1PublicKey33,
   verifySecp256k1RecoverableSignatureAgainstPublicKey33,
-} from '../../core/ThresholdService/evmCryptoWasm';
+} from '../../../../core/ThresholdService/evmCryptoWasm';
 import type {
   RouterApiEmailOtpRouteService,
   RouterApiWalletUnlockService,
-} from '../authServicePort';
+} from '../../../framework/authServicePort';
 import { CloudflareD1EmailOtpChallengeStore } from './d1EmailOtpChallengeStore';
 import { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVerifier';
 import { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
 import { CloudflareD1EmailOtpGrantStore } from './d1EmailOtpGrantStore';
 import { CloudflareD1EmailOtpRateLimitStore } from './d1EmailOtpRateLimitStore';
 import { CloudflareD1EmailOtpRecoveryEscrowStore } from './d1EmailOtpRecoveryEscrowStore';
-import { isRecordValue, parseD1BoundaryWalletIdResult } from './d1RouterApiAuthBoundary';
+import { isRecordValue, parseD1BoundaryWalletIdResult } from '../auth/d1RouterApiAuthBoundary';
 import {
   activeEmailOtpRecoveryEscrow,
   activeEmailOtpRecoveryRotationEscrowRecord,

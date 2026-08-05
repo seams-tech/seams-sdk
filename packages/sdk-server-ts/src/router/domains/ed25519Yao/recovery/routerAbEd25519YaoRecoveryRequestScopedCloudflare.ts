@@ -25,7 +25,7 @@ import {
   ROUTER_AB_TRACE_ID_HEADER_V1,
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
-import { json, readJson } from './framework/http';
+import { json, readJson } from '../../../framework/http';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
   type RouterAbEd25519YaoCapabilityPersistenceV1,
@@ -53,12 +53,12 @@ import {
   type RouterAbEd25519YaoRegistrationTwoPhaseCompletionV1,
   type RouterAbEd25519YaoRegistrationTwoPhasePrepareResultV1,
   type RouterAbEd25519YaoRegistrationTwoPhaseRunResultV1,
-} from './routerAbEd25519YaoRegistrationTwoPhaseRunner';
+} from '../registration/routerAbEd25519YaoRegistrationTwoPhaseRunner';
 import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-} from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-import type { RouterAbEd25519YaoProductRegistrationStateV1 } from './routerAbEd25519YaoProductRegistration';
+} from '../productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../productRegistration/routerAbEd25519YaoProductRegistration';
 
 type RecoveryAdmissionReceipt = RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'>;
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;

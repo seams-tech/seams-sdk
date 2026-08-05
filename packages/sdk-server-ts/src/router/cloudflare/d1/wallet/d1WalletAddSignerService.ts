@@ -23,9 +23,9 @@ import type {
   WalletAddSignerEcdsaDerivationRespondResponse,
   WalletAddSignerStartRequest,
   WalletAddSignerStartResponse,
-} from '../../core/registrationContracts';
-import { registrationPreparationIdFromString } from '../../core/registrationContracts';
-import type { D1WalletStore } from '../../core/d1WalletStore';
+} from '../../../../core/registrationContracts';
+import { registrationPreparationIdFromString } from '../../../../core/registrationContracts';
+import type { D1WalletStore } from '../../../../core/d1WalletStore';
 import type {
   StoredEd25519YaoAddSignerActivation,
   StoredEcdsaAddSignerActivated,
@@ -33,8 +33,8 @@ import type {
   StoredAddSignerIntent,
   StoredWalletAddSignerFinalizeRequest,
   StoredWalletAddSignerSignerState,
-} from '../../core/RegistrationCeremonyStore';
-import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
+} from '../../../../core/RegistrationCeremonyStore';
+import { CloudflareD1RegistrationCeremonyIntentStore } from '../registration/d1RegistrationCeremonyStore';
 import {
   buildD1EcdsaWalletKeysFromBootstrap,
   buildD1WalletEcdsaSignerRecords,
@@ -45,37 +45,37 @@ import {
   parseD1StoredWalletAddSignerCeremony,
   parseD1RuntimePolicyScope,
   parseWalletIdForIntent,
-} from './d1RegistrationCeremonyRecords';
-import { buildD1EvmFamilyEcdsaRegistrationPrepare } from './d1EvmFamilyEcdsaRegistrationBranch';
+} from '../registration/d1RegistrationCeremonyRecords';
+import { buildD1EvmFamilyEcdsaRegistrationPrepare } from '../registration/d1EvmFamilyEcdsaRegistrationBranch';
 import { CloudflareD1WalletAuthMethodService } from './d1WalletAuthMethodService';
 import {
   buildRouterAbEd25519YaoAddSignerAdmissionRequestV1,
   createRouterAbEd25519YaoMaterialActivationRefV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
-} from '../routerAbEd25519YaoProductRegistration';
-import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../routerAbEd25519YaoRecovery';
+} from '../../../domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../../../domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
   implicitNearAccountIdFromEd25519PublicKeyBytes,
-} from './d1Ed25519YaoWalletSigner';
+} from '../ed25519Yao/d1Ed25519YaoWalletSigner';
 import { buildRouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   routerAbEcdsaStrictRegistrationRequestMatchesFacts,
   type RouterAbEcdsaStrictRegistrationPort,
-} from '../routerAbEcdsaStrictRegistration';
+} from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
 import {
   buildActivatedEcdsaFamilyBootstrap,
   ecdsaStrictRegistrationAuthority,
   exactEcdsaParticipantPair,
-} from './d1WalletRegistrationService';
+} from '../registration/d1WalletRegistrationService';
 import {
   parseRouterAbEd25519YaoRegistrationSideEffectRecordV1,
   runRouterAbEd25519YaoRegistrationSideEffectV1,
   throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1,
   type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
   type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
-} from '../routerAbEd25519YaoRegistrationSideEffectBoundary';
+} from '../../../domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
 
 type StartWalletAddSignerInput = WalletAddSignerStartRequest;
 type RespondWalletAddSignerDerivationInput = WalletAddSignerEcdsaDerivationRespondRequest;

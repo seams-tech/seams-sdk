@@ -1,6 +1,6 @@
 import { defineRouteExtension, type RouteDefinition } from './routeDefinitions';
 import type { NormalizedRouterLogger } from './logger';
-import type { FetchRouterRuntime } from './transport/fetch/fetchRouter.types';
+import type { FetchRouterRuntime } from '../transport/fetch/fetchRouter.types';
 
 export type RouterApiRouteExtensionTransport = 'fetch';
 

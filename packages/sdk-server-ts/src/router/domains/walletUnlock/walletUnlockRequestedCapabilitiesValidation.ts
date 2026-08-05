@@ -1,5 +1,5 @@
 import { isPlainObject } from '@shared/utils/validation';
-import { findUnexpectedRouteKey } from './routeRequestValidation';
+import { findUnexpectedRouteKey } from '../../framework/routeRequestValidation';
 
 export const EMAIL_OTP_NO_REQUESTED_CAPABILITIES_KIND = 'none' as const;
 export const EMAIL_OTP_ED25519_YAO_REQUESTED_CAPABILITIES_KIND = 'ed25519_yao' as const;

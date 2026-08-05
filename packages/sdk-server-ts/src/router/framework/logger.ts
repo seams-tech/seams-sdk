@@ -1,5 +1,5 @@
-import type { Logger, NormalizedLogger } from '../core/logger';
-import { coerceLogger } from '../core/logger';
+import type { Logger, NormalizedLogger } from '../../core/logger';
+import { coerceLogger } from '../../core/logger';
 
 export type RouterLogger = Logger;
 export type NormalizedRouterLogger = NormalizedLogger;

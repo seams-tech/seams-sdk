@@ -1,11 +1,11 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { deriveHostedNearAccountId } from '../../core/hostedAccountIds';
-import type { IdentityStore } from '../../core/IdentityStore';
+import { deriveHostedNearAccountId } from '../../../../core/hostedAccountIds';
+import type { IdentityStore } from '../../../../core/IdentityStore';
 import type {
   RouterApiIdentityService,
-} from '../authServicePort';
-import { parseD1BoundaryWalletId } from './d1RouterApiAuthBoundary';
-import { requireD1RouterApiAuthScopeString } from './d1RouterApiAuthConfig';
+} from '../../../framework/authServicePort';
+import { parseD1BoundaryWalletId } from '../auth/d1RouterApiAuthBoundary';
+import { requireD1RouterApiAuthScopeString } from '../auth/d1RouterApiAuthConfig';
 
 type ListIdentitiesInput = Parameters<RouterApiIdentityService['listIdentities']>[0];
 type ListIdentitiesResult = Awaited<ReturnType<RouterApiIdentityService['listIdentities']>>;

@@ -2,7 +2,7 @@ import {
   buildSigningSessionSealApplyPath,
   buildSigningSessionSealRemovePath,
   resolveSigningSessionSealBasePath,
-} from '../threshold/session/signingSessionSeal/transport/shared';
+} from '../../threshold/session/signingSessionSeal/transport/shared';
 import {
   ROUTER_AB_PUBLIC_KEYSET_PATH,
   ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH,

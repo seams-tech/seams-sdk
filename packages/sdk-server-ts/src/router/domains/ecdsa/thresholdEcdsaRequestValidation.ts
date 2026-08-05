@@ -11,7 +11,7 @@ import {
 import type {
   RouterAbEcdsaDerivationPoolFillInitRequest,
   RouterAbEcdsaDerivationPoolFillStepRequest,
-} from '../core/types';
+} from '../../../core/types';
 
 export type ThresholdEcdsaRouteErrorBody = {
   ok: false;

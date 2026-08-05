@@ -1,8 +1,8 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { IdentityStore, LinkIdentityResult } from '../../core/IdentityStore';
+import type { IdentityStore, LinkIdentityResult } from '../../../../core/IdentityStore';
 import type {
   RouterApiIdentityService,
-} from '../authServicePort';
+} from '../../../framework/authServicePort';
 import {
   CloudflareD1OidcJwksCache,
   parseOidcJwtExchangeUnverifiedClaims,

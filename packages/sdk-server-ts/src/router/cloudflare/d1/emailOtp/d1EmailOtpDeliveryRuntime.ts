@@ -1,8 +1,8 @@
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
-import type { EmailOtpChallengeRecord } from '../../core/EmailOtpStores';
+import type { EmailOtpChallengeRecord } from '../../../../core/EmailOtpStores';
 import { maskEmail } from './d1EmailOtpRecords';
-import type { EmailOtpDeliveryMode, EmailOtpRuntimeConfig } from './d1RouterApiAuthConfig';
-import type { EmailOtpChallengeDelivery } from '../authServicePort';
+import type { EmailOtpDeliveryMode, EmailOtpRuntimeConfig } from '../auth/d1RouterApiAuthConfig';
+import type { EmailOtpChallengeDelivery } from '../../../framework/authServicePort';
 
 type EmailOtpDeliveryRuntimeResult =
   | { readonly ok: true; readonly delivery: EmailOtpChallengeDelivery }

@@ -1,7 +1,7 @@
 import type {
   RouterAbEcdsaDerivationWalletSessionClaims,
   RouterAbEd25519WalletSessionClaims,
-} from '../core/ThresholdService/validation';
+} from '../../core/ThresholdService/validation';
 import type { RouterApiKeyPrincipal, SessionClaims } from './routerApi';
 import { ROUTER_API_CREDENTIAL_SCOPES } from './apiCredentialPorts';
 

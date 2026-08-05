@@ -11,7 +11,7 @@ import {
 import type {
   VersionedJsonObject,
   VersionedJsonValue,
-} from './framework/versionedJsonRecordStore';
+} from '../../../framework/versionedJsonRecordStore';
 import type {
   RouterAbEd25519YaoRegistrationFailure,
   RouterAbEd25519YaoRegistrationFailureCode,

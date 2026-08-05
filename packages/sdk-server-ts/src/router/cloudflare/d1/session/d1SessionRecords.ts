@@ -2,14 +2,14 @@ import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type {
   RecoveryExecutionRecord,
   RecoveryExecutionStatus,
-} from '../../core/RecoveryExecutionStore';
-import type { RecoverySessionRecord, RecoverySessionStatus } from '../../core/RecoverySessionStore';
+} from '../../../../core/RecoveryExecutionStore';
+import type { RecoverySessionRecord, RecoverySessionStatus } from '../../../../core/RecoverySessionStore';
 import {
   isRecordValue,
   parseJsonObject,
   positiveInteger,
   positiveSafeInteger,
-} from './d1RouterApiAuthBoundary';
+} from '../auth/d1RouterApiAuthBoundary';
 
 export type D1SessionRow = {
   readonly session_version?: unknown;

@@ -2,7 +2,7 @@ import {
   isPlainObject,
   toOptionalTrimmedString,
 } from '@shared/utils/validation';
-import type { WebAuthnAuthenticationCredential } from '../core/types';
+import type { WebAuthnAuthenticationCredential } from '../../core/types';
 
 export function findUnexpectedRouteKey(
   record: Record<string, unknown>,

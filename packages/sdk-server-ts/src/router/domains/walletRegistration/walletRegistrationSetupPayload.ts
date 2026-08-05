@@ -27,7 +27,7 @@ import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
-import type { SignedSetupPayloadB64u } from '../core/threeRouteRegistrationContracts';
+import type { SignedSetupPayloadB64u } from '../../../core/threeRouteRegistrationContracts';
 
 /* Minting and verification are separate capabilities on purpose: setup only
    mints, and routes 2 and 3 only verify. Neither needs the other's power. */

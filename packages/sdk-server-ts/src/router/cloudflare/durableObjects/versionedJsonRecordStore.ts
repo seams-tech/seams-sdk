@@ -2,13 +2,13 @@ import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
-} from '../../core/types';
+} from '../../../core/types';
 import type {
   VersionedJsonObject,
   VersionedJsonRecordPutResult,
   VersionedJsonRecordReadResult,
   VersionedJsonValue,
-} from '../framework/versionedJsonRecordStore';
+} from '../../framework/versionedJsonRecordStore';
 
 export type CloudflareVersionedJsonRecordStoreOptions<T> = {
   readonly namespace: CloudflareDurableObjectNamespaceLike;

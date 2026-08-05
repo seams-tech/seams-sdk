@@ -1,5 +1,5 @@
-import type { CloudflareDurableObjectNamespaceLike } from '../../core/types';
-import type { D1DatabaseLike } from '../../storage/tenantRoute';
+import type { CloudflareDurableObjectNamespaceLike } from '../../../core/types';
+import type { D1DatabaseLike } from '../../../storage/tenantRoute';
 
 // Minimal Worker runtime types (avoid adding @cloudflare/workers-types dependency here)
 export type CfEnv = object;

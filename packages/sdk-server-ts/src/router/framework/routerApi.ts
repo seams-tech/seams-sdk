@@ -1,28 +1,28 @@
 import type { RouterLogger } from './logger';
 import type {
   ThresholdEd25519AuthorityScope,
-} from '../core/types';
+} from '../../core/types';
 import type { RouterApiRorOptions } from './ror/provider';
 import type { RouterApiModule } from './modules';
 import type { RouterApiRouteExtension } from './routeExtensions';
-import type { SigningSessionSealRoutesOptions } from '../threshold/session/signingSessionSeal/signingSessionSeal.types';
+import type { SigningSessionSealRoutesOptions } from '../../threshold/session/signingSessionSeal/signingSessionSeal.types';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
-import type { RouterAbNormalSigningAdmissionAdapter } from './routerAbPrivateSigningWorker';
-import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from './routerAbEd25519YaoProductRegistration';
-import type { RouterAbEcdsaStrictPostRegistrationPort } from './routerAbEcdsaStrictRegistration';
-import type { EmailRecoveryService } from '../email-recovery';
+import type { RouterAbNormalSigningAdmissionAdapter } from '../domains/normalSigning/routerAbPrivateSigningWorker';
+import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
+import type { RouterAbEcdsaStrictPostRegistrationPort } from '../domains/ecdsa/routerAbEcdsaStrictRegistration';
+import type { EmailRecoveryService } from '../../email-recovery';
 import type {
   RouterApiKeyAuthAdapter,
   RouterApiProjectEnvironmentResolver,
   RouterApiPublishableKeyAuthAdapter,
   RouterApiUsageMeterAdapter,
 } from './apiCredentialPorts';
-import type { PrepareEmailRecoveryRequest } from './emailRecoveryRequestValidation';
-import type { EmailRecoveryResolvedWalletBinding } from '../core/EmailRecoveryPreparationStore';
-import type { SessionParseResult } from '../core/sessionValidation';
+import type { PrepareEmailRecoveryRequest } from '../domains/emailRecovery/emailRecoveryRequestValidation';
+import type { EmailRecoveryResolvedWalletBinding } from '../../core/EmailRecoveryPreparationStore';
+import type { SessionParseResult } from '../../core/sessionValidation';
 
 export type {
   RouterApiCredentialScope,

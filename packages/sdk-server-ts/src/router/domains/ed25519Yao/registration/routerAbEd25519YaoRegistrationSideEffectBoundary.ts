@@ -1,7 +1,7 @@
 import type {
   VersionedJsonRecordPutResult,
   VersionedJsonRecordReadResult,
-} from './framework/versionedJsonRecordStore';
+} from '../../../framework/versionedJsonRecordStore';
 
 export type RouterAbEd25519YaoRegistrationSideEffectOperationV1 =
   | 'finalize'

@@ -1,7 +1,7 @@
-import type { RouterApiRecoveryRouteService } from './authServicePort';
-import { inferNearRecoveryChainIdKey } from '../core/recoveryExecutionRecords';
-import type { NormalizedLogger } from '../core/logger';
-import type { EmailRecoveryRequest, EmailRecoveryResult } from '../email-recovery/types';
+import type { RouterApiRecoveryRouteService } from '../../framework/authServicePort';
+import { inferNearRecoveryChainIdKey } from '../../../core/recoveryExecutionRecords';
+import type { NormalizedLogger } from '../../../core/logger';
+import type { EmailRecoveryRequest, EmailRecoveryResult } from '../../../email-recovery/types';
 import {
   hashRecoveryEmailArtifact,
   hashRecoveryEmailPayload,

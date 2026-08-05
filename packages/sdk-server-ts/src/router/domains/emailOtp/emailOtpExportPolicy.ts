@@ -2,7 +2,7 @@ import type {
   RouterApiEmailOtpExportPolicyDecision,
   RouterApiEmailOtpExportPolicyInput,
   RouterApiOptions,
-} from './routerApi';
+} from '../../framework/routerApi';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 
 export type ResolvedEmailOtpExportPolicyDecision = RouterApiEmailOtpExportPolicyDecision & {

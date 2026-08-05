@@ -1,5 +1,5 @@
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import type { ThresholdEd25519AuthorityScope } from '../core/types';
+import type { ThresholdEd25519AuthorityScope } from '../../../core/types';
 import type {
   RouterAbNormalSigningAdmissionAdapter,
   RouterAbNormalSigningAdmissionInput,

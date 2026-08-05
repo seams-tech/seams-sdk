@@ -70,7 +70,7 @@ import type {
   RouterAbEcdsaStrictForwardedRegistrationResponseV1,
   RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { RouterAbEcdsaPendingActivationV1 } from '../router/routerAbEcdsaStrictRegistration';
+import type { RouterAbEcdsaPendingActivationV1 } from '../router/domains/ecdsa/routerAbEcdsaStrictRegistration';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { WalletEd25519SignerRecord } from './WalletStore';
 

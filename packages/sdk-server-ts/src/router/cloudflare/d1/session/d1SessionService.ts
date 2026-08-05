@@ -1,16 +1,16 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { buildRecoveryExecutionRecord } from '../../core/recoveryExecutionRecords';
+import { buildRecoveryExecutionRecord } from '../../../../core/recoveryExecutionRecords';
 import type {
   RouterApiRecoveryRouteService,
   RouterApiSessionVersionService,
-} from '../authServicePort';
+} from '../../../framework/authServicePort';
 import {
   normalizeAccountAddress,
   parseRecoverySessionStatus,
   recoverySessionWithStatus,
 } from './d1SessionRecords';
 import { CloudflareD1SessionStore } from './d1SessionStore';
-import { isRecordValue } from './d1RouterApiAuthBoundary';
+import { isRecordValue } from '../auth/d1RouterApiAuthBoundary';
 
 type GetRecoverySessionInput = Parameters<RouterApiRecoveryRouteService['getRecoverySession']>[0];
 type GetRecoverySessionResult = Awaited<

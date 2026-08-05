@@ -1,7 +1,7 @@
-import type { NormalizedRouterLogger } from '../../logger';
-import type { RouterApiServiceBag } from '../../authServicePort';
-import type { RouterApiOptions } from '../../routerApi';
-import type { RouteDefinition } from '../../routeDefinitions';
+import type { NormalizedRouterLogger } from '../../framework/logger';
+import type { RouterApiServiceBag } from '../../framework/authServicePort';
+import type { RouterApiOptions } from '../../framework/routerApi';
+import type { RouteDefinition } from '../../framework/routeDefinitions';
 
 export type FetchRouterRuntime =
   | {
