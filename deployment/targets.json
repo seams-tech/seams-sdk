@@ -332,7 +332,7 @@
           "rpcUrl": "https://test.rpc.fastnear.com",
           "initialBalanceYocto": "30000000000000000000000"
         },
-        "googleOidcClientId": "971053349716-2ck8cp6ucohvkd075aebdtv9jskla2b5.apps.googleusercontent.com",
+        "googleOidcClientId": "971053349716-p10qdg7lsjh24lcocbsckt4f85is5igs.apps.googleusercontent.com",
         "oidcExchange": null
       }
     },
