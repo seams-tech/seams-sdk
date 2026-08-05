@@ -5,7 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dia2_batch import Dia2PlanError, load_plan
+from dia2_batch import (
+    Dia2PlanError,
+    load_or_create_state,
+    load_plan,
+    pending_output_path,
+    write_json,
+)
 
 
 class Dia2BatchPlanTest(unittest.TestCase):
@@ -40,6 +46,36 @@ class Dia2BatchPlanTest(unittest.TestCase):
 
         with self.assertRaisesRegex(Dia2PlanError, "crosses"):
             load_value(value)
+
+    def test_generation_state_is_plan_bound_and_output_writer_is_immutable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan_path = root / "plan.json"
+            plan_path.write_text(json.dumps(valid_plan()), encoding="utf-8")
+            plan = load_plan(plan_path)
+            output_dir = root / "audio"
+            state_path = root / "state.json"
+
+            state = load_or_create_state(
+                state_path,
+                plan=plan,
+                output_dir=output_dir,
+            )
+
+            self.assertEqual(state["schemaVersion"], "voice_id_dia2_generation_state_v1")
+            self.assertEqual(state["completed"], [])
+            write_json(root / "manifest.json", {"value": 1})
+            write_json(root / "manifest.json", {"value": 1})
+            with self.assertRaisesRegex(Dia2PlanError, "immutable output collision"):
+                write_json(root / "manifest.json", {"value": 2})
+
+            pending_output_path(output_dir, plan.jobs[0]).write_bytes(b"partial")
+            with self.assertRaisesRegex(Dia2PlanError, "pending Dia2 output"):
+                load_or_create_state(
+                    state_path,
+                    plan=plan,
+                    output_dir=output_dir,
+                )
 
 
 def load_value(value: dict[str, object]):

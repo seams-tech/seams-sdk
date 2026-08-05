@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "voice_id_runtime_resilience_campaign_v1",
+  "generatedAt": "2026-07-31T14:29:52Z",
+  "faultCampaign": [
+    {
+      "name": "model_load_failure",
+      "passed": true,
+      "durationMs": 30.757,
+      "details": {
+        "failedClosed": true,
+        "returnCode": 1,
+        "errorObserved": true
+      }
+    },
+    {
+      "name": "forced_worker_termination",
+      "passed": true,
+      "durationMs": 18.437,
+      "details": {
+        "workerReturnCode": -15,
+        "replacementReturnCode": 0,
+        "recovered": true
+      }
+    },
+    {
+      "name": "response_loss",
+      "passed": true,
+      "durationMs": 0.083,
+      "details": {
+        "failedClosed": true,
+        "responseBytes": 0
+      }
+    },
+    {
+      "name": "request_timeout",
+      "passed": true,
+      "durationMs": 11.644,
+      "details": {
+        "timedOut": true,
+        "recovered": true
+      }
+    },
+    {
+      "name": "queue_saturation",
+      "passed": true,
+      "durationMs": 0.362,
+      "details": {
+        "saturated": true,
+        "recovered": true
+      }
+    }
+  ],
+  "soak": {
+    "passed": true,
+    "durationMs": 9.851,
+    "details": {
+      "passed": true,
+      "iterations": 1000,
+      "latencyMs": {
+        "p50": 0.009,
+        "p95": 0.012,
+        "p99": 0.018
+      },
+      "before": {
+        "peakRssBytes": 29065216,
+        "openFileDescriptors": 4,
+        "activeThreads": 1
+      },
+      "after": {
+        "peakRssBytes": 29147136,
+        "openFileDescriptors": 4,
+        "activeThreads": 1
+      },
+      "fileDescriptorGrowth": 0,
+      "threadGrowth": 0,
+      "workerCount": 1
+    }
+  },
+  "soakError": null,
+  "releaseReady": true
+}
