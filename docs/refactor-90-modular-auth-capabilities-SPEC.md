@@ -704,6 +704,10 @@ implementing commit SHA as the evidence.
   plan.
 - [x] Follow-on capability/provider designs extend the closed unions only when
   they enter implementation scope.
+- [x] The final production-source sweep finds no composite ECDSA record,
+  signing-grant identity, capability-grant-use, operation-claim, or
+  `active_state_session_id` symbol. Retired wire fields remain only in negative
+  boundary fixtures that prove strict rejection.
 
 ## Goal
 
