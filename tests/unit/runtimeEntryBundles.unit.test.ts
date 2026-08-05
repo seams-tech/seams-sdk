@@ -4,7 +4,10 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { collectWalletIframeHostGraphOffenders } from '../../packages/sdk-web/scripts/checks/assert-runtime-entry-bundles.mjs';
+import {
+  collectRuntimeEntryGraphOffenders,
+  collectWalletIframeHostGraphOffenders,
+} from '../../packages/sdk-web/scripts/checks/assert-runtime-entry-bundles.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -38,6 +41,24 @@ test('wallet host guard ignores prose and rejects a React package import', () =>
     writeFileSync(path.join(fixtureRoot, entry), 'import { createElement } from "react";\n');
     expect(collectWalletIframeHostGraphOffenders([entry], fixtureRoot)).toEqual([
       expect.stringContaining('forbidden package react'),
+    ]);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test('runtime guard ignores lazy browser chunks while retaining static graph checks', () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'seams-runtime-entry-bundle-'));
+  const entry = 'runtime.js';
+
+  try {
+    writeFileSync(path.join(fixtureRoot, entry), 'void import("./lazy.js");\n');
+    writeFileSync(path.join(fixtureRoot, 'lazy.js'), 'export const browser = window;\n');
+    expect(collectRuntimeEntryGraphOffenders([entry], fixtureRoot)).toEqual([]);
+
+    writeFileSync(path.join(fixtureRoot, entry), 'import "./lazy.js";\n');
+    expect(collectRuntimeEntryGraphOffenders([entry], fixtureRoot)).toEqual([
+      expect.stringContaining('forbidden source'),
     ]);
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });

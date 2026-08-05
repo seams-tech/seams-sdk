@@ -76,14 +76,16 @@ function resolveRelativeImport(fromFile, specifier) {
   );
 }
 
-function importSpecifiers(source) {
+function importSpecifiers(source, { includeDynamicImports = false } = {}) {
   const specifiers = [];
   const patterns = [
     /\bimport\s+(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/g,
     /\bexport\s+(?:[^'"]*?\s+from\s+)['"]([^'"]+)['"]/g,
-    /\bimport\s*\(\s*(?:\/\*[\s\S]*?\*\/\s*)?['"]([^'"]+)['"]\s*\)/g,
     /\b(?:require|module\.require)\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
   ];
+  if (includeDynamicImports) {
+    patterns.push(/\bimport\s*\(\s*(?:\/\*[\s\S]*?\*\/\s*)?['"]([^'"]+)['"]\s*\)/g);
+  }
   for (const pattern of patterns) {
     let match;
     while ((match = pattern.exec(source))) {
@@ -93,7 +95,12 @@ function importSpecifiers(source) {
   return specifiers;
 }
 
-function collectEntryGraphOffenders(entries, rules, root = distEsmRoot) {
+function collectEntryGraphOffenders(
+  entries,
+  rules,
+  root = distEsmRoot,
+  { includeDynamicImports = false } = {},
+) {
   const offenders = [];
   const sourceCache = new Map();
   const specifierCache = new Map();
@@ -110,7 +117,7 @@ function collectEntryGraphOffenders(entries, rules, root = distEsmRoot) {
   function importSpecifiersCached(file, source) {
     const cached = specifierCache.get(file);
     if (cached) return cached;
-    const specifiers = importSpecifiers(source);
+    const specifiers = importSpecifiers(source, { includeDynamicImports });
     specifierCache.set(file, specifiers);
     return specifiers;
   }
@@ -193,6 +200,19 @@ export function collectWalletIframeHostGraphOffenders(
       ],
     },
     root,
+    { includeDynamicImports: true },
+  );
+}
+
+export function collectRuntimeEntryGraphOffenders(entries = entryFiles, root = distEsmRoot) {
+  return collectEntryGraphOffenders(
+    entries,
+    {
+      forbiddenPathPatterns: forbiddenResolvedPathPatterns,
+      forbiddenSourcePatterns,
+      forbiddenSpecifierPatterns: [],
+    },
+    root,
   );
 }
 
@@ -235,11 +255,7 @@ async function main() {
 
   await assertPublicRuntimeValueExports();
 
-  const runtimeOffenders = collectEntryGraphOffenders(entryFiles, {
-    forbiddenPathPatterns: forbiddenResolvedPathPatterns,
-    forbiddenSourcePatterns,
-    forbiddenSpecifierPatterns: [],
-  });
+  const runtimeOffenders = collectRuntimeEntryGraphOffenders();
   const walletIframeHostOffenders = collectWalletIframeHostGraphOffenders();
   const offenders = [...runtimeOffenders, ...walletIframeHostOffenders];
 
