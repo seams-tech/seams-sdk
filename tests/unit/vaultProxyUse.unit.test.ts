@@ -103,12 +103,13 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
     const route = extension.routes[0];
     if (!route) throw new Error('vault proxy route is missing');
     const request = buildVaultProxyRequest(fixture, evidenceSet.evidenceSetDigest);
-    const response = await extension.handleCloudflareRoute({
+    const response = await extension.handleFetchRoute({
       request,
       route,
       pathname: route.path,
       method: route.method,
       logger: coerceRouterLogger(undefined),
+      runtime: { kind: 'inline' },
     });
 
     expect(response.status).toBe(200);
@@ -121,12 +122,13 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
     });
     expect(upstream.authorization).toBe('Bearer merchant-secret-token');
     expect(upstream.payload).toBe('{"amount":42}');
-    const replay = await extension.handleCloudflareRoute({
+    const replay = await extension.handleFetchRoute({
       request: buildVaultProxyRequest(fixture, evidenceSet.evidenceSetDigest),
       route,
       pathname: route.path,
       method: route.method,
       logger: coerceRouterLogger(undefined),
+      runtime: { kind: 'inline' },
     });
     expect(replay.status).toBe(response.status);
     expect(replay.headers.get('content-type')).toBe(response.headers.get('content-type'));

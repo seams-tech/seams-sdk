@@ -757,7 +757,7 @@ async function warmBootstrapReturnsExactActiveCapabilityWithoutMintingSession():
   const extension = module.routeExtensions[0];
   const route = extension?.routes.find(isWarmRecoveryBootstrapRoute);
   if (!extension || !route) throw new Error('warm recovery bootstrap route is required');
-  const response = await extension.handleCloudflareRoute({
+  const response = await extension.handleFetchRoute({
     request: new Request(`https://router.example.test${route.path}`, {
       method: 'POST',
       headers: {
@@ -779,6 +779,7 @@ async function warmBootstrapReturnsExactActiveCapabilityWithoutMintingSession():
     pathname: route.path,
     method: 'POST',
     logger: coerceRouterLogger(null),
+    runtime: { kind: 'inline' },
   });
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({
