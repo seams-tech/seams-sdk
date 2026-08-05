@@ -463,7 +463,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
             accessList: [],
           },
         };
-        const sessionSigned = await pm.tempo.signTempo({
+        const sessionSigned = await pm.evm.signTransaction({
           walletSession: walletSessionRef,
           chainTarget,
           request: signRequest,
@@ -479,7 +479,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           options: { confirmationConfig: { uiMode: 'modal' } },
         });
         const walletSession = await pm.auth.getWalletSession(walletId);
-        const perOperationSigned = await pm.tempo.signTempo({
+        const perOperationSigned = await pm.evm.signTransaction({
           walletSession: walletSessionRef,
           chainTarget,
           request: { ...signRequest, tx: { ...signRequest.tx, nonce: 1n } },
@@ -993,8 +993,8 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
             accessList: [],
           },
         };
-        const signResult = await pm.tempo
-          .signTempo({
+        const signResult = await pm.evm
+          .signTransaction({
             walletSession,
             chainTarget: {
               kind: 'evm',

@@ -1224,7 +1224,7 @@ class IntendedPageController {
   }
 
   private async signArcEvmTransactionWithPublicSdk(): Promise<ArcEvmSigningResultSummary> {
-    const result = await this.seams.tempo.signTempo({
+    const result = await this.seams.evm.signTransaction({
       walletSession: walletSessionRefFromSession({
         walletId: this.walletId,
         walletSessionUserId: this.walletId,
@@ -1927,10 +1927,7 @@ function registrationEcdsaTargetKeys(
     case 'tempo':
       return {
         kind: 'tempo',
-        tempo: registrationEcdsaTargetKey(
-          'tempo',
-          registration.thresholdEcdsaEthereumAddress,
-        ),
+        tempo: registrationEcdsaTargetKey('tempo', registration.thresholdEcdsaEthereumAddress),
       };
     case 'tempo_arc': {
       const thresholdOwnerAddress = registration.thresholdEcdsaEthereumAddress;

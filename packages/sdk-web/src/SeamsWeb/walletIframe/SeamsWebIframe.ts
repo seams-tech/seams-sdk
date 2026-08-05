@@ -101,11 +101,17 @@ import type {
   ReportTempoBroadcastRejectedArgs,
   ReportTempoDroppedOrReplacedArgs,
   ReportTempoFinalizedArgs,
+  SignEvmTransactionArgs,
   SignTempoArgs,
   TempoNonceLaneStatus,
   TempoSignerCapability,
 } from '@/SeamsWeb';
 import { executeEvmFamilyTransactionLifecycle } from '@/SeamsWeb/operations/tempo/executeEvmFamilyTransaction';
+import {
+  getTempoFeeTokenPreference,
+  setTempoFeeTokenPreference,
+  validateConfiguredTempoFeeToken,
+} from '@/SeamsWeb/operations/tempo/feeTokenPreference';
 import {
   implicitNearAccountProvisioning,
   type RegisterWalletInput,
@@ -427,6 +433,18 @@ export class SeamsWebIframe {
     };
     this.tempo = {
       signTempo: async (args) => await this.signTempoDomain(args),
+      getFeeTokenPreference: async (args) =>
+        await getTempoFeeTokenPreference(this.configs.network.chains, args),
+      validateFeeToken: async (args) =>
+        await validateConfiguredTempoFeeToken(this.configs.network.chains, args),
+      setFeeTokenPreference: async (args) =>
+        await setTempoFeeTokenPreference(
+          {
+            chains: this.configs.network.chains,
+            execute: this.executeEvmFamilyTransactionDomain.bind(this),
+          },
+          args,
+        ),
       executeEvmFamilyTransaction: async (args) =>
         await this.executeEvmFamilyTransactionDomain(args),
       reportBroadcastAccepted: async (args) => await this.reportTempoBroadcastAcceptedDomain(args),
@@ -437,6 +455,7 @@ export class SeamsWebIframe {
       bootstrapEcdsaSession: async (args) => await this.bootstrapEcdsaSessionDomain(args),
     };
     this.evm = {
+      signTransaction: async (args) => await this.signEvmTransactionDomain(args),
       registerEvmWallet: async (args) => {
         if (!args.chainTargets.length) {
           throw new Error('[SeamsWeb][evm] registerEvmWallet requires at least one chain target');
@@ -993,10 +1012,10 @@ export class SeamsWebIframe {
     return combined;
   }
 
-  private async signTempoDomain(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult> {
+  private async signTempoDomain(args: SignTempoArgs): Promise<TempoSignedResult> {
     requireIframeEvmSigningCapability(this.configs, args.chainTarget);
     await this.requireRouterReady();
-    return await this.router.signTempo({
+    const result = await this.router.signTempo({
       walletSession: args.walletSession,
       request: args.request,
       chainTarget: args.chainTarget,
@@ -1005,6 +1024,28 @@ export class SeamsWebIframe {
         onEvent: args.options?.onEvent,
       },
     });
+    if (result.chain !== 'tempo' || result.kind !== 'tempoTransaction') {
+      throw new Error(`[SeamsWebIframe][tempo] expected Tempo result, received ${result.chain}`);
+    }
+    return result;
+  }
+
+  private async signEvmTransactionDomain(args: SignEvmTransactionArgs): Promise<EvmSignedResult> {
+    requireIframeEvmSigningCapability(this.configs, args.chainTarget);
+    await this.requireRouterReady();
+    const result = await this.router.signTempo({
+      walletSession: args.walletSession,
+      request: args.request,
+      chainTarget: args.chainTarget,
+      options: {
+        confirmationConfig: args.options?.confirmationConfig,
+        onEvent: args.options?.onEvent,
+      },
+    });
+    if (result.chain !== 'evm' || result.kind !== 'eip1559') {
+      throw new Error(`[SeamsWebIframe][evm] expected EVM result, received ${result.chain}`);
+    }
+    return result;
   }
 
   private async executeEvmFamilyTransactionDomain(
@@ -1012,7 +1053,28 @@ export class SeamsWebIframe {
   ): Promise<ExecuteEvmFamilyTransactionResult> {
     return await executeEvmFamilyTransactionLifecycle({
       lifecycle: {
-        signTempo: async (innerArgs) => await this.signTempoDomain(innerArgs),
+        signEvmFamily: async (innerArgs) => {
+          if (innerArgs.request.chain === 'tempo') {
+            if (innerArgs.chainTarget.kind !== 'tempo') {
+              throw new Error('[SeamsWebIframe][tempo] Tempo request requires a Tempo target');
+            }
+            return await this.signTempoDomain({
+              walletSession: innerArgs.walletSession,
+              request: innerArgs.request,
+              chainTarget: innerArgs.chainTarget,
+              options: innerArgs.options,
+            });
+          }
+          if (innerArgs.chainTarget.kind !== 'evm') {
+            throw new Error('[SeamsWebIframe][evm] EVM request requires an EVM target');
+          }
+          return await this.signEvmTransactionDomain({
+            walletSession: innerArgs.walletSession,
+            request: innerArgs.request,
+            chainTarget: innerArgs.chainTarget,
+            options: innerArgs.options,
+          });
+        },
         reportBroadcastAccepted: async (innerArgs) =>
           await this.reportTempoBroadcastAcceptedDomain(innerArgs),
         reportBroadcastRejected: async (innerArgs) =>

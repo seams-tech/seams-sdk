@@ -1,6 +1,8 @@
 import type { ProgressPayload } from '../../shared/messages';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult } from './shared';
+import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
+import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 
 export function createEcdsaTempoWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
@@ -24,18 +26,35 @@ export function createEcdsaTempoWalletIframeHandlers(deps: HandlerDeps): Handler
       const pm = deps.getSeamsWeb();
       const { walletSession, request, chainTarget, options } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
-      const result = await pm.tempo.signTempo({
-        walletSession,
-        request,
-        chainTarget,
-        options: {
-          confirmationConfig: options?.confirmationConfig,
-          shouldAbort: () => deps.isCancelled(req.requestId),
-          onEvent: (ev) => {
-            deps.postProgress(req.requestId, ev as unknown as ProgressPayload);
-          },
+      const signOptions = {
+        confirmationConfig: options?.confirmationConfig,
+        shouldAbort: () => deps.isCancelled(req.requestId),
+        onEvent: (ev: Parameters<typeof deps.postProgress>[1]) => {
+          deps.postProgress(req.requestId, ev as unknown as ProgressPayload);
         },
-      });
+      };
+      let result: TempoSignedResult | EvmSignedResult;
+      if (request.chain === 'tempo') {
+        if (chainTarget.kind !== 'tempo') {
+          throw new Error('[wallet-iframe] Tempo request requires a Tempo target');
+        }
+        result = await pm.tempo.signTempo({
+          walletSession,
+          request,
+          chainTarget,
+          options: signOptions,
+        });
+      } else {
+        if (chainTarget.kind !== 'evm') {
+          throw new Error('[wallet-iframe] EVM request requires an EVM target');
+        }
+        result = await pm.evm.signTransaction({
+          walletSession,
+          request,
+          chainTarget,
+          options: signOptions,
+        });
+      }
       if (deps.respondIfCancelled(req.requestId)) return;
       respondOkResult(deps, req.requestId, result);
     },

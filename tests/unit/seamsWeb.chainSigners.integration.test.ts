@@ -244,7 +244,12 @@ test.describe('SeamsWeb chain signer modules', () => {
 
   test('Tempo capability forwards shouldAbort in non-iframe mode', async () => {
     let capturedArgs: any = null;
-    const expectedResult = { chain: 'evm', txHashHex: '0x1', rawTxHex: '0x2' } as any;
+    const expectedResult = {
+      chain: 'tempo',
+      kind: 'tempoTransaction',
+      senderHashHex: '0x1',
+      rawTxHex: '0x2',
+    } as any;
     const shouldAbort = () => false;
     const signer = createLocalTempoCapability({
       getContext: () =>
@@ -268,9 +273,16 @@ test.describe('SeamsWeb chain signer modules', () => {
       chainTarget: TEMPO_CHAIN_TARGET,
       request: {
         chain: 'tempo',
-        kind: 'eip1559',
+        kind: 'tempoTransaction',
         senderSignatureAlgorithm: 'secp256k1',
-        tx: {},
+        tx: {
+          chainId: TEMPO_CHAIN_TARGET.chainId,
+          maxPriorityFeePerGas: 1n,
+          maxFeePerGas: 2n,
+          gasLimit: 21_000n,
+          calls: [{ to: '0x1111111111111111111111111111111111111111', value: 0n }],
+          nonceKey: 0n,
+        },
       } as any,
       options: {
         confirmationConfig: { uiMode: 'modal' },
@@ -280,6 +292,54 @@ test.describe('SeamsWeb chain signer modules', () => {
 
     expect(result).toEqual(expectedResult);
     expect(capturedArgs?.shouldAbort).toBe(shouldAbort);
+    expect(capturedArgs?.confirmationConfigOverride?.uiMode).toBe('modal');
+  });
+
+  test('EVM capability signs only EIP-1559 requests in non-iframe mode', async () => {
+    let capturedArgs: any = null;
+    const expectedResult = {
+      chain: 'evm',
+      kind: 'eip1559',
+      txHashHex: '0x1',
+      rawTxHex: '0x2',
+    } as any;
+    const signer = createLocalEvmCapability({
+      getContext: () =>
+        ({
+          signingEngine: {
+            signEvmFamily: async (args: any) => {
+              capturedArgs = args;
+              return expectedResult;
+            },
+          },
+        }) as any,
+    });
+
+    const result = await signer.signTransaction({
+      walletSession: TEST_WALLET_SESSION,
+      chainTarget: EVM_CHAIN_TARGET,
+      request: {
+        chain: 'evm',
+        kind: 'eip1559',
+        senderSignatureAlgorithm: 'secp256k1',
+        tx: {
+          chainId: EVM_CHAIN_TARGET.chainId,
+          maxPriorityFeePerGas: 1n,
+          maxFeePerGas: 2n,
+          gasLimit: 21_000n,
+          to: '0x1111111111111111111111111111111111111111',
+          value: 0n,
+          data: '0x',
+        },
+      },
+      options: {
+        confirmationConfig: { uiMode: 'modal' },
+      },
+    });
+
+    expect(result).toEqual(expectedResult);
+    expect(capturedArgs?.request.chain).toBe('evm');
+    expect(capturedArgs?.request.kind).toBe('eip1559');
     expect(capturedArgs?.confirmationConfigOverride?.uiMode).toBe('modal');
   });
 

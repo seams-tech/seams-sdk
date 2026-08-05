@@ -19,6 +19,11 @@ const evmChainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chainId: 1,
   networkSlug: 'ethereum',
 });
+const tempoChainTarget = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'tempo',
+  chainId: 4217,
+  networkSlug: 'tempo',
+});
 
 void seams.registration.enrollEmailOtp({
   walletId: 'alice.testnet',
@@ -51,6 +56,49 @@ void seams.evm.bootstrapEcdsaSession({
 });
 
 void seams.tempo.signTempo({
+  walletSession,
+  chainTarget: tempoChainTarget,
+  request: {
+    chain: 'tempo',
+    kind: 'tempoTransaction',
+    senderSignatureAlgorithm: 'secp256k1',
+    tx: {
+      chainId: 4217,
+      maxPriorityFeePerGas: 1n,
+      maxFeePerGas: 1n,
+      gasLimit: 21_000n,
+      calls: [
+        {
+          to: '0x1111111111111111111111111111111111111111',
+          value: 0n,
+          input: '0x',
+        },
+      ],
+      nonceKey: 0n,
+    },
+  },
+});
+
+void seams.tempo.getFeeTokenPreference({
+  chainTarget: tempoChainTarget,
+  account: '0x1111111111111111111111111111111111111111',
+});
+void seams.tempo.validateFeeToken({
+  chainTarget: tempoChainTarget,
+  feeToken: '0x20c0000000000000000000000000000000000001',
+});
+void seams.tempo.setFeeTokenPreference({
+  walletSession,
+  chainTarget: tempoChainTarget,
+  account: '0x1111111111111111111111111111111111111111',
+  feeToken: '0x20c0000000000000000000000000000000000001',
+  feeCaps: {
+    maxPriorityFeePerGas: 1n,
+    maxFeePerGas: 2n,
+  },
+});
+
+void seams.evm.signTransaction({
   walletSession,
   chainTarget: evmChainTarget,
   request: {

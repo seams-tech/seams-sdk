@@ -4,6 +4,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactEcdsaSigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
 import type { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type {
   BootstrapThresholdEcdsaSessionArgs,
@@ -77,7 +78,15 @@ const evmExecuteRequest = {
     value: 0n,
     data: '0x',
   },
-} satisfies Extract<SignTempoArgs['request'], { chain: 'evm' }>;
+} satisfies EvmSigningRequest;
+
+const invalidEvmTempoSign: SignTempoArgs = {
+  walletSession,
+  chainTarget: tempoChainTarget,
+  // @ts-expect-error Tempo signing rejects EIP-1559 requests.
+  request: evmExecuteRequest,
+};
+void invalidEvmTempoSign;
 
 const tempoExecuteRequest = {
   chain: 'tempo',
