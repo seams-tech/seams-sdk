@@ -6,12 +6,12 @@ import type {
   EmailOtpAuthStateRecord,
   EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpWalletEnrollmentRecord,
-} from '../../core/EmailOtpStores';
+} from '../../../../core/EmailOtpStores';
 import type {
   WalletRegistrationFinalizeRequest
-} from '../../core/registrationContracts';
-import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
-import { validateSecp256k1PublicKey33 } from '../../core/ThresholdService/evmCryptoWasm';
+} from '../../../../core/registrationContracts';
+import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
+import { validateSecp256k1PublicKey33 } from '../../../../core/ThresholdService/evmCryptoWasm';
 import type { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
 import type { CloudflareD1EmailOtpRecoveryEscrowStore } from './d1EmailOtpRecoveryEscrowStore';
 import type { CloudflareD1GoogleEmailOtpSessionResolver } from './d1GoogleEmailOtpSessionResolver';

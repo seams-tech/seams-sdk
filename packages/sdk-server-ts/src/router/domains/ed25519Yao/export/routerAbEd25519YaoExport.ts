@@ -28,34 +28,34 @@ import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
 import type { AuthFactorIdentity, WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { isPlainObject } from '@shared/utils/validation';
-import type { WebAuthnAuthenticationCredential } from '../core/types';
-import { normalizeCorsOrigin } from '../core/SessionService';
+import type { WebAuthnAuthenticationCredential } from '../../../../core/types';
+import { normalizeCorsOrigin } from '../../../../core/SessionService';
 import {
   d1WebAuthnCredentialIdB64uFromCredential,
   parseD1WebAuthnAuthenticationCredential,
-} from './cloudflare/d1WalletAuthMethodBoundary';
-import type { RouterApiWebAuthnService } from './authServicePort';
+} from '../../../cloudflare/d1/wallet/d1WalletAuthMethodBoundary';
+import type { RouterApiWebAuthnService } from '../../../framework/authServicePort';
 import {
   parseRouterAbEd25519WalletSessionClaims,
   type RouterAbEd25519WalletSessionClaims,
-} from '../core/ThresholdService/validation';
-import { headersToRecord, json, readJson } from './framework/http';
-import { createRouterApiModule, type RouterApiModule } from './modules';
-import { defineRoute } from './routeDefinitions';
-import type { SessionAdapter } from './routerApi';
+} from '../../../../core/ThresholdService/validation';
+import { headersToRecord, json, readJson } from '../../../framework/http';
+import { createRouterApiModule, type RouterApiModule } from '../../../framework/modules';
+import { defineRoute } from '../../../framework/routeDefinitions';
+import type { SessionAdapter } from '../../../framework/routerApi';
 import {
   walletSessionFailureCodeFromParseReason,
   walletSessionFailureMessage,
   walletSessionFailureStatus,
-} from './walletSessionFailure';
+} from '../../../auth/walletSessionFailure';
 import type {
   RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
-} from './routeExtensions';
+} from '../../../framework/routeExtensions';
 import type {
   RouterAbEd25519YaoActiveCapabilityDescriptorV1,
   RouterAbEd25519YaoActiveCapabilityResolverV1,
-} from './routerAbEd25519YaoRecovery';
+} from '../recovery/routerAbEd25519YaoRecovery';
 import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 
 const EXPORT_AUTH_MAX_TTL_MS = 60_000;

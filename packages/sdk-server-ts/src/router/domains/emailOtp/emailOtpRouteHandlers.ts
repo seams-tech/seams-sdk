@@ -5,8 +5,8 @@ import type {
   EmailOtpProviderIdentitySubject,
   EmailOtpStrongAuthSubject,
   RouterApiEmailOtpRouteService,
-} from './authServicePort';
-import type { RouterApiOptions } from './routerApi';
+} from '../../framework/authServicePort';
+import type { RouterApiOptions } from '../../framework/routerApi';
 import {
   authorizeEmailOtpExportPolicy,
   emailOtpExportDeniedDecisionFromResult,

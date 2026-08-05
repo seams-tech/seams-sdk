@@ -1,8 +1,8 @@
 import type {
   EmailOtpAuthStateRecord,
   EmailOtpWalletEnrollmentRecord,
-} from '../../core/EmailOtpStores';
-import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
+} from '../../../../core/EmailOtpStores';
+import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import {
   emailOtpAuthStateRecord,
   parseEmailOtpAuthStateRow,

@@ -10,13 +10,13 @@ import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { parseRootShareEpoch } from '@shared/utils/domainIds';
 import { buildRouterAbEcdsaDerivationActiveStateIdV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletId } from '@shared/utils/registrationIntent';
-import type { ThresholdEcdsaChainTarget, ThresholdRuntimePolicyScope } from '../../core/types';
+import type { ThresholdEcdsaChainTarget, ThresholdRuntimePolicyScope } from '../../../../core/types';
 import type {
   RegistrationPreparationId,
   WalletRegistrationEcdsaPreparePayload,
-} from '../../core/registrationContracts';
+} from '../../../../core/registrationContracts';
 import { deriveEvmFamilySigningKeySlotId } from './d1RegistrationCeremonyRecords';
-import type { RouterAbEcdsaStrictRegistrationPort } from '../routerAbEcdsaStrictRegistration';
+import type { RouterAbEcdsaStrictRegistrationPort } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
 
 const REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES = 3;
 

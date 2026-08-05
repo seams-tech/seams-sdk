@@ -10,13 +10,13 @@ import type {
   EmailOtpChallengeOperation,
   EmailOtpLoginChallengeOperation,
   EmailOtpWalletEnrollmentRecord,
-} from '../../core/EmailOtpStores';
-import { EMAIL_OTP_CODE_LENGTH } from '../../core/authService/emailOtpConfig';
+} from '../../../../core/EmailOtpStores';
+import { EMAIL_OTP_CODE_LENGTH } from '../../../../core/authService/emailOtpConfig';
 import type { CloudflareD1EmailOtpChallengeStore } from './d1EmailOtpChallengeStore';
 import type { CloudflareD1EmailOtpDeliveryRuntime } from './d1EmailOtpDeliveryRuntime';
 import type { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
 import type { CloudflareD1EmailOtpRateLimitStore } from './d1EmailOtpRateLimitStore';
-import type { EmailOtpChallengeDelivery } from '../authServicePort';
+import type { EmailOtpChallengeDelivery } from '../../../framework/authServicePort';
 import {
   emailOtpChallengePurposeIsValid,
   emailOtpChallengeRecord,

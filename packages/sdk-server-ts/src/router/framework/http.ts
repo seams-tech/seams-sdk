@@ -1,5 +1,5 @@
 import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
-import type { RouterApiOptions } from '../routerApi';
+import type { RouterApiOptions } from './routerApi';
 import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
 
 const CORS_ALLOW_METHODS = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';

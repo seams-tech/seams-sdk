@@ -12,7 +12,7 @@ import type {
   VersionedJsonRecordPutResult,
   VersionedJsonRecordReadResult,
   VersionedJsonValue,
-} from './framework/versionedJsonRecordStore';
+} from '../../../framework/versionedJsonRecordStore';
 import {
   parseRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationStateV1,

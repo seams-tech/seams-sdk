@@ -1,16 +1,16 @@
-import type { WalletEd25519YaoActiveCapabilityRecord } from '../core/WalletStore';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../../core/WalletStore';
 import {
   InMemoryRouterAbEd25519YaoRegistrationService,
   type RouterAbEd25519YaoActivationConsumptionRequestV1,
   type RouterAbEd25519YaoActivationConsumptionResultV1,
   type RouterAbEd25519YaoRegistrationBackend,
   type RouterAbEd25519YaoRegistrationBackendResult,
-} from './routerAbEd25519YaoRegistration';
-import { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from './routerAbEd25519YaoRegistrationIntentAuthorization';
+} from '../registration/routerAbEd25519YaoRegistration';
+import { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from '../registration/routerAbEd25519YaoRegistrationIntentAuthorization';
 import type {
   RouterAbEd25519YaoRegistrationIntentBindingResult,
   RouterAbEd25519YaoVerifiedActivationIntentV1,
-} from './routerAbEd25519YaoRegistrationIntentAuthorization';
+} from '../registration/routerAbEd25519YaoRegistrationIntentAuthorization';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
   type RouterAbEd25519YaoActiveCapabilityLookupResultV1,
@@ -18,7 +18,7 @@ import {
   type RouterAbEd25519YaoRecoveryBackend,
   type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1,
   type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1,
-} from './routerAbEd25519YaoRecovery';
+} from '../recovery/routerAbEd25519YaoRecovery';
 import {
   mintRouterAbEd25519YaoWalletSessionV1,
   routerAbEd25519YaoPersistedCapabilityMatchesLookupV1,
@@ -32,7 +32,7 @@ import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
 } from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-import type { SessionAdapter } from './routerApi';
+import type { SessionAdapter } from '../../../framework/routerApi';
 
 export type RouterAbEd25519YaoProductRegistrationRequestScopedRuntimeInputV1 = {
   readonly signingWorkerId: string;

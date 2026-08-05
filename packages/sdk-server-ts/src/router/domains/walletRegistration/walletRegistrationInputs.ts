@@ -10,12 +10,12 @@ import type {
   RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletRegistrationAuthorityInput } from '../../../core/registrationContracts';
-import type { SessionAdapter } from '../../routerApi';
+import type { SessionAdapter } from '../../framework/routerApi';
 import type { ThresholdRuntimePolicyScope } from '../../../core/types';
 import type {
   WalletRegistrationSetupMinter,
   WalletRegistrationSetupVerifier,
-} from '../../walletRegistrationSetupPayload';
+} from './walletRegistrationSetupPayload';
 
 export type WalletRegistrationSetupRequest = {
   readonly wallet?: RegisterWalletInput;

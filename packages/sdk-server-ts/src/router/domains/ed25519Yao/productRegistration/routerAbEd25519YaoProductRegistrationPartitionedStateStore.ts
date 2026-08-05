@@ -3,12 +3,12 @@ import type {
   VersionedJsonRecordPutResult,
   VersionedJsonRecordReadResult,
   VersionedJsonValue,
-} from './framework/versionedJsonRecordStore';
+} from '../../../framework/versionedJsonRecordStore';
 import type {
   RouterAbEd25519YaoActivationConsumptionRequestV1,
   RouterAbEd25519YaoActivationConsumptionResultV1,
   RouterAbEd25519YaoRegistrationFailure,
-} from './routerAbEd25519YaoRegistration';
+} from '../registration/routerAbEd25519YaoRegistration';
 import {
   routerAbEd25519YaoRegistrationAdmissionBindingJsonV1,
   routerAbEd25519YaoRegistrationExecutionRecordKeyV1,
@@ -16,8 +16,8 @@ import {
   encodeRouterAbEd25519YaoRegistrationExecutionRecordV1,
   parseRouterAbEd25519YaoRegistrationExecutionRecordV1,
   type RouterAbEd25519YaoRegistrationExecutionRecordV1,
-} from './routerAbEd25519YaoRegistrationExecutionRecord';
-import { routerAbEd25519YaoCredentialDigestHexV1 } from './routerAbEd25519YaoRegistrationIntentAuthorization';
+} from '../registration/routerAbEd25519YaoRegistrationExecutionRecord';
+import { routerAbEd25519YaoCredentialDigestHexV1 } from '../registration/routerAbEd25519YaoRegistrationIntentAuthorization';
 import { createRouterAbEd25519YaoProductRegistrationStateV1 } from './routerAbEd25519YaoProductRegistration';
 import type { RouterAbEd25519YaoProductRegistrationStateV1 } from './routerAbEd25519YaoProductRegistration';
 import {

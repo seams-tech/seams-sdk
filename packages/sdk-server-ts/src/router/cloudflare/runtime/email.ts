@@ -1,7 +1,7 @@
-import type { EmailRecoveryService } from '../../email-recovery';
-import { parseRecoverEmailRequest } from '../../email-recovery/emailParsers';
-import type { RouterLogger } from '../logger';
-import { coerceRouterLogger } from '../logger';
+import type { EmailRecoveryService } from '../../../email-recovery';
+import { parseRecoverEmailRequest } from '../../../email-recovery/emailParsers';
+import type { RouterLogger } from '../../framework/logger';
+import { coerceRouterLogger } from '../../framework/logger';
 import type { EmailHandler, CfEmailMessage } from './cloudflare.types';
 import { toSingleLine } from '@shared/utils/validation';
 

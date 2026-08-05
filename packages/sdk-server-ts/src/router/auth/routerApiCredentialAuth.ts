@@ -1,7 +1,7 @@
 import {
   enforceRoutePolicy,
   type RoutePolicyResolutionResult,
-} from './enforceRoutePolicy';
+} from '../framework/enforceRoutePolicy';
 import {
   extractBearerCredential,
   extractRouterApiEnvironmentId,
@@ -9,9 +9,9 @@ import {
 import type {
   RouterApiKeyAuthAdapter,
   RouterApiPublishableKeyAuthAdapter,
-} from './routerApi';
-import type { HeaderRecord } from './routeExecutionContext';
-import type { RouteDefinition } from './routeDefinitions';
+} from '../framework/routerApi';
+import type { HeaderRecord } from '../framework/routeExecutionContext';
+import type { RouteDefinition } from '../framework/routeDefinitions';
 
 
 interface ResolvePublishableKeyApiCredentialAuthInput {

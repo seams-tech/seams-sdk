@@ -1,5 +1,5 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { D1DatabaseLike, D1PreparedStatementLike } from '../../storage/tenantRoute';
+import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import {
   parseWebAuthnAuthenticator,
   parseWebAuthnBinding,

@@ -1,4 +1,4 @@
-import type { SessionParseFailureReason } from '../core/sessionValidation';
+import type { SessionParseFailureReason } from '../../core/sessionValidation';
 import {
   WALLET_SESSION_FAILURE_CODES,
   type WalletSessionFailureCode,

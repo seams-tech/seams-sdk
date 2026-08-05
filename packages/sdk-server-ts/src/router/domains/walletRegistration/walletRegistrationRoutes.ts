@@ -4,13 +4,13 @@ import type {
   WalletRegistrationActivateResponseV2,
   WalletRegistrationRespondResponseV2,
   WalletRegistrationSetupResponseV2,
-} from '../core/threeRouteRegistrationContracts';
+} from '../../../core/threeRouteRegistrationContracts';
 import type { RouterAbEcdsaRegistrationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { WalletRegistrationAuthorityInput } from '../core/registrationContracts';
-import { resolvePublishableKeyApiCredentialAuth } from './routerApiCredentialAuth';
-import { extractRouterApiEnvironmentId } from './routerApiKeyAuth';
-import type { RouterApiPublishableKeyAuthAdapter } from './routerApi';
-import type { RouterApiWalletRegistrationRouteService } from './authServicePort';
+import type { WalletRegistrationAuthorityInput } from '../../../core/registrationContracts';
+import { resolvePublishableKeyApiCredentialAuth } from '../../auth/routerApiCredentialAuth';
+import { extractRouterApiEnvironmentId } from '../../auth/routerApiKeyAuth';
+import type { RouterApiPublishableKeyAuthAdapter } from '../../framework/routerApi';
+import type { RouterApiWalletRegistrationRouteService } from '../../framework/authServicePort';
 import type {
   EcdsaKeyFactsInventoryPolicy,
   WebAuthnAuthenticationCredential,
@@ -18,7 +18,7 @@ import type {
   FundImplicitNearAccountResult,
   ThresholdEd25519AuthorityScope,
   WalletKeyFactsInventoryAuth,
-} from '../core/types';
+} from '../../../core/types';
 import type {
   CreateAddAuthMethodIntentRequest,
   CreateAddSignerIntentRequest,
@@ -50,32 +50,32 @@ import type {
   EmailOtpWalletRegistrationFinalizeAuthMethod,
   WalletRegistrationEcdsaDerivationRespondRequest,
   WalletRegistrationEcdsaDerivationRespondResponse,
-} from '../core/registrationContracts';
-import type { ThresholdEcdsaChainTarget } from '../core/thresholdEcdsaChainTarget';
+} from '../../../core/registrationContracts';
+import type { ThresholdEcdsaChainTarget } from '../../../core/thresholdEcdsaChainTarget';
 import {
   thresholdEcdsaChainTargetFromValue,
   thresholdEcdsaChainTargetKey,
-} from '../core/thresholdEcdsaChainTarget';
+} from '../../../core/thresholdEcdsaChainTarget';
 import {
   parseAppSessionClaims,
   resolveAppSessionWalletIdForWalletScope,
-} from '../core/ThresholdService/validation';
-import { findUnexpectedRouteKey } from './routeRequestValidation';
+} from '../../../core/ThresholdService/validation';
+import { findUnexpectedRouteKey } from '../../framework/routeRequestValidation';
 import {
   resolveActiveRuntimePolicyScopeForEnvironment,
   validateRouterAbEd25519WalletSessionTokenInputs,
-} from './commonRouterUtils';
-import { enforceRoutePolicy } from './enforceRoutePolicy';
-import type { NormalizedRouterLogger } from './logger';
+} from '../../auth/commonRouterUtils';
+import { enforceRoutePolicy } from '../../framework/enforceRoutePolicy';
+import type { NormalizedRouterLogger } from '../../framework/logger';
 import type {
   RouterApiKeyAuthAdapter,
   RouterApiProjectEnvironmentResolver,
   SessionAdapter,
-} from './routerApi';
-import type { HeaderRecord, RouteResponse, RouteServices } from './routeExecutionContext';
-import type { RouteDefinition } from './routeDefinitions';
-import type { RouteErrorBody } from './routeResponses';
-import { routeError, routeJson } from './routeResponses';
+} from '../../framework/routerApi';
+import type { HeaderRecord, RouteResponse, RouteServices } from '../../framework/routeExecutionContext';
+import type { RouteDefinition } from '../../framework/routeDefinitions';
+import type { RouteErrorBody } from '../../framework/routeResponses';
+import { routeError, routeJson } from '../../framework/routeResponses';
 import { isPlainObject } from '@shared/utils/validation';
 import { base64UrlDecode } from '@shared/utils/encoders';
 import {
@@ -85,10 +85,10 @@ import {
   type RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
-import type { WalletRegistrationActivateInput } from './domains/walletRegistration/walletRegistrationInputs';
+import type { WalletRegistrationActivateInput } from './walletRegistrationInputs';
 import { parseRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import { normalizeCorsOrigin } from '../core/SessionService';
+import { normalizeCorsOrigin } from '../../../core/SessionService';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
 import {
   deriveImplicitNearAccountIdFromEd25519PublicKey,
@@ -127,7 +127,7 @@ import {
   ROUTER_AB_TRACE_ID_HEADER_V1,
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
-import type { RouterAbEd25519YaoGatewaySpanV1 } from './routerAbEd25519YaoHttpRegistrationBackend';
+import type { RouterAbEd25519YaoGatewaySpanV1 } from '../ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
 
 type RouterApiWalletRegistrationServices = {
   walletRegistration: RouterApiWalletRegistrationRouteService;

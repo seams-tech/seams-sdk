@@ -7,7 +7,7 @@ import {
   toOptionalTrimmedString,
 } from '@shared/utils/validation';
 import { EMAIL_OTP_CHANNEL, type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
-import type { EmailOtpChallengeDelivery } from './authServicePort';
+import type { EmailOtpChallengeDelivery } from '../../framework/authServicePort';
 
 export type OidcAccountMode = 'register' | 'login';
 const EMAIL_OTP_RESEND_RETRY_AFTER_MS = 10_000;

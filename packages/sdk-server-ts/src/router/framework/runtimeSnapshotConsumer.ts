@@ -3,7 +3,7 @@ import type {
   RouterApiRuntimeSnapshotConsumer,
   RouterApiRuntimePolicyScope,
 } from './routerApi';
-import type { ThresholdRuntimeSnapshotExpectation } from '../core/types';
+import type { ThresholdRuntimeSnapshotExpectation } from '../../core/types';
 
 type RuntimeSnapshotValidationErrorCode =
   | 'runtime_snapshots_not_configured'

@@ -10,9 +10,9 @@ import { alphabetizeStringify } from '@shared/utils/digests';
 import type {
   VaultProxySecretRef,
   VaultProxySecretStore,
-} from '../../authorization/vaultProxyUse';
-import { parseVaultProxyDestination } from '../../authorization/vaultProxyUse';
-import type { D1DatabaseLike } from '../../storage/tenantRoute';
+} from '../../../../authorization/vaultProxyUse';
+import { parseVaultProxyDestination } from '../../../../authorization/vaultProxyUse';
+import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 
 const VAULT_PROXY_SECRET_AAD_DOMAIN_V1 = 'seams:vault:proxy-secret:v1';
 const AES_GCM_NONCE_BYTES = 12;

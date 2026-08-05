@@ -1,7 +1,7 @@
 import type {
   RouterAbEcdsaDerivationWalletSessionClaims,
   RouterAbEd25519WalletSessionClaims,
-} from '../core/ThresholdService/validation';
+} from '../../core/ThresholdService/validation';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   MpcWalletSigningQuotaId,

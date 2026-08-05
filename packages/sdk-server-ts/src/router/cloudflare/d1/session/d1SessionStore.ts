@@ -1,8 +1,8 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { RecoveryExecutionRecord } from '../../core/RecoveryExecutionStore';
-import type { RecoverySessionRecord } from '../../core/RecoverySessionStore';
-import type { D1PreparedStatementLike } from '../../storage/tenantRoute';
+import type { RecoveryExecutionRecord } from '../../../../core/RecoveryExecutionStore';
+import type { RecoverySessionRecord } from '../../../../core/RecoverySessionStore';
+import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import {
   appSessionRecord,
   parseAppSessionCreatedAt,

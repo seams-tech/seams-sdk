@@ -15,7 +15,7 @@ import type {
   RouterAbEd25519YaoRegistrationBackendFailure,
   RouterAbEd25519YaoRegistrationBackendResult,
 } from './routerAbEd25519YaoRegistration';
-import type { RouterAbEd25519YaoExportBackend } from './routerAbEd25519YaoExport';
+import type { RouterAbEd25519YaoExportBackend } from '../export/routerAbEd25519YaoExport';
 import {
   createRouterAbTraceContextV1,
   type RouterAbTraceContextV1,

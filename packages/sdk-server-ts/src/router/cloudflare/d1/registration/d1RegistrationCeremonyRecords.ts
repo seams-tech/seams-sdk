@@ -74,12 +74,12 @@ import {
   parseRouterAbEcdsaVerifiedClientActivationFactsV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import { parseStoredRouterAbEcdsaPendingActivationV1 } from '../routerAbEcdsaStrictRegistration';
-import { registrationPreparationIdFromString } from '../../core/registrationContracts';
+import { parseStoredRouterAbEcdsaPendingActivationV1 } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
+import { registrationPreparationIdFromString } from '../../../../core/registrationContracts';
 import type {
   EcdsaDerivationClientBootstrapRequest,
   EcdsaDerivationServerBootstrapResponse,
-} from '../../core/types';
+} from '../../../../core/types';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPrepareContext,
@@ -91,13 +91,13 @@ import type {
   WalletEd25519YaoSignerPublicResult,
   WalletRegistrationEd25519YaoPublicResult,
   WalletAddSignerFinalizeResponse,
-} from '../../core/registrationContracts';
+} from '../../../../core/registrationContracts';
 import { parseWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   parseThresholdEd25519AuthorityScope,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
   thresholdEd25519AuthorityScopesMatch,
-} from '../../core/ThresholdService/validation';
+} from '../../../../core/ThresholdService/validation';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import {
@@ -121,19 +121,19 @@ import {
   StoredWalletAddSignerFinalizeRequest,
   StoredWalletRegistrationCeremony,
   StoredWalletRegistrationCeremonyAuthorityState,
-} from '../../core/RegistrationCeremonyStore';
+} from '../../../../core/RegistrationCeremonyStore';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetFromValue,
   type ThresholdEcdsaChainTarget,
-} from '../../core/thresholdEcdsaChainTarget';
+} from '../../../../core/thresholdEcdsaChainTarget';
 import {
   buildWalletEcdsaSignerRecord,
   parseWalletEd25519SignerRecord,
   type WalletEcdsaSignerRecord,
   type WalletRecord,
-} from '../../core/d1WalletStore';
-import { toRecordValue } from './d1RouterApiAuthBoundary';
+} from '../../../../core/d1WalletStore';
+import { toRecordValue } from '../auth/d1RouterApiAuthBoundary';
 
 type D1EcdsaPublicIdentity = EcdsaDerivationServerBootstrapResponse['publicIdentity'];
 type D1EcdsaClientSharePublicKey = D1EcdsaPublicIdentity['derivationClientSharePublicKey33B64u'];

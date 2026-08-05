@@ -3,7 +3,7 @@ import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   toArrayBufferCopy,
   toRecordValue,
-} from './d1RouterApiAuthBoundary';
+} from '../auth/d1RouterApiAuthBoundary';
 
 export type CloudflareD1OidcExchangeIssuerConfig = {
   readonly issuer: string;

@@ -5,8 +5,8 @@ import type {
 } from '@shared/utils/walletAuthAuthority';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { SeamsSessionId } from '@shared/authorization/capabilityKinds';
-import type { RouterAbEd25519WalletSessionClaims } from '../core/ThresholdService/validation';
-import type { WebAuthnAuthenticationCredential } from '../core/types';
+import type { RouterAbEd25519WalletSessionClaims } from '../../../../core/ThresholdService/validation';
+import type { WebAuthnAuthenticationCredential } from '../../../../core/types';
 import type {
   RouterAbEd25519YaoBudgetRefreshAuthorizationV1,
   RouterAbEd25519YaoOperationStepUpGrantCommandV1,

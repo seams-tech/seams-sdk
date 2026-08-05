@@ -7,7 +7,7 @@ import {
   walletSessionFailure,
   walletSessionFailureStatus,
   walletSessionParseFailure,
-} from '../../../router/walletSessionFailure';
+} from '../../../router/auth/walletSessionFailure';
 import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
 import { createSigningSessionSealAuditLogger } from './observability/audit';
 import { composeSigningSessionSealGuards, createSigningSessionSealRateLimitGuard } from './guards';

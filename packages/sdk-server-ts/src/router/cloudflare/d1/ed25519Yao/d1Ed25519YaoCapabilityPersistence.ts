@@ -1,13 +1,13 @@
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { parseWalletId } from '@shared/utils/domainIds';
-import type { WalletEd25519YaoActiveCapabilityRecord } from '../../core/WalletStore';
-import type { D1WalletStore, D1WalletStoreScope } from '../../core/d1WalletStore';
-import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../../core/WalletStore';
+import type { D1WalletStore, D1WalletStoreScope } from '../../../../core/d1WalletStore';
+import type { D1DatabaseLike, D1ResultLike } from '../../../../storage/tenantRoute';
 import type {
   RouterAbEd25519YaoCapabilityReplacementOperationV1,
   RouterAbEd25519YaoCapabilityPersistenceResultV1,
   RouterAbEd25519YaoCapabilityPersistenceV1,
-} from '../routerAbEd25519YaoRecovery';
+} from '../../../domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import {
   ed25519NearPublicKeyFromBytes,
   replaceYaoEd25519WalletSignerActiveCapability,

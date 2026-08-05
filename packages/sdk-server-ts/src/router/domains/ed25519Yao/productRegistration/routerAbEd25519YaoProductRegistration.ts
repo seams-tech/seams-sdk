@@ -24,22 +24,22 @@ import type {
   RouterAbEd25519YaoActivationConsumptionResultV1,
   RouterAbEd25519YaoRegistrationAdmissionClaimV1,
   RouterAbEd25519YaoRegistrationServiceResult,
-} from './routerAbEd25519YaoRegistration';
+} from '../registration/routerAbEd25519YaoRegistration';
 import {
   createRouterAbEd25519YaoRegistrationModule,
   InMemoryRouterAbEd25519YaoRegistrationStateV1,
   type RouterAbEd25519YaoRegistrationBackend,
   type RouterAbEd25519YaoRegistrationAuthorizationAdapter,
   type RouterAbEd25519YaoRegistrationService,
-} from './routerAbEd25519YaoRegistration';
+} from '../registration/routerAbEd25519YaoRegistration';
 import {
   InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationStateV1,
   type RouterAbEd25519YaoVerifiedActivationIntentV1,
   type RouterAbEd25519YaoRegistrationIntentBindingResult,
-} from './routerAbEd25519YaoRegistrationIntentAuthorization';
-import type { SessionAdapter } from './routerApi';
-import { createRouterApiModule, type RouterApiModule } from './modules';
-import { signRouterAbEd25519WalletSessionJwt } from './commonRouterUtils';
+} from '../registration/routerAbEd25519YaoRegistrationIntentAuthorization';
+import type { SessionAdapter } from '../../../framework/routerApi';
+import { createRouterApiModule, type RouterApiModule } from '../../../framework/modules';
+import { signRouterAbEd25519WalletSessionJwt } from '../../../auth/commonRouterUtils';
 import type {
   MpcWalletSigningQuotaId,
   SeamsSessionId,
@@ -51,8 +51,8 @@ import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { deriveSigningRootId, type RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { WalletRegistrationEd25519YaoBootstrapSession } from '../core/registrationContracts';
-import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../core/ThresholdService/validation';
+import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../../../core/registrationContracts';
+import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../../../core/ThresholdService/validation';
 import {
   createRouterAbEd25519YaoRecoveryModule,
   InMemoryRouterAbEd25519YaoRecoveryStateV1,
@@ -66,15 +66,15 @@ import {
   type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1,
   type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1,
   type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1,
-} from './routerAbEd25519YaoRecovery';
-import type { WalletEd25519YaoActiveCapabilityRecord } from '../core/WalletStore';
+} from '../recovery/routerAbEd25519YaoRecovery';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../../core/WalletStore';
 import {
   createRouterAbEd25519YaoExportModule,
   InMemoryRouterAbEd25519YaoExportStateV1,
   type RouterAbEd25519YaoExportBackend,
   type RouterAbEd25519YaoExportAuthorizationAdapter,
   type RouterAbEd25519YaoExportService,
-} from './routerAbEd25519YaoExport';
+} from '../export/routerAbEd25519YaoExport';
 import { isPlainObject } from '@shared/utils/validation';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,

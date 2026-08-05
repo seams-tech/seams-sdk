@@ -3,13 +3,13 @@ import type {
   EmailOtpChallengeOperation,
   EmailOtpChallengeRecord,
   EmailOtpUnlockChallengeRecord,
-} from '../../core/EmailOtpStores';
+} from '../../../../core/EmailOtpStores';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
   D1ResultLike,
-} from '../../storage/tenantRoute';
-import { parseD1NonNegativeCount } from './d1RouterApiAuthBoundary';
+} from '../../../../storage/tenantRoute';
+import { parseD1NonNegativeCount } from '../auth/d1RouterApiAuthBoundary';
 import {
   emailOtpChallengeContextValues,
   emailOtpChallengeWithAttemptCount,

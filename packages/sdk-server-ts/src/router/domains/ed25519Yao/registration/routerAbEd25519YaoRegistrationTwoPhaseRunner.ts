@@ -1,10 +1,10 @@
-import type { RouterAbEd25519YaoProductRegistrationStateV1 } from './routerAbEd25519YaoProductRegistration';
+import type { RouterAbEd25519YaoProductRegistrationStateV1 } from '../productRegistration/routerAbEd25519YaoProductRegistration';
 import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitInputV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
-} from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-import { routerAbEd25519YaoPartitionedStateAfterStoredCommitV1 } from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+import { routerAbEd25519YaoPartitionedStateAfterStoredCommitV1 } from '../productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 
 export type RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1<T> =
   | { readonly kind: 'response'; readonly value: T }

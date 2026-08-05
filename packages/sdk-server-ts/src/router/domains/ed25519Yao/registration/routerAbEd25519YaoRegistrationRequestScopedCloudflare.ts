@@ -14,7 +14,7 @@ import {
   ROUTER_AB_TRACE_ID_HEADER_V1,
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
-import { json, readJson } from './framework/http';
+import { json, readJson } from '../../../framework/http';
 import type {
   RouterAbEd25519YaoRegistrationAdmissionClaimV1,
   RouterAbEd25519YaoRegistrationBackendResult,
@@ -38,7 +38,7 @@ import {
 import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
-} from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 
 export type RouterAbEd25519YaoRegistrationRequestScopedCloudflareInputV1 = {
   readonly request: Request;

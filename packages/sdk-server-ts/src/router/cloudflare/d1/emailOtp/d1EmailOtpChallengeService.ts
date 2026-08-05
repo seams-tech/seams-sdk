@@ -8,7 +8,7 @@ import {
 } from '@shared/utils/emailOtpDomain';
 import type {
   RouterApiEmailOtpRouteService,
-} from '../authServicePort';
+} from '../../../framework/authServicePort';
 import { emailOtpGrantRecord, maskEmail, parseEmailOtpLoginOperation } from './d1EmailOtpRecords';
 import type { CloudflareD1EmailOtpChallengeIssuer } from './d1EmailOtpChallengeIssuer';
 import type { CloudflareD1EmailOtpChallengeStore } from './d1EmailOtpChallengeStore';
