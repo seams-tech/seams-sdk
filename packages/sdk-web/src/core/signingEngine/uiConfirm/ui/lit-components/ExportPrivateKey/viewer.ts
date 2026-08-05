@@ -96,7 +96,7 @@ function createSpinningState(
   scheme: ExportPrivateKeyScheme,
   reducedMotion: boolean,
   now: number,
-): PrivateKeyRevealState {
+): Extract<PrivateKeyRevealState, { kind: 'spinning' }> {
   const definition = reelDefinition(scheme);
   return {
     kind: 'spinning',
@@ -476,7 +476,15 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
       }
 
       const privateKey = String(entry.privateKey || '').trim();
-      if (currentState?.kind === 'spinning' && privateKey) {
+      if (!currentState && privateKey) {
+        const spinningState = createSpinningState(entryKey, entry.scheme, reducedMotion, now);
+        this.revealStates.set(
+          entryKey,
+          reducedMotion
+            ? { kind: 'settled', entryKey }
+            : settlingState(spinningState, maskedPrivateKey(privateKey), now),
+        );
+      } else if (currentState?.kind === 'spinning' && privateKey) {
         this.revealStates.set(
           entryKey,
           reducedMotion

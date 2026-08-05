@@ -5,6 +5,7 @@ import { ensureComponentModule, mountComponent } from './harness';
 const EXPORT_VIEWER_MODULE = '/sdk/export-private-key-viewer.js';
 const EXPORT_VIEWER_TAG = 'w3a-export-key-viewer';
 const PRIVATE_KEY = `0x${'1'.repeat(64)}`;
+const ED25519_PRIVATE_KEY = `ed25519:${'1'.repeat(88)}`;
 
 type ViewerSnapshot = {
   copyDisabled: boolean;
@@ -140,6 +141,27 @@ async function mountReadyViewer(page: Page): Promise<void> {
   await waitForPrivateKeyField(page);
 }
 
+async function mountReadyEd25519Viewer(page: Page): Promise<void> {
+  await mountComponent(page, {
+    tagName: EXPORT_VIEWER_TAG,
+    props: {
+      theme: 'dark',
+      variant: 'drawer',
+      accountId: 'near-account.testnet',
+      loading: false,
+      keys: [
+        {
+          scheme: 'ed25519',
+          label: 'NEAR Ed25519 private key',
+          publicKey: 'ed25519:public-key',
+          privateKey: ED25519_PRIVATE_KEY,
+        },
+      ],
+    },
+  });
+  await waitForPrivateKeyField(page);
+}
+
 test.describe('Export private key slot reveal', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page);
@@ -201,7 +223,7 @@ test.describe('Export private key slot reveal', () => {
     expect(ready.innerHtml).not.toContain(PRIVATE_KEY);
   });
 
-  test('cancels loading on error and leaves ready-on-mount keys static', async ({ page }) => {
+  test('cancels loading on error', async ({ page }) => {
     await mountLoadingViewer(page);
     await page.evaluate(async (tagName) => {
       const viewer = document.querySelector(tagName) as HTMLElement & {
@@ -215,19 +237,32 @@ test.describe('Export private key slot reveal', () => {
     const failed = await viewerSnapshot(page);
     expect(failed.reelSlots).toBe(0);
     expect(failed.copyDisabled).toBe(true);
+  });
 
-    await mountReadyViewer(page);
+  test('animates an Ed25519 key that is ready when the viewer mounts', async ({ page }) => {
+    await mountReadyEd25519Viewer(page);
 
-    const ready = await viewerSnapshot(page);
-    expect(ready.reelSlots).toBe(0);
-    expect(ready.copyDisabled).toBe(false);
-    expect(ready.innerHtml).not.toContain(PRIVATE_KEY);
+    const settling = await viewerSnapshot(page);
+    expect(settling.prefix).toBe('ed25519:');
+    expect(settling.reelSlots).toBe(88);
+    expect(settling.copyDisabled).toBe(true);
+    expect(settling.innerHtml).not.toContain(ED25519_PRIVATE_KEY);
+
+    await expect
+      .poll(async () => (await viewerSnapshot(page)).settledSlots, { timeout: 2_000 })
+      .toBeGreaterThan(0);
+    await expect.poll(async () => (await viewerSnapshot(page)).reelSlots).toBe(0);
+    const settled = await viewerSnapshot(page);
+    expect(settled.copyDisabled).toBe(false);
+    expect(settled.text).toContain(`ed25519:111111${'x'.repeat(76)}111111`);
+    expect(settled.innerHtml).not.toContain(ED25519_PRIVATE_KEY);
   });
 
   test('copies from the full key field and transitions the copy icon to a check', async ({
     page,
   }) => {
     await mountReadyViewer(page);
+    await expect.poll(async () => (await viewerSnapshot(page)).copyDisabled).toBe(false);
     await page.evaluate(() => {
       Object.defineProperty(navigator, 'clipboard', {
         configurable: true,
