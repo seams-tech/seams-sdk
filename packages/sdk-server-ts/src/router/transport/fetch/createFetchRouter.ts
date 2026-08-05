@@ -1,4 +1,4 @@
-import { coerceRouterLogger } from '../../logger';
+import { coerceRouterLogger } from '../../framework/logger';
 import { json, withCors } from '../../framework/http';
 import { handleEmailRecoveryPrepare } from './routes/emailRecovery';
 import { handleHealth, handleReady } from './routes/health';
@@ -40,30 +40,34 @@ import { handleWebAuthnAuthenticators } from './routes/webauthnAuthenticators';
 import { handleAuth } from './routes/auth';
 import { handleNearPublicKeys } from './routes/nearPublicKeys';
 import { handleWellKnown } from './routes/wellKnown';
-import { validateRouterApiRorOptions } from '../../ror/provider';
+import { validateRouterApiRorOptions } from '../../framework/ror/provider';
 import { handleSigningSessionSealRoutes } from '../../../threshold/session/signingSessionSeal/transport/fetch';
-import { DEFAULT_SESSION_COOKIE_NAME } from '../../routerApi';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../../framework/routerApi';
 import {
   attachRouterApiRouteSurface,
   isEmailRecoveryPrepareRoutesEnabled,
   isRecoverEmailRouteEnabled,
   resolveRouterApiRouteSurface,
-} from '../../routerApiRouteSurface';
-import { findRouteDefinitionForRequest } from '../../routeDefinitions';
+} from '../../framework/routerApiRouteSurface';
+import { findRouteDefinitionForRequest } from '../../framework/routeDefinitions';
 import {
   getRouterApiRouteExtensionRoutes,
   getRouterApiRouteExtensionsForTransport,
-} from '../../routeExtensions';
-import { resolveRouterApiModuleRouteExtensions } from '../../modules';
-import type { RouterApiServiceBag } from '../../authServicePort';
-import type { RouterApiOptions } from '../../routerApi';
+} from '../../framework/routeExtensions';
+import { resolveRouterApiModuleRouteExtensions } from '../../framework/modules';
+import type { RouterApiServiceBag } from '../../framework/authServicePort';
+import type { RouterApiOptions } from '../../framework/routerApi';
 import type {
   FetchRouterApiContext,
   FetchRouterHandler,
   FetchRouterRuntime,
 } from './fetchRouter.types';
 
-export type { FetchRouterApiContext, FetchRouterHandler, FetchRouterRuntime } from './fetchRouter.types';
+export type {
+  FetchRouterApiContext,
+  FetchRouterHandler,
+  FetchRouterRuntime,
+} from './fetchRouter.types';
 
 export function createFetchRouter(
   service: RouterApiServiceBag,
@@ -158,7 +162,10 @@ export function createFetchRouter(
     handleReady,
   ];
 
-  const handler: FetchRouterHandler = async function handler(request: Request): Promise<Response> {
+  const handler: FetchRouterHandler = async function handler(
+    request: Request,
+    requestRuntime: FetchRouterRuntime = runtime,
+  ): Promise<Response> {
     const url = new URL(request.url);
     const { pathname } = url;
     const method = request.method.toUpperCase();
@@ -171,7 +178,7 @@ export function createFetchRouter(
     }
 
     const baseCtx: Omit<FetchRouterApiContext, 'request' | 'url' | 'pathname' | 'method'> = {
-      runtime,
+      runtime: requestRuntime,
       service,
       opts: effectiveOpts,
       logger,

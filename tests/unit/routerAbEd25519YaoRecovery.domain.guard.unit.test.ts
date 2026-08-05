@@ -28,11 +28,11 @@ import {
   type RouterAbEd25519YaoRecoveryBackend,
   type RouterAbEd25519YaoRecoveryBackendResult,
   type RouterAbEd25519YaoCapabilityPersistenceV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
-import type { RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import type { RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
-import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/logger';
+import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/framework/logger';
 
 function walletSessionClaimsFixture() {
   const authority = buildPasskeyWalletAuthAuthority({
@@ -757,7 +757,7 @@ async function warmBootstrapReturnsExactActiveCapabilityWithoutMintingSession():
   const extension = module.routeExtensions[0];
   const route = extension?.routes.find(isWarmRecoveryBootstrapRoute);
   if (!extension || !route) throw new Error('warm recovery bootstrap route is required');
-  const response = await extension.handleCloudflareRoute({
+  const response = await extension.handleFetchRoute({
     request: new Request(`https://router.example.test${route.path}`, {
       method: 'POST',
       headers: {
@@ -779,6 +779,7 @@ async function warmBootstrapReturnsExactActiveCapabilityWithoutMintingSession():
     pathname: route.path,
     method: 'POST',
     logger: coerceRouterLogger(null),
+    runtime: { kind: 'inline' },
   });
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({

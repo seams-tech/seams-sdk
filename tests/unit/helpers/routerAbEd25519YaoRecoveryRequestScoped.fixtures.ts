@@ -15,7 +15,7 @@ import {
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { CloudflareVersionedJsonRecordReadResult } from '../../../packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore';
+import type { VersionedJsonRecordReadResult } from '../../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
 import {
   parseRouterAbEd25519WalletSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
@@ -23,7 +23,7 @@ import {
 import {
   createRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationStateV1,
-} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistration';
 import {
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionBatchResultV1,
@@ -31,7 +31,7 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
   type RouterAbEd25519YaoRecoveryAdmissionCommitInputV1,
@@ -41,7 +41,7 @@ import {
   type RouterAbEd25519YaoRecoveryBackend,
   type RouterAbEd25519YaoRecoveryBackendResult,
   type RouterAbEd25519YaoRecoveryExecuteCommitInputV1,
-} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/sdk-server-ts/src/core/WalletStore';
 
 const ROOT_SHARE_EPOCH = 'root-recovery-v1';
@@ -161,12 +161,12 @@ class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistratio
   async readMany(keys: readonly string[]): Promise<
     readonly {
       readonly key: string;
-      readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
+      readonly result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
     }[]
   > {
     const results: {
       readonly key: string;
-      readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
+      readonly result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
     }[] = [];
     for (const key of keys) {
       const record = this.records.get(key);

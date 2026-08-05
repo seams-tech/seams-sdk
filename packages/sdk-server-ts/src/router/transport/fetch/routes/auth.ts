@@ -1,5 +1,5 @@
-import { DEFAULT_SESSION_COOKIE_NAME } from '../../../routerApi';
-import { emitRouterApiWebhookEvent } from '../../../routerApiWebhooks';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../../../framework/routerApi';
+import { emitRouterApiWebhookEvent } from '../../../framework/routerApiWebhooks';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { headersToRecord, json, readJson } from '../../../framework/http';
 import {
@@ -9,7 +9,7 @@ import {
   parsePasskeyLoginOptionsRequest,
   parsePasskeyLoginVerifyRequest,
   type AuthPasskeyStepUpRequest,
-} from '../../../authRequestValidation';
+} from '../../../auth/authRequestValidation';
 
 function assertNeverAuthProviderAction(route: never): never {
   throw new Error(`Unsupported auth provider action: ${String((route as any)?.kind || '')}`);

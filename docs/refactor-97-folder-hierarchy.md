@@ -2,11 +2,25 @@
 
 ## Status
 
-Planned; not started. This plan is rebased on the current post-Refactor-90
-tree (`c0bcbc6e9`, the post-Refactor-90 working-build checkpoint). The current
-tree already contains the 94C routing and persistence cutover, so this work is
-not blocked on a future 94C landing. Start each phase from a clean SDK source
-tree and record the baseline checks before the first move.
+Implemented and integrated through Phases 1–6 on `codex/r97-folder-hierarchy`
+at the current branch HEAD.
+
+### Implementation record
+
+- Integrated branch/HEAD: `codex/r97-folder-hierarchy` (current HEAD).
+- No R97 structural symlinks or fallback paths remain.
+- Server package typecheck, console-server typecheck, and unit typecheck pass.
+- Package export contract passes 12/12; export server passes 17/17; route
+  surface passes 11/11, including Cloudflare metadata, eager validation, and
+  runtime forwarding coverage.
+- R97 contract, recovery, and vault tests pass 33/33.
+- ECDSA derivation guard passes.
+- The resolved Express runtime graph reports zero Cloudflare runtime or
+  persistence edges.
+- Static local-router resolver reports zero unresolved imports.
+- The full source-guard chain stops on existing sdk-web auth-method fallback
+  findings and the existing ECDSA identity guard finding; both are outside
+  R97.
 
 This refactor changes **no behaviour**. Phase 1 and Phase 2 are small
 boundary extractions that remove dependency inversions. Phases 3–4 are

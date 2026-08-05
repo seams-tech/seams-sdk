@@ -4,7 +4,7 @@ import {
   walletSessionFailureCodeFromParseReason,
   walletSessionFailureMessage,
   walletSessionFailureStatus,
-} from '@server/router/walletSessionFailure';
+} from '@server/router/auth/walletSessionFailure';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {

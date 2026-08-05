@@ -5,12 +5,12 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 const verifierCallFiles = Object.freeze([
-  'packages/sdk-server-ts/src/router/cloudflare/routes/auth.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts',
-  'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
-  'packages/sdk-server-ts/src/router/walletUnlockRouteHandlers.ts',
+  'packages/sdk-server-ts/src/router/transport/fetch/routes/auth.ts',
+  'packages/sdk-server-ts/src/router/transport/fetch/routes/sessions.ts',
+  'packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa.ts',
+  'packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEd25519.ts',
+  'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
+  'packages/sdk-server-ts/src/router/domains/walletUnlock/walletUnlockRouteHandlers.ts',
   'packages/sdk-server-ts/src/core/AuthService.ts',
 ]);
 

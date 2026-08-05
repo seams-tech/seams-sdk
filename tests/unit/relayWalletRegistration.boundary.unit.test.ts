@@ -9,12 +9,12 @@ import {
   handleRouterApiWalletAddSignerStart,
   handleRouterApiWalletEcdsaKeyFactsInventory,
   handleRouterApiWalletRegistrationNearProvisioning,
-} from '../../packages/sdk-server-ts/src/router/walletRegistrationRoutes';
+} from '../../packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
   type RouteDefinition,
-} from '../../packages/sdk-server-ts/src/router/routeDefinitions';
+} from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '../../packages/shared-ts/src/utils/ecdsaKeyFactsInventory';
 import { ROUTER_AB_PUBLIC_KEYSET_VERSION_V2 } from '../../packages/shared-ts/src/utils/routerAbPublicKeyset';
 import {

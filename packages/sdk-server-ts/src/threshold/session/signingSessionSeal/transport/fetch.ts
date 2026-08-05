@@ -1,5 +1,5 @@
 import type { NormalizedLogger } from '../../../../core/logger';
-import type { SessionAdapter } from '../../../../router/routerApi';
+import type { SessionAdapter } from '../../../../router/framework/routerApi';
 import {
   buildSigningSessionSealApplyPath,
   buildSigningSessionSealRemovePath,

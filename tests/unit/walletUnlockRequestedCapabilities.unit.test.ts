@@ -1,14 +1,14 @@
 import { expect, test } from '@playwright/test';
-import type { RouterApiWalletUnlockService } from '../../packages/sdk-server-ts/src/router/authServicePort';
+import type { RouterApiWalletUnlockService } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
 import {
   handleWalletUnlockVerifyRoute,
   type WalletUnlockCapabilityContext,
-} from '../../packages/sdk-server-ts/src/router/walletUnlockRouteHandlers';
+} from '../../packages/sdk-server-ts/src/router/domains/walletUnlock/walletUnlockRouteHandlers';
 import {
   EMAIL_OTP_ED25519_YAO_REQUESTED_CAPABILITIES_KIND,
   EMAIL_OTP_NO_REQUESTED_CAPABILITIES_KIND,
   parseWalletUnlockRequestedCapabilitiesRequest,
-} from '../../packages/sdk-server-ts/src/router/walletUnlockRequestedCapabilitiesValidation';
+} from '../../packages/sdk-server-ts/src/router/domains/walletUnlock/walletUnlockRequestedCapabilitiesValidation';
 import { createEcdsaSessionActivationFixture } from './helpers/ecdsaBootstrap.fixtures';
 
 const BASE_BODY = {

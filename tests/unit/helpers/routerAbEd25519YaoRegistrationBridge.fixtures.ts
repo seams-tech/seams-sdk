@@ -1,16 +1,16 @@
 import type {
-  CloudflareVersionedJsonRecordPutResult,
-  CloudflareVersionedJsonRecordReadResult,
-} from '../../../packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore';
-import type { SessionAdapter } from '../../../packages/sdk-server-ts/src/router/routerApi';
+  VersionedJsonRecordPutResult,
+  VersionedJsonRecordReadResult,
+} from '../../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
+import type { SessionAdapter } from '../../../packages/sdk-server-ts/src/router/framework/routerApi';
 import type {
   RouterAbEd25519YaoRegistrationBackend,
   RouterAbEd25519YaoRegistrationBackendResult,
-} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistration';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
 import type {
   RouterAbEd25519YaoRegistrationSideEffectRecordV1,
   RouterAbEd25519YaoRegistrationSideEffectStoreV1,
-} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistrationSideEffectBoundary';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
 import {
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionBatchResultV1,
@@ -21,7 +21,7 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
-} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/productRegistration/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 
 type StoredSideEffect<T, P = undefined> = {
   readonly version: number;
@@ -54,7 +54,7 @@ export class RegistrationSideEffectMemoryStore<
   async read(
     key: string,
   ): Promise<
-    CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>>
+    VersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>>
   > {
     this.readCalls += 1;
     if (this.throwReadCalls.delete(this.readCalls)) {
@@ -78,7 +78,7 @@ export class RegistrationSideEffectMemoryStore<
     key: string,
     value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>,
     expectedVersion: string | null,
-  ): Promise<CloudflareVersionedJsonRecordPutResult> {
+  ): Promise<VersionedJsonRecordPutResult> {
     if (
       value.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1' &&
       this.throwClaimPuts > 0
@@ -198,7 +198,7 @@ export class RegistrationBridgePartitionRecordStore implements RouterAbEd25519Ya
   async readMany(keys: readonly string[]): Promise<
     readonly {
       readonly key: string;
-      readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
+      readonly result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
     }[]
   > {
     return keys.map((key) => {

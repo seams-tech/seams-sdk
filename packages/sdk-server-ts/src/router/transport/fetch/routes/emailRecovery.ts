@@ -1,6 +1,6 @@
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json, readJson } from '../../../framework/http';
-import { parsePrepareEmailRecoveryRequest } from '../../../emailRecoveryRequestValidation';
+import { parsePrepareEmailRecoveryRequest } from '../../../domains/emailRecovery/emailRecoveryRequestValidation';
 
 export async function handleEmailRecoveryPrepare(
   ctx: FetchRouterApiContext,

@@ -143,7 +143,7 @@ check('WebAuthn RP ids cannot be confused with NEAR Ed25519 signing-key ids', ()
     'packages/sdk-server-ts/src/core/authService/webauthnOidcHelpers.ts',
   );
   const walletRegistrationRoutes = readRepoSource(
-    'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
+    'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
   );
   const serverTypecheck = readRepoSource(
     'packages/sdk-server-ts/src/core/keyMaterialBrands.typecheck.ts',
@@ -234,7 +234,7 @@ check('EVM-family signing key slot identity cannot fall back to generic wallet k
     'packages/sdk-server-ts/src/core/authService/emailRecoveryAuthOperations.ts',
   );
   const d1RegistrationRecords = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords.ts',
+    'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords.ts',
   );
 
   expect(sharedEvmFamilyKey).toContain('export type EvmFamilySigningKeySlotId =');

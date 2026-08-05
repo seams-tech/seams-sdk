@@ -6,8 +6,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const cloudflareRouterDir = path.join(repoRoot, 'packages/sdk-server-ts/src/router/cloudflare');
-
 function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
@@ -28,13 +26,7 @@ function listProductionCoreFiles(dir = path.join(repoRoot, 'packages/sdk-web/src
 }
 
 function listProductionCloudflareD1Files() {
-  return fs
-    .readdirSync(cloudflareRouterDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name)
-    .filter((name) => /^d1.*\.ts$/.test(name) && !name.endsWith('.typecheck.ts'))
-    .map((name) => path.relative(repoRoot, path.join(cloudflareRouterDir, name)))
-    .sort();
+  return listProductionServerTypeScriptFiles('packages/sdk-server-ts/src/router/cloudflare/d1');
 }
 
 function listProductionServerTypeScriptFiles(relativeDir) {
@@ -103,7 +95,7 @@ function collectNearPublicKeyRootPasskeyFieldViolations() {
   const violations = [];
   const checkedFiles = [
     'packages/sdk-server-ts/src/core/NearPublicKeyStore.ts',
-    'packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnRecords.ts',
+    'packages/sdk-server-ts/src/router/cloudflare/d1/webauthn/d1WebAuthnRecords.ts',
   ];
   for (const relativePath of checkedFiles) {
     const source = readRepoFile(relativePath);
@@ -126,7 +118,7 @@ function collectNearPublicKeyRootPasskeyFieldViolations() {
   }
 
   const relayListSource = readRepoFile(
-    'packages/sdk-server-ts/src/router/cloudflare/d1NearPublicKeyStore.ts',
+    'packages/sdk-server-ts/src/router/cloudflare/d1/near/d1NearPublicKeyStore.ts',
   );
   if (/\brecord\.(rpId|credentialIdB64u)\b/.test(relayListSource)) {
     violations.push('Cloudflare D1 NEAR public-key list response flattens passkey fields');

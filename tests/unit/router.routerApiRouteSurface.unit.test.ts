@@ -1,24 +1,25 @@
 import { expect, test } from '@playwright/test';
-import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/authServicePort';
-import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
+import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
+import { createFetchRouter } from '../../packages/sdk-server-ts/src/router/transport/fetch/createFetchRouter';
 import {
   createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
   createRouterApiRouter,
   type RouterAbEd25519YaoProductRegistrationPortsV1,
 } from '@seams/sdk-server/router/express';
-import { createRouterApiModule } from '../../packages/sdk-server-ts/src/router/modules';
+import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
+import { createRouterApiModule } from '../../packages/sdk-server-ts/src/router/framework/modules';
 import type {
-  RouterApiCloudflareRouteExtensionInput,
+  RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
-} from '../../packages/sdk-server-ts/src/router/routeExtensions';
-import { defineRoute } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
-import { getRouterApiRouteSurface } from '../../packages/sdk-server-ts/src/router/routerApiRouteSurface';
+} from '../../packages/sdk-server-ts/src/router/framework/routeExtensions';
+import { defineRoute } from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
+import { getRouterApiRouteSurface } from '../../packages/sdk-server-ts/src/router/framework/routerApiRouteSurface';
 import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
 } from '@shared/utils/routerAbPublicKeyset';
 import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
-import { callCf } from '../relayer/helpers';
+import { callCf, makeCfCtx } from '../relayer/helpers';
 
 function makeUnexpectedRouterApiServiceValue(path: string): unknown {
   const target = function unexpectedRouterApiServiceCall(): never {
@@ -108,7 +109,7 @@ const ROUTER_AB_PUBLIC_KEYSET = parseRouterAbPublicKeysetV2({
   },
 });
 
-function handleHostedRouteExtension(input: RouterApiCloudflareRouteExtensionInput): Response {
+function handleHostedRouteExtension(input: RouterApiFetchRouteExtensionInput): Response {
   return new Response(JSON.stringify({ routeId: input.route.id }), {
     headers: { 'Content-Type': 'application/json' },
   });
@@ -120,10 +121,10 @@ function makeHostedRouteExtension(
   path: string,
 ): RouterApiRouteExtension {
   return {
-    kind: 'cloudflare_route_extension',
+    kind: 'fetch_route_extension',
     id: extensionId,
     routes: [testExtensionRoute(routeId, 'POST', path)],
-    handleCloudflareRoute: handleHostedRouteExtension,
+    handleFetchRoute: handleHostedRouteExtension,
   };
 }
 
@@ -191,9 +192,8 @@ const EMAIL_RECOVERY_EXECUTION_SERVICE = {
 
 test.describe('Router API route surface wiring', () => {
   test('Express public entrypoint composes the canonical Ed25519 Yao module and envelope', async () => {
-    const composition = createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1(
-      makeNodeYaoProductPorts(),
-    );
+    const composition =
+      createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1(makeNodeYaoProductPorts());
     const surface = getRouterApiRouteSurface(
       createRouterApiRouter(makeRouterApiServiceBagFixture(), {
         modules: [composition.module],
@@ -216,12 +216,13 @@ test.describe('Router API route surface wiring', () => {
     const registration = composition.module.routeExtensions[0];
     const route = registration?.routes[0];
     if (!registration || !route) throw new Error('missing Node Ed25519 Yao registration route');
-    const response = await registration.handleCloudflareRoute({
+    const response = await registration.handleFetchRoute({
       request: new Request(`https://node.example.test${route.path}`, { method: 'GET' }),
       route,
       pathname: route.path,
       method: 'GET',
       logger: makeUnusedYaoHostPort('logger'),
+      runtime: { kind: 'inline' },
     });
     expect(response.status).toBe(405);
     await expect(response.json()).resolves.toEqual({
@@ -248,7 +249,9 @@ test.describe('Router API route surface wiring', () => {
     };
 
     const expressSurface = getRouterApiRouteSurface(createRouterApiRouter(service, options));
-    const fetchSurface = getRouterApiRouteSurface(createCloudflareRouter(service, options));
+    const fetchSurface = getRouterApiRouteSurface(
+      createFetchRouter(service, options, { kind: 'inline' }),
+    );
     expect(expressSurface).toBeTruthy();
     expect(fetchSurface).toBeTruthy();
     expect(expressSurface?.mePath).toBe('/session/me');
@@ -259,6 +262,45 @@ test.describe('Router API route surface wiring', () => {
 
     expect([...expectedKeys].filter((key) => !actualKeys.has(key))).toEqual([]);
     expect([...actualKeys].filter((key) => !expectedKeys.has(key))).toEqual([]);
+  });
+
+  test('Cloudflare adapter validates eagerly, preserves route metadata, and forwards request runtime', async () => {
+    const service = makeRouterApiServiceBagFixture();
+    const runtimeRoute = testExtensionRoute('cloudflare_runtime', 'GET', '/test/runtime');
+    const runtimeExtension: RouterApiRouteExtension = {
+      kind: 'fetch_route_extension',
+      id: 'cloudflare-runtime',
+      routes: [runtimeRoute],
+      handleFetchRoute: ({ runtime }) => {
+        if (runtime.kind === 'background') runtime.waitUntil(Promise.resolve());
+        return new Response(JSON.stringify({ runtime: runtime.kind }));
+      },
+    };
+    const handler = createCloudflareRouter(service, {
+      routeExtensions: [runtimeExtension],
+    });
+    const surface = getRouterApiRouteSurface(handler);
+    expect(surface?.routeDefinitions.some((route) => route.path === '/test/runtime')).toBe(true);
+
+    const { ctx, waited } = makeCfCtx();
+    const response = await callCf(handler, {
+      method: 'GET',
+      path: '/test/runtime',
+      ctx,
+    });
+    expect(response.status).toBe(200);
+    expect(response.json).toEqual({ runtime: 'background' });
+    expect(waited).toHaveLength(1);
+
+    const duplicateRouteExtension: RouterApiRouteExtension = {
+      kind: 'fetch_route_extension',
+      id: 'cloudflare-duplicate',
+      routes: [testExtensionRoute('cloudflare_duplicate', 'GET', '/session/state')],
+      handleFetchRoute: () => new Response(null, { status: 204 }),
+    };
+    expect(() =>
+      createCloudflareRouter(service, { routeExtensions: [duplicateRouteExtension] }),
+    ).toThrow(/duplicate Router API route definition path GET \/session\/state/);
   });
 
   test('conditional Router API route families are only attached when enabled', async () => {
@@ -309,7 +351,7 @@ test.describe('Router API route surface wiring', () => {
     expect(executableIds.has('recover_email')).toBe(true);
   });
 
-  test('cloudflare and express attach the same configured Router API route surface', async () => {
+  test('fetch and express attach the same configured Router API route surface', async () => {
     const service = makeRouterApiServiceBagFixture();
     const options = {
       healthz: true,
@@ -326,28 +368,34 @@ test.describe('Router API route surface wiring', () => {
     };
 
     const expressSurface = getRouterApiRouteSurface(createRouterApiRouter(service, options));
-    const cloudflareSurface = getRouterApiRouteSurface(createCloudflareRouter(service, options));
+    const fetchSurface = getRouterApiRouteSurface(
+      createFetchRouter(service, options, { kind: 'inline' }),
+    );
 
-    expect(cloudflareSurface).toEqual(expressSurface);
+    expect(fetchSurface).toEqual(expressSurface);
   });
 
-  test('cloudflare handler recognizes every seeded Router API route definition', async () => {
+  test('fetch handler recognizes every seeded Router API route definition', async () => {
     const service = makeRouterApiServiceBagFixture();
-    const handler = createCloudflareRouter(service, {
-      corsOrigins: ['https://example.localhost'],
-      healthz: true,
-      readyz: true,
-      routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
-      signingSessionSeal: {
-        basePath: '/threshold/custom-signing-session',
-        service: {} as any,
+    const handler = createFetchRouter(
+      service,
+      {
+        corsOrigins: ['https://example.localhost'],
+        healthz: true,
+        readyz: true,
+        routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
+        signingSessionSeal: {
+          basePath: '/threshold/custom-signing-session',
+          service: {} as any,
+        },
+        sessionRoutes: { state: '/session/me' },
+        routeExtensions: makeHostedRouteExtensions({
+          signedDelegateRoute: '/delegate/submit',
+          sponsoredEvmRoute: '/gas/relay',
+        }),
       },
-      sessionRoutes: { state: '/session/me' },
-      routeExtensions: makeHostedRouteExtensions({
-        signedDelegateRoute: '/delegate/submit',
-        sponsoredEvmRoute: '/gas/relay',
-      }),
-    });
+      { kind: 'inline' },
+    );
     const surface = getRouterApiRouteSurface(handler);
     expect(surface).toBeTruthy();
 
@@ -362,11 +410,13 @@ test.describe('Router API route surface wiring', () => {
     }
   });
 
-  test('cloudflare registration preflight allows the trace correlation header', async () => {
+  test('fetch registration preflight allows the trace correlation header', async () => {
     const origin = 'https://sign.seams.sh';
-    const handler = createCloudflareRouter(makeRouterApiServiceBagFixture(), {
-      corsOrigins: [origin],
-    });
+    const handler = createFetchRouter(
+      makeRouterApiServiceBagFixture(),
+      { corsOrigins: [origin] },
+      { kind: 'inline' },
+    );
 
     const response = await callCf(handler, {
       method: 'OPTIONS',
@@ -390,87 +440,85 @@ test.describe('Router API route surface wiring', () => {
 
   test('route extensions are surfaced and mounted by supported transport', async () => {
     const service = makeRouterApiServiceBagFixture();
-    const cloudflareRoute = testExtensionRoute(
-      'test_evidence_cloudflare',
-      'POST',
-      '/test/evidence',
-    );
+    const fetchRoute = testExtensionRoute('test_evidence_fetch', 'POST', '/test/evidence');
     const capabilitiesRoute = testExtensionRoute('test_capabilities', 'GET', '/test/capabilities');
     const extensions: RouterApiRouteExtension[] = [
       {
-        kind: 'cloudflare_route_extension',
-        id: 'test-evidence-cloudflare',
-        routes: [cloudflareRoute],
-        handleCloudflareRoute: ({ route }) =>
-          new Response(JSON.stringify({ routeId: route.id, runtime: 'cloudflare' }), {
+        kind: 'fetch_route_extension',
+        id: 'test-evidence-fetch',
+        routes: [fetchRoute],
+        handleFetchRoute: ({ route }) =>
+          new Response(JSON.stringify({ routeId: route.id, runtime: 'fetch' }), {
             headers: { 'Content-Type': 'application/json' },
           }),
       },
       {
-        kind: 'cloudflare_route_extension',
+        kind: 'fetch_route_extension',
         id: 'test-capabilities',
         routes: [capabilitiesRoute],
-        handleCloudflareRoute: ({ route }) =>
-          new Response(JSON.stringify({ routeId: route.id, runtime: 'cloudflare' }), {
+        handleFetchRoute: ({ route }) =>
+          new Response(JSON.stringify({ routeId: route.id, runtime: 'fetch' }), {
             headers: { 'Content-Type': 'application/json' },
           }),
       },
     ];
 
-    const cloudflareHandler = createCloudflareRouter(service, { routeExtensions: extensions });
-    const cloudflareSurface = getRouterApiRouteSurface(cloudflareHandler);
-    const cloudflareIds = new Set(
-      (cloudflareSurface?.routeDefinitions || []).map((route) => route.id),
+    const fetchHandler = createFetchRouter(
+      service,
+      { routeExtensions: extensions },
+      { kind: 'inline' },
     );
-    expect(cloudflareIds.has('test_evidence_cloudflare')).toBe(true);
-    expect(cloudflareIds.has('test_capabilities')).toBe(true);
+    const fetchSurface = getRouterApiRouteSurface(fetchHandler);
+    const fetchIds = new Set((fetchSurface?.routeDefinitions || []).map((route) => route.id));
+    expect(fetchIds.has('test_evidence_fetch')).toBe(true);
+    expect(fetchIds.has('test_capabilities')).toBe(true);
 
-    const evidenceResponse = await callCf(cloudflareHandler, {
+    const evidenceResponse = await callCf(fetchHandler, {
       method: 'POST',
       path: '/test/evidence',
       body: {},
     });
     expect(evidenceResponse.status).toBe(200);
     expect(evidenceResponse.json).toEqual({
-      routeId: 'test_evidence_cloudflare',
-      runtime: 'cloudflare',
+      routeId: 'test_evidence_fetch',
+      runtime: 'fetch',
     });
 
     const expressRouter = createRouterApiRouter(service, { routeExtensions: extensions });
     const expressSurface = getRouterApiRouteSurface(expressRouter);
     const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
-    expect(expressIds.has('test_evidence_cloudflare')).toBe(true);
+    expect(expressIds.has('test_evidence_fetch')).toBe(true);
     expect(expressIds.has('test_capabilities')).toBe(true);
   });
 
   test('route extensions cannot shadow existing Router API routes', async () => {
     const service = makeRouterApiServiceBagFixture();
     const extension: RouterApiRouteExtension = {
-      kind: 'cloudflare_route_extension',
+      kind: 'fetch_route_extension',
       id: 'conflicting-extension',
       routes: [testExtensionRoute('conflicting_session_state', 'GET', '/session/state')],
-      handleCloudflareRoute: () => new Response(null, { status: 204 }),
+      handleFetchRoute: () => new Response(null, { status: 204 }),
     };
 
-    expect(() => createCloudflareRouter(service, { routeExtensions: [extension] })).toThrow(
-      /duplicate Router API route definition path GET \/session\/state/,
-    );
+    expect(() =>
+      createFetchRouter(service, { routeExtensions: [extension] }, { kind: 'inline' }),
+    ).toThrow(/duplicate Router API route definition path GET \/session\/state/);
   });
 
   test('Router API modules reject duplicate module ids', async () => {
     const service = makeRouterApiServiceBagFixture();
     const route = testExtensionRoute('test_duplicate_module_route', 'GET', '/test/dupe');
     const extension: RouterApiRouteExtension = {
-      kind: 'cloudflare_route_extension',
+      kind: 'fetch_route_extension',
       id: 'duplicate-module-extension',
       routes: [route],
-      handleCloudflareRoute: () => new Response(null, { status: 204 }),
+      handleFetchRoute: () => new Response(null, { status: 204 }),
     };
     const first = createRouterApiModule({ id: 'test-module', routeExtensions: [extension] });
     const second = createRouterApiModule({ id: 'test-module', routeExtensions: [extension] });
 
-    expect(() => createCloudflareRouter(service, { modules: [first, second] })).toThrow(
-      /duplicate Router API module id test-module/,
-    );
+    expect(() =>
+      createFetchRouter(service, { modules: [first, second] }, { kind: 'inline' }),
+    ).toThrow(/duplicate Router API module id test-module/);
   });
 });

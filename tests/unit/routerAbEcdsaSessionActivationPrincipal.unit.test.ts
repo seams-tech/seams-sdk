@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import type { CloudflareRouterApiContext } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
-import { handleStrictEcdsaSessionActivation } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa';
-import { handleReusableWalletSessionStatus } from '../../packages/sdk-server-ts/src/router/cloudflare/routes/sessions';
+import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
+import { handleStrictEcdsaSessionActivation } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa';
+import { handleReusableWalletSessionStatus } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/sessions';
 import { buildActiveAuthorizationSession } from '../../packages/sdk-server-ts/src/authorization/domain';
 import { parsePrincipalId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
@@ -132,7 +132,7 @@ async function activationFixture() {
         },
       },
     },
-  } as unknown as CloudflareRouterApiContext;
+  } as unknown as FetchRouterApiContext;
   return { ctx, request, claims, authorizationSession, walletId, statusInputs };
 }
 
@@ -186,7 +186,7 @@ test('ECDSA Wallet Session status uses the authorization-session principal', asy
         },
       },
     },
-  } as unknown as CloudflareRouterApiContext;
+  } as unknown as FetchRouterApiContext;
 
   const response = await handleReusableWalletSessionStatus(context);
 
