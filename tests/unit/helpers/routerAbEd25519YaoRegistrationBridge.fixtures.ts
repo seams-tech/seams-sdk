@@ -1,7 +1,7 @@
 import type {
   CloudflareVersionedJsonRecordPutResult,
   CloudflareVersionedJsonRecordReadResult,
-} from '../../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/versionedJsonRecordStore';
+} from '../../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
 import type { SessionAdapter } from '../../../packages/sdk-server-ts/src/router/framework/routerApi';
 import type {
   RouterAbEd25519YaoRegistrationBackend,
