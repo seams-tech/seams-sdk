@@ -322,6 +322,7 @@ function stubGrantEndpoint(requests: unknown[]): () => void {
         authorization: {
           kind: 'operation_step_up',
           evidence_set_digest: EVIDENCE_SET_DIGEST,
+          unseal: { kind: 'not_requested' },
         },
         expires_at_ms: Date.now() + 5 * 60_000,
       }),

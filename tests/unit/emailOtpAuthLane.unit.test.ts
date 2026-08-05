@@ -28,7 +28,7 @@ test.describe('Email OTP auth lane route planning', () => {
     const registration = buildEmailOtpRoutePlan({
       routeFamily: 'registration',
       authLane,
-      operation: 'wallet_unlock',
+      operation: 'registration',
     });
 
     expect(emailOtpRoutePath(login, 'challenge')).toBe('/wallet/email-otp/login/challenge');
@@ -117,11 +117,65 @@ test.describe('Email OTP auth lane route planning', () => {
     });
     const appLane = resolveEmailOtpAuthLane({ appSessionJwt: 'app-session-jwt' });
 
-    expect(() => buildEmailOtpRoutePlan({ routeFamily: 'login', authLane: signingLane })).toThrow(
-      /cannot use signing-session auth/,
-    );
     expect(() =>
-      buildEmailOtpRoutePlan({ routeFamily: 'signing_session', authLane: appLane }),
+      buildEmailOtpRoutePlan({
+        routeFamily: 'login',
+        authLane: signingLane,
+        operation: 'wallet_unlock',
+      }),
+    ).toThrow(/cannot use signing-session auth/);
+    expect(() =>
+      buildEmailOtpRoutePlan({
+        routeFamily: 'signing_session',
+        authLane: appLane,
+        operation: 'transaction_sign',
+      }),
     ).toThrow(/require signing-session auth/);
+  });
+
+  test('rejects route families paired with the wrong operation', () => {
+    const appLane = resolveEmailOtpAuthLane({ appSessionJwt: 'app-session-jwt' });
+    const signingLane = resolveEmailOtpAuthLane({
+      routeAuth: { kind: 'wallet_session', jwt: 'threshold-session-jwt' },
+      thresholdSessionId: 'threshold-session',
+      curve: 'ed25519',
+    });
+
+    expect(() =>
+      buildEmailOtpRoutePlan({
+        routeFamily: 'registration',
+        authLane: appLane,
+        operation: 'export_key',
+      }),
+    ).toThrow(/require registration operation/);
+    expect(() =>
+      buildEmailOtpRoutePlan({
+        routeFamily: 'signing_session',
+        authLane: signingLane,
+        operation: 'wallet_unlock',
+      }),
+    ).toThrow(/require signing or export operation/);
+  });
+
+  test('rejects incomplete and malformed persisted route plans', () => {
+    expect(
+      normalizeEmailOtpRoutePlan({
+        routeFamily: 'login',
+        authLane: { kind: 'cookie' },
+      }),
+    ).toBeUndefined();
+    expect(
+      normalizeEmailOtpRoutePlan({
+        routeFamily: 'signing_session',
+        operation: 'transaction_sign',
+        authLane: {
+          kind: 'signing_session',
+          jwt: 'threshold-session-jwt',
+          thresholdSessionId: 'threshold-session',
+          curve: 'ecdsa',
+          chainTarget: { kind: 'evm', namespace: 'eip155', chainId: -1 },
+        },
+      }),
+    ).toBeUndefined();
   });
 });

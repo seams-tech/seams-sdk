@@ -121,8 +121,8 @@ test('resolves the exact passkey authority from the canonical wallet auth method
 test('reconstructs the exact Email OTP authority from the active auth row and app session', async () => {
   const exactAuthority = buildEmailOtpWalletAuthAuthority({
     walletId: 'registered-wallet',
-    provider: 'google',
-    providerUserId: 'google:registered-user',
+    provider: 'email',
+    providerUserId: 'email:registered-user',
     emailHashHex: 'email-hash',
   });
   const authorityRef = await walletAuthAuthorityRef({ authority: exactAuthority });
@@ -131,6 +131,11 @@ test('reconstructs the exact Email OTP authority from the active auth row and ap
     walletId: exactAuthority.walletId,
     provider: exactAuthority.factor.provider,
     providerSubject: exactAuthority.factor.providerUserId,
+    authSource: {
+      kind: 'oidc_provider',
+      providerId: 'oidc',
+      providerSubject: exactAuthority.factor.providerUserId,
+    },
   });
   const authority = await resolveExactWalletAuthAuthority(
     authorityRef,
@@ -158,4 +163,79 @@ test('reconstructs the exact Email OTP authority from the active auth row and ap
 
   expect(authority).toEqual(exactAuthority);
   expect(await walletAuthAuthorityRef({ authority })).toEqual(authorityRef);
+});
+
+test('reconstructs Google Email OTP authority from the server OIDC app-session claims', async () => {
+  const exactAuthority = buildEmailOtpWalletAuthAuthority({
+    walletId: 'registered-wallet',
+    provider: 'google',
+    providerUserId: 'google:registered-user',
+    emailHashHex: 'email-hash',
+  });
+  const authorityRef = await walletAuthAuthorityRef({ authority: exactAuthority });
+  let appSessionJwt = jwtWithPayload({
+    kind: 'app_session_v1',
+    walletId: exactAuthority.walletId,
+    provider: 'oidc',
+    oidcProvider: 'google',
+    providerSubject: exactAuthority.factor.providerUserId,
+    authSource: {
+      kind: 'oidc_provider',
+      providerId: 'google_oidc',
+      providerSubject: exactAuthority.factor.providerUserId,
+    },
+  });
+  const stores = {
+    listEcdsaSealedSessionsForWallet: async () => [],
+  };
+  const authMethods = {
+    listWalletAuthMethodsForWallet: async () => [
+      {
+        version: 'wallet_auth_method_v1' as const,
+        kind: 'email_otp' as const,
+        status: 'active' as const,
+        localStatus: 'synced' as const,
+        walletId: exactAuthority.walletId,
+        emailHashHex: exactAuthority.verifier.emailHashHex,
+        registrationAuthorityId: 'registration-authority',
+        createdAtMs: 1,
+        updatedAtMs: 1,
+      },
+    ],
+  };
+  const authority = await resolveExactWalletAuthAuthority(
+    authorityRef,
+    stores,
+    authMethods,
+    { listWalletPasskeyAuthenticators: async () => [] },
+    'current.example.localhost',
+    { resolveAppSessionJwtForWallet: async () => appSessionJwt },
+    'https://relay.example',
+  );
+
+  expect(authority).toEqual(exactAuthority);
+
+  appSessionJwt = jwtWithPayload({
+    kind: 'app_session_v1',
+    walletId: exactAuthority.walletId,
+    provider: 'oidc',
+    oidcProvider: 'google',
+    providerSubject: 'email:registered-user',
+    authSource: {
+      kind: 'oidc_provider',
+      providerId: 'google_oidc',
+      providerSubject: 'email:registered-user',
+    },
+  });
+  await expect(
+    resolveExactWalletAuthAuthority(
+      authorityRef,
+      stores,
+      authMethods,
+      { listWalletPasskeyAuthenticators: async () => [] },
+      'current.example.localhost',
+      { resolveAppSessionJwtForWallet: async () => appSessionJwt },
+      'https://relay.example',
+    ),
+  ).rejects.toThrow('Exact wallet authentication authority is unavailable');
 });

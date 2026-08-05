@@ -4,7 +4,12 @@ import {
   BrowserSigningSurface,
 } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
 import type { WalletAuthenticationState } from '@/core/types/seams';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import { parseWalletId } from '@shared/utils/domainIds';
+import {
+  activeHostedWalletAppSessionJwt,
+  redeemHostedWalletSeamsSession,
+} from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 
 function walletId(value: string) {
   const parsed = parseWalletId(value);
@@ -14,12 +19,21 @@ function walletId(value: string) {
 
 type RestorationTestSurface = BrowserSigningSurface;
 
+type RestorationTestSurfaceOptions = {
+  readonly initialState?: WalletAuthenticationState;
+  readonly resolveAppSessionJwtForWallet?: () => Promise<string>;
+};
+
+async function noCachedEmailOtpJwt(): Promise<string> {
+  return '';
+}
+
 function createRestorationTestSurface(
-  initialState: WalletAuthenticationState = { kind: 'signed_out' },
+  options: RestorationTestSurfaceOptions = {},
 ): RestorationTestSurface {
   const surface = Object.create(BrowserSigningSurface.prototype) as RestorationTestSurface;
   const fields = surface as unknown as Record<string, unknown>;
-  fields.walletAuthenticationState = initialState;
+  fields.walletAuthenticationState = options.initialState ?? { kind: 'signed_out' };
   fields.walletAuthenticationRestoreInFlight = new Map();
   fields.walletAuthenticationRestorationBlocked = false;
   fields.walletAuthenticationRestoreGeneration = 0;
@@ -29,7 +43,8 @@ function createRestorationTestSurface(
     getCurrentWalletId: () => undefined,
   };
   fields.emailOtpSessions = {
-    resolveAppSessionJwtForWallet: async () => '',
+    resolveAppSessionJwtForWallet:
+      options.resolveAppSessionJwtForWallet ?? noCachedEmailOtpJwt,
   };
   return surface;
 }
@@ -66,6 +81,133 @@ function authenticatedPasskeyResponse(targetWalletId: string): Response {
     }),
     { status: 200, headers: { 'content-type': 'application/json' } },
   );
+}
+
+function appSessionJwtWithPayload(payload: Record<string, unknown>): string {
+  const header = base64UrlEncode(new TextEncoder().encode(JSON.stringify({ alg: 'none' })));
+  const body = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  return `${header}.${body}.fixture`;
+}
+
+function emailOtpAppSessionClaims(targetWalletId: string, providerSubject: string) {
+  return {
+    kind: 'app_session_v1',
+    provider: 'oidc',
+    oidcProvider: 'google',
+    providerSubject,
+    sub: providerSubject,
+    walletId: targetWalletId,
+    authSource: {
+      kind: 'oidc_provider',
+      providerId: 'google_oidc',
+      providerSubject,
+    },
+  } as const;
+}
+
+function authenticatedEmailOtpResponse(targetWalletId: string, providerSubject: string): Response {
+  return new Response(
+    JSON.stringify({
+      authenticated: true,
+      claims: emailOtpAppSessionClaims(targetWalletId, providerSubject),
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  );
+}
+
+function uncorrelatedSessionResponse(providerSubject: string): Response {
+  return new Response(
+    JSON.stringify({
+      authenticated: true,
+      claims: {
+        kind: 'app_session_v1',
+        authSource: {
+          kind: 'oidc_provider',
+          providerId: 'google_oidc',
+          providerSubject,
+        },
+      },
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  );
+}
+
+function hostedWalletSessionExchangeResponse(args: {
+  appSessionJwt: string;
+  walletOrigin: string;
+}): Response {
+  const session = {
+    kind: 'app_session_v1',
+    tenantId: 'tenant-hosted-refresh',
+    userId: 'hosted-refresh-user',
+    seamsSessionId: 'hosted-refresh-session',
+    deviceId: 'hosted-refresh-device',
+    audience: {
+      kind: 'hosted_wallet_iframe',
+      appOrigin: 'https://app.example.test',
+      walletOrigin: args.walletOrigin,
+    },
+    expiresAtMs: Date.now() + 60 * 60 * 1000,
+  };
+  return new Response(
+    JSON.stringify({ ok: true, session, jwt: args.appSessionJwt }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  );
+}
+
+async function seedHostedOidcSession(args: {
+  walletId: string;
+  providerSubject: string;
+}): Promise<{ appSessionJwt: string; cleanup: () => void }> {
+  const walletOrigin = 'https://wallet.example.test';
+  const appSessionJwt = appSessionJwtWithPayload({
+    kind: 'app_session_v1',
+    tenantId: 'tenant-hosted-refresh',
+    sub: 'hosted-refresh-user',
+    seamsSessionId: 'hosted-refresh-session',
+    deviceId: 'hosted-refresh-device',
+    provider: 'oidc',
+    oidcProvider: 'google',
+    providerSubject: args.providerSubject,
+    walletId: args.walletId,
+    authSource: {
+      kind: 'oidc_provider',
+      providerId: 'google_oidc',
+      providerSubject: args.providerSubject,
+    },
+    sessionAudience: {
+      kind: 'hosted_wallet_iframe',
+      appOrigin: 'https://app.example.test',
+      walletOrigin,
+    },
+    exp: Math.floor(Date.now() / 1000) + 60 * 60,
+  });
+  const originalWindow = Reflect.get(globalThis, 'window');
+  const cleanup = (): void => {
+    activeHostedWalletAppSessionJwt('https://different-relay.local');
+    if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
+    else Reflect.set(globalThis, 'window', originalWindow);
+  };
+  Reflect.set(globalThis, 'window', { location: { origin: walletOrigin } });
+  const exchangeFetch = installFetch(async function sessionExchangeFetch() {
+    return hostedWalletSessionExchangeResponse({ appSessionJwt, walletOrigin });
+  });
+  try {
+    await redeemHostedWalletSeamsSession(
+      {
+        relayUrl: 'https://relay.local',
+        exchangeCode: 'hosted-refresh-code',
+        nonce: 'hosted-refresh-nonce',
+      },
+      'https://relay.local',
+    );
+    return { appSessionJwt, cleanup };
+  } catch (error: unknown) {
+    cleanup();
+    throw error;
+  } finally {
+    exchangeFetch();
+  }
 }
 
 test.describe('authoritative wallet authentication restoration', () => {
@@ -119,6 +261,7 @@ test.describe('authoritative wallet authentication restoration', () => {
             providerSubject: 'google:provider-subject',
             sub: 'linked-principal',
             walletId: 'email-wallet',
+            oidcProvider: 'google',
             authSource: {
               kind: 'oidc_provider',
               providerId: 'google_oidc',
@@ -145,6 +288,11 @@ test.describe('authoritative wallet authentication restoration', () => {
             providerSubject: 'google:provider-subject',
             sub: 'google:provider-subject',
             walletId: 'email-wallet',
+            authSource: {
+              kind: 'oidc_provider',
+              providerId: 'google_oidc',
+              providerSubject: 'google:provider-subject',
+            },
           },
         },
         { kind: 'derive_wallet' },
@@ -153,6 +301,28 @@ test.describe('authoritative wallet authentication restoration', () => {
       kind: 'authenticated',
       state: { kind: 'authenticated', walletId: 'email-wallet', authMethod: 'email_otp' },
     });
+  });
+
+  test('rejects Email OTP authentication whose source does not match its provider claims', () => {
+    expect(
+      authenticationFromValidatedSessionState(
+        {
+          authenticated: true,
+          claims: {
+            kind: 'app_session_v1',
+            provider: 'google',
+            providerSubject: 'google:provider-subject',
+            walletId: 'email-wallet',
+            authSource: {
+              kind: 'oidc_provider',
+              providerId: 'google_oidc',
+              providerSubject: 'google:other-subject',
+            },
+          },
+        },
+        { kind: 'derive_wallet' },
+      ),
+    ).toEqual({ kind: 'rejected' });
   });
 
   test('rejects unauthenticated and wallet-mismatched session state', () => {
@@ -188,8 +358,8 @@ test.describe('wallet authentication restoration lifecycle', () => {
       return authenticatedPasskeyResponse(String(targetWalletId));
     });
     try {
-      const first = surface.restoreWalletAuthenticationState(targetWalletId);
-      const second = surface.restoreWalletAuthenticationState(targetWalletId);
+      const first = surface.restoreWalletAuthenticationState(targetWalletId, { kind: 'cookie' });
+      const second = surface.restoreWalletAuthenticationState(targetWalletId, { kind: 'cookie' });
       await Promise.resolve();
       expect(fetchCalls).toBe(1);
       gate.resolve(undefined);
@@ -220,10 +390,14 @@ test.describe('wallet authentication restoration lifecycle', () => {
       return authenticatedPasskeyResponse(String(targetWalletId));
     });
     try {
-      await expect(surface.restoreWalletAuthenticationState(targetWalletId)).resolves.toEqual({
+      await expect(
+        surface.restoreWalletAuthenticationState(targetWalletId, { kind: 'cookie' }),
+      ).resolves.toEqual({
         kind: 'signed_out',
       });
-      await expect(surface.restoreWalletAuthenticationState(targetWalletId)).resolves.toEqual({
+      await expect(
+        surface.restoreWalletAuthenticationState(targetWalletId, { kind: 'cookie' }),
+      ).resolves.toEqual({
         kind: 'authenticated',
         walletId: targetWalletId,
         authMethod: 'passkey',
@@ -248,7 +422,9 @@ test.describe('wallet authentication restoration lifecycle', () => {
       });
     });
     try {
-      await expect(surface.restoreWalletAuthenticationState(targetWalletId)).resolves.toEqual({
+      await expect(
+        surface.restoreWalletAuthenticationState(targetWalletId, { kind: 'cookie' }),
+      ).resolves.toEqual({
         kind: 'signed_out',
       });
       expect(surface.readWalletAuthenticationState()).toEqual({ kind: 'signed_out' });
@@ -260,16 +436,15 @@ test.describe('wallet authentication restoration lifecycle', () => {
   test('clears rejected passkey authentication when no cached Email OTP session is available', async () => {
     const targetWalletId = walletId('wallet-rejected-without-otp');
     const surface = createRestorationTestSurface({
-      kind: 'authenticated',
-      walletId: targetWalletId,
-      authMethod: 'passkey',
-    });
-    const fields = surface as unknown as Record<string, unknown>;
-    fields.emailOtpSessions = {
+      initialState: {
+        kind: 'authenticated',
+        walletId: targetWalletId,
+        authMethod: 'passkey',
+      },
       resolveAppSessionJwtForWallet: async () => {
         throw new Error('fresh Email OTP verification required');
       },
-    };
+    });
     const restoreFetch = installFetch(async function restorationFetch() {
       return new Response(JSON.stringify({ authenticated: false }), {
         status: 401,
@@ -277,7 +452,9 @@ test.describe('wallet authentication restoration lifecycle', () => {
       });
     });
     try {
-      await expect(surface.restoreWalletAuthenticationState(targetWalletId)).resolves.toEqual({
+      await expect(
+        surface.restoreWalletAuthenticationState(targetWalletId, { kind: 'cookie' }),
+      ).resolves.toEqual({
         kind: 'signed_out',
       });
       expect(surface.readWalletAuthenticationState()).toEqual({ kind: 'signed_out' });
@@ -293,15 +470,204 @@ test.describe('wallet authentication restoration lifecycle', () => {
       walletId: targetWalletId,
       authMethod: 'passkey',
     };
-    const surface = createRestorationTestSurface(authenticatedState);
+    const surface = createRestorationTestSurface({ initialState: authenticatedState });
     const restoreFetch = installFetch(async function restorationFetch() {
       throw new Error('temporary transport failure');
     });
     try {
-      await expect(surface.restoreWalletAuthenticationState(targetWalletId)).resolves.toEqual(
-        authenticatedState,
-      );
+      await expect(
+        surface.restoreWalletAuthenticationState(targetWalletId, { kind: 'cookie' }),
+      ).resolves.toEqual(authenticatedState);
       expect(surface.readWalletAuthenticationState()).toEqual(authenticatedState);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test('falls back from an uncorrelated host-selected JWT to the exact persisted Email OTP authority', async () => {
+    const targetWalletId = walletId('wallet-host-session-otp');
+    const providerSubject = 'google:persisted-source';
+    const hostedSession = await seedHostedOidcSession({
+      walletId: String(targetWalletId),
+      providerSubject,
+    });
+    const hostSelectedJwt = hostedSession.appSessionJwt;
+    const persistedEmailOtpJwt = appSessionJwtWithPayload(
+      emailOtpAppSessionClaims(String(targetWalletId), providerSubject),
+    );
+    let cachedJwtResolutions = 0;
+    const surface = createRestorationTestSurface({
+      resolveAppSessionJwtForWallet: async () => {
+        cachedJwtResolutions += 1;
+        return persistedEmailOtpJwt;
+      },
+    });
+    const requestLog: Array<{ url: string; authorization: string | null }> = [];
+    const restoreFetch = installFetch(async function restorationFetch(input, init) {
+      const url = String(input);
+      const authorization = new Headers(init?.headers).get('authorization');
+      requestLog.push({ url, authorization });
+      if (authorization === `Bearer ${hostSelectedJwt}`) {
+        return uncorrelatedSessionResponse('google:host-selected-source');
+      }
+      if (authorization === `Bearer ${persistedEmailOtpJwt}`) {
+        return authenticatedEmailOtpResponse(String(targetWalletId), providerSubject);
+      }
+      throw new Error(`unexpected restoration authorization: ${authorization || 'cookie'}`);
+    });
+    try {
+      await expect(
+        surface.restoreWalletAuthenticationStateFromHostSession(targetWalletId),
+      ).resolves.toEqual({
+        kind: 'authenticated',
+        walletId: targetWalletId,
+        authMethod: 'email_otp',
+      });
+      expect(cachedJwtResolutions).toBe(1);
+      expect(requestLog).toEqual([
+        {
+          url: 'https://relay.local/session/state',
+          authorization: `Bearer ${hostSelectedJwt}`,
+        },
+        {
+          url: 'https://relay.local/session/state',
+          authorization: `Bearer ${persistedEmailOtpJwt}`,
+        },
+      ]);
+      expect(requestLog.every(({ url }) => url.endsWith('/session/state'))).toBe(true);
+      expect(surface.readWalletAuthenticationState()).toEqual({
+        kind: 'authenticated',
+        walletId: targetWalletId,
+        authMethod: 'email_otp',
+      });
+    } finally {
+      restoreFetch();
+      hostedSession.cleanup();
+    }
+  });
+
+  test('rejects a cached Email OTP binding for a different host OIDC subject before a second authority read', async () => {
+    const targetWalletId = walletId('wallet-host-subject-mismatch');
+    const hostedSession = await seedHostedOidcSession({
+      walletId: String(targetWalletId),
+      providerSubject: 'google:host-source-a',
+    });
+    const cachedEmailOtpJwt = appSessionJwtWithPayload(
+      emailOtpAppSessionClaims(String(targetWalletId), 'google:cached-source-b'),
+    );
+    let cachedJwtResolutions = 0;
+    const surface = createRestorationTestSurface({
+      resolveAppSessionJwtForWallet: async () => {
+        cachedJwtResolutions += 1;
+        return cachedEmailOtpJwt;
+      },
+    });
+    const requestLog: Array<{ url: string; authorization: string | null }> = [];
+    const restoreFetch = installFetch(async function restorationFetch(input, init) {
+      requestLog.push({
+        url: String(input),
+        authorization: new Headers(init?.headers).get('authorization'),
+      });
+      return uncorrelatedSessionResponse('google:host-source-a');
+    });
+    try {
+      await expect(
+        surface.restoreWalletAuthenticationStateFromHostSession(targetWalletId),
+      ).resolves.toEqual({ kind: 'signed_out' });
+      expect(cachedJwtResolutions).toBe(1);
+      expect(requestLog).toEqual([
+        {
+          url: 'https://relay.local/session/state',
+          authorization: `Bearer ${hostedSession.appSessionJwt}`,
+        },
+      ]);
+    } finally {
+      restoreFetch();
+      hostedSession.cleanup();
+    }
+  });
+
+  test('rejects direct Email OTP authority for a different host OIDC subject without consulting cached OTP', async () => {
+    const targetWalletId = walletId('wallet-host-direct-subject-mismatch');
+    const hostedSession = await seedHostedOidcSession({
+      walletId: String(targetWalletId),
+      providerSubject: 'google:host-source-a',
+    });
+    let cachedJwtResolutions = 0;
+    const surface = createRestorationTestSurface({
+      resolveAppSessionJwtForWallet: async () => {
+        cachedJwtResolutions += 1;
+        return appSessionJwtWithPayload(
+          emailOtpAppSessionClaims(String(targetWalletId), 'google:cached-source-b'),
+        );
+      },
+    });
+    const requestLog: Array<{ url: string; authorization: string | null }> = [];
+    const restoreFetch = installFetch(async function restorationFetch(input, init) {
+      requestLog.push({
+        url: String(input),
+        authorization: new Headers(init?.headers).get('authorization'),
+      });
+      return authenticatedEmailOtpResponse(String(targetWalletId), 'google:direct-source-b');
+    });
+    try {
+      await expect(
+        surface.restoreWalletAuthenticationStateFromHostSession(targetWalletId),
+      ).resolves.toEqual({ kind: 'signed_out' });
+      expect(cachedJwtResolutions).toBe(0);
+      expect(requestLog).toEqual([
+        {
+          url: 'https://relay.local/session/state',
+          authorization: `Bearer ${hostedSession.appSessionJwt}`,
+        },
+      ]);
+    } finally {
+      restoreFetch();
+      hostedSession.cleanup();
+    }
+  });
+
+  test('does not fall back to a cached Email OTP JWT after a caller-supplied JWT is uncorrelated', async () => {
+    const targetWalletId = walletId('wallet-caller-session-rejected');
+    const callerJwt = appSessionJwtWithPayload({
+      kind: 'app_session_v1',
+      provider: 'passkey',
+      sub: String(targetWalletId),
+      authSource: { kind: 'passkey', credentialIdB64u: 'caller-credential' },
+    });
+    const cachedEmailOtpJwt = appSessionJwtWithPayload(
+      emailOtpAppSessionClaims(String(targetWalletId), 'google:cached-source'),
+    );
+    let cachedJwtResolutions = 0;
+    const surface = createRestorationTestSurface({
+      resolveAppSessionJwtForWallet: async () => {
+        cachedJwtResolutions += 1;
+        return cachedEmailOtpJwt;
+      },
+    });
+    const requestLog: Array<{ url: string; authorization: string | null }> = [];
+    const restoreFetch = installFetch(async function restorationFetch(input, init) {
+      requestLog.push({
+        url: String(input),
+        authorization: new Headers(init?.headers).get('authorization'),
+      });
+      return authenticatedPasskeyResponse('wallet-other');
+    });
+    try {
+      await expect(
+        surface.restoreWalletAuthenticationState(targetWalletId, {
+          kind: 'caller_app_session_jwt',
+          appSessionJwt: callerJwt,
+        }),
+      ).resolves.toEqual({ kind: 'signed_out' });
+      expect(cachedJwtResolutions).toBe(0);
+      expect(requestLog).toEqual([
+        {
+          url: 'https://relay.local/session/state',
+          authorization: `Bearer ${callerJwt}`,
+        },
+      ]);
+      expect(surface.readWalletAuthenticationState()).toEqual({ kind: 'signed_out' });
     } finally {
       restoreFetch();
     }
@@ -310,9 +676,11 @@ test.describe('wallet authentication restoration lifecycle', () => {
   test('fails closed when an explicit app-session JWT is invalid', async () => {
     const targetWalletId = walletId('wallet-invalid-explicit-jwt');
     const surface = createRestorationTestSurface({
-      kind: 'authenticated',
-      walletId: targetWalletId,
-      authMethod: 'passkey',
+      initialState: {
+        kind: 'authenticated',
+        walletId: targetWalletId,
+        authMethod: 'passkey',
+      },
     });
     let fetchCalls = 0;
     const restoreFetch = installFetch(async function restorationFetch() {
@@ -321,7 +689,10 @@ test.describe('wallet authentication restoration lifecycle', () => {
     });
     try {
       await expect(
-        surface.restoreWalletAuthenticationState(targetWalletId, 'invalid-app-session-jwt'),
+        surface.restoreWalletAuthenticationState(targetWalletId, {
+          kind: 'caller_app_session_jwt',
+          appSessionJwt: 'invalid-app-session-jwt',
+        }),
       ).resolves.toEqual({ kind: 'signed_out' });
       expect(fetchCalls).toBe(0);
       expect(surface.readWalletAuthenticationState()).toEqual({ kind: 'signed_out' });

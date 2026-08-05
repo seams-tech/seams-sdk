@@ -49,6 +49,7 @@ import {
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 
 function requireFixtureDomainId<T>(
   result: { ok: true; value: T } | { ok: false; error: unknown },
@@ -291,6 +292,46 @@ export function buildEmailOtpEd25519AuthorizationProjectionFixture(
     authority: buildWalletAuthAuthorityRefForAuthorityFixture(authority),
     expiresAtMs: record.expiresAtMs,
   });
+}
+
+export function buildEmailOtpEd25519YaoActiveClientMetadataFixture(
+  record: CurrentEd25519SealedSessionRecord,
+): RouterAbEd25519YaoActiveClientMetadataV1 {
+  const restore = record.ed25519Restore;
+  if (
+    !('provider' in restore) ||
+    !record.signingRootId ||
+    !record.signingRootVersion ||
+    restore.participantIds.length !== 2
+  ) {
+    throw new Error('Email OTP fixture is missing exact Ed25519 publication metadata');
+  }
+  const participantIds = [restore.participantIds[0], restore.participantIds[1]] as const;
+  return {
+    kind: 'router_ab_ed25519_yao_active_client_v1',
+    scope: {
+      lifecycle_id: 'email-otp-sealed-publication-test',
+      root_share_epoch: record.signingRootVersion,
+      account_id: record.walletId,
+      threshold_session_id: record.thresholdSessionIds.ed25519,
+      signer_set_id: `near_ed25519:slot:${restore.signerSlot}`,
+      signing_worker_id: restore.relayerKeyId,
+      material_activation: routerAbMpcMaterialActivationRefToWire(restore.materialActivation),
+    },
+    applicationBinding: {
+      wallet_id: record.walletId,
+      near_ed25519_signing_key_id: restore.nearEd25519SigningKeyId,
+      signing_root_id: record.signingRootId,
+      key_creation_signer_slot: restore.signerSlot,
+    },
+    participantIds,
+    registeredPublicKey: new Uint8Array(32),
+    signingWorkerVerifyingShare: new Uint8Array(32),
+    stateEpoch: 1n,
+    transcript: new Uint8Array(32),
+    activeCapabilityBinding: new Array<number>(32).fill(0),
+    materialActivation: restore.materialActivation,
+  };
 }
 
 export type EmailOtpEcdsaSealedSigningSessionRecord = Extract<

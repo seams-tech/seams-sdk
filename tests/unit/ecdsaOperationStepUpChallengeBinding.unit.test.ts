@@ -305,8 +305,14 @@ test.describe('ECDSA operation step-up challenge binding', () => {
       deriver_b_export_envelope: _deriverBExportEnvelope,
       ...factsWithoutEnvelopes
     } = request;
+    const operation = request.operation;
+    if (!operation) {
+      throw new Error('step-up fixture operation branch changed');
+    }
     const facts: RouterAbEcdsaExplicitExportRequestFactsV1 = {
       ...factsWithoutEnvelopes,
+      authorization: { kind: 'operation_step_up' },
+      operation,
       authorization_id: parseDigestB64u(b64u(32, 32)),
       deriver_recipient_keys: {
         deriver_a: {
@@ -346,6 +352,7 @@ test.describe('ECDSA operation step-up challenge binding', () => {
       authorization: {
         kind: 'operation_step_up',
         evidence_set_digest: evidenceSetDigest,
+        unseal: { kind: 'not_requested' },
       },
       expires_at_ms: Date.now() + 60_000,
     });
@@ -353,10 +360,47 @@ test.describe('ECDSA operation step-up challenge binding', () => {
     expect(parsed.authorization).toEqual({
       kind: 'operation_step_up',
       evidence_set_digest: parseDigestB64u(evidenceSetDigest),
+      unseal: { kind: 'not_requested' },
     });
     expect(parseRouterAbNormalSigningAuthorization({ kind: 'operation_step_up' })).toEqual({
       kind: 'operation_step_up',
     });
+  });
+
+  test('email OTP operation step-up response carries the single-use unseal grant', () => {
+    const evidenceSetDigest = b64u(32, 32);
+    const parsed = parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1({
+      ok: true,
+      kind: 'verified_step_up',
+      authorization: {
+        kind: 'operation_step_up',
+        evidence_set_digest: evidenceSetDigest,
+        unseal: {
+          kind: 'email_otp_grant',
+          grant: 'grant-1',
+          challenge_id: 'challenge-1',
+        },
+      },
+      expires_at_ms: Date.now() + 60_000,
+    });
+
+    expect(parsed.authorization.unseal).toEqual({
+      kind: 'email_otp_grant',
+      grant: 'grant-1',
+      challenge_id: 'challenge-1',
+    });
+    expect(() =>
+      parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1({
+        ok: true,
+        kind: 'verified_step_up',
+        authorization: {
+          kind: 'operation_step_up',
+          evidence_set_digest: evidenceSetDigest,
+          unseal: { kind: 'email_otp_grant', grant: 'grant-1' },
+        },
+        expires_at_ms: Date.now() + 60_000,
+      }),
+    ).toThrow();
   });
 
   test('operation step-up response rejects a missing or padded evidence digest', () => {
@@ -366,13 +410,17 @@ test.describe('ECDSA operation step-up challenge binding', () => {
       authorization: {
         kind: 'operation_step_up',
         evidence_set_digest: b64u(32, 32),
+        unseal: { kind: 'not_requested' },
       },
       expires_at_ms: Date.now() + 60_000,
     };
     expect(() =>
       parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1({
         ...response,
-        authorization: { kind: 'operation_step_up' },
+        authorization: {
+          kind: 'operation_step_up',
+          unseal: { kind: 'not_requested' },
+        },
       }),
     ).toThrow('digest must be unpadded base64url');
     expect(() =>
@@ -381,6 +429,7 @@ test.describe('ECDSA operation step-up challenge binding', () => {
         authorization: {
           kind: 'operation_step_up',
           evidence_set_digest: `${response.authorization.evidence_set_digest}=`,
+          unseal: { kind: 'not_requested' },
         },
       }),
     ).toThrow('digest must be unpadded base64url');
