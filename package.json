@@ -45,6 +45,7 @@
     "router:multiplex": "node ./crates/router-ab-dev/scripts/dev-local-workers.mjs --mode multiplex",
     "router:build": "node ./crates/router-ab-dev/scripts/dev-local-workers.mjs --build-only",
     "router:init": "node ./crates/router-ab-dev/scripts/local-command.mjs init",
+    "router:reset": "node ./crates/router-ab-dev/scripts/reset-local-router.mjs",
     "router:up": "node ./crates/router-ab-dev/scripts/local-command.mjs up",
     "router:check": "node ./crates/router-ab-dev/scripts/local-command.mjs check",
     "router:yao-smoke": "node ./crates/router-ab-dev/scripts/local-command.mjs yao-smoke",
