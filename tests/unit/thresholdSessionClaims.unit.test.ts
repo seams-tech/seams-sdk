@@ -17,7 +17,7 @@ import {
   validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest,
   validateRouterAbEcdsaDerivationNormalSigningPrepareRequest,
   authorizeRouterAbEcdsaDerivationNormalSigningRoute,
-} from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
+} from '../../packages/sdk-server-ts/src/router/domains/normalSigning/routerAbPrivateSigningWorker';
 import {
   buildVerifiedEcdsaWalletSessionAuth,
   buildVerifiedEd25519WalletSessionAuth,

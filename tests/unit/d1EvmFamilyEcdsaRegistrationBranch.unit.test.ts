@@ -9,8 +9,8 @@ import type {
 import type {
   RouterAbEcdsaStrictRegistrationPort,
   RouterAbEcdsaStrictRegistrationTopology,
-} from '../../packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration';
-import { routerAbEcdsaStrictRegistrationRequestBindingJson } from '../../packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration';
+} from '../../packages/sdk-server-ts/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
+import { routerAbEcdsaStrictRegistrationRequestBindingJson } from '../../packages/sdk-server-ts/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
 import type {
   RouterAbEcdsaRegistrationRequestFactsV1,
   RouterAbEcdsaRegistrationRequestV1,
