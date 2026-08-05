@@ -6947,7 +6947,6 @@ fn router_ab_ecdsa_authorized_finalize_parser_requires_authorized_operation_and_
         error.code(),
         RouterAbProtocolErrorCode::MalformedWirePayload
     );
-
 }
 
 #[test]

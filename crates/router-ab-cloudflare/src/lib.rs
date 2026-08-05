@@ -3506,6 +3506,7 @@ impl CloudflareSigningWorkerEcdsaExportAuthorizationV1 {
         self.validate_for_public_authorization(&request.authorization)
     }
 
+    #[cfg(any(feature = "workers-rs", test))]
     fn binding_authorization_kind(&self) -> &'static str {
         match self {
             Self::ReusableWalletSession { .. } => "reusable_wallet_session",
@@ -3513,6 +3514,7 @@ impl CloudflareSigningWorkerEcdsaExportAuthorizationV1 {
         }
     }
 
+    #[cfg(any(feature = "workers-rs", test))]
     fn authorization_id(&self) -> &str {
         match self {
             Self::ReusableWalletSession { wallet_session_id }
@@ -4220,6 +4222,7 @@ fn preload_cloudflare_signer_host_from_metadata_v1(
     )
 }
 
+#[cfg(feature = "workers-rs")]
 fn cloudflare_router_allowed_admission_checks_v1(
     request_id: impl Into<String>,
 ) -> RouterAbProtocolResult<CloudflareRouterAdmissionChecksV1> {
