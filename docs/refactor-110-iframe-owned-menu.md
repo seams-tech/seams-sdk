@@ -2,8 +2,10 @@
 
 Date created: August 3, 2026
 
-Status: implementation in progress on `codex/r110`; domain, host, and adapter
-phases are landed, with consumer migration and cleanup in progress
+Status: complete on `dev` as of August 6, 2026. The wallet-iframe-owned Lit
+surface, React lifecycle adapter, consumer migration, compact iframe surfaces,
+and focused validation are landed. Device linking remains deferred under the
+scope defined below.
 
 ## Decision
 
