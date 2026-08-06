@@ -60,7 +60,7 @@ async function mountAuthMenu(page: Page, viewModel: unknown) {
     tagName: AUTH_MENU_TAG,
     props: { viewModel },
   });
-  await page.waitForSelector(`${AUTH_MENU_TAG} [data-auth-menu-close]`);
+  await page.waitForSelector(`${AUTH_MENU_TAG} [data-auth-menu-close]`, { state: 'attached' });
 }
 
 test.describe('wallet-host Lit auth menu surface', () => {
@@ -83,25 +83,26 @@ test.describe('wallet-host Lit auth menu surface', () => {
       const input = root.querySelector('#w3a-auth-menu-passkey-name') as HTMLInputElement | null;
       return {
         closeLabel: closeButton?.getAttribute('aria-label') ?? '',
-        ctaDisabled: primary?.disabled ?? false,
-        heading: root.querySelector('h1')?.textContent?.trim() ?? '',
-        hostname: root.querySelector('.auth-menu-hostname')?.textContent?.trim() ?? '',
-        hasLinkPath:
-          (root.querySelector('.auth-menu-link-icon path')?.getAttribute('d') ?? '').length > 0,
+        hasPrimary: !!primary,
+        heading: root.querySelector('.w3a-title')?.textContent?.trim() ?? '',
+        subtitle: root.querySelector('.w3a-subhead')?.textContent?.trim() ?? '',
+        hasFingerprint: !!root.querySelector('[data-auth-menu-primary] svg'),
         hasPasskeyName: !!input,
-        passkeyNameLabel: root.querySelector('label')?.textContent?.trim() ?? '',
+        passkeyNameLabel: input?.getAttribute('placeholder') ?? '',
+        waitingText: root.querySelector('.w3a-waiting-text')?.textContent?.trim() ?? '',
         hasCancelCopy: root.textContent?.includes('Cancel') ?? false,
         hasTick: !!root.querySelector('[data-verification-tick], .verification-tick'),
       };
     }, AUTH_MENU_TAG);
 
-    expect(initial.closeLabel).toBe('Close authentication menu');
-    expect(initial.ctaDisabled).toBe(true);
-    expect(initial.heading).toBe('Create your passkey');
-    expect(initial.hostname).toBe('wallet.example.test');
-    expect(initial.hasLinkPath).toBe(true);
-    expect(initial.hasPasskeyName).toBe(true);
-    expect(initial.passkeyNameLabel).toBe('Passkey name');
+    expect(initial.closeLabel).toBe('Back');
+    expect(initial.hasPrimary).toBe(false);
+    expect(initial.heading).toBe('');
+    expect(initial.subtitle).toBe('');
+    expect(initial.hasFingerprint).toBe(false);
+    expect(initial.hasPasskeyName).toBe(false);
+    expect(initial.passkeyNameLabel).toBe('');
+    expect(initial.waitingText).toBe('Preparing passkey');
     expect(initial.hasCancelCopy).toBe(false);
     expect(initial.hasTick).toBe(false);
 
@@ -114,15 +115,15 @@ test.describe('wallet-host Lit auth menu surface', () => {
       element.addEventListener('w3a-auth-menu-intent', (event) => {
         received.push((event as CustomEvent<unknown>).detail);
       });
-      const input = element.querySelector('#w3a-auth-menu-passkey-name') as HTMLInputElement;
-      input.value = 'Ledger passkey';
-      input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
       element.viewModel = {
         ...(element.viewModel as Record<string, unknown>),
         passkeyName: 'Ledger passkey',
         status: { kind: 'ready' },
       };
       await element.updateComplete;
+      const input = element.querySelector('#w3a-auth-menu-passkey-name') as HTMLInputElement;
+      input.value = 'Ledger passkey';
+      input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
       (element.querySelector('[data-auth-menu-primary]') as HTMLButtonElement).click();
       (element.querySelector('[data-auth-menu-close]') as HTMLButtonElement).click();
       return received;
@@ -131,8 +132,48 @@ test.describe('wallet-host Lit auth menu surface', () => {
     expect(intents).toEqual([
       { kind: 'passkey_name_changed', passkeyName: 'Ledger passkey' },
       { kind: 'submit', mode: 'register', passkeyName: 'Ledger passkey' },
-      { kind: 'close', reason: 'close_button' },
+      { kind: 'back' },
     ]);
+  });
+
+  test('renders the device-link QR menu and returns through the Back control', async ({ page }) => {
+    await mountAuthMenu(page, {
+      ...loginViewModel(),
+      kind: 'link_device',
+      heading: 'Scan and Link Device',
+      subtitle: 'Scan to backup your other device.',
+      ctaLabel: '',
+      linkDevice: {
+        kind: 'ready',
+        qrCodeDataURL: 'data:image/png;base64,iVBORw0KGgo=',
+        message: 'Waiting for device to scan',
+      },
+    });
+
+    const result = await page.evaluate((tagName) => {
+      const element = document.querySelector(tagName) as HTMLElement;
+      const received: unknown[] = [];
+      element.addEventListener('w3a-auth-menu-intent', (event) => {
+        received.push((event as CustomEvent<unknown>).detail);
+      });
+      const image = element.querySelector('.qr-code-image') as HTMLImageElement | null;
+      (element.querySelector('[data-auth-menu-close]') as HTMLButtonElement).click();
+      return {
+        title: element.querySelector('.qr-title')?.textContent?.trim(),
+        instruction: element.querySelector('.qr-instruction')?.textContent?.trim(),
+        status: element.querySelector('.qr-status')?.textContent?.trim(),
+        imageAlt: image?.alt,
+        intents: received,
+      };
+    }, AUTH_MENU_TAG);
+
+    expect(result).toEqual({
+      title: 'Scan and Link Device',
+      instruction: 'Scan to backup your other device.',
+      status: 'Waiting for device to scan',
+      imageAlt: 'Device Linking QR Code',
+      intents: [{ kind: 'back' }],
+    });
   });
 
   test('keeps required sponsored registration input quiet until a name is entered', async ({
@@ -154,7 +195,7 @@ test.describe('wallet-host Lit auth menu surface', () => {
         inputValue: input?.value ?? '',
         hasAlert: !!root.querySelector('[role="alert"]'),
         retryCount: root.querySelectorAll('.auth-menu-retry').length,
-        hasProgress: !!root.querySelector('.auth-menu-progress'),
+        hasProgress: !!root.querySelector('.w3a-waiting'),
       };
     }, AUTH_MENU_TAG);
 
@@ -179,22 +220,22 @@ test.describe('wallet-host Lit auth menu surface', () => {
       const root = document.querySelector(tagName) as HTMLElement;
       const halo = root.querySelector('w3a-passkey-halo-loading') as HTMLElement & {
         animated?: boolean;
+        theme?: string;
       };
       return {
-        ctaDisabled: (root.querySelector('[data-auth-menu-primary]') as HTMLButtonElement)
-          ?.disabled,
+        hasPrimary: !!root.querySelector('[data-auth-menu-primary]'),
         hasPasskeyName: !!root.querySelector('#w3a-auth-menu-passkey-name'),
         haloAnimated: halo?.animated,
-        heading: root.querySelector('h1')?.textContent?.trim() ?? '',
-        theme: root.querySelector('.auth-menu-root')?.classList.contains('light') ?? false,
+        heading: root.querySelector('.w3a-waiting-text')?.textContent?.trim() ?? '',
+        theme: halo?.theme,
       };
     }, AUTH_MENU_TAG);
 
-    expect(snapshot.ctaDisabled).toBe(true);
+    expect(snapshot.hasPrimary).toBe(false);
     expect(snapshot.hasPasskeyName).toBe(false);
     expect(snapshot.haloAnimated).toBe(false);
-    expect(snapshot.heading).toBe('Sign in');
-    expect(snapshot.theme).toBe(true);
+    expect(snapshot.heading).toBe('Signing in…');
+    expect(snapshot.theme).toBe('dark');
   });
 
   test('hides the registration input when host configuration disables it', async ({ page }) => {
@@ -340,9 +381,11 @@ test.describe('wallet-host Lit auth menu surface', () => {
       element.addEventListener('w3a-auth-menu-intent', (event) => {
         received.push((event as CustomEvent<unknown>).detail);
       });
-      const select = element.querySelector('#w3a-auth-menu-login-account') as HTMLSelectElement;
-      select.value = 'wallet-b';
-      select.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+      (element.querySelector('.w3a-account-menu-trigger') as HTMLButtonElement).click();
+      await (element as HTMLElement & { updateComplete?: Promise<unknown> }).updateComplete;
+      (
+        element.querySelector('[data-wallet-id="wallet-b"]') as HTMLButtonElement
+      ).click();
       return received;
     }, AUTH_MENU_TAG);
 

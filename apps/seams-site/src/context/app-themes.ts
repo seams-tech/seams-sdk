@@ -133,7 +133,7 @@ export const APP_THEME_TOKEN_PRESETS: Record<AppThemePreset, ThemeProps['tokens'
 };
 
 // ============================================================================
-// Live-demo theme presets (fed to demo controls via the SDK Theme provider)
+// Live-demo theme presets (fed to the SeamsAuthMenu via the SDK Theme provider)
 // ============================================================================
 
 // "Paper" — the ElevenLabs style: eggshell paper, ink buttons, warm

@@ -319,7 +319,7 @@
   }
 }
 
-/* Chain picker: segmented wallet-auth control — same
+/* Chain picker: segmented control matching the SeamsAuthMenu seg — same
    track color, themable pill variable, and 320ms spring easing. Three equal
    segments, so the pill needs no measurement: translateX percentages resolve
    against the pill's own width (one segment). */

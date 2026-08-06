@@ -97,11 +97,29 @@ export type AuthMenuGoogleRegistrationViewModel = AuthMenuViewModelCommon & {
   readonly passkeyNameLabel?: never;
 };
 
+export type AuthMenuLinkDeviceState =
+  | { readonly kind: 'loading'; readonly message: string }
+  | {
+      readonly kind: 'ready';
+      readonly qrCodeDataURL: string;
+      readonly message: string;
+    }
+  | { readonly kind: 'error'; readonly message: string };
+
+export type AuthMenuLinkDeviceViewModel = AuthMenuViewModelCommon & {
+  readonly kind: 'link_device';
+  readonly mode: 'login' | 'register';
+  readonly linkDevice: AuthMenuLinkDeviceState;
+  readonly passkeyName?: never;
+  readonly passkeyNameLabel?: never;
+};
+
 export type AuthMenuViewModel =
   | AuthMenuLoginViewModel
   | AuthMenuRegisterViewModel
   | AuthMenuGoogleLoginViewModel
-  | AuthMenuGoogleRegistrationViewModel;
+  | AuthMenuGoogleRegistrationViewModel
+  | AuthMenuLinkDeviceViewModel;
 
 export type AuthMenuCloseReason = 'close_button' | 'escape';
 
@@ -113,6 +131,12 @@ export type AuthMenuIntent =
   | {
       readonly kind: 'mode_selected';
       readonly mode: 'login' | 'register';
+    }
+  | {
+      readonly kind: 'back';
+    }
+  | {
+      readonly kind: 'link_device_open';
     }
   | {
       readonly kind: 'registration_reroll';
@@ -170,6 +194,8 @@ export function isAuthMenuIntent(value: unknown): value is AuthMenuIntent {
       return record.reason === 'close_button' || record.reason === 'escape';
     case 'mode_selected':
       return record.mode === 'login' || record.mode === 'register';
+    case 'back':
+    case 'link_device_open':
     case 'registration_reroll':
       return true;
     case 'submit':
@@ -221,6 +247,8 @@ export function isAuthMenuActionReady(viewModel: AuthMenuViewModel): boolean {
       return !viewModel.submitBusy && /^\d{6}$/.test(viewModel.otpCode);
     case 'google_registration':
       return !viewModel.rerollBusy && !viewModel.submitBusy;
+    case 'link_device':
+      return false;
     case 'passkey':
       return viewModel.mode === 'login'
         ? true

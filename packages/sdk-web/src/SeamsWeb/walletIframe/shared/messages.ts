@@ -237,14 +237,14 @@ export type PMResolveAuthMenuExternalAuthPayload = HostedAuthMenuExternalAuthRes
 const DEFAULT_HOSTED_AUTH_MENU_COPY: HostedAuthMenuCopy = {
   login: {
     title: 'Sign in',
-    subtitle: 'Continue with your passkey',
-    passkeyCta: 'Continue with passkey',
+    subtitle: 'Continue with Passkey or Google SSO',
+    passkeyCta: 'Sign in with Passkey',
   },
   register: {
-    title: 'Create your account',
-    subtitle: 'Create an account with your passkey',
-    passkeyNameLabel: 'Passkey name',
-    passkeyCta: 'Create with passkey',
+    title: 'Create an account',
+    subtitle: 'Continue with Passkey or Google SSO',
+    passkeyNameLabel: 'Wallet name',
+    passkeyCta: 'Sign up with Passkey',
   },
   common: { closeLabel: 'Close' },
 };

@@ -32,6 +32,8 @@ import {
   loginAccountOptions,
   passkeyRecentWalletId,
 } from './account-options';
+import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
+import type { StartDevice2LinkingFlowResults } from '@/core/types/linkDevice';
 
 export type AuthMenuControllerDeps = {
   readonly getSeamsWeb: () => SeamsWeb;
@@ -78,6 +80,8 @@ export class AuthMenuController {
       hostname: trustedHostHostname(),
       beginGoogleEmailOtp: async ({ idToken, mode, signal }) =>
         await this.beginGoogleEmailOtp({ idToken, mode, signal }),
+      startDeviceLinking: this.startDeviceLinking,
+      stopDeviceLinking: this.stopDeviceLinking,
     });
     const outcomePromise = session.waitForOutcome();
     this.sessions.set(args.request.authMenuSessionId, session);
@@ -185,6 +189,14 @@ export class AuthMenuController {
     }
     return flow;
   }
+
+  private startDeviceLinking = async (
+    onEvent: (event: LinkDeviceFlowEvent) => void,
+  ): Promise<StartDevice2LinkingFlowResults> =>
+    await this.deps.getSeamsWeb().devices.startDevice2LinkingFlow({ options: { onEvent } });
+
+  private stopDeviceLinking = async (): Promise<void> =>
+    await this.deps.getSeamsWeb().devices.stopDevice2LinkingFlow();
 
   private async prepareRegistration(
     request: HostedAuthMenuOpenRequest,

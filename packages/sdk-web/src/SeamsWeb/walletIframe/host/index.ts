@@ -145,6 +145,10 @@ export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
               ...(state.walletConfigs || ({} as SeamsConfigsInput)),
               ...(route.request.payload as PMSetConfigPayload),
             } as SeamsConfigsInput;
+            if (CONFIRM_UI_SELECTORS.some((selector) => document.querySelector(selector))) {
+              const runtimeContext = await import('./runtimeContext');
+              runtimeContext.syncActiveWalletHostRuntimeConfig(state);
+            }
             if (registrationRuntimeIsSupported(options.supportedRuntimeRouteKinds)) {
               await preloadWalletHostRegistrationSurface();
             }

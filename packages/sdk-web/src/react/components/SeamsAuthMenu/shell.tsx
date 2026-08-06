@@ -1,497 +1,150 @@
 import React from 'react';
-import { useSeams } from '@/react/context';
-import {
-  buildHostedAuthMenuOpenRequest,
-  hostedAuthMenuExternalAuthRequestIdFromBoundary,
-  hostedAuthMenuSessionIdFromBoundary,
-  type HostedAuthMenuExternalAuthEvidence,
-  type HostedAuthMenuExternalProvider,
-  type HostedAuthMenuExternalAuthRequest,
-  type HostedAuthMenuExternalAuthRequestId,
-  type HostedAuthMenuMode,
-  type HostedAuthMenuOutcome,
-  type HostedAuthMenuSessionId,
-} from '@/SeamsWeb/walletIframe/shared/messages';
-import type { SeamsWeb } from '@/SeamsWeb';
-import type { HostedAuthMenuExternalAuthBroker, SeamsAuthMenuProps } from './types';
+import { SeamsAuthMenuSkeletonInner } from './skeleton';
+import { SeamsAuthMenuThemeScope } from './themeScope';
+import { AuthMenuMode, type SeamsAuthMenuProps } from './types';
+import { useTheme } from '../theme';
+import { preloadSeamsAuthMenu } from './preload';
+import { SeamsAuthMenuHydrationContext } from './hydrationContext';
 
-type SeamsAuthMenuBridge = Pick<
-  SeamsWeb,
-  | 'openHostedAuthMenu'
-  | 'cancelHostedAuthMenu'
-  | 'onHostedAuthMenuExternalAuthRequest'
-  | 'resolveHostedAuthMenuExternalAuth'
->;
+const useIsomorphicLayoutEffect =
+  typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect;
 
-type OutcomeRef = React.MutableRefObject<SeamsAuthMenuProps['onOutcome']>;
-type BrokerRef = React.MutableRefObject<HostedAuthMenuExternalAuthBroker | null>;
-type HostedAuthMenuFailureCode = Extract<HostedAuthMenuOutcome, { kind: 'failed' }>['code'];
+type SeamsAuthMenuClientComponent = React.ComponentType<SeamsAuthMenuProps>;
 
-type HostedAuthMenuSessionArgs = {
-  seams: SeamsAuthMenuBridge;
-  authMenuSessionId: HostedAuthMenuSessionId;
-  initialMode: HostedAuthMenuMode;
-  registrationAccountInput: SeamsAuthMenuProps['registrationAccountInput'];
-  showRegistrationInput: boolean;
-  showProgress: boolean;
-  copy: SeamsAuthMenuProps['copy'];
-  externalAuthBroker: BrokerRef;
-  onOutcome: OutcomeRef;
-};
+const clientLazyCache = new Map<number, React.LazyExoticComponent<SeamsAuthMenuClientComponent>>();
 
-type ExternalAuthEvidenceRecord = {
-  kind?: unknown;
-  idToken?: unknown;
-  reason?: unknown;
-  code?: unknown;
-  message?: unknown;
-};
+let didClientMountOnce = false;
 
-type HostedAuthMenuCleanupMode =
-  | { readonly kind: 'component_unmounted' }
-  | { readonly kind: 'synthetic_remount' }
-  | { readonly kind: 'configuration_changed' };
-
-type HostedAuthMenuEffectConfig = {
-  readonly initialMode: HostedAuthMenuMode;
-  readonly registrationAccountInput: SeamsAuthMenuProps['registrationAccountInput'];
-  readonly showRegistrationInput: boolean;
-  readonly showProgress: boolean;
-  readonly copy: SeamsAuthMenuProps['copy'];
-  readonly enabledExternalProviders: readonly HostedAuthMenuExternalProvider[];
-};
-
-type HostedAuthMenuEffectDependencies = readonly [SeamsWeb | null, string];
-
-type HostedAuthMenuPendingCleanup = {
-  readonly session: HostedAuthMenuSessionController;
-  readonly dependencies: HostedAuthMenuEffectDependencies;
-};
-
-let sessionCounter = 0;
-
-function createHostedAuthMenuSessionId(): HostedAuthMenuSessionId {
-  const randomId =
-    typeof globalThis.crypto?.randomUUID === 'function'
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now()}-${sessionCounter++}-${Math.random().toString(36).slice(2)}`;
-  const sessionId = hostedAuthMenuSessionIdFromBoundary(`react-${randomId}`);
-  if (!sessionId) throw new Error('Unable to create a hosted auth-menu session identity');
-  return sessionId;
+let didAutoPreloadClientChunk = false;
+function autoPreloadClientChunk() {
+  if (didAutoPreloadClientChunk) return;
+  didAutoPreloadClientChunk = true;
+  void preloadSeamsAuthMenu();
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.trim()) return error.message.trim();
-  if (typeof error === 'string' && error.trim()) return error.trim();
-  return 'Hosted auth-menu operation failed';
+// If this module is imported in a browser bundle, start fetching the client chunk immediately.
+// This reduces the chance of a first-mount Suspense fallback flash without affecting SSR.
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  autoPreloadClientChunk();
 }
 
-function failureCodeForError(error: unknown): HostedAuthMenuFailureCode {
-  const message = errorMessage(error).toLowerCase();
-  if (message.includes('open configuration')) return 'invalid_request';
-  if (
-    message.includes('wallet iframe') &&
-    (message.includes('configured') || message.includes('unavailable'))
-  ) {
-    return 'connection_closed';
-  }
-  return 'wallet_error';
+function getClientLazy(retryKey: number): React.LazyExoticComponent<SeamsAuthMenuClientComponent> {
+  const existing = clientLazyCache.get(retryKey);
+  if (existing) return existing;
+
+  const next = React.lazy(() =>
+    import('./client').then((m) => ({ default: m.SeamsAuthMenuClient })),
+  ) as unknown as React.LazyExoticComponent<SeamsAuthMenuClientComponent>;
+
+  clientLazyCache.set(retryKey, next);
+  return next;
 }
 
-function isExternalAuthEvidenceRecord(value: unknown): value is ExternalAuthEvidenceRecord {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
+function invalidateClientLazy(retryKey: number) {
+  clientLazyCache.delete(retryKey);
 }
 
-function invalidEvidence(message: string): HostedAuthMenuExternalAuthEvidence {
-  return { kind: 'failed', code: 'invalid_evidence', message };
-}
+class LazyErrorBoundary extends React.Component<
+  {
+    fallback: (args: { error: Error; retry: () => void }) => React.ReactNode;
+    onRetry: () => void;
+    onError?: (error: Error) => void;
+    children: React.ReactNode;
+  },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
 
-function externalProvidersForBroker(
-  broker: HostedAuthMenuExternalAuthBroker | null,
-): readonly HostedAuthMenuExternalProvider[] {
-  return broker ? ['google'] : [];
-}
-
-function normalizeExternalAuthEvidence(value: unknown): HostedAuthMenuExternalAuthEvidence {
-  if (!isExternalAuthEvidenceRecord(value)) {
-    return invalidEvidence('External-auth broker returned an invalid evidence object');
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error };
   }
 
-  switch (value.kind) {
-    case 'google_id_token':
-      return typeof value.idToken === 'string' && value.idToken.trim()
-        ? { kind: 'google_id_token', idToken: value.idToken.trim() }
-        : invalidEvidence('External-auth broker returned an empty Google ID token');
-    case 'cancelled':
-      return value.reason === 'user_cancelled'
-        ? { kind: 'cancelled', reason: 'user_cancelled' }
-        : invalidEvidence('External-auth broker returned an invalid cancellation reason');
-    case 'failed':
-      if (
-        (value.code === 'provider_unavailable' ||
-          value.code === 'provider_error' ||
-          value.code === 'invalid_evidence') &&
-        typeof value.message === 'string' &&
-        value.message.trim()
-      ) {
-        return {
-          kind: 'failed',
-          code: value.code,
-          message: value.message.trim(),
-        };
-      }
-      return invalidEvidence('External-auth broker returned an invalid failure branch');
-    default:
-      return invalidEvidence('External-auth broker returned an unknown evidence branch');
-  }
-}
-
-function providerFailureEvidence(
-  code: 'provider_unavailable' | 'provider_error',
-  message: string,
-): HostedAuthMenuExternalAuthEvidence {
-  return { kind: 'failed', code, message };
-}
-
-function assertMatchingExternalAuthRequest(
-  request: HostedAuthMenuExternalAuthRequest,
-  authMenuSessionId: HostedAuthMenuSessionId,
-): HostedAuthMenuExternalAuthRequestId | null {
-  if (request.authMenuSessionId !== authMenuSessionId) return null;
-  return hostedAuthMenuExternalAuthRequestIdFromBoundary(request.externalAuthRequestId);
-}
-
-function hostedAuthMenuEffectConfigKey(config: HostedAuthMenuEffectConfig): string {
-  const configSessionId = hostedAuthMenuSessionIdFromBoundary('react-effect-config');
-  if (!configSessionId) return 'invalid';
-
-  try {
-    const normalized = buildHostedAuthMenuOpenRequest({
-      authMenuSessionId: configSessionId,
-      initialMode: config.initialMode,
-      registrationAccountInput: config.registrationAccountInput,
-      showRegistrationInput: config.showRegistrationInput,
-      showProgress: config.showProgress,
-      copy: config.copy,
-      enabledExternalProviders: config.enabledExternalProviders,
-    });
-    return JSON.stringify({
-      initialMode: normalized.initialMode,
-      registrationAccountInput: normalized.registrationAccountInput,
-      showRegistrationInput: normalized.showRegistrationInput,
-      showProgress: normalized.showProgress,
-      copy: normalized.copy,
-      enabledExternalProviders: normalized.enabledExternalProviders,
-    });
-  } catch {
-    return 'invalid';
-  }
-}
-
-function hostedAuthMenuEffectDependencies(args: {
-  seams: SeamsWeb | null;
-  configKey: string;
-}): HostedAuthMenuEffectDependencies {
-  return [args.seams, args.configKey];
-}
-
-function hostedAuthMenuEffectDependenciesEqual(
-  left: HostedAuthMenuEffectDependencies,
-  right: HostedAuthMenuEffectDependencies,
-): boolean {
-  if (left.length !== right.length) return false;
-  return left.every((value, index) => Object.is(value, right[index]));
-}
-
-function runDeferredHostedAuthMenuCleanup(args: {
-  pendingCleanupRef: React.MutableRefObject<HostedAuthMenuPendingCleanup | null>;
-  pendingCleanup: HostedAuthMenuPendingCleanup;
-}): void {
-  if (args.pendingCleanupRef.current !== args.pendingCleanup) return;
-  args.pendingCleanupRef.current = null;
-  args.pendingCleanup.session.cleanup();
-}
-
-function deferHostedAuthMenuCleanup(args: {
-  pendingCleanupRef: React.MutableRefObject<HostedAuthMenuPendingCleanup | null>;
-  pendingCleanup: HostedAuthMenuPendingCleanup;
-}): void {
-  const run = runDeferredHostedAuthMenuCleanup.bind(null, args);
-  if (typeof queueMicrotask === 'function') {
-    queueMicrotask(run);
-    return;
-  }
-  void Promise.resolve().then(run);
-}
-
-class HostedAuthMenuSessionController {
-  private readonly seams: SeamsAuthMenuBridge;
-  private readonly authMenuSessionId: HostedAuthMenuSessionId;
-  private readonly initialMode: HostedAuthMenuMode;
-  private readonly registrationAccountInput: SeamsAuthMenuProps['registrationAccountInput'];
-  private readonly showRegistrationInput: boolean;
-  private readonly showProgress: boolean;
-  private readonly copy: SeamsAuthMenuProps['copy'];
-  private readonly externalAuthBroker: BrokerRef;
-  private readonly onOutcome: OutcomeRef;
-  private readonly externalAuthRequestIds = new Set<HostedAuthMenuExternalAuthRequestId>();
-  private readonly handleExternalAuthRequestBound: (
-    request: HostedAuthMenuExternalAuthRequest,
-  ) => void;
-  private unsubscribeExternalAuthRequest: (() => void) | null = null;
-  private isActive = false;
-  private hasOpenRequest = false;
-  private hasTerminalOutcome = false;
-  private hasFinalizedCleanup = false;
-
-  constructor(args: HostedAuthMenuSessionArgs) {
-    this.seams = args.seams;
-    this.authMenuSessionId = args.authMenuSessionId;
-    this.initialMode = args.initialMode;
-    this.registrationAccountInput = args.registrationAccountInput;
-    this.showRegistrationInput = args.showRegistrationInput;
-    this.showProgress = args.showProgress;
-    this.copy = args.copy;
-    this.externalAuthBroker = args.externalAuthBroker;
-    this.onOutcome = args.onOutcome;
-    this.handleExternalAuthRequestBound = this.handleExternalAuthRequest.bind(this);
-  }
-
-  start(): void {
-    if (this.isActive) return;
-    this.isActive = true;
-    this.unsubscribeExternalAuthRequest = this.seams.onHostedAuthMenuExternalAuthRequest(
-      this.handleExternalAuthRequestBound,
-    );
-    void this.open();
-  }
-
-  cleanup(): void {
-    this.cleanupWithMode({ kind: 'component_unmounted' });
-  }
-
-  cleanupForSyntheticRemount(): void {
-    this.cleanupWithMode({ kind: 'synthetic_remount' });
-  }
-
-  cleanupForConfigurationChange(): void {
-    this.cleanupWithMode({ kind: 'configuration_changed' });
-  }
-
-  prepareForDeferredCleanup(): void {
-    if (!this.isActive) return;
-    this.isActive = false;
-    this.unsubscribeExternalAuthRequest?.();
-    this.unsubscribeExternalAuthRequest = null;
-    this.externalAuthRequestIds.clear();
-  }
-
-  private cleanupWithMode(mode: HostedAuthMenuCleanupMode): void {
-    if (this.hasFinalizedCleanup) return;
-    this.hasFinalizedCleanup = true;
-    this.prepareForDeferredCleanup();
-
-    if (mode.kind === 'component_unmounted' && !this.hasTerminalOutcome) {
-      this.emitOutcome({
-        kind: 'cancelled',
-        authMenuSessionId: this.authMenuSessionId,
-        reason: 'component_unmounted',
-      });
-    }
-
-    if (this.hasOpenRequest) {
-      void this.seams
-        .cancelHostedAuthMenu({ authMenuSessionId: this.authMenuSessionId })
-        .catch(() => {});
-    }
-  }
-
-  private async open(): Promise<void> {
-    await Promise.resolve();
-    if (!this.isActive) return;
-
-    let request;
-    try {
-      request = buildHostedAuthMenuOpenRequest({
-        authMenuSessionId: this.authMenuSessionId,
-        initialMode: this.initialMode,
-        registrationAccountInput: this.registrationAccountInput,
-        showRegistrationInput: this.showRegistrationInput,
-        showProgress: this.showProgress,
-        copy: this.copy,
-        enabledExternalProviders: this.externalAuthBroker.current ? ['google'] : [],
-      });
-    } catch (error: unknown) {
-      this.emitFailure(failureCodeForError(error), errorMessage(error));
-      return;
-    }
-
-    try {
-      this.hasOpenRequest = true;
-      const outcome = await this.seams.openHostedAuthMenu(request);
-      if (!this.isActive) return;
-      if (outcome.authMenuSessionId !== this.authMenuSessionId) {
-        this.emitFailure(
-          'internal_error',
-          'Hosted auth-menu returned a mismatched session identity',
-        );
-        return;
-      }
-      this.emitOutcome(outcome);
-    } catch (error: unknown) {
-      if (!this.isActive) return;
-      this.emitFailure(failureCodeForError(error), errorMessage(error));
-    }
-  }
-
-  private handleExternalAuthRequest(request: HostedAuthMenuExternalAuthRequest): void {
-    if (!this.isActive) return;
-    const requestId = assertMatchingExternalAuthRequest(request, this.authMenuSessionId);
-    if (!requestId || this.externalAuthRequestIds.has(requestId)) return;
-    this.externalAuthRequestIds.add(requestId);
-    void this.resolveExternalAuthRequest(request, requestId);
-  }
-
-  private async resolveExternalAuthRequest(
-    request: HostedAuthMenuExternalAuthRequest,
-    requestId: HostedAuthMenuExternalAuthRequestId,
-  ): Promise<void> {
-    const broker = this.externalAuthBroker.current;
-    let evidence: HostedAuthMenuExternalAuthEvidence;
-    if (!broker) {
-      evidence = providerFailureEvidence(
-        'provider_unavailable',
-        'No external-auth broker is configured for this auth-menu session',
-      );
-    } else {
-      try {
-        evidence = normalizeExternalAuthEvidence(await broker(request));
-      } catch (error: unknown) {
-        evidence = providerFailureEvidence('provider_error', errorMessage(error));
-      }
-    }
-
-    if (!this.isActive) {
-      this.externalAuthRequestIds.delete(requestId);
-      return;
-    }
-
-    try {
-      await this.seams.resolveHostedAuthMenuExternalAuth({
-        kind: 'hosted_auth_menu_external_auth_resolution_v1',
-        authMenuSessionId: this.authMenuSessionId,
-        externalAuthRequestId: requestId,
-        evidence,
-      });
-    } catch {
-      // The router ignores stale resolutions after cancellation or a terminal outcome.
-    } finally {
-      this.externalAuthRequestIds.delete(requestId);
-    }
-  }
-
-  private emitFailure(code: HostedAuthMenuFailureCode, message: string): void {
-    this.emitOutcome({
-      kind: 'failed',
-      authMenuSessionId: this.authMenuSessionId,
-      code,
-      message,
-    });
-  }
-
-  private emitOutcome(outcome: HostedAuthMenuOutcome): void {
-    if (this.hasTerminalOutcome) return;
-    this.hasTerminalOutcome = true;
-    try {
-      this.onOutcome.current(outcome);
-    } catch {
-      // An application callback cannot invalidate the wallet-host terminal state.
-    }
-  }
-}
-
-function useOptionalSeams(): SeamsWeb | null {
-  try {
-    return useSeams().seams;
-  } catch (error: unknown) {
-    if (typeof window === 'undefined') return null;
-    throw error;
-  }
-}
-
-export const SeamsAuthMenu: React.FC<SeamsAuthMenuProps> = ({
-  initialMode = 'login',
-  registrationAccountInput = 'implicit_wallet',
-  showRegistrationInput = false,
-  showProgress = true,
-  copy,
-  externalAuthBroker = null,
-  onOutcome,
-}) => {
-  const seams = useOptionalSeams();
-  const effectConfigRef = React.useRef<HostedAuthMenuEffectConfig>({
-    initialMode,
-    registrationAccountInput,
-    showRegistrationInput,
-    showProgress,
-    copy,
-    enabledExternalProviders: externalProvidersForBroker(externalAuthBroker),
-  });
-  const externalAuthBrokerRef = React.useRef<HostedAuthMenuExternalAuthBroker | null>(
-    externalAuthBroker,
-  );
-  const onOutcomeRef = React.useRef<SeamsAuthMenuProps['onOutcome']>(onOutcome);
-  const pendingCleanupRef = React.useRef<HostedAuthMenuPendingCleanup | null>(null);
-  effectConfigRef.current = {
-    initialMode,
-    registrationAccountInput,
-    showRegistrationInput,
-    showProgress,
-    copy,
-    enabledExternalProviders: externalProvidersForBroker(externalAuthBroker),
+  retry = () => {
+    this.setState({ error: null });
+    this.props.onRetry();
   };
-  externalAuthBrokerRef.current = externalAuthBroker;
-  onOutcomeRef.current = onOutcome;
-  const effectConfigKey = hostedAuthMenuEffectConfigKey(effectConfigRef.current);
 
-  React.useEffect(() => {
-    const dependencies = hostedAuthMenuEffectDependencies({
-      seams,
-      configKey: effectConfigKey,
-    });
-    const previousCleanup = pendingCleanupRef.current;
-    if (previousCleanup) {
-      pendingCleanupRef.current = null;
-      if (hostedAuthMenuEffectDependenciesEqual(previousCleanup.dependencies, dependencies)) {
-        previousCleanup.session.cleanupForSyntheticRemount();
-      } else {
-        previousCleanup.session.cleanupForConfigurationChange();
-      }
+  componentDidCatch(error: Error) {
+    this.props.onError?.(error);
+  }
+
+  render() {
+    if (this.state.error) {
+      return this.props.fallback({ error: this.state.error, retry: this.retry });
     }
-    if (!seams || typeof window === 'undefined') return undefined;
+    return this.props.children;
+  }
+}
 
-    const config = effectConfigRef.current;
-    const session = new HostedAuthMenuSessionController({
-      seams,
-      authMenuSessionId: createHostedAuthMenuSessionId(),
-      initialMode: config.initialMode,
-      registrationAccountInput: config.registrationAccountInput,
-      showRegistrationInput: config.showRegistrationInput,
-      showProgress: config.showProgress,
-      copy: config.copy,
-      externalAuthBroker: externalAuthBrokerRef,
-      onOutcome: onOutcomeRef,
-    });
-    session.start();
-    const pendingCleanup = { session, dependencies };
-    return () => {
-      pendingCleanupRef.current = pendingCleanup;
-      session.prepareForDeferredCleanup();
-      deferHostedAuthMenuCleanup({ pendingCleanupRef, pendingCleanup });
-    };
-  }, [seams, effectConfigKey]);
+/**
+ * `SeamsAuthMenu` — SSR-safe shell.
+ *
+ * - Server: renders a skeleton only.
+ * - Client: lazy-loads the full implementation after mount.
+ */
+export const SeamsAuthMenu: React.FC<SeamsAuthMenuProps> = (props) => {
+  const [isClient, setIsClient] = React.useState(() => {
+    if (typeof window === 'undefined') return false;
+    return didClientMountOnce;
+  });
+  const forceInitialRegisterRef = React.useRef(
+    !didClientMountOnce && props.defaultMode === AuthMenuMode.Register,
+  );
+  const [retryKey, setRetryKey] = React.useState(0);
+  const ClientLazy = React.useMemo(() => getClientLazy(retryKey), [retryKey]);
 
-  return <span data-seams-auth-menu-host="true" aria-hidden="true" />;
+  // Align with the SDK Theme boundary when present (SeamsWebProvider wraps one by default).
+  // Falls back to system preference when used standalone.
+  const { theme, tokens } = useTheme();
+
+  useIsomorphicLayoutEffect(() => {
+    didClientMountOnce = true;
+    setIsClient(true);
+    // Start fetching the client chunk immediately; the skeleton remains as the Suspense fallback.
+    autoPreloadClientChunk();
+  }, []);
+
+  const skeleton = (
+    <SeamsAuthMenuSkeletonInner
+      className={props.className}
+      style={props.style}
+      defaultMode={props.defaultMode}
+      headings={props.headings}
+      emailOtpAuthPolicy={props.emailOtpAuthPolicy}
+      registrationAccountInput={props.registrationAccountInput}
+      showRegistrationInput={props.showRegistrationInput}
+    />
+  );
+
+  return (
+    <SeamsAuthMenuThemeScope theme={theme} tokens={tokens}>
+      {isClient ? (
+        <SeamsAuthMenuHydrationContext.Provider value={forceInitialRegisterRef.current}>
+          <LazyErrorBoundary
+            onRetry={() => setRetryKey((k) => k + 1)}
+            onError={() => invalidateClientLazy(retryKey)}
+            fallback={({ retry }) => (
+              <div>
+                {skeleton}
+                <div style={{ marginTop: 10, fontSize: 12, textAlign: 'center', opacity: 0.9 }}>
+                  Failed to load menu.{' '}
+                  <button type="button" onClick={retry} style={{ textDecoration: 'underline' }}>
+                    Retry
+                  </button>
+                </div>
+              </div>
+            )}
+          >
+            <React.Suspense fallback={skeleton}>
+              <ClientLazy {...props} />
+            </React.Suspense>
+          </LazyErrorBoundary>
+        </SeamsAuthMenuHydrationContext.Provider>
+      ) : (
+        skeleton
+      )}
+    </SeamsAuthMenuThemeScope>
+  );
 };
 
 export default SeamsAuthMenu;
