@@ -636,7 +636,11 @@ root derivation after random-root registration lands.
 - [x] Implement the wallet recovery envelope-set crypto
       (`crates/signer-core/src/wallet_recovery_custody.rs`): code KEK opens the
       manifest KEK, manifest KEK derives per-entry KEKs.
-- [ ] Expose the custody seal/open through the browser worker's wasm boundary.
+- [x] Expose the custody seal/open through the browser worker's wasm boundary
+      (`wasm/near_signer/src/passkey_custody_wasm.rs`). Opened material returns
+      as an opaque handle with no byte accessor, and custody secrets are
+      generated inside Rust, so JavaScript can neither read nor supply plaintext
+      custody material.
 - [ ] Implement recovery-code reservation (server-side lifecycle, distinct from
       the wrap crypto above).
 - [x] Implement the server-side opaque passkey-envelope store with exact
