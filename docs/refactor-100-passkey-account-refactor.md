@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Last reconciled: August 6, 2026 (Phase 1 complete)
+Last reconciled: August 7, 2026 (single-seed custody revision adopted)
 
 Status: active design plan. Same-device passkey Ed25519 sealing and rehydration,
 durable ECDSA material identity, and the current Email OTP wallet lifecycle have
@@ -49,22 +49,30 @@ This plan does not introduce an alternate signing protocol.
 
 ## Goal
 
-Make passkeys authentication and unwrap factors for random, rotatable client
-custody material.
+Make passkeys and Email OTP interchangeable authentication and unwrap factors
+for one random, rotatable wallet custody seed.
 
 Target shape:
 
 ```text
-WebAuthn user verification + PRF output
-  -> passkey KEK inside the secure worker
-  -> opens one exact client-root or holder-share envelope
-  -> creates an opaque live capability
+WebAuthn user verification + PRF output   (or the Email OTP factor secret)
+  -> factor KEK inside the secure worker
+  -> opens the wallet custody seed envelope (or one lane holder-share envelope)
+  -> parallel domain-separated HKDF derives each owner signing root from the seed
+  -> creates an opaque live capability per key
   -> capability participates in the existing Ed25519 or ECDSA lifecycle
 ```
 
+Adopted August 7, 2026: both factor kinds wrap the same wallet custody seed in
+factor-specific envelopes, so one wallet can hold passkey and Email OTP unwrap
+paths to identical signing material, and enrolling or revoking one factor never
+touches the other factor's envelope or the seed itself.
+
 The passkey PRF output is limited to KEK derivation and authentication binding.
-It does not define a wallet key, Yao Client root, ECDSA client root share, or
-lane holder share after this refactor.
+It does not define a wallet key, custody seed, Yao Client root, ECDSA client
+root share, or lane holder share after this refactor. Every owner signing root
+derives from the seed in parallel; no signing root is ever derived from another
+signing root.
 
 ## Required Invariants
 
@@ -154,17 +162,24 @@ does not close any portable-custody phase below: it contains the activated
 Client scalar share derived from the current deterministic Client root, lives
 only in browser storage, and requires the same credential's PRF output.
 
-The refactor changes both passkey root sources:
+The refactor changes every owner root source:
 
 ```text
-current Ed25519: PRF.first -> deterministic Yao Client root
-target Ed25519:  random Yao Client root -> passkey-sealed root envelope
+current passkey Ed25519: PRF.first -> deterministic Yao Client root
+current passkey ECDSA:   PRF.first -> deterministic client root share
+current Email OTP:       random secret32 -> Ed25519 Yao Client root
+                         -> ECDSA client root share (chained from the Ed25519
+                            root: a key-separation defect, deleted by Phase 1B)
 
-current ECDSA:   PRF.first -> deterministic client root share
-target ECDSA:    random client root share -> passkey-sealed root envelope
+target, both factors:
+  random wallet custody seed (generated in Rust)
+    -> Ed25519 Yao Client root = HKDF(seed, ed25519 label)
+    -> ECDSA client root share = HKDF(seed, ecdsa label)
+  seed sealed independently under each enrolled factor KEK and under the
+  recovery manifest KEK
 ```
 
-New registrations use random roots from their first ceremony. Since the project
+New registrations use a random seed from their first ceremony. Since the project
 is in development, test wallets and obsolete persisted records are discarded
 when the new registration path lands. Any retained wallet requires an explicit
 identity-preserving protocol from Refactor 102; an envelope rewrite can never
@@ -178,16 +193,22 @@ The envelope plaintext must identify the protocol capability it restores.
 ```ts
 type PasskeyCustodySecretBinding =
   | {
-      kind: 'ed25519_yao_client_root_v1';
-      walletKeyId: WalletKeyId;
-      laneId: SigningLaneId;
-      laneShareEpoch: LaneShareEpoch;
+      // One random seed per wallet. Every owner signing root is derived from
+      // it in parallel with domain-separated HKDF; no signing root is derived
+      // from another signing root. Each enrolled factor wraps this same seed.
+      kind: 'wallet_custody_seed_v1';
+      derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1';
+      keyManifestDigestB64u: string;
       nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-      keyCreationSignerSlot: KeyCreationSignerSlot;
-      stableContextDigestB64u: string;
-      participantBindingDigestB64u: string;
-      evmFamilySigningKeySlotId?: never;
+      registeredPublicKeyB64u: string;
+      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+      clientRootPublicKey33B64u: string;
+      walletKeyId?: never;
+      laneId?: never;
+      laneShareEpoch?: never;
+      participantBindingDigestB64u?: never;
       thresholdSessionId?: never;
+      thresholdPublicKey33B64u?: never;
     }
   | {
       kind: 'ed25519_lane_holder_share_v1';
@@ -197,22 +218,12 @@ type PasskeyCustodySecretBinding =
       nearEd25519SigningKeyId: NearEd25519SigningKeyId;
       registeredPublicKeyB64u: string;
       participantBindingDigestB64u: string;
-      keyCreationSignerSlot?: never;
-      stableContextDigestB64u?: never;
+      derivationScheme?: never;
+      keyManifestDigestB64u?: never;
       evmFamilySigningKeySlotId?: never;
+      clientRootPublicKey33B64u?: never;
       thresholdSessionId?: never;
-    }
-  | {
-      kind: 'ecdsa_client_root_share_v1';
-      walletKeyId: WalletKeyId;
-      laneId: SigningLaneId;
-      laneShareEpoch: LaneShareEpoch;
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-      applicationBindingDigestB64u: string;
-      clientRootPublicKey33B64u: string;
-      nearEd25519SigningKeyId?: never;
-      keyCreationSignerSlot?: never;
-      thresholdSessionId?: never;
+      thresholdPublicKey33B64u?: never;
     }
   | {
       kind: 'ecdsa_lane_holder_share_v1';
@@ -223,13 +234,19 @@ type PasskeyCustodySecretBinding =
       // Protocol-session binding only; this is not a durable key or material identity.
       thresholdSessionId: ThresholdEcdsaSessionId;
       thresholdPublicKey33B64u: string;
+      derivationScheme?: never;
+      keyManifestDigestB64u?: never;
       nearEd25519SigningKeyId?: never;
-      keyCreationSignerSlot?: never;
+      registeredPublicKeyB64u?: never;
+      participantBindingDigestB64u?: never;
       clientRootPublicKey33B64u?: never;
     };
 ```
 
-Owner registration and same-root recovery use the root branches. A physical
+Owner registration and same-root recovery use the seed branch. The Yao
+key-creation signer slot and stable-context binding are registration-ceremony
+facts owned by the Yao boundary; they are verified there against the derived
+root, not stored in custody. A physical
 linked-device lane may receive a lane-specific holder-share branch produced by
 the protocol in Refactor 102. Refactor 104 owns agent-key custody and any
 optional delegated-execution holder package; it cannot reuse passkey custody
@@ -275,15 +292,29 @@ type PasskeyCustodyEnvelopeLifecycle =
       retiredAtMs?: never;
     };
 
+// Which enrolled factor sealed this envelope. Factors are interchangeable
+// unwrap paths to the same custody seed; each factor has its own envelope,
+// KEK derivation, and revocation.
+type WalletCustodyEnvelopeFactor =
+  | {
+      kind: 'passkey';
+      rpId: string;
+      credentialIdB64u: string;
+      kekVersion: 'passkey_prf_kek_hkdf_sha256_v1';
+    }
+  | {
+      kind: 'email_otp';
+      enrollmentId: string;
+      enrollmentSealKeyVersion: string;
+      kekVersion: 'email_otp_factor_kek_hkdf_sha256_v1';
+    };
+
 type PasskeyCustodyEnvelopeRecord = {
-  kind: 'passkey_custody_envelope_v1';
+  kind: 'wallet_custody_envelope_v2';
   envelopeId: PasskeyEnvelopeId;
   walletId: WalletId;
   binding: PasskeyCustodySecretBinding;
-  rpId: string;
-  credentialIdB64u: string;
-  passkeyEnvelopeVersion: 'passkey_custody_envelope_v1';
-  passkeyKekVersion: 'passkey_prf_kek_hkdf_sha256_v1';
+  factor: WalletCustodyEnvelopeFactor;
   envelopeRevision: number;
   nonceB64u: string;
   sealedCustodySecretB64u: string;
@@ -295,9 +326,10 @@ type PasskeyCustodyEnvelopeRecord = {
 };
 ```
 
-The record above is the target replacement for the current generic
-`PasskeyHolderShareEnvelopeRecord` scaffold. It stores ciphertext and public
-binding data. It cannot store a raw secret, PRF output, KEK, recovery code, or
+The record above supersedes the landed passkey-only
+`passkey_custody_envelope_v1` shape (Phase 1B task): the factor union makes
+passkey and Email OTP interchangeable unwrap paths to the same custody seed.
+It stores ciphertext and public binding data. It cannot store a raw secret, PRF output, KEK, recovery code, or
 live capability handle. It also carries no `AuthorizationGrantRef`,
 `WalletSessionId`, `MpcWalletSigningQuotaId`, `AuthorizedOperationId`, or
 bearer-session identity; those values are resolved for an operation by the
@@ -361,7 +393,10 @@ type WalletRecoveryEnvelopeSetRecord = {
 };
 ```
 
-The manifest contains the exact active owner key/lane set. Parsing rejects an
+The manifest contains the exact active owner key/lane set. Under the
+single-seed model the owner coverage is one `wallet_custody_seed_v1` entry;
+per-lane holder-share entries appear only for linked-device lanes. Parsing
+rejects an
 empty set, duplicate wallet keys, duplicate lanes, omitted required keys, and
 entries outside the authenticated wallet.
 
@@ -398,7 +433,8 @@ Envelope AAD includes:
 - participant or threshold-session binding;
 - Yao stable-context and key-creation signer slot where applicable;
 - Router A/B signing-root identity and version;
-- credential ID and RP ID;
+- factor kind, plus credential ID and RP ID (passkey) or enrollment
+  identity (Email OTP);
 - envelope, KEK, and protocol versions.
 
 `MpcMaterialActivationRef` is bound when opened material enters the canonical
@@ -416,17 +452,20 @@ arbitrary AAD blob.
 2. Create the `WalletKey` inventory and owner lane identities.
 3. Create the passkey and obtain required PRF output inside the secure-confirm
    worker.
-4. Generate independent random client custody roots inside Rust/WASM:
-   - one Yao Client root for each new Ed25519 wallet key;
-   - one Router A/B ECDSA client root share for the EVM-family wallet key.
+4. Generate one random wallet custody seed inside Rust/WASM and derive every
+   owner signing root from it in parallel with domain-separated HKDF:
+   - the Ed25519 Yao Client root;
+   - the Router A/B ECDSA client root share.
+   No signing root derives from another signing root.
 5. Execute the existing key-family registration protocols with those imported
-   random roots.
+   seed-derived roots.
 6. Verify the returned Ed25519 public key, ECDSA public key, EVM address,
    participant bindings, threshold sessions, and the Wallet Session
    authorization (`AuthorizationGrantRef`, `WalletSessionId`, and
    `MpcWalletSigningQuotaId`) established by the canonical Refactor 90 path.
-7. Seal every client root under the passkey KEK.
-8. Create the recovery envelope sets from the same roots.
+7. Seal the wallet custody seed under the registering factor's KEK; each
+   later-enrolled factor seals the same seed in its own envelope.
+8. Create the recovery envelope sets from the same seed.
 9. Submit the registration effects to their canonical durable owners using one
    exact registration correlation. Gateway D1 owns the product ceremony,
    public wallet records, passkey-envelope metadata/ciphertext, recovery-set
@@ -441,10 +480,11 @@ arbitrary AAD blob.
    present, the browser performs one atomic IndexedDB finalization for local
    envelopes, public projections, and lifecycle facts. Registration reports
    cross-device custody ready only after that convergence.
-10. Zeroize root and PRF inputs on every exit.
+10. Zeroize seed, derived-root, and PRF inputs on every exit.
 
-The Yao Client-root source becomes a precise union with a generated-random-root
-branch. The PRF-derived-root branch is deleted when this flow lands.
+The Yao Client-root source becomes a precise union with a seed-derived-root
+branch. The PRF-derived-root branch and the Email OTP chained derivations are
+deleted when this flow lands.
 
 ## Unlock And Ordinary Signing
 
@@ -452,7 +492,9 @@ branch. The PRF-derived-root branch is deleted when this flow lands.
    wallet and credential. A matching browser cache may satisfy the ciphertext
    read only after exact revision and digest validation.
 2. Run WebAuthn and derive the passkey KEK inside the worker.
-3. Open only the custody entries required by the requested lane and key.
+3. Open only the custody entries the requested operation needs: the seed
+   entry restores every owner signing root in one open; lane holder-share
+   entries stay per-lane.
 4. Convert opened material into opaque Rust/WASM handles:
    - an Ed25519 Yao Client capability or lane holder capability;
    - an ECDSA role-local client-root or holder-share capability.
@@ -666,10 +708,37 @@ root derivation after random-root registration lands.
       (`crates/signer-core/tests/passkey_custody_envelope.rs` and
       `crates/signer-core/tests/wallet_recovery_custody.rs`).
 
-### Phase 2: Random-Root Registration
+### Phase 1B: Single-Seed Custody Revision
 
-- [ ] Add generated-random Client-root input to Yao registration.
-- [ ] Add generated-random client-root-share input to ECDSA derivation.
+Adopted August 7, 2026. Passkey and Email OTP become interchangeable unwrap
+factors for one wallet custody seed, and every owner signing root derives from
+the seed in parallel. This also removes an Email OTP key-separation defect:
+the ECDSA client root share and unlock auth seed were chained from the Ed25519
+Yao Client root, so any holder of that root could compute both. No OTP wallets
+exist in production; wiping dev wallets was approved August 7, 2026.
+
+- [x] Amend this plan for single-seed custody, parallel derivation, and
+      factor-kind envelopes (this revision).
+- [ ] Replace Email OTP's chained derivations with parallel domain-separated
+      derivation from `secret32`; delete the chained paths and their v1
+      labels.
+- [ ] Collapse the custody-secret union's two owner root branches into one
+      `wallet_custody_seed_v1` branch; lane holder-share branches unchanged.
+- [ ] Add the factor-kind union (`passkey` | `email_otp`) to the custody
+      envelope record, KEK context, server store, and authenticated
+      retrieval.
+- [ ] Mirror the union and factor changes in the signer-core binding, AAD
+      encoding, and the near_signer wasm boundary.
+- [ ] Implement seed -> parallel HKDF derivation of the Ed25519 Yao Client
+      root and ECDSA client root share for the shared custody path; freeze
+      the domain-separation labels.
+- [ ] Wipe dev OTP wallets and obsolete persisted records with the Phase 2
+      test-wallet reset.
+
+### Phase 2: Seed-Root Registration
+
+- [ ] Add seed-derived Client-root input to Yao registration.
+- [ ] Add seed-derived client-root-share input to ECDSA derivation.
 - [ ] Commit server-held mixed-wallet passkey envelopes and recovery envelope
       sets with the registration result.
 - [ ] Delete PRF-derived signing-root paths after replacement.
@@ -720,7 +789,8 @@ root derivation after random-root registration lands.
 
 Static checks:
 
-- an Ed25519 root envelope with ECDSA fields fails;
+- a custody seed envelope with lane or holder-share fields fails;
+- a lane holder-share envelope with the other curve's fields fails;
 - an ECDSA holder-share envelope without a threshold session fails;
 - a linked-device holder-share envelope with a key-creation root field fails;
 - an active envelope without credential, lane, key, or AAD identity fails;
@@ -781,7 +851,15 @@ Broad gate:
   Random 12-byte nonces are safe here because each envelope's KEK is unique
   (the envelope ID is HKDF info) and one envelope is sealed only a handful of
   times across rewraps. The envelope parser accepts exactly 12-byte nonces.
-- Freeze the exact random-root generation API for Yao and ECDSA derivation.
+- FROZEN (August 7, 2026) — root generation: one random 32-byte wallet
+  custody seed generated inside Rust (`getrandom`), with every owner signing
+  root derived from it in parallel by domain-separated HKDF-SHA256 (Ed25519
+  Yao Client root and Router A/B ECDSA client root share; distinct labels, no
+  chained derivation). Passkey and Email OTP wrap the same seed in
+  factor-specific envelopes. Email OTP's landed chained derivation (ECDSA
+  client share and unlock auth seed derived from the Ed25519 threshold root)
+  is a key-separation defect and is deleted; dev OTP wallets are wiped
+  (approved August 7, 2026 — none in production).
 - FROZEN (August 6, 2026) — recovery-code wrapping uses a manifest KEK: each
   of the ten codes wraps one random 32-byte manifest KEK
   (`WalletRecoveryManifestKekWrap`, purpose `wallet_recovery_manifest_kek`),
