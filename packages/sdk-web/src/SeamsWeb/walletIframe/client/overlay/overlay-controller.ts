@@ -1,7 +1,5 @@
 import type { HostedAuthMenuSessionId } from '../../shared/messages';
-import type {
-  RequestSurfaceIdentity,
-} from '../surface/domain';
+import type { RequestSurfaceIdentity } from '../surface/domain';
 import {
   walletIframeSurfaceGeometryEqual,
   type WalletIframeSurfaceGeometry,
@@ -12,6 +10,7 @@ import {
   ensureOverlayDialog,
   OverlayStyleClasses,
   setDialogGeometry,
+  setDialogAuthMenu,
   setDialogPresentation,
   setHidden,
   setVisible,
@@ -49,7 +48,9 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled wallet iframe overlay mode: ${String(value)}`);
 }
 
-function presentationKind(mode: Exclude<OverlayRenderMode, { kind: 'hidden' }>): 'modal' | 'drawer' {
+function presentationKind(
+  mode: Exclude<OverlayRenderMode, { kind: 'hidden' }>,
+): 'modal' | 'drawer' {
   switch (mode.kind) {
     case 'compact_request_modal':
     case 'compact_auth_menu':
@@ -94,10 +95,7 @@ function diagnosticsMode(mode: OverlayRenderMode): OverlayControllerState['mode'
   }
 }
 
-function sameIdentity(
-  left: OverlayRenderMode,
-  right: OverlayRenderMode,
-): boolean {
+function sameIdentity(left: OverlayRenderMode, right: OverlayRenderMode): boolean {
   if (left.kind === 'hidden' || right.kind === 'hidden') return left.kind === right.kind;
   if (
     left.identity.surfaceId !== right.identity.surfaceId ||
@@ -141,15 +139,14 @@ export class OverlayController {
   private suppressCloseDismiss = false;
   private listenersInstalled = false;
   private lastAppliedGeometry: WalletIframeSurfaceGeometry | null = null;
+  private dialogDisplayMode: 'modal' | 'nonmodal' | null = null;
 
   constructor(opts: OverlayControllerOptions) {
     this.ensureIframe = opts.ensureIframe;
     this.dismissHandler = opts.onDismiss;
   }
 
-  setDismissHandler(
-    handler: (event: OverlayDismissEvent) => void | Promise<void>,
-  ): void {
+  setDismissHandler(handler: (event: OverlayDismissEvent) => void | Promise<void>): void {
     this.dismissHandler = handler;
   }
 
@@ -176,7 +173,6 @@ export class OverlayController {
     if (!this.dialog) {
       const dialog = document.createElement('dialog');
       ensureOverlayDialog(dialog);
-      dialog.setAttribute('aria-modal', 'true');
       dialog.addEventListener('cancel', this.handleCancel);
       dialog.addEventListener('close', this.handleClose);
       dialog.addEventListener('pointerdown', this.handlePointerDown);
@@ -205,6 +201,17 @@ export class OverlayController {
   private applyVisible(mode: Exclude<OverlayRenderMode, { kind: 'hidden' }>): void {
     const { dialog, iframe } = this.ensureDialog();
     const identityChanged = !sameIdentity(this.mode, mode);
+    const authMenu = mode.kind === 'compact_auth_menu';
+    const geometryChanged =
+      !this.lastAppliedGeometry ||
+      !walletIframeSurfaceGeometryEqual(this.lastAppliedGeometry, mode.geometry);
+    const animateAuthMenuResize =
+      authMenu &&
+      !identityChanged &&
+      geometryChanged &&
+      this.lastAppliedGeometry !== null &&
+      geometryKind(this.lastAppliedGeometry) !== 'provisional' &&
+      geometryKind(mode.geometry) !== 'provisional';
     if (identityChanged) {
       this.generation += 1;
       this.pointerCapture = null;
@@ -215,10 +222,9 @@ export class OverlayController {
 
     setVisible(iframe);
     setDialogPresentation(dialog, presentationKind(mode), geometryKind(mode.geometry));
-    if (
-      !this.lastAppliedGeometry ||
-      !walletIframeSurfaceGeometryEqual(this.lastAppliedGeometry, mode.geometry)
-    ) {
+    setDialogAuthMenu(dialog, authMenu, animateAuthMenuResize);
+    dialog.setAttribute('aria-modal', authMenu ? 'false' : 'true');
+    if (geometryChanged) {
       setDialogGeometry(dialog, mode.geometry);
       this.lastAppliedGeometry = mode.geometry;
     }
@@ -228,16 +234,32 @@ export class OverlayController {
     dialog.setAttribute('aria-label', mode.presentation.title);
     dialog.classList.remove(OverlayStyleClasses.HIDDEN);
 
+    const requestedDisplayMode = authMenu ? 'nonmodal' : 'modal';
+    if (dialog.open && this.dialogDisplayMode !== requestedDisplayMode) {
+      this.suppressCloseDismiss = true;
+      dialog.close();
+      this.suppressCloseDismiss = false;
+      this.dialogDisplayMode = null;
+    }
     if (!dialog.open) {
-      this.showModal(dialog);
+      this.showDialog(dialog, requestedDisplayMode);
     }
   }
 
-  private showModal(dialog: HTMLDialogElement): void {
+  private showDialog(dialog: HTMLDialogElement, displayMode: 'modal' | 'nonmodal'): void {
+    if (displayMode === 'nonmodal') {
+      if (typeof dialog.show !== 'function') {
+        throw new Error('Wallet iframe overlay requires native HTMLDialogElement.show support');
+      }
+      dialog.show();
+      this.dialogDisplayMode = 'nonmodal';
+      return;
+    }
     if (typeof dialog.showModal !== 'function') {
       throw new Error('Wallet iframe overlay requires native HTMLDialogElement.showModal support');
     }
     dialog.showModal();
+    this.dialogDisplayMode = 'modal';
   }
 
   private hideOverlay(): void {
@@ -265,6 +287,7 @@ export class OverlayController {
       this.dialog.close();
       this.suppressCloseDismiss = false;
     }
+    this.dialogDisplayMode = null;
     if (wasVisible) {
       this.restoreCapturedFocus();
     }
@@ -309,6 +332,7 @@ export class OverlayController {
   };
 
   private handleClose = (): void => {
+    this.dialogDisplayMode = null;
     if (!this.suppressCloseDismiss && this.visible) {
       this.requestDismiss('escape');
     }
@@ -329,7 +353,11 @@ export class OverlayController {
   private handlePointerUp = (event: PointerEvent): void => {
     const capture = this.pointerCapture;
     this.pointerCapture = null;
-    if (!capture || capture.pointerId !== event.pointerId || capture.generation !== this.generation) {
+    if (
+      !capture ||
+      capture.pointerId !== event.pointerId ||
+      capture.generation !== this.generation
+    ) {
       return;
     }
     if (!this.dialog || this.mode.kind === 'hidden') return;
@@ -361,6 +389,7 @@ export class OverlayController {
     this.mode = { kind: 'hidden' };
     this.visible = false;
     this.lastAppliedGeometry = null;
+    this.dialogDisplayMode = null;
     this.restoreFocus = null;
     const dialog = this.dialog;
     if (!dialog) {

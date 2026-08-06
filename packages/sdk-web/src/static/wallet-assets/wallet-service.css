@@ -34,6 +34,14 @@ body.w3a-transparent {
   pointer-events: none;
 }
 
+/* Hosted drawer integration: preserve the drag transform over the open rest position. */
+w3a-tx-confirmer[data-w3a-confirm-surface='standalone'][data-w3a-confirm-variant='drawer']
+  w3a-drawer[open]
+  .drawer.dragging,
+w3a-drawer[data-w3a-export-surface='standalone'][open] .drawer.dragging {
+  transform: translateY(var(--w3a-drawer__drag-translate, 0px));
+}
+
 :root:not([data-w3a-theme]) {
   --w3a-colors-textPrimary: #f6f7f8;
   --w3a-colors-textSecondary: rgba(255, 255, 255, 0.7);

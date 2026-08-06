@@ -204,14 +204,16 @@ import {
   type WalletIframeSurfaceEvent,
 } from './surface/domain';
 import {
+  anchorWalletIframeModalGeometry,
+  isWalletIframeModalGeometry,
   resolveWalletIframeSurfaceGeometry,
-  type WalletIframeSurfaceGeometry,
   type WalletIframeSurfaceMeasurementState,
   type WalletIframeSurfaceViewport,
 } from './surface/geometry';
 import { WalletIframeSurfaceRenderer } from './surface/renderer';
 import {
   WalletIframeTransactionSurfaceQueue,
+  type WalletIframeTransactionSurfaceDeadline,
   type WalletIframeTransactionSurfaceLease,
 } from './surface/transactionSurfaceQueue';
 import {
@@ -323,13 +325,31 @@ type Pending = {
   resolve: (value: unknown) => void;
   reject: (reason?: unknown) => void;
   timer: number | undefined;
-  timeoutMs: number;
-  deadlineAtMs: number;
+  timeout:
+    | { readonly kind: 'interactive' }
+    | { readonly kind: 'deadline'; readonly timeoutMs: number; readonly deadlineAtMs: number };
   onProgress?: (payload: ProgressPayload) => void;
   requestType: ParentToChildEnvelope['type'];
   onTimeout: () => Error;
   sessionBinding: WalletIframePendingSessionBinding;
 };
+
+type WalletIframePostOptionsBase = {
+  requestId?: WalletIframeRequestId;
+  shouldContinue?: () => boolean;
+};
+
+type WalletIframePostOptions =
+  | (WalletIframePostOptionsBase & {
+      timeout?: 'deadline';
+      timeoutMs?: number;
+      progressTimeoutExtensionFactor?: number;
+    })
+  | (WalletIframePostOptionsBase & {
+      timeout: 'interactive';
+      timeoutMs?: never;
+      progressTimeoutExtensionFactor?: never;
+    });
 
 type WalletIframeRequestAdmission =
   | {
@@ -403,6 +423,7 @@ type RequestConfirmationUiMode = 'none' | 'modal' | 'drawer';
 function confirmationUiModeForRequest(
   type: ParentToChildEnvelope['type'],
   payload: unknown,
+  fallbackUiMode?: RequestConfirmationUiMode,
 ): RequestConfirmationUiMode {
   if (type === 'PM_EXPORT_KEYPAIR_UI' && isObject(payload)) {
     const options = isObject(payload.options) ? payload.options : null;
@@ -413,21 +434,28 @@ function confirmationUiModeForRequest(
   if (!isObject(payload)) return 'modal';
   const rootConfig = isObject(payload.confirmationConfig) ? payload.confirmationConfig : null;
   const options = isObject(payload.options) ? payload.options : null;
-  const optionConfig = options && isObject(options.confirmationConfig)
-    ? options.confirmationConfig
-    : null;
-  const config = optionConfig ?? rootConfig;
-  if (!config || typeof config.uiMode !== 'string') return 'modal';
-  if (config.uiMode === 'none' || config.uiMode === 'drawer' || config.uiMode === 'modal') {
-    return config.uiMode;
+  const optionConfig =
+    options && isObject(options.confirmationConfig) ? options.confirmationConfig : null;
+  const configuredUiMode = optionConfig?.uiMode ?? rootConfig?.uiMode ?? fallbackUiMode;
+  if (
+    configuredUiMode === 'none' ||
+    configuredUiMode === 'drawer' ||
+    configuredUiMode === 'modal'
+  ) {
+    return configuredUiMode;
   }
   return 'modal';
 }
 
 function effectiveTransactionSurfaceUiMode(
   payload: unknown,
+  fallbackUiMode?: RequestConfirmationUiMode,
 ): Exclude<RequestConfirmationUiMode, 'none'> {
-  const requested = confirmationUiModeForRequest('PM_SIGN_TX_WITH_ACTIONS', payload);
+  const requested = confirmationUiModeForRequest(
+    'PM_SIGN_TX_WITH_ACTIONS',
+    payload,
+    fallbackUiMode,
+  );
   if (requested === 'none') return needsExplicitActivation() ? 'drawer' : 'modal';
   return requested;
 }
@@ -435,14 +463,17 @@ function effectiveTransactionSurfaceUiMode(
 function requestSurfacePresentationFor(
   kind: 'auth_menu',
   payload: unknown,
+  fallbackUiMode?: RequestConfirmationUiMode,
 ): WalletIframeAuthMenuPresentation;
 function requestSurfacePresentationFor(
   kind: Exclude<WalletIframeRequestSurfaceKind, 'auth_menu'>,
   payload: unknown,
+  fallbackUiMode?: RequestConfirmationUiMode,
 ): WalletIframeRequestSurfacePresentation;
 function requestSurfacePresentationFor(
   kind: WalletIframeRequestSurfaceKind,
   payload: unknown,
+  fallbackUiMode?: RequestConfirmationUiMode,
 ): WalletIframeSurfacePresentation {
   switch (kind) {
     case 'auth_menu':
@@ -450,29 +481,36 @@ function requestSurfacePresentationFor(
     case 'registration':
       return modalWalletIframeSurfacePresentation('Confirm passkey registration');
     case 'transaction':
-      return effectiveTransactionSurfaceUiMode(payload) === 'drawer'
+      return effectiveTransactionSurfaceUiMode(payload, fallbackUiMode) === 'drawer'
         ? drawerWalletIframeSurfacePresentation('Confirm transaction')
         : modalWalletIframeSurfacePresentation('Confirm transaction');
     case 'key_export_near':
     case 'key_export_threshold':
-      return confirmationUiModeForRequest('PM_EXPORT_KEYPAIR_UI', payload) === 'drawer'
+      return confirmationUiModeForRequest('PM_EXPORT_KEYPAIR_UI', payload, fallbackUiMode) ===
+        'drawer'
         ? drawerWalletIframeSurfacePresentation('Confirm key export')
         : modalWalletIframeSurfacePresentation('Confirm key export');
     case 'unlock':
-      return confirmationUiModeForRequest('PM_UNLOCK', payload) === 'drawer'
+      return confirmationUiModeForRequest('PM_UNLOCK', payload, fallbackUiMode) === 'drawer'
         ? drawerWalletIframeSurfacePresentation('Unlock wallet')
         : modalWalletIframeSurfacePresentation('Unlock wallet');
     case 'device_link':
     case 'device_link_qr':
       return modalWalletIframeSurfacePresentation('Link a device');
     case 'recovery_codes_show':
-      return confirmationUiModeForRequest('PM_SHOW_EMAIL_OTP_RECOVERY_CODES', payload) ===
-        'drawer'
+      return confirmationUiModeForRequest(
+        'PM_SHOW_EMAIL_OTP_RECOVERY_CODES',
+        payload,
+        fallbackUiMode,
+      ) === 'drawer'
         ? drawerWalletIframeSurfacePresentation('Recovery codes')
         : modalWalletIframeSurfacePresentation('Recovery codes');
     case 'recovery_codes_rotate':
-      return confirmationUiModeForRequest('PM_ROTATE_EMAIL_OTP_RECOVERY_CODES', payload) ===
-        'drawer'
+      return confirmationUiModeForRequest(
+        'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES',
+        payload,
+        fallbackUiMode,
+      ) === 'drawer'
         ? drawerWalletIframeSurfacePresentation('Rotate recovery codes')
         : modalWalletIframeSurfacePresentation('Rotate recovery codes');
     default:
@@ -511,7 +549,7 @@ function shouldHideWalletIframeSurface(payload: ProgressPayload): boolean {
 }
 
 const WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR = 4;
-const WALLET_IFRAME_SURFACE_MEASUREMENT_FALLBACK_TIMEOUT_MS = 120;
+const WALLET_IFRAME_SURFACE_MEASUREMENT_FALLBACK_TIMEOUT_MS = 500;
 const WALLET_IFRAME_REGISTRATION_TIMEOUT_MS = 180_000;
 const WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS = 30_000;
 
@@ -761,9 +799,7 @@ function requireAppSessionJwtAtParentBoundary(value: unknown): AppSessionJwt {
 }
 
 function canonicalHostedWalletRelayUrl(value: unknown): string {
-  return stripTrailingSlashes(
-    requireNonEmptyBoundaryString(value, 'hosted-wallet relayUrl'),
-  );
+  return stripTrailingSlashes(requireNonEmptyBoundaryString(value, 'hosted-wallet relayUrl'));
 }
 
 function hostedWalletSessionSourcesMatch(
@@ -772,7 +808,8 @@ function hostedWalletSessionSourcesMatch(
 ): boolean {
   return (
     left !== null &&
-    canonicalHostedWalletRelayUrl(left.relayUrl) === canonicalHostedWalletRelayUrl(right.relayUrl) &&
+    canonicalHostedWalletRelayUrl(left.relayUrl) ===
+      canonicalHostedWalletRelayUrl(right.relayUrl) &&
     left.appSessionJwt === right.appSessionJwt
   );
 }
@@ -1094,6 +1131,7 @@ export class WalletIframeRouter {
   private readonly expiredSigningSessionsByWallet = new Map<WalletId, Set<WalletSessionId>>();
   private exactSessionState: WalletIframeExactSessionState | null = null;
   private lastPreferencesChangedPayload: PreferencesChangedPayload | null = null;
+  private mirroredConfirmationUiMode: RequestConfirmationUiMode | null = null;
   private progressBus: OnEventsProgressBus;
   private debug = false;
   private readonly walletOriginUrl: URL;
@@ -1106,9 +1144,7 @@ export class WalletIframeRouter {
   private surfaceGeneration = 0;
   private activeSurfaceMeasurementGeneration = 0;
   private surfaceViewportListenersAttached = false;
-  private measurementFallbackFrame: number | null = null;
   private measurementFallbackTimer: number | null = null;
-  private measurementFallbackFrameCount = 0;
   private measurementFallbackGeneration = 0;
   private disposed = false;
   private readonly transactionSurfaceQueue = new WalletIframeTransactionSurfaceQueue();
@@ -1120,6 +1156,10 @@ export class WalletIframeRouter {
     HostedAuthMenuSessionId,
     WalletIframeConnectionId
   >();
+  private readonly hostedAuthMenuAnchors = new Map<HostedAuthMenuSessionId, HTMLElement>();
+  private hostedAuthMenuAnchorTrackingFrame: number | null = null;
+  private hostedAuthMenuAnchorTrackingSession: HostedAuthMenuSessionId | null = null;
+  private hostedAuthMenuAnchorTrackingDeadlineMs = 0;
   private readonly cancelledHostedAuthMenuSessions = new Set<HostedAuthMenuSessionId>();
 
   constructor(options: WalletIframeRouterOptions) {
@@ -1233,6 +1273,12 @@ export class WalletIframeRouter {
       }
       this.updateSurfaceViewportListeners();
       this.renderActiveWalletIframeSurface();
+      if (
+        result.surface.kind === 'modal_auth_menu' &&
+        this.hostedAuthMenuAnchors.has(result.surface.authMenuSessionId)
+      ) {
+        this.startHostedAuthMenuAnchorTracking(result.surface.authMenuSessionId);
+      }
       if (result.surface.kind !== 'hidden' && !this.activeSurfaceMeasurement) {
         this.scheduleMeasurementFallback(this.surfaceGeneration);
       }
@@ -1246,12 +1292,14 @@ export class WalletIframeRouter {
     const visualViewport = window.visualViewport;
     if (shouldAttach) {
       window.addEventListener('resize', this.handleSurfaceViewportChange);
+      window.addEventListener('scroll', this.handleSurfaceViewportChange, true);
       visualViewport?.addEventListener('resize', this.handleSurfaceViewportChange);
       visualViewport?.addEventListener('scroll', this.handleSurfaceViewportChange);
       this.surfaceViewportListenersAttached = true;
       return;
     }
     window.removeEventListener('resize', this.handleSurfaceViewportChange);
+    window.removeEventListener('scroll', this.handleSurfaceViewportChange, true);
     visualViewport?.removeEventListener('resize', this.handleSurfaceViewportChange);
     visualViewport?.removeEventListener('scroll', this.handleSurfaceViewportChange);
     this.surfaceViewportListenersAttached = false;
@@ -1267,30 +1315,11 @@ export class WalletIframeRouter {
     this.cancelMeasurementFallback();
     if (this.walletIframeSurface.kind === 'hidden') return;
     this.measurementFallbackGeneration = generation;
-    this.measurementFallbackFrameCount = 0;
     this.measurementFallbackTimer = window.setTimeout(
       this.handleMeasurementFallbackTimeout,
       WALLET_IFRAME_SURFACE_MEASUREMENT_FALLBACK_TIMEOUT_MS,
     );
-    if (typeof window.requestAnimationFrame === 'function') {
-      this.measurementFallbackFrame = window.requestAnimationFrame(
-        this.handleMeasurementFallbackFrame,
-      );
-    }
   }
-
-  private handleMeasurementFallbackFrame = (): void => {
-    const generation = this.measurementFallbackGeneration;
-    this.measurementFallbackFrame = null;
-    if (generation !== this.surfaceGeneration || this.walletIframeSurface.kind === 'hidden') return;
-    if (this.activeSurfaceMeasurement) return;
-    this.measurementFallbackFrameCount += 1;
-    if (this.measurementFallbackFrameCount >= 2) {
-      this.markMeasurementUnavailable(generation);
-      return;
-    }
-    this.measurementFallbackFrame = window.requestAnimationFrame(this.handleMeasurementFallbackFrame);
-  };
 
   private handleMeasurementFallbackTimeout = (): void => {
     this.measurementFallbackTimer = null;
@@ -1306,15 +1335,10 @@ export class WalletIframeRouter {
   }
 
   private cancelMeasurementFallback(): void {
-    if (this.measurementFallbackFrame !== null) {
-      window.cancelAnimationFrame(this.measurementFallbackFrame);
-      this.measurementFallbackFrame = null;
-    }
     if (this.measurementFallbackTimer !== null) {
       window.clearTimeout(this.measurementFallbackTimer);
       this.measurementFallbackTimer = null;
     }
-    this.measurementFallbackFrameCount = 0;
   }
 
   private handleOverlayDismiss = (event: {
@@ -1343,10 +1367,7 @@ export class WalletIframeRouter {
     if (connectionId) this.handleConnectionClosed(connectionId);
   };
 
-  private surfaceIdentityEqual(
-    left: WalletIframeSurface,
-    right: WalletIframeSurface,
-  ): boolean {
+  private surfaceIdentityEqual(left: WalletIframeSurface, right: WalletIframeSurface): boolean {
     if (left.kind === 'hidden' || right.kind === 'hidden') return left.kind === right.kind;
     if (
       left.connectionId !== right.connectionId ||
@@ -1369,12 +1390,9 @@ export class WalletIframeRouter {
     const visualViewport = window.visualViewport;
     const widthCandidate = visualViewport?.width ?? window.innerWidth;
     const heightCandidate = visualViewport?.height ?? window.innerHeight;
-    const widthCssPx = Number.isFinite(widthCandidate) && widthCandidate > 0
-      ? widthCandidate
-      : 1;
-    const heightCssPx = Number.isFinite(heightCandidate) && heightCandidate > 0
-      ? heightCandidate
-      : 1;
+    const widthCssPx = Number.isFinite(widthCandidate) && widthCandidate > 0 ? widthCandidate : 1;
+    const heightCssPx =
+      Number.isFinite(heightCandidate) && heightCandidate > 0 ? heightCandidate : 1;
     const offsetLeftCandidate = visualViewport?.offsetLeft ?? 0;
     const offsetTopCandidate = visualViewport?.offsetTop ?? 0;
     return {
@@ -1391,7 +1409,8 @@ export class WalletIframeRouter {
       this.surfaceRenderer.render(surface);
       return;
     }
-    const measurement: WalletIframeSurfaceMeasurementState | undefined = this.activeSurfaceMeasurement
+    const measurement: WalletIframeSurfaceMeasurementState | undefined = this
+      .activeSurfaceMeasurement
       ? {
           kind: 'measured',
           widthCssPx: this.activeSurfaceMeasurement.widthCssPx,
@@ -1400,12 +1419,63 @@ export class WalletIframeRouter {
       : this.activeSurfaceMeasurementUnavailable
         ? { kind: 'unavailable' }
         : undefined;
-    const geometry = resolveWalletIframeSurfaceGeometry({
+    const viewport = this.currentSurfaceViewport();
+    const resolvedGeometry = resolveWalletIframeSurfaceGeometry({
       presentation: surface.presentation,
-      viewport: this.currentSurfaceViewport(),
+      viewport,
       measurement,
     });
+    const anchor =
+      surface.kind === 'modal_auth_menu'
+        ? this.hostedAuthMenuAnchors.get(surface.authMenuSessionId)
+        : undefined;
+    const anchorRect = anchor?.isConnected ? anchor.getBoundingClientRect() : null;
+    const geometry =
+      surface.kind === 'modal_auth_menu' &&
+      anchorRect &&
+      isWalletIframeModalGeometry(resolvedGeometry)
+        ? anchorWalletIframeModalGeometry(resolvedGeometry, viewport, {
+            topCssPx: anchorRect.top,
+            leftCssPx: anchorRect.left,
+            widthCssPx: anchorRect.width,
+            heightCssPx: anchorRect.height,
+          })
+        : resolvedGeometry;
     this.surfaceRenderer.render(surface, geometry);
+  }
+
+  private startHostedAuthMenuAnchorTracking(authMenuSessionId: HostedAuthMenuSessionId): void {
+    if (this.hostedAuthMenuAnchorTrackingFrame !== null) {
+      cancelAnimationFrame(this.hostedAuthMenuAnchorTrackingFrame);
+    }
+    this.hostedAuthMenuAnchorTrackingSession = authMenuSessionId;
+    this.hostedAuthMenuAnchorTrackingDeadlineMs = performance.now() + 750;
+    this.hostedAuthMenuAnchorTrackingFrame = requestAnimationFrame(
+      this.updateHostedAuthMenuAnchorPosition,
+    );
+  }
+
+  private readonly updateHostedAuthMenuAnchorPosition = (timestampMs: number): void => {
+    this.hostedAuthMenuAnchorTrackingFrame = null;
+    const authMenuSessionId = this.hostedAuthMenuAnchorTrackingSession;
+    if (!authMenuSessionId) return;
+    const surface = this.walletIframeSurface;
+    if (surface.kind === 'modal_auth_menu' && surface.authMenuSessionId === authMenuSessionId) {
+      this.renderActiveWalletIframeSurface();
+    }
+    if (timestampMs >= this.hostedAuthMenuAnchorTrackingDeadlineMs) return;
+    this.hostedAuthMenuAnchorTrackingFrame = requestAnimationFrame(
+      this.updateHostedAuthMenuAnchorPosition,
+    );
+  };
+
+  private stopHostedAuthMenuAnchorTracking(authMenuSessionId: HostedAuthMenuSessionId): void {
+    if (this.hostedAuthMenuAnchorTrackingSession !== authMenuSessionId) return;
+    this.hostedAuthMenuAnchorTrackingSession = null;
+    if (this.hostedAuthMenuAnchorTrackingFrame !== null) {
+      cancelAnimationFrame(this.hostedAuthMenuAnchorTrackingFrame);
+      this.hostedAuthMenuAnchorTrackingFrame = null;
+    }
   }
 
   private handleSurfaceMeasurement(value: unknown): void {
@@ -1455,7 +1525,7 @@ export class WalletIframeRouter {
   private beginRequestSurface(args: {
     kind: WalletIframeRequestSurfaceKind;
     requestId: WalletIframeRequestId;
-    deadlineAtMs: number;
+    deadlineAtMs: number | null;
     payload: unknown;
     authMenuSessionId?: HostedAuthMenuSessionId;
   }): void {
@@ -1479,21 +1549,33 @@ export class WalletIframeRouter {
         });
         break;
       }
-      case 'registration':
+      case 'registration': {
+        if (args.deadlineAtMs === null) {
+          throw new Error('Registration surface requires a finite request deadline');
+        }
         result = this.transitionWalletIframeSurface({
           kind: 'registration_modal_request_started',
           connectionId,
           identity,
-          presentation: requestSurfacePresentationFor('registration', args.payload),
+          presentation: requestSurfacePresentationFor(
+            'registration',
+            args.payload,
+            this.mirroredConfirmationUiMode ?? undefined,
+          ),
           preparation: passkeyRegistrationPreparationReceipt(args.deadlineAtMs),
         });
         break;
+      }
       case 'transaction':
         result = this.transitionWalletIframeSurface({
           kind: 'transaction_modal_request_started',
           connectionId,
           identity,
-          presentation: requestSurfacePresentationFor('transaction', args.payload),
+          presentation: requestSurfacePresentationFor(
+            'transaction',
+            args.payload,
+            this.mirroredConfirmationUiMode ?? undefined,
+          ),
         });
         break;
       case 'key_export_near':
@@ -1501,7 +1583,11 @@ export class WalletIframeRouter {
           kind: 'key_export_modal_request_started',
           connectionId,
           identity,
-          presentation: requestSurfacePresentationFor('key_export_near', args.payload),
+          presentation: requestSurfacePresentationFor(
+            'key_export_near',
+            args.payload,
+            this.mirroredConfirmationUiMode ?? undefined,
+          ),
           exportKind: 'near_keypair',
         });
         break;
@@ -1510,7 +1596,11 @@ export class WalletIframeRouter {
           kind: 'key_export_modal_request_started',
           connectionId,
           identity,
-          presentation: requestSurfacePresentationFor('key_export_threshold', args.payload),
+          presentation: requestSurfacePresentationFor(
+            'key_export_threshold',
+            args.payload,
+            this.mirroredConfirmationUiMode ?? undefined,
+          ),
           exportKind: 'threshold_ed25519_seed_from_yao',
         });
         break;
@@ -1519,7 +1609,11 @@ export class WalletIframeRouter {
           kind: 'unlock_modal_request_started',
           connectionId,
           identity,
-          presentation: requestSurfacePresentationFor('unlock', args.payload),
+          presentation: requestSurfacePresentationFor(
+            'unlock',
+            args.payload,
+            this.mirroredConfirmationUiMode ?? undefined,
+          ),
           unlockKind: 'passkey',
         });
         break;
@@ -1528,7 +1622,11 @@ export class WalletIframeRouter {
           kind: 'unlock_modal_request_started',
           connectionId,
           identity,
-          presentation: requestSurfacePresentationFor('unlock', args.payload),
+          presentation: requestSurfacePresentationFor(
+            'unlock',
+            args.payload,
+            this.mirroredConfirmationUiMode ?? undefined,
+          ),
           unlockKind: 'device_link',
         });
         break;
@@ -1537,7 +1635,11 @@ export class WalletIframeRouter {
           kind: 'device_link_qr_modal_request_started',
           connectionId,
           identity,
-          presentation: requestSurfacePresentationFor('device_link_qr', args.payload),
+          presentation: requestSurfacePresentationFor(
+            'device_link_qr',
+            args.payload,
+            this.mirroredConfirmationUiMode ?? undefined,
+          ),
         });
         break;
       case 'recovery_codes_show':
@@ -1545,7 +1647,11 @@ export class WalletIframeRouter {
           kind: 'recovery_codes_modal_request_started',
           connectionId,
           identity,
-          presentation: requestSurfacePresentationFor('recovery_codes_show', args.payload),
+          presentation: requestSurfacePresentationFor(
+            'recovery_codes_show',
+            args.payload,
+            this.mirroredConfirmationUiMode ?? undefined,
+          ),
           operation: 'show',
         });
         break;
@@ -1554,7 +1660,11 @@ export class WalletIframeRouter {
           kind: 'recovery_codes_modal_request_started',
           connectionId,
           identity,
-          presentation: requestSurfacePresentationFor('recovery_codes_rotate', args.payload),
+          presentation: requestSurfacePresentationFor(
+            'recovery_codes_rotate',
+            args.payload,
+            this.mirroredConfirmationUiMode ?? undefined,
+          ),
           operation: 'rotate',
         });
         break;
@@ -1579,9 +1689,7 @@ export class WalletIframeRouter {
     });
   }
 
-  private hostedAuthMenuSessionIdForRequestId(
-    requestId: string,
-  ): HostedAuthMenuSessionId | null {
+  private hostedAuthMenuSessionIdForRequestId(requestId: string): HostedAuthMenuSessionId | null {
     for (const [sessionId, activeRequestId] of this.hostedAuthMenuRequestIds) {
       if (activeRequestId === requestId) return sessionId;
     }
@@ -1628,9 +1736,7 @@ export class WalletIframeRouter {
     }
   }
 
-  private settlePendingRequestsForConnectionClosed(
-    connectionId: WalletIframeConnectionId,
-  ): void {
+  private settlePendingRequestsForConnectionClosed(connectionId: WalletIframeConnectionId): void {
     for (const [requestId, pending] of this.state.pending) {
       if (pending.connectionId !== connectionId) continue;
       if (this.hostedAuthMenuSessionIdForRequestId(pending.requestId)) continue;
@@ -1661,6 +1767,9 @@ export class WalletIframeRouter {
   }
 
   private handleConnectionClosed(connectionId: WalletIframeConnectionId): void {
+    this.transactionSurfaceQueue.cancelAll(
+      new Error('Wallet iframe connection closed while waiting for transaction surface'),
+    );
     for (const [authMenuSessionId, activeConnectionId] of this.hostedAuthMenuConnectionIds) {
       if (activeConnectionId !== connectionId) continue;
       this.settleHostedAuthMenuCancellation(authMenuSessionId, 'connection_closed');
@@ -1806,6 +1915,9 @@ export class WalletIframeRouter {
         await this.ensureHostedWalletSeamsSession(hostedWalletSession);
       }
       await this.refreshExactSessionAndEmitLoginStatus('restore', { kind: 'current' });
+      // Resolve the host's confirmation mode while initialization is still in flight. Foreground
+      // requests can then begin their surface without a nested config RPC on first use.
+      await this.getConfirmationConfig().catch(() => undefined);
       this.emitReady();
     })();
 
@@ -2036,6 +2148,7 @@ export class WalletIframeRouter {
 
   private emitPreferencesChanged(payload: PreferencesChangedPayload): void {
     this.lastPreferencesChangedPayload = payload;
+    this.mirroredConfirmationUiMode = payload.confirmationConfig.uiMode;
     for (const cb of Array.from(this.listeners.preferencesChanged)) {
       this.notifyPreferencesChangedListener(cb, payload);
     }
@@ -2801,8 +2914,7 @@ export class WalletIframeRouter {
         options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
       },
       {
-        timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
-        progressTimeoutExtensionFactor: 1,
+        timeout: 'interactive',
       },
     );
     return res.result;
@@ -2964,10 +3076,14 @@ export class WalletIframeRouter {
       type: 'PM_SET_CONFIRMATION_CONFIG',
       payload: { config, ...(walletId ? { walletId } : {}) },
     });
+    if (config.uiMode === 'none' || config.uiMode === 'modal' || config.uiMode === 'drawer') {
+      this.mirroredConfirmationUiMode = config.uiMode;
+    }
   }
 
   async getConfirmationConfig(): Promise<ConfirmationConfig> {
     const res = await this.post<ConfirmationConfig>({ type: 'PM_GET_CONFIRMATION_CONFIG' });
+    this.mirroredConfirmationUiMode = res.result.uiMode;
     return res.result;
   }
 
@@ -3269,7 +3385,10 @@ export class WalletIframeRouter {
   }
 
   // ===== Control APIs =====
-  async openHostedAuthMenu(request: HostedAuthMenuOpenRequest): Promise<HostedAuthMenuOutcome> {
+  async openHostedAuthMenu(
+    request: HostedAuthMenuOpenRequest,
+    anchorElement?: HTMLElement,
+  ): Promise<HostedAuthMenuOutcome> {
     const normalized = parseHostedAuthMenuOpenRequest(request);
     if (!normalized) throw new Error('Hosted auth-menu open request is invalid');
     if (this.hostedAuthMenuRequestIds.has(normalized.authMenuSessionId)) {
@@ -3277,8 +3396,9 @@ export class WalletIframeRouter {
     }
     const requestId = this.allocateRequestId();
     this.hostedAuthMenuRequestIds.set(normalized.authMenuSessionId, requestId);
+    if (anchorElement) this.hostedAuthMenuAnchors.set(normalized.authMenuSessionId, anchorElement);
     try {
-      const response = await this.post<unknown>(
+      const responsePromise = this.post<unknown>(
         {
           type: 'PM_OPEN_AUTH_MENU',
           payload: normalized,
@@ -3286,24 +3406,26 @@ export class WalletIframeRouter {
         {
           requestId,
           timeoutMs: WALLET_IFRAME_REGISTRATION_TIMEOUT_MS,
-          shouldContinue: () => !this.cancelledHostedAuthMenuSessions.has(normalized.authMenuSessionId),
+          shouldContinue: () =>
+            !this.cancelledHostedAuthMenuSessions.has(normalized.authMenuSessionId),
         },
       );
+      const response = await responsePromise;
       const outcome = parseHostedAuthMenuOutcome(response.result);
       if (!outcome || outcome.authMenuSessionId !== normalized.authMenuSessionId) {
         throw new Error('Hosted auth-menu returned an invalid terminal outcome');
       }
       return outcome;
     } finally {
+      this.stopHostedAuthMenuAnchorTracking(normalized.authMenuSessionId);
       this.hostedAuthMenuRequestIds.delete(normalized.authMenuSessionId);
       this.hostedAuthMenuConnectionIds.delete(normalized.authMenuSessionId);
+      this.hostedAuthMenuAnchors.delete(normalized.authMenuSessionId);
       this.cancelledHostedAuthMenuSessions.delete(normalized.authMenuSessionId);
     }
   }
 
-  async cancelHostedAuthMenu(args: {
-    authMenuSessionId: HostedAuthMenuSessionId;
-  }): Promise<void> {
+  async cancelHostedAuthMenu(args: { authMenuSessionId: HostedAuthMenuSessionId }): Promise<void> {
     await this.cancelHostedAuthMenuWithReason(args.authMenuSessionId, 'component_unmounted');
   }
 
@@ -3328,6 +3450,7 @@ export class WalletIframeRouter {
   }
 
   async cancelRequest(requestId: string): Promise<void> {
+    this.transactionSurfaceQueue.cancel(requestId);
     await this.post<void>({ type: 'PM_CANCEL', payload: { requestId } }).catch(() => {});
     this.progressBus.unregister(requestId);
     const authMenuSessionId = this.hostedAuthMenuSessionIdForRequestId(requestId);
@@ -3339,6 +3462,7 @@ export class WalletIframeRouter {
   }
 
   async cancelAll(): Promise<void> {
+    this.transactionSurfaceQueue.cancelAll(new Error('Wallet requests cancelled'));
     await this.post<void>({ type: 'PM_CANCEL', payload: {} }).catch(() => {});
     this.progressBus.clearAll();
     for (const authMenuSessionId of Array.from(this.hostedAuthMenuRequestIds.keys())) {
@@ -3381,7 +3505,11 @@ export class WalletIframeRouter {
       const payload = parseHostedAuthMenuExternalAuthRequest(msg.payload);
       if (!payload) return;
       const activeRequestId = this.hostedAuthMenuRequestIds.get(payload.authMenuSessionId);
-      if (!activeRequestId || typeof msg.requestId !== 'string' || msg.requestId !== activeRequestId) {
+      if (
+        !activeRequestId ||
+        typeof msg.requestId !== 'string' ||
+        msg.requestId !== activeRequestId
+      ) {
         return;
       }
       for (const listener of Array.from(this.listeners.hostedAuthMenuExternalAuthRequest)) {
@@ -3414,15 +3542,15 @@ export class WalletIframeRouter {
       }
       // Refresh timeout for long-running operations whenever progress is received
       const pend = this.state.pending.get(requestId);
-      if (pend) {
+      if (pend?.timeout.kind === 'deadline') {
         if (pend.timer) window.clearTimeout(pend.timer);
-        const remainingLifetimeMs = Math.max(0, pend.deadlineAtMs - Date.now());
+        const remainingLifetimeMs = Math.max(0, pend.timeout.deadlineAtMs - Date.now());
         if (remainingLifetimeMs === 0) {
           const err = pend.onTimeout();
           pend.reject(err);
           return;
         }
-        const nextTimeoutMs = Math.max(1, Math.min(pend.timeoutMs, remainingLifetimeMs));
+        const nextTimeoutMs = Math.max(1, Math.min(pend.timeout.timeoutMs, remainingLifetimeMs));
         pend.timer = window.setTimeout(() => {
           const err = pend.onTimeout();
           pend.reject(err);
@@ -3493,12 +3621,7 @@ export class WalletIframeRouter {
    */
   private async post<T>(
     envelope: Omit<ParentToChildEnvelope, 'requestId'>,
-    postOpts?: {
-      timeoutMs?: number;
-      progressTimeoutExtensionFactor?: number;
-      requestId?: WalletIframeRequestId;
-      shouldContinue?: () => boolean;
-    },
+    postOpts?: WalletIframePostOptions,
   ): Promise<PostResult<T>> {
     // Step 1: Lazily initialize the iframe/client if not ready yet
     if (!this.state.ready || !this.state.port) {
@@ -3517,32 +3640,45 @@ export class WalletIframeRouter {
     const full: ParentToChildEnvelope = { ...(envelope as ParentToChildEnvelope), requestId };
     const sessionBinding = this.sessionBindingForRequest(full);
     const { options } = full;
-    const timeoutMs = postOpts?.timeoutMs ?? this.opts.requestTimeoutMs;
-    const parsedProgressTimeoutExtensionFactor = Number(postOpts?.progressTimeoutExtensionFactor);
-    const progressTimeoutExtensionFactor =
-      Number.isFinite(parsedProgressTimeoutExtensionFactor) &&
-      parsedProgressTimeoutExtensionFactor >= 1
-        ? parsedProgressTimeoutExtensionFactor
-        : WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR;
     const requestStartMs = Date.now();
-    const maxLifetimeMs = Math.max(timeoutMs, timeoutMs * progressTimeoutExtensionFactor);
-    const deadlineAtMs = requestStartMs + maxLifetimeMs;
+    const timeoutPolicy =
+      postOpts?.timeout === 'interactive'
+        ? ({ kind: 'interactive' } as const)
+        : (() => {
+            const timeoutMs = postOpts?.timeoutMs ?? this.opts.requestTimeoutMs;
+            const parsedProgressTimeoutExtensionFactor = Number(
+              postOpts?.progressTimeoutExtensionFactor,
+            );
+            const progressTimeoutExtensionFactor =
+              Number.isFinite(parsedProgressTimeoutExtensionFactor) &&
+              parsedProgressTimeoutExtensionFactor >= 1
+                ? parsedProgressTimeoutExtensionFactor
+                : WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR;
+            const maxLifetimeMs = Math.max(timeoutMs, timeoutMs * progressTimeoutExtensionFactor);
+            return {
+              kind: 'deadline' as const,
+              timeoutMs,
+              deadlineAtMs: requestStartMs + maxLifetimeMs,
+            };
+          })();
+    const deadlineAtMs =
+      timeoutPolicy.kind === 'deadline' ? timeoutPolicy.deadlineAtMs : null;
     const surfaceKind = requestSurfaceKindForMessage(envelope.type, full.payload);
     let transactionSurfaceLease: WalletIframeTransactionSurfaceLease | null = null;
     if (surfaceKind === 'transaction') {
+      const queueDeadline: WalletIframeTransactionSurfaceDeadline =
+        timeoutPolicy.kind === 'deadline'
+          ? { kind: 'deadline', atMs: timeoutPolicy.deadlineAtMs }
+          : { kind: 'interactive' };
       transactionSurfaceLease = await this.transactionSurfaceQueue.acquire({
         requestId,
-        deadlineAtMs,
+        deadline: queueDeadline,
       });
     }
 
     try {
       if (this.state.connectionId !== connectionId || !this.state.port) {
-        throw new WalletIframeConnectionClosedRequestError(
-          requestId,
-          connectionId,
-          envelope.type,
-        );
+        throw new WalletIframeConnectionClosedRequestError(requestId, connectionId, envelope.type);
       }
       const admission = this.requestAdmission(sessionBinding);
       if (admission.kind === 'expired') {
@@ -3559,8 +3695,7 @@ export class WalletIframeRouter {
           requestId,
           deadlineAtMs,
           payload: full.payload,
-          authMenuSessionId:
-            authMenuSessionIdForMessage(envelope.type, full.payload) ?? undefined,
+          authMenuSessionId: authMenuSessionIdForMessage(envelope.type, full.payload) ?? undefined,
         });
       }
 
@@ -3577,11 +3712,17 @@ export class WalletIframeRouter {
         };
 
         // Step 3: Set up timeout handler for request
-        const initialTimeoutMs = Math.max(1, Math.min(timeoutMs, deadlineAtMs - Date.now()));
-        const timer = window.setTimeout(() => {
-          const err = onTimeout();
-          reject(err);
-        }, initialTimeoutMs);
+        const timer =
+          timeoutPolicy.kind === 'deadline'
+            ? window.setTimeout(() => {
+                const err = onTimeout();
+                reject(err);
+              },
+              Math.max(
+                1,
+                Math.min(timeoutPolicy.timeoutMs, timeoutPolicy.deadlineAtMs - Date.now()),
+              ))
+            : undefined;
 
         // Step 4: Register pending request for correlation
         this.state.pending.set(requestId, {
@@ -3590,8 +3731,7 @@ export class WalletIframeRouter {
           resolve: (v) => resolve(v as PostResult<T>),
           reject,
           timer,
-          timeoutMs,
-          deadlineAtMs,
+          timeout: timeoutPolicy,
           onProgress: options?.onProgress,
           requestType: envelope.type,
           onTimeout,

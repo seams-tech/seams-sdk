@@ -4,7 +4,6 @@ export const WALLET_IFRAME_SURFACE_INSET_CSS_PX = 16;
 export const WALLET_IFRAME_SURFACE_MIN_COMPACT_WIDTH_CSS_PX = 280;
 export const WALLET_IFRAME_SURFACE_MIN_COMPACT_HEIGHT_CSS_PX = 280;
 export const WALLET_IFRAME_SURFACE_MAX_MODAL_WIDTH_CSS_PX = 560;
-export const WALLET_IFRAME_SURFACE_MAX_DRAWER_WIDTH_CSS_PX = 384;
 export const WALLET_IFRAME_SURFACE_PROVISIONAL_HEIGHT_CSS_PX = 320;
 
 export type WalletIframeSurfaceGeometry =
@@ -47,6 +46,16 @@ export type WalletIframeDrawerGeometry = Extract<
   }
 >;
 
+export function isWalletIframeModalGeometry(
+  geometry: WalletIframeSurfaceGeometry,
+): geometry is WalletIframeModalGeometry {
+  return (
+    geometry.kind === 'provisional_centered_modal' ||
+    geometry.kind === 'centered_modal' ||
+    geometry.kind === 'viewport_fallback'
+  );
+}
+
 export type WalletIframeSurfaceViewport = {
   widthCssPx: number;
   heightCssPx: number;
@@ -55,6 +64,13 @@ export type WalletIframeSurfaceViewport = {
 };
 
 export type WalletIframeSurfaceMeasurementSize = {
+  widthCssPx: number;
+  heightCssPx: number;
+};
+
+export type WalletIframeSurfaceAnchorRect = {
+  topCssPx: number;
+  leftCssPx: number;
   widthCssPx: number;
   heightCssPx: number;
 };
@@ -83,6 +99,10 @@ function hasOnlyKeys(record: Record<string, unknown>, keys: readonly string[]): 
 
 function roundCssPx(value: number): number {
   return Math.max(0, Math.round(value));
+}
+
+function roundSignedCssPx(value: number): number {
+  return Math.round(value);
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -239,21 +259,50 @@ function centeredGeometry(
   };
 }
 
-function bottomDrawerGeometry(
+export function anchorWalletIframeModalGeometry(
+  geometry: WalletIframeModalGeometry,
+  viewportInput: WalletIframeSurfaceViewport,
+  anchor: WalletIframeSurfaceAnchorRect,
+): WalletIframeModalGeometry {
+  if (geometry.kind === 'viewport_fallback') return geometry;
+  const viewport = normalizedViewport(viewportInput);
+  if (
+    !isFiniteNumber(anchor.topCssPx) ||
+    !isFiniteNumber(anchor.leftCssPx) ||
+    !isFinitePositive(anchor.widthCssPx) ||
+    !isFinitePositive(anchor.heightCssPx)
+  ) {
+    return geometry;
+  }
+
+  const viewportLeft = viewport.offsetLeftCssPx + WALLET_IFRAME_SURFACE_INSET_CSS_PX;
+  const viewportRight =
+    viewport.offsetLeftCssPx + viewport.widthCssPx - WALLET_IFRAME_SURFACE_INSET_CSS_PX;
+  const widthCssPx = Math.min(anchor.widthCssPx, viewportRight - viewportLeft);
+  const idealLeft = anchor.leftCssPx + (anchor.widthCssPx - widthCssPx) / 2;
+
+  return {
+    kind: geometry.kind,
+    widthCssPx: roundCssPx(widthCssPx),
+    heightCssPx: roundCssPx(geometry.heightCssPx),
+    leftCssPx: roundCssPx(clamp(idealLeft, viewportLeft, viewportRight - widthCssPx)),
+    topCssPx: roundSignedCssPx(anchor.topCssPx),
+  };
+}
+
+function fullViewportDrawerGeometry(
   viewport: WalletIframeSurfaceViewport,
-  widthCssPx: number,
-  heightCssPx: number,
   kind: 'provisional_bottom_drawer' | 'bottom_drawer',
 ): WalletIframeDrawerGeometry {
-  const bottomCssPx =
-    viewport.offsetTopCssPx + viewport.heightCssPx - WALLET_IFRAME_SURFACE_INSET_CSS_PX;
+  // The inner drawer owns its width, safe-area padding, drag, and elevation.
+  // Keep the host iframe aligned with the complete visual viewport.
   return {
     kind,
     edge: 'bottom',
-    widthCssPx: roundCssPx(widthCssPx),
-    heightCssPx: roundCssPx(heightCssPx),
-    topCssPx: roundCssPx(bottomCssPx - heightCssPx),
-    leftCssPx: roundCssPx(viewport.offsetLeftCssPx + (viewport.widthCssPx - widthCssPx) / 2),
+    widthCssPx: roundCssPx(viewport.widthCssPx),
+    heightCssPx: roundCssPx(viewport.heightCssPx),
+    topCssPx: roundSignedCssPx(viewport.offsetTopCssPx),
+    leftCssPx: roundSignedCssPx(viewport.offsetLeftCssPx),
   };
 }
 
@@ -268,22 +317,11 @@ export function provisionalWalletIframeSurfaceGeometry(
   viewportInput: WalletIframeSurfaceViewport,
 ): WalletIframeSurfaceGeometry {
   const viewport = normalizedViewport(viewportInput);
+  if (isDrawerPresentation(presentation)) {
+    return fullViewportDrawerGeometry(viewport, 'provisional_bottom_drawer');
+  }
   if (viewportCannotFitCompactSurface(viewport)) {
     return fallbackGeometry(viewport, 'small_visual_viewport');
-  }
-  if (isDrawerPresentation(presentation)) {
-    const availableWidth = viewport.widthCssPx - WALLET_IFRAME_SURFACE_INSET_CSS_PX * 2;
-    const availableHeight = viewport.heightCssPx - WALLET_IFRAME_SURFACE_INSET_CSS_PX * 2;
-    return bottomDrawerGeometry(
-      viewport,
-      clamp(
-        WALLET_IFRAME_SURFACE_MAX_DRAWER_WIDTH_CSS_PX,
-        WALLET_IFRAME_SURFACE_MIN_COMPACT_WIDTH_CSS_PX,
-        Math.min(WALLET_IFRAME_SURFACE_MAX_DRAWER_WIDTH_CSS_PX, availableWidth),
-      ),
-      Math.min(WALLET_IFRAME_SURFACE_PROVISIONAL_HEIGHT_CSS_PX, availableHeight),
-      'provisional_bottom_drawer',
-    );
   }
   const availableWidth = viewport.widthCssPx - WALLET_IFRAME_SURFACE_INSET_CSS_PX * 2;
   const availableHeight = viewport.heightCssPx - WALLET_IFRAME_SURFACE_INSET_CSS_PX * 2;
@@ -305,25 +343,14 @@ export function measuredWalletIframeSurfaceGeometry(
   measurement: WalletIframeSurfaceMeasurementSize,
 ): WalletIframeSurfaceGeometry {
   const viewport = normalizedViewport(viewportInput);
+  if (isDrawerPresentation(presentation)) {
+    return fullViewportDrawerGeometry(viewport, 'bottom_drawer');
+  }
   if (!isFinitePositive(measurement.widthCssPx) || !isFinitePositive(measurement.heightCssPx)) {
     throw new Error('Wallet iframe surface measurement is invalid');
   }
   if (viewportCannotFitCompactSurface(viewport)) {
     return fallbackGeometry(viewport, 'small_visual_viewport');
-  }
-  if (isDrawerPresentation(presentation)) {
-    const availableWidth = viewport.widthCssPx - WALLET_IFRAME_SURFACE_INSET_CSS_PX * 2;
-    const availableHeight = viewport.heightCssPx - WALLET_IFRAME_SURFACE_INSET_CSS_PX * 2;
-    return bottomDrawerGeometry(
-      viewport,
-      clamp(
-        measurement.widthCssPx,
-        WALLET_IFRAME_SURFACE_MIN_COMPACT_WIDTH_CSS_PX,
-        Math.min(WALLET_IFRAME_SURFACE_MAX_DRAWER_WIDTH_CSS_PX, availableWidth),
-      ),
-      clamp(measurement.heightCssPx, 1, availableHeight),
-      'bottom_drawer',
-    );
   }
   const availableWidth = viewport.widthCssPx - WALLET_IFRAME_SURFACE_INSET_CSS_PX * 2;
   const availableHeight = viewport.heightCssPx - WALLET_IFRAME_SURFACE_INSET_CSS_PX * 2;
@@ -355,6 +382,9 @@ export function resolveWalletIframeSurfaceGeometry(args: {
       return measuredWalletIframeSurfaceGeometry(args.presentation, args.viewport, measurement);
     case 'unavailable': {
       const viewport = normalizedViewport(args.viewport);
+      if (isDrawerPresentation(args.presentation)) {
+        return fullViewportDrawerGeometry(viewport, 'bottom_drawer');
+      }
       return viewportCannotFitCompactSurface(viewport)
         ? fallbackGeometry(viewport, 'small_visual_viewport')
         : fallbackGeometry(viewport, 'measurement_unavailable');

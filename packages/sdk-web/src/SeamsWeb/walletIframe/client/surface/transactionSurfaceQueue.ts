@@ -6,6 +6,10 @@ export type WalletIframeTransactionSurfaceLease = {
   release(): void;
 };
 
+export type WalletIframeTransactionSurfaceDeadline =
+  | { readonly kind: 'deadline'; readonly atMs: number }
+  | { readonly kind: 'interactive' };
+
 type TransactionSurfaceQueueState =
   | {
       kind: 'idle';
@@ -20,7 +24,7 @@ type TransactionSurfaceQueueState =
 
 type TransactionSurfaceWaiter = {
   requestId: WalletIframeRequestId;
-  deadlineAtMs: number;
+  deadline: WalletIframeTransactionSurfaceDeadline;
   deferred: TransactionSurfaceLeaseDeferred;
   timer: ReturnType<typeof setTimeout> | null;
 };
@@ -82,9 +86,9 @@ export class WalletIframeTransactionSurfaceQueue {
 
   acquire(args: {
     requestId: WalletIframeRequestId;
-    deadlineAtMs: number;
+    deadline: WalletIframeTransactionSurfaceDeadline;
   }): Promise<WalletIframeTransactionSurfaceLease> {
-    if (Date.now() >= args.deadlineAtMs) {
+    if (args.deadline.kind === 'deadline' && Date.now() >= args.deadline.atMs) {
       return Promise.reject(this.timeoutError(args.requestId));
     }
     if (this.state.kind === 'idle' && this.waiters.length === 0) {
@@ -94,16 +98,35 @@ export class WalletIframeTransactionSurfaceQueue {
     const deferred = new TransactionSurfaceLeaseDeferred();
     const waiter: TransactionSurfaceWaiter = {
       requestId: args.requestId,
-      deadlineAtMs: args.deadlineAtMs,
+      deadline: args.deadline,
       deferred,
       timer: null,
     };
-    waiter.timer = setTimeout(
-      this.expireWaiter.bind(this, waiter),
-      Math.max(1, args.deadlineAtMs - Date.now()),
-    );
+    if (args.deadline.kind === 'deadline') {
+      waiter.timer = setTimeout(
+        this.expireWaiter.bind(this, waiter),
+        Math.max(1, args.deadline.atMs - Date.now()),
+      );
+    }
     this.waiters.push(waiter);
     return deferred.promise;
+  }
+
+  cancel(requestId: string): void {
+    const index = this.waiters.findIndex((waiter) => waiter.requestId === requestId);
+    if (index < 0) return;
+    const [waiter] = this.waiters.splice(index, 1);
+    this.clearWaiterTimer(waiter);
+    waiter.deferred.reject(new Error(`Wallet request ${requestId} was cancelled`));
+  }
+
+  cancelAll(error: Error): void {
+    while (this.waiters.length > 0) {
+      const waiter = this.waiters.shift();
+      if (!waiter) continue;
+      this.clearWaiterTimer(waiter);
+      waiter.deferred.reject(error);
+    }
   }
 
   release(leaseId: number): void {
@@ -123,7 +146,7 @@ export class WalletIframeTransactionSurfaceQueue {
       const waiter = this.waiters.shift();
       if (!waiter) return;
       this.clearWaiterTimer(waiter);
-      if (Date.now() >= waiter.deadlineAtMs) {
+      if (waiter.deadline.kind === 'deadline' && Date.now() >= waiter.deadline.atMs) {
         waiter.deferred.reject(this.timeoutError(waiter.requestId));
         continue;
       }

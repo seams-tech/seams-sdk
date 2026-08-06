@@ -29,10 +29,10 @@ const drawerMode = (requestId: string, surfaceId: string) => ({
   geometry: {
     kind: 'bottom_drawer' as const,
     edge: 'bottom' as const,
-    widthCssPx: 360,
-    heightCssPx: 320,
-    topCssPx: 448,
-    leftCssPx: 332,
+    widthCssPx: 1024,
+    heightCssPx: 768,
+    topCssPx: 0,
+    leftCssPx: 0,
   },
   focusTrap: true,
   identity: {
@@ -89,6 +89,10 @@ test.describe('OverlayController', () => {
           iframeParent: iframe.parentElement === dialog,
           title: iframe.getAttribute('title'),
           pointerEvents: getComputedStyle(iframe).pointerEvents,
+          dialogBackground: getComputedStyle(dialog).backgroundColor,
+          dialogOutline: getComputedStyle(dialog).outlineStyle,
+          iframeBackground: getComputedStyle(iframe).backgroundColor,
+          iframeOutline: getComputedStyle(iframe).outlineStyle,
           ariaHidden: iframe.getAttribute('aria-hidden'),
           hasInlineIframeStyle: iframe.hasAttribute('style'),
           hasInlineDialogStyle: dialog.hasAttribute('style'),
@@ -154,6 +158,10 @@ test.describe('OverlayController', () => {
     expect(res.modal.iframeParent).toBe(true);
     expect(res.modal.title).toBe('Confirm transaction');
     expect(res.modal.pointerEvents).toBe('auto');
+    expect(res.modal.dialogBackground).toBe('rgba(0, 0, 0, 0)');
+    expect(res.modal.dialogOutline).toBe('none');
+    expect(res.modal.iframeBackground).toBe('rgba(0, 0, 0, 0)');
+    expect(res.modal.iframeOutline).toBe('none');
     expect(res.modal.ariaHidden).toBe('false');
     expect(res.modal.hasInlineIframeStyle).toBe(false);
     expect(res.modal.hasInlineDialogStyle).toBe(false);
@@ -169,6 +177,271 @@ test.describe('OverlayController', () => {
     expect(res.hidden.tabIndex).toBe('-1');
     expect(res.hidden.title).toBeNull();
     expect(res.hidden.hiddenClass).toBe(true);
+  });
+
+  test('keeps the host backdrop transparent until modal geometry is measured', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ path }) => {
+        const mod = await import(path);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        const overlay = new OverlayController({
+          ensureIframe: (mountParent?: HTMLElement) => {
+            if (mountParent && iframe.parentElement !== mountParent) {
+              mountParent.appendChild(iframe);
+            }
+            return iframe;
+          },
+        });
+        const identity = {
+          kind: 'request_surface_identity_v1' as const,
+          surfaceId: 'provisional-surface',
+          requestId: 'provisional-request',
+        };
+        overlay.apply({
+          kind: 'compact_request_modal',
+          presentation: { kind: 'modal', title: 'Confirm transaction' },
+          geometry: {
+            kind: 'provisional_centered_modal',
+            widthCssPx: 416,
+            heightCssPx: 128,
+            topCssPx: 320,
+            leftCssPx: 304,
+          },
+          focusTrap: true,
+          identity,
+        });
+        const dialog = iframe.closest('dialog.w3a-wallet-overlay-dialog');
+        if (!(dialog instanceof HTMLDialogElement)) throw new Error('overlay dialog missing');
+        const provisionalBackdrop = getComputedStyle(dialog, '::backdrop').backgroundColor;
+
+        overlay.apply({
+          kind: 'compact_request_modal',
+          presentation: { kind: 'modal', title: 'Confirm transaction' },
+          geometry: {
+            kind: 'viewport_fallback',
+            reason: 'measurement_unavailable',
+            widthCssPx: 1024,
+            heightCssPx: 768,
+            topCssPx: 0,
+            leftCssPx: 0,
+          },
+          focusTrap: true,
+          identity,
+        });
+        const fallbackBackdrop = getComputedStyle(dialog, '::backdrop').backgroundColor;
+
+        overlay.apply({
+          kind: 'compact_request_modal',
+          presentation: { kind: 'modal', title: 'Confirm transaction' },
+          geometry: {
+            kind: 'centered_modal',
+            widthCssPx: 416,
+            heightCssPx: 320,
+            topCssPx: 224,
+            leftCssPx: 304,
+          },
+          focusTrap: true,
+          identity,
+        });
+        const measuredAnimationName = getComputedStyle(dialog, '::backdrop').animationName;
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 220));
+        const measuredBackdrop = getComputedStyle(dialog, '::backdrop').backgroundColor;
+        overlay.dispose();
+        return {
+          provisionalBackdrop,
+          fallbackBackdrop,
+          measuredBackdrop,
+          measuredAnimationName,
+        };
+      },
+      { path: IMPORT_PATHS.overlay },
+    );
+
+    expect(result.provisionalBackdrop).toBe('rgba(0, 0, 0, 0)');
+    expect(result.fallbackBackdrop).toBe('rgba(0, 0, 0, 0)');
+    expect(result.measuredAnimationName).toBe('w3a-wallet-overlay-backdrop-in');
+    expect(result.measuredBackdrop).toBe('rgba(0, 0, 0, 0.26)');
+  });
+
+  test('keeps a provisional drawer visible for the inner slide-in animation', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ path }) => {
+        const mod = await import(path);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        const overlay = new OverlayController({
+          ensureIframe: (mountParent?: HTMLElement) => {
+            if (mountParent && iframe.parentElement !== mountParent) mountParent.appendChild(iframe);
+            return iframe;
+          },
+        });
+        const identity = {
+          kind: 'request_surface_identity_v1' as const,
+          surfaceId: 'provisional-drawer-surface',
+          requestId: 'provisional-drawer-request',
+        };
+        const applyDrawer = (kind: 'provisional_bottom_drawer' | 'bottom_drawer') => {
+          overlay.apply({
+            kind: 'compact_request_drawer',
+            presentation: { kind: 'drawer', title: 'Confirm transaction' },
+            geometry: {
+              kind,
+              edge: 'bottom',
+              widthCssPx: 1024,
+              heightCssPx: 768,
+              topCssPx: 0,
+              leftCssPx: 0,
+            },
+            focusTrap: true,
+            identity,
+          });
+        };
+
+        applyDrawer('provisional_bottom_drawer');
+        const dialog = iframe.closest('dialog.w3a-wallet-overlay-dialog');
+        if (!(dialog instanceof HTMLDialogElement)) throw new Error('overlay dialog missing');
+        const initial = {
+          provisional: dialog.classList.contains('is-provisional'),
+          dialogVisibility: getComputedStyle(dialog).visibility,
+          iframeVisibility: getComputedStyle(iframe).visibility,
+          iframePointerEvents: getComputedStyle(iframe).pointerEvents,
+        };
+
+        applyDrawer('bottom_drawer');
+        const settled = {
+          provisional: dialog.classList.contains('is-provisional'),
+          dialogVisibility: getComputedStyle(dialog).visibility,
+          iframeVisibility: getComputedStyle(iframe).visibility,
+          iframePointerEvents: getComputedStyle(iframe).pointerEvents,
+          rect: iframe.getBoundingClientRect().toJSON(),
+        };
+        overlay.dispose();
+        return { initial, settled };
+      },
+      { path: IMPORT_PATHS.overlay },
+    );
+
+    expect(result.initial).toEqual({
+      provisional: true,
+      dialogVisibility: 'visible',
+      iframeVisibility: 'visible',
+      iframePointerEvents: 'auto',
+    });
+    expect(result.settled.provisional).toBe(false);
+    expect(result.settled.dialogVisibility).toBe('visible');
+    expect(result.settled.iframeVisibility).toBe('visible');
+    expect(result.settled.iframePointerEvents).toBe('auto');
+    expect(result.settled.rect).toMatchObject({
+      top: 0,
+      left: 0,
+      width: 1024,
+      height: 768,
+    });
+  });
+
+  test('paints compact modal elevation in the host after measurement', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ path }) => {
+        const mod = await import(path);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        const overlay = new OverlayController({
+          ensureIframe: (mountParent?: HTMLElement) => {
+            if (mountParent && iframe.parentElement !== mountParent) mountParent.appendChild(iframe);
+            return iframe;
+          },
+        });
+        const identity = {
+          kind: 'request_surface_identity_v1' as const,
+          surfaceId: 'shadow-surface',
+          requestId: 'shadow-request',
+        };
+        overlay.apply({
+          kind: 'compact_request_modal',
+          presentation: { kind: 'modal', title: 'Confirm transaction' },
+          geometry: {
+            kind: 'provisional_centered_modal',
+            widthCssPx: 360,
+            heightCssPx: 320,
+            topCssPx: 224,
+            leftCssPx: 332,
+          },
+          focusTrap: true,
+          identity,
+        });
+        const provisionalFilter = getComputedStyle(iframe).filter;
+
+        overlay.apply({
+          kind: 'compact_request_modal',
+          presentation: { kind: 'modal', title: 'Confirm transaction' },
+          geometry: {
+            kind: 'viewport_fallback',
+            reason: 'measurement_unavailable',
+            widthCssPx: 1024,
+            heightCssPx: 768,
+            topCssPx: 0,
+            leftCssPx: 0,
+          },
+          focusTrap: true,
+          identity,
+        });
+        const fallbackFilter = getComputedStyle(iframe).filter;
+
+        overlay.apply({
+          kind: 'compact_request_modal',
+          presentation: { kind: 'modal', title: 'Confirm transaction' },
+          geometry: {
+            kind: 'centered_modal',
+            widthCssPx: 360,
+            heightCssPx: 320,
+            topCssPx: 224,
+            leftCssPx: 332,
+          },
+          focusTrap: true,
+          identity,
+        });
+        const measuredFilter = getComputedStyle(iframe).filter;
+
+        overlay.apply({
+          kind: 'compact_auth_menu',
+          presentation: { kind: 'modal', title: 'Choose account' },
+          geometry: {
+            kind: 'centered_modal',
+            widthCssPx: 360,
+            heightCssPx: 320,
+            topCssPx: 224,
+            leftCssPx: 332,
+          },
+          focusTrap: true,
+          identity: {
+            kind: 'request_surface_identity_v1',
+            surfaceId: 'auth-menu-shadow-surface',
+            requestId: 'auth-menu-shadow-request',
+          },
+          authMenuSessionId: 'auth-menu-shadow-session',
+        });
+        const authMenuFilter = getComputedStyle(iframe).filter;
+        const rect = iframe.getBoundingClientRect();
+        overlay.dispose();
+        return {
+          provisionalFilter,
+          fallbackFilter,
+          measuredFilter,
+          authMenuFilter,
+          measuredWidth: rect.width,
+          measuredHeight: rect.height,
+        };
+      },
+      { path: IMPORT_PATHS.overlay },
+    );
+
+    expect(result.provisionalFilter).toBe('none');
+    expect(result.fallbackFilter).toBe('none');
+    expect(result.measuredFilter).toContain('drop-shadow');
+    expect(result.authMenuFilter).toBe('none');
+    expect(result.measuredWidth).toBeCloseTo(360, 0);
+    expect(result.measuredHeight).toBeCloseTo(320, 0);
   });
 
   test('Escape dispatches the exact active cancellation event', async ({ page }) => {
@@ -254,7 +527,7 @@ test.describe('OverlayController', () => {
     expect(result.state.dialogOpen).toBe(false);
   });
 
-  test('uses a transparent drawer backdrop while retaining native modal blocking', async ({
+  test('uses a full-viewport drawer with transparent backdrop and native modal blocking', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -281,6 +554,12 @@ test.describe('OverlayController', () => {
           nativeModal: dialog.matches(':modal'),
           ariaModal: dialog.getAttribute('aria-modal'),
           backdropColor: backdrop.backgroundColor,
+          boxShadow: getComputedStyle(dialog).boxShadow,
+          transform: getComputedStyle(dialog).transform,
+          top: getComputedStyle(dialog).top,
+          left: getComputedStyle(dialog).left,
+          width: getComputedStyle(dialog).width,
+          height: getComputedStyle(dialog).height,
         };
       },
       { path: IMPORT_PATHS.overlay, mode: drawerMode('drawer-request', 'drawer-surface') },
@@ -291,7 +570,13 @@ test.describe('OverlayController', () => {
     expect(result.open).toBe(true);
     expect(result.nativeModal).toBe(true);
     expect(result.ariaModal).toBe('true');
-    expect(['transparent', 'rgba(0, 0, 0, 0)']).toContain(result.backdropColor);
+    expect(result.backdropColor).toBe('rgba(0, 0, 0, 0)');
+    expect(result.boxShadow).toBe('none');
+    expect(result.transform).toBe('none');
+    expect(result.top).toBe('0px');
+    expect(result.left).toBe('0px');
+    expect(result.width).toBe('1024px');
+    expect(result.height).toBe('768px');
   });
 
   test('ignores a stale pointerup after replacing the active generation', async ({ page }) => {

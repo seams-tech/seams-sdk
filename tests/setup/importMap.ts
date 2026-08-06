@@ -25,6 +25,7 @@ export const TEST_BROWSER_IMPORTS = {
   'lit/directives/style-map.js': 'https://esm.sh/lit@3.1.0/directives/style-map.js',
   'lit/directives/repeat.js': 'https://esm.sh/lit@3.1.0/directives/repeat.js',
   'lit/directives/guard.js': 'https://esm.sh/lit@3.1.0/directives/guard.js',
+  'lit/directives/keyed.js': 'https://esm.sh/lit@3.1.0/directives/keyed.js',
   'lit/directives/cache.js': 'https://esm.sh/lit@3.1.0/directives/cache.js',
   'lit/directives/until.js': 'https://esm.sh/lit@3.1.0/directives/until.js',
   'lit/directives/ref.js': 'https://esm.sh/lit@3.1.0/directives/ref.js',
