@@ -4,6 +4,31 @@ This is the operational runbook for the SDK runtime, Cloudflare Pages sites,
 Router A/B Workers, Gateway, and their backing data services. The deployment
 surface has four hand-written workflows and two top-level deployment scripts.
 
+The planned production testnet/mainnet topology and pipeline replacement are
+specified in
+[deployment-plan-5.md](deployment-plan-5.md).
+
+The operational pages below describe the deployment pipeline currently present
+in the repository. They remain authoritative until the corresponding phases of
+Deployment Plan 5 land.
+
+## Document map
+
+- [README.md](README.md): current workflow topology, branch rules, deployment
+  order, failure handling, and rollback.
+- [infra.md](infra.md): GitHub Environments, Cloudflare resources, storage,
+  backup, and recovery setup.
+- [tooling.md](tooling.md): environment generation and deployment command
+  reference.
+- [release.md](release.md): SDK release and hosted-surface release runbook.
+- [sdk.md](sdk.md): SDK package and runtime-asset deployment.
+- [deployment-plan-5.md](deployment-plan-5.md): planned three-backend-lane,
+  two-site topology and migration sequence.
+- [refactor-82-staging-log.md](refactor-82-staging-log.md): generated staging
+  D1/DO evidence template still used by `d1:staging:runbook`.
+- [router-ab-cloudflare-env.example.yml](router-ab-cloudflare-env.example.yml):
+  example GitHub Environment contract for Router A/B custody roles.
+
 ## System and branch rules
 
 Each deployment targets one complete lane. Backend and frontend lanes are

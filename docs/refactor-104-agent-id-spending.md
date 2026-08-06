@@ -2,6 +2,8 @@
 
 Date created: July 22, 2026
 
+Last reconciled: August 5, 2026 (post-Refactor 90 implementation checkpoint)
+
 Status: active product and security plan. Independent agent identities,
 owner-signed delegated-spend authorizations, agent-signed spend requests, and
 their admission and revocation stores are unimplemented. Existing dormant
@@ -37,11 +39,13 @@ This plan consumes:
 
 - [refactor-90-modular-auth-capabilities-plan.md](./refactor-90-modular-auth-capabilities-plan.md)
   and its SPEC for authorization resources, exact operation fingerprints,
-  atomic grant-plus-quota claims, Wallet Session boundaries, effect ordering,
-  replay handling, and audit;
-- [refactor-96-wallet-execution-lanes.md](./refactor-96-wallet-execution-lanes.md)
+  `AuthorizedOperationId`, `MpcMaterialActivationRef`, Wallet Session
+  boundaries, effect ordering, replay handling, and audit. Refactor 104 owns
+  the delegated authorization, budget, and replay stores that supply its own
+  authorization source;
+- [refactor-101-wallet-execution-lanes.md](./refactor-101-wallet-execution-lanes.md)
   for stable wallet-key identities and optional delegated-execution lanes;
-- [refactor-97-share-rotation.md](./refactor-97-share-rotation.md) when a direct
+- [refactor-102-share-rotation.md](./refactor-102-share-rotation.md) when a direct
   threshold-wallet adapter provisions an authorization-bound agent runtime
   lane;
 - `crates/router-ab-ecdsa-derivation` and the Ed25519 Yao implementation for
@@ -59,7 +63,7 @@ This plan owns:
 - atomic delegated-budget and replay claims;
 - delegated execution admission and audit evidence.
 
-Refactor 98 owns physical device linking and contains no agent types.
+Refactor 103 owns physical device linking and contains no agent types.
 
 ## Required Invariants
 
@@ -78,15 +82,18 @@ Refactor 98 owns physical device linking and contains no agent types.
    A valid intent cannot authorize substituted transaction bytes.
 7. Budget reservation is atomic before signing. Concurrent requests cannot
    exceed aggregate or per-operation limits.
-8. Revocation and expiry fail before wallet share, presignature, credential, or
+8. Delegated authorization lifecycle and delegated budget lifecycle are
+   independent. Budget exhaustion denies new spends without moving the signed
+   authorization to an `exhausted` state.
+9. Revocation and expiry fail before wallet share, presignature, credential, or
    payment-token work.
-9. On-chain or payment execution spends from the owner's wallet or payment
+10. On-chain or payment execution spends from the owner's wallet or payment
    instrument. The agent needs no prefunded account.
-10. Agent authorship remains available in durable audit evidence even when the
+11. Agent authorship remains available in durable audit evidence even when the
     chain exposes only the owner's wallet signature.
-11. Raw agent, tool, quote, checkout, transaction, oracle, and persistence
+12. Raw agent, tool, quote, checkout, transaction, oracle, and persistence
     shapes are parsed once at their boundaries.
-12. Old lane-owned mandate types and tests are deleted at cutover. No legacy
+13. Old lane-owned mandate types and tests are deleted at cutover. No legacy
     `delegated_agent` compatibility branch enters core logic.
 
 ## Trust Boundaries
@@ -111,16 +118,23 @@ Refactor 98 owns physical device linking and contains no agent types.
   adapter;
 - never receives the owner's complete signing key or an export-capable share.
 
-### Router and policy service
+### Gateway policy service and Router
 
-- verify agent and owner signatures;
+- Gateway D1 owns delegated authorization records, owner proof sets, scope,
+  revocation facts, delegated replay and budget claims, authorized operations,
+  and product audit records;
+- verify agent and owner signatures at the authenticated Gateway boundary;
 - resolve current authorization, revocation, wallet-key, and execution state;
 - normalize and verify quotes, counterparties, assets, and final transactions;
-- atomically reserve budget and replay identity;
-- issue one committed execution admission;
+- atomically reserve delegated budget and claim replay identity in the R104
+  store transaction;
+- issue one committed execution admission carrying the exact
+  `AuthorizedOperationId` and material activation;
 - release, commit, or retain reservations according to deterministic execution
   outcomes;
-- cannot forge an agent request or bypass the required agent signature.
+- Router validates and forwards the internally authenticated Gateway command.
+  It owns no mutable authorization, budget, replay, or execution ledger and
+  cannot forge an agent request or bypass the required agent signature.
 
 ### Wallet execution participants
 
@@ -275,6 +289,48 @@ verified disclosures normalize into the same core claims, while its original
 signed bytes remain attached as external evidence. Core policy never accepts
 raw SD-JWT claims.
 
+### Delegated Authorization Source
+
+Refactor 90's implemented `AuthorizationGrant` remains
+`WalletSessionAuthorization`, with its reusable allowance identified by
+`MpcWalletSigningQuotaId`. Refactor 104 adds a disjoint authorization-grant
+variant while retaining the shared `AuthorizationGrantRef` and
+`OperationAuthorizationSource`:
+
+```ts
+type DelegatedSpendAuthorizationGrantRefV1 = {
+  kind: 'delegated_spend_authorization_grant_v1';
+  authorizationId: DelegatedSpendAuthorizationId;
+};
+
+type DelegatedSpendAuthorizationGrantV1 = {
+  kind: 'delegated_spend_authorization_grant_v1';
+  authorizationGrantRef: DelegatedSpendAuthorizationGrantRefV1;
+  authorization: SignedDelegatedSpendAuthorizationV1;
+  lifecycle: Extract<
+    DelegatedSpendAuthorizationLifecycle,
+    { state: 'active' }
+  >;
+  walletSessionId?: never;
+  quotaId?: never;
+};
+```
+
+The grant is built only from the exact owner-signed delegated authorization,
+its proof set, and the R104 authorization store. This plan adds
+`DelegatedSpendAuthorizationGrantRefV1` and
+`DelegatedSpendAuthorizationGrantV1` as disjoint branches of the shared
+`AuthorizationGrantRef` and `AuthorizationGrant` unions. Every agent spend uses
+the existing `OperationAuthorizationSource.authorization_grant` branch, whose
+shared reference must resolve to this exact delegated variant. Verified
+step-up evidence cannot replace the owner-signed authorization or the agent's
+request signature. Delegated admission carries no `WalletSessionId` or
+`MpcWalletSigningQuotaId` alias and reuses the shared `AuthorizedOperationId`
+and stable fingerprint machinery only after the delegated grant verifies. Its
+shared `AuthorizedOperation.quota` branch is `quota_neutral` with respect to
+Wallet Session quota; the R104 delegated budget reservation remains required
+and commits atomically in the same Gateway transaction.
+
 ## Spending Scope
 
 The first scope remains intentionally narrow:
@@ -355,6 +411,18 @@ reserved amount, and request idempotency key. `outcome_unknown` retains budget
 until authoritative reconciliation. No timeout alone refunds a potentially
 executed payment.
 
+R104 owns the delegated authorization, budget-claim, and replay-claim ports and
+their Gateway D1 transaction boundary. The transaction verifies the exact
+delegated authorization source, checks its revocation epoch, claims the stable
+replay fingerprint, reserves budget once, creates the `AuthorizedOperation`,
+and writes audit linkage atomically before dispatch. A private SigningWorker
+stores only cryptographic effect deduplication, presignature or Yao material
+consumption, and terminal response replay. Router receives an internally
+authenticated command and response and stores no claim state.
+
+The deleted lane-local reservation surface is replaced by the R104-owned claim
+integration described above. No legacy parser or alias enters core logic.
+
 ## Agent Spend Request
 
 The agent signs a concrete request after quote and transaction construction:
@@ -392,6 +460,35 @@ The signature message is domain-separated and commits canonical CBOR bytes.
 The verifier uses the exact public key named by the authorization. A valid
 signature under another active key for the same agent fails.
 
+The stable operation fingerprint covers the wallet key, adapter, normalized
+intent, quote binding, final unsigned transaction, destination, amount, and
+idempotency semantics. It excludes rotating authorization, delegated budget
+claim, Wallet Session, quota, revocation, agent-session, custody-runtime, and
+other runtime identities. Those identities are admission inputs and audit
+evidence. They never become alternate operation identities. A replay resolves
+the same `AuthorizedOperationId` and recorded result without consuming a second
+authorization or budget claim.
+
+For direct threshold-wallet execution, the prepared admission is explicit:
+
+```ts
+type PreparedDelegatedWalletExecution = {
+  kind: 'prepared_delegated_wallet_execution_v1';
+  authorizedOperation: Extract<AuthorizedOperation, { lifecycle: 'claimed' }>;
+  budgetClaim: Extract<DelegatedBudgetClaimState, { state: 'reserved' }>;
+  walletId: WalletId;
+  walletKeyId: WalletKeyId;
+  materialActivation: MpcMaterialActivationRef;
+  requestDigestB64u: string;
+  finalUnsignedTransactionDigestB64u: string;
+};
+```
+
+`materialActivation` identifies the exact activated MPC material instance. It
+remains independent from the delegated authorization, budget claim, Wallet
+Session, quota, and operation identities. AP2 and chain-native adapters carry
+their own execution references and do not fabricate an MPC activation.
+
 ## Authorization Lifecycle
 
 ```ts
@@ -408,11 +505,6 @@ type DelegatedSpendAuthorizationLifecycle =
       reason: 'owner_paused' | 'risk_engine' | 'custody_unavailable';
     }
   | {
-      state: 'exhausted';
-      revocationEpoch: number;
-      exhaustedAtMs: number;
-    }
-  | {
       state: 'expired';
       revocationEpoch: number;
       expiredAtMs: number;
@@ -427,12 +519,25 @@ type DelegatedSpendAuthorizationLifecycle =
         | 'custody_compromise'
         | 'policy_replaced';
     };
+
+type DelegatedBudgetLifecycle =
+  | {
+      state: 'available';
+      aggregateCommitted: AtomicAmount;
+      aggregateReserved: AtomicAmount;
+    }
+  | {
+      state: 'exhausted';
+      aggregateCommitted: AtomicAmount;
+      exhaustedAtMs: number;
+    };
 ```
 
 Only `active` authorizations admit new operations. Budget exhaustion commits an
-`exhausted` transition. Budget top-up, scope expansion, expiry extension, agent
-key rotation, or wallet-key-set change creates a newly signed authorization;
-it never mutates the signed claims in place.
+exhausted transition in the delegated budget projection while the authorization
+remains `active`. Budget top-up, scope expansion, expiry extension, agent key
+rotation, or wallet-key-set change creates a newly signed authorization; it
+never mutates the signed claims in place.
 
 ## Admission And Execution
 
@@ -447,11 +552,16 @@ Execute checks in this order:
    fees, and typed intent.
 6. Independently decode or construct the final unsigned transaction.
 7. Verify its digest and semantic fields against the request and authorization.
-8. Atomically claim replay identity and reserve aggregate budget.
-9. Construct one `PreparedDelegatedWalletExecution` with exact immutable
-   evidence references.
-10. Execute through the selected adapter.
-11. Commit the budget and audit receipt on confirmed execution; release only on
+8. Resolve the shared authorization-grant source to the exact
+   `DelegatedSpendAuthorizationGrantV1`.
+9. In the R104 durable-owner transaction, atomically claim the stable replay
+   identity, reserve delegated budget, and create or replay one
+   `AuthorizedOperationId`.
+10. Resolve the exact `MpcMaterialActivationRef` for a direct wallet adapter
+    and construct one `PreparedDelegatedWalletExecution` with immutable
+    evidence references.
+11. Execute through the selected adapter.
+12. Commit the budget and audit receipt on confirmed execution; release only on
     definitive pre-execution failure; retain unknown outcomes for
     reconciliation.
 
@@ -469,8 +579,10 @@ Seams retains the agent and owner proofs in audit evidence.
 An authorization-bound `delegated_execution` lane may give the agent runtime an
 incomplete holder share and Seams a matching policy-controlled server share.
 Both parties are then required for the wallet signature. The lane is an
-execution mechanism and grants no authority without a verified active
-authorization and signed request.
+execution mechanism keyed by the exact `MpcMaterialActivationRef`; it grants
+no authority without a verified active delegated authorization and signed
+request. Wallet Session and delegated authorization identities remain separate,
+and revoking the delegated source never replaces unrelated owner material.
 
 ### AP2 credential release
 
@@ -553,12 +665,13 @@ Delete or replace these dormant shapes when the new behavior lands:
   identity-oriented `AgentId`;
 - unsigned `DelegatedSigningRequest`;
 - lane-derived `DelegatedSigningAuditEvent`;
-- `DelegatedBudgetReservationStore` semantics tied to lane policy;
 - `agentWallets.ts` projections that infer authority from lane ownership;
 - broad rotation jobs shared between device and agent enrollment.
 
-Retain useful typed purchase-intent and canonical digest code only after it is
-adapted to the signed authorization and request boundaries.
+R104 adds Gateway authorization records plus durable-owner delegated budget and
+replay claim integration. No lane-owned budget authority remains. Retain useful
+typed purchase-intent and canonical digest code only after it is adapted to the
+signed authorization and request boundaries.
 
 ## Implementation Phases
 
@@ -589,7 +702,13 @@ adapted to the signed authorization and request boundaries.
 
 ### Phase 3: Budget, Replay, And Audit
 
-- [ ] Implement atomic replay and budget claims through Refactor 90.
+- [ ] Implement the R104-owned delegated authorization, budget-claim, and
+      replay-claim transaction in Gateway D1 before private worker dispatch.
+      Reuse Refactor 90's stable fingerprint and `AuthorizedOperationId`
+      primitives; do not write `WalletSessionAuthorization` or Wallet Session
+      quota records for delegated authority.
+- [ ] Keep budget exhaustion in its own projection while authorization remains
+      `active` until suspension, expiry, or revocation.
 - [ ] Implement outcome-unknown reconciliation.
 - [ ] Persist the complete three-proof audit chain.
 - [ ] Add denial and exhaustion projections.
@@ -597,7 +716,8 @@ adapted to the signed authorization and request boundaries.
 ### Phase 4: Direct Wallet Execution
 
 - [ ] Provision optional authorization-bound execution lanes.
-- [ ] Bind prepared admission to exact wallet capability execution.
+- [ ] Bind prepared admission to exact wallet capability execution and
+      `MpcMaterialActivationRef`.
 - [ ] Sign from the owner wallet without transferring funds to the agent.
 - [ ] Commit budget and execution receipts exactly once.
 
@@ -620,10 +740,14 @@ Static fixtures prove:
 
 - agent keys cannot construct wallet-key records;
 - authorizations require nonempty wallet-key manifests and exact agent keys;
+- delegated admissions cannot construct a `WalletSessionAuthorization` or
+  consume `MpcWalletSigningQuota` as their authorization source;
 - direct-wallet proof sets cannot omit or add wallet keys;
 - signed claims cannot be mutated into lifecycle state;
 - P-256 and BIP-340 signatures cannot cross algorithm branches;
 - prepared execution cannot carry unverified raw requests;
+- direct wallet preparation requires an independent
+  `MpcMaterialActivationRef` and `AuthorizedOperationId`;
 - delegated authorization cannot grant export, recovery, or account admin.
 
 Cryptographic tests prove:
@@ -634,12 +758,16 @@ Cryptographic tests prove:
   presignatures;
 - wrong agent key, owner key, algorithm, domain separator, or encoding fails;
 - modified amount, destination, quote, transaction, expiry, or nonce fails;
+- rotating authorization, quota, session, and runtime identities do not alter
+  the stable operation fingerprint;
 - independent implementations reproduce authorization and request vectors.
 
 Policy and concurrency tests prove:
 
 - over-budget, expired, suspended, revoked, replayed, and out-of-scope requests
   fail before execution work;
+- budget exhaustion changes only the delegated budget projection; the signed
+  authorization remains `active`;
 - concurrent requests cannot exceed aggregate budget;
 - fees count toward the configured aggregate cap;
 - transaction substitution fails after valid intent admission;
