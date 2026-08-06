@@ -94,6 +94,7 @@ async function mountExportViewer(
     loading: payload.loading === true,
     errorMessage: payload.errorMessage,
     onLifecycle: payload.onLifecycle,
+    surfaceMeasurementBinding: ctx.surfaceMeasurementBinding,
   };
   await upsertExportViewerHost(hostArgs);
 }

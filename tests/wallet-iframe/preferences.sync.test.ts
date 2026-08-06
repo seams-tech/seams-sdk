@@ -84,9 +84,9 @@ const PREFERENCES_PUSH_STUB = `
         }
 
         if (type === 'PM_SET_CONFIG') {
-          const theme = message?.payload?.appearance?.theme;
-          if (theme === 'dark' || theme === 'light') {
-            window.__lastSetTheme = theme;
+          const themeMode = message?.payload?.appearance?.theme?.mode;
+          if (themeMode === 'dark' || themeMode === 'light') {
+            window.__lastSetTheme = themeMode;
           }
           respond(requestId, undefined);
           return;

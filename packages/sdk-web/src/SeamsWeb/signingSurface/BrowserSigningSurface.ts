@@ -66,6 +66,7 @@ import type {
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   PasskeyMpcSessionPort,
+  UiConfirmSurfaceMeasurementBinding,
   UiConfirmRuntimeBridgePort,
   WarmSessionClaimResult,
 } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
@@ -1969,6 +1970,12 @@ export class BrowserSigningSurface {
 
   setAppearance(appearance: AppearanceConfig): void {
     this.appearance = appearance;
+  }
+
+  setWalletIframeSurfaceMeasurementBinding(
+    binding: UiConfirmSurfaceMeasurementBinding,
+  ): void {
+    this.touchConfirm.getContext().surfaceMeasurementBinding = binding;
   }
 
   getUserPreferences(): UserPreferencesManager {

@@ -67,6 +67,26 @@ export type {
  */
 export type HostedAuthMenuSessionId = WalletIframeAuthMenuSessionId;
 
+export const WALLET_IFRAME_SURFACE_MEASUREMENT_MAX_CSS_PX = 4096;
+
+export type WalletIframeSurfaceMeasurement =
+  | {
+      kind: 'measured_v1';
+      requestId: WalletIframeRequestId;
+      authMenuSessionId?: never;
+      sequence: number;
+      widthCssPx: number;
+      heightCssPx: number;
+    }
+  | {
+      kind: 'measured_auth_menu_v1';
+      requestId: WalletIframeRequestId;
+      authMenuSessionId: HostedAuthMenuSessionId;
+      sequence: number;
+      widthCssPx: number;
+      heightCssPx: number;
+    };
+
 export type HostedAuthMenuExternalAuthRequestId = string & {
   readonly __hostedAuthMenuExternalAuthRequestId: unique symbol;
 };
@@ -248,6 +268,76 @@ function requestIdFromBoundary(value: unknown): WalletIframeRequestId | null {
   }
 }
 
+function hasOnlyKeys(record: Record<string, unknown>, allowedKeys: readonly string[]): boolean {
+  const allowed = new Set(allowedKeys);
+  return Object.keys(record).every((key) => allowed.has(key));
+}
+
+function positiveSafeSequence(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function boundedPositiveCssPx(value: unknown): number | null {
+  return typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value > 0 &&
+    value <= WALLET_IFRAME_SURFACE_MEASUREMENT_MAX_CSS_PX
+    ? value
+    : null;
+}
+
+export function parseWalletIframeSurfaceMeasurement(
+  value: unknown,
+): WalletIframeSurfaceMeasurement | null {
+  const record = recordFromBoundary(value);
+  if (!record || !isWireSerializable(record)) return null;
+
+  if (record.kind === 'measured_v1') {
+    if (!hasOnlyKeys(record, ['kind', 'requestId', 'sequence', 'widthCssPx', 'heightCssPx'])) {
+      return null;
+    }
+    const requestId = requestIdFromBoundary(record.requestId);
+    const sequence = positiveSafeSequence(record.sequence);
+    const widthCssPx = boundedPositiveCssPx(record.widthCssPx);
+    const heightCssPx = boundedPositiveCssPx(record.heightCssPx);
+    return requestId && sequence && widthCssPx && heightCssPx
+      ? { kind: record.kind, requestId, sequence, widthCssPx, heightCssPx }
+      : null;
+  }
+
+  if (record.kind === 'measured_auth_menu_v1') {
+    if (
+      !hasOnlyKeys(record, [
+        'kind',
+        'requestId',
+        'authMenuSessionId',
+        'sequence',
+        'widthCssPx',
+        'heightCssPx',
+      ])
+    ) {
+      return null;
+    }
+    const requestId = requestIdFromBoundary(record.requestId);
+    const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(record.authMenuSessionId);
+    const sequence = positiveSafeSequence(record.sequence);
+    const widthCssPx = boundedPositiveCssPx(record.widthCssPx);
+    const heightCssPx = boundedPositiveCssPx(record.heightCssPx);
+    return requestId && authMenuSessionId && sequence && widthCssPx && heightCssPx
+      ? {
+          kind: record.kind,
+          requestId,
+          authMenuSessionId,
+          sequence,
+          widthCssPx,
+          heightCssPx,
+        }
+      : null;
+  }
+
+  return null;
+}
+
 export function hostedAuthMenuSessionIdFromBoundary(
   value: unknown,
 ): HostedAuthMenuSessionId | null {
@@ -257,10 +347,7 @@ export function hostedAuthMenuSessionIdFromBoundary(
 export function hostedAuthMenuExternalAuthRequestIdFromBoundary(
   value: unknown,
 ): HostedAuthMenuExternalAuthRequestId | null {
-  return brandedBoundaryString<HostedAuthMenuExternalAuthRequestId>(
-    value,
-    'externalAuthRequestId',
-  );
+  return brandedBoundaryString<HostedAuthMenuExternalAuthRequestId>(value, 'externalAuthRequestId');
 }
 
 function recordFromBoundary(value: unknown): Record<string, unknown> | null {
@@ -293,10 +380,7 @@ function stringOrDefault(value: unknown, fallback: string): string {
   return boundaryString(value, 'copy') ?? fallback;
 }
 
-function normalizeModeCopy(
-  raw: unknown,
-  fallback: HostedAuthMenuModeCopy,
-): HostedAuthMenuModeCopy {
+function normalizeModeCopy(raw: unknown, fallback: HostedAuthMenuModeCopy): HostedAuthMenuModeCopy {
   const record = recordFromBoundary(raw);
   return {
     title: stringOrDefault(record?.title, fallback.title),
@@ -365,15 +449,7 @@ function parseHostedAuthMenuFailureCode(value: unknown): HostedAuthMenuFailureCo
   }
 }
 
-function hasOnlyKeys(record: Record<string, unknown>, allowedKeys: readonly string[]): boolean {
-  const allowed = new Set(allowedKeys);
-  return Object.keys(record).every((key) => allowed.has(key));
-}
-
-function hasOnlyOptionalRecordKeys(
-  value: unknown,
-  allowedKeys: readonly string[],
-): boolean {
+function hasOnlyOptionalRecordKeys(value: unknown, allowedKeys: readonly string[]): boolean {
   if (value === undefined) return true;
   const record = recordFromBoundary(value);
   return record !== null && hasOnlyKeys(record, allowedKeys);
@@ -507,13 +583,7 @@ export function parseHostedAuthMenuExternalAuthRequest(
     !record ||
     !isWireSerializable(record) ||
     record.kind !== 'hosted_auth_menu_external_auth_request_v1' ||
-    !hasOnlyKeys(record, [
-      'kind',
-      'authMenuSessionId',
-      'externalAuthRequestId',
-      'provider',
-      'mode',
-    ])
+    !hasOnlyKeys(record, ['kind', 'authMenuSessionId', 'externalAuthRequestId', 'provider', 'mode'])
   ) {
     return null;
   }
@@ -604,7 +674,9 @@ export function buildHostedAuthMenuExternalAuthResolution(args: {
   return Object.freeze(resolution);
 }
 
-export function parseHostedAuthMenuCancelPayload(value: unknown): HostedAuthMenuCancelPayload | null {
+export function parseHostedAuthMenuCancelPayload(
+  value: unknown,
+): HostedAuthMenuCancelPayload | null {
   const record = recordFromBoundary(value);
   if (
     !record ||
@@ -649,9 +721,8 @@ export function parseHostedAuthMenuOutcome(value: unknown): HostedAuthMenuOutcom
     case 'registered': {
       if (!hasOnlyKeys(record, ['kind', 'authMenuSessionId', 'walletId', 'method'])) return null;
       const walletId = parseWalletId(record.walletId);
-      const method = record.method === 'passkey' || record.method === 'google_email_otp'
-        ? record.method
-        : null;
+      const method =
+        record.method === 'passkey' || record.method === 'google_email_otp' ? record.method : null;
       return walletId.ok && method
         ? { kind: record.kind, authMenuSessionId, walletId: walletId.value, method }
         : null;
@@ -659,7 +730,9 @@ export function parseHostedAuthMenuOutcome(value: unknown): HostedAuthMenuOutcom
     case 'account_synced': {
       if (!hasOnlyKeys(record, ['kind', 'authMenuSessionId', 'walletId'])) return null;
       const walletId = parseWalletId(record.walletId);
-      return walletId.ok ? { kind: record.kind, authMenuSessionId, walletId: walletId.value } : null;
+      return walletId.ok
+        ? { kind: record.kind, authMenuSessionId, walletId: walletId.value }
+        : null;
     }
     case 'cancelled': {
       if (!hasOnlyKeys(record, ['kind', 'authMenuSessionId', 'reason'])) return null;
@@ -753,6 +826,7 @@ export type ChildToParentType =
   | 'SDK_LIFECYCLE_EVENT'
   | 'PREFERENCES_CHANGED'
   | 'AUTH_MENU_EXTERNAL_AUTH_REQUEST'
+  | 'SURFACE_MEASUREMENT'
   | 'PM_RESULT'
   | 'ERROR';
 
@@ -1233,10 +1307,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_CANCEL', PMCancelPayload>
   | RpcEnvelope<'PM_OPEN_AUTH_MENU', PMOpenAuthMenuPayload>
   | RpcEnvelope<'PM_CANCEL_AUTH_MENU', PMCancelAuthMenuPayload>
-  | RpcEnvelope<
-      'PM_RESOLVE_AUTH_MENU_EXTERNAL_AUTH',
-      PMResolveAuthMenuExternalAuthPayload
-    >
+  | RpcEnvelope<'PM_RESOLVE_AUTH_MENU_EXTERNAL_AUTH', PMResolveAuthMenuExternalAuthPayload>
   | RpcEnvelope<'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION', PMRedeemHostedWalletSeamsSessionPayload>
   | RpcEnvelope<'PM_REGISTER_WALLET', PMRegisterWalletPayload>
   | RpcEnvelope<'PM_ADD_WALLET_SIGNER', PMAddWalletSignerPayload>
@@ -1337,5 +1408,6 @@ export type ChildToParentEnvelope =
   | RpcEnvelope<'SDK_LIFECYCLE_EVENT', SdkLifecycleEvent>
   | RpcEnvelope<'PREFERENCES_CHANGED', PreferencesChangedPayload>
   | RpcEnvelope<'AUTH_MENU_EXTERNAL_AUTH_REQUEST', HostedAuthMenuExternalAuthRequest>
+  | RpcEnvelope<'SURFACE_MEASUREMENT', WalletIframeSurfaceMeasurement>
   | RpcEnvelope<'PM_RESULT', PMResultPayload>
   | RpcEnvelope<'ERROR', ErrorPayload>;

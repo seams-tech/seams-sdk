@@ -30,6 +30,7 @@ type MessagePayloads = {
   SET_EXPORT_DATA: {
     theme?: 'dark' | 'light';
     variant?: 'drawer' | 'modal';
+    surface: 'standalone' | 'wallet-iframe';
     accountId: string;
     publicKey?: string;
     keys?: ExportPrivateKeyDisplayEntry[];
@@ -159,8 +160,8 @@ function postToParent<T extends MessageType>(type: T, payload?: MessagePayloads[
 
 function isSetExportDataPayload(payload: unknown): payload is MessagePayloads['SET_EXPORT_DATA'] {
   if (!isObject(payload)) return false;
-  const p = payload as { accountId?: unknown };
-  return isString(p.accountId);
+  const p = payload as { accountId?: unknown; surface?: unknown };
+  return isString(p.accountId) && (p.surface === 'standalone' || p.surface === 'wallet-iframe');
 }
 
 function isCopyPayload(payload: unknown): payload is MessagePayloads['COPY'] {
@@ -229,6 +230,8 @@ function onMessage(e: MessageEvent<{ type?: unknown; payload?: unknown }>) {
       }
       upsertExportAppearanceOverrides(payload.appearance);
       const viewer = getViewer();
+      const surface = payload.surface;
+      document.documentElement.setAttribute('data-w3a-export-surface', surface);
       if (nextTheme) {
         viewer.theme = nextTheme;
       }
@@ -239,6 +242,7 @@ function onMessage(e: MessageEvent<{ type?: unknown; payload?: unknown }>) {
       viewer.guidance = payload.guidance;
 
       const drawer = getDrawer();
+      drawer.setAttribute('data-w3a-export-surface', surface);
       if (nextTheme) drawer.theme = nextTheme;
       // Auto-fit to content: let Drawer compute visible height from content above the fold.
       drawer.height = undefined;

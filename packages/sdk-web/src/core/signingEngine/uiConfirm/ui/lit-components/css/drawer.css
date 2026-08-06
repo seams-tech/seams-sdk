@@ -26,33 +26,22 @@ w3a-drawer {
 /* Structural styles for <w3a-drawer> (Shadow and Light DOM) */
 :host,
 w3a-drawer {
-  display: contents;
+  display: block;
+  width: 100%;
+  max-width: 100%;
 }
 
 w3a-drawer .overlay,
 :host .overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.1);
-  z-index: 2147483646;
-  opacity: 1;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-}
-
-w3a-drawer[open] .overlay,
-:host([open]) .overlay {
-  /* opacity: 1; */
-  pointer-events: auto;
+  display: none;
 }
 
 w3a-drawer .drawer,
 :host .drawer {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 2147483647;
+  position: relative;
+  inset: auto;
+  width: 100%;
+  max-width: 100%;
   /* Use AccessKeysModal token set; fall back to Lit host vars */
   background: var(--w3a-colors-colorBackground, var(--w3a-color-background, #111));
   color: var(--w3a-colors-textPrimary, var(--w3a-text-primary, #f6f7f8));
@@ -65,7 +54,7 @@ w3a-drawer .drawer,
   --w3a-drawer__sheet-radius: min(calc(var(--w3a-shape-card, 16px) + 2px), 2.125rem);
   border-radius: var(--w3a-drawer__sheet-radius) var(--w3a-drawer__sheet-radius) 0 0;
   border: none;
-  transform: translateY(100%);
+  transform: translateY(0);
   transition:
     transform var(--w3a-drawer__transition-duration, 100ms)
       var(--w3a-drawer__transition-easing, cubic-bezier(0.2, 0.6, 0.2, 1)),
@@ -73,25 +62,11 @@ w3a-drawer .drawer,
   will-change: transform;
   box-shadow: 0 0px 8px rgba(0, 0, 0, 0.2);
   padding: 0.5rem;
-  /* Constrain width and center horizontally */
-  max-width: var(--w3a-drawer__max-width, 384px);
-  margin-left: auto;
-  margin-right: auto;
-  /* Use a tall sheet so we can overpull without clipping */
-  height: var(--w3a-drawer__sheet-height, 100vh);
-  /* Prefer dynamic viewport height where supported */
-  height: var(--w3a-drawer__sheet-height, 100dvh);
+  margin: 0;
+  height: auto;
+  max-height: 100%;
   display: grid;
   grid-template-rows: auto 1fr;
-}
-
-/* Default to closed (100%) until JS computes the open translate. */
-w3a-drawer[open] .drawer,
-:host([open]) .drawer {
-  /* Allow a small upward offset (in px) to compensate for mobile UI chrome */
-  transform: translateY(
-    calc(var(--w3a-drawer__open-translate, 100%) - var(--w3a-drawer__open-offset, 0px))
-  );
 }
 
 .drawer.dragging,
@@ -204,4 +179,80 @@ w3a-drawer[theme='light'] .drawer,
   border-color: var(--w3a-colors-borderPrimary, rgba(0, 0, 0, 0.08));
   /* Softer elevation for light theme */
   box-shadow: 0 0px 12px rgba(0, 0, 0, 0.12);
+}
+
+/* Standalone confirmations retain the document-owned bottom-sheet overlay. */
+w3a-tx-confirmer[data-w3a-confirm-surface='standalone'] w3a-drawer-tx-confirmer,
+w3a-tx-confirmer[data-w3a-confirm-surface='standalone'] w3a-drawer {
+  display: contents;
+}
+
+w3a-tx-confirmer[data-w3a-confirm-surface='standalone'] w3a-drawer .overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.1);
+  z-index: 2147483646;
+  opacity: 1;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+w3a-tx-confirmer[data-w3a-confirm-surface='standalone'] w3a-drawer[open] .overlay {
+  pointer-events: auto;
+}
+
+w3a-tx-confirmer[data-w3a-confirm-surface='standalone'] w3a-drawer .drawer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2147483647;
+  width: auto;
+  max-width: var(--w3a-drawer__max-width, 384px);
+  margin-inline: auto;
+  height: var(--w3a-drawer__sheet-height, 100dvh);
+  max-height: none;
+  transform: translateY(100%);
+}
+
+w3a-tx-confirmer[data-w3a-confirm-surface='standalone'] w3a-drawer[open] .drawer {
+  transform: translateY(
+    calc(var(--w3a-drawer__open-translate, 100%) - var(--w3a-drawer__open-offset, 0px))
+  );
+}
+
+/* Standalone export viewers use the same document-owned bottom-sheet surface. */
+w3a-drawer[data-w3a-export-surface='standalone'] .overlay {
+  display: block;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.1);
+  z-index: 2147483646;
+  opacity: 1;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+w3a-drawer[data-w3a-export-surface='standalone'][open] .overlay {
+  pointer-events: auto;
+}
+
+w3a-drawer[data-w3a-export-surface='standalone'] .drawer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2147483647;
+  width: auto;
+  max-width: var(--w3a-drawer__max-width, 384px);
+  margin-inline: auto;
+  height: var(--w3a-drawer__sheet-height, 100dvh);
+  max-height: none;
+  transform: translateY(100%);
+}
+
+w3a-drawer[data-w3a-export-surface='standalone'][open] .drawer {
+  transform: translateY(
+    calc(var(--w3a-drawer__open-translate, 100%) - var(--w3a-drawer__open-offset, 0px))
+  );
 }

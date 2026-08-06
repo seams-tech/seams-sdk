@@ -20,6 +20,7 @@ import {
   toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import { buildMpcMaterialActivationRefFixture } from '../unit/helpers/ecdsaMaterialRef.fixtures';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
@@ -50,6 +51,10 @@ const EXPORT_FLOW_ECDSA_EXPORT_LANE = exactEcdsaSigningLaneIdentity({
     chainTarget: EXPORT_FLOW_EVM_TARGET,
     keyHandle: toEvmFamilyEcdsaKeyHandle('ecdsa-key-handle-export-flow'),
     key: EXPORT_FLOW_ECDSA_KEY,
+    materialActivation: buildMpcMaterialActivationRefFixture(
+      'export-flow',
+      EXPORT_FLOW_SUBJECT_ID,
+    ),
   }),
   auth: {
     kind: 'passkey',
