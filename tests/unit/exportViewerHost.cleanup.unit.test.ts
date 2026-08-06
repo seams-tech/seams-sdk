@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
+import { setupBasicPasskeyTest } from '../setup';
 
 test.describe('export viewer host cleanup', () => {
   test('removeExportViewerHostIfPresent removes a mounted export viewer host', async ({ page }) => {
-    await page.goto('/');
+    await setupBasicPasskeyTest(page);
 
     const result = await page.evaluate(async () => {
       const mod = await import(
@@ -27,7 +28,7 @@ test.describe('export viewer host cleanup', () => {
   });
 
   test('export viewer session state clears after host removal', async ({ page }) => {
-    await page.goto('/');
+    await setupBasicPasskeyTest(page);
 
     const result = await page.evaluate(async () => {
       const mod = await import(
@@ -40,7 +41,7 @@ test.describe('export viewer host cleanup', () => {
       const sessionId = 'near-ed25519-export-session-test';
       await mod.upsertExportViewerHost({
         theme: 'dark',
-        variant: 'drawer',
+        variant: 'modal',
         accountId: 'alice.testnet',
         sessionId,
         publicKey: 'ed25519:test-public-key',
@@ -53,18 +54,36 @@ test.describe('export viewer host cleanup', () => {
           },
         ],
         loading: true,
+        surfaceMeasurementBinding: { kind: 'disabled' },
       });
 
       const before = mod.isExportViewerSessionOpen(sessionId);
+      const host = document.querySelector('w3a-export-viewer-iframe');
+      const standaloneSurface = host?.getAttribute('data-w3a-export-surface');
+      await mod.upsertExportViewerHost({
+        theme: 'dark',
+        variant: 'drawer',
+        accountId: 'alice.testnet',
+        sessionId,
+        loading: true,
+        surfaceMeasurementBinding: {
+          kind: 'wallet_iframe',
+          requestId: 'request-a',
+          postMeasurement: () => undefined,
+        },
+      });
+      const walletSurface = host?.getAttribute('data-w3a-export-surface');
       mod.removeExportViewerHostIfPresent();
       const after = mod.isExportViewerSessionOpen(sessionId);
       const hostExists = !!document.querySelector('w3a-export-viewer-iframe');
 
-      return { before, after, hostExists };
+      return { before, after, hostExists, standaloneSurface, walletSurface };
     });
 
     expect(result.before).toBe(true);
     expect(result.after).toBe(false);
     expect(result.hostExists).toBe(false);
+    expect(result.standaloneSurface).toBe('standalone');
+    expect(result.walletSurface).toBe('wallet-iframe');
   });
 });

@@ -52,6 +52,8 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { ThresholdSessionId } from '@shared/utils/domainIds';
 import type { DurableRecordStore } from '@/core/platform';
 import type { NearOperationStepUpPreparationPort } from '../interfaces/operationStepUpPreparation';
+import type { WalletIframeSurfaceMeasurement } from '@/SeamsWeb/walletIframe/shared/messages';
+import type { WalletIframeRequestId } from '@/core/types/walletIframeIdentity';
 
 export type RequestUserConfirmationOptions = {
   onProgress?: (progress: UserConfirmProgressEvent) => void;
@@ -60,6 +62,16 @@ export type RequestUserConfirmationOptions = {
 export type ExportPrivateKeysWithUiOptions = {
   onViewerLifecycle?: (event: 'opened' | 'closed') => void;
 };
+
+export type UiConfirmSurfaceMeasurementBinding =
+  | {
+      kind: 'disabled';
+    }
+  | {
+      kind: 'wallet_iframe';
+      requestId: WalletIframeRequestId;
+      postMeasurement: (measurement: WalletIframeSurfaceMeasurement) => void;
+    };
 
 /** UiConfirm-owned host context passed into the concrete confirmation runtime. */
 export interface UiConfirmContext {
@@ -79,6 +91,7 @@ export interface UiConfirmContext {
   tempoExplorerUrl?: string;
   evmExplorerUrl?: string;
   loadEcdsaRoleLocalReadyRecord: DurableRecordStore['loadEcdsaRoleLocalReadyRecord'];
+  surfaceMeasurementBinding: UiConfirmSurfaceMeasurementBinding;
 }
 
 export type WarmSessionStatusResult =

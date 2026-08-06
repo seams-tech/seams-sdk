@@ -52,7 +52,8 @@ export function removeExistingOverlaysForOrigin(walletOrigin: string): void {
 
   for (const el of matches) {
     try {
-      el.remove();
+      const dialog = el.closest('dialog.w3a-wallet-overlay-dialog');
+      (dialog ?? el).remove();
     } catch {}
   }
 }
@@ -60,10 +61,13 @@ export function removeExistingOverlaysForOrigin(walletOrigin: string): void {
 export function createWalletIframe(opts: {
   walletOrigin: string;
   walletServiceUrl: URL;
+  mountParent: HTMLElement;
   testOptions?: IframeTestOptions;
+  onLoad?: () => void;
 }): HTMLIFrameElement {
   const iframe = document.createElement('iframe');
-  // Hidden by default via CSS classes; higher layers toggle state using overlay-styles.
+  // The transport mounts hidden. OverlayController owns dialog placement and
+  // presentation transitions after the authenticated handshake.
   iframe.classList.add('w3a-wallet-overlay', 'is-hidden');
   // Ensure the base overlay stylesheet is installed early so computed styles
   // (opacity/pointer-events) reflect the hidden state immediately after mount.
@@ -95,10 +99,13 @@ export function createWalletIframe(opts: {
 
   // Track load state to guard against races where we post before content is listening
   trackIframeLoad(iframe);
+  if (opts.onLoad) {
+    iframe.addEventListener('load', opts.onLoad);
+  }
 
   const src = opts.walletServiceUrl.toString();
   iframe.src = src;
 
-  document.body.appendChild(iframe);
+  opts.mountParent.appendChild(iframe);
   return iframe;
 }

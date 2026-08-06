@@ -77,7 +77,9 @@ test.describe('Wallet iframe handshake', () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.message).toBe('Wallet iframe READY timeout');
+    expect(result.message).toMatch(
+      /^\[IframeTransport\] Wallet iframe READY timed out after \d+ms$/,
+    );
 
     const readyState = await page.evaluate(() => {
       const router = (window as any).__walletRouter;

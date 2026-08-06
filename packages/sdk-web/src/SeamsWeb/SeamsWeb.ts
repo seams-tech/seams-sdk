@@ -106,6 +106,7 @@ import type {
   TempoSignerCapability,
 } from '@/SeamsWeb/signingSurface/types';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   EnrollEmailOtpInternalResult,
   LoginWithEmailOtpEcdsaCapabilityInternalResult,
@@ -961,6 +962,12 @@ export class SeamsWeb {
         } catch {}
       })();
     }
+  }
+
+  setWalletIframeSurfaceMeasurementBinding(
+    binding: UiConfirmSurfaceMeasurementBinding,
+  ): void {
+    this.signingEngine.setWalletIframeSurfaceMeasurementBinding(binding);
   }
 
   /**

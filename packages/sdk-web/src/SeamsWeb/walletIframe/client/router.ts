@@ -49,6 +49,7 @@ import {
   type PreferencesChangedPayload,
   type PMExportKeypairUiPayload,
   type PMRegistrationAuthMethodInput,
+  parseWalletIframeSurfaceMeasurement,
   isRegistrationTimingSpanV1,
 } from '../shared/messages';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
@@ -180,20 +181,34 @@ import type {
 import { ActionArgs, TransactionInput, TxExecutionStatus } from '@/core/types';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import { IframeTransport } from './transport/IframeTransport';
-import OverlayController from './overlay/overlay-controller';
+import OverlayController, { type OverlayControllerState } from './overlay/overlay-controller';
 import {
+  authMenuWalletIframeSurfacePresentation,
+  drawerWalletIframeSurfacePresentation,
   hiddenWalletIframeSurface,
+  modalWalletIframeSurfacePresentation,
   passkeyRegistrationPreparationReceipt,
   requestSurfaceIdentity,
   reduceWalletIframeSurface,
+  trustedWalletIframeSurfaceMeasurementFromWire,
   walletIframeConnectionIdFromBoundary,
   type ReduceWalletIframeSurfaceResult,
   type RequestSurfaceIdentity,
   type WalletIframeConnectionId,
   type WalletIframeSurface,
+  type WalletIframeSurfacePresentation,
+  type WalletIframeTrustedSurfaceMeasurement,
+  type WalletIframeAuthMenuPresentation,
+  type WalletIframeRequestSurfacePresentation,
   type WalletIframeSurfaceBusyError,
   type WalletIframeSurfaceEvent,
 } from './surface/domain';
+import {
+  resolveWalletIframeSurfaceGeometry,
+  type WalletIframeSurfaceGeometry,
+  type WalletIframeSurfaceMeasurementState,
+  type WalletIframeSurfaceViewport,
+} from './surface/geometry';
 import { WalletIframeSurfaceRenderer } from './surface/renderer';
 import {
   WalletIframeTransactionSurfaceQueue,
@@ -215,6 +230,7 @@ import {
 } from '@shared/utils/registrationIntent';
 import { parseAppSessionJwt, type AppSessionJwt } from '@shared/utils/domainIds';
 import { joinNormalizedUrl, stripTrailingSlashes } from '@shared/utils/normalize';
+import { needsExplicitActivation } from '@/utils/deviceDetection';
 import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { type ConfirmationConfig } from '@/core/types/signer-worker';
 import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
@@ -281,7 +297,7 @@ export interface WalletIframeRouterOptions {
   uiRegistry?: Record<string, unknown>;
   // Optional browser assembly hook for owning wallet iframe overlay state construction.
   createOverlayState?: (args: {
-    ensureIframe: () => HTMLIFrameElement;
+    ensureIframe: (mountParent?: HTMLElement) => HTMLIFrameElement;
   }) => WalletIframeOverlayState;
 }
 
@@ -302,6 +318,8 @@ type WalletIframeRequestSurfaceKind =
   | 'recovery_codes_rotate';
 
 type Pending = {
+  requestId: WalletIframeRequestId;
+  connectionId: WalletIframeConnectionId;
   resolve: (value: unknown) => void;
   reject: (reason?: unknown) => void;
   timer: number | undefined;
@@ -327,6 +345,13 @@ function requestSurfaceKindForMessage(
   type: ParentToChildEnvelope['type'],
   payload: unknown,
 ): WalletIframeRequestSurfaceKind | null {
+  if (
+    isTransactionSurfaceMessage(type) &&
+    confirmationUiModeForRequest(type, payload) === 'none' &&
+    !needsExplicitActivation()
+  ) {
+    return null;
+  }
   switch (type) {
     case 'PM_OPEN_AUTH_MENU':
       return 'auth_menu';
@@ -335,7 +360,6 @@ function requestSurfaceKindForMessage(
       return 'registration';
     case 'PM_SIGN_TX_WITH_ACTIONS':
     case 'PM_SIGN_AND_SEND_TX':
-    case 'PM_SEND_TRANSACTION':
     case 'PM_EXECUTE_ACTION':
     case 'PM_SIGN_DELEGATE_ACTION':
     case 'PM_SIGN_NEP413':
@@ -346,7 +370,6 @@ function requestSurfaceKindForMessage(
         ? 'key_export_threshold'
         : 'key_export_near';
     case 'PM_UNLOCK':
-    case 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION':
       return 'unlock';
     case 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA':
       return 'device_link';
@@ -358,6 +381,102 @@ function requestSurfaceKindForMessage(
       return 'recovery_codes_rotate';
     default:
       return null;
+  }
+}
+
+function isTransactionSurfaceMessage(type: ParentToChildEnvelope['type']): boolean {
+  switch (type) {
+    case 'PM_SIGN_TX_WITH_ACTIONS':
+    case 'PM_SIGN_AND_SEND_TX':
+    case 'PM_EXECUTE_ACTION':
+    case 'PM_SIGN_DELEGATE_ACTION':
+    case 'PM_SIGN_NEP413':
+    case 'PM_SIGN_TEMPO':
+      return true;
+    default:
+      return false;
+  }
+}
+
+type RequestConfirmationUiMode = 'none' | 'modal' | 'drawer';
+
+function confirmationUiModeForRequest(
+  type: ParentToChildEnvelope['type'],
+  payload: unknown,
+): RequestConfirmationUiMode {
+  if (type === 'PM_EXPORT_KEYPAIR_UI' && isObject(payload)) {
+    const options = isObject(payload.options) ? payload.options : null;
+    if (options?.variant === 'drawer') return 'drawer';
+    if (options?.variant === 'modal') return 'modal';
+  }
+
+  if (!isObject(payload)) return 'modal';
+  const rootConfig = isObject(payload.confirmationConfig) ? payload.confirmationConfig : null;
+  const options = isObject(payload.options) ? payload.options : null;
+  const optionConfig = options && isObject(options.confirmationConfig)
+    ? options.confirmationConfig
+    : null;
+  const config = optionConfig ?? rootConfig;
+  if (!config || typeof config.uiMode !== 'string') return 'modal';
+  if (config.uiMode === 'none' || config.uiMode === 'drawer' || config.uiMode === 'modal') {
+    return config.uiMode;
+  }
+  return 'modal';
+}
+
+function effectiveTransactionSurfaceUiMode(
+  payload: unknown,
+): Exclude<RequestConfirmationUiMode, 'none'> {
+  const requested = confirmationUiModeForRequest('PM_SIGN_TX_WITH_ACTIONS', payload);
+  if (requested === 'none') return needsExplicitActivation() ? 'drawer' : 'modal';
+  return requested;
+}
+
+function requestSurfacePresentationFor(
+  kind: 'auth_menu',
+  payload: unknown,
+): WalletIframeAuthMenuPresentation;
+function requestSurfacePresentationFor(
+  kind: Exclude<WalletIframeRequestSurfaceKind, 'auth_menu'>,
+  payload: unknown,
+): WalletIframeRequestSurfacePresentation;
+function requestSurfacePresentationFor(
+  kind: WalletIframeRequestSurfaceKind,
+  payload: unknown,
+): WalletIframeSurfacePresentation {
+  switch (kind) {
+    case 'auth_menu':
+      return authMenuWalletIframeSurfacePresentation('Sign in or create an account');
+    case 'registration':
+      return modalWalletIframeSurfacePresentation('Confirm passkey registration');
+    case 'transaction':
+      return effectiveTransactionSurfaceUiMode(payload) === 'drawer'
+        ? drawerWalletIframeSurfacePresentation('Confirm transaction')
+        : modalWalletIframeSurfacePresentation('Confirm transaction');
+    case 'key_export_near':
+    case 'key_export_threshold':
+      return confirmationUiModeForRequest('PM_EXPORT_KEYPAIR_UI', payload) === 'drawer'
+        ? drawerWalletIframeSurfacePresentation('Confirm key export')
+        : modalWalletIframeSurfacePresentation('Confirm key export');
+    case 'unlock':
+      return confirmationUiModeForRequest('PM_UNLOCK', payload) === 'drawer'
+        ? drawerWalletIframeSurfacePresentation('Unlock wallet')
+        : modalWalletIframeSurfacePresentation('Unlock wallet');
+    case 'device_link':
+    case 'device_link_qr':
+      return modalWalletIframeSurfacePresentation('Link a device');
+    case 'recovery_codes_show':
+      return confirmationUiModeForRequest('PM_SHOW_EMAIL_OTP_RECOVERY_CODES', payload) ===
+        'drawer'
+        ? drawerWalletIframeSurfacePresentation('Recovery codes')
+        : modalWalletIframeSurfacePresentation('Recovery codes');
+    case 'recovery_codes_rotate':
+      return confirmationUiModeForRequest('PM_ROTATE_EMAIL_OTP_RECOVERY_CODES', payload) ===
+        'drawer'
+        ? drawerWalletIframeSurfacePresentation('Rotate recovery codes')
+        : modalWalletIframeSurfacePresentation('Rotate recovery codes');
+    default:
+      return assertNeverWalletIframeRequestSurfaceKind(kind);
   }
 }
 
@@ -392,6 +511,7 @@ function shouldHideWalletIframeSurface(payload: ProgressPayload): boolean {
 }
 
 const WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR = 4;
+const WALLET_IFRAME_SURFACE_MEASUREMENT_FALLBACK_TIMEOUT_MS = 120;
 const WALLET_IFRAME_REGISTRATION_TIMEOUT_MS = 180_000;
 const WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS = 30_000;
 
@@ -770,6 +890,19 @@ function walletIframeSurfaceBusyError(
   return error;
 }
 
+class WalletIframeConnectionClosedRequestError extends Error {
+  readonly code = 'connection_closed' as const;
+
+  constructor(
+    readonly requestId: WalletIframeRequestId,
+    readonly connectionId: WalletIframeConnectionId,
+    requestType: ParentToChildEnvelope['type'],
+  ) {
+    super(`Wallet iframe connection closed while handling ${requestType}`);
+    this.name = 'WalletIframeConnectionClosedRequestError';
+  }
+}
+
 function createTerminalProgressForRequest(args: {
   requestType: ParentToChildEnvelope['type'];
   requestId: string;
@@ -968,6 +1101,16 @@ export class WalletIframeRouter {
   private overlayState: WalletIframeOverlayState;
   private walletIframeSurface: WalletIframeSurface = hiddenWalletIframeSurface();
   private surfaceRenderer: WalletIframeSurfaceRenderer;
+  private activeSurfaceMeasurement: WalletIframeTrustedSurfaceMeasurement | null = null;
+  private activeSurfaceMeasurementUnavailable = false;
+  private surfaceGeneration = 0;
+  private activeSurfaceMeasurementGeneration = 0;
+  private surfaceViewportListenersAttached = false;
+  private measurementFallbackFrame: number | null = null;
+  private measurementFallbackTimer: number | null = null;
+  private measurementFallbackFrameCount = 0;
+  private measurementFallbackGeneration = 0;
+  private disposed = false;
   private readonly transactionSurfaceQueue = new WalletIframeTransactionSurfaceQueue();
   private readonly hostedAuthMenuRequestIds = new Map<
     HostedAuthMenuSessionId,
@@ -1046,17 +1189,18 @@ export class WalletIframeRouter {
         ownerTag: this.opts.testOptions.ownerTag,
       },
     });
+    this.transport.onConnectionClosed(this.handleTransportConnectionClosed);
 
-    // Centralize overlay sizing/visibility. The router is the single owner of
-    // "how" the iframe is shown/hidden (fullscreen vs anchored, sticky, etc).
+    // Centralize overlay sizing, visibility, and identity-bound dismissal.
     this.overlayState = (
       this.opts.createOverlayState ||
-      ((args: { ensureIframe: () => HTMLIFrameElement }) => ({
+      ((args: { ensureIframe: (mountParent?: HTMLElement) => HTMLIFrameElement }) => ({
         controller: new OverlayController(args),
       }))
     )({
-      ensureIframe: () => this.transport.ensureIframeMounted(),
+      ensureIframe: (mountParent) => this.transport.ensureIframeMounted(mountParent),
     });
+    this.overlayState.controller.setDismissHandler(this.handleOverlayDismiss);
     this.surfaceRenderer = new WalletIframeSurfaceRenderer(this.overlayState.controller);
 
     // Progress remains a content and diagnostics channel. Surface transitions own
@@ -1079,10 +1223,226 @@ export class WalletIframeRouter {
   ): ReduceWalletIframeSurfaceResult {
     const result = reduceWalletIframeSurface(this.walletIframeSurface, event);
     if (result.kind === 'applied') {
+      const previousSurface = this.walletIframeSurface;
       this.walletIframeSurface = result.surface;
-      this.surfaceRenderer.render(result.surface);
+      if (!this.surfaceIdentityEqual(previousSurface, result.surface)) {
+        this.surfaceGeneration += 1;
+        this.activeSurfaceMeasurement = null;
+        this.activeSurfaceMeasurementUnavailable = false;
+        this.activeSurfaceMeasurementGeneration = this.surfaceGeneration;
+      }
+      this.updateSurfaceViewportListeners();
+      this.renderActiveWalletIframeSurface();
+      if (result.surface.kind !== 'hidden' && !this.activeSurfaceMeasurement) {
+        this.scheduleMeasurementFallback(this.surfaceGeneration);
+      }
     }
     return result;
+  }
+
+  private updateSurfaceViewportListeners(): void {
+    const shouldAttach = this.walletIframeSurface.kind !== 'hidden';
+    if (shouldAttach === this.surfaceViewportListenersAttached) return;
+    const visualViewport = window.visualViewport;
+    if (shouldAttach) {
+      window.addEventListener('resize', this.handleSurfaceViewportChange);
+      visualViewport?.addEventListener('resize', this.handleSurfaceViewportChange);
+      visualViewport?.addEventListener('scroll', this.handleSurfaceViewportChange);
+      this.surfaceViewportListenersAttached = true;
+      return;
+    }
+    window.removeEventListener('resize', this.handleSurfaceViewportChange);
+    visualViewport?.removeEventListener('resize', this.handleSurfaceViewportChange);
+    visualViewport?.removeEventListener('scroll', this.handleSurfaceViewportChange);
+    this.surfaceViewportListenersAttached = false;
+    this.cancelMeasurementFallback();
+  }
+
+  private handleSurfaceViewportChange = (): void => {
+    if (this.walletIframeSurface.kind === 'hidden') return;
+    this.renderActiveWalletIframeSurface();
+  };
+
+  private scheduleMeasurementFallback(generation: number): void {
+    this.cancelMeasurementFallback();
+    if (this.walletIframeSurface.kind === 'hidden') return;
+    this.measurementFallbackGeneration = generation;
+    this.measurementFallbackFrameCount = 0;
+    this.measurementFallbackTimer = window.setTimeout(
+      this.handleMeasurementFallbackTimeout,
+      WALLET_IFRAME_SURFACE_MEASUREMENT_FALLBACK_TIMEOUT_MS,
+    );
+    if (typeof window.requestAnimationFrame === 'function') {
+      this.measurementFallbackFrame = window.requestAnimationFrame(
+        this.handleMeasurementFallbackFrame,
+      );
+    }
+  }
+
+  private handleMeasurementFallbackFrame = (): void => {
+    const generation = this.measurementFallbackGeneration;
+    this.measurementFallbackFrame = null;
+    if (generation !== this.surfaceGeneration || this.walletIframeSurface.kind === 'hidden') return;
+    if (this.activeSurfaceMeasurement) return;
+    this.measurementFallbackFrameCount += 1;
+    if (this.measurementFallbackFrameCount >= 2) {
+      this.markMeasurementUnavailable(generation);
+      return;
+    }
+    this.measurementFallbackFrame = window.requestAnimationFrame(this.handleMeasurementFallbackFrame);
+  };
+
+  private handleMeasurementFallbackTimeout = (): void => {
+    this.measurementFallbackTimer = null;
+    this.markMeasurementUnavailable(this.measurementFallbackGeneration);
+  };
+
+  private markMeasurementUnavailable(generation: number): void {
+    if (generation !== this.surfaceGeneration || this.walletIframeSurface.kind === 'hidden') return;
+    if (this.activeSurfaceMeasurement) return;
+    this.activeSurfaceMeasurementUnavailable = true;
+    this.cancelMeasurementFallback();
+    this.renderActiveWalletIframeSurface();
+  }
+
+  private cancelMeasurementFallback(): void {
+    if (this.measurementFallbackFrame !== null) {
+      window.cancelAnimationFrame(this.measurementFallbackFrame);
+      this.measurementFallbackFrame = null;
+    }
+    if (this.measurementFallbackTimer !== null) {
+      window.clearTimeout(this.measurementFallbackTimer);
+      this.measurementFallbackTimer = null;
+    }
+    this.measurementFallbackFrameCount = 0;
+  }
+
+  private handleOverlayDismiss = (event: {
+    identity: RequestSurfaceIdentity;
+    authMenuSessionId?: HostedAuthMenuSessionId;
+  }): void => {
+    const surface = this.walletIframeSurface;
+    if (surface.kind === 'hidden') return;
+    if (
+      surface.identity.surfaceId !== event.identity.surfaceId ||
+      surface.identity.requestId !== event.identity.requestId
+    ) {
+      return;
+    }
+    if (surface.kind === 'modal_auth_menu') {
+      if (surface.authMenuSessionId !== event.authMenuSessionId) return;
+      void this.cancelHostedAuthMenuWithReason(surface.authMenuSessionId, 'close_button');
+      return;
+    }
+    if (event.authMenuSessionId !== undefined) return;
+    void this.cancelRequest(surface.identity.requestId);
+  };
+
+  private handleTransportConnectionClosed = (): void => {
+    const connectionId = this.state.connectionId;
+    if (connectionId) this.handleConnectionClosed(connectionId);
+  };
+
+  private surfaceIdentityEqual(
+    left: WalletIframeSurface,
+    right: WalletIframeSurface,
+  ): boolean {
+    if (left.kind === 'hidden' || right.kind === 'hidden') return left.kind === right.kind;
+    if (
+      left.connectionId !== right.connectionId ||
+      left.identity.surfaceId !== right.identity.surfaceId ||
+      left.identity.requestId !== right.identity.requestId
+    ) {
+      return false;
+    }
+    if (left.kind === 'modal_auth_menu' || right.kind === 'modal_auth_menu') {
+      return (
+        left.kind === 'modal_auth_menu' &&
+        right.kind === 'modal_auth_menu' &&
+        left.authMenuSessionId === right.authMenuSessionId
+      );
+    }
+    return true;
+  }
+
+  private currentSurfaceViewport(): WalletIframeSurfaceViewport {
+    const visualViewport = window.visualViewport;
+    const widthCandidate = visualViewport?.width ?? window.innerWidth;
+    const heightCandidate = visualViewport?.height ?? window.innerHeight;
+    const widthCssPx = Number.isFinite(widthCandidate) && widthCandidate > 0
+      ? widthCandidate
+      : 1;
+    const heightCssPx = Number.isFinite(heightCandidate) && heightCandidate > 0
+      ? heightCandidate
+      : 1;
+    const offsetLeftCandidate = visualViewport?.offsetLeft ?? 0;
+    const offsetTopCandidate = visualViewport?.offsetTop ?? 0;
+    return {
+      widthCssPx,
+      heightCssPx,
+      offsetLeftCssPx: Number.isFinite(offsetLeftCandidate) ? offsetLeftCandidate : 0,
+      offsetTopCssPx: Number.isFinite(offsetTopCandidate) ? offsetTopCandidate : 0,
+    };
+  }
+
+  private renderActiveWalletIframeSurface(): void {
+    const surface = this.walletIframeSurface;
+    if (surface.kind === 'hidden') {
+      this.surfaceRenderer.render(surface);
+      return;
+    }
+    const measurement: WalletIframeSurfaceMeasurementState | undefined = this.activeSurfaceMeasurement
+      ? {
+          kind: 'measured',
+          widthCssPx: this.activeSurfaceMeasurement.widthCssPx,
+          heightCssPx: this.activeSurfaceMeasurement.heightCssPx,
+        }
+      : this.activeSurfaceMeasurementUnavailable
+        ? { kind: 'unavailable' }
+        : undefined;
+    const geometry = resolveWalletIframeSurfaceGeometry({
+      presentation: surface.presentation,
+      viewport: this.currentSurfaceViewport(),
+      measurement,
+    });
+    this.surfaceRenderer.render(surface, geometry);
+  }
+
+  private handleSurfaceMeasurement(value: unknown): void {
+    const measurement = parseWalletIframeSurfaceMeasurement(value);
+    if (!measurement) return;
+    const surface = this.walletIframeSurface;
+    const connectionId = this.state.connectionId;
+    if (!connectionId || surface.kind === 'hidden') return;
+    if (measurement.requestId !== surface.identity.requestId) return;
+    if (measurement.kind === 'measured_auth_menu_v1') {
+      if (
+        surface.kind !== 'modal_auth_menu' ||
+        measurement.authMenuSessionId !== surface.authMenuSessionId
+      ) {
+        return;
+      }
+    } else if (surface.kind === 'modal_auth_menu') {
+      return;
+    }
+    const trusted = trustedWalletIframeSurfaceMeasurementFromWire({
+      connectionId,
+      identity: surface.identity,
+      measurement,
+    });
+    if (!trusted) return;
+    if (
+      this.activeSurfaceMeasurement &&
+      this.activeSurfaceMeasurementGeneration === this.surfaceGeneration &&
+      trusted.sequence <= this.activeSurfaceMeasurement.sequence
+    ) {
+      return;
+    }
+    this.activeSurfaceMeasurement = trusted;
+    this.activeSurfaceMeasurementUnavailable = false;
+    this.activeSurfaceMeasurementGeneration = this.surfaceGeneration;
+    this.cancelMeasurementFallback();
+    this.renderActiveWalletIframeSurface();
   }
 
   private requestSurfaceIdentity(requestId: WalletIframeRequestId): RequestSurfaceIdentity {
@@ -1096,6 +1456,7 @@ export class WalletIframeRouter {
     kind: WalletIframeRequestSurfaceKind;
     requestId: WalletIframeRequestId;
     deadlineAtMs: number;
+    payload: unknown;
     authMenuSessionId?: HostedAuthMenuSessionId;
   }): void {
     const connectionId = this.state.connectionId;
@@ -1113,6 +1474,7 @@ export class WalletIframeRouter {
           kind: 'auth_menu_request_started',
           connectionId,
           identity,
+          presentation: requestSurfacePresentationFor('auth_menu', args.payload),
           authMenuSessionId: args.authMenuSessionId,
         });
         break;
@@ -1122,6 +1484,7 @@ export class WalletIframeRouter {
           kind: 'registration_modal_request_started',
           connectionId,
           identity,
+          presentation: requestSurfacePresentationFor('registration', args.payload),
           preparation: passkeyRegistrationPreparationReceipt(args.deadlineAtMs),
         });
         break;
@@ -1130,6 +1493,7 @@ export class WalletIframeRouter {
           kind: 'transaction_modal_request_started',
           connectionId,
           identity,
+          presentation: requestSurfacePresentationFor('transaction', args.payload),
         });
         break;
       case 'key_export_near':
@@ -1137,6 +1501,7 @@ export class WalletIframeRouter {
           kind: 'key_export_modal_request_started',
           connectionId,
           identity,
+          presentation: requestSurfacePresentationFor('key_export_near', args.payload),
           exportKind: 'near_keypair',
         });
         break;
@@ -1145,6 +1510,7 @@ export class WalletIframeRouter {
           kind: 'key_export_modal_request_started',
           connectionId,
           identity,
+          presentation: requestSurfacePresentationFor('key_export_threshold', args.payload),
           exportKind: 'threshold_ed25519_seed_from_yao',
         });
         break;
@@ -1153,6 +1519,7 @@ export class WalletIframeRouter {
           kind: 'unlock_modal_request_started',
           connectionId,
           identity,
+          presentation: requestSurfacePresentationFor('unlock', args.payload),
           unlockKind: 'passkey',
         });
         break;
@@ -1161,6 +1528,7 @@ export class WalletIframeRouter {
           kind: 'unlock_modal_request_started',
           connectionId,
           identity,
+          presentation: requestSurfacePresentationFor('unlock', args.payload),
           unlockKind: 'device_link',
         });
         break;
@@ -1169,6 +1537,7 @@ export class WalletIframeRouter {
           kind: 'device_link_qr_modal_request_started',
           connectionId,
           identity,
+          presentation: requestSurfacePresentationFor('device_link_qr', args.payload),
         });
         break;
       case 'recovery_codes_show':
@@ -1176,6 +1545,7 @@ export class WalletIframeRouter {
           kind: 'recovery_codes_modal_request_started',
           connectionId,
           identity,
+          presentation: requestSurfacePresentationFor('recovery_codes_show', args.payload),
           operation: 'show',
         });
         break;
@@ -1184,6 +1554,7 @@ export class WalletIframeRouter {
           kind: 'recovery_codes_modal_request_started',
           connectionId,
           identity,
+          presentation: requestSurfacePresentationFor('recovery_codes_rotate', args.payload),
           operation: 'rotate',
         });
         break;
@@ -1219,7 +1590,7 @@ export class WalletIframeRouter {
 
   private settleHostedAuthMenuCancellation(
     authMenuSessionId: HostedAuthMenuSessionId,
-    reason: 'component_unmounted' | 'connection_closed',
+    reason: 'close_button' | 'component_unmounted' | 'connection_closed',
   ): void {
     const requestId = this.hostedAuthMenuRequestIds.get(authMenuSessionId);
     this.cancelledHostedAuthMenuSessions.add(authMenuSessionId);
@@ -1232,7 +1603,7 @@ export class WalletIframeRouter {
       if (pending.timer !== undefined) window.clearTimeout(pending.timer);
       this.state.pending.delete(requestId);
       this.progressBus.unregister(requestId);
-      if (reason === 'connection_closed') {
+      if (reason === 'connection_closed' || reason === 'close_button') {
         pending.resolve({
           ok: true,
           result: {
@@ -1257,10 +1628,56 @@ export class WalletIframeRouter {
     }
   }
 
+  private settlePendingRequestsForConnectionClosed(
+    connectionId: WalletIframeConnectionId,
+  ): void {
+    for (const [requestId, pending] of this.state.pending) {
+      if (pending.connectionId !== connectionId) continue;
+      if (this.hostedAuthMenuSessionIdForRequestId(pending.requestId)) continue;
+
+      this.state.pending.delete(requestId);
+      if (pending.timer !== undefined) window.clearTimeout(pending.timer);
+
+      const error = new WalletIframeConnectionClosedRequestError(
+        pending.requestId,
+        pending.connectionId,
+        pending.requestType,
+      );
+      const fallbackProgress = createTerminalProgressForRequest({
+        requestType: pending.requestType,
+        requestId: pending.requestId,
+        status: 'failed',
+        message: error.message,
+        errorCode: error.code,
+      });
+      if (fallbackProgress) {
+        this.progressBus.dispatch({ requestId: pending.requestId, payload: fallbackProgress });
+      }
+      this.progressBus.unregister(pending.requestId);
+      this.finishRequestSurface(pending.requestId, false);
+      this.sendBestEffortCancel(pending.requestId);
+      pending.reject(error);
+    }
+  }
+
   private handleConnectionClosed(connectionId: WalletIframeConnectionId): void {
     for (const [authMenuSessionId, activeConnectionId] of this.hostedAuthMenuConnectionIds) {
       if (activeConnectionId !== connectionId) continue;
       this.settleHostedAuthMenuCancellation(authMenuSessionId, 'connection_closed');
+    }
+    this.settlePendingRequestsForConnectionClosed(connectionId);
+    if (
+      this.walletIframeSurface.kind !== 'hidden' &&
+      this.walletIframeSurface.connectionId === connectionId
+    ) {
+      this.transitionWalletIframeSurface({ kind: 'connection_closed', connectionId });
+    }
+    this.overlayState.controller.dispose();
+    this.updateSurfaceViewportListeners();
+    if (this.state.connectionId === connectionId) {
+      this.state.connectionId = null;
+      this.state.port = null;
+      this.state.ready = false;
     }
   }
 
@@ -1342,6 +1759,8 @@ export class WalletIframeRouter {
     this.state.initInFlight = (async () => {
       // Respect autoMount=false by deferring connect until first use
       if (this.opts.testOptions.autoMount !== false) {
+        // A connected iframe cannot move between parents without reloading and losing its MessagePort.
+        this.overlayState.controller.prepare();
         this.state.port = await this.transport.connect();
         const connectionId = walletIframeConnectionIdFromBoundary(
           `wallet-iframe-connection-${secureRandomBase36(16, 'wallet iframe connection IDs')}`,
@@ -1491,14 +1910,19 @@ export class WalletIframeRouter {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     const connectionId = this.state.connectionId;
     if (connectionId) this.handleConnectionClosed(connectionId);
+    this.cancelMeasurementFallback();
+    this.updateSurfaceViewportListeners();
+    this.overlayState.controller.dispose();
     this.transport.dispose();
   }
 
   // ===== UI registry/window-message helpers (generic mounting) =====
   registerUiTypes(registry: WalletUIRegistry): void {
-    const iframe = this.transport.ensureIframeMounted();
+    const iframe = this.overlayState.controller.prepare();
     const w = iframe.contentWindow;
     if (!w) return;
     const target = this.walletOriginOrigin;
@@ -1511,7 +1935,7 @@ export class WalletIframeRouter {
     targetSelector?: string;
     id?: string;
   }): void {
-    const iframe = this.transport.ensureIframeMounted();
+    const iframe = this.overlayState.controller.prepare();
     const w = iframe.contentWindow;
     if (!w) return;
     const target = this.walletOriginOrigin;
@@ -1519,7 +1943,7 @@ export class WalletIframeRouter {
   }
 
   updateUiComponent(params: { id: string; props?: Record<string, unknown> }): void {
-    const iframe = this.transport.ensureIframeMounted();
+    const iframe = this.overlayState.controller.prepare();
     const w = iframe.contentWindow;
     if (!w) return;
     const target = this.walletOriginOrigin;
@@ -1527,7 +1951,7 @@ export class WalletIframeRouter {
   }
 
   unmountUiComponent(id: string): void {
-    const iframe = this.transport.ensureIframeMounted();
+    const iframe = this.overlayState.controller.prepare();
     const w = iframe.contentWindow;
     if (!w) return;
     const target = this.walletOriginOrigin;
@@ -2880,19 +3304,26 @@ export class WalletIframeRouter {
   async cancelHostedAuthMenu(args: {
     authMenuSessionId: HostedAuthMenuSessionId;
   }): Promise<void> {
-    const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(args.authMenuSessionId);
+    await this.cancelHostedAuthMenuWithReason(args.authMenuSessionId, 'component_unmounted');
+  }
+
+  private async cancelHostedAuthMenuWithReason(
+    rawAuthMenuSessionId: HostedAuthMenuSessionId,
+    reason: 'close_button' | 'component_unmounted',
+  ): Promise<void> {
+    const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(rawAuthMenuSessionId);
     if (!authMenuSessionId) throw new Error('authMenuSessionId must be a non-empty string');
     const activeRequestId = this.hostedAuthMenuRequestIds.get(authMenuSessionId);
     if (!activeRequestId) return;
     const payload: HostedAuthMenuCancelPayload = buildHostedAuthMenuCancelPayload({
       authMenuSessionId,
       requestId: activeRequestId,
-      reason: 'component_unmounted',
+      reason,
     });
     try {
       await this.post<void>({ type: 'PM_CANCEL_AUTH_MENU', payload });
     } catch {
-      this.settleHostedAuthMenuCancellation(authMenuSessionId, 'component_unmounted');
+      this.settleHostedAuthMenuCancellation(authMenuSessionId, reason);
     }
   }
 
@@ -2958,6 +3389,10 @@ export class WalletIframeRouter {
           listener(payload);
         } catch {}
       }
+      return;
+    }
+    if (msg.type === 'SURFACE_MEASUREMENT') {
+      this.handleSurfaceMeasurement(msg.payload);
       return;
     }
     const requestId = msg.requestId;
@@ -3069,6 +3504,10 @@ export class WalletIframeRouter {
     if (!this.state.ready || !this.state.port) {
       await this.init();
     }
+    const connectionId = this.state.connectionId;
+    if (!connectionId || !this.state.port) {
+      throw new Error('Wallet iframe connection is unavailable');
+    }
     if (postOpts?.shouldContinue && !postOpts.shouldContinue()) {
       throw new Error('Wallet iframe request was cancelled before dispatch');
     }
@@ -3098,6 +3537,13 @@ export class WalletIframeRouter {
     }
 
     try {
+      if (this.state.connectionId !== connectionId || !this.state.port) {
+        throw new WalletIframeConnectionClosedRequestError(
+          requestId,
+          connectionId,
+          envelope.type,
+        );
+      }
       const admission = this.requestAdmission(sessionBinding);
       if (admission.kind === 'expired') {
         throw new WalletIframeSessionExpiredRequestError({
@@ -3112,6 +3558,7 @@ export class WalletIframeRouter {
           kind: surfaceKind,
           requestId,
           deadlineAtMs,
+          payload: full.payload,
           authMenuSessionId:
             authMenuSessionIdForMessage(envelope.type, full.payload) ?? undefined,
         });
@@ -3138,6 +3585,8 @@ export class WalletIframeRouter {
 
         // Step 4: Register pending request for correlation
         this.state.pending.set(requestId, {
+          requestId,
+          connectionId,
           resolve: (v) => resolve(v as PostResult<T>),
           reject,
           timer,
@@ -3249,10 +3698,7 @@ export class WalletIframeRouter {
   }
 
   /** Public helper for tests/tools: inspect current overlay state. */
-  getOverlayState(): {
-    visible: boolean;
-    mode: 'hidden' | 'fullscreen';
-  } {
+  getOverlayState(): OverlayControllerState {
     return this.overlayState.controller.getState();
   }
 
