@@ -5,9 +5,7 @@
       "origin": "https://staging.seams.sh",
       "googleOidcClientId": "971053349716-2ck8cp6ucohvkd075aebdtv9jskla2b5.apps.googleusercontent.com",
       "defaultNetwork": "testnet",
-      "availableNetworks": [
-        "testnet"
-      ],
+      "availableNetworks": ["testnet"],
       "pagesProjectEnv": "CF_PAGES_PROJECT_VITE"
     },
     "lanes": {
@@ -58,9 +56,7 @@
           "billing": {
             "enabled": true,
             "owner": "gateway",
-            "secrets": [
-              "STRIPE_API_SK"
-            ]
+            "secrets": ["STRIPE_API_SK"]
           },
           "sponsoredExecution": {
             "enabled": true,
@@ -70,9 +66,7 @@
           "signingSessionSeal": {
             "enabled": true,
             "owner": "gateway",
-            "secrets": [
-              "SIGNING_SESSION_SEAL_ROOT_SECRET_B64U"
-            ]
+            "secrets": ["SIGNING_SESSION_SEAL_ROOT_SECRET_B64U"]
           }
         },
         "provisioning": {
@@ -108,10 +102,7 @@
             },
             "origins": {
               "gateway": "https://staging.api.seams.sh",
-              "allowedCors": [
-                "https://staging.seams.sh",
-                "https://staging.sign.seams.sh"
-              ]
+              "allowedCors": ["https://staging.seams.sh", "https://staging.sign.seams.sh"]
             },
             "session": {
               "issuer": "seams-gateway-staging"
@@ -120,9 +111,7 @@
               "algorithm": "shamir3pass-v2",
               "groupId": "rfc2409-group2",
               "currentKeyVersion": "signing-session-seal-staging-r2",
-              "acceptedWarmKeyVersions": [
-                "signing-session-seal-staging-r2"
-              ]
+              "acceptedWarmKeyVersions": ["signing-session-seal-staging-r2"]
             },
             "routerAb": {
               "ceremonyJwtAudience": "router-ab",
@@ -218,10 +207,7 @@
       "origin": "https://seams.sh",
       "googleOidcClientId": "971053349716-p10qdg7lsjh24lcocbsckt4f85is5igs.apps.googleusercontent.com",
       "defaultNetwork": "testnet",
-      "availableNetworks": [
-        "testnet",
-        "mainnet"
-      ],
+      "availableNetworks": ["testnet", "mainnet"],
       "pagesProjectEnv": "CF_PAGES_PROJECT_VITE"
     },
     "lanes": {
@@ -272,9 +258,7 @@
           "billing": {
             "enabled": true,
             "owner": "gateway",
-            "secrets": [
-              "STRIPE_API_SK"
-            ]
+            "secrets": ["STRIPE_API_SK"]
           },
           "sponsoredExecution": {
             "enabled": true,
@@ -284,9 +268,7 @@
           "signingSessionSeal": {
             "enabled": true,
             "owner": "gateway",
-            "secrets": [
-              "SIGNING_SESSION_SEAL_ROOT_SECRET_B64U"
-            ]
+            "secrets": ["SIGNING_SESSION_SEAL_ROOT_SECRET_B64U"]
           }
         },
         "provisioning": {
@@ -328,7 +310,6 @@
             "SIGNING_SESSION_SEAL_ROOT_SECRET_B64U",
             "STRIPE_API_SK",
             "STRIPE_WEBHOOK_SECRET",
-            "RESEND_API_KEY",
             "RELAYER_ACCOUNT_ID",
             "RELAYER_PRIVATE_KEY"
           ]
@@ -377,9 +358,7 @@
           "billing": {
             "enabled": true,
             "owner": "gateway",
-            "secrets": [
-              "STRIPE_API_SK"
-            ]
+            "secrets": ["STRIPE_API_SK"]
           },
           "sponsoredExecution": {
             "enabled": true,
@@ -389,9 +368,7 @@
           "signingSessionSeal": {
             "enabled": true,
             "owner": "gateway",
-            "secrets": [
-              "SIGNING_SESSION_SEAL_ROOT_SECRET_B64U"
-            ]
+            "secrets": ["SIGNING_SESSION_SEAL_ROOT_SECRET_B64U"]
           }
         },
         "provisioning": {
@@ -433,7 +410,8 @@
             "SIGNING_SESSION_SEAL_ROOT_SECRET_B64U",
             "STRIPE_API_SK",
             "STRIPE_WEBHOOK_SECRET",
-            "RESEND_API_KEY"
+            "RESEND_API_KEY",
+            "ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON"
           ]
         }
       }

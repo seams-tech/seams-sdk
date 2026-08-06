@@ -1,6 +1,6 @@
 import React from 'react';
 import { BookOpen } from 'lucide-react';
-import { FRONTEND_CONFIG } from '@/config';
+import { getActiveFrontendDeployment } from '@/context/frontendRuntime';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { DashboardGoogleAuthCard } from '@/shared/auth/DashboardGoogleAuthCard';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
@@ -9,10 +9,7 @@ import {
   fetchGoogleAuthOptions,
   requestGoogleIdToken,
 } from '@/shared/auth/googleIdentity';
-import {
-  consumeDashboardConsoleSignOut,
-  fetchDashboardConsoleSession,
-} from '../consoleSession';
+import { consumeDashboardConsoleSignOut, fetchDashboardConsoleSession } from '../consoleSession';
 import '../styles.css';
 
 function normalizeBaseUrl(input: unknown): string {
@@ -30,10 +27,10 @@ export function DashboardLoginPage(): React.JSX.Element {
   const homeProps = linkProps('/');
   const docsProps = linkProps('/docs');
   const contactProps = linkProps('/contact');
-  const relayerBaseUrl = React.useMemo(
-    () => normalizeBaseUrl(FRONTEND_CONFIG.consoleBaseUrl || FRONTEND_CONFIG.relayerUrl),
-    [],
-  );
+  const relayerBaseUrl = React.useMemo(() => {
+    const deployment = getActiveFrontendDeployment();
+    return normalizeBaseUrl(deployment.consoleBaseUrl || deployment.relayerUrl);
+  }, []);
   const [googleClientId, setGoogleClientId] = React.useState<string>('');
   const [initializing, setInitializing] = React.useState<boolean>(true);
   const [loading, setLoading] = React.useState<boolean>(false);

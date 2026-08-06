@@ -28,10 +28,7 @@ import {
   useDashboardConsoleSession,
 } from './consoleSession';
 import { DashboardSelectedContextProvider } from './selectedContext';
-import {
-  listDashboardEnvironments,
-  listDashboardProjects,
-} from './consoleContextApi';
+import { listDashboardEnvironments, listDashboardProjects } from './consoleContextApi';
 import {
   getDashboardOnboardingState,
   isDashboardConsoleApiErrorCode,
@@ -45,6 +42,7 @@ import {
 } from './useDashboardUiPreferences';
 import { isDashboardDefaultOrganizationName } from './utils/organizationIdentity';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
+import { useFrontendRuntime } from '@/context/frontendRuntime';
 import {
   listDashboardAccountOrganizations,
   switchDashboardAccountOrganizationContext,
@@ -150,6 +148,7 @@ function buildOrglessOnboardingState(): DashboardOnboardingState {
 
 function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): React.JSX.Element {
   const { theme, setTheme } = useTheme();
+  const frontendRuntime = useFrontendRuntime();
   const { go, linkProps } = useSiteRouter();
   const homeProps = linkProps('/');
   const consoleSession = useDashboardConsoleSession();
@@ -171,15 +170,13 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   const [logoutPending, setLogoutPending] = React.useState<boolean>(false);
   const [logoutErrorMessage, setLogoutErrorMessage] = React.useState<string>('');
   const [contextActionErrorMessage, setContextActionErrorMessage] = React.useState<string>('');
-  const [accountOrganizations, setAccountOrganizations] = React.useState<DashboardAccountOrganization[]>(
-    [],
-  );
-  const [accountOrganizationsResolved, setAccountOrganizationsResolved] = React.useState<boolean>(
-    false,
-  );
-  const [pendingOrganizationContextOrgId, setPendingOrganizationContextOrgId] = React.useState<string>(
-    '',
-  );
+  const [accountOrganizations, setAccountOrganizations] = React.useState<
+    DashboardAccountOrganization[]
+  >([]);
+  const [accountOrganizationsResolved, setAccountOrganizationsResolved] =
+    React.useState<boolean>(false);
+  const [pendingOrganizationContextOrgId, setPendingOrganizationContextOrgId] =
+    React.useState<string>('');
   const [organizationOptions, setOrganizationOptions] = React.useState<TopbarOption[]>([]);
   const [projectOptions, setProjectOptions] = React.useState<TopbarOption[]>([]);
   const [selectedProjectId, setSelectedProjectId] = React.useState<string>(persistedProjectId);
@@ -249,7 +246,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       name: onboardingOrganizationName,
       orgId: onboardingOrganizationId,
     });
-  const hasConfiguredOrganization = hasExistingOrganization && onboardingHasConfiguredOrganizationName;
+  const hasConfiguredOrganization =
+    hasExistingOrganization && onboardingHasConfiguredOrganizationName;
   const focusedOnboardingOrganizationValue = onboardingHasConfiguredOrganizationName
     ? onboardingOrganizationName
     : '';
@@ -280,7 +278,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     !currentOrgId &&
     (!accountOrganizationsResolved ||
       Boolean(pendingOrganizationContextOrgId) ||
-      (Boolean(recoveryTargetOrgId) && organizationRecoveryAttemptRef.current !== recoveryAttemptKey));
+      (Boolean(recoveryTargetOrgId) &&
+        organizationRecoveryAttemptRef.current !== recoveryAttemptKey));
   const isWaitingForCurrentOrgOnboardingState = Boolean(
     currentOrgId && onboardingGateEnabled && onboardingStateOrgId !== currentOrgId,
   );
@@ -401,11 +400,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     if (onboardingGateEnabled && onboardingState && hasConfiguredOrganization)
       return DEFAULT_DASHBOARD_ROUTE;
     return DASHBOARD_ONBOARDING_ROUTE;
-  }, [
-    hasConfiguredOrganization,
-    onboardingGateEnabled,
-    onboardingState,
-  ]);
+  }, [hasConfiguredOrganization, onboardingGateEnabled, onboardingState]);
 
   React.useEffect(() => {
     const claims = consoleSession.claims;
@@ -417,9 +412,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     setAccountOrganizationsResolved(false);
     Promise.allSettled([
       listDashboardAccountOrganizations(),
-      currentOrgId
-        ? listDashboardProjects({ status: 'ACTIVE' })
-        : Promise.resolve([]),
+      currentOrgId ? listDashboardProjects({ status: 'ACTIVE' }) : Promise.resolve([]),
     ])
       .then(([organizationsResult, projectsResult]) => {
         if (cancelled) return;
@@ -439,8 +432,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         ).trim();
         const hasScopedProjectFallback = Boolean(
           preferredOrganizationProjectId ||
-            scopedOnboardingSelectedProjectId ||
-            scopedPersistedProjectId,
+          scopedOnboardingSelectedProjectId ||
+          scopedPersistedProjectId,
         );
         setAccountOrganizations(organizations);
         const nextOrganizationOptions = dedupeOptions(
@@ -465,20 +458,18 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
             })),
         );
         setOrganizationOptions(nextOrganizationOptions);
-        const nextProjectOptions = dedupeOptions(
-          [
-            ...projects.map((entry) => ({
-              value: entry.id,
-              label: entry.name || entry.id,
-            })),
-            ...buildFallbackOptions(
-              preferredOrganizationProjectId,
-              preferredOrganizationProjectLabel,
-            ),
-            ...buildFallbackOptions(scopedOnboardingSelectedProjectId),
-            ...(scopedPersistedProjectId ? buildFallbackOptions(scopedPersistedProjectId) : []),
-          ],
-        );
+        const nextProjectOptions = dedupeOptions([
+          ...projects.map((entry) => ({
+            value: entry.id,
+            label: entry.name || entry.id,
+          })),
+          ...buildFallbackOptions(
+            preferredOrganizationProjectId,
+            preferredOrganizationProjectLabel,
+          ),
+          ...buildFallbackOptions(scopedOnboardingSelectedProjectId),
+          ...(scopedPersistedProjectId ? buildFallbackOptions(scopedPersistedProjectId) : []),
+        ]);
         setProjectOptions(nextProjectOptions);
         const nextSelectedProjectId =
           (scopedOnboardingSelectedProjectId &&
@@ -1060,11 +1051,12 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         dropdownOptions={dropdownOptions}
         focusedMode={focusedOnboardingMode}
         focusedContextValue={focusedOnboardingMode ? focusedOnboardingOrganizationValue : undefined}
-        accountLabel={
-          consoleSession.claims?.name || consoleSession.claims?.email || 'Account'
-        }
+        accountLabel={consoleSession.claims?.name || consoleSession.claims?.email || 'Account'}
         searchItems={topbarSearchItems}
         onNavigate={(path) => go(path)}
+        network={frontendRuntime.selectedNetwork}
+        availableNetworks={frontendRuntime.availableNetworks}
+        onSelectNetwork={frontendRuntime.selectNetwork}
       />
 
       <DashboardSidebar

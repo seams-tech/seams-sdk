@@ -76,15 +76,11 @@ const JS_REFERENCE_PATTERNS = [
   /\bimport\(\s*["']([^"']+)["']\s*\)/g,
   /\bnew URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)/g,
   /\bresolveWasmUrl\(\s*["']([^"']+)["']/g,
+  /\b[A-Za-z_$][\w$]*\(\s*["']([^"']+\.(?:worker\.js|wasm))["']/g,
 ];
 const HTML_REFERENCE_PATTERN = /\b(?:href|src)="([^"]+)"/g;
 const CSS_URL_PATTERN = /\burl\(\s*(['"]?)([^'")]+)\1\s*\)/g;
 const SOURCE_MAPPING_URL_PATTERN = /(?:\/\/|\/\*)# sourceMappingURL=([^\s*]+)/g;
-
-function routeToFilePath(route) {
-  if (route === '/wallet-service') return path.join(PUBLIC_ROOT, 'wallet-service/index.html');
-  return path.join(PUBLIC_ROOT, route.slice(1));
-}
 
 function sourceFileToFilePath(sourceFile) {
   return path.join(PUBLIC_ROOT, sourceFile);

@@ -97,15 +97,16 @@ use router_ab_cloudflare::{
     CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2,
     CloudflareRouterNormalSigningPrepareAdmissionCandidateV2,
     CloudflareRouterNormalSigningTrustedAdmissionV1,
-    CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareRouterProjectPolicyV1,
-    CloudflareRouterPublicAdmissionPlanV1, CloudflareRouterQuotaCheckV1,
-    CloudflareRouterRecipientProofBundleResponseV1, CloudflareRouterTrustedAdmissionV1,
-    CloudflareRouterTrustedRequestMetadataV1, CloudflareRouterVerifiedJwtClaimsV1,
-    CloudflareRouterVerifiedSessionProviderV1, CloudflareRouterVerifiedSessionV1,
-    CloudflareRouterVerifiedWalletSessionV1, CloudflareRouterWalletSessionCredentialV1,
-    CloudflareRouterWalletSessionVerifierV1, CloudflareRouterWorkerRuntimeV1,
-    CloudflareSecretMaterial32V1, CloudflareServerOutputHpkeDecryptKeyBindingV1,
-    CloudflareServerOutputMaterialRecordV1, CloudflareSignerClientRecipientProofBundleResponseV1,
+    CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareRouterProjectPolicyBindingV1,
+    CloudflareRouterProjectPolicyV1, CloudflareRouterPublicAdmissionPlanV1,
+    CloudflareRouterQuotaCheckV1, CloudflareRouterRecipientProofBundleResponseV1,
+    CloudflareRouterTrustedAdmissionV1, CloudflareRouterTrustedRequestMetadataV1,
+    CloudflareRouterVerifiedJwtClaimsV1, CloudflareRouterVerifiedSessionProviderV1,
+    CloudflareRouterVerifiedSessionV1, CloudflareRouterVerifiedWalletSessionV1,
+    CloudflareRouterWalletSessionCredentialV1, CloudflareRouterWalletSessionVerifierV1,
+    CloudflareRouterWorkerRuntimeV1, CloudflareSecretMaterial32V1,
+    CloudflareServerOutputHpkeDecryptKeyBindingV1, CloudflareServerOutputMaterialRecordV1,
+    CloudflareSignerClientRecipientProofBundleResponseV1,
     CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1,
     CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1, CloudflareSignerEnvelopeHpkePublicKeySetV1,
     CloudflareSignerEnvelopeHpkePublicKeyV1, CloudflareSignerEnvelopeHpkeRotationPublicKeySetV1,
@@ -155,8 +156,8 @@ use router_ab_cloudflare::{
     DERIVER_B_PEER_VERIFYING_KEY_HEX_ENV, DERIVER_B_PREVIOUS_ENVELOPE_HPKE_KEY_EPOCH_ENV,
     DERIVER_B_PREVIOUS_ENVELOPE_HPKE_PUBLIC_KEY_ENV, DERIVER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
     ROUTER_AB_PREVIOUS_ENVELOPE_HPKE_RETIRE_AT_MS_ENV, ROUTER_JWT_AUDIENCE_ENV,
-    ROUTER_JWT_ISSUER_ENV, ROUTER_JWT_JWKS_JSON_ENV, SIGNING_WORKER_PEER_BINDING_ENV,
-    SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING_ENV,
+    ROUTER_JWT_ISSUER_ENV, ROUTER_JWT_JWKS_JSON_ENV, ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
+    SIGNING_WORKER_PEER_BINDING_ENV, SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING_ENV,
     SIGNING_WORKER_PRESIGN_SESSION_DO_KEY_PREFIX_ENV, SIGNING_WORKER_PRESIGN_SESSION_DO_OBJECT_ENV,
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH_ENV,
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -746,6 +747,28 @@ fn router_runtime() -> CloudflareRouterWorkerRuntimeV1 {
     CloudflareRouterWorkerRuntimeV1::new(
         CloudflareRouterBindingsV1::new(
             router_admission_bindings(),
+            peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
+            peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
+            peer(CloudflareWorkerRoleV1::SigningWorker, "SIGNING_WORKER"),
+        )
+        .expect("router bindings"),
+    )
+    .expect("router runtime")
+}
+
+fn router_runtime_with_project_policy(
+    allowed_work_kinds: &str,
+    allow_normal_signing: bool,
+) -> CloudflareRouterWorkerRuntimeV1 {
+    let env = router_env().with_overrides(vec![(
+        ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
+        configured_project_policy_json(allowed_work_kinds, allow_normal_signing),
+    )]);
+    let admission = parse_cloudflare_router_admission_bindings_v1(&env)
+        .expect("configured router admission bindings");
+    CloudflareRouterWorkerRuntimeV1::new(
+        CloudflareRouterBindingsV1::new(
+            admission,
             peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
             peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
             peer(CloudflareWorkerRoleV1::SigningWorker, "SIGNING_WORKER"),
@@ -2531,6 +2554,12 @@ fn test_router_jwks_json() -> &'static str {
     r#"{"keys":[{"alg":"EdDSA","crv":"Ed25519","kid":"test-router-key","kty":"OKP","use":"sig","x":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}]}"#
 }
 
+fn configured_project_policy_json(allowed_work_kinds: &str, allow_normal_signing: bool) -> String {
+    format!(
+        r#"{{"org_id":"org-1","project_id":"project-1","environment":"dev","allowed_work_kinds":[{allowed_work_kinds}],"allow_normal_signing":{allow_normal_signing},"rejected_retry_after_ms":1000}}"#
+    )
+}
+
 fn router_env() -> CloudflareEnvMapV1 {
     CloudflareEnvMapV1::new(vec![
         (ROUTER_JWT_ISSUER_ENV, "https://issuer.example"),
@@ -2731,6 +2760,58 @@ fn router_admission_bindings_parse_router_only_provider_config() {
 
     assert_eq!(bindings.jwt.issuer, "https://issuer.example");
     assert_eq!(bindings.jwt.audience, "router-ab");
+    assert!(matches!(
+        bindings.project_policy,
+        CloudflareRouterProjectPolicyBindingV1::AllowAll
+    ));
+}
+
+#[test]
+fn router_admission_bindings_parse_configured_project_policy() {
+    let env = router_admission_env().with_overrides(vec![(
+        ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
+        configured_project_policy_json("\"registration_prepare\"", true),
+    )]);
+
+    let bindings = parse_cloudflare_router_admission_bindings_v1(&env)
+        .expect("configured router project policy");
+
+    let CloudflareRouterProjectPolicyBindingV1::Configured {
+        org_id,
+        project_id,
+        environment,
+        allowed_work_kinds,
+        allow_normal_signing,
+        rejected_retry_after_ms,
+    } = bindings.project_policy
+    else {
+        panic!("expected configured project policy");
+    };
+    assert_eq!(org_id, "org-1");
+    assert_eq!(project_id, "project-1");
+    assert_eq!(environment, "dev");
+    assert_eq!(
+        allowed_work_kinds,
+        vec![ExpensiveWorkKindV1::RegistrationPrepare]
+    );
+    assert!(allow_normal_signing);
+    assert_eq!(rejected_retry_after_ms, 1_000);
+}
+
+#[test]
+fn router_admission_bindings_reject_malformed_project_policy() {
+    let env = router_admission_env().with_overrides(vec![(
+        ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV,
+        "{\"org_id\":\"org-1\"}",
+    )]);
+
+    let err = parse_cloudflare_router_admission_bindings_v1(&env)
+        .expect_err("malformed project policy must fail startup parsing");
+
+    assert_eq!(
+        err.code(),
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+    );
 }
 
 #[test]
@@ -4073,6 +4154,129 @@ fn router_runtime_builds_admission_plan_from_composite_provider() {
         plan.trusted_admission().decision,
         ExpensiveWorkGateDecisionV1::Defer {
             reason: GateDeferReasonV1::SignerQueueSaturated
+        }
+    ));
+}
+
+#[test]
+fn router_runtime_project_policy_rejects_identity_mismatch() {
+    let request = ecdsa_threshold_prf_request(2_000);
+    let admission = derive_cloudflare_router_trusted_admission_v1(
+        &request,
+        trusted_metadata(),
+        allow_checks("gate-request-1"),
+    )
+    .expect("trusted admission");
+    let policy = configured_project_policy_json("\"registration_prepare\"", true)
+        .replace("\"org-1\"", "\"org-2\"");
+    let env = router_env().with_overrides(vec![(ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV, policy)]);
+    let runtime = CloudflareRouterWorkerRuntimeV1::new(
+        CloudflareRouterBindingsV1::new(
+            parse_cloudflare_router_admission_bindings_v1(&env).expect("admission bindings"),
+            peer(CloudflareWorkerRoleV1::DeriverA, "DERIVER_A"),
+            peer(CloudflareWorkerRoleV1::DeriverB, "DERIVER_B"),
+            peer(CloudflareWorkerRoleV1::SigningWorker, "SIGNING_WORKER"),
+        )
+        .expect("router bindings"),
+    )
+    .expect("router runtime");
+
+    let err = runtime
+        .apply_project_policy_to_trusted_admission_v1(&request, admission)
+        .expect_err("identity mismatch must fail admission");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+}
+
+#[test]
+fn router_runtime_project_policy_rejects_denied_work_kind() {
+    let request = ecdsa_threshold_prf_request(2_000);
+    let admission = derive_cloudflare_router_trusted_admission_v1(
+        &request,
+        trusted_metadata(),
+        allow_checks("gate-request-1"),
+    )
+    .expect("trusted admission");
+    let runtime = router_runtime_with_project_policy("\"key_export\"", true);
+
+    let admission = runtime
+        .apply_project_policy_to_trusted_admission_v1(&request, admission)
+        .expect("policy evaluation");
+
+    assert!(matches!(
+        admission.decision,
+        ExpensiveWorkGateDecisionV1::Rejected {
+            reason: GateRejectReasonV1::AbusePolicy,
+            retry_after_ms: 1_000,
+        }
+    ));
+}
+
+#[test]
+fn router_runtime_project_policy_allows_yao_work_kind() {
+    let runtime = router_runtime_with_project_policy("\"registration_prepare\"", true);
+
+    let policy = runtime
+        .evaluate_project_policy_for_yao_work_kind_v1(ExpensiveWorkKindV1::RegistrationPrepare)
+        .expect("Yao project policy evaluation");
+
+    assert_eq!(policy, CloudflareRouterProjectPolicyV1::Allowed);
+}
+
+#[test]
+fn router_runtime_allow_all_project_policy_allows_yao_work_kind() {
+    let policy = router_runtime()
+        .evaluate_project_policy_for_yao_work_kind_v1(ExpensiveWorkKindV1::KeyExport)
+        .expect("Yao project policy evaluation");
+
+    assert_eq!(policy, CloudflareRouterProjectPolicyV1::Allowed);
+}
+
+#[test]
+fn router_runtime_project_policy_rejects_denied_yao_work_kind() {
+    let runtime = router_runtime_with_project_policy("\"key_export\"", true);
+
+    let policy = runtime
+        .evaluate_project_policy_for_yao_work_kind_v1(ExpensiveWorkKindV1::RegistrationPrepare)
+        .expect("Yao project policy evaluation");
+
+    assert_eq!(
+        policy,
+        CloudflareRouterProjectPolicyV1::Rejected {
+            retry_after_ms: 1_000,
+        }
+    );
+}
+
+#[test]
+fn router_runtime_project_policy_rejects_normal_signing_when_disabled() {
+    let metadata = CloudflareRouterNormalSigningTrustedMetadataV1::new(
+        "org-1",
+        "project-1",
+        "dev",
+        "account.near",
+        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
+            .expect("auth context"),
+        digest(0x90),
+        digest(0x91),
+    )
+    .expect("normal-signing metadata");
+    let admission = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+        metadata,
+        ExpensiveWorkGateDecisionV1::accepted("normal-request-1").expect("accepted decision"),
+    )
+    .expect("normal-signing admission");
+    let runtime = router_runtime_with_project_policy("\"registration_prepare\"", false);
+
+    let admission = runtime
+        .apply_project_policy_to_normal_signing_admission_v1("normal-request-1", admission)
+        .expect("policy evaluation");
+
+    assert!(matches!(
+        admission.decision,
+        ExpensiveWorkGateDecisionV1::Rejected {
+            reason: GateRejectReasonV1::AbusePolicy,
+            retry_after_ms: 1_000,
         }
     ));
 }

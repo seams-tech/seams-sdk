@@ -1344,24 +1344,222 @@ impl CloudflareRouterJwtVerifierBindingV1 {
     }
 }
 
+/// Deployment-bound Router project policy parsed from the Worker Env.
+///
+/// Testnet profiles use the explicit allow-all variant. Production profiles
+/// carry the generated identity and work-kind policy document.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CloudflareRouterProjectPolicyBindingV1 {
+    /// No production policy was supplied; the testnet profile remains open.
+    AllowAll,
+    /// Strict production policy document.
+    Configured {
+        /// Canonical organization id authorized by this deployment.
+        org_id: String,
+        /// Canonical project id authorized by this deployment.
+        project_id: String,
+        /// Deployment environment label authorized by this deployment.
+        environment: String,
+        /// Expensive work classes admitted by this deployment.
+        allowed_work_kinds: Vec<ExpensiveWorkKindV1>,
+        /// Whether normal signing is admitted by this deployment.
+        allow_normal_signing: bool,
+        /// Retry-after duration for policy denials.
+        rejected_retry_after_ms: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudflareRouterProjectPolicyDocumentV1 {
+    org_id: String,
+    project_id: String,
+    environment: String,
+    allowed_work_kinds: Vec<ExpensiveWorkKindV1>,
+    allow_normal_signing: bool,
+    rejected_retry_after_ms: u64,
+}
+
+impl CloudflareRouterProjectPolicyBindingV1 {
+    fn from_json(json: &str) -> RouterAbProtocolResult<Self> {
+        let document: CloudflareRouterProjectPolicyDocumentV1 = serde_json::from_str(json)
+            .map_err(|err| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    format!("Router project policy bootstrap JSON parse failed: {err}"),
+                )
+            })?;
+        let policy = Self::Configured {
+            org_id: document.org_id,
+            project_id: document.project_id,
+            environment: document.environment,
+            allowed_work_kinds: document.allowed_work_kinds,
+            allow_normal_signing: document.allow_normal_signing,
+            rejected_retry_after_ms: document.rejected_retry_after_ms,
+        };
+        policy.validate()?;
+        Ok(policy)
+    }
+
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        match self {
+            Self::AllowAll => Ok(()),
+            Self::Configured {
+                org_id,
+                project_id,
+                environment,
+                allowed_work_kinds,
+                rejected_retry_after_ms,
+                ..
+            } => {
+                require_non_empty("project policy org_id", org_id)?;
+                require_non_empty("project policy project_id", project_id)?;
+                require_non_empty("project policy environment", environment)?;
+                require_work_kind_set("project policy allowed_work_kinds", allowed_work_kinds)?;
+                require_positive_ms(
+                    "project policy rejected_retry_after_ms",
+                    *rejected_retry_after_ms,
+                )
+            }
+        }
+    }
+
+    fn policy_for_context(
+        &self,
+        context: &ExpensiveWorkGateContextV1,
+        request: &EcdsaThresholdPrfRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1> {
+        self.validate()?;
+        context.validate()?;
+        request.validate()?;
+        self.policy_for_identity_and_work(
+            &context.org_id,
+            &context.project_id,
+            &context.environment,
+            context.work_kind,
+        )
+    }
+
+    fn policy_for_identity_and_work(
+        &self,
+        org_id_value: &str,
+        project_id_value: &str,
+        environment_value: &str,
+        work_kind: ExpensiveWorkKindV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1> {
+        match self {
+            Self::AllowAll => Ok(CloudflareRouterProjectPolicyV1::Allowed),
+            Self::Configured {
+                org_id,
+                project_id,
+                environment,
+                allowed_work_kinds,
+                rejected_retry_after_ms,
+                ..
+            } => {
+                if org_id_value != org_id
+                    || project_id_value != project_id
+                    || environment_value != environment
+                {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidGateDecision,
+                        "Router project policy identity does not match verified request",
+                    ));
+                }
+                if allowed_work_kinds.contains(&work_kind) {
+                    Ok(CloudflareRouterProjectPolicyV1::Allowed)
+                } else {
+                    Ok(CloudflareRouterProjectPolicyV1::Rejected {
+                        retry_after_ms: *rejected_retry_after_ms,
+                    })
+                }
+            }
+        }
+    }
+
+    fn policy_for_yao_work_kind(
+        &self,
+        work_kind: ExpensiveWorkKindV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1> {
+        self.validate()?;
+        match self {
+            Self::AllowAll => self.policy_for_identity_and_work("", "", "", work_kind),
+            Self::Configured {
+                org_id,
+                project_id,
+                environment,
+                ..
+            } => self.policy_for_identity_and_work(org_id, project_id, environment, work_kind),
+        }
+    }
+
+    fn normal_signing_policy_for_metadata(
+        &self,
+        metadata: &CloudflareRouterNormalSigningTrustedMetadataV1,
+        request_id: &str,
+    ) -> RouterAbProtocolResult<ExpensiveWorkGateDecisionV1> {
+        self.validate()?;
+        metadata.validate()?;
+        require_non_empty("normal signing request_id", request_id)?;
+        match self {
+            Self::AllowAll => ExpensiveWorkGateDecisionV1::accepted(request_id),
+            Self::Configured {
+                org_id,
+                project_id,
+                environment,
+                allow_normal_signing,
+                rejected_retry_after_ms,
+                ..
+            } => {
+                if metadata.org_id != *org_id
+                    || metadata.project_id != *project_id
+                    || metadata.environment != *environment
+                {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidGateDecision,
+                        "Router project policy identity does not match normal-signing request",
+                    ));
+                }
+                if *allow_normal_signing {
+                    ExpensiveWorkGateDecisionV1::accepted(request_id)
+                } else {
+                    ExpensiveWorkGateDecisionV1::rejected(
+                        GateRejectReasonV1::AbusePolicy,
+                        *rejected_retry_after_ms,
+                    )
+                }
+            }
+        }
+    }
+}
+
 /// Router admission-provider configuration after Env parsing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareRouterAdmissionBindingsV1 {
     /// JWT verifier configuration.
     pub jwt: CloudflareRouterJwtVerifierBindingV1,
+    /// Deployment-bound project policy.
+    pub project_policy: CloudflareRouterProjectPolicyBindingV1,
 }
 
 impl CloudflareRouterAdmissionBindingsV1 {
     /// Creates validated Router admission-provider bindings.
-    pub fn new(jwt: CloudflareRouterJwtVerifierBindingV1) -> RouterAbProtocolResult<Self> {
-        let bindings = Self { jwt };
+    pub fn new(
+        jwt: CloudflareRouterJwtVerifierBindingV1,
+        project_policy: CloudflareRouterProjectPolicyBindingV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let bindings = Self {
+            jwt,
+            project_policy,
+        };
         bindings.validate()?;
         Ok(bindings)
     }
 
     /// Validates Router admission-provider bindings.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.jwt.validate()
+        self.jwt.validate()?;
+        self.project_policy.validate()
     }
 }
 
@@ -3818,6 +4016,56 @@ impl CloudflareRouterWorkerRuntimeV1 {
         &self.bindings.admission
     }
 
+    /// Applies the deployment project policy to a trusted expensive-work admission.
+    pub fn apply_project_policy_to_trusted_admission_v1(
+        &self,
+        request: &EcdsaThresholdPrfRequestV1,
+        admission: CloudflareRouterTrustedAdmissionV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterTrustedAdmissionV1> {
+        admission.validate_for_request(request)?;
+        let policy = self
+            .bindings
+            .admission
+            .project_policy
+            .policy_for_context(&admission.context, request)?;
+        let decision = match policy {
+            CloudflareRouterProjectPolicyV1::Allowed => admission.decision,
+            CloudflareRouterProjectPolicyV1::Rejected { retry_after_ms } => {
+                ExpensiveWorkGateDecisionV1::rejected(
+                    GateRejectReasonV1::AbusePolicy,
+                    retry_after_ms,
+                )?
+            }
+        };
+        CloudflareRouterTrustedAdmissionV1::new(admission.context, decision)
+    }
+
+    /// Applies the deployment project policy to a trusted normal-signing admission.
+    pub fn apply_project_policy_to_normal_signing_admission_v1(
+        &self,
+        request_id: &str,
+        admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningTrustedAdmissionV1> {
+        admission.validate()?;
+        let decision = self
+            .bindings
+            .admission
+            .project_policy
+            .normal_signing_policy_for_metadata(&admission.metadata, request_id)?;
+        CloudflareRouterNormalSigningTrustedAdmissionV1::new(admission.metadata, decision)
+    }
+
+    /// Evaluates the deployment project policy for a validated Yao ceremony.
+    pub fn evaluate_project_policy_for_yao_work_kind_v1(
+        &self,
+        work_kind: ExpensiveWorkKindV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1> {
+        self.bindings
+            .admission
+            .project_policy
+            .policy_for_yao_work_kind(work_kind)
+    }
+
     /// Validates a public request with trusted admission and builds gate-aware work.
     pub fn public_request_admission_plan_at(
         &self,
@@ -3826,6 +4074,8 @@ impl CloudflareRouterWorkerRuntimeV1 {
         trusted_admission: CloudflareRouterTrustedAdmissionV1,
     ) -> RouterAbProtocolResult<CloudflareRouterPublicAdmissionPlanV1> {
         request.validate_at(now_unix_ms)?;
+        let trusted_admission =
+            self.apply_project_policy_to_trusted_admission_v1(&request, trusted_admission)?;
         trusted_admission.validate_for_request(&request)?;
         let plan = if trusted_admission.allows_signer_forwarding()? {
             let (deriver_a_message, deriver_b_message) = request.to_signer_wire_messages()?;
@@ -6359,8 +6609,10 @@ where
         &request,
         now_unix_ms,
     )?;
-    let trusted_admission =
-        derive_cloudflare_router_normal_signing_prepare_trusted_admission_v2(&request, &admission)?;
+    let trusted_admission = runtime.apply_project_policy_to_normal_signing_admission_v1(
+        &request.scope.request_id,
+        derive_cloudflare_router_normal_signing_prepare_trusted_admission_v2(&request, &admission)?,
+    )?;
     if !trusted_admission.allows_signing_worker_forwarding()? {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidGateDecision,
@@ -6521,6 +6773,10 @@ pub async fn handle_cloudflare_router_normal_signing_prepare_internal_step_up_re
         &authorized_operation,
         trusted_source_digest,
     )?;
+    let trusted_admission = runtime.apply_project_policy_to_normal_signing_admission_v1(
+        &request.scope.request_id,
+        trusted_admission,
+    )?;
     if !trusted_admission.allows_signing_worker_forwarding()? {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidGateDecision,
@@ -6555,6 +6811,10 @@ pub async fn handle_cloudflare_router_normal_signing_finalize_internal_step_up_r
         &request,
         &authorized_operation,
         trusted_source_digest,
+    )?;
+    let trusted_admission = runtime.apply_project_policy_to_normal_signing_admission_v1(
+        &request.scope.request_id,
+        trusted_admission,
     )?;
     if !trusted_admission.allows_signing_worker_forwarding()? {
         return Err(RouterAbProtocolError::new(
@@ -6716,6 +6976,10 @@ pub async fn handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_pre
         &authorized_operation,
         trusted_source_digest,
     )?;
+    let trusted_admission = runtime.apply_project_policy_to_normal_signing_admission_v1(
+        &request.request_id,
+        trusted_admission,
+    )?;
     if !trusted_admission.allows_signing_worker_forwarding()? {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidGateDecision,
@@ -6749,6 +7013,10 @@ pub async fn handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_fin
         &request,
         &authorized_operation,
         trusted_source_digest,
+    )?;
+    let trusted_admission = runtime.apply_project_policy_to_normal_signing_admission_v1(
+        &request.request_id,
+        trusted_admission,
     )?;
     if !trusted_admission.allows_signing_worker_forwarding()? {
         return Err(RouterAbProtocolError::new(
@@ -6814,10 +7082,12 @@ where
             &request,
             now_unix_ms,
         )?;
-    let trusted_admission =
+    let trusted_admission = runtime.apply_project_policy_to_normal_signing_admission_v1(
+        &request.request_id,
         derive_cloudflare_router_ab_ecdsa_derivation_evm_digest_prepare_trusted_admission_v1(
             &request, &admission,
-        )?;
+        )?,
+    )?;
     if !trusted_admission.allows_signing_worker_forwarding()? {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidGateDecision,
@@ -6878,10 +7148,12 @@ where
             &request,
             now_unix_ms,
         )?;
-    let trusted_admission =
+    let trusted_admission = runtime.apply_project_policy_to_normal_signing_admission_v1(
+        &request.request_id,
         derive_cloudflare_router_ab_ecdsa_derivation_evm_digest_finalize_trusted_admission_v1(
             &request, &admission,
-        )?;
+        )?,
+    )?;
     if !trusted_admission.allows_signing_worker_forwarding()? {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidGateDecision,
@@ -6942,8 +7214,11 @@ where
             &request,
             now_unix_ms,
         )?;
-    let trusted_admission = derive_cloudflare_router_normal_signing_finalize_trusted_admission_v2(
-        &request, &admission,
+    let trusted_admission = runtime.apply_project_policy_to_normal_signing_admission_v1(
+        &request.scope.request_id,
+        derive_cloudflare_router_normal_signing_finalize_trusted_admission_v2(
+            &request, &admission,
+        )?,
     )?;
     if !trusted_admission.allows_signing_worker_forwarding()? {
         return Err(RouterAbProtocolError::new(
@@ -11683,11 +11958,22 @@ pub fn parse_cloudflare_router_admission_bindings_v1(
         env,
         ROUTER_FORBIDDEN_ENV_KEYS,
     )?;
-    CloudflareRouterAdmissionBindingsV1::new(CloudflareRouterJwtVerifierBindingV1::new(
-        read_required_env_text(env, ROUTER_JWT_ISSUER_ENV)?,
-        read_required_env_text(env, ROUTER_JWT_AUDIENCE_ENV)?,
-        read_required_env_text(env, ROUTER_JWT_JWKS_JSON_ENV)?,
-    )?)
+    let project_policy = match env.get_text(ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV)? {
+        Some(json) => {
+            let json = json.trim().to_owned();
+            require_non_empty(ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON_ENV, &json)?;
+            CloudflareRouterProjectPolicyBindingV1::from_json(&json)?
+        }
+        None => CloudflareRouterProjectPolicyBindingV1::AllowAll,
+    };
+    CloudflareRouterAdmissionBindingsV1::new(
+        CloudflareRouterJwtVerifierBindingV1::new(
+            read_required_env_text(env, ROUTER_JWT_ISSUER_ENV)?,
+            read_required_env_text(env, ROUTER_JWT_AUDIENCE_ENV)?,
+            read_required_env_text(env, ROUTER_JWT_JWKS_JSON_ENV)?,
+        )?,
+        project_policy,
+    )
 }
 
 /// Parses public signer-envelope HPKE keys from an Env reader.

@@ -2,7 +2,7 @@
 
 Date created: August 5, 2026
 
-Status: planned
+Status: implementation in progress
 
 ## Objective
 
@@ -144,24 +144,44 @@ type BackendLaneId = 'staging-testnet' | 'production-testnet' | 'production-main
 
 type FrontendSiteId = 'staging' | 'production';
 
+type LaneProvisioning =
+  | {
+      kind: 'provisioned';
+      gatewayDeploymentConfig: GatewayDeploymentConfig;
+    }
+  | {
+      kind: 'pending';
+      runtimeProfileKind: 'testnet_live_demo' | 'mainnet_service';
+      requiredValues: readonly string[];
+    };
+
 type BackendLane =
   | {
       id: 'staging-testnet';
       release: 'staging';
       network: 'testnet';
-      runtimeProfile: 'testnet_live_demo';
+      resources: BackendResources;
+      origins: LaneOrigins;
+      capabilities: LaneCapabilities;
+      provisioning: LaneProvisioning;
     }
   | {
       id: 'production-testnet';
       release: 'production';
       network: 'testnet';
-      runtimeProfile: 'testnet_live_demo';
+      resources: BackendResources;
+      origins: LaneOrigins;
+      capabilities: LaneCapabilities;
+      provisioning: LaneProvisioning;
     }
   | {
       id: 'production-mainnet';
       release: 'production';
       network: 'mainnet';
-      runtimeProfile: 'mainnet_service';
+      resources: BackendResources;
+      origins: LaneOrigins;
+      capabilities: LaneCapabilities;
+      provisioning: LaneProvisioning;
     };
 ```
 
@@ -193,16 +213,19 @@ that distinguishes site releases from backend lanes:
       "origin": "https://staging.seams.sh",
       "defaultNetwork": "testnet",
       "availableNetworks": ["testnet"],
-      "pagesProjectEnv": "CF_PAGES_PROJECT_SITE"
+      "pagesProjectEnv": "CF_PAGES_PROJECT_VITE"
     },
     "lanes": {
       "testnet": {
         "gatewayOrigin": "https://staging.api.seams.sh",
         "walletOrigin": "https://staging.sign.seams.sh",
         "walletPagesProjectEnv": "CF_PAGES_PROJECT_WALLET",
-        "gatewayDeploymentConfig": {},
         "resources": {},
-        "capabilities": {}
+        "capabilities": {},
+        "provisioning": {
+          "kind": "provisioned",
+          "gatewayDeploymentConfig": {}
+        }
       }
     }
   },
@@ -212,24 +235,32 @@ that distinguishes site releases from backend lanes:
       "origin": "https://seams.sh",
       "defaultNetwork": "testnet",
       "availableNetworks": ["testnet", "mainnet"],
-      "pagesProjectEnv": "CF_PAGES_PROJECT_SITE"
+      "pagesProjectEnv": "CF_PAGES_PROJECT_VITE"
     },
     "lanes": {
       "testnet": {
         "gatewayOrigin": "https://test.api.seams.sh",
         "walletOrigin": "https://test.sign.seams.sh",
         "walletPagesProjectEnv": "CF_PAGES_PROJECT_WALLET_TESTNET",
-        "gatewayDeploymentConfig": {},
         "resources": {},
-        "capabilities": {}
+        "capabilities": {},
+        "provisioning": {
+          "kind": "pending",
+          "runtimeProfileKind": "testnet_live_demo",
+          "requiredValues": ["fresh production-testnet resources and identities"]
+        }
       },
       "mainnet": {
         "gatewayOrigin": "https://api.seams.sh",
         "walletOrigin": "https://sign.seams.sh",
         "walletPagesProjectEnv": "CF_PAGES_PROJECT_WALLET_MAINNET",
-        "gatewayDeploymentConfig": {},
         "resources": {},
-        "capabilities": {}
+        "capabilities": {},
+        "provisioning": {
+          "kind": "pending",
+          "runtimeProfileKind": "mainnet_service",
+          "requiredValues": ["fresh production-mainnet resources and identities"]
+        }
       }
     }
   }
@@ -249,6 +280,10 @@ resource names. The parser must additionally enforce:
   RPC configuration;
 - Worker names, D1 IDs, namespaces, session issuers, seal key versions, Router
   identities, and signer-set identities are unique across lanes;
+- every lane carries its planned resources, origins, capabilities, and exactly
+  one provisioning branch;
+- a `provisioned` branch contains the complete Gateway deployment config, while
+  a `pending` branch contains its runtime profile kind and required values;
 - each frontend site lists only networks backed by lanes in the same release.
 
 `scripts/deployment-targets.mjs` should parse the document once and expose
@@ -261,6 +296,29 @@ branch-specific builders:
 
 Delete the retired `TARGET_NAMES`, `readDeploymentTarget`, and any call path
 that treats all of production as one backend target.
+
+### Current provisioning state
+
+The identity-aware target document is usable before every lane has been
+provisioned. `staging-testnet` is `provisioned` and retains its current Gateway,
+Router A/B, SigningWorker, storage, secrets, and cryptographic identity.
+`production-testnet` and `production-mainnet` are `pending` until fresh
+resources, storage, secrets, and lane-specific identities are generated and
+recorded in their provisioning branches.
+
+Every lane remains visible in `plan` output, including the pending runtime
+profile and required values. Backend `build`, `preflight`, `migrate`, `deploy`,
+and `smoke`, plus frontend `build`, `deploy`, and `smoke`, reject a site or lane
+with pending provisioning before branch validation, credential use, or remote
+mutation. This makes production workflow files reviewable and runnable as dry
+runs while keeping their deployment path intentionally gated.
+
+The lane/site parser, five workflow entrypoints, lane-aware environment
+tooling, and Wrangler lane configurations are implemented. The production site
+also carries complete testnet/mainnet frontend configuration and exposes the
+console network selector; production build and deployment remain gated until
+both backend lanes are provisioned. Staging remains the deployable testnet
+release from `dev`, while production stays on `main`.
 
 ## Cloudflare resource naming
 
@@ -412,6 +470,14 @@ before building. The production backend workflows are separate so mainnet can
 have stricter approval, independent failure recovery, and an independent smoke
 gate. Do not add a free-form network workflow input.
 
+The production-testnet and production-mainnet workflow files are present as
+explicit lane entrypoints even while both production lanes are pending. Their
+lane plans remain available for review. Lane provisioning guards stop
+`build`, `preflight`, migration, deploy, and smoke work before credentials are
+used or remote resources are changed. The workflows become deployable after
+fresh production-testnet and production-mainnet resources and identities are
+generated and their provisioning branches are changed to `provisioned`.
+
 The three backend workflows keep the current visible order:
 
 1. build the lane's backend artifact;
@@ -498,6 +564,13 @@ The production site defaults to testnet for the public demo. The dashboard may
 restore the user's last console selection after authentication. The public
 demo never reads that preference.
 
+During the provisioning phase, the production site can produce a complete plan
+that reports both pending lanes, while production `build`, `deploy`, and
+`smoke` are intentionally gated until both lane configurations are
+provisioned. The staging site remains buildable with its preserved testnet
+identity. The site Pages project continues to use the existing
+`CF_PAGES_PROJECT_VITE` environment name.
+
 On network change, the application must:
 
 1. close the current wallet iframe and SDK runtime;
@@ -572,11 +645,8 @@ targets, and mainnet Worker bindings.
 
 ## Environment generation and external-value tooling
 
-Update the wallet-core and product environment tools under
-`crates/router-ab-cloudflare/scripts` to accept the new lane and site
-identities.
-
-Wallet-core commands become lane-scoped:
+The lane generator prepares a paired wallet-core and product manifest in one
+audited operation. Wallet-core preparation and updates are lane-scoped:
 
 ```text
 pnpm wallet-core:deploy:env-prepare -- --lane production-testnet ...
@@ -584,19 +654,21 @@ pnpm wallet-core:deploy:env-apply -- --lane production-testnet ...
 pnpm wallet-core:deploy:env-update -- --lane production-testnet ...
 ```
 
-Product commands become site-scoped:
+Product apply and update operations are site-scoped. Product apply consumes the
+paired product manifest produced by lane preparation:
 
 ```text
-pnpm product:deploy:env-prepare -- --site production ...
 pnpm product:deploy:env-apply -- --site production ...
 pnpm product:deploy:env-update -- --site production ...
 ```
 
-The production product manifest contains the public handoff for both
-production backend lanes. It carries neither lane's private material. Its
-generation metadata records the exact wallet-core generation ID for testnet
-and mainnet so the frontend cannot be configured with mismatched public keys or
-SigningWorker identities.
+The production product manifest contains public origins, wallet Pages project
+environments, and SigningWorker IDs for both production lanes. It carries
+neither lane's private material. Lane-generation identifiers in the product
+handoff remain protected manual inputs; review them against each lane's saved
+wallet-core manifest before applying the shared site configuration. Rotate and
+apply `production-testnet` first, then apply the `production-mainnet` wallet-core
+manifest and its product manifest once to the shared `production` site.
 
 Preserve the existing protected local files and add one file for the new
 production-testnet custody lane:
@@ -611,9 +683,10 @@ production-testnet custody lane:
 custody environments. After cutover, `production-deployment.env` supplies the
 top-level production site environment and the existing `production-*` custody
 environments used by mainnet. The new file supplies only
-`production-testnet-*`. The product generation step reads the public handoff
-from both production lane manifests before updating the top-level `production`
-environment.
+`production-testnet-*`. The shared product apply uses the production-mainnet
+product manifest after both lane rotations, with the public handoff reviewed
+against both saved wallet-core manifests before updating the top-level
+`production` environment.
 
 Every prepare invocation generates a new cryptographic identity for exactly one
 backend lane. It refuses an initialized lane without an explicit rotation
@@ -747,7 +820,9 @@ Production:
 - Delete the retired two-target helpers and fixtures.
 
 Acceptance: all five deployment identities produce complete local plans with
-no credentials, and invalid identities fail before any command runs.
+no credentials; pending production plans report their runtime profile and
+required values; invalid identities and pending mutating operations fail before
+branch validation, credential use, or remote mutation.
 
 ### Phase 2: Make backend deployment lane-aware
 
@@ -757,8 +832,10 @@ no credentials, and invalid identities fail before any command runs.
 - Enforce cross-lane identity and binding rejection.
 - Update migration and smoke operations to use the lane identity.
 
-Acceptance: all three backend lanes pass dry-run build, preflight, migration
-plan, and local smoke construction independently.
+Acceptance: the staging lane passes dry-run build, preflight, migration plan,
+and local smoke construction independently. The two production lanes remain
+explicitly pending until fresh resources and identities are provisioned, while
+their plans and provisioning failures remain independently testable.
 
 ### Phase 3: Extend GitHub Environments and replace workflows
 
@@ -766,7 +843,9 @@ plan, and local smoke construction independently.
 - Verify or provision the `staging-*` and `production-*` custody environments
   already referenced by the backend workflow YAML.
 - Provision the five new `production-testnet-*` custody environments.
-- Add separate production-testnet and production-mainnet backend workflows.
+- Retain separate production-testnet and production-mainnet backend workflows;
+  their lane provisioning guards intentionally gate deployment until fresh
+  resources and identities exist.
 - Keep `main` as the required branch for every production workflow.
 - Update environment prepare/apply/update tooling.
 - Apply mainnet-specific approval requirements.
