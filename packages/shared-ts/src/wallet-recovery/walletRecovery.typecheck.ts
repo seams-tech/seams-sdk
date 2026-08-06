@@ -7,6 +7,7 @@ import type { RecoveryCodeLifecycleState } from './recoveryEnvelopes';
 import type {
   WalletRecoveryEnvelopeEntry,
   WalletRecoveryEnvelopeSetRecord,
+  WalletRecoveryManifestKekWrap,
 } from './walletRecoveryEnvelopeSet';
 
 declare const walletId: WalletId;
@@ -81,13 +82,32 @@ void entryWithPlaintextSecret;
 
 // A recovery code protects a wallet-scoped set covering every key, so the
 // record is a set of entries and never one curve's envelope.
+const manifestKekWrap: WalletRecoveryManifestKekWrap = {
+  recoveryKeyId,
+  nonceB64u,
+  wrappedManifestKekB64u: ciphertextB64u,
+  aadHashB64u: digest,
+  lifecycle: activeRecoveryCode,
+};
+void manifestKekWrap;
+
+const manifestKekWrapWithPlaintextKek: WalletRecoveryManifestKekWrap = {
+  recoveryKeyId,
+  nonceB64u,
+  wrappedManifestKekB64u: ciphertextB64u,
+  aadHashB64u: digest,
+  lifecycle: activeRecoveryCode,
+  // @ts-expect-error A manifest-KEK wrap must not carry the plaintext KEK.
+  manifestKekB64u: 'kek',
+};
+void manifestKekWrapWithPlaintextKek;
+
 const recoverySet: WalletRecoveryEnvelopeSetRecord = {
   kind: 'wallet_recovery_envelope_set_v1',
   walletId,
-  recoveryKeyId,
   keyManifestDigestB64u: digest,
+  manifestKekWraps: [manifestKekWrap],
   entries: [ed25519Entry, ecdsaEntry],
-  lifecycle: activeRecoveryCode,
   issuedAtMs: 1,
   updatedAtMs: 1,
 };
@@ -111,12 +131,22 @@ void recoverySetWithGrant;
 const recoverySetWithoutManifest: WalletRecoveryEnvelopeSetRecord = {
   kind: 'wallet_recovery_envelope_set_v1',
   walletId,
-  recoveryKeyId,
+  manifestKekWraps: [manifestKekWrap],
   entries: [ed25519Entry],
-  lifecycle: activeRecoveryCode,
   issuedAtMs: 1,
   updatedAtMs: 1,
 };
 void recoverySetWithoutManifest;
+
+// @ts-expect-error A recovery set requires its manifest-KEK wraps.
+const recoverySetWithoutKekWraps: WalletRecoveryEnvelopeSetRecord = {
+  kind: 'wallet_recovery_envelope_set_v1',
+  walletId,
+  keyManifestDigestB64u: digest,
+  entries: [ed25519Entry],
+  issuedAtMs: 1,
+  updatedAtMs: 1,
+};
+void recoverySetWithoutKekWraps;
 
 export {};

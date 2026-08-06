@@ -19,7 +19,6 @@ export type RawRecord = Record<string, unknown>;
 export const DIGEST_B64U = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
 export const ALT_DIGEST_B64U = 'ZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1-f4CBgoM';
 export const NONCE_12_B64U = 'AQIDBAUGBwgJCgsM';
-export const NONCE_24_B64U = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcY';
 export const CIPHERTEXT_B64U = 'BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2';
 export const ED25519_PUBLIC_KEY_B64U = 'MjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFE';
 export const SECP256K1_PUBLIC_KEY_B64U = 'AgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEi';
@@ -137,17 +136,27 @@ export function rawWalletRecoveryEnvelopeEntry(
   };
 }
 
+export function rawManifestKekWrap(overrides: RawRecord = {}): RawRecord {
+  return {
+    recoveryKeyId: RECOVERY_KEY_ID,
+    nonceB64u: NONCE_12_B64U,
+    wrappedManifestKekB64u: CIPHERTEXT_B64U,
+    aadHashB64u: ALT_DIGEST_B64U,
+    lifecycle: { state: 'active', issuedAtMs: 1_000 },
+    ...overrides,
+  };
+}
+
 export function rawWalletRecoveryEnvelopeSet(overrides: RawRecord = {}): RawRecord {
   return {
     kind: 'wallet_recovery_envelope_set_v1',
     walletId: WALLET_ID,
-    recoveryKeyId: RECOVERY_KEY_ID,
     keyManifestDigestB64u: DIGEST_B64U,
+    manifestKekWraps: [rawManifestKekWrap()],
     entries: [
       rawWalletRecoveryEnvelopeEntry('ed25519_yao_client_root_v1'),
       rawWalletRecoveryEnvelopeEntry('ecdsa_client_root_share_v1'),
     ],
-    lifecycle: { state: 'active', issuedAtMs: 1_000 },
     issuedAtMs: 1_000,
     updatedAtMs: 2_000,
     ...overrides,

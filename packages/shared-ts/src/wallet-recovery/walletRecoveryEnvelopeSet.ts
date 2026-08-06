@@ -17,11 +17,13 @@ import {
   requireRecord,
 } from '../passkey-custody';
 import type { DerivedWalletRecoveryKeyId } from './recoveryCodes';
-import { parseDerivedWalletRecoveryKeyId } from './recoveryCodes';
+import { parseDerivedWalletRecoveryKeyId, WALLET_RECOVERY_CODE_COUNT } from './recoveryCodes';
 import type { RecoveryCodeLifecycleState } from './recoveryEnvelopes';
 
 /**
- * One recovery-wrapped custody secret. Entries are wallet-scoped: a recovery
+ * One recovery-wrapped custody secret, sealed under a key derived from the
+ * set's manifest KEK (frozen design: a recovery code wraps a random manifest
+ * KEK; it never wraps entries directly). Entries are wallet-scoped: a recovery
  * code covers the whole mixed-wallet key set, not one curve at a time, so a
  * partial recovery can never promote a replacement credential.
  */
@@ -35,13 +37,26 @@ export type WalletRecoveryEnvelopeEntry = {
   aadHashB64u: DigestB64u;
 };
 
+/**
+ * One recovery code's wrap of the set's manifest KEK. Ten of these are issued
+ * with the set; consuming or revoking a code touches only its wrap, never the
+ * entry ciphertexts. The wrapped payload is a 32-byte KEK, never custody
+ * material, a recovery code, or a code digest.
+ */
+export type WalletRecoveryManifestKekWrap = {
+  recoveryKeyId: DerivedWalletRecoveryKeyId;
+  nonceB64u: EnvelopeNonceB64u;
+  wrappedManifestKekB64u: EnvelopeCiphertextB64u;
+  aadHashB64u: DigestB64u;
+  lifecycle: RecoveryCodeLifecycleState;
+};
+
 export type WalletRecoveryEnvelopeSetRecord = {
   kind: 'wallet_recovery_envelope_set_v1';
   walletId: WalletId;
-  recoveryKeyId: DerivedWalletRecoveryKeyId;
   keyManifestDigestB64u: DigestB64u;
+  manifestKekWraps: readonly WalletRecoveryManifestKekWrap[];
   entries: readonly WalletRecoveryEnvelopeEntry[];
-  lifecycle: RecoveryCodeLifecycleState;
   issuedAtMs: number;
   updatedAtMs: number;
 };
@@ -66,22 +81,36 @@ export function buildWalletRecoveryEnvelopeEntry(args: {
   };
 }
 
+export function buildWalletRecoveryManifestKekWrap(args: {
+  recoveryKeyId: DerivedWalletRecoveryKeyId;
+  nonceB64u: EnvelopeNonceB64u;
+  wrappedManifestKekB64u: EnvelopeCiphertextB64u;
+  aadHashB64u: DigestB64u;
+  lifecycle: RecoveryCodeLifecycleState;
+}): WalletRecoveryManifestKekWrap {
+  return {
+    recoveryKeyId: args.recoveryKeyId,
+    nonceB64u: args.nonceB64u,
+    wrappedManifestKekB64u: args.wrappedManifestKekB64u,
+    aadHashB64u: args.aadHashB64u,
+    lifecycle: args.lifecycle,
+  };
+}
+
 export function buildWalletRecoveryEnvelopeSetRecord(args: {
   walletId: WalletId;
-  recoveryKeyId: DerivedWalletRecoveryKeyId;
   keyManifestDigestB64u: DigestB64u;
+  manifestKekWraps: readonly WalletRecoveryManifestKekWrap[];
   entries: readonly WalletRecoveryEnvelopeEntry[];
-  lifecycle: RecoveryCodeLifecycleState;
   issuedAtMs: number;
   updatedAtMs: number;
 }): WalletRecoveryEnvelopeSetRecord {
   return {
     kind: 'wallet_recovery_envelope_set_v1',
     walletId: args.walletId,
-    recoveryKeyId: args.recoveryKeyId,
     keyManifestDigestB64u: args.keyManifestDigestB64u,
+    manifestKekWraps: args.manifestKekWraps,
     entries: args.entries,
-    lifecycle: args.lifecycle,
     issuedAtMs: args.issuedAtMs,
     updatedAtMs: args.updatedAtMs,
   };
@@ -97,13 +126,20 @@ const RECOVERY_ENTRY_FIELDS = [
   'aadHashB64u',
 ] as const;
 
+const MANIFEST_KEK_WRAP_FIELDS = [
+  'recoveryKeyId',
+  'nonceB64u',
+  'wrappedManifestKekB64u',
+  'aadHashB64u',
+  'lifecycle',
+] as const;
+
 const RECOVERY_SET_FIELDS = [
   'kind',
   'walletId',
-  'recoveryKeyId',
   'keyManifestDigestB64u',
+  'manifestKekWraps',
   'entries',
-  'lifecycle',
   'issuedAtMs',
   'updatedAtMs',
 ] as const;
@@ -190,6 +226,25 @@ function parseWalletRecoveryEnvelopeEntry(
   });
 }
 
+function parseWalletRecoveryManifestKekWrap(
+  raw: unknown,
+  label: string,
+): WalletRecoveryManifestKekWrap {
+  const record = requireRecord(raw, label);
+  rejectUnknownFields(record, MANIFEST_KEK_WRAP_FIELDS, label);
+
+  return buildWalletRecoveryManifestKekWrap({
+    recoveryKeyId: parseDerivedWalletRecoveryKeyId(record.recoveryKeyId, `${label}.recoveryKeyId`),
+    nonceB64u: parseEnvelopeNonceB64u(record.nonceB64u, `${label}.nonceB64u`),
+    wrappedManifestKekB64u: parseEnvelopeCiphertextB64u(
+      record.wrappedManifestKekB64u,
+      `${label}.wrappedManifestKekB64u`,
+    ),
+    aadHashB64u: parseDigestField(record.aadHashB64u, `${label}.aadHashB64u`),
+    lifecycle: parseRecoveryCodeLifecycleState(record.lifecycle, `${label}.lifecycle`),
+  });
+}
+
 /**
  * Parses one recovery envelope set against the authenticated wallet.
  *
@@ -220,10 +275,30 @@ export function parseWalletRecoveryEnvelopeSetRecord(
     throw new Error(`${label}.walletId is outside the authenticated wallet`);
   }
 
-  const recoveryKeyId = parseDerivedWalletRecoveryKeyId(
-    record.recoveryKeyId,
-    `${label}.recoveryKeyId`,
+  if (!Array.isArray(record.manifestKekWraps)) {
+    throw new Error(`${label}.manifestKekWraps must be an array`);
+  }
+  if (record.manifestKekWraps.length === 0) {
+    throw new Error(`${label}.manifestKekWraps must carry at least one recovery-code wrap`);
+  }
+  if (record.manifestKekWraps.length > WALLET_RECOVERY_CODE_COUNT) {
+    throw new Error(
+      `${label}.manifestKekWraps cannot exceed ${WALLET_RECOVERY_CODE_COUNT} recovery codes`,
+    );
+  }
+
+  const manifestKekWraps = record.manifestKekWraps.map((wrap, index) =>
+    parseWalletRecoveryManifestKekWrap(wrap, `${label}.manifestKekWraps[${index}]`),
   );
+
+  const seenRecoveryKeyIds = new Set<string>();
+  for (const wrap of manifestKekWraps) {
+    const recoveryKeyId = String(wrap.recoveryKeyId);
+    if (seenRecoveryKeyIds.has(recoveryKeyId)) {
+      throw new Error(`${label}.manifestKekWraps has duplicate recoveryKeyId ${recoveryKeyId}`);
+    }
+    seenRecoveryKeyIds.add(recoveryKeyId);
+  }
 
   if (!Array.isArray(record.entries)) {
     throw new Error(`${label}.entries must be an array`);
@@ -265,14 +340,18 @@ export function parseWalletRecoveryEnvelopeSetRecord(
 
   return buildWalletRecoveryEnvelopeSetRecord({
     walletId: walletId.value,
-    recoveryKeyId,
     keyManifestDigestB64u: parseDigestField(
       record.keyManifestDigestB64u,
       `${label}.keyManifestDigestB64u`,
     ),
+    manifestKekWraps,
     entries,
-    lifecycle: parseRecoveryCodeLifecycleState(record.lifecycle, `${label}.lifecycle`),
     issuedAtMs,
     updatedAtMs,
   });
+}
+
+/** A set is openable while at least one recovery-code wrap remains active. */
+export function hasOpenableRecoveryCodeWrap(set: WalletRecoveryEnvelopeSetRecord): boolean {
+  return set.manifestKekWraps.some((wrap) => wrap.lifecycle.state === 'active');
 }

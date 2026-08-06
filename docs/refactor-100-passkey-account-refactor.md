@@ -339,13 +339,23 @@ type WalletRecoveryEnvelopeEntry = {
   aadHashB64u: string;
 };
 
+// One recovery code's wrap of the set's random manifest KEK. The frozen
+// design is two-level: code -> manifest KEK -> per-entry wrap keys. A code
+// never wraps a custody entry directly.
+type WalletRecoveryManifestKekWrap = {
+  recoveryKeyId: DerivedWalletRecoveryKeyId;
+  nonceB64u: string;
+  wrappedManifestKekB64u: string;
+  aadHashB64u: string;
+  lifecycle: RecoveryCodeLifecycleState;
+};
+
 type WalletRecoveryEnvelopeSetRecord = {
   kind: 'wallet_recovery_envelope_set_v1';
   walletId: WalletId;
-  recoveryKeyId: DerivedWalletRecoveryKeyId;
   keyManifestDigestB64u: string;
+  manifestKekWraps: readonly WalletRecoveryManifestKekWrap[];
   entries: readonly WalletRecoveryEnvelopeEntry[];
-  lifecycle: RecoveryCodeLifecycleState;
   issuedAtMs: number;
   updatedAtMs: number;
 };
@@ -355,11 +365,16 @@ The manifest contains the exact active owner key/lane set. Parsing rejects an
 empty set, duplicate wallet keys, duplicate lanes, omitted required keys, and
 entries outside the authenticated wallet.
 
-Use ten single-use codes, matching the existing Email OTP recovery UX. A code
-is reserved during recovery and becomes consumed only after the complete new
-credential activation commits. Failed pre-commit recovery releases the
-reservation. Failed post-commit Yao recovery follows the forward-only recovery
-rules in `router-ab/ed25519-yao/implementation-plan.md`.
+Use ten single-use codes, matching the existing Email OTP recovery UX. Each
+code wraps the same manifest KEK; consuming or revoking one code touches only
+its wrap. A code is reserved during recovery and becomes consumed only after
+the complete new credential activation commits. Failed pre-commit recovery
+releases the reservation. Failed post-commit Yao recovery follows the
+forward-only recovery rules in
+`router-ab/ed25519-yao/implementation-plan.md`. A consumed-code recovery mints
+a fresh manifest KEK and rewraps the set, and a key-manifest change (new
+wallet key, lane refresh) requires code rotation because entries cannot be
+added without the manifest KEK.
 
 ## KEK And AAD Binding
 
@@ -732,18 +747,42 @@ Broad gate:
 
 ## Decisions Required Before Implementation
 
-- Select the passkey envelope AEAD and nonce format already supported by the
-  Rust/WASM boundary. The Email OTP recovery wrap already uses
-  `chacha20poly1305-hkdf-sha256-v1` with a 12-byte nonce
-  (`EMAIL_OTP_RECOVERY_WRAP_ALG`), which is the leading candidate. Until this is
-  frozen, the landed envelope parser accepts a 12-byte or 24-byte nonce and no
-  explicit AEAD tag; freezing the choice should narrow both.
+- FROZEN (August 6, 2026) — passkey envelope AEAD: ChaCha20Poly1305 (IETF)
+  with a 12-byte random nonce, 16-byte tag, and HKDF-SHA256 KEK derivation
+  (`chacha20poly1305-hkdf-sha256-v1`, `PASSKEY_CUSTODY_WRAP_ALG_V1`). This is
+  the same primitive as `EMAIL_OTP_RECOVERY_WRAP_ALG` and the Rust/WASM
+  activated-Client seal; no second AEAD family enters the custody paths.
+  Random 12-byte nonces are safe here because each envelope's KEK is unique
+  (the envelope ID is HKDF info) and one envelope is sealed only a handful of
+  times across rewraps. The envelope parser accepts exactly 12-byte nonces.
 - Freeze the exact random-root generation API for Yao and ECDSA derivation.
-- Freeze whether a recovery code wraps each manifest entry directly or wraps a
-  manifest KEK that encrypts the entries. Both designs must preserve per-entry
-  AAD and all-or-nothing promotion.
-- Freeze the server-side passkey-envelope schema, revision/CAS rules, retention,
-  authenticated retrieval result, and revocation behavior.
+- FROZEN (August 6, 2026) — recovery-code wrapping uses a manifest KEK: each
+  of the ten codes wraps one random 32-byte manifest KEK
+  (`WalletRecoveryManifestKekWrap`, purpose `wallet_recovery_manifest_kek`),
+  and each custody entry is wrapped once under an entry KEK derived from the
+  manifest KEK with per-entry info (wallet key, lane, epoch, custody kind).
+  Per-entry AAD is preserved through the entry KEK purpose; all-or-nothing is
+  structural because one code opens the manifest KEK or nothing. Code rotation
+  rewraps only the manifest KEK and never re-opens plaintext roots; a
+  consumed-code recovery mints a fresh manifest KEK while the worker already
+  holds plaintext. Consequence: a key-manifest change (new wallet key, lane
+  refresh) requires recovery-code rotation, since entries cannot be added
+  without the manifest KEK.
+- FROZEN (August 6, 2026) — the server-side passkey-envelope store is built on
+  the Gateway D1 versioned JSON record store
+  (`CloudflareD1VersionedJsonRecordStore`): key
+  `passkey-envelope:<walletId>:<credentialIdB64u>:<envelopeId>` under the
+  tenant scope, with `parsePasskeyCustodyEnvelopeRecord` as the row parser.
+  The store version string is the transport CAS token; the domain
+  `envelopeRevision` increments by exactly 1 per rewrap and the server rejects
+  non-monotonic puts. Lifecycle transitions use predicate-guarded atomic
+  patches: active -> retired (superseded by rewrap), active/retired -> revoked
+  (terminal). Revoked rows are retained as credential tombstones but excluded
+  from retrieval. Authenticated retrieval (after server-side WebAuthn
+  assertion verification for the exact wallet, credential, and challenge)
+  returns a typed union: active with envelope and revision, or explicit
+  revoked / retired / missing / digest-mismatch failures; no branch falls back
+  to derivation.
 - Freeze the typed ownership handoff from an opened Refactor 100 ECDSA custody
   handle into the Refactor 90 activation input, exact
   `MpcMaterialActivationRef`, activation journal, manifest read-back, and
