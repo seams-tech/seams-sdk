@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Last reconciled: August 6, 2026 (Phase 0 custody boundary landed)
+Last reconciled: August 6, 2026 (Phase 1 envelope crypto landed in signer-core)
 
 Status: active design plan. Same-device passkey Ed25519 sealing and rehydration,
 durable ECDSA material identity, and the current Email OTP wallet lifecycle have
@@ -628,9 +628,17 @@ root derivation after random-root registration lands.
 
 ### Phase 1: Envelope Crypto
 
-- [ ] Implement passkey KEK derivation inside Rust/WASM.
-- [ ] Implement authenticated seal/open for every custody-secret branch.
-- [ ] Implement wallet recovery envelope sets and recovery-code reservation.
+- [x] Implement passkey KEK derivation in Rust
+      (`crates/signer-core/src/passkey_custody.rs`, feature `passkey-custody`).
+      The AAD is recomputed there from the parsed binding, so a caller passes
+      records and never an opaque AAD blob.
+- [x] Implement authenticated seal/open for every custody-secret branch.
+- [x] Implement the wallet recovery envelope-set crypto
+      (`crates/signer-core/src/wallet_recovery_custody.rs`): code KEK opens the
+      manifest KEK, manifest KEK derives per-entry KEKs.
+- [ ] Expose the custody seal/open through the browser worker's wasm boundary.
+- [ ] Implement recovery-code reservation (server-side lifecycle, distinct from
+      the wrap crypto above).
 - [ ] Implement the server-side opaque passkey-envelope store with exact
       credential, wallet, lifecycle, revision, and digest lookup results.
 - [ ] Implement authenticated envelope retrieval that verifies the WebAuthn
@@ -638,7 +646,9 @@ root derivation after random-root registration lands.
 - [ ] Persist PRF support and WebAuthn backup observations without treating
       backup eligibility or backup state as proof of cross-device PRF
       continuity.
-- [ ] Add AAD substitution and ciphertext tamper tests.
+- [x] Add AAD substitution and ciphertext tamper tests
+      (`crates/signer-core/tests/passkey_custody_envelope.rs` and
+      `crates/signer-core/tests/wallet_recovery_custody.rs`).
 
 ### Phase 2: Random-Root Registration
 
