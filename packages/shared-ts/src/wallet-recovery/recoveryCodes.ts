@@ -8,6 +8,7 @@ export {
   buildEmailOtpRecoveryCodeSet as buildWalletRecoveryCodeSet,
   formatEmailOtpRecoveryKey as formatWalletRecoveryCode,
   normalizeEmailOtpRecoveryKey as normalizeWalletRecoveryCode,
+  parseDerivedEmailOtpRecoveryKeyId as parseDerivedWalletRecoveryKeyId,
 } from '../utils/emailOtpRecoveryKey';
 
 export type {

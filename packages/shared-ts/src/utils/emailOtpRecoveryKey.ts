@@ -33,6 +33,19 @@ export type DerivedEmailOtpRecoveryKeyId = string & {
   readonly [emailOtpRecoveryKeyIdBrand]: 'DerivedEmailOtpRecoveryKeyId';
 };
 
+// `email-otp-rkid-v1-` plus unpadded base64url over one SHA-256 digest.
+const DERIVED_EMAIL_OTP_RECOVERY_KEY_ID_PATTERN = /^email-otp-rkid-v1-[A-Za-z0-9_-]{43}$/;
+
+export function parseDerivedEmailOtpRecoveryKeyId(
+  value: unknown,
+  label = 'recoveryKeyId',
+): DerivedEmailOtpRecoveryKeyId {
+  if (typeof value !== 'string' || !DERIVED_EMAIL_OTP_RECOVERY_KEY_ID_PATTERN.test(value)) {
+    throw new Error(`${label} must be a derived recovery key id`);
+  }
+  return value as DerivedEmailOtpRecoveryKeyId;
+}
+
 export type EmailOtpRecoveryCodeSet = readonly [
   EmailOtpRecoveryCode,
   EmailOtpRecoveryCode,

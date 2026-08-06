@@ -1,0 +1,351 @@
+import type { LaneShareEpoch, SigningLaneId, WalletKeyId } from '../signing-lanes/ids';
+import { parseLaneShareEpoch, parseSigningLaneId, parseWalletKeyId } from '../signing-lanes/ids';
+import type { EvmFamilySigningKeySlotId } from '../signing-lanes/evmFamilySigningKeySlotId';
+import { requireEvmFamilySigningKeySlotId } from '../signing-lanes/evmFamilySigningKeySlotId';
+import type { ThresholdEcdsaSessionId } from '../utils/domainIds';
+import { parseThresholdEcdsaSessionId } from '../utils/domainIds';
+import type { NearEd25519SigningKeyId } from '../utils/registrationIntent';
+import { parseNearEd25519SigningKeyId } from '../utils/registrationIntent';
+import type { DigestB64u } from '../utils/canonicalPrimitives';
+import type {
+  Ed25519PublicKeyB64u,
+  KeyCreationSignerSlot,
+  Secp256k1CompressedPublicKeyB64u,
+} from './primitives';
+import {
+  parseDigestField,
+  parseEd25519PublicKeyB64u,
+  parseKeyCreationSignerSlot,
+  parseSecp256k1CompressedPublicKeyB64u,
+  rejectUnknownFields,
+  requireRecord,
+} from './primitives';
+
+// The protocol capability an opened envelope restores. `holder share` alone is
+// ambiguous across curves and across owner/linked-device roles, so the kind is
+// explicit and every branch carries only its own curve's identity fields.
+export type PasskeyCustodySecretKind =
+  | 'ed25519_yao_client_root_v1'
+  | 'ed25519_lane_holder_share_v1'
+  | 'ecdsa_client_root_share_v1'
+  | 'ecdsa_lane_holder_share_v1';
+
+export type PasskeyCustodySecretBinding =
+  | {
+      kind: 'ed25519_yao_client_root_v1';
+      walletKeyId: WalletKeyId;
+      laneId: SigningLaneId;
+      laneShareEpoch: LaneShareEpoch;
+      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+      keyCreationSignerSlot: KeyCreationSignerSlot;
+      stableContextDigestB64u: DigestB64u;
+      participantBindingDigestB64u: DigestB64u;
+      registeredPublicKeyB64u?: never;
+      evmFamilySigningKeySlotId?: never;
+      applicationBindingDigestB64u?: never;
+      clientRootPublicKey33B64u?: never;
+      thresholdPublicKey33B64u?: never;
+      thresholdSessionId?: never;
+    }
+  | {
+      kind: 'ed25519_lane_holder_share_v1';
+      walletKeyId: WalletKeyId;
+      laneId: SigningLaneId;
+      laneShareEpoch: LaneShareEpoch;
+      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+      registeredPublicKeyB64u: Ed25519PublicKeyB64u;
+      participantBindingDigestB64u: DigestB64u;
+      keyCreationSignerSlot?: never;
+      stableContextDigestB64u?: never;
+      evmFamilySigningKeySlotId?: never;
+      applicationBindingDigestB64u?: never;
+      clientRootPublicKey33B64u?: never;
+      thresholdPublicKey33B64u?: never;
+      thresholdSessionId?: never;
+    }
+  | {
+      kind: 'ecdsa_client_root_share_v1';
+      walletKeyId: WalletKeyId;
+      laneId: SigningLaneId;
+      laneShareEpoch: LaneShareEpoch;
+      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+      applicationBindingDigestB64u: DigestB64u;
+      clientRootPublicKey33B64u: Secp256k1CompressedPublicKeyB64u;
+      nearEd25519SigningKeyId?: never;
+      keyCreationSignerSlot?: never;
+      stableContextDigestB64u?: never;
+      participantBindingDigestB64u?: never;
+      registeredPublicKeyB64u?: never;
+      thresholdPublicKey33B64u?: never;
+      thresholdSessionId?: never;
+    }
+  | {
+      kind: 'ecdsa_lane_holder_share_v1';
+      walletKeyId: WalletKeyId;
+      laneId: SigningLaneId;
+      laneShareEpoch: LaneShareEpoch;
+      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+      // Curve-local protocol-session binding only. It may rotate with the
+      // threshold protocol and is never a durable key, lane, material, or
+      // authorization identity, and never replaces MpcMaterialActivationRef.
+      thresholdSessionId: ThresholdEcdsaSessionId;
+      thresholdPublicKey33B64u: Secp256k1CompressedPublicKeyB64u;
+      nearEd25519SigningKeyId?: never;
+      keyCreationSignerSlot?: never;
+      stableContextDigestB64u?: never;
+      participantBindingDigestB64u?: never;
+      registeredPublicKeyB64u?: never;
+      applicationBindingDigestB64u?: never;
+      clientRootPublicKey33B64u?: never;
+    };
+
+export type PasskeyCustodySecretBindingOfKind<TKind extends PasskeyCustodySecretKind> = Extract<
+  PasskeyCustodySecretBinding,
+  { kind: TKind }
+>;
+
+// Builders are branch-specific on purpose: a shared builder plus a spread would
+// let one curve's identity fields reach another curve's envelope.
+
+export function buildEd25519YaoClientRootBinding(args: {
+  walletKeyId: WalletKeyId;
+  laneId: SigningLaneId;
+  laneShareEpoch: LaneShareEpoch;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  keyCreationSignerSlot: KeyCreationSignerSlot;
+  stableContextDigestB64u: DigestB64u;
+  participantBindingDigestB64u: DigestB64u;
+}): PasskeyCustodySecretBindingOfKind<'ed25519_yao_client_root_v1'> {
+  return {
+    kind: 'ed25519_yao_client_root_v1',
+    walletKeyId: args.walletKeyId,
+    laneId: args.laneId,
+    laneShareEpoch: args.laneShareEpoch,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+    keyCreationSignerSlot: args.keyCreationSignerSlot,
+    stableContextDigestB64u: args.stableContextDigestB64u,
+    participantBindingDigestB64u: args.participantBindingDigestB64u,
+  };
+}
+
+export function buildEd25519LaneHolderShareBinding(args: {
+  walletKeyId: WalletKeyId;
+  laneId: SigningLaneId;
+  laneShareEpoch: LaneShareEpoch;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  registeredPublicKeyB64u: Ed25519PublicKeyB64u;
+  participantBindingDigestB64u: DigestB64u;
+}): PasskeyCustodySecretBindingOfKind<'ed25519_lane_holder_share_v1'> {
+  return {
+    kind: 'ed25519_lane_holder_share_v1',
+    walletKeyId: args.walletKeyId,
+    laneId: args.laneId,
+    laneShareEpoch: args.laneShareEpoch,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+    registeredPublicKeyB64u: args.registeredPublicKeyB64u,
+    participantBindingDigestB64u: args.participantBindingDigestB64u,
+  };
+}
+
+export function buildEcdsaClientRootShareBinding(args: {
+  walletKeyId: WalletKeyId;
+  laneId: SigningLaneId;
+  laneShareEpoch: LaneShareEpoch;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+  applicationBindingDigestB64u: DigestB64u;
+  clientRootPublicKey33B64u: Secp256k1CompressedPublicKeyB64u;
+}): PasskeyCustodySecretBindingOfKind<'ecdsa_client_root_share_v1'> {
+  return {
+    kind: 'ecdsa_client_root_share_v1',
+    walletKeyId: args.walletKeyId,
+    laneId: args.laneId,
+    laneShareEpoch: args.laneShareEpoch,
+    evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
+    applicationBindingDigestB64u: args.applicationBindingDigestB64u,
+    clientRootPublicKey33B64u: args.clientRootPublicKey33B64u,
+  };
+}
+
+export function buildEcdsaLaneHolderShareBinding(args: {
+  walletKeyId: WalletKeyId;
+  laneId: SigningLaneId;
+  laneShareEpoch: LaneShareEpoch;
+  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+  thresholdPublicKey33B64u: Secp256k1CompressedPublicKeyB64u;
+}): PasskeyCustodySecretBindingOfKind<'ecdsa_lane_holder_share_v1'> {
+  return {
+    kind: 'ecdsa_lane_holder_share_v1',
+    walletKeyId: args.walletKeyId,
+    laneId: args.laneId,
+    laneShareEpoch: args.laneShareEpoch,
+    evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
+    thresholdSessionId: args.thresholdSessionId,
+    thresholdPublicKey33B64u: args.thresholdPublicKey33B64u,
+  };
+}
+
+const LANE_SCOPE_FIELDS = ['kind', 'walletKeyId', 'laneId', 'laneShareEpoch'] as const;
+
+const ALLOWED_FIELDS_BY_KIND: Record<PasskeyCustodySecretKind, readonly string[]> = {
+  ed25519_yao_client_root_v1: [
+    ...LANE_SCOPE_FIELDS,
+    'nearEd25519SigningKeyId',
+    'keyCreationSignerSlot',
+    'stableContextDigestB64u',
+    'participantBindingDigestB64u',
+  ],
+  ed25519_lane_holder_share_v1: [
+    ...LANE_SCOPE_FIELDS,
+    'nearEd25519SigningKeyId',
+    'registeredPublicKeyB64u',
+    'participantBindingDigestB64u',
+  ],
+  ecdsa_client_root_share_v1: [
+    ...LANE_SCOPE_FIELDS,
+    'evmFamilySigningKeySlotId',
+    'applicationBindingDigestB64u',
+    'clientRootPublicKey33B64u',
+  ],
+  ecdsa_lane_holder_share_v1: [
+    ...LANE_SCOPE_FIELDS,
+    'evmFamilySigningKeySlotId',
+    'thresholdSessionId',
+    'thresholdPublicKey33B64u',
+  ],
+};
+
+// Every field that is a legitimate public binding on some branch. A field from
+// this set on the wrong branch is a cross-curve mismatch, not a secret leak.
+const ALL_BRANCH_FIELDS: readonly string[] = Array.from(
+  new Set(Object.values(ALLOWED_FIELDS_BY_KIND).flat()),
+);
+
+function requireCustodySecretKind(value: unknown, label: string): PasskeyCustodySecretKind {
+  if (
+    value === 'ed25519_yao_client_root_v1' ||
+    value === 'ed25519_lane_holder_share_v1' ||
+    value === 'ecdsa_client_root_share_v1' ||
+    value === 'ecdsa_lane_holder_share_v1'
+  ) {
+    return value;
+  }
+  throw new Error(`${label}.kind must be a known passkey custody secret kind`);
+}
+
+type LaneScope = {
+  walletKeyId: WalletKeyId;
+  laneId: SigningLaneId;
+  laneShareEpoch: LaneShareEpoch;
+};
+
+function requireLaneScope(record: Record<string, unknown>, label: string): LaneScope {
+  const walletKeyId = parseWalletKeyId(record.walletKeyId);
+  if (!walletKeyId.ok) throw new Error(`${label}.walletKeyId ${walletKeyId.error.message}`);
+  const laneId = parseSigningLaneId(record.laneId);
+  if (!laneId.ok) throw new Error(`${label}.laneId ${laneId.error.message}`);
+  const laneShareEpoch = parseLaneShareEpoch(record.laneShareEpoch);
+  if (!laneShareEpoch.ok) {
+    throw new Error(`${label}.laneShareEpoch ${laneShareEpoch.error.message}`);
+  }
+  return {
+    walletKeyId: walletKeyId.value,
+    laneId: laneId.value,
+    laneShareEpoch: laneShareEpoch.value,
+  };
+}
+
+function requireThresholdEcdsaSessionId(value: unknown, label: string): ThresholdEcdsaSessionId {
+  const parsed = parseThresholdEcdsaSessionId(value);
+  if (!parsed.ok) throw new Error(`${label} ${parsed.error.message}`);
+  return parsed.value;
+}
+
+/**
+ * Parses one raw persistence or wire shape into an exact custody-secret branch.
+ * Cross-curve fields, unknown fields, and plaintext-secret fields are rejected
+ * rather than dropped, so a mismatched record can never be narrowed into a
+ * branch it does not satisfy.
+ */
+export function parsePasskeyCustodySecretBinding(
+  raw: unknown,
+  label = 'passkeyCustodySecretBinding',
+): PasskeyCustodySecretBinding {
+  const record = requireRecord(raw, label);
+  const kind = requireCustodySecretKind(record.kind, label);
+  rejectUnknownFields(record, ALLOWED_FIELDS_BY_KIND[kind], label, ALL_BRANCH_FIELDS);
+  const lane = requireLaneScope(record, label);
+
+  switch (kind) {
+    case 'ed25519_yao_client_root_v1':
+      return buildEd25519YaoClientRootBinding({
+        walletKeyId: lane.walletKeyId,
+        laneId: lane.laneId,
+        laneShareEpoch: lane.laneShareEpoch,
+        nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(record.nearEd25519SigningKeyId),
+        keyCreationSignerSlot: parseKeyCreationSignerSlot(
+          record.keyCreationSignerSlot,
+          `${label}.keyCreationSignerSlot`,
+        ),
+        stableContextDigestB64u: parseDigestField(
+          record.stableContextDigestB64u,
+          `${label}.stableContextDigestB64u`,
+        ),
+        participantBindingDigestB64u: parseDigestField(
+          record.participantBindingDigestB64u,
+          `${label}.participantBindingDigestB64u`,
+        ),
+      });
+    case 'ed25519_lane_holder_share_v1':
+      return buildEd25519LaneHolderShareBinding({
+        walletKeyId: lane.walletKeyId,
+        laneId: lane.laneId,
+        laneShareEpoch: lane.laneShareEpoch,
+        nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(record.nearEd25519SigningKeyId),
+        registeredPublicKeyB64u: parseEd25519PublicKeyB64u(
+          record.registeredPublicKeyB64u,
+          `${label}.registeredPublicKeyB64u`,
+        ),
+        participantBindingDigestB64u: parseDigestField(
+          record.participantBindingDigestB64u,
+          `${label}.participantBindingDigestB64u`,
+        ),
+      });
+    case 'ecdsa_client_root_share_v1':
+      return buildEcdsaClientRootShareBinding({
+        walletKeyId: lane.walletKeyId,
+        laneId: lane.laneId,
+        laneShareEpoch: lane.laneShareEpoch,
+        evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
+          record.evmFamilySigningKeySlotId,
+          `${label}.evmFamilySigningKeySlotId`,
+        ),
+        applicationBindingDigestB64u: parseDigestField(
+          record.applicationBindingDigestB64u,
+          `${label}.applicationBindingDigestB64u`,
+        ),
+        clientRootPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(
+          record.clientRootPublicKey33B64u,
+          `${label}.clientRootPublicKey33B64u`,
+        ),
+      });
+    case 'ecdsa_lane_holder_share_v1':
+      return buildEcdsaLaneHolderShareBinding({
+        walletKeyId: lane.walletKeyId,
+        laneId: lane.laneId,
+        laneShareEpoch: lane.laneShareEpoch,
+        evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
+          record.evmFamilySigningKeySlotId,
+          `${label}.evmFamilySigningKeySlotId`,
+        ),
+        thresholdSessionId: requireThresholdEcdsaSessionId(
+          record.thresholdSessionId,
+          `${label}.thresholdSessionId`,
+        ),
+        thresholdPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(
+          record.thresholdPublicKey33B64u,
+          `${label}.thresholdPublicKey33B64u`,
+        ),
+      });
+  }
+}
