@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEPLOY_TARGET: staging
+  DEPLOY_SITE: staging
   DEPLOY_SHA: ${{ github.sha }}
   RUST_TOOLCHAIN: 1.96.0
 
@@ -73,8 +73,8 @@ jobs:
       - name: Install pinned WASM tooling
         run: bash packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh
       - name: Build frontend
-        run: pnpm deploy:frontend build --target "$DEPLOY_TARGET"
+        run: pnpm deploy:frontend build --site "$DEPLOY_SITE"
       - name: Deploy Pages
-        run: pnpm deploy:frontend deploy --target "$DEPLOY_TARGET"
+        run: pnpm deploy:frontend deploy --site "$DEPLOY_SITE"
       - name: Smoke frontend
-        run: pnpm deploy:frontend smoke --target "$DEPLOY_TARGET"
+        run: pnpm deploy:frontend smoke --site "$DEPLOY_SITE"
