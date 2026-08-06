@@ -9,7 +9,10 @@ import type {
 } from '../utils/domainIds';
 import type { NearEd25519SigningKeyId } from '../utils/registrationIntent';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
+import { resolveCrossDeviceCustodyReadiness } from './index';
 import type {
+  CrossDeviceCustodyReadiness,
+  PasskeyCredentialObservationRecord,
   Ed25519PublicKeyB64u,
   EnvelopeCiphertextB64u,
   EnvelopeNonceB64u,
@@ -345,5 +348,37 @@ declare const rawJson: unknown;
 openCustodyEnvelope(rawServerRow);
 // @ts-expect-error A raw wire payload must be parsed at the boundary first.
 openCustodyEnvelope(rawJson);
+
+// --- Backup flags can never establish cross-device custody readiness ------
+
+declare const observation: PasskeyCredentialObservationRecord;
+
+// Readiness takes PRF support and the sealed envelope; there is no parameter a
+// backup flag could occupy, so "backed up therefore portable" cannot compile.
+const readiness: CrossDeviceCustodyReadiness = resolveCrossDeviceCustodyReadiness({
+  prfSupported: observation.prfSupported,
+  activeSealedEnvelope: { envelopeId, envelopeRevision },
+});
+void readiness;
+
+resolveCrossDeviceCustodyReadiness({
+  prfSupported: observation.prfSupported,
+  activeSealedEnvelope: null,
+  // @ts-expect-error Backup eligibility is advisory and is not a readiness input.
+  backupEligible: observation.backupEligible,
+});
+
+resolveCrossDeviceCustodyReadiness({
+  prfSupported: observation.prfSupported,
+  // @ts-expect-error A backup-state flag cannot stand in for a sealed envelope.
+  activeSealedEnvelope: observation.backupState,
+});
+
+const observationWithSecret: PasskeyCredentialObservationRecord = {
+  ...observation,
+  // @ts-expect-error Observations must not carry WebAuthn PRF output.
+  prfFirstB64u: 'prf',
+};
+void observationWithSecret;
 
 export {};
