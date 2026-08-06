@@ -3,10 +3,10 @@ import { hkdfSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
-  EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V1,
+  EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V2,
   EMAIL_OTP_ECDSA_DERIVATION_PATH,
   EMAIL_OTP_THRESHOLD_ROOT_SALT_V1,
-  EMAIL_OTP_UNLOCK_AUTH_SALT_V1,
+  EMAIL_OTP_UNLOCK_AUTH_SALT_V2,
   deriveEmailOtpEcdsaClientRootShare32FromSecret32,
   deriveEmailOtpEcdsaClientRootShare32B64u,
   deriveEmailOtpThresholdRootFromSecret32,
@@ -82,21 +82,17 @@ test.describe('Email OTP derivation', () => {
     );
     const walletId = 'alice.testnet';
     const userId = 'alice.testnet';
-    const ecdsaInfo = Buffer.from(encodeEmailOtpTuple([userId, EMAIL_OTP_ECDSA_DERIVATION_PATH]));
+    const ecdsaInfo = Buffer.from(
+      encodeEmailOtpTuple([walletId, userId, EMAIL_OTP_ECDSA_DERIVATION_PATH]),
+    );
     const unlockInfo = Buffer.from(encodeEmailOtpTuple([walletId]));
+    // Parallel derivation: both branches take the client secret as IKM
+    // directly. Neither is a function of the Ed25519 threshold root.
     const expectedEcdsa = base64UrlEncode(
       hkdfSync(
         'sha256',
-        Buffer.from(
-          hkdfSync(
-            'sha256',
-            Buffer.from(base64UrlDecode(clientSecretB64u)),
-            Buffer.from(EMAIL_OTP_THRESHOLD_ROOT_SALT_V1, 'utf8'),
-            Buffer.from(encodeEmailOtpTuple([walletId])),
-            32,
-          ),
-        ),
-        Buffer.from(EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V1, 'utf8'),
+        Buffer.from(base64UrlDecode(clientSecretB64u)),
+        Buffer.from(EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V2, 'utf8'),
         ecdsaInfo,
         32,
       ),
@@ -104,16 +100,8 @@ test.describe('Email OTP derivation', () => {
     const expectedUnlock = base64UrlEncode(
       hkdfSync(
         'sha256',
-        Buffer.from(
-          hkdfSync(
-            'sha256',
-            Buffer.from(base64UrlDecode(clientSecretB64u)),
-            Buffer.from(EMAIL_OTP_THRESHOLD_ROOT_SALT_V1, 'utf8'),
-            Buffer.from(encodeEmailOtpTuple([walletId])),
-            32,
-          ),
-        ),
-        Buffer.from(EMAIL_OTP_UNLOCK_AUTH_SALT_V1, 'utf8'),
+        Buffer.from(base64UrlDecode(clientSecretB64u)),
+        Buffer.from(EMAIL_OTP_UNLOCK_AUTH_SALT_V2, 'utf8'),
         unlockInfo,
         32,
       ),
@@ -134,6 +122,50 @@ test.describe('Email OTP derivation', () => {
     expect(actualEcdsa).not.toBe(actualUnlock);
     expect(base64UrlDecode(actualEcdsa)).toHaveLength(32);
     expect(base64UrlDecode(actualUnlock)).toHaveLength(32);
+  });
+
+  test('the Ed25519 threshold root cannot compute the ECDSA share or unlock seed', async () => {
+    const clientSecretB64u = base64UrlEncode(
+      Uint8Array.from(Array.from({ length: 32 }, (_, index) => index * 3 + 1)),
+    );
+    const walletId = 'alice.testnet';
+    const userId = 'alice.testnet';
+    const thresholdRoot = await deriveEmailOtpThresholdRootB64u({ clientSecretB64u, walletId });
+
+    // The retired v1 scheme derived both values from the threshold root plus
+    // public info. Reconstruct that chained computation with the root as IKM
+    // and assert it matches neither live output, under old or new labels.
+    const chainedCandidates = [
+      {
+        salt: 'seams/email-otp/threshold-client-share/v1',
+        info: [userId, EMAIL_OTP_ECDSA_DERIVATION_PATH],
+      },
+      {
+        salt: EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V2,
+        info: [walletId, userId, EMAIL_OTP_ECDSA_DERIVATION_PATH],
+      },
+      { salt: 'seams/email-otp/unlock-auth/v1', info: [walletId] },
+      { salt: EMAIL_OTP_UNLOCK_AUTH_SALT_V2, info: [walletId] },
+    ];
+    const ecdsaShare = await deriveEmailOtpEcdsaClientRootShare32B64u({
+      clientSecretB64u,
+      walletId,
+      userId,
+    });
+    const unlockSeed = await deriveEmailOtpUnlockAuthSeedB64u({ clientSecretB64u, walletId });
+    for (const candidate of chainedCandidates) {
+      const fromRoot = base64UrlEncode(
+        hkdfSync(
+          'sha256',
+          Buffer.from(base64UrlDecode(thresholdRoot)),
+          Buffer.from(candidate.salt, 'utf8'),
+          Buffer.from(encodeEmailOtpTuple(candidate.info)),
+          32,
+        ),
+      );
+      expect(fromRoot).not.toBe(ecdsaShare);
+      expect(fromRoot).not.toBe(unlockSeed);
+    }
   });
 
   test('WASM runtime matches canonical JS byte-oriented derivation', async () => {

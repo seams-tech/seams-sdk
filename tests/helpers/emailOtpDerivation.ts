@@ -1,9 +1,11 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 
 export const EMAIL_OTP_THRESHOLD_ROOT_SALT_V1 = 'seams/email-otp/root/v1';
-export const EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V1 =
-  'seams/email-otp/threshold-client-share/v1';
-export const EMAIL_OTP_UNLOCK_AUTH_SALT_V1 = 'seams/email-otp/unlock-auth/v1';
+// v2: every purpose derives from `secret32` in parallel with its own label.
+// The v1 chained scheme (ECDSA share and unlock seed derived from the Ed25519
+// threshold root) let any holder of that root compute both; it is deleted.
+export const EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V2 = 'seams/email-otp/ecdsa-client-share/v2';
+export const EMAIL_OTP_UNLOCK_AUTH_SALT_V2 = 'seams/email-otp/unlock-auth/v2';
 export const EMAIL_OTP_ECDSA_DERIVATION_PATH = 'evm-signing';
 
 const HKDF_SHA256_LENGTH = 32;
@@ -79,10 +81,7 @@ async function hmacSha256(
   return new Uint8Array(mac);
 }
 
-async function hkdfExtractSha256(args: {
-  ikm: Uint8Array;
-  salt: Uint8Array;
-}): Promise<Uint8Array> {
+async function hkdfExtractSha256(args: { ikm: Uint8Array; salt: Uint8Array }): Promise<Uint8Array> {
   const salt = args.salt.length > 0 ? args.salt : new Uint8Array(HKDF_SHA256_LENGTH);
   return hmacSha256(salt, args.ikm);
 }
@@ -208,23 +207,22 @@ export async function deriveEmailOtpEcdsaClientRootShare32FromSecret32(args: {
   userId: string;
   derivationPath?: string;
 }): Promise<Uint8Array> {
-  const thresholdRoot = await deriveEmailOtpThresholdRootFromSecret32({
-    clientSecret32: args.clientSecret32,
-    walletId: args.walletId,
-  });
+  if (!(args.clientSecret32 instanceof Uint8Array) || args.clientSecret32.length !== 32) {
+    throw new Error('Email OTP client secret must be 32 bytes');
+  }
   const info = encodeEmailOtpTuple([
+    String(args.walletId || '').trim(),
     String(args.userId || '').trim(),
     String(args.derivationPath || EMAIL_OTP_ECDSA_DERIVATION_PATH).trim(),
   ]);
   try {
     return await hkdfSha256({
-      ikm: thresholdRoot,
-      salt: EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V1,
+      ikm: args.clientSecret32,
+      salt: EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V2,
       info,
     });
   } finally {
     zeroizeBytes(info);
-    zeroizeBytes(thresholdRoot);
   }
 }
 
@@ -265,20 +263,18 @@ export async function deriveEmailOtpUnlockAuthSeedFromSecret32(args: {
   clientSecret32: Uint8Array;
   walletId: string;
 }): Promise<Uint8Array> {
-  const thresholdRoot = await deriveEmailOtpThresholdRootFromSecret32({
-    clientSecret32: args.clientSecret32,
-    walletId: args.walletId,
-  });
+  if (!(args.clientSecret32 instanceof Uint8Array) || args.clientSecret32.length !== 32) {
+    throw new Error('Email OTP client secret must be 32 bytes');
+  }
   const info = encodeEmailOtpTuple([String(args.walletId || '').trim()]);
   try {
     return await hkdfSha256({
-      ikm: thresholdRoot,
-      salt: EMAIL_OTP_UNLOCK_AUTH_SALT_V1,
+      ikm: args.clientSecret32,
+      salt: EMAIL_OTP_UNLOCK_AUTH_SALT_V2,
       info,
     });
   } finally {
     zeroizeBytes(info);
-    zeroizeBytes(thresholdRoot);
   }
 }
 
